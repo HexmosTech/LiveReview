@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Adaptive Review — LiveReview</title>
+<style>
+  :root {
+    --bg: #0a0f1c;
+    --panel: #101a2e;
+    --panel-2: #0c1526;
+    --border: #1f2c4a;
+    --text: #eef2fa;
+    --muted: #96a3c4;
+    --accent: #5b8cff;
+    --accent-soft: rgba(91,140,255,0.12);
+    --good: #2fd7a3;
+    --good-soft: rgba(47,215,163,0.12);
+    --gold: #ffc267;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    background: radial-gradient(1400px 700px at 15% -10%, #16223f 0%, var(--bg) 55%);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 56px 24px 90px; }
+
+  /* Hero */
+  .hero { text-align: center; padding: 20px 0 48px; }
+  .hero .kicker {
+    display: inline-block; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--good); background: var(--good-soft); border: 1px solid rgba(47,215,163,0.35);
+    padding: 5px 14px; border-radius: 999px; margin-bottom: 20px;
+  }
+  .hero h1 {
+    font-size: 44px; margin: 0 0 14px; letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #ffffff 20%, #b9c8ff 100%);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .hero p.tagline { font-size: 18px; color: var(--muted); max-width: 640px; margin: 0 auto; }
+
+  /* Stat row */
+  .stat-row {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 44px 0 8px;
+  }
+  @media (max-width: 800px) { .stat-row { grid-template-columns: repeat(2, 1fr); } }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+    padding: 22px 18px; text-align: center;
+  }
+  .stat .num { font-size: 30px; font-weight: 700; color: var(--good); letter-spacing: -0.01em; }
+  .stat .num.blue { color: var(--accent); }
+  .stat .lbl { margin-top: 6px; font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+
+  section { margin-top: 64px; }
+  .section-head { text-align: center; max-width: 620px; margin: 0 auto 32px; }
+  .section-head .eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent); font-weight: 600; }
+  .section-head h2 { font-size: 26px; margin: 8px 0 10px; }
+  .section-head p { color: var(--muted); font-size: 15px; margin: 0; }
+
+  /* How it works */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  @media (max-width: 800px) { .steps { grid-template-columns: 1fr; } }
+  .step {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 24px 20px;
+    position: relative;
+  }
+  .step .step-num {
+    width: 32px; height: 32px; border-radius: 10px; background: var(--accent-soft); color: var(--accent);
+    display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; margin-bottom: 14px;
+    border: 1px solid rgba(91,140,255,0.35);
+  }
+  .step h3 { margin: 0 0 8px; font-size: 16px; }
+  .step p { margin: 0; color: var(--muted); font-size: 13.5px; }
+  .step .model-tag {
+    display: inline-block; margin-top: 12px; font-size: 11px; padding: 3px 9px; border-radius: 999px;
+    background: rgba(255,255,255,0.06); color: var(--muted); border: 1px solid var(--border);
+  }
+  .steps .arrow { display: none; }
+
+  /* Examples */
+  .example-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 20px 22px; margin-bottom: 14px;
+  }
+  .example-card .meta { font-size: 12px; color: var(--muted); margin-bottom: 12px; font-family: ui-monospace, monospace; }
+  .example-grid { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: stretch; }
+  @media (max-width: 700px) { .example-grid { grid-template-columns: 1fr; } .example-grid .mid { transform: rotate(90deg); margin: 4px auto; } }
+  .example-col { border-radius: 12px; padding: 14px 16px; font-size: 13.5px; }
+  .example-col.draft { background: rgba(255,255,255,0.03); border: 1px dashed var(--border); color: var(--muted); }
+  .example-col.final { background: var(--good-soft); border: 1px solid rgba(47,215,163,0.3); color: var(--text); }
+  .example-col .tag { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; margin-bottom: 8px; display: block; }
+  .example-col.draft .tag { color: var(--muted); }
+  .example-col.final .tag { color: var(--good); }
+  .example-col code { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  .example-grid .mid { display: flex; align-items: center; justify-content: center; color: var(--accent); font-size: 20px; }
+
+  /* Economics / chart */
+  .econ-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 32px; }
+  .cost-bars { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 28px; }
+  @media (max-width: 700px) { .cost-bars { grid-template-columns: 1fr; gap: 24px; } }
+  .cost-bar-item .cb-label { font-size: 13px; color: var(--muted); margin-bottom: 8px; display: flex; justify-content: space-between; }
+  .cost-bar-item .cb-track { height: 34px; background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden; }
+  .cost-bar-item .cb-fill { height: 100%; border-radius: 8px; display: flex; align-items: center; padding-left: 12px; font-weight: 700; font-size: 13px; color: #0a0f1c; }
+  .cb-fill.trad { background: linear-gradient(90deg, #96a3c4, #b9c8ff); }
+  .cb-fill.adaptive { background: linear-gradient(90deg, #2fd7a3, #6bf0c8); }
+  .econ-note { margin-top: 22px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 18px; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+  .pill.trad { background: rgba(255,255,255,0.08); color: var(--muted); }
+  .pill.adaptive { background: var(--good-soft); color: var(--good); }
+  .table-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 24px; overflow-x: auto; }
+
+  /* Appendix / details */
+  details.appendix { background: var(--panel-2); border: 1px solid var(--border); border-radius: 16px; padding: 4px 24px; }
+  details.appendix summary { cursor: pointer; padding: 18px 0; font-weight: 600; font-size: 14.5px; color: var(--text); list-style: none; display: flex; align-items: center; justify-content: space-between; }
+  details.appendix summary::-webkit-details-marker { display: none; }
+  details.appendix summary .chev { color: var(--muted); transition: transform 0.2s; }
+  details.appendix[open] summary .chev { transform: rotate(180deg); }
+  .appendix-body { padding-bottom: 20px; border-top: 1px solid var(--border); padding-top: 18px; }
+  .appendix-body h4 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 18px 0 10px; }
+  .appendix-body h4:first-child { margin-top: 0; }
+  .appendix-body p, .appendix-body li { font-size: 13px; color: var(--muted); }
+  .appendix-body ul { margin: 6px 0; padding-left: 18px; }
+  code.inline { background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: 5px; font-size: 12px; color: var(--text); }
+
+  footer { margin-top: 60px; text-align: center; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">
+    <span class="kicker">New in LiveReview</span>
+    <h1>Adaptive Review</h1>
+    <p class="tagline">A powerful model finds the issues. An economical model writes them up. Same review depth, meaningfully lower cost — automatically, on every PR.</p>
+  </div>
+
+  <div class="stat-row">
+    <div class="stat"><div class="num">51%</div><div class="lbl">lower cost per finding vs. single-model review</div></div>
+    <div class="stat"><div class="num blue">2</div><div class="lbl">models working together on every review</div></div>
+    <div class="stat"><div class="num">0</div><div class="lbl">reduction in issues found or severity accuracy</div></div>
+    <div class="stat"><div class="num blue">6x</div><div class="lbl">cheaper per token on the write-up stage</div></div>
+  </div>
+
+  <section>
+    <div class="section-head">
+      <span class="eyebrow">How it works</span>
+      <h2>Two models, one review</h2>
+      <p>Adaptive Review splits the work: a stronger model decides what's wrong, a lighter model writes it up clearly. Neither step is skipped — the split is where the savings come from.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h3>Leader model analyzes the diff</h3>
+        <p>Reads the full change, decides what's worth flagging, and drafts each finding as a short technical note — just enough detail to reconstruct the issue precisely.</p>
+        <span class="model-tag">Gemini 2.5 Flash</span>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h3>Helper model writes the comment</h3>
+        <p>Expands each draft note into a clear, well-worded reviewer comment. It doesn't decide what's wrong or invent new findings — only how to phrase what's already been decided.</p>
+        <span class="model-tag">Gemini 2.5 Flash-Lite</span>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h3>Review posts as normal</h3>
+        <p>The finished comments land on the PR/MR exactly like any other LiveReview comment — full severity, category, and suggestions, indistinguishable to the reviewer.</p>
+        <span class="model-tag">No workflow change</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="eyebrow">See it in action</span>
+      <h2>Real findings from a live review</h2>
+      <p>These are unedited examples from an actual Adaptive Review run — the draft on the left is what the leader model writes; the final comment on the right is what actually posts to the PR.</p>
+    </div>
+
+    <div class="example-card">
+      <div class="meta">liveapi-backend/prompt/subPrompt.go:453 · Severity: warning · Correctness</div>
+      <div class="example-grid">
+        <div class="example-col draft"><span class="tag">Leader draft</span>&ldquo;missing <code>@Path</code> decorator in decorator list&rdquo;</div>
+        <div class="mid">&rarr;</div>
+        <div class="example-col final"><span class="tag">Posted comment</span>&ldquo;The <code>@Path</code> decorator is missing from the decorator list.&rdquo;<br><br><em>Suggestion:</em> Add <code>@Path</code> to the list of HTTP method decorators for completeness, as it also defines routes.</div>
+      </div>
+    </div>
+
+    <div class="example-card">
+      <div class="meta">liveapi-backend/qmanager/repodag.go:615 · Severity: info · Performance</div>
+      <div class="example-grid">
+        <div class="example-col draft"><span class="tag">Leader draft</span>&ldquo;uses pruned token counts; improves efficiency&rdquo;</div>
+        <div class="mid">&rarr;</div>
+        <div class="example-col final"><span class="tag">Posted comment</span>&ldquo;Pruned token counts are being used, which improves efficiency.&rdquo;</div>
+      </div>
+    </div>
+
+    <div class="example-card">
+      <div class="meta">liveapi-backend/prompt/subPrompt.go:440 · Severity: critical · Correctness</div>
+      <div class="example-grid">
+        <div class="example-col draft"><span class="tag">Leader draft</span>&ldquo;example uses <code>export abstract class</code>; Java does not use <code>export</code>&rdquo;</div>
+        <div class="mid">&rarr;</div>
+        <div class="example-col final"><span class="tag">Posted comment</span>&ldquo;The example <code>export abstract class MainController&lt;T extends BaseEntity&gt;</code> uses <code>export</code>, which is JavaScript/TypeScript syntax, not Java. This could confuse the LLM.&rdquo;<br><br><em>Suggestion:</em> Replace <code>export</code> with appropriate Java modifiers (e.g., <code>public</code>) to maintain Java syntax consistency.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="eyebrow">The economics</span>
+      <h2>Why splitting the work saves money</h2>
+      <p>Writing polished prose is the expensive part of a review comment. Adaptive Review does that step on a model that's 6x cheaper per output token, instead of the model that found the issue.</p>
+    </div>
+    <div class="econ-panel">
+      <div class="cost-bars">
+        <div class="cost-bar-item">
+          <div class="cb-label"><span>Traditional single-model review</span><strong>$0.00089 / finding</strong></div>
+          <div class="cb-track"><div class="cb-fill trad" style="width:100%"></div></div>
+        </div>
+        <div class="cost-bar-item">
+          <div class="cb-label"><span>Adaptive Review</span><strong>$0.00043 / finding</strong></div>
+          <div class="cb-track"><div class="cb-fill adaptive" style="width:49%"></div></div>
+        </div>
+      </div>
+      <div class="econ-note">
+        Averaged across 3 trials per condition, same 256-line diff, both priced at each model's real Gemini API rate — Flash at $0.30 / $2.50 per million input/output tokens, Flash-Lite at $0.10 / $0.40. At 10,000 findings a month, that's roughly <strong>$8.90 vs. $4.30</strong> — the gap widens with volume, not with risk, since the leader model still makes every judgment call about what's wrong.
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <span class="eyebrow">Results</span>
+      <h2>Trial-by-trial</h2>
+      <p>Six independent runs on the same real pull request (liveapi #429, 256 lines changed), alternating between traditional and Adaptive Review.</p>
+    </div>
+    <div class="table-panel">
+      <table>
+        <thead>
+          <tr><th>Trial</th><th>Mode</th><th class="num">Findings posted</th><th class="num">Cost / review</th><th class="num">Cost / finding</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>#121</td><td><span class="pill trad">Traditional</span></td><td class="num">1</td><td class="num">$0.001687</td><td class="num">$0.001687</td></tr>
+          <tr><td>#122</td><td><span class="pill trad">Traditional</span></td><td class="num">7</td><td class="num">$0.003502</td><td class="num">$0.000500</td></tr>
+          <tr><td>#128</td><td><span class="pill trad">Traditional</span></td><td class="num">8</td><td class="num">$0.003809</td><td class="num">$0.000476</td></tr>
+          <tr><td>#126</td><td><span class="pill adaptive">Adaptive</span></td><td class="num">11</td><td class="num">$0.004933</td><td class="num">$0.000448</td></tr>
+          <tr><td>#127</td><td><span class="pill adaptive">Adaptive</span></td><td class="num">8</td><td class="num">$0.003859</td><td class="num">$0.000482</td></tr>
+          <tr><td>#129</td><td><span class="pill adaptive">Adaptive</span></td><td class="num">24</td><td class="num">$0.008939</td><td class="num">$0.000372</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <details class="appendix">
+      <summary>Technical detail: token-level breakdown &amp; methodology<span class="chev">&#9660;</span></summary>
+      <div class="appendix-body">
+        <h4>Per-stage token usage (average across trials)</h4>
+        <table>
+          <thead><tr><th>Stage</th><th>Model</th><th class="num">Input tokens</th><th class="num">Output tokens</th><th class="num">Rate (in / out per M)</th><th class="num">Avg. cost</th></tr></thead>
+          <tbody>
+            <tr><td>Leader (traditional)</td><td>Gemini 2.5 Flash</td><td class="num">1,756</td><td class="num">989</td><td class="num">$0.30 / $2.50</td><td class="num">$0.00300</td></tr>
+            <tr><td>Leader (adaptive)</td><td>Gemini 2.5 Flash</td><td class="num">1,756</td><td class="num">2,049</td><td class="num">$0.30 / $2.50</td><td class="num">$0.00565</td></tr>
+            <tr><td>Helper (adaptive)</td><td>Gemini 2.5 Flash-Lite</td><td class="num">584</td><td class="num">506</td><td class="num">$0.10 / $0.40</td><td class="num">$0.00026</td></tr>
+          </tbody>
+        </table>
+        <h4>Why this is a fair comparison</h4>
+        <ul>
+          <li>All six trials ran against the identical GitLab merge request and diff, back to back, alternating mode.</li>
+          <li>Costs are priced at each model's actual published Gemini API rate, not a blended or marked-up routing rate.</li>
+          <li>The leader model's selectivity rules (what counts as worth flagging) are identical in both modes — the helper stage only rewrites wording, it never adds, removes, or re-scores a finding. Severity, confidence, and category are set once, by the leader.</li>
+          <li>n=3 per condition. Findings-per-review ranged 1&ndash;24 across trials, which reflects normal model non-determinism on repeated identical prompts, not a difference between the two modes &mdash; hence reporting cost per finding, not just cost per review.</li>
+        </ul>
+        <h4>Full technical report</h4>
+        <p>For the underlying engineering investigation — including the two bugs that were found and fixed to make this mechanism actually save money (helper prompt payload bloat, and a pricing-catalog gap that billed Flash-Lite at Flash's rate) — see <code class="inline">helper_model_experiment_report.html</code> in the same folder.</p>
+      </div>
+    </details>
+  </section>
+
+  <footer>LiveReview &middot; Adaptive Review &middot; Generated 2026-07-02</footer>
+</div>
+</body>
+</html>

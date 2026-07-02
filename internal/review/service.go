@@ -51,6 +51,9 @@ type ReviewRequest struct {
 	ReviewID         string
 	Provider         ProviderConfig
 	AI               AIConfig
+	HelperAI         *AIConfig
+	HelperEnabled    bool
+	HelperMode       string
 	PreloadedChanges []*models.CodeDiff
 	// RepoRules holds the concatenated .lrc/rules/*.md instruction bundle
 	// (see internal/lrcconfig) to inject into the AI prompt as a
@@ -58,6 +61,16 @@ type ReviewRequest struct {
 	// Callers don't need to pre-trim this: prompts.BuildRepoRulesSection
 	// trims it (and omits the section entirely if it's blank).
 	RepoRules string
+}
+
+type AIStageUsage struct {
+	Stage          string
+	Provider       string
+	Model          string
+	PricingVersion string
+	InputTokens    *int64
+	OutputTokens   *int64
+	CostUSD        *float64
 }
 
 // ProviderConfig contains provider-specific configuration
@@ -92,6 +105,8 @@ type ReviewResult struct {
 	InputTokens    *int64
 	OutputTokens   *int64
 	CostUSD        *float64
+	LeaderUsage    *AIStageUsage
+	HelperUsage    *AIStageUsage
 	Duration       time.Duration
 }
 
@@ -233,6 +248,39 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 		s.logger.EmitStageCompleted("Analysis", fmt.Sprintf("Workflow completed with %d comments", len(reviewData.Result.Comments)))
 	}
 
+	leaderUsage := buildEstimatedStageUsage("leader", request.AI, reviewData.BillableLOC, reviewData.Result)
+	var helperUsage *AIStageUsage
+	// The helper stage only ever polishes wording on top of a review the
+	// leader already produced. If it's misconfigured or fails at runtime, we
+	// fall back to the leader's own output rather than failing the whole
+	// review — a working leader-only review beats no review. Note this means
+	// the leader's comment text may stay in the terse form WithConciseMode
+	// asked for below, since there's no expansion step to un-compress it.
+	if request.HelperEnabled && request.HelperAI == nil {
+		log.Printf("[WARN] helper model enabled but not configured for review %s; falling back to leader-only", request.ReviewID)
+		if s.logger != nil {
+			s.logger.Log("⚠ Helper model enabled but not configured; continuing with leader-only output")
+		}
+	} else if request.HelperEnabled {
+		if s.logger != nil {
+			s.logger.LogSection("HELPER MODEL POST-PROCESSING")
+			s.logger.Log("Applying helper mode: %s", request.HelperMode)
+		}
+		transformedResult, transformedUsage, err := s.applyHelperStage(reviewCtx, *request.HelperAI, request.HelperMode, reviewData.Result)
+		if err != nil {
+			log.Printf("[WARN] helper model post-processing failed for review %s, falling back to leader-only: %v", request.ReviewID, err)
+			if s.logger != nil {
+				s.logger.LogError("Helper model post-processing failed; continuing with leader-only output", err)
+			}
+		} else {
+			reviewData.Result = transformedResult
+			helperUsage = transformedUsage
+			if s.logger != nil {
+				s.logger.Log("✓ Helper model post-processing complete")
+			}
+		}
+	}
+
 	// Step 4: Post results (Artifact Generation stage)
 	if request.Provider.Type == "cli" {
 		if s.logger != nil {
@@ -337,8 +385,10 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	}
 	result.Provider = providerName
 	result.Model = request.AI.Model
-	result.PricingVersion = "v1_estimated"
-	inputTokens, outputTokens, costUSD := estimateUsageFromReviewResult(reviewData.BillableLOC, reviewData.Result)
+	result.LeaderUsage = leaderUsage
+	result.HelperUsage = helperUsage
+	result.PricingVersion = "v2_stage_estimated"
+	inputTokens, outputTokens, costUSD := sumStageUsage(leaderUsage, helperUsage)
 	result.InputTokens = &inputTokens
 	result.OutputTokens = &outputTokens
 	result.CostUSD = &costUSD
@@ -369,6 +419,13 @@ func (s *Service) executeReviewWorkflow(
 
 	if strings.TrimSpace(request.RepoRules) != "" {
 		ctx = prompts.WithRepoRules(ctx, request.RepoRules)
+	}
+	if request.HelperEnabled {
+		// Assumes the helper stage will expand this concise output later. If
+		// the helper is misconfigured or fails at runtime, ProcessReview
+		// falls back to posting this concise text as-is rather than failing
+		// the review — an accepted tradeoff (terse comments beat no review).
+		ctx = prompts.WithConciseMode(ctx, true)
 	}
 
 	var mrDetails *providers.MergeRequestDetails
@@ -627,7 +684,45 @@ func calculateBillableLOCFromDiffs(diffs []*models.CodeDiff) int64 {
 	return total
 }
 
-func estimateUsageFromReviewResult(billableLOC int64, result *models.ReviewResult) (int64, int64, float64) {
+// perMillionTokenRates mirrors the provider rates seeded into quota_policy_catalog
+// (db/migrations/20260411170000_create_quota_policy_and_settlements.sql and
+// 20260622180000_seed_enterprise_quota_policy.sql). Stage-level cost estimates use
+// these so the "Model Breakdown" panel is priced consistently with the deterministic
+// ledger total shown in the Accounting panel, instead of one flat rate for every provider.
+var perMillionTokenRates = map[string][2]float64{
+	"default":    {5.0, 15.0},
+	"openai":     {5.0, 15.0},
+	"gemini":     {0.3, 2.5},
+	"googleai":   {0.3, 2.5},
+	"claude":     {15.0, 75.0},
+	"anthropic":  {15.0, 75.0},
+	"deepseek":   {1.0, 2.0},
+	"openrouter": {1.0, 2.0},
+	"local":      {0.0, 0.0},
+	"ollama":     {0.0, 0.0},
+	"atlas":      {1.0, 2.0},
+}
+
+// flashLiteRate is Gemini 2.5 Flash-Lite's own per-million-token rate
+// (db/migrations/20260702130000_fix_gemini_flash_lite_pricing.sql). The base
+// "gemini"/"googleai" rows in perMillionTokenRates price Flash, not
+// Flash-Lite (roughly 3-6x more expensive per token than Flash-Lite), so a
+// Flash-Lite call needs its model name checked, not just its provider.
+var flashLiteRate = [2]float64{0.10, 0.40}
+
+func ratesPerTokenForProvider(provider, model string) (inputRate, outputRate float64) {
+	if strings.Contains(strings.ToLower(model), "flash-lite") {
+		return flashLiteRate[0] / 1e6, flashLiteRate[1] / 1e6
+	}
+	key := strings.ToLower(strings.TrimSpace(provider))
+	rates, ok := perMillionTokenRates[key]
+	if !ok {
+		rates = perMillionTokenRates["default"]
+	}
+	return rates[0] / 1e6, rates[1] / 1e6
+}
+
+func estimateUsageFromReviewResult(billableLOC int64, result *models.ReviewResult, provider, model string) (int64, int64, float64) {
 	inputTokens := billableLOC*6 + 220
 	if inputTokens < 0 {
 		inputTokens = 0
@@ -642,11 +737,64 @@ func estimateUsageFromReviewResult(billableLOC int64, result *models.ReviewResul
 		outputTokens = 0
 	}
 
-	inputRate := 0.000005  // $5 per 1M input tokens baseline
-	outputRate := 0.000015 // $15 per 1M output tokens baseline
+	inputRate, outputRate := ratesPerTokenForProvider(provider, model)
 	costUSD := (float64(inputTokens) * inputRate) + (float64(outputTokens) * outputRate)
 	costUSD = math.Round(costUSD*1e6) / 1e6
 
+	return inputTokens, outputTokens, costUSD
+}
+
+func buildEstimatedStageUsage(stage string, config AIConfig, billableLOC int64, result *models.ReviewResult) *AIStageUsage {
+	providerName := strings.TrimSpace(config.Type)
+	if configuredProvider, ok := config.Config["provider_name"].(string); ok && strings.TrimSpace(configuredProvider) != "" {
+		providerName = strings.TrimSpace(configuredProvider)
+	}
+	inputTokens, outputTokens, costUSD := estimateUsageFromReviewResult(billableLOC, result, providerName, config.Model)
+	return &AIStageUsage{
+		Stage:          stage,
+		Provider:       providerName,
+		Model:          config.Model,
+		PricingVersion: "v1_estimated",
+		InputTokens:    &inputTokens,
+		OutputTokens:   &outputTokens,
+		CostUSD:        &costUSD,
+	}
+}
+
+func estimateUsageFromPromptExchange(prompt string, response string, provider, model string) (int64, int64, float64) {
+	inputTokens := int64(len(prompt) / 4)
+	outputTokens := int64(len(response) / 4)
+	if inputTokens < 0 {
+		inputTokens = 0
+	}
+	if outputTokens < 0 {
+		outputTokens = 0
+	}
+	inputRate, outputRate := ratesPerTokenForProvider(provider, model)
+	costUSD := (float64(inputTokens) * inputRate) + (float64(outputTokens) * outputRate)
+	costUSD = math.Round(costUSD*1e6) / 1e6
+	return inputTokens, outputTokens, costUSD
+}
+
+func sumStageUsage(usages ...*AIStageUsage) (int64, int64, float64) {
+	var inputTokens int64
+	var outputTokens int64
+	var costUSD float64
+	for _, usage := range usages {
+		if usage == nil {
+			continue
+		}
+		if usage.InputTokens != nil {
+			inputTokens += *usage.InputTokens
+		}
+		if usage.OutputTokens != nil {
+			outputTokens += *usage.OutputTokens
+		}
+		if usage.CostUSD != nil {
+			costUSD += *usage.CostUSD
+		}
+	}
+	costUSD = math.Round(costUSD*1e6) / 1e6
 	return inputTokens, outputTokens, costUSD
 }
 
