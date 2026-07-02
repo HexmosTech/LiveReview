@@ -707,14 +707,14 @@ var perMillionTokenRates = map[string][2]float64{
 // (db/migrations/20260702130000_fix_gemini_flash_lite_pricing.sql). The base
 // "gemini"/"googleai" rows in perMillionTokenRates price Flash, not
 // Flash-Lite (roughly 3-6x more expensive per token than Flash-Lite), so a
-// Flash-Lite call needs its model name checked, not just its provider.
+// Gemini/GoogleAI call also needs its model name checked to catch Flash-Lite.
 var flashLiteRate = [2]float64{0.10, 0.40}
 
 func ratesPerTokenForProvider(provider, model string) (inputRate, outputRate float64) {
-	if strings.Contains(strings.ToLower(model), "flash-lite") {
+	key := strings.ToLower(strings.TrimSpace(provider))
+	if (key == "gemini" || key == "googleai") && strings.Contains(strings.ToLower(model), "flash-lite") {
 		return flashLiteRate[0] / 1e6, flashLiteRate[1] / 1e6
 	}
-	key := strings.ToLower(strings.TrimSpace(provider))
 	rates, ok := perMillionTokenRates[key]
 	if !ok {
 		rates = perMillionTokenRates["default"]
