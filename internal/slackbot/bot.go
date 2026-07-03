@@ -192,13 +192,34 @@ func (b *Bot) processMessage(channel, ts, threadTS, text string) {
 	// Post a placeholder message
 	b.slackClient.PostMessage(channel, slack.MsgOptionText("_Thinking..._", false), slack.MsgOptionTS(ts))
 
+	start := time.Now()
+
 	ctx, cancel := context.WithTimeout(b.ctx, agentTimeout)
 	defer cancel()
 
 	finalText, updatedHistory, err := b.agent.RunTurn(ctx, history, text)
 	if err != nil {
-		finalText = "Sorry, I ran into an error processing your request."
+		log.Printf("[SlackBot] RunTurn error: %s", err)
+		blocks := []slack.Block{
+			slack.NewHeaderBlock(slack.NewTextBlockObject("plain_text", "🤖 LiveReview Assistant", false, false)),
+			slack.NewDividerBlock(),
+			slack.NewSectionBlock(
+				slack.NewTextBlockObject("mrkdwn", ":warning: Sorry, I ran into an error processing your request.", false, false),
+				nil, nil,
+			),
+			slack.NewDividerBlock(),
+			slack.NewContextBlock("",
+				slack.NewTextBlockObject("mrkdwn", ":zap: *LiveReview* — AI-powered code review", false, false),
+			),
+		}
+		if _, _, err := b.slackClient.PostMessage(channel, slack.MsgOptionBlocks(blocks...), slack.MsgOptionTS(ts)); err != nil {
+			log.Printf("[SlackBot] Failed to post error message: %s", err)
+		}
+		return
 	}
+
+	duration := time.Since(start)
+	log.Printf("[SlackBot] Agent completed in %s, response length: %d", duration, len(finalText))
 
 	b.mu.Lock()
 	conv.history = updatedHistory
@@ -209,7 +230,21 @@ func (b *Bot) processMessage(channel, ts, threadTS, text string) {
 		finalText = "(no response)"
 	}
 
-	b.slackClient.PostMessage(channel, slack.MsgOptionText(finalText, false), slack.MsgOptionTS(ts))
+	// Try rendering as a Vega-Lite chart report first
+	if strings.Contains(finalText, `"$schema"`) || (strings.Contains(finalText, `"mark"`) && strings.Contains(finalText, `"encoding"`)) || (strings.Contains(finalText, `"title"`) && strings.Contains(finalText, `"spec"`)) {
+		vlCtx, vlCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer vlCancel()
+		if pngData, title, ok := parseAndRenderVegaLiteReport(vlCtx, finalText); ok {
+			b.uploadReportToSlack(channel, ts, pngData, title)
+			return
+		}
+		log.Printf("[SlackBot] Vega-Lite spec detected but rendering failed, falling back to text")
+	}
+
+	blocks := FormatSlackResponse(finalText, duration)
+	if _, _, err := b.slackClient.PostMessage(channel, slack.MsgOptionBlocks(blocks...), slack.MsgOptionTS(ts)); err != nil {
+		log.Printf("[SlackBot] Failed to post response: %s", err)
+	}
 }
 
 func (b *Bot) pruneConversationsLocked() {

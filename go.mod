@@ -34,6 +34,7 @@ require (
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.32.0
 	github.com/rs/zerolog v1.34.0
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
+	github.com/slack-go/slack v0.27.0
 	github.com/stretchr/testify v1.11.1
 	github.com/tmc/langchaingo v0.1.14
 	github.com/xuri/excelize/v2 v2.10.0
@@ -151,7 +152,6 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
-	github.com/slack-go/slack v0.27.0 // indirect
 	github.com/sorairolake/lzip-go v0.3.8 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
