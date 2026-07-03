@@ -1,6 +1,6 @@
 # Network Status
 
-Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-LOC-001, MF-LOC-002, MF-LOC-003, MF-LOC-004, MF-LOC-005, MF-LOC-006, MF-LOC-007, MF-LOC-008, MF-PRORATION-001, MF-PRORATION-002, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001, MF-NOTIFY-002, MF-DASHBOARD-LOG-001, MF-EXPIRY-001, MF-UPI-UPGRADE-001, MF-UPI-UPGRADE-002, MF-UPI-UPGRADE-003, MF-UPI-UPGRADE-004, MF-TRIAL-CANCEL-001, MF-CANCEL-VERIFY-001, MF-CANCEL-PROJECTION-001, MF-STATUS-LABEL-001, MF-BILLING-PRICE-001): added provider-backed monthly plan price exposure in billing status, surfaced current paid subscription currency for settings flows, and rejected unsupported paid cross-currency upgrade previews instead of letting quantity-only subscription updates imply currency switching.
+Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-LOC-001, MF-LOC-002, MF-LOC-003, MF-LOC-004, MF-LOC-005, MF-LOC-006, MF-LOC-007, MF-LOC-008, MF-PRORATION-001, MF-PRORATION-002, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001, MF-NOTIFY-002, MF-DASHBOARD-LOG-001, MF-EXPIRY-001, MF-UPI-UPGRADE-001, MF-UPI-UPGRADE-002, MF-UPI-UPGRADE-003, MF-UPI-UPGRADE-004, MF-TRIAL-CANCEL-001, MF-CANCEL-VERIFY-001, MF-CANCEL-PROJECTION-001, MF-STATUS-LABEL-001, MF-BILLING-PRICE-001, MF-AI-HELPER-001): added provider-backed monthly plan price exposure in billing status, surfaced current paid subscription currency for settings flows, rejected unsupported paid cross-currency upgrade previews instead of letting quantity-only subscription updates imply currency switching, and exposed Leader/Helper review AI settings plus per-stage review accounting breakdowns.
 
 | Operation | Status | Evidence |
 | --- | --- | --- |
@@ -65,3 +65,9 @@ Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-
 | aiconnectors.NewHTTPClient | moved | [NewHTTPClient](aiconnectors/http_client_ops.go#L11) |
 | aiconnectors.NewRequestWithContext | moved | [NewRequestWithContext](aiconnectors/http_client_ops.go#L18) |
 | aiconnectors.Do | moved | [Do](aiconnectors/http_client_ops.go#L26) |
+| api.GetReviewAISettings | added | [GetReviewAISettings](../internal/api/aiconnectors.go#L545) |
+| api.UpsertReviewAISettings | added | [UpsertReviewAISettings](../internal/api/aiconnectors.go#L564) |
+| api.getReviewAISelectionFromDatabase | added | [getReviewAISelectionFromDatabase](../internal/api/reviews_api.go#L337) |
+| api.selectLeaderAIConfig | added | [selectLeaderAIConfig](../internal/api/reviews_api.go#L378) |
+| api.selectHelperAIConfig | added | [selectHelperAIConfig](../internal/api/reviews_api.go#L414) |
+| api.GetReviewAccounting | updated | [GetReviewAccounting](../internal/api/review_events_endpoints.go#L207) |

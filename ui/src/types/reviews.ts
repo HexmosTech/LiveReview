@@ -111,6 +111,16 @@ export interface ReviewAccountingOperation {
   metadata?: string;
 }
 
+export interface ReviewAccountingStage {
+  stage: string;
+  provider?: string;
+  model?: string;
+  pricingVersion?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number;
+}
+
 export interface ReviewAccounting {
   reviewId: number;
   totalBillableLoc: number;
@@ -120,6 +130,9 @@ export interface ReviewAccounting {
   totalInputTokens?: number;
   totalOutputTokens?: number;
   totalCostUsd?: number;
+  helperEnabled?: boolean;
+  helperMode?: string;
+  stageBreakdown?: ReviewAccountingStage[];
   latestOperation?: ReviewAccountingOperation;
 }
 

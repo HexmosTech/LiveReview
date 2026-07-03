@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/aidefault"
+	storageaiconnectors "github.com/livereview/storage/aiconnectors"
 	"github.com/rs/zerolog/log"
 )
 
@@ -104,6 +105,7 @@ func getMaskedKey(key string) string {
 // AIConnectorCreateRequest represents the request for creating an AI connector
 type AIConnectorCreateRequest struct {
 	ProviderName  string `json:"provider_name"`
+	Role          string `json:"role,omitempty"`
 	APIKey        string `json:"api_key"`
 	ConnectorName string `json:"connector_name"`
 	BaseURL       string `json:"base_url,omitempty"`
@@ -117,6 +119,7 @@ type AIConnectorCreateRequest struct {
 type AIConnectorResponse struct {
 	ID            int64  `json:"id"`
 	ProviderName  string `json:"provider_name"`
+	Role          string `json:"role,omitempty"`
 	ConnectorName string `json:"connector_name"`
 	DisplayOrder  int    `json:"display_order"`
 	OrgID         int64  `json:"org_id"`
@@ -128,6 +131,16 @@ type AIConnectorResponse struct {
 	GCPProjectID  string `json:"gcp_project_id,omitempty"`
 	GCPLocation   string `json:"gcp_location,omitempty"`
 	APIKey        string `json:"api_key,omitempty"` // Full API key for editing (only when requested)
+}
+
+type ReviewAISettingsRequest struct {
+	HelperEnabled bool   `json:"helper_enabled"`
+	HelperMode    string `json:"helper_mode"`
+}
+
+type ReviewAISettingsResponse struct {
+	HelperEnabled bool   `json:"helper_enabled"`
+	HelperMode    string `json:"helper_mode"`
 }
 
 // FetchOllamaModelsRequest represents the request for fetching Ollama models
@@ -179,13 +192,20 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 		})
 	}
 
+	normalizedRole := storageaiconnectors.NormalizeConnectorRole(req.Role)
+	if normalizedRole == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Role must be leader or helper",
+		})
+	}
+
 	// Create a storage instance
 	storage := aiconnectors.NewStorage(s.db)
 
 	ctx := c.Request().Context()
 
 	// Get the current max display order and increment it
-	maxOrder, err := storage.GetMaxDisplayOrder(ctx, orgID)
+	maxOrder, err := storage.GetMaxDisplayOrderByRole(ctx, orgID, normalizedRole)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get max display order")
 		return c.JSON(http.StatusInternalServerError, map[string]string{
@@ -209,6 +229,7 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 	// Create a connector record
 	connector := &aiconnectors.ConnectorRecord{
 		ProviderName:  req.ProviderName,
+		Role:          normalizedRole,
 		ApiKey:        req.APIKey,
 		ConnectorName: req.ConnectorName,
 		BaseURL:       sql.NullString{String: req.BaseURL, Valid: req.BaseURL != ""},
@@ -231,6 +252,7 @@ func (s *Server) CreateAIConnector(c echo.Context) error {
 	return c.JSON(http.StatusCreated, AIConnectorResponse{
 		ID:            connector.ID,
 		ProviderName:  connector.ProviderName,
+		Role:          connector.Role,
 		ConnectorName: connector.ConnectorName,
 		DisplayOrder:  connector.DisplayOrder,
 		OrgID:         connector.OrgID,
@@ -274,6 +296,7 @@ func (s *Server) GetAIConnectors(c echo.Context) error {
 		response = append(response, AIConnectorResponse{
 			ID:            connector.ID,
 			ProviderName:  connector.ProviderName,
+			Role:          connector.Role,
 			ConnectorName: connector.ConnectorName,
 			DisplayOrder:  connector.DisplayOrder,
 			OrgID:         connector.OrgID,
@@ -359,6 +382,13 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 		})
 	}
 
+	normalizedRole := storageaiconnectors.NormalizeConnectorRole(req.Role)
+	if normalizedRole == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Role must be leader or helper",
+		})
+	}
+
 	// Create a storage instance
 	storage := aiconnectors.NewStorage(s.db)
 
@@ -380,6 +410,7 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 
 	// Update connector fields
 	existingConnector.ProviderName = req.ProviderName
+	existingConnector.Role = normalizedRole
 	existingConnector.ApiKey = req.APIKey
 	existingConnector.ConnectorName = req.ConnectorName
 	existingConnector.DisplayOrder = req.DisplayOrder
@@ -410,6 +441,7 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 	return c.JSON(http.StatusOK, AIConnectorResponse{
 		ID:            existingConnector.ID,
 		ProviderName:  existingConnector.ProviderName,
+		Role:          existingConnector.Role,
 		ConnectorName: existingConnector.ConnectorName,
 		DisplayOrder:  existingConnector.DisplayOrder,
 		OrgID:         existingConnector.OrgID,
@@ -521,6 +553,58 @@ func (s *Server) DeleteAIConnector(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": "Connector deleted successfully",
+	})
+}
+
+func (s *Server) GetReviewAISettings(c echo.Context) error {
+	orgIDVal := c.Get("org_id")
+	orgID, ok := orgIDVal.(int64)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Organization context required"})
+	}
+
+	store := storageaiconnectors.NewReviewAISettingsStore(s.db)
+	settings, err := store.GetByOrgID(c.Request().Context(), orgID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to load review AI settings: " + err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, ReviewAISettingsResponse{
+		HelperEnabled: settings.HelperEnabled,
+		HelperMode:    settings.HelperMode,
+	})
+}
+
+func (s *Server) UpsertReviewAISettings(c echo.Context) error {
+	orgIDVal := c.Get("org_id")
+	orgID, ok := orgIDVal.(int64)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Organization context required"})
+	}
+
+	var req ReviewAISettingsRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	}
+
+	normalizedMode := storageaiconnectors.NormalizeHelperMode(req.HelperMode)
+	if normalizedMode == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Helper mode must be concise_then_expand or polish_only"})
+	}
+
+	store := storageaiconnectors.NewReviewAISettingsStore(s.db)
+	settings, err := store.Upsert(c.Request().Context(), storageaiconnectors.ReviewAISettings{
+		OrgID:         orgID,
+		HelperEnabled: req.HelperEnabled,
+		HelperMode:    normalizedMode,
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to save review AI settings: " + err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, ReviewAISettingsResponse{
+		HelperEnabled: settings.HelperEnabled,
+		HelperMode:    settings.HelperMode,
 	})
 }
 
@@ -639,4 +723,3 @@ func (s *Server) GetAIProviderModels(c echo.Context) error {
 		"count":  len(models),
 	})
 }
-

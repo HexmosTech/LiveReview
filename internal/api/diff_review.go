@@ -34,16 +34,13 @@ type DiffReviewResult struct {
 // Authentication is handled by middleware. This handler creates the review record,
 // marks it as processing, and enqueues the job for async execution by the worker.
 func (s *Server) DiffReview(c echo.Context) error {
-	// Extract user and org context from middleware
 	orgID := c.Get("org_id").(int64)
 	userID := c.Get("user_id").(int64)
 	actorUserID := userID
 	log.Printf("[DiffReview] Extracted from context: userID=%d, orgID=%d", userID, orgID)
 
-	// Fetch user info for author tracking
 	var userEmail, authorName, authorUsername string
 	user, err := archive.DiffReviewLoadUser(s.db, userID)
-
 	if err == nil {
 		userEmail = user.Email
 		log.Printf("[DiffReview] User fetched: id=%d, email=%s, firstName=%v, lastName=%v",
@@ -82,11 +79,9 @@ func (s *Server) DiffReview(c echo.Context) error {
 		repoName = "cli-diff"
 	}
 
-	// Generate friendly name for CLI review
 	friendlyName := naming.GenerateFriendlyName()
 	log.Printf("[DiffReview] Generated friendlyName='%s'", friendlyName)
 
-	// Create review record
 	rm := NewReviewManager(s.db)
 	log.Printf("[DiffReview] Creating review with: repoName=%s, userEmail=%s, orgID=%d, friendlyName=%s, authorName=%s, authorUsername=%s",
 		repoName, userEmail, orgID, friendlyName, authorName, authorUsername)
@@ -96,10 +91,8 @@ func (s *Server) DiffReview(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to create review record")
 	}
 
-	// Mark as processing
 	_ = rm.UpdateReviewStatus(reviewRecord.ID, "processing")
 
-	// Enqueue the job for async processing by the worker
 	err = s.jobQueue.QueueReviewJob(c.Request().Context(), jobqueue.DiffReviewJobArgs{
 		ReviewID:      reviewRecord.ID,
 		OrgID:         orgID,
@@ -127,8 +120,6 @@ func (s *Server) DiffReview(c echo.Context) error {
 
 // GetDiffReviewStatus returns processing status or completed results for a diff review.
 func (s *Server) GetDiffReviewStatus(c echo.Context) error {
-	// API key authentication is handled by middleware
-
 	orgID, ok := c.Get("org_id").(int64)
 	if !ok || orgID == 0 {
 		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "missing org context")
@@ -176,7 +167,6 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 		if reviewRecord.FriendlyName != nil {
 			response["friendly_name"] = *reviewRecord.FriendlyName
 		}
-
 		if failureReason != "" {
 			response["message"] = failureReason
 		}
@@ -227,13 +217,9 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	if excluded, ok := meta["excluded_files"].([]interface{}); ok && len(excluded) > 0 {
 		response["excluded_files"] = excluded
 	}
-
-	// Include friendly_name if available
 	if reviewRecord.FriendlyName != nil {
 		response["friendly_name"] = *reviewRecord.FriendlyName
 	}
-
-	// Include ai_summary_title if available
 	if aiSummaryTitle, ok := meta["ai_summary_title"].(string); ok && aiSummaryTitle != "" {
 		response["ai_summary_title"] = aiSummaryTitle
 	}

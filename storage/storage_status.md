@@ -1,6 +1,6 @@
 # Storage Status
 
-Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001, MF-DASHBOARD-LOG-001, MF-EXPIRY-001, MF-CANCEL-VERIFY-001, MF-CANCEL-PROJECTION-001): added member-attribution storage groundwork, member-usage rollups, payment-attempt lookup for customer state, superadmin billing portfolio storage views, billing notification outbox persistence, dashboard scheduler leader-lock storage operations, automatic paid-plan expiry reconciliation persistence, quota policy + batch settlement + operation aggregate storage operations, and a shared transaction-level org free-plan projection helper used by terminal subscription webhook flows.
+Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001, MF-DASHBOARD-LOG-001, MF-EXPIRY-001, MF-CANCEL-VERIFY-001, MF-CANCEL-PROJECTION-001, MF-AI-HELPER-001): added member-attribution storage groundwork, member-usage rollups, payment-attempt lookup for customer state, superadmin billing portfolio storage views, billing notification outbox persistence, dashboard scheduler leader-lock storage operations, automatic paid-plan expiry reconciliation persistence, quota policy + batch settlement + operation aggregate storage operations, a shared transaction-level org free-plan projection helper used by terminal subscription webhook flows, and org-scoped Helper review AI settings plus role-aware AI connector storage queries.
 
 | Operation | Status | Evidence |
 | --- | --- | --- |
@@ -8,21 +8,21 @@ Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB
 | payment.CreateTeamSubscriptionRecord | moved | [CreateTeamSubscriptionRecord](payment/subscription_store.go#L45) |
 | payment.UpdateSubscriptionQuantityRecord | moved | [UpdateSubscriptionQuantityRecord](payment/subscription_store.go#L110) |
 | payment.SyncOrgBillingStateToFreeTx | added | [SyncOrgBillingStateToFreeTx](payment/subscription_store.go#L179) |
-| payment.CancelSubscriptionRecord | moved | [CancelSubscriptionRecord](payment/subscription_store.go#L237) |
-| payment.ReconcileExpiredPendingCancellations | added | [ReconcileExpiredPendingCancellations](payment/subscription_store.go#L332) |
-| payment.ReconcileExpiredPendingCancellationForOrg | added | [ReconcileExpiredPendingCancellationForOrg](payment/subscription_store.go#L336) |
-| payment.DowngradeExpiredRoleForUserOrg | added | [DowngradeExpiredRoleForUserOrg](payment/subscription_store.go#L349) |
-| payment.KeepPlanRecord | added | [KeepPlanRecord](payment/subscription_store.go#L598) |
-| payment.GetSubscriptionDetailsRow | moved | [GetSubscriptionDetailsRow](payment/subscription_store.go#L763) |
-| payment.AssignLicense | moved | [AssignLicense](payment/subscription_store.go#L794) |
-| payment.RepointOrgActiveSubscription | added | [RepointOrgActiveSubscription](payment/subscription_store.go#L907) |
-| payment.RevokeLicense | moved | [RevokeLicense](payment/subscription_store.go#L955) |
-| payment.GetUserIDByEmail | moved | [GetUserIDByEmail](payment/subscription_store.go#L1035) |
-| payment.CreateShadowUser | moved | [CreateShadowUser](payment/subscription_store.go#L1047) |
-| payment.CreateSelfHostedSubscriptionRecord | moved | [CreateSelfHostedSubscriptionRecord](payment/subscription_store.go#L1075) |
-| payment.GetSelfHostedConfirmationSeed | moved | [GetSelfHostedConfirmationSeed](payment/subscription_store.go#L1140) |
-| payment.PersistSelfHostedFallback | moved | [PersistSelfHostedFallback](payment/subscription_store.go#L1177) |
-| payment.PersistSelfHostedJWT | moved | [PersistSelfHostedJWT](payment/subscription_store.go#L1240) |
+| payment.CancelSubscriptionRecord | moved | [CancelSubscriptionRecord](payment/subscription_store.go#L241) |
+| payment.ReconcileExpiredPendingCancellations | added | [ReconcileExpiredPendingCancellations](payment/subscription_store.go#L336) |
+| payment.ReconcileExpiredPendingCancellationForOrg | added | [ReconcileExpiredPendingCancellationForOrg](payment/subscription_store.go#L340) |
+| payment.DowngradeExpiredRoleForUserOrg | added | [DowngradeExpiredRoleForUserOrg](payment/subscription_store.go#L353) |
+| payment.KeepPlanRecord | added | [KeepPlanRecord](payment/subscription_store.go#L613) |
+| payment.GetSubscriptionDetailsRow | moved | [GetSubscriptionDetailsRow](payment/subscription_store.go#L778) |
+| payment.AssignLicense | moved | [AssignLicense](payment/subscription_store.go#L809) |
+| payment.RepointOrgActiveSubscription | added | [RepointOrgActiveSubscription](payment/subscription_store.go#L922) |
+| payment.RevokeLicense | moved | [RevokeLicense](payment/subscription_store.go#L970) |
+| payment.GetUserIDByEmail | moved | [GetUserIDByEmail](payment/subscription_store.go#L1050) |
+| payment.CreateShadowUser | moved | [CreateShadowUser](payment/subscription_store.go#L1062) |
+| payment.CreateSelfHostedSubscriptionRecord | moved | [CreateSelfHostedSubscriptionRecord](payment/subscription_store.go#L1090) |
+| payment.GetSelfHostedConfirmationSeed | moved | [GetSelfHostedConfirmationSeed](payment/subscription_store.go#L1155) |
+| payment.PersistSelfHostedFallback | moved | [PersistSelfHostedFallback](payment/subscription_store.go#L1192) |
+| payment.PersistSelfHostedJWT | moved | [PersistSelfHostedJWT](payment/subscription_store.go#L1255) |
 | jobqueue.NewWebhookStore | moved | [NewWebhookStore](jobqueue/webhook_store.go#L24) |
 | jobqueue.GetWebhookPublicEndpoint | moved | [GetWebhookPublicEndpoint](jobqueue/webhook_store.go#L33) |
 | jobqueue.GetWebhookRegistryID | moved | [GetWebhookRegistryID](jobqueue/webhook_store.go#L52) |
@@ -50,16 +50,23 @@ Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB
 | reviews.NewTaxonomyReportStore | added | [NewTaxonomyReportStore](reviews/taxonomy_report_store.go#L17) |
 | reviews.buildWhereClause | added | [buildWhereClause](reviews/taxonomy_report_store.go#L108) |
 | reviews.GetSummary | added | [GetSummary](reviews/taxonomy_report_store.go#L230) |
-| reviews.GetDistribution | added | [GetDistribution](reviews/taxonomy_report_store.go#L269) |
-| reviews.GetTrend | added | [GetTrend](reviews/taxonomy_report_store.go#L323) |
-| reviews.GetBreakdown | added | [GetBreakdown](reviews/taxonomy_report_store.go#L362) |
-| reviews.ListFindings | updated | [ListFindings](reviews/taxonomy_report_store.go#L427) |
-| reviews.GetCategorySubcategoryRelations | added | [GetCategorySubcategoryRelations](reviews/taxonomy_report_store.go#L538) |
+| reviews.GetDistribution | added | [GetDistribution](reviews/taxonomy_report_store.go#L273) |
+| reviews.GetTrend | added | [GetTrend](reviews/taxonomy_report_store.go#L326) |
+| reviews.GetBreakdown | added | [GetBreakdown](reviews/taxonomy_report_store.go#L365) |
+| reviews.ListFindings | updated | [ListFindings](reviews/taxonomy_report_store.go#L430) |
+| reviews.GetCategorySubcategoryRelations | added | [GetCategorySubcategoryRelations](reviews/taxonomy_report_store.go#L552) |
 | aiconnectors.NewConnectorStore | moved | [NewConnectorStore](aiconnectors/connector_store.go#L18) |
 | aiconnectors.QueryRowContext | moved | [QueryRowContext](aiconnectors/connector_store.go#L22) |
 | aiconnectors.QueryContext | moved | [QueryContext](aiconnectors/connector_store.go#L26) |
 | aiconnectors.ExecContext | moved | [ExecContext](aiconnectors/connector_store.go#L30) |
 | aiconnectors.UpdateDisplayOrders | moved | [UpdateDisplayOrders](aiconnectors/connector_store.go#L38) |
+| aiconnectors.NewReviewAISettingsStore | added | [NewReviewAISettingsStore](aiconnectors/review_ai_settings_store.go#L28) |
+| aiconnectors.NormalizeConnectorRole | added | [NormalizeConnectorRole](aiconnectors/review_ai_settings_store.go#L32) |
+| aiconnectors.NormalizeHelperMode | added | [NormalizeHelperMode](aiconnectors/review_ai_settings_store.go#L43) |
+| aiconnectors.GetByOrgID | added | [GetByOrgID](aiconnectors/review_ai_settings_store.go#L54) |
+| aiconnectors.Upsert | added | [Upsert](aiconnectors/review_ai_settings_store.go#L86) |
+| aiconnectors.GetConnectorsByRole | added | [GetConnectorsByRole](../internal/aiconnectors/storage.go#L230) |
+| aiconnectors.GetMaxDisplayOrderByRole | added | [GetMaxDisplayOrderByRole](../internal/aiconnectors/storage.go#L561) |
 | users.NewUserStore | moved | [NewUserStore](users/user_store.go#L9) |
 | users.QueryRow | moved | [QueryRow](users/user_store.go#L13) |
 | users.Query | moved | [Query](users/user_store.go#L17) |
@@ -122,8 +129,8 @@ Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB
 | license.ListCurrentPeriodOperations | moved | [ListCurrentPeriodOperations](license/org_usage_store.go#L115) |
 | license.ListCurrentPeriodMemberUsage | added | [ListCurrentPeriodMemberUsage](license/org_usage_store.go#L197) |
 | license.GetCurrentPeriodUsageForActor | added | [GetCurrentPeriodUsageForActor](license/org_usage_store.go#L272) |
-| payment.GetLatestCapturedPaymentMethodBySubscriptionID | added | [GetLatestCapturedPaymentMethodBySubscriptionID](payment/subscription_store.go#L715) |
-| payment.ListSubscriptionsByOrgID | moved | [ListSubscriptionsByOrgID](payment/subscription_store.go#L735) |
+| payment.GetLatestCapturedPaymentMethodBySubscriptionID | added | [GetLatestCapturedPaymentMethodBySubscriptionID](payment/subscription_store.go#L730) |
+| payment.ListSubscriptionsByOrgID | moved | [ListSubscriptionsByOrgID](payment/subscription_store.go#L750) |
 | payment.NewBillingNotificationOutboxStore | added | [NewBillingNotificationOutboxStore](payment/billing_notification_outbox_store.go#L45) |
 | payment.Enqueue | added | [Enqueue](payment/billing_notification_outbox_store.go#L49) |
 | payment.GetUserEmailByID | added | [GetUserEmailByID](payment/billing_notification_outbox_store.go#L104) |
@@ -160,4 +167,4 @@ Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB
 | license.ListDueScheduledPlanChanges | added | [ListDueScheduledPlanChanges](license/plan_change_store.go#L225) |
 | license.ApplyScheduledDowngrade | moved | [ApplyScheduledDowngrade](license/plan_change_store.go#L254) |
 | license.ApplyScheduledPlanChange | added | [ApplyScheduledPlanChange](license/plan_change_store.go#L258) |
-| license.insertLifecycleEventTx | moved | [insertLifecycleEventTx](license/plan_change_store.go#L293) |
+| license.insertLifecycleEventTx | moved | [insertLifecycleEventTx](license/plan_change_store.go#L299) |
