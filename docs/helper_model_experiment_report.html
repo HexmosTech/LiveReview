@@ -189,7 +189,7 @@ const fmtUSD = (v) => '$' + v.toFixed(6).replace(/0+$/,'').replace(/\.$/,'');
 const fmtUSD4 = (v) => '$' + v.toFixed(4);
 const palette = { baseline: '#93a2c2', helper: '#5b8cff', leader: '#5b8cff', helperStage: '#35d0a1' };
 
-function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; }
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
 
 // ---- Summary cards ----
 const sc = document.getElementById('summary-cards');
@@ -295,21 +295,22 @@ new Chart(document.getElementById('chartCostByStage'), {
 
 // ---- Trial table ----
 const tbody = document.querySelector('#trialTable tbody');
+const numCell = (value) => { const td = document.createElement('td'); td.className = 'num'; td.textContent = value; return td; };
 DATA.trials.forEach((t, i) => {
   const tr = document.createElement('tr');
-  tr.innerHTML = `
-    <td>${i+1}</td>
-    <td><span class="pill ${t.mode}">${t.mode}</span></td>
-    <td>#${t.id}</td>
-    <td>${t.durationS ? t.durationS.toFixed(1)+'s' : '—'}</td>
-    <td class="num">${t.leaderIn ?? '—'}</td>
-    <td class="num">${t.leaderOut ?? '—'}</td>
-    <td class="num">${t.helperIn ?? '—'}</td>
-    <td class="num">${t.helperOut ?? '—'}</td>
-    <td class="num">${t.postedComments ?? '—'}</td>
-    <td class="num">${fmtUSD(t.totalCost)}</td>
-    <td class="num">${t.costPerComment ? fmtUSD(t.costPerComment) : '—'}</td>
-  `;
+  tr.appendChild(el('td', undefined, String(i + 1)));
+  const modeCell = document.createElement('td');
+  modeCell.appendChild(el('span', 'pill ' + t.mode, t.mode));
+  tr.appendChild(modeCell);
+  tr.appendChild(el('td', undefined, '#' + t.id));
+  tr.appendChild(el('td', undefined, t.durationS ? t.durationS.toFixed(1) + 's' : '—'));
+  tr.appendChild(numCell(t.leaderIn ?? '—'));
+  tr.appendChild(numCell(t.leaderOut ?? '—'));
+  tr.appendChild(numCell(t.helperIn ?? '—'));
+  tr.appendChild(numCell(t.helperOut ?? '—'));
+  tr.appendChild(numCell(t.postedComments ?? '—'));
+  tr.appendChild(numCell(fmtUSD(t.totalCost)));
+  tr.appendChild(numCell(t.costPerComment ? fmtUSD(t.costPerComment) : '—'));
   tbody.appendChild(tr);
 });
 
