@@ -65,9 +65,12 @@ func ProcessManualReview(
 
 	if result != nil && result.Success {
 		_ = rm.UpdateReviewStatus(reviewID, "completed")
+		if err := rm.MergeReviewMetadata(reviewID, buildQueuedReviewAIMetadata(&request, result)); err != nil {
+			log.Printf("[WARN] failed to persist AI stage metadata for review %d: %v", reviewID, err)
+		}
 
 		if result.BillableLOC > 0 && onSuccess != nil {
-			extraMeta := aiExecutionMetadataFromConfig(request.AI.Config)
+			extraMeta := buildQueuedReviewAIMetadata(&request, result)
 			batchInput := license.QuotaBatchInput{
 				PlanCode:                 license.PlanType(planCode),
 				Provider:                 result.Provider,
@@ -91,22 +94,80 @@ func ProcessManualReview(
 	return nil
 }
 
-func aiExecutionMetadataFromConfig(config map[string]interface{}) map[string]interface{} {
+func buildQueuedReviewAIMetadata(request *reviewpkg.ReviewRequest, result *reviewpkg.ReviewResult) map[string]interface{} {
+	if request == nil || result == nil {
+		return map[string]interface{}{}
+	}
+
+	meta := map[string]interface{}{
+		"helper_enabled": request.HelperEnabled,
+		"helper_mode":    strings.TrimSpace(request.HelperMode),
+	}
+
+	stages := make([]map[string]interface{}, 0, 2)
+	if result.LeaderUsage != nil {
+		stages = append(stages, queuedStageUsageToMetadata(result.LeaderUsage))
+	}
+	if result.HelperUsage != nil {
+		stages = append(stages, queuedStageUsageToMetadata(result.HelperUsage))
+	}
+	if len(stages) > 0 {
+		meta["stage_breakdown"] = stages
+	}
+
+	for k, v := range queuedAIExecutionMetadataForRole("leader", request.AI.Config) {
+		meta[k] = v
+	}
+	if request.HelperAI != nil {
+		for k, v := range queuedAIExecutionMetadataForRole("helper", request.HelperAI.Config) {
+			meta[k] = v
+		}
+	}
+
+	return meta
+}
+
+func queuedStageUsageToMetadata(usage *reviewpkg.AIStageUsage) map[string]interface{} {
+	meta := map[string]interface{}{
+		"stage":           usage.Stage,
+		"provider":        usage.Provider,
+		"model":           usage.Model,
+		"pricing_version": usage.PricingVersion,
+	}
+	if usage.InputTokens != nil {
+		meta["input_tokens"] = *usage.InputTokens
+	}
+	if usage.OutputTokens != nil {
+		meta["output_tokens"] = *usage.OutputTokens
+	}
+	if usage.CostUSD != nil {
+		meta["cost_usd"] = *usage.CostUSD
+	}
+	return meta
+}
+
+func queuedAIExecutionMetadataForRole(role string, config map[string]interface{}) map[string]interface{} {
 	meta := map[string]interface{}{}
 	if len(config) == 0 {
 		return meta
 	}
+	prefix := strings.TrimSpace(role)
+	if prefix == "" {
+		prefix = "ai"
+	} else {
+		prefix = prefix + "_ai"
+	}
 	if mode, ok := config["ai_execution_mode"].(string); ok && strings.TrimSpace(mode) != "" {
-		meta["ai_execution_mode"] = strings.TrimSpace(mode)
+		meta[prefix+"_execution_mode"] = strings.TrimSpace(mode)
 	}
 	if source, ok := config["ai_execution_source"].(string); ok && strings.TrimSpace(source) != "" {
-		meta["ai_execution_source"] = strings.TrimSpace(source)
+		meta[prefix+"_execution_source"] = strings.TrimSpace(source)
 	}
 	if provider, ok := config["provider_name"].(string); ok && strings.TrimSpace(provider) != "" {
-		meta["ai_provider_name"] = strings.TrimSpace(provider)
+		meta[prefix+"_provider_name"] = strings.TrimSpace(provider)
 	}
 	if connectorName, ok := config["connector_name"].(string); ok && strings.TrimSpace(connectorName) != "" {
-		meta["ai_connector_name"] = strings.TrimSpace(connectorName)
+		meta[prefix+"_connector_name"] = strings.TrimSpace(connectorName)
 	}
 	return meta
 }

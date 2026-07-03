@@ -21,6 +21,7 @@ export const fetchAIConnectors = async (): Promise<AIConnector[]> => {
             id: connector.id?.toString() || Math.random().toString(36).substring(2, 9),
             name: connector.connector_name || connector.provider_name || 'Unnamed Connector',
             providerName: connector.provider_name || '',
+            role: connector.role || 'leader',
             apiKey: connector.api_key_preview || '',
             fullApiKey: connector.api_key || '', // Store full API key for editing
             baseURL: connector.base_url || '',
@@ -75,6 +76,7 @@ export const validateAIProviderKey = async (
  */
 export const createAIConnector = async (
     providerId: string,
+    role: string,
     apiKey: string,
     name: string,
     displayOrder: number,
@@ -83,7 +85,7 @@ export const createAIConnector = async (
 ) => {
     try {
         console.log(`Creating AI connector: ${name} for provider: ${providerId}`);
-        const result = await createConnectorAPI(providerId, apiKey, name, displayOrder, baseURL, selectedModel);
+        const result = await createConnectorAPI(providerId, role, apiKey, name, displayOrder, baseURL, selectedModel);
         console.log('Connector created successfully:', result);
         return result;
     } catch (error) {

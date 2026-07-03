@@ -251,7 +251,11 @@ CREATE TABLE public.ai_connectors (
     connector_name character varying(128),
     base_url text,
     selected_model text,
-    org_id bigint DEFAULT 1 NOT NULL
+    org_id bigint DEFAULT 1 NOT NULL,
+    gcp_project_id text,
+    gcp_location text,
+    role character varying(32) DEFAULT 'leader'::character varying NOT NULL,
+    CONSTRAINT ai_connectors_role_check CHECK (((role)::text = ANY ((ARRAY['leader'::character varying, 'helper'::character varying])::text[])))
 );
 
 
@@ -877,6 +881,20 @@ ALTER SEQUENCE public.org_billing_state_id_seq OWNED BY public.org_billing_state
 
 
 --
+-- Name: org_review_ai_settings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.org_review_ai_settings (
+    org_id bigint NOT NULL,
+    helper_enabled boolean DEFAULT true NOT NULL,
+    helper_mode character varying(32) DEFAULT 'concise_then_expand'::character varying NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT org_review_ai_settings_helper_mode_check CHECK (((helper_mode)::text = ANY ((ARRAY['concise_then_expand'::character varying, 'polish_only'::character varying])::text[])))
+);
+
+
+--
 -- Name: orgs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -931,7 +949,7 @@ CREATE TABLE public.plan_catalog (
     envelope_show_price boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT chk_plan_catalog_loc_non_negative CHECK ((monthly_loc_limit >= 0)),
+    CONSTRAINT chk_plan_catalog_loc_non_negative CHECK (((monthly_loc_limit >= 0) OR (monthly_loc_limit = '-1'::integer))),
     CONSTRAINT chk_plan_catalog_price_non_negative CHECK ((monthly_price_usd >= 0)),
     CONSTRAINT chk_plan_catalog_rank_non_negative CHECK ((rank >= 0)),
     CONSTRAINT chk_plan_catalog_trial_config CHECK ((((trial_enabled = true) AND (trial_days > 0)) OR (trial_enabled = false))),
@@ -1750,6 +1768,18 @@ ALTER SEQUENCE public.system_default_ai_configs_id_seq OWNED BY public.system_de
 
 
 --
+-- Name: system_settings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.system_settings (
+    name character varying(255) NOT NULL,
+    data jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+
+--
 -- Name: trial_eligibility; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2099,7 +2129,8 @@ CREATE TABLE public.users (
     deactivated_by_user_id bigint,
     password_reset_required boolean DEFAULT false NOT NULL,
     onboarding_api_key text,
-    last_cli_used_at timestamp with time zone
+    last_cli_used_at timestamp with time zone,
+    default_org_id bigint
 );
 
 
@@ -2609,6 +2640,14 @@ ALTER TABLE ONLY public.org_billing_state
 
 
 --
+-- Name: org_review_ai_settings org_review_ai_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_review_ai_settings
+    ADD CONSTRAINT org_review_ai_settings_pkey PRIMARY KEY (org_id);
+
+
+--
 -- Name: orgs orgs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2830,6 +2869,14 @@ ALTER TABLE ONLY public.system_default_ai_configs
 
 ALTER TABLE ONLY public.system_default_ai_configs
     ADD CONSTRAINT system_default_ai_configs_tier_name_key UNIQUE (tier_name);
+
+
+--
+-- Name: system_settings system_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.system_settings
+    ADD CONSTRAINT system_settings_pkey PRIMARY KEY (name);
 
 
 --
@@ -3061,6 +3108,13 @@ CREATE INDEX idx_ai_connectors_org_id ON public.ai_connectors USING btree (org_i
 --
 
 CREATE INDEX idx_ai_connectors_org_provider ON public.ai_connectors USING btree (org_id, provider_name);
+
+
+--
+-- Name: idx_ai_connectors_org_role_order; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ai_connectors_org_role_order ON public.ai_connectors USING btree (org_id, role, display_order);
 
 
 --
@@ -4366,6 +4420,14 @@ ALTER TABLE ONLY public.org_billing_state
 
 
 --
+-- Name: org_review_ai_settings org_review_ai_settings_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_review_ai_settings
+    ADD CONSTRAINT org_review_ai_settings_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
 -- Name: orgs orgs_created_by_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4790,6 +4852,14 @@ ALTER TABLE ONLY public.users
 
 
 --
+-- Name: users users_default_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_default_org_id_fkey FOREIGN KEY (default_org_id) REFERENCES public.orgs(id);
+
+
+--
 -- Name: webhook_registry webhook_registry_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4875,4 +4945,14 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260521120000'),
     ('20260521140000'),
     ('20260522120000'),
-    ('20260527120000');
+    ('20260527120000'),
+    ('20260611185900'),
+    ('20260612152523'),
+    ('20260620000000'),
+    ('20260621194000'),
+    ('20260622180000'),
+    ('20260623135113'),
+    ('20260701120000'),
+    ('20260702130000'),
+    ('20260702140000'),
+    ('20260702141000');
