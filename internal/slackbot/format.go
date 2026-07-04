@@ -39,7 +39,10 @@ const (
 	blockCodeEnd
 	blockCodeContent
 	blockParagraph
+	blockEmptyLine
 )
+
+const slackMaxTextLen = 2900
 
 type blockGroup struct {
 	kind  lineBlock
@@ -96,7 +99,7 @@ func parseRichText(text string) []slack.Block {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			flushCode()
-			groups = append(groups, blockGroup{kind: blockDivider})
+			groups = append(groups, blockGroup{kind: blockEmptyLine})
 			continue
 		}
 
@@ -179,6 +182,8 @@ func renderGroup(g blockGroup) []slack.Block {
 		return renderCodeBlock(g.lines)
 	case blockParagraph:
 		return renderParagraph(g.lines)
+	case blockEmptyLine:
+		return nil
 	}
 	return nil
 }
@@ -200,9 +205,13 @@ func renderHeader(line string) []slack.Block {
 	for i := 0; i < level-1; i++ {
 		prefix += "▸ "
 	}
+	headerText := fmt.Sprintf("*%s%s*", prefix, text)
+	if len(headerText) > slackMaxTextLen {
+		headerText = headerText[:slackMaxTextLen] + "…*"
+	}
 	return []slack.Block{
 		slack.NewSectionBlock(
-			slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("*%s%s*", prefix, text), false, false),
+			slack.NewTextBlockObject("mrkdwn", headerText, false, false),
 			nil, nil,
 		),
 	}
@@ -319,6 +328,9 @@ func renderStatus(lines []string) []slack.Block {
 
 func renderCodeBlock(lines []string) []slack.Block {
 	code := strings.Join(lines, "\n")
+	if len(code) > slackMaxTextLen {
+		code = code[:slackMaxTextLen] + "\n…"
+	}
 	return []slack.Block{
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("```\n%s\n```", code), false, false),
@@ -366,6 +378,9 @@ func chunkString(s string, size int) []string {
 			break
 		}
 		cut := strings.LastIndex(s[:size], "\n")
+		if cut < 0 {
+			cut = strings.LastIndex(s[:size], " ")
+		}
 		if cut < 0 {
 			cut = size
 		}
