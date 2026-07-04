@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/slack-go/slack"
 )
@@ -376,19 +375,4 @@ func chunkString(s string, size int) []string {
 	return chunks
 }
 
-func formatDuration(d time.Duration) string {
-	if d < time.Minute {
-		secs := int(d.Seconds())
-		if secs < 1 {
-			return "less than a second"
-		}
-		return fmt.Sprintf("%ds", secs)
-	}
-	mins := int(d.Minutes())
-	secs := int(d.Seconds()) % 60
-	if mins == 1 {
-		return fmt.Sprintf("1 min %ds", secs)
-	}
-	return fmt.Sprintf("%d mins %ds", mins, secs)
-}
 
