@@ -29,6 +29,7 @@ import (
 	networkbitbucket "github.com/livereview/network/providers/bitbucket"
 	networkgithub "github.com/livereview/network/providers/github"
 	networkgitea "github.com/livereview/network/providers/gitea"
+	storageaiconnectors "github.com/livereview/storage/aiconnectors"
 )
 
 // Phase 7.1: Unified processor for provider-agnostic LLM processing
@@ -1068,18 +1069,22 @@ func (p *UnifiedProcessorV2Impl) generateLLMResponseV2(ctx context.Context, prom
 		return "", nil, fmt.Errorf("server or database not available")
 	}
 
-	// Get available AI connectors
+	// Get available AI connectors. Comment replies always use the Leader
+	// connector: with Adaptive Review on by default, orgs commonly have both
+	// a leader and a helper connector, and an unfiltered "first connector"
+	// pick could non-deterministically land on the (cheaper, less capable)
+	// helper connector depending on display order.
 	storage := aiconnectors.NewStorage(p.server.db)
-	connectors, err := storage.GetAllConnectors(ctx, orgID)
+	connectors, err := storage.GetConnectorsByRole(ctx, orgID, storageaiconnectors.AIConnectorRoleLeader)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to get AI connectors: %w", err)
 	}
 
 	if len(connectors) == 0 {
-		return "", nil, fmt.Errorf("no AI connectors configured for organization %d", orgID)
+		return "", nil, fmt.Errorf("no Leader AI connector configured for organization %d", orgID)
 	}
 
-	// Use the first available connector (could be enhanced with priority logic)
+	// Use the first available leader connector (could be enhanced with priority logic)
 	connectorRecord := connectors[0]
 	var options aiconnectors.ConnectorOptions
 

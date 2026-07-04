@@ -137,3 +137,54 @@ func TestProcessReview_PreloadedChanges_PreservesBillableLOCWhenAIReformatsHunks
 		t.Fatalf("expected hunk content to be reformatted by AI provider, got: %q", preloadedChanges[0].Hunks[0].Content)
 	}
 }
+
+func TestProcessReview_HelperStageFailure_FallsBackToLeaderOnly(t *testing.T) {
+	preloadedChanges := []*models.CodeDiff{
+		{
+			FilePath: "main.cpp",
+			Hunks: []models.DiffHunk{
+				{
+					OldStartLine: 1,
+					OldLineCount: 1,
+					NewStartLine: 1,
+					NewLineCount: 1,
+					Content:      "@@ -1,1 +1,1 @@\n-old\n+new",
+				},
+			},
+		},
+	}
+
+	svc := NewService(
+		&preloadedOnlyProviderFactory{},
+		&fixedAIProviderFactory{provider: &mutatingAIProvider{}},
+		Config{ReviewTimeout: 5 * time.Second, DefaultAI: "mock", DefaultModel: "mock"},
+	)
+
+	request := ReviewRequest{
+		URL:              "cli://diff",
+		ReviewID:         "test-review-helper-fallback",
+		Provider:         ProviderConfig{Type: "cli"},
+		AI:               AIConfig{Type: "mock", Model: "mock-model"},
+		PreloadedChanges: preloadedChanges,
+		HelperEnabled:    true,
+		HelperMode:       "concise_then_expand",
+		// Empty Config makes connectorOptionsFromAIConfig fail fast with
+		// "helper AI provider type is missing" — applyHelperStage errors
+		// before any network call, exercising the fallback path.
+		HelperAI: &AIConfig{Type: "mock", Model: "helper-mock-model"},
+	}
+
+	result := svc.ProcessReview(context.Background(), request)
+	if result == nil {
+		t.Fatalf("ProcessReview() returned nil result")
+	}
+	if result.Error != nil {
+		t.Fatalf("ProcessReview() should fall back to leader-only on helper failure, got error: %v", result.Error)
+	}
+	if !result.Success {
+		t.Fatalf("ProcessReview() returned Success=false, want true (leader-only fallback)")
+	}
+	if result.HelperUsage != nil {
+		t.Fatalf("expected HelperUsage to be nil after helper fallback, got: %+v", result.HelperUsage)
+	}
+}

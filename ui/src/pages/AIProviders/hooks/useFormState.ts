@@ -14,7 +14,7 @@ interface UseFormStateResult {
 }
 
 export const useFormState = (
-    initialFormData: ConnectorFormData = { name: '', apiKey: '', providerType: '' }
+    initialFormData: ConnectorFormData = { name: '', apiKey: '', providerType: '', role: 'leader' }
 ): UseFormStateResult => {
     const [formData, setFormData] = useState<ConnectorFormData>(initialFormData);
     const [selectedConnector, setSelectedConnector] = useState<AIConnector | null>(null);
@@ -48,6 +48,7 @@ export const useFormState = (
             name: '',
             apiKey: '',
             providerType: '',
+            role: 'leader',
             baseURL: '',
             selectedModel: '',
             gcpProjectID: '',

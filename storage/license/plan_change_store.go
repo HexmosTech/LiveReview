@@ -276,6 +276,11 @@ func (s *PlanChangeStore) ApplyScheduledPlanChange(ctx context.Context, tr DueTr
 	}
 
 	if tr.TargetPlanCode == "free_30k" {
+		// Intentionally not filtered by role: subscription_service.go's
+		// ConfirmPurchase provisions both a leader and a helper
+		// 'livereview-default-ai' connector on upgrade, and both should be
+		// removed together on downgrade so no orphaned helper connector is
+		// left behind for a free-tier org that can no longer use it.
 		if _, err := tx.ExecContext(ctx, `DELETE FROM ai_connectors WHERE org_id = $1 AND provider_name = 'livereview-default-ai'`, tr.OrgID); err != nil {
 			return fmt.Errorf("remove default ai connector on scheduled downgrade to free: %w", err)
 		}

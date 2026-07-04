@@ -990,6 +990,8 @@ func (s *Server) setupRoutes() {
 	aiConnectorGroup.POST("/validate-key", s.ValidateAIConnectorKey)
 	aiConnectorGroup.POST("", s.CreateAIConnector)
 	aiConnectorGroup.GET("", s.GetAIConnectors)
+	aiConnectorGroup.GET("/settings", s.GetReviewAISettings)
+	aiConnectorGroup.PUT("/settings", s.UpsertReviewAISettings)
 	aiConnectorGroup.PUT("/:id", s.UpdateAIConnector)
 	aiConnectorGroup.PUT("/reorder", s.ReorderAIConnectors)
 	aiConnectorGroup.DELETE("/:id", s.DeleteAIConnector)

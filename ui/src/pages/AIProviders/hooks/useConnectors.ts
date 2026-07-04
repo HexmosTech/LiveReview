@@ -18,6 +18,7 @@ interface UseConnectorsResult {
     fetchConnectors: () => Promise<void>;
     saveConnector: (
         providerId: string,
+        role: string,
         apiKey: string,
         name: string,
         existingConnector?: AIConnector | null,
@@ -60,6 +61,7 @@ export const useConnectors = (): UseConnectorsResult => {
     
     const saveConnector = async (
         providerId: string,
+        role: string,
         apiKey: string,
         name: string,
         existingConnector?: AIConnector | null,
@@ -97,6 +99,7 @@ export const useConnectors = (): UseConnectorsResult => {
                     const result = await updateAIConnector(
                         existingConnector.id,
                         providerId,
+                        role,
                         apiKey,
                         name,
                         existingConnector.displayOrder,
@@ -113,6 +116,7 @@ export const useConnectors = (): UseConnectorsResult => {
                 // Create new connector in the backend
                 const result = await createAIConnector(
                     providerId,
+                    role,
                     apiKey,
                     name,
                     displayOrder,
