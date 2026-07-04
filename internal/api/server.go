@@ -1334,14 +1334,15 @@ func (s *Server) Start() error {
 	if len(s.slackBots) > 0 {
 		slackCtx, cancel := context.WithCancel(context.Background())
 		s.slackBotCancel = cancel
-		go func() {
-			fmt.Printf("Starting %d Slack bot(s)...\n", len(s.slackBots))
-			for _, bot := range s.slackBots {
+		fmt.Printf("Starting %d Slack bot(s)...\n", len(s.slackBots))
+		for _, bot := range s.slackBots {
+			bot := bot
+			go func() {
 				if err := bot.Start(slackCtx); err != nil {
 					fmt.Printf("Slack bot failed: %v\n", err)
 				}
-			}
-		}()
+			}()
+		}
 	}
 
 	// Wait for interrupt signal to gracefully shut down the server

@@ -2,6 +2,7 @@ package slackbot
 
 import (
 	"encoding/json"
+	"log"
 	"strings"
 
 	"github.com/slack-go/slack"
@@ -124,6 +125,7 @@ func renderBlockToSlack(b renderBlock) []slack.Block {
 		}
 
 	default:
+		log.Printf("[SlackBot] Unknown renderBlock type %q — skipping", b.Type)
 		return nil
 	}
 }
@@ -132,6 +134,10 @@ func renderSection(b renderBlock) []slack.Block {
 	text := b.Text
 	if b.Emoji != "" {
 		text = b.Emoji + "  " + text
+	}
+
+	if len(text) > slackMaxTextLen {
+		text = text[:slackMaxTextLen] + "…"
 	}
 
 	var fields []*slack.TextBlockObject

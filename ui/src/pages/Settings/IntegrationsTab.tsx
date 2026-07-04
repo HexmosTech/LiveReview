@@ -66,8 +66,8 @@ const SlackIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
             const redirectTo = encodeURIComponent(window.location.origin + '/#/settings#integrations');
             const response = await apiClient.get<{ url: string }>(`/auth/slack/install?org_id=${currentOrg.id}&redirect_to=${redirectTo}`);
             window.location.href = response.url;
-        } catch (err: any) {
-            setError(err.message || 'Failed to initiate Slack connection');
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Failed to initiate Slack connection');
             setConnecting(false);
         }
     };

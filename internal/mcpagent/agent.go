@@ -10,7 +10,11 @@ import (
 	"github.com/tmc/langchaingo/llms"
 )
 
-const DefaultMaxAgentSteps = 20
+const (
+	DefaultMaxAgentSteps = 20
+	maxToolResultLen     = 20000
+	toolResultPreviewLen = 500
+)
 
 // Agent runs the ReAct tool-calling loop.
 type Agent struct {
@@ -68,12 +72,12 @@ func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText st
 				content = fmt.Sprintf("[Tool call failed: %s]", err)
 			}
 			displayLen := len(content)
-			content = truncateContent(content, 20000)
-			if displayLen > 20000 {
-				content += "\n\n_[Result truncated to 20000 characters — original was " + fmt.Sprintf("%d", displayLen) + " chars. If you need complete data for aggregation, request additional pages or a higher perPage limit.]_"
+			content = truncateContent(content, maxToolResultLen)
+			if displayLen > maxToolResultLen {
+				content += "\n\n_[Result truncated to " + fmt.Sprintf("%d", maxToolResultLen) + " characters — original was " + fmt.Sprintf("%d", displayLen) + " chars. If you need complete data for aggregation, request additional pages or a higher perPage limit.]_"
 			}
 			log.Debug().Str("tool", tc.Name).Int("result_len", displayLen).Msg("MCP tool result received")
-			log.Debug().Str("tool", tc.Name).Str("result_preview", content[:min(len(content), 500)]).Msg("MCP tool result (truncated for LLM)")
+			log.Debug().Str("tool", tc.Name).Str("result_preview", content[:min(len(content), toolResultPreviewLen)]).Msg("MCP tool result (truncated for LLM)")
 			history = append(history, HistoryEntry{
 				"role":    "user",
 				"content": fmt.Sprintf("Result of `%s`:\n```\n%s\n```", tc.Name, content),
@@ -246,9 +250,3 @@ func truncateContent(s string, maxLen int) string {
 	return s[:maxLen]
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

@@ -37,6 +37,7 @@ type Bot struct {
 type orgHandler struct {
 	orgID         int64
 	teamID        string
+	botUserID     string
 	slackClient   *slack.Client
 	agent         *mcpagent.Agent
 	conversations map[string]*conversation
@@ -126,6 +127,7 @@ func New(cfg *Config, teamIDStored func(orgID int64, teamID string) error) (*Bot
 		orgs[authResp.TeamID] = &orgHandler{
 			orgID:         oc.OrgID,
 			teamID:        authResp.TeamID,
+			botUserID:     authResp.UserID,
 			slackClient:   slackClient,
 			conversations: make(map[string]*conversation),
 			mcpServerURL:  oc.MCPServerURL,
@@ -196,9 +198,13 @@ func (b *Bot) AddOrg(oc OrgConfig) error {
 	}
 
 	b.mu.Lock()
+	if _, exists := b.orgs[authResp.TeamID]; exists {
+		log.Printf("[SlackBot] Org %d: replacing existing handler for team %s", oc.OrgID, authResp.TeamID)
+	}
 	b.orgs[authResp.TeamID] = &orgHandler{
 		orgID:         oc.OrgID,
 		teamID:        authResp.TeamID,
+		botUserID:     authResp.UserID,
 		slackClient:   slackClient,
 		conversations: make(map[string]*conversation),
 		mcpServerURL:  oc.MCPServerURL,
@@ -249,7 +255,7 @@ func (b *Bot) handleAppMention(data any, teamID string) {
 	}
 
 	text := strings.TrimSpace(mention.Text)
-	text = stripMention(text, mention.User)
+	text = stripMention(text, oh.botUserID)
 
 	oh.processMessage(mention.Channel, mention.TimeStamp, mention.ThreadTimeStamp, text)
 }
