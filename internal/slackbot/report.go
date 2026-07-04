@@ -223,7 +223,7 @@ func convertVegaLiteToPNG(ctx context.Context, spec []byte) ([]byte, error) {
 }
 
 // uploadReportToSlack uploads a PNG image to the Slack channel as a file reply.
-func (b *Bot) uploadReportToSlack(channel, threadTS string, pngData []byte, title string) {
+func (oh *orgHandler) uploadReportToSlack(channel, threadTS string, pngData []byte, title string) {
 	params := slack.UploadFileParameters{
 		Channel:         channel,
 		Content:         string(pngData),
@@ -232,7 +232,7 @@ func (b *Bot) uploadReportToSlack(channel, threadTS string, pngData []byte, titl
 		FileSize:        len(pngData),
 		ThreadTimestamp: threadTS,
 	}
-	if _, err := b.slackClient.UploadFileContext(context.Background(), params); err != nil {
+	if _, err := oh.slackClient.UploadFileContext(context.Background(), params); err != nil {
 		if strings.Contains(err.Error(), "missing_scope") {
 			log.Printf("[SlackBot] Failed to upload report image: Slack bot token is missing the 'files:write' scope. Add it in your Slack app settings and reinstall the app.")
 		} else {

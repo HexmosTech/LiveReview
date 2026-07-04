@@ -156,7 +156,10 @@ type Server struct {
 
 	learningsService *learnings.Service
 
+	slackBots []*slackbot.Bot
 	slackBot  *slackbot.Bot
+
+	slackOAuthHandler *SlackOAuthHandler
 
 	openapiSpec string
 }
@@ -455,14 +458,17 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 
 	mcp.Mount("/api/mcp")
 
-	// Initialize Slack bot if environment variables are configured
-	if os.Getenv("SLACK_BOT_TOKEN") != "" && os.Getenv("SLACK_APP_TOKEN") != "" {
-		bot, err := initSlackBot(server.db)
+	// Initialize org-scoped Slack bots
+	if os.Getenv("SLACK_APP_TOKEN") != "" {
+		bots, err := startOrgSlackBots(server.db)
 		if err != nil {
-			fmt.Printf("Warning: Failed to initialize Slack bot: %v (Slack bot disabled)\n", err)
+			fmt.Printf("Warning: Failed to initialize Slack bots: %v (Slack bot disabled)\n", err)
 		} else {
-			server.slackBot = bot
-			fmt.Println("Slack bot initialized (will start with server)")
+			server.slackBots = bots
+			if len(bots) > 0 {
+				server.slackBot = bots[0]
+			}
+			fmt.Printf("Slack bots initialized for %d org(s) (will start with server)\n", len(bots))
 		}
 	}
 
@@ -474,58 +480,28 @@ func WorkerContext(versionInfo *VersionInfo) (*Server, error) {
 	return appContext(0, versionInfo)
 }
 
-// initSlackBot resolves the LiveReview API key to a user+org, finds an AI
-// connector in that org (trying each in order), and creates the Slack bot.
-func initSlackBot(db *sql.DB) (*slackbot.Bot, error) {
-	apiKey := os.Getenv("SLACK_API_KEY")
-	if apiKey == "" {
-		return nil, fmt.Errorf("SLACK_API_KEY is required for Slack bot")
+// startOrgSlackBots reads all enabled Slack bot configs from the DB,
+// resolves each org's AI connector, and creates the multi-org Slack bot.
+func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
+	appToken := os.Getenv("SLACK_APP_TOKEN")
+	if appToken == "" {
+		return nil, fmt.Errorf("SLACK_APP_TOKEN is required")
 	}
 
-	// Resolve API key -> user + org
-	mgr := NewAPIKeyManager(db)
-	keyRecord, _, err := mgr.ValidateAPIKey(apiKey)
+	configStorage := slackbot.NewStorage(db)
+	configs, err := configStorage.GetAllEnabledConfigs(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("invalid SLACK_API_KEY: %w", err)
+		return nil, fmt.Errorf("failed to query slack configs: %w", err)
 	}
-	orgID := keyRecord.OrgID
-
-	// Find connectors in the org and try each until one works
-	storage := aiconnectors.NewStorage(db)
-	connectors, err := storage.GetAllConnectors(context.Background(), orgID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query connectors for org %d: %w", orgID, err)
-	}
-	if len(connectors) == 0 {
-		return nil, fmt.Errorf("no AI connectors configured in org %d", orgID)
+	if len(configs) == 0 {
+		return nil, fmt.Errorf("no enabled Slack bot configs found")
 	}
 
-	var connector *aiconnectors.Connector
-	var chosenName string
-	for _, record := range connectors {
-		options := storage.GetConnectorOptions(context.Background(), record)
-		c, err := aiconnectors.NewConnector(context.Background(), options)
-		if err != nil {
-			log.Printf("Slack bot: connector %q (%s) failed to init: %v — trying next", record.ConnectorName, record.ProviderName, err)
-			continue
-		}
-		connector = c
-		chosenName = fmt.Sprintf("%q (%s, model=%s)", record.ConnectorName, record.ProviderName, options.ModelConfig.Model)
-		log.Printf("Slack bot: using connector %s", chosenName)
-		break
-	}
-	if connector == nil {
-		return nil, fmt.Errorf("all %d connectors in org %d failed to initialize", len(connectors), orgID)
-	}
-
-	// Build MCP headers — pass the API key as X-API-Key to the MCP server
-	mcpHeaders := map[string]string{"X-API-Key": apiKey}
-
+	connectorStorage := aiconnectors.NewStorage(db)
 	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
 	if mcpServerURL == "" {
 		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
 	}
-
 	maxSteps := 20
 	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
 		if n, err := strconv.Atoi(s); err != nil || n <= 0 {
@@ -535,16 +511,64 @@ func initSlackBot(db *sql.DB) (*slackbot.Bot, error) {
 		}
 	}
 
-	cfg := &slackbot.Config{
-		SlackBotToken: os.Getenv("SLACK_BOT_TOKEN"),
-		SlackAppToken: os.Getenv("SLACK_APP_TOKEN"),
-		MCPServerURL:  mcpServerURL,
-		MCPHeaders:    mcpHeaders,
-		Connector:     connector,
-		MaxAgentSteps: maxSteps,
+	var orgCfgs []slackbot.OrgConfig
+
+	for _, cfg := range configs {
+		// Find a working AI connector for this org
+		connectors, err := connectorStorage.GetAllConnectors(context.Background(), cfg.OrgID)
+		if err != nil {
+			log.Printf("Slack bot: failed to query connectors for org %d: %v — skipping", cfg.OrgID, err)
+			continue
+		}
+		if len(connectors) == 0 {
+			log.Printf("Slack bot: no AI connectors configured in org %d — skipping", cfg.OrgID)
+			continue
+		}
+
+		var connector *aiconnectors.Connector
+		for _, record := range connectors {
+			options := connectorStorage.GetConnectorOptions(context.Background(), record)
+			c, err := aiconnectors.NewConnector(context.Background(), options)
+			if err != nil {
+				log.Printf("Slack bot org %d: connector %q (%s) failed to init: %v — trying next", cfg.OrgID, record.ConnectorName, record.ProviderName, err)
+				continue
+			}
+			connector = c
+			log.Printf("Slack bot org %d: using connector %q (%s, model=%s)", cfg.OrgID, record.ConnectorName, record.ProviderName, options.ModelConfig.Model)
+			break
+		}
+		if connector == nil {
+			log.Printf("Slack bot: all connectors for org %d failed to initialize — skipping", cfg.OrgID)
+			continue
+		}
+
+		mcpHeaders := map[string]string{"X-API-Key": cfg.APIKey}
+
+		orgCfgs = append(orgCfgs, slackbot.OrgConfig{
+			OrgID:         cfg.OrgID,
+			SlackBotToken: cfg.BotToken,
+			MCPServerURL:  mcpServerURL,
+			MCPHeaders:    mcpHeaders,
+			Connector:     connector,
+			MaxAgentSteps: maxSteps,
+		})
 	}
 
-	return slackbot.New(cfg)
+	if len(orgCfgs) == 0 {
+		return nil, fmt.Errorf("no orgs could be configured for Slack bot")
+	}
+
+	bot, err := slackbot.New(&slackbot.Config{
+		SlackAppToken: appToken,
+		Orgs:          orgCfgs,
+	}, func(orgID int64, teamID string) error {
+		return configStorage.UpdateTeamID(context.Background(), orgID, teamID)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return []*slackbot.Bot{bot}, nil
 }
 
 // SetOpenAPISpec sets the OpenAPI specification content for the integration guide endpoint
@@ -702,6 +726,27 @@ func (s *Server) setupRoutes() {
 	// Cloud user ensure endpoint (now public; handler performs CLOUD_JWT_SECRET validation)
 	public.POST("/auth/ensure-cloud-user", s.authHandlers.EnsureCloudUser)
 
+	// Slack OAuth callback — public (Slack redirects browser here)
+	slackClientID := os.Getenv("SLACK_CLIENT_ID")
+	slackClientSecret := os.Getenv("SLACK_CLIENT_SECRET")
+	slackRedirectURL := os.Getenv("SLACK_REDIRECT_URL")
+	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
+	if mcpServerURL == "" {
+		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
+	}
+	maxSteps := 20
+	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxSteps = n
+		}
+	}
+	if slackClientID != "" && slackClientSecret != "" && slackRedirectURL != "" {
+		slackOAuthHandler := NewSlackOAuthHandler(s.db, slackClientID, slackClientSecret, slackRedirectURL, mcpServerURL, maxSteps, s.slackBot)
+		public.GET("/auth/slack/callback", slackOAuthHandler.SlackOAuthCallback)
+		fmt.Println("Slack OAuth callback endpoint registered")
+		s.slackOAuthHandler = slackOAuthHandler
+	}
+
 	// Protected routes (require authentication - supports both Bearer tokens and API keys)
 	protected := v1.Group("")
 	protected.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
@@ -718,6 +763,12 @@ func (s *Server) setupRoutes() {
 
 	// Clear onboarding API key
 	protected.POST("/onboarding/clear-api-key", s.ClearOnboardingAPIKey)
+
+	// Slack OAuth install — protected (user must be logged in)
+	if s.slackOAuthHandler != nil {
+		protected.GET("/auth/slack/install", s.slackOAuthHandler.InstallSlackBot)
+		fmt.Println("Slack OAuth install endpoint registered")
+	}
 
 	// Self-service profile endpoints
 	protected.GET("/users/profile", s.profileHandlers.GetProfile)
@@ -785,6 +836,12 @@ func (s *Server) setupRoutes() {
 	orgGroup.PUT("/members/:user_id/role", s.orgHandlers.ChangeUserRole)
 	orgGroup.GET("/analytics", s.orgHandlers.GetOrganizationAnalytics)
 	orgGroup.PUT("", s.orgHandlers.UpdateOrganization) // Update org details (owners only)
+
+	// Slack bot configuration within org context
+	slackConfigHandler := NewSlackConfigHandler(s.db)
+	orgGroup.GET("/slack-config", slackConfigHandler.GetSlackConfig)
+	orgGroup.PUT("/slack-config", slackConfigHandler.PutSlackConfig)
+	orgGroup.DELETE("/slack-config", slackConfigHandler.DeleteSlackConfig)
 
 	// API key management within org context
 	orgGroup.POST("/api-keys", s.CreateAPIKeyHandler)
@@ -1273,14 +1330,16 @@ func (s *Server) Start() error {
 		aiconnectors.RunAIModelSyncScheduler(syncCtx, s.db, 24*time.Hour)
 	}
 
-	// Start Slack bot if configured
-	if s.slackBot != nil {
+	// Start Slack bots if configured
+	if len(s.slackBots) > 0 {
 		slackCtx, cancel := context.WithCancel(context.Background())
 		s.slackBotCancel = cancel
 		go func() {
-			fmt.Println("Slack bot starting...")
-			if err := s.slackBot.Start(slackCtx); err != nil {
-				fmt.Printf("Slack bot failed: %v\n", err)
+			fmt.Printf("Starting %d Slack bot(s)...\n", len(s.slackBots))
+			for _, bot := range s.slackBots {
+				if err := bot.Start(slackCtx); err != nil {
+					fmt.Printf("Slack bot failed: %v\n", err)
+				}
 			}
 		}()
 	}
