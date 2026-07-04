@@ -160,6 +160,7 @@ export const validateAIProviderKey = async (
  */
 export const createAIConnector = async (
   providerName: string,
+  role: string,
   apiKey: string,
   connectorName: string,
   displayOrder: number = 0,
@@ -173,6 +174,7 @@ export const createAIConnector = async (
       '/api/v1/aiconnectors',
       {
         provider_name: providerName,
+        role,
         api_key: apiKey,
         connector_name: connectorName,
         display_order: displayOrder,
@@ -205,6 +207,7 @@ export const createAIConnector = async (
 export const updateAIConnector = async (
   connectorId: string,
   providerName: string,
+  role: string,
   apiKey: string,
   connectorName: string,
   displayOrder: number = 0,
@@ -218,6 +221,7 @@ export const updateAIConnector = async (
       `/api/v1/aiconnectors/${connectorId}`,
       {
         provider_name: providerName,
+        role,
         api_key: apiKey,
         connector_name: connectorName,
         display_order: displayOrder,
@@ -262,6 +266,30 @@ export const reorderAIConnectors = async (
     return response;
   } catch (error) {
     console.error('Error reordering AI connectors:', error);
+    throw error;
+  }
+};
+
+export const getReviewAISettings = async (): Promise<{ helper_enabled: boolean; helper_mode: string }> => {
+  try {
+    return await apiClient.get('/api/v1/aiconnectors/settings');
+  } catch (error) {
+    console.error('Error fetching review AI settings:', error);
+    throw error;
+  }
+};
+
+export const updateReviewAISettings = async (
+  helperEnabled: boolean,
+  helperMode: string
+): Promise<{ helper_enabled: boolean; helper_mode: string }> => {
+  try {
+    return await apiClient.put('/api/v1/aiconnectors/settings', {
+      helper_enabled: helperEnabled,
+      helper_mode: helperMode,
+    });
+  } catch (error) {
+    console.error('Error updating review AI settings:', error);
     throw error;
   }
 };

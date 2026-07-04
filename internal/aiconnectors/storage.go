@@ -16,12 +16,13 @@ type ConnectorRecord struct {
 	ID            int64          `json:"id"`
 	ProviderName  string         `json:"provider_name"` // Maps to provider_name in DB
 	Provider      Provider       `json:"provider"`      // For internal use, derived from ProviderName
+	Role          string         `json:"role"`
 	ApiKey        string         `json:"api_key"`
 	ConnectorName string         `json:"connector_name"` // Maps to connector_name in DB
 	BaseURL       sql.NullString `json:"base_url"`       // Base URL for providers like Ollama
 	SelectedModel sql.NullString `json:"selected_model"` // Selected model for the connector
-	GCPProjectID  sql.NullString `json:"gcp_project_id"`  // GCP project ID for Gemini Enterprise
-	GCPLocation   sql.NullString `json:"gcp_location"`    // GCP region/location for Gemini Enterprise
+	GCPProjectID  sql.NullString `json:"gcp_project_id"` // GCP project ID for Gemini Enterprise
+	GCPLocation   sql.NullString `json:"gcp_location"`   // GCP region/location for Gemini Enterprise
 	DisplayOrder  int            `json:"display_order"`
 	OrgID         int64          `json:"org_id"`
 	CreatedAt     time.Time      `json:"created_at"`
@@ -51,10 +52,10 @@ func NewStorage(db *sql.DB) *Storage {
 func (s *Storage) CreateConnector(ctx context.Context, orgID int64, connector *ConnectorRecord) error {
 	query := `
 	INSERT INTO ai_connectors (
-		provider_name, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order, org_id,
+		provider_name, role, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order, org_id,
 		created_at, updated_at
 	) VALUES (
-		$1, $2, $3, $4, $5, $6, $7, $8, $9,
+		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
 		NOW(), NOW()
 	) RETURNING id, created_at, updated_at
 	`
@@ -93,11 +94,12 @@ func (s *Storage) CreateConnector(ctx context.Context, orgID int64, connector *C
 		gcpLocation = nil
 	}
 
+	connector.Role = normalizedConnectorRole(connector.Role)
 	connector.OrgID = orgID
 
 	err := s.store.QueryRowContext(
 		ctx, query,
-		connector.ProviderName, connector.ApiKey, connector.ConnectorName,
+		connector.ProviderName, connector.Role, connector.ApiKey, connector.ConnectorName,
 		baseURL, selectedModel, gcpProjectID, gcpLocation, connector.DisplayOrder, connector.OrgID,
 	).Scan(&connector.ID, &connector.CreatedAt, &connector.UpdatedAt)
 
@@ -114,7 +116,7 @@ func (s *Storage) CreateConnector(ctx context.Context, orgID int64, connector *C
 // GetConnectorByID retrieves a connector by ID
 func (s *Storage) GetConnectorByID(ctx context.Context, orgID int64, id int64) (*ConnectorRecord, error) {
 	query := `
-	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order,
+	SELECT id, provider_name, role, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order,
 	       org_id, created_at, updated_at
 	FROM ai_connectors
 	WHERE id = $1 AND org_id = $2
@@ -122,7 +124,7 @@ func (s *Storage) GetConnectorByID(ctx context.Context, orgID int64, id int64) (
 
 	var connector ConnectorRecord
 	err := s.store.QueryRowContext(ctx, query, id, orgID).Scan(
-		&connector.ID, &connector.ProviderName, &connector.ApiKey, &connector.ConnectorName,
+		&connector.ID, &connector.ProviderName, &connector.Role, &connector.ApiKey, &connector.ConnectorName,
 		&connector.BaseURL, &connector.SelectedModel, &connector.GCPProjectID, &connector.GCPLocation, &connector.DisplayOrder,
 		&connector.OrgID, &connector.CreatedAt, &connector.UpdatedAt,
 	)
@@ -136,6 +138,7 @@ func (s *Storage) GetConnectorByID(ctx context.Context, orgID int64, id int64) (
 
 	// Set the Provider based on ProviderName
 	connector.Provider = Provider(connector.ProviderName)
+	connector.Role = normalizedConnectorRole(connector.Role)
 
 	return &connector, nil
 }
@@ -143,11 +146,11 @@ func (s *Storage) GetConnectorByID(ctx context.Context, orgID int64, id int64) (
 // GetConnectorsByProvider retrieves all connectors for a specific provider
 func (s *Storage) GetConnectorsByProvider(ctx context.Context, orgID int64, provider Provider) ([]*ConnectorRecord, error) {
 	query := `
-	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order,
+	SELECT id, provider_name, role, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order,
 	       org_id, created_at, updated_at
 	FROM ai_connectors
 	WHERE provider_name = $1 AND org_id = $2
-	ORDER BY display_order ASC
+	ORDER BY role ASC, display_order ASC
 	`
 
 	rows, err := s.store.QueryContext(ctx, query, string(provider), orgID)
@@ -160,7 +163,7 @@ func (s *Storage) GetConnectorsByProvider(ctx context.Context, orgID int64, prov
 	for rows.Next() {
 		var connector ConnectorRecord
 		err := rows.Scan(
-			&connector.ID, &connector.ProviderName, &connector.ApiKey, &connector.ConnectorName,
+			&connector.ID, &connector.ProviderName, &connector.Role, &connector.ApiKey, &connector.ConnectorName,
 			&connector.BaseURL, &connector.SelectedModel, &connector.GCPProjectID, &connector.GCPLocation, &connector.DisplayOrder,
 			&connector.OrgID, &connector.CreatedAt, &connector.UpdatedAt,
 		)
@@ -170,6 +173,7 @@ func (s *Storage) GetConnectorsByProvider(ctx context.Context, orgID int64, prov
 
 		// Set the Provider based on ProviderName
 		connector.Provider = Provider(connector.ProviderName)
+		connector.Role = normalizedConnectorRole(connector.Role)
 
 		connectors = append(connectors, &connector)
 	}
@@ -184,11 +188,11 @@ func (s *Storage) GetConnectorsByProvider(ctx context.Context, orgID int64, prov
 // GetAllConnectors retrieves all connectors
 func (s *Storage) GetAllConnectors(ctx context.Context, orgID int64) ([]*ConnectorRecord, error) {
 	query := `
-	SELECT id, provider_name, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order,
+	SELECT id, provider_name, role, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order,
 	       org_id, created_at, updated_at
 	FROM ai_connectors
 	WHERE org_id = $1
-	ORDER BY display_order ASC
+	ORDER BY role ASC, display_order ASC
 	`
 
 	rows, err := s.store.QueryContext(ctx, query, orgID)
@@ -201,7 +205,7 @@ func (s *Storage) GetAllConnectors(ctx context.Context, orgID int64) ([]*Connect
 	for rows.Next() {
 		var connector ConnectorRecord
 		err := rows.Scan(
-			&connector.ID, &connector.ProviderName, &connector.ApiKey, &connector.ConnectorName,
+			&connector.ID, &connector.ProviderName, &connector.Role, &connector.ApiKey, &connector.ConnectorName,
 			&connector.BaseURL, &connector.SelectedModel, &connector.GCPProjectID, &connector.GCPLocation, &connector.DisplayOrder,
 			&connector.OrgID, &connector.CreatedAt, &connector.UpdatedAt,
 		)
@@ -211,7 +215,46 @@ func (s *Storage) GetAllConnectors(ctx context.Context, orgID int64) ([]*Connect
 
 		// Set the Provider based on ProviderName
 		connector.Provider = Provider(connector.ProviderName)
+		connector.Role = normalizedConnectorRole(connector.Role)
 
+		connectors = append(connectors, &connector)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating connectors: %w", err)
+	}
+
+	return connectors, nil
+}
+
+func (s *Storage) GetConnectorsByRole(ctx context.Context, orgID int64, role string) ([]*ConnectorRecord, error) {
+	normalizedRole := normalizedConnectorRole(role)
+	query := `
+	SELECT id, provider_name, role, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order,
+	       org_id, created_at, updated_at
+	FROM ai_connectors
+	WHERE org_id = $1 AND role = $2
+	ORDER BY display_order ASC
+	`
+
+	rows, err := s.store.QueryContext(ctx, query, orgID, normalizedRole)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get connectors by role: %w", err)
+	}
+	defer rows.Close()
+
+	var connectors []*ConnectorRecord
+	for rows.Next() {
+		var connector ConnectorRecord
+		if err := rows.Scan(
+			&connector.ID, &connector.ProviderName, &connector.Role, &connector.ApiKey, &connector.ConnectorName,
+			&connector.BaseURL, &connector.SelectedModel, &connector.GCPProjectID, &connector.GCPLocation, &connector.DisplayOrder,
+			&connector.OrgID, &connector.CreatedAt, &connector.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan connector: %w", err)
+		}
+		connector.Provider = Provider(connector.ProviderName)
+		connector.Role = normalizedConnectorRole(connector.Role)
 		connectors = append(connectors, &connector)
 	}
 
@@ -226,9 +269,9 @@ func (s *Storage) GetAllConnectors(ctx context.Context, orgID int64) ([]*Connect
 func (s *Storage) UpdateConnector(ctx context.Context, connector *ConnectorRecord) error {
 	query := `
 	UPDATE ai_connectors
-	SET provider_name = $1, api_key = $2, connector_name = $3, base_url = $4, selected_model = $5, gcp_project_id = $6, gcp_location = $7, display_order = $8,
+	SET provider_name = $1, role = $2, api_key = $3, connector_name = $4, base_url = $5, selected_model = $6, gcp_project_id = $7, gcp_location = $8, display_order = $9,
 	    updated_at = NOW()
-	WHERE id = $9 AND org_id = $10
+	WHERE id = $10 AND org_id = $11
 	RETURNING updated_at
 	`
 
@@ -258,10 +301,11 @@ func (s *Storage) UpdateConnector(ctx context.Context, connector *ConnectorRecor
 	} else {
 		gcpLocation = nil
 	}
+	connector.Role = normalizedConnectorRole(connector.Role)
 
 	err := s.store.QueryRowContext(
 		ctx, query,
-		connector.ProviderName, connector.ApiKey, connector.ConnectorName,
+		connector.ProviderName, connector.Role, connector.ApiKey, connector.ConnectorName,
 		baseURL, selectedModel, gcpProjectID, gcpLocation, connector.DisplayOrder,
 		connector.ID, connector.OrgID,
 	).Scan(&connector.UpdatedAt)
@@ -437,6 +481,7 @@ func (r *ConnectorRecord) ToAPIResponse() map[string]interface{} {
 	return map[string]interface{}{
 		"id":              r.ID,
 		"provider":        r.ProviderName,
+		"role":            normalizedConnectorRole(r.Role),
 		"name":            r.ConnectorName,
 		"display_order":   r.DisplayOrder,
 		"created_at":      r.CreatedAt,
@@ -513,6 +558,18 @@ func (s *Storage) GetMaxDisplayOrder(ctx context.Context, orgID int64) (int, err
 	return maxOrder, nil
 }
 
+func (s *Storage) GetMaxDisplayOrderByRole(ctx context.Context, orgID int64, role string) (int, error) {
+	query := `SELECT COALESCE(MAX(display_order), 0) FROM ai_connectors WHERE org_id = $1 AND role = $2`
+
+	var maxOrder int
+	err := s.store.QueryRowContext(ctx, query, orgID, normalizedConnectorRole(role)).Scan(&maxOrder)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get max display order by role: %w", err)
+	}
+
+	return maxOrder, nil
+}
+
 // UpdateDisplayOrders updates the display order for multiple connectors
 func (s *Storage) UpdateDisplayOrders(ctx context.Context, orgID int64, updates []DisplayOrderUpdate) error {
 	if len(updates) == 0 {
@@ -534,4 +591,12 @@ func (s *Storage) UpdateDisplayOrders(ctx context.Context, orgID int64, updates 
 type DisplayOrderUpdate struct {
 	ID           string `json:"id"`
 	DisplayOrder int    `json:"display_order"`
+}
+
+func normalizedConnectorRole(role string) string {
+	normalized := storageaiconnectors.NormalizeConnectorRole(role)
+	if normalized == "" {
+		return storageaiconnectors.AIConnectorRoleLeader
+	}
+	return normalized
 }

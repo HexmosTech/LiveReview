@@ -253,7 +253,9 @@ CREATE TABLE public.ai_connectors (
     selected_model text,
     org_id bigint DEFAULT 1 NOT NULL,
     gcp_project_id text,
-    gcp_location text
+    gcp_location text,
+    role character varying(32) DEFAULT 'leader'::character varying NOT NULL,
+    CONSTRAINT ai_connectors_role_check CHECK (((role)::text = ANY ((ARRAY['leader'::character varying, 'helper'::character varying])::text[])))
 );
 
 
@@ -892,52 +894,17 @@ ALTER SEQUENCE public.org_billing_state_id_seq OWNED BY public.org_billing_state
 
 
 --
--- Name: org_slack_configs; Type: TABLE; Schema: public; Owner: -
+-- Name: org_review_ai_settings; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.org_slack_configs (
-    id bigint NOT NULL,
+CREATE TABLE public.org_review_ai_settings (
     org_id bigint NOT NULL,
-    bot_token text NOT NULL,
-    api_key text NOT NULL,
-    team_id text DEFAULT ''::text NOT NULL,
-    enabled boolean DEFAULT true NOT NULL,
+    helper_enabled boolean DEFAULT true NOT NULL,
+    helper_mode character varying(32) DEFAULT 'concise_then_expand'::character varying NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT org_review_ai_settings_helper_mode_check CHECK (((helper_mode)::text = ANY ((ARRAY['concise_then_expand'::character varying, 'polish_only'::character varying])::text[])))
 );
-
-
---
--- Name: TABLE org_slack_configs; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.org_slack_configs IS 'Per-org Slack bot configuration';
-
-
---
--- Name: COLUMN org_slack_configs.team_id; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.org_slack_configs.team_id IS 'Slack workspace team ID, learned after first auth test';
-
-
---
--- Name: org_slack_configs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.org_slack_configs_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: org_slack_configs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.org_slack_configs_id_seq OWNED BY public.org_slack_configs.id;
 
 
 --
@@ -2701,19 +2668,11 @@ ALTER TABLE ONLY public.org_billing_state
 
 
 --
--- Name: org_slack_configs org_slack_configs_org_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: org_review_ai_settings org_review_ai_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.org_slack_configs
-    ADD CONSTRAINT org_slack_configs_org_id_key UNIQUE (org_id);
-
-
---
--- Name: org_slack_configs org_slack_configs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.org_slack_configs
-    ADD CONSTRAINT org_slack_configs_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.org_review_ai_settings
+    ADD CONSTRAINT org_review_ai_settings_pkey PRIMARY KEY (org_id);
 
 
 --
@@ -3177,6 +3136,13 @@ CREATE INDEX idx_ai_connectors_org_id ON public.ai_connectors USING btree (org_i
 --
 
 CREATE INDEX idx_ai_connectors_org_provider ON public.ai_connectors USING btree (org_id, provider_name);
+
+
+--
+-- Name: idx_ai_connectors_org_role_order; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ai_connectors_org_role_order ON public.ai_connectors USING btree (org_id, role, display_order);
 
 
 --
@@ -4510,11 +4476,11 @@ ALTER TABLE ONLY public.org_billing_state
 
 
 --
--- Name: org_slack_configs org_slack_configs_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: org_review_ai_settings org_review_ai_settings_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.org_slack_configs
-    ADD CONSTRAINT org_slack_configs_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.org_review_ai_settings
+    ADD CONSTRAINT org_review_ai_settings_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
 
 
 --
@@ -5043,4 +5009,7 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260621194000'),
     ('20260622180000'),
     ('20260623135113'),
-    ('20260704150001');
+    ('20260701120000'),
+    ('20260702130000'),
+    ('20260702140000'),
+    ('20260702141000');
