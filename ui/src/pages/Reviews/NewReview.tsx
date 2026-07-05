@@ -394,6 +394,7 @@ const NewReview: React.FC = () => {
                   <div>• GitLab: https://gitlab.com/group/project/-/merge_requests/123</div>
                   <div>• GitHub: https://github.com/owner/repo/pull/123</div>
                   <div>• Bitbucket: https://bitbucket.org/workspace/repo/pull-requests/123</div>
+                  <div>• Azure DevOps: https://dev.azure.com/org/project/_git/repo/pullrequest/123</div>
                 </div>
                 
               </div>
