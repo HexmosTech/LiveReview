@@ -332,8 +332,8 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
-        // Integrations tab visible to all org members
-        ...((isSuperAdmin || currentOrg) ? [{ 
+        // Integrations tab visible only in self-hosted mode
+        ...(!isCloudMode() && (isSuperAdmin || currentOrg) ? [{ 
             id: 'integrations', 
             name: 'Integrations', 
             icon: (
