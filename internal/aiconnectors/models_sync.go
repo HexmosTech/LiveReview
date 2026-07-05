@@ -80,8 +80,8 @@ func RunAIModelSyncScheduler(ctx context.Context, db *sql.DB, interval time.Dura
 		}
 	}
 
-	// Initial sync immediately on boot
-	runSyncs()
+	// Initial sync immediately on boot (non-blocking)
+	go runSyncs()
 
 	ticker := time.NewTicker(interval)
 	go func() {
