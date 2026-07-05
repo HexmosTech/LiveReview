@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"net/url"
@@ -133,7 +134,8 @@ func (h *SlackOAuthHandler) SlackOAuthCallback(c echo.Context) error {
 	code := c.QueryParam("code")
 	stateStr := c.QueryParam("error")
 	if stateStr != "" {
-		return c.HTML(http.StatusBadRequest, fmt.Sprintf("<h2>Error</h2><p>Slack returned an error: %s. Please try again.</p>", stateStr))
+		escapedErr := html.EscapeString(stateStr)
+		return c.HTML(http.StatusBadRequest, fmt.Sprintf("<h2>Error</h2><p>Slack returned an error: %s. Please try again.</p>", escapedErr))
 	}
 	code = c.QueryParam("code")
 	stateStr = c.QueryParam("state")
