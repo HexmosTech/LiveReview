@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"sync/atomic"
@@ -162,6 +163,9 @@ func doJSONRPC(ctx context.Context, serverURL string, headers map[string]string,
 	if parsed.Host == "" {
 		return nil, fmt.Errorf("mcp server url missing host")
 	}
+	if err := validateMCPHost(ctx, parsed.Host); err != nil {
+		return nil, err
+	}
 	reqBody := jsonrpcMessage{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -215,6 +219,35 @@ func joinStrings(parts []string, sep string) string {
 		result += sep + p
 	}
 	return result
+}
+
+func validateMCPHost(ctx context.Context, hostport string) error {
+	host, _, err := net.SplitHostPort(hostport)
+	if err != nil {
+		host = hostport
+	}
+
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("mcp server url must not point to a loopback, private, or link-local address")
+		}
+		return nil
+	}
+
+	resolveCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	addrs, err := net.DefaultResolver.LookupHost(resolveCtx, host)
+	if err != nil {
+		return fmt.Errorf("mcp server url host %q cannot be resolved: %w", host, err)
+	}
+	for _, addr := range addrs {
+		if ip := net.ParseIP(addr); ip != nil {
+			if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+				return fmt.Errorf("mcp server url host %q resolved to a loopback, private, or link-local address (%s)", host, addr)
+			}
+		}
+	}
+	return nil
 }
 
 func truncate(s string, max int) string {
