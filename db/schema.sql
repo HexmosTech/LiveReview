@@ -1,7 +1,7 @@
-\restrict dbmate
+\restrict 4o3kFlMDSbUhHSSq7jO8Pcgb6PjxvSByP99g16AvDHqWxEVtibbvjh6nQGjC44C
 
--- Dumped from database version 15.17 (Debian 15.17-1.pgdg13+1)
--- Dumped by pg_dump version 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
+-- Dumped from database version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
+-- Dumped by pg_dump version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -832,6 +832,19 @@ ALTER SEQUENCE public.loc_usage_ledger_id_seq OWNED BY public.loc_usage_ledger.i
 
 
 --
+-- Name: mcp_authorizations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.mcp_authorizations (
+    request_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    status character varying(20) DEFAULT 'pending'::character varying NOT NULL,
+    token_pair jsonb,
+    expires_at timestamp with time zone DEFAULT (now() + '00:10:00'::interval) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: org_billing_state; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -892,6 +905,55 @@ CREATE TABLE public.org_review_ai_settings (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT org_review_ai_settings_helper_mode_check CHECK (((helper_mode)::text = ANY ((ARRAY['concise_then_expand'::character varying, 'polish_only'::character varying])::text[])))
 );
+
+
+--
+-- Name: org_slack_configs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.org_slack_configs (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    bot_token text NOT NULL,
+    api_key text NOT NULL,
+    team_id text DEFAULT ''::text NOT NULL,
+    enabled boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE org_slack_configs; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.org_slack_configs IS 'Per-org Slack bot configuration';
+
+
+--
+-- Name: COLUMN org_slack_configs.team_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.org_slack_configs.team_id IS 'Slack workspace team ID, learned after first auth test';
+
+
+--
+-- Name: org_slack_configs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.org_slack_configs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: org_slack_configs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.org_slack_configs_id_seq OWNED BY public.org_slack_configs.id;
 
 
 --
@@ -2289,6 +2351,13 @@ ALTER TABLE ONLY public.org_billing_state ALTER COLUMN id SET DEFAULT nextval('p
 
 
 --
+-- Name: org_slack_configs id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_slack_configs ALTER COLUMN id SET DEFAULT nextval('public.org_slack_configs_id_seq'::regclass);
+
+
+--
 -- Name: orgs id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2624,6 +2693,14 @@ ALTER TABLE ONLY public.loc_usage_ledger
 
 
 --
+-- Name: mcp_authorizations mcp_authorizations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mcp_authorizations
+    ADD CONSTRAINT mcp_authorizations_pkey PRIMARY KEY (request_id);
+
+
+--
 -- Name: org_billing_state org_billing_state_org_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2645,6 +2722,22 @@ ALTER TABLE ONLY public.org_billing_state
 
 ALTER TABLE ONLY public.org_review_ai_settings
     ADD CONSTRAINT org_review_ai_settings_pkey PRIMARY KEY (org_id);
+
+
+--
+-- Name: org_slack_configs org_slack_configs_org_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_slack_configs
+    ADD CONSTRAINT org_slack_configs_org_id_key UNIQUE (org_id);
+
+
+--
+-- Name: org_slack_configs org_slack_configs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_slack_configs
+    ADD CONSTRAINT org_slack_configs_pkey PRIMARY KEY (id);
 
 
 --
@@ -3475,6 +3568,13 @@ CREATE INDEX idx_loc_usage_ledger_org_user ON public.loc_usage_ledger USING btre
 
 
 --
+-- Name: idx_mcp_authorizations_status_expiry; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_mcp_authorizations_status_expiry ON public.mcp_authorizations USING btree (status, expires_at);
+
+
+--
 -- Name: idx_org_billing_current_plan; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3486,6 +3586,27 @@ CREATE INDEX idx_org_billing_current_plan ON public.org_billing_state USING btre
 --
 
 CREATE INDEX idx_org_billing_scheduled_effective ON public.org_billing_state USING btree (scheduled_plan_effective_at) WHERE (scheduled_plan_effective_at IS NOT NULL);
+
+
+--
+-- Name: idx_org_slack_configs_enabled; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_slack_configs_enabled ON public.org_slack_configs USING btree (enabled);
+
+
+--
+-- Name: idx_org_slack_configs_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_slack_configs_org_id ON public.org_slack_configs USING btree (org_id);
+
+
+--
+-- Name: idx_org_slack_configs_team_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_slack_configs_team_id ON public.org_slack_configs USING btree (team_id);
 
 
 --
@@ -4428,6 +4549,14 @@ ALTER TABLE ONLY public.org_review_ai_settings
 
 
 --
+-- Name: org_slack_configs org_slack_configs_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_slack_configs
+    ADD CONSTRAINT org_slack_configs_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
 -- Name: orgs orgs_created_by_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4871,7 +5000,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict dbmate
+\unrestrict 4o3kFlMDSbUhHSSq7jO8Pcgb6PjxvSByP99g16AvDHqWxEVtibbvjh6nQGjC44C
 
 
 --
@@ -4942,6 +5071,7 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260411170000'),
     ('20260419193000'),
     ('20260420140334'),
+    ('20260509195524'),
     ('20260521120000'),
     ('20260521140000'),
     ('20260522120000'),
@@ -4955,4 +5085,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260701120000'),
     ('20260702130000'),
     ('20260702140000'),
-    ('20260702141000');
+    ('20260702141000'),
+    ('20260704150001');
