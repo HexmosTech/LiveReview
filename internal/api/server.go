@@ -425,6 +425,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp.RegisterSchema("DELETE", "/api/v1/learnings/:id", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/prompts/catalog", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/prompts/:key/variables", nil, RenderPromptQuery{})
+	mcp.RegisterSchema("GET", "/api/v1/prompts/:key/render", nil, RenderPromptQuery{})
 	mcp.RegisterSchema("POST", "/api/v1/mcp-agent/chat", nil, MCPAgentChatRequest{})
 
 	mcp.RegisterEndpoints([]string{
