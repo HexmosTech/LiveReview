@@ -6,6 +6,7 @@ import LicenseTab from './LicenseTab';
 import SubscriptionTab from './SubscriptionTab';
 import LearningsTab from './LearningsTab';
 import APIKeysTab from './APIKeysTab';
+import IntegrationsTab from './IntegrationsTab';
 import SMTPSettingsTab from './SMTPSettingsTab';
 import { UserManagement } from '../../components/UserManagement';
 import LicenseManagement from '../Licenses/LicenseManagement';
@@ -331,6 +332,16 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
+        // Integrations tab visible to all org members
+        ...((isSuperAdmin || currentOrg) ? [{ 
+            id: 'integrations', 
+            name: 'Integrations', 
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
+                </svg>
+            )
+        }] : []),
         // Plan and Usage tab visible only in cloud mode
         ...(isCloudMode() && (isSuperAdmin || currentOrg) ? [{ 
             id: 'subscriptions', 
@@ -571,7 +582,7 @@ const Settings = () => {
                                     key={tab.id}
                                     variant={activeTab === tab.id ? "primary" : "ghost"} 
                                     fullWidth 
-                                    className="justify-start"
+                                    className="!justify-start"
                                     icon={tab.icon}
                                     onClick={() => navigate(`/settings#${tab.id}`)}
                                 >
@@ -748,6 +759,12 @@ const Settings = () => {
                     {activeTab === 'api-keys' && (isSuperAdmin || currentOrg) && (
                         <Card>
                             <APIKeysTab />
+                        </Card>
+                    )}
+
+                    {activeTab === 'integrations' && (isSuperAdmin || currentOrg) && (
+                        <Card>
+                            <IntegrationsTab />
                         </Card>
                     )}
 
