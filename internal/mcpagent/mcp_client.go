@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sync/atomic"
 	"time"
 
@@ -150,7 +151,17 @@ func CallTool(ctx context.Context, session *MCPSession, name string, args map[st
 }
 
 // doJSONRPC sends a JSON-RPC request and returns the result.
-func doJSONRPC(ctx context.Context, url string, headers map[string]string, id int, method string, params any) (any, error) {
+func doJSONRPC(ctx context.Context, serverURL string, headers map[string]string, id int, method string, params any) (any, error) {
+	parsed, err := url.Parse(serverURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid mcp server url: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, fmt.Errorf("unsupported mcp server url scheme %q", parsed.Scheme)
+	}
+	if parsed.Host == "" {
+		return nil, fmt.Errorf("mcp server url missing host")
+	}
 	reqBody := jsonrpcMessage{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -163,7 +174,7 @@ func doJSONRPC(ctx context.Context, url string, headers map[string]string, id in
 		return nil, fmt.Errorf("json marshal: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, serverURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("http request: %w", err)
 	}
