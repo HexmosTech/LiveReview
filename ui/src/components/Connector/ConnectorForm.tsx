@@ -6,6 +6,7 @@ import GitLabSelfHostedConnector from './GitLabSelfHostedConnector';
 import GitHubConnector from './GitHubConnector';
 import BitbucketConnector from './BitbucketConnector';
 import GiteaConnector from './GiteaConnector';
+import AzureDevOpsConnector from './AzureDevOpsConnector';
 import ConnectorLayout from './ConnectorLayout';
 
 const ConnectorForm: React.FC = () => {
@@ -18,6 +19,7 @@ const ConnectorForm: React.FC = () => {
                 <Route path="github/*" element={<GitHubConnector />} />
                 <Route path="bitbucket/*" element={<BitbucketConnector />} />
                 <Route path="gitea/*" element={<GiteaConnector />} />
+                <Route path="azuredevops/*" element={<AzureDevOpsConnector />} />
                 <Route path="*" element={<Navigate to="/git" replace />} />
             </Routes>
         </ConnectorLayout>

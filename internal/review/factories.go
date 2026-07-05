@@ -11,6 +11,7 @@ import (
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/providers"
+	"github.com/livereview/internal/providers/azuredevops"
 	"github.com/livereview/internal/providers/bitbucket"
 	"github.com/livereview/internal/providers/gitea"
 	"github.com/livereview/internal/providers/github"
@@ -87,6 +88,22 @@ func (f *StandardProviderFactory) CreateProvider(ctx context.Context, config Pro
 		return provider, nil
 	}
 
+	// Handle Azure DevOps variants
+	if strings.HasPrefix(config.Type, "azuredevops") {
+		log.Printf("[DEBUG] Creating Azure DevOps provider")
+		provider, err := azuredevops.NewProvider(azuredevops.Config{
+			BaseURL: config.URL,
+			Token:   config.Token,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create azuredevops provider: %w", err)
+		}
+		if err := provider.Configure(config.Config); err != nil {
+			return nil, err
+		}
+		return provider, nil
+	}
+
 	return nil, fmt.Errorf("unsupported provider type: %s", config.Type)
 }
 
@@ -106,6 +123,10 @@ func (f *StandardProviderFactory) SupportsProvider(providerType string) bool {
 	}
 	// Support Gitea variants
 	if strings.HasPrefix(providerType, "gitea") {
+		return true
+	}
+	// Support Azure DevOps variants
+	if strings.HasPrefix(providerType, "azuredevops") {
 		return true
 	}
 	return false
