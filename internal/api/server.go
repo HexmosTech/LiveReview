@@ -27,6 +27,7 @@ import (
 	"github.com/livereview/internal/license"
 	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/internal/license/payment"
+	"github.com/livereview/internal/slackbot"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	giteaprovider "github.com/livereview/internal/provider_input/gitea"
 	githubprovider "github.com/livereview/internal/provider_input/github"
@@ -137,6 +138,7 @@ type Server struct {
 	licenseScheduler     *license.Scheduler
 	billingActionsCancel context.CancelFunc
 	modelSyncCancel      context.CancelFunc
+	slackBotCancel       context.CancelFunc
 
 	// V2 Webhook Providers
 	gitlabProviderV2    *gitlabprovider.GitLabV2Provider
@@ -153,6 +155,11 @@ type Server struct {
 	webhookOrchestratorV2 *WebhookOrchestratorV2
 
 	learningsService *learnings.Service
+
+	slackBots []*slackbot.Bot
+	slackBot  *slackbot.Bot
+
+	slackOAuthHandler *SlackOAuthHandler
 
 	openapiSpec string
 }
@@ -419,6 +426,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp.RegisterSchema("GET", "/api/v1/prompts/catalog", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/prompts/:key/variables", nil, RenderPromptQuery{})
 	mcp.RegisterSchema("GET", "/api/v1/prompts/:key/render", nil, RenderPromptQuery{})
+	mcp.RegisterSchema("POST", "/api/v1/mcp-agent/chat", nil, MCPAgentChatRequest{})
 
 	mcp.RegisterEndpoints([]string{
 		"/api/v1/auth/me",
@@ -446,9 +454,24 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/aiconnectors/validate-key",
 		"/api/v1/aiconnectors/reorder",
 		"/api/v1/mcp-api-integration-guide",
+		"/api/v1/mcp-agent/chat",
 	})
 
 	mcp.Mount("/api/mcp")
+
+	// Initialize org-scoped Slack bots
+	if os.Getenv("SLACK_APP_TOKEN") != "" {
+		bots, err := startOrgSlackBots(server.db)
+		if err != nil {
+			fmt.Printf("Warning: Failed to initialize Slack bots: %v (Slack bot disabled)\n", err)
+		} else {
+			server.slackBots = bots
+			if len(bots) > 0 {
+				server.slackBot = bots[0]
+			}
+			fmt.Printf("Slack bots initialized for %d org(s) (will start with server)\n", len(bots))
+		}
+	}
 
 	return server, nil
 }
@@ -456,6 +479,97 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 // WorkerContext creates a new Server instance optimized for running background workers (no Echo router initialized)
 func WorkerContext(versionInfo *VersionInfo) (*Server, error) {
 	return appContext(0, versionInfo)
+}
+
+// startOrgSlackBots reads all enabled Slack bot configs from the DB,
+// resolves each org's AI connector, and creates the multi-org Slack bot.
+func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
+	appToken := os.Getenv("SLACK_APP_TOKEN")
+	if appToken == "" {
+		return nil, fmt.Errorf("SLACK_APP_TOKEN is required")
+	}
+
+	configStorage := slackbot.NewStorage(db)
+	configs, err := configStorage.GetAllEnabledConfigs(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to query slack configs: %w", err)
+	}
+	if len(configs) == 0 {
+		return nil, fmt.Errorf("no enabled Slack bot configs found")
+	}
+
+	connectorStorage := aiconnectors.NewStorage(db)
+	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
+	if mcpServerURL == "" {
+		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
+	}
+	maxSteps := 20
+	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
+		if n, err := strconv.Atoi(s); err != nil || n <= 0 {
+			maxSteps = 20
+		} else {
+			maxSteps = n
+		}
+	}
+
+	var orgCfgs []slackbot.OrgConfig
+
+	for _, cfg := range configs {
+		// Find a working AI connector for this org
+		connectors, err := connectorStorage.GetAllConnectors(context.Background(), cfg.OrgID)
+		if err != nil {
+			log.Printf("Slack bot: failed to query connectors for org %d: %v — skipping", cfg.OrgID, err)
+			continue
+		}
+		if len(connectors) == 0 {
+			log.Printf("Slack bot: no AI connectors configured in org %d — skipping", cfg.OrgID)
+			continue
+		}
+
+		var connector *aiconnectors.Connector
+		for _, record := range connectors {
+			options := connectorStorage.GetConnectorOptions(context.Background(), record)
+			c, err := aiconnectors.NewConnector(context.Background(), options)
+			if err != nil {
+				log.Printf("Slack bot org %d: connector %q (%s) failed to init: %v — trying next", cfg.OrgID, record.ConnectorName, record.ProviderName, err)
+				continue
+			}
+			connector = c
+			log.Printf("Slack bot org %d: using connector %q (%s, model=%s)", cfg.OrgID, record.ConnectorName, record.ProviderName, options.ModelConfig.Model)
+			break
+		}
+		if connector == nil {
+			log.Printf("Slack bot: all connectors for org %d failed to initialize — skipping", cfg.OrgID)
+			continue
+		}
+
+		mcpHeaders := map[string]string{"X-API-Key": cfg.APIKey}
+
+		orgCfgs = append(orgCfgs, slackbot.OrgConfig{
+			OrgID:         cfg.OrgID,
+			SlackBotToken: cfg.BotToken,
+			MCPServerURL:  mcpServerURL,
+			MCPHeaders:    mcpHeaders,
+			Connector:     connector,
+			MaxAgentSteps: maxSteps,
+		})
+	}
+
+	if len(orgCfgs) == 0 {
+		return nil, fmt.Errorf("no orgs could be configured for Slack bot")
+	}
+
+	bot, err := slackbot.New(&slackbot.Config{
+		SlackAppToken: appToken,
+		Orgs:          orgCfgs,
+	}, func(orgID int64, teamID string) error {
+		return configStorage.UpdateTeamID(context.Background(), orgID, teamID)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return []*slackbot.Bot{bot}, nil
 }
 
 // SetOpenAPISpec sets the OpenAPI specification content for the integration guide endpoint
@@ -613,6 +727,27 @@ func (s *Server) setupRoutes() {
 	// Cloud user ensure endpoint (now public; handler performs CLOUD_JWT_SECRET validation)
 	public.POST("/auth/ensure-cloud-user", s.authHandlers.EnsureCloudUser)
 
+	// Slack OAuth callback — public (Slack redirects browser here)
+	slackClientID := os.Getenv("SLACK_CLIENT_ID")
+	slackClientSecret := os.Getenv("SLACK_CLIENT_SECRET")
+	slackRedirectURL := os.Getenv("SLACK_REDIRECT_URL")
+	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
+	if mcpServerURL == "" {
+		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
+	}
+	maxSteps := 20
+	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxSteps = n
+		}
+	}
+	if slackClientID != "" && slackClientSecret != "" && slackRedirectURL != "" {
+		slackOAuthHandler := NewSlackOAuthHandler(s.db, slackClientID, slackClientSecret, slackRedirectURL, mcpServerURL, maxSteps, s.slackBot)
+		public.GET("/auth/slack/callback", slackOAuthHandler.SlackOAuthCallback)
+		fmt.Println("Slack OAuth callback endpoint registered")
+		s.slackOAuthHandler = slackOAuthHandler
+	}
+
 	// Protected routes (require authentication - supports both Bearer tokens and API keys)
 	protected := v1.Group("")
 	protected.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
@@ -629,6 +764,12 @@ func (s *Server) setupRoutes() {
 
 	// Clear onboarding API key
 	protected.POST("/onboarding/clear-api-key", s.ClearOnboardingAPIKey)
+
+	// Slack OAuth install — protected (user must be logged in)
+	if s.slackOAuthHandler != nil {
+		protected.GET("/auth/slack/install", s.slackOAuthHandler.InstallSlackBot)
+		fmt.Println("Slack OAuth install endpoint registered")
+	}
 
 	// Self-service profile endpoints
 	protected.GET("/users/profile", s.profileHandlers.GetProfile)
@@ -696,6 +837,12 @@ func (s *Server) setupRoutes() {
 	orgGroup.PUT("/members/:user_id/role", s.orgHandlers.ChangeUserRole)
 	orgGroup.GET("/analytics", s.orgHandlers.GetOrganizationAnalytics)
 	orgGroup.PUT("", s.orgHandlers.UpdateOrganization) // Update org details (owners only)
+
+	// Slack bot configuration within org context
+	slackConfigHandler := NewSlackConfigHandler(s.db)
+	orgGroup.GET("/slack-config", slackConfigHandler.GetSlackConfig)
+	orgGroup.PUT("/slack-config", slackConfigHandler.PutSlackConfig)
+	orgGroup.DELETE("/slack-config", slackConfigHandler.DeleteSlackConfig)
 
 	// API key management within org context
 	orgGroup.POST("/api-keys", s.CreateAPIKeyHandler)
@@ -851,6 +998,14 @@ func (s *Server) setupRoutes() {
 	aiConnectorGroup.DELETE("/:id", s.DeleteAIConnector)
 	aiConnectorGroup.POST("/ollama/models", s.FetchOllamaModels)
 	aiConnectorGroup.GET("/providers/:provider/models", s.GetAIProviderModels)
+
+	// MCP Agent endpoints (organization scoped)
+	mcpAgentGroup := v1.Group("/mcp-agent")
+	mcpAgentGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	mcpAgentGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	mcpAgentGroup.Use(authMiddleware.ValidateOrgAccess())
+	mcpAgentGroup.Use(authMiddleware.BuildPermissionContext())
+	mcpAgentGroup.POST("/chat", s.HandleMCPAgentChat)
 
 	// Dashboard endpoints (organization scoped)
 	dashboardGroup := v1.Group("/dashboard")
@@ -1176,6 +1331,21 @@ func (s *Server) Start() error {
 		syncCtx, cancel := context.WithCancel(context.Background())
 		s.modelSyncCancel = cancel
 		aiconnectors.RunAIModelSyncScheduler(syncCtx, s.db, 24*time.Hour)
+	}
+
+	// Start Slack bots if configured
+	if len(s.slackBots) > 0 {
+		slackCtx, cancel := context.WithCancel(context.Background())
+		s.slackBotCancel = cancel
+		fmt.Printf("Starting %d Slack bot(s)...\n", len(s.slackBots))
+		for _, bot := range s.slackBots {
+			bot := bot
+			go func() {
+				if err := bot.Start(slackCtx); err != nil {
+					fmt.Printf("Slack bot failed: %v\n", err)
+				}
+			}()
+		}
 	}
 
 	// Wait for interrupt signal to gracefully shut down the server
