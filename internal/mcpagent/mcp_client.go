@@ -242,8 +242,8 @@ func validateMCPHost(ctx context.Context, hostport string) error {
 	}
 	for _, addr := range addrs {
 		if ip := net.ParseIP(addr); ip != nil {
-			if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-				return fmt.Errorf("mcp server url host %q resolved to a loopback, private, or link-local address (%s)", host, addr)
+			if ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+				return fmt.Errorf("mcp server url host %q resolved to a private or link-local address (%s)", host, addr)
 			}
 		}
 	}
