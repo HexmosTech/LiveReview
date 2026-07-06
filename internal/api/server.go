@@ -1501,7 +1501,7 @@ func (s *Server) getReviews(c echo.Context) error {
 
 	perPage := 20
 	if perPageStr := c.QueryParam("per_page"); perPageStr != "" {
-		if pp, err := strconv.Atoi(perPageStr); err == nil && pp > 0 && pp <= 100 {
+		if pp, err := strconv.Atoi(perPageStr); err == nil && pp > 0 && pp <= 1000 {
 			perPage = pp
 		}
 	}

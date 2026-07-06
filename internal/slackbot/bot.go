@@ -382,12 +382,15 @@ func (oh *orgHandler) processMessage(channel, ts, threadTS, text string) {
 		finalText = "(no response)"
 	}
 
-	// Try rendering as a Vega-Lite chart report first
-	if strings.Contains(finalText, `"$schema"`) || (strings.Contains(finalText, `"mark"`) && strings.Contains(finalText, `"encoding"`)) || (strings.Contains(finalText, `"title"`) && strings.Contains(finalText, `"spec"`)) {
+	// Try rendering as one or more Vega-Lite chart reports
+	if strings.Contains(finalText, `"$schema"`) ||
+		(strings.Contains(finalText, `"mark"`) && strings.Contains(finalText, `"encoding"`)) ||
+		(strings.Contains(finalText, `"title"`) && strings.Contains(finalText, `"spec"`)) ||
+		strings.Contains(finalText, `"reports"`) {
 		vlCtx, vlCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer vlCancel()
-		if pngData, title, ok := parseAndRenderVegaLiteReport(vlCtx, finalText); ok {
-			oh.uploadReportToSlack(channel, "", pngData, title)
+		if reports, ok := parseAndRenderVegaLiteReports(vlCtx, finalText); ok {
+			oh.uploadReportsToSlack(channel, "", reports)
 			return
 		}
 		log.Printf("[SlackBot] Vega-Lite spec detected but rendering failed, falling back to text")
