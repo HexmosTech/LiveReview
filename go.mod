@@ -206,4 +206,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/BrunoKrugel/echo-mcp => github.com/RijulTP/echo-mcp v0.0.0-20260515165653-fed35ce63af4
+replace github.com/BrunoKrugel/echo-mcp => github.com/RijulTP/echo-mcp v0.0.0-20260521161450-0737ad06cc38

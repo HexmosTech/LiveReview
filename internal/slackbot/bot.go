@@ -169,6 +169,24 @@ func (b *Bot) Start(ctx context.Context) error {
 	return handler.RunEventLoopContext(ctx)
 }
 
+// UpdateBotToken immediately swaps the Slack API client for an org to a new token.
+// This is safe to call before the full connector/agent setup completes, preventing
+// a window where a re-installed bot's old (invalidated) token is still in use.
+func (b *Bot) UpdateBotToken(orgID int64, newToken string) {
+	slackClient := slack.New(newToken, slack.OptionAppLevelToken(b.appToken))
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, oh := range b.orgs {
+		if oh.orgID == orgID {
+			oh.slackClient = slackClient
+			log.Printf("[SlackBot] Org %d: bot token updated immediately", orgID)
+			return
+		}
+	}
+	log.Printf("[SlackBot] Org %d: not found for immediate token update, will be set during AddOrg", orgID)
+}
+
 // AddOrg dynamically registers a new org on a running bot.
 func (b *Bot) AddOrg(oc OrgConfig) error {
 	if oc.SlackBotToken == "" {
@@ -364,12 +382,15 @@ func (oh *orgHandler) processMessage(channel, ts, threadTS, text string) {
 		finalText = "(no response)"
 	}
 
-	// Try rendering as a Vega-Lite chart report first
-	if strings.Contains(finalText, `"$schema"`) || (strings.Contains(finalText, `"mark"`) && strings.Contains(finalText, `"encoding"`)) || (strings.Contains(finalText, `"title"`) && strings.Contains(finalText, `"spec"`)) {
+	// Try rendering as one or more Vega-Lite chart reports
+	if strings.Contains(finalText, `"$schema"`) ||
+		(strings.Contains(finalText, `"mark"`) && strings.Contains(finalText, `"encoding"`)) ||
+		(strings.Contains(finalText, `"title"`) && strings.Contains(finalText, `"spec"`)) ||
+		strings.Contains(finalText, `"reports"`) {
 		vlCtx, vlCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer vlCancel()
-		if pngData, title, ok := parseAndRenderVegaLiteReport(vlCtx, finalText); ok {
-			oh.uploadReportToSlack(channel, "", pngData, title)
+		if reports, ok := parseAndRenderVegaLiteReports(vlCtx, finalText); ok {
+			oh.uploadReportsToSlack(channel, "", reports)
 			return
 		}
 		log.Printf("[SlackBot] Vega-Lite spec detected but rendering failed, falling back to text")
