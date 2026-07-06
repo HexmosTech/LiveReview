@@ -463,8 +463,8 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 
 	mcp.Mount("/api/mcp")
 
-	// Initialize org-scoped Slack bots
-	if os.Getenv("SLACK_APP_TOKEN") != "" {
+	// Initialize org-scoped Slack bots (self-hosted only)
+	if !server.deploymentConfig.IsCloud && os.Getenv("SLACK_APP_TOKEN") != "" {
 		bots, err := startOrgSlackBots(server.db)
 		if err != nil {
 			fmt.Printf("Warning: Failed to initialize Slack bots: %v (Slack bot disabled)\n", err)
@@ -731,10 +731,11 @@ func (s *Server) setupRoutes() {
 	// Cloud user ensure endpoint (now public; handler performs CLOUD_JWT_SECRET validation)
 	public.POST("/auth/ensure-cloud-user", s.authHandlers.EnsureCloudUser)
 
-	// Slack OAuth callback — public (Slack redirects browser here)
+	// Slack OAuth — reads common env vars
 	slackClientID := os.Getenv("SLACK_CLIENT_ID")
 	slackClientSecret := os.Getenv("SLACK_CLIENT_SECRET")
 	slackRedirectURL := os.Getenv("SLACK_REDIRECT_URL")
+	selfURL := os.Getenv("LIVEREVIEW_SELF_URL")
 	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
 	if mcpServerURL == "" {
 		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
@@ -745,11 +746,21 @@ func (s *Server) setupRoutes() {
 			maxSteps = n
 		}
 	}
+
 	if slackClientID != "" && slackClientSecret != "" && slackRedirectURL != "" {
-		slackOAuthHandler := NewSlackOAuthHandler(s.db, slackClientID, slackClientSecret, slackRedirectURL, mcpServerURL, maxSteps, s.slackBot)
-		public.GET("/auth/slack/callback", slackOAuthHandler.SlackOAuthCallback)
-		fmt.Println("Slack OAuth callback endpoint registered")
-		s.slackOAuthHandler = slackOAuthHandler
+		if s.deploymentConfig.IsCloud {
+			// Cloud: proxy callback endpoint (ungated — Slack redirects here)
+			cloudHandler := NewSlackOAuthHandler(s.db, slackClientID, slackClientSecret, slackRedirectURL, mcpServerURL, maxSteps, nil, selfURL, true)
+			public.GET("/auth/slack/proxy-callback", cloudHandler.SlackOAuthProxyCallback)
+			fmt.Println("Slack OAuth proxy callback endpoint registered (cloud)")
+		} else {
+			// Self-hosted: direct callback + install + proxy-receive endpoint
+			slackOAuthHandler := NewSlackOAuthHandler(s.db, slackClientID, slackClientSecret, slackRedirectURL, mcpServerURL, maxSteps, s.slackBot, selfURL, false)
+			public.GET("/auth/slack/callback", slackOAuthHandler.SlackOAuthCallback)
+			public.POST("/orgs/:org_id/slack-proxy-callback", slackOAuthHandler.SlackProxyCallback)
+			fmt.Println("Slack OAuth direct callback registered (self-hosted)")
+			s.slackOAuthHandler = slackOAuthHandler
+		}
 	}
 
 	// Protected routes (require authentication - supports both Bearer tokens and API keys)
@@ -769,8 +780,8 @@ func (s *Server) setupRoutes() {
 	// Clear onboarding API key
 	protected.POST("/onboarding/clear-api-key", s.ClearOnboardingAPIKey)
 
-	// Slack OAuth install — protected (user must be logged in)
-	if s.slackOAuthHandler != nil {
+	// Slack OAuth install — protected (user must be logged in, self-hosted only)
+	if s.slackOAuthHandler != nil && !s.deploymentConfig.IsCloud {
 		protected.GET("/auth/slack/install", s.slackOAuthHandler.InstallSlackBot)
 		fmt.Println("Slack OAuth install endpoint registered")
 	}
@@ -842,11 +853,13 @@ func (s *Server) setupRoutes() {
 	orgGroup.GET("/analytics", s.orgHandlers.GetOrganizationAnalytics)
 	orgGroup.PUT("", s.orgHandlers.UpdateOrganization) // Update org details (owners only)
 
-	// Slack bot configuration within org context
-	slackConfigHandler := NewSlackConfigHandler(s.db)
-	orgGroup.GET("/slack-config", slackConfigHandler.GetSlackConfig)
-	orgGroup.PUT("/slack-config", slackConfigHandler.PutSlackConfig)
-	orgGroup.DELETE("/slack-config", slackConfigHandler.DeleteSlackConfig)
+	// Slack bot configuration within org context (self-hosted only)
+	if !s.deploymentConfig.IsCloud {
+		slackConfigHandler := NewSlackConfigHandler(s.db)
+		orgGroup.GET("/slack-config", slackConfigHandler.GetSlackConfig)
+		orgGroup.PUT("/slack-config", slackConfigHandler.PutSlackConfig)
+		orgGroup.DELETE("/slack-config", slackConfigHandler.DeleteSlackConfig)
+	}
 
 	// API key management within org context
 	orgGroup.POST("/api-keys", s.CreateAPIKeyHandler)
@@ -1517,7 +1530,7 @@ func (s *Server) getReviews(c echo.Context) error {
 
 	perPage := 20
 	if perPageStr := c.QueryParam("per_page"); perPageStr != "" {
-		if pp, err := strconv.Atoi(perPageStr); err == nil && pp > 0 && pp <= 100 {
+		if pp, err := strconv.Atoi(perPageStr); err == nil && pp > 0 && pp <= 1000 {
 			perPage = pp
 		}
 	}
