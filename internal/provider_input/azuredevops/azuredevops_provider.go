@@ -55,7 +55,13 @@ type (
 // SharedSecretHeader is the custom HTTP header Phase 3 configures on the
 // Service Hooks subscription (consumerInputs.httpHeaders) to carry a static
 // shared secret, since Azure DevOps has no HMAC payload-signing scheme.
-const SharedSecretHeader = "X-LiveReview-Secret"
+//
+// Must be written in net/textproto.CanonicalMIMEHeaderKey form ("Livereview",
+// not "LiveReview") - Go's HTTP server canonicalizes every incoming header
+// name to this exact casing before ValidateWebhookSignature's map lookup, so
+// a mismatched constant here silently fails the lookup on every request,
+// regardless of what case Azure DevOps sends the header in on the wire.
+const SharedSecretHeader = "X-Livereview-Secret"
 
 // AzureDevOpsOutputClient captures the outbound capabilities required by the provider.
 type AzureDevOpsOutputClient interface {
