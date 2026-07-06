@@ -111,7 +111,7 @@ RUN echo "🔧 Installing runtime dependencies..." && \
 
 # Download pre-built vl-convert binary (glibc build, no Python needed)
 RUN echo "📥 Downloading vl-convert binary..." && \
-    curl -sL "https://github.com/vega/vl-convert/releases/download/v1.9.0/vl-convert_linux-64.zip" -o /tmp/vl-convert.zip && \
+    curl -sL --fail "https://github.com/vega/vl-convert/releases/download/v1.9.0/vl-convert_linux-64.zip" -o /tmp/vl-convert.zip && \
     unzip -o /tmp/vl-convert.zip -d /tmp/vl-convert-extracted && \
     cp /tmp/vl-convert-extracted/bin/vl-convert /usr/local/bin/vl-convert && \
     chmod +x /usr/local/bin/vl-convert && \
