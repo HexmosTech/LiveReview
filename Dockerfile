@@ -94,24 +94,34 @@ RUN echo "✅ Verifying installed tools..." && \
     echo "All tools and migrations verified successfully"
 
 # Stage 3: Create minimal runtime container
-FROM alpine:3.18
+FROM ubuntu:24.04
 LABEL maintainer="LiveReview Team"
 LABEL description="LiveReview - AI-powered code review tool"
 
 # Install runtime dependencies
 RUN echo "🔧 Installing runtime dependencies..." && \
-    apk add --no-cache \
+    apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     postgresql-client \
     tzdata \
-    && rm -rf /var/cache/apk/* && \
+    unzip \
+    && rm -rf /var/lib/apt/lists/* && \
     echo "Runtime dependencies installed successfully"
+
+# Download pre-built vl-convert binary (glibc build, no Python needed)
+RUN echo "📥 Downloading vl-convert binary..." && \
+    curl -sL --fail "https://github.com/vega/vl-convert/releases/download/v1.9.0/vl-convert_linux-64.zip" -o /tmp/vl-convert.zip && \
+    unzip -o /tmp/vl-convert.zip -d /tmp/vl-convert-extracted && \
+    cp /tmp/vl-convert-extracted/bin/vl-convert /usr/local/bin/vl-convert && \
+    chmod +x /usr/local/bin/vl-convert && \
+    rm -rf /tmp/vl-convert.zip /tmp/vl-convert-extracted && \
+    echo "vl-convert installed: $(/usr/local/bin/vl-convert --version 2>&1 || true)"
 
 # Create non-root user for security
 RUN echo "👤 Creating non-root user..." && \
-    addgroup -g 1001 -S livereview && \
-    adduser -u 1001 -S livereview -G livereview && \
+    groupadd -g 1001 -r livereview && \
+    useradd -u 1001 -r -g livereview -d /app -s /sbin/nologin livereview && \
     echo "User 'livereview' created successfully"
 
 # Create directories

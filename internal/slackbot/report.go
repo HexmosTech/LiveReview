@@ -21,42 +21,91 @@ const (
 
 // VegaLiteReport is the expected JSON wrapper from the LLM.
 type VegaLiteReport struct {
-	Title    string          `json:"title"`
-	Subtitle string          `json:"subtitle,omitempty"`
-	Spec     json.RawMessage `json:"spec"`
+	Title       string          `json:"title"`
+	Subtitle    string          `json:"subtitle,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Spec        json.RawMessage `json:"spec"`
 }
 
-// renderVegaLiteReport extracts a Vega-Lite spec from the LLM response,
-// runs vl-convert vl2png, and returns the PNG bytes and a friendly title.
-func renderVegaLiteReport(ctx context.Context, raw string) ([]byte, string, error) {
+// renderedReport holds a single rendered chart with its metadata.
+type renderedReport struct {
+	PNGData     []byte
+	Title       string
+	Description string
+}
+
+// renderVegaLiteReports parses the LLM response and renders 1+ charts.
+// Supports: single report, raw spec, and multi-report ({"reports": [...]}).
+func renderVegaLiteReports(ctx context.Context, raw string) ([]renderedReport, error) {
 	body := extractJSONBlock(raw)
+
+	// Try multi-report format: {"reports": [...]}
+	var multi struct {
+		Reports []VegaLiteReport `json:"reports"`
+	}
+	if err := json.Unmarshal([]byte(body), &multi); err == nil && len(multi.Reports) > 0 {
+		return renderReports(ctx, multi.Reports)
+	}
 
 	// Try wrapped format: { "title": "...", "spec": { ...vega-lite... } }
 	var wrapped VegaLiteReport
 	if err := json.Unmarshal([]byte(body), &wrapped); err == nil && len(wrapped.Spec) > 0 {
 		spec, err := normalizeVegaLiteSpec(wrapped.Spec)
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
 		png, err := convertVegaLiteToPNG(ctx, spec)
-		return png, friendlyTitle(wrapped.Title, wrapped.Subtitle), err
+		if err != nil {
+			return nil, err
+		}
+		return []renderedReport{{
+			PNGData:     png,
+			Title:       friendlyTitle(wrapped.Title, wrapped.Subtitle),
+			Description: wrapped.Description,
+		}}, nil
 	}
 
 	// Try raw Vega-Lite spec: { "$schema": "...", "mark": "bar", ... }
 	var rawMap map[string]any
 	if err := json.Unmarshal([]byte(body), &rawMap); err != nil {
-		return nil, "", fmt.Errorf("invalid JSON: %w", err)
+		return nil, fmt.Errorf("invalid JSON: %w", err)
 	}
 	if _, ok := rawMap["$schema"]; !ok && rawMap["mark"] == nil && rawMap["layer"] == nil && rawMap["vconcat"] == nil && rawMap["hconcat"] == nil {
-		return nil, "", fmt.Errorf("not a Vega-Lite specification")
+		return nil, fmt.Errorf("not a Vega-Lite specification")
 	}
-
 	spec, err := normalizeVegaLiteSpec([]byte(body))
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	png, err := convertVegaLiteToPNG(ctx, spec)
-	return png, "LiveReview Chart", err
+	if err != nil {
+		return nil, err
+	}
+	return []renderedReport{{PNGData: png, Title: "LiveReview Chart"}}, nil
+}
+
+// renderReports renders a slice of VegaLiteReport entries, skipping any that fail.
+func renderReports(ctx context.Context, reports []VegaLiteReport) ([]renderedReport, error) {
+	var out []renderedReport
+	for _, r := range reports {
+		spec, err := normalizeVegaLiteSpec(r.Spec)
+		if err != nil {
+			continue
+		}
+		png, err := convertVegaLiteToPNG(ctx, spec)
+		if err != nil {
+			continue
+		}
+		out = append(out, renderedReport{
+			PNGData:     png,
+			Title:       friendlyTitle(r.Title, r.Subtitle),
+			Description: r.Description,
+		})
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no reports could be rendered")
+	}
+	return out, nil
 }
 
 // normalizeVegaLiteSpec injects consistent styling into a Vega-Lite spec.
@@ -222,32 +271,40 @@ func convertVegaLiteToPNG(ctx context.Context, spec []byte) ([]byte, error) {
 	return pngData, nil
 }
 
-// uploadReportToSlack uploads a PNG image to the Slack channel as a file reply.
-func (oh *orgHandler) uploadReportToSlack(channel, threadTS string, pngData []byte, title string) {
-	params := slack.UploadFileParameters{
-		Channel:         channel,
-		Content:         string(pngData),
-		Filename:        "report.png",
-		Title:           title,
-		FileSize:        len(pngData),
-		ThreadTimestamp: threadTS,
-	}
-	if _, err := oh.slackClient.UploadFileContext(context.Background(), params); err != nil {
-		if strings.Contains(err.Error(), "missing_scope") {
-			log.Printf("[SlackBot] Failed to upload report image: Slack bot token is missing the 'files:write' scope. Add it in your Slack app settings and reinstall the app.")
-		} else {
-			log.Printf("[SlackBot] Failed to upload report image: %s", err)
+// uploadReportsToSlack uploads one or more PNG images to the Slack channel.
+// Each report's description is sent as the initial comment alongside the image.
+func (oh *orgHandler) uploadReportsToSlack(channel, threadTS string, reports []renderedReport) {
+	for i, r := range reports {
+		filename := "report.png"
+		if len(reports) > 1 {
+			filename = fmt.Sprintf("report_%d.png", i+1)
+		}
+		params := slack.UploadFileParameters{
+			Channel:         channel,
+			Content:         string(r.PNGData),
+			Filename:        filename,
+			Title:           r.Title,
+			FileSize:        len(r.PNGData),
+			InitialComment:  r.Description,
+			ThreadTimestamp: threadTS,
+		}
+		if _, err := oh.slackClient.UploadFileContext(context.Background(), params); err != nil {
+			if strings.Contains(err.Error(), "missing_scope") {
+				log.Printf("[SlackBot] Failed to upload report image: Slack bot token is missing the 'files:write' scope.")
+			} else {
+				log.Printf("[SlackBot] Failed to upload report image: %s", err)
+			}
 		}
 	}
 }
 
-// parseAndRenderVegaLiteReport tries to parse the LLM output as a Vega-Lite spec
-// and render it as a PNG image. Returns (pngData, title, ok).
-func parseAndRenderVegaLiteReport(ctx context.Context, text string) ([]byte, string, bool) {
-	data, title, err := renderVegaLiteReport(ctx, text)
+// parseAndRenderVegaLiteReports tries to parse the LLM output as one or more
+// Vega-Lite specs and render each as a PNG image.
+func parseAndRenderVegaLiteReports(ctx context.Context, text string) ([]renderedReport, bool) {
+	reports, err := renderVegaLiteReports(ctx, text)
 	if err != nil {
 		log.Printf("[SlackBot] Vega-Lite render failed: %s", err)
-		return nil, "", false
+		return nil, false
 	}
-	return data, title, true
+	return reports, true
 }

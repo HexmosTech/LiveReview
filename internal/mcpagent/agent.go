@@ -12,7 +12,7 @@ import (
 
 const (
 	DefaultMaxAgentSteps = 20
-	maxToolResultLen     = 20000
+	maxToolResultLen     = 200000
 	toolResultPreviewLen = 500
 )
 
@@ -74,7 +74,7 @@ func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText st
 			displayLen := len(content)
 			content = truncateContent(content, maxToolResultLen)
 			if displayLen > maxToolResultLen {
-				content += "\n\n_[Result truncated to " + fmt.Sprintf("%d", maxToolResultLen) + " characters — original was " + fmt.Sprintf("%d", displayLen) + " chars. If you need complete data for aggregation, request additional pages or a higher perPage limit.]_"
+				content += "\n\n_[Result truncated to " + fmt.Sprintf("%d", maxToolResultLen) + " characters — original was " + fmt.Sprintf("%d", displayLen) + " chars. You can request data in smaller batches (lower perPage) or additional pages.]_"
 			}
 			log.Debug().Str("tool", tc.Name).Int("result_len", displayLen).Msg("MCP tool result received")
 			log.Debug().Str("tool", tc.Name).Str("result_preview", content[:min(len(content), toolResultPreviewLen)]).Msg("MCP tool result (truncated for LLM)")
@@ -128,18 +128,21 @@ func buildSystemPrompt(tools []MCPToolDef) string {
 	b.WriteString("  - **Fallback tool for per-review LOC**: `GET_api_v1_reviews_id_accounting` returns `totalBillableLoc` for a single review. Use it if you need to cross-reference reviews with their LOC.\n")
 	b.WriteString("  - **Org summary**: `GET_api_v1_billing_usage_summary` gives org-wide LOC totals.\n")
 	b.WriteString("  - If `GET_api_v1_billing_usage_members` returns a permission error, fall back to counting reviews per user via `GET_api_v1_reviews` and explain that LOC data requires billing access.\n\n")
-	b.WriteString("- **Pagination**: list endpoints like `GET_api_v1_reviews` return paginated results (`page`, `perPage`, `hasNext`, `hasPrevious`).\n")
+	b.WriteString("- **Pagination**: list endpoints like `GET_api_v1_reviews` return paginated results (`page`, `per_page`, `hasNext`, `hasPrevious`).\n")
 	b.WriteString("  - Default is often 20 items per page.\n")
-	b.WriteString("  - For accurate aggregation or rankings, request more data by setting a higher `perPage` (e.g. 100) or fetching additional `page` values.\n")
-	b.WriteString("  - If the result is truncated or you see `hasNext: true`, fetch the next page(s) before aggregating.\n")
-	b.WriteString("  - Do NOT report partial results as complete — either fetch all pages or clearly state the data is paginated.\n\n")
+	b.WriteString("  - For accurate aggregation or full data, request `per_page=200` to get a good batch in one call.\n")
+	b.WriteString("  - If you see `hasNext: true`, request the next page with `page=2` (and `page=3`, etc.) until all data is collected.\n")
+	b.WriteString("  - NEVER report 'data is partial due to pagination' — instead, actually fetch the remaining page(s). You have enough steps.\n")
+	b.WriteString("  - IMPORTANT: Use EXACT parameter names from the tool's inputSchema. Reviews uses `per_page` (snake_case), not `perPage`.\n\n")
 
-	b.WriteString("Common patterns:\n")
-	b.WriteString("- 'Top reviewers by review count' → `GET_api_v1_reviews` with high `perPage` → group by `authorUsername` → count → sort descending\n")
-	b.WriteString("- 'Reviews per user' → `GET_api_v1_reviews` with high `perPage` → group by `authorUsername` → count\n")
+	b.WriteString("Common patterns (use exact parameter names from tool inputSchema — `per_page` not `perPage`):\n")
+	b.WriteString("- 'Top reviewers by review count' → `GET_api_v1_reviews` with `per_page=200` → if more exist, fetch pages → group by `authorUsername` → count → sort descending\n")
+	b.WriteString("- 'Reviews per user' → `GET_api_v1_reviews` with `per_page=200` → if more exist, fetch pages → group by `authorUsername` → count → sort descending\n")
+	b.WriteString("- 'Reviews per week/month' → `GET_api_v1_reviews` with `per_page=200` → if more exist, fetch pages → group by week/month → count → chart\n")
+	b.WriteString("- 'Review trends' / 'activity over time' → `GET_api_v1_reviews` with `per_page=200` → if more exist, fetch pages → sort by `createdAt` → group by time period\n")
 	b.WriteString("- 'Who got the most code reviewed' / 'Top users by LOC' → `GET_api_v1_billing_usage_members` → sort by `total_billable_loc` descending\n")
 	b.WriteString("- 'LOC per review' → `GET_api_v1_reviews` → for each review call `GET_api_v1_reviews_id_accounting` → read `totalBillableLoc`\n")
-	b.WriteString("- 'Recent reviews' → `GET_api_v1_reviews` → sort by `createdAt` descending\n\n")
+	b.WriteString("- 'Recent reviews' → `GET_api_v1_reviews` with `per_page=20` → sort by `createdAt` descending\n\n")
 
 	b.WriteString("## Calling Tools\n")
 	b.WriteString("When you need to call a tool, respond with a JSON code block like this:\n")
@@ -154,9 +157,11 @@ func buildSystemPrompt(tools []MCPToolDef) string {
 	b.WriteString("### Option A: Vega-Lite Chart Report (Recommended for data/charts)\n")
 	b.WriteString("For ANY question involving numbers, counts, rankings, comparisons, trends, or aggregated data, ")
 	b.WriteString("ALWAYS output a Vega-Lite specification. It will be rendered as a PNG image and sent to Slack.\n")
-	b.WriteString("Do not wait for the user to explicitly ask for a chart — if the answer can be visualized, visualize it.\n")
-	b.WriteString("Use this wrapped format:\n\n")
-	b.WriteString("```json\n{\n  \"title\": \"Monthly Review Volume\",\n  \"subtitle\": \"Reviews completed per month\",\n")
+	b.WriteString("Do not wait for the user to explicitly ask for a chart — if the answer can be visualized, visualize it.\n\n")
+
+	b.WriteString("#### Single Chart\n")
+	b.WriteString("Use this wrapped format for a single chart:\n\n")
+	b.WriteString("```json\n{\n  \"title\": \"Monthly Review Volume\",\n  \"subtitle\": \"Reviews completed per month\",\n  \"description\": \"*27 reviews* in Mar, up from 19 in Feb and 12 in Jan. Overall trend: increasing.\",\n")
 	b.WriteString("  \"spec\": {\n")
 	b.WriteString("    \"$schema\": \"https://vega.github.io/schema/vega-lite/v5.json\",\n")
 	b.WriteString("    \"description\": \"Monthly review volume\",\n")
@@ -167,9 +172,23 @@ func buildSystemPrompt(tools []MCPToolDef) string {
 	b.WriteString("    \"encoding\": {\n      \"x\": {\"field\": \"month\", \"type\": \"ordinal\"},\n")
 	b.WriteString("      \"y\": {\"field\": \"reviews\", \"type\": \"quantitative\"}\n")
 	b.WriteString("    }\n  }\n}\n```\n\n")
+	b.WriteString("- **`description` is critical**: it is rendered as text alongside the image in Slack.\n")
+	b.WriteString("- Write *specific, data-driven descriptions*: include actual numbers (totals, averages, top values), trends, and comparisons.\n")
+	b.WriteString("- Bad (vague): 'This chart shows review activity.'\n")
+	b.WriteString("- Good (specific): '*42 reviews* total. Alice led with *15 reviews*, followed by Bob with *12*. March saw the highest activity with *27 reviews*.'\n\n")
+
+	b.WriteString("#### Multiple Charts\n")
+	b.WriteString("If a prompt asks for multiple comparisons or data that is best shown in separate charts, ")
+	b.WriteString("output a `reports` array. Each report is rendered as its own PNG image:\n\n")
+	b.WriteString("```json\n{\n  \"reports\": [\n    {\n      \"title\": \"Reviews by User\",\n      \"description\": \"*Top reviewers* by count of reviews performed.\",\n")
+	b.WriteString("      \"spec\": { \"$schema\": \"...\", \"width\": 600, \"height\": 300, \"data\": { \"values\": [...] }, \"mark\": \"bar\", \"encoding\": {...} }\n")
+	b.WriteString("    },\n    {\n      \"title\": \"Reviews by Month\",\n      \"description\": \"*Monthly trend* of review completion.\",\n")
+	b.WriteString("      \"spec\": { \"$schema\": \"...\", \"width\": 600, \"height\": 300, \"data\": { \"values\": [...] }, \"mark\": \"line\", \"encoding\": {...} }\n")
+	b.WriteString("    }\n  ]\n}\n```\n\n")
+	b.WriteString("Each report in the array gets its own `title`, `description` (Slack mrkdwn text), and `spec`.\n\n")
 
 	b.WriteString("Rules for Vega-Lite:\n")
-	b.WriteString("- ALWAYS wrap it in `{\"title\": \"...\", \"subtitle\": \"...\", \"spec\": {...}}`\n")
+	b.WriteString("- ALWAYS wrap it in the title/subtitle/description/spec format (or reports array for multiple)\n")
 	b.WriteString("- ALWAYS embed data in the `data.values` array — do not reference external URLs\n")
 	b.WriteString("- Set `width` to 600 and `height` to 300-400 for good Slack display\n")
 	b.WriteString("- Use clean, readable marks: `bar`, `line`, `area`, `point`, `arc` (pie), `rect` (heatmap)\n")
@@ -183,12 +202,14 @@ func buildSystemPrompt(tools []MCPToolDef) string {
 	b.WriteString("Use *bold* headings, bullet lists, `code` for inline values, and `>quotes` for callouts.\n\n")
 
 	b.WriteString("General rules:\n")
-	b.WriteString("- For ANY question involving numbers, counts, rankings, comparisons, trends, or aggregated data, use Option A (Vega-Lite image report) by default\n")
-	b.WriteString("- Only use Option B for purely textual/simple Q&A with no data to visualize\n")
-	b.WriteString("- You can and should aggregate, count, sort, and rank data returned by tools\n")
-	b.WriteString("- Tool results may be paginated (e.g. `page`, `perPage`). If a user asks for totals or rankings, use the data you have and note if it is paginated\n")
-	b.WriteString("- Do not call the same tool repeatedly with the same arguments\n")
-	b.WriteString("- If a result is insufficient, explain what additional information you need\n")
+	b.WriteString("- For ANY question involving numbers, counts, rankings, comparisons, trends, or aggregated data, use Option A (Vega-Lite image report) by default.\n")
+	b.WriteString("- Only use Option B for purely textual/simple Q&A with no data to visualize.\n")
+	b.WriteString("- You can and should aggregate, count, sort, and rank data returned by tools. Always provide *specific numbers* in descriptions.\n")
+	b.WriteString("- Always request `per_page=200` first. If you see `hasNext: true`, fetch subsequent pages by incrementing `page`.\n")
+	b.WriteString("- NEVER say 'data is partial due to pagination' — that is a bug. Always fetch all remaining pages to get complete data.\n")
+	b.WriteString("- Use EXACT parameter names from each tool's inputSchema. Reviews uses `per_page` (snake_case), billing uses `total_billable_loc`.\n")
+	b.WriteString("- Do not call the same tool repeatedly with the same arguments.\n")
+	b.WriteString("- In descriptions, include concrete numbers: totals, averages, top values, comparisons. Not just chart titles.\n")
 
 	return b.String()
 }
