@@ -152,6 +152,18 @@ func azureSubscriptionMatches(sub azureSubscription, eventType, repositoryID, we
 	return consumerURL == webhookURL
 }
 
+// azureSubscriptionHeaderStale reports whether a matched subscription's
+// stored secret header differs from the currently configured one. Matching
+// only on event/repo/URL (azureSubscriptionMatches) would otherwise silently
+// keep serving a subscription created before a secret existed (or with an
+// older secret) forever - Azure DevOps never re-sends consumerInputs, so a
+// stale header causes every inbound webhook to fail signature validation
+// with no visible symptom other than a rejected request at delivery time.
+func azureSubscriptionHeaderStale(sub azureSubscription, expectedHeader string) bool {
+	got, _ := sub.ConsumerInputs["httpHeaders"].(string)
+	return got != expectedHeader
+}
+
 // installAzureDevOpsSubscriptions creates the 3 Service Hooks subscriptions
 // (one per event type - Azure DevOps has no multi-event subscription) needed
 // to drive the webhook-based interactive flow for one repository. Existing
@@ -182,10 +194,6 @@ func (w *WebhookInstallWorker) installAzureDevOpsSubscriptions(ctx context.Conte
 				break
 			}
 		}
-		if matched != nil {
-			subscriptionIDs = append(subscriptionIDs, matched.ID)
-			continue
-		}
 
 		payload := map[string]interface{}{
 			"publisherId":      "tfs",
@@ -201,6 +209,29 @@ func (w *WebhookInstallWorker) installAzureDevOpsSubscriptions(ctx context.Conte
 				"url":         webhookURL,
 				"httpHeaders": secretHeader,
 			},
+		}
+
+		if matched != nil {
+			if !azureSubscriptionHeaderStale(*matched, secretHeader) {
+				subscriptionIDs = append(subscriptionIDs, matched.ID)
+				continue
+			}
+
+			log.Printf("Azure DevOps subscription %s for event %s (repo=%s) has a stale secret header, updating", matched.ID, eventType, repositoryID)
+			apiURL := fmt.Sprintf("%s/_apis/hooks/subscriptions/%s?api-version=7.1", apiBase, matched.ID)
+			resp, err := w.makeAzureDevOpsRequest(ctx, http.MethodPut, apiURL, payload, pat)
+			if err != nil {
+				return subscriptionIDs, fmt.Errorf("failed to update subscription for %s: %w", eventType, err)
+			}
+			respBody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				return subscriptionIDs, fmt.Errorf("azure devops subscription update failed for %s (status %d): %s",
+					eventType, resp.StatusCode, string(respBody))
+			}
+			subscriptionIDs = append(subscriptionIDs, matched.ID)
+			continue
 		}
 
 		apiURL := fmt.Sprintf("%s/_apis/hooks/subscriptions?api-version=7.1", apiBase)
