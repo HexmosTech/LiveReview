@@ -118,6 +118,47 @@ func TestAzureSubscriptionMatches(t *testing.T) {
 	}
 }
 
+// TestAzureSubscriptionHeaderStale locks in the fix for a bug where a
+// subscription created before a secret was configured (or with an older
+// secret) was reused forever by azureSubscriptionMatches, silently leaving
+// its live consumerInputs.httpHeaders out of sync with the DB - causing every
+// inbound webhook to fail signature validation with no visible symptom other
+// than a rejected request at delivery time.
+func TestAzureSubscriptionHeaderStale(t *testing.T) {
+	const expected = "X-LiveReview-Secret: super-secret-string"
+
+	tests := []struct {
+		name string
+		sub  azureSubscription
+		want bool
+	}{
+		{
+			name: "matching header is not stale",
+			sub:  azureSubscription{ConsumerInputs: map[string]any{"httpHeaders": expected}},
+			want: false,
+		},
+		{
+			name: "missing header is stale",
+			sub:  azureSubscription{ConsumerInputs: map[string]any{}},
+			want: true,
+		},
+		{
+			name: "different secret is stale",
+			sub:  azureSubscription{ConsumerInputs: map[string]any{"httpHeaders": "X-LiveReview-Secret: old-secret"}},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := azureSubscriptionHeaderStale(tt.sub, expected)
+			if got != tt.want {
+				t.Errorf("azureSubscriptionHeaderStale() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestAzureDevOpsSubscriptionEventTypes locks in the 3 required event types.
 // Azure DevOps has no multi-event subscription, so each is a separate object.
 // The comment event id deliberately does not follow the git.pullrequest.*
