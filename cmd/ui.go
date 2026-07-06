@@ -132,14 +132,20 @@ func UICommand(uiAssets embed.FS) *cli.Command {
 					apiProxy.ServeHTTP(w, r)
 					return
 				}
-				// Try to serve the requested file
-				if r.URL.Path != "/" {
-					// Check if file exists in embedded filesystem
-					if _, err := fs.Stat(distFS, r.URL.Path[1:]); err == nil {
-						fileServer.ServeHTTP(w, r)
-						return
-					}
+			// Try to serve the requested file
+			if r.URL.Path != "/" {
+				// Check if file exists in embedded filesystem
+				if _, err := fs.Stat(distFS, r.URL.Path[1:]); err == nil {
+					fileServer.ServeHTTP(w, r)
+					return
 				}
+				// Fallback: some files (e.g. slack-logo.png) are in public/ subdir of dist
+				if _, err := fs.Stat(distFS, "public"+r.URL.Path); err == nil {
+					r.URL.Path = "/public" + r.URL.Path
+					fileServer.ServeHTTP(w, r)
+					return
+				}
+			}
 
 				// If file doesn't exist or root path, serve modified index.html for SPA routing
 				w.Header().Set("Content-Type", "text/html")
