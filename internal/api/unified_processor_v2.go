@@ -1720,11 +1720,7 @@ func (p *UnifiedProcessorV2Impl) buildAzureDevOpsArtifactFromEvent(ctx context.C
 		err   error
 	)
 	if connectorID, ok := parseInt64MetadataValue(event.MergeRequest.Metadata, "connector_id"); ok && connectorID > 0 {
-		if connectorID > int64(math.MaxInt) {
-			log.Printf("[WARN] Azure DevOps connector_id out of range for int conversion: connector=%d org=%d", connectorID, orgID)
-			return nil, fmt.Errorf("azure devops integration token lookup failed (connector_id %d exceeds platform int range)", connectorID)
-		}
-		token, _, err = azuredevopsinput.FindIntegrationTokenByConnectorID(p.server.DB(), int(connectorID))
+		token, _, err = azuredevopsinput.FindIntegrationTokenByConnectorID(p.server.DB(), connectorID)
 		if err != nil {
 			log.Printf("[WARN] Azure DevOps token lookup by connector_id failed for connector=%d org=%d: %v", connectorID, orgID, err)
 			return nil, fmt.Errorf("azure devops integration token lookup failed (positive connector ID provided but lookup failed)")
