@@ -166,7 +166,7 @@ func (lp *LearningProcessorV2Impl) ApplyLearning(learning *LearningMetadataV2) e
 	simhash := lp.calculateSimpleHash(learning.Content)
 
 	// Extract source URLs from metadata
-	var sourceURLs []string
+	sourceURLs := []string{}
 	if urls, ok := learning.Metadata["source_urls"].([]string); ok {
 		sourceURLs = urls
 	} else if urlsInterface, ok := learning.Metadata["source_urls"].([]interface{}); ok {
@@ -176,6 +176,11 @@ func (lp *LearningProcessorV2Impl) ApplyLearning(learning *LearningMetadataV2) e
 				sourceURLs = append(sourceURLs, urlStr)
 			}
 		}
+	}
+	// pq.Array(nil) inserts SQL NULL, which violates source_urls' NOT NULL
+	// constraint - can happen for any provider/event with zero source URLs.
+	if sourceURLs == nil {
+		sourceURLs = []string{}
 	}
 
 	// Create proper source context JSON

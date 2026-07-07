@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/livereview/internal/providers/azuredevops"
 	"github.com/livereview/internal/providers/bitbucket"
 	"github.com/livereview/internal/providers/gitea"
 	"github.com/livereview/internal/providers/github"
@@ -156,7 +157,9 @@ func (awi *AutoWebhookInstaller) shouldAutoInstall(connector *ConnectorDetails) 
 
 	isGitea := connector.Provider == "gitea"
 
-	if !isGitLab && !isGitHub && !isGitea {
+	isAzureDevOps := strings.HasPrefix(connector.Provider, "azuredevops")
+
+	if !isGitLab && !isGitHub && !isGitea && !isAzureDevOps {
 		return false
 	}
 
@@ -194,6 +197,9 @@ func (awi *AutoWebhookInstaller) discoverAndCacheProjects(connectorID int, conne
 			return nil, fmt.Errorf("bitbucket connector missing email in metadata")
 		}
 		projects, err = bitbucket.DiscoverProjectsBitbucket(connector.ProviderURL, email, connector.PATToken)
+	} else if strings.HasPrefix(connector.Provider, "azuredevops") {
+		// Use the Azure DevOps project discovery function
+		projects, err = azuredevops.DiscoverProjectsAzureDevOps(connector.ProviderURL, connector.PATToken)
 	} else {
 		return nil, fmt.Errorf("unsupported provider: %s", connector.Provider)
 	}

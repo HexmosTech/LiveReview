@@ -25,6 +25,7 @@ func NewWebhookProviderRegistry(server *Server) *WebhookProviderRegistry {
 	registry.providers["github"] = server.githubProviderV2
 	registry.providers["bitbucket"] = server.bitbucketProviderV2
 	registry.providers["gitea"] = server.giteaProviderV2
+	registry.providers["azuredevops"] = server.azuredevopsProviderV2
 
 	log.Printf("[INFO] Webhook provider registry initialized with providers: %v",
 		registry.getProviderNames())
@@ -52,7 +53,7 @@ func (r *WebhookProviderRegistry) DetectProvider(headers map[string]string, body
 	log.Printf("[DEBUG] Detecting provider for webhook with headers: %v", getRelevantHeaders(headers))
 
 	// Check providers in priority order (Gitea before GitHub since Gitea sends GitHub-compatible headers)
-	priorityOrder := []string{"gitea", "gitlab", "github", "bitbucket"}
+	priorityOrder := []string{"gitea", "azuredevops", "gitlab", "github", "bitbucket"}
 
 	for _, providerName := range priorityOrder {
 		provider, exists := r.providers[providerName]
