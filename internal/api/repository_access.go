@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/livereview/internal/providers/azuredevops"
 	"github.com/livereview/internal/providers/bitbucket"
 	"github.com/livereview/internal/providers/gitea"
 	"github.com/livereview/internal/providers/github"
@@ -134,10 +135,10 @@ func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool,
 		// If unmarshaling fails, continue with fresh fetch
 	}
 
-	// Support GitLab, GitHub, Bitbucket, and Gitea providers
+	// Support GitLab, GitHub, Bitbucket, Gitea, and Azure DevOps providers
 	if provider != "gitlab" && provider != "gitlab-com" && provider != "gitlab-self-hosted" &&
 		provider != "github" && provider != "github-com" && provider != "github-enterprise" &&
-		provider != "bitbucket" && provider != "gitea" {
+		provider != "bitbucket" && provider != "gitea" && provider != "azuredevops" {
 		response.Error = fmt.Sprintf("Repository discovery not yet implemented for provider: %s", provider)
 		if shouldCache {
 			s.updateProjectsCache(connectorID, response)
@@ -178,6 +179,9 @@ func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool,
 			return response, nil
 		}
 		projects, err = bitbucket.DiscoverProjectsBitbucket(providerURL, email, patToken)
+	} else if strings.HasPrefix(provider, "azuredevops") {
+		// Use the Azure DevOps project discovery function
+		projects, err = azuredevops.DiscoverProjectsAzureDevOps(providerURL, patToken)
 	} else {
 		response.Error = fmt.Sprintf("Unsupported provider: %s", provider)
 		if shouldCache {

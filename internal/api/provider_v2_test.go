@@ -483,7 +483,9 @@ func TestProviderRegistry(t *testing.T) {
 	assert.Contains(t, providers, "gitlab")
 	assert.Contains(t, providers, "github")
 	assert.Contains(t, providers, "bitbucket")
-	assert.Equal(t, 3, stats["total_providers"])
+	assert.Contains(t, providers, "gitea")
+	assert.Contains(t, providers, "azuredevops")
+	assert.Equal(t, 5, stats["total_providers"])
 
 	// Test provider registration
 	mockProvider := &MockProviderV2{name: "test-provider"}
@@ -492,7 +494,7 @@ func TestProviderRegistry(t *testing.T) {
 	updatedStats := registry.GetProviderStats()
 	updatedProviders := updatedStats["providers"].([]string)
 	assert.Contains(t, updatedProviders, "test")
-	assert.Equal(t, 4, updatedStats["total_providers"])
+	assert.Equal(t, 6, updatedStats["total_providers"])
 }
 
 func TestUnifiedTypes(t *testing.T) {
