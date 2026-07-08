@@ -58,7 +58,10 @@ type ModelConfig struct {
 
 // ConnectorOptions contains options for creating a connector
 type ConnectorOptions struct {
-	Provider       Provider    `json:"provider"`
+	Provider Provider `json:"provider"`
+	// APIKey is reused per-provider beyond a plain API key: for gemini-enterprise it holds the
+	// GCP service account JSON, and for bedrock it holds the AWS Secret Access Key (paired with
+	// AWSAccessKeyID below).
 	APIKey         string      `json:"api_key"`
 	BaseURL        string      `json:"base_url,omitempty"`
 	ModelConfig    ModelConfig `json:"model_config,omitempty"`
