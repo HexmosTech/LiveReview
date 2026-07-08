@@ -31,6 +31,7 @@ import {
     AdaptiveReviewInfo
 } from './components';
 import OllamaConnectorForm from './components/OllamaConnectorForm';
+import BedrockConnectorForm from './components/BedrockConnectorForm';
 
 // Utils
 import { generateFriendlyNameForProvider, getProviderDetails } from './utils/nameUtils';
@@ -105,6 +106,14 @@ const popularAIProviders: AIProvider[] = [
         description: 'Advanced reasoning & long context. Vote to prioritize deeper integration.',
         icon: <Icons.AI />,
         apiKeyPlaceholder: 'sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+    },
+    {
+        id: 'bedrock',
+        name: 'AWS Bedrock',
+        url: 'https://aws.amazon.com/bedrock/',
+        description: 'Claude, Nova, Llama, and other foundation models via your own AWS account.',
+        icon: <Icons.AI />,
+        apiKeyPlaceholder: 'AWS Secret Access Key'
     },
 ];
 
@@ -357,6 +366,39 @@ const AIProviders: React.FC = () => {
         }
     };
 
+    // Handle Bedrock-specific save
+    const handleSaveBedrockConnector = async (accessKeyId: string, secretAccessKey: string, region: string, selectedModel: string, name: string) => {
+        try {
+            const success = await saveConnector(
+                'bedrock',
+                formData.role || activeRole,
+                secretAccessKey, // Use the AWS Secret Access Key as the "API key" for Bedrock
+                name,
+                selectedConnector,
+                undefined,
+                selectedModel,
+                undefined,
+                undefined,
+                accessKeyId,
+                region
+            );
+
+            if (success) {
+                // Show success message
+                setIsSaved(true);
+                setTimeout(() => setIsSaved(false), 3000);
+
+                // Reset form
+                resetForm();
+
+                // Update URL to show the provider without any specific action
+                updateUrlFragment('bedrock');
+            }
+        } catch (error) {
+            console.error('Error in handleSaveBedrockConnector:', error);
+        }
+    };
+
     // Handle generate name button
     const handleGenerateName = () => {
         const providerToUse = selectedProvider === 'all' ? formData.providerType : selectedProvider;
@@ -524,6 +566,23 @@ const AIProviders: React.FC = () => {
                                                 selectedModel: selectedConnector.selectedModel || ''
                                             };
                                         })() : null}
+                                    />
+                                ) : ((selectedProvider === 'bedrock') || (selectedProvider === 'all' && formData.providerType === 'bedrock')) ? (
+                                    /* Special form for Bedrock */
+                                    <BedrockConnectorForm
+                                        provider={popularAIProviders.find(p => p.id === 'bedrock')!}
+                                        onSave={handleSaveBedrockConnector}
+                                        onCancel={resetForm}
+                                        isLoading={isLoading}
+                                        error={error}
+                                        setError={setError}
+                                        editingConnector={isEditing && selectedConnector ? {
+                                            name: selectedConnector.name,
+                                            awsAccessKeyID: selectedConnector.awsAccessKeyID || '',
+                                            secretAccessKey: selectedConnector.fullApiKey || '',
+                                            awsRegion: selectedConnector.awsRegion || '',
+                                            selectedModel: selectedConnector.selectedModel || ''
+                                        } : null}
                                     />
                                 ) : (
                                     /* Regular form for other providers */
