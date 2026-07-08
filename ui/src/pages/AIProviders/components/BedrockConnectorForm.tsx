@@ -35,7 +35,7 @@ const BedrockConnectorForm: React.FC<BedrockConnectorFormProps> = ({
     editingConnector = null
 }) => {
     const [formState, setFormState] = useState({
-        name: editingConnector?.name || `Bedrock-${Date.now()}`,
+        name: editingConnector?.name || `Bedrock-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         awsAccessKeyID: editingConnector?.awsAccessKeyID || '',
         secretAccessKey: editingConnector?.secretAccessKey || '',
         awsRegion: editingConnector?.awsRegion || '',
