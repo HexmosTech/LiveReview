@@ -28,6 +28,7 @@ import (
 	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/internal/license/payment"
 	"github.com/livereview/internal/slackbot"
+	"github.com/livereview/internal/teamsbot"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	giteaprovider "github.com/livereview/internal/provider_input/gitea"
 	githubprovider "github.com/livereview/internal/provider_input/github"
@@ -158,6 +159,9 @@ type Server struct {
 
 	slackBots []*slackbot.Bot
 	slackBot  *slackbot.Bot
+
+	teamsBot      *teamsbot.Bot
+	teamsBotCancel context.CancelFunc
 
 	slackOAuthHandler *SlackOAuthHandler
 
@@ -473,6 +477,17 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		}
 	}
 
+	// Initialize org-scoped Teams bot (self-hosted only) from DB config
+	if !server.deploymentConfig.IsCloud {
+		bot, err := startOrgTeamsBots(server.db)
+		if err != nil {
+			fmt.Printf("Warning: Failed to initialize Teams bot: %v (Teams bot disabled)\n", err)
+		} else {
+			server.teamsBot = bot
+			fmt.Printf("Teams bot initialized for %d org(s) (will start with server)\n", 1)
+		}
+	}
+
 	return server, nil
 }
 
@@ -570,6 +585,131 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 	}
 
 	return []*slackbot.Bot{bot}, nil
+}
+
+// startOrgTeamsBots reads all enabled Teams bot configs from the DB,
+// resolves each org's AI connector, and creates the multi-org Teams bot.
+func startOrgTeamsBots(db *sql.DB) (*teamsbot.Bot, error) {
+	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
+	if mcpServerURL == "" {
+		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
+	}
+	maxSteps := 20
+	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxSteps = n
+		}
+	}
+
+	configStorage := teamsbot.NewStorage(db)
+	configs, err := configStorage.GetAllEnabledConfigs(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to query Teams configs: %w", err)
+	}
+	if len(configs) == 0 {
+		return nil, fmt.Errorf("no enabled Teams bot configs found")
+	}
+
+	connectorStorage := aiconnectors.NewStorage(db)
+
+	var botCfgs []teamsbot.BotConfig
+	for _, cfg := range configs {
+		connectors, err := connectorStorage.GetAllConnectors(context.Background(), cfg.OrgID)
+		if err != nil || len(connectors) == 0 {
+			log.Printf("Teams bot org %d: no AI connectors found, skipping", cfg.OrgID)
+			continue
+		}
+
+		var connector *aiconnectors.Connector
+		for _, record := range connectors {
+			options := connectorStorage.GetConnectorOptions(context.Background(), record)
+			c, err := aiconnectors.NewConnector(context.Background(), options)
+			if err != nil {
+				log.Printf("Teams bot org %d: connector %q failed: %v", cfg.OrgID, record.ConnectorName, err)
+				continue
+			}
+			connector = c
+			log.Printf("Teams bot org %d: using connector %q (%s, model=%s)", cfg.OrgID, record.ConnectorName, record.ProviderName, options.ModelConfig.Model)
+			break
+		}
+		if connector == nil {
+			log.Printf("Teams bot: all connectors for org %d failed to initialize — skipping", cfg.OrgID)
+			continue
+		}
+
+		mcpHeaders := map[string]string{"X-API-Key": cfg.APIKey}
+
+		botCfgs = append(botCfgs, teamsbot.BotConfig{
+			OrgID:        cfg.OrgID,
+			BotAppID:     cfg.BotAppID,
+			BotPassword:  cfg.BotPassword,
+			MCPServerURL: mcpServerURL,
+			MCPHeaders:   mcpHeaders,
+			Connector:    connector,
+			MaxSteps:     maxSteps,
+		})
+	}
+
+	if len(botCfgs) == 0 {
+		return nil, fmt.Errorf("no orgs could be configured for Teams bot")
+	}
+
+	baseURL := os.Getenv("TEAMS_BOT_BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:8888"
+	}
+
+	bot := teamsbot.NewBot(context.Background(), botCfgs, baseURL)
+	return bot, nil
+}
+
+// HandleTeamsMessage handles incoming Bot Framework Activities from Teams.
+func (s *Server) HandleTeamsMessage(c echo.Context) error {
+	if s.teamsBot == nil {
+		bot, err := startOrgTeamsBots(s.db)
+		if err != nil {
+			return c.JSON(http.StatusOK, map[string]string{"error": "Teams bot not initialized"})
+		}
+		s.teamsBot = bot
+		fmt.Println("Teams bot lazily started")
+	}
+
+	var activity teamsbot.Activity
+	if err := c.Bind(&activity); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid activity"})
+	}
+
+	log.Printf("[TeamsBot] Received activity: type=%s text=%q conv=%+v from=%+v recipient=%+v serviceUrl=%s id=%s",
+		activity.Type, activity.Text, activity.Conversation, activity.From, activity.Recipient, activity.ServiceURL, activity.ID)
+
+	authHeader := c.Request().Header.Get("Authorization")
+	appID := s.teamsBot.GetAppID()
+	if appID != "" && authHeader != "" {
+		auth := teamsbot.NewAuthenticator(appID)
+		if err := auth.ValidateJWT(c.Request().Context(), authHeader); err != nil {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "auth failed"})
+		}
+	}
+
+	if err := s.teamsBot.HandleActivity(c.Request().Context(), &activity, authHeader); err != nil {
+		log.Printf("[TeamsBot] Error handling activity: %s", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// ServeChartPNG serves rendered chart images for the Teams bot.
+func (s *Server) ServeChartPNG(c echo.Context) error {
+	id := c.Param("id")
+	if id == "" {
+		return c.NoContent(http.StatusBadRequest)
+	}
+	path, ok := teamsbot.LookupChartFile(id)
+	if !ok {
+		return c.NoContent(http.StatusNotFound)
+	}
+	return c.File(path)
 }
 
 // SetOpenAPISpec sets the OpenAPI specification content for the integration guide endpoint
@@ -759,6 +899,13 @@ func (s *Server) setupRoutes() {
 		}
 	}
 
+	// Teams bot messages endpoint (public — Bot Framework sends activities here)
+	s.echo.POST("/api/messages", s.HandleTeamsMessage)
+	fmt.Println("Teams bot messages endpoint registered")
+
+	// Serve chart images for Teams bot
+	s.echo.GET("/charts/:id", s.ServeChartPNG)
+
 	// Protected routes (require authentication - supports both Bearer tokens and API keys)
 	protected := v1.Group("")
 	protected.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
@@ -855,6 +1002,14 @@ func (s *Server) setupRoutes() {
 		orgGroup.GET("/slack-config", slackConfigHandler.GetSlackConfig)
 		orgGroup.PUT("/slack-config", slackConfigHandler.PutSlackConfig)
 		orgGroup.DELETE("/slack-config", slackConfigHandler.DeleteSlackConfig)
+	}
+
+	// Teams bot configuration within org context (self-hosted only)
+	if !s.deploymentConfig.IsCloud {
+		teamsConfigHandler := NewTeamsConfigHandler(s.db)
+		orgGroup.GET("/teams-config", teamsConfigHandler.GetTeamsConfig)
+		orgGroup.PUT("/teams-config", teamsConfigHandler.UpdateTeamsConfig)
+		orgGroup.DELETE("/teams-config", teamsConfigHandler.DeleteTeamsConfig)
 	}
 
 	// API key management within org context
@@ -1361,6 +1516,18 @@ func (s *Server) Start() error {
 		}
 	}
 
+	// Start Teams bot if configured
+	if s.teamsBot != nil {
+		teamsCtx, cancel := context.WithCancel(context.Background())
+		s.teamsBotCancel = cancel
+		fmt.Println("Starting Teams bot...")
+		go func() {
+			if err := s.teamsBot.Start(teamsCtx); err != nil {
+				fmt.Printf("Teams bot failed: %v\n", err)
+			}
+		}()
+	}
+
 	// Wait for interrupt signal to gracefully shut down the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
@@ -1378,6 +1545,12 @@ func (s *Server) Start() error {
 		} else {
 			fmt.Println("Job queue workers stopped")
 		}
+	}
+
+	// Stop Teams bot
+	if s.teamsBotCancel != nil {
+		s.teamsBotCancel()
+		fmt.Println("Teams bot stopped")
 	}
 
 	// Stop dashboard manager

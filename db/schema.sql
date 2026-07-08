@@ -1,4 +1,4 @@
-\restrict 4o3kFlMDSbUhHSSq7jO8Pcgb6PjxvSByP99g16AvDHqWxEVtibbvjh6nQGjC44C
+\restrict qswHgagot7PAYQKzIWhQrzWfl9L2uCKAUPjSKTAHh6xVutgiGu5PPgb5qPIJyZb
 
 -- Dumped from database version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
 -- Dumped by pg_dump version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
@@ -954,6 +954,63 @@ CREATE SEQUENCE public.org_slack_configs_id_seq
 --
 
 ALTER SEQUENCE public.org_slack_configs_id_seq OWNED BY public.org_slack_configs.id;
+
+
+--
+-- Name: org_teams_configs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.org_teams_configs (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    bot_app_id text NOT NULL,
+    bot_password text NOT NULL,
+    api_key text DEFAULT ''::text NOT NULL,
+    tenant_id text DEFAULT ''::text NOT NULL,
+    enabled boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE org_teams_configs; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.org_teams_configs IS 'Per-org Microsoft Teams bot configuration';
+
+
+--
+-- Name: COLUMN org_teams_configs.bot_app_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.org_teams_configs.bot_app_id IS 'Microsoft App ID for the Teams bot';
+
+
+--
+-- Name: COLUMN org_teams_configs.bot_password; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.org_teams_configs.bot_password IS 'Microsoft App Password (client secret) for the Teams bot';
+
+
+--
+-- Name: org_teams_configs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.org_teams_configs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: org_teams_configs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.org_teams_configs_id_seq OWNED BY public.org_teams_configs.id;
 
 
 --
@@ -2358,6 +2415,13 @@ ALTER TABLE ONLY public.org_slack_configs ALTER COLUMN id SET DEFAULT nextval('p
 
 
 --
+-- Name: org_teams_configs id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_teams_configs ALTER COLUMN id SET DEFAULT nextval('public.org_teams_configs_id_seq'::regclass);
+
+
+--
 -- Name: orgs id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2738,6 +2802,22 @@ ALTER TABLE ONLY public.org_slack_configs
 
 ALTER TABLE ONLY public.org_slack_configs
     ADD CONSTRAINT org_slack_configs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: org_teams_configs org_teams_configs_org_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_teams_configs
+    ADD CONSTRAINT org_teams_configs_org_id_key UNIQUE (org_id);
+
+
+--
+-- Name: org_teams_configs org_teams_configs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_teams_configs
+    ADD CONSTRAINT org_teams_configs_pkey PRIMARY KEY (id);
 
 
 --
@@ -3607,6 +3687,20 @@ CREATE INDEX idx_org_slack_configs_org_id ON public.org_slack_configs USING btre
 --
 
 CREATE INDEX idx_org_slack_configs_team_id ON public.org_slack_configs USING btree (team_id);
+
+
+--
+-- Name: idx_org_teams_configs_enabled; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_teams_configs_enabled ON public.org_teams_configs USING btree (enabled);
+
+
+--
+-- Name: idx_org_teams_configs_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_teams_configs_org_id ON public.org_teams_configs USING btree (org_id);
 
 
 --
@@ -4557,6 +4651,14 @@ ALTER TABLE ONLY public.org_slack_configs
 
 
 --
+-- Name: org_teams_configs org_teams_configs_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_teams_configs
+    ADD CONSTRAINT org_teams_configs_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
 -- Name: orgs orgs_created_by_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5000,7 +5102,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 4o3kFlMDSbUhHSSq7jO8Pcgb6PjxvSByP99g16AvDHqWxEVtibbvjh6nQGjC44C
+\unrestrict qswHgagot7PAYQKzIWhQrzWfl9L2uCKAUPjSKTAHh6xVutgiGu5PPgb5qPIJyZb
 
 
 --
@@ -5086,4 +5188,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260702130000'),
     ('20260702140000'),
     ('20260702141000'),
-    ('20260704150001');
+    ('20260704150001'),
+    ('20260707220001');
