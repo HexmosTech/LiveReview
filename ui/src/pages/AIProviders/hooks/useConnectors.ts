@@ -25,7 +25,9 @@ interface UseConnectorsResult {
         baseURL?: string,
         selectedModel?: string,
         gcpProjectID?: string,
-        gcpLocation?: string
+        gcpLocation?: string,
+        awsAccessKeyID?: string,
+        awsRegion?: string
     ) => Promise<boolean>;
     deleteConnector: (connectorId: string) => Promise<boolean>;
     reorderConnectors: (newOrder: AIConnector[]) => Promise<boolean>;
@@ -68,16 +70,18 @@ export const useConnectors = (): UseConnectorsResult => {
         baseURL?: string,
         selectedModel?: string,
         gcpProjectID?: string,
-        gcpLocation?: string
+        gcpLocation?: string,
+        awsAccessKeyID?: string,
+        awsRegion?: string
     ): Promise<boolean> => {
         try {
             setIsLoading(true);
-            
+
             // For Ollama, skip validation since we've already validated by fetching models
             if (providerId !== 'ollama') {
                 // First validate the API key for non-Ollama providers
                 try {
-				const validationResult = await validateAIProviderKey(providerId, apiKey, selectedModel, gcpProjectID, gcpLocation);
+				const validationResult = await validateAIProviderKey(providerId, apiKey, selectedModel, gcpProjectID, gcpLocation, awsAccessKeyID, awsRegion);
                     
                     if (!validationResult.valid) {
                         setError(`API key validation failed: ${validationResult.message}`);
@@ -106,10 +110,12 @@ export const useConnectors = (): UseConnectorsResult => {
                         baseURL,
                         selectedModel,
                         gcpProjectID,
-                        gcpLocation
+                        gcpLocation,
+                        awsAccessKeyID,
+                        awsRegion
                     );
                     console.log('Connector updated:', result);
-                    
+
                     // After updating, refresh the connector list
                     await fetchConnectors();
                 } else {
@@ -123,7 +129,9 @@ export const useConnectors = (): UseConnectorsResult => {
                     baseURL,
                     selectedModel,
                     gcpProjectID,
-                    gcpLocation
+                    gcpLocation,
+                    awsAccessKeyID,
+                    awsRegion
                 );                    console.log('Connector created:', result);
                     
                     // After creating, refresh the connector list
