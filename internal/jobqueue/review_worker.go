@@ -587,6 +587,19 @@ func (w *DiffReviewWorker) buildBYOKAIConfig(ctx context.Context, connector *aic
 		"ai_execution_source": "connector",
 	}
 
+	if connector.GCPProjectID.Valid && connector.GCPProjectID.String != "" {
+		configMap["gcp_project_id"] = connector.GCPProjectID.String
+	}
+	if connector.GCPLocation.Valid && connector.GCPLocation.String != "" {
+		configMap["gcp_location"] = connector.GCPLocation.String
+	}
+	if connector.AWSAccessKeyID.Valid && connector.AWSAccessKeyID.String != "" {
+		configMap["aws_access_key_id"] = connector.AWSAccessKeyID.String
+	}
+	if connector.AWSRegion.Valid && connector.AWSRegion.String != "" {
+		configMap["aws_region"] = connector.AWSRegion.String
+	}
+
 	baseURL := ""
 	if connector.BaseURL.Valid && connector.BaseURL.String != "" {
 		baseURL = connector.BaseURL.String

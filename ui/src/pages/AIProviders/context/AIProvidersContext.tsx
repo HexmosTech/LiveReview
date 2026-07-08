@@ -26,7 +26,9 @@ interface AIProvidersContextType {
         baseURL?: string,
         selectedModel?: string,
         gcpProjectID?: string,
-        gcpLocation?: string
+        gcpLocation?: string,
+        awsAccessKeyID?: string,
+        awsRegion?: string
     ) => Promise<boolean>;
     
     // Form state

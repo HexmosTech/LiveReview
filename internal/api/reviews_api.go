@@ -505,6 +505,12 @@ func (s *Server) buildBYOKAIConfig(ctx context.Context, connector *aiconnectors.
 	if connector.GCPLocation.Valid && connector.GCPLocation.String != "" {
 		configMap["gcp_location"] = connector.GCPLocation.String
 	}
+	if connector.AWSAccessKeyID.Valid && connector.AWSAccessKeyID.String != "" {
+		configMap["aws_access_key_id"] = connector.AWSAccessKeyID.String
+	}
+	if connector.AWSRegion.Valid && connector.AWSRegion.String != "" {
+		configMap["aws_region"] = connector.AWSRegion.String
+	}
 
 	// Add base URL if available
 	baseURL := ""

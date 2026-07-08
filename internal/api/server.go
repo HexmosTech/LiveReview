@@ -1018,6 +1018,7 @@ func (s *Server) setupRoutes() {
 	aiConnectorGroup.PUT("/reorder", s.ReorderAIConnectors)
 	aiConnectorGroup.DELETE("/:id", s.DeleteAIConnector)
 	aiConnectorGroup.POST("/ollama/models", s.FetchOllamaModels)
+	aiConnectorGroup.POST("/bedrock/models", s.FetchBedrockModels)
 	aiConnectorGroup.GET("/providers/:provider/models", s.GetAIProviderModels)
 
 	// MCP Agent endpoints (organization scoped)

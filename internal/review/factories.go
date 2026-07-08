@@ -163,6 +163,14 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 			gcpLocation = val
 		}
 
+		var awsAccessKeyID, awsRegion string
+		if val, ok := config.Config["aws_access_key_id"].(string); ok {
+			awsAccessKeyID = val
+		}
+		if val, ok := config.Config["aws_region"].(string); ok {
+			awsRegion = val
+		}
+
 		// Set provider-specific token limits
 		maxTokens := f.getProviderMaxTokens(providerType)
 
@@ -182,6 +190,8 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 			ProviderName:   providerName,
 			GCPProjectID:   gcpProjectID,
 			GCPLocation:    gcpLocation,
+			AWSAccessKeyID: awsAccessKeyID,
+			AWSRegion:      awsRegion,
 		}, logger), nil
 	default:
 		// Default to langchain for any unrecognized type
@@ -203,6 +213,14 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 			gcpLocation = val
 		}
 
+		var awsAccessKeyID, awsRegion string
+		if val, ok := config.Config["aws_access_key_id"].(string); ok {
+			awsAccessKeyID = val
+		}
+		if val, ok := config.Config["aws_region"].(string); ok {
+			awsRegion = val
+		}
+
 		// Set provider-specific token limits
 		maxTokens := f.getProviderMaxTokens(providerType)
 
@@ -222,6 +240,8 @@ func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config
 			ProviderName:   providerName,
 			GCPProjectID:   gcpProjectID,
 			GCPLocation:    gcpLocation,
+			AWSAccessKeyID: awsAccessKeyID,
+			AWSRegion:      awsRegion,
 		}, logger), nil
 	}
 }
@@ -241,6 +261,8 @@ func (f *StandardAIProviderFactory) getProviderMaxTokens(providerName string) in
 		return 8000 // OpenRouter models commonly cap near 8k
 	case "anthropic", "claude":
 		return 20000 // Claude models can handle large batches
+	case "bedrock":
+		return 20000 // Claude/Nova models via Bedrock can handle large batches
 	default:
 		return 8000 // Conservative default for unknown providers
 	}
