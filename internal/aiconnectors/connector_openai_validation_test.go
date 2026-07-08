@@ -38,7 +38,7 @@ func TestValidateAPIKeyOpenAIResponsesSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	valid, err := ValidateAPIKey(context.Background(), nil, ProviderOpenAI, "test-key", server.URL, "o4-mini", "", "")
+	valid, err := ValidateAPIKey(context.Background(), nil, ProviderOpenAI, "test-key", server.URL, "o4-mini", "", "", "", "")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -56,7 +56,7 @@ func TestValidateAPIKeyOpenAIResponsesAuthFailureReturnsInvalidNotError(t *testi
 	}))
 	defer server.Close()
 
-	valid, err := ValidateAPIKey(context.Background(), nil, ProviderOpenAI, "bad-key", server.URL, "o4-mini", "", "")
+	valid, err := ValidateAPIKey(context.Background(), nil, ProviderOpenAI, "bad-key", server.URL, "o4-mini", "", "", "", "")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}

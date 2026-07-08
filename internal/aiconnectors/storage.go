@@ -13,20 +13,22 @@ import (
 
 // ConnectorRecord represents a connector record in the database
 type ConnectorRecord struct {
-	ID            int64          `json:"id"`
-	ProviderName  string         `json:"provider_name"` // Maps to provider_name in DB
-	Provider      Provider       `json:"provider"`      // For internal use, derived from ProviderName
-	Role          string         `json:"role"`
-	ApiKey        string         `json:"api_key"`
-	ConnectorName string         `json:"connector_name"` // Maps to connector_name in DB
-	BaseURL       sql.NullString `json:"base_url"`       // Base URL for providers like Ollama
-	SelectedModel sql.NullString `json:"selected_model"` // Selected model for the connector
-	GCPProjectID  sql.NullString `json:"gcp_project_id"` // GCP project ID for Gemini Enterprise
-	GCPLocation   sql.NullString `json:"gcp_location"`   // GCP region/location for Gemini Enterprise
-	DisplayOrder  int            `json:"display_order"`
-	OrgID         int64          `json:"org_id"`
-	CreatedAt     time.Time      `json:"created_at"`
-	UpdatedAt     time.Time      `json:"updated_at"`
+	ID             int64          `json:"id"`
+	ProviderName   string         `json:"provider_name"` // Maps to provider_name in DB
+	Provider       Provider       `json:"provider"`      // For internal use, derived from ProviderName
+	Role           string         `json:"role"`
+	ApiKey         string         `json:"api_key"`
+	ConnectorName  string         `json:"connector_name"`    // Maps to connector_name in DB
+	BaseURL        sql.NullString `json:"base_url"`          // Base URL for providers like Ollama
+	SelectedModel  sql.NullString `json:"selected_model"`    // Selected model for the connector
+	GCPProjectID   sql.NullString `json:"gcp_project_id"`    // GCP project ID for Gemini Enterprise
+	GCPLocation    sql.NullString `json:"gcp_location"`      // GCP region/location for Gemini Enterprise
+	AWSAccessKeyID sql.NullString `json:"aws_access_key_id"` // AWS Access Key ID for Bedrock
+	AWSRegion      sql.NullString `json:"aws_region"`        // AWS region for Bedrock
+	DisplayOrder   int            `json:"display_order"`
+	OrgID          int64          `json:"org_id"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
 
 	// Additional fields for internal use (not stored in the table directly)
 	Model         string `json:"-"`
@@ -52,10 +54,10 @@ func NewStorage(db *sql.DB) *Storage {
 func (s *Storage) CreateConnector(ctx context.Context, orgID int64, connector *ConnectorRecord) error {
 	query := `
 	INSERT INTO ai_connectors (
-		provider_name, role, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order, org_id,
+		provider_name, role, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, aws_access_key_id, aws_region, display_order, org_id,
 		created_at, updated_at
 	) VALUES (
-		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
 		NOW(), NOW()
 	) RETURNING id, created_at, updated_at
 	`
@@ -94,13 +96,26 @@ func (s *Storage) CreateConnector(ctx context.Context, orgID int64, connector *C
 		gcpLocation = nil
 	}
 
+	var awsAccessKeyID, awsRegion interface{}
+	if connector.AWSAccessKeyID.Valid && connector.AWSAccessKeyID.String != "" {
+		awsAccessKeyID = connector.AWSAccessKeyID.String
+	} else {
+		awsAccessKeyID = nil
+	}
+
+	if connector.AWSRegion.Valid && connector.AWSRegion.String != "" {
+		awsRegion = connector.AWSRegion.String
+	} else {
+		awsRegion = nil
+	}
+
 	connector.Role = normalizedConnectorRole(connector.Role)
 	connector.OrgID = orgID
 
 	err := s.store.QueryRowContext(
 		ctx, query,
 		connector.ProviderName, connector.Role, connector.ApiKey, connector.ConnectorName,
-		baseURL, selectedModel, gcpProjectID, gcpLocation, connector.DisplayOrder, connector.OrgID,
+		baseURL, selectedModel, gcpProjectID, gcpLocation, awsAccessKeyID, awsRegion, connector.DisplayOrder, connector.OrgID,
 	).Scan(&connector.ID, &connector.CreatedAt, &connector.UpdatedAt)
 
 	if err != nil {
@@ -116,7 +131,7 @@ func (s *Storage) CreateConnector(ctx context.Context, orgID int64, connector *C
 // GetConnectorByID retrieves a connector by ID
 func (s *Storage) GetConnectorByID(ctx context.Context, orgID int64, id int64) (*ConnectorRecord, error) {
 	query := `
-	SELECT id, provider_name, role, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order,
+	SELECT id, provider_name, role, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, aws_access_key_id, aws_region, display_order,
 	       org_id, created_at, updated_at
 	FROM ai_connectors
 	WHERE id = $1 AND org_id = $2
@@ -125,7 +140,7 @@ func (s *Storage) GetConnectorByID(ctx context.Context, orgID int64, id int64) (
 	var connector ConnectorRecord
 	err := s.store.QueryRowContext(ctx, query, id, orgID).Scan(
 		&connector.ID, &connector.ProviderName, &connector.Role, &connector.ApiKey, &connector.ConnectorName,
-		&connector.BaseURL, &connector.SelectedModel, &connector.GCPProjectID, &connector.GCPLocation, &connector.DisplayOrder,
+		&connector.BaseURL, &connector.SelectedModel, &connector.GCPProjectID, &connector.GCPLocation, &connector.AWSAccessKeyID, &connector.AWSRegion, &connector.DisplayOrder,
 		&connector.OrgID, &connector.CreatedAt, &connector.UpdatedAt,
 	)
 
@@ -146,7 +161,7 @@ func (s *Storage) GetConnectorByID(ctx context.Context, orgID int64, id int64) (
 // GetConnectorsByProvider retrieves all connectors for a specific provider
 func (s *Storage) GetConnectorsByProvider(ctx context.Context, orgID int64, provider Provider) ([]*ConnectorRecord, error) {
 	query := `
-	SELECT id, provider_name, role, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order,
+	SELECT id, provider_name, role, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, aws_access_key_id, aws_region, display_order,
 	       org_id, created_at, updated_at
 	FROM ai_connectors
 	WHERE provider_name = $1 AND org_id = $2
@@ -164,7 +179,7 @@ func (s *Storage) GetConnectorsByProvider(ctx context.Context, orgID int64, prov
 		var connector ConnectorRecord
 		err := rows.Scan(
 			&connector.ID, &connector.ProviderName, &connector.Role, &connector.ApiKey, &connector.ConnectorName,
-			&connector.BaseURL, &connector.SelectedModel, &connector.GCPProjectID, &connector.GCPLocation, &connector.DisplayOrder,
+			&connector.BaseURL, &connector.SelectedModel, &connector.GCPProjectID, &connector.GCPLocation, &connector.AWSAccessKeyID, &connector.AWSRegion, &connector.DisplayOrder,
 			&connector.OrgID, &connector.CreatedAt, &connector.UpdatedAt,
 		)
 		if err != nil {
@@ -188,7 +203,7 @@ func (s *Storage) GetConnectorsByProvider(ctx context.Context, orgID int64, prov
 // GetAllConnectors retrieves all connectors
 func (s *Storage) GetAllConnectors(ctx context.Context, orgID int64) ([]*ConnectorRecord, error) {
 	query := `
-	SELECT id, provider_name, role, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order,
+	SELECT id, provider_name, role, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, aws_access_key_id, aws_region, display_order,
 	       org_id, created_at, updated_at
 	FROM ai_connectors
 	WHERE org_id = $1
@@ -206,7 +221,7 @@ func (s *Storage) GetAllConnectors(ctx context.Context, orgID int64) ([]*Connect
 		var connector ConnectorRecord
 		err := rows.Scan(
 			&connector.ID, &connector.ProviderName, &connector.Role, &connector.ApiKey, &connector.ConnectorName,
-			&connector.BaseURL, &connector.SelectedModel, &connector.GCPProjectID, &connector.GCPLocation, &connector.DisplayOrder,
+			&connector.BaseURL, &connector.SelectedModel, &connector.GCPProjectID, &connector.GCPLocation, &connector.AWSAccessKeyID, &connector.AWSRegion, &connector.DisplayOrder,
 			&connector.OrgID, &connector.CreatedAt, &connector.UpdatedAt,
 		)
 		if err != nil {
@@ -230,7 +245,7 @@ func (s *Storage) GetAllConnectors(ctx context.Context, orgID int64) ([]*Connect
 func (s *Storage) GetConnectorsByRole(ctx context.Context, orgID int64, role string) ([]*ConnectorRecord, error) {
 	normalizedRole := normalizedConnectorRole(role)
 	query := `
-	SELECT id, provider_name, role, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, display_order,
+	SELECT id, provider_name, role, api_key, connector_name, base_url, selected_model, gcp_project_id, gcp_location, aws_access_key_id, aws_region, display_order,
 	       org_id, created_at, updated_at
 	FROM ai_connectors
 	WHERE org_id = $1 AND role = $2
@@ -248,7 +263,7 @@ func (s *Storage) GetConnectorsByRole(ctx context.Context, orgID int64, role str
 		var connector ConnectorRecord
 		if err := rows.Scan(
 			&connector.ID, &connector.ProviderName, &connector.Role, &connector.ApiKey, &connector.ConnectorName,
-			&connector.BaseURL, &connector.SelectedModel, &connector.GCPProjectID, &connector.GCPLocation, &connector.DisplayOrder,
+			&connector.BaseURL, &connector.SelectedModel, &connector.GCPProjectID, &connector.GCPLocation, &connector.AWSAccessKeyID, &connector.AWSRegion, &connector.DisplayOrder,
 			&connector.OrgID, &connector.CreatedAt, &connector.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan connector: %w", err)
@@ -269,9 +284,9 @@ func (s *Storage) GetConnectorsByRole(ctx context.Context, orgID int64, role str
 func (s *Storage) UpdateConnector(ctx context.Context, connector *ConnectorRecord) error {
 	query := `
 	UPDATE ai_connectors
-	SET provider_name = $1, role = $2, api_key = $3, connector_name = $4, base_url = $5, selected_model = $6, gcp_project_id = $7, gcp_location = $8, display_order = $9,
+	SET provider_name = $1, role = $2, api_key = $3, connector_name = $4, base_url = $5, selected_model = $6, gcp_project_id = $7, gcp_location = $8, aws_access_key_id = $9, aws_region = $10, display_order = $11,
 	    updated_at = NOW()
-	WHERE id = $10 AND org_id = $11
+	WHERE id = $12 AND org_id = $13
 	RETURNING updated_at
 	`
 
@@ -301,12 +316,26 @@ func (s *Storage) UpdateConnector(ctx context.Context, connector *ConnectorRecor
 	} else {
 		gcpLocation = nil
 	}
+
+	var awsAccessKeyID, awsRegion interface{}
+	if connector.AWSAccessKeyID.Valid && connector.AWSAccessKeyID.String != "" {
+		awsAccessKeyID = connector.AWSAccessKeyID.String
+	} else {
+		awsAccessKeyID = nil
+	}
+
+	if connector.AWSRegion.Valid && connector.AWSRegion.String != "" {
+		awsRegion = connector.AWSRegion.String
+	} else {
+		awsRegion = nil
+	}
+
 	connector.Role = normalizedConnectorRole(connector.Role)
 
 	err := s.store.QueryRowContext(
 		ctx, query,
 		connector.ProviderName, connector.Role, connector.ApiKey, connector.ConnectorName,
-		baseURL, selectedModel, gcpProjectID, gcpLocation, connector.DisplayOrder,
+		baseURL, selectedModel, gcpProjectID, gcpLocation, awsAccessKeyID, awsRegion, connector.DisplayOrder,
 		connector.ID, connector.OrgID,
 	).Scan(&connector.UpdatedAt)
 
@@ -352,11 +381,13 @@ func (s *Storage) GetConnectorOptions(ctx context.Context, r *ConnectorRecord) C
 		Msg("GetConnectorOptions extracting model from record")
 
 	options := ConnectorOptions{
-		Provider:     r.Provider,
-		APIKey:       r.ApiKey,
-		BaseURL:      r.BaseURL.String, // Extract string from sql.NullString
-		GCPProjectID: r.GCPProjectID.String,
-		GCPLocation:  r.GCPLocation.String,
+		Provider:       r.Provider,
+		APIKey:         r.ApiKey,
+		BaseURL:        r.BaseURL.String, // Extract string from sql.NullString
+		GCPProjectID:   r.GCPProjectID.String,
+		GCPLocation:    r.GCPLocation.String,
+		AWSAccessKeyID: r.AWSAccessKeyID.String,
+		AWSRegion:      r.AWSRegion.String,
 		ModelConfig: ModelConfig{
 			Model: selectedModel, // Use helper method
 		},
@@ -479,20 +510,22 @@ func (r *ConnectorRecord) GetSelectedModel() string {
 // ToAPIResponse converts a ConnectorRecord to a format suitable for API responses
 func (r *ConnectorRecord) ToAPIResponse() map[string]interface{} {
 	return map[string]interface{}{
-		"id":              r.ID,
-		"provider":        r.ProviderName,
-		"role":            normalizedConnectorRole(r.Role),
-		"name":            r.ConnectorName,
-		"display_order":   r.DisplayOrder,
-		"created_at":      r.CreatedAt,
-		"updated_at":      r.UpdatedAt,
-		"api_key_preview": maskAPIKey(r.ApiKey),
-		"model":           r.Model,
-		"is_active":       r.IsActive,
-		"base_url":        r.GetBaseURL(),
-		"selected_model":  r.GetSelectedModel(),
-		"gcp_project_id":  r.GCPProjectID.String,
-		"gcp_location":    r.GCPLocation.String,
+		"id":                r.ID,
+		"provider":          r.ProviderName,
+		"role":              normalizedConnectorRole(r.Role),
+		"name":              r.ConnectorName,
+		"display_order":     r.DisplayOrder,
+		"created_at":        r.CreatedAt,
+		"updated_at":        r.UpdatedAt,
+		"api_key_preview":   maskAPIKey(r.ApiKey),
+		"model":             r.Model,
+		"is_active":         r.IsActive,
+		"base_url":          r.GetBaseURL(),
+		"selected_model":    r.GetSelectedModel(),
+		"gcp_project_id":    r.GCPProjectID.String,
+		"gcp_location":      r.GCPLocation.String,
+		"aws_access_key_id": r.AWSAccessKeyID.String,
+		"aws_region":        r.AWSRegion.String,
 	}
 }
 

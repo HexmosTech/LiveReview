@@ -125,7 +125,9 @@ export const validateAIProviderKey = async (
   baseURL?: string,
   model?: string,
   gcpProjectID?: string,
-  gcpLocation?: string
+  gcpLocation?: string,
+  awsAccessKeyID?: string,
+  awsRegion?: string
 ): Promise<{ valid: boolean; message: string }> => {
   try {
     const response = await apiClient.post<{ valid: boolean; message: string }>(
@@ -137,6 +139,8 @@ export const validateAIProviderKey = async (
         model,
         gcp_project_id: gcpProjectID,
         gcp_location: gcpLocation,
+        aws_access_key_id: awsAccessKeyID,
+        aws_region: awsRegion,
       }
     );
     return response;
@@ -167,7 +171,9 @@ export const createAIConnector = async (
   baseURL?: string,
   selectedModel?: string,
   gcpProjectID?: string,
-  gcpLocation?: string
+  gcpLocation?: string,
+  awsAccessKeyID?: string,
+  awsRegion?: string
 ): Promise<any> => {
   try {
     const response = await apiClient.post(
@@ -182,6 +188,8 @@ export const createAIConnector = async (
         selected_model: selectedModel,
         gcp_project_id: gcpProjectID,
         gcp_location: gcpLocation,
+        aws_access_key_id: awsAccessKeyID,
+        aws_region: awsRegion,
       }
     );
     return response;
@@ -214,7 +222,9 @@ export const updateAIConnector = async (
   baseURL?: string,
   selectedModel?: string,
   gcpProjectID?: string,
-  gcpLocation?: string
+  gcpLocation?: string,
+  awsAccessKeyID?: string,
+  awsRegion?: string
 ): Promise<any> => {
   try {
     const response = await apiClient.put(
@@ -229,6 +239,8 @@ export const updateAIConnector = async (
         selected_model: selectedModel,
         gcp_project_id: gcpProjectID,
         gcp_location: gcpLocation,
+        aws_access_key_id: awsAccessKeyID,
+        aws_region: awsRegion,
       }
     );
     return response;
@@ -315,6 +327,33 @@ export const fetchOllamaModels = async (
     return response;
   } catch (error) {
     console.error('Error fetching Ollama models:', error);
+    throw error;
+  }
+};
+
+export interface BedrockModel {
+  model_id: string;
+  name: string;
+  provider: string;
+}
+
+export const fetchBedrockModels = async (
+  accessKeyID: string,
+  secretAccessKey: string,
+  region: string
+): Promise<{ models: BedrockModel[]; count: number }> => {
+  try {
+    const response = await apiClient.post<{ models: BedrockModel[]; count: number }>(
+      '/api/v1/aiconnectors/bedrock/models',
+      {
+        access_key_id: accessKeyID,
+        secret_access_key: secretAccessKey,
+        region,
+      }
+    );
+    return response;
+  } catch (error) {
+    console.error('Error fetching Bedrock models:', error);
     throw error;
   }
 };

@@ -43,6 +43,8 @@ export interface AIConnector {
     gcpLocation?: string;
     gcp_project_id?: string;
     gcp_location?: string;
+    awsAccessKeyID?: string;
+    awsRegion?: string;
 }
 
 export interface ConnectorFormData {
@@ -54,6 +56,8 @@ export interface ConnectorFormData {
     selectedModel?: string; // Selected model for the connector
     gcpProjectID?: string;
     gcpLocation?: string;
+    awsAccessKeyID?: string;
+    awsRegion?: string;
 }
 
 export interface ReviewAISettings {

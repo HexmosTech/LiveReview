@@ -13,12 +13,14 @@ import (
 
 // ValidateAPIKeyRequest represents the request for API key validation
 type ValidateAPIKeyRequest struct {
-	Provider     Provider `json:"provider"`
-	APIKey       string   `json:"api_key"`
-	BaseURL      string   `json:"base_url,omitempty"`
-	Model        string   `json:"model,omitempty"`
-	GCPProjectID string   `json:"gcp_project_id,omitempty"`
-	GCPLocation  string   `json:"gcp_location,omitempty"`
+	Provider       Provider `json:"provider"`
+	APIKey         string   `json:"api_key"`
+	BaseURL        string   `json:"base_url,omitempty"`
+	Model          string   `json:"model,omitempty"`
+	GCPProjectID   string   `json:"gcp_project_id,omitempty"`
+	GCPLocation    string   `json:"gcp_location,omitempty"`
+	AWSAccessKeyID string   `json:"aws_access_key_id,omitempty"`
+	AWSRegion      string   `json:"aws_region,omitempty"`
 }
 
 // ValidateAPIKeyResponse represents the response for API key validation
@@ -86,7 +88,7 @@ func validateAPIKeyHandler(c echo.Context) error {
 
 	// Validate the API key
 	db, _ := c.Get("db").(*sql.DB)
-	valid, err := ValidateAPIKey(context.Background(), db, req.Provider, req.APIKey, req.BaseURL, req.Model, req.GCPProjectID, req.GCPLocation)
+	valid, err := ValidateAPIKey(context.Background(), db, req.Provider, req.APIKey, req.BaseURL, req.Model, req.GCPProjectID, req.GCPLocation, req.AWSAccessKeyID, req.AWSRegion)
 	if err != nil {
 		log.Error().Err(err).Msg("Error validating API key")
 		return c.JSON(http.StatusInternalServerError, ValidateAPIKeyResponse{
