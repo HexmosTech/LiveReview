@@ -113,7 +113,16 @@ func (h *TeamsConfigHandler) DeleteTeamsConfig(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusForbidden, "only owners can delete Teams integration")
 	}
 
-	if err := h.storage.DeleteTeamsConfig(c.Request().Context(), permCtx.OrgID); err != nil {
+	ctx := c.Request().Context()
+
+	existing, err := h.storage.GetTeamsConfig(ctx, permCtx.OrgID)
+	if err == nil && existing != nil && existing.APIKey != "" {
+		if err := h.apiKeys.RevokeAPIKeyByPlainKey(ctx, existing.APIKey); err != nil {
+			log.Printf("[TeamsConfig] Failed to revoke API key for org %d: %s", permCtx.OrgID, err)
+		}
+	}
+
+	if err := h.storage.DeleteTeamsConfig(ctx, permCtx.OrgID); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to delete Teams config")
 	}
 

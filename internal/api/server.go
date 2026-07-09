@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -482,7 +483,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		bot, err := startOrgTeamsBots(server.db)
 		if err != nil {
 			fmt.Printf("Warning: Failed to initialize Teams bot: %v (Teams bot disabled)\n", err)
-		} else {
+		} else if bot != nil {
 			server.teamsBot = bot
 			fmt.Printf("Teams bot initialized for %d org(s) (will start with server)\n", 1)
 		}
@@ -607,7 +608,7 @@ func startOrgTeamsBots(db *sql.DB) (*teamsbot.Bot, error) {
 		return nil, fmt.Errorf("failed to query Teams configs: %w", err)
 	}
 	if len(configs) == 0 {
-		return nil, fmt.Errorf("no enabled Teams bot configs found")
+		return nil, nil
 	}
 
 	connectorStorage := aiconnectors.NewStorage(db)
@@ -667,8 +668,8 @@ func startOrgTeamsBots(db *sql.DB) (*teamsbot.Bot, error) {
 func (s *Server) HandleTeamsMessage(c echo.Context) error {
 	if s.teamsBot == nil {
 		bot, err := startOrgTeamsBots(s.db)
-		if err != nil {
-			return c.JSON(http.StatusOK, map[string]string{"error": "Teams bot not initialized"})
+		if err != nil || bot == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Teams bot not initialized"})
 		}
 		s.teamsBot = bot
 		fmt.Println("Teams bot lazily started")
@@ -683,16 +684,12 @@ func (s *Server) HandleTeamsMessage(c echo.Context) error {
 		activity.Type, activity.Text, activity.Conversation, activity.From, activity.Recipient, activity.ServiceURL, activity.ID)
 
 	authHeader := c.Request().Header.Get("Authorization")
-	appID := s.teamsBot.GetAppID()
-	if appID != "" && authHeader != "" {
-		auth := teamsbot.NewAuthenticator(appID)
-		if err := auth.ValidateJWT(c.Request().Context(), authHeader); err != nil {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "auth failed"})
-		}
-	}
 
 	if err := s.teamsBot.HandleActivity(c.Request().Context(), &activity, authHeader); err != nil {
 		log.Printf("[TeamsBot] Error handling activity: %s", err)
+		if errors.Is(err, teamsbot.ErrJWTValidationFailed) {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": err.Error()})
+		}
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
