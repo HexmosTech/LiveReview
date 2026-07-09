@@ -48,6 +48,7 @@ type Bot struct {
 	cancel  context.CancelFunc
 	appID   string
 	baseURL string
+	client  *http.Client
 }
 
 type BotConfig struct {
@@ -67,6 +68,7 @@ func NewBot(ctx context.Context, configs []BotConfig, baseURL string) *Bot {
 		ctx:     ctx,
 		cancel:  cancel,
 		baseURL: baseURL,
+		client:  &http.Client{Timeout: 30 * time.Second},
 	}
 	for _, cfg := range configs {
 		oh := &orgHandler{
@@ -131,6 +133,13 @@ func (b *Bot) UpdateBotToken(orgID int64, appID, password string) {
 // HandleActivity processes an incoming Bot Framework activity and sends replies
 // to the serviceUrl via the Connector API (async protocol).
 func (b *Bot) HandleActivity(ctx context.Context, activity *Activity, authHeader string) error {
+	if authHeader != "" && activity.Recipient != nil && activity.Recipient.ID != "" {
+		auth := NewAuthenticator(activity.Recipient.ID)
+		if err := auth.ValidateJWT(ctx, authHeader); err != nil {
+			return fmt.Errorf("JWT validation failed: %w", err)
+		}
+	}
+
 	switch activity.Type {
 	case ActivityTypeMessage:
 		return b.handleMessage(ctx, activity)
@@ -170,7 +179,7 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 		}
 	}
 
-	oh := b.findOrg()
+	oh := b.findOrgByRecipient(activity.Recipient)
 	if oh == nil {
 		reply := b.buildReply("Teams bot is not fully configured yet. Please contact your admin.", activity, nil)
 		return b.postReply(ctx, activity, reply)
@@ -259,8 +268,10 @@ func (b *Bot) handleConversationUpdate(ctx context.Context, activity *Activity) 
 	welcome := `Hi! I'm the LiveReview bot. I can help you review code, check billing, and more.`
 
 	if activity.Conversation.ConversationType == ConversationTypePersonal {
+		welcomeCtx, welcomeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer welcomeCancel()
 		reply := b.buildReply(welcome, activity, nil)
-		if err := b.postReply(context.Background(), activity, reply); err != nil {
+		if err := b.postReply(welcomeCtx, activity, reply); err != nil {
 			log.Printf("[TeamsBot] Failed to send welcome: %s", err)
 		}
 	}
@@ -333,7 +344,7 @@ func (b *Bot) postReply(ctx context.Context, orig *Activity, reply *Activity) er
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := b.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("post reply: %w", err)
 	}
@@ -347,11 +358,15 @@ func (b *Bot) postReply(ctx context.Context, orig *Activity, reply *Activity) er
 	return nil
 }
 
-func (b *Bot) findOrg() *orgHandler {
+func (b *Bot) findOrgByRecipient(recipient *ChannelAccount) *orgHandler {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	for _, oh := range b.orgs {
-		return oh
+	if recipient != nil && recipient.ID != "" {
+		for _, oh := range b.orgs {
+			if oh.botAppID == recipient.ID {
+				return oh
+			}
+		}
 	}
 	return nil
 }
