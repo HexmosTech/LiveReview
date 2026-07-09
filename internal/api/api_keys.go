@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -282,6 +283,23 @@ func (m *APIKeyManager) RevokeAPIKey(keyID, userID, orgID int64) error {
 		return fmt.Errorf("API key not found or already revoked")
 	}
 
+	return nil
+}
+
+// RevokeAPIKeyByPlainKey hashes the plain key and revokes it.
+func (m *APIKeyManager) RevokeAPIKeyByPlainKey(ctx context.Context, plainKey string) error {
+	keyHash := m.HashAPIKey(plainKey)
+	result, err := m.db.ExecContext(ctx, `UPDATE api_keys SET revoked_at = NOW() WHERE key_hash = $1 AND revoked_at IS NULL`, keyHash)
+	if err != nil {
+		return fmt.Errorf("failed to revoke API key: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("API key not found or already revoked")
+	}
 	return nil
 }
 
