@@ -138,12 +138,13 @@ func TestOrchestratorConfiguration(t *testing.T) {
 	// Test default configuration
 	stats := orchestrator.GetProcessingStats()
 	assert.Equal(t, 30, stats["processing_timeout_sec"])
-	assert.Equal(t, 4, stats["providers_registered"])
+	assert.Equal(t, 5, stats["providers_registered"])
 
 	providerNames := stats["provider_names"].([]string)
 	assert.Contains(t, providerNames, "gitlab")
 	assert.Contains(t, providerNames, "github")
 	assert.Contains(t, providerNames, "bitbucket")
+	assert.Contains(t, providerNames, "azuredevops")
 
 	// Test timeout update
 	orchestrator.UpdateProcessingTimeout(60)

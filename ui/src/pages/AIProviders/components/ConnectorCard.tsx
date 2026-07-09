@@ -75,6 +75,11 @@ const ConnectorCard: React.FC<ConnectorCardProps> = ({
                                     )}
                                 </>
                             )}
+                            {connector.providerName === 'bedrock' && connector.awsRegion && (
+                                <p className="text-sm text-slate-300 truncate">
+                                    Region: {connector.awsRegion}
+                                </p>
+                            )}
                             {(connector.selectedModel || connector.selected_model) && (
                                 <p className="text-sm text-slate-300 truncate">
                                     Model: {connector.selectedModel || connector.selected_model}

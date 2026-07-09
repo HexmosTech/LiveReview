@@ -26,6 +26,9 @@ const ProviderSelection: React.FC = () => {
                     <Button variant="outline" icon={<Icons.Git />} className="h-24 flex-col" onClick={() => navigate('/git/gitea/manual')}>
                         <span className="text-base mt-2">Gitea</span>
                     </Button>
+                    <Button variant="outline" icon={<Icons.AzureDevOps />} className="h-24 flex-col" onClick={() => navigate('/git/azuredevops/manual')}>
+                        <span className="text-base mt-2">Azure DevOps</span>
+                    </Button>
                 </div>
             </div>
         </DomainValidator>

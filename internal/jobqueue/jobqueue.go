@@ -255,6 +255,8 @@ func (w *WebhookInstallWorker) getWebhookEndpointForProviderWithCustomEndpoint(p
 		providerPath = "/api/v1/bitbucket-hook"
 	case "gitea":
 		providerPath = "/api/v1/gitea-hook"
+	case "azuredevops":
+		providerPath = "/api/v1/azuredevops-hook"
 	default:
 		// Fallback to generic webhook endpoint
 		providerPath = "/api/v1/webhook"
@@ -470,6 +472,8 @@ func (w *WebhookInstallWorker) Work(ctx context.Context, job *river.Job[WebhookI
 		return w.handleBitbucketWebhookInstall(ctx, args)
 	} else if strings.HasPrefix(args.Provider, "gitea") {
 		return w.handleGiteaWebhookInstall(ctx, args)
+	} else if strings.HasPrefix(args.Provider, "azuredevops") {
+		return w.handleAzureDevOpsWebhookInstall(ctx, args)
 	} else {
 		return fmt.Errorf("unsupported provider: %s", args.Provider)
 	}
@@ -1389,6 +1393,8 @@ func (w *WebhookRemovalWorker) Work(ctx context.Context, job *river.Job[WebhookR
 		return w.handleBitbucketWebhookRemoval(ctx, args)
 	} else if strings.HasPrefix(args.Provider, "gitea") {
 		return w.handleGiteaWebhookRemoval(ctx, args)
+	} else if strings.HasPrefix(args.Provider, "azuredevops") {
+		return w.handleAzureDevOpsWebhookRemoval(ctx, args)
 	} else {
 		return fmt.Errorf("unsupported provider: %s", args.Provider)
 	}
