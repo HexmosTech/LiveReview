@@ -86,13 +86,17 @@ func connectorOptionsFromAIConfig(config AIConfig, commentCount int) (aiconnecto
 	baseURL, _ := config.Config["base_url"].(string)
 	projectID, _ := config.Config["gcp_project_id"].(string)
 	location, _ := config.Config["gcp_location"].(string)
+	awsAccessKeyID, _ := config.Config["aws_access_key_id"].(string)
+	awsRegion, _ := config.Config["aws_region"].(string)
 
 	return aiconnectors.ConnectorOptions{
-		Provider:     aiconnectors.Provider(providerType),
-		APIKey:       config.APIKey,
-		BaseURL:      aiconnectors.ResolveBaseURLForProviderName(providerType, baseURL),
-		GCPProjectID: projectID,
-		GCPLocation:  location,
+		Provider:       aiconnectors.Provider(providerType),
+		APIKey:         config.APIKey,
+		BaseURL:        aiconnectors.ResolveBaseURLForProviderName(providerType, baseURL),
+		GCPProjectID:   projectID,
+		GCPLocation:    location,
+		AWSAccessKeyID: awsAccessKeyID,
+		AWSRegion:      awsRegion,
 		ModelConfig: aiconnectors.ModelConfig{
 			Temperature: config.Temperature,
 			MaxTokens:   helperMaxTokens(commentCount),

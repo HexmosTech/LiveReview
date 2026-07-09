@@ -26,18 +26,21 @@ import (
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/license"
-	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/internal/license/payment"
+	azuredevopsprovider "github.com/livereview/internal/provider_input/azuredevops"
 	"github.com/livereview/internal/slackbot"
 	"github.com/livereview/internal/teamsbot"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	giteaprovider "github.com/livereview/internal/provider_input/gitea"
 	githubprovider "github.com/livereview/internal/provider_input/github"
 	gitlabprovider "github.com/livereview/internal/provider_input/gitlab"
+	azuredevopsoutput "github.com/livereview/internal/provider_output/azuredevops"
 	bitbucketoutput "github.com/livereview/internal/provider_output/bitbucket"
 	giteaoutput "github.com/livereview/internal/provider_output/gitea"
 	githuboutput "github.com/livereview/internal/provider_output/github"
 	gitlaboutput "github.com/livereview/internal/provider_output/gitlab"
+	"github.com/livereview/internal/providers/azuredevops"
+	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/storage/core"
 	// Import FetchGitLabProfile
 )
@@ -147,6 +150,7 @@ type Server struct {
 	githubProviderV2    *githubprovider.GitHubV2Provider
 	bitbucketProviderV2 *bitbucketprovider.BitbucketV2Provider
 	giteaProviderV2     *giteaprovider.GiteaV2Provider
+	azuredevopsProviderV2 *azuredevopsprovider.AzureDevOpsV2Provider
 
 	gitlabAuthService *gitlabprovider.AuthService
 
@@ -180,8 +184,8 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	} else {
 		fmt.Printf(
 			"error loading .env file: %v\n\nUsing environment variables instead.\nIf needed, create a .env file with DATABASE_URL like:\nDATABASE_URL=postgres://username:password@localhost:5432/dbname?sslmode=disable\n",
-		err,
-	)
+			err,
+		)
 	}
 
 	// print env variables
@@ -223,7 +227,6 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 				"JWT_SECRET=your-secure-random-secret-key",
 		)
 	}
-		
 
 	planCatalogPath := strings.TrimSpace(os.Getenv("LIVEREVIEW_PLAN_CATALOG_PATH"))
 	if planCatalogPath == "" {
@@ -331,6 +334,7 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	server.githubProviderV2 = githubprovider.NewGitHubV2Provider(db, githuboutput.NewAPIClient())
 	server.bitbucketProviderV2 = bitbucketprovider.NewBitbucketV2Provider(db, bitbucketoutput.NewAPIClient())
 	server.giteaProviderV2 = giteaprovider.NewGiteaV2Provider(db, giteaoutput.NewAPIClient())
+	server.azuredevopsProviderV2 = azuredevopsprovider.NewAzureDevOpsV2Provider(db, azuredevopsoutput.NewAPIClient())
 
 	// Initialize V2 webhook registry
 	server.webhookRegistryV2 = NewWebhookProviderRegistry(server)
@@ -1096,6 +1100,7 @@ func (s *Server) setupRoutes() {
 
 	// Gitea profile validation endpoint
 	v1.POST("/gitea/validate-profile", s.ValidateGiteaProfile)
+	v1.POST("/azuredevops/validate-profile", s.ValidateAzureDevOpsProfile)
 
 	// Organization-scoped PAT creation (uses X-Org-Context header for organization context)
 	patGroup := v1.Group("/integration_tokens")
@@ -1140,6 +1145,9 @@ func (s *Server) setupRoutes() {
 	// Gitea webhook handler (V2 Orchestrator)
 	v1.POST("/gitea-hook/:connector_id", s.WebhookOrchestratorV2Handler, webhookMiddleware)
 
+	// Azure DevOps webhook handler (V2 Orchestrator)
+	v1.POST("/azuredevops-hook/:connector_id", s.WebhookOrchestratorV2Handler, webhookMiddleware)
+
 	// Generic webhook handler (V2 Orchestrator)
 	v1.POST("/webhook/:connector_id", s.WebhookOrchestratorV2Handler, webhookMiddleware)
 
@@ -1162,6 +1170,7 @@ func (s *Server) setupRoutes() {
 	aiConnectorGroup.PUT("/reorder", s.ReorderAIConnectors)
 	aiConnectorGroup.DELETE("/:id", s.DeleteAIConnector)
 	aiConnectorGroup.POST("/ollama/models", s.FetchOllamaModels)
+	aiConnectorGroup.POST("/bedrock/models", s.FetchBedrockModels)
 	aiConnectorGroup.GET("/providers/:provider/models", s.GetAIProviderModels)
 
 	// MCP Agent endpoints (organization scoped)
@@ -1382,6 +1391,11 @@ type ValidateGiteaProfileRequest struct {
 	PAT     string `json:"pat"`
 }
 
+type ValidateAzureDevOpsProfileRequest struct {
+	OrgURL string `json:"org_url"`
+	PAT    string `json:"pat"`
+}
+
 // ValidateGitLabProfile validates GitLab PAT and base URL by fetching user profile
 func (s *Server) ValidateGitLabProfile(c echo.Context) error {
 	fmt.Println("Reached ValidateGitlabProfile")
@@ -1443,6 +1457,22 @@ func (s *Server) ValidateGiteaProfile(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "base_url and pat are required"})
 	}
 	profile, err := giteaprovider.FetchGiteaProfile(body.BaseURL, body.PAT)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, profile)
+}
+
+// ValidateAzureDevOpsProfile validates an Azure DevOps PAT + organization URL by fetching the user profile
+func (s *Server) ValidateAzureDevOpsProfile(c echo.Context) error {
+	var body ValidateAzureDevOpsProfileRequest
+	if err := c.Bind(&body); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	}
+	if body.OrgURL == "" || body.PAT == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "org_url and pat are required"})
+	}
+	profile, err := azuredevops.FetchAzureDevOpsProfile(body.OrgURL, body.PAT)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}

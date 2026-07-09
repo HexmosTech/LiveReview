@@ -210,13 +210,14 @@ func (s *Server) refreshTokenIfNeeded(token *IntegrationToken, forceRefresh bool
 
 // validateProvider checks if the provider is supported
 func validateProvider(provider string) error {
-	// Support GitLab variants (gitlab, gitlab-self-hosted, etc.), GitHub variants, Bitbucket variants, and Gitea
+	// Support GitLab variants (gitlab, gitlab-self-hosted, etc.), GitHub variants, Bitbucket variants, Gitea, and Azure DevOps
 	if !strings.HasPrefix(provider, "gitlab") &&
 		!strings.HasPrefix(provider, "github") &&
 		!strings.HasPrefix(provider, "bitbucket") &&
-		!strings.HasPrefix(provider, "gitea") {
+		!strings.HasPrefix(provider, "gitea") &&
+		!strings.HasPrefix(provider, "azuredevops") {
 		log.Printf("[DEBUG] validateProvider: Unsupported provider: %s", provider)
-		return fmt.Errorf("unsupported provider type: %s. Currently, GitLab, GitHub, Bitbucket, and Gitea variants are supported", provider)
+		return fmt.Errorf("unsupported provider type: %s. Currently, GitLab, GitHub, Bitbucket, Gitea, and Azure DevOps variants are supported", provider)
 	}
 	log.Printf("[DEBUG] validateProvider: Provider is supported: %s", provider)
 	return nil
@@ -283,6 +284,12 @@ func ensureValidToken(token *IntegrationToken) string {
 		}
 		log.Printf("[DEBUG] ensureValidToken: Using Gitea access token: %s", maskToken(pat))
 		return pat
+	}
+
+	// Handle Azure DevOps variants
+	if strings.HasPrefix(token.Provider, "azuredevops") {
+		log.Printf("[DEBUG] ensureValidToken: Using Azure DevOps PAT from database: %s", maskToken(token.PatToken))
+		return token.PatToken
 	}
 
 	// Default fallback
@@ -498,6 +505,12 @@ func (s *Server) buildBYOKAIConfig(ctx context.Context, connector *aiconnectors.
 	if connector.GCPLocation.Valid && connector.GCPLocation.String != "" {
 		configMap["gcp_location"] = connector.GCPLocation.String
 	}
+	if connector.AWSAccessKeyID.Valid && connector.AWSAccessKeyID.String != "" {
+		configMap["aws_access_key_id"] = connector.AWSAccessKeyID.String
+	}
+	if connector.AWSRegion.Valid && connector.AWSRegion.String != "" {
+		configMap["aws_region"] = connector.AWSRegion.String
+	}
 
 	// Add base URL if available
 	baseURL := ""
@@ -645,10 +658,16 @@ func (s *Server) buildReviewRequest(
 			if pass != "" {
 				providerConfigMap["password"] = pass
 			}
+		} else if strings.HasPrefix(token.Provider, "azuredevops") {
+			providerToken = token.PatToken
+			providerConfigMap["pat_token"] = token.PatToken
 		}
 	}
 
 	// Provide base URL to provider configs that need it
+	if strings.HasPrefix(token.Provider, "azuredevops") {
+		providerConfigMap["base_url"] = token.ProviderURL
+	}
 	if strings.HasPrefix(token.Provider, "gitea") {
 		providerConfigMap["base_url"] = token.ProviderURL
 		if _, ok := providerConfigMap["pat_token"]; !ok {

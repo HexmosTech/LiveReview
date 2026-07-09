@@ -565,6 +565,17 @@ func (wo *WebhookOrchestratorV2) getBotUserInfo(event *UnifiedWebhookEventV2) (*
 		}
 		return botProvider.GetBotUserInfo(event.Repository)
 
+	case "azuredevops":
+		provider, ok := wo.providerRegistry.providers["azuredevops"]
+		if !ok {
+			return nil, fmt.Errorf("azuredevops provider not registered")
+		}
+		botProvider, ok := provider.(botInfoProvider)
+		if !ok {
+			return nil, fmt.Errorf("azuredevops provider does not implement bot lookup")
+		}
+		return botProvider.GetBotUserInfo(event.Repository)
+
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", event.Provider)
 	}
