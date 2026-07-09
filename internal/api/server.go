@@ -28,6 +28,7 @@ import (
 	"github.com/livereview/internal/license/payment"
 	azuredevopsprovider "github.com/livereview/internal/provider_input/azuredevops"
 	"github.com/livereview/internal/slackbot"
+	"github.com/livereview/internal/teamsbot"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	giteaprovider "github.com/livereview/internal/provider_input/gitea"
 	githubprovider "github.com/livereview/internal/provider_input/github"
@@ -162,6 +163,8 @@ type Server struct {
 
 	slackBots []*slackbot.Bot
 	slackBot  *slackbot.Bot
+
+	teamsHandler *teamsbot.Handler
 
 	slackOAuthHandler *SlackOAuthHandler
 
@@ -477,6 +480,21 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		}
 	}
 
+	// Initialize org-scoped Teams bot (self-hosted only) from DB config
+	if !server.deploymentConfig.IsCloud {
+		handler, err := teamsbot.NewHandler(server.db)
+		if err != nil {
+			fmt.Printf("Warning: Failed to initialize Teams bot: %v (Teams bot disabled)\n", err)
+		} else if handler != nil {
+			server.teamsHandler = handler
+			fmt.Printf("Teams bot initialized for %d org(s) (will start with server)\n", len(handler.Bot.GetOrgIDs()))
+		} else {
+			fmt.Printf("No Teams bot configs found (Teams bot disabled)\n")
+		}
+	} else {
+		fmt.Printf("Cloud mode: Teams bot initialization skipped\n")
+	}
+
 	return server, nil
 }
 
@@ -763,6 +781,23 @@ func (s *Server) setupRoutes() {
 		}
 	}
 
+	// Teams bot messages endpoint (public — Bot Framework sends activities here)
+	s.echo.POST("/api/messages", func(c echo.Context) error {
+		if s.teamsHandler == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Teams bot not initialized"})
+		}
+		return s.teamsHandler.HandleMessage(c)
+	})
+	fmt.Println("Teams bot messages endpoint registered")
+
+	// Serve chart images for Teams bot
+	s.echo.GET("/charts/:id", func(c echo.Context) error {
+		if s.teamsHandler == nil {
+			return c.NoContent(http.StatusInternalServerError)
+		}
+		return s.teamsHandler.ServeChartPNG(c)
+	})
+
 	// Protected routes (require authentication - supports both Bearer tokens and API keys)
 	protected := v1.Group("")
 	protected.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
@@ -859,6 +894,14 @@ func (s *Server) setupRoutes() {
 		orgGroup.GET("/slack-config", slackConfigHandler.GetSlackConfig)
 		orgGroup.PUT("/slack-config", slackConfigHandler.PutSlackConfig)
 		orgGroup.DELETE("/slack-config", slackConfigHandler.DeleteSlackConfig)
+	}
+
+	// Teams bot configuration within org context (self-hosted only)
+	if !s.deploymentConfig.IsCloud {
+		teamsConfigHandler := NewTeamsConfigHandler(s.db)
+		orgGroup.GET("/teams-config", teamsConfigHandler.GetTeamsConfig)
+		orgGroup.PUT("/teams-config", teamsConfigHandler.UpdateTeamsConfig)
+		orgGroup.DELETE("/teams-config", teamsConfigHandler.DeleteTeamsConfig)
 	}
 
 	// API key management within org context
@@ -1391,6 +1434,11 @@ func (s *Server) Start() error {
 		}
 	}
 
+	// Start Teams bot if configured
+	if s.teamsHandler != nil {
+		s.teamsHandler.Start()
+	}
+
 	// Wait for interrupt signal to gracefully shut down the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
@@ -1408,6 +1456,11 @@ func (s *Server) Start() error {
 		} else {
 			fmt.Println("Job queue workers stopped")
 		}
+	}
+
+	// Stop Teams bot
+	if s.teamsHandler != nil {
+		s.teamsHandler.Stop()
 	}
 
 	// Stop dashboard manager

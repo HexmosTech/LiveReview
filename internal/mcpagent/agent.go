@@ -52,11 +52,13 @@ func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText st
 	history = append(history, HistoryEntry{"role": "user", "content": userText})
 
 	for step := 0; step < a.maxSteps; step++ {
-		log.Debug().Int("step", step).Int("history_len", len(history)).Msg("Calling LLM")
+		log.Debug().Int("step", step).Int("history_len", len(history)).Int("num_tools", len(a.providerTools)).Msg("Calling LLM")
 		response, err := a.provider.Complete(ctx, history, a.providerTools)
 		if err != nil {
+			log.Error().Err(err).Int("step", step).Msg("LLM completion failed")
 			return "", history, fmt.Errorf("llm completion step %d: %w", step, err)
 		}
+		log.Debug().Int("step", step).Int("response_len", len(response)).Msg("LLM call succeeded")
 
 		history = append(history, HistoryEntry{"role": "assistant", "text": response})
 
