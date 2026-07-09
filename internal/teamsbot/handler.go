@@ -142,11 +142,12 @@ func (h *Handler) HandleMessage(c echo.Context) error {
 	authHeader := c.Request().Header.Get("Authorization")
 
 	if err := h.Bot.HandleActivity(c.Request().Context(), &activity, authHeader); err != nil {
-		log.Printf("[TeamsBot] Error handling activity: %s", err)
 		if errors.Is(err, ErrJWTValidationFailed) {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": err.Error()})
+			log.Printf("[TeamsBot] JWT validation failed")
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		}
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		log.Printf("[TeamsBot] Error handling activity: %s", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
 	}
 
 	return c.NoContent(http.StatusOK)
