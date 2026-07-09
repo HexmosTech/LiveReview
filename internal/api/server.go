@@ -489,8 +489,12 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 			fmt.Printf("Warning: Failed to initialize Teams bot: %v (Teams bot disabled)\n", err)
 		} else if bot != nil {
 			server.teamsBot = bot
-			fmt.Printf("Teams bot initialized for %d org(s) (will start with server)\n", 1)
+			fmt.Printf("Teams bot initialized for %d org(s) (will start with server)\n", len(bot.GetOrgIDs()))
+		} else {
+			fmt.Printf("No Teams bot configs found (Teams bot disabled)\n")
 		}
+	} else {
+		fmt.Printf("Cloud mode: Teams bot initialization skipped\n")
 	}
 
 	return server, nil

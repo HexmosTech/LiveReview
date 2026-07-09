@@ -1,4 +1,4 @@
-\restrict qswHgagot7PAYQKzIWhQrzWfl9L2uCKAUPjSKTAHh6xVutgiGu5PPgb5qPIJyZb
+\restrict YpZ23deMxwkilSsMDU4qcvkYkDqZ1f1gvwA8kfJwjas5deBeDgbj5U1vDNTyDEA
 
 -- Dumped from database version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
 -- Dumped by pg_dump version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
@@ -202,6 +202,17 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
+-- Name: _seed_backup; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public._seed_backup (
+    org_id bigint NOT NULL,
+    key text NOT NULL,
+    value jsonb
+);
+
+
+--
 -- Name: ai_comments; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -255,6 +266,8 @@ CREATE TABLE public.ai_connectors (
     gcp_project_id text,
     gcp_location text,
     role character varying(32) DEFAULT 'leader'::character varying NOT NULL,
+    aws_access_key_id text,
+    aws_region text,
     CONSTRAINT ai_connectors_role_check CHECK (((role)::text = ANY ((ARRAY['leader'::character varying, 'helper'::character varying])::text[])))
 );
 
@@ -2594,6 +2607,14 @@ ALTER TABLE ONLY public.users ALTER COLUMN id SET DEFAULT nextval('public.users_
 --
 
 ALTER TABLE ONLY public.webhook_registry ALTER COLUMN id SET DEFAULT nextval('public.webhook_registry_id_seq'::regclass);
+
+
+--
+-- Name: _seed_backup _seed_backup_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public._seed_backup
+    ADD CONSTRAINT _seed_backup_pkey PRIMARY KEY (org_id, key);
 
 
 --
@@ -5102,7 +5123,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict qswHgagot7PAYQKzIWhQrzWfl9L2uCKAUPjSKTAHh6xVutgiGu5PPgb5qPIJyZb
+\unrestrict YpZ23deMxwkilSsMDU4qcvkYkDqZ1f1gvwA8kfJwjas5deBeDgbj5U1vDNTyDEA
 
 
 --
@@ -5189,4 +5210,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260702140000'),
     ('20260702141000'),
     ('20260704150001'),
+    ('20260706205257'),
     ('20260707220001');

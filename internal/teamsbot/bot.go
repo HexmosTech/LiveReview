@@ -121,6 +121,16 @@ func (b *Bot) GetAppID() string {
 	return b.appID
 }
 
+func (b *Bot) GetOrgIDs() []int64 {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	ids := make([]int64, 0, len(b.orgs))
+	for id := range b.orgs {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 func (b *Bot) UpdateBotToken(orgID int64, appID, password string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -361,12 +371,22 @@ func (b *Bot) postReply(ctx context.Context, orig *Activity, reply *Activity) er
 func (b *Bot) findOrgByRecipient(recipient *ChannelAccount) *orgHandler {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+	if len(b.orgs) == 0 {
+		log.Printf("[TeamsBot] findOrgByRecipient: no orgs in bot")
+		return nil
+	}
 	if recipient != nil && recipient.ID != "" {
 		for _, oh := range b.orgs {
 			if oh.botAppID == recipient.ID {
+				log.Printf("[TeamsBot] findOrgByRecipient: matched org %d by recipient appID %s", oh.orgID, recipient.ID)
 				return oh
 			}
 		}
+	}
+
+	for _, oh := range b.orgs {
+		log.Printf("[TeamsBot] findOrgByRecipient: fallback to org %d", oh.orgID)
+		return oh
 	}
 	return nil
 }
