@@ -38,7 +38,7 @@ func (h *LearningsHandler) List(c echo.Context) error {
 
 	limit := 20
 	if l := c.QueryParam("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 1000 {
 			limit = parsed
 		}
 	}

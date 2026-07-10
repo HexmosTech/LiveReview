@@ -1600,29 +1600,57 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 			return fmt.Errorf("failed to update org billing state for confirmed purchase: %w", err)
 		}
 
-		// Provision the default AI connector ("LiveReview AI Model") for the organization
-		var exists bool
-		err = tx.QueryRow(fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM ai_connectors WHERE org_id = $1 AND provider_name = '%s')`, aidefault.ProviderName), orgID).Scan(&exists)
+		// Provision the default AI connectors ("LiveReview AI Model") for the
+		// organization, one per role. Each role's display_order is shifted
+		// and inserted independently, matching the per-role ordering model
+		// GetMaxDisplayOrderByRole already uses elsewhere in the connector API.
+		var leaderExists bool
+		err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM ai_connectors WHERE org_id = $1 AND provider_name = $2 AND role = 'leader')`, orgID, aidefault.ProviderName).Scan(&leaderExists)
 		if err != nil {
-			return fmt.Errorf("failed to check managed AI connector existence: %w", err)
+			return fmt.Errorf("failed to check managed leader AI connector existence: %w", err)
 		}
 
-		if !exists {
-			// Shift existing connectors down to make room at display_order = 1
-			_, err = tx.Exec(`UPDATE ai_connectors SET display_order = display_order + 1 WHERE org_id = $1`, orgID)
+		if !leaderExists {
+			// Shift existing leader connectors down to make room at display_order = 1
+			_, err = tx.Exec(`UPDATE ai_connectors SET display_order = display_order + 1 WHERE org_id = $1 AND role = 'leader'`, orgID)
 			if err != nil {
-				return fmt.Errorf("failed to shift existing AI connectors: %w", err)
+				return fmt.Errorf("failed to shift existing leader AI connectors: %w", err)
 			}
 
-			// Insert the default connector at position 1
-			_, err = tx.Exec(fmt.Sprintf(`
+			// Insert the default leader connector at position 1
+			_, err = tx.Exec(`
 				INSERT INTO ai_connectors (
-					provider_name, api_key, connector_name, selected_model, display_order, org_id,
+					provider_name, api_key, connector_name, selected_model, display_order, role, org_id,
 					created_at, updated_at
-				) VALUES ('%s', 'system_managed', 'LiveReview AI Model', 'default', 1, $1, NOW(), NOW())
-			`, aidefault.ProviderName), orgID)
+				) VALUES ($1, 'system_managed', 'LiveReview AI Model', 'default', 1, 'leader', $2, NOW(), NOW())
+			`, aidefault.ProviderName, orgID)
 			if err != nil {
-				return fmt.Errorf("failed to provision managed AI connector: %w", err)
+				return fmt.Errorf("failed to provision managed leader AI connector: %w", err)
+			}
+		}
+
+		var helperExists bool
+		err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM ai_connectors WHERE org_id = $1 AND provider_name = $2 AND role = 'helper')`, orgID, aidefault.ProviderName).Scan(&helperExists)
+		if err != nil {
+			return fmt.Errorf("failed to check managed helper AI connector existence: %w", err)
+		}
+
+		if !helperExists {
+			// Shift existing helper connectors down to make room at display_order = 1
+			_, err = tx.Exec(`UPDATE ai_connectors SET display_order = display_order + 1 WHERE org_id = $1 AND role = 'helper'`, orgID)
+			if err != nil {
+				return fmt.Errorf("failed to shift existing helper AI connectors: %w", err)
+			}
+
+			// Insert the default helper connector at position 1
+			_, err = tx.Exec(`
+				INSERT INTO ai_connectors (
+					provider_name, api_key, connector_name, selected_model, display_order, role, org_id,
+					created_at, updated_at
+				) VALUES ($1, 'system_managed', 'LiveReview AI Model (Helper)', 'default_lite', 1, 'helper', $2, NOW(), NOW())
+			`, aidefault.ProviderName, orgID)
+			if err != nil {
+				return fmt.Errorf("failed to provision managed helper AI connector: %w", err)
 			}
 		}
 	}

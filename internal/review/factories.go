@@ -11,6 +11,7 @@ import (
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/providers"
+	"github.com/livereview/internal/providers/azuredevops"
 	"github.com/livereview/internal/providers/bitbucket"
 	"github.com/livereview/internal/providers/gitea"
 	"github.com/livereview/internal/providers/github"
@@ -87,6 +88,22 @@ func (f *StandardProviderFactory) CreateProvider(ctx context.Context, config Pro
 		return provider, nil
 	}
 
+	// Handle Azure DevOps variants
+	if strings.HasPrefix(config.Type, "azuredevops") {
+		log.Printf("[DEBUG] Creating Azure DevOps provider")
+		provider, err := azuredevops.NewProvider(azuredevops.Config{
+			BaseURL: config.URL,
+			Token:   config.Token,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create azuredevops provider: %w", err)
+		}
+		if err := provider.Configure(config.Config); err != nil {
+			return nil, err
+		}
+		return provider, nil
+	}
+
 	return nil, fmt.Errorf("unsupported provider type: %s", config.Type)
 }
 
@@ -108,6 +125,10 @@ func (f *StandardProviderFactory) SupportsProvider(providerType string) bool {
 	if strings.HasPrefix(providerType, "gitea") {
 		return true
 	}
+	// Support Azure DevOps variants
+	if strings.HasPrefix(providerType, "azuredevops") {
+		return true
+	}
 	return false
 }
 
@@ -119,90 +140,62 @@ func NewStandardAIProviderFactory() *StandardAIProviderFactory {
 	return &StandardAIProviderFactory{}
 }
 
-// CreateAIProvider creates an AI provider based on the configuration
+// CreateAIProvider creates an AI provider based on the configuration.
+// Every caller currently sets config.Type to "langchain"; any other value falls back to the
+// same langchain-backed construction below (kept as a defensive default rather than an error).
 func (f *StandardAIProviderFactory) CreateAIProvider(ctx context.Context, config AIConfig, logger *logging.ReviewLogger) (ai.Provider, error) {
-	switch config.Type {
-	case "langchain":
-		// Extract provider information from config.
-		// For managed/livereview-default-ai connectors, 'ai_provider_type' contains the actual implementation backend (e.g. 'gemini').
-		providerName, _ := config.Config["provider_name"].(string)
-		providerType, ok := config.Config["ai_provider_type"].(string)
-		if !ok || providerType == "" {
-			providerType = providerName
-		}
-
-		baseURL, _ := config.Config["base_url"].(string)
-		baseURL = aiconnectors.ResolveBaseURLForProviderName(providerType, baseURL)
-
-		var gcpProjectID, gcpLocation string
-		if val, ok := config.Config["gcp_project_id"].(string); ok {
-			gcpProjectID = val
-		}
-		if val, ok := config.Config["gcp_location"].(string); ok {
-			gcpLocation = val
-		}
-
-		// Set provider-specific token limits
-		maxTokens := f.getProviderMaxTokens(providerType)
-
-		log.Printf("[AI FACTORY] Creating %s (%s) provider with model: %s, max tokens: %d", providerName, providerType, config.Model, maxTokens)
-		if baseURL != "" {
-			log.Printf("[AI FACTORY] Using base URL: %s", baseURL)
-		}
-
-		return langchain.New(langchain.Config{
-			APIKey:         config.APIKey,
-			ModelName:      config.Model,
-			MaxTokens:      maxTokens,
-			Temperature:    config.Temperature,
-			TemperatureSet: true,
-			ProviderType:   providerType,
-			BaseURL:        baseURL,
-			ProviderName:   providerName,
-			GCPProjectID:   gcpProjectID,
-			GCPLocation:    gcpLocation,
-		}, logger), nil
-	default:
-		// Default to langchain for any unrecognized type
-		// Extract provider information from config
-		providerName, _ := config.Config["provider_name"].(string)
-		providerType, ok := config.Config["ai_provider_type"].(string)
-		if !ok || providerType == "" {
-			providerType = providerName
-		}
-
-		baseURL, _ := config.Config["base_url"].(string)
-		baseURL = aiconnectors.ResolveBaseURLForProviderName(providerType, baseURL)
-
-		var gcpProjectID, gcpLocation string
-		if val, ok := config.Config["gcp_project_id"].(string); ok {
-			gcpProjectID = val
-		}
-		if val, ok := config.Config["gcp_location"].(string); ok {
-			gcpLocation = val
-		}
-
-		// Set provider-specific token limits
-		maxTokens := f.getProviderMaxTokens(providerType)
-
-		log.Printf("[AI FACTORY] Creating %s (%s) provider (fallback) with model: %s, max tokens: %d", providerName, providerType, config.Model, maxTokens)
-		if baseURL != "" {
-			log.Printf("[AI FACTORY] Using base URL: %s", baseURL)
-		}
-
-		return langchain.New(langchain.Config{
-			APIKey:         config.APIKey,
-			ModelName:      config.Model,
-			MaxTokens:      maxTokens,
-			Temperature:    config.Temperature,
-			TemperatureSet: true,
-			ProviderType:   providerType,
-			BaseURL:        baseURL,
-			ProviderName:   providerName,
-			GCPProjectID:   gcpProjectID,
-			GCPLocation:    gcpLocation,
-		}, logger), nil
+	// Extract provider information from config.
+	// For managed/livereview-default-ai connectors, 'ai_provider_type' contains the actual implementation backend (e.g. 'gemini').
+	providerName, _ := config.Config["provider_name"].(string)
+	providerType, ok := config.Config["ai_provider_type"].(string)
+	if !ok || providerType == "" {
+		providerType = providerName
 	}
+
+	baseURL, _ := config.Config["base_url"].(string)
+	baseURL = aiconnectors.ResolveBaseURLForProviderName(providerType, baseURL)
+
+	var gcpProjectID, gcpLocation string
+	if val, ok := config.Config["gcp_project_id"].(string); ok {
+		gcpProjectID = val
+	}
+	if val, ok := config.Config["gcp_location"].(string); ok {
+		gcpLocation = val
+	}
+
+	var awsAccessKeyID, awsRegion string
+	if val, ok := config.Config["aws_access_key_id"].(string); ok {
+		awsAccessKeyID = val
+	}
+	if val, ok := config.Config["aws_region"].(string); ok {
+		awsRegion = val
+	}
+
+	// Set provider-specific token limits
+	maxTokens := f.getProviderMaxTokens(providerType)
+
+	if config.Type != "langchain" {
+		log.Printf("[AI FACTORY] Unrecognized AIConfig type %q, defaulting to langchain", config.Type)
+	}
+	log.Printf("[AI FACTORY] Creating %s (%s) provider with model: %s, max tokens: %d", providerName, providerType, config.Model, maxTokens)
+	if baseURL != "" {
+		log.Printf("[AI FACTORY] Using base URL: %s", baseURL)
+	}
+
+	return langchain.New(langchain.Config{
+		APIKey:         config.APIKey,
+		ModelName:      config.Model,
+		MaxTokens:      maxTokens,
+		Temperature:    config.Temperature,
+		TemperatureSet: true,
+		ProviderType:   providerType,
+		BaseURL:        baseURL,
+		ProviderName:   providerName,
+		GCPProjectID:   gcpProjectID,
+		GCPLocation:    gcpLocation,
+		AWSAccessKeyID: awsAccessKeyID,
+		AWSRegion:      awsRegion,
+	}, logger), nil
 }
 
 // getProviderMaxTokens returns appropriate token limits based on provider type
@@ -220,6 +213,8 @@ func (f *StandardAIProviderFactory) getProviderMaxTokens(providerName string) in
 		return 8000 // OpenRouter models commonly cap near 8k
 	case "anthropic", "claude":
 		return 20000 // Claude models can handle large batches
+	case "bedrock":
+		return 20000 // Claude/Nova models via Bedrock can handle large batches
 	default:
 		return 8000 // Conservative default for unknown providers
 	}

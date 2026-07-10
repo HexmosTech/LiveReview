@@ -19,6 +19,7 @@ export interface AIConnector {
     id: string;
     name: string;
     providerName: string;
+    role?: 'leader' | 'helper';
     apiKey: string; // Masked API key for display
     fullApiKey?: string; // Full API key for editing
     baseURL?: string; // Base URL for providers like Ollama
@@ -42,16 +43,26 @@ export interface AIConnector {
     gcpLocation?: string;
     gcp_project_id?: string;
     gcp_location?: string;
+    awsAccessKeyID?: string;
+    awsRegion?: string;
 }
 
 export interface ConnectorFormData {
     name: string;
     apiKey: string;
     providerType: string;
+    role?: 'leader' | 'helper';
     baseURL?: string; // Base URL for providers like Ollama
     selectedModel?: string; // Selected model for the connector
     gcpProjectID?: string;
     gcpLocation?: string;
+    awsAccessKeyID?: string;
+    awsRegion?: string;
+}
+
+export interface ReviewAISettings {
+    helper_enabled: boolean;
+    helper_mode: 'concise_then_expand' | 'polish_only';
 }
 
 export interface ValidationResult {

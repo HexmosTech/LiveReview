@@ -13,6 +13,12 @@ import (
 	"github.com/tmc/langchaingo/llms"
 )
 
+// maxExternalCommentsPerReview caps how many external (user-visible) comments
+// a single review will post. This is a safety net against LLM output
+// degeneration (a model repeating the same finding hundreds of times in one
+// response) flooding the target PR/MR with duplicate comments.
+const maxExternalCommentsPerReview = 60
+
 // Add ParentHunkID to DiffHunk for tracking
 // (If not present in models, add here for batching purposes)
 type DiffHunkWithParent struct {
@@ -391,6 +397,9 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 	var externalComments []*models.ReviewComment
 	var internalComments []*models.ReviewComment
 	totalComments := 0
+	seenComments := make(map[string]bool)
+	skippedDuplicates := 0
+	skippedOverCap := 0
 	for _, result := range results {
 		entries := result.TechnicalSummaries
 		if len(entries) == 0 && strings.TrimSpace(result.FileSummary) != "" {
@@ -423,15 +432,38 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 			}
 		}
 
-		// Separate internal and external comments
+		// Separate internal and external comments. A single degenerate LLM
+		// response can repeat the same finding hundreds of times (observed:
+		// one 243KB response containing 415 near-identical comment objects);
+		// without a dedup+cap safety net every one of those gets posted
+		// straight to the target repo. Dedup on (file, line, content) and
+		// hard-cap the external count so one bad generation can't flood a
+		// real PR/MR with duplicate comments.
 		for _, comment := range result.Comments {
 			totalComments++
+			dedupeKey := fmt.Sprintf("%s|%d|%t|%s", comment.FilePath, comment.Line, comment.IsInternal, comment.Content)
+			if seenComments[dedupeKey] {
+				skippedDuplicates++
+				continue
+			}
+			seenComments[dedupeKey] = true
+
 			if comment.IsInternal {
 				internalComments = append(internalComments, comment)
-			} else {
-				externalComments = append(externalComments, comment)
+				continue
 			}
+			if len(externalComments) >= maxExternalCommentsPerReview {
+				skippedOverCap++
+				continue
+			}
+			externalComments = append(externalComments, comment)
 		}
+	}
+	if skippedDuplicates > 0 {
+		p.Logger.Warn("Skipped %d duplicate comment(s) (identical file/line/content) across batch results", skippedDuplicates)
+	}
+	if skippedOverCap > 0 {
+		p.Logger.Warn("Skipped %d external comment(s) beyond the %d-comment safety cap for a single review", skippedOverCap, maxExternalCommentsPerReview)
 	}
 
 	// Synthesize general summary strictly from structured technical summaries
@@ -446,7 +478,7 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 		}
 	}
 	orderedSummaries := flattenSummaries(summaryOrder, summaryByFile)
-	promptText := base + "\n\n" + prompts.BuildSummarySection(orderedSummaries) + "\n\n" + prompts.SummaryStructure
+	promptText := base + "\n\n" + prompts.BuildRepoRulesSection(ctx) + prompts.BuildSummarySection(orderedSummaries) + "\n\n" + prompts.SummaryStructure
 
 	generalSummary, err := llms.GenerateFromSinglePrompt(ctx, llm, promptText, callOptions...)
 	if err != nil {

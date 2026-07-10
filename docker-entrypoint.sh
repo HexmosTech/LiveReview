@@ -104,6 +104,12 @@ start_servers() {
     ./livereview api --port "$BACKEND_PORT" \
         >> /proc/1/fd/1 2>> /proc/1/fd/2 &
     API_PID=$!
+
+    # Start Worker server in background
+    echo "👷 Starting background worker..."
+    ./livereview worker \
+        >> /proc/1/fd/1 2>> /proc/1/fd/2 &
+    WORKER_PID=$!
     
     # Optionally start River UI
     RIVER_PID=""
@@ -117,11 +123,11 @@ start_servers() {
     cleanup() {
         echo "🛑 Shutting down servers..."
         if [ -n "$RIVER_PID" ]; then
-            kill $UI_PID $API_PID $RIVER_PID 2>/dev/null || true
-            wait $UI_PID $API_PID $RIVER_PID 2>/dev/null || true
+            kill $UI_PID $API_PID $WORKER_PID $RIVER_PID 2>/dev/null || true
+            wait $UI_PID $API_PID $WORKER_PID $RIVER_PID 2>/dev/null || true
         else
-            kill $UI_PID $API_PID 2>/dev/null || true
-            wait $UI_PID $API_PID 2>/dev/null || true
+            kill $UI_PID $API_PID $WORKER_PID 2>/dev/null || true
+            wait $UI_PID $API_PID $WORKER_PID 2>/dev/null || true
         fi
         echo "✅ Servers stopped"
     }
@@ -132,6 +138,7 @@ start_servers() {
     echo "✅ Servers are starting up..."
     echo "🌐 UI available at: http://localhost:$FRONTEND_PORT"
     echo "🔌 API available at: http://localhost:$BACKEND_PORT"
+    echo "👷 Background worker started"
     
     if [ "$ENABLE_RIVER_UI" = "true" ]; then
         echo "🌊 River UI available at: http://localhost:8080"
@@ -139,9 +146,9 @@ start_servers() {
     
     # Wait for all processes
     if [ -n "$RIVER_PID" ]; then
-        wait $UI_PID $API_PID $RIVER_PID
+        wait $UI_PID $API_PID $WORKER_PID $RIVER_PID
     else
-        wait $UI_PID $API_PID
+        wait $UI_PID $API_PID $WORKER_PID
     fi
 }
 

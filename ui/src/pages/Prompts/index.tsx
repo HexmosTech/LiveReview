@@ -4,6 +4,7 @@ import promptsService from '../../services/prompts';
 import type { CatalogEntry, VariablesResponse } from '../../types/prompts';
 import LicenseUpgradeDialog from '../../components/License/LicenseUpgradeDialog';
 import { useHasLicenseFor } from '../../hooks/useLicenseTier';
+import { useOrgContext } from '../../hooks/useOrgContext';
 
 const DEFAULT_PROMPT_KEY = 'code_review';
 
@@ -18,6 +19,10 @@ const PromptsPage: React.FC = () => {
   const [saving, setSaving] = useState<'style' | 'security' | null>(null);
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
   const hasTeamLicense = useHasLicenseFor('team');
+
+  const { currentOrg } = useOrgContext();
+  const currentUserRole = currentOrg?.role;
+  const canEdit = currentUserRole === 'owner' || currentUserRole === 'super_admin';
 
   const hasStyleVar = useMemo(() => variables?.variables.some(v => v.name === 'style_guide'), [variables]);
   const hasSecurityVar = useMemo(() => variables?.variables.some(v => v.name === 'security_guidelines'), [variables]);
@@ -132,16 +137,19 @@ const PromptsPage: React.FC = () => {
               <p className="text-xs text-slate-400 mt-1">Guidance appended to code review prompts to enforce consistency and clarity.</p>
             </div>
             <textarea
-              className="w-full min-h-[12rem] bg-slate-800 border border-slate-700 rounded p-3 text-slate-200 resize-y"
+              className="w-full min-h-[12rem] bg-slate-800 border border-slate-700 rounded p-3 text-slate-200 resize-y disabled:opacity-50 disabled:cursor-not-allowed"
               placeholder="Add style guidance to help reviewers focus on consistency and clarity"
               value={styleGuide}
               onChange={(e) => setStyleGuide(e.target.value)}
+              disabled={!canEdit}
             />
-            <div className="mt-3 flex justify-end">
-              <Button onClick={() => saveChunk('style')} isLoading={saving === 'style'}>
-                Save
-              </Button>
-            </div>
+            {canEdit && (
+              <div className="mt-3 flex justify-end">
+                <Button onClick={() => saveChunk('style')} isLoading={saving === 'style'}>
+                  Save
+                </Button>
+              </div>
+            )}
           </Card>
         )}
 
@@ -152,16 +160,19 @@ const PromptsPage: React.FC = () => {
               <p className="text-xs text-slate-400 mt-1">Security checklist injected into prompts to improve vulnerability detection.</p>
             </div>
             <textarea
-              className="w-full min-h-[12rem] bg-slate-800 border border-slate-700 rounded p-3 text-slate-200 resize-y"
+              className="w-full min-h-[12rem] bg-slate-800 border border-slate-700 rounded p-3 text-slate-200 resize-y disabled:opacity-50 disabled:cursor-not-allowed"
               placeholder="Add security checklists and policies to elevate review quality"
               value={securityGuide}
               onChange={(e) => setSecurityGuide(e.target.value)}
+              disabled={!canEdit}
             />
-            <div className="mt-3 flex justify-end">
-              <Button onClick={() => saveChunk('security')} isLoading={saving === 'security'}>
-                Save
-              </Button>
-            </div>
+            {canEdit && (
+              <div className="mt-3 flex justify-end">
+                <Button onClick={() => saveChunk('security')} isLoading={saving === 'security'}>
+                  Save
+                </Button>
+              </div>
+            )}
           </Card>
         )}
       </div>

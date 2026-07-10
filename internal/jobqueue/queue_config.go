@@ -45,6 +45,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -154,7 +155,7 @@ func DefaultQueueConfig() *QueueConfig {
 		MaxWorkers: 10, // Start with 10, increase if you have many projects and good network
 
 		// Retry settings - River default is 25 retries over ~3 days
-		MaxRetries: 25,
+		MaxRetries: 5,
 		RetryPolicy: RetryPolicy{
 			InitialInterval: 1 * time.Second, // Start retrying quickly
 			MaxInterval:     1 * time.Hour,   // Don't wait more than 1 hour between retries
@@ -275,12 +276,19 @@ func GetQueueConfig() *QueueConfig {
 
 // RiverQueueConfig converts our config to River's queue configuration format
 func (c *QueueConfig) RiverQueueConfig() map[string]river.QueueConfig {
+	reviewWorkers := 10 // default concurrency for review jobs
+	if envVal := os.Getenv("LIVEREVIEW_WORKER_CONCURRENT_REVIEWS"); envVal != "" {
+		if val, err := strconv.Atoi(envVal); err == nil && val > 0 {
+			reviewWorkers = val
+		}
+	}
+
 	return map[string]river.QueueConfig{
 		river.QueueDefault: {
 			MaxWorkers: c.MaxWorkers,
 		},
-		// Future: Add more queues here for different job types
-		// "priority": {MaxWorkers: c.MaxWorkers / 2}, // High priority queue
-		// "batch": {MaxWorkers: c.MaxWorkers * 2},    // Batch processing queue
+		"review": {
+			MaxWorkers: reviewWorkers,
+		},
 	}
 }

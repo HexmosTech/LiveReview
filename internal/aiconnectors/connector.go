@@ -11,11 +11,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/livereview/internal/aisanitize"
 	networkaiconnectors "github.com/livereview/network/aiconnectors"
 	"github.com/rs/zerolog/log"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/anthropic"
+	"github.com/tmc/langchaingo/llms/bedrock"
 	"github.com/tmc/langchaingo/llms/cohere"
 	"github.com/tmc/langchaingo/llms/googleai" // Use googleai instead of gemini
 	"github.com/tmc/langchaingo/llms/googleai/vertex"
@@ -39,6 +44,7 @@ const (
 	ProviderOpenRouter          Provider = "openrouter"
 	ProviderAtlas               Provider = "atlas"
 	ProviderLocalModel          Provider = "local"
+	ProviderBedrock             Provider = "bedrock"
 )
 
 // ModelConfig contains the configuration for a specific model
@@ -52,12 +58,17 @@ type ModelConfig struct {
 
 // ConnectorOptions contains options for creating a connector
 type ConnectorOptions struct {
-	Provider     Provider    `json:"provider"`
-	APIKey       string      `json:"api_key"`
-	BaseURL      string      `json:"base_url,omitempty"`
-	ModelConfig  ModelConfig `json:"model_config,omitempty"`
-	GCPProjectID string      `json:"gcp_project_id,omitempty"`
-	GCPLocation  string      `json:"gcp_location,omitempty"`
+	Provider Provider `json:"provider"`
+	// APIKey is reused per-provider beyond a plain API key: for gemini-enterprise it holds the
+	// GCP service account JSON, and for bedrock it holds the AWS Secret Access Key (paired with
+	// AWSAccessKeyID below).
+	APIKey         string      `json:"api_key"`
+	BaseURL        string      `json:"base_url,omitempty"`
+	ModelConfig    ModelConfig `json:"model_config,omitempty"`
+	GCPProjectID   string      `json:"gcp_project_id,omitempty"`
+	GCPLocation    string      `json:"gcp_location,omitempty"`
+	AWSAccessKeyID string      `json:"aws_access_key_id,omitempty"`
+	AWSRegion      string      `json:"aws_region,omitempty"`
 }
 
 // Connector represents a connection to an AI provider
@@ -97,6 +108,8 @@ func NewConnector(ctx context.Context, options ConnectorOptions) (*Connector, er
 		model, err = createOpenRouterModel(ctx, options)
 	case ProviderAtlas:
 		model, err = createAtlasModel(ctx, options)
+	case ProviderBedrock:
+		model, err = createBedrockModel(ctx, options)
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", options.Provider)
 	}
@@ -113,7 +126,7 @@ func NewConnector(ctx context.Context, options ConnectorOptions) (*Connector, er
 }
 
 // ValidateAPIKey validates the provided API key against the provider
-func ValidateAPIKey(ctx context.Context, db *sql.DB, provider Provider, apiKey string, baseURL string, model string, gcpProjectID string, gcpLocation string) (bool, error) {
+func ValidateAPIKey(ctx context.Context, db *sql.DB, provider Provider, apiKey string, baseURL string, model string, gcpProjectID string, gcpLocation string, awsAccessKeyID string, awsRegion string) (bool, error) {
 	log.Debug().
 		Str("provider", string(provider)).
 		Str("api_key_masked", maskAPIKey(apiKey)).
@@ -134,6 +147,21 @@ func ValidateAPIKey(ctx context.Context, db *sql.DB, provider Provider, apiKey s
 		return true, nil
 	}
 
+	// For Bedrock, validate by listing foundation models rather than a text
+	// generation call - cheaper, and works even before a model is selected.
+	if provider == ProviderBedrock {
+		log.Debug().Msg("Validating Bedrock by listing foundation models")
+		_, err := FetchBedrockModels(ctx, awsAccessKeyID, apiKey, awsRegion)
+		if err != nil {
+			log.Error().Err(err).
+				Str("region", awsRegion).
+				Msg("Bedrock validation failed - could not list foundation models")
+			return false, nil // Invalid credentials, but not a system error
+		}
+		log.Debug().Msg("Bedrock validation successful - foundation models listed")
+		return true, nil
+	}
+
 	// OpenAI o-series models are validated against /responses directly to match
 	// the official API flow and avoid client-library endpoint mismatches.
 	if provider == ProviderOpenAI {
@@ -151,11 +179,13 @@ func ValidateAPIKey(ctx context.Context, db *sql.DB, provider Provider, apiKey s
 
 	// Create temporary options with minimum configuration
 	options := ConnectorOptions{
-		Provider:     provider,
-		APIKey:       apiKey,
-		BaseURL:      baseURL,
-		GCPProjectID: gcpProjectID,
-		GCPLocation:  gcpLocation,
+		Provider:       provider,
+		APIKey:         apiKey,
+		BaseURL:        baseURL,
+		GCPProjectID:   gcpProjectID,
+		GCPLocation:    gcpLocation,
+		AWSAccessKeyID: awsAccessKeyID,
+		AWSRegion:      awsRegion,
 		ModelConfig: ModelConfig{
 			Temperature: 0.7,
 			MaxTokens:   100,
@@ -414,7 +444,6 @@ func createAnthropicModel(ctx context.Context, options ConnectorOptions) (llms.M
 	return anthropic.New(opts...)
 }
 
-
 func createCohereModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
 	opts := []cohere.Option{
 		cohere.WithToken(options.APIKey),
@@ -538,6 +567,28 @@ func (t *atlasLoggingTransport) RoundTrip(req *http.Request) (*http.Response, er
 	return resp, err
 }
 
+// buildCallOptions creates a slice of llms.CallOption with the connector's
+// default model configuration, appending any extra options.
+func (c *Connector) buildCallOptions(options ...llms.CallOption) []llms.CallOption {
+	callOptions := []llms.CallOption{
+		llms.WithTemperature(c.options.ModelConfig.Temperature),
+	}
+	if c.options.ModelConfig.Model != "" {
+		callOptions = append(callOptions, llms.WithModel(c.options.ModelConfig.Model))
+	}
+	if c.options.ModelConfig.MaxTokens > 0 {
+		callOptions = append(callOptions, llms.WithMaxTokens(c.options.ModelConfig.MaxTokens))
+	}
+	if c.options.ModelConfig.TopP > 0 {
+		callOptions = append(callOptions, llms.WithTopP(c.options.ModelConfig.TopP))
+	}
+	if c.options.ModelConfig.TopK > 0 {
+		callOptions = append(callOptions, llms.WithTopK(int(c.options.ModelConfig.TopK)))
+	}
+	callOptions = append(callOptions, options...)
+	return callOptions
+}
+
 // Call calls the LLM with the given input and returns the response
 func (c *Connector) Call(ctx context.Context, input string, options ...llms.CallOption) (string, error) {
 	log.Debug().
@@ -546,34 +597,7 @@ func (c *Connector) Call(ctx context.Context, input string, options ...llms.Call
 		Float64("temperature", c.options.ModelConfig.Temperature).
 		Msg("Connector.Call invoked with model config")
 
-	// Add default options based on connector configuration
-	callOptions := []llms.CallOption{
-		llms.WithTemperature(c.options.ModelConfig.Temperature),
-	}
-
-	// CRITICAL: Pass the model to the API call - required for Gemini and other providers
-	// Without this, Gemini uses the langchaingo library default (gemini-2.0-flash)
-	if c.options.ModelConfig.Model != "" {
-		log.Debug().Str("model", c.options.ModelConfig.Model).Msg("Adding llms.WithModel to call options")
-		callOptions = append(callOptions, llms.WithModel(c.options.ModelConfig.Model))
-	} else {
-		log.Warn().Msg("Model is empty in ModelConfig - will use library default!")
-	}
-
-	if c.options.ModelConfig.MaxTokens > 0 {
-		callOptions = append(callOptions, llms.WithMaxTokens(c.options.ModelConfig.MaxTokens))
-	}
-
-	if c.options.ModelConfig.TopP > 0 {
-		callOptions = append(callOptions, llms.WithTopP(c.options.ModelConfig.TopP))
-	}
-
-	if c.options.ModelConfig.TopK > 0 {
-		callOptions = append(callOptions, llms.WithTopK(int(c.options.ModelConfig.TopK)))
-	}
-
-	// Append any additional options passed to the Call function
-	callOptions = append(callOptions, options...)
+	callOptions := c.buildCallOptions(options...)
 
 	normalizedProvider := strings.ToLower(string(c.provider))
 	if isCloudProviderProvider(c.provider) {
@@ -602,7 +626,7 @@ func (c *Connector) Call(ctx context.Context, input string, options ...llms.Call
 
 func isCloudProviderProvider(provider Provider) bool {
 	switch provider {
-	case ProviderOpenAI, ProviderDeepSeek, ProviderGemini, ProviderGeminiEnterprise, ProviderClaude, ProviderAnthropicCompatible, ProviderOpenRouter, ProviderAtlas:
+	case ProviderOpenAI, ProviderDeepSeek, ProviderGemini, ProviderGeminiEnterprise, ProviderClaude, ProviderAnthropicCompatible, ProviderOpenRouter, ProviderAtlas, ProviderBedrock:
 		return true
 	default:
 		return false
@@ -612,6 +636,19 @@ func isCloudProviderProvider(provider Provider) bool {
 // GetProvider returns the provider of this connector
 func (c *Connector) GetProvider() Provider {
 	return c.provider
+}
+
+// ModelConfig returns the model configuration for this connector.
+func (c *Connector) ModelConfig() ModelConfig {
+	return c.options.ModelConfig
+}
+
+// GenerateContent sends messages to the LLM with optional tool support
+// and returns the full content response. This is the preferred method
+// when tool/function calling is needed.
+func (c *Connector) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
+	callOptions := c.buildCallOptions(options...)
+	return c.llm.GenerateContent(ctx, messages, callOptions...)
 }
 
 // GetModel returns the model name from the config
@@ -638,6 +675,27 @@ func truncateString(s string, maxLen int) string {
 // Helper function to check if string contains substring (case-insensitive)
 func contains(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+
+// LoadBedrockAWSConfig builds an AWS SDK config for calling Bedrock, using the connector's
+// stored Access Key ID + Secret Access Key + Region.
+func LoadBedrockAWSConfig(ctx context.Context, accessKeyID string, secretAccessKey string, region string) (aws.Config, error) {
+	return config.LoadDefaultConfig(ctx,
+		config.WithRegion(region),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, ""),
+		),
+	)
+}
+
+func createBedrockModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+	cfg, err := LoadBedrockAWSConfig(ctx, options.AWSAccessKeyID, options.APIKey, options.AWSRegion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AWS config for Bedrock: %w", err)
+	}
+
+	client := bedrockruntime.NewFromConfig(cfg)
+	return bedrock.New(bedrock.WithClient(client), bedrock.WithModel(options.ModelConfig.Model))
 }
 
 func createGeminiEnterpriseModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
@@ -670,4 +728,3 @@ func createGeminiEnterpriseModel(ctx context.Context, options ConnectorOptions) 
 	log.Debug().Msg("Gemini Enterprise model created successfully")
 	return model, nil
 }
-

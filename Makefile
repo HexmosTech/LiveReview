@@ -1,7 +1,7 @@
-.PHONY: build run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2
+.PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker
 .PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
-.PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing
+.PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging
 
 # Go parameters
 GOENV=env -u GOROOT
@@ -44,6 +44,9 @@ build:
 	rm $(BINARY_NAME) || true
 	$(GOBUILD) -o $(BINARY_NAME)
 
+build-prod:
+	rm $(BINARY_NAME) || true
+	$(GOBUILD) -tags production -o $(BINARY_NAME)
 # Minimal CI build
 build-ci:
 	rm -f $(BINARY_NAME)
@@ -199,6 +202,12 @@ develop-reflex:
 api-with-migrations:
 	dbmate up
 	$(GOCMD) run livereview.go api
+
+run-api: build
+	./$(BINARY_NAME) api
+
+run-worker: build
+	./$(BINARY_NAME) worker
 
 run-review:
 	./$(BINARY_NAME) review --dry-run https://git.apps.hexmos.com/hexmos/liveapi/-/merge_requests/365
@@ -376,12 +385,58 @@ river-install:
 river-ui-install:
 	$(GOCMD) install riverqueue.com/riverui/cmd/riverui@latest
 
+# Install vl-convert binary (Vega-Lite → PNG renderer) for the local OS/arch.
+# Downloads the pre-built release from GitHub and places it in /usr/local/bin.
+# Requires glibc >= 2.38 on Linux (pre-built against Ubuntu 24.04).
+# On older Linux (glibc < 2.38), use Docker or pip install vl-convert-python instead.
+VL_CONVERT_VERSION ?= v1.9.0
+install-vl-convert:
+	@OS=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
+	ARCH=$$(uname -m); \
+	case "$$OS" in \
+		linux)  glibc_ver=$$(ldd --version 2>&1 | awk '/GLIBC/{print $$NF; exit}'); \
+			$$(expr "$$glibc_ver" \< "2.38" >/dev/null 2>&1) && { \
+				echo "Detected GLIBC $$glibc_ver — too old for the pre-built binary (needs >= 2.38)."; \
+				echo "Use one of these alternatives:"; \
+				echo "  • pip install vl-convert-python        (native Python wheel)"; \
+				echo "  • cargo install vl-convert             (build from source, requires Rust)"; \
+				exit 1; \
+			}; \
+			case "$$ARCH" in \
+				x86_64|amd64) asset="vl-convert_linux-64.zip" ;; \
+				aarch64|arm64) asset="vl-convert_linux-aarch64.zip" ;; \
+				*) echo "Unsupported arch: $$ARCH"; exit 1 ;; \
+			esac ;; \
+		darwin) case "$$ARCH" in \
+					x86_64) asset="vl-convert_osx-64.zip" ;; \
+					arm64)  asset="vl-convert_osx-arm64.zip" ;; \
+					*) echo "Unsupported arch: $$ARCH"; exit 1 ;; \
+				esac ;; \
+		mingw*|msys*|cygwin*) asset="vl-convert_win-64.zip" ;; \
+		*) echo "Unsupported OS: $$OS"; exit 1 ;; \
+	esac; \
+	url="https://github.com/vega/vl-convert/releases/download/$(VL_CONVERT_VERSION)/$$asset"; \
+	echo "Downloading $$asset..."; \
+	curl -sL --fail "$$url" -o /tmp/vl-convert.zip && \
+	unzip -o /tmp/vl-convert.zip -d /tmp/vl-convert-extracted && \
+	sudo cp /tmp/vl-convert-extracted/bin/vl-convert /usr/local/bin/ && \
+	rm -rf /tmp/vl-convert.zip /tmp/vl-convert-extracted && \
+	echo "Installed: $$(/usr/local/bin/vl-convert --version 2>&1 || true)"
+
 river-migrate:
 	river migrate-up --database-url "$(DATABASE_URL)"
 
 river-ui:
 	@echo "Starting River UI with DATABASE_URL: $(DATABASE_URL)"
 	DATABASE_URL="$(DATABASE_URL)" riverui
+
+staging-river-ui:
+	@if [ ! -f $(DEPLOY_STAGING_ENV_FILE) ]; then \
+		echo "❌ ERROR: $(DEPLOY_STAGING_ENV_FILE) not found"; \
+		exit 1; \
+	fi
+	@echo "Starting River UI with Staging DATABASE_URL..."
+	@set -a && . ./$(DEPLOY_STAGING_ENV_FILE) && set +a && DATABASE_URL="$$DATABASE_URL" riverui
 
 # 🚀 ONE COMMAND TO DO IT ALL - Install River dependencies, CLI tool, UI tool, and run migrations
 river-setup: river-deps river-install river-ui-install river-migrate
@@ -498,9 +553,15 @@ niceurl2:
 		echo "autossh is not installed. Install it with: sudo apt install autossh"; \
 		exit 1; \
 	}
+	@PIDS="$$(lsof -tiTCP:20001 -sTCP:LISTEN 2>/dev/null || true) $$(pgrep -f '^/usr/lib/autossh/autossh -M 20001 ' || true)"; \
+	PIDS="$$(printf '%s\n' $$PIDS | tr ' ' '\n' | awk 'NF' | sort -u | tr '\n' ' ')"; \
+	if [ -n "$$PIDS" ]; then \
+		echo "Stopping existing local autossh/ssh for niceurl2: $$PIDS"; \
+		kill -9 $$PIDS || true; \
+	fi
 	@ssh root@master "PID=\$$( netstat -tulpn | grep :6544 | awk '{print \$$7}' | cut -d/ -f1 | head -n 1); [ -n \"\$$PID\" ] && kill -9 \$$PID || true" || true
 	@echo "Starting autossh reverse tunnel on remote port 6544 -> localhost:8081"
-	@AUTOSSH_GATETIME=0 AUTOSSH_POLL=60 AUTOSSH_FIRST_POLteL=30 AUTOSSH_LOGLEVEL=6 autossh -M 20001 \
+	@AUTOSSH_GATETIME=0 AUTOSSH_POLL=60 AUTOSSH_FIRST_POLL=30 AUTOSSH_LOGLEVEL=6 autossh -M 20001 \
 		-o ServerAliveInterval=30 \
 		-o ServerAliveCountMax=3 \
 		-o TCPKeepAlive=yes \
@@ -573,6 +634,7 @@ docs/openapi.yaml internal/api/docs/spec.go: $(API_SPEC_INPUTS) typed-install
 	@chmod 755 docs internal/api/docs
 	@PATH="$(TYPED_BIN_DIR):$$PATH" typed -config typed.yaml > /tmp/lr_typed_build.log 2>&1 || (echo "❌ Typed generation failed. Logs:" && cat /tmp/lr_typed_build.log && exit 1)
 	@$(GOCMD) run internal/api/docs/spec.go > /tmp/lr_spec_build.log 2>&1 || (echo "❌ OpenAPI spec generation failed. Logs:" && cat /tmp/lr_spec_build.log && exit 1)
+	@python3 scripts/openapi/fix-openapi-spec.py docs/openapi.yaml
 
 
 generate-openapi: docs/openapi.yaml
@@ -618,6 +680,51 @@ raw-deploy: build-with-ui
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
+
+DEPLOY_STAGING_ENV_FILE=.env.staging
+DEPLOY_STAGING_PATH=/home/ubuntu/staging_lr
+DEPLOY_STAGING_HOST=nats03-do
+
+build-staging-with-ui:
+	@echo "🔨 Building for STAGING deployment (mock AI enabled)"
+	@if [ ! -f .env.staging ]; then \
+		echo "❌ ERROR: .env.staging not found! Cannot build for staging."; \
+		exit 1; \
+	fi
+	rm $(BINARY_NAME) || true
+	cd ui/ && npm install && set -a && . ./.env.staging && set +a && LIVEREVIEW_BUILD_MODE=prod NODE_ENV=production npm run build:obfuscated && cd ..
+	env -u GOROOT go build livereview.go
+	@echo "✅ Staging build complete. Binary ready for raw-deploy-staging."
+
+raw-deploy-staging: build-staging-with-ui
+	@echo "🚀 Deploying to staging server..."
+	@if [ ! -f ./livereview ]; then \
+		echo "❌ ERROR: livereview binary not found!"; \
+		exit 1; \
+	fi
+	@if [ ! -f ./$(DEPLOY_PLAN_CATALOG_FILE) ]; then \
+		echo "❌ ERROR: $(DEPLOY_PLAN_CATALOG_FILE) not found"; \
+		exit 1; \
+	fi
+	@if [ ! -f $(DEPLOY_STAGING_ENV_FILE) ]; then \
+		echo "❌ ERROR: $(DEPLOY_STAGING_ENV_FILE) not found"; \
+		exit 1; \
+	fi
+	@echo "🔄 Running database migrations from local machine..."
+	set -a && . ./$(DEPLOY_STAGING_ENV_FILE) && set +a && dbmate --url "$$DATABASE_URL" up && river migrate-up --database-url "$$DATABASE_URL"
+	ssh $(DEPLOY_STAGING_HOST) "mkdir -p $(DEPLOY_STAGING_PATH) && cd $(DEPLOY_STAGING_PATH) && mv ./livereview ./livereview.bak || true"
+	rsync -avz ./livereview ecosystem.staging.config.js $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/
+	rsync -avz ./$(DEPLOY_STAGING_ENV_FILE) $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/.env
+	ssh $(DEPLOY_STAGING_HOST) "mkdir -p $(DEPLOY_STAGING_PATH)/config $(DEPLOY_STAGING_PATH)/internal/mockllm"
+	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
+	rsync -avz ./internal/mockllm/mockllm.toml $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/internal/mockllm/mockllm.toml
+	ssh $(DEPLOY_STAGING_HOST) "bash -ic 'cd $(DEPLOY_STAGING_PATH) && pm2 reload ecosystem.staging.config.js --update-env || pm2 start ecosystem.staging.config.js'"
+	@echo "✅ Staging deployment complete!"
+
+stop-staging:
+	@echo "🛑 Stopping staging processes on server..."
+	ssh $(DEPLOY_STAGING_HOST) "bash -ic 'cd $(DEPLOY_STAGING_PATH) && pm2 delete ecosystem.staging.config.js || true'"
+	@echo "✅ Staging processes stopped and removed from PM2!"
 
 raw-deploy-low-pricing: build-with-ui
 	@echo "🚀 Deploying to production server with LOW pricing profile..."

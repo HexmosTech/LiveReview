@@ -19,8 +19,11 @@ import (
 	"github.com/livereview/internal/aisanitize"
 	coreprocessor "github.com/livereview/internal/core_processor"
 	"github.com/livereview/internal/learnings"
+	"github.com/livereview/internal/prompts"
+	azuredevopsinput "github.com/livereview/internal/provider_input/azuredevops"
 	giteainput "github.com/livereview/internal/provider_input/gitea"
 	bitbucketmentions "github.com/livereview/internal/providers/bitbucket"
+	azuredevopsutils "github.com/livereview/internal/providers/azuredevops"
 	githubmentions "github.com/livereview/internal/providers/github"
 	gitlabmentions "github.com/livereview/internal/providers/gitlab"
 	gl "github.com/livereview/internal/providers/gitlab"
@@ -28,6 +31,7 @@ import (
 	networkbitbucket "github.com/livereview/network/providers/bitbucket"
 	networkgithub "github.com/livereview/network/providers/github"
 	networkgitea "github.com/livereview/network/providers/gitea"
+	storageaiconnectors "github.com/livereview/storage/aiconnectors"
 )
 
 // Phase 7.1: Unified processor for provider-agnostic LLM processing
@@ -298,6 +302,13 @@ func (p *UnifiedProcessorV2Impl) ProcessCommentReply(ctx context.Context, event 
 			if err != nil {
 				return "", nil, nil, fmt.Errorf("failed to build Gitea artifact: %w", err)
 			}
+		case "azuredevops":
+			log.Printf("[DEBUG] Building Azure DevOps artifact for contextual response")
+			var err error
+			artifact, err = p.buildAzureDevOpsArtifactFromEvent(ctx, event, orgID)
+			if err != nil {
+				return "", nil, nil, fmt.Errorf("failed to build Azure DevOps artifact: %w", err)
+			}
 		}
 	}
 
@@ -344,7 +355,7 @@ func calculateBillableLOCFromArtifactDiffs(artifact *mrmodel.UnifiedArtifact) in
 }
 
 // buildCommentReplyPromptWithLearning creates LLM prompt with learning instructions
-func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, artifact *mrmodel.UnifiedArtifact) string {
+func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, artifact *mrmodel.UnifiedArtifact, repoRulesSection string) string {
 	staticPrompt := &strings.Builder{}
 
 	// Core context
@@ -353,6 +364,12 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 	staticPrompt.WriteString(fmt.Sprintf("- Repository: %s\n", event.Repository.Name))
 	if event.MergeRequest != nil {
 		staticPrompt.WriteString(fmt.Sprintf("- MR/PR title: %s\n", event.MergeRequest.Title))
+	}
+
+	// Inject repository rules (from .lrc/rules) if present.
+	if repoRulesSection != "" {
+		staticPrompt.WriteString("\n")
+		staticPrompt.WriteString(repoRulesSection)
 	}
 
 	// Build timeline section separately
@@ -478,7 +495,8 @@ func (p *UnifiedProcessorV2Impl) buildCommentReplyPromptWithLearning(event Unifi
 
 // buildContextualResponseWithLearningV2 creates response using LLM with learning instructions
 func (p *UnifiedProcessorV2Impl) buildContextualResponseWithLearningV2(ctx context.Context, event UnifiedWebhookEventV2, timeline *UnifiedTimelineV2, orgID int64, artifact *mrmodel.UnifiedArtifact) (string, *LearningMetadataV2, *OperationUsageV2) {
-	prompt := p.buildCommentReplyPromptWithLearning(event, timeline, artifact)
+	repoRulesSection := prompts.BuildRepoRulesSection(ctx)
+	prompt := p.buildCommentReplyPromptWithLearning(event, timeline, artifact, repoRulesSection)
 
 	var relevantLearnings []*learnings.Learning
 	if orgID != 0 {
@@ -897,9 +915,36 @@ func (p *UnifiedProcessorV2Impl) checkDirectBotMentionV2(event UnifiedWebhookEve
 		return gitlabmentions.DetectDirectMention(body, botInfo)
 	case "bitbucket":
 		return bitbucketmentions.DetectDirectMention(body, botInfo)
+	case "azuredevops":
+		// Body has already had the @<GUID> mention token stripped (for clean
+		// LLM prompts/display) - detection needs the untouched raw content.
+		raw, _ := event.Comment.Metadata["raw_content"].(string)
+		if raw == "" {
+			raw = body
+		}
+		return azureDevOpsMention(raw, botInfo)
 	default:
 		return fallbackUsernameMention(body, botInfo)
 	}
+}
+
+// azureDevOpsMention detects a direct mention of the bot in Azure DevOps
+// comment content. Unlike other providers, Azure DevOps does not render
+// mentions as plain "@username" text - the raw comment content stores them
+// as an "@<GUID>" identity token (e.g. "@<908a0455-ed58-4942-af05-...>"),
+// confirmed against a live captured webhook payload. Falls back to a plain
+// "@username" substring check too, in case that ever changes.
+func azureDevOpsMention(commentBody string, botInfo *UnifiedBotUserInfoV2) bool {
+	if botInfo == nil {
+		return false
+	}
+	if userID := strings.TrimSpace(botInfo.UserID); userID != "" {
+		mentionToken := "@<" + strings.ToLower(userID) + ">"
+		if strings.Contains(strings.ToLower(commentBody), mentionToken) {
+			return true
+		}
+	}
+	return fallbackUsernameMention(commentBody, botInfo)
 }
 
 func fallbackUsernameMention(commentBody string, botInfo *UnifiedBotUserInfoV2) bool {
@@ -1060,18 +1105,22 @@ func (p *UnifiedProcessorV2Impl) generateLLMResponseV2(ctx context.Context, prom
 		return "", nil, fmt.Errorf("server or database not available")
 	}
 
-	// Get available AI connectors
+	// Get available AI connectors. Comment replies always use the Leader
+	// connector: with Adaptive Review on by default, orgs commonly have both
+	// a leader and a helper connector, and an unfiltered "first connector"
+	// pick could non-deterministically land on the (cheaper, less capable)
+	// helper connector depending on display order.
 	storage := aiconnectors.NewStorage(p.server.db)
-	connectors, err := storage.GetAllConnectors(ctx, orgID)
+	connectors, err := storage.GetConnectorsByRole(ctx, orgID, storageaiconnectors.AIConnectorRoleLeader)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to get AI connectors: %w", err)
 	}
 
 	if len(connectors) == 0 {
-		return "", nil, fmt.Errorf("no AI connectors configured for organization %d", orgID)
+		return "", nil, fmt.Errorf("no Leader AI connector configured for organization %d", orgID)
 	}
 
-	// Use the first available connector (could be enhanced with priority logic)
+	// Use the first available leader connector (could be enhanced with priority logic)
 	connectorRecord := connectors[0]
 	var options aiconnectors.ConnectorOptions
 
@@ -1647,6 +1696,87 @@ func (p *UnifiedProcessorV2Impl) buildGiteaArtifactFromEvent(ctx context.Context
 
 	return &mrmodel.UnifiedArtifact{
 		Provider:     "gitea",
+		Diffs:        artifactDiffs,
+		Timeline:     []reviewmodel.TimelineItem{},
+		Participants: []reviewmodel.AuthorInfo{},
+	}, nil
+}
+
+// buildAzureDevOpsArtifactFromEvent builds UnifiedArtifact for Azure DevOps webhook replies.
+// Azure DevOps has no server-side unified-diff endpoint, so the per-file diffs
+// computed by the provider (client-side, via go-difflib) are reassembled into a
+// synthetic multi-file patch and run back through the same LocalParser used by
+// the other providers, keeping LOC counting provider-agnostic.
+func (p *UnifiedProcessorV2Impl) buildAzureDevOpsArtifactFromEvent(ctx context.Context, event UnifiedWebhookEventV2, orgID int64) (*mrmodel.UnifiedArtifact, error) {
+	if p == nil || p.server == nil || p.server.DB() == nil {
+		return nil, fmt.Errorf("server database is unavailable")
+	}
+	if event.MergeRequest == nil {
+		return nil, fmt.Errorf("missing merge request payload")
+	}
+
+	var (
+		token *azuredevopsinput.IntegrationToken
+		err   error
+	)
+	if connectorID, ok := parseInt64MetadataValue(event.MergeRequest.Metadata, "connector_id"); ok && connectorID > 0 {
+		token, _, err = azuredevopsinput.FindIntegrationTokenByConnectorID(p.server.DB(), connectorID)
+		if err != nil {
+			log.Printf("[WARN] Azure DevOps token lookup by connector_id failed for connector=%d org=%d: %v", connectorID, orgID, err)
+			return nil, fmt.Errorf("azure devops integration token lookup failed (positive connector ID provided but lookup failed)")
+		}
+	} else {
+		token, _, err = azuredevopsinput.FindIntegrationTokenForAzureDevOpsRepo(p.server.DB(), event.Repository.FullName)
+		if err != nil {
+			log.Printf("[WARN] Azure DevOps token lookup by repository failed for repo=%s org=%d: %v", event.Repository.FullName, orgID, err)
+			return nil, fmt.Errorf("azure devops integration token lookup failed (connector ID not provided or lookup failed)")
+		}
+	}
+	log.Printf("[DEBUG] Building Azure DevOps artifact for repo=%s org_id=%d", event.Repository.FullName, orgID)
+
+	org, err := azuredevopsutils.OrgNameFromURL(token.ProviderURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive Azure DevOps org name: %w", err)
+	}
+	mrID := fmt.Sprintf("%s/%s/%d", org, event.Repository.FullName, event.MergeRequest.Number)
+
+	provider, err := azuredevopsutils.NewProvider(azuredevopsutils.Config{BaseURL: token.ProviderURL, Token: token.PatToken})
+	if err != nil {
+		return nil, fmt.Errorf("failed to construct azure devops provider: %w", err)
+	}
+
+	diffs, err := provider.GetMergeRequestChanges(ctx, mrID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch azure devops changes: %w", err)
+	}
+
+	var patch strings.Builder
+	for _, d := range diffs {
+		oldPath := d.OldFilePath
+		if oldPath == "" {
+			oldPath = d.FilePath
+		}
+		patch.WriteString(fmt.Sprintf("diff --git a/%s b/%s\n", oldPath, d.FilePath))
+		for _, hunk := range d.Hunks {
+			patch.WriteString(hunk.Content)
+			patch.WriteString("\n")
+		}
+	}
+
+	parser := mrmodel.NewLocalParser()
+	localDiffs, err := parser.Parse(patch.String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse azure devops patch: %w", err)
+	}
+
+	artifactDiffs := make([]*mrmodel.LocalCodeDiff, 0, len(localDiffs))
+	for i := range localDiffs {
+		diffCopy := localDiffs[i]
+		artifactDiffs = append(artifactDiffs, &diffCopy)
+	}
+
+	return &mrmodel.UnifiedArtifact{
+		Provider:     "azuredevops",
 		Diffs:        artifactDiffs,
 		Timeline:     []reviewmodel.TimelineItem{},
 		Participants: []reviewmodel.AuthorInfo{},

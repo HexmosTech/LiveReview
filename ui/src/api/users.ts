@@ -26,6 +26,7 @@ export interface Member {
   role: string;
   role_id: number;
   org_id: number;
+  onboarding_api_key?: string;
 }
 
 export interface FetchUsersResponse {
@@ -69,6 +70,7 @@ export interface UpdateUserPayload {
   first_name?: string;
   last_name?: string;
   role_id?: number;
+  password?: string;
 }
 
 export const updateOrgUser = async (

@@ -278,7 +278,7 @@ func TestUnifiedProcessorV2(t *testing.T) {
 			Repository:   UnifiedRepositoryV2{Name: "hexmos/live-review"},
 		}
 
-		prompt := processorImpl.buildCommentReplyPromptWithLearning(event, nil, nil)
+		prompt := processorImpl.buildCommentReplyPromptWithLearning(event, nil, nil, "")
 		assert.Contains(t, prompt, "Full Code and Comments CONTEXT for the MR")
 		assert.Contains(t, prompt, "config/config.go")
 		assert.Contains(t, prompt, "@@ -38,0 +39,2 @@")
@@ -317,7 +317,7 @@ func TestBuildCommentReplyPromptIncludesTimelineContext(t *testing.T) {
 		},
 	}
 
-	prompt := processor.buildCommentReplyPromptWithLearning(event, timeline, nil)
+	prompt := processor.buildCommentReplyPromptWithLearning(event, timeline, nil, "")
 
 	assert.Contains(t, prompt, "RECENT CONVERSATION ACROSS THREAD (for context only, do not respond to prior messages unless they are referenced in the current comment):")
 	assert.Contains(t, prompt, "reviewer")

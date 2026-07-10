@@ -28,12 +28,15 @@ export const organizationsApi = {
     /**
      * Get all organizations for the current user
      */
-    async getUserOrganizations(): Promise<Organization[]> {
-        const response = await apiClient.get<{ organizations: any[] }>('/organizations');
-        return response.organizations.map(org => ({
-            ...org,
-            role: org.role_name, // Map role_name to role
-        }));
+    async getUserOrganizations(): Promise<{ organizations: Organization[], defaultOrgId?: number }> {
+        const response = await apiClient.get<{ organizations: any[], default_org_id?: number }>('/organizations');
+        return {
+            organizations: response.organizations.map(org => ({
+                ...org,
+                role: org.role_name, // Map role_name to role
+            })),
+            defaultOrgId: response.default_org_id
+        };
     },
 
     /**
@@ -91,5 +94,12 @@ export const organizationsApi = {
      */
     async changeUserRole(orgId: number, userId: number, role: string): Promise<void> {
         return apiClient.put(`/api/v1/orgs/${orgId}/members/${userId}/role`, { role });
+    },
+
+    /**
+     * Set default organization for the current user
+     */
+    async setDefaultOrganization(orgId: number): Promise<void> {
+        return apiClient.put('/users/default-org', { org_id: orgId });
     },
 };

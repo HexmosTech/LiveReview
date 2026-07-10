@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -119,6 +120,47 @@ func (m *APIKeyManager) CreateAPIKey(userID, orgID int64, label string, scopes [
 
 	return &apiKey, key, nil
 }
+
+// CreateAPIKeyTx generates and stores a new API key within a transaction context
+func (m *APIKeyManager) CreateAPIKeyTx(tx *sql.Tx, userID, orgID int64, label string, scopes []string, expiresAt *time.Time) (*APIKey, string, error) {
+	// Generate the key
+	key, err := m.GenerateAPIKey()
+	if err != nil {
+		return nil, "", err
+	}
+
+	keyHash := m.HashAPIKey(key)
+	keyPrefix := m.GetKeyPrefix(key)
+
+	scopesJSON, _ := json.Marshal(scopes)
+
+	query := `
+		INSERT INTO api_keys (user_id, org_id, key_hash, key_prefix, label, scopes, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, user_id, org_id, key_hash, key_prefix, label, scopes, last_used_at, created_at, expires_at, revoked_at
+	`
+
+	var apiKey APIKey
+	err = tx.QueryRow(query, userID, orgID, keyHash, keyPrefix, label, scopesJSON, expiresAt).Scan(
+		&apiKey.ID,
+		&apiKey.UserID,
+		&apiKey.OrgID,
+		&apiKey.KeyHash,
+		&apiKey.KeyPrefix,
+		&apiKey.Label,
+		&apiKey.Scopes,
+		&apiKey.LastUsedAt,
+		&apiKey.CreatedAt,
+		&apiKey.ExpiresAt,
+		&apiKey.RevokedAt,
+	)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create API key in transaction: %w", err)
+	}
+
+	return &apiKey, key, nil
+}
+
 
 // ValidateAPIKey checks if a key is valid and returns the associated key record and user model
 func (m *APIKeyManager) ValidateAPIKey(key string) (*APIKey, *models.User, error) {
@@ -241,6 +283,23 @@ func (m *APIKeyManager) RevokeAPIKey(keyID, userID, orgID int64) error {
 		return fmt.Errorf("API key not found or already revoked")
 	}
 
+	return nil
+}
+
+// RevokeAPIKeyByPlainKey hashes the plain key and revokes it.
+func (m *APIKeyManager) RevokeAPIKeyByPlainKey(ctx context.Context, plainKey string) error {
+	keyHash := m.HashAPIKey(plainKey)
+	result, err := m.db.ExecContext(ctx, `UPDATE api_keys SET revoked_at = NOW() WHERE key_hash = $1 AND revoked_at IS NULL`, keyHash)
+	if err != nil {
+		return fmt.Errorf("failed to revoke API key: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("API key not found or already revoked")
+	}
 	return nil
 }
 

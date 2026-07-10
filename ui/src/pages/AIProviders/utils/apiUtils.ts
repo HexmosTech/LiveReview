@@ -21,6 +21,7 @@ export const fetchAIConnectors = async (): Promise<AIConnector[]> => {
             id: connector.id?.toString() || Math.random().toString(36).substring(2, 9),
             name: connector.connector_name || connector.provider_name || 'Unnamed Connector',
             providerName: connector.provider_name || '',
+            role: connector.role || 'leader',
             apiKey: connector.api_key_preview || '',
             fullApiKey: connector.api_key || '', // Store full API key for editing
             baseURL: connector.base_url || '',
@@ -37,7 +38,9 @@ export const fetchAIConnectors = async (): Promise<AIConnector[]> => {
             selectedModel: connector.selected_model || '',
             isActive: connector.is_active !== false, // Default to true if not specified
             gcpProjectID: connector.gcp_project_id || '',
-            gcpLocation: connector.gcp_location || ''
+            gcpLocation: connector.gcp_location || '',
+            awsAccessKeyID: connector.aws_access_key_id || '',
+            awsRegion: connector.aws_region || ''
         }));
         
         console.log('Transformed AI connectors:', aiConnectors);
@@ -53,15 +56,17 @@ export const fetchAIConnectors = async (): Promise<AIConnector[]> => {
  * Validate an AI provider API key
  */
 export const validateAIProviderKey = async (
-    providerId: string, 
+    providerId: string,
     apiKey: string,
     model?: string,
     gcpProjectID?: string,
-    gcpLocation?: string
+    gcpLocation?: string,
+    awsAccessKeyID?: string,
+    awsRegion?: string
 ): Promise<ValidationResult> => {
     try {
         console.log(`Validating API key for provider: ${providerId}`);
-		const result = await validateAPIKey(providerId, apiKey, undefined, model, gcpProjectID, gcpLocation);
+		const result = await validateAPIKey(providerId, apiKey, undefined, model, gcpProjectID, gcpLocation, awsAccessKeyID, awsRegion);
         console.log('Validation result:', result);
         return result;
     } catch (error) {
@@ -75,6 +80,7 @@ export const validateAIProviderKey = async (
  */
 export const createAIConnector = async (
     providerId: string,
+    role: string,
     apiKey: string,
     name: string,
     displayOrder: number,
@@ -83,7 +89,7 @@ export const createAIConnector = async (
 ) => {
     try {
         console.log(`Creating AI connector: ${name} for provider: ${providerId}`);
-        const result = await createConnectorAPI(providerId, apiKey, name, displayOrder, baseURL, selectedModel);
+        const result = await createConnectorAPI(providerId, role, apiKey, name, displayOrder, baseURL, selectedModel);
         console.log('Connector created successfully:', result);
         return result;
     } catch (error) {

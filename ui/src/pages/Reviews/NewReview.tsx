@@ -216,9 +216,9 @@ const NewReview: React.FC = () => {
           setError(errorData.message || err.message || 'Failed to trigger review. Please try again later.');
         }
       } else if (err?.status === 403) {
-        // LOC quota exceeded (from new backend enforcement)
+        // LOC quota exceeded or Seat Assignment Error
         const errorData = err?.data || err;
-        setError(errorData.error || 'Monthly LOC quota exceeded. Upgrade your plan or wait for reset.');
+        setError(errorData.error || errorData.message || 'Monthly LOC quota exceeded. Upgrade your plan or wait for reset.');
       } else if (err?.status === 429) {
         const trialReadOnly = Boolean(err?.data?.envelope?.trial_readonly);
         if (trialReadOnly) {
@@ -239,7 +239,7 @@ const NewReview: React.FC = () => {
       <div className="container mx-auto px-4 py-8">
         <PageHeader
           title="New Review"
-          description="Generate review comments safely — no comments posted automatically"
+          description="Run an AI-powered code review on any pull request or merge request"
           actions={
             <Button
               variant="outline"
@@ -394,12 +394,9 @@ const NewReview: React.FC = () => {
                   <div>• GitLab: https://gitlab.com/group/project/-/merge_requests/123</div>
                   <div>• GitHub: https://github.com/owner/repo/pull/123</div>
                   <div>• Bitbucket: https://bitbucket.org/workspace/repo/pull-requests/123</div>
+                  <div>• Azure DevOps: https://dev.azure.com/org/project/_git/repo/pullrequest/123</div>
                 </div>
-                <div className="mt-3 pt-3 border-t border-slate-600">
-                  <p className="text-xs text-green-300 font-medium">
-                    🔒 Safe run - No comments will be posted to your PR/MR
-                  </p>
-                </div>
+                
               </div>
 
               <div className="flex justify-end space-x-3">

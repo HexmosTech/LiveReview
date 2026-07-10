@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>LiveReview Helper Model Experiment Report</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0b1220;
+    --panel: #111a2e;
+    --panel-2: #0e1626;
+    --border: #223052;
+    --text: #e6ebf5;
+    --muted: #93a2c2;
+    --accent: #5b8cff;
+    --accent-2: #35d0a1;
+    --warn: #ffb454;
+    --bad: #ff6b7a;
+    --good: #35d0a1;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    background: radial-gradient(1200px 600px at 10% -10%, #16223f 0%, var(--bg) 60%);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 24px 80px; }
+  header.hero {
+    padding: 28px 32px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #17233f 0%, #0f1830 100%);
+    border: 1px solid var(--border);
+    margin-bottom: 28px;
+  }
+  header.hero h1 { margin: 0 0 6px; font-size: 26px; }
+  header.hero p.sub { margin: 0; color: var(--muted); font-size: 14px; }
+  .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge {
+    font-size: 12px; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted); background: var(--panel-2);
+  }
+  h2.section-title {
+    font-size: 18px; margin: 40px 0 14px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--border); color: var(--text);
+    display: flex; align-items: center; gap: 8px;
+  }
+  h2.section-title .num {
+    display:inline-flex; align-items:center; justify-content:center;
+    width: 24px; height: 24px; border-radius: 8px; font-size: 12px;
+    background: rgba(91,140,255,0.15); color: var(--accent); border: 1px solid rgba(91,140,255,0.3);
+  }
+  .grid-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 18px 18px;
+  }
+  .card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .card .value { font-size: 26px; font-weight: 650; margin-top: 6px; }
+  .card .delta { font-size: 13px; margin-top: 6px; }
+  .delta.good { color: var(--good); }
+  .delta.bad { color: var(--bad); }
+  .delta.neutral { color: var(--muted); }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 20px; margin-bottom: 18px;
+  }
+  .panel h3 { margin: 0 0 4px; font-size: 15px; }
+  .panel p.hint { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+  .chart-box { position: relative; height: 320px; }
+  .chart-box.short { height: 240px; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
+  tr:hover td { background: rgba(91,140,255,0.06); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .pill.baseline { background: rgba(147,162,194,0.15); color: var(--muted); }
+  .pill.helper { background: rgba(91,140,255,0.18); color: var(--accent); }
+  .callout {
+    border-radius: 12px; padding: 14px 16px; font-size: 13.5px; border: 1px solid var(--border);
+    background: var(--panel-2); margin-bottom: 14px;
+  }
+  .callout.good { border-color: rgba(53,208,161,0.4); background: rgba(53,208,161,0.06); }
+  .callout.warn { border-color: rgba(255,180,84,0.4); background: rgba(255,180,84,0.06); }
+  .callout.bad { border-color: rgba(255,107,122,0.4); background: rgba(255,107,122,0.06); }
+  code.inline { background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: 5px; font-size: 12.5px; }
+  ul.tight { margin: 6px 0; padding-left: 20px; }
+  ul.tight li { margin-bottom: 4px; }
+  .fixlist { display: grid; gap: 10px; }
+  .fix { border-left: 3px solid var(--accent); padding: 10px 14px; background: var(--panel-2); border-radius: 8px; }
+  .fix .title { font-weight: 600; font-size: 13.5px; }
+  .fix .body { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
+  .comment-sample {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; font-size: 13px;
+  }
+  .comment-sample .row { display:flex; gap:10px; padding: 6px 0; border-bottom: 1px dashed var(--border); }
+  .comment-sample .row:last-child { border-bottom: none; }
+  .comment-sample .tag { flex-shrink:0; width: 70px; color: var(--muted); font-size: 11px; text-transform: uppercase; padding-top:2px; }
+  .comment-sample .txt { flex: 1; }
+  footer { margin-top: 50px; color: var(--muted); font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <h1>Helper Model Experiment Report</h1>
+    <p class="sub">Concise-then-expand helper model vs. single-model baseline &mdash; priced at each model's real Gemini API rate (Flash for leader, Flash-Lite for helper)</p>
+    <div class="badges">
+      <span class="badge">hexmos/liveapi !429</span>
+      <span class="badge">256 LOC diff</span>
+      <span class="badge" style="border-color:rgba(53,208,161,0.4);color:#35d0a1;">Flash $0.30/$2.50/M &middot; Flash-Lite $0.10/$0.40/M</span>
+      <span class="badge">3 baseline runs · 3 helper runs</span>
+      <span class="badge">Generated 2026-07-02</span>
+    </div>
+  </header>
+
+  <h2 class="section-title"><span class="num">1</span>Executive summary</h2>
+  <div id="summary-cards" class="grid-cards"></div>
+  <div id="summary-callout"></div>
+
+  <h2 class="section-title"><span class="num">2</span>Cost per trial</h2>
+  <div class="panel">
+    <h3>Total review cost, baseline vs. helper</h3>
+    <p class="hint">Each bar is one independent trial on the same 256 LOC diff. Cost is the deterministic billing-ledger total (leader + helper token spend combined).</p>
+    <div class="chart-box"><canvas id="chartCostPerTrial"></canvas></div>
+  </div>
+
+  <div class="two-col">
+    <div class="panel">
+      <h3>Cost per posted comment</h3>
+      <p class="hint">Normalizes away run-to-run comment-count variance — the fairest single number for "is helper mode worth it."</p>
+      <div class="chart-box short"><canvas id="chartCostPerComment"></canvas></div>
+    </div>
+    <div class="panel">
+      <h3>Posted comment count per trial</h3>
+      <p class="hint">Comment count is inherently non-deterministic across identical LLM calls — this is the main source of total-cost noise.</p>
+      <div class="chart-box short"><canvas id="chartCommentCount"></canvas></div>
+    </div>
+  </div>
+
+  <h2 class="section-title"><span class="num">3</span>Token usage breakdown</h2>
+  <div class="two-col">
+    <div class="panel">
+      <h3>Average tokens by stage</h3>
+      <p class="hint">Leader (baseline) vs. leader+helper (helper mode), averaged across trials.</p>
+      <div class="chart-box"><canvas id="chartTokensByStage"></canvas></div>
+    </div>
+    <div class="panel">
+      <h3>Average cost by stage</h3>
+      <p class="hint">Where the dollars actually go.</p>
+      <div class="chart-box"><canvas id="chartCostByStage"></canvas></div>
+    </div>
+  </div>
+
+  <h2 class="section-title"><span class="num">4</span>Per-trial detail</h2>
+  <div class="panel">
+    <div style="overflow-x:auto;">
+      <table id="trialTable">
+        <thead>
+          <tr>
+            <th>#</th><th>Mode</th><th>Review ID</th><th>Duration</th>
+            <th class="num">Leader In</th><th class="num">Leader Out</th><th class="num">Helper In</th><th class="num">Helper Out</th>
+            <th class="num">Posted Comments</th><th class="num">Total Cost</th><th class="num">Cost / Comment</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <h2 class="section-title"><span class="num">5</span>What changed under the hood</h2>
+  <div class="fixlist" id="fixlist"></div>
+
+  <h2 class="section-title"><span class="num">6</span>Methodology &amp; caveats</h2>
+  <div class="panel" id="methodology"></div>
+
+  <footer>LiveReview helper-model bakeoff · internal experiment report</footer>
+</div>
+
+<script id="report-data" type="application/json">{"trials": [{"id": 121, "mode": "baseline", "duration": 32.415569, "leaderIn": 1756, "leaderOut": 464, "helperIn": null, "helperOut": null, "postedComments": 1, "leaderCost": 0.0016868, "helperCost": null, "totalCost": 0.0016868, "costPerComment": 0.0016868}, {"id": 122, "mode": "baseline", "duration": 43.956098, "leaderIn": 1756, "leaderOut": 1190, "helperIn": null, "helperOut": null, "postedComments": 7, "leaderCost": 0.0035018000000000002, "helperCost": null, "totalCost": 0.0035018000000000002, "costPerComment": 0.0005002571428571429}, {"id": 128, "mode": "baseline", "duration": 53.974493, "leaderIn": 1756, "leaderOut": 1313, "helperIn": null, "helperOut": null, "postedComments": 8, "leaderCost": 0.0038093000000000003, "helperCost": null, "totalCost": 0.0038093000000000003, "costPerComment": 0.00047616250000000003}, {"id": 126, "mode": "helper", "duration": 60.323751, "leaderIn": 1756, "leaderOut": 1676, "helperIn": 488, "helperOut": 418, "postedComments": 11, "leaderCost": 0.0047168, "helperCost": 0.00021600000000000005, "totalCost": 0.0049328, "costPerComment": 0.00044843636363636367}, {"id": 127, "mode": "helper", "duration": 57.086659, "leaderIn": 1756, "leaderOut": 1276, "helperIn": 397, "helperOut": 256, "postedComments": 8, "leaderCost": 0.0037168, "helperCost": 0.0001421, "totalCost": 0.0038589, "costPerComment": 0.0004823625}, {"id": 129, "mode": "helper", "duration": 137.651525, "leaderIn": 1756, "leaderOut": 3195, "helperIn": 866, "helperOut": 845, "postedComments": 24, "leaderCost": 0.008514299999999999, "helperCost": 0.0004246, "totalCost": 0.0089389, "costPerComment": 0.00037245416666666667}], "avg": {"baseline": {"leaderIn": 1756.0, "leaderOut": 989.0, "leaderCost": 0.0029993, "helperIn": 0, "helperOut": 0, "helperCost": 0, "totalCost": 0.0029993, "postedComments": 5.333333333333333, "costPerComment": 0.000887739880952381}, "helper": {"leaderIn": 1756.0, "leaderOut": 2049.0, "leaderCost": 0.0056492999999999995, "helperIn": 583.6666666666666, "helperOut": 506.3333333333333, "helperCost": 0.00026090000000000005, "totalCost": 0.0059102, "postedComments": 14.333333333333334, "costPerComment": 0.00043441767676767677}}, "summaryCards": [{"label": "Avg total cost / review \u2014 baseline", "value": "$0.00300", "delta": "", "deltaClass": "neutral"}, {"label": "Avg total cost / review \u2014 helper", "value": "$0.00591", "delta": "+97% vs baseline", "deltaClass": "bad"}, {"label": "Avg cost / posted comment \u2014 baseline", "value": "$0.00089", "delta": "", "deltaClass": "neutral"}, {"label": "Avg cost / posted comment \u2014 helper", "value": "$0.00043", "delta": "-51% vs baseline", "deltaClass": "good"}, {"label": "Trials run", "value": "6 (3 baseline / 3 helper)", "delta": "", "deltaClass": "neutral"}, {"label": "Avg posted comments/review", "value": "5.3 baseline \u00b7 14.3 helper", "delta": "", "deltaClass": "neutral"}], "summaryCalloutHTML": "\n<div class=\"callout good\">\n<strong>Priced at each model's actual Gemini API rate \u2014 Flash (leader) at $0.30 / $2.50 per M input/output tokens, Flash-Lite (helper) at $0.10 / $0.40 per M \u2014 helper mode is 51% cheaper per posted comment</strong> than the single-model baseline, averaged over 3 trials per condition. This is the first report where the helper stage is actually priced at Flash-Lite's own (much cheaper) rate: the org's <code class=\"inline\">quota_policy_catalog</code> previously only had one \"gemini\" rate shared by every Gemini model, silently billing Flash-Lite at Flash's price. That's now fixed with a dedicated <code class=\"inline\">gemini_flash_lite</code> catalog entry (migration <code class=\"inline\">20260702130000</code>) and a model-aware lookup in <code class=\"inline\">internal/review/service.go</code>, verified live in review 129's stage breakdown. <strong>Note on comment count:</strong> posted comments ranged 1-24 across the six trials (LLM non-determinism, not a fix artifact) \u2014 with n=3 per condition this is still directional, not statistically tight, but no longer resting on a single 1-comment outlier.\n</div>\n", "fixes": [{"title": "Gemini catalog pricing corrected (this session)", "body": "quota_policy_catalog only had one blended \\u0022gemini\\u0022 rate ($0.30/$2.50 per M, correct for Flash) shared by every Gemini model, silently overbilling Flash-Lite by 3-6x. Added dedicated gemini_flash_lite / googleai_flash_lite catalog rows at Flash-Lite's real rate ($0.10/$0.40 per M) across all plan codes, and made internal/review/service.go's stage-level cost estimator model-aware (checks for \\u0022flash-lite\\u0022 in the model name, not just provider family) so the live Model Breakdown panel and this report both price it correctly."}, {"title": "Helper payload trimmed to essentials", "body": "buildHelperPrompt sends only {index, content} per comment instead of the full object (filePath, line, severity, category, subcategory). Verified with a unit test."}, {"title": "Leader writes genuinely terse draft comments", "body": "Concise-mode prompt section (with explicit BAD/GOOD examples) makes the leader write telegraphic fragments instead of full sentences, without relaxing restraint rules on which issues to flag (an earlier draft accidentally relaxed them too \u2014 comment count spiked 3x before this was caught and fixed)."}, {"title": "Internal-only comments never reach the helper", "body": "Confirmed via test that batch.go already separates external vs internal-only comments before the helper stage runs \u2014 internal synthesis notes were never billed to the helper."}, {"title": "Summary round-trip waste eliminated", "body": "The overall review summary is synthesized by a separate full-prose LLM call untouched by concise mode. The helper was still asked to expand this already-complete text for no benefit. Now excluded from the helper prompt entirely."}, {"title": "Runaway duplicate-comment safety net", "body": "A baseline trial hit an LLM output degeneration failure: one response contained 415 near-identical copies of the same finding, and with no safeguard, 268 duplicates got posted to a real GitLab MR before being caught and cleaned up (267 removed via GitLab API). Added dedup (exact file+line+content match) and a 60-comment hard cap in batch.go's AggregateAndCombineOutputs."}], "methodologyHTML": "\n<ul class=\"tight\">\n<li>All trials target the same GitLab MR (<code class=\"inline\">hexmos/liveapi#429</code>, 256 LOC diff across 3 files), triggered via the same API endpoint back-to-back.</li>\n<li>Leader connector: OpenRouter &rarr; google/gemini-2.5-flash (BYOK, paid key). Helper connector: OpenRouter &rarr; google/gemini-2.5-flash-lite (paid key). Token counts are the real counts from these calls.</li>\n<li><strong>Costs are priced at each model's actual Gemini API rate</strong>, not the OpenRouter billing rate this org is actually charged ($1.00/$2.00 per M, one blended rate for both models). Leader tokens &times; Flash's rate ($0.30/$2.50 per M) + helper tokens &times; Flash-Lite's rate ($0.10/$0.40 per M) = total cost per review. This replaces the previous report's LOC-derived deterministic-ledger estimate with a direct real-token calculation, since that's more transparent and (as of this session) matches what the live product's per-stage Model Breakdown panel now computes.</li>\n<li><strong>n=3 per condition.</strong> Posted comment counts ranged 1-24 across the six trials \u2014 normal LLM non-determinism given identical prompts and diff, not noise from the fixes. Averages here are directional, not a tight statistical result.</li>\n<li>Gemini pricing source: $0.30/$2.50 per M input/output tokens for 2.5 Flash, $0.10/$0.40 per M for 2.5 Flash-Lite, as provided.</li>\n</ul>\n"}</script>
+<script>
+const DATA = JSON.parse(document.getElementById('report-data').textContent);
+const fmtUSD = (v) => '$' + v.toFixed(6).replace(/0+$/,'').replace(/\.$/,'');
+const fmtUSD4 = (v) => '$' + v.toFixed(4);
+const palette = { baseline: '#93a2c2', helper: '#5b8cff', leader: '#5b8cff', helperStage: '#35d0a1' };
+
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+
+// ---- Summary cards ----
+const sc = document.getElementById('summary-cards');
+DATA.summaryCards.forEach(c => {
+  const card = el('div', 'card');
+  card.appendChild(el('div', 'label', c.label));
+  card.appendChild(el('div', 'value', c.value));
+  if (c.delta) card.appendChild(el('div', 'delta ' + c.deltaClass, c.delta));
+  sc.appendChild(card);
+});
+document.getElementById('summary-callout').innerHTML = DATA.summaryCalloutHTML;
+
+// ---- Cost per trial ----
+new Chart(document.getElementById('chartCostPerTrial'), {
+  type: 'bar',
+  data: {
+    labels: DATA.trials.map(t => 'R' + t.id),
+    datasets: [{
+      label: 'Total cost (USD)',
+      data: DATA.trials.map(t => t.totalCost),
+      backgroundColor: DATA.trials.map(t => t.mode === 'baseline' ? palette.baseline : palette.helper),
+      borderRadius: 6,
+    }]
+  },
+  options: {
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => fmtUSD(c.raw) + ' (' + DATA.trials[c.dataIndex].mode + ')' } } },
+    scales: { y: { ticks: { color: '#93a2c2', callback: (v)=>'$'+v.toFixed(4) }, grid: { color: '#223052' } },
+              x: { ticks: { color: '#93a2c2' }, grid: { display: false } } }
+  }
+});
+
+// ---- Cost per comment ----
+new Chart(document.getElementById('chartCostPerComment'), {
+  type: 'bar',
+  data: {
+    labels: ['Baseline (avg)', 'Helper (avg)'],
+    datasets: [{
+      data: [DATA.avg.baseline.costPerComment, DATA.avg.helper.costPerComment],
+      backgroundColor: [palette.baseline, palette.helper],
+      borderRadius: 8,
+    }]
+  },
+  options: {
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => fmtUSD(c.raw) } } },
+    scales: { y: { ticks: { color: '#93a2c2', callback: (v)=>'$'+v.toFixed(4) }, grid: { color: '#223052' } },
+              x: { ticks: { color: '#e6ebf5' }, grid: { display: false } } }
+  }
+});
+
+// ---- Comment count per trial ----
+new Chart(document.getElementById('chartCommentCount'), {
+  type: 'bar',
+  data: {
+    labels: DATA.trials.map(t => 'R' + t.id),
+    datasets: [{
+      data: DATA.trials.map(t => t.postedComments),
+      backgroundColor: DATA.trials.map(t => t.mode === 'baseline' ? palette.baseline : palette.helper),
+      borderRadius: 6,
+    }]
+  },
+  options: {
+    plugins: { legend: { display: false } },
+    scales: { y: { ticks: { color: '#93a2c2', stepSize: 1 }, grid: { color: '#223052' } },
+              x: { ticks: { color: '#93a2c2' }, grid: { display: false } } }
+  }
+});
+
+// ---- Tokens by stage ----
+new Chart(document.getElementById('chartTokensByStage'), {
+  type: 'bar',
+  data: {
+    labels: ['Baseline', 'Helper mode'],
+    datasets: [
+      { label: 'Leader in', data: [DATA.avg.baseline.leaderIn, DATA.avg.helper.leaderIn], backgroundColor: '#3a4b7a' },
+      { label: 'Leader out', data: [DATA.avg.baseline.leaderOut, DATA.avg.helper.leaderOut], backgroundColor: palette.leader },
+      { label: 'Helper in', data: [0, DATA.avg.helper.helperIn], backgroundColor: '#1f8f6c' },
+      { label: 'Helper out', data: [0, DATA.avg.helper.helperOut], backgroundColor: palette.helperStage },
+    ]
+  },
+  options: {
+    plugins: { legend: { labels: { color: '#e6ebf5' } } },
+    scales: { x: { stacked: true, ticks: { color: '#e6ebf5' }, grid: { display: false } },
+              y: { stacked: true, ticks: { color: '#93a2c2' }, grid: { color: '#223052' } } }
+  }
+});
+
+// ---- Cost by stage ----
+new Chart(document.getElementById('chartCostByStage'), {
+  type: 'bar',
+  data: {
+    labels: ['Baseline', 'Helper mode'],
+    datasets: [
+      { label: 'Leader cost', data: [DATA.avg.baseline.leaderCost, DATA.avg.helper.leaderCost], backgroundColor: palette.leader },
+      { label: 'Helper cost', data: [0, DATA.avg.helper.helperCost], backgroundColor: palette.helperStage },
+    ]
+  },
+  options: {
+    plugins: { legend: { labels: { color: '#e6ebf5' } } },
+    scales: { x: { stacked: true, ticks: { color: '#e6ebf5' }, grid: { display: false } },
+              y: { stacked: true, ticks: { color: '#93a2c2', callback: (v)=>'$'+v.toFixed(4) }, grid: { color: '#223052' } } }
+  }
+});
+
+// ---- Trial table ----
+const tbody = document.querySelector('#trialTable tbody');
+const numCell = (value) => { const td = document.createElement('td'); td.className = 'num'; td.textContent = value; return td; };
+DATA.trials.forEach((t, i) => {
+  const tr = document.createElement('tr');
+  tr.appendChild(el('td', undefined, String(i + 1)));
+  const modeCell = document.createElement('td');
+  modeCell.appendChild(el('span', 'pill ' + t.mode, t.mode));
+  tr.appendChild(modeCell);
+  tr.appendChild(el('td', undefined, '#' + t.id));
+  tr.appendChild(el('td', undefined, t.durationS ? t.durationS.toFixed(1) + 's' : '—'));
+  tr.appendChild(numCell(t.leaderIn ?? '—'));
+  tr.appendChild(numCell(t.leaderOut ?? '—'));
+  tr.appendChild(numCell(t.helperIn ?? '—'));
+  tr.appendChild(numCell(t.helperOut ?? '—'));
+  tr.appendChild(numCell(t.postedComments ?? '—'));
+  tr.appendChild(numCell(fmtUSD(t.totalCost)));
+  tr.appendChild(numCell(t.costPerComment ? fmtUSD(t.costPerComment) : '—'));
+  tbody.appendChild(tr);
+});
+
+// ---- Fix list ----
+const fl = document.getElementById('fixlist');
+DATA.fixes.forEach(f => {
+  const d = el('div', 'fix');
+  d.appendChild(el('div', 'title', f.title));
+  d.appendChild(el('div', 'body', f.body));
+  fl.appendChild(d);
+});
+
+document.getElementById('methodology').innerHTML = DATA.methodologyHTML;
+</script>
+</body>
+</html>

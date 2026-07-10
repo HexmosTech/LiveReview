@@ -7,6 +7,8 @@ import SubscriptionTab from './SubscriptionTab';
 import LearningsTab from './LearningsTab';
 import APIKeysTab from './APIKeysTab';
 import ThirdPartyToolsTab from './ThirdPartyToolsTab';
+import IntegrationsTab from './IntegrationsTab';
+import SMTPSettingsTab from './SMTPSettingsTab';
 import { UserManagement } from '../../components/UserManagement';
 import LicenseManagement from '../Licenses/LicenseManagement';
 import { useOrgContext } from '../../hooks/useOrgContext';
@@ -284,6 +286,15 @@ const Settings = () => {
     // Available tabs based on permissions
     const tabs = [
         ...(isSuperAdmin ? [{ id: 'instance', name: 'Instance', icon: <Icons.Settings /> }] : []),
+        ...(isSuperAdmin && !isCloudMode() ? [{ 
+            id: 'smtp', 
+            name: 'SMTP', 
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+            )
+        }] : []),
         ...(isSuperAdmin ? [{ 
             id: 'deployment', 
             name: 'Deployment', 
@@ -319,6 +330,16 @@ const Settings = () => {
             icon: (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                </svg>
+            )
+        }] : []),
+        // Integrations tab visible only in self-hosted mode
+        ...(!isCloudMode() && (isSuperAdmin || currentOrg) ? [{ 
+            id: 'integrations', 
+            name: 'Integrations', 
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
                 </svg>
             )
         }] : []),
@@ -568,7 +589,7 @@ const Settings = () => {
                                     key={tab.id}
                                     variant={activeTab === tab.id ? "primary" : "ghost"} 
                                     fullWidth 
-                                    className="justify-start"
+                                    className="!justify-start"
                                     icon={tab.icon}
                                     onClick={() => navigate(`/settings#${tab.id}`)}
                                 >
@@ -700,6 +721,12 @@ const Settings = () => {
                         </Card>
                     )}
 
+                    {activeTab === 'smtp' && isSuperAdmin && !isCloudMode() && (
+                        <Card>
+                            <SMTPSettingsTab />
+                        </Card>
+                    )}
+
                     {activeTab === 'deployment' && isSuperAdmin && (
                         <Card>
                             <div className="flex items-center mb-6">
@@ -739,6 +766,12 @@ const Settings = () => {
                     {activeTab === 'api-keys' && (isSuperAdmin || currentOrg) && (
                         <Card>
                             <APIKeysTab />
+                        </Card>
+                    )}
+
+                    {activeTab === 'integrations' && (isSuperAdmin || currentOrg) && (
+                        <Card>
+                            <IntegrationsTab />
                         </Card>
                     )}
 

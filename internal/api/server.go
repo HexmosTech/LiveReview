@@ -26,14 +26,20 @@ import (
 	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/license/payment"
+	azuredevopsprovider "github.com/livereview/internal/provider_input/azuredevops"
+	"github.com/livereview/internal/slackbot"
+	"github.com/livereview/internal/teamsbot"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	giteaprovider "github.com/livereview/internal/provider_input/gitea"
 	githubprovider "github.com/livereview/internal/provider_input/github"
 	gitlabprovider "github.com/livereview/internal/provider_input/gitlab"
+	azuredevopsoutput "github.com/livereview/internal/provider_output/azuredevops"
 	bitbucketoutput "github.com/livereview/internal/provider_output/bitbucket"
 	giteaoutput "github.com/livereview/internal/provider_output/gitea"
 	githuboutput "github.com/livereview/internal/provider_output/github"
 	gitlaboutput "github.com/livereview/internal/provider_output/gitlab"
+	"github.com/livereview/internal/providers/azuredevops"
+	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/storage/core"
 	// Import FetchGitLabProfile
 )
@@ -136,12 +142,14 @@ type Server struct {
 	licenseScheduler     *license.Scheduler
 	billingActionsCancel context.CancelFunc
 	modelSyncCancel      context.CancelFunc
+	slackBotCancel       context.CancelFunc
 
 	// V2 Webhook Providers
 	gitlabProviderV2    *gitlabprovider.GitLabV2Provider
 	githubProviderV2    *githubprovider.GitHubV2Provider
 	bitbucketProviderV2 *bitbucketprovider.BitbucketV2Provider
 	giteaProviderV2     *giteaprovider.GiteaV2Provider
+	azuredevopsProviderV2 *azuredevopsprovider.AzureDevOpsV2Provider
 
 	gitlabAuthService *gitlabprovider.AuthService
 
@@ -152,10 +160,19 @@ type Server struct {
 	webhookOrchestratorV2 *WebhookOrchestratorV2
 
 	learningsService *learnings.Service
+
+	slackBots []*slackbot.Bot
+	slackBot  *slackbot.Bot
+
+	teamsHandler *teamsbot.Handler
+
+	slackOAuthHandler *SlackOAuthHandler
+
+	openapiSpec string
 }
 
-// NewServer creates a new API server
-func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
+// appContext initializes the core backend database, configurations, queues, and provider subsystems
+func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Load environment variables from .env file
 	env := map[string]string{}
 
@@ -165,8 +182,8 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	} else {
 		fmt.Printf(
 			"error loading .env file: %v\n\nUsing environment variables instead.\nIf needed, create a .env file with DATABASE_URL like:\nDATABASE_URL=postgres://username:password@localhost:5432/dbname?sslmode=disable\n",
-		err,
-	)
+			err,
+		)
 	}
 
 	// print env variables
@@ -208,7 +225,6 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 				"JWT_SECRET=your-secure-random-secret-key",
 		)
 	}
-		
 
 	planCatalogPath := strings.TrimSpace(os.Getenv("LIVEREVIEW_PLAN_CATALOG_PATH"))
 	if planCatalogPath == "" {
@@ -235,6 +251,9 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database connection: %v", err)
 	}
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
 	if err := ensureRequiredBillingSchema(context.Background(), db); err != nil {
 		return nil, err
@@ -257,7 +276,11 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	authHandlers := auth.NewAuthHandlers(tokenService, db)
 
 	// Initialize user management system
-	userService := users.NewUserService(db)
+	apiKeyManager := NewAPIKeyManager(db)
+	userService := users.NewUserService(db, func(tx *sql.Tx, userID, orgID int64) (string, error) {
+		_, key, err := apiKeyManager.CreateAPIKeyTx(tx, userID, orgID, "Onboarding API Key", []string{}, nil)
+		return key, err
+	})
 	userHandlers := users.NewUserHandlers(userService, db)
 
 	// Initialize profile management system
@@ -275,48 +298,6 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Start token cleanup scheduler
 	tokenService.StartCleanupScheduler()
 
-	e := echo.New()
-
-	// Middleware
-	// e.Use(middleware.Logger()) // Disabled to reduce log noise
-	e.Use(middleware.Recover())
-	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOriginFunc: func(origin string) (bool, error) {
-			// Allow localhost for development
-			if strings.HasPrefix(origin, "http://localhost:") {
-				return true, nil
-			}
-			// Allow hexmos.com and all subdomains
-			if origin == "https://hexmos.com" || origin == "http://hexmos.com" {
-				return true, nil
-			}
-			if strings.HasSuffix(origin, ".hexmos.com") {
-				return true, nil
-			}
-			return false, nil
-		},
-		AllowMethods: []string{
-			echo.GET, echo.POST, echo.PUT, echo.PATCH, echo.DELETE, echo.OPTIONS,
-		},
-		AllowHeaders: []string{
-			echo.HeaderOrigin,
-			echo.HeaderContentType,
-			echo.HeaderAccept,
-			echo.HeaderAuthorization,
-			"X-Requested-With",
-			"X-Org-Context",
-		},
-		AllowCredentials: true,
-	}))
-
-	// Add database to context
-	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			c.Set("db", db)
-			return next(c)
-		}
-	})
-
 	triggerAutoInstall := func(integrationID int) {
 		if autoWebhookInstaller != nil {
 			autoWebhookInstaller.TriggerAutoInstallation(integrationID)
@@ -326,7 +307,6 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	learningsSvc := learnings.NewService(learnings.NewPostgresStore(db))
 
 	server := &Server{
-		echo:                 e,
 		port:                 port,
 		db:                   db,
 		jobQueue:             jq,
@@ -352,12 +332,18 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	server.githubProviderV2 = githubprovider.NewGitHubV2Provider(db, githuboutput.NewAPIClient())
 	server.bitbucketProviderV2 = bitbucketprovider.NewBitbucketV2Provider(db, bitbucketoutput.NewAPIClient())
 	server.giteaProviderV2 = giteaprovider.NewGiteaV2Provider(db, giteaoutput.NewAPIClient())
+	server.azuredevopsProviderV2 = azuredevopsprovider.NewAzureDevOpsV2Provider(db, azuredevopsoutput.NewAPIClient())
 
 	// Initialize V2 webhook registry
 	server.webhookRegistryV2 = NewWebhookProviderRegistry(server)
 
 	// Initialize V2 webhook orchestrator
 	server.webhookOrchestratorV2 = NewWebhookOrchestratorV2(server)
+
+	// Register webhook orchestrator callback with reviewprocessor
+	reviewprocessor.RegisterWebhookReviewHandler(func(ctx context.Context, db *sql.DB, orgID int64, connectorID int64, eventJSON string, scenarioType string) error {
+		return server.webhookOrchestratorV2.ProcessAsync(ctx, orgID, connectorID, eventJSON, scenarioType)
+	})
 
 	// Set the server reference in auto webhook installer (circular dependency)
 	autoWebhookInstaller.server = server
@@ -371,7 +357,60 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
 	}
 
-	// Setup routes
+	return server, nil
+}
+
+// NewServer creates a new API server with HTTP routing and middlewares initialized
+func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
+	server, err := appContext(port, versionInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	e := echo.New()
+	e.HideBanner = true
+
+	// Middleware
+	e.Use(middleware.Recover())
+	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOriginFunc: func(origin string) (bool, error) {
+			// Allow localhost for development
+			if strings.HasPrefix(origin, "http://localhost:") {
+				return true, nil
+			}
+			// Allow hexmos.com / hexmos.site and all subdomains
+			if origin == "https://hexmos.com" || origin == "http://hexmos.com" ||
+				origin == "https://hexmos.site" || origin == "http://hexmos.site" {
+				return true, nil
+			}
+			if strings.HasSuffix(origin, ".hexmos.com") || strings.HasSuffix(origin, ".hexmos.site") {
+				return true, nil
+			}
+			return false, nil
+		},
+		AllowMethods: []string{
+			echo.GET, echo.POST, echo.PUT, echo.PATCH, echo.DELETE, echo.OPTIONS,
+		},
+		AllowHeaders: []string{
+			echo.HeaderOrigin,
+			echo.HeaderContentType,
+			echo.HeaderAccept,
+			echo.HeaderAuthorization,
+			"X-Requested-With",
+			"X-Org-Context",
+		},
+		AllowCredentials: true,
+	}))
+
+	// Add database to context
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("db", server.db)
+			return next(c)
+		}
+	})
+
+	server.echo = e
 	server.setupRoutes()
 	mcp := mcpserver.New(e)
 	mcp.RegisterSchema("POST", "/api/v1/connectors/trigger-review", nil, TriggerReviewRequest{})
@@ -394,6 +433,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp.RegisterSchema("GET", "/api/v1/prompts/catalog", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/prompts/:key/variables", nil, RenderPromptQuery{})
 	mcp.RegisterSchema("GET", "/api/v1/prompts/:key/render", nil, RenderPromptQuery{})
+	mcp.RegisterSchema("POST", "/api/v1/mcp-agent/chat", nil, MCPAgentChatRequest{})
 
 	mcp.RegisterEndpoints([]string{
 		"/api/v1/auth/me",
@@ -421,11 +461,142 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/aiconnectors/validate-key",
 		"/api/v1/aiconnectors/reorder",
 		"/api/v1/mcp-api-integration-guide",
+		"/api/v1/mcp-agent/chat",
 	})
 
 	mcp.Mount("/api/mcp")
 
+	// Initialize org-scoped Slack bots (self-hosted only)
+	if !server.deploymentConfig.IsCloud && os.Getenv("SLACK_APP_TOKEN") != "" {
+		bots, err := startOrgSlackBots(server.db)
+		if err != nil {
+			fmt.Printf("Warning: Failed to initialize Slack bots: %v (Slack bot disabled)\n", err)
+		} else {
+			server.slackBots = bots
+			if len(bots) > 0 {
+				server.slackBot = bots[0]
+			}
+			fmt.Printf("Slack bots initialized for %d org(s) (will start with server)\n", len(bots))
+		}
+	}
+
+	// Initialize org-scoped Teams bot (self-hosted only) from DB config
+	if !server.deploymentConfig.IsCloud {
+		handler, err := teamsbot.NewHandler(server.db)
+		if err != nil {
+			fmt.Printf("Warning: Failed to initialize Teams bot: %v (Teams bot disabled)\n", err)
+		} else if handler != nil {
+			server.teamsHandler = handler
+			fmt.Printf("Teams bot initialized for %d org(s) (will start with server)\n", len(handler.Bot.GetOrgIDs()))
+		} else {
+			fmt.Printf("No Teams bot configs found (Teams bot disabled)\n")
+		}
+	} else {
+		fmt.Printf("Cloud mode: Teams bot initialization skipped\n")
+	}
+
 	return server, nil
+}
+
+// WorkerContext creates a new Server instance optimized for running background workers (no Echo router initialized)
+func WorkerContext(versionInfo *VersionInfo) (*Server, error) {
+	return appContext(0, versionInfo)
+}
+
+// startOrgSlackBots reads all enabled Slack bot configs from the DB,
+// resolves each org's AI connector, and creates the multi-org Slack bot.
+func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
+	appToken := os.Getenv("SLACK_APP_TOKEN")
+	if appToken == "" {
+		return nil, fmt.Errorf("SLACK_APP_TOKEN is required")
+	}
+
+	configStorage := slackbot.NewStorage(db)
+	configs, err := configStorage.GetAllEnabledConfigs(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to query slack configs: %w", err)
+	}
+	if len(configs) == 0 {
+		return nil, fmt.Errorf("no enabled Slack bot configs found")
+	}
+
+	connectorStorage := aiconnectors.NewStorage(db)
+	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
+	if mcpServerURL == "" {
+		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
+	}
+	maxSteps := 20
+	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
+		if n, err := strconv.Atoi(s); err != nil || n <= 0 {
+			maxSteps = 20
+		} else {
+			maxSteps = n
+		}
+	}
+
+	var orgCfgs []slackbot.OrgConfig
+
+	for _, cfg := range configs {
+		// Find a working AI connector for this org
+		connectors, err := connectorStorage.GetAllConnectors(context.Background(), cfg.OrgID)
+		if err != nil {
+			log.Printf("Slack bot: failed to query connectors for org %d: %v — skipping", cfg.OrgID, err)
+			continue
+		}
+		if len(connectors) == 0 {
+			log.Printf("Slack bot: no AI connectors configured in org %d — skipping", cfg.OrgID)
+			continue
+		}
+
+		var connector *aiconnectors.Connector
+		for _, record := range connectors {
+			options := connectorStorage.GetConnectorOptions(context.Background(), record)
+			c, err := aiconnectors.NewConnector(context.Background(), options)
+			if err != nil {
+				log.Printf("Slack bot org %d: connector %q (%s) failed to init: %v — trying next", cfg.OrgID, record.ConnectorName, record.ProviderName, err)
+				continue
+			}
+			connector = c
+			log.Printf("Slack bot org %d: using connector %q (%s, model=%s)", cfg.OrgID, record.ConnectorName, record.ProviderName, options.ModelConfig.Model)
+			break
+		}
+		if connector == nil {
+			log.Printf("Slack bot: all connectors for org %d failed to initialize — skipping", cfg.OrgID)
+			continue
+		}
+
+		mcpHeaders := map[string]string{"X-API-Key": cfg.APIKey}
+
+		orgCfgs = append(orgCfgs, slackbot.OrgConfig{
+			OrgID:         cfg.OrgID,
+			SlackBotToken: cfg.BotToken,
+			MCPServerURL:  mcpServerURL,
+			MCPHeaders:    mcpHeaders,
+			Connector:     connector,
+			MaxAgentSteps: maxSteps,
+		})
+	}
+
+	if len(orgCfgs) == 0 {
+		return nil, fmt.Errorf("no orgs could be configured for Slack bot")
+	}
+
+	bot, err := slackbot.New(&slackbot.Config{
+		SlackAppToken: appToken,
+		Orgs:          orgCfgs,
+	}, func(orgID int64, teamID string) error {
+		return configStorage.UpdateTeamID(context.Background(), orgID, teamID)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return []*slackbot.Bot{bot}, nil
+}
+
+// SetOpenAPISpec sets the OpenAPI specification content for the integration guide endpoint
+func (s *Server) SetOpenAPISpec(spec string) {
+	s.openapiSpec = spec
 }
 
 func ensureRequiredBillingSchema(ctx context.Context, db *sql.DB) error {
@@ -539,6 +710,7 @@ func (s *Server) setupRoutes() {
 	public.POST("/auth/refresh", s.authHandlers.RefreshToken)
 	public.GET("/auth/setup-status", s.authHandlers.CheckSetupStatus)
 	public.POST("/auth/setup", s.authHandlers.SetupAdmin)
+	public.POST("/auth/onboard", s.Onboard)
 
 	// Diff review endpoints (protected by API key middleware)
 	diffReviewGroup := v1.Group("/diff-review")
@@ -577,6 +749,55 @@ func (s *Server) setupRoutes() {
 	// Cloud user ensure endpoint (now public; handler performs CLOUD_JWT_SECRET validation)
 	public.POST("/auth/ensure-cloud-user", s.authHandlers.EnsureCloudUser)
 
+	// Slack OAuth — reads common env vars
+	slackClientID := os.Getenv("SLACK_CLIENT_ID")
+	slackClientSecret := os.Getenv("SLACK_CLIENT_SECRET")
+	slackRedirectURL := os.Getenv("SLACK_REDIRECT_URL")
+	selfURL := os.Getenv("LIVEREVIEW_SELF_URL")
+	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
+	if mcpServerURL == "" {
+		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
+	}
+	maxSteps := 20
+	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxSteps = n
+		}
+	}
+
+	if slackClientID != "" && slackClientSecret != "" && slackRedirectURL != "" {
+		if s.deploymentConfig.IsCloud {
+			// Cloud: proxy callback endpoint (ungated — Slack redirects here)
+			cloudHandler := NewSlackOAuthHandler(s.db, slackClientID, slackClientSecret, slackRedirectURL, mcpServerURL, maxSteps, nil, selfURL, true)
+			public.GET("/auth/slack/proxy-callback", cloudHandler.SlackOAuthProxyCallback)
+			fmt.Println("Slack OAuth proxy callback endpoint registered (cloud)")
+		} else {
+			// Self-hosted: direct callback + install + proxy-receive endpoint
+			slackOAuthHandler := NewSlackOAuthHandler(s.db, slackClientID, slackClientSecret, slackRedirectURL, mcpServerURL, maxSteps, s.slackBot, selfURL, false)
+			public.GET("/auth/slack/callback", slackOAuthHandler.SlackOAuthCallback)
+			public.POST("/orgs/:org_id/slack-proxy-callback", slackOAuthHandler.SlackProxyCallback)
+			fmt.Println("Slack OAuth direct callback registered (self-hosted)")
+			s.slackOAuthHandler = slackOAuthHandler
+		}
+	}
+
+	// Teams bot messages endpoint (public — Bot Framework sends activities here)
+	s.echo.POST("/api/messages", func(c echo.Context) error {
+		if s.teamsHandler == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Teams bot not initialized"})
+		}
+		return s.teamsHandler.HandleMessage(c)
+	})
+	fmt.Println("Teams bot messages endpoint registered")
+
+	// Serve chart images for Teams bot
+	s.echo.GET("/charts/:id", func(c echo.Context) error {
+		if s.teamsHandler == nil {
+			return c.NoContent(http.StatusInternalServerError)
+		}
+		return s.teamsHandler.ServeChartPNG(c)
+	})
+
 	// Protected routes (require authentication - supports both Bearer tokens and API keys)
 	protected := v1.Group("")
 	protected.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
@@ -594,9 +815,16 @@ func (s *Server) setupRoutes() {
 	// Clear onboarding API key
 	protected.POST("/onboarding/clear-api-key", s.ClearOnboardingAPIKey)
 
+	// Slack OAuth install — protected (user must be logged in, self-hosted only)
+	if s.slackOAuthHandler != nil && !s.deploymentConfig.IsCloud {
+		protected.GET("/auth/slack/install", s.slackOAuthHandler.InstallSlackBot)
+		fmt.Println("Slack OAuth install endpoint registered")
+	}
+
 	// Self-service profile endpoints
 	protected.GET("/users/profile", s.profileHandlers.GetProfile)
 	protected.PUT("/users/profile", s.profileHandlers.UpdateProfile)
+	protected.PUT("/users/default-org", s.orgHandlers.SetDefaultOrganization)
 	protected.PUT("/users/password", s.profileHandlers.ChangePassword)
 
 	// Development mode test endpoints (only enabled when DEV_MODE=true)
@@ -645,6 +873,10 @@ func (s *Server) setupRoutes() {
 	// Super admin tools catalog endpoints (called by lr-tools deployer after Lambda deployment)
 	adminGroup.POST("/tools", s.UpsertAvailableTool)
 	adminGroup.GET("/tools", s.ListAvailableTools)
+	// Super admin SMTP settings endpoints
+	adminGroup.GET("/settings/smtp", s.GetSMTPSettings)
+	adminGroup.PUT("/settings/smtp", s.UpdateSMTPSettings)
+	adminGroup.POST("/settings/smtp/test", s.TestSMTPSettings)
 
 	// Organization management endpoints
 	// User organization access (get their orgs) - needs permission context to detect super admin
@@ -658,6 +890,22 @@ func (s *Server) setupRoutes() {
 	orgGroup.PUT("/members/:user_id/role", s.orgHandlers.ChangeUserRole)
 	orgGroup.GET("/analytics", s.orgHandlers.GetOrganizationAnalytics)
 	orgGroup.PUT("", s.orgHandlers.UpdateOrganization) // Update org details (owners only)
+
+	// Slack bot configuration within org context (self-hosted only)
+	if !s.deploymentConfig.IsCloud {
+		slackConfigHandler := NewSlackConfigHandler(s.db)
+		orgGroup.GET("/slack-config", slackConfigHandler.GetSlackConfig)
+		orgGroup.PUT("/slack-config", slackConfigHandler.PutSlackConfig)
+		orgGroup.DELETE("/slack-config", slackConfigHandler.DeleteSlackConfig)
+	}
+
+	// Teams bot configuration within org context (self-hosted only)
+	if !s.deploymentConfig.IsCloud {
+		teamsConfigHandler := NewTeamsConfigHandler(s.db)
+		orgGroup.GET("/teams-config", teamsConfigHandler.GetTeamsConfig)
+		orgGroup.PUT("/teams-config", teamsConfigHandler.UpdateTeamsConfig)
+		orgGroup.DELETE("/teams-config", teamsConfigHandler.DeleteTeamsConfig)
+	}
 
 	// API key management within org context
 	orgGroup.POST("/api-keys", s.CreateAPIKeyHandler)
@@ -751,6 +999,7 @@ func (s *Server) setupRoutes() {
 
 	// Gitea profile validation endpoint
 	v1.POST("/gitea/validate-profile", s.ValidateGiteaProfile)
+	v1.POST("/azuredevops/validate-profile", s.ValidateAzureDevOpsProfile)
 
 	// Organization-scoped PAT creation (uses X-Org-Context header for organization context)
 	patGroup := v1.Group("/integration_tokens")
@@ -795,6 +1044,9 @@ func (s *Server) setupRoutes() {
 	// Gitea webhook handler (V2 Orchestrator)
 	v1.POST("/gitea-hook/:connector_id", s.WebhookOrchestratorV2Handler, webhookMiddleware)
 
+	// Azure DevOps webhook handler (V2 Orchestrator)
+	v1.POST("/azuredevops-hook/:connector_id", s.WebhookOrchestratorV2Handler, webhookMiddleware)
+
 	// Generic webhook handler (V2 Orchestrator)
 	v1.POST("/webhook/:connector_id", s.WebhookOrchestratorV2Handler, webhookMiddleware)
 
@@ -811,11 +1063,22 @@ func (s *Server) setupRoutes() {
 	aiConnectorGroup.POST("/validate-key", s.ValidateAIConnectorKey)
 	aiConnectorGroup.POST("", s.CreateAIConnector)
 	aiConnectorGroup.GET("", s.GetAIConnectors)
+	aiConnectorGroup.GET("/settings", s.GetReviewAISettings)
+	aiConnectorGroup.PUT("/settings", s.UpsertReviewAISettings)
 	aiConnectorGroup.PUT("/:id", s.UpdateAIConnector)
 	aiConnectorGroup.PUT("/reorder", s.ReorderAIConnectors)
 	aiConnectorGroup.DELETE("/:id", s.DeleteAIConnector)
 	aiConnectorGroup.POST("/ollama/models", s.FetchOllamaModels)
+	aiConnectorGroup.POST("/bedrock/models", s.FetchBedrockModels)
 	aiConnectorGroup.GET("/providers/:provider/models", s.GetAIProviderModels)
+
+	// MCP Agent endpoints (organization scoped)
+	mcpAgentGroup := v1.Group("/mcp-agent")
+	mcpAgentGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	mcpAgentGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	mcpAgentGroup.Use(authMiddleware.ValidateOrgAccess())
+	mcpAgentGroup.Use(authMiddleware.BuildPermissionContext())
+	mcpAgentGroup.POST("/chat", s.HandleMCPAgentChat)
 
 	// Dashboard endpoints (organization scoped)
 	dashboardGroup := v1.Group("/dashboard")
@@ -1028,6 +1291,11 @@ type ValidateGiteaProfileRequest struct {
 	PAT     string `json:"pat"`
 }
 
+type ValidateAzureDevOpsProfileRequest struct {
+	OrgURL string `json:"org_url"`
+	PAT    string `json:"pat"`
+}
+
 // ValidateGitLabProfile validates GitLab PAT and base URL by fetching user profile
 func (s *Server) ValidateGitLabProfile(c echo.Context) error {
 	fmt.Println("Reached ValidateGitlabProfile")
@@ -1095,6 +1363,22 @@ func (s *Server) ValidateGiteaProfile(c echo.Context) error {
 	return c.JSON(http.StatusOK, profile)
 }
 
+// ValidateAzureDevOpsProfile validates an Azure DevOps PAT + organization URL by fetching the user profile
+func (s *Server) ValidateAzureDevOpsProfile(c echo.Context) error {
+	var body ValidateAzureDevOpsProfileRequest
+	if err := c.Bind(&body); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	}
+	if body.OrgURL == "" || body.PAT == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "org_url and pat are required"})
+	}
+	profile, err := azuredevops.FetchAzureDevOpsProfile(body.OrgURL, body.PAT)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, profile)
+}
+
 // Start begins the API server
 func (s *Server) Start() error {
 	// Determine bind address based on deployment mode
@@ -1110,15 +1394,6 @@ func (s *Server) Start() error {
 		fmt.Println("Production Mode: Webhooks enabled, configured for reverse proxy")
 	}
 	fmt.Println("Press Ctrl+C to stop the server")
-
-	// Start job queue workers
-	ctx := context.Background()
-	go func() {
-		if err := s.jobQueue.Start(ctx); err != nil {
-			fmt.Printf("Error starting job queue: %v\n", err)
-		}
-	}()
-	fmt.Println("Job queue workers started")
 
 	// Start dashboard manager
 	s.dashboardManager.Start()
@@ -1153,6 +1428,26 @@ func (s *Server) Start() error {
 		aiconnectors.RunAIModelSyncScheduler(syncCtx, s.db, 24*time.Hour)
 	}
 
+	// Start Slack bots if configured
+	if len(s.slackBots) > 0 {
+		slackCtx, cancel := context.WithCancel(context.Background())
+		s.slackBotCancel = cancel
+		fmt.Printf("Starting %d Slack bot(s)...\n", len(s.slackBots))
+		for _, bot := range s.slackBots {
+			bot := bot
+			go func() {
+				if err := bot.Start(slackCtx); err != nil {
+					fmt.Printf("Slack bot failed: %v\n", err)
+				}
+			}()
+		}
+	}
+
+	// Start Teams bot if configured
+	if s.teamsHandler != nil {
+		s.teamsHandler.Start()
+	}
+
 	// Wait for interrupt signal to gracefully shut down the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
@@ -1170,6 +1465,11 @@ func (s *Server) Start() error {
 		} else {
 			fmt.Println("Job queue workers stopped")
 		}
+	}
+
+	// Stop Teams bot
+	if s.teamsHandler != nil {
+		s.teamsHandler.Stop()
 	}
 
 	// Stop dashboard manager
@@ -1293,7 +1593,7 @@ func (s *Server) getReviews(c echo.Context) error {
 
 	perPage := 20
 	if perPageStr := c.QueryParam("per_page"); perPageStr != "" {
-		if pp, err := strconv.Atoi(perPageStr); err == nil && pp > 0 && pp <= 100 {
+		if pp, err := strconv.Atoi(perPageStr); err == nil && pp > 0 && pp <= 1000 {
 			perPage = pp
 		}
 	}
@@ -1707,17 +2007,12 @@ func (s *Server) getVersion(c echo.Context) error {
 // @Success      200  {object}  map[string]interface{}
 // @Router       /api/v1/mcp-api-integration-guide [get]
 func (s *Server) APIIntegrationHelper(c echo.Context) error {
-	specContent := "OpenAPI specification could not be loaded directly. Please check the public documentation."
-	if data, err := os.ReadFile("docs/openapi.yaml"); err == nil {
-		specContent = string(data)
-	}
-
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message":            "Welcome to the LiveReview API Integration Guide!",
 		"base_url":           "Use https://livereview.hexmos.com as the default Base URL for all API requests. IMPORTANT: Please ask the user in the beginning whether they want to use livereview.hexmos.com or a different Base URL (e.g., for a self-hosted instance).",
 		"authentication":     "To authenticate requests, you MUST use the 'X-API-KEY' header and pass your API key. Do not use Bearer token authentication for API integration.",
 		"schema_information": "Check the available MCP tools for specific schema information of individual endpoints. They provide the required parameters and payload structures.",
-		"openapi_spec":       specContent,
+		"openapi_spec":       s.openapiSpec,
 	})
 }
 
@@ -1944,4 +2239,9 @@ func (s *Server) WebhookOrchestratorV2Handler(c echo.Context) error {
 	}
 
 	return s.webhookOrchestratorV2.ProcessWebhookEvent(c)
+}
+
+// GetJobQueue returns the initialized job queue
+func (s *Server) GetJobQueue() *jobqueue.JobQueue {
+	return s.jobQueue
 }

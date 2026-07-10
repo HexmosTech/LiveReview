@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -110,16 +112,40 @@ func UICommand(uiAssets embed.FS) *cli.Command {
 			// Create file server for static assets
 			fileServer := http.FileServer(http.FS(distFS))
 
-			// Handle all routes - serve index.html for SPA routing
-			http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-				// Try to serve the requested file
-				if r.URL.Path != "/" {
-					// Check if file exists in embedded filesystem
-					if _, err := fs.Stat(distFS, r.URL.Path[1:]); err == nil {
-						fileServer.ServeHTTP(w, r)
-						return
-					}
+			// Proxy API requests to the backend server
+			var apiProxy http.Handler
+			if apiURL != "" {
+				backendURL, err := url.Parse(apiURL)
+				if err == nil {
+					apiProxy = httputil.NewSingleHostReverseProxy(backendURL)
 				}
+			}
+			if apiProxy == nil {
+				// Fallback: try localhost:8888
+				backendURL, _ := url.Parse("http://localhost:8888")
+				apiProxy = httputil.NewSingleHostReverseProxy(backendURL)
+			}
+
+			http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				// Proxy API routes to the backend API server
+				if strings.HasPrefix(r.URL.Path, "/api/") {
+					apiProxy.ServeHTTP(w, r)
+					return
+				}
+			// Try to serve the requested file
+			if r.URL.Path != "/" {
+				// Check if file exists in embedded filesystem
+				if _, err := fs.Stat(distFS, r.URL.Path[1:]); err == nil {
+					fileServer.ServeHTTP(w, r)
+					return
+				}
+				// Fallback: some files (e.g. slack-logo.png) are in public/ subdir of dist
+				if _, err := fs.Stat(distFS, "public"+r.URL.Path); err == nil {
+					r.URL.Path = "/public" + r.URL.Path
+					fileServer.ServeHTTP(w, r)
+					return
+				}
+			}
 
 				// If file doesn't exist or root path, serve modified index.html for SPA routing
 				w.Header().Set("Content-Type", "text/html")

@@ -13,9 +13,10 @@ import {
     Badge,
     Avatar
 } from '../../components/UIPrimitives';
+import { getReviewAISettings, updateReviewAISettings } from '../../api/connectors';
 
 // Types
-import { AIProvider, AIConnector } from './types';
+import { AIProvider, AIConnector, ReviewAISettings } from './types';
 
 // Hooks
 import { useProviderSelection, useConnectors, useFormState } from './hooks';
@@ -26,9 +27,11 @@ import {
     ProviderDetail,
     ConnectorForm,
     ConnectorsList,
-    UsageTips
+    UsageTips,
+    AdaptiveReviewInfo
 } from './components';
 import OllamaConnectorForm from './components/OllamaConnectorForm';
+import BedrockConnectorForm from './components/BedrockConnectorForm';
 
 // Utils
 import { generateFriendlyNameForProvider, getProviderDetails } from './utils/nameUtils';
@@ -104,6 +107,14 @@ const popularAIProviders: AIProvider[] = [
         icon: <Icons.AI />,
         apiKeyPlaceholder: 'sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
     },
+    {
+        id: 'bedrock',
+        name: 'AWS Bedrock',
+        url: 'https://aws.amazon.com/bedrock/',
+        description: 'Claude, Nova, Llama, and other foundation models via your own AWS account.',
+        icon: <Icons.AI />,
+        apiKeyPlaceholder: 'AWS Secret Access Key'
+    },
 ];
 
 const AIProviders: React.FC = () => {
@@ -141,6 +152,12 @@ const AIProviders: React.FC = () => {
 	// Local state
 	const [isSaved, setIsSaved] = useState(false);
 	const [showDropdown, setShowDropdown] = useState(false);
+    const [activeRole, setActiveRole] = useState<'leader' | 'helper'>('leader');
+    const [helperSettings, setHelperSettings] = useState<ReviewAISettings>({
+        helper_enabled: true,
+        helper_mode: 'concise_then_expand'
+    });
+    const [helperSettingsSaved, setHelperSettingsSaved] = useState(false);
 	const dropdownRef = useRef<HTMLDivElement>(null);
 
 	const getDefaultModelFor = (providerId?: string) => {
@@ -150,10 +167,14 @@ const AIProviders: React.FC = () => {
 	};
 
     // Calculate provider connector counts
-    const connectorCounts = connectors.reduce((counts: Record<string, number>, connector) => {
+    const connectorCounts = connectors
+		.filter((connector) => (connector.role || 'leader') === activeRole)
+		.reduce((counts: Record<string, number>, connector) => {
         counts[connector.providerName] = (counts[connector.providerName] || 0) + 1;
         return counts;
     }, {});
+
+	const roleScopedConnectors = connectors.filter((connector) => (connector.role || 'leader') === activeRole);
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -168,6 +189,30 @@ const AIProviders: React.FC = () => {
             document.removeEventListener("mousedown", handleClickOutside);
         };
     }, [dropdownRef]);
+
+    useEffect(() => {
+        const loadReviewAISettings = async () => {
+            try {
+                const settings = await getReviewAISettings();
+                setHelperSettings({
+                    helper_enabled: !!settings.helper_enabled,
+                    helper_mode: (settings.helper_mode as 'concise_then_expand' | 'polish_only') || 'concise_then_expand'
+                });
+            } catch (settingsError) {
+                console.error('Failed to load review AI settings:', settingsError);
+            }
+        };
+
+        loadReviewAISettings();
+    }, []);
+
+    useEffect(() => {
+        setFormData({
+            ...formData,
+            role: activeRole,
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeRole]);
 
     // Handle URL path changes
     useEffect(() => {
@@ -202,6 +247,7 @@ const AIProviders: React.FC = () => {
             name: generateFriendlyNameForProvider(selectedProvider, popularAIProviders),
             apiKey: '',
             providerType: selectedProvider === 'all' ? '' : selectedProvider,
+            role: activeRole,
             selectedModel: getDefaultModelFor(selectedProvider === 'all' ? undefined : selectedProvider),
             baseURL: '',
             gcpProjectID: '',
@@ -218,6 +264,7 @@ const AIProviders: React.FC = () => {
             name: generateFriendlyNameForProvider(providerId, popularAIProviders),
             apiKey: '',
             providerType: providerId,
+            role: activeRole,
             selectedModel: getDefaultModelFor(providerId),
             baseURL: '',
             gcpProjectID: '',
@@ -236,10 +283,12 @@ const AIProviders: React.FC = () => {
         }
         setSelectedConnector(connector);
         setSelectedProvider(connector.providerName);
+		setActiveRole((connector.role || 'leader') as 'leader' | 'helper');
         setFormData({
             name: connector.name,
             apiKey: connector.fullApiKey || connector.apiKey,
             providerType: connector.providerName,
+            role: (connector.role || 'leader') as 'leader' | 'helper',
             baseURL: connector.baseURL || connector.base_url || '',
             selectedModel: connector.selectedModel || connector.selected_model || getDefaultModelFor(connector.providerName),
             gcpProjectID: connector.gcpProjectID || connector.gcp_project_id || '',
@@ -262,6 +311,7 @@ const AIProviders: React.FC = () => {
         try {
             const success = await saveConnector(
                 providerToUse,
+                formData.role || activeRole,
                 formData.apiKey,
                 formData.name,
                 selectedConnector,
@@ -292,6 +342,7 @@ const AIProviders: React.FC = () => {
         try {
             const success = await saveConnector(
                 'ollama',
+                formData.role || activeRole,
                 jwtToken, // Use JWT token as the "API key" for Ollama
                 name,
                 selectedConnector,
@@ -315,6 +366,39 @@ const AIProviders: React.FC = () => {
         }
     };
 
+    // Handle Bedrock-specific save
+    const handleSaveBedrockConnector = async (accessKeyId: string, secretAccessKey: string, region: string, selectedModel: string, name: string) => {
+        try {
+            const success = await saveConnector(
+                'bedrock',
+                formData.role || activeRole,
+                secretAccessKey, // Use the AWS Secret Access Key as the "API key" for Bedrock
+                name,
+                selectedConnector,
+                undefined,
+                selectedModel,
+                undefined,
+                undefined,
+                accessKeyId,
+                region
+            );
+
+            if (success) {
+                // Show success message
+                setIsSaved(true);
+                setTimeout(() => setIsSaved(false), 3000);
+
+                // Reset form
+                resetForm();
+
+                // Update URL to show the provider without any specific action
+                updateUrlFragment('bedrock');
+            }
+        } catch (error) {
+            console.error('Error in handleSaveBedrockConnector:', error);
+        }
+    };
+
     // Handle generate name button
     const handleGenerateName = () => {
         const providerToUse = selectedProvider === 'all' ? formData.providerType : selectedProvider;
@@ -329,6 +413,21 @@ const AIProviders: React.FC = () => {
     // Handle provider type change in "all" view
     const handleProviderChange = (providerType: string) => {
         handleProviderTypeChange(providerType, popularAIProviders);
+    };
+
+    const handleSaveHelperSettings = async () => {
+        try {
+            const updated = await updateReviewAISettings(helperSettings.helper_enabled, helperSettings.helper_mode);
+            setHelperSettings({
+                helper_enabled: !!updated.helper_enabled,
+                helper_mode: (updated.helper_mode as 'concise_then_expand' | 'polish_only') || 'concise_then_expand'
+            });
+            setHelperSettingsSaved(true);
+            setTimeout(() => setHelperSettingsSaved(false), 3000);
+        } catch (settingsError) {
+            console.error('Error saving helper settings:', settingsError);
+            setError('Failed to save Helper model settings. Please try again.');
+        }
     };
 
     // Handle deleting a connector
@@ -357,10 +456,28 @@ const AIProviders: React.FC = () => {
             <PageHeader
                 title="AI Providers"
                 description={
-                    "Configure and manage AI services for code review."
+                    "Configure Leader and Helper AI models for code review."
                 }
                 actions={<a href="https://github.com/HexmosTech/LiveReview/discussions/9" target="_blank" rel="noopener noreferrer"><Button variant="outline" size="sm">Vote / Request Provider</Button></a>}
             />
+
+            <div className="mb-6 flex flex-wrap gap-3">
+                <Button
+                    variant={activeRole === 'leader' ? 'primary' : 'outline'}
+                    size="sm"
+                    onClick={() => setActiveRole('leader')}
+                >
+                    Leader Model
+                </Button>
+                <Button
+                    variant={activeRole === 'helper' ? 'primary' : 'outline'}
+                    size="sm"
+                    onClick={() => setActiveRole('helper')}
+                >
+                    Helper Model
+                </Button>
+            </div>
+            <AdaptiveReviewInfo activeRole={activeRole} variant="tab" />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Left panel for selecting providers */}
@@ -371,7 +488,7 @@ const AIProviders: React.FC = () => {
                             selectedProvider={selectedProvider}
                             connectorCounts={connectorCounts}
                             onSelectProvider={handleSelectProvider}
-                            totalConnectors={connectors.length}
+                            totalConnectors={roleScopedConnectors.length}
                         />
 
                         {/* Provider Info - Show only for specific providers, not for "all" view */}
@@ -389,6 +506,45 @@ const AIProviders: React.FC = () => {
                 {/* Main content area - 2 columns */}
                 <div className="lg:col-span-2">
                     <div className="grid grid-cols-1 gap-6">
+                        {activeRole === 'helper' && (
+                            <>
+                            <AdaptiveReviewInfo activeRole={activeRole} variant="settings" />
+                            <Card title="Helper Model Settings" badge={helperSettings.helper_enabled ? 'Enabled' : 'Disabled'}>
+                                <div className="space-y-4">
+                                    <label className="flex items-center gap-3 text-sm text-slate-200">
+                                        <input
+                                            type="checkbox"
+                                            checked={helperSettings.helper_enabled}
+                                            onChange={(e) => setHelperSettings((prev) => ({ ...prev, helper_enabled: e.target.checked }))}
+                                            className="h-4 w-4 rounded border-slate-500 bg-slate-800 text-blue-500"
+                                        />
+                                        <span>Enable Helper model for text expansion and polishing</span>
+                                    </label>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-300 mb-2">Helper Mode</label>
+                                        <select
+                                            value={helperSettings.helper_mode}
+                                            onChange={(e) => setHelperSettings((prev) => ({
+                                                ...prev,
+                                                helper_mode: e.target.value as 'concise_then_expand' | 'polish_only'
+                                            }))}
+                                            className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white"
+                                        >
+                                            <option value="concise_then_expand">Concise Then Expand</option>
+                                            <option value="polish_only">Polish Only</option>
+                                        </select>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <Button variant="primary" size="sm" onClick={handleSaveHelperSettings}>
+                                            Save Helper Settings
+                                        </Button>
+                                        {helperSettingsSaved && <span className="text-sm text-emerald-400">Saved</span>}
+                                    </div>
+                                </div>
+                            </Card>
+                            </>
+                        )}
+
                         {/* Connector Form - Only show when actively adding/editing */}
                         {(formData.name || formData.apiKey || isEditing) && (
                             <>
@@ -410,6 +566,23 @@ const AIProviders: React.FC = () => {
                                                 selectedModel: selectedConnector.selectedModel || ''
                                             };
                                         })() : null}
+                                    />
+                                ) : ((selectedProvider === 'bedrock') || (selectedProvider === 'all' && formData.providerType === 'bedrock')) ? (
+                                    /* Special form for Bedrock */
+                                    <BedrockConnectorForm
+                                        provider={popularAIProviders.find(p => p.id === 'bedrock')!}
+                                        onSave={handleSaveBedrockConnector}
+                                        onCancel={resetForm}
+                                        isLoading={isLoading}
+                                        error={error}
+                                        setError={setError}
+                                        editingConnector={isEditing && selectedConnector ? {
+                                            name: selectedConnector.name,
+                                            awsAccessKeyID: selectedConnector.awsAccessKeyID || '',
+                                            secretAccessKey: selectedConnector.fullApiKey || '',
+                                            awsRegion: selectedConnector.awsRegion || '',
+                                            selectedModel: selectedConnector.selectedModel || ''
+                                        } : null}
                                     />
                                 ) : (
                                     /* Regular form for other providers */
@@ -435,7 +608,7 @@ const AIProviders: React.FC = () => {
 
                         {/* Connectors List */}
                         <ConnectorsList
-                            connectors={connectors}
+                            connectors={roleScopedConnectors}
                             providers={popularAIProviders}
                             selectedProvider={selectedProvider}
                             isLoading={isLoading}
