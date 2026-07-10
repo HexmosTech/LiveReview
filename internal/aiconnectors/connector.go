@@ -330,7 +330,7 @@ func trimTrailingSlash(s string) string {
 
 // Helper functions to create models for specific providers
 
-func createOpenAIModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+func createOpenAIModel(_ context.Context, options ConnectorOptions) (llms.Model, error) {
 	// The OpenAI library doesn't have all the options we want to set directly as constructor options
 	// We'll just use the basic options available
 	opts := []openai.Option{
@@ -346,7 +346,7 @@ func createOpenAIModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 	return openai.New(opts...)
 }
 
-func createDeepSeekModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+func createDeepSeekModel(_ context.Context, options ConnectorOptions) (llms.Model, error) {
 	baseURL := ResolveBaseURL(ProviderDeepSeek, options.BaseURL)
 
 	opts := []openai.Option{
@@ -458,7 +458,7 @@ func createCohereModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 	return cohere.New(opts...)
 }
 
-func createOllamaModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+func createOllamaModel(_ context.Context, options ConnectorOptions) (llms.Model, error) {
 	// Set default server URL if not provided
 	if options.BaseURL == "" {
 		options.BaseURL = "http://localhost:11434"
@@ -475,7 +475,7 @@ func createOllamaModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 	return ollama.New(opts...)
 }
 
-func createOpenRouterModel(ctx context.Context, options ConnectorOptions) (llms.Model, error) {
+func createOpenRouterModel(_ context.Context, options ConnectorOptions) (llms.Model, error) {
 	baseURL := ResolveBaseURL(ProviderOpenRouter, options.BaseURL)
 
 	httpClient := networkaiconnectors.NewHTTPClient(5 * time.Minute)
@@ -656,13 +656,6 @@ func (c *Connector) GetModel() string {
 	return c.options.ModelConfig.Model
 }
 
-// Helper function to get minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
 
 // truncateString limits string length for safe logging.
 func truncateString(s string, maxLen int) string {
