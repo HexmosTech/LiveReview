@@ -2269,10 +2269,10 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForGiteaRemoval(ctx context.
 
 // JobQueue manages the River job queue
 type JobQueue struct {
-	client                *river.Client[pgx.Tx]
-	pool                  *pgxpool.Pool
-	db                    *sql.DB
-	config                *QueueConfig
+	client *river.Client[pgx.Tx]
+	pool   *pgxpool.Pool
+	db     *sql.DB
+	config *QueueConfig
 }
 
 // NewJobQueue creates a new job queue instance
@@ -2301,11 +2301,13 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	webhookWorker := &WebhookReviewWorker{}
 	manualWorker := &ManualReviewWorker{}
 	diffWorker := &DiffReviewWorker{db: db, pool: pool}
+	scheduledReviewWorker := &ScheduledReviewWorker{db: db}
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, diffWorker)
 	river.AddWorker(workers, webhookWorker)
 	river.AddWorker(workers, manualWorker)
+	river.AddWorker(workers, scheduledReviewWorker)
 	river.AddWorker(workers, &UpdateOrgUsageWorker{db: db, pool: pool})
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
@@ -2328,10 +2330,10 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	webhookWorker.jq = jq
 	manualWorker.jq = jq
 	diffWorker.jq = jq
+	scheduledReviewWorker.jq = jq
 
 	return jq, nil
 }
-
 
 // Start starts the job queue workers
 func (jq *JobQueue) Start(ctx context.Context) error {
@@ -2424,6 +2426,17 @@ func (jq *JobQueue) QueueManualReviewJob(ctx context.Context, orgID int64, planC
 	return nil
 }
 
+// QueueScheduledReviewJob enqueues a scheduled-review run for a single config.
+func (jq *JobQueue) QueueScheduledReviewJob(ctx context.Context, configID int64) error {
+	args := ScheduledReviewJobArgs{ConfigID: configID}
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review", MaxAttempts: 3})
+	if err != nil {
+		log.Printf("[ERROR] Failed to queue scheduled review job: %v", err)
+		return fmt.Errorf("failed to queue scheduled review job: %w", err)
+	}
+	return nil
+}
+
 // QueueUpdateOrgUsageJob enqueues a new organization usage finalization job.
 func (jq *JobQueue) QueueUpdateOrgUsageJob(ctx context.Context, args UpdateOrgUsageJobArgs) error {
 	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{MaxAttempts: 5})
@@ -2433,4 +2446,3 @@ func (jq *JobQueue) QueueUpdateOrgUsageJob(ctx context.Context, args UpdateOrgUs
 	}
 	return nil
 }
-

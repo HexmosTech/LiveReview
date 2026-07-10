@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Button, Icons } from '../../components/UIPrimitives';
-import { ReviewEventsPage } from '../../components/reviews';
+import { ReviewEventsPage, ScheduledReviewComments } from '../../components/reviews';
 import { 
   getReview, 
   getReviewEvents, 
@@ -58,6 +58,8 @@ const ReviewDetail: React.FC = () => {
     const [typeFilter, setTypeFilter] = useState<ReviewEventType | ''>('');
     const [lastEventTime, setLastEventTime] = useState<string | null>(null);
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    // Comments tab (PR-style diff view) is scheduled-review-only for now, and selected by default.
+    const [activeTab, setActiveTab] = useState<'comments' | 'details'>('comments');
 
     // Status colors are imported via getStatusColor from ../../api/reviews
 
@@ -302,6 +304,7 @@ const ReviewDetail: React.FC = () => {
         return `$${value.toFixed(4)}`;
     };
 
+    const isScheduled = review.triggerType === 'scheduled';
     const leaderAIExecutionMode = typeof review.metadata?.leader_ai_execution_mode === 'string' ? review.metadata.leader_ai_execution_mode : '';
     const leaderAIExecutionSource = typeof review.metadata?.leader_ai_execution_source === 'string' ? review.metadata.leader_ai_execution_source : '';
     const leaderAIExecutionProvider = typeof review.metadata?.leader_ai_provider_name === 'string' ? review.metadata.leader_ai_provider_name : '';
@@ -389,6 +392,39 @@ const ReviewDetail: React.FC = () => {
                 </div>
             </div>
 
+            {isScheduled && (
+                <div className="flex items-center gap-2 mb-6 border-b border-slate-700">
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('comments')}
+                        className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                            activeTab === 'comments'
+                                ? 'border-purple-500 text-white'
+                                : 'border-transparent text-slate-400 hover:text-slate-200'
+                        }`}
+                    >
+                        Comments
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('details')}
+                        className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                            activeTab === 'details'
+                                ? 'border-purple-500 text-white'
+                                : 'border-transparent text-slate-400 hover:text-slate-200'
+                        }`}
+                    >
+                        Details
+                    </button>
+                </div>
+            )}
+
+            {isScheduled && activeTab === 'comments' && (
+                <ScheduledReviewComments reviewId={reviewId} />
+            )}
+
+            {(!isScheduled || activeTab === 'details') && (
+            <>
             {/* Review Info Panel - Compact */}
             <div className="bg-slate-800 rounded-lg p-3 border border-slate-700 mb-6">
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
@@ -597,6 +633,8 @@ const ReviewDetail: React.FC = () => {
                         isLive={review?.status === 'in_progress'}
                     />
             </div>
+            </>
+            )}
         </div>
     );
 };

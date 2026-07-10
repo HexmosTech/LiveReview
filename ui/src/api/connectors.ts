@@ -388,6 +388,53 @@ export const disableManualTriggerForAllProjects = async (connectorId: string): P
   }
 };
 
+// Types for scheduled review configuration
+export interface ScheduledReviewConfig {
+  id: number;
+  project_full_name: string;
+  enabled: boolean;
+  interval_hours: number;
+  last_run_at?: string;
+  next_run_at: string;
+}
+
+/**
+ * Fetch scheduled review configuration for every repo under a connector
+ * @param connectorId The ID of the connector
+ * @returns Promise with array of scheduled review configs
+ */
+export const getScheduledReviewConfigs = async (connectorId: string): Promise<ScheduledReviewConfig[]> => {
+  try {
+    return await apiClient.get<ScheduledReviewConfig[]>(`/connectors/${connectorId}/scheduled-reviews`);
+  } catch (error) {
+    console.error('Error fetching scheduled review configs:', error);
+    throw error;
+  }
+};
+
+/**
+ * Enable or disable the scheduled (24h) review for a single repo under a connector
+ * @param connectorId The ID of the connector
+ * @param projectPath The repo's full path (e.g. "owner/repo")
+ * @param enabled Whether scheduled review should be enabled for this repo
+ * @returns Promise with the updated config
+ */
+export const setScheduledReviewEnabled = async (
+  connectorId: string,
+  projectPath: string,
+  enabled: boolean
+): Promise<ScheduledReviewConfig> => {
+  try {
+    return await apiClient.put<ScheduledReviewConfig>(`/connectors/${connectorId}/scheduled-reviews`, {
+      project_path: projectPath,
+      enabled,
+    });
+  } catch (error) {
+    console.error('Error updating scheduled review config:', error);
+    throw error;
+  }
+};
+
 /**
  * Fetch dynamic models list from backend for a specific provider
  * @param provider The provider id (e.g. 'openai', 'gemini', 'claude')

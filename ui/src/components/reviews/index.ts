@@ -7,3 +7,4 @@ export { default as BatchSummary } from './BatchSummary';
 export { default as TimingChart } from './TimingChart';
 export { default as ProgressIndicators } from './ProgressIndicators';
 export { default as EventFilters } from './EventFilters';
+export { default as ScheduledReviewComments } from './ScheduledReviewComments';

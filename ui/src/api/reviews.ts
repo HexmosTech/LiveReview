@@ -1,11 +1,12 @@
 import apiClient from './apiClient';
-import { 
-  Review, 
-  ReviewsListResponse, 
-  ReviewsFilters, 
-  ReviewEventsResponse, 
+import {
+  Review,
+  ReviewsListResponse,
+  ReviewsFilters,
+  ReviewEventsResponse,
   ReviewSummary,
-  ReviewAccounting
+  ReviewAccounting,
+  DiffReviewStatus
 } from '../types/reviews';
 
 export interface TriggerReviewRequest {
@@ -150,6 +151,22 @@ export const getReviewAccounting = async (reviewId: number): Promise<ReviewAccou
     return await apiClient.get<ReviewAccounting>(`/api/v1/reviews/${reviewId}/accounting`);
   } catch (error) {
     console.error('Error fetching review accounting:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get the PR-comment-style diff + inline comments for a review. For scheduled reviews the
+ * diff is fetched live from the git provider on every call (never stored) and merged with
+ * the persisted comments server-side; the response's `live_fetch` flag reflects this.
+ * @param reviewId The ID of the review
+ * @returns Promise with diff review status/result
+ */
+export const getDiffReviewStatus = async (reviewId: number): Promise<DiffReviewStatus> => {
+  try {
+    return await apiClient.get<DiffReviewStatus>(`/api/v1/diff-review/${reviewId}`);
+  } catch (error) {
+    console.error('Error fetching diff review status:', error);
     throw error;
   }
 };

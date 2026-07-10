@@ -162,3 +162,43 @@ export interface APIError {
   message?: string;
   status?: number;
 }
+
+// Diff review ("Comments" tab) types — matches DiffReviewResult/buildDiffFiles in
+// internal/api/diff_review.go. Used by scheduled reviews, whose diff is never stored and is
+// fetched live from the git provider each time this is requested.
+
+export interface DiffHunkData {
+  old_start_line: number;
+  old_line_count: number;
+  new_start_line: number;
+  new_line_count: number;
+  content: string;
+}
+
+export interface DiffReviewCommentData {
+  line: number;
+  content: string;
+  severity: string;
+  confidence?: number;
+  type?: string;
+  category?: string;
+  subcategory?: string;
+}
+
+export interface DiffFileData {
+  file_path: string;
+  hunks: DiffHunkData[];
+  comments: DiffReviewCommentData[];
+}
+
+export interface DiffReviewStatus {
+  status: ReviewStatus | string;
+  review_id: string;
+  summary?: string;
+  files?: DiffFileData[];
+  friendly_name?: string;
+  ai_summary_title?: string;
+  excluded_files?: string[];
+  live_fetch?: boolean;
+  message?: string;
+}

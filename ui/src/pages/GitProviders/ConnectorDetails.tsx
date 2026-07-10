@@ -15,8 +15,8 @@ import {
     Popover
 } from '../../components/UIPrimitives';
 import { Connector } from '../../store/Connector/reducer';
-import { deleteConnector, getRepositoryAccess, enableManualTriggerForAllProjects, disableManualTriggerForAllProjects, ProjectWithStatus, getConnector } from '../../api/connectors';
-import type { RepositoryAccess } from '../../api/connectors';
+import { deleteConnector, getRepositoryAccess, enableManualTriggerForAllProjects, disableManualTriggerForAllProjects, ProjectWithStatus, getConnector, getScheduledReviewConfigs, setScheduledReviewEnabled } from '../../api/connectors';
+import type { RepositoryAccess, ScheduledReviewConfig } from '../../api/connectors';
 
 // Extended interface to support both old and new API response formats
 interface RepositoryAccessExtended {
@@ -69,9 +69,42 @@ interface TreeNodeProps {
     level: number;
     path: string;
     projectsWithStatus?: ProjectWithStatus[];
+    showScheduledReviewToggle?: boolean;
+    scheduledReviewEnabled?: (project: string) => boolean;
+    scheduledReviewToggling?: (project: string) => boolean;
+    onToggleScheduledReview?: (project: string) => void;
 }
 
-const TreeNode: React.FC<TreeNodeProps> = ({ name, data, level, path, projectsWithStatus }) => {
+// Small pill toggle for enabling/disabling the 24h scheduled review on a single repo.
+// Hand-rolled rather than a shared Switch primitive since none exists in UIPrimitives yet.
+const ScheduledReviewToggle: React.FC<{ enabled: boolean; busy: boolean; onClick: () => void }> = ({ enabled, busy, onClick }) => (
+    <button
+        type="button"
+        onClick={onClick}
+        disabled={busy}
+        title={enabled ? 'Scheduled review is on (every 24h)' : 'Enable scheduled review (every 24h)'}
+        className={`flex items-center space-x-1 px-2 py-1 rounded text-xs border transition-colors disabled:opacity-50 ${
+            enabled
+                ? 'bg-purple-500/10 border-purple-500/40 text-purple-300 hover:bg-purple-500/20'
+                : 'bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500'
+        }`}
+    >
+        <Icons.Clock />
+        <span>{busy ? 'Updating…' : enabled ? 'Scheduled: On' : 'Scheduled: Off'}</span>
+    </button>
+);
+
+const TreeNode: React.FC<TreeNodeProps> = ({
+    name,
+    data,
+    level,
+    path,
+    projectsWithStatus,
+    showScheduledReviewToggle,
+    scheduledReviewEnabled,
+    scheduledReviewToggling,
+    onToggleScheduledReview,
+}) => {
     const [isExpanded, setIsExpanded] = useState(level < 2); // Auto-expand first 2 levels
     const hasChildren = Object.keys(data.children).length > 0;
     const hasProjects = data.projects.length > 0;
@@ -109,9 +142,18 @@ const TreeNode: React.FC<TreeNodeProps> = ({ name, data, level, path, projectsWi
                                     {project}
                                 </span>
                             </div>
-                            <div className={`flex items-center space-x-1 ${webhookStatus.className}`}>
-                                {webhookStatus.icon}
-                                <span className="text-xs">{webhookStatus.status}</span>
+                            <div className="flex items-center space-x-2">
+                                {showScheduledReviewToggle && onToggleScheduledReview && (
+                                    <ScheduledReviewToggle
+                                        enabled={scheduledReviewEnabled?.(project) ?? false}
+                                        busy={scheduledReviewToggling?.(project) ?? false}
+                                        onClick={() => onToggleScheduledReview(project)}
+                                    />
+                                )}
+                                <div className={`flex items-center space-x-1 ${webhookStatus.className}`}>
+                                    {webhookStatus.icon}
+                                    <span className="text-xs">{webhookStatus.status}</span>
+                                </div>
                             </div>
                         </div>
                     );
@@ -127,6 +169,10 @@ const TreeNode: React.FC<TreeNodeProps> = ({ name, data, level, path, projectsWi
                             level={0}
                             path=""
                             projectsWithStatus={projectsWithStatus}
+                            showScheduledReviewToggle={showScheduledReviewToggle}
+                            scheduledReviewEnabled={scheduledReviewEnabled}
+                            scheduledReviewToggling={scheduledReviewToggling}
+                            onToggleScheduledReview={onToggleScheduledReview}
                         />
                     ))}
             </div>
@@ -177,16 +223,25 @@ const TreeNode: React.FC<TreeNodeProps> = ({ name, data, level, path, projectsWi
                                         {project}
                                     </span>
                                 </div>
-                                <div className={`flex items-center space-x-1 ${webhookStatus.className}`}>
-                                    {webhookStatus.icon}
-                                    <span className="text-xs">{webhookStatus.status}</span>
+                                <div className="flex items-center space-x-2">
+                                    {showScheduledReviewToggle && onToggleScheduledReview && (
+                                        <ScheduledReviewToggle
+                                            enabled={scheduledReviewEnabled?.(project) ?? false}
+                                            busy={scheduledReviewToggling?.(project) ?? false}
+                                            onClick={() => onToggleScheduledReview(project)}
+                                        />
+                                    )}
+                                    <div className={`flex items-center space-x-1 ${webhookStatus.className}`}>
+                                        {webhookStatus.icon}
+                                        <span className="text-xs">{webhookStatus.status}</span>
+                                    </div>
                                 </div>
                             </div>
                         );
                     })}
                 </div>
             )}
-            
+
             {/* Render child namespaces */}
             {hasChildren && isExpanded && (
                 <div>
@@ -200,6 +255,10 @@ const TreeNode: React.FC<TreeNodeProps> = ({ name, data, level, path, projectsWi
                                 level={level + 1}
                                 path={currentPath}
                                 projectsWithStatus={projectsWithStatus}
+                                showScheduledReviewToggle={showScheduledReviewToggle}
+                                scheduledReviewEnabled={scheduledReviewEnabled}
+                                scheduledReviewToggling={scheduledReviewToggling}
+                                onToggleScheduledReview={onToggleScheduledReview}
                             />
                         ))}
                 </div>
@@ -221,6 +280,8 @@ const ConnectorDetails: React.FC = () => {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [isEnablingManualTrigger, setIsEnablingManualTrigger] = useState(false);
     const [isDisablingManualTrigger, setIsDisablingManualTrigger] = useState(false);
+    const [scheduledReviewConfigs, setScheduledReviewConfigs] = useState<Record<string, ScheduledReviewConfig>>({});
+    const [togglingScheduledReviewProjects, setTogglingScheduledReviewProjects] = useState<Set<string>>(new Set());
     
     // Simple notification state
     const [notification, setNotification] = useState<{
@@ -488,6 +549,44 @@ const ConnectorDetails: React.FC = () => {
         } finally {
             setIsLoadingRepos(false);
             setIsRefreshing(false);
+        }
+    };
+
+    // Scheduled review is GitHub-only for now.
+    const isGitHubConnector = connector?.type === 'github';
+
+    useEffect(() => {
+        if (!connectorId || !isGitHubConnector) return;
+        getScheduledReviewConfigs(connectorId)
+            .then((configs) => {
+                const byProject: Record<string, ScheduledReviewConfig> = {};
+                configs.forEach((cfg) => {
+                    byProject[cfg.project_full_name] = cfg;
+                });
+                setScheduledReviewConfigs(byProject);
+            })
+            .catch((err) => console.error('Error fetching scheduled review configs:', err));
+    }, [connectorId, isGitHubConnector]);
+
+    const isScheduledReviewEnabled = (project: string) => scheduledReviewConfigs[project]?.enabled ?? false;
+    const isScheduledReviewToggling = (project: string) => togglingScheduledReviewProjects.has(project);
+
+    const handleToggleScheduledReview = async (project: string) => {
+        if (!connectorId) return;
+        const nextEnabled = !isScheduledReviewEnabled(project);
+        setTogglingScheduledReviewProjects((prev) => new Set(prev).add(project));
+        try {
+            const updated = await setScheduledReviewEnabled(connectorId, project, nextEnabled);
+            setScheduledReviewConfigs((prev) => ({ ...prev, [project]: updated }));
+        } catch (err) {
+            console.error('Error toggling scheduled review:', err);
+            showNotification('error', `Failed to update scheduled review for ${project}`);
+        } finally {
+            setTogglingScheduledReviewProjects((prev) => {
+                const next = new Set(prev);
+                next.delete(project);
+                return next;
+            });
         }
     };
 
@@ -1211,6 +1310,10 @@ const ConnectorDetails: React.FC = () => {
                                                         level={0}
                                                         path=""
                                                         projectsWithStatus={repositoryAccess?.projects_with_status}
+                                                        showScheduledReviewToggle={isGitHubConnector}
+                                                        scheduledReviewEnabled={isScheduledReviewEnabled}
+                                                        scheduledReviewToggling={isScheduledReviewToggling}
+                                                        onToggleScheduledReview={handleToggleScheduledReview}
                                                     />
                                                 ))
                                         ) : (
@@ -1235,9 +1338,18 @@ const ConnectorDetails: React.FC = () => {
                                                                     {project}
                                                                 </span>
                                                             </div>
-                                                            <div className={`flex items-center space-x-1 ${webhookStatus.className}`}>
-                                                                {webhookStatus.icon}
-                                                                <span className="text-xs">{webhookStatus.status}</span>
+                                                            <div className="flex items-center space-x-2">
+                                                                {isGitHubConnector && (
+                                                                    <ScheduledReviewToggle
+                                                                        enabled={isScheduledReviewEnabled(project)}
+                                                                        busy={isScheduledReviewToggling(project)}
+                                                                        onClick={() => handleToggleScheduledReview(project)}
+                                                                    />
+                                                                )}
+                                                                <div className={`flex items-center space-x-1 ${webhookStatus.className}`}>
+                                                                    {webhookStatus.icon}
+                                                                    <span className="text-xs">{webhookStatus.status}</span>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     );

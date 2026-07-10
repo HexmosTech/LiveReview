@@ -27,7 +27,6 @@ import (
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/license/payment"
 	azuredevopsprovider "github.com/livereview/internal/provider_input/azuredevops"
-	"github.com/livereview/internal/slackbot"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	giteaprovider "github.com/livereview/internal/provider_input/gitea"
 	githubprovider "github.com/livereview/internal/provider_input/github"
@@ -39,6 +38,8 @@ import (
 	gitlaboutput "github.com/livereview/internal/provider_output/gitlab"
 	"github.com/livereview/internal/providers/azuredevops"
 	reviewprocessor "github.com/livereview/internal/review_processor"
+	"github.com/livereview/internal/scheduledreview"
+	"github.com/livereview/internal/slackbot"
 	"github.com/livereview/storage/core"
 	// Import FetchGitLabProfile
 )
@@ -120,34 +121,35 @@ func isMCPRequest(c echo.Context) bool {
 
 // Server represents the API server
 type Server struct {
-	echo                 *echo.Echo
-	port                 int
-	db                   *sql.DB
-	jobQueue             *jobqueue.JobQueue
-	dashboardManager     *DashboardManager
-	autoWebhookInstaller *AutoWebhookInstaller
-	versionInfo          *VersionInfo
-	deploymentConfig     *DeploymentConfig
-	authHandlers         *auth.AuthHandlers
-	tokenService         *auth.TokenService
-	userHandlers         *users.UserHandlers
-	userService          *users.UserService
-	profileHandlers      *users.ProfileHandlers
-	orgHandlers          *organizations.OrganizationHandlers
-	orgService           *organizations.OrganizationService
-	testHandlers         *TestHandlers
-	devMode              bool
-	_licenseSvc          interface{} // holds *license.Service lazily (typed in license.go)
-	licenseScheduler     *license.Scheduler
-	billingActionsCancel context.CancelFunc
-	modelSyncCancel      context.CancelFunc
-	slackBotCancel       context.CancelFunc
+	echo                  *echo.Echo
+	port                  int
+	db                    *sql.DB
+	jobQueue              *jobqueue.JobQueue
+	dashboardManager      *DashboardManager
+	autoWebhookInstaller  *AutoWebhookInstaller
+	versionInfo           *VersionInfo
+	deploymentConfig      *DeploymentConfig
+	authHandlers          *auth.AuthHandlers
+	tokenService          *auth.TokenService
+	userHandlers          *users.UserHandlers
+	userService           *users.UserService
+	profileHandlers       *users.ProfileHandlers
+	orgHandlers           *organizations.OrganizationHandlers
+	orgService            *organizations.OrganizationService
+	testHandlers          *TestHandlers
+	devMode               bool
+	_licenseSvc           interface{} // holds *license.Service lazily (typed in license.go)
+	licenseScheduler      *license.Scheduler
+	billingActionsCancel  context.CancelFunc
+	modelSyncCancel       context.CancelFunc
+	slackBotCancel        context.CancelFunc
+	scheduledReviewCancel context.CancelFunc
 
 	// V2 Webhook Providers
-	gitlabProviderV2    *gitlabprovider.GitLabV2Provider
-	githubProviderV2    *githubprovider.GitHubV2Provider
-	bitbucketProviderV2 *bitbucketprovider.BitbucketV2Provider
-	giteaProviderV2     *giteaprovider.GiteaV2Provider
+	gitlabProviderV2      *gitlabprovider.GitLabV2Provider
+	githubProviderV2      *githubprovider.GitHubV2Provider
+	bitbucketProviderV2   *bitbucketprovider.BitbucketV2Provider
+	giteaProviderV2       *giteaprovider.GiteaV2Provider
 	azuredevopsProviderV2 *azuredevopsprovider.AzureDevOpsV2Provider
 
 	gitlabAuthService *gitlabprovider.AuthService
@@ -694,9 +696,14 @@ func (s *Server) setupRoutes() {
 	public.POST("/auth/setup", s.authHandlers.SetupAdmin)
 	public.POST("/auth/onboard", s.Onboard)
 
-	// Diff review endpoints (protected by API key middleware)
+	// Diff review endpoints — used by the CLI/MCP agent (X-API-Key) and, for GET /:review_id,
+	// also by the dashboard's Comments tab (Authorization: Bearer <JWT>), so both must work.
+	// BuildOrgContextFromHeader reads X-Org-Context: the API-key path sets that header itself,
+	// and the dashboard's apiClient already sends it on every request for the selected org.
+	diffReviewAuthMiddleware := auth.NewAuthMiddleware(s.tokenService, s.db)
 	diffReviewGroup := v1.Group("/diff-review")
-	diffReviewGroup.Use(APIKeyAuthMiddleware(s.db))
+	diffReviewGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	diffReviewGroup.Use(diffReviewAuthMiddleware.BuildOrgContextFromHeader())
 	diffReviewGroup.Use(apimiddleware.BuildOrgBillingPlanContext(s.db, s.licenseService()))
 	diffReviewGroup.Use(apimiddleware.BuildPlanContext())
 	diffReviewGroup.POST("", s.DiffReview)
@@ -935,6 +942,8 @@ func (s *Server) setupRoutes() {
 	connectorGroup.GET("/:connectorId/repository-access", s.GetRepositoryAccess)
 	connectorGroup.POST("/:connectorId/enable-manual-trigger", s.EnableManualTriggerForAllProjects)
 	connectorGroup.POST("/:connectorId/disable-manual-trigger", s.DisableManualTriggerForAllProjects)
+	connectorGroup.GET("/:connectorId/scheduled-reviews", s.GetScheduledReviewConfigs)
+	connectorGroup.PUT("/:connectorId/scheduled-reviews", s.SetScheduledReview)
 	connectorGroup.POST("/trigger-review", s.TriggerReviewV2, selfHostedLicenseMiddleware)
 
 	// GitLab profile validation endpoint
@@ -1376,6 +1385,13 @@ func (s *Server) Start() error {
 		aiconnectors.RunAIModelSyncScheduler(syncCtx, s.db, 24*time.Hour)
 	}
 
+	if s.scheduledReviewCancel == nil && s.jobQueue != nil {
+		scheduledReviewCtx, cancel := context.WithCancel(context.Background())
+		s.scheduledReviewCancel = cancel
+		go scheduledreview.RunScheduler(scheduledReviewCtx, s.db, s.jobQueue, 10*time.Minute)
+		fmt.Println("Scheduled review scheduler started")
+	}
+
 	// Start Slack bots if configured
 	if len(s.slackBots) > 0 {
 		slackCtx, cancel := context.WithCancel(context.Background())
@@ -1437,6 +1453,12 @@ func (s *Server) Start() error {
 		s.modelSyncCancel()
 		s.modelSyncCancel = nil
 		fmt.Println("Dynamic AI models sync scheduler stopped")
+	}
+
+	if s.scheduledReviewCancel != nil {
+		s.scheduledReviewCancel()
+		s.scheduledReviewCancel = nil
+		fmt.Println("Scheduled review scheduler stopped")
 	}
 
 	return s.echo.Shutdown(ctx)

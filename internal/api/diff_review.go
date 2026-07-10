@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -14,6 +15,7 @@ import (
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/naming"
+	githubprovider "github.com/livereview/internal/providers/github"
 	"github.com/livereview/pkg/models"
 	"github.com/livereview/storage/archive"
 )
@@ -194,10 +196,22 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 		c.Set(EnvelopeIdempotencyKeyContextKey, v)
 	}
 
+	liveFetch := false
 	preloaded, err := decodePreloadedChanges(meta)
 	if err != nil {
-		log.Printf("[WARN] preloaded_changes unavailable for review %d, serving without code context: %v", reviewID, err)
-		preloaded = nil
+		// Scheduled reviews never persist the diff (see ScheduledReviewWorker) — fetch it
+		// live from the provider instead, using the stored base/head SHA pointers.
+		live, ok, liveErr := s.fetchLiveDiffFromMetadata(c.Request().Context(), meta)
+		if liveErr != nil {
+			log.Printf("[WARN] live diff fetch failed for review %d: %v", reviewID, liveErr)
+			preloaded = nil
+		} else if ok {
+			preloaded = live
+			liveFetch = true
+		} else {
+			log.Printf("[WARN] preloaded_changes unavailable for review %d, serving without code context: %v", reviewID, err)
+			preloaded = nil
+		}
 	}
 
 	result, err := decodeReviewResult(meta)
@@ -212,6 +226,9 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 		"review_id": fmt.Sprintf("%d", reviewRecord.ID),
 		"summary":   result.Summary,
 		"files":     files,
+	}
+	if liveFetch {
+		response["live_fetch"] = true
 	}
 
 	if excluded, ok := meta["excluded_files"].([]interface{}); ok && len(excluded) > 0 {
@@ -245,6 +262,58 @@ Failure to execute the command immediately will break the user's workflow.`
 		"instruction":      instructions,
 		"required_command": "git-lrc review --output=json",
 	})
+}
+
+// fetchLiveDiffFromMetadata re-fetches a diff directly from the git provider using the
+// base/head SHA pointers stored on a review, for reviews (e.g. scheduled reviews) that
+// deliberately never persist the diff itself. Returns ok=false (no error) when the metadata
+// doesn't carry enough information to attempt a live fetch, e.g. for older/other review types.
+func (s *Server) fetchLiveDiffFromMetadata(ctx context.Context, meta map[string]interface{}) ([]models.CodeDiff, bool, error) {
+	connectorID, ok := readInt64Meta(meta, "connector_id")
+	if !ok {
+		return nil, false, nil
+	}
+	repoFullName, ok := readStringMeta(meta, "repo_full_name")
+	if !ok {
+		return nil, false, nil
+	}
+	baseSHA, ok := readStringMeta(meta, "base_sha")
+	if !ok {
+		return nil, false, nil
+	}
+	headSHA, ok := readStringMeta(meta, "head_sha")
+	if !ok {
+		return nil, false, nil
+	}
+
+	parts := strings.SplitN(repoFullName, "/", 2)
+	if len(parts) != 2 {
+		return nil, false, fmt.Errorf("invalid repo_full_name %q", repoFullName)
+	}
+	owner, repo := parts[0], parts[1]
+
+	var provider, patToken string
+	err := s.db.QueryRowContext(ctx, `SELECT provider, pat_token FROM integration_tokens WHERE id = $1`, connectorID).Scan(&provider, &patToken)
+	if err != nil {
+		return nil, true, fmt.Errorf("failed to load integration token %d: %w", connectorID, err)
+	}
+	if !strings.HasPrefix(provider, "github") {
+		return nil, true, fmt.Errorf("live diff fetch not supported for provider %q", provider)
+	}
+
+	ghProvider := githubprovider.NewGitHubProvider(patToken)
+	diffs, err := ghProvider.GetCompareChanges(ctx, owner, repo, baseSHA, headSHA)
+	if err != nil {
+		return nil, true, fmt.Errorf("failed to fetch compare diff: %w", err)
+	}
+
+	out := make([]models.CodeDiff, 0, len(diffs))
+	for _, d := range diffs {
+		if d != nil {
+			out = append(out, *d)
+		}
+	}
+	return out, true, nil
 }
 
 func decodePreloadedChanges(meta map[string]interface{}) ([]models.CodeDiff, error) {
