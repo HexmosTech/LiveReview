@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -14,7 +15,12 @@ import (
 
 	"github.com/livereview/internal/api/auth"
 	coreprocessor "github.com/livereview/internal/core_processor"
+	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/license"
+	"github.com/livereview/internal/lrcconfig"
+	"github.com/livereview/internal/lrcfetch"
+	"github.com/livereview/internal/prompts"
+	gitlabinput "github.com/livereview/internal/provider_input/gitlab"
 	storagelicense "github.com/livereview/storage/license"
 	storagetools "github.com/livereview/storage/tools"
 )
@@ -229,8 +235,23 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 		}
 	}
 
-	// Phase 4: Asynchronous Processing (return response quickly)
-	go wo.processEventAsync(context.Background(), event, provider, scenario, startTime, orgID)
+	// Serialize the event to JSON
+	eventJSONBytes, err := json.Marshal(event)
+	if err != nil {
+		log.Printf("[ERROR] Failed to marshal webhook event: %v", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Internal serialization error",
+		})
+	}
+
+	// Phase 4: Asynchronous Processing via River job queue
+	err = wo.server.jobQueue.QueueWebhookReviewJob(c.Request().Context(), orgID, int64(connectorID), string(eventJSONBytes), scenario.Type)
+	if err != nil {
+		log.Printf("[ERROR] Failed to queue webhook review job: %v", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to queue webhook review job",
+		})
+	}
 
 	// Return success immediately - processing continues asynchronously
 	return c.JSON(http.StatusOK, map[string]string{
@@ -244,6 +265,29 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 	})
 }
 
+// ProcessAsync implements jobqueue.WebhookProcessor interface.
+func (wo *WebhookOrchestratorV2) ProcessAsync(ctx context.Context, orgID int64, connectorID int64, eventJSON string, scenarioType string) error {
+	var event UnifiedWebhookEventV2
+	if err := json.Unmarshal([]byte(eventJSON), &event); err != nil {
+		log.Printf("[ERROR] Failed to unmarshal webhook event in job queue worker: %v", err)
+		return fmt.Errorf("unmarshal webhook event: %w", err)
+	}
+
+	provider, ok := wo.providerRegistry.providers[event.Provider]
+	if !ok {
+		log.Printf("[ERROR] Provider not found for queued webhook review: %s", event.Provider)
+		return fmt.Errorf("provider not found: %s", event.Provider)
+	}
+
+	scenario := ResponseScenarioV2{
+		Type: scenarioType,
+	}
+
+	// Run async processing
+	wo.processEventAsync(ctx, &event, provider, scenario, time.Now(), orgID)
+	return nil
+}
+
 // processEventAsync handles the complete event processing pipeline asynchronously
 func (wo *WebhookOrchestratorV2) processEventAsync(ctx context.Context, event *UnifiedWebhookEventV2, provider WebhookProviderV2, scenario ResponseScenarioV2, startTime time.Time, orgID int64) {
 	processingCtx, cancel := context.WithTimeout(ctx, time.Duration(wo.processingTimeoutSec)*time.Second)
@@ -255,6 +299,10 @@ func (wo *WebhookOrchestratorV2) processEventAsync(ctx context.Context, event *U
 	if err := provider.FetchMergeRequestData(event); err != nil {
 		log.Printf("[WARN] Failed to fetch MR data, continuing with available data: %v", err)
 	}
+
+	// Fetch .lrc/ rules from the target branch and inject into the processing
+	// context so both review and comment-reply prompts can use them.
+	processingCtx = injectLRCRules(processingCtx, provider, event)
 
 	if blocked, reason, locUsed, locLimit := wo.enforceWebhookPreflight(processingCtx, event, scenario.Type, orgID); blocked {
 		log.Printf("[INFO] Webhook operation blocked by preflight checks for event %s/%s: %s", event.EventType, event.Provider, reason)
@@ -569,6 +617,17 @@ func (wo *WebhookOrchestratorV2) getBotUserInfo(event *UnifiedWebhookEventV2) (*
 		}
 		return botProvider.GetBotUserInfo(event.Repository)
 
+	case "azuredevops":
+		provider, ok := wo.providerRegistry.providers["azuredevops"]
+		if !ok {
+			return nil, fmt.Errorf("azuredevops provider not registered")
+		}
+		botProvider, ok := provider.(botInfoProvider)
+		if !ok {
+			return nil, fmt.Errorf("azuredevops provider does not implement bot lookup")
+		}
+		return botProvider.GetBotUserInfo(event.Repository)
+
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", event.Provider)
 	}
@@ -677,7 +736,6 @@ func (wo *WebhookOrchestratorV2) accountWebhookSuccess(ctx context.Context, orgI
 		return
 	}
 
-	quotaModule := license.NewQuotaModule(wo.server.db)
 	planCode, err := wo.resolveOrgPlanCode(ctx, orgID)
 	if err != nil {
 		log.Printf("[ERROR] skipping webhook accounting for org=%d operation=%s due plan resolution failure: %v", orgID, operationType, err)
@@ -686,28 +744,7 @@ func (wo *WebhookOrchestratorV2) accountWebhookSuccess(ctx context.Context, orgI
 
 	operationID := buildWebhookOperationKey(event, operationType)
 	actorUserID, actorEmail := wo.resolveWebhookActor(ctx, orgID, event)
-	_, err = quotaModule.RecordBatch(ctx, license.QuotaRecordBatchInput{
-		OrgID:          orgID,
-		ReviewID:       nil,
-		OperationType:  operationType,
-		TriggerSource:  "webhook",
-		OperationID:    operationID,
-		IdempotencyKey: operationID,
-		BatchIndex:     1,
-		Batch: license.QuotaBatchInput{
-			PlanCode:                 planCode,
-			Provider:                 strings.TrimSpace(usage.Provider),
-			RawLOCBatch:              usage.BillableLOC,
-			ProviderTotalInputTokens: usage.InputTokens,
-			OutputTokensBatch:        usage.OutputTokens,
-		},
-	})
-	if err != nil {
-		log.Printf("[WARN] failed to record webhook quota batch for org=%d operation=%s: %v", orgID, operationType, err)
-		return
-	}
-
-	_, err = quotaModule.FinalizeOperation(ctx, license.QuotaFinalizeInput{
+	err = wo.server.jobQueue.QueueUpdateOrgUsageJob(ctx, jobqueue.UpdateOrgUsageJobArgs{
 		OrgID:          orgID,
 		ReviewID:       nil,
 		ActorUserID:    actorUserID,
@@ -718,10 +755,16 @@ func (wo *WebhookOrchestratorV2) accountWebhookSuccess(ctx context.Context, orgI
 		IdempotencyKey: operationID,
 		Provider:       strings.TrimSpace(usage.Provider),
 		Model:          strings.TrimSpace(usage.Model),
-		BatchFallback:  nil,
+		Batch: license.QuotaBatchInput{
+			PlanCode:                 planCode,
+			Provider:                 strings.TrimSpace(usage.Provider),
+			RawLOCBatch:              usage.BillableLOC,
+			ProviderTotalInputTokens: usage.InputTokens,
+			OutputTokensBatch:        usage.OutputTokens,
+		},
 	})
 	if err != nil {
-		log.Printf("[WARN] failed to account webhook usage for org=%d operation=%s: %v", orgID, operationType, err)
+		log.Printf("[WARN] failed to queue webhook usage finalization for org=%d operation=%s: %v", orgID, operationType, err)
 	}
 }
 
@@ -995,4 +1038,49 @@ func (wo *WebhookOrchestratorV2) GetProcessingStats() map[string]interface{} {
 func (wo *WebhookOrchestratorV2) UpdateProcessingTimeout(timeoutSec int) {
 	wo.processingTimeoutSec = timeoutSec
 	log.Printf("[INFO] Processing timeout updated to %d seconds", timeoutSec)
+}
+
+// injectLRCRules fetches the .lrc/ bundle from the PR's target branch and
+// stores the rules text in ctx via prompts.WithRepoRules. Returns ctx unchanged
+// when the provider doesn't support the interface, .lrc/ doesn't exist, or any
+// API error occurs (all failures are non-fatal and logged at WARN level).
+func injectLRCRules(ctx context.Context, provider WebhookProviderV2, event *UnifiedWebhookEventV2) context.Context {
+	rcp, ok := provider.(lrcfetch.Provider)
+	if !ok {
+		return ctx
+	}
+
+	repoFull := event.Repository.FullName
+	if repoFull == "" {
+		return ctx
+	}
+
+	ref := ""
+	if event.MergeRequest != nil {
+		ref = event.MergeRequest.TargetBranch
+	}
+	if ref == "" {
+		return ctx
+	}
+
+	// For GitLab, inject the instance URL so the provider can look up the right token.
+	if strings.EqualFold(event.Provider, "gitlab") && event.Repository.WebURL != "" {
+		instanceURL := gitlabinput.ExtractGitLabInstanceURL(event.Repository.WebURL)
+		if instanceURL != "" {
+			ctx = gitlabinput.WithInstanceURL(ctx, instanceURL)
+		}
+	}
+
+	lrcFiles, found, err := rcp.GetRepoConfigFiles(ctx, repoFull, ref)
+	if err != nil {
+		log.Printf("[WARN] .lrc fetch for webhook %s@%s: %v", repoFull, ref, err)
+		return ctx
+	}
+	if !found {
+		return ctx
+	}
+
+	bundle := lrcconfig.BundleFromFiles(lrcFiles)
+	rulesText, _, _ := lrcconfig.BuildRulesBundle(bundle)
+	return prompts.WithRepoRules(ctx, rulesText)
 }

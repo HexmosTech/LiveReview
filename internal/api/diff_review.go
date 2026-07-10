@@ -1,32 +1,20 @@
 package api
 
 import (
-	"archive/zip"
-	"bytes"
-	"context"
-	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"io/fs"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/livereview/cmd/mrmodel/lib"
 	apimiddleware "github.com/livereview/internal/api/middleware"
+	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/license"
-	"github.com/livereview/internal/logging"
-	"github.com/livereview/internal/lrcconfig"
 	"github.com/livereview/internal/naming"
-	"github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
 	"github.com/livereview/storage/archive"
 	storagetools "github.com/livereview/storage/tools"
@@ -47,30 +35,22 @@ type DiffReviewResult struct {
 	Comments []*models.ReviewComment `json:"comments"`
 }
 
-const (
-	maxExtractedFileBytes  = 25 << 20  // 25 MiB per extracted file
-	maxExtractedTotalBytes = 200 << 20 // 200 MiB across all extracted files
-)
-
 // DiffReview accepts a base64-encoded ZIP containing a unified diff and triggers a review.
+// Authentication is handled by middleware. This handler creates the review record,
+// marks it as processing, and enqueues the job for async execution by the worker.
 func (s *Server) DiffReview(c echo.Context) error {
-	// API key authentication is handled by middleware
-	// Extract user and org context from middleware
 	orgID := c.Get("org_id").(int64)
 	userID := c.Get("user_id").(int64)
 	actorUserID := userID
 	log.Printf("[DiffReview] Extracted from context: userID=%d, orgID=%d", userID, orgID)
 
-	// Fetch user info for author tracking
 	var userEmail, authorName, authorUsername string
 	user, err := archive.DiffReviewLoadUser(s.db, userID)
-
 	if err == nil {
 		userEmail = user.Email
 		log.Printf("[DiffReview] User fetched: id=%d, email=%s, firstName=%v, lastName=%v",
 			user.ID, user.Email, user.FirstName, user.LastName)
 
-		// Build author name from first/last name if available
 		if user.FirstName != nil && user.LastName != nil {
 			authorName = strings.TrimSpace(*user.FirstName + " " + *user.LastName)
 		} else if user.FirstName != nil {
@@ -78,7 +58,6 @@ func (s *Server) DiffReview(c echo.Context) error {
 		} else if user.LastName != nil {
 			authorName = *user.LastName
 		}
-		// Use email username as fallback for authorUsername
 		if emailParts := strings.Split(user.Email, "@"); len(emailParts) > 0 {
 			authorUsername = emailParts[0]
 		}
@@ -88,7 +67,6 @@ func (s *Server) DiffReview(c echo.Context) error {
 	}
 
 	var req DiffReviewRequest
-
 	if err := c.Bind(&req); err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
 	}
@@ -96,141 +74,44 @@ func (s *Server) DiffReview(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "diff_zip_base64 is required")
 	}
 
-	localDiffs, lrcBundle, err := parseDiffZipPayload(req.DiffZipBase64)
-	if err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusBadRequest, fmt.Sprintf("failed to parse diff: %v", err))
-	}
-
-	// Apply .lrc/ignore (if present) before computing billable LOC, so
-	// ignored files affect neither the AI input nor billing.
-	var excludedFiles []string
-	ignorePatterns, ignoreIssues := lrcconfig.LoadIgnorePatterns(lrcBundle)
-	if len(ignoreIssues) > 0 {
-		log.Printf("[WARN] .lrc/ignore: %v", ignoreIssues)
-	}
-	if len(ignorePatterns) > 0 {
-		filtered, excluded := lrcconfig.FilterDiffs(localDiffs, ignorePatterns)
-		localDiffs = filtered
-		excludedFiles = excluded
-		if len(excluded) > 0 {
-			log.Printf("[DiffReview] .lrc/ignore excluded %d file(s): %v", len(excluded), excluded)
-		}
-	}
-
-	// Build the Repository Rules bundle for prompt injection, truncating
-	// (with a warning) rather than failing the review if oversized.
-	repoRules, rulesCharCount, rulesIssues := lrcconfig.BuildRulesBundle(lrcBundle)
-	if rulesCharCount > lrcconfig.CharLimit {
-		log.Printf("[WARN] .lrc rules bundle (%d chars) exceeds limit (%d), truncating: %v", rulesCharCount, lrcconfig.CharLimit, rulesIssues)
-		repoRules = lrcconfig.TruncateAtLineBoundary(repoRules, lrcconfig.CharLimit)
-	}
-
-	billableLOC := CalculateEffectiveDiffLOCFromLocalDiffs(localDiffs)
-	c.Set(EnvelopeOperationTypeContextKey, "diff_review")
-	c.Set(EnvelopeTriggerSourceContextKey, "api")
-	c.Set(EnvelopeOperationBillableLOCContextKey, billableLOC)
-
 	planCode := license.PlanFree30K
 	if planCtx, ok := c.Get(apimiddleware.PlanContextKey).(apimiddleware.PlanContext); ok && planCtx.PlanType != "" {
 		planCode = planCtx.PlanType
 	}
 
-	quotaModule := license.NewQuotaModule(s.db)
-	preflightResult, err := quotaModule.PreflightCheck(context.Background(), license.QuotaPreflightInput{
-		OrgID:       orgID,
-		RequiredLOC: billableLOC,
-		PlanCode:    planCode,
-	})
-	if err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed quota preflight: %v", err))
-	}
-	applyPreflightToEnvelopeContext(c, preflightResult)
-
-	if preflightResult.Blocked {
-		errorCode := "quota_exceeded"
-		errorMessage := fmt.Sprintf("Operation requires %d LOC, but you only have %d remaining this month. Upgrade your plan to continue.",
-			billableLOC, preflightResult.LOCRemainingMonth)
-		if preflightResult.BlockReason == "trial_readonly" {
-			errorCode = "trial_readonly"
-			errorMessage = "Trial period ended; review operations are read-only until plan update"
-		}
-		log.Printf("[INFO] DiffReview: LOC quota blocked for org=%d, req=%d, remaining=%d",
-			orgID, billableLOC, preflightResult.LOCRemainingMonth)
-		return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
-			"error":         errorMessage,
-			"error_code":    errorCode,
-			"required_loc":  billableLOC,
-			"loc_remaining": preflightResult.LOCRemainingMonth,
-			"usage_percent": preflightResult.UsagePercent,
-			"upgrade_url":   defaultUpgradeURL,
-		})
-	}
-
-	modelDiffs := convertLocalDiffs(localDiffs)
 	repoName := strings.TrimSpace(req.RepoName)
 	if repoName == "" {
 		repoName = "cli-diff"
 	}
 
-	// Generate friendly name for CLI review
 	friendlyName := naming.GenerateFriendlyName()
 	log.Printf("[DiffReview] Generated friendlyName='%s'", friendlyName)
 
 	rm := NewReviewManager(s.db)
 	log.Printf("[DiffReview] Creating review with: repoName=%s, userEmail=%s, orgID=%d, friendlyName=%s, authorName=%s, authorUsername=%s",
 		repoName, userEmail, orgID, friendlyName, authorName, authorUsername)
-	preflightMeta := map[string]interface{}{
-		"source":                 "diff-review",
-		"operation_billable_loc": billableLOC,
-		"loc_used_month":         preflightResult.LOCUsedMonth,
-		"loc_remaining_month":    preflightResult.LOCRemainingMonth,
-		"usage_percent":          preflightResult.UsagePercent,
-		"threshold_state":        preflightResult.ThresholdState,
-		"blocked":                preflightResult.Blocked,
-		"trial_readonly":         preflightResult.TrialReadOnly,
-		"billing_period_start":   preflightResult.BillingPeriodStart.Format(time.RFC3339),
-		"billing_period_end":     preflightResult.BillingPeriodEnd.Format(time.RFC3339),
-		"reset_at":               preflightResult.BillingPeriodEnd.Format(time.RFC3339),
-	}
-	reviewRecord, err := rm.CreateReviewWithOrg(repoName, "", "", "", "cli_diff", userEmail, "cli", nil, preflightMeta, orgID, friendlyName, authorName, authorUsername)
+	initialMeta := map[string]interface{}{"source": "diff-review"}
+	reviewRecord, err := rm.CreateReviewWithOrg(repoName, "", "", "", "cli_diff", userEmail, "cli", nil, initialMeta, orgID, friendlyName, authorName, authorUsername)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to create review record")
 	}
-	operationID := fmt.Sprintf("diff-review:%d", reviewRecord.ID)
-	idempotencyKey := operationID
-	c.Set(EnvelopeOperationIDContextKey, operationID)
-	c.Set(EnvelopeIdempotencyKeyContextKey, idempotencyKey)
 
-	// Immediately mark as processing and persist preloaded changes for polling.
 	_ = rm.UpdateReviewStatus(reviewRecord.ID, "processing")
-	if err := rm.MergeReviewMetadata(reviewRecord.ID, map[string]interface{}{"preloaded_changes": modelDiffs, "operation_billable_loc": billableLOC, "excluded_files": excludedFiles}); err != nil {
-		log.Printf("[WARN] failed to store preloaded_changes for review %d: %v", reviewRecord.ID, err)
-	}
 
-	// If .lrc/ignore excluded every changed file, there's nothing for the AI
-	// to review — complete immediately rather than running an empty review.
-	if len(localDiffs) == 0 && len(excludedFiles) > 0 {
-		summary := fmt.Sprintf("All %d changed file(s) excluded by .lrc/ignore: %s",
-			len(excludedFiles), formatExcludedFiles(excludedFiles))
-		if err := rm.MergeReviewMetadata(reviewRecord.ID, map[string]interface{}{
-			"review_result": DiffReviewResult{Summary: summary, Comments: nil},
-		}); err != nil {
-			log.Printf("[WARN] failed to store review_result for review %d: %v", reviewRecord.ID, err)
-		}
-		if err := rm.UpdateReviewStatus(reviewRecord.ID, "completed"); err != nil {
-			log.Printf("[WARN] failed to mark review %d completed: %v", reviewRecord.ID, err)
-		}
-		return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
-			"review_id":     fmt.Sprintf("%d", reviewRecord.ID),
-			"status":        "processing",
-			"friendly_name": friendlyName,
-			"user_email":    userEmail,
-		})
-	}
-
-	aiConfig, err := s.getAIConfigFromDatabase(context.Background(), orgID, planCode)
+	err = s.jobQueue.QueueReviewJob(c.Request().Context(), jobqueue.DiffReviewJobArgs{
+		ReviewID:      reviewRecord.ID,
+		OrgID:         orgID,
+		PlanCode:      string(planCode),
+		ActorUserID:   actorUserID,
+		ActorEmail:    userEmail,
+		RepoName:      repoName,
+		DiffZipBase64: req.DiffZipBase64,
+		TriggerSource: "api",
+	})
 	if err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load AI config: %v", err))
+		log.Printf("[ERROR] Failed to queue diff review job: %v", err)
+		_ = rm.UpdateReviewStatus(reviewRecord.ID, "failed")
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to queue review job")
 	}
 
 	reviewRequest := review.ReviewRequest{
@@ -245,19 +126,16 @@ func (s *Server) DiffReview(c echo.Context) error {
 	go s.runDiffReview(reviewRequest, rm, reviewRecord.ID, orgID, billableLOC, actorUserID, userEmail, planCode, req.ToolsOnly, req.DiffZipBase64)
 
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
-		"review_id":     fmt.Sprintf("%d", reviewRecord.ID),
-		"status":        "processing",
-		"friendly_name": friendlyName,
-		"user_email":    userEmail,
+		"review_id":             fmt.Sprintf("%d", reviewRecord.ID),
+		"status":                "processing",
+		"friendly_name":         friendlyName,
+		"user_email":            userEmail,
 		"mcp_agent_instruction": "The review has started processing. You MUST call the GET /api/v1/diff-review/:review_id tool every few seconds using this review_id until the status returns 'completed'. Do not ask the user to wait, just poll the status tool yourself.",
 	})
 }
 
-
 // GetDiffReviewStatus returns processing status or completed results for a diff review.
 func (s *Server) GetDiffReviewStatus(c echo.Context) error {
-	// API key authentication is handled by middleware
-
 	orgID, ok := c.Get("org_id").(int64)
 	if !ok || orgID == 0 {
 		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "missing org context")
@@ -305,7 +183,6 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 		if reviewRecord.FriendlyName != nil {
 			response["friendly_name"] = *reviewRecord.FriendlyName
 		}
-
 		if failureReason != "" {
 			response["message"] = failureReason
 		}
@@ -388,13 +265,9 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	if excluded, ok := meta["excluded_files"].([]interface{}); ok && len(excluded) > 0 {
 		response["excluded_files"] = excluded
 	}
-
-	// Include friendly_name if available
 	if reviewRecord.FriendlyName != nil {
 		response["friendly_name"] = *reviewRecord.FriendlyName
 	}
-
-	// Include ai_summary_title if available
 	if aiSummaryTitle, ok := meta["ai_summary_title"].(string); ok && aiSummaryTitle != "" {
 		response["ai_summary_title"] = aiSummaryTitle
 	}

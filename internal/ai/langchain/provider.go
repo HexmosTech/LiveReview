@@ -16,9 +16,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/anthropic"
+	"github.com/tmc/langchaingo/llms/bedrock"
 	"github.com/tmc/langchaingo/llms/googleai"
 	"github.com/tmc/langchaingo/llms/googleai/vertex"
 	"github.com/tmc/langchaingo/llms/ollama"
@@ -46,6 +48,8 @@ type LangchainProvider struct {
 	providerName   string                // NEW: Provider name (e.g. "livereview-default-ai")
 	gcpProjectID   string
 	gcpLocation    string
+	awsAccessKeyID string
+	awsRegion      string
 }
 
 type aiResponseFileSummary struct {
@@ -261,6 +265,8 @@ type Config struct {
 	ProviderName   string  `json:"provider_name"` // NEW: Provider name (e.g. "livereview-default-ai")
 	GCPProjectID   string  `json:"gcp_project_id"`
 	GCPLocation    string  `json:"gcp_location"`
+	AWSAccessKeyID string  `json:"aws_access_key_id"`
+	AWSRegion      string  `json:"aws_region"`
 }
 
 // New creates a new langchain-based AI provider
@@ -277,6 +283,8 @@ func New(config Config, logger *logging.ReviewLogger) *LangchainProvider {
 		providerName:   config.ProviderName, // NEW
 		gcpProjectID:   config.GCPProjectID,
 		gcpLocation:    config.GCPLocation,
+		awsAccessKeyID: config.AWSAccessKeyID,
+		awsRegion:      config.AWSRegion,
 	}
 }
 
@@ -339,6 +347,8 @@ func (p *LangchainProvider) MaxTokensPerBatch() int {
 			return 8000 // OpenRouter models commonly cap around 8k; stay conservative
 		case "anthropic", "anthropic-compatible":
 			return 20000 // Claude models
+		case "bedrock":
+			return 20000 // Claude/Nova models via Bedrock can handle large batches
 		default:
 			return 8000 // Conservative default for unknown providers
 		}
@@ -366,6 +376,12 @@ func (p *LangchainProvider) Configure(config map[string]interface{}) error {
 	if gcpLocation, ok := config["gcp_location"].(string); ok {
 		p.gcpLocation = gcpLocation
 	}
+	if awsAccessKeyID, ok := config["aws_access_key_id"].(string); ok {
+		p.awsAccessKeyID = awsAccessKeyID
+	}
+	if awsRegion, ok := config["aws_region"].(string); ok {
+		p.awsRegion = awsRegion
+	}
 
 	// Initialize the LLM
 	return p.initializeLLM()
@@ -392,6 +408,8 @@ func (p *LangchainProvider) initializeLLM() error {
 		return p.initializeOpenAILLM()
 	case "anthropic", "claude", "anthropic-compatible":
 		return p.initializeAnthropicLLM()
+	case "bedrock":
+		return p.initializeBedrockLLM()
 	default:
 		// Logger accessed via p.logger
 		p.logger.Log("WARNING: Unknown provider type '%s', falling back to Gemini", p.providerType)
@@ -612,6 +630,26 @@ func (p *LangchainProvider) initializeVertexLLM() error {
 	return nil
 }
 
+func (p *LangchainProvider) initializeBedrockLLM() error {
+	if p.logger != nil {
+		p.logger.Log("[LANGCHAIN INIT] Initializing Bedrock LLM with model: %s, region: %s", p.getModelName(), p.awsRegion)
+	}
+
+	cfg, err := aiconnectors.LoadBedrockAWSConfig(context.Background(), p.awsAccessKeyID, p.apiKey, p.awsRegion)
+	if err != nil {
+		return fmt.Errorf("failed to load AWS config for Bedrock: %w", err)
+	}
+
+	client := bedrockruntime.NewFromConfig(cfg)
+	llm, err := bedrock.New(bedrock.WithClient(client), bedrock.WithModel(p.getModelName()))
+	if err != nil {
+		return fmt.Errorf("failed to initialize Bedrock LLM: %w", err)
+	}
+
+	p.llm = llm
+	return nil
+}
+
 func (p *LangchainProvider) initializeOpenAILLM() error {
 	if p.apiKey == "" {
 		return fmt.Errorf("API key is required for OpenAI")
@@ -761,6 +799,37 @@ func (p *LangchainProvider) callAnthropicDirect(ctx context.Context, prompt stri
 	return "", fmt.Errorf("no text block in response (stop_reason=%s, blocks=%d)", result.StopReason, len(result.Content))
 }
 
+// callBedrockDirect calls the Bedrock LLM with an explicit System + Human message pair instead
+// of langchaingo's llms.GenerateFromSinglePrompt (which sends only a Human message). This
+// matters specifically for Amazon Nova models: langchaingo's Nova request builder always
+// emits a `system` array entry, and when there's no system message its text is empty, producing
+// a malformed empty object that Bedrock rejects with "required key [content] not found".
+// Supplying a real system message keeps that field non-empty for every Bedrock model family.
+func (p *LangchainProvider) callBedrockDirect(ctx context.Context, prompt string, maxTokens int, temperature float64) (string, error) {
+	messages := []llms.MessageContent{
+		{
+			Role:  llms.ChatMessageTypeSystem,
+			Parts: []llms.ContentPart{llms.TextContent{Text: "You are an expert code reviewer."}},
+		},
+		{
+			Role:  llms.ChatMessageTypeHuman,
+			Parts: []llms.ContentPart{llms.TextContent{Text: prompt}},
+		},
+	}
+
+	resp, err := p.llm.GenerateContent(ctx, messages,
+		llms.WithTemperature(temperature),
+		llms.WithMaxTokens(maxTokens),
+	)
+	if err != nil {
+		return "", err
+	}
+	if len(resp.Choices) == 0 {
+		return "", errors.New("empty response from bedrock model")
+	}
+	return resp.Choices[0].Content, nil
+}
+
 func (p *LangchainProvider) getLoggedModelName() string {
 	if p.providerName == aidefault.ProviderName {
 		return aidefault.ProviderName
@@ -854,7 +923,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 	for i := range diffs {
 		diffPointers[i] = &diffs[i]
 	}
-	prompt := base + "\n\n" + prompts.BuildRepoRulesSection(ctx) + prompts.BuildCodeChangesSectionWithContext(ctx, diffPointers)
+	prompt := base + "\n\n" + prompts.BuildConciseModeSection(ctx) + prompts.BuildRepoRulesSection(ctx) + prompts.BuildCodeChangesSectionWithContext(ctx, diffPointers)
 
 	// Log request to global logger and emit batch started event
 	if p.logger != nil {
@@ -1002,8 +1071,11 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 	// Determine if we should force non-streaming mode
 	// Ollama: opt-in via env var (useful behind proxies)
 	// anthropic-compatible: always non-streaming (ClaudeAPI SSE delivers 0 chunks via langchaingo streaming path)
+	// bedrock: always non-streaming (langchaingo's llms/bedrock only implements streaming for
+	// the Anthropic family; Nova errors outright and other families silently ignore it)
 	forceNonStreaming := (strings.EqualFold(p.providerType, "ollama") && strings.EqualFold(os.Getenv("LIVEREVIEW_OLLAMA_FORCE_NON_STREAMING"), "true")) ||
-		strings.EqualFold(p.providerType, "anthropic-compatible")
+		strings.EqualFold(p.providerType, "anthropic-compatible") ||
+		strings.EqualFold(p.providerType, "bedrock")
 
 	startTime := time.Now()
 	effectiveTemp := p.effectiveTemperature()
@@ -1043,6 +1115,12 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 			// which hangs for models without extended thinking (e.g. haiku) on ClaudeAPI.
 			var text string
 			text, callErr = p.callAnthropicDirect(timeoutCtx, prompt, maxTok, effectiveTemp)
+			if callErr == nil {
+				responseBuilder.WriteString(text)
+			}
+		} else if strings.EqualFold(p.providerType, "bedrock") {
+			var text string
+			text, callErr = p.callBedrockDirect(timeoutCtx, prompt, maxTok, effectiveTemp)
 			if callErr == nil {
 				responseBuilder.WriteString(text)
 			}

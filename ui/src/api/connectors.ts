@@ -125,7 +125,9 @@ export const validateAIProviderKey = async (
   baseURL?: string,
   model?: string,
   gcpProjectID?: string,
-  gcpLocation?: string
+  gcpLocation?: string,
+  awsAccessKeyID?: string,
+  awsRegion?: string
 ): Promise<{ valid: boolean; message: string }> => {
   try {
     const response = await apiClient.post<{ valid: boolean; message: string }>(
@@ -137,6 +139,8 @@ export const validateAIProviderKey = async (
         model,
         gcp_project_id: gcpProjectID,
         gcp_location: gcpLocation,
+        aws_access_key_id: awsAccessKeyID,
+        aws_region: awsRegion,
       }
     );
     return response;
@@ -160,19 +164,23 @@ export const validateAIProviderKey = async (
  */
 export const createAIConnector = async (
   providerName: string,
+  role: string,
   apiKey: string,
   connectorName: string,
   displayOrder: number = 0,
   baseURL?: string,
   selectedModel?: string,
   gcpProjectID?: string,
-  gcpLocation?: string
+  gcpLocation?: string,
+  awsAccessKeyID?: string,
+  awsRegion?: string
 ): Promise<any> => {
   try {
     const response = await apiClient.post(
       '/api/v1/aiconnectors',
       {
         provider_name: providerName,
+        role,
         api_key: apiKey,
         connector_name: connectorName,
         display_order: displayOrder,
@@ -180,6 +188,8 @@ export const createAIConnector = async (
         selected_model: selectedModel,
         gcp_project_id: gcpProjectID,
         gcp_location: gcpLocation,
+        aws_access_key_id: awsAccessKeyID,
+        aws_region: awsRegion,
       }
     );
     return response;
@@ -205,19 +215,23 @@ export const createAIConnector = async (
 export const updateAIConnector = async (
   connectorId: string,
   providerName: string,
+  role: string,
   apiKey: string,
   connectorName: string,
   displayOrder: number = 0,
   baseURL?: string,
   selectedModel?: string,
   gcpProjectID?: string,
-  gcpLocation?: string
+  gcpLocation?: string,
+  awsAccessKeyID?: string,
+  awsRegion?: string
 ): Promise<any> => {
   try {
     const response = await apiClient.put(
       `/api/v1/aiconnectors/${connectorId}`,
       {
         provider_name: providerName,
+        role,
         api_key: apiKey,
         connector_name: connectorName,
         display_order: displayOrder,
@@ -225,6 +239,8 @@ export const updateAIConnector = async (
         selected_model: selectedModel,
         gcp_project_id: gcpProjectID,
         gcp_location: gcpLocation,
+        aws_access_key_id: awsAccessKeyID,
+        aws_region: awsRegion,
       }
     );
     return response;
@@ -266,6 +282,30 @@ export const reorderAIConnectors = async (
   }
 };
 
+export const getReviewAISettings = async (): Promise<{ helper_enabled: boolean; helper_mode: string }> => {
+  try {
+    return await apiClient.get('/api/v1/aiconnectors/settings');
+  } catch (error) {
+    console.error('Error fetching review AI settings:', error);
+    throw error;
+  }
+};
+
+export const updateReviewAISettings = async (
+  helperEnabled: boolean,
+  helperMode: string
+): Promise<{ helper_enabled: boolean; helper_mode: string }> => {
+  try {
+    return await apiClient.put('/api/v1/aiconnectors/settings', {
+      helper_enabled: helperEnabled,
+      helper_mode: helperMode,
+    });
+  } catch (error) {
+    console.error('Error updating review AI settings:', error);
+    throw error;
+  }
+};
+
 /**
  * Fetch available models from an Ollama instance
  * @param baseURL The base URL of the Ollama instance (e.g., 'http://localhost:11434')
@@ -287,6 +327,33 @@ export const fetchOllamaModels = async (
     return response;
   } catch (error) {
     console.error('Error fetching Ollama models:', error);
+    throw error;
+  }
+};
+
+export interface BedrockModel {
+  model_id: string;
+  name: string;
+  provider: string;
+}
+
+export const fetchBedrockModels = async (
+  accessKeyID: string,
+  secretAccessKey: string,
+  region: string
+): Promise<{ models: BedrockModel[]; count: number }> => {
+  try {
+    const response = await apiClient.post<{ models: BedrockModel[]; count: number }>(
+      '/api/v1/aiconnectors/bedrock/models',
+      {
+        access_key_id: accessKeyID,
+        secret_access_key: secretAccessKey,
+        region,
+      }
+    );
+    return response;
+  } catch (error) {
+    console.error('Error fetching Bedrock models:', error);
     throw error;
   }
 };

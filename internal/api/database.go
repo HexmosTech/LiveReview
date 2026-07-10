@@ -2,11 +2,13 @@ package api
 
 import (
 	"bufio"
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	_ "github.com/lib/pq" // PostgreSQL driver
 )
@@ -62,8 +64,10 @@ func validateDatabaseConnection(dbURL string) error {
 	}
 	defer db.Close()
 
-	// Check connection
-	err = db.Ping()
+	// Check connection (with timeout)
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer pingCancel()
+	err = db.PingContext(pingCtx)
 	if err != nil {
 		return fmt.Errorf("failed to connect to database: %v\n\nPlease ensure:\n1. PostgreSQL is running\n2. The database exists\n3. Username and password are correct\n4. Database is accepting connections from this host", err)
 	}

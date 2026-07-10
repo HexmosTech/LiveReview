@@ -31,7 +31,18 @@ const (
 	UserContextKey       ContextKey = "user"
 	PermissionContextKey ContextKey = "permission_context"
 	OrgContextKey        ContextKey = "organization"
+
+	// Paths allowed to bypass subscription limits
+	pathV1Organizations = "/api/v1/organizations"
+	pathV1AuthMe        = "/api/v1/auth/me"
 )
+
+// subscriptionBypassPaths maps path templates to their allowed HTTP methods.
+// A nil/empty map value indicates all methods are allowed.
+var subscriptionBypassPaths = map[string]map[string]bool{
+	pathV1Organizations: {http.MethodGet: true},
+	pathV1AuthMe:        nil,
+}
 
 // RequireAuth is a helper function that creates authentication middleware
 // This can be used directly without creating an AuthMiddleware instance
@@ -103,9 +114,9 @@ func ValidateWithCloudSecret(tokenString string, db *sql.DB) (*models.User, erro
 	user := &models.User{}
 	if claims.UserID != 0 {
 		err = db.QueryRow(`
-			SELECT id, email, password_hash, created_at, updated_at
+			SELECT id, email, password_hash, default_org_id, created_at, updated_at
 			FROM users WHERE id = $1
-		`, claims.UserID).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt)
+		`, claims.UserID).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DefaultOrgID, &user.CreatedAt, &user.UpdatedAt)
 		if err == nil {
 			return user, nil
 		}
@@ -117,9 +128,9 @@ func ValidateWithCloudSecret(tokenString string, db *sql.DB) (*models.User, erro
 	// Fallback: resolve by email if present
 	if strings.TrimSpace(claims.Email) != "" {
 		err = db.QueryRow(`
-			SELECT id, email, password_hash, created_at, updated_at
+			SELECT id, email, password_hash, default_org_id, created_at, updated_at
 			FROM users WHERE email = $1
-		`, claims.Email).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt)
+		`, claims.Email).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DefaultOrgID, &user.CreatedAt, &user.UpdatedAt)
 		if err == nil {
 			return user, nil
 		}
@@ -166,6 +177,23 @@ func (am *AuthMiddleware) RequireAuth() echo.MiddlewareFunc {
 	return RequireAuth(am.tokenService, am.db)
 }
 
+// shouldBypassSubscriptionCheck determines if a request should bypass subscription checks.
+// This is used for global user-scoped endpoints like auth self-check and organization listings.
+func shouldBypassSubscriptionCheck(c echo.Context) bool {
+	// Trim any trailing slash to ensure consistency (e.g., "/api/v1/organizations/" -> "/api/v1/organizations")
+	path := strings.TrimSuffix(c.Path(), "/")
+	method := c.Request().Method
+
+	allowedMethods, ok := subscriptionBypassPaths[path]
+	if !ok {
+		return false
+	}
+	if allowedMethods == nil {
+		return true
+	}
+	return allowedMethods[method]
+}
+
 // EnforceSubscriptionLimits checks subscription validity in cloud mode
 func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -173,6 +201,11 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 			// Only enforce subscriptions in cloud mode
 			if !isCloudMode() {
 				// Self-hosted: skip subscription checks entirely
+				return next(c)
+			}
+
+			// Skip subscription checks for global organizations listing (GET) and user self-check endpoints
+			if shouldBypassSubscriptionCheck(c) {
 				return next(c)
 			}
 

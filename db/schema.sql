@@ -1,7 +1,7 @@
-\restrict dbmate
+\restrict YpZ23deMxwkilSsMDU4qcvkYkDqZ1f1gvwA8kfJwjas5deBeDgbj5U1vDNTyDEA
 
--- Dumped from database version 15.17 (Debian 15.17-1.pgdg13+1)
--- Dumped by pg_dump version 16.14 (Ubuntu 16.14-0ubuntu0.24.04.1)
+-- Dumped from database version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
+-- Dumped by pg_dump version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -216,6 +216,17 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
+-- Name: _seed_backup; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public._seed_backup (
+    org_id bigint NOT NULL,
+    key text NOT NULL,
+    value jsonb
+);
+
+
+--
 -- Name: ai_comments; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -267,7 +278,11 @@ CREATE TABLE public.ai_connectors (
     selected_model text,
     org_id bigint DEFAULT 1 NOT NULL,
     gcp_project_id text,
-    gcp_location text
+    gcp_location text,
+    role character varying(32) DEFAULT 'leader'::character varying NOT NULL,
+    aws_access_key_id text,
+    aws_region text,
+    CONSTRAINT ai_connectors_role_check CHECK (((role)::text = ANY ((ARRAY['leader'::character varying, 'helper'::character varying])::text[])))
 );
 
 
@@ -878,6 +893,19 @@ ALTER SEQUENCE public.loc_usage_ledger_id_seq OWNED BY public.loc_usage_ledger.i
 
 
 --
+-- Name: mcp_authorizations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.mcp_authorizations (
+    request_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    status character varying(20) DEFAULT 'pending'::character varying NOT NULL,
+    token_pair jsonb,
+    expires_at timestamp with time zone DEFAULT (now() + '00:10:00'::interval) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: org_billing_state; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -927,28 +955,54 @@ ALTER SEQUENCE public.org_billing_state_id_seq OWNED BY public.org_billing_state
 
 
 --
--- Name: org_tool_billing_state; Type: TABLE; Schema: public; Owner: -
+-- Name: org_review_ai_settings; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.org_tool_billing_state (
-    id bigint NOT NULL,
+CREATE TABLE public.org_review_ai_settings (
     org_id bigint NOT NULL,
-    credits_used_month double precision DEFAULT 0.0 NOT NULL,
-    credits_limit_month double precision DEFAULT 50000.0 NOT NULL,
-    billing_period_start timestamp with time zone NOT NULL,
-    billing_period_end timestamp with time zone NOT NULL,
+    helper_enabled boolean DEFAULT true NOT NULL,
+    helper_mode character varying(32) DEFAULT 'concise_then_expand'::character varying NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT chk_tool_billing_period_valid CHECK ((billing_period_end > billing_period_start)),
-    CONSTRAINT chk_tool_billing_used_non_negative CHECK ((credits_used_month >= (0.0)::double precision))
+    CONSTRAINT org_review_ai_settings_helper_mode_check CHECK (((helper_mode)::text = ANY ((ARRAY['concise_then_expand'::character varying, 'polish_only'::character varying])::text[])))
 );
 
 
 --
--- Name: org_tool_billing_state_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+-- Name: org_slack_configs; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE SEQUENCE public.org_tool_billing_state_id_seq
+CREATE TABLE public.org_slack_configs (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    bot_token text NOT NULL,
+    api_key text NOT NULL,
+    team_id text DEFAULT ''::text NOT NULL,
+    enabled boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE org_slack_configs; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.org_slack_configs IS 'Per-org Slack bot configuration';
+
+
+--
+-- Name: COLUMN org_slack_configs.team_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.org_slack_configs.team_id IS 'Slack workspace team ID, learned after first auth test';
+
+
+--
+-- Name: org_slack_configs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.org_slack_configs_id_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -957,23 +1011,67 @@ CREATE SEQUENCE public.org_tool_billing_state_id_seq
 
 
 --
--- Name: org_tool_billing_state_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+-- Name: org_slack_configs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
-ALTER SEQUENCE public.org_tool_billing_state_id_seq OWNED BY public.org_tool_billing_state.id;
+ALTER SEQUENCE public.org_slack_configs_id_seq OWNED BY public.org_slack_configs.id;
 
 
 --
--- Name: org_tools; Type: TABLE; Schema: public; Owner: -
+-- Name: org_teams_configs; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.org_tools (
+CREATE TABLE public.org_teams_configs (
+    id bigint NOT NULL,
     org_id bigint NOT NULL,
-    tool_id bigint NOT NULL,
+    bot_app_id text NOT NULL,
+    bot_password text NOT NULL,
+    api_key text DEFAULT ''::text NOT NULL,
+    tenant_id text DEFAULT ''::text NOT NULL,
     enabled boolean DEFAULT false NOT NULL,
-    config_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+
+--
+-- Name: TABLE org_teams_configs; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.org_teams_configs IS 'Per-org Microsoft Teams bot configuration';
+
+
+--
+-- Name: COLUMN org_teams_configs.bot_app_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.org_teams_configs.bot_app_id IS 'Microsoft App ID for the Teams bot';
+
+
+--
+-- Name: COLUMN org_teams_configs.bot_password; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.org_teams_configs.bot_password IS 'Microsoft App Password (client secret) for the Teams bot';
+
+
+--
+-- Name: org_teams_configs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.org_teams_configs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: org_teams_configs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.org_teams_configs_id_seq OWNED BY public.org_teams_configs.id;
 
 
 --
@@ -1031,7 +1129,7 @@ CREATE TABLE public.plan_catalog (
     envelope_show_price boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT chk_plan_catalog_loc_non_negative CHECK ((monthly_loc_limit >= 0)),
+    CONSTRAINT chk_plan_catalog_loc_non_negative CHECK (((monthly_loc_limit >= 0) OR (monthly_loc_limit = '-1'::integer))),
     CONSTRAINT chk_plan_catalog_price_non_negative CHECK ((monthly_price_usd >= 0)),
     CONSTRAINT chk_plan_catalog_rank_non_negative CHECK ((rank >= 0)),
     CONSTRAINT chk_plan_catalog_trial_config CHECK ((((trial_enabled = true) AND (trial_days > 0)) OR (trial_enabled = false))),
@@ -1850,36 +1948,15 @@ ALTER SEQUENCE public.system_default_ai_configs_id_seq OWNED BY public.system_de
 
 
 --
--- Name: tool_credit_ledger; Type: TABLE; Schema: public; Owner: -
+-- Name: system_settings; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.tool_credit_ledger (
-    id bigint NOT NULL,
-    org_id bigint NOT NULL,
-    review_id bigint,
-    credits_deducted double precision NOT NULL,
-    idempotency_key character varying(255) NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+CREATE TABLE public.system_settings (
+    name character varying(255) NOT NULL,
+    data jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
-
-
---
--- Name: tool_credit_ledger_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.tool_credit_ledger_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: tool_credit_ledger_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.tool_credit_ledger_id_seq OWNED BY public.tool_credit_ledger.id;
 
 
 --
@@ -2232,7 +2309,8 @@ CREATE TABLE public.users (
     deactivated_by_user_id bigint,
     password_reset_required boolean DEFAULT false NOT NULL,
     onboarding_api_key text,
-    last_cli_used_at timestamp with time zone
+    last_cli_used_at timestamp with time zone,
+    default_org_id bigint
 );
 
 
@@ -2398,10 +2476,17 @@ ALTER TABLE ONLY public.org_billing_state ALTER COLUMN id SET DEFAULT nextval('p
 
 
 --
--- Name: org_tool_billing_state id; Type: DEFAULT; Schema: public; Owner: -
+-- Name: org_slack_configs id; Type: DEFAULT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.org_tool_billing_state ALTER COLUMN id SET DEFAULT nextval('public.org_tool_billing_state_id_seq'::regclass);
+ALTER TABLE ONLY public.org_slack_configs ALTER COLUMN id SET DEFAULT nextval('public.org_slack_configs_id_seq'::regclass);
+
+
+--
+-- Name: org_teams_configs id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_teams_configs ALTER COLUMN id SET DEFAULT nextval('public.org_teams_configs_id_seq'::regclass);
 
 
 --
@@ -2587,6 +2672,14 @@ ALTER TABLE ONLY public.webhook_registry ALTER COLUMN id SET DEFAULT nextval('pu
 
 
 --
+-- Name: _seed_backup _seed_backup_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public._seed_backup
+    ADD CONSTRAINT _seed_backup_pkey PRIMARY KEY (org_id, key);
+
+
+--
 -- Name: ai_comments ai_comments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2763,6 +2856,14 @@ ALTER TABLE ONLY public.loc_usage_ledger
 
 
 --
+-- Name: mcp_authorizations mcp_authorizations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mcp_authorizations
+    ADD CONSTRAINT mcp_authorizations_pkey PRIMARY KEY (request_id);
+
+
+--
 -- Name: org_billing_state org_billing_state_org_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2779,27 +2880,43 @@ ALTER TABLE ONLY public.org_billing_state
 
 
 --
--- Name: org_tool_billing_state org_tool_billing_state_org_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: org_review_ai_settings org_review_ai_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.org_tool_billing_state
-    ADD CONSTRAINT org_tool_billing_state_org_id_key UNIQUE (org_id);
-
-
---
--- Name: org_tool_billing_state org_tool_billing_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.org_tool_billing_state
-    ADD CONSTRAINT org_tool_billing_state_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.org_review_ai_settings
+    ADD CONSTRAINT org_review_ai_settings_pkey PRIMARY KEY (org_id);
 
 
 --
--- Name: org_tools org_tools_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: org_slack_configs org_slack_configs_org_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.org_tools
-    ADD CONSTRAINT org_tools_pkey PRIMARY KEY (org_id, tool_id);
+ALTER TABLE ONLY public.org_slack_configs
+    ADD CONSTRAINT org_slack_configs_org_id_key UNIQUE (org_id);
+
+
+--
+-- Name: org_slack_configs org_slack_configs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_slack_configs
+    ADD CONSTRAINT org_slack_configs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: org_teams_configs org_teams_configs_org_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_teams_configs
+    ADD CONSTRAINT org_teams_configs_org_id_key UNIQUE (org_id);
+
+
+--
+-- Name: org_teams_configs org_teams_configs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_teams_configs
+    ADD CONSTRAINT org_teams_configs_pkey PRIMARY KEY (id);
 
 
 --
@@ -3027,11 +3144,11 @@ ALTER TABLE ONLY public.system_default_ai_configs
 
 
 --
--- Name: tool_credit_ledger tool_credit_ledger_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: system_settings system_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.tool_credit_ledger
-    ADD CONSTRAINT tool_credit_ledger_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.system_settings
+    ADD CONSTRAINT system_settings_pkey PRIMARY KEY (name);
 
 
 --
@@ -3271,6 +3388,13 @@ CREATE INDEX idx_ai_connectors_org_id ON public.ai_connectors USING btree (org_i
 --
 
 CREATE INDEX idx_ai_connectors_org_provider ON public.ai_connectors USING btree (org_id, provider_name);
+
+
+--
+-- Name: idx_ai_connectors_org_role_order; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ai_connectors_org_role_order ON public.ai_connectors USING btree (org_id, role, display_order);
 
 
 --
@@ -3631,6 +3755,13 @@ CREATE INDEX idx_loc_usage_ledger_org_user ON public.loc_usage_ledger USING btre
 
 
 --
+-- Name: idx_mcp_authorizations_status_expiry; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_mcp_authorizations_status_expiry ON public.mcp_authorizations USING btree (status, expires_at);
+
+
+--
 -- Name: idx_org_billing_current_plan; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3645,10 +3776,38 @@ CREATE INDEX idx_org_billing_scheduled_effective ON public.org_billing_state USI
 
 
 --
--- Name: idx_org_tools_org_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_org_slack_configs_enabled; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_org_tools_org_id ON public.org_tools USING btree (org_id);
+CREATE INDEX idx_org_slack_configs_enabled ON public.org_slack_configs USING btree (enabled);
+
+
+--
+-- Name: idx_org_slack_configs_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_slack_configs_org_id ON public.org_slack_configs USING btree (org_id);
+
+
+--
+-- Name: idx_org_slack_configs_team_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_slack_configs_team_id ON public.org_slack_configs USING btree (team_id);
+
+
+--
+-- Name: idx_org_teams_configs_enabled; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_teams_configs_enabled ON public.org_teams_configs USING btree (enabled);
+
+
+--
+-- Name: idx_org_teams_configs_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_teams_configs_org_id ON public.org_teams_configs USING btree (org_id);
 
 
 --
@@ -4590,27 +4749,27 @@ ALTER TABLE ONLY public.org_billing_state
 
 
 --
--- Name: org_tool_billing_state org_tool_billing_state_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: org_review_ai_settings org_review_ai_settings_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.org_tool_billing_state
-    ADD CONSTRAINT org_tool_billing_state_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
-
-
---
--- Name: org_tools org_tools_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.org_tools
-    ADD CONSTRAINT org_tools_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.org_review_ai_settings
+    ADD CONSTRAINT org_review_ai_settings_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
 
 
 --
--- Name: org_tools org_tools_tool_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: org_slack_configs org_slack_configs_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.org_tools
-    ADD CONSTRAINT org_tools_tool_id_fkey FOREIGN KEY (tool_id) REFERENCES public.available_tools(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.org_slack_configs
+    ADD CONSTRAINT org_slack_configs_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: org_teams_configs org_teams_configs_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_teams_configs
+    ADD CONSTRAINT org_teams_configs_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
 
 
 --
@@ -5054,6 +5213,14 @@ ALTER TABLE ONLY public.users
 
 
 --
+-- Name: users users_default_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_default_org_id_fkey FOREIGN KEY (default_org_id) REFERENCES public.orgs(id);
+
+
+--
 -- Name: webhook_registry webhook_registry_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5065,7 +5232,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict dbmate
+\unrestrict YpZ23deMxwkilSsMDU4qcvkYkDqZ1f1gvwA8kfJwjas5deBeDgbj5U1vDNTyDEA
 
 
 --
@@ -5136,13 +5303,21 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260411170000'),
     ('20260419193000'),
     ('20260420140334'),
+    ('20260509195524'),
     ('20260521120000'),
     ('20260521140000'),
     ('20260522120000'),
     ('20260527120000'),
     ('20260611185900'),
     ('20260612152523'),
-    ('20260618100000'),
-    ('20260618100001'),
-    ('20260618100002'),
-    ('20260620120000');
+    ('20260620000000'),
+    ('20260621194000'),
+    ('20260622180000'),
+    ('20260623135113'),
+    ('20260701120000'),
+    ('20260702130000'),
+    ('20260702140000'),
+    ('20260702141000'),
+    ('20260704150001'),
+    ('20260706205257'),
+    ('20260707220001');

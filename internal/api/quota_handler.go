@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
+	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/api/plancode"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/pkg/models"
@@ -81,14 +82,17 @@ func (h *QuotaStatusHandler) GetQuotaStatus(c echo.Context) error {
 	planType := resolveQuotaPlanType(envelopeTmp.PlanCode, contextPlanType)
 
 	// Call CheckPreflight with 0 RequiredLOC to just get the current threshold/blocking state
-	accountingService := license.NewLOCAccountingService(h.db)
-	preflightResult, err := accountingService.CheckPreflight(c.Request().Context(), license.LOCPreflightInput{
-		OrgID:       orgID,
-		RequiredLOC: 0,
-		PlanCode:    license.PlanType(planType),
-	})
-	if err == nil {
-		applyPreflightToEnvelopeContext(c, preflightResult)
+	// Only run preflight in Cloud Mode
+	if apimiddleware.IsCloudMode() {
+		accountingService := license.NewLOCAccountingService(h.db)
+		preflightResult, err := accountingService.CheckPreflight(c.Request().Context(), license.LOCPreflightInput{
+			OrgID:       orgID,
+			RequiredLOC: 0,
+			PlanCode:    license.PlanType(planType),
+		})
+		if err == nil {
+			applyPreflightToEnvelopeContext(c, preflightResult)
+		}
 	}
 
 	// Now build the final envelope with the preflight state included
@@ -104,7 +108,10 @@ func (h *QuotaStatusHandler) GetQuotaStatus(c echo.Context) error {
 	}
 
 	// Determine if user can trigger reviews
-	if isFreeTier {
+	if !apimiddleware.IsCloudMode() {
+		// Unlimited reviews in self-hosted mode
+		status.CanTriggerReviews = true
+	} else if isFreeTier {
 		// On free plan, only org creator can trigger reviews AND must be under daily limit
 		status.CanTriggerReviews = isOrgCreator && (dailyLimitPtr == nil || dailyUsed < *dailyLimitPtr)
 	} else {

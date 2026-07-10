@@ -1,6 +1,6 @@
 # Storage Status
 
-Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001, MF-DASHBOARD-LOG-001, MF-EXPIRY-001, MF-CANCEL-VERIFY-001, MF-CANCEL-PROJECTION-001): added member-attribution storage groundwork, member-usage rollups, payment-attempt lookup for customer state, superadmin billing portfolio storage views, billing notification outbox persistence, dashboard scheduler leader-lock storage operations, automatic paid-plan expiry reconciliation persistence, quota policy + batch settlement + operation aggregate storage operations, and a shared transaction-level org free-plan projection helper used by terminal subscription webhook flows.
+Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001, MF-DASHBOARD-LOG-001, MF-EXPIRY-001, MF-CANCEL-VERIFY-001, MF-CANCEL-PROJECTION-001, MF-AI-HELPER-001): added member-attribution storage groundwork, member-usage rollups, payment-attempt lookup for customer state, superadmin billing portfolio storage views, billing notification outbox persistence, dashboard scheduler leader-lock storage operations, automatic paid-plan expiry reconciliation persistence, quota policy + batch settlement + operation aggregate storage operations, a shared transaction-level org free-plan projection helper used by terminal subscription webhook flows, and org-scoped Helper review AI settings plus role-aware AI connector storage queries.
 
 | Operation | Status | Evidence |
 | --- | --- | --- |
@@ -60,6 +60,13 @@ Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB
 | aiconnectors.QueryContext | moved | [QueryContext](aiconnectors/connector_store.go#L26) |
 | aiconnectors.ExecContext | moved | [ExecContext](aiconnectors/connector_store.go#L30) |
 | aiconnectors.UpdateDisplayOrders | moved | [UpdateDisplayOrders](aiconnectors/connector_store.go#L38) |
+| aiconnectors.NewReviewAISettingsStore | added | [NewReviewAISettingsStore](aiconnectors/review_ai_settings_store.go#L28) |
+| aiconnectors.NormalizeConnectorRole | added | [NormalizeConnectorRole](aiconnectors/review_ai_settings_store.go#L32) |
+| aiconnectors.NormalizeHelperMode | added | [NormalizeHelperMode](aiconnectors/review_ai_settings_store.go#L43) |
+| aiconnectors.GetByOrgID | added | [GetByOrgID](aiconnectors/review_ai_settings_store.go#L54) |
+| aiconnectors.Upsert | added | [Upsert](aiconnectors/review_ai_settings_store.go#L86) |
+| aiconnectors.GetConnectorsByRole | added | [GetConnectorsByRole](../internal/aiconnectors/storage.go#L230) |
+| aiconnectors.GetMaxDisplayOrderByRole | added | [GetMaxDisplayOrderByRole](../internal/aiconnectors/storage.go#L561) |
 | users.NewUserStore | moved | [NewUserStore](users/user_store.go#L9) |
 | users.QueryRow | moved | [QueryRow](users/user_store.go#L13) |
 | users.Query | moved | [Query](users/user_store.go#L17) |

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -63,44 +64,46 @@ func NewReviewService(cfg *config.Config) *ReviewService {
 	}
 }
 
-
 // TriggerReviewV2 handles the request to trigger a code review using the new decoupled architecture
 func (s *Server) TriggerReviewV2(c echo.Context) error {
 	log.Printf("[DEBUG] TriggerReviewV2: Starting review request handling")
 
 	// LOC Quota preflight check — block before creating any DB records
-	orgID, orgOK := c.Get("org_id").(int64)
-	planCode := license.PlanFree30K
-	if planCtx, ok := c.Get(apimiddleware.PlanContextKey).(apimiddleware.PlanContext); ok && planCtx.PlanType != "" {
-		planCode = planCtx.PlanType
-	}
-	if orgOK && orgID > 0 {
-		accountingService := license.NewLOCAccountingService(s.db)
-		preflightResult, pfErr := accountingService.CheckPreflight(context.Background(), license.LOCPreflightInput{
-			OrgID:       orgID,
-			RequiredLOC: 0, // unknown at this point, just check current state
-			PlanCode:    planCode,
-		})
-		if pfErr != nil {
-			log.Printf("[WARN] LOC preflight check failed for org=%d: %v", orgID, pfErr)
-		} else {
-			applyPreflightToEnvelopeContext(c, preflightResult)
-			if preflightResult.Blocked {
-				errorCode := "quota_exceeded"
-				errorMessage := "monthly LOC quota exceeded for this organization"
-				if preflightResult.BlockReason == "trial_readonly" {
-					errorCode = "trial_readonly"
-					errorMessage = "trial period ended; review operations are read-only until plan update"
+	// Only run LOC quota preflight in Cloud Mode
+	if apimiddleware.IsCloudMode() {
+		orgID, orgOK := c.Get("org_id").(int64)
+		planCode := license.PlanFree30K
+		if planCtx, ok := c.Get(apimiddleware.PlanContextKey).(apimiddleware.PlanContext); ok && planCtx.PlanType != "" {
+			planCode = planCtx.PlanType
+		}
+		if orgOK && orgID > 0 {
+			accountingService := license.NewLOCAccountingService(s.db)
+			preflightResult, pfErr := accountingService.CheckPreflight(context.Background(), license.LOCPreflightInput{
+				OrgID:       orgID,
+				RequiredLOC: 0, // unknown at this point, just check current state
+				PlanCode:    planCode,
+			})
+			if pfErr != nil {
+				log.Printf("[WARN] LOC preflight check failed for org=%d: %v", orgID, pfErr)
+			} else {
+				applyPreflightToEnvelopeContext(c, preflightResult)
+				if preflightResult.Blocked {
+					errorCode := "quota_exceeded"
+					errorMessage := "monthly LOC quota exceeded for this organization"
+					if preflightResult.BlockReason == "trial_readonly" {
+						errorCode = "trial_readonly"
+						errorMessage = "trial period ended; review operations are read-only until plan update"
+					}
+					log.Printf("[INFO] TriggerReviewV2: LOC quota blocked for org=%d, used=%d, limit=%d",
+						orgID, preflightResult.LOCUsedMonth, preflightResult.LOCLimitMonth)
+					return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
+						"error":         errorMessage,
+						"error_code":    errorCode,
+						"loc_remaining": preflightResult.LOCRemainingMonth,
+						"usage_percent": preflightResult.UsagePercent,
+						"upgrade_url":   defaultUpgradeURL,
+					})
 				}
-				log.Printf("[INFO] TriggerReviewV2: LOC quota blocked for org=%d, used=%d, limit=%d",
-					orgID, preflightResult.LOCUsedMonth, preflightResult.LOCLimitMonth)
-				return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
-					"error":         errorMessage,
-					"error_code":    errorCode,
-					"loc_remaining": preflightResult.LOCRemainingMonth,
-					"usage_percent": preflightResult.UsagePercent,
-					"upgrade_url":   defaultUpgradeURL,
-				})
 			}
 		}
 	}
@@ -115,30 +118,32 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 	}
 
-	quotaModule := license.NewQuotaModule(s.db)
-	quotaPreflight, err := quotaModule.PreflightCheck(c.Request().Context(), license.QuotaPreflightInput{
-		OrgID:       ctx.orgID,
-		RequiredLOC: 1,
-		PlanCode:    ctx.planCode,
-	})
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: fmt.Sprintf("failed quota preflight: %v", err)})
-	}
-	if quotaPreflight.Blocked {
-		errorCode := "quota_exceeded"
-		errorMessage := "monthly LOC quota exceeded for this operation"
-		if quotaPreflight.BlockReason == "trial_readonly" {
-			errorCode = "trial_readonly"
-			errorMessage = "trial period ended; review operations are read-only until plan update"
-		}
-		return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
-			"error":         errorMessage,
-			"error_code":    errorCode,
-			"required_loc":  1,
-			"loc_remaining": quotaPreflight.LOCRemainingMonth,
-			"usage_percent": quotaPreflight.UsagePercent,
-			"upgrade_url":   defaultUpgradeURL,
+	if apimiddleware.IsCloudMode() {
+		quotaModule := license.NewQuotaModule(s.db)
+		quotaPreflight, err := quotaModule.PreflightCheck(c.Request().Context(), license.QuotaPreflightInput{
+			OrgID:       ctx.orgID,
+			RequiredLOC: 1,
+			PlanCode:    ctx.planCode,
 		})
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: fmt.Sprintf("failed quota preflight: %v", err)})
+		}
+		if quotaPreflight.Blocked {
+			errorCode := "quota_exceeded"
+			errorMessage := "monthly LOC quota exceeded for this operation"
+			if quotaPreflight.BlockReason == "trial_readonly" {
+				errorCode = "trial_readonly"
+				errorMessage = "trial period ended; review operations are read-only until plan update"
+			}
+			return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
+				"error":         errorMessage,
+				"error_code":    errorCode,
+				"required_loc":  1,
+				"loc_remaining": quotaPreflight.LOCRemainingMonth,
+				"usage_percent": quotaPreflight.UsagePercent,
+				"upgrade_url":   defaultUpgradeURL,
+			})
+		}
 	}
 
 	// Phase 2: Prepare authentication (URL validation, token lookup, OAuth refresh)
@@ -157,8 +162,11 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 	// Phase 5: Track activity (log the trigger event)
 	s.trackActivity(ctx)
 
-	// Phase 6: Launch background processing (goroutine with completion callback)
-	s.launchBackgroundProcessing(ctx)
+	// Phase 6: Launch background processing via River job queue
+	if err := s.launchBackgroundProcessing(ctx); err != nil {
+		log.Printf("[ERROR] TriggerReviewV2: Failed to queue manual review: %v", err)
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: fmt.Sprintf("failed to queue review: %v", err)})
+	}
 
 	// Return success response immediately
 	if ctx.logger != nil {
@@ -285,12 +293,6 @@ func (s *Server) setupReviewContext(c echo.Context, req TriggerReviewRequest) (*
 		logger.Log("Organization ID: %d", orgID)
 		logger.Log("MR/PR URL: %s", req.URL)
 	}
-
-	// Immediately mark review as in progress (sets started_at)
-	go func() {
-		rm := NewReviewManager(s.db)
-		_ = rm.UpdateReviewStatus(review.ID, "in_progress")
-	}()
 
 	return ctx, nil
 }
@@ -536,22 +538,11 @@ func (s *Server) trackActivity(ctx *reviewSetupContext) {
 	}()
 }
 
-// launchBackgroundProcessing starts the review goroutine with completion callback
-func (s *Server) launchBackgroundProcessing(ctx *reviewSetupContext) {
-	// Set up completion callback
-	completionCallback := func(result interface{}) {
-		if ctx.logger != nil {
-			ctx.logger.LogSection("REVIEW COMPLETION CALLBACK")
-			ctx.logger.Log("Review processing completed")
-		}
-		log.Printf("[INFO] TriggerReviewV2: Review processing completed for %s", ctx.reviewID)
-	}
-
-	// Process review asynchronously using a goroutine
+// launchBackgroundProcessing enqueues the review request into the River job queue
+func (s *Server) launchBackgroundProcessing(ctx *reviewSetupContext) error {
 	if ctx.logger != nil {
-		ctx.logger.LogSection("BACKGROUND PROCESSING")
-		ctx.logger.Log("Starting review process in background goroutine...")
-		ctx.logger.Log("⚠ Note: Detailed review processing logs will continue in this file")
+		ctx.logger.LogSection("BACKGROUND QUEUEING")
+		ctx.logger.Log("Enqueuing review process into River job queue...")
 	}
 	log.Printf("[DEBUG] TriggerReviewV2: Starting review process in background")
 	go func() {
@@ -609,95 +600,21 @@ func (s *Server) launchBackgroundProcessing(ctx *reviewSetupContext) {
 			}
 
 			reviewID := ctx.review.ID
+	log.Printf("[DEBUG] TriggerReviewV2: Queueing review process in River")
 
-			operationID := fmt.Sprintf("manual-review:%d", ctx.review.ID)
-			idempotencyKey := operationID
-			if result.BillableLOC > 0 {
-				quotaModule := license.NewQuotaModule(s.db)
-				_, err := quotaModule.RecordBatch(context.Background(), license.QuotaRecordBatchInput{
-					OrgID:          ctx.orgID,
-					ReviewID:       &reviewID,
-					OperationType:  "manual_review",
-					TriggerSource:  "manual",
-					OperationID:    operationID,
-					IdempotencyKey: idempotencyKey,
-					BatchIndex:     1,
-					Batch: license.QuotaBatchInput{
-						PlanCode:                 ctx.planCode,
-						Provider:                 result.Provider,
-						RawLOCBatch:              result.BillableLOC,
-						ProviderTotalInputTokens: result.InputTokens,
-						OutputTokensBatch:        result.OutputTokens,
-					},
-				})
-				if err != nil {
-					log.Printf("[WARN] Manual review batch accounting failed for review %d: %v", ctx.review.ID, err)
-				} else {
-					finalized, err := quotaModule.FinalizeOperation(context.Background(), license.QuotaFinalizeInput{
-						OrgID:          ctx.orgID,
-						ReviewID:       &reviewID,
-						ActorUserID:    ctx.actorUserID,
-						ActorEmail:     ctx.actorEmail,
-						OperationType:  "manual_review",
-						TriggerSource:  "manual",
-						OperationID:    operationID,
-						IdempotencyKey: idempotencyKey,
-						Provider:       result.Provider,
-						Model:          result.Model,
-						BatchFallback:  nil,
-					})
-					if err != nil {
-						log.Printf("[WARN] Manual review accounting finalization failed for review %d: %v", ctx.review.ID, err)
-					} else {
-						meta := map[string]interface{}{
-							"operation_raw_loc":      finalized.RawLOCTotal,
-							"operation_billable_loc": finalized.EffectiveLOCTotal,
-							"operation_extra_loc":    finalized.ExtraEffectiveLOCTotal,
-							"context_tokens":         finalized.ContextTokensTotal,
-							"allowed_context_tokens": finalized.AllowedContextTokensTotal,
-							"extra_context_tokens":   finalized.ExtraContextTokensTotal,
-							"input_cost_usd":         finalized.InputCostUSDTotal,
-							"output_cost_usd":        finalized.OutputCostUSDTotal,
-							"total_cost_usd":         finalized.TotalCostUSDTotal,
-							"pricing_version":        finalized.PricingVersion,
-							"operation_id":           operationID,
-							"idempotency_key":        idempotencyKey,
-							"accounted_at":           time.Now().UTC().Format(time.RFC3339),
-						}
-						for k, v := range aiExecutionMetadataFromConfig(ctx.request.AI.Config) {
-							meta[k] = v
-						}
-						_ = rm.MergeReviewMetadata(ctx.review.ID, meta)
-					}
-				}
-			}
-		} else {
-			_ = rm.UpdateReviewStatus(ctx.review.ID, "failed")
-		}
-		if ctx.logger != nil {
-			ctx.logger.Log("=== Background processing completed ===")
-			// Close the logger now that all processing is done
-			ctx.logger.Close()
-		}
-	}()
-}
+	requestJSONBytes, err := json.Marshal(ctx.request)
+	if err != nil {
+		return fmt.Errorf("marshal review request: %w", err)
+	}
 
-func aiExecutionMetadataFromConfig(config map[string]interface{}) map[string]interface{} {
-	meta := map[string]interface{}{}
-	if len(config) == 0 {
-		return meta
+	err = s.jobQueue.QueueManualReviewJob(context.Background(), ctx.orgID, string(ctx.planCode), ctx.actorUserID, ctx.actorEmail, ctx.review.ID, string(requestJSONBytes))
+	if err != nil {
+		return fmt.Errorf("queue manual review job: %w", err)
 	}
-	if mode, ok := config["ai_execution_mode"].(string); ok && strings.TrimSpace(mode) != "" {
-		meta["ai_execution_mode"] = strings.TrimSpace(mode)
+
+	if ctx.logger != nil {
+		ctx.logger.Log("✓ Successfully enqueued manual review job")
+		ctx.logger.Close()
 	}
-	if source, ok := config["ai_execution_source"].(string); ok && strings.TrimSpace(source) != "" {
-		meta["ai_execution_source"] = strings.TrimSpace(source)
-	}
-	if provider, ok := config["provider_name"].(string); ok && strings.TrimSpace(provider) != "" {
-		meta["ai_provider_name"] = strings.TrimSpace(provider)
-	}
-	if connectorName, ok := config["connector_name"].(string); ok && strings.TrimSpace(connectorName) != "" {
-		meta["ai_connector_name"] = strings.TrimSpace(connectorName)
-	}
-	return meta
+	return nil
 }

@@ -12,6 +12,7 @@ import (
 
 // ReviewEventsHandler handles review events API endpoints
 type ReviewEventsHandler struct {
+	db              *sql.DB
 	service         *PollingEventService
 	accountingStore *storagelicense.ReviewAccountingStore
 }
@@ -19,6 +20,7 @@ type ReviewEventsHandler struct {
 // NewReviewEventsHandler creates a new review events handler
 func NewReviewEventsHandler(db *sql.DB) *ReviewEventsHandler {
 	return &ReviewEventsHandler{
+		db:              db,
 		service:         NewPollingEventService(db),
 		accountingStore: storagelicense.NewReviewAccountingStore(db),
 	}
@@ -49,6 +51,9 @@ type ReviewAccountingResponse struct {
 	TotalInputTokens    *int64                             `json:"totalInputTokens,omitempty"`
 	TotalOutputTokens   *int64                             `json:"totalOutputTokens,omitempty"`
 	TotalCostUSD        *float64                           `json:"totalCostUsd,omitempty"`
+	HelperEnabled       bool                               `json:"helperEnabled"`
+	HelperMode          string                             `json:"helperMode,omitempty"`
+	StageBreakdown      []ReviewAccountingStageResponse    `json:"stageBreakdown,omitempty"`
 	LatestOperation     *ReviewAccountingOperationResponse `json:"latestOperation,omitempty"`
 }
 
@@ -90,7 +95,7 @@ func (h *ReviewEventsHandler) GetReviewEvents(c echo.Context) error {
 
 	var reviewStatus *string
 	var statusValue string
-	statusErr := h.service.repo.db.QueryRowContext(
+	statusErr := h.service.repo.DB().QueryRowContext(
 		c.Request().Context(),
 		`SELECT status FROM reviews WHERE id = $1 AND org_id = $2`,
 		reviewID,
@@ -231,6 +236,17 @@ func (h *ReviewEventsHandler) GetReviewAccounting(c echo.Context) error {
 		TotalInputTokens:    totals.TotalInputTokens,
 		TotalOutputTokens:   totals.TotalOutputTokens,
 		TotalCostUSD:        totals.TotalCostUSD,
+	}
+
+	reviewMeta, reviewMetaErr := loadReviewMetadata(c.Request().Context(), h.db, orgID, reviewID)
+	if reviewMetaErr == nil {
+		if helperEnabled, ok := reviewMeta["helper_enabled"].(bool); ok {
+			response.HelperEnabled = helperEnabled
+		}
+		if helperMode, ok := reviewMeta["helper_mode"].(string); ok {
+			response.HelperMode = helperMode
+		}
+		response.StageBreakdown = parseReviewAIStageBreakdown(reviewMeta)
 	}
 
 	if totals.LastAccountedAt != nil {

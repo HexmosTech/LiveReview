@@ -1,5 +1,5 @@
 import React, { createContext, useContext, ReactNode } from 'react';
-import { AIProvider, AIConnector } from '../types';
+import { AIProvider, AIConnector, ConnectorFormData } from '../types';
 import { useProviderSelection, useConnectors, useFormState } from '../hooks';
 
 // Define the context type
@@ -17,20 +17,28 @@ interface AIProvidersContextType {
     error: string | null;
     setError: (error: string | null) => void;
     fetchConnectors: () => Promise<void>;
-    saveConnector: (providerId: string, apiKey: string, name: string, existingConnector?: AIConnector | null) => Promise<boolean>;
+    saveConnector: (
+        providerId: string,
+        role: string,
+        apiKey: string,
+        name: string,
+        existingConnector?: AIConnector | null,
+        baseURL?: string,
+        selectedModel?: string,
+        gcpProjectID?: string,
+        gcpLocation?: string,
+        awsAccessKeyID?: string,
+        awsRegion?: string
+    ) => Promise<boolean>;
     
     // Form state
-    formData: {
-        name: string;
-        apiKey: string;
-        providerType: string;
-    };
+    formData: ConnectorFormData;
     selectedConnector: AIConnector | null;
     setSelectedConnector: (connector: AIConnector | null) => void;
-    handleInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    handleInputChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
     handleProviderTypeChange: (providerType: string) => void;
     resetForm: () => void;
-    setFormData: (data: { name: string; apiKey: string; providerType: string; }) => void;
+    setFormData: (data: ConnectorFormData) => void;
     generateFriendlyName: (providerId: string) => void;
     
     // Providers data

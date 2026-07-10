@@ -59,7 +59,7 @@ export const Button: React.FC<ButtonProps> = ({
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
       )}
-      {icon && iconPosition === 'left' && !isLoading && <span className="mr-2">{icon}</span>}
+      {icon && iconPosition === 'left' && !isLoading && <span className="mr-2 w-5 flex items-center justify-center flex-shrink-0">{icon}</span>}
       {children}
       {icon && iconPosition === 'right' && <span className="ml-2">{icon}</span>}
     </>
@@ -216,6 +216,7 @@ export const Input: React.FC<InputProps> = ({
             className
           )}
           aria-invalid={error ? 'true' : 'false'}
+          autoComplete={props.autoComplete || 'off'}
           {...props}
         />
         {icon && iconPosition === 'right' && (
@@ -696,6 +697,11 @@ export const Icons = {
   Bitbucket: () => (
     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
       <path d="M.778 1.213a.768.768 0 00-.768.892l3.263 19.81c.084.5.515.868 1.022.873H19.95a.772.772 0 00.77-.646l3.27-20.03a.768.768 0 00-.768-.891zM14.52 15.53H9.522L8.17 8.466h7.561z"/>
+    </svg>
+  ),
+  AzureDevOps: () => (
+    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M23.995 6.617l-4.55-3.556-9.617 3.605V2.44L3.36 8.404 0 9.877v4.396l3.36-1.377v4.75l6.467 2.914 10.107-4.895V6.617zM9.828 17.535l-4.83-1.976v-3.605l4.83 2.183v3.398zm.687-9.096l3.925 2.79-6.29 2.516-3.176-1.436 5.541-3.87zm10.083 8.13l-8.207 3.95v-3.328l5.28-2.176V8.988l2.927 2.293v5.288z"/>
     </svg>
   ),
   OpenAI: () => (

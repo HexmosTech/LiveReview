@@ -62,7 +62,13 @@ export const setupAdmin = createAsyncThunk(
       
       // Immediately populate Organizations store to avoid extra API call
       if (response.organizations && response.organizations.length > 0) {
-        dispatch({ type: 'organizations/setOrganizationsFromAuth', payload: response.organizations });
+        dispatch({
+          type: 'organizations/setOrganizationsFromAuth',
+          payload: {
+            organizations: response.organizations,
+            defaultOrgId: response.user?.default_org_id
+          }
+        });
       }
       
       return response;
@@ -80,7 +86,13 @@ export const login = createAsyncThunk(
       
       // Immediately populate Organizations store to avoid extra API call
       if (response.organizations && response.organizations.length > 0) {
-        dispatch({ type: 'organizations/setOrganizationsFromAuth', payload: response.organizations });
+        dispatch({
+          type: 'organizations/setOrganizationsFromAuth',
+          payload: {
+            organizations: response.organizations,
+            defaultOrgId: response.user?.default_org_id
+          }
+        });
       }
       
       return response;
@@ -166,13 +178,19 @@ const authSlice = createSlice({
         localStorage.setItem('refreshToken', action.payload.tokens.refresh_token);
         
         // Set the first organization as current to avoid API calls without org context,
-        // but preserve any valid previously selected organization from localStorage.
+        // but preserve any valid previously selected organization from localStorage or database default.
         if (action.payload.organizations && action.payload.organizations.length > 0) {
           const storedOrgId = localStorage.getItem('currentOrgId');
           const hasValidStoredOrg = storedOrgId && action.payload.organizations.some(org => org.id.toString() === storedOrgId);
           if (!hasValidStoredOrg) {
-            const firstOrg = action.payload.organizations[0];
-            localStorage.setItem('currentOrgId', firstOrg.id.toString());
+            const defaultOrgId = action.payload.user?.default_org_id;
+            const hasValidDefaultOrg = defaultOrgId && action.payload.organizations.some(org => org.id === defaultOrgId);
+            const orgToSelect = hasValidDefaultOrg 
+              ? action.payload.organizations.find(org => org.id === defaultOrgId) 
+              : action.payload.organizations[0];
+            if (orgToSelect) {
+              localStorage.setItem('currentOrgId', orgToSelect.id.toString());
+            }
           }
         }
       })
@@ -197,13 +215,19 @@ const authSlice = createSlice({
         localStorage.setItem('refreshToken', action.payload.tokens.refresh_token);
         
         // Set the first organization as current to avoid API calls without org context,
-        // but preserve any valid previously selected organization from localStorage.
+        // but preserve any valid previously selected organization from localStorage or database default.
         if (action.payload.organizations && action.payload.organizations.length > 0) {
           const storedOrgId = localStorage.getItem('currentOrgId');
           const hasValidStoredOrg = storedOrgId && action.payload.organizations.some(org => org.id.toString() === storedOrgId);
           if (!hasValidStoredOrg) {
-            const firstOrg = action.payload.organizations[0];
-            localStorage.setItem('currentOrgId', firstOrg.id.toString());
+            const defaultOrgId = action.payload.user?.default_org_id;
+            const hasValidDefaultOrg = defaultOrgId && action.payload.organizations.some(org => org.id === defaultOrgId);
+            const orgToSelect = hasValidDefaultOrg 
+              ? action.payload.organizations.find(org => org.id === defaultOrgId) 
+              : action.payload.organizations[0];
+            if (orgToSelect) {
+              localStorage.setItem('currentOrgId', orgToSelect.id.toString());
+            }
           }
         }
       })
