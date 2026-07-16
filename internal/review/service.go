@@ -942,3 +942,27 @@ func extractRepoFullName(rawURL string) string {
 	}
 	return path
 }
+
+func FormatDiffs(diffs []*models.CodeDiff) string {
+	var b strings.Builder
+	for _, d := range diffs {
+		if d == nil {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("diff --git a/%s b/%s\n", d.FilePath, d.FilePath))
+		if d.IsNew {
+			b.WriteString("new file mode 100644\n")
+		} else if d.IsDeleted {
+			b.WriteString("deleted file mode 100644\n")
+		}
+		for _, hunk := range d.Hunks {
+			b.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@\n", hunk.OldStartLine, hunk.OldLineCount, hunk.NewStartLine, hunk.NewLineCount))
+			b.WriteString(hunk.Content)
+			if !strings.HasSuffix(hunk.Content, "\n") {
+				b.WriteString("\n")
+			}
+		}
+	}
+	return b.String()
+}
+

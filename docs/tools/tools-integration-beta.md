@@ -229,6 +229,37 @@ The `enabled` field is required and must be a boolean. Any other value returns H
 
 ---
 
+#### `POST /api/v1/reviews/tool-reviews`
+
+Triggers a tool-only review execution (without any AI/LLM reviews) on a pull request/merge request diff.
+
+**Access:** Any authenticated org member.  
+**Cloud gate:** HTTP 403 if not cloud mode.  
+**Execution Flow:**
+1. **Pre-flight Credit check**: The API handler queries the DB (`org_tool_billing_state`), calculates the sum of multipliers of all currently enabled tools for the organization, and runs a pre-flight check. If the remaining credit balance is insufficient, the API returns **HTTP 402 Payment Required** immediately before scheduling any jobs.
+2. **Review creation**: Creates a review record in the database with `trigger_type = 'tool_review'` and status `processing`.
+3. **Queue job**: Schedules the background job `tool_review_orchestrator` with the calculated total multiplier.
+4. **Asynchronous credit deduction**: When the background worker executes `ExecuteToolsForReview`, it locks the credit table and transactionally deducts the required credits from the organization's monthly credit allowance.
+
+**Request body:**
+
+```json
+{
+  "pr_url": "https://github.com/HexmosTech/git-lrc/pull/42"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "review_id": "10023",
+  "message": "Tool static analysis scheduled successfully"
+}
+```
+
+---
+
 ### Settings UI – ThirdPartyToolsTab component
 
 File: `ui/src/pages/Settings/ThirdPartyToolsTab.tsx`
@@ -462,3 +493,68 @@ If no `tool_result` events are present, the tool section is skipped entirely (no
 | `enabled` | boolean | Default `false` |
 | `config_json` | jsonb | Per-org tool config, default `{}` |
 | `updated_at` | timestamptz | |
+
+---
+
+## Manual Testing – Triggering Gitleaks via lrc
+
+This section documents how to manually trigger a tool-based review against the self-hosted instance using a prepared test diff.
+
+### Prerequisites
+
+1. **Build and install lrc locally:**
+   ```bash
+   cd /home/gk/hex/git-lrc
+   make build-local && lrc hooks install
+   ```
+
+2. **Run both LiveReview processes** (two terminals):
+   ```bash
+   # Terminal 1 — API server
+   cd /home/gk/hex/LiveReview && ./tmp/livereview server
+
+   # Terminal 2 — Background worker (processes tool jobs)
+   cd /home/gk/hex/LiveReview && ./tmp/livereview worker
+   ```
+
+3. **Enable Gitleaks in org tool settings:**
+   - Log in as owner at `https://manual-talent.apps.hexmos.com`
+   - Go to **Settings → Third-Party Tools** → toggle **Gitleaks** on
+
+### Trigger Command
+
+```bash
+cd /home/gk/hex/git-lrc
+
+LRC_API_KEY=lr_e5ytg2e2evor6zok3zpwos34g5i4l76x7kekuduw2ogbvrjnnv7q \
+  lrc r \
+  --tools \
+  --diff-file test_cases/gitleaks.txt \
+  --force \
+  --api-url https://manual-talent.apps.hexmos.com
+```
+
+#### Flag reference
+
+| Flag | Purpose |
+|---|---|
+| `--tools` | Enables static analysis tool execution alongside the review |
+| `--diff-file test_cases/gitleaks.txt` | Uses a pre-crafted diff with fake secrets instead of a real git diff |
+| `--force` | Skips the interactive commit prompt |
+| `--api-url` | Points to the self-hosted instance instead of cloud |
+| `LRC_API_KEY` | API key scoped to the owner org (Org ID 3) |
+
+### Test Diff File
+
+**Location:** `git-lrc/test_cases/gitleaks.txt`
+
+Contains a synthetic unified diff with deliberate fake secrets:
+- `"database_password": "supersecretpassword123"` — triggers **Critical**
+- `"slack_token": "xoxb-1234-5678-abcdet"` — triggers **Critical**
+
+### Verifying Results
+
+1. Open the review URL printed by `lrc` (e.g. `http://localhost:8002/?r=<id>`)
+2. The **ISSUE FILTERS** bar should show **N issues visible**
+3. Each finding appears in the diff view labelled **CRITICAL** with classification `tool-generated`
+4. Comment text reads: *"Gitleaks secret detected: ..."* with the matched secret redacted
