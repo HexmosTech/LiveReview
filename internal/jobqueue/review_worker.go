@@ -20,7 +20,9 @@ import (
 	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/pkg/models"
 	storageaiconnectors "github.com/livereview/storage/aiconnectors"
+	storagetools "github.com/livereview/storage/tools"
 	"github.com/riverqueue/river"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 )
 
 // WebhookReviewJobArgs represents the arguments for an asynchronous webhook review job.
@@ -90,7 +92,8 @@ func (w *ManualReviewWorker) Work(ctx context.Context, job *river.Job[ManualRevi
 		log.Printf("[ERROR] Database connection not available on JobQueue")
 		return fmt.Errorf("database connection not available")
 	}
-	return reviewprocessor.ProcessManualReview(ctx, w.jq.db, args.OrgID, args.PlanCode, args.ActorUserID, args.ActorEmail, args.ReviewID, args.RequestJSON,
+
+	err := reviewprocessor.ProcessManualReview(ctx, w.jq.db, args.OrgID, args.PlanCode, args.ActorUserID, args.ActorEmail, args.ReviewID, args.RequestJSON,
 		func(ctx context.Context, model string, batch license.QuotaBatchInput, extraMeta map[string]interface{}) error {
 			operationID := fmt.Sprintf("manual-review:%d", args.ReviewID)
 			idempotencyKey := operationID
@@ -110,6 +113,62 @@ func (w *ManualReviewWorker) Work(ctx context.Context, job *river.Job[ManualRevi
 			})
 		},
 	)
+	if err != nil {
+		return err
+	}
+
+	// After AI review completes, fan-out to tool jobs if any tools are enabled.
+	w.maybeQueueToolJobs(ctx, args.OrgID, args.ReviewID)
+	return nil
+}
+
+// maybeQueueToolJobs checks whether any tools are enabled for the org and, if so,
+// checks credits and queues a ToolReviewOrchestratorJob for the completed review.
+func (w *ManualReviewWorker) maybeQueueToolJobs(ctx context.Context, orgID, reviewID int64) {
+	toolsStore := storagetools.NewToolsStore(w.jq.db)
+	enabledTools, err := toolsStore.GetEnabledToolsForOrg(ctx, orgID)
+	if err != nil {
+		log.Printf("[WARN] ManualReviewWorker: failed to fetch enabled tools for org %d: %v", orgID, err)
+		return
+	}
+	if len(enabledTools) == 0 {
+		return
+	}
+
+	var totalMultiplier float64
+	for _, t := range enabledTools {
+		totalMultiplier += t.Multiplier
+	}
+
+	creditStore := storagetools.NewCreditStore(w.jq.db)
+	if err := creditStore.CheckCreditPreflight(ctx, orgID, totalMultiplier); err != nil {
+		log.Printf("[WARN] ManualReviewWorker: insufficient tool credits for org %d: %v", orgID, err)
+		return
+	}
+
+	// Read pr_mr_url, connector_id, provider from the review row.
+	var prURL, provider string
+	var connectorID sql.NullInt64
+	qErr := w.jq.db.QueryRowContext(ctx,
+		`SELECT COALESCE(pr_mr_url, ''), COALESCE(connector_id, 0), COALESCE(provider, '')
+		   FROM public.reviews WHERE id = $1 AND org_id = $2`,
+		reviewID, orgID,
+	).Scan(&prURL, &connectorID, &provider)
+	if qErr != nil {
+		log.Printf("[WARN] ManualReviewWorker: failed to read review row for tool job (review=%d): %v", reviewID, qErr)
+		return
+	}
+
+	var connID int64
+	if connectorID.Valid {
+		connID = connectorID.Int64
+	}
+
+	if err := w.jq.QueueToolReviewOrchestratorJob(ctx, reviewID, orgID, prURL, connID, provider, totalMultiplier); err != nil {
+		log.Printf("[WARN] ManualReviewWorker: failed to queue tool orchestrator for review %d: %v", reviewID, err)
+	} else {
+		log.Printf("[INFO] ManualReviewWorker: queued tool orchestrator for review %d", reviewID)
+	}
 }
 
 // DiffReviewJobArgs represents the arguments for an asynchronous diff review job.
@@ -124,6 +183,7 @@ type DiffReviewJobArgs struct {
 	RepoName      string `json:"repo_name"`
 	DiffZipBase64 string `json:"diff_zip_base64"`
 	TriggerSource string `json:"trigger_source"`
+	ToolsOnly     bool   `json:"tools_only"`
 }
 
 // Kind returns the job kind for River routing.
@@ -265,118 +325,154 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 		return nil
 	}
 
-	// 6. Transition status to in_progress
-	_ = rm.UpdateReviewStatus(args.ReviewID, "in_progress")
-
-	// 7. Load AI Configuration
-	selection, err := w.getReviewAISelectionFromDatabase(ctx, args.OrgID, planCode)
-	if err != nil {
-		w.handleFailure(ctx, args, logger, eventSink, fmt.Sprintf("failed to load AI config: %v", err), "failed_to_load_ai_config")
-		return nil
-	}
-
-	reviewRequest := review.ReviewRequest{
-		URL:              fmt.Sprintf("cli-diff:%s", args.RepoName),
-		ReviewID:         fmt.Sprintf("%d", args.ReviewID),
-		Provider:         review.ProviderConfig{Type: "cli", URL: "", Token: "", Config: map[string]interface{}{}},
-		AI:               selection.Leader,
-		HelperAI:         selection.Helper,
-		HelperEnabled:    selection.HelperEnabled,
-		HelperMode:       selection.HelperMode,
-		PreloadedChanges: modelDiffs,
-		RepoRules:        repoRules,
-	}
-
-	if logger != nil {
-		logger.LogSection("PROCESSING REVIEW")
-		logger.Log("Analyzing changes and generating comments...")
-	}
-
-	// 8. Execute AI Review Engine
-	var aiFactory review.AIProviderFactory = review.NewStandardAIProviderFactory()
-	if mockFactory, ok := getMockAIFactory(); ok {
-		aiFactory = mockFactory
-	}
-
-	result := review.NewService(
-		review.NewStandardProviderFactory(),
-		aiFactory,
-		review.DefaultReviewConfig(),
-	).ProcessReview(ctx, reviewRequest)
-
 	status := "failed"
 	summary := ""
 	var comments []*models.ReviewComment
 	failureReason := ""
 
-	if result != nil {
-		if result.Success {
-			status = "completed"
-			if err := rm.MergeReviewMetadata(args.ReviewID, buildQueuedReviewAIMetadata(&reviewRequest, result)); err != nil {
-				log.Printf("[WARN] failed to persist AI stage metadata for review %d: %v", args.ReviewID, err)
-			}
-			resolvedReviewID := args.ReviewID
-			operationID := fmt.Sprintf("diff-review:%d", args.ReviewID)
-			idempotencyKey := operationID
-			var actorUserIDPtr *int64
-			if args.ActorUserID > 0 {
-				resolvedActorUserID := args.ActorUserID
-				actorUserIDPtr = &resolvedActorUserID
-			}
+	if args.ToolsOnly {
+		status = "completed"
+		summary = "### Static Analysis Tools Review Only\n\nAI review skipped due to --tools flag."
+		if logger != nil {
+			logger.LogSection("PROCESSING STATIC ANALYSIS REVIEW")
+			logger.Log("AI review skipped. Triggering static analysis tools...")
+		}
+	} else {
+		// 7. Load AI Configuration
+		selection, err := w.getReviewAISelectionFromDatabase(ctx, args.OrgID, planCode)
+		if err != nil {
+			w.handleFailure(ctx, args, logger, eventSink, fmt.Sprintf("failed to load AI config: %v", err), "failed_to_load_ai_config")
+			return nil
+		}
 
-			// Queue the billing update, batch recording, and AI stage metadata asynchronously.
-			extraMeta := buildQueuedReviewAIMetadata(&reviewRequest, result)
+		reviewRequest := review.ReviewRequest{
+			URL:              fmt.Sprintf("cli-diff:%s", args.RepoName),
+			ReviewID:         fmt.Sprintf("%d", args.ReviewID),
+			Provider:         review.ProviderConfig{Type: "cli", URL: "", Token: "", Config: map[string]interface{}{}},
+			AI:               selection.Leader,
+			HelperAI:         selection.Helper,
+			HelperEnabled:    selection.HelperEnabled,
+			HelperMode:       selection.HelperMode,
+			PreloadedChanges: modelDiffs,
+			RepoRules:        repoRules,
+		}
 
-			err = w.jq.QueueUpdateOrgUsageJob(ctx, UpdateOrgUsageJobArgs{
-				OrgID:          args.OrgID,
-				ReviewID:       &resolvedReviewID,
-				ActorUserID:    actorUserIDPtr,
-				ActorEmail:     strings.TrimSpace(args.ActorEmail),
-				OperationType:  "diff_review",
-				TriggerSource:  args.TriggerSource,
-				OperationID:    operationID,
-				IdempotencyKey: idempotencyKey,
-				Provider:       result.Provider,
-				Model:          result.Model,
-				Batch: license.QuotaBatchInput{
-					PlanCode:                 planCode,
-					Provider:                 result.Provider,
-					RawLOCBatch:              billableLOC,
-					ProviderTotalInputTokens: result.InputTokens,
-					OutputTokensBatch:        result.OutputTokens,
-				},
-				ExtraMeta: extraMeta,
-			})
-			if err != nil {
-				log.Printf("[WARN] failed to queue billing finalization for review %d: %v", args.ReviewID, err)
-			}
+		if logger != nil {
+			logger.LogSection("PROCESSING REVIEW")
+			logger.Log("Analyzing changes and generating comments...")
+		}
 
-			if logger != nil {
-				logger.LogSection("REVIEW COMPLETED")
-				logger.Log("Review ID: %d", args.ReviewID)
-				logger.Log("Successfully generated %d comments", len(result.Comments))
+		// 8. Execute AI Review Engine
+		var aiFactory review.AIProviderFactory = review.NewStandardAIProviderFactory()
+		if mockFactory, ok := getMockAIFactory(); ok {
+			aiFactory = mockFactory
+		}
+
+		result := review.NewService(
+			review.NewStandardProviderFactory(),
+			aiFactory,
+			review.DefaultReviewConfig(),
+		).ProcessReview(ctx, reviewRequest)
+
+		if result != nil {
+			if result.Success {
+				status = "completed"
+				if err := rm.MergeReviewMetadata(args.ReviewID, buildQueuedReviewAIMetadata(&reviewRequest, result)); err != nil {
+					log.Printf("[WARN] failed to persist AI stage metadata for review %d: %v", args.ReviewID, err)
+				}
+				resolvedReviewID := args.ReviewID
+				operationID := fmt.Sprintf("diff-review:%d", args.ReviewID)
+				idempotencyKey := operationID
+				var actorUserIDPtr *int64
+				if args.ActorUserID > 0 {
+					resolvedActorUserID := args.ActorUserID
+					actorUserIDPtr = &resolvedActorUserID
+				}
+
+				// Queue the billing update, batch recording, and AI stage metadata asynchronously.
+				extraMeta := buildQueuedReviewAIMetadata(&reviewRequest, result)
+
+				err = w.jq.QueueUpdateOrgUsageJob(ctx, UpdateOrgUsageJobArgs{
+					OrgID:          args.OrgID,
+					ReviewID:       &resolvedReviewID,
+					ActorUserID:    actorUserIDPtr,
+					ActorEmail:     strings.TrimSpace(args.ActorEmail),
+					OperationType:  "diff_review",
+					TriggerSource:  args.TriggerSource,
+					OperationID:    operationID,
+					IdempotencyKey: idempotencyKey,
+					Provider:       result.Provider,
+					Model:          result.Model,
+					Batch: license.QuotaBatchInput{
+						PlanCode:                 planCode,
+						Provider:                 result.Provider,
+						RawLOCBatch:              billableLOC,
+						ProviderTotalInputTokens: result.InputTokens,
+						OutputTokensBatch:        result.OutputTokens,
+					},
+					ExtraMeta: extraMeta,
+				})
+				if err != nil {
+					log.Printf("[WARN] failed to queue billing finalization for review %d: %v", args.ReviewID, err)
+				}
+
+				if logger != nil {
+					logger.LogSection("REVIEW COMPLETED")
+					logger.Log("Review ID: %d", args.ReviewID)
+					logger.Log("Successfully generated %d comments", len(result.Comments))
+				}
+			} else {
+				if result.Error != nil {
+					failureReason = result.Error.Error()
+				}
+				if failureReason == "" {
+					failureReason = "review processing encountered errors"
+				}
+				if logger != nil {
+					logger.LogSection("REVIEW FAILED")
+					logger.Log("Review processing encountered errors: %s", failureReason)
+				}
 			}
+			summary = result.Summary
+			comments = result.Comments
 		} else {
-			if result.Error != nil {
-				failureReason = result.Error.Error()
-			}
-			if failureReason == "" {
-				failureReason = "review processing encountered errors"
-			}
+			failureReason = "review processing returned no result"
 			if logger != nil {
 				logger.LogSection("REVIEW FAILED")
-				logger.Log("Review processing encountered errors: %s", failureReason)
+				logger.Log("Review processing returned no result")
 			}
 		}
-		summary = result.Summary
-		comments = result.Comments
-	} else {
-		failureReason = "review processing returned no result"
-		if logger != nil {
-			logger.LogSection("REVIEW FAILED")
-			logger.Log("Review processing returned no result")
+	}
+
+	// Trigger Static Analysis Tools if enabled and review hasn't failed
+	var toolComments []*models.ReviewComment
+	if failureReason == "" {
+		awsCfg, awsErr := awsconfig.LoadDefaultConfig(ctx)
+		if awsErr != nil {
+			if logger != nil {
+				logger.Log("[ERROR] Failed to load AWS config: %v. Skipping tools review.", awsErr)
+			}
+			if args.ToolsOnly {
+				status = "failed"
+				failureReason = fmt.Sprintf("failed to load AWS config: %v", awsErr)
+			}
+		} else {
+			rawDiff := review.FormatDiffs(modelDiffs)
+			comments, err := ExecuteToolsForReview(ctx, w.db, awsCfg, args.OrgID, args.ReviewID, rawDiff, args.DiffZipBase64, logger)
+			if err != nil {
+				if logger != nil {
+					logger.Log("[WARN] Static analysis tools review failed: %v", err)
+				}
+				if args.ToolsOnly {
+					status = "failed"
+					failureReason = fmt.Sprintf("static analysis tools review failed: %v", err)
+				}
+			} else {
+				toolComments = comments
+			}
 		}
 	}
+	comments = append(comments, toolComments...)
 
 	// 10. Persist final results and update status
 	type diffReviewResultPayload struct {
@@ -405,6 +501,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 			}
 		}
 	}
+
 
 	// Emit final completion/failure event
 	_ = eventSink.EmitCompletionEvent(ctx, args.ReviewID, args.OrgID, summary, len(comments), failureReason)

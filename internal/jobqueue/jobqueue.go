@@ -17,11 +17,9 @@ prompting users to reconfigure via the "Enable Manual Trigger" button.
 package jobqueue
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,21 +30,14 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/livereview/internal/logging"
-	reviewpkg "github.com/livereview/internal/review"
-	"github.com/livereview/pkg/models"
 	"github.com/livereview/internal/providers/gitea"
 	networkjobqueue "github.com/livereview/network/jobqueue"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/livereview/network/tools"
 	storagejobqueue "github.com/livereview/storage/jobqueue"
-	storagetools "github.com/livereview/storage/tools"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 )
@@ -185,27 +176,7 @@ type WebhookRemovalWorker struct {
 	httpClient *networkjobqueue.WebhookHTTPClient
 }
 
-// ToolReviewOrchestratorJobArgs represents the arguments for orchestrating tool reviews
-type ToolReviewOrchestratorJobArgs struct {
-	ReviewID        int64   `json:"review_id"`
-	OrgID           int64   `json:"org_id"`
-	PRURL           string  `json:"pr_url"`
-	ConnectorID     int64   `json:"connector_id"`
-	Provider        string  `json:"provider"`
-	TotalMultiplier float64 `json:"total_multiplier"`
-}
 
-// Kind returns the job kind for River
-func (ToolReviewOrchestratorJobArgs) Kind() string {
-	return "tool_review_orchestrator"
-}
-
-// ToolReviewOrchestratorWorker handles the entire tool review orchestration pipeline
-type ToolReviewOrchestratorWorker struct {
-	river.WorkerDefaults[ToolReviewOrchestratorJobArgs]
-	db     *sql.DB
-	awsCfg aws.Config
-}
 
 // getWebhookEndpointForProvider returns the correct webhook endpoint based on the provider
 func (w *WebhookInstallWorker) getWebhookEndpointForProvider(provider string) string {
@@ -2418,244 +2389,8 @@ func (jq *JobQueue) QueueWebhookRemovalJob(ctx context.Context, connectorID int,
 	return nil
 }
 
-// Work performs the full tool review pipeline (diff fetch, credit deduct, tool invocation, comment post)
-func (w *ToolReviewOrchestratorWorker) Work(ctx context.Context, job *river.Job[ToolReviewOrchestratorJobArgs]) error {
-	args := job.Args
 
-	log.Printf("[INFO] ToolReviewOrchestrator: starting for review=%d, org=%d, provider=%s", args.ReviewID, args.OrgID, args.Provider)
-	
-	logger, err := logging.StartReviewLoggingWithIDs(strconv.FormatInt(args.ReviewID, 10), args.ReviewID, args.OrgID)
-	if err != nil {
-		log.Printf("[WARN] ToolReviewOrchestrator: failed to start review logger: %v", err)
-	} else {
-		defer logger.Close()
-		logger.LogSection("ORCHESTRATOR STARTED")
-		logger.Log("Tool Review Orchestrator initialized for review ID %d", args.ReviewID)
-	}
 
-	// 1. Fetch enabled tools
-	toolsStore := storagetools.NewToolsStore(w.db)
-	enabledTools, err := toolsStore.GetEnabledToolsForOrg(ctx, args.OrgID)
-	if err != nil {
-		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
-		if logger != nil {
-			logger.EmitReviewFailure(fmt.Errorf("failed to fetch enabled tools: %w", err))
-		}
-		return fmt.Errorf("failed to fetch enabled tools: %w", err)
-	}
-	if len(enabledTools) == 0 {
-		log.Printf("[INFO] ToolReviewOrchestrator: No enabled tools for org %d", args.OrgID)
-		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "completed", args.ReviewID)
-		return nil
-	}
-
-	// 2. Deduct Credits
-	creditStore := storagetools.NewCreditStore(w.db)
-	err = creditStore.DeductCredits(ctx, args.OrgID, args.ReviewID, args.TotalMultiplier)
-	if err != nil {
-		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
-		if logger != nil {
-			logger.EmitReviewFailure(fmt.Errorf("failed to deduct credits: %w", err))
-		}
-		return fmt.Errorf("failed to deduct credits: %w", err)
-	}
-
-	// 3. Fetch Connection and Diff from Provider
-	providerFactory := reviewpkg.NewStandardProviderFactory()
-	
-	// Fetch connection details to build ProviderConfig
-	var token string
-	var patToken sql.NullString
-	var tokenType sql.NullString
-	var providerURL sql.NullString
-	
-	err = w.db.QueryRowContext(ctx, `SELECT access_token, pat_token, token_type, provider_url FROM integration_tokens WHERE id = $1 AND org_id = $2`, args.ConnectorID, args.OrgID).Scan(&token, &patToken, &tokenType, &providerURL)
-	if err != nil {
-		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
-		if logger != nil {
-			logger.EmitReviewFailure(fmt.Errorf("failed to get integration token: %w", err))
-		}
-		return fmt.Errorf("failed to get integration token: %w", err)
-	}
-	
-	actualToken := token
-	if tokenType.Valid && tokenType.String == "PAT" && patToken.Valid && patToken.String != "" {
-		actualToken = patToken.String
-	}
-	
-	providerConfigMap := map[string]interface{}{}
-	if tokenType.Valid && tokenType.String == "PAT" && patToken.Valid && patToken.String != "" {
-		providerConfigMap["pat_token"] = patToken.String
-		if strings.HasPrefix(args.Provider, "bitbucket") {
-			providerConfigMap["repo_url"] = args.PRURL
-		}
-	}
-	
-	provConfig := reviewpkg.ProviderConfig{
-		Type:   args.Provider,
-		URL:    providerURL.String,
-		Token:  actualToken,
-		Config: providerConfigMap,
-	}
-
-	providerInstance, err := providerFactory.CreateProvider(ctx, provConfig)
-	if err != nil {
-		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
-		if logger != nil {
-			logger.EmitReviewFailure(fmt.Errorf("failed to create provider: %w", err))
-		}
-		return fmt.Errorf("failed to create provider: %w", err)
-	}
-
-	// Resolve PR ID
-	prID := fmt.Sprintf("%d", args.ReviewID)
-	parsedURL, err := url.Parse(args.PRURL)
-	if err == nil {
-		parts := strings.Split(parsedURL.Path, "/")
-		if strings.HasPrefix(args.Provider, "github") && len(parts) >= 5 && parts[3] == "pull" {
-			prID = parts[1] + "/" + parts[2] + "/" + parts[4]
-		} else if strings.HasPrefix(args.Provider, "bitbucket") && len(parts) >= 5 && parts[3] == "pull-requests" {
-			prID = parts[1] + "/" + parts[2] + "/" + parts[4]
-		}
-	}
-
-	mrDetails, err := providerInstance.GetMergeRequestDetails(ctx, args.PRURL)
-	if err == nil && mrDetails != nil {
-		prID = mrDetails.ID
-		if args.Provider == "github" {
-			u, parseErr := url.Parse(mrDetails.URL)
-			if parseErr == nil {
-				parts := strings.Split(u.Path, "/")
-				if len(parts) >= 5 && parts[3] == "pull" {
-					prID = parts[1] + "/" + parts[2] + "/" + parts[4]
-				}
-			}
-		} else if args.Provider == "bitbucket" {
-			u, parseErr := url.Parse(mrDetails.URL)
-			if parseErr == nil {
-				parts := strings.Split(u.Path, "/")
-				if len(parts) >= 5 && parts[3] == "pull-requests" {
-					prID = parts[1] + "/" + parts[2] + "/" + parts[4]
-				}
-			}
-		}
-		
-		// Update review metadata (Issue #5)
-		authorName := mrDetails.AuthorName
-		if authorName == "" {
-			authorName = mrDetails.Author
-		}
-		authorUsername := mrDetails.AuthorUsername
-		if authorUsername == "" {
-			authorUsername = mrDetails.Author
-		}
-		
-		_, dbErr := w.db.ExecContext(ctx, `
-			UPDATE public.reviews
-			SET repository = COALESCE(NULLIF($1, ''), repository),
-			    branch = COALESCE(NULLIF($2, ''), branch),
-			    mr_title = COALESCE(NULLIF($3, ''), mr_title),
-			    author_name = COALESCE(NULLIF($4, ''), author_name),
-			    author_username = COALESCE(NULLIF($5, ''), author_username)
-			WHERE id = $6
-		`, mrDetails.RepositoryURL, mrDetails.SourceBranch, mrDetails.Title, authorName, authorUsername, args.ReviewID)
-		
-		if dbErr != nil {
-			log.Printf("[WARN] ToolReviewOrchestrator: failed to update review metadata for review=%d: %v", args.ReviewID, dbErr)
-		}
-	}
-
-	changes, err := providerInstance.GetMergeRequestChanges(ctx, prID)
-	if err != nil {
-		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
-		if logger != nil {
-			logger.EmitReviewFailure(fmt.Errorf("failed to get MR changes: %w", err))
-		}
-		return fmt.Errorf("failed to get MR changes: %w", err)
-	}
-
-	rawDiff := reviewpkg.FormatDiffs(changes)
-	if rawDiff == "" {
-		log.Printf("[INFO] ToolReviewOrchestrator: empty diff for review %d", args.ReviewID)
-		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "completed", args.ReviewID)
-		return nil
-	}
-
-	// 4. Run Tools in Parallel
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var allComments []string
-
-	for _, tool := range enabledTools {
-		wg.Add(1)
-		go func(t storagetools.AvailableTool) {
-			defer wg.Done()
-
-			var buf bytes.Buffer
-			zipWriter := zip.NewWriter(&buf)
-			if f, err := zipWriter.Create("diff.txt"); err == nil {
-				f.Write([]byte(rawDiff))
-			}
-			zipWriter.Close()
-			zipBase64 := base64.StdEncoding.EncodeToString(buf.Bytes())
-
-			payloadMap := map[string]interface{}{
-				"review_id": args.ReviewID,
-				"diff":      rawDiff,
-				"zip_file":  zipBase64,
-			}
-			payloadBytes, err := json.Marshal(payloadMap)
-			if err != nil {
-				log.Printf("[ERROR] Tool %s payload marshal failed: %v", t.Name, err)
-				return
-			}
-
-			respBytes, err := tools.InvokeTool(ctx, w.awsCfg, t.LambdaARN, payloadBytes)
-			if err != nil {
-				log.Printf("[ERROR] Tool %s lambda invocation failed: %v", t.Name, err)
-				return
-			}
-
-			// Parse response to see if there are findings
-			var result struct {
-				Findings []storagetools.ToolFinding `json:"findings"`
-			}
-			_ = json.Unmarshal(respBytes, &result)
-
-			// Store the event in review_events
-			_ = toolsStore.InsertToolResultEvent(ctx, args.ReviewID, args.OrgID, t.ID, t.Name, respBytes)
-
-			// Collect comments
-			if len(result.Findings) > 0 {
-				mu.Lock()
-				for _, f := range result.Findings {
-					comment := fmt.Sprintf("**[%s]** `%s:%d:%d` %s\n%s", t.Name, f.File, f.Line, f.Col, f.Rule, f.Message)
-					allComments = append(allComments, comment)
-				}
-				mu.Unlock()
-			}
-		}(tool)
-	}
-
-	wg.Wait()
-
-	// 5. Post Combined Comments to Provider
-	if len(allComments) > 0 {
-		combinedComment := "### LiveReview Static Analysis Findings\n\n" + strings.Join(allComments, "\n\n---\n")
-		commentObj := &models.ReviewComment{
-			Content: combinedComment,
-		}
-		postErr := providerInstance.PostComment(ctx, prID, commentObj)
-		if postErr != nil {
-			log.Printf("[ERROR] Failed to post static analysis comments to PR: %v", postErr)
-		}
-	}
-
-	// 6. Finalize
-	_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "completed", args.ReviewID)
-	log.Printf("[INFO] ToolReviewOrchestrator: completed review=%d", args.ReviewID)
-	if logger != nil {
-		logger.EmitReviewCompletion(len(allComments), "Tool static analysis complete")
 // QueueReviewJob enqueues a new diff review job to the "review" queue.
 func (jq *JobQueue) QueueReviewJob(ctx context.Context, args DiffReviewJobArgs) error {
 	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review", MaxAttempts: 5})

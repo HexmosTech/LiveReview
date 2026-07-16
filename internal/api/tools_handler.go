@@ -96,11 +96,6 @@ func (s *Server) ListOrgTools(c echo.Context) error {
 	pc := auth.MustGetPermissionContext(c)
 	orgID := pc.GetOrgID()
 
-	// Cloud gate check
-	if !s.deploymentConfig.IsCloud {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "Third-party tools are only available in cloud mode"})
-	}
-
 	store := tools.NewToolsStore(s.db)
 	orgTools, err := store.GetAvailableToolsForOrg(c.Request().Context(), orgID)
 	if err != nil {
@@ -114,15 +109,10 @@ func (s *Server) ListOrgTools(c echo.Context) error {
 // Updates the enabled state of a specific tool for the organization.
 func (s *Server) UpdateOrgTool(c echo.Context) error {
 	pc := auth.MustGetPermissionContext(c)
-	if err := pc.RequireOrgOwner(); err != nil {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": err.Error()})
+	if !pc.IsOwner && !pc.IsSuperAdmin {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "Only organization owner is authorized to update tools settings"})
 	}
 	orgID := pc.GetOrgID()
-
-	// Cloud gate check
-	if !s.deploymentConfig.IsCloud {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "Third-party tools are only available in cloud mode"})
-	}
 
 	toolIDStr := c.Param("tool_id")
 	toolID, err := strconv.ParseInt(toolIDStr, 10, 64)
@@ -157,11 +147,6 @@ func (s *Server) UpdateOrgTool(c echo.Context) error {
 func (s *Server) GetOrgToolCredits(c echo.Context) error {
 	pc := auth.MustGetPermissionContext(c)
 	orgID := pc.GetOrgID()
-
-	// Cloud gate check
-	if !s.deploymentConfig.IsCloud {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "Third-party tools are only available in cloud mode"})
-	}
 
 	creditStore := tools.NewCreditStore(s.db)
 	usage, err := creditStore.GetCreditUsage(c.Request().Context(), orgID, 0)
