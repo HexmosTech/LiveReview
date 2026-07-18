@@ -83,7 +83,9 @@ func (s *CreditStore) GetCreditUsage(ctx context.Context, orgID int64, currentMu
 		return CreditUsage{}, err
 	}
 
-	_ = tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return CreditUsage{}, fmt.Errorf("failed to commit credit usage transaction: %w", err)
+	}
 
 	remainingCredits := currentLimit - currentUsed
 	if remainingCredits < 0 {

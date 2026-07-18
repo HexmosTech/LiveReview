@@ -82,12 +82,12 @@ func (w *ToolReviewOrchestratorWorker) Work(ctx context.Context, job *river.Job[
 	providerFactory := reviewpkg.NewStandardProviderFactory()
 	
 	// Fetch connection details to build ProviderConfig
-	var token string
+	var tokenNS sql.NullString
 	var patToken sql.NullString
 	var tokenType sql.NullString
 	var providerURL sql.NullString
 	
-	err = w.db.QueryRowContext(ctx, `SELECT access_token, pat_token, token_type, provider_url FROM integration_tokens WHERE id = $1 AND org_id = $2`, args.ConnectorID, args.OrgID).Scan(&token, &patToken, &tokenType, &providerURL)
+	err = w.db.QueryRowContext(ctx, `SELECT access_token, pat_token, token_type, provider_url FROM integration_tokens WHERE id = $1 AND org_id = $2`, args.ConnectorID, args.OrgID).Scan(&tokenNS, &patToken, &tokenType, &providerURL)
 	if err != nil {
 		_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
 		if logger != nil {
@@ -96,7 +96,7 @@ func (w *ToolReviewOrchestratorWorker) Work(ctx context.Context, job *river.Job[
 		return fmt.Errorf("failed to get integration token: %w", err)
 	}
 	
-	actualToken := token
+	actualToken := tokenNS.String
 	if tokenType.Valid && tokenType.String == "PAT" && patToken.Valid && patToken.String != "" {
 		actualToken = patToken.String
 	}
@@ -224,6 +224,11 @@ func (w *ToolReviewOrchestratorWorker) Work(ctx context.Context, job *river.Job[
 		postErr := providerInstance.PostComment(ctx, prID, commentObj)
 		if postErr != nil {
 			log.Printf("[ERROR] Failed to post static analysis comments to PR: %v", postErr)
+			_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
+			if logger != nil {
+				logger.EmitReviewFailure(fmt.Errorf("failed to post comments to PR: %w", postErr))
+			}
+			return fmt.Errorf("failed to post static analysis comments to PR: %w", postErr)
 		}
 	}
 

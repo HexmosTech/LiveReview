@@ -2313,9 +2313,10 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 
 	awsCfg, awsErr := awsconfig.LoadDefaultConfig(context.Background())
 	if awsErr != nil {
-		log.Printf("[WARN] Failed to load AWS config for Lambda: %v. Lambda tools will fail to invoke.", awsErr)
+		log.Printf("[WARN] Failed to load AWS config for Lambda: %v. ToolReviewOrchestratorWorker will not be registered.", awsErr)
+	} else {
+		river.AddWorker(workers, &ToolReviewOrchestratorWorker{db: db, awsCfg: awsCfg})
 	}
-	river.AddWorker(workers, &ToolReviewOrchestratorWorker{db: db, awsCfg: awsCfg})
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues:                      config.RiverQueueConfig(),
