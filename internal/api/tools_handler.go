@@ -2,13 +2,19 @@ package api
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
 	"github.com/livereview/storage/tools"
 )
+
+// lambdaARNRegexp validates AWS Lambda ARN format:
+// arn:aws:lambda:<region>:<account-id>:function:<function-name>
+var lambdaARNRegexp = regexp.MustCompile(`^arn:aws(?:-cn|-us-gov)?:lambda:[a-z0-9-]+:\d{12}:function:[a-zA-Z0-9_-]+(?::[a-zA-Z0-9_-]+)?$`)
 
 // UpsertToolRequest is the payload for POST /api/v1/admin/tools
 // Called by `make register-tools` in lr-tools after Lambda deployment.
@@ -30,6 +36,11 @@ func (s *Server) UpsertAvailableTool(c echo.Context) error {
 	}
 	if req.Name == "" || req.LambdaARN == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "name and lambda_arn are required"})
+	}
+	if !lambdaARNRegexp.MatchString(req.LambdaARN) {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("invalid lambda_arn format %q: must be a valid AWS Lambda ARN (arn:aws:lambda:REGION:ACCOUNT_ID:function:FUNCTION_NAME)", req.LambdaARN),
+		})
 	}
 	if req.Multiplier <= 0 {
 		req.Multiplier = 1.0

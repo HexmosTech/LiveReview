@@ -54,7 +54,8 @@ func (w *ToolReviewOrchestratorWorker) Work(ctx context.Context, job *river.Job[
 	logger, err := logging.StartReviewLoggingWithIDs(strconv.FormatInt(args.ReviewID, 10), args.ReviewID, args.OrgID)
 	if err != nil {
 		log.Printf("[WARN] ToolReviewOrchestrator: failed to start review logger: %v", err)
-	} else {
+	}
+	if logger != nil {
 		defer logger.Close()
 		logger.LogSection("ORCHESTRATOR STARTED")
 		logger.Log("Tool Review Orchestrator initialized for review ID %d", args.ReviewID)

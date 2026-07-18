@@ -436,11 +436,17 @@ paths:
         - Aiconnectors
   /api/v1/auth/change-password:
     post:
-      description: ChangePassword handles changing the current user's password
+      description: ChangePassword handles password changes (useful for temp passwords)
       operationId: ChangePassword
       responses:
         "200":
           description: OK
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "500":
+          description: Internal Server Error
       tags:
         - Auth
   /api/v1/auth/ensure-cloud-user:
@@ -2549,11 +2555,17 @@ paths:
         - Users
   /api/v1/users/password:
     put:
-      description: ChangePassword handles changing the current user's password
+      description: ChangePassword handles password changes (useful for temp passwords)
       operationId: ChangePassword
       responses:
         "200":
           description: OK
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "500":
+          description: Internal Server Error
       tags:
         - Users
   /api/v1/users/profile:

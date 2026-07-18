@@ -102,7 +102,7 @@ start_pg() {
     fi
 
     echo "Container already exists. Starting..."
-    # docker update --restart unless-stopped "$PG_CONTAINER_NAME" >/dev/null
+    docker update --restart unless-stopped "$PG_CONTAINER_NAME" >/dev/null
     docker start "$PG_CONTAINER_NAME"
   else
     if [ -d "$LEGACY_PG_DATA_DIR" ] && is_pg_volume_empty; then
