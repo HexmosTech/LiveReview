@@ -74,19 +74,22 @@ func (s *Server) CreateToolReview(c echo.Context) error {
 		return c.JSON(http.StatusPaymentRequired, map[string]string{"error": err.Error()})
 	}
 
-	// Create review row with trigger_type = 'tool_review'
+	// Create review row with trigger_type = 'tool_review'.
+	// The repository, branch, and commit_hash fields are initially set to
+	// placeholder values; ToolReviewOrchestratorWorker will overwrite them
+	// with real metadata fetched from the provider once the job runs.
 	reviewManager := NewReviewManager(s.db)
 	review, err := reviewManager.CreateReviewWithOrg(
-		req.PRURL,     // repository
-		"",            // branch
-		"",            // commit_hash
+		req.PRURL,     // repository — placeholder, overwritten by orchestrator
+		"tool_review", // branch — placeholder, overwritten by orchestrator
+		"",            // commit_hash — not available at submission time
 		req.PRURL,     // pr_mr_url
 		"tool_review", // trigger_type
 		userEmail,
 		provider,
 		&connectorID,
 		map[string]interface{}{
-			"triggered_from": "tool_review",
+			"triggered_from":  "tool_review",
 			"multiplier_used": totalMultiplier,
 		},
 		orgID,

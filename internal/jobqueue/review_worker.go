@@ -331,6 +331,10 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	failureReason := ""
 
 	if args.ToolsOnly {
+		// Mark in_progress immediately so the review doesn't appear stuck in 'pending'
+		if err := rm.UpdateReviewStatus(args.ReviewID, "in_progress"); err != nil {
+			log.Printf("[WARN] failed to mark review %d in_progress: %v", args.ReviewID, err)
+		}
 		status = "completed"
 		summary = "### Static Analysis Tools Review Only\n\nAI review skipped due to --tools flag."
 		if logger != nil {
@@ -455,6 +459,9 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 			if args.ToolsOnly {
 				status = "failed"
 				failureReason = fmt.Sprintf("failed to load AWS config: %v", awsErr)
+				if err := rm.UpdateReviewStatus(args.ReviewID, "failed"); err != nil {
+					log.Printf("[WARN] failed to mark review %d failed: %v", args.ReviewID, err)
+				}
 			}
 		} else {
 			rawDiff := review.FormatDiffs(modelDiffs)
@@ -466,6 +473,9 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 				if args.ToolsOnly {
 					status = "failed"
 					failureReason = fmt.Sprintf("static analysis tools review failed: %v", err)
+					if err := rm.UpdateReviewStatus(args.ReviewID, "failed"); err != nil {
+						log.Printf("[WARN] failed to mark review %d failed: %v", args.ReviewID, err)
+					}
 				}
 			} else {
 				toolComments = comments

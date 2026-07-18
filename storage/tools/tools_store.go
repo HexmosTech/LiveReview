@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 )
 
 type AvailableTool struct {
@@ -182,20 +183,18 @@ func (s *ToolsStore) InsertToolResultEvent(ctx context.Context, reviewID, orgID,
 		resp.Findings = json.RawMessage("[]")
 	}
 
-	type ToolResultEventData struct {
-		ToolID      int64           `json:"tool_id"`
-		ToolName    string          `json:"tool_name"`
-		ExitCode    int             `json:"exit_code"`
-		Findings    json.RawMessage `json:"findings"`
-		LinesOfCode int             `json:"lines_of_code"`
-		Stderr      string          `json:"stderr"`
+	var parsedFindings []ToolFinding
+	if err := json.Unmarshal(resp.Findings, &parsedFindings); err != nil {
+		// If parsing fails, store an empty slice rather than corrupting the event
+		log.Printf("[WARN] StoreToolResultEvent: failed to parse findings for tool %d: %v", toolID, err)
+		parsedFindings = []ToolFinding{}
 	}
 
 	eventData := ToolResultEventData{
 		ToolID:      toolID,
 		ToolName:    toolName,
 		ExitCode:    resp.ExitCode,
-		Findings:    resp.Findings,
+		Findings:    parsedFindings,
 		LinesOfCode: resp.LinesOfCode,
 		Stderr:      resp.Stderr,
 	}
