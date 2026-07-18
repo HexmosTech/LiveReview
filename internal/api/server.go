@@ -913,10 +913,14 @@ func (s *Server) setupRoutes() {
 	orgGroup.POST("/api-keys/:id/revoke", s.RevokeAPIKeyHandler)
 	orgGroup.DELETE("/api-keys/:id", s.DeleteAPIKeyHandler)
 
-	// Third-party tools endpoints within org context
-	orgGroup.GET("/tools", s.ListOrgTools)
-	orgGroup.GET("/tools/credits", s.GetOrgToolCredits)
-	orgGroup.PUT("/tools/:tool_id", s.UpdateOrgTool)
+	// Third-party tools endpoints within org context.
+	// Billing middleware is required so handlers can enforce paid-plan gating.
+	toolsGroup := orgGroup.Group("")
+	toolsGroup.Use(apimiddleware.BuildOrgBillingPlanContext(s.db, s.licenseService()))
+	toolsGroup.Use(apimiddleware.BuildPlanContext())
+	toolsGroup.GET("/tools", s.ListOrgTools)
+	toolsGroup.GET("/tools/credits", s.GetOrgToolCredits)
+	toolsGroup.PUT("/tools/:tool_id", s.UpdateOrgTool)
 
 	// Organization creation - available to all authenticated users
 	protectedOrgsGroup.POST("/organizations", s.orgHandlers.CreateOrganization)
