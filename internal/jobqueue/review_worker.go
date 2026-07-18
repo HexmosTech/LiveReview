@@ -331,9 +331,12 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	failureReason := ""
 
 	if args.ToolsOnly {
-		// Mark in_progress immediately so the review doesn't appear stuck in 'pending'
+		// Mark in_progress immediately so the review doesn't appear stuck in 'pending'.
+		// If this fails we return an error so River retries — a stuck-pending review
+		// is worse than a delayed retry.
 		if err := rm.UpdateReviewStatus(args.ReviewID, "in_progress"); err != nil {
-			log.Printf("[WARN] failed to mark review %d in_progress: %v", args.ReviewID, err)
+			log.Printf("[ERROR] failed to mark review %d in_progress: %v", args.ReviewID, err)
+			return fmt.Errorf("failed to mark review in_progress: %w", err)
 		}
 		status = "completed"
 		summary = "### Static Analysis Tools Review Only\n\nAI review skipped due to --tools flag."
@@ -459,9 +462,11 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 			if args.ToolsOnly {
 				status = "failed"
 				failureReason = fmt.Sprintf("failed to load AWS config: %v", awsErr)
-				if err := rm.UpdateReviewStatus(args.ReviewID, "failed"); err != nil {
-					log.Printf("[WARN] failed to mark review %d failed: %v", args.ReviewID, err)
+				if updateErr := rm.UpdateReviewStatus(args.ReviewID, "failed"); updateErr != nil {
+					log.Printf("[ERROR] failed to mark review %d failed after AWS config error: %v", args.ReviewID, updateErr)
+					return fmt.Errorf("failed to persist review failure status: %w", updateErr)
 				}
+				return fmt.Errorf("tool review failed: %w", awsErr)
 			}
 		} else {
 			rawDiff := review.FormatDiffs(modelDiffs)
@@ -473,9 +478,11 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 				if args.ToolsOnly {
 					status = "failed"
 					failureReason = fmt.Sprintf("static analysis tools review failed: %v", err)
-					if err := rm.UpdateReviewStatus(args.ReviewID, "failed"); err != nil {
-						log.Printf("[WARN] failed to mark review %d failed: %v", args.ReviewID, err)
+					if updateErr := rm.UpdateReviewStatus(args.ReviewID, "failed"); updateErr != nil {
+						log.Printf("[ERROR] failed to mark review %d failed after tools error: %v", args.ReviewID, updateErr)
+						return fmt.Errorf("failed to persist review failure status: %w", updateErr)
 					}
+					return fmt.Errorf("tool review failed: %w", err)
 				}
 			} else {
 				toolComments = comments
