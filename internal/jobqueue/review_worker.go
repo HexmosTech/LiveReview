@@ -118,13 +118,16 @@ func (w *ManualReviewWorker) Work(ctx context.Context, job *river.Job[ManualRevi
 	}
 
 	// After AI review completes, fan-out to tool jobs if any tools are enabled.
-	w.maybeQueueToolJobs(ctx, args.OrgID, args.ReviewID)
+	w.maybeQueueToolJobs(ctx, args.OrgID, args.ReviewID, license.PlanType(args.PlanCode))
 	return nil
 }
 
 // maybeQueueToolJobs checks whether any tools are enabled for the org and, if so,
 // checks credits and queues a ToolReviewOrchestratorJob for the completed review.
-func (w *ManualReviewWorker) maybeQueueToolJobs(ctx context.Context, orgID, reviewID int64) {
+func (w *ManualReviewWorker) maybeQueueToolJobs(ctx context.Context, orgID, reviewID int64, planCode license.PlanType) {
+	if !license.IsToolsEligible(planCode) {
+		return // tools not available on this plan
+	}
 	toolsStore := storagetools.NewToolsStore(w.jq.db)
 	enabledTools, err := toolsStore.GetEnabledToolsForOrg(ctx, orgID)
 	if err != nil {
@@ -141,7 +144,7 @@ func (w *ManualReviewWorker) maybeQueueToolJobs(ctx context.Context, orgID, revi
 	}
 
 	creditStore := storagetools.NewCreditStore(w.jq.db)
-	if err := creditStore.CheckCreditPreflight(ctx, orgID, totalMultiplier); err != nil {
+	if err := creditStore.CheckCreditPreflight(ctx, orgID, totalMultiplier, planCode); err != nil {
 		log.Printf("[WARN] ManualReviewWorker: insufficient tool credits for org %d: %v", orgID, err)
 		return
 	}

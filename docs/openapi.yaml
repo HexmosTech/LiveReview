@@ -436,17 +436,11 @@ paths:
         - Aiconnectors
   /api/v1/auth/change-password:
     post:
-      description: ChangePassword handles password changes (useful for temp passwords)
+      description: ChangePassword handles changing the current user's password
       operationId: ChangePassword
       responses:
         "200":
           description: OK
-        "400":
-          description: Bad Request
-        "401":
-          description: Unauthorized
-        "500":
-          description: Internal Server Error
       tags:
         - Auth
   /api/v1/auth/ensure-cloud-user:
@@ -1635,6 +1629,7 @@ paths:
       description: |-
         ListOrgTools handles GET /api/v1/orgs/:org_id/tools
         Returns the org's tool configuration views.
+        Access: cloud + paid LOC plan only.
       operationId: ListOrgTools
       parameters:
         - in: path
@@ -1652,6 +1647,7 @@ paths:
       description: |-
         UpdateOrgTool handles PUT /api/v1/orgs/:org_id/tools/:tool_id
         Updates the enabled state of a specific tool for the organization.
+        Access: cloud + paid LOC plan + owner role only.
       operationId: UpdateOrgTool
       parameters:
         - in: path
@@ -1682,6 +1678,7 @@ paths:
       description: |-
         GetOrgToolCredits handles GET /api/v1/orgs/:org_id/tools/credits
         Returns the actual tool credit usage and limits.
+        Access: cloud + paid LOC plan only.
       operationId: GetOrgToolCredits
       parameters:
         - in: path
@@ -2555,17 +2552,11 @@ paths:
         - Users
   /api/v1/users/password:
     put:
-      description: ChangePassword handles password changes (useful for temp passwords)
+      description: ChangePassword handles changing the current user's password
       operationId: ChangePassword
       responses:
         "200":
           description: OK
-        "400":
-          description: Bad Request
-        "401":
-          description: Unauthorized
-        "500":
-          description: Internal Server Error
       tags:
         - Users
   /api/v1/users/profile:

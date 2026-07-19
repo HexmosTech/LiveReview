@@ -487,10 +487,12 @@ func (wo *WebhookOrchestratorV2) handleFullReviewFlow(ctx context.Context, event
 				totalMultiplier += t.Multiplier
 			}
 			
-			// Pre-flight credit check
+			// Pre-flight credit check (also enforces paid-plan requirement)
+			webhookPlanCode, planErr := wo.resolveOrgPlanCode(ctx, orgID)
 			creditStore := storagetools.NewCreditStore(wo.server.db)
-			err = creditStore.CheckCreditPreflight(ctx, orgID, totalMultiplier)
-			if err != nil {
+			if planErr != nil || !license.IsToolsEligible(webhookPlanCode) {
+				log.Printf("[INFO] Tools not available for org %d (plan=%s): skipping tool fan-out", orgID, webhookPlanCode)
+			} else if err = creditStore.CheckCreditPreflight(ctx, orgID, totalMultiplier, webhookPlanCode); err != nil {
 				log.Printf("[WARN] Insufficient tool credits for org %d: %v", orgID, err)
 			} else {
 				err = wo.server.jobQueue.QueueToolReviewOrchestratorJob(

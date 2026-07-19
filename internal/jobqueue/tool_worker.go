@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
 	reviewpkg "github.com/livereview/internal/review"
 	"github.com/livereview/network/tools"
@@ -271,7 +272,19 @@ func ExecuteToolsForReview(
 	}
 
 	creditStore := storagetools.NewCreditStore(db)
-	err = creditStore.DeductCredits(ctx, orgID, reviewID, totalMultiplier)
+
+	// Fetch plan code for this org from the review record (defense-in-depth plan check).
+	var planCodeStr string
+	_ = db.QueryRowContext(ctx,
+		`SELECT COALESCE(m->>'plan_code', '') FROM reviews WHERE id = $1`,
+		reviewID,
+	).Scan(&planCodeStr)
+	planCode := license.PlanType(planCodeStr)
+	if !license.IsToolsEligible(planCode) {
+		return nil, fmt.Errorf("tools not available on plan %q — skipping tool execution", planCode)
+	}
+
+	err = creditStore.DeductCredits(ctx, orgID, reviewID, totalMultiplier, planCode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deduct credits: %w", err)
 	}

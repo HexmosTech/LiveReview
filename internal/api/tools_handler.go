@@ -9,8 +9,31 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/license"
 	"github.com/livereview/storage/tools"
 )
+
+// requireToolsAccess checks IsCloud + paid plan eligibility and returns an
+// error response if the caller is not allowed to use the tools feature.
+// Returns true if the check passed (caller may proceed), false if a response
+// has already been written and the handler should return.
+func (s *Server) requireToolsAccess(c echo.Context) bool {
+	if !s.deploymentConfig.IsCloud {
+		c.JSON(http.StatusForbidden, map[string]string{ //nolint:errcheck
+			"error": "Third-party tools are only available in cloud mode",
+		})
+		return false
+	}
+	planTypeStr, _ := c.Get("plan_type").(string)
+	plan := license.PlanType(planTypeStr)
+	if !license.IsToolsEligible(plan) {
+		c.JSON(http.StatusForbidden, map[string]string{ //nolint:errcheck
+			"error": "Third-party tools require a paid LOC plan (Team or higher). Upgrade to enable this feature.",
+		})
+		return false
+	}
+	return true
+}
 
 // lambdaARNRegexp validates AWS Lambda ARN format:
 // arn:aws:lambda:<region>:<account-id>:function:<function-name>
@@ -103,7 +126,11 @@ func upsertAvailableTool(db *sql.DB, req UpsertToolRequest) error {
 
 // ListOrgTools handles GET /api/v1/orgs/:org_id/tools
 // Returns the org's tool configuration views.
+// Access: cloud + paid LOC plan only.
 func (s *Server) ListOrgTools(c echo.Context) error {
+	if !s.requireToolsAccess(c) {
+		return nil
+	}
 	pc := auth.MustGetPermissionContext(c)
 	orgID := pc.GetOrgID()
 
@@ -118,7 +145,11 @@ func (s *Server) ListOrgTools(c echo.Context) error {
 
 // UpdateOrgTool handles PUT /api/v1/orgs/:org_id/tools/:tool_id
 // Updates the enabled state of a specific tool for the organization.
+// Access: cloud + paid LOC plan + owner role only.
 func (s *Server) UpdateOrgTool(c echo.Context) error {
+	if !s.requireToolsAccess(c) {
+		return nil
+	}
 	pc := auth.MustGetPermissionContext(c)
 	if !pc.IsOwner && !pc.IsSuperAdmin {
 		return c.JSON(http.StatusForbidden, map[string]string{"error": "Only organization owner is authorized to update tools settings"})
@@ -155,12 +186,17 @@ func (s *Server) UpdateOrgTool(c echo.Context) error {
 
 // GetOrgToolCredits handles GET /api/v1/orgs/:org_id/tools/credits
 // Returns the actual tool credit usage and limits.
+// Access: cloud + paid LOC plan only.
 func (s *Server) GetOrgToolCredits(c echo.Context) error {
+	if !s.requireToolsAccess(c) {
+		return nil
+	}
 	pc := auth.MustGetPermissionContext(c)
 	orgID := pc.GetOrgID()
 
 	creditStore := tools.NewCreditStore(s.db)
-	usage, err := creditStore.GetCreditUsage(c.Request().Context(), orgID, 0)
+	planTypeStr, _ := c.Get("plan_type").(string)
+	usage, err := creditStore.GetCreditUsage(c.Request().Context(), orgID, 0, license.PlanType(planTypeStr))
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
