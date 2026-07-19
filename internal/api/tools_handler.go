@@ -126,12 +126,15 @@ func upsertAvailableTool(db *sql.DB, req UpsertToolRequest) error {
 
 // ListOrgTools handles GET /api/v1/orgs/:org_id/tools
 // Returns the org's tool configuration views.
-// Access: cloud + paid LOC plan only.
+// Access: cloud + paid LOC plan + owner role only.
 func (s *Server) ListOrgTools(c echo.Context) error {
 	if !s.requireToolsAccess(c) {
 		return nil
 	}
 	pc := auth.MustGetPermissionContext(c)
+	if !pc.IsOwner && !pc.IsSuperAdmin {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "Only organization owner can view tool settings"})
+	}
 	orgID := pc.GetOrgID()
 
 	store := tools.NewToolsStore(s.db)
@@ -186,12 +189,15 @@ func (s *Server) UpdateOrgTool(c echo.Context) error {
 
 // GetOrgToolCredits handles GET /api/v1/orgs/:org_id/tools/credits
 // Returns the actual tool credit usage and limits.
-// Access: cloud + paid LOC plan only.
+// Access: cloud + paid LOC plan + owner role only.
 func (s *Server) GetOrgToolCredits(c echo.Context) error {
 	if !s.requireToolsAccess(c) {
 		return nil
 	}
 	pc := auth.MustGetPermissionContext(c)
+	if !pc.IsOwner && !pc.IsSuperAdmin {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "Only organization owner can view tool credit usage"})
+	}
 	orgID := pc.GetOrgID()
 
 	creditStore := tools.NewCreditStore(s.db)
