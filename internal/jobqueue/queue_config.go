@@ -283,12 +283,24 @@ func (c *QueueConfig) RiverQueueConfig() map[string]river.QueueConfig {
 		}
 	}
 
+	toolWorkers := 10 // dedicated concurrency for tool Lambda jobs
+	if envVal := os.Getenv("LIVEREVIEW_WORKER_CONCURRENT_TOOL_REVIEWS"); envVal != "" {
+		if val, err := strconv.Atoi(envVal); err == nil && val > 0 {
+			toolWorkers = val
+		}
+	}
+
 	return map[string]river.QueueConfig{
 		river.QueueDefault: {
 			MaxWorkers: c.MaxWorkers,
 		},
 		"review": {
 			MaxWorkers: reviewWorkers,
+		},
+		// tools queue: dedicated to tool-review Lambda orchestration jobs.
+		// Isolated from the main review queue so tool runs don't starve AI reviews.
+		"tools": {
+			MaxWorkers: toolWorkers,
 		},
 	}
 }

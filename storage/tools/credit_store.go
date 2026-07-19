@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/livereview/internal/license"
 )
 
 type CreditUsage struct {
@@ -68,8 +70,13 @@ func (s *CreditStore) ensureAndLockBillingState(ctx context.Context, tx *sql.Tx,
 	return currentUsed, currentLimit, nil
 }
 
-// GetCreditUsage retrieves the current credit usage for an organization
-func (s *CreditStore) GetCreditUsage(ctx context.Context, orgID int64, currentMultiplier float64) (CreditUsage, error) {
+// GetCreditUsage retrieves the current credit usage for an organization.
+// Returns an error if the plan is not tools-eligible.
+func (s *CreditStore) GetCreditUsage(ctx context.Context, orgID int64, currentMultiplier float64, planCode license.PlanType) (CreditUsage, error) {
+	if !license.IsToolsEligible(planCode) {
+		return CreditUsage{}, fmt.Errorf("tools credits are not available on the %s plan", planCode)
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return CreditUsage{}, err
@@ -105,9 +112,10 @@ func (s *CreditStore) GetCreditUsage(ctx context.Context, orgID int64, currentMu
 	}, nil
 }
 
-// CheckCreditPreflight checks if the organization has enough credits for the required multiplier
-func (s *CreditStore) CheckCreditPreflight(ctx context.Context, orgID int64, requiredMultiplier float64) error {
-	usage, err := s.GetCreditUsage(ctx, orgID, requiredMultiplier)
+// CheckCreditPreflight checks if the organization has enough credits for the required multiplier.
+// Returns an error if the plan is not tools-eligible.
+func (s *CreditStore) CheckCreditPreflight(ctx context.Context, orgID int64, requiredMultiplier float64, planCode license.PlanType) error {
+	usage, err := s.GetCreditUsage(ctx, orgID, requiredMultiplier, planCode)
 	if err != nil {
 		return err
 	}
@@ -117,8 +125,12 @@ func (s *CreditStore) CheckCreditPreflight(ctx context.Context, orgID int64, req
 	return nil
 }
 
-// DeductCredits securely deducts the credits and writes to the ledger
-func (s *CreditStore) DeductCredits(ctx context.Context, orgID int64, reviewID int64, multiplier float64) error {
+// DeductCredits securely deducts the credits and writes to the ledger.
+// Returns an error if the plan is not tools-eligible.
+func (s *CreditStore) DeductCredits(ctx context.Context, orgID int64, reviewID int64, multiplier float64, planCode license.PlanType) error {
+	if !license.IsToolsEligible(planCode) {
+		return fmt.Errorf("tools credits are not available on the %s plan", planCode)
+	}
 	if multiplier <= 0 {
 		return nil
 	}

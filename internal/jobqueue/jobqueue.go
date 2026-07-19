@@ -2403,6 +2403,7 @@ func (jq *JobQueue) QueueReviewJob(ctx context.Context, args DiffReviewJobArgs) 
 }
 
 // QueueToolReviewOrchestratorJob queues the single orchestrator job for tool reviews
+// into the dedicated "tools" River queue (10 workers, isolated from AI review jobs).
 func (jq *JobQueue) QueueToolReviewOrchestratorJob(ctx context.Context, reviewID, orgID int64, prURL string, connectorID int64, provider string, totalMultiplier float64) error {
 	args := ToolReviewOrchestratorJobArgs{
 		ReviewID:        reviewID,
@@ -2413,7 +2414,7 @@ func (jq *JobQueue) QueueToolReviewOrchestratorJob(ctx context.Context, reviewID
 		TotalMultiplier: totalMultiplier,
 	}
 
-	_, err := jq.client.Insert(ctx, args, nil)
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "tools", MaxAttempts: 5})
 	if err != nil {
 		return fmt.Errorf("failed to queue tool review orchestrator job: %w", err)
 	}
