@@ -12,13 +12,6 @@ import (
 
 // CreateToolReview handles POST /api/v1/reviews/tool-reviews
 func (s *Server) CreateToolReview(c echo.Context) error {
-	// Gated to cloud-mode only
-	if !s.deploymentConfig.IsCloud {
-		return c.JSON(http.StatusForbidden, map[string]string{
-			"error": "Tool reviews endpoint is only available in cloud mode",
-		})
-	}
-
 	// Gated to paid LOC plans only (enterprise-selfhosted and free_30k are excluded for beta)
 	planTypeStr, _ := c.Get("plan_type").(string)
 	if !license.IsToolsEligible(license.PlanType(planTypeStr)) {

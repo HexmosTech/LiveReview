@@ -353,8 +353,8 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
-        // Third-Party Tools tab visible only in cloud mode for org owners
-        ...(isCloudMode() && currentOrg?.role === 'owner' ? [{
+        // Third-Party Tools tab visible for org owners or super admins
+        ...(isSuperAdmin || currentOrg?.role === 'owner' ? [{
             id: 'third-party-tools',
             name: 'Third-Party Tools',
             icon: <Icons.Tools />

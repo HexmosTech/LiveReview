@@ -23,6 +23,7 @@ import (
 	storagetools "github.com/livereview/storage/tools"
 	"github.com/riverqueue/river"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 )
 
 // WebhookReviewJobArgs represents the arguments for an asynchronous webhook review job.
@@ -457,7 +458,16 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	// Trigger Static Analysis Tools if enabled and review hasn't failed
 	var toolComments []*models.ReviewComment
 	if failureReason == "" {
-		awsCfg, awsErr := awsconfig.LoadDefaultConfig(ctx)
+		awsRegion := os.Getenv("AWS_REGION")
+		if awsRegion == "" {
+			awsRegion = "us-east-1"
+		}
+		var opts []func(*awsconfig.LoadOptions) error
+		opts = append(opts, awsconfig.WithRegion(awsRegion))
+		if keyID, secretKey := os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY"); keyID != "" && secretKey != "" {
+			opts = append(opts, awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(keyID, secretKey, "")))
+		}
+		awsCfg, awsErr := awsconfig.LoadDefaultConfig(ctx, opts...)
 		if awsErr != nil {
 			if logger != nil {
 				logger.Log("[ERROR] Failed to load AWS config: %v. Skipping tools review.", awsErr)
