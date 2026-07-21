@@ -18,12 +18,6 @@ import (
 // Returns true if the check passed (caller may proceed), false if a response
 // has already been written and the handler should return.
 func (s *Server) requireToolsAccess(c echo.Context) bool {
-	if !s.deploymentConfig.IsCloud {
-		c.JSON(http.StatusForbidden, map[string]string{ //nolint:errcheck
-			"error": "Third-party tools are only available in cloud mode",
-		})
-		return false
-	}
 	planTypeStr, _ := c.Get("plan_type").(string)
 	plan := license.PlanType(planTypeStr)
 	if !license.IsToolsEligible(plan) {

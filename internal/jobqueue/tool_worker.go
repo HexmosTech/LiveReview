@@ -273,12 +273,18 @@ func ExecuteToolsForReview(
 
 	creditStore := storagetools.NewCreditStore(db)
 
-	// Fetch plan code for this org from the review record (defense-in-depth plan check).
+	// Fetch plan code for this org from the review record or org_billing_state.
 	var planCodeStr string
 	_ = db.QueryRowContext(ctx,
-		`SELECT COALESCE(m->>'plan_code', '') FROM reviews WHERE id = $1`,
+		`SELECT COALESCE(metadata->>'plan_code', '') FROM public.reviews WHERE id = $1`,
 		reviewID,
 	).Scan(&planCodeStr)
+	if planCodeStr == "" {
+		_ = db.QueryRowContext(ctx,
+			`SELECT current_plan_code FROM public.org_billing_state WHERE org_id = $1`,
+			orgID,
+		).Scan(&planCodeStr)
+	}
 	planCode := license.PlanType(planCodeStr)
 	if !license.IsToolsEligible(planCode) {
 		return nil, fmt.Errorf("tools not available on plan %q — skipping tool execution", planCode)
