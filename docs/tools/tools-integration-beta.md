@@ -558,3 +558,36 @@ Contains a synthetic unified diff with deliberate fake secrets:
 2. The **ISSUE FILTERS** bar should show **N issues visible**
 3. Each finding appears in the diff view labelled **CRITICAL** with classification `tool-generated`
 4. Comment text reads: *"Gitleaks secret detected: ..."* with the matched secret redacted
+
+---
+
+## Repo-Level Tool Configuration via `.lrc/`
+
+In addition to organization-level tool settings managed via the UI (`org_tools`), repositories can specify tool configurations locally inside their `.lrc/` directory using `.lrc/tools.toml`.
+
+### Specification
+
+Location: `<repo-root>/.lrc/tools.toml`
+
+```toml
+[tools]
+gitleaks = true
+ruff = true
+bandit = true
+eslint = false
+```
+
+### Resolution Logic (Backend `ExecuteToolsForReview`)
+
+When a review is submitted by `lrc`, the `.lrc/tools.toml` file is bundled into the review payload ZIP (`diff_zip_base64`).
+
+During review execution:
+1. **Org-Level Tools**: LiveReview fetches enabled tools for the organization from `org_tools` where `enabled = true`.
+2. **Repo-Level Tools**: LiveReview parses `.lrc/tools.toml` from the submitted bundle.
+3. **Effective Tool Set (Union)**: Any tool enabled in `org_tools` **OR** enabled in `.lrc/tools.toml` (`tools.<tool_name> = true`) will be executed for the review, provided the tool exists in `available_tools`.
+4. **Overrides**: If a tool like `gitleaks` is disabled in `org_tools` for the organization, but `.lrc/tools.toml` specifies `gitleaks = true`, LiveReview resolves the Lambda ARN from `available_tools` and triggers the `gitleaks` Lambda execution for this review.
+
+
+
+
+## Tool Config Should also be 

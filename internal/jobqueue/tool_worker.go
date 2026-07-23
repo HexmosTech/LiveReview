@@ -15,8 +15,10 @@ import (
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/livereview/internal/diffutil"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
+	"github.com/livereview/internal/lrcconfig"
 	reviewpkg "github.com/livereview/internal/review"
 	"github.com/livereview/network/tools"
 	"github.com/livereview/pkg/models"
@@ -211,19 +213,9 @@ func (w *ToolReviewOrchestratorWorker) Work(ctx context.Context, job *river.Job[
 		return fmt.Errorf("failed to execute tools: %w", err)
 	}
 
-	var allComments []string
-	for _, c := range toolComments {
-		comment := fmt.Sprintf("`%s:%d` %s", c.FilePath, c.Line, c.Content)
-		allComments = append(allComments, comment)
-	}
-
-	// 5. Post Combined Comments to Provider
-	if len(allComments) > 0 {
-		combinedComment := "### LiveReview Static Analysis Findings\n\n" + strings.Join(allComments, "\n\n---\n")
-		commentObj := &models.ReviewComment{
-			Content: combinedComment,
-		}
-		postErr := providerInstance.PostComment(ctx, prID, commentObj)
+	// 5. Post Comments to Provider (inline on file:line when available)
+	if len(toolComments) > 0 {
+		postErr := providerInstance.PostComments(ctx, prID, toolComments)
 		if postErr != nil {
 			log.Printf("[ERROR] Failed to post static analysis comments to PR: %v", postErr)
 			_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "failed", args.ReviewID)
@@ -238,7 +230,7 @@ func (w *ToolReviewOrchestratorWorker) Work(ctx context.Context, job *river.Job[
 	_, _ = w.db.ExecContext(ctx, "UPDATE public.reviews SET status = $1 WHERE id = $2", "completed", args.ReviewID)
 	log.Printf("[INFO] ToolReviewOrchestrator: completed review=%d", args.ReviewID)
 	if logger != nil {
-		logger.EmitReviewCompletion(len(allComments), "Tool static analysis complete")
+		logger.EmitReviewCompletion(len(toolComments), "Tool static analysis complete")
 	}
 
 	return nil
@@ -262,6 +254,34 @@ func ExecuteToolsForReview(
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch enabled tools: %w", err)
 	}
+
+	// Parse repo-level tool configuration from zipBase64 if present (.lrc/tools.toml)
+	if zipBase64 != "" {
+		_, lrcBundle, parseErr := diffutil.ParseDiffZipBase64(zipBase64)
+		if parseErr == nil {
+			repoTools, toolTomlErr := lrcconfig.ParseToolConfig(lrcBundle)
+			if toolTomlErr == nil && len(repoTools) > 0 {
+				existingMap := make(map[string]bool)
+				for _, t := range enabledTools {
+					existingMap[strings.ToLower(t.Name)] = true
+				}
+				for toolName, enabled := range repoTools {
+					toolNameLower := strings.ToLower(toolName)
+					if enabled && !existingMap[toolNameLower] {
+						t, getErr := toolsStore.GetAvailableToolByName(ctx, toolNameLower)
+						if getErr == nil && t != nil {
+							enabledTools = append(enabledTools, *t)
+							existingMap[toolNameLower] = true
+							if logger != nil {
+								logger.Log(fmt.Sprintf("Repo-level config (.lrc/tools.toml) enabled tool %q", t.Name))
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	if len(enabledTools) == 0 {
 		return nil, nil
 	}

@@ -164,6 +164,32 @@ func (s *ToolsStore) GetEnabledToolsForOrg(ctx context.Context, orgID int64) ([]
 	return tools, nil
 }
 
+// GetAvailableToolByName fetches a tool from the global available_tools catalog by name.
+func (s *ToolsStore) GetAvailableToolByName(ctx context.Context, name string) (*AvailableTool, error) {
+	query := `
+		SELECT id, name, description, lambda_arn, multiplier, use_case
+		FROM public.available_tools
+		WHERE LOWER(name) = LOWER($1)
+		LIMIT 1
+	`
+	var t AvailableTool
+	err := s.db.QueryRowContext(ctx, query, name).Scan(
+		&t.ID,
+		&t.Name,
+		&t.Description,
+		&t.LambdaARN,
+		&t.Multiplier,
+		&t.UseCase,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query available tool %q: %w", name, err)
+	}
+	return &t, nil
+}
+
 // InsertToolResultEvent wraps raw Lambda response and logs it in review_events table.
 func (s *ToolsStore) InsertToolResultEvent(ctx context.Context, reviewID, orgID, toolID int64, toolName string, resultJSON []byte) error {
 	type ToolLambdaResponse struct {
