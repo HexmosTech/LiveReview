@@ -210,3 +210,21 @@ func TestTruncateAtLineBoundaryUnderLimit(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, text)
 	}
 }
+
+func TestParseToolConfig(t *testing.T) {
+	b := Bundle{Files: map[string][]byte{
+		"tools.toml": []byte("[tools]\ngitleaks = true\nruff = false\n"),
+	}}
+
+	tools, err := ParseToolConfig(b)
+	if err != nil {
+		t.Fatalf("ParseToolConfig failed: %v", err)
+	}
+	if !tools["gitleaks"] {
+		t.Fatalf("expected gitleaks = true, got %v", tools["gitleaks"])
+	}
+	if tools["ruff"] {
+		t.Fatalf("expected ruff = false, got %v", tools["ruff"])
+	}
+}
+

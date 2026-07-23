@@ -18,6 +18,7 @@ import (
 
 	"github.com/livereview/cmd/mrmodel/lib"
 	"github.com/livereview/pkg/models"
+	"github.com/pelletier/go-toml/v2"
 	gitignore "github.com/sabhiram/go-gitignore"
 )
 
@@ -206,3 +207,31 @@ func TruncateAtLineBoundary(text string, limit int) string {
 	}
 	return text[:cut]
 }
+
+const toolsTomlPath = "tools.toml"
+const policyToolsTomlPath = "policy/tools.toml"
+
+// ToolConfig models the structure of .lrc/tools.toml or .lrc/policy/tools.toml
+type ToolConfig struct {
+	Tools map[string]bool `toml:"tools"`
+}
+
+// ParseToolConfig parses .lrc/tools.toml or .lrc/policy/tools.toml from a Bundle.
+// Returns a map of tool_name -> enabled (e.g. map["gitleaks"] = true).
+func ParseToolConfig(b Bundle) (map[string]bool, error) {
+	data, ok := b.Files[toolsTomlPath]
+	if !ok {
+		data, ok = b.Files[policyToolsTomlPath]
+	}
+	if !ok || len(data) == 0 {
+		return nil, nil
+	}
+
+	var cfg ToolConfig
+	if err := toml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse tools.toml: %w", err)
+	}
+
+	return cfg.Tools, nil
+}
+
