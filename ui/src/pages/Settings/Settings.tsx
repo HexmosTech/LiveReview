@@ -6,6 +6,7 @@ import LicenseTab from './LicenseTab';
 import SubscriptionTab from './SubscriptionTab';
 import LearningsTab from './LearningsTab';
 import APIKeysTab from './APIKeysTab';
+import ThirdPartyToolsTab from './ThirdPartyToolsTab';
 import IntegrationsTab from './IntegrationsTab';
 import SMTPSettingsTab from './SMTPSettingsTab';
 import { UserManagement } from '../../components/UserManagement';
@@ -351,6 +352,12 @@ const Settings = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
                 </svg>
             )
+        }] : []),
+        // Third-Party Tools tab visible for org owners or super admins
+        ...(isSuperAdmin || currentOrg?.role === 'owner' ? [{
+            id: 'third-party-tools',
+            name: 'Third-Party Tools',
+            icon: <Icons.Tools />
         }] : []),
     ];
 
@@ -777,6 +784,19 @@ const Settings = () => {
                     {activeTab === 'subscriptions' && (isSuperAdmin || currentOrg) && (
                         <Card>
                             {isCloudMode() ? <SubscriptionTab /> : <LicenseManagement />}
+                        </Card>
+                    )}
+
+                    {activeTab === 'third-party-tools' && isCloudMode() && currentOrg?.role === 'owner' && (
+                        <Card>
+                            <ThirdPartyToolsTab />
+                        </Card>
+                    )}
+                    {activeTab === 'third-party-tools' && isCloudMode() && currentOrg?.role !== 'owner' && (
+                        <Card>
+                            <div className="p-4 text-sm text-red-300">
+                                Tool configuration is only available to organization owners.
+                            </div>
                         </Card>
                     )}
 

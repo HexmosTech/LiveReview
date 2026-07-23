@@ -187,6 +187,18 @@ func (p PlanType) IsValid() bool {
 	return exists
 }
 
+// IsToolsEligible returns true if the plan is allowed to use third-party tool
+// features (beta). Only paid LOC plans are eligible.
+// free_30k (free tier) and enterprise-selfhosted are explicitly excluded.
+func IsToolsEligible(plan PlanType) bool {
+	switch plan {
+	case PlanTeam32USD, PlanLOC200K, PlanLOC400K, PlanLOC800K, PlanLOC1600K, PlanLOC3200K:
+		return true
+	default:
+		return false
+	}
+}
+
 // String returns the string representation of the plan type
 func (p PlanType) String() string {
 	return string(p)

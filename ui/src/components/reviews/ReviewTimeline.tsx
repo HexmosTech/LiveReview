@@ -50,12 +50,8 @@ export default function ReviewTimeline({ reviewId, events, isLive = false, class
         return <Icons.Error />;
       case 'completed':
         return <Icons.Success />;
-      case 'retry':
-        return <Icons.Refresh />;
-      case 'json_repair':
-        return <span className="text-orange-400">⚡</span>;
-      case 'timeout':
-        return <Icons.Clock />;
+      case 'tool_result':
+        return <Icons.Settings />;
       default:
         return <Icons.Info />;
     }
@@ -214,6 +210,37 @@ export default function ReviewTimeline({ reviewId, events, isLive = false, class
                         {event.details.errorMessage && (
                           <div className="bg-red-900/20 border border-red-700/30 p-2 rounded text-xs text-red-300 break-words">
                             {event.details.errorMessage}
+                          </div>
+                        )}
+
+                        {event.eventType === 'tool_result' && (
+                          <div className="bg-slate-900/60 border border-slate-700/50 rounded-lg p-3 space-y-2 mt-2">
+                            <div className="flex items-center justify-between text-xs text-slate-400">
+                              <span>Tool: <strong className="text-violet-400 font-semibold">{String(event.details.tool_name || 'Unknown')}</strong></span>
+                              <span>Lines of code: {String(event.details.lines_of_code ?? '—')}</span>
+                            </div>
+                            {Array.isArray(event.details.findings) && event.details.findings.length > 0 ? (
+                              <div className="space-y-1.5 overflow-x-auto">
+                                {event.details.findings.map((f: any, fIdx: number) => (
+                                  <div key={fIdx} className="text-xs font-mono bg-slate-950/40 p-2 border border-slate-800/80 rounded flex items-start gap-2">
+                                    <div className="text-slate-500 shrink-0 select-none">
+                                      {f.file}:{f.line}{f.col ? `:${f.col}` : ''}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      {f.rule && <span className="bg-slate-800 text-slate-300 px-1 py-0.5 rounded text-[10px] mr-1.5 font-sans font-semibold">{f.rule}</span>}
+                                      <span className="text-slate-200">{f.message}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-xs text-emerald-400 font-medium">✓ No findings found. Clear review!</div>
+                            )}
+                            {event.details.stderr && (
+                              <div className="bg-red-950/20 border border-red-900/30 p-2 rounded font-mono text-[10px] text-red-300 break-all">
+                                <span className="text-red-400 font-semibold">stderr:</span> {String(event.details.stderr)}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

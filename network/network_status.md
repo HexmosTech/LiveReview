@@ -10,13 +10,12 @@ Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-
 | payment.CancelScheduledChangesByID | added | [CancelScheduledChangesByID](../internal/license/payment/subscription.go#L295) |
 | api.CreateSubscription | updated | [CreateSubscription](../internal/api/subscriptions_handler.go#L141) |
 | api.CancelSubscription | updated | [CancelSubscription](../internal/api/subscriptions_handler.go#L299) |
-| api.GetBillingStatus | updated | [GetBillingStatus](../internal/api/billing_actions_handler.go#L1311) |
+| api.GetBillingStatus | updated | [GetBillingStatus](../internal/api/billing_actions_handler.go#L1322) |
 | api.checkGitHubParentCommentAuthor | updated | [checkGitHubParentCommentAuthor](../internal/api/unified_processor_v2.go#L707) |
 | api.checkBitbucketParentCommentAuthor | updated | [checkBitbucketParentCommentAuthor](../internal/api/unified_processor_v2.go#L776) |
 | api.PreviewUpgrade | updated | [PreviewUpgrade](../internal/api/billing_actions_handler.go#L457) |
-
-| api.GetCurrentSubscription | updated | [GetCurrentSubscription](../internal/api/subscriptions_handler.go#L620) |
-| api.ListUserSubscriptions | updated | [ListUserSubscriptions](../internal/api/subscriptions_handler.go#L773) |
+| api.GetCurrentSubscription | updated | [GetCurrentSubscription](../internal/api/subscriptions_handler.go#L632) |
+| api.ListUserSubscriptions | updated | [ListUserSubscriptions](../internal/api/subscriptions_handler.go#L785) |
 | api.parseFindingsOptions | added | [parseFindingsOptions](../internal/api/taxonomy_report_handler.go#L115) |
 | api.ListOrgTaxonomyFindings | updated | [ListOrgTaxonomyFindings](../internal/api/taxonomy_report_handler.go#L244) |
 | api.ListAdminTaxonomyFindings | updated | [ListAdminTaxonomyFindings](../internal/api/taxonomy_report_handler.go#L388) |
@@ -27,8 +26,8 @@ Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-
 | providersgitea.postInlineViaSession | updated | [postInlineViaSession](../internal/providers/gitea/gitea_provider.go#L381) |
 | providersgitea.ensureSession | updated | [ensureSession](../internal/providers/gitea/gitea_provider.go#L446) |
 | providersgitea.fetchPullRequest | updated | [fetchPullRequest](../internal/providers/gitea/gitea_provider.go#L556) |
-| payment.cancellationVerified | updated | [cancellationVerified](../internal/license/payment/subscription_service.go#L1029) |
-| payment.verifyCancellationWithRetry | updated | [verifyCancellationWithRetry](../internal/license/payment/subscription_service.go#L1046) |
+| payment.cancellationVerified | updated | [cancellationVerified](../internal/license/payment/subscription_service.go#L1032) |
+| payment.verifyCancellationWithRetry | updated | [verifyCancellationWithRetry](../internal/license/payment/subscription_service.go#L1049) |
 | payment.handleSubscriptionCharged | updated | [handleSubscriptionCharged](../internal/license/payment/webhook_handler.go#L530) |
 | payment.resolveCancelAtPeriodEndAfterCharge | added | [resolveCancelAtPeriodEndAfterCharge](../internal/license/payment/webhook_handler.go#L738) |
 | payment.handleSubscriptionCancelled | updated | [handleSubscriptionCancelled](../internal/license/payment/webhook_handler.go#L764) |
@@ -65,6 +64,13 @@ Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-
 | aiconnectors.NewHTTPClient | moved | [NewHTTPClient](aiconnectors/http_client_ops.go#L11) |
 | aiconnectors.NewRequestWithContext | moved | [NewRequestWithContext](aiconnectors/http_client_ops.go#L18) |
 | aiconnectors.Do | moved | [Do](aiconnectors/http_client_ops.go#L26) |
+| api.UpsertAvailableTool | added | [UpsertAvailableTool](../internal/api/tools_handler.go#L26) |
+| api.ListAvailableTools | added | [ListAvailableTools](../internal/api/tools_handler.go#L48) |
+| api.ListOrgTools | added | [ListOrgTools](../internal/api/tools_handler.go#L95) |
+| api.UpdateOrgTool | added | [UpdateOrgTool](../internal/api/tools_handler.go#L115) |
+| api.CreateToolReview | added | [CreateToolReview](../internal/api/tool_review.go#L13) |
+| api.GetDiffReviewStatus | updated | [GetDiffReviewStatus](../internal/api/diff_review.go#L126) |
+| tools.InvokeTool | added | [InvokeTool](tools/lambda_client.go#L18) |
 | api.GetReviewAISettings | added | [GetReviewAISettings](../internal/api/aiconnectors.go#L545) |
 | api.UpsertReviewAISettings | added | [UpsertReviewAISettings](../internal/api/aiconnectors.go#L564) |
 | api.getReviewAISelectionFromDatabase | added | [getReviewAISelectionFromDatabase](../internal/api/reviews_api.go#L337) |

@@ -75,6 +75,8 @@ const ReviewDetail: React.FC = () => {
                 return <div className="text-green-400"><Icons.Success /></div>;
             case 'completion': 
                 return <div className="text-green-400"><Icons.Success /></div>;
+            case 'tool_result': 
+                return <div className="text-violet-400"><Icons.Settings /></div>;
             default: 
                 return <div className="text-slate-400"><Icons.Info /></div>;
         }
@@ -95,6 +97,8 @@ const ReviewDetail: React.FC = () => {
                 return data.url ? `Generated: ${data.kind || 'Artifact'}` : `Artifact: ${data.kind || 'Unknown'}`;
             case 'completion':
                 return data.resultSummary ? `Completed: ${data.resultSummary}` : 'Process completed';
+            case 'tool_result':
+                return `Static Analysis: ${data.tool_name || 'Tool'} finished with exit code ${data.exit_code ?? 0}`;
             default:
                 return JSON.stringify(data, null, 2);
         }
@@ -586,7 +590,7 @@ const ReviewDetail: React.FC = () => {
                         initialEvents={events.map(event => ({
                             id: event.id.toString(),
                             timestamp: event.time,
-                            eventType: mapEventType(event.type) as 'log' | 'status' | 'batch' | 'artifact' | 'completion' | 'retry' | 'json_repair' | 'timeout' | 'started' | 'progress' | 'batch_complete' | 'error' | 'completed',
+                            eventType: mapEventType(event.type) as 'log' | 'status' | 'batch' | 'artifact' | 'completion' | 'retry' | 'json_repair' | 'timeout' | 'started' | 'progress' | 'batch_complete' | 'error' | 'completed' | 'tool_result',
                             message: formatEventData(event),
                             details: {
                                 batchId: event.batchId,

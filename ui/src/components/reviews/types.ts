@@ -11,7 +11,8 @@ export type ReviewEventType =
   | 'progress'
   | 'batch_complete'
   | 'error'
-  | 'completed';
+  | 'completed'
+  | 'tool_result';
 
 export type ReviewEventSeverity = 'info' | 'success' | 'warning' | 'warn' | 'error' | 'debug';
 
@@ -28,6 +29,18 @@ export interface ReviewEventDetails {
   errorMessage?: string;
   resultSummary?: string;
   commentCount?: number;
+  tool_id?: number;
+  tool_name?: string;
+  exit_code?: number;
+  findings?: Array<{
+    file: string;
+    line: number;
+    col: number;
+    rule: string;
+    message: string;
+  }>;
+  lines_of_code?: number;
+  stderr?: string;
   repairStats?: {
     originalSize?: number;
     repairedSize?: number;

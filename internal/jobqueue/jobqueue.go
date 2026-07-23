@@ -37,6 +37,7 @@ import (
 	"github.com/livereview/internal/providers/gitea"
 	networkjobqueue "github.com/livereview/network/jobqueue"
 	storagejobqueue "github.com/livereview/storage/jobqueue"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 )
@@ -174,6 +175,8 @@ type WebhookRemovalWorker struct {
 	store      *storagejobqueue.WebhookStore
 	httpClient *networkjobqueue.WebhookHTTPClient
 }
+
+
 
 // getWebhookEndpointForProvider returns the correct webhook endpoint based on the provider
 func (w *WebhookInstallWorker) getWebhookEndpointForProvider(provider string) string {
@@ -2308,6 +2311,13 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, manualWorker)
 	river.AddWorker(workers, &UpdateOrgUsageWorker{db: db, pool: pool})
 
+	awsCfg, awsErr := awsconfig.LoadDefaultConfig(context.Background())
+	if awsErr != nil {
+		log.Printf("[WARN] Failed to load AWS config for Lambda: %v. ToolReviewOrchestratorWorker will not be registered.", awsErr)
+	} else {
+		river.AddWorker(workers, &ToolReviewOrchestratorWorker{db: db, awsCfg: awsCfg})
+	}
+
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues:                      config.RiverQueueConfig(),
 		Workers:                     workers,
@@ -2380,6 +2390,8 @@ func (jq *JobQueue) QueueWebhookRemovalJob(ctx context.Context, connectorID int,
 	return nil
 }
 
+
+
 // QueueReviewJob enqueues a new diff review job to the "review" queue.
 func (jq *JobQueue) QueueReviewJob(ctx context.Context, args DiffReviewJobArgs) error {
 	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review", MaxAttempts: 5})
@@ -2390,6 +2402,25 @@ func (jq *JobQueue) QueueReviewJob(ctx context.Context, args DiffReviewJobArgs) 
 	return nil
 }
 
+// QueueToolReviewOrchestratorJob queues the single orchestrator job for tool reviews
+// into the dedicated "tools" River queue (10 workers, isolated from AI review jobs).
+func (jq *JobQueue) QueueToolReviewOrchestratorJob(ctx context.Context, reviewID, orgID int64, prURL string, connectorID int64, provider string, totalMultiplier float64) error {
+	args := ToolReviewOrchestratorJobArgs{
+		ReviewID:        reviewID,
+		OrgID:           orgID,
+		PRURL:           prURL,
+		ConnectorID:     connectorID,
+		Provider:        provider,
+		TotalMultiplier: totalMultiplier,
+	}
+
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "tools", MaxAttempts: 5})
+	if err != nil {
+		return fmt.Errorf("failed to queue tool review orchestrator job: %w", err)
+	}
+
+	return nil
+}
 // QueueWebhookReviewJob enqueues a new webhook review job to the "review" queue.
 func (jq *JobQueue) QueueWebhookReviewJob(ctx context.Context, orgID int64, connectorID int64, eventJSON string, scenarioType string) error {
 	args := WebhookReviewJobArgs{

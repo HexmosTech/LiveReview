@@ -46,7 +46,7 @@ export interface ReviewEvent {
   data: ReviewEventData;
 }
 
-export type ReviewEventType = 'status' | 'log' | 'batch' | 'artifact' | 'completion';
+export type ReviewEventType = 'status' | 'log' | 'batch' | 'artifact' | 'completion' | 'tool_result';
 export type ReviewEventLevel = 'info' | 'warn' | 'error' | 'debug';
 
 export interface ReviewEventData {
@@ -74,6 +74,20 @@ export interface ReviewEventData {
   resultSummary?: string;
   commentCount?: number;
   errorSummary?: string;
+
+  // For "tool_result" events
+  tool_id?: number;
+  tool_name?: string;
+  exit_code?: number;
+  findings?: Array<{
+    file: string;
+    line: number;
+    col: number;
+    rule: string;
+    message: string;
+  }>;
+  lines_of_code?: number;
+  stderr?: string;
 }
 
 export interface ReviewEventsResponse {

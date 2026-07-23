@@ -599,6 +599,7 @@ build-with-ui:
 
 # Define API source files for spec generation
 API_SPEC_INPUTS := typed.yaml $(shell find internal/api pkg/models -name "*.go" | grep -v "internal/api/docs/spec.go")
+TYPED_VERSION := v0.2.3
 
 
 # Typed configuration
@@ -692,7 +693,7 @@ build-staging-with-ui:
 	fi
 	rm $(BINARY_NAME) || true
 	cd ui/ && npm install && set -a && . ./.env.staging && set +a && LIVEREVIEW_BUILD_MODE=prod NODE_ENV=production npm run build:obfuscated && cd ..
-	env -u GOROOT go build livereview.go
+	env -u GOROOT go build -o livereview .
 	@echo "✅ Staging build complete. Binary ready for raw-deploy-staging."
 
 raw-deploy-staging: build-staging-with-ui
@@ -717,12 +718,12 @@ raw-deploy-staging: build-staging-with-ui
 	ssh $(DEPLOY_STAGING_HOST) "mkdir -p $(DEPLOY_STAGING_PATH)/config $(DEPLOY_STAGING_PATH)/internal/mockllm"
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./internal/mockllm/mockllm.toml $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/internal/mockllm/mockllm.toml
-	ssh $(DEPLOY_STAGING_HOST) "bash -ic 'cd $(DEPLOY_STAGING_PATH) && pm2 reload ecosystem.staging.config.js --update-env || pm2 start ecosystem.staging.config.js'"
+	ssh $(DEPLOY_STAGING_HOST) "PATH=/home/ubuntu/.nvm/versions/node/v22.19.0/bin:\$$PATH cd $(DEPLOY_STAGING_PATH) && PATH=/home/ubuntu/.nvm/versions/node/v22.19.0/bin:\$$PATH /home/ubuntu/.nvm/versions/node/v22.19.0/bin/pm2 reload ecosystem.staging.config.js --update-env || PATH=/home/ubuntu/.nvm/versions/node/v22.19.0/bin:\$$PATH /home/ubuntu/.nvm/versions/node/v22.19.0/bin/pm2 start ecosystem.staging.config.js"
 	@echo "✅ Staging deployment complete!"
 
 stop-staging:
 	@echo "🛑 Stopping staging processes on server..."
-	ssh $(DEPLOY_STAGING_HOST) "bash -ic 'cd $(DEPLOY_STAGING_PATH) && pm2 delete ecosystem.staging.config.js || true'"
+	ssh $(DEPLOY_STAGING_HOST) "PATH=/home/ubuntu/.nvm/versions/node/v22.19.0/bin:\$$PATH cd $(DEPLOY_STAGING_PATH) && PATH=/home/ubuntu/.nvm/versions/node/v22.19.0/bin:\$$PATH /home/ubuntu/.nvm/versions/node/v22.19.0/bin/pm2 delete ecosystem.staging.config.js || true"
 	@echo "✅ Staging processes stopped and removed from PM2!"
 
 raw-deploy-low-pricing: build-with-ui

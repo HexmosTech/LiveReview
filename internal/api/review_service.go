@@ -29,18 +29,17 @@ type ReviewService struct {
 
 // reviewSetupContext holds the state for setting up a review
 type reviewSetupContext struct {
-	orgID         int64
-	planCode      license.PlanType
-	actorUserID   *int64
-	actorEmail    string
-	review        *Review
-	reviewID      string
-	logger        *logging.ReviewLogger
-	token         *IntegrationToken
-	accessToken   string
-	reviewService *reviewpkg.Service
-	request       *reviewpkg.ReviewRequest
-	requestURL    string
+	orgID       int64
+	planCode    license.PlanType
+	actorUserID *int64
+	actorEmail  string
+	review      *Review
+	reviewID    string
+	logger      *logging.ReviewLogger
+	token       *IntegrationToken
+	accessToken string
+	request     *reviewpkg.ReviewRequest
+	requestURL  string
 }
 
 // NewReviewService creates a new review service
@@ -369,33 +368,10 @@ func (s *Server) prepareAuthentication(ctx *reviewSetupContext) error {
 	return nil
 }
 
-// createReviewRequest builds the review service and request objects
+// createReviewRequest builds the review request object for the River job payload.
 func (s *Server) createReviewRequest(ctx *reviewSetupContext) error {
-	log.Printf("[DEBUG] TriggerReviewV2: Generated review ID: %s", ctx.reviewID)
-
-	// Create review service instance for this specific request
-	if ctx.logger != nil {
-		ctx.logger.LogSection("REVIEW SERVICE CREATION")
-		ctx.logger.Log("Creating review service...")
-	}
-	log.Printf("[DEBUG] TriggerReviewV2: Creating review service for request")
-	reviewService, err := s.createReviewService(ctx.token)
-	if err != nil {
-		if ctx.logger != nil {
-			ctx.logger.LogError("Failed to create review service", err)
-		}
-		return fmt.Errorf("failed to create review service: %w", err)
-	}
-	ctx.reviewService = reviewService
-	if ctx.logger != nil {
-		ctx.logger.Log("✓ Review service created successfully")
-	}
-
-	// Build review request
-	if ctx.logger != nil {
-		ctx.logger.Log("Building review request...")
-	}
 	log.Printf("[DEBUG] TriggerReviewV2: Building review request")
+
 	reviewRequest, err := s.buildReviewRequest(ctx.token, ctx.requestURL, ctx.reviewID, ctx.accessToken, ctx.orgID, ctx.planCode)
 	if err != nil {
 		if ctx.logger != nil {
@@ -537,26 +513,35 @@ func (s *Server) trackActivity(ctx *reviewSetupContext) {
 	}()
 }
 
-// launchBackgroundProcessing enqueues the review request into the River job queue
+// launchBackgroundProcessing enqueues the review request into the River job queue.
+// The ManualReviewWorker picks it up, runs the AI review, and then queues a
+// ToolReviewOrchestratorJob if any tools are enabled for the org.
 func (s *Server) launchBackgroundProcessing(ctx *reviewSetupContext) error {
 	if ctx.logger != nil {
 		ctx.logger.LogSection("BACKGROUND QUEUEING")
-		ctx.logger.Log("Enqueuing review process into River job queue...")
+		ctx.logger.Log("Enqueuing review into River job queue...")
 	}
-	log.Printf("[DEBUG] TriggerReviewV2: Queueing review process in River")
 
 	requestJSONBytes, err := json.Marshal(ctx.request)
 	if err != nil {
 		return fmt.Errorf("marshal review request: %w", err)
 	}
 
-	err = s.jobQueue.QueueManualReviewJob(context.Background(), ctx.orgID, string(ctx.planCode), ctx.actorUserID, ctx.actorEmail, ctx.review.ID, string(requestJSONBytes))
+	err = s.jobQueue.QueueManualReviewJob(
+		context.Background(),
+		ctx.orgID,
+		string(ctx.planCode),
+		ctx.actorUserID,
+		ctx.actorEmail,
+		ctx.review.ID,
+		string(requestJSONBytes),
+	)
 	if err != nil {
 		return fmt.Errorf("queue manual review job: %w", err)
 	}
 
 	if ctx.logger != nil {
-		ctx.logger.Log("✓ Successfully enqueued manual review job")
+		ctx.logger.Log("✓ Successfully enqueued manual review job (River)")
 		ctx.logger.Close()
 	}
 	return nil

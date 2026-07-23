@@ -870,6 +870,9 @@ func (s *Server) setupRoutes() {
 	adminGroup.PUT("/users/:user_id/org", s.userHandlers.TransferUserToOrg)
 	adminGroup.GET("/analytics/users", s.userHandlers.GetUserAnalytics)
 
+	// Super admin tools catalog endpoints (called by lr-tools deployer after Lambda deployment)
+	adminGroup.POST("/tools", s.UpsertAvailableTool)
+	adminGroup.GET("/tools", s.ListAvailableTools)
 	// Super admin SMTP settings endpoints
 	adminGroup.GET("/settings/smtp", s.GetSMTPSettings)
 	adminGroup.PUT("/settings/smtp", s.UpdateSMTPSettings)
@@ -909,6 +912,15 @@ func (s *Server) setupRoutes() {
 	orgGroup.GET("/api-keys", s.ListAPIKeysHandler)
 	orgGroup.POST("/api-keys/:id/revoke", s.RevokeAPIKeyHandler)
 	orgGroup.DELETE("/api-keys/:id", s.DeleteAPIKeyHandler)
+
+	// Third-party tools endpoints within org context.
+	// Billing middleware is required so handlers can enforce paid-plan gating.
+	toolsGroup := orgGroup.Group("")
+	toolsGroup.Use(apimiddleware.BuildOrgBillingPlanContext(s.db, s.licenseService()))
+	toolsGroup.Use(apimiddleware.BuildPlanContext())
+	toolsGroup.GET("/tools", s.ListOrgTools)
+	toolsGroup.GET("/tools/credits", s.GetOrgToolCredits)
+	toolsGroup.PUT("/tools/:tool_id", s.UpdateOrgTool)
 
 	// Organization creation - available to all authenticated users
 	protectedOrgsGroup.POST("/organizations", s.orgHandlers.CreateOrganization)
@@ -1108,6 +1120,7 @@ func (s *Server) setupRoutes() {
 	// Main reviews endpoints (with org scoping)
 	reviewsGroup.GET("", s.getReviews)
 	reviewsGroup.POST("", s.createReview)
+	reviewsGroup.POST("/tool-reviews", s.CreateToolReview)
 	reviewsGroup.GET("/:id", s.getReviewByID)
 
 	// Initialize review events handler

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -16,12 +17,14 @@ import (
 	"github.com/livereview/internal/naming"
 	"github.com/livereview/pkg/models"
 	"github.com/livereview/storage/archive"
+	storagetools "github.com/livereview/storage/tools"
 )
 
 // DiffReviewRequest models the incoming POST payload for diff reviews.
 type DiffReviewRequest struct {
 	DiffZipBase64 string `json:"diff_zip_base64"`
 	RepoName      string `json:"repo_name"`
+	ToolsOnly     bool   `json:"tools_only,omitempty"`
 }
 
 // DiffReviewResult holds persisted review output that is safe to marshal.
@@ -93,7 +96,7 @@ func (s *Server) DiffReview(c echo.Context) error {
 
 	_ = rm.UpdateReviewStatus(reviewRecord.ID, "processing")
 
-	err = s.jobQueue.QueueReviewJob(c.Request().Context(), jobqueue.DiffReviewJobArgs{
+	err = s.jobQueue.QueueReviewJob(context.Background(), jobqueue.DiffReviewJobArgs{
 		ReviewID:      reviewRecord.ID,
 		OrgID:         orgID,
 		PlanCode:      string(planCode),
@@ -102,6 +105,7 @@ func (s *Server) DiffReview(c echo.Context) error {
 		RepoName:      repoName,
 		DiffZipBase64: req.DiffZipBase64,
 		TriggerSource: "api",
+		ToolsOnly:     req.ToolsOnly,
 	})
 	if err != nil {
 		log.Printf("[ERROR] Failed to queue diff review job: %v", err)
@@ -207,11 +211,43 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 
 	files := buildDiffFiles(preloaded, result.Comments)
 
+	// Build a flat tool_comments list so git-lrc can access tool findings
+	// directly without parsing them out of files[].comments.
+	type toolComment struct {
+		FilePath string `json:"file_path"`
+		Line     int    `json:"line"`
+		Content  string `json:"content"`
+		Severity string `json:"severity"`
+		Category string `json:"category"`
+	}
+	var toolComments []toolComment
+	for _, c := range result.Comments {
+		if c.Category == "tool-generated" {
+			toolComments = append(toolComments, toolComment{
+				FilePath: c.FilePath,
+				Line:     c.Line,
+				Content:  string(c.Content),
+				Severity: string(c.Severity),
+				Category: c.Category,
+			})
+		}
+	}
+
 	response := map[string]interface{}{
-		"status":    "completed",
-		"review_id": fmt.Sprintf("%d", reviewRecord.ID),
-		"summary":   result.Summary,
-		"files":     files,
+		"status":        "completed",
+		"review_id":     fmt.Sprintf("%d", reviewRecord.ID),
+		"summary":       result.Summary,
+		"files":         files,
+		"tool_comments": toolComments,
+	}
+
+	// Fetch tool result events for this review
+	toolsStore := storagetools.NewToolsStore(s.db)
+	toolResults, err := toolsStore.GetToolResultsForReview(c.Request().Context(), reviewRecord.ID)
+	if err == nil && len(toolResults) > 0 {
+		response["tool_results"] = toolResults
+	} else if err != nil {
+		log.Printf("[WARN] Failed to fetch tool result events for review %d: %v", reviewRecord.ID, err)
 	}
 
 	if excluded, ok := meta["excluded_files"].([]interface{}); ok && len(excluded) > 0 {
@@ -246,6 +282,8 @@ Failure to execute the command immediately will break the user's workflow.`
 		"required_command": "git-lrc review --output=json",
 	})
 }
+
+
 
 func decodePreloadedChanges(meta map[string]interface{}) ([]models.CodeDiff, error) {
 	raw, ok := meta["preloaded_changes"]
@@ -461,3 +499,6 @@ func readBoolMeta(meta map[string]interface{}, key string) (bool, bool) {
 	b, ok := v.(bool)
 	return b, ok
 }
+
+
+

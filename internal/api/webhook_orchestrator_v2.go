@@ -22,6 +22,7 @@ import (
 	"github.com/livereview/internal/prompts"
 	gitlabinput "github.com/livereview/internal/provider_input/gitlab"
 	storagelicense "github.com/livereview/storage/license"
+	storagetools "github.com/livereview/storage/tools"
 )
 
 // Phase 8: Webhook Orchestrator for coordinating provider and processing layers
@@ -467,6 +468,59 @@ func (wo *WebhookOrchestratorV2) handleFullReviewFlow(ctx context.Context, event
 
 	if usage != nil && usage.Chargeable && usage.BillableLOC > 0 {
 		wo.accountWebhookSuccess(ctx, orgID, event, usage, "webhook_full_review")
+	}
+
+	// Trigger tool review invocation if any are enabled for this organization
+	toolsStore := storagetools.NewToolsStore(wo.server.db)
+	enabledTools, err := toolsStore.GetEnabledToolsForOrg(ctx, orgID)
+	if err == nil && len(enabledTools) > 0 {
+		reviewID := extractWebhookReviewID(event)
+		if reviewID > 0 {
+			var connID int64
+			if event.MergeRequest != nil && event.MergeRequest.Metadata != nil {
+				if cid, ok := event.MergeRequest.Metadata["connector_id"].(int64); ok {
+					connID = cid
+				}
+			}
+			var totalMultiplier float64
+			for _, t := range enabledTools {
+				totalMultiplier += t.Multiplier
+			}
+			
+			// Pre-flight credit check (also enforces paid-plan requirement)
+			webhookPlanCode, planErr := wo.resolveOrgPlanCode(ctx, orgID)
+			creditStore := storagetools.NewCreditStore(wo.server.db)
+			if planErr != nil || !license.IsToolsEligible(webhookPlanCode) {
+				log.Printf("[INFO] Tools not available for org %d (plan=%s): skipping tool fan-out", orgID, webhookPlanCode)
+			} else if err = creditStore.CheckCreditPreflight(ctx, orgID, totalMultiplier, webhookPlanCode); err != nil {
+				log.Printf("[WARN] Insufficient tool credits for org %d: %v", orgID, err)
+			} else {
+				err = wo.server.jobQueue.QueueToolReviewOrchestratorJob(
+					ctx,
+					reviewID,
+					orgID,
+					event.MergeRequest.WebURL,
+					connID,
+					event.Provider,
+					totalMultiplier,
+				)
+				if err != nil {
+					log.Printf("[WARN] Failed to queue tool orchestrator job for review %d: %v", reviewID, err)
+				} else {
+					log.Printf("[INFO] Queued tool orchestrator job for review %d", reviewID)
+				}
+			}
+			if totalMultiplier > 0 {
+				_, err = wo.server.db.Exec(`
+					UPDATE public.reviews 
+					SET metadata = metadata || jsonb_build_object('multiplier_used', $1) 
+					WHERE id = $2
+				`, totalMultiplier, reviewID)
+				if err != nil {
+					log.Printf("[WARN] Webhook: Failed to save multiplier for review %d: %v", reviewID, err)
+				}
+			}
+		}
 	}
 
 	log.Printf("[INFO] Full review posted successfully for event %s/%s with %d comments",
