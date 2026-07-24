@@ -561,33 +561,117 @@ Contains a synthetic unified diff with deliberate fake secrets:
 
 ---
 
-## Repo-Level Tool Configuration via `.lrc/`
+## Repo-Level Tool Configuration via `.lrc/policy/tools.toml`
 
-In addition to organization-level tool settings managed via the UI (`org_tools`), repositories can specify tool configurations locally inside their `.lrc/` directory using `.lrc/tools.toml`.
+In addition to organization-level tool settings managed via the UI (`org_tools`), repositories can configure tool policies locally using a single file: `.lrc/policy/tools.toml`. Each tool is declared as a TOML table with its own `enabled`, `category`, `include`, and `exclude` fields.
 
-### Specification
+### Specification & File Location
 
-Location: `<repo-root>/.lrc/tools.toml`
+Location: `<repo-root>/.lrc/policy/tools.toml`
 
 ```toml
-[tools]
-gitleaks = true
-ruff = true
-bandit = true
-eslint = false
+# .lrc/policy/tools.toml
+
+[gitleaks]
+enabled = true
+category = "secret-scanning"
+include = ["*"]
+# exclude = ["tests/fixtures/**", "*.md"]
+
+[ruff]
+enabled = true
+category = "python-sast"
+include = ["**/*.py"]
+
+[golangci-lint]
+enabled = false
+category = "go-sast"
 ```
 
-### Resolution Logic (Backend `ExecuteToolsForReview`)
+Each section header (`[gitleaks]`, `[ruff]`, etc.) is the tool name. Fields:
 
-When a review is submitted by `lrc`, the `.lrc/tools.toml` file is bundled into the review payload ZIP (`diff_zip_base64`).
+| Field | Type | Description |
+|---|---|---|
+| `enabled` | bool | Enable (`true`) or disable (`false`) this tool |
+| `category` | string | Classification (e.g. `secret-scanning`, `python-sast`) |
+| `include` | string[] | Gitignore-style globs — only diff files matching any pattern trigger the tool |
+| `exclude` | string[] | Gitignore-style globs — diff files matching these are ignored |
 
-During review execution:
-1. **Org-Level Tools**: LiveReview fetches enabled tools for the organization from `org_tools` where `enabled = true`.
-2. **Repo-Level Tools**: LiveReview parses `.lrc/tools.toml` from the submitted bundle.
-3. **Effective Tool Set (Union)**: Any tool enabled in `org_tools` **OR** enabled in `.lrc/tools.toml` (`tools.<tool_name> = true`) will be executed for the review, provided the tool exists in `available_tools`.
-4. **Overrides**: If a tool like `gitleaks` is disabled in `org_tools` for the organization, but `.lrc/tools.toml` specifies `gitleaks = true`, LiveReview resolves the Lambda ARN from `available_tools` and triggers the `gitleaks` Lambda execution for this review.
+If `include` is omitted, all files are considered. `exclude` takes priority over `include`.
+
+### Tool Classifications (Available Tools Catalog)
+
+| Domain | Tools | Description |
+|---|---|---|
+| **Secret Scanning** | `gitleaks`, `trufflehog`, `detect-secrets` | Detect hardcoded API keys, tokens, and credentials |
+| **Python Security & Quality** | `ruff`, `bandit` | Python linting, formatting, and SAST security analysis |
+| **JavaScript / TypeScript** | `eslint` | JavaScript and TypeScript linting and code quality |
+| **Go Security & Quality** | `golangci-lint` | Go static analysis and linter aggregator |
+| **Multi-Language SAST** | `semgrep`, `brakeman` | Pattern-matching security analysis for Ruby & multi-language repos |
+| **IaC & Container Security** | `tfsec`, `hadolint`, `kubescape`, `trivy` | Terraform, Dockerfile, Kubernetes, and container CVE scanning |
+| **CI/CD & API Security** | `actionlint`, `shellcheck`, `zizmor`, `openapi`, `spectral` | GitHub Actions, Shell script, and OpenAPI specification linters |
+
+### Path Triggering & Resolution Logic (`ExecuteToolsForReview`)
+
+When a review is submitted by `lrc`, the `.lrc/policy/tools.toml` file is bundled into the review payload ZIP. During review execution in `LiveReview`:
+
+1. **Tool Activation**: LiveReview reads `policy/tools.toml` and merges any tool with `enabled = true` into the active tool list alongside org-level tools.
+2. **Per-Tool Diff Filtering (`ShouldRunToolRuleForDiff`)**:
+   - `include` patterns: If specified, at least one changed file in the diff must match.
+   - `exclude` patterns: Diff files matching exclusion patterns are skipped for that tool.
+   - **Skip Execution**: If all changed files in a review diff match `exclude` (or fail `include`), LiveReview skips invoking that tool's Lambda and logs: `"Tool <name> skipped: no diff files matched trigger rules (.lrc/policy/tools.toml)"`.
+3. **Per-Tool Diff Slicing (`FilterLocalCodeDiffsForTool`)**: When a tool has path filters, only matching file diffs are sent to Lambda — excluding unrelated files from the payload.
+
+### Demo: Path Filtering with Gitleaks
+
+**1. Excluding specific files:**
+```toml
+# .lrc/policy/tools.toml
+
+[gitleaks]
+enabled = true
+category = "secret-scanning"
+include = ["*"]
+exclude = ["backend/auth_secrets.py"]
+```
+*Result:* If a review diff only contains changes to `backend/auth_secrets.py`, `gitleaks` execution is **skipped** — no Lambda invocation, no credits spent.
+
+**2. Including specific directories:**
+```toml
+# .lrc/policy/tools.toml
+
+[gitleaks]
+enabled = true
+category = "secret-scanning"
+include = ["backend/**"]
+```
+*Result:* `gitleaks` runs **only** when files under `backend/` are modified. Changes to `ui/`, `mcu/`, or other directories do not trigger gitleaks.
+
+**3. Multiple tools, mixed configuration:**
+```toml
+# .lrc/policy/tools.toml
+
+[gitleaks]
+enabled = true
+category = "secret-scanning"
+include = ["*"]
+
+[ruff]
+enabled = true
+category = "python-sast"
+include = ["**/*.py"]
+exclude = ["tests/**"]
+
+[golangci-lint]
+enabled = true
+category = "go-sast"
+include = ["**/*.go"]
+```
+*Result:* Each tool independently evaluates changed files against its own `include`/`exclude` rules.
 
 
 
-
-## Tool Config Should also be 
+1. Each Tool should be having seperate toml
+2. Classification
+3. Home Page Update
+3. Demos of how to use 

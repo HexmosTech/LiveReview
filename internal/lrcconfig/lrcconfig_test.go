@@ -228,3 +228,136 @@ func TestParseToolConfig(t *testing.T) {
 	}
 }
 
+func TestParsePerToolConfig(t *testing.T) {
+	b := Bundle{Files: map[string][]byte{
+		"policy/tools/gitleaks.toml": []byte("[tool]\nname = \"gitleaks\"\nenabled = true\ncategory = \"secret-scanning\"\n\n[trigger]\ninclude = [\"backend/**\"]\nexclude = [\"tests/**\"]\n"),
+	}}
+
+	cfg, err := ParsePerToolConfig(b, "gitleaks")
+	if err != nil {
+		t.Fatalf("ParsePerToolConfig failed: %v", err)
+	}
+	if cfg == nil {
+		t.Fatalf("expected non-nil config")
+	}
+	if cfg.Tool.Name != "gitleaks" {
+		t.Fatalf("cfg.Tool.Name = %q, want gitleaks", cfg.Tool.Name)
+	}
+	if cfg.Tool.Enabled == nil || !*cfg.Tool.Enabled {
+		t.Fatalf("expected Enabled = true")
+	}
+	if cfg.Tool.Category != "secret-scanning" {
+		t.Fatalf("cfg.Tool.Category = %q, want secret-scanning", cfg.Tool.Category)
+	}
+	if len(cfg.Trigger.Include) != 1 || cfg.Trigger.Include[0] != "backend/**" {
+		t.Fatalf("unexpected Include: %v", cfg.Trigger.Include)
+	}
+	if len(cfg.Trigger.Exclude) != 1 || cfg.Trigger.Exclude[0] != "tests/**" {
+		t.Fatalf("unexpected Exclude: %v", cfg.Trigger.Exclude)
+	}
+}
+
+func TestShouldRunToolForDiff(t *testing.T) {
+	enabledTrue := true
+	enabledFalse := false
+	cfg := &PerToolConfig{
+		Tool: PerToolSection{
+			Name:    "gitleaks",
+			Enabled: &enabledTrue,
+		},
+		Trigger: PerToolTriggerSection{
+			Include: []string{"backend/**", "src/**"},
+			Exclude: []string{"backend/auth_secrets.py"},
+		},
+	}
+
+	diff1 := []lib.LocalCodeDiff{{NewPath: "backend/auth_secrets.py"}}
+	if ShouldRunToolForDiff(cfg, diff1) {
+		t.Fatalf("expected ShouldRunToolForDiff = false for excluded backend/auth_secrets.py")
+	}
+
+	diff2 := []lib.LocalCodeDiff{{NewPath: "backend/api.go"}}
+	if !ShouldRunToolForDiff(cfg, diff2) {
+		t.Fatalf("expected ShouldRunToolForDiff = true for backend/api.go")
+	}
+
+	diff3 := []lib.LocalCodeDiff{{NewPath: "docs/readme.md"}}
+	if ShouldRunToolForDiff(cfg, diff3) {
+		t.Fatalf("expected ShouldRunToolForDiff = false for docs/readme.md (not included)")
+	}
+
+	cfgDisabled := &PerToolConfig{
+		Tool: PerToolSection{
+			Name:    "gitleaks",
+			Enabled: &enabledFalse,
+		},
+	}
+	if ShouldRunToolForDiff(cfgDisabled, diff2) {
+		t.Fatalf("expected ShouldRunToolForDiff = false for explicitly disabled tool")
+	}
+}
+
+func TestParseToolRuleConfigs(t *testing.T) {
+	b := Bundle{Files: map[string][]byte{
+		"policy/tools.toml": []byte(`
+[gitleaks]
+enabled = true
+category = "secret-scanning"
+include = ["backend/**"]
+exclude = ["tests/**"]
+
+[ruff]
+enabled = false
+category = "python-sast"
+`),
+	}}
+
+	configs, err := ParseToolRuleConfigs(b)
+	if err != nil {
+		t.Fatalf("ParseToolRuleConfigs failed: %v", err)
+	}
+	if configs == nil {
+		t.Fatalf("expected non-nil configs")
+	}
+	gitleaksCfg := configs["gitleaks"]
+	if gitleaksCfg == nil || gitleaksCfg.Enabled == nil || !*gitleaksCfg.Enabled {
+		t.Fatalf("expected gitleaks enabled = true")
+	}
+	if gitleaksCfg.Category != "secret-scanning" {
+		t.Fatalf("gitleaks category = %q, want secret-scanning", gitleaksCfg.Category)
+	}
+	if len(gitleaksCfg.Include) != 1 || gitleaksCfg.Include[0] != "backend/**" {
+		t.Fatalf("unexpected gitleaks Include: %v", gitleaksCfg.Include)
+	}
+	if len(gitleaksCfg.Exclude) != 1 || gitleaksCfg.Exclude[0] != "tests/**" {
+		t.Fatalf("unexpected gitleaks Exclude: %v", gitleaksCfg.Exclude)
+	}
+
+	ruffCfg := configs["ruff"]
+	if ruffCfg == nil || ruffCfg.Enabled == nil || *ruffCfg.Enabled {
+		t.Fatalf("expected ruff enabled = false")
+	}
+}
+
+func TestShouldRunToolRuleForDiff(t *testing.T) {
+	enabledTrue := true
+	cfg := &ToolRuleConfig{
+		Enabled:  &enabledTrue,
+		Category: "secret-scanning",
+		Include:  []string{"backend/**", "src/**"},
+		Exclude:  []string{"backend/auth_secrets.py"},
+	}
+
+	diff1 := []lib.LocalCodeDiff{{NewPath: "backend/auth_secrets.py"}}
+	if ShouldRunToolRuleForDiff(cfg, diff1) {
+		t.Fatalf("expected ShouldRunToolRuleForDiff = false for excluded backend/auth_secrets.py")
+	}
+
+	diff2 := []lib.LocalCodeDiff{{NewPath: "backend/api.go"}}
+	if !ShouldRunToolRuleForDiff(cfg, diff2) {
+		t.Fatalf("expected ShouldRunToolRuleForDiff = true for backend/api.go")
+	}
+}
+
+
+

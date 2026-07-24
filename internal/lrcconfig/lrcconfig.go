@@ -235,3 +235,347 @@ func ParseToolConfig(b Bundle) (map[string]bool, error) {
 	return cfg.Tools, nil
 }
 
+const policyToolsDirPrefix = "policy/tools/"
+
+// PerToolSection represents the [tool] section in .lrc/policy/tools/<tool_name>.toml
+type PerToolSection struct {
+	Name     string `toml:"name"`
+	Enabled  *bool  `toml:"enabled"`
+	Category string `toml:"category"`
+}
+
+// PerToolTriggerSection represents the [trigger] section in .lrc/policy/tools/<tool_name>.toml
+type PerToolTriggerSection struct {
+	Include []string `toml:"include"`
+	Exclude []string `toml:"exclude"`
+}
+
+// PerToolConfig models the full per-tool TOML file structure (.lrc/policy/tools/<tool_name>.toml)
+type PerToolConfig struct {
+	Tool    PerToolSection        `toml:"tool"`
+	Trigger PerToolTriggerSection `toml:"trigger"`
+}
+
+// ParsePerToolConfig parses a per-tool TOML file for a specific tool from a Bundle.
+// Path strictly checked: "policy/tools/<tool_name>.toml".
+// Returns nil, nil if the file is absent or empty.
+func ParsePerToolConfig(b Bundle, toolName string) (*PerToolConfig, error) {
+	relPath := fmt.Sprintf("policy/tools/%s.toml", strings.ToLower(toolName))
+	data, ok := b.Files[relPath]
+	if !ok || len(data) == 0 {
+		return nil, nil
+	}
+
+	var cfg PerToolConfig
+	if err := toml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse %s: %w", relPath, err)
+	}
+	if cfg.Tool.Name == "" {
+		cfg.Tool.Name = strings.ToLower(toolName)
+	}
+
+	return &cfg, nil
+}
+
+// ParseAllPerToolConfigs discovers and parses all per-tool TOML files under policy/tools/*.toml.
+func ParseAllPerToolConfigs(b Bundle) (map[string]*PerToolConfig, error) {
+	results := make(map[string]*PerToolConfig)
+	for path, data := range b.Files {
+		if strings.HasPrefix(path, policyToolsDirPrefix) && strings.HasSuffix(path, ".toml") {
+			if len(data) == 0 {
+				continue
+			}
+			toolName := strings.TrimPrefix(path, policyToolsDirPrefix)
+			toolName = strings.TrimSuffix(toolName, ".toml")
+			toolName = strings.ToLower(toolName)
+
+			var cfg PerToolConfig
+			if err := toml.Unmarshal(data, &cfg); err != nil {
+				return nil, fmt.Errorf("failed to parse %s: %w", path, err)
+			}
+			if cfg.Tool.Name == "" {
+				cfg.Tool.Name = toolName
+			}
+			results[toolName] = &cfg
+		}
+	}
+	return results, nil
+}
+
+// ShouldRunToolForDiff determines whether a tool should run against the given local diffs.
+// It checks explicit enabled state and matches changed file paths against trigger include/exclude rules.
+func ShouldRunToolForDiff(cfg *PerToolConfig, diffs []lib.LocalCodeDiff) bool {
+	if cfg == nil {
+		return true // No per-tool config means no path-restriction
+	}
+
+	if cfg.Tool.Enabled != nil && !*cfg.Tool.Enabled {
+		return false // Explicitly disabled in per-tool TOML
+	}
+
+	if len(diffs) == 0 {
+		return true
+	}
+
+	var includeMatcher *gitignore.GitIgnore
+	if len(cfg.Trigger.Include) > 0 {
+		includeMatcher = gitignore.CompileIgnoreLines(cfg.Trigger.Include...)
+	}
+
+	var excludeMatcher *gitignore.GitIgnore
+	if len(cfg.Trigger.Exclude) > 0 {
+		excludeMatcher = gitignore.CompileIgnoreLines(cfg.Trigger.Exclude...)
+	}
+
+	// If no include/exclude rules, tool should run
+	if includeMatcher == nil && excludeMatcher == nil {
+		return true
+	}
+
+	matchingFilesCount := 0
+	for _, d := range diffs {
+		path := d.NewPath
+		if path == "" {
+			path = d.OldPath
+		}
+		if path == "" {
+			continue
+		}
+
+		// Check exclude rule first
+		if excludeMatcher != nil && excludeMatcher.MatchesPath(path) {
+			continue // Path is excluded for this tool
+		}
+
+		// Check include rule if present
+		if includeMatcher != nil {
+			if includeMatcher.MatchesPath(path) {
+				matchingFilesCount++
+			}
+		} else {
+			// No include matcher, but passed exclude check
+			matchingFilesCount++
+		}
+	}
+
+	return matchingFilesCount > 0
+}
+
+// ToolRuleConfig represents per-tool configuration within policy/tools.toml or tools.toml
+type ToolRuleConfig struct {
+	Enabled  *bool    `toml:"enabled"`
+	Category string   `toml:"category"`
+	Include  []string `toml:"include"`
+	Exclude  []string `toml:"exclude"`
+}
+
+// ParseToolRuleConfigs reads .lrc/policy/tools.toml or .lrc/tools.toml from a Bundle.
+// Returns a map of tool_name -> *ToolRuleConfig.
+func ParseToolRuleConfigs(b Bundle) (map[string]*ToolRuleConfig, error) {
+	data, ok := b.Files[policyToolsTomlPath]
+	if !ok || len(data) == 0 {
+		data, ok = b.Files[toolsTomlPath]
+	}
+	if !ok || len(data) == 0 {
+		return nil, nil
+	}
+
+	var raw map[string]interface{}
+	if err := toml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse tools.toml: %w", err)
+	}
+
+	results := make(map[string]*ToolRuleConfig)
+
+	processEntry := func(toolName string, val interface{}) {
+		toolName = strings.ToLower(toolName)
+		switch v := val.(type) {
+		case bool:
+			bVal := v
+			results[toolName] = &ToolRuleConfig{Enabled: &bVal}
+		case map[string]interface{}:
+			cfg := &ToolRuleConfig{}
+			if enabledVal, ok := v["enabled"].(bool); ok {
+				cfg.Enabled = &enabledVal
+			}
+			if catVal, ok := v["category"].(string); ok {
+				cfg.Category = catVal
+			}
+			if incSlice, ok := v["include"].([]interface{}); ok {
+				for _, item := range incSlice {
+					if str, isStr := item.(string); isStr {
+						cfg.Include = append(cfg.Include, str)
+					}
+				}
+			}
+			if excSlice, ok := v["exclude"].([]interface{}); ok {
+				for _, item := range excSlice {
+					if str, isStr := item.(string); isStr {
+						cfg.Exclude = append(cfg.Exclude, str)
+					}
+				}
+			}
+			results[toolName] = cfg
+		}
+	}
+
+	for k, v := range raw {
+		if k == "tools" {
+			if toolsMap, ok := v.(map[string]interface{}); ok {
+				for tName, tVal := range toolsMap {
+					if _, exists := results[strings.ToLower(tName)]; !exists {
+						processEntry(tName, tVal)
+					}
+				}
+			}
+		} else {
+			processEntry(k, v)
+		}
+	}
+
+	return results, nil
+}
+
+// ShouldRunToolRuleForDiff determines whether a tool should run against the given local diffs based on ToolRuleConfig.
+func ShouldRunToolRuleForDiff(cfg *ToolRuleConfig, diffs []lib.LocalCodeDiff) bool {
+	if cfg == nil {
+		return true
+	}
+
+	if cfg.Enabled != nil && !*cfg.Enabled {
+		return false
+	}
+
+	if len(diffs) == 0 {
+		return true
+	}
+
+	var includeMatcher *gitignore.GitIgnore
+	if len(cfg.Include) > 0 {
+		includeMatcher = gitignore.CompileIgnoreLines(cfg.Include...)
+	}
+
+	var excludeMatcher *gitignore.GitIgnore
+	if len(cfg.Exclude) > 0 {
+		excludeMatcher = gitignore.CompileIgnoreLines(cfg.Exclude...)
+	}
+
+	if includeMatcher == nil && excludeMatcher == nil {
+		return true
+	}
+
+	matchingFilesCount := 0
+	for _, d := range diffs {
+		path := d.NewPath
+		if path == "" {
+			path = d.OldPath
+		}
+		if path == "" {
+			continue
+		}
+
+		if excludeMatcher != nil && excludeMatcher.MatchesPath(path) {
+			continue
+		}
+
+		if includeMatcher != nil {
+			if includeMatcher.MatchesPath(path) {
+				matchingFilesCount++
+			}
+		} else {
+			matchingFilesCount++
+		}
+	}
+
+	return matchingFilesCount > 0
+}
+
+// FilterLocalCodeDiffsForTool filters local code diffs according to a tool's ToolRuleConfig.
+// It returns a new slice containing only the diffs for file paths that match inclusion and pass exclusion rules.
+func FilterLocalCodeDiffsForTool(cfg *ToolRuleConfig, diffs []lib.LocalCodeDiff) []lib.LocalCodeDiff {
+	if cfg == nil || len(diffs) == 0 {
+		return diffs
+	}
+
+	var includeMatcher *gitignore.GitIgnore
+	if len(cfg.Include) > 0 {
+		includeMatcher = gitignore.CompileIgnoreLines(cfg.Include...)
+	}
+
+	var excludeMatcher *gitignore.GitIgnore
+	if len(cfg.Exclude) > 0 {
+		excludeMatcher = gitignore.CompileIgnoreLines(cfg.Exclude...)
+	}
+
+	if includeMatcher == nil && excludeMatcher == nil {
+		return diffs
+	}
+
+	var filtered []lib.LocalCodeDiff
+	for _, d := range diffs {
+		path := d.NewPath
+		if path == "" {
+			path = d.OldPath
+		}
+		if path == "" {
+			continue
+		}
+
+		if excludeMatcher != nil && excludeMatcher.MatchesPath(path) {
+			continue
+		}
+
+		if includeMatcher != nil {
+			if includeMatcher.MatchesPath(path) {
+				filtered = append(filtered, d)
+			}
+		} else {
+			filtered = append(filtered, d)
+		}
+	}
+
+	return filtered
+}
+
+// FormatLocalDiffs converts a slice of lib.LocalCodeDiff into a standard unified diff string.
+func FormatLocalDiffs(diffs []lib.LocalCodeDiff) string {
+	var b strings.Builder
+	for _, d := range diffs {
+		path := d.NewPath
+		if path == "" {
+			path = d.OldPath
+		}
+		if path == "" {
+			continue
+		}
+
+		b.WriteString(fmt.Sprintf("diff --git a/%s b/%s\n", path, path))
+		if d.OldPath == "/dev/null" || d.OldPath == "" {
+			b.WriteString("new file mode 100644\n")
+		} else if d.NewPath == "/dev/null" || d.NewPath == "" {
+			b.WriteString("deleted file mode 100644\n")
+		}
+		for _, hunk := range d.Hunks {
+			b.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@", hunk.OldStartLine, hunk.OldLineCount, hunk.NewStartLine, hunk.NewLineCount))
+			if hunk.HeaderText != "" {
+				b.WriteString(" " + hunk.HeaderText)
+			}
+			b.WriteString("\n")
+			for _, line := range hunk.Lines {
+				prefix := " "
+				if line.LineType == "added" {
+					prefix = "+"
+				} else if line.LineType == "deleted" {
+					prefix = "-"
+				}
+				b.WriteString(prefix + line.Content + "\n")
+			}
+		}
+	}
+	return b.String()
+}
+
+
+
+
+

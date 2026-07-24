@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/livereview/cmd/mrmodel/lib"
 	"github.com/livereview/internal/diffutil"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
@@ -255,32 +256,52 @@ func ExecuteToolsForReview(
 		return nil, fmt.Errorf("failed to fetch enabled tools: %w", err)
 	}
 
-	// Parse repo-level tool configuration from zipBase64 if present (.lrc/tools.toml)
+	var localDiffs []lib.LocalCodeDiff
+	var lrcBundle lrcconfig.Bundle
+	var toolRuleConfigs map[string]*lrcconfig.ToolRuleConfig
+
+	// Parse repo-level tool configuration from zipBase64 if present
 	if zipBase64 != "" {
-		_, lrcBundle, parseErr := diffutil.ParseDiffZipBase64(zipBase64)
+		var parseErr error
+		localDiffs, lrcBundle, parseErr = diffutil.ParseDiffZipBase64(zipBase64)
 		if parseErr == nil {
-			repoTools, toolTomlErr := lrcconfig.ParseToolConfig(lrcBundle)
-			if toolTomlErr == nil && len(repoTools) > 0 {
-				existingMap := make(map[string]bool)
-				for _, t := range enabledTools {
-					existingMap[strings.ToLower(t.Name)] = true
-				}
-				for toolName, enabled := range repoTools {
-					toolNameLower := strings.ToLower(toolName)
-					if enabled && !existingMap[toolNameLower] {
-						t, getErr := toolsStore.GetAvailableToolByName(ctx, toolNameLower)
-						if getErr == nil && t != nil {
-							enabledTools = append(enabledTools, *t)
-							existingMap[toolNameLower] = true
-							if logger != nil {
-								logger.Log(fmt.Sprintf("Repo-level config (.lrc/tools.toml) enabled tool %q", t.Name))
-							}
+			// Parse tool rule configs from policy/tools.toml or tools.toml
+			toolRuleConfigs, _ = lrcconfig.ParseToolRuleConfigs(lrcBundle)
+
+			existingMap := make(map[string]bool)
+			for _, t := range enabledTools {
+				existingMap[strings.ToLower(t.Name)] = true
+			}
+
+			// Add tools enabled via repo-level configuration tables (e.g. [gitleaks] enabled = true)
+			for toolName, cfg := range toolRuleConfigs {
+				if cfg != nil && cfg.Enabled != nil && *cfg.Enabled && !existingMap[toolName] {
+					t, getErr := toolsStore.GetAvailableToolByName(ctx, toolName)
+					if getErr == nil && t != nil {
+						enabledTools = append(enabledTools, *t)
+						existingMap[toolName] = true
+						if logger != nil {
+							logger.Log(fmt.Sprintf("Repo-level config (.lrc/policy/tools.toml) enabled tool %q", t.Name))
 						}
 					}
 				}
 			}
 		}
 	}
+
+	// Filter enabled tools by per-tool path inclusion/exclusion rules
+	var filteredTools []storagetools.AvailableTool
+	for _, t := range enabledTools {
+		toolNameLower := strings.ToLower(t.Name)
+		cfg := toolRuleConfigs[toolNameLower]
+
+		if lrcconfig.ShouldRunToolRuleForDiff(cfg, localDiffs) {
+			filteredTools = append(filteredTools, t)
+		} else if logger != nil {
+			logger.Log(fmt.Sprintf("Tool %q skipped: no diff files matched trigger rules (.lrc/policy/tools.toml)", t.Name))
+		}
+	}
+	enabledTools = filteredTools
 
 	if len(enabledTools) == 0 {
 		return nil, nil
@@ -334,9 +355,20 @@ func ExecuteToolsForReview(
 		go func(t storagetools.AvailableTool) {
 			defer wg.Done()
 
+			toolNameLower := strings.ToLower(t.Name)
+			cfg := toolRuleConfigs[toolNameLower]
+
+			toolRawDiff := rawDiff
+			if cfg != nil && len(localDiffs) > 0 {
+				filteredDiffs := lrcconfig.FilterLocalCodeDiffsForTool(cfg, localDiffs)
+				if len(filteredDiffs) < len(localDiffs) {
+					toolRawDiff = lrcconfig.FormatLocalDiffs(filteredDiffs)
+				}
+			}
+
 			payloadMap := map[string]interface{}{
 				"review_id": reviewID,
-				"diff":      rawDiff,
+				"diff":      toolRawDiff,
 				"zip_file":  zipBase64,
 			}
 			payloadBytes, err := json.Marshal(payloadMap)
