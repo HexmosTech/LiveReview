@@ -2,3 +2,7 @@
 [[ignoredVulns]]
 id = "GHSA-64mm-vxmg-q3vj"
 reason = "Webpack dev-server proxy configuration does not use the vulnerable host+path router option, and it is a development-only dependency that is never deployed to production."
+
+[[ignoredVulns]]
+id = "GO-2026-5932"
+reason = "False positive — golang.org/x/crypto/openpgp sub-package is never imported by this project; only golang.org/x/crypto/bcrypt is used."

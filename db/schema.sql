@@ -1,4 +1,4 @@
-\restrict 4o3kFlMDSbUhHSSq7jO8Pcgb6PjxvSByP99g16AvDHqWxEVtibbvjh6nQGjC44C
+\restrict YpZ23deMxwkilSsMDU4qcvkYkDqZ1f1gvwA8kfJwjas5deBeDgbj5U1vDNTyDEA
 
 -- Dumped from database version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
 -- Dumped by pg_dump version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
@@ -202,6 +202,17 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
+-- Name: _seed_backup; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public._seed_backup (
+    org_id bigint NOT NULL,
+    key text NOT NULL,
+    value jsonb
+);
+
+
+--
 -- Name: ai_comments; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -255,6 +266,8 @@ CREATE TABLE public.ai_connectors (
     gcp_project_id text,
     gcp_location text,
     role character varying(32) DEFAULT 'leader'::character varying NOT NULL,
+    aws_access_key_id text,
+    aws_region text,
     CONSTRAINT ai_connectors_role_check CHECK (((role)::text = ANY ((ARRAY['leader'::character varying, 'helper'::character varying])::text[])))
 );
 
@@ -954,6 +967,63 @@ CREATE SEQUENCE public.org_slack_configs_id_seq
 --
 
 ALTER SEQUENCE public.org_slack_configs_id_seq OWNED BY public.org_slack_configs.id;
+
+
+--
+-- Name: org_teams_configs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.org_teams_configs (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    bot_app_id text NOT NULL,
+    bot_password text NOT NULL,
+    api_key text DEFAULT ''::text NOT NULL,
+    tenant_id text DEFAULT ''::text NOT NULL,
+    enabled boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE org_teams_configs; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.org_teams_configs IS 'Per-org Microsoft Teams bot configuration';
+
+
+--
+-- Name: COLUMN org_teams_configs.bot_app_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.org_teams_configs.bot_app_id IS 'Microsoft App ID for the Teams bot';
+
+
+--
+-- Name: COLUMN org_teams_configs.bot_password; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.org_teams_configs.bot_password IS 'Microsoft App Password (client secret) for the Teams bot';
+
+
+--
+-- Name: org_teams_configs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.org_teams_configs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: org_teams_configs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.org_teams_configs_id_seq OWNED BY public.org_teams_configs.id;
 
 
 --
@@ -2411,6 +2481,13 @@ ALTER TABLE ONLY public.org_slack_configs ALTER COLUMN id SET DEFAULT nextval('p
 
 
 --
+-- Name: org_teams_configs id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_teams_configs ALTER COLUMN id SET DEFAULT nextval('public.org_teams_configs_id_seq'::regclass);
+
+
+--
 -- Name: orgs id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2590,6 +2667,14 @@ ALTER TABLE ONLY public.users ALTER COLUMN id SET DEFAULT nextval('public.users_
 --
 
 ALTER TABLE ONLY public.webhook_registry ALTER COLUMN id SET DEFAULT nextval('public.webhook_registry_id_seq'::regclass);
+
+
+--
+-- Name: _seed_backup _seed_backup_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public._seed_backup
+    ADD CONSTRAINT _seed_backup_pkey PRIMARY KEY (org_id, key);
 
 
 --
@@ -2798,6 +2883,22 @@ ALTER TABLE ONLY public.org_slack_configs
 
 ALTER TABLE ONLY public.org_slack_configs
     ADD CONSTRAINT org_slack_configs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: org_teams_configs org_teams_configs_org_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_teams_configs
+    ADD CONSTRAINT org_teams_configs_org_id_key UNIQUE (org_id);
+
+
+--
+-- Name: org_teams_configs org_teams_configs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_teams_configs
+    ADD CONSTRAINT org_teams_configs_pkey PRIMARY KEY (id);
 
 
 --
@@ -3683,6 +3784,20 @@ CREATE INDEX idx_org_slack_configs_org_id ON public.org_slack_configs USING btre
 --
 
 CREATE INDEX idx_org_slack_configs_team_id ON public.org_slack_configs USING btree (team_id);
+
+
+--
+-- Name: idx_org_teams_configs_enabled; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_teams_configs_enabled ON public.org_teams_configs USING btree (enabled);
+
+
+--
+-- Name: idx_org_teams_configs_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_teams_configs_org_id ON public.org_teams_configs USING btree (org_id);
 
 
 --
@@ -4647,6 +4762,14 @@ ALTER TABLE ONLY public.org_slack_configs
 
 
 --
+-- Name: org_teams_configs org_teams_configs_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_teams_configs
+    ADD CONSTRAINT org_teams_configs_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
 -- Name: orgs orgs_created_by_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5106,7 +5229,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 4o3kFlMDSbUhHSSq7jO8Pcgb6PjxvSByP99g16AvDHqWxEVtibbvjh6nQGjC44C
+\unrestrict YpZ23deMxwkilSsMDU4qcvkYkDqZ1f1gvwA8kfJwjas5deBeDgbj5U1vDNTyDEA
 
 
 --
@@ -5194,3 +5317,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260702141000'),
     ('20260704150001'),
     ('20260709120000');
+    ('20260706205257'),
+    ('20260707220001');

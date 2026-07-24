@@ -4505,19 +4505,8 @@ paths:
         FetchBedrockModels handles requests to list available foundation models for a Bedrock
         connector, using the credentials the admin just entered in the form (mirrors FetchOllamaModels).
       operationId: FetchBedrockModels
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.FetchBedrockModelsRequest'
       responses:
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
       tags:
         - Aiconnectors
@@ -4972,6 +4961,55 @@ paths:
           description: Internal Server Error
       tags:
         - Auth
+  /api/v1/auth/slack/callback:
+    get:
+      description: SlackOAuthCallback handles the OAuth callback from Slack (self-hosted direct mode).
+      operationId: SlackOAuthCallback
+      parameters:
+        - in: query
+          name: code
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: error
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: code
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: state
+          required: true
+          schema:
+            type: string
+      responses: null
+      tags:
+        - Auth
+  /api/v1/auth/slack/install:
+    get:
+      operationId: InstallSlackBot
+      parameters:
+        - in: query
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: redirect_to
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+        "409":
+          description: Conflict
+      tags:
+        - Auth
   /api/v1/azuredevops-hook/{connector_id}:
     post:
       description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
@@ -4984,12 +5022,6 @@ paths:
             type: string
       responses:
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
       tags:
         - Azuredevops-Hook
@@ -4997,25 +5029,10 @@ paths:
     post:
       description: ValidateAzureDevOpsProfile validates an Azure DevOps PAT + organization URL by fetching the user profile
       operationId: ValidateAzureDevOpsProfile
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.ValidateAzureDevOpsProfileRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/azuredevops.Profile'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
       tags:
         - Azuredevops
@@ -6388,49 +6405,16 @@ paths:
     post:
       description: HandleMCPAgentChat processes a chat message through the agent loop.
       operationId: HandleMCPAgentChat
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/api.MCPAgentChatRequest'
       responses:
         "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.MCPAgentChatResponse'
           description: OK
         "400":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Request
         "401":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Unauthorized
         "500":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Internal Server Error
         "502":
-          content:
-            application/json:
-              schema:
-                additionalProperties:
-                  type: string
-                type: object
           description: Bad Gateway
       tags:
         - Mcp-Agent
@@ -6723,12 +6707,118 @@ paths:
       operationId: ChangeUserRole
       parameters:
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
         - in: path
-          name: user_id
+          name: org_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+      tags:
+        - Orgs
+  /api/v1/orgs/{org_id}/slack-config:
+    delete:
+      description: DeleteSlackConfig removes the org's slack bot configuration.
+      operationId: DeleteSlackConfig
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            format: int64
+            type: integer
+      responses:
+        "204":
+          description: No Content
+      tags:
+        - Orgs
+    get:
+      description: GetSlackConfig returns the org's slack bot configuration (without secrets).
+      operationId: GetSlackConfig
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            format: int64
+            type: integer
+      responses:
+        "200":
+          description: OK
+      tags:
+        - Orgs
+    put:
+      description: PutSlackConfig creates or updates the org's slack bot configuration.
+      operationId: PutSlackConfig
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            format: int64
+            type: integer
+      responses:
+        "200":
+          description: OK
+      tags:
+        - Orgs
+  /api/v1/orgs/{org_id}/slack-proxy-callback:
+    post:
+      description: SlackProxyCallback receives the bot token from the cloud proxy and completes installation.
+      operationId: SlackProxyCallback
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: setup_token
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+      tags:
+        - Orgs
+  /api/v1/orgs/{org_id}/teams-config:
+    delete:
+      operationId: DeleteTeamsConfig
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+      tags:
+        - Orgs
+    get:
+      operationId: GetTeamsConfig
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+      tags:
+        - Orgs
+    put:
+      operationId: UpdateTeamsConfig
+      parameters:
+        - in: path
+          name: org_id
           required: true
           schema:
             type: string
@@ -7371,6 +7461,11 @@ paths:
           required: true
           schema:
             type: string
+        - in: path
+          name: var
+          required: true
+          schema:
+            type: string
       requestBody:
         content:
           application/json:
@@ -7995,12 +8090,12 @@ paths:
       operationId: RevokeLicense
       parameters:
         - in: path
-          name: id
+          name: user_id
           required: true
           schema:
             type: string
         - in: path
-          name: user_id
+          name: id
           required: true
           schema:
             type: string
