@@ -27,8 +27,6 @@ import (
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/license/payment"
 	azuredevopsprovider "github.com/livereview/internal/provider_input/azuredevops"
-	"github.com/livereview/internal/slackbot"
-	"github.com/livereview/internal/teamsbot"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	giteaprovider "github.com/livereview/internal/provider_input/gitea"
 	githubprovider "github.com/livereview/internal/provider_input/github"
@@ -42,6 +40,7 @@ import (
 	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/internal/scheduledreview"
 	"github.com/livereview/internal/slackbot"
+	"github.com/livereview/internal/teamsbot"
 	"github.com/livereview/storage/core"
 	// Import FetchGitLabProfile
 )
