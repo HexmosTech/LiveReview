@@ -526,7 +526,7 @@ This section documents how to manually trigger a tool-based review against the s
 ```bash
 cd /home/gk/hex/git-lrc
 
-LRC_API_KEY=YOUR_API_KEY_HERE \
+LRC_API_KEY=<your-api-key> \
   lrc r \
   --tools \
   --diff-file test_cases/gitleaks.txt \
@@ -548,7 +548,7 @@ LRC_API_KEY=YOUR_API_KEY_HERE \
 
 **Location:** `git-lrc/test_cases/gitleaks.txt`
 
-Contains a synthetic unified diff with deliberate fake secrets:
+Contains a synthetic unified diff with deliberate **fake** secrets (for testing only — not real credentials):
 - `"database_password": "REDACTED_PASSWORD"` — triggers **Critical**
 - `"slack_token": "REDACTED_TOKEN"` — triggers **Critical**
 
