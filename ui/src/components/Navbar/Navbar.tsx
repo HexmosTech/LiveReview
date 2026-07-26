@@ -10,6 +10,7 @@ import apiClient from '../../api/apiClient';
 import { useAppSelector } from '../../store/configureStore';
 import { buildMegaMenuSections, filterMegaMenuSection, MegaMenuContext } from './megaMenuData';
 import { NavMegaMenu } from './NavMegaMenu';
+import { shortcutKeyLabel } from '../../utils/platform';
 
 type NavbarBillingStatusResponse = {
     billing: {
@@ -630,23 +631,36 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
         setIsMegaMenuOpen(true);
     };
 
-    const closeMegaMenuSoon = () => {
-        if (megaMenuCloseTimerRef.current) {
-            clearTimeout(megaMenuCloseTimerRef.current);
-        }
-        megaMenuCloseTimerRef.current = setTimeout(() => {
-            // Don't close while focus is still inside the nav (e.g. the search input) — the
-            // results list resizing as you type can shift the panel's edge out from under a
-            // stationary cursor and fire a mouseleave even though you're actively typing.
-            if (navRef.current && navRef.current.contains(document.activeElement)) {
-                megaMenuCloseTimerRef.current = null;
-                return;
+    // Whether the cursor is "inside" the nav can't be tracked with plain onMouseEnter/onMouseLeave
+    // on <nav>: the mega-menu panel resizes as you type in search (results list grows/shrinks),
+    // and that alone can shift the panel's edge out from under a stationary cursor and fire a
+    // spurious mouseleave — closing the menu while you're still actively using it. Tracking real
+    // mouse movement globally and checking actual DOM containment (via elementFromPoint, which
+    // correctly includes the absolutely-positioned panel since it's still a real DOM descendant
+    // of <nav>) only reacts to the cursor actually moving, so it isn't fooled by layout shifts.
+    useEffect(() => {
+        const handleMouseMove = (event: MouseEvent) => {
+            if (!navRef.current) return;
+            const elementUnderCursor = document.elementFromPoint(event.clientX, event.clientY);
+            const isInsideNav = Boolean(elementUnderCursor && navRef.current.contains(elementUnderCursor));
+
+            if (isInsideNav) {
+                if (megaMenuCloseTimerRef.current) {
+                    clearTimeout(megaMenuCloseTimerRef.current);
+                    megaMenuCloseTimerRef.current = null;
+                }
+                setIsMegaMenuOpen(true);
+            } else if (!megaMenuCloseTimerRef.current) {
+                megaMenuCloseTimerRef.current = setTimeout(() => {
+                    setIsMegaMenuOpen(false);
+                    setHoveredNavKey(null);
+                    megaMenuCloseTimerRef.current = null;
+                }, 200);
             }
-            setIsMegaMenuOpen(false);
-            setHoveredNavKey(null);
-            megaMenuCloseTimerRef.current = null;
-        }, 200);
-    };
+        };
+        document.addEventListener('mousemove', handleMouseMove);
+        return () => document.removeEventListener('mousemove', handleMouseMove);
+    }, []);
 
     // Ctrl+K / Cmd+K opens the mega menu and focuses its search box from anywhere in the app.
     useEffect(() => {
@@ -669,8 +683,6 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
         <nav
             ref={navRef}
             className="relative bg-slate-900/95 backdrop-blur-sm shadow-lg border-b border-slate-700/60 sticky top-0 z-50"
-            onMouseEnter={openMegaMenu}
-            onMouseLeave={closeMegaMenuSoon}
         >
             <div className="container mx-auto px-4 py-3 flex justify-between items-center">
                 <div className="flex items-center">
@@ -723,23 +735,52 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         {navLinks.map(link => (
                             <Button
                                 key={link.key}
-                                variant={activePage === link.key ? 'primary' : 'ghost'}
+                                variant="ghost"
                                 onClick={() => handleNavClick(link.path || link.key)}
                                 onMouseEnter={() => setHoveredNavKey(link.key)}
                                 icon={link.icon}
                                 className={classNames(
-                                    'text-sm font-medium transition-all duration-200',
+                                    'relative text-sm font-medium transition-all duration-200 focus:ring-0 focus:ring-offset-0',
                                     activePage === link.key
-                                        ? 'bg-blue-600 text-white shadow-lg'
-                                        : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+                                        ? 'text-white font-semibold hover:bg-transparent'
+                                        : 'text-slate-400 hover:text-white hover:bg-slate-700/60'
                                 )}
                                 as={Link}
                                 to={link.path || `/${link.key}`}
                             >
                                 {link.name}
+                                {activePage === link.key && (
+                                    <span
+                                        aria-hidden="true"
+                                        className="absolute -bottom-3 left-2 right-2 h-0.5 rounded-full bg-blue-500"
+                                    />
+                                )}
                             </Button>
                         ))}
                     </div>
+
+                    {/* Divider */}
+                    <div className="h-6 w-px bg-slate-700/60" />
+
+                    <Button
+                        variant="ghost"
+                        onMouseEnter={() => {
+                            openMegaMenu();
+                            setSearchFocusToken((token) => token + 1);
+                        }}
+                        onClick={() => {
+                            openMegaMenu();
+                            setSearchFocusToken((token) => token + 1);
+                        }}
+                        icon={<Icons.Search />}
+                        aria-label="Search"
+                        className="text-sm font-medium transition-all duration-200 text-slate-400 hover:text-white hover:bg-slate-700/60 focus:ring-0 focus:ring-offset-0"
+                    >
+                        Search
+                        <span className="ml-2.5 font-mono text-[11px] text-slate-500" style={{ letterSpacing: '0.02em' }}>
+                            {shortcutKeyLabel()}
+                        </span>
+                    </Button>
                     <BillingChip />
 
                     {/* Logout button */}
