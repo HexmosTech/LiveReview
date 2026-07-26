@@ -76,7 +76,7 @@ const NestedGroupFallback: React.FC<{ node: MegaMenuGroupNode; goTo: (path: stri
 // column level, and only collapses when the mouse leaves the WHOLE column (not a single row) —
 // otherwise moving from an open group down to a sibling link collapses the group mid-transit and
 // the target jumps out from under the cursor.
-const SectionColumn: React.FC<{ section: MegaMenuSection; goTo: (path: string) => void; isHighlighted?: boolean }> = ({ section, goTo, isHighlighted }) => {
+const SectionColumn: React.FC<{ section: MegaMenuSection; goTo: (path: string) => void; isHighlighted?: boolean; forceExpandAll?: boolean }> = ({ section, goTo, isHighlighted, forceExpandAll }) => {
     // Groups a user has hovered stay expanded — switching to a sibling group must never collapse
     // another one, since collapsing shifts content under the cursor and closes everything.
     const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
@@ -119,7 +119,7 @@ const SectionColumn: React.FC<{ section: MegaMenuSection; goTo: (path: string) =
                             if (node.kind === 'link') {
                                 return <LinkRow key={`${node.path}:${node.name}`} node={node} goTo={goTo} />;
                             }
-                            const isOpen = openGroups.has(node.name);
+                            const isOpen = forceExpandAll || openGroups.has(node.name);
                             return (
                                 <li key={node.name}>
                                     <div
@@ -178,6 +178,7 @@ const SearchResultRow: React.FC<{ entry: MegaMenuSearchEntry; isFirst: boolean; 
 export const NavMegaMenu: React.FC<NavMegaMenuProps> = ({ isOpen, onClose, sections, highlightKey, searchFocusToken }) => {
     const navigate = useNavigate();
     const [query, setQuery] = useState('');
+    const [isAllExpanded, setIsAllExpanded] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
 
     const searchEntries = useMemo(() => flattenMegaMenuSections(sections), [sections]);
@@ -194,7 +195,10 @@ export const NavMegaMenu: React.FC<NavMegaMenuProps> = ({ isOpen, onClose, secti
     }, [searchEntries, query]);
 
     useEffect(() => {
-        if (!isOpen) setQuery('');
+        if (!isOpen) {
+            setQuery('');
+            setIsAllExpanded(false);
+        }
     }, [isOpen]);
 
     useEffect(() => {
@@ -230,7 +234,7 @@ export const NavMegaMenu: React.FC<NavMegaMenuProps> = ({ isOpen, onClose, secti
             role="region"
             aria-label="All features"
         >
-            <div className="container mx-auto flex justify-center px-4 pt-5 pb-8">
+            <div className="container relative mx-auto flex justify-center px-4 pt-5 pb-8">
                 <div className="relative mr-8 w-full max-w-xl">
                     <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
                         <Icons.Search />
@@ -252,6 +256,16 @@ export const NavMegaMenu: React.FC<NavMegaMenuProps> = ({ isOpen, onClose, secti
                         {shortcutKeyLabel()}
                     </span>
                 </div>
+                <button
+                    type="button"
+                    onClick={() => setIsAllExpanded((value) => !value)}
+                    className="absolute right-4 top-1/2 flex -translate-y-1/2 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-400 transition-colors hover:bg-slate-700/60 hover:text-white"
+                >
+                    <span className={classNames('shrink-0 transition-transform', isAllExpanded && 'rotate-180')}>
+                        <Icons.ChevronDown />
+                    </span>
+                    {isAllExpanded ? 'Minimize' : 'Expand all'}
+                </button>
             </div>
 
             {query.trim() ? (
@@ -278,6 +292,7 @@ export const NavMegaMenu: React.FC<NavMegaMenuProps> = ({ isOpen, onClose, secti
                                 section={section}
                                 goTo={goTo}
                                 isHighlighted={Boolean(highlightKey) && section.key === highlightKey}
+                                forceExpandAll={isAllExpanded}
                             />
                         ))}
                 </div>
