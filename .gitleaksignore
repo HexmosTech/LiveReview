@@ -1,3 +1,5 @@
-# Ignore fake AWS tokens in release notes
+# Ignore fake AWS tokens in release notes across all commits
 d8d3e9e4d9160690d208a3079f0a688dce6e5ed4:docs/releases/v0.0.45.md:aws-access-token:17
 d8d3e9e4d9160690d208a3079f0a688dce6e5ed4:docs/releases/v0.0.45.md:aws-access-token:21
+9540c5b71982faff8c5f6ab123fb4e9c629ece42:docs/releases/v0.0.45.md:aws-access-token:17
+9540c5b71982faff8c5f6ab123fb4e9c629ece42:docs/releases/v0.0.45.md:aws-access-token:21
