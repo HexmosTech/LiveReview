@@ -103,6 +103,7 @@
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.62.0",
     "react-hot-toast": "^2.6.0",
+    "react-icons": "^5.7.0",
     "react-redux": "^9.2.0",
     "react-router": "^6.30.4",
     "react-router-dom": "^6.30.4",
