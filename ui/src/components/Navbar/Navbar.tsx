@@ -738,12 +738,12 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                                 variant="ghost"
                                 onClick={() => handleNavClick(link.path || link.key)}
                                 onMouseEnter={() => setHoveredNavKey(link.key)}
-                                icon={link.icon}
+                                icon={activePage === link.key ? link.icon : <span className="text-slate-400">{link.icon}</span>}
                                 className={classNames(
                                     'relative text-sm font-medium transition-all duration-200 focus:ring-0 focus:ring-offset-0',
                                     activePage === link.key
                                         ? 'text-white font-semibold hover:bg-transparent'
-                                        : 'text-slate-400 hover:text-white hover:bg-slate-700/60'
+                                        : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
                                 )}
                                 as={Link}
                                 to={link.path || `/${link.key}`}
@@ -772,9 +772,9 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                             openMegaMenu();
                             setSearchFocusToken((token) => token + 1);
                         }}
-                        icon={<Icons.Search />}
+                        icon={<span className="text-slate-400"><Icons.Search /></span>}
                         aria-label="Search"
-                        className="text-sm font-medium transition-all duration-200 text-slate-400 hover:text-white hover:bg-slate-700/60 focus:ring-0 focus:ring-offset-0"
+                        className="text-sm font-medium transition-all duration-200 text-slate-300 hover:text-white hover:bg-slate-700/60 focus:ring-0 focus:ring-offset-0"
                     >
                         Search
                         <span className="ml-2.5 font-mono text-[11px] text-slate-500" style={{ letterSpacing: '0.02em' }}>
