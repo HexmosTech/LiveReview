@@ -23,13 +23,13 @@ func NewTeamsConfigHandler(db *sql.DB) *TeamsConfigHandler {
 	}
 }
 
-type teamsConfigResponse struct {
+type TeamsConfigResponse struct {
 	Configured bool   `json:"configured"`
 	BotAppID   string `json:"bot_app_id,omitempty"`
 	TenantID   string `json:"tenant_id,omitempty"`
 }
 
-type teamsConfigUpdateRequest struct {
+type TeamsConfigUpdateRequest struct {
 	BotAppID    string `json:"bot_app_id"`
 	BotPassword string `json:"bot_password"`
 }
@@ -43,12 +43,12 @@ func (h *TeamsConfigHandler) GetTeamsConfig(c echo.Context) error {
 	cfg, err := h.storage.GetTeamsConfig(c.Request().Context(), permCtx.OrgID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return c.JSON(http.StatusOK, teamsConfigResponse{Configured: false})
+			return c.JSON(http.StatusOK, TeamsConfigResponse{Configured: false})
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get Teams config")
 	}
 
-	return c.JSON(http.StatusOK, teamsConfigResponse{
+	return c.JSON(http.StatusOK, TeamsConfigResponse{
 		Configured: true,
 		BotAppID:   cfg.BotAppID,
 		TenantID:   cfg.TenantID,
@@ -65,7 +65,7 @@ func (h *TeamsConfigHandler) UpdateTeamsConfig(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusForbidden, "only owners can configure Teams integration")
 	}
 
-	var req teamsConfigUpdateRequest
+	var req TeamsConfigUpdateRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
 	}
@@ -97,7 +97,7 @@ func (h *TeamsConfigHandler) UpdateTeamsConfig(c echo.Context) error {
 
 	log.Printf("[TeamsConfig] Org %d: Teams bot configured with app ID %s", permCtx.OrgID, req.BotAppID)
 
-	return c.JSON(http.StatusOK, teamsConfigResponse{
+	return c.JSON(http.StatusOK, TeamsConfigResponse{
 		Configured: true,
 		BotAppID:   cfg.BotAppID,
 	})

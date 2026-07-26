@@ -713,6 +713,15 @@ const TaxonomyReports: React.FC = () => {
     if (showExportDialog) loadExportPreview();
   }, [showExportDialog, loadExportPreview]);
 
+  // Deep link support: ?export=pdf opens the export dialog directly on the PDF tab (e.g. from the navbar mega menu).
+  useEffect(() => {
+    if (searchParams.get('export') === 'pdf') {
+      setExportTab('pdf');
+      setShowExportDialog(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const runExport = async (dataset: string) => {
     try {
       setExportingDataset(dataset);
