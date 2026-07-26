@@ -548,9 +548,6 @@ LRC_API_KEY=<your-api-key> \
 
 **Location:** `git-lrc/test_cases/gitleaks.txt`
 
-Contains a synthetic unified diff with deliberate **fake** secrets (for testing only — not real credentials):
-- `"database_password": "REDACTED_PASSWORD"` — triggers **Critical**
-- `"slack_token": "REDACTED_TOKEN"` — triggers **Critical**
 
 ### Verifying Results
 
