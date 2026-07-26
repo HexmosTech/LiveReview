@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import classNames from 'classnames';
 import { Icons } from '../UIPrimitives';
 import { flattenMegaMenuSections, MegaMenuGroupNode, MegaMenuLinkNode, MegaMenuNode, MegaMenuSearchEntry, MegaMenuSection } from './megaMenuData';
+import { shortcutKeyLabel } from '../../utils/platform';
 
 
 // Ranking tiers (lower score wins). Each tier's floor is set well above the previous tier's
@@ -188,7 +189,7 @@ export const NavMegaMenu: React.FC<NavMegaMenuProps> = ({ isOpen, onClose, secti
             .map((entry) => ({ entry, score: scoreSearchEntry(entry, trimmed) }))
             .filter((s): s is { entry: MegaMenuSearchEntry; score: number } => s.score !== null)
             .sort((a, b) => a.score - b.score)
-            .slice(0, 30)
+            .slice(0, 8)
             .map((s) => s.entry);
     }, [searchEntries, query]);
 
@@ -240,11 +241,15 @@ export const NavMegaMenu: React.FC<NavMegaMenuProps> = ({ isOpen, onClose, secti
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
                         onKeyDown={handleSearchKeyDown}
+                        onMouseEnter={(event) => event.currentTarget.focus()}
                         placeholder="Search actions..."
                         className="w-full rounded-lg border border-slate-700/60 bg-slate-800/70 py-2 pl-10 pr-16 text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
-                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded border border-slate-600 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
-                        Ctrl K
+                    <span
+                        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-mono text-[11px] text-slate-500"
+                        style={{ letterSpacing: '0.02em' }}
+                    >
+                        {shortcutKeyLabel()}
                     </span>
                 </div>
             </div>
