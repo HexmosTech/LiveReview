@@ -8,6 +8,9 @@ import { useOrgContext } from '../../hooks/useOrgContext';
 import { isCloudMode } from '../../utils/deploymentMode';
 import apiClient from '../../api/apiClient';
 import { useAppSelector } from '../../store/configureStore';
+import { buildMegaMenuSections, filterMegaMenuSection, MegaMenuContext } from './megaMenuData';
+import { NavMegaMenu } from './NavMegaMenu';
+import { shortcutKeyLabel } from '../../utils/platform';
 
 type NavbarBillingStatusResponse = {
     billing: {
@@ -573,6 +576,11 @@ const testNavLink: NavLink = {
 
 export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard', onNavigate, onLogout }) => {
     const [isOpen, setIsOpen] = useState(false);
+    const [isMegaMenuOpen, setIsMegaMenuOpen] = useState(false);
+    const [hoveredNavKey, setHoveredNavKey] = useState<string | null>(null);
+    const [searchFocusToken, setSearchFocusToken] = useState(0);
+    const megaMenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const navRef = useRef<HTMLElement>(null);
     const { isDevMode } = useSystemInfo();
     const { isSuperAdmin, currentOrg } = useOrgContext();
 
@@ -593,13 +601,89 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
     // Conditionally include test middleware link based on dev mode
     const navLinks = isDevMode ? [...filteredBaseLinks, testNavLink] : filteredBaseLinks;
 
+    const megaMenuContext: MegaMenuContext = {
+        isSuperAdmin,
+        hasOrg: Boolean(currentOrg),
+        orgRole: currentOrg?.role,
+        isDevMode,
+    };
+
+    const filteredMegaMenuSections = buildMegaMenuSections()
+        .filter(section => {
+            if (section.devOnly) return isDevMode;
+            if (section.requiresSuperAdmin) return isSuperAdmin;
+            if (section.requiresOwnerOrAdmin) return canManageCurrentOrg;
+            return true;
+        })
+        .map(section => filterMegaMenuSection(section, megaMenuContext));
+
     const handleNavClick = (target: string) => {
         if (onNavigate) onNavigate(target);
         setIsOpen(false);
+        setIsMegaMenuOpen(false);
     };
 
+    const openMegaMenu = () => {
+        if (megaMenuCloseTimerRef.current) {
+            clearTimeout(megaMenuCloseTimerRef.current);
+            megaMenuCloseTimerRef.current = null;
+        }
+        setIsMegaMenuOpen(true);
+    };
+
+    // Whether the cursor is "inside" the nav can't be tracked with plain onMouseEnter/onMouseLeave
+    // on <nav>: the mega-menu panel resizes as you type in search (results list grows/shrinks),
+    // and that alone can shift the panel's edge out from under a stationary cursor and fire a
+    // spurious mouseleave — closing the menu while you're still actively using it. Tracking real
+    // mouse movement globally and checking actual DOM containment (via elementFromPoint, which
+    // correctly includes the absolutely-positioned panel since it's still a real DOM descendant
+    // of <nav>) only reacts to the cursor actually moving, so it isn't fooled by layout shifts.
+    useEffect(() => {
+        const handleMouseMove = (event: MouseEvent) => {
+            if (!navRef.current) return;
+            const elementUnderCursor = document.elementFromPoint(event.clientX, event.clientY);
+            const isInsideNav = Boolean(elementUnderCursor && navRef.current.contains(elementUnderCursor));
+
+            if (isInsideNav) {
+                if (megaMenuCloseTimerRef.current) {
+                    clearTimeout(megaMenuCloseTimerRef.current);
+                    megaMenuCloseTimerRef.current = null;
+                }
+                setIsMegaMenuOpen(true);
+            } else if (!megaMenuCloseTimerRef.current) {
+                megaMenuCloseTimerRef.current = setTimeout(() => {
+                    setIsMegaMenuOpen(false);
+                    setHoveredNavKey(null);
+                    megaMenuCloseTimerRef.current = null;
+                }, 200);
+            }
+        };
+        document.addEventListener('mousemove', handleMouseMove);
+        return () => document.removeEventListener('mousemove', handleMouseMove);
+    }, []);
+
+    // Ctrl+K / Cmd+K opens the mega menu and focuses its search box from anywhere in the app.
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+                event.preventDefault();
+                if (megaMenuCloseTimerRef.current) {
+                    clearTimeout(megaMenuCloseTimerRef.current);
+                    megaMenuCloseTimerRef.current = null;
+                }
+                setIsMegaMenuOpen(true);
+                setSearchFocusToken((token) => token + 1);
+            }
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, []);
+
     return (
-        <nav className="bg-slate-900/95 backdrop-blur-sm shadow-lg border-b border-slate-700/60 sticky top-0 z-50">
+        <nav
+            ref={navRef}
+            className="relative bg-slate-900/95 backdrop-blur-sm shadow-lg border-b border-slate-700/60 sticky top-0 z-50"
+        >
             <div className="container mx-auto px-4 py-3 flex justify-between items-center">
                 <div className="flex items-center">
                     <Link
@@ -641,24 +725,62 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         className="mr-4"
                     />
 
-                    {navLinks.map(link => (
-                        <Button
-                            key={link.key}
-                            variant={activePage === link.key ? 'primary' : 'ghost'}
-                            onClick={() => handleNavClick(link.path || link.key)}
-                            icon={link.icon}
-                            className={classNames(
-                                'text-sm font-medium transition-all duration-200',
-                                activePage === link.key
-                                    ? 'bg-blue-600 text-white shadow-lg'
-                                    : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
-                            )}
-                            as={Link}
-                            to={link.path || `/${link.key}`}
-                        >
-                            {link.name}
-                        </Button>
-                    ))}
+                    <div
+                        className={classNames(
+                            'flex items-center gap-2 transition-opacity duration-200',
+                            isMegaMenuOpen && 'opacity-50'
+                        )}
+                        onMouseLeave={() => setHoveredNavKey(null)}
+                    >
+                        {navLinks.map(link => (
+                            <Button
+                                key={link.key}
+                                variant="ghost"
+                                onClick={() => handleNavClick(link.path || link.key)}
+                                onMouseEnter={() => setHoveredNavKey(link.key)}
+                                icon={activePage === link.key ? link.icon : <span className="text-slate-400">{link.icon}</span>}
+                                className={classNames(
+                                    'relative text-sm font-medium transition-all duration-200 focus:ring-0 focus:ring-offset-0',
+                                    activePage === link.key
+                                        ? 'text-white font-semibold hover:bg-transparent'
+                                        : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+                                )}
+                                as={Link}
+                                to={link.path || `/${link.key}`}
+                            >
+                                {link.name}
+                                {activePage === link.key && (
+                                    <span
+                                        aria-hidden="true"
+                                        className="absolute -bottom-3 left-2 right-2 h-0.5 rounded-full bg-blue-500"
+                                    />
+                                )}
+                            </Button>
+                        ))}
+                    </div>
+
+                    {/* Divider */}
+                    <div className="h-6 w-px bg-slate-700/60" />
+
+                    <Button
+                        variant="ghost"
+                        onMouseEnter={() => {
+                            openMegaMenu();
+                            setSearchFocusToken((token) => token + 1);
+                        }}
+                        onClick={() => {
+                            openMegaMenu();
+                            setSearchFocusToken((token) => token + 1);
+                        }}
+                        icon={<span className="text-slate-400"><Icons.Search /></span>}
+                        aria-label="Search"
+                        className="text-sm font-medium transition-all duration-200 text-slate-300 hover:text-white hover:bg-slate-700/60 focus:ring-0 focus:ring-offset-0"
+                    >
+                        Search
+                        <span className="ml-2.5 font-mono text-[11px] text-slate-500" style={{ letterSpacing: '0.02em' }}>
+                            {shortcutKeyLabel()}
+                        </span>
+                    </Button>
                     <BillingChip />
 
                     {/* Logout button */}
@@ -727,6 +849,14 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                     )}
                 </div>
             )}
+
+            <NavMegaMenu
+                isOpen={isMegaMenuOpen}
+                onClose={() => setIsMegaMenuOpen(false)}
+                sections={filteredMegaMenuSections}
+                highlightKey={hoveredNavKey}
+                searchFocusToken={searchFocusToken}
+            />
         </nav>
     );
 };
