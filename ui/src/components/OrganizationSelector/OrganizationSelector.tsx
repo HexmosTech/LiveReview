@@ -291,7 +291,7 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
             {/* Dropdown Menu */}
             {orgSelectorOpen && (
                 <div className={classNames(
-                    'absolute z-50 mt-1 bg-slate-800 border border-slate-600/60 rounded-lg shadow-xl backdrop-blur-sm flex flex-col',
+                    'absolute z-[110] mt-1 bg-slate-800 border border-slate-600/60 rounded-lg shadow-xl backdrop-blur-sm flex flex-col',
                     styles.dropdown,
                     position === 'navbar' && 'right-0',
                     position === 'sidebar' && 'left-0',
