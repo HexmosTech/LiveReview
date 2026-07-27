@@ -162,8 +162,7 @@ const AppContent: React.FC = () => {
         const path = location.pathname;
         if (path.startsWith('/dashboard')) return 'dashboard';
         if (path.startsWith('/reviews')) return 'reviews';
-        if (path.startsWith('/git')) return 'git';
-        if (path.startsWith('/ai')) return 'ai';
+        if (path.startsWith('/git') || path.startsWith('/ai')) return 'providers';
         if (path.startsWith('/admin/billing-portfolio')) return 'admin-billing';
         if (path.startsWith('/reports')) return 'reports';
         if (path.startsWith('/settings')) return 'settings';
