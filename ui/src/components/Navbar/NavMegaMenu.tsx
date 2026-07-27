@@ -176,10 +176,14 @@ const SectionColumn: React.FC<{ section: MegaMenuSection; goTo: (path: string) =
         >
             {section.items && section.items.length > 0 && (
                 <>
-                    <div className="flex items-center gap-2 px-2 pb-1 text-sm font-semibold text-white">
+                    <button
+                        type="button"
+                        onClick={() => goTo(section.path)}
+                        className="flex w-full items-center gap-2 px-2 pb-1 text-sm font-semibold text-white hover:text-blue-400 transition-colors"
+                    >
                         <span className="text-blue-400">{section.icon}</span>
                         {section.name}
-                    </div>
+                    </button>
                     <ul className="space-y-0.5">
                         {section.items.map((node: MegaMenuNode) => (
                             node.kind === 'link'
