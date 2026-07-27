@@ -343,8 +343,8 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
-        // Integrations tab visible only in self-hosted mode
-        ...(!isCloudMode() && (isSuperAdmin || currentOrg) ? [{ 
+        // Integrations tab: visible in both modes; cloud mode shows an Enterprise "not available" notice instead of the connect options
+        ...((isSuperAdmin || currentOrg) ? [{
             id: 'integrations', 
             name: 'Integrations', 
             icon: (

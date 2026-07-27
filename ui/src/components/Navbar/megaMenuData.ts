@@ -15,6 +15,7 @@ export type MegaMenuLinkNode = {
     icon: React.ReactNode;
     path: string;
     isVisible?: (ctx: MegaMenuContext) => boolean;
+    isEnterprise?: boolean;
 };
 
 export type MegaMenuGroupNode = {
@@ -23,6 +24,9 @@ export type MegaMenuGroupNode = {
     icon?: React.ReactNode;
     children: MegaMenuNode[];
     isVisible?: (ctx: MegaMenuContext) => boolean;
+    // When set, the group's header is itself a navigable link (e.g. "AI Providers" opening /ai)
+    // in addition to being a hover-to-expand trigger for its children.
+    path?: string;
 };
 
 export type MegaMenuNode = MegaMenuLinkNode | MegaMenuGroupNode;
@@ -42,15 +46,17 @@ const link = (
     name: string,
     icon: React.ReactNode,
     path: string,
-    isVisible?: (ctx: MegaMenuContext) => boolean
-): MegaMenuLinkNode => ({ kind: 'link', name, icon, path, isVisible });
+    isVisible?: (ctx: MegaMenuContext) => boolean,
+    isEnterprise?: boolean
+): MegaMenuLinkNode => ({ kind: 'link', name, icon, path, isVisible, isEnterprise });
 
 const group = (
     name: string,
     children: MegaMenuNode[],
     icon?: React.ReactNode,
-    isVisible?: (ctx: MegaMenuContext) => boolean
-): MegaMenuGroupNode => ({ kind: 'group', name, icon, children, isVisible });
+    isVisible?: (ctx: MegaMenuContext) => boolean,
+    path?: string
+): MegaMenuGroupNode => ({ kind: 'group', name, icon, children, isVisible, path });
 
 // Filters a node (and its descendants) against the current user's permissions.
 // A group with no visible children left disappears entirely.
@@ -78,13 +84,17 @@ export type MegaMenuSearchEntry = {
     path: string;
     icon: React.ReactNode;
     breadcrumb: string;
+    isEnterprise?: boolean;
 };
 
 const flattenMegaMenuNode = (node: MegaMenuNode, trail: string[]): MegaMenuSearchEntry[] => {
     if (node.kind === 'link') {
-        return [{ name: node.name, path: node.path, icon: node.icon, breadcrumb: trail.join(' > ') }];
+        return [{ name: node.name, path: node.path, icon: node.icon, breadcrumb: trail.join(' > '), isEnterprise: node.isEnterprise }];
     }
-    return node.children.flatMap((child) => flattenMegaMenuNode(child, [...trail, node.name]));
+    const ownEntry: MegaMenuSearchEntry[] = node.path
+        ? [{ name: node.name, path: node.path, icon: node.icon, breadcrumb: trail.join(' > ') }]
+        : [];
+    return [...ownEntry, ...node.children.flatMap((child) => flattenMegaMenuNode(child, [...trail, node.name]))];
 };
 
 export const flattenMegaMenuSections = (sections: MegaMenuSection[]): MegaMenuSearchEntry[] =>
@@ -102,6 +112,20 @@ const reportsRangePath = (days: number): string => {
     since.setDate(since.getDate() - days);
     return `/reports?since=${isoDate(since)}&until=${isoDate(until)}`;
 };
+
+// Same 9 provider brands, reused under both "Leader Model" and "Helper Model" — only the ?role=
+// query param differs, so a click lands on /ai/{provider} with that role pre-selected.
+const buildAiProviderLinks = (role: 'leader' | 'helper'): MegaMenuLinkNode[] => [
+    link('Google Gemini', React.createElement(Icons.Google), `/ai/gemini?role=${role}`),
+    link('Gemini Enterprise', React.createElement(Icons.Google), `/ai/gemini-enterprise?role=${role}`),
+    link('OpenAI', React.createElement(Icons.OpenAI), `/ai/openai?role=${role}`),
+    link('Anthropic Claude', React.createElement(Icons.Claude), `/ai/claude?role=${role}`),
+    link('AWS Bedrock', React.createElement(Icons.Aws), `/ai/bedrock?role=${role}`),
+    link('DeepSeek', React.createElement(Icons.DeepSeek), `/ai/deepseek?role=${role}`),
+    link('OpenRouter', React.createElement(Icons.OpenRouter), `/ai/openrouter?role=${role}`),
+    link('Ollama', React.createElement(Icons.Ollama), `/ai/ollama?role=${role}`),
+    link('Atlas Cloud', React.createElement(Icons.AI), `/ai/atlas?role=${role}`),
+];
 
 export const buildMegaMenuSections = (): MegaMenuSection[] => [
     {
@@ -121,42 +145,33 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
         ],
     },
     {
-        key: 'git',
-        name: 'Git Providers',
-        icon: React.createElement(Icons.Git),
+        key: 'providers',
+        name: 'Providers',
+        icon: React.createElement(Icons.Layers),
         path: '/git',
         requiresOwnerOrAdmin: true,
         items: [
-            group('Connect Git Host', [
-                link('GitHub', React.createElement(Icons.GitHub), '/git/github/manual'),
-                link('GitLab.com', React.createElement(Icons.GitLab), '/git/gitlab-com/manual'),
-                link('Self-Hosted GitLab', React.createElement(Icons.GitLab), '/git/gitlab-self-hosted/manual'),
-                link('Bitbucket', React.createElement(Icons.Bitbucket), '/git/bitbucket/manual'),
-                link('Gitea', React.createElement(Icons.Gitea), '/git/gitea/manual'),
-                link('Azure DevOps', React.createElement(Icons.AzureDevOps), '/git/azuredevops/manual'),
-            ], React.createElement(Icons.Add)),
-            link('List Git Hosts', React.createElement(Icons.List), '/git'),
-        ],
-    },
-    {
-        key: 'ai',
-        name: 'AI Providers',
-        icon: React.createElement(Icons.AI),
-        path: '/ai',
-        requiresOwnerOrAdmin: true,
-        items: [
-            group('Connect AI', [
-                link('Google Gemini', React.createElement(Icons.Google), '/ai/gemini'),
-                link('Gemini Enterprise', React.createElement(Icons.Google), '/ai/gemini-enterprise'),
-                link('OpenAI', React.createElement(Icons.OpenAI), '/ai/openai'),
-                link('Anthropic Claude', React.createElement(Icons.Claude), '/ai/claude'),
-                link('AWS Bedrock', React.createElement(Icons.Aws), '/ai/bedrock'),
-                link('DeepSeek', React.createElement(Icons.DeepSeek), '/ai/deepseek'),
-                link('OpenRouter', React.createElement(Icons.OpenRouter), '/ai/openrouter'),
-                link('Ollama', React.createElement(Icons.Ollama), '/ai/ollama'),
-                link('Atlas Cloud', React.createElement(Icons.AI), '/ai/atlas'),
-            ], React.createElement(Icons.Add)),
-            link('List AI Providers', React.createElement(Icons.List), '/ai'),
+            group('Git Providers', [
+                group('Connect Git', [
+                    link('GitHub', React.createElement(Icons.GitHub), '/git/github/manual'),
+                    link('GitLab.com', React.createElement(Icons.GitLab), '/git/gitlab-com/manual'),
+                    link('Self-Hosted GitLab', React.createElement(Icons.GitLab), '/git/gitlab-self-hosted/manual'),
+                    link('Bitbucket', React.createElement(Icons.Bitbucket), '/git/bitbucket/manual'),
+                    link('Gitea', React.createElement(Icons.Gitea), '/git/gitea/manual'),
+                    link('Azure DevOps', React.createElement(Icons.AzureDevOps), '/git/azuredevops/manual'),
+                ], React.createElement(Icons.Add)),
+                link('List Git Hosts', React.createElement(Icons.List), '/git'),
+            ], React.createElement(Icons.Git), undefined, '/git'),
+            group('AI Providers', [
+                group('Leader Model', [
+                    group('Connect AI', buildAiProviderLinks('leader'), React.createElement(Icons.Add)),
+                    link('List Providers', React.createElement(Icons.List), '/ai?role=leader'),
+                ], React.createElement(Icons.AI)),
+                group('Helper Model', [
+                    group('Connect AI', buildAiProviderLinks('helper'), React.createElement(Icons.Add)),
+                    link('List Providers', React.createElement(Icons.List), '/ai?role=helper'),
+                ], React.createElement(Icons.AI)),
+            ], React.createElement(Icons.AI), undefined, '/ai'),
         ],
     },
     {
@@ -196,9 +211,9 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
                 link('Manage API Keys', React.createElement(Icons.Settings), '/settings#api-keys', (ctx) => ctx.isSuperAdmin || ctx.hasOrg),
                 link('Connect MCP', React.createElement(Icons.AI), '/settings#mcp', (ctx) => ctx.isSuperAdmin || ctx.hasOrg),
             ], React.createElement(Icons.Add)),
-            group('Connect Services', [
-                link('Slack', React.createElement(Icons.Slack), '/settings#integrations', (ctx) => !isCloudMode() && (ctx.isSuperAdmin || ctx.hasOrg)),
-                link('Microsoft Teams', React.createElement(Icons.Teams), '/settings#integrations', (ctx) => !isCloudMode() && (ctx.isSuperAdmin || ctx.hasOrg)),
+            group('Connect Integrations', [
+                link('Slack', React.createElement(Icons.Slack), '/settings#integrations', (ctx) => ctx.isSuperAdmin || ctx.hasOrg, true),
+                link('Microsoft Teams', React.createElement(Icons.Teams), '/settings#integrations', (ctx) => ctx.isSuperAdmin || ctx.hasOrg, true),
                 link('SMTP', React.createElement(Icons.Email), '/settings#smtp', (ctx) => ctx.isSuperAdmin && !isCloudMode()),
             ], React.createElement(Icons.Grid)),
             group('Manage Billing', [
