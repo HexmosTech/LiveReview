@@ -278,7 +278,7 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
                 <svg
                     className={classNames(
                         styles.icon,
-                        'ml-auto transition-transform duration-200',
+                        'ml-1.5 shrink-0 transition-transform duration-200',
                         orgSelectorOpen && 'rotate-180'
                     )}
                     fill="none"
