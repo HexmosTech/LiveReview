@@ -68,43 +68,8 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 	log.Printf("[DEBUG] TriggerReviewV2: Starting review request handling")
 
 	// LOC Quota preflight check — block before creating any DB records
-	// Only run LOC quota preflight in Cloud Mode
-	if apimiddleware.IsCloudMode() {
-		orgID, orgOK := c.Get("org_id").(int64)
-		planCode := license.PlanFree30K
-		if planCtx, ok := c.Get(apimiddleware.PlanContextKey).(apimiddleware.PlanContext); ok && planCtx.PlanType != "" {
-			planCode = planCtx.PlanType
-		}
-		if orgOK && orgID > 0 {
-			accountingService := license.NewLOCAccountingService(s.db)
-			preflightResult, pfErr := accountingService.CheckPreflight(context.Background(), license.LOCPreflightInput{
-				OrgID:       orgID,
-				RequiredLOC: 0, // unknown at this point, just check current state
-				PlanCode:    planCode,
-			})
-			if pfErr != nil {
-				log.Printf("[WARN] LOC preflight check failed for org=%d: %v", orgID, pfErr)
-			} else {
-				applyPreflightToEnvelopeContext(c, preflightResult)
-				if preflightResult.Blocked {
-					errorCode := "quota_exceeded"
-					errorMessage := "monthly LOC quota exceeded for this organization"
-					if preflightResult.BlockReason == "trial_readonly" {
-						errorCode = "trial_readonly"
-						errorMessage = "trial period ended; review operations are read-only until plan update"
-					}
-					log.Printf("[INFO] TriggerReviewV2: LOC quota blocked for org=%d, used=%d, limit=%d",
-						orgID, preflightResult.LOCUsedMonth, preflightResult.LOCLimitMonth)
-					return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
-						"error":         errorMessage,
-						"error_code":    errorCode,
-						"loc_remaining": preflightResult.LOCRemainingMonth,
-						"usage_percent": preflightResult.UsagePercent,
-						"upgrade_url":   defaultUpgradeURL,
-					})
-				}
-			}
-		}
+	if blocked, pfErr := s.preflightLOCQuota(c); blocked {
+		return pfErr
 	}
 
 	// Phase 1: Setup review context (org_id, parse request, create DB record, init logger)
@@ -205,6 +170,57 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 	}
 
 	return JSONWithEnvelope(c, http.StatusOK, response)
+}
+
+// preflightLOCQuota runs the LOC quota preflight check (Cloud Mode only) for
+// the org in the request context. If the org is blocked, it writes the 403
+// JSON response itself and returns blocked=true; the caller should return
+// the accompanying error value (nil on a successfully-written response)
+// without further processing. Shared by TriggerReviewV2 and
+// createReviewForPullRequest so both review-trigger entrypoints enforce
+// billing identically.
+func (s *Server) preflightLOCQuota(c echo.Context) (blocked bool, err error) {
+	if !apimiddleware.IsCloudMode() {
+		return false, nil
+	}
+	orgID, orgOK := c.Get("org_id").(int64)
+	if !orgOK || orgID <= 0 {
+		return false, nil
+	}
+	planCode := license.PlanFree30K
+	if planCtx, ok := c.Get(apimiddleware.PlanContextKey).(apimiddleware.PlanContext); ok && planCtx.PlanType != "" {
+		planCode = planCtx.PlanType
+	}
+
+	accountingService := license.NewLOCAccountingService(s.db)
+	preflightResult, pfErr := accountingService.CheckPreflight(context.Background(), license.LOCPreflightInput{
+		OrgID:       orgID,
+		RequiredLOC: 0, // unknown at this point, just check current state
+		PlanCode:    planCode,
+	})
+	if pfErr != nil {
+		log.Printf("[WARN] LOC preflight check failed for org=%d: %v", orgID, pfErr)
+		return false, nil
+	}
+	applyPreflightToEnvelopeContext(c, preflightResult)
+	if !preflightResult.Blocked {
+		return false, nil
+	}
+
+	errorCode := "quota_exceeded"
+	errorMessage := "monthly LOC quota exceeded for this organization"
+	if preflightResult.BlockReason == "trial_readonly" {
+		errorCode = "trial_readonly"
+		errorMessage = "trial period ended; review operations are read-only until plan update"
+	}
+	log.Printf("[INFO] LOC quota blocked for org=%d, used=%d, limit=%d", orgID, preflightResult.LOCUsedMonth, preflightResult.LOCLimitMonth)
+	return true, JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
+		"error":         errorMessage,
+		"error_code":    errorCode,
+		"loc_remaining": preflightResult.LOCRemainingMonth,
+		"usage_percent": preflightResult.UsagePercent,
+		"upgrade_url":   defaultUpgradeURL,
+	})
 }
 
 func optionalString(value string) *string {

@@ -19,6 +19,8 @@ type GitHubV2PullRequest struct {
 	Title              string         `json:"title"`
 	Body               string         `json:"body"`
 	State              string         `json:"state"`
+	Merged             bool           `json:"merged"`
+	Draft              bool           `json:"draft"`
 	HTMLURL            string         `json:"html_url"`
 	CreatedAt          string         `json:"created_at"`
 	UpdatedAt          string         `json:"updated_at"`

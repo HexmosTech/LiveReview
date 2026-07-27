@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -55,6 +56,8 @@ type GitLabMergeRequest struct {
 	SourceBranch string `json:"source_branch"`
 	TargetBranch string `json:"target_branch"`
 	WebURL       string `json:"web_url"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
 	Author       struct {
 		ID        int    `json:"id"`
 		Username  string `json:"username"`
@@ -390,16 +393,36 @@ func (c *GitLabHTTPClient) GetMergeRequestNotes(projectID string, mrIID int) ([]
 	return notes, nil
 }
 
-// ListMergeRequests lists merge requests for a project
-func (c *GitLabHTTPClient) ListMergeRequests(projectID string) ([]GitLabMergeRequest, error) {
+// ListMergeRequests lists merge requests for a project. state is the GitLab
+// API state filter ("opened", "closed", "merged", or "all"); page/perPage
+// control pagination. Returns the parsed page, the value of the response's
+// X-Next-Page header (empty string if there is no next page), and any error.
+func (c *GitLabHTTPClient) ListMergeRequests(projectID string, state string, page, perPage int) ([]GitLabMergeRequest, string, error) {
+	if state == "" {
+		state = "opened"
+	}
+	if perPage <= 0 {
+		perPage = 100
+	}
+	if page <= 0 {
+		page = 1
+	}
+
+	params := url.Values{}
+	params.Add("state", state)
+	params.Add("page", strconv.Itoa(page))
+	params.Add("per_page", strconv.Itoa(perPage))
+	params.Add("order_by", "updated_at")
+	params.Add("sort", "desc")
+
 	// Create the correct URL with plural 'merge_requests'
-	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests?state=opened",
-		c.baseURL, url.PathEscape(projectID))
+	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests?%s",
+		c.baseURL, url.PathEscape(projectID), params.Encode())
 
 	// Make the request
 	req, err := networkgitlab.NewRequest("GET", requestURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, "", fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Add authentication
@@ -408,23 +431,23 @@ func (c *GitLabHTTPClient) ListMergeRequests(projectID string) ([]GitLabMergeReq
 	// Execute the request
 	resp, err := networkgitlab.Do(c.client, req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute request: %w", err)
+		return nil, "", fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Check for errors
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		return nil, "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Parse the response
 	var mrs []GitLabMergeRequest
 	if err := json.NewDecoder(resp.Body).Decode(&mrs); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+		return nil, "", fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	return mrs, nil
+	return mrs, resp.Header.Get("X-Next-Page"), nil
 }
 
 // CreateMRComment creates a comment on a merge request

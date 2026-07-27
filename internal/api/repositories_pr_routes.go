@@ -1,0 +1,457 @@
+package api
+
+import (
+	"database/sql"
+	"fmt"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/labstack/echo/v4"
+)
+
+// RepositoryResponse is the JSON shape for a repositories row.
+type RepositoryResponse struct {
+	ID             int64      `json:"id"`
+	OrgID          int64      `json:"org_id"`
+	ConnectorID    int64      `json:"connector_id"`
+	Provider       string     `json:"provider"`
+	ProviderRepoID string     `json:"provider_repo_id"`
+	FullName       string     `json:"full_name"`
+	Name           string     `json:"name"`
+	WebURL         string     `json:"web_url"`
+	DefaultBranch  string     `json:"default_branch,omitempty"`
+	IsPrivate      bool       `json:"is_private"`
+	Description    string     `json:"description,omitempty"`
+	LastSyncedAt   *time.Time `json:"last_synced_at,omitempty"`
+	LastSyncStatus string     `json:"last_sync_status"`
+	LastSyncError  string     `json:"last_sync_error,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+// RepositoriesListResponse wraps a paginated repositories listing.
+type RepositoriesListResponse struct {
+	Repositories []RepositoryResponse `json:"repositories"`
+	Total        int                  `json:"total"`
+	Page         int                  `json:"page"`
+	PerPage      int                  `json:"per_page"`
+	TotalPages   int                  `json:"total_pages"`
+}
+
+// PullRequestResponse is the JSON shape for a pull_requests row.
+type PullRequestResponse struct {
+	ID                int64      `json:"id"`
+	RepositoryID      int64      `json:"repository_id"`
+	OrgID             int64      `json:"org_id"`
+	Provider          string     `json:"provider"`
+	ProviderPRID      string     `json:"provider_pr_id"`
+	Number            int        `json:"number"`
+	Title             string     `json:"title"`
+	Description       string     `json:"description,omitempty"`
+	State             string     `json:"state"`
+	AuthorUsername    string     `json:"author_username,omitempty"`
+	AuthorName        string     `json:"author_name,omitempty"`
+	AuthorAvatarURL   string     `json:"author_avatar_url,omitempty"`
+	SourceBranch      string     `json:"source_branch,omitempty"`
+	TargetBranch      string     `json:"target_branch,omitempty"`
+	WebURL            string     `json:"web_url"`
+	ProviderCreatedAt *time.Time `json:"provider_created_at,omitempty"`
+	ProviderUpdatedAt *time.Time `json:"provider_updated_at,omitempty"`
+	LastSyncedAt      time.Time  `json:"last_synced_at"`
+	LastSyncedSource  string     `json:"last_synced_source"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+// PullRequestsListResponse wraps a paginated pull_requests listing.
+type PullRequestsListResponse struct {
+	PullRequests []PullRequestResponse `json:"pull_requests"`
+	Total        int                   `json:"total"`
+	Page         int                   `json:"page"`
+	PerPage      int                   `json:"per_page"`
+	TotalPages   int                   `json:"total_pages"`
+}
+
+// PullRequestReviewSummary is one review-run entry in a PR/MR's review history.
+type PullRequestReviewSummary struct {
+	ID          int64      `json:"id"`
+	Status      string     `json:"status"`
+	TriggerType string     `json:"trigger_type"`
+	CreatedAt   time.Time  `json:"created_at"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+}
+
+// PullRequestDetailResponse is a single PR/MR plus its review history.
+type PullRequestDetailResponse struct {
+	PullRequestResponse
+	Reviews []PullRequestReviewSummary `json:"reviews"`
+}
+
+func parsePageParams(c echo.Context) (page, perPage int) {
+	page = 1
+	if p, err := strconv.Atoi(c.QueryParam("page")); err == nil && p > 0 {
+		page = p
+	}
+	perPage = 20
+	if pp, err := strconv.Atoi(c.QueryParam("per_page")); err == nil && pp > 0 && pp <= 200 {
+		perPage = pp
+	}
+	return page, perPage
+}
+
+func scanRepository(scan func(dest ...interface{}) error) (RepositoryResponse, error) {
+	var r RepositoryResponse
+	var defaultBranch, description, lastSyncError sql.NullString
+	var lastSyncedAt sql.NullTime
+	err := scan(
+		&r.ID, &r.OrgID, &r.ConnectorID, &r.Provider, &r.ProviderRepoID, &r.FullName, &r.Name,
+		&r.WebURL, &defaultBranch, &r.IsPrivate, &description, &lastSyncedAt, &r.LastSyncStatus,
+		&lastSyncError, &r.CreatedAt, &r.UpdatedAt,
+	)
+	if err != nil {
+		return r, err
+	}
+	r.DefaultBranch = defaultBranch.String
+	r.Description = description.String
+	r.LastSyncError = lastSyncError.String
+	if lastSyncedAt.Valid {
+		r.LastSyncedAt = &lastSyncedAt.Time
+	}
+	return r, nil
+}
+
+const repositoryColumns = `id, org_id, connector_id, provider, provider_repo_id, full_name, name,
+	web_url, default_branch, is_private, description, last_synced_at, last_sync_status,
+	last_sync_error, created_at, updated_at`
+
+// ListRepositories handles GET /api/v1/repositories.
+func (s *Server) ListRepositories(c echo.Context) error {
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok {
+		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
+	}
+
+	page, perPage := parsePageParams(c)
+	query := `SELECT ` + repositoryColumns + ` FROM repositories WHERE org_id = $1`
+	countQuery := `SELECT count(*) FROM repositories WHERE org_id = $1`
+	args := []interface{}{orgID}
+	argIdx := 2
+
+	if connectorID := c.QueryParam("connector_id"); connectorID != "" {
+		query += fmt.Sprintf(" AND connector_id = $%d", argIdx)
+		countQuery += fmt.Sprintf(" AND connector_id = $%d", argIdx)
+		args = append(args, connectorID)
+		argIdx++
+	}
+	if provider := c.QueryParam("provider"); provider != "" {
+		query += fmt.Sprintf(" AND provider = $%d", argIdx)
+		countQuery += fmt.Sprintf(" AND provider = $%d", argIdx)
+		args = append(args, provider)
+		argIdx++
+	}
+	if search := c.QueryParam("search"); search != "" {
+		query += fmt.Sprintf(" AND full_name ILIKE $%d", argIdx)
+		countQuery += fmt.Sprintf(" AND full_name ILIKE $%d", argIdx)
+		args = append(args, "%"+search+"%")
+		argIdx++
+	}
+
+	var total int
+	if err := s.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to count repositories")
+	}
+
+	query += " ORDER BY full_name ASC"
+	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+	args = append(args, perPage, (page-1)*perPage)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to fetch repositories")
+	}
+	defer rows.Close()
+
+	repos := make([]RepositoryResponse, 0)
+	for rows.Next() {
+		r, err := scanRepository(rows.Scan)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to scan repository")
+		}
+		repos = append(repos, r)
+	}
+	if err := rows.Err(); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Error iterating repositories")
+	}
+
+	return c.JSON(http.StatusOK, RepositoriesListResponse{
+		Repositories: repos,
+		Total:        total,
+		Page:         page,
+		PerPage:      perPage,
+		TotalPages:   totalPages(total, perPage),
+	})
+}
+
+// GetRepository handles GET /api/v1/repositories/:repoId.
+func (s *Server) GetRepository(c echo.Context) error {
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok {
+		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
+	}
+	repoID, err := strconv.ParseInt(c.Param("repoId"), 10, 64)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid repository ID")
+	}
+
+	row := s.db.QueryRow(`SELECT `+repositoryColumns+` FROM repositories WHERE id = $1 AND org_id = $2`, repoID, orgID)
+	r, err := scanRepository(row.Scan)
+	if err == sql.ErrNoRows {
+		return echo.NewHTTPError(http.StatusNotFound, "Repository not found")
+	}
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to fetch repository")
+	}
+	return c.JSON(http.StatusOK, r)
+}
+
+// TriggerRepositoryPRSync handles POST /api/v1/repositories/:repoId/sync -
+// queues an immediate (non-initial-backfill) PR/MR sync for one repository.
+func (s *Server) TriggerRepositoryPRSync(c echo.Context) error {
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok {
+		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
+	}
+	repoID, err := strconv.ParseInt(c.Param("repoId"), 10, 64)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid repository ID")
+	}
+
+	var exists bool
+	if err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM repositories WHERE id = $1 AND org_id = $2)`, repoID, orgID).Scan(&exists); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to look up repository")
+	}
+	if !exists {
+		return echo.NewHTTPError(http.StatusNotFound, "Repository not found")
+	}
+
+	if s.jobQueue == nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Job queue not initialized")
+	}
+	if err := s.jobQueue.QueueRepoPRSyncJob(c.Request().Context(), repoID, false); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to queue repository sync")
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{"status": "queued", "repository_id": repoID})
+}
+
+// TriggerRepositorySync handles POST /api/v1/connectors/:connectorId/repositories/sync
+// - re-runs repository discovery for the whole connector and queues a PR/MR
+// sync for every repository found (existing rows are upserted, not
+// duplicated; see AutoWebhookInstaller.syncRepositoriesAndQueueBackfill).
+func (s *Server) TriggerRepositorySync(c echo.Context) error {
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok {
+		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
+	}
+	connectorID, err := strconv.Atoi(c.Param("connectorId"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid connector ID")
+	}
+	if s.autoWebhookInstaller == nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Auto webhook installer not initialized")
+	}
+
+	connector, err := s.autoWebhookInstaller.getConnectorDetails(connectorID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "Connector not found")
+	}
+	if connector.OrgID != orgID {
+		return echo.NewHTTPError(http.StatusNotFound, "Connector not found")
+	}
+
+	if err := s.autoWebhookInstaller.syncRepositoriesAndQueueBackfill(c.Request().Context(), connectorID, connector); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to sync repositories: %v", err))
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{"status": "queued", "connector_id": connectorID})
+}
+
+func scanPullRequest(scan func(dest ...interface{}) error) (PullRequestResponse, error) {
+	var pr PullRequestResponse
+	var description, authorUsername, authorName, authorAvatarURL, sourceBranch, targetBranch sql.NullString
+	var providerCreatedAt, providerUpdatedAt sql.NullTime
+	err := scan(
+		&pr.ID, &pr.RepositoryID, &pr.OrgID, &pr.Provider, &pr.ProviderPRID, &pr.Number, &pr.Title,
+		&description, &pr.State, &authorUsername, &authorName, &authorAvatarURL, &sourceBranch, &targetBranch,
+		&pr.WebURL, &providerCreatedAt, &providerUpdatedAt, &pr.LastSyncedAt, &pr.LastSyncedSource,
+		&pr.CreatedAt, &pr.UpdatedAt,
+	)
+	if err != nil {
+		return pr, err
+	}
+	pr.Description = description.String
+	pr.AuthorUsername = authorUsername.String
+	pr.AuthorName = authorName.String
+	pr.AuthorAvatarURL = authorAvatarURL.String
+	pr.SourceBranch = sourceBranch.String
+	pr.TargetBranch = targetBranch.String
+	if providerCreatedAt.Valid {
+		pr.ProviderCreatedAt = &providerCreatedAt.Time
+	}
+	if providerUpdatedAt.Valid {
+		pr.ProviderUpdatedAt = &providerUpdatedAt.Time
+	}
+	return pr, nil
+}
+
+const pullRequestColumns = `id, repository_id, org_id, provider, provider_pr_id, number, title,
+	description, state, author_username, author_name, author_avatar_url, source_branch, target_branch,
+	web_url, provider_created_at, provider_updated_at, last_synced_at, last_synced_source,
+	created_at, updated_at`
+
+// ListPullRequestsForRepo handles GET /api/v1/repositories/:repoId/pull-requests.
+func (s *Server) ListPullRequestsForRepo(c echo.Context) error {
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok {
+		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
+	}
+	repoID, err := strconv.ParseInt(c.Param("repoId"), 10, 64)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid repository ID")
+	}
+
+	var repoExists bool
+	if err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM repositories WHERE id = $1 AND org_id = $2)`, repoID, orgID).Scan(&repoExists); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to look up repository")
+	}
+	if !repoExists {
+		return echo.NewHTTPError(http.StatusNotFound, "Repository not found")
+	}
+
+	page, perPage := parsePageParams(c)
+	query := `SELECT ` + pullRequestColumns + ` FROM pull_requests WHERE repository_id = $1 AND org_id = $2`
+	countQuery := `SELECT count(*) FROM pull_requests WHERE repository_id = $1 AND org_id = $2`
+	args := []interface{}{repoID, orgID}
+	argIdx := 3
+
+	if state := c.QueryParam("state"); state != "" && state != "all" {
+		query += fmt.Sprintf(" AND state = $%d", argIdx)
+		countQuery += fmt.Sprintf(" AND state = $%d", argIdx)
+		args = append(args, state)
+		argIdx++
+	}
+	if search := c.QueryParam("search"); search != "" {
+		query += fmt.Sprintf(" AND (title ILIKE $%d OR author_username ILIKE $%d)", argIdx, argIdx)
+		countQuery += fmt.Sprintf(" AND (title ILIKE $%d OR author_username ILIKE $%d)", argIdx, argIdx)
+		args = append(args, "%"+search+"%")
+		argIdx++
+	}
+
+	var total int
+	if err := s.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to count pull requests")
+	}
+
+	query += " ORDER BY provider_updated_at DESC NULLS LAST, number DESC"
+	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+	args = append(args, perPage, (page-1)*perPage)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to fetch pull requests")
+	}
+	defer rows.Close()
+
+	prs := make([]PullRequestResponse, 0)
+	for rows.Next() {
+		pr, err := scanPullRequest(rows.Scan)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to scan pull request")
+		}
+		prs = append(prs, pr)
+	}
+	if err := rows.Err(); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Error iterating pull requests")
+	}
+
+	return c.JSON(http.StatusOK, PullRequestsListResponse{
+		PullRequests: prs,
+		Total:        total,
+		Page:         page,
+		PerPage:      perPage,
+		TotalPages:   totalPages(total, perPage),
+	})
+}
+
+// GetPullRequest handles GET /api/v1/repositories/:repoId/pull-requests/:prId,
+// including its review history (joined from the reviews table).
+func (s *Server) GetPullRequest(c echo.Context) error {
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok {
+		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
+	}
+	repoID, err := strconv.ParseInt(c.Param("repoId"), 10, 64)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid repository ID")
+	}
+	prID, err := strconv.ParseInt(c.Param("prId"), 10, 64)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid pull request ID")
+	}
+
+	row := s.db.QueryRow(
+		`SELECT `+pullRequestColumns+` FROM pull_requests WHERE id = $1 AND repository_id = $2 AND org_id = $3`,
+		prID, repoID, orgID,
+	)
+	pr, err := scanPullRequest(row.Scan)
+	if err == sql.ErrNoRows {
+		return echo.NewHTTPError(http.StatusNotFound, "Pull request not found")
+	}
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to fetch pull request")
+	}
+
+	rows, err := s.db.Query(
+		`SELECT id, status, trigger_type, created_at, started_at, completed_at
+		 FROM reviews WHERE pull_request_id = $1 AND org_id = $2
+		 ORDER BY created_at DESC`,
+		prID, orgID,
+	)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to fetch review history")
+	}
+	defer rows.Close()
+
+	reviews := make([]PullRequestReviewSummary, 0)
+	for rows.Next() {
+		var rv PullRequestReviewSummary
+		var startedAt, completedAt sql.NullTime
+		if err := rows.Scan(&rv.ID, &rv.Status, &rv.TriggerType, &rv.CreatedAt, &startedAt, &completedAt); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to scan review history")
+		}
+		if startedAt.Valid {
+			rv.StartedAt = &startedAt.Time
+		}
+		if completedAt.Valid {
+			rv.CompletedAt = &completedAt.Time
+		}
+		reviews = append(reviews, rv)
+	}
+	if err := rows.Err(); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Error iterating review history")
+	}
+
+	return c.JSON(http.StatusOK, PullRequestDetailResponse{
+		PullRequestResponse: pr,
+		Reviews:             reviews,
+	})
+}
+
+func totalPages(total, perPage int) int {
+	if perPage <= 0 {
+		return 0
+	}
+	return (total + perPage - 1) / perPage
+}

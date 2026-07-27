@@ -37,6 +37,7 @@ import (
 	"github.com/livereview/internal/providers/gitea"
 	networkjobqueue "github.com/livereview/network/jobqueue"
 	storagejobqueue "github.com/livereview/storage/jobqueue"
+	"github.com/livereview/storage/providers/pullrequests"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 )
@@ -2269,10 +2270,10 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForGiteaRemoval(ctx context.
 
 // JobQueue manages the River job queue
 type JobQueue struct {
-	client                *river.Client[pgx.Tx]
-	pool                  *pgxpool.Pool
-	db                    *sql.DB
-	config                *QueueConfig
+	client *river.Client[pgx.Tx]
+	pool   *pgxpool.Pool
+	db     *sql.DB
+	config *QueueConfig
 }
 
 // NewJobQueue creates a new job queue instance
@@ -2301,12 +2302,24 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	webhookWorker := &WebhookReviewWorker{}
 	manualWorker := &ManualReviewWorker{}
 	diffWorker := &DiffReviewWorker{db: db, pool: pool}
+	prStore := pullrequests.NewStore(db)
+	repoPRSyncWorker := &RepoPRSyncWorker{db: db, store: prStore}
+	prStateSyncWorker := &PRStateSyncWorker{db: db, store: prStore}
+	reconciliationWorker := &ReconciliationSweepWorker{db: db, pool: pool, stalenessThreshold: config.RepoSyncConfig.StalenessThreshold}
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, diffWorker)
 	river.AddWorker(workers, webhookWorker)
 	river.AddWorker(workers, manualWorker)
 	river.AddWorker(workers, &UpdateOrgUsageWorker{db: db, pool: pool})
+	river.AddWorker(workers, repoPRSyncWorker)
+	river.AddWorker(workers, prStateSyncWorker)
+	river.AddWorker(workers, reconciliationWorker)
+
+	coordinatorInterval := config.RepoSyncConfig.CoordinatorInterval
+	if coordinatorInterval <= 0 {
+		coordinatorInterval = 15 * time.Minute
+	}
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues:                      config.RiverQueueConfig(),
@@ -2314,6 +2327,21 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 		CompletedJobRetentionPeriod: 365 * 24 * time.Hour,
 		CancelledJobRetentionPeriod: 365 * 24 * time.Hour,
 		DiscardedJobRetentionPeriod: 365 * 24 * time.Hour,
+		PeriodicJobs: []*river.PeriodicJob{
+			river.NewPeriodicJob(
+				river.PeriodicInterval(coordinatorInterval),
+				func() (river.JobArgs, *river.InsertOpts) {
+					return ReconciliationSweepJobArgs{}, &river.InsertOpts{
+						Queue:       "repo_sync",
+						MaxAttempts: 3,
+						UniqueOpts: river.UniqueOpts{
+							ByPeriod: coordinatorInterval - time.Minute,
+						},
+					}
+				},
+				&river.PeriodicJobOpts{RunOnStart: false},
+			),
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create River client: %w", err)
@@ -2328,10 +2356,10 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	webhookWorker.jq = jq
 	manualWorker.jq = jq
 	diffWorker.jq = jq
+	reconciliationWorker.jq = jq
 
 	return jq, nil
 }
-
 
 // Start starts the job queue workers
 func (jq *JobQueue) Start(ctx context.Context) error {
@@ -2433,4 +2461,3 @@ func (jq *JobQueue) QueueUpdateOrgUsageJob(ctx context.Context, args UpdateOrgUs
 	}
 	return nil
 }
-
