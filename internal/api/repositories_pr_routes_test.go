@@ -195,3 +195,80 @@ func TestGetPullRequest_IncludesReviewHistory(t *testing.T) {
 		t.Errorf("expected status completed, got %s", resp.Reviews[0].Status)
 	}
 }
+
+func TestListPullRequests_UnifiedAcrossRepos(t *testing.T) {
+	server := setupBotUserTestServer(t)
+	orgID := getAnyOrgID(t, server.db)
+	connectorID := insertIntegrationToken(t, server.db, "github", "https://github.com", "pat", nil)
+	repoID, openPRID, closedPRID := seedRepoAndPRsForAPITest(t, server, orgID, connectorID)
+
+	// Unfiltered: both PRs from the one seeded repo show up, with repository
+	// info denormalized onto each row.
+	c, rec := newTestEchoContext(http.MethodGet, "/api/v1/pull-requests", orgID, nil, nil)
+	if err := server.ListPullRequests(c); err != nil {
+		t.Fatalf("ListPullRequests: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp PullRequestsWithRepoListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	seen := map[int64]PullRequestWithRepoResponse{}
+	for _, pr := range resp.PullRequests {
+		seen[pr.ID] = pr
+	}
+	if _, ok := seen[openPRID]; !ok {
+		t.Fatalf("expected open PR %d in unified listing", openPRID)
+	}
+	if _, ok := seen[closedPRID]; !ok {
+		t.Fatalf("expected closed PR %d in unified listing", closedPRID)
+	}
+	if seen[openPRID].RepositoryFullName != "acme/api-test-repo" {
+		t.Errorf("expected repository_full_name populated, got %q", seen[openPRID].RepositoryFullName)
+	}
+
+	// state=open filter narrows to just the open PR.
+	openC, openRec := newTestEchoContext(http.MethodGet, "/api/v1/pull-requests?state=open", orgID, nil, nil)
+	if err := server.ListPullRequests(openC); err != nil {
+		t.Fatalf("ListPullRequests (state=open): %v", err)
+	}
+	var openResp PullRequestsWithRepoListResponse
+	if err := json.Unmarshal(openRec.Body.Bytes(), &openResp); err != nil {
+		t.Fatalf("unmarshal (state=open): %v", err)
+	}
+	if len(openResp.PullRequests) != 1 || openResp.PullRequests[0].ID != openPRID {
+		t.Fatalf("expected only the open PR (%d) with state=open filter, got %+v", openPRID, openResp.PullRequests)
+	}
+
+	// repository_id filter narrows to that repo's PRs (both, here).
+	repoFilterC, repoFilterRec := newTestEchoContext(
+		http.MethodGet, "/api/v1/pull-requests?repository_id="+strconv.FormatInt(repoID, 10), orgID, nil, nil,
+	)
+	if err := server.ListPullRequests(repoFilterC); err != nil {
+		t.Fatalf("ListPullRequests (repository_id filter): %v", err)
+	}
+	var repoFilterResp PullRequestsWithRepoListResponse
+	if err := json.Unmarshal(repoFilterRec.Body.Bytes(), &repoFilterResp); err != nil {
+		t.Fatalf("unmarshal (repository_id filter): %v", err)
+	}
+	if len(repoFilterResp.PullRequests) != 2 {
+		t.Fatalf("expected 2 PRs for repository_id filter, got %d", len(repoFilterResp.PullRequests))
+	}
+
+	// A different org must not see this org's PRs.
+	otherOrgC, otherOrgRec := newTestEchoContext(http.MethodGet, "/api/v1/pull-requests", orgID+999999, nil, nil)
+	if err := server.ListPullRequests(otherOrgC); err != nil {
+		t.Fatalf("ListPullRequests (other org): %v", err)
+	}
+	var otherOrgResp PullRequestsWithRepoListResponse
+	if err := json.Unmarshal(otherOrgRec.Body.Bytes(), &otherOrgResp); err != nil {
+		t.Fatalf("unmarshal (other org): %v", err)
+	}
+	for _, pr := range otherOrgResp.PullRequests {
+		if pr.ID == openPRID || pr.ID == closedPRID {
+			t.Fatalf("PR %d leaked into a different org's unified listing", pr.ID)
+		}
+	}
+}

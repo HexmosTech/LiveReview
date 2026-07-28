@@ -311,6 +311,15 @@ const pullRequestColumns = `id, repository_id, org_id, provider, provider_pr_id,
 	web_url, provider_created_at, provider_updated_at, last_synced_at, last_synced_source,
 	created_at, updated_at`
 
+// pullRequestColumnsQualified is pullRequestColumns with each column
+// qualified by the "pr" table alias, for queries that JOIN pull_requests
+// against another table (e.g. repositories) and would otherwise have
+// ambiguous column references (both tables have an "id" column, etc).
+const pullRequestColumnsQualified = `pr.id, pr.repository_id, pr.org_id, pr.provider, pr.provider_pr_id, pr.number, pr.title,
+	pr.description, pr.state, pr.author_username, pr.author_name, pr.author_avatar_url, pr.source_branch, pr.target_branch,
+	pr.web_url, pr.provider_created_at, pr.provider_updated_at, pr.last_synced_at, pr.last_synced_source,
+	pr.created_at, pr.updated_at`
+
 // ListPullRequestsForRepo handles GET /api/v1/repositories/:repoId/pull-requests.
 func (s *Server) ListPullRequestsForRepo(c echo.Context) error {
 	orgID, ok := c.Get("org_id").(int64)
@@ -377,6 +386,113 @@ func (s *Server) ListPullRequestsForRepo(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, PullRequestsListResponse{
+		PullRequests: prs,
+		Total:        total,
+		Page:         page,
+		PerPage:      perPage,
+		TotalPages:   totalPages(total, perPage),
+	})
+}
+
+// PullRequestWithRepoResponse is a pull_requests row plus enough of its
+// owning repository to render in a cross-repo (unified, all-connectors) PR/MR
+// listing without a follow-up lookup.
+type PullRequestWithRepoResponse struct {
+	PullRequestResponse
+	RepositoryFullName string `json:"repository_full_name"`
+	RepositoryWebURL   string `json:"repository_web_url"`
+}
+
+// PullRequestsWithRepoListResponse wraps a paginated, cross-repository
+// pull_requests listing.
+type PullRequestsWithRepoListResponse struct {
+	PullRequests []PullRequestWithRepoResponse `json:"pull_requests"`
+	Total        int                           `json:"total"`
+	Page         int                           `json:"page"`
+	PerPage      int                           `json:"per_page"`
+	TotalPages   int                           `json:"total_pages"`
+}
+
+// ListPullRequests handles GET /api/v1/pull-requests - a unified PR/MR
+// listing across every repository the org's connectors have discovered
+// (unlike ListPullRequestsForRepo, which is scoped to one repository).
+func (s *Server) ListPullRequests(c echo.Context) error {
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok {
+		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
+	}
+
+	page, perPage := parsePageParams(c)
+
+	// countQuery and query share identical FROM/JOIN/WHERE clauses (built up
+	// in lockstep below) so the reported total can never drift from what the
+	// page actually contains.
+	fromAndFilters := `FROM pull_requests pr
+		JOIN repositories r ON r.id = pr.repository_id
+		WHERE pr.org_id = $1`
+	args := []interface{}{orgID}
+	argIdx := 2
+
+	if repositoryID := c.QueryParam("repository_id"); repositoryID != "" {
+		fromAndFilters += fmt.Sprintf(" AND pr.repository_id = $%d", argIdx)
+		args = append(args, repositoryID)
+		argIdx++
+	}
+	if connectorID := c.QueryParam("connector_id"); connectorID != "" {
+		fromAndFilters += fmt.Sprintf(" AND r.connector_id = $%d", argIdx)
+		args = append(args, connectorID)
+		argIdx++
+	}
+	if provider := c.QueryParam("provider"); provider != "" {
+		fromAndFilters += fmt.Sprintf(" AND pr.provider = $%d", argIdx)
+		args = append(args, provider)
+		argIdx++
+	}
+	if state := c.QueryParam("state"); state != "" && state != "all" {
+		fromAndFilters += fmt.Sprintf(" AND pr.state = $%d", argIdx)
+		args = append(args, state)
+		argIdx++
+	}
+	if search := c.QueryParam("search"); search != "" {
+		fromAndFilters += fmt.Sprintf(" AND (pr.title ILIKE $%d OR pr.author_username ILIKE $%d OR r.full_name ILIKE $%d)", argIdx, argIdx, argIdx)
+		args = append(args, "%"+search+"%")
+		argIdx++
+	}
+
+	var total int
+	if err := s.db.QueryRow(`SELECT count(*) `+fromAndFilters, args...).Scan(&total); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to count pull requests")
+	}
+
+	query := `SELECT ` + pullRequestColumnsQualified + `, r.full_name, r.web_url ` + fromAndFilters
+	query += " ORDER BY pr.provider_updated_at DESC NULLS LAST, pr.id DESC"
+	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+	args = append(args, perPage, (page-1)*perPage)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to fetch pull requests")
+	}
+	defer rows.Close()
+
+	prs := make([]PullRequestWithRepoResponse, 0)
+	for rows.Next() {
+		var pr PullRequestWithRepoResponse
+		scanned, err := scanPullRequest(func(dest ...interface{}) error {
+			combined := append(dest, &pr.RepositoryFullName, &pr.RepositoryWebURL)
+			return rows.Scan(combined...)
+		})
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to scan pull request")
+		}
+		pr.PullRequestResponse = scanned
+		prs = append(prs, pr)
+	}
+	if err := rows.Err(); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Error iterating pull requests")
+	}
+
+	return c.JSON(http.StatusOK, PullRequestsWithRepoListResponse{
 		PullRequests: prs,
 		Total:        total,
 		Page:         page,

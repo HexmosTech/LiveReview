@@ -168,6 +168,77 @@ func (awi *AutoWebhookInstaller) syncRepositoriesAndQueueBackfill(ctx context.Co
 	return nil
 }
 
+// BackfillAllConnectors runs the same repository discovery + PR backfill
+// queueing that connector-creation triggers (syncRepositoriesAndQueueBackfill),
+// for every existing GitHub/GitLab connector in the database.
+//
+// This exists because TriggerAutoInstallation - the only other caller of
+// syncRepositoriesAndQueueBackfill - fires exclusively at connector-creation
+// time (see server.go's CreatePATIntegrationToken handler and the OAuth
+// callback path). Connectors created before the repositories/pull_requests
+// tables existed were never backfilled and have no retroactive path to get
+// there: the periodic reconciliation sweep only refreshes PR data for repos
+// that already have a repositories row, it never discovers new ones. This
+// method is the one-time catch-up for that gap - see
+// cmd/backfill-existing-connector-repositories.
+//
+// Safe to run more than once: UpsertRepository is idempotent, and each
+// discovered repo simply gets queued for an InitialBackfill PR sync again.
+func (awi *AutoWebhookInstaller) BackfillAllConnectors(ctx context.Context) error {
+	rows, err := awi.db.Query(`
+		SELECT id FROM integration_tokens
+		WHERE provider LIKE 'github%' OR provider LIKE 'gitlab%'
+		ORDER BY id
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to list connectors: %w", err)
+	}
+	var connectorIDs []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return fmt.Errorf("failed to scan connector id: %w", err)
+		}
+		connectorIDs = append(connectorIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("error iterating connectors: %w", err)
+	}
+	rows.Close()
+
+	log.Printf("BackfillAllConnectors: found %d github/gitlab connectors", len(connectorIDs))
+
+	for _, connectorID := range connectorIDs {
+		if err := awi.BackfillConnector(ctx, connectorID); err != nil {
+			log.Printf("Warning: %v", err)
+			continue
+		}
+	}
+
+	return nil
+}
+
+// BackfillConnector runs syncRepositoriesAndQueueBackfill for a single,
+// already-existing connector. Exported so both BackfillAllConnectors and a
+// narrowly-targeted one-off run (e.g. cmd/backfill-existing-connector-repositories
+// -connector-id=N) can share the same logic.
+func (awi *AutoWebhookInstaller) BackfillConnector(ctx context.Context, connectorID int) error {
+	connector, err := awi.getConnectorDetails(connectorID)
+	if err != nil {
+		return fmt.Errorf("failed to load connector %d: %w", connectorID, err)
+	}
+	if connector.PATToken == "" {
+		return fmt.Errorf("connector %d (%s): no PAT token configured, skipping", connectorID, connector.Provider)
+	}
+	log.Printf("Backfilling repositories for connector %d (%s, %s)...", connectorID, connector.Provider, connector.ProviderURL)
+	if err := awi.syncRepositoriesAndQueueBackfill(ctx, connectorID, connector); err != nil {
+		return fmt.Errorf("repository backfill failed for connector %d: %w", connectorID, err)
+	}
+	return nil
+}
+
 // ConnectorDetails holds the essential connector information
 type ConnectorDetails struct {
 	ID          int

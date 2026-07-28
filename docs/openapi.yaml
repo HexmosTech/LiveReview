@@ -38,7 +38,6 @@ paths:
   /api/v1/admin/billing/portfolio/orgs:
     get:
       operationId: ListAdminBillingPortfolioOrganizations
-      responses: null
       tags:
         - Admin
   /api/v1/admin/billing/portfolio/orgs/{org_id}/members:
@@ -50,7 +49,6 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Admin
   /api/v1/admin/billing/portfolio/orgs/{org_id}/usage:
@@ -62,13 +60,11 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Admin
   /api/v1/admin/billing/portfolio/summary:
     get:
       operationId: GetAdminBillingPortfolioSummary
-      responses: null
       tags:
         - Admin
   /api/v1/admin/organizations/{org_id}:
@@ -82,7 +78,6 @@ paths:
           schema:
             format: int64
             type: integer
-      responses: null
       tags:
         - Admin
   /api/v1/admin/orgs/{org_id}/users:
@@ -104,7 +99,6 @@ paths:
     get:
       description: GetAdminTaxonomyBreakdown returns global org/repo/provider breakdown (super-admin).
       operationId: GetAdminTaxonomyBreakdown
-      responses: null
       tags:
         - Admin
   /api/v1/admin/reports/taxonomy/distribution/{dimension}:
@@ -117,7 +111,6 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Admin
   /api/v1/admin/reports/taxonomy/export:
@@ -130,42 +123,36 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Admin
   /api/v1/admin/reports/taxonomy/export/preview:
     get:
       description: GetAdminTaxonomyExportPreview returns row estimates for each export dataset (super-admin).
       operationId: GetAdminTaxonomyExportPreview
-      responses: null
       tags:
         - Admin
   /api/v1/admin/reports/taxonomy/export/xlsx:
     get:
       description: ExportAdminTaxonomyXLSX streams a multi-sheet xlsx export for super-admin.
       operationId: ExportAdminTaxonomyXLSX
-      responses: null
       tags:
         - Admin
   /api/v1/admin/reports/taxonomy/findings:
     get:
       description: ListAdminTaxonomyFindings returns paginated global finding rows (super-admin).
       operationId: ListAdminTaxonomyFindings
-      responses: null
       tags:
         - Admin
   /api/v1/admin/reports/taxonomy/relations:
     get:
       description: GetAdminTaxonomyRelations returns category -> subcategory relation rows (super-admin).
       operationId: GetAdminTaxonomyRelations
-      responses: null
       tags:
         - Admin
   /api/v1/admin/reports/taxonomy/summary:
     get:
       description: GetAdminTaxonomySummary returns global KPI summary (super-admin).
       operationId: GetAdminTaxonomySummary
-      responses: null
       tags:
         - Admin
   /api/v1/admin/reports/taxonomy/trend:
@@ -178,7 +165,6 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Admin
   /api/v1/admin/settings/smtp:
@@ -232,7 +218,6 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Admin
   /api/v1/admin/users/{user_id}/org:
@@ -522,55 +507,6 @@ paths:
           description: Internal Server Error
       tags:
         - Auth
-  /api/v1/auth/slack/callback:
-    get:
-      description: SlackOAuthCallback handles the OAuth callback from Slack (self-hosted direct mode).
-      operationId: SlackOAuthCallback
-      parameters:
-        - in: query
-          name: code
-          required: true
-          schema:
-            type: string
-        - in: query
-          name: error
-          required: true
-          schema:
-            type: string
-        - in: query
-          name: code
-          required: true
-          schema:
-            type: string
-        - in: query
-          name: state
-          required: true
-          schema:
-            type: string
-      responses: null
-      tags:
-        - Auth
-  /api/v1/auth/slack/install:
-    get:
-      operationId: InstallSlackBot
-      parameters:
-        - in: query
-          name: org_id
-          required: true
-          schema:
-            type: string
-        - in: query
-          name: redirect_to
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: OK
-        "409":
-          description: Conflict
-      tags:
-        - Auth
   /api/v1/azuredevops-hook/{connector_id}:
     post:
       description: WebhookOrchestratorV2Handler handles webhooks using the V2 orchestrator (full processing pipeline)
@@ -600,43 +536,36 @@ paths:
   /api/v1/billing/downgrade/cancel:
     post:
       operationId: CancelScheduledDowngrade
-      responses: null
       tags:
         - Billing
   /api/v1/billing/downgrade/schedule:
     post:
       operationId: ScheduleDowngrade
-      responses: null
       tags:
         - Billing
   /api/v1/billing/status:
     get:
       operationId: GetBillingStatus
-      responses: null
       tags:
         - Billing
   /api/v1/billing/upgrade:
     post:
       operationId: UpgradePlan
-      responses: null
       tags:
         - Billing
   /api/v1/billing/upgrade/execute:
     post:
       operationId: ExecuteUpgrade
-      responses: null
       tags:
         - Billing
   /api/v1/billing/upgrade/prepare-payment:
     post:
       operationId: PrepareUpgradePayment
-      responses: null
       tags:
         - Billing
   /api/v1/billing/upgrade/preview:
     post:
       operationId: PreviewUpgrade
-      responses: null
       tags:
         - Billing
   /api/v1/billing/upgrade/request-status:
@@ -648,19 +577,16 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Billing
   /api/v1/billing/usage/me:
     get:
       operationId: GetMyUsage
-      responses: null
       tags:
         - Billing
   /api/v1/billing/usage/members:
     get:
       operationId: GetUsageMembers
-      responses: null
       tags:
         - Billing
   /api/v1/billing/usage/members/{member_id}/operations:
@@ -672,19 +598,16 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Billing
   /api/v1/billing/usage/operations:
     get:
       operationId: GetUsageOperations
-      responses: null
       tags:
         - Billing
   /api/v1/billing/usage/summary:
     get:
       operationId: GetUsageSummary
-      responses: null
       tags:
         - Billing
   /api/v1/bitbucket-hook/{connector_id}:
@@ -758,6 +681,22 @@ paths:
           description: Bad Request
         "500":
           description: Internal Server Error
+      tags:
+        - Connectors
+  /api/v1/connectors/{connectorId}/repositories/sync:
+    post:
+      description: |-
+        TriggerRepositorySync handles POST /api/v1/connectors/:connectorId/repositories/sync
+        - re-runs repository discovery for the whole connector and queues a PR/MR
+        sync for every repository found (existing rows are upserted, not
+        duplicated; see AutoWebhookInstaller.syncRepositoriesAndQueueBackfill).
+      operationId: TriggerRepositorySync
+      parameters:
+        - in: path
+          name: connectorId
+          required: true
+          schema:
+            type: integer
       tags:
         - Connectors
   /api/v1/connectors/{connectorId}/repository-access:
@@ -876,7 +815,6 @@ paths:
         Authentication is handled by middleware. This handler creates the review record,
         marks it as processing, and enqueues the job for async execution by the worker.
       operationId: DiffReview
-      responses: null
       tags:
         - Diff-Review
   /api/v1/diff-review/{id}/events:
@@ -899,7 +837,6 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Diff-Review
   /api/v1/diff-review/{id}/events/{type}:
@@ -922,7 +859,6 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Diff-Review
   /api/v1/diff-review/{id}/summary:
@@ -950,7 +886,6 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Diff-Review
   /api/v1/diff-review/cli-used:
@@ -1160,12 +1095,10 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Learnings
     post:
       operationId: Upsert
-      responses: null
       tags:
         - Learnings
   /api/v1/learnings/{id}:
@@ -1359,7 +1292,6 @@ paths:
     get:
       description: "This tool provides instructions on how to integrate the LiveReview API into your codebase using MCP. It explains API key usage, base URL selection, OpenAPI specs location, and how to use tools for schema information. For getting the accurate API paths, refer to the OpenAPI spec. Use this tool if you need to know how to integrate an API."
       operationId: APIIntegrationHelper
-      responses: null
       tags:
         - Mcp-Api-Integration-Guide
   /api/v1/onboarding/clear-api-key:
@@ -1379,13 +1311,11 @@ paths:
     get:
       description: GetUserOrganizations returns all organizations the user has access to
       operationId: GetUserOrganizations
-      responses: null
       tags:
         - Organizations
     post:
       description: CreateOrganization creates a new organization (available to all authenticated users)
       operationId: CreateOrganization
-      responses: null
       tags:
         - Organizations
   /api/v1/organizations/{org_id}:
@@ -1399,7 +1329,6 @@ paths:
           schema:
             format: int64
             type: integer
-      responses: null
       tags:
         - Organizations
   /api/v1/orgs/{org_id}:
@@ -1413,7 +1342,6 @@ paths:
           schema:
             format: int64
             type: integer
-      responses: null
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/analytics:
@@ -1427,7 +1355,6 @@ paths:
           schema:
             format: int64
             type: integer
-      responses: null
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/api-keys:
@@ -1495,12 +1422,12 @@ paths:
       operationId: RevokeAPIKeyHandler
       parameters:
         - in: path
-          name: org_id
+          name: id
           required: true
           schema:
             type: string
         - in: path
-          name: id
+          name: org_id
           required: true
           schema:
             type: string
@@ -1536,27 +1463,25 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/members/{user_id}/role:
     put:
-      description: ChangeUserRole handles changing a user's role in an organization
+      description: ChangeUserRole changes a user's role in an organization
       operationId: ChangeUserRole
       parameters:
-        - in: path
-          name: user_id
-          required: true
-          schema:
-            type: string
         - in: path
           name: org_id
           required: true
           schema:
-            type: string
-      responses:
-        "200":
-          description: OK
+            format: int64
+            type: integer
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            format: int64
+            type: integer
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/slack-config:
@@ -1600,26 +1525,6 @@ paths:
           schema:
             format: int64
             type: integer
-      responses:
-        "200":
-          description: OK
-      tags:
-        - Orgs
-  /api/v1/orgs/{org_id}/slack-proxy-callback:
-    post:
-      description: SlackProxyCallback receives the bot token from the cloud proxy and completes installation.
-      operationId: SlackProxyCallback
-      parameters:
-        - in: path
-          name: org_id
-          required: true
-          schema:
-            type: string
-        - in: query
-          name: setup_token
-          required: true
-          schema:
-            type: string
       responses:
         "200":
           description: OK
@@ -1686,7 +1591,6 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Orgs
     post:
@@ -1709,12 +1613,12 @@ paths:
       operationId: DeactivateUser
       parameters:
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
@@ -1786,7 +1690,6 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/users/{user_id}/force-password-reset:
@@ -1804,27 +1707,25 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/users/{user_id}/role:
     put:
-      description: ChangeUserRole handles changing a user's role in an organization
+      description: ChangeUserRole changes a user's role in an organization
       operationId: ChangeUserRole
       parameters:
         - in: path
           name: org_id
           required: true
           schema:
-            type: string
+            format: int64
+            type: integer
         - in: path
           name: user_id
           required: true
           schema:
-            type: string
-      responses:
-        "200":
-          description: OK
+            format: int64
+            type: integer
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/users/check:
@@ -2040,6 +1941,44 @@ paths:
           description: OK
       tags:
         - Prompts
+  /api/v1/pull-requests:
+    get:
+      description: |-
+        ListPullRequests handles GET /api/v1/pull-requests - a unified PR/MR
+        listing across every repository the org's connectors have discovered
+        (unlike ListPullRequestsForRepo, which is scoped to one repository).
+      operationId: ListPullRequests
+      parameters:
+        - in: query
+          name: repository_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: connector_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: provider
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: state
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: search
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+      tags:
+        - Pull-Requests
   /api/v1/quota/status:
     get:
       description: GetQuotaStatus returns the current quota status for the user's organization
@@ -2053,7 +1992,6 @@ paths:
     get:
       description: GetOrgTaxonomyBreakdown returns per-repo/provider finding counts for the current org.
       operationId: GetOrgTaxonomyBreakdown
-      responses: null
       tags:
         - Reports
   /api/v1/reports/taxonomy/distribution/{dimension}:
@@ -2066,7 +2004,6 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Reports
   /api/v1/reports/taxonomy/export:
@@ -2079,42 +2016,36 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Reports
   /api/v1/reports/taxonomy/export/preview:
     get:
       description: GetOrgTaxonomyExportPreview returns row estimates for each export dataset.
       operationId: GetOrgTaxonomyExportPreview
-      responses: null
       tags:
         - Reports
   /api/v1/reports/taxonomy/export/xlsx:
     get:
       description: ExportOrgTaxonomyXLSX streams a multi-sheet xlsx export for the current org.
       operationId: ExportOrgTaxonomyXLSX
-      responses: null
       tags:
         - Reports
   /api/v1/reports/taxonomy/findings:
     get:
       description: ListOrgTaxonomyFindings returns paginated raw finding rows for the current org.
       operationId: ListOrgTaxonomyFindings
-      responses: null
       tags:
         - Reports
   /api/v1/reports/taxonomy/relations:
     get:
       description: GetOrgTaxonomyRelations returns category -> subcategory relation rows.
       operationId: GetOrgTaxonomyRelations
-      responses: null
       tags:
         - Reports
   /api/v1/reports/taxonomy/summary:
     get:
       description: GetOrgTaxonomySummary returns KPI summary for the caller's current org.
       operationId: GetOrgTaxonomySummary
-      responses: null
       tags:
         - Reports
   /api/v1/reports/taxonomy/trend:
@@ -2127,9 +2058,114 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Reports
+  /api/v1/repositories:
+    get:
+      description: ListRepositories handles GET /api/v1/repositories.
+      operationId: ListRepositories
+      parameters:
+        - in: query
+          name: connector_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: provider
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: search
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+      tags:
+        - Repositories
+  /api/v1/repositories/{repoId}:
+    get:
+      description: GetRepository handles GET /api/v1/repositories/:repoId.
+      operationId: GetRepository
+      parameters:
+        - in: path
+          name: repoId
+          required: true
+          schema:
+            format: int64
+            type: integer
+      responses:
+        "200":
+          description: OK
+      tags:
+        - Repositories
+  /api/v1/repositories/{repoId}/pull-requests:
+    get:
+      description: ListPullRequestsForRepo handles GET /api/v1/repositories/:repoId/pull-requests.
+      operationId: ListPullRequestsForRepo
+      parameters:
+        - in: path
+          name: repoId
+          required: true
+          schema:
+            format: int64
+            type: integer
+        - in: query
+          name: state
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: search
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+      tags:
+        - Repositories
+  /api/v1/repositories/{repoId}/pull-requests/{prId}:
+    get:
+      description: |-
+        GetPullRequest handles GET /api/v1/repositories/:repoId/pull-requests/:prId,
+        including its review history (joined from the reviews table).
+      operationId: GetPullRequest
+      parameters:
+        - in: path
+          name: repoId
+          required: true
+          schema:
+            format: int64
+            type: integer
+        - in: path
+          name: prId
+          required: true
+          schema:
+            format: int64
+            type: integer
+      responses:
+        "200":
+          description: OK
+      tags:
+        - Repositories
+  /api/v1/repositories/{repoId}/sync:
+    post:
+      description: |-
+        TriggerRepositoryPRSync handles POST /api/v1/repositories/:repoId/sync -
+        queues an immediate (non-initial-backfill) PR/MR sync for one repository.
+      operationId: TriggerRepositoryPRSync
+      parameters:
+        - in: path
+          name: repoId
+          required: true
+          schema:
+            format: int64
+            type: integer
+      tags:
+        - Repositories
   /api/v1/reviews:
     get:
       description: getReviews handles GET /api/v1/reviews with filtering and pagination
@@ -2166,11 +2202,23 @@ paths:
       tags:
         - Reviews
     post:
-      description: createReview handles POST /api/v1/reviews (trigger review creation)
+      description: |-
+        createReview handles POST /api/v1/reviews. It resolves the PR/MR's web_url
+        from the pull_requests table (org-scoped) and reuses TriggerReviewV2's
+        phases unchanged (setupReviewContext -> prepareAuthentication ->
+        createReviewRequest -> enrichMetadata -> trackActivity ->
+        launchBackgroundProcessing), so both trigger entrypoints share identical
+        authentication, LOC-quota, and background-processing behavior. The only
+        addition is linking the created review back to its canonical PR/MR row via
+        reviews.pull_request_id.
       operationId: createReview
       responses:
-        "200":
-          description: OK
+        "400":
+          description: Bad Request
+        "404":
+          description: Not Found
+        "500":
+          description: Internal Server Error
       tags:
         - Reviews
   /api/v1/reviews/{id}:
@@ -2223,7 +2271,6 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Reviews
   /api/v1/reviews/{id}/events/{type}:
@@ -2246,7 +2293,6 @@ paths:
           required: true
           schema:
             type: string
-      responses: null
       tags:
         - Reviews
   /api/v1/reviews/{id}/summary:
@@ -2404,12 +2450,12 @@ paths:
       operationId: RevokeLicense
       parameters:
         - in: path
-          name: user_id
+          name: id
           required: true
           schema:
             type: string
         - in: path
-          name: id
+          name: user_id
           required: true
           schema:
             type: string
@@ -2488,14 +2534,12 @@ paths:
     get:
       description: getSystemInfo returns system configuration information
       operationId: getSystemInfo
-      responses: null
       tags:
         - System
   /api/v1/ui-config:
     get:
       description: getUIConfig returns deployment configuration for the frontend
       operationId: getUIConfig
-      responses: null
       tags:
         - Ui-Config
   /api/v1/users/default-org:
@@ -2520,7 +2564,6 @@ paths:
     get:
       description: GetProfile handles getting the current user's profile
       operationId: GetProfile
-      responses: null
       tags:
         - Users
     put:

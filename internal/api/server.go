@@ -998,6 +998,17 @@ func (s *Server) setupRoutes() {
 	repositoriesGroup.GET("/:repoId/pull-requests", s.ListPullRequestsForRepo)
 	repositoriesGroup.GET("/:repoId/pull-requests/:prId", s.GetPullRequest)
 
+	// Unified, cross-repository PR/MR listing (same middleware chain)
+	pullRequestsGroup := v1.Group("/pull-requests")
+	pullRequestsGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	pullRequestsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	pullRequestsGroup.Use(authMiddleware.ValidateOrgAccess())
+	pullRequestsGroup.Use(authMiddleware.BuildPermissionContext())
+	pullRequestsGroup.Use(authMiddleware.EnforceSubscriptionLimits())
+	pullRequestsGroup.Use(apimiddleware.BuildOrgBillingPlanContext(s.db, s.licenseService()))
+	pullRequestsGroup.Use(apimiddleware.BuildPlanContext())
+	pullRequestsGroup.GET("", s.ListPullRequests)
+
 	// GitLab profile validation endpoint
 	v1.POST("/gitlab/validate-profile", s.ValidateGitLabProfile)
 
