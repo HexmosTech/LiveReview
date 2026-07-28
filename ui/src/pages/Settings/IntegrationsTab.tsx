@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Button, Alert } from '../../components/UIPrimitives';
 import apiClient from '../../api/apiClient';
 import { useOrgContext } from '../../hooks/useOrgContext';
+import { isCloudMode } from '../../utils/deploymentMode';
 
 interface SlackConfig {
     configured: boolean;
@@ -26,14 +27,31 @@ const IntegrationsTab: React.FC = () => {
     return (
         <div className="space-y-8">
             <div>
-                <h3 className="text-lg font-medium text-white mb-1">Integrations</h3>
+                <div className="flex items-center gap-2 mb-1">
+                    <h3 className="text-lg font-medium text-white">Integrations</h3>
+                    {isCloudMode() && (
+                        <span className="rounded border border-amber-700/50 bg-amber-900/30 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-400">
+                            Enterprise
+                        </span>
+                    )}
+                </div>
                 <p className="text-sm text-slate-300">
                     Connect LiveReview to external services for extended functionality.
                 </p>
             </div>
 
-            <SlackIntegration currentOrg={currentOrg} />
-            <TeamsIntegration currentOrg={currentOrg} />
+            {isCloudMode() ? (
+                <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-6 text-center">
+                    <p className="text-sm text-slate-300">
+                        Slack and Microsoft Teams integrations are an Enterprise feature and are not available on this plan.
+                    </p>
+                </div>
+            ) : (
+                <>
+                    <SlackIntegration currentOrg={currentOrg} />
+                    <TeamsIntegration currentOrg={currentOrg} />
+                </>
+            )}
         </div>
     );
 };

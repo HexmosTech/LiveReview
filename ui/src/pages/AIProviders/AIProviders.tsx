@@ -127,6 +127,8 @@ const AIProviders: React.FC = () => {
         setIsEditing
     } = useProviderSelection(popularAIProviders);
 
+    const routerLocation = useLocation();
+
     const {
         connectors,
         isLoading,
@@ -159,6 +161,14 @@ const AIProviders: React.FC = () => {
     });
     const [helperSettingsSaved, setHelperSettingsSaved] = useState(false);
 	const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // Deep-linked from the navbar mega menu (e.g. /ai/gemini?role=leader) to preselect the tab.
+    useEffect(() => {
+        const roleParam = new URLSearchParams(routerLocation.search).get('role');
+        if (roleParam === 'leader' || roleParam === 'helper') {
+            setActiveRole(roleParam);
+        }
+    }, [routerLocation.search]);
 
 	const getDefaultModelFor = (providerId?: string) => {
 		if (!providerId) return '';

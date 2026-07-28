@@ -4,6 +4,7 @@ import classNames from 'classnames';
 import { Icons } from '../UIPrimitives';
 import { flattenMegaMenuSections, MegaMenuGroupNode, MegaMenuLinkNode, MegaMenuNode, MegaMenuSearchEntry, MegaMenuSection } from './megaMenuData';
 import { shortcutKeyLabel } from '../../utils/platform';
+import { isCloudMode } from '../../utils/deploymentMode';
 
 
 // Ranking tiers (lower score wins). Each tier's floor is set well above the previous tier's
@@ -44,6 +45,12 @@ type NavMegaMenuProps = {
     searchFocusToken?: number;
 };
 
+const EnterpriseBadge: React.FC = () => (
+    <span className="shrink-0 rounded border border-amber-700/50 bg-amber-900/30 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-400">
+        Enterprise
+    </span>
+);
+
 const LinkRow: React.FC<{ node: MegaMenuLinkNode; goTo: (path: string) => void }> = ({ node, goTo }) => (
     <li>
         <button
@@ -53,34 +60,79 @@ const LinkRow: React.FC<{ node: MegaMenuLinkNode; goTo: (path: string) => void }
         >
             <span className="shrink-0 text-slate-400">{node.icon}</span>
             <span className="truncate">{node.name}</span>
+            {node.isEnterprise && isCloudMode() && <EnterpriseBadge />}
         </button>
     </li>
 );
 
-// A group nested inside another group (not used by any current data, but rendered flat/always-open
-// as a fallback so a future 3-level entry degrades gracefully instead of needing a 3rd hover layer).
-const NestedGroupFallback: React.FC<{ node: MegaMenuGroupNode; goTo: (path: string) => void }> = ({ node, goTo }) => (
-    <li className="pt-1">
-        <div className="px-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{node.name}</div>
-        <ul className="space-y-0.5">
-            {node.children.map((child) => (
-                child.kind === 'link'
-                    ? <LinkRow key={`${child.path}:${child.name}`} node={child} goTo={goTo} />
-                    : <NestedGroupFallback key={child.name} node={child} goTo={goTo} />
-            ))}
-        </ul>
-    </li>
-);
+// Renders one group row, expanding only its own children on hover. `id` is the group's full
+// path from the column root (e.g. "AI Providers>Leader Model>Connect AI") so groups sharing a
+// name at different depths never collide in the shared `openGroups` set. Recurses for group
+// children, so nesting depth is unlimited and every level is hover-to-expand — never open by
+// default — matching the behavior of the top-level groups.
+type GroupRowProps = {
+    node: MegaMenuGroupNode;
+    goTo: (path: string) => void;
+    id: string;
+    openGroups: Set<string>;
+    openGroup: (id: string) => void;
+    forceExpandAll?: boolean;
+};
 
-// Renders one top-level nav category. Which of its groups is expanded is tracked here, at the
-// column level, and only collapses when the mouse leaves the WHOLE column (not a single row) —
-// otherwise moving from an open group down to a sibling link collapses the group mid-transit and
-// the target jumps out from under the cursor.
+const GroupRow: React.FC<GroupRowProps> = ({ node, goTo, id, openGroups, openGroup, forceExpandAll }) => {
+    const isOpen = forceExpandAll || openGroups.has(id);
+    return (
+        <li>
+            <div
+                onMouseEnter={() => openGroup(id)}
+                onClick={node.path ? () => goTo(node.path as string) : undefined}
+                className={classNames(
+                    'flex items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-left text-xs font-medium transition-colors',
+                    node.path ? 'cursor-pointer' : 'cursor-default',
+                    isOpen ? 'bg-slate-700/60 text-white' : 'text-slate-300 hover:bg-slate-700/60 hover:text-white'
+                )}
+            >
+                <span className="flex min-w-0 items-center gap-2">
+                    {node.icon && <span className="shrink-0 text-slate-400">{node.icon}</span>}
+                    <span className="truncate">{node.name}</span>
+                </span>
+                <span className={classNames('shrink-0 transition-transform', isOpen && 'rotate-90')}>
+                    <Icons.ChevronRight />
+                </span>
+            </div>
+            {isOpen && (
+                <ul className="ml-2 mt-0.5 space-y-0.5 border-l border-slate-700/60 pl-2">
+                    {node.children.map((child) => (
+                        child.kind === 'link'
+                            ? <LinkRow key={`${child.path}:${child.name}`} node={child} goTo={goTo} />
+                            : (
+                                <GroupRow
+                                    key={child.name}
+                                    node={child}
+                                    goTo={goTo}
+                                    id={`${id}>${child.name}`}
+                                    openGroups={openGroups}
+                                    openGroup={openGroup}
+                                    forceExpandAll={forceExpandAll}
+                                />
+                            )
+                    ))}
+                </ul>
+            )}
+        </li>
+    );
+};
+
+// Renders one top-level nav category. Which of its groups (at any depth) is expanded is tracked
+// here, at the column level, and only collapses when the mouse leaves the WHOLE column (not a
+// single row) — otherwise moving from an open group down to a sibling link collapses the group
+// mid-transit and the target jumps out from under the cursor.
 const SectionColumn: React.FC<{ section: MegaMenuSection; goTo: (path: string) => void; isHighlighted?: boolean; forceExpandAll?: boolean }> = ({ section, goTo, isHighlighted, forceExpandAll }) => {
     // Groups a user has hovered stay expanded — switching to a sibling group must never collapse
     // another one, since collapsing shifts content under the cursor and closes everything.
     const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
     const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const cancelClose = () => {
         if (closeTimerRef.current) {
@@ -89,14 +141,28 @@ const SectionColumn: React.FC<{ section: MegaMenuSection; goTo: (path: string) =
         }
     };
 
+    const cancelPendingOpen = () => {
+        if (openTimerRef.current) {
+            clearTimeout(openTimerRef.current);
+            openTimerRef.current = null;
+        }
+    };
+
     const scheduleClose = () => {
         cancelClose();
+        cancelPendingOpen();
         closeTimerRef.current = setTimeout(() => setOpenGroups(new Set()), 300);
     };
 
-    const openGroup = (name: string) => {
+    // Expanding only commits after the cursor has rested on a group for a beat — passing over
+    // groups 1-4 on the way to group 5 shouldn't pop each one open along the way.
+    const openGroup = (id: string) => {
         cancelClose();
-        setOpenGroups((prev) => (prev.has(name) ? prev : new Set(prev).add(name)));
+        cancelPendingOpen();
+        openTimerRef.current = setTimeout(() => {
+            openTimerRef.current = null;
+            setOpenGroups((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+        }, 500);
     };
 
     return (
@@ -110,45 +176,30 @@ const SectionColumn: React.FC<{ section: MegaMenuSection; goTo: (path: string) =
         >
             {section.items && section.items.length > 0 && (
                 <>
-                    <div className="flex items-center gap-2 px-2 pb-1 text-sm font-semibold text-white">
+                    <button
+                        type="button"
+                        onClick={() => goTo(section.path)}
+                        className="flex w-full items-center gap-2 px-2 pb-1 text-sm font-semibold text-white hover:text-blue-400 transition-colors"
+                    >
                         <span className="text-blue-400">{section.icon}</span>
                         {section.name}
-                    </div>
+                    </button>
                     <ul className="space-y-0.5">
-                        {section.items.map((node: MegaMenuNode) => {
-                            if (node.kind === 'link') {
-                                return <LinkRow key={`${node.path}:${node.name}`} node={node} goTo={goTo} />;
-                            }
-                            const isOpen = forceExpandAll || openGroups.has(node.name);
-                            return (
-                                <li key={node.name}>
-                                    <div
-                                        onMouseEnter={() => openGroup(node.name)}
-                                        className={classNames(
-                                            'flex cursor-default items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-left text-xs font-medium transition-colors',
-                                            isOpen ? 'bg-slate-700/60 text-white' : 'text-slate-300 hover:bg-slate-700/60 hover:text-white'
-                                        )}
-                                    >
-                                        <span className="flex min-w-0 items-center gap-2">
-                                            {node.icon && <span className="shrink-0 text-slate-400">{node.icon}</span>}
-                                            <span className="truncate">{node.name}</span>
-                                        </span>
-                                        <span className={classNames('shrink-0 transition-transform', isOpen && 'rotate-90')}>
-                                            <Icons.ChevronRight />
-                                        </span>
-                                    </div>
-                                    {isOpen && (
-                                        <ul className="ml-2 mt-0.5 space-y-0.5 border-l border-slate-700/60 pl-2">
-                                            {node.children.map((child) => (
-                                                child.kind === 'link'
-                                                    ? <LinkRow key={`${child.path}:${child.name}`} node={child} goTo={goTo} />
-                                                    : <NestedGroupFallback key={child.name} node={child} goTo={goTo} />
-                                            ))}
-                                        </ul>
-                                    )}
-                                </li>
-                            );
-                        })}
+                        {section.items.map((node: MegaMenuNode) => (
+                            node.kind === 'link'
+                                ? <LinkRow key={`${node.path}:${node.name}`} node={node} goTo={goTo} />
+                                : (
+                                    <GroupRow
+                                        key={node.name}
+                                        node={node}
+                                        goTo={goTo}
+                                        id={node.name}
+                                        openGroups={openGroups}
+                                        openGroup={openGroup}
+                                        forceExpandAll={forceExpandAll}
+                                    />
+                                )
+                        ))}
                     </ul>
                 </>
             )}
@@ -168,7 +219,10 @@ const SearchResultRow: React.FC<{ entry: MegaMenuSearchEntry; isFirst: boolean; 
         >
             <span className="shrink-0 text-slate-400">{entry.icon}</span>
             <span className="min-w-0">
-                <span className="block truncate text-sm text-white">{entry.name}</span>
+                <span className="flex items-center gap-2">
+                    <span className="block truncate text-sm text-white">{entry.name}</span>
+                    {entry.isEnterprise && isCloudMode() && <EnterpriseBadge />}
+                </span>
                 <span className="block truncate text-[11px] text-slate-400">{entry.breadcrumb}</span>
             </span>
         </button>
@@ -249,12 +303,23 @@ export const NavMegaMenu: React.FC<NavMegaMenuProps> = ({ isOpen, onClose, secti
                         placeholder="Search actions..."
                         className="w-full rounded-lg border border-slate-700/60 bg-slate-800/70 py-2 pl-10 pr-16 text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
-                    <span
-                        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-mono text-[11px] text-slate-500"
-                        style={{ letterSpacing: '0.02em' }}
-                    >
-                        {shortcutKeyLabel()}
-                    </span>
+                    {query ? (
+                        <button
+                            type="button"
+                            onClick={() => { setQuery(''); inputRef.current?.focus(); }}
+                            aria-label="Clear search"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center rounded-full p-0.5 text-slate-400 transition-colors hover:bg-slate-700/60 hover:text-white"
+                        >
+                            <Icons.Close />
+                        </button>
+                    ) : (
+                        <span
+                            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-mono text-[11px] text-slate-500"
+                            style={{ letterSpacing: '0.02em' }}
+                        >
+                            {shortcutKeyLabel()}
+                        </span>
+                    )}
                 </div>
                 <button
                     type="button"
