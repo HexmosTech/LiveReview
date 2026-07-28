@@ -3,11 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import classNames from 'classnames';
 import { getDashboardData, DashboardData, refreshDashboardData } from '../../api/dashboard';
 import {
-    StatCard,
     Section,
     PageHeader,
-    Card,
-    EmptyState,
     Button,
     Icons,
     Tooltip,
@@ -16,6 +13,7 @@ import {
 import { HumanizedTimestamp } from '../HumanizedTimestamp/HumanizedTimestamp';
 import RecentActivity from './RecentActivity';
 import { OnboardingStepper } from './OnboardingStepper';
+import { DashboardGrid } from './widgets/DashboardGrid';
 import { PlanBadge } from './PlanBadge';
 import { QuotaExhaustedBanner } from './QuotaExhaustedBanner';
 import { QuotaWarningBanner } from './QuotaWarningBanner';
@@ -305,9 +303,7 @@ export const Dashboard: React.FC = () => {
     }, []);
 
     // Use dashboard API data exclusively - no fallbacks to Redux store
-    const aiComments = dashboardData?.total_comments || 0;
     const codeReviews = dashboardData?.total_reviews || 0;
-    const connectedProviders = dashboardData?.connected_providers || 0;
     const aiConnectors = dashboardData?.active_ai_connectors || 0;
 
     // Derive onboarding state
@@ -329,9 +325,6 @@ export const Dashboard: React.FC = () => {
 
     // Auto-hide feature disabled - users can manually dismiss the onboarding stepper if they want
     // by clicking "Don't show again" button
-
-    // Check if this is an empty state (no connections and no activity)
-    const isEmpty = connectedProviders === 0 && codeReviews === 0 && aiComments === 0;
 
     // Get connectors that need setup attention (filter out dismissed ones)
     const connectorsNeedingSetup = (dashboardData?.connector_setup_progress || []).filter(
@@ -628,139 +621,11 @@ export const Dashboard: React.FC = () => {
                     />
                 )}
 
-                {/* Main Statistics Grid - Improved density and alignment */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    <StatCard
-                        variant="primary"
-                        title="AI Reviews"
-                        value={codeReviews}
-                        icon={
-                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14.72,8.79l-4.29,4.3L8.78,11.44a1,1,0,1,0-1.41,1.41l2.35,2.36a1,1,0,0,0,.71.29,1,1,0,0,0,.7-.29l5-5a1,1,0,0,0,0-1.42A1,1,0,0,0,14.72,8.79ZM12,2A10,10,0,1,0,22,12,10,10,0,0,0,12,2Zm0,18a8,8,0,1,1,8-8A8,8,0,0,1,12,20Z" />
-                            </svg>
-                        }
-                        description="Reviews generated"
-                        emptyNote="No reviews yet."
-                        emptyCtaLabel="Start one now"
-                        onEmptyCta={() => navigate('/reviews/new')}
-                    />
-                    <StatCard
-                        variant="primary"
-                        title="AI Comments"
-                        value={aiComments}
-                        icon={
-                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M12,2A10,10,0,0,0,2,12a9.89,9.89,0,0,0,2.26,6.33l-2,2a1,1,0,0,0-.21,1.09A1,1,0,0,0,3,22h9A10,10,0,0,0,12,2Zm0,18H5.41l.93-.93a1,1,0,0,0,0-1.41A8,8,0,1,1,12,20Z" />
-                            </svg>
-                        }
-                        description="Comments generated"
-                        emptyNote="No comments yet."
-                        emptyCtaLabel="Run a review"
-                        onEmptyCta={() => navigate('/reviews/new')}
-                    />
-                    <div className="relative group">
-                        <StatCard
-                            title="Git Providers"
-                            value={connectedProviders}
-                            icon={<Icons.Git />}
-                            description="Connected services"
-                            emptyNote="No Git providers connected."
-                            emptyCtaLabel="Connect now"
-                            onEmptyCta={() => navigate('/git')}
-                            headerInfo="GitHub, GitLab or Bitbucket accounts connected to LiveReview."
-                            headerInfoPosition="bottom"
-                        />
-                    </div>
-                    <div className="relative group">
-                        <StatCard
-                            title="AI Providers"
-                            value={aiConnectors}
-                            icon={<Icons.AI />}
-                            description="Connected AI backends"
-                            emptyNote="No AI providers configured."
-                            emptyCtaLabel="Configure now"
-                            onEmptyCta={() => navigate('/ai')}
-                            headerInfo="LLM backends like OpenAI or local models used to generate review comments."
-                            headerInfoPosition="bottom"
-                        />
-                    </div>
-                </div>
+                {/* Customizable engineering dashboard — drag/resize/add/remove widgets */}
+                <DashboardGrid userId={user?.id} />
 
-                {/* Main Content Grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-2">
-                        <RecentActivity className="h-fit" />
-                    </div>
-
-                    <div className="space-y-6">
-                        {isEmpty && (
-                            <Card title="Get Started" subtitle="Connect a provider or configure AI to begin">
-                                <div className="space-y-2">
-                                    <Button variant="outline" icon={<Icons.Git />} onClick={() => navigate('/git')} className='mr-2'>
-                                        Connect Git Provider
-                                    </Button>
-                                    <Button variant="outline" icon={<Icons.AI />} onClick={() => navigate('/ai')} className='mr-2'>
-                                        Configure AI Service
-                                    </Button>
-                                    <Button variant="outline" icon={<Icons.Settings />} onClick={() => navigate('/settings')} className='mr-2'>
-                                        Review Settings
-                                    </Button>
-                                </div>
-                            </Card>
-                        )}
-
-                        {/* Performance Summary */}
-                        <Card
-                            title="This Week"
-                            subtitle="Review performance summary"
-                            className="h-fit"
-                        >
-                            <div className="space-y-3">
-                                <div className="flex justify-between items-center">
-                                    <span className="text-sm text-slate-300">Reviews Generated</span>
-                                    <span className="text-sm font-medium text-white">{dashboardData?.performance_metrics?.reviews_this_week || 0}</span>
-                                </div>
-                                <div className="flex justify-between items-center">
-                                    <span className="text-sm text-slate-300">Comments Made</span>
-                                    <span className="text-sm font-medium text-white">{dashboardData?.performance_metrics?.comments_this_week || 0}</span>
-                                </div>
-                                <div className="flex justify-between items-center">
-                                    <span className="text-sm text-slate-300">Avg. Response Time</span>
-                                    <span className="text-sm font-medium text-white">{dashboardData?.performance_metrics?.avg_response_time_seconds?.toFixed(1) || '2.3'}s</span>
-                                </div>
-                                <div className="flex justify-between items-center">
-                                    <span className="text-sm text-slate-300">Success Rate</span>
-                                    <span className="text-sm font-medium text-white">{dashboardData?.performance_metrics?.success_rate_percentage?.toFixed(1) || '100'}%</span>
-                                </div>
-                                <div className="pt-2 border-t border-slate-700">
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="w-full text-blue-300 hover:text-blue-200"
-                                    >
-                                        View Analytics
-                                    </Button>
-                                </div>
-                            </div>
-                        </Card>
-
-                        {/* Improved empty state for metrics */}
-                        {isEmpty && (
-                            <Card className="h-fit" title="No data yet" subtitle="Run your first review to see stats here.">
-                                <EmptyState
-                                    icon={<Icons.EmptyState />}
-                                    title="Nothing to show yet"
-                                    description="Once you run a review, you'll see activity, comments and trends here."
-                                    action={
-                                        <Button variant="primary" icon={<Icons.Add />} onClick={() => navigate('/reviews/new')}>
-                                            New Review
-                                        </Button>
-                                    }
-                                />
-                            </Card>
-                        )}
-                    </div>
-                </div>
+                {/* Real, API-backed activity feed — kept as a fixed section below the widget grid */}
+                <RecentActivity className="mt-6" />
 
                 {/* Upgrade Modal */}
                 <LicenseUpgradeDialog

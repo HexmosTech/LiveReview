@@ -1402,12 +1402,12 @@ paths:
       operationId: DeleteAPIKeyHandler
       parameters:
         - in: path
-          name: id
+          name: org_id
           required: true
           schema:
             type: string
         - in: path
-          name: org_id
+          name: id
           required: true
           schema:
             type: string
@@ -1894,12 +1894,12 @@ paths:
       operationId: CreatePromptChunk
       parameters:
         - in: path
-          name: key
+          name: var
           required: true
           schema:
             type: string
         - in: path
-          name: var
+          name: key
           required: true
           schema:
             type: string
@@ -2287,12 +2287,12 @@ paths:
       operationId: GetReviewEventsByType
       parameters:
         - in: path
-          name: type
+          name: id
           required: true
           schema:
             type: string
         - in: path
-          name: id
+          name: type
           required: true
           schema:
             type: string
@@ -2458,12 +2458,12 @@ paths:
       operationId: RevokeLicense
       parameters:
         - in: path
-          name: id
+          name: user_id
           required: true
           schema:
             type: string
         - in: path
-          name: user_id
+          name: id
           required: true
           schema:
             type: string
