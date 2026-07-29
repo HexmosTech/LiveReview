@@ -728,6 +728,9 @@ export const Icons = {
   Teams: ({ className = 'w-5 h-5 rounded-sm' }: { className?: string } = {}) => (
     <img src="/assets/teams-logo.svg" alt="" className={className} />
   ),
+  Discord: ({ className = 'w-5 h-5 rounded-sm' }: { className?: string } = {}) => (
+    <img src="/assets/discord-logo.svg" alt="" className={className} />
+  ),
   
   // Contact icons
   Email: () => (

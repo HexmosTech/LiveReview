@@ -214,6 +214,7 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
             group('Connect Integrations', [
                 link('Slack', React.createElement(Icons.Slack), '/settings#integrations', (ctx) => ctx.isSuperAdmin || ctx.hasOrg, true),
                 link('Microsoft Teams', React.createElement(Icons.Teams), '/settings#integrations', (ctx) => ctx.isSuperAdmin || ctx.hasOrg, true),
+                link('Discord', React.createElement(Icons.Discord), '/settings#integrations', (ctx) => ctx.isSuperAdmin || ctx.hasOrg, true),
                 link('SMTP', React.createElement(Icons.Email), '/settings#smtp', (ctx) => ctx.isSuperAdmin && !isCloudMode()),
             ], React.createElement(Icons.Grid)),
             group('Manage Billing', [

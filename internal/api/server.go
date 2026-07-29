@@ -29,6 +29,7 @@ import (
 	azuredevopsprovider "github.com/livereview/internal/provider_input/azuredevops"
 	"github.com/livereview/internal/slackbot"
 	"github.com/livereview/internal/teamsbot"
+	"github.com/livereview/internal/discordbot"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	giteaprovider "github.com/livereview/internal/provider_input/gitea"
 	githubprovider "github.com/livereview/internal/provider_input/github"
@@ -165,6 +166,9 @@ type Server struct {
 	slackBot  *slackbot.Bot
 
 	teamsHandler *teamsbot.Handler
+
+	discordBot       *discordbot.Bot
+	discordBotCancel context.CancelFunc
 
 	slackOAuthHandler *SlackOAuthHandler
 
@@ -495,6 +499,21 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		fmt.Printf("Cloud mode: Teams bot initialization skipped\n")
 	}
 
+	// Initialize org-scoped Discord bot (self-hosted only) from DB config
+	if !server.deploymentConfig.IsCloud {
+		bot, err := startOrgDiscordBots(server.db)
+		if err != nil {
+			fmt.Printf("Warning: Failed to initialize Discord bot: %v (Discord bot disabled)\n", err)
+		} else if bot != nil {
+			server.discordBot = bot
+			fmt.Printf("Discord bot initialized (will start with server)\n")
+		} else {
+			fmt.Printf("No Discord bot configs found (Discord bot disabled)\n")
+		}
+	} else {
+		fmt.Printf("Cloud mode: Discord bot initialization skipped\n")
+	}
+
 	return server, nil
 }
 
@@ -592,6 +611,83 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 	}
 
 	return []*slackbot.Bot{bot}, nil
+}
+
+// startOrgDiscordBots reads all enabled Discord bot configs from the DB,
+// resolves each org's AI connector, and creates the multi-org Discord bot.
+func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
+	configStorage := discordbot.NewStorage(db)
+	configs, err := configStorage.GetAllEnabledConfigs(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to query Discord configs: %w", err)
+	}
+	if len(configs) == 0 {
+		return nil, fmt.Errorf("no enabled Discord bot configs found")
+	}
+
+	connectorStorage := aiconnectors.NewStorage(db)
+	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
+	if mcpServerURL == "" {
+		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
+	}
+	maxSteps := 20
+	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
+		if n, err := strconv.Atoi(s); err != nil || n <= 0 {
+			maxSteps = 20
+		} else {
+			maxSteps = n
+		}
+	}
+
+	var orgCfgs []discordbot.OrgConfig
+
+	for _, cfg := range configs {
+		connectors, err := connectorStorage.GetAllConnectors(context.Background(), cfg.OrgID)
+		if err != nil {
+			log.Printf("Discord bot: failed to query connectors for org %d: %v — skipping", cfg.OrgID, err)
+			continue
+		}
+		if len(connectors) == 0 {
+			log.Printf("Discord bot: no AI connectors configured in org %d — skipping", cfg.OrgID)
+			continue
+		}
+
+		var connector *aiconnectors.Connector
+		for _, record := range connectors {
+			options := connectorStorage.GetConnectorOptions(context.Background(), record)
+			c, err := aiconnectors.NewConnector(context.Background(), options)
+			if err != nil {
+				log.Printf("Discord bot org %d: connector %q (%s) failed to init: %v — trying next", cfg.OrgID, record.ConnectorName, record.ProviderName, err)
+				continue
+			}
+			connector = c
+			log.Printf("Discord bot org %d: using connector %q (%s, model=%s)", cfg.OrgID, record.ConnectorName, record.ProviderName, options.ModelConfig.Model)
+			break
+		}
+		if connector == nil {
+			log.Printf("Discord bot: all connectors for org %d failed to initialize — skipping", cfg.OrgID)
+			continue
+		}
+
+		mcpHeaders := map[string]string{"X-API-Key": cfg.APIKey}
+
+		orgCfgs = append(orgCfgs, discordbot.OrgConfig{
+			OrgID:         cfg.OrgID,
+			BotToken:      cfg.BotToken,
+			MCPServerURL:  mcpServerURL,
+			MCPHeaders:    mcpHeaders,
+			Connector:     connector,
+			MaxAgentSteps: maxSteps,
+		})
+	}
+
+	if len(orgCfgs) == 0 {
+		return nil, fmt.Errorf("no orgs could be configured for Discord bot")
+	}
+
+	return discordbot.New(orgCfgs, func(orgID int64, guildID string) error {
+		return configStorage.UpdateGuildID(context.Background(), orgID, guildID)
+	})
 }
 
 // SetOpenAPISpec sets the OpenAPI specification content for the integration guide endpoint
@@ -902,6 +998,14 @@ func (s *Server) setupRoutes() {
 		orgGroup.GET("/teams-config", teamsConfigHandler.GetTeamsConfig)
 		orgGroup.PUT("/teams-config", teamsConfigHandler.UpdateTeamsConfig)
 		orgGroup.DELETE("/teams-config", teamsConfigHandler.DeleteTeamsConfig)
+	}
+
+	// Discord bot configuration within org context (self-hosted only)
+	if !s.deploymentConfig.IsCloud {
+		discordConfigHandler := NewDiscordConfigHandler(s.db)
+		orgGroup.GET("/discord-config", discordConfigHandler.GetDiscordConfig)
+		orgGroup.PUT("/discord-config", discordConfigHandler.UpdateDiscordConfig)
+		orgGroup.DELETE("/discord-config", discordConfigHandler.DeleteDiscordConfig)
 	}
 
 	// API key management within org context
@@ -1439,6 +1543,18 @@ func (s *Server) Start() error {
 		s.teamsHandler.Start()
 	}
 
+	// Start Discord bot if configured
+	if s.discordBot != nil {
+		discordCtx, cancel := context.WithCancel(context.Background())
+		s.discordBotCancel = cancel
+		fmt.Println("Starting Discord bot...")
+		go func() {
+			if err := s.discordBot.Start(discordCtx); err != nil {
+				fmt.Printf("Discord bot failed: %v\n", err)
+			}
+		}()
+	}
+
 	// Wait for interrupt signal to gracefully shut down the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
@@ -1461,6 +1577,12 @@ func (s *Server) Start() error {
 	// Stop Teams bot
 	if s.teamsHandler != nil {
 		s.teamsHandler.Stop()
+	}
+
+	// Stop Discord bot
+	if s.discordBot != nil {
+		s.discordBot.Stop()
+		fmt.Println("Discord bot stopped")
 	}
 
 	// Stop dashboard manager

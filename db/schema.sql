@@ -1,4 +1,4 @@
-\restrict YpZ23deMxwkilSsMDU4qcvkYkDqZ1f1gvwA8kfJwjas5deBeDgbj5U1vDNTyDEA
+\restrict B4Nw0fXw1ioe4HsppuKYuVFffErSu8lYldUIhRH17zwHs8c8MnPmwBhsSvLXVKV
 
 -- Dumped from database version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
 -- Dumped by pg_dump version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
@@ -904,6 +904,62 @@ CREATE SEQUENCE public.org_billing_state_id_seq
 --
 
 ALTER SEQUENCE public.org_billing_state_id_seq OWNED BY public.org_billing_state.id;
+
+
+--
+-- Name: org_discord_configs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.org_discord_configs (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    bot_token text NOT NULL,
+    api_key text DEFAULT ''::text NOT NULL,
+    guild_id text DEFAULT ''::text NOT NULL,
+    enabled boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE org_discord_configs; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.org_discord_configs IS 'Per-org Discord bot configuration';
+
+
+--
+-- Name: COLUMN org_discord_configs.bot_token; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.org_discord_configs.bot_token IS 'Discord bot token';
+
+
+--
+-- Name: COLUMN org_discord_configs.guild_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.org_discord_configs.guild_id IS 'Discord guild (server) ID, learned after first auth test';
+
+
+--
+-- Name: org_discord_configs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.org_discord_configs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: org_discord_configs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.org_discord_configs_id_seq OWNED BY public.org_discord_configs.id;
 
 
 --
@@ -2421,6 +2477,13 @@ ALTER TABLE ONLY public.org_billing_state ALTER COLUMN id SET DEFAULT nextval('p
 
 
 --
+-- Name: org_discord_configs id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_discord_configs ALTER COLUMN id SET DEFAULT nextval('public.org_discord_configs_id_seq'::regclass);
+
+
+--
 -- Name: org_slack_configs id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2799,6 +2862,22 @@ ALTER TABLE ONLY public.org_billing_state
 
 ALTER TABLE ONLY public.org_billing_state
     ADD CONSTRAINT org_billing_state_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: org_discord_configs org_discord_configs_org_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_discord_configs
+    ADD CONSTRAINT org_discord_configs_org_id_key UNIQUE (org_id);
+
+
+--
+-- Name: org_discord_configs org_discord_configs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_discord_configs
+    ADD CONSTRAINT org_discord_configs_pkey PRIMARY KEY (id);
 
 
 --
@@ -3687,6 +3766,27 @@ CREATE INDEX idx_org_billing_current_plan ON public.org_billing_state USING btre
 --
 
 CREATE INDEX idx_org_billing_scheduled_effective ON public.org_billing_state USING btree (scheduled_plan_effective_at) WHERE (scheduled_plan_effective_at IS NOT NULL);
+
+
+--
+-- Name: idx_org_discord_configs_enabled; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_discord_configs_enabled ON public.org_discord_configs USING btree (enabled);
+
+
+--
+-- Name: idx_org_discord_configs_guild_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_discord_configs_guild_id ON public.org_discord_configs USING btree (guild_id);
+
+
+--
+-- Name: idx_org_discord_configs_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_discord_configs_org_id ON public.org_discord_configs USING btree (org_id);
 
 
 --
@@ -4656,6 +4756,14 @@ ALTER TABLE ONLY public.org_billing_state
 
 
 --
+-- Name: org_discord_configs org_discord_configs_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_discord_configs
+    ADD CONSTRAINT org_discord_configs_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
 -- Name: org_review_ai_settings org_review_ai_settings_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5123,7 +5231,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict YpZ23deMxwkilSsMDU4qcvkYkDqZ1f1gvwA8kfJwjas5deBeDgbj5U1vDNTyDEA
+\unrestrict B4Nw0fXw1ioe4HsppuKYuVFffErSu8lYldUIhRH17zwHs8c8MnPmwBhsSvLXVKV
 
 
 --
@@ -5211,4 +5319,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260702141000'),
     ('20260704150001'),
     ('20260706205257'),
-    ('20260707220001');
+    ('20260707220001'),
+    ('20260729150001');
