@@ -212,7 +212,7 @@ export const FloatingOnboardingNudge: React.FC<FloatingOnboardingNudgeProps> = (
               <span className="truncate text-sm font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-cyan-400 to-emerald-400 sm:text-base">
                 🚀 Get your first review in 2 minutes
               </span>
-              <span className={classNames('flex-shrink-0 text-slate-400 transition-transform', expanded ? 'rotate-180' : '')}>
+              <span className={classNames('flex-shrink-0 text-slate-400 transition-transform', expanded ? '' : 'rotate-180')}>
                 <Icons.ChevronDown />
               </span>
             </button>
