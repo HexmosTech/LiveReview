@@ -270,7 +270,6 @@ const Reviews: React.FC = () => {
                     to="/reviews/new"
                     variant="primary"
                     icon={<Icons.Add />}
-                    className="bg-green-600 hover:bg-green-700"
                     title="Safe preview - no comments posted"
                 >
                     New Review
@@ -405,7 +404,6 @@ const Reviews: React.FC = () => {
                         to="/reviews/new"
                         variant="primary"
                         icon={<Icons.Add />}
-                        className="bg-green-600 hover:bg-green-700"
                     >
                         New Review
                     </Button>

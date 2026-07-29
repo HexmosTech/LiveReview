@@ -1,10 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import classNames from 'classnames';
 import { getDashboardData, DashboardData, refreshDashboardData } from '../../api/dashboard';
 import {
-    Section,
-    PageHeader,
     Button,
     Icons,
     Tooltip,
@@ -12,7 +9,7 @@ import {
 } from '../UIPrimitives';
 import { HumanizedTimestamp } from '../HumanizedTimestamp/HumanizedTimestamp';
 import RecentActivity from './RecentActivity';
-import { OnboardingStepper } from './OnboardingStepper';
+import { FloatingOnboardingNudge } from './FloatingOnboardingNudge';
 import { DashboardGrid } from './widgets/DashboardGrid';
 import { PlanBadge } from './PlanBadge';
 import { QuotaExhaustedBanner } from './QuotaExhaustedBanner';
@@ -80,20 +77,12 @@ type DashboardBillingInsight = {
     actionRequiredType: string;
 };
 
-const dashboardPlanLabel = (planCode: string): string => {
-    const normalized = String(planCode || '').trim().toLowerCase();
-    if (normalized === 'free_30k' || normalized === 'free') return 'Free 30k';
-    if (normalized === 'team_32usd' || normalized === 'team') return 'Team 100k';
-    if (normalized === 'loc_200k') return 'Team 200k';
-    if (normalized === 'loc_400k') return 'Team 400k';
-    if (normalized === 'loc_800k') return 'Team 800k';
-    if (normalized === 'loc_1600k') return 'Team 1.6M';
-    if (normalized === 'loc_3200k') return 'Team 3.2M';
-    return planCode || 'Plan';
-};
-
 const getConnectorWarningDismissStorageKey = (userId?: number | string): string => {
     return userId ? `lr_hidden_connector_warnings_${userId}` : 'lr_hidden_connector_warnings';
+};
+
+const getHideStepperStorageKey = (userId?: number | string): string => {
+    return userId ? `lr_hide_get_started_${userId}` : 'lr_hide_get_started';
 };
 
 const parseDismissedConnectorIds = (rawValue: string | null): Set<number> => {
@@ -143,8 +132,7 @@ export const Dashboard: React.FC = () => {
     const [hideStepper, setHideStepper] = useState<boolean>(() => {
         // Scope localStorage to user ID so each user has their own onboarding state
         try {
-            const key = user?.id ? `lr_hide_get_started_${user.id}` : 'lr_hide_get_started';
-            return localStorage.getItem(key) === '1';
+            return localStorage.getItem(getHideStepperStorageKey(user?.id)) === '1';
         } catch {
             return false;
         }
@@ -160,6 +148,16 @@ export const Dashboard: React.FC = () => {
     useEffect(() => {
         const storageKey = getConnectorWarningDismissStorageKey(user?.id);
         setPersistedDismissedConnectors(loadDismissedConnectorIds(storageKey));
+    }, [user?.id]);
+
+    // Re-check once the authenticated user has loaded: the initial mount can run
+    // before Auth.user is hydrated, so the very first read may check the wrong
+    // (unscoped) key while the dismiss handler below writes the per-user key.
+    useEffect(() => {
+        if (!user?.id) return;
+        try {
+            setHideStepper(localStorage.getItem(getHideStepperStorageKey(user.id)) === '1');
+        } catch { /* ignore */ }
     }, [user?.id]);
 
     const dismissConnectorForSession = (connectorId: number): void => {
@@ -309,7 +307,6 @@ export const Dashboard: React.FC = () => {
     // Derive onboarding state
     const hasCLI = dashboardData?.cli_installed || false;
     const hasAIProvider = aiConnectors > 0;
-    const allSet = hasCLI && hasAIProvider;
     const hasRunReview = codeReviews > 0;
 
     // Build install commands with API key
@@ -367,11 +364,9 @@ export const Dashboard: React.FC = () => {
         }
     };
 
-    const dashboardOnFreePlan = String(billingInsight?.planCode || '').trim().toLowerCase() === 'free_30k' || String(billingInsight?.planCode || '').trim().toLowerCase() === 'free';
-
     return (
         <div className="min-h-screen">
-            <main className="container mx-auto px-4 py-6">
+            <main className="container mx-auto px-4 py-8">
                 {/* Connector Setup Progress - using standard Alert component */}
                 {connectorsNeedingSetup.length > 0 && (
                     <div className="mb-6 space-y-3">
@@ -467,102 +462,28 @@ export const Dashboard: React.FC = () => {
 
                 {/* Header with aligned content and prominent CTA */}
                 <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6">
-                    <div className="mb-4 sm:mb-0">
-                        <div className="flex items-center gap-2">
-                            <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-                        </div>
-                        <p className="mt-1 text-base text-slate-300">
-                            Monitor your code review activity and connected services
-                            {dashboardData && (
-                                <span className="text-xs text-slate-400 ml-2">
-                                    Last updated: <HumanizedTimestamp
-                                        timestamp={dashboardData.last_updated}
-                                        className="text-slate-400"
-                                    />
-                                </span>
-                            )}
-                        </p>
-                    </div>
+                    <p className="text-sm text-slate-400">
+                        Monitor your code review activity and connected services
+                        {dashboardData && (
+                            <span className="text-xs text-slate-400 ml-2">
+                                Last updated: <HumanizedTimestamp
+                                    timestamp={dashboardData.last_updated}
+                                    className="text-slate-400"
+                                />
+                            </span>
+                        )}
+                    </p>
                     <div className="hidden sm:flex gap-3">
                         <Button
                             variant="primary"
                             icon={<Icons.Add />}
                             onClick={handleNewReviewClick}
-                            className="shadow-xl transition-all duration-300 hover:shadow-2xl hover:scale-105 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600"
                             title={isFreePlan ? "Upgrade your plan to create reviews" : "Safe review - no comments posted"}
                         >
                             New Review
                         </Button>
                     </div>
                 </div>
-
-                {billingInsight && (
-                    <div className="mb-6 bg-slate-800/55 border border-slate-700 rounded-xl p-4">
-                        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                            <div className="space-y-2">
-                                <p className="text-sm text-slate-300">
-                                    Billing status: <span className="text-white font-semibold">{dashboardPlanLabel(billingInsight.planCode)}</span>
-                                    {' • '}
-                                    Usage <span className="text-white font-semibold">{billingInsight.usagePct}%</span>
-                                </p>
-                                <div className="w-full lg:w-80 h-2 rounded-full bg-slate-700 overflow-hidden">
-                                    <div
-                                        className={classNames(
-                                            'h-full transition-all',
-                                            billingInsight.blocked || billingInsight.customerState === 'action_needed' || billingInsight.customerState === 'payment_failed'
-                                                ? 'bg-red-500'
-                                                : billingInsight.usagePct >= 90
-                                                    ? 'bg-amber-500'
-                                                    : billingInsight.usagePct >= 80
-                                                        ? 'bg-amber-500'
-                                                        : 'bg-emerald-500'
-                                        )}
-                                        style={{ width: `${Math.max(0, Math.min(100, billingInsight.usagePct))}%` }}
-                                    />
-                                </div>
-                                <p className="text-xs text-slate-400">
-                                    {billingInsight.locUsed.toLocaleString()} / {billingInsight.locLimit > 0 ? billingInsight.locLimit.toLocaleString() : 'Unlimited'} LOC this period
-                                </p>
-                                {billingInsight.trialActive && (
-                                    <p className="text-xs text-sky-200">
-                                        Trial active: ends {billingInsight.trialEndsAt ? new Date(billingInsight.trialEndsAt).toLocaleString() : 'when synchronization completes'}.
-                                    </p>
-                                )}
-                                {!billingInsight.trialActive && dashboardOnFreePlan && (
-                                    <p className={`text-xs ${billingInsight.trialEligibleForFirstPaidPurchase
-                                        ? 'text-sky-200'
-                                        : billingInsight.trialEligibilityStatus === 'already_used'
-                                            ? 'text-slate-300'
-                                            : 'text-amber-200'
-                                        }`}>
-                                        {billingInsight.trialEligibleForFirstPaidPurchase
-                                            ? `First paid purchase includes ${billingInsight.trialPolicyDays}-day trial on any paid LOC plan.`
-                                            : billingInsight.trialEligibilityStatus === 'already_used'
-                                                ? 'First paid trial already used for this email. New paid purchases bill immediately.'
-                                                : 'Trial eligibility is being synchronized and will be confirmed at checkout.'}
-                                    </p>
-                                )}
-                                {(billingInsight.customerState === 'action_needed' || billingInsight.customerState === 'payment_failed' || billingInsight.blocked || billingInsight.trialReadonly) && (
-                                    <p className="text-xs text-amber-200">
-                                        Action needed: {billingInsight.actionRequiredType || billingInsight.customerState.replace(/_/g, ' ')}
-                                        {billingInsight.supportReference ? ` • Ref ${billingInsight.supportReference}` : ''}
-                                    </p>
-                                )}
-                            </div>
-                            {isCloudMode() && (
-                                <div className="flex items-center gap-2">
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => navigate('/settings-subscriptions-overview')}
-                                        className="text-slate-200 border-slate-500"
-                                    >
-                                        Open Billing Details
-                                    </Button>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
 
                 {/* Error state */}
                 {error && (
@@ -592,14 +513,14 @@ export const Dashboard: React.FC = () => {
                     variant="primary"
                     icon={<Icons.Add />}
                     onClick={handleNewReviewClick}
-                    className="fixed bottom-6 right-6 sm:hidden z-40 rounded-full w-14 h-14 shadow-xl transition-all duration-300 hover:shadow-2xl hover:scale-110 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600"
+                    className="fixed bottom-6 right-6 sm:hidden z-40 rounded-full w-14 h-14 shadow-lg"
                     aria-label={isFreePlan ? "Review creation locked" : "New Review (Safe - no comments posted)"}
                     title={isFreePlan ? "Upgrade your plan to create reviews" : "Safe review - no comments posted"}
                 />
 
-                {/* Get Started stepper – stays visible until the user manually dismisses it */}
+                {/* Floating setup-guide nudge – stays available until the user manually dismisses it */}
                 {!hideStepper && (
-                    <OnboardingStepper
+                    <FloatingOnboardingNudge
                         hasCLI={hasCLI}
                         hasAIProvider={hasAIProvider}
                         hasRunReview={hasRunReview}
@@ -607,17 +528,14 @@ export const Dashboard: React.FC = () => {
                         installCommandWindows={installCommandWindows}
                         onConfigureAI={() => navigate('/ai')}
                         onNewReview={() => navigate('/reviews/new')}
-                        userId={user?.id}
                         isFreePlan={isFreePlan}
                         onUpgrade={() => setShowUpgradeDialog(true)}
                         onDismiss={() => {
                             setHideStepper(true);
                             try {
-                                const key = user?.id ? `lr_hide_get_started_${user.id}` : 'lr_hide_get_started';
-                                localStorage.setItem(key, '1');
+                                localStorage.setItem(getHideStepperStorageKey(user?.id), '1');
                             } catch { }
                         }}
-                        className="mb-6"
                     />
                 )}
 

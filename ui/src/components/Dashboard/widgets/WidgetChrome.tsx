@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import classNames from 'classnames';
+import { Button } from '../../UIPrimitives';
 import { CATEGORY_BADGE_CLASSES, CATEGORY_LABELS, WidgetCategory } from './registry';
 
 const DragHandleIcon: React.FC = () => (
@@ -69,15 +70,16 @@ export const WidgetChrome: React.FC<WidgetChromeProps> = ({
             </div>
             <div className="flex items-center gap-1 shrink-0">
                 {!editMode && (
-                    <button
-                        type="button"
+                    <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => setExpanded(true)}
-                        className="p-1 rounded text-slate-500 hover:text-slate-200 hover:bg-slate-700/60 transition-colors"
+                        className="!p-1"
                         title="Expand"
                         aria-label={`Expand ${title}`}
                     >
                         <ExpandIcon />
-                    </button>
+                    </Button>
                 )}
                 {editMode && onRemove && (
                     <button

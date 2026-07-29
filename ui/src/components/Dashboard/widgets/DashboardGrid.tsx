@@ -32,9 +32,8 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
     return (
         <DashboardPeriodProvider>
         <div className="mb-6">
-            <div className="sticky top-16 z-30 -mx-4 px-4 py-2 mb-3 bg-[#0d1017]/90 backdrop-blur-sm border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+            <div className="sticky top-16 z-30 py-2 mb-3 bg-slate-800/90 backdrop-blur-sm border-b border-slate-700/80 rounded-lg flex flex-wrap items-center justify-between gap-2 px-4">
                 <div className="flex items-center gap-3">
-                    <h2 className="text-lg font-semibold text-white">Engineering Dashboard</h2>
                     <PeriodSelector />
                 </div>
                 <div className="flex items-center gap-2">
@@ -96,6 +95,7 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
                 cols={{ lg: 12 }}
                 rowHeight={30}
                 margin={[16, 16]}
+                containerPadding={[0, 0]}
                 isDraggable={editMode}
                 isResizable={editMode}
                 draggableHandle=".widget-drag-handle"
