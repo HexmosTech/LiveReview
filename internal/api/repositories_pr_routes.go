@@ -5,10 +5,42 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
 )
+
+// multiValueFilterClause builds an " AND column IN ($n, $n+1, ...)" clause from
+// a comma-separated (and/or repeated) query param value - e.g.
+// "github,gitlab" or ?provider=github&provider=gitlab - appending each
+// distinct value to args and advancing *argIdx. Mirrors the multi-select
+// convention already used by the taxonomy report filters
+// (collectMultiQueryParam / addMultiFilter in taxonomy_report_handler.go).
+// Returns "" if csv has no values, so callers can unconditionally append the
+// result to both a count query and a select query sharing the same args.
+func multiValueFilterClause(column, csv string, args *[]interface{}, argIdx *int) string {
+	seen := make(map[string]bool)
+	vals := make([]string, 0)
+	for _, part := range strings.Split(csv, ",") {
+		v := strings.TrimSpace(part)
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		vals = append(vals, v)
+	}
+	if len(vals) == 0 {
+		return ""
+	}
+	placeholders := make([]string, len(vals))
+	for i, v := range vals {
+		placeholders[i] = fmt.Sprintf("$%d", *argIdx)
+		*args = append(*args, v)
+		*argIdx++
+	}
+	return fmt.Sprintf(" AND %s IN (%s)", column, strings.Join(placeholders, ","))
+}
 
 // RepositoryResponse is the JSON shape for a repositories row.
 type RepositoryResponse struct {
@@ -26,6 +58,13 @@ type RepositoryResponse struct {
 	LastSyncedAt   *time.Time `json:"last_synced_at,omitempty"`
 	LastSyncStatus string     `json:"last_sync_status"`
 	LastSyncError  string     `json:"last_sync_error,omitempty"`
+	OpenPRCount    int        `json:"open_pr_count"`
+	// LastActivityAt is the most recent provider_updated_at across this
+	// repo's pull_requests - nil if it has none. Used as the default sort
+	// key (most recently active repos first) since it reflects real PR/MR
+	// activity, unlike LastSyncedAt which only reflects LiveReview's own
+	// polling cadence.
+	LastActivityAt *time.Time `json:"last_activity_at,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
@@ -134,22 +173,21 @@ func (s *Server) ListRepositories(c echo.Context) error {
 	}
 
 	page, perPage := parsePageParams(c)
-	query := `SELECT ` + repositoryColumns + ` FROM repositories WHERE org_id = $1`
+	query := `SELECT ` + repositoryColumns + `,
+		(SELECT count(*) FROM pull_requests pr WHERE pr.repository_id = repositories.id AND pr.state = 'open') AS open_pr_count,
+		(SELECT max(pr.provider_updated_at) FROM pull_requests pr WHERE pr.repository_id = repositories.id) AS last_pr_activity_at
+		FROM repositories WHERE org_id = $1`
 	countQuery := `SELECT count(*) FROM repositories WHERE org_id = $1`
 	args := []interface{}{orgID}
 	argIdx := 2
 
-	if connectorID := c.QueryParam("connector_id"); connectorID != "" {
-		query += fmt.Sprintf(" AND connector_id = $%d", argIdx)
-		countQuery += fmt.Sprintf(" AND connector_id = $%d", argIdx)
-		args = append(args, connectorID)
-		argIdx++
+	if clause := multiValueFilterClause("connector_id", c.QueryParam("connector_id"), &args, &argIdx); clause != "" {
+		query += clause
+		countQuery += clause
 	}
-	if provider := c.QueryParam("provider"); provider != "" {
-		query += fmt.Sprintf(" AND provider = $%d", argIdx)
-		countQuery += fmt.Sprintf(" AND provider = $%d", argIdx)
-		args = append(args, provider)
-		argIdx++
+	if clause := multiValueFilterClause("provider", c.QueryParam("provider"), &args, &argIdx); clause != "" {
+		query += clause
+		countQuery += clause
 	}
 	if search := c.QueryParam("search"); search != "" {
 		query += fmt.Sprintf(" AND full_name ILIKE $%d", argIdx)
@@ -157,13 +195,30 @@ func (s *Server) ListRepositories(c echo.Context) error {
 		args = append(args, "%"+search+"%")
 		argIdx++
 	}
+	if clause := multiValueFilterClause("last_sync_status", c.QueryParam("sync_status"), &args, &argIdx); clause != "" {
+		query += clause
+		countQuery += clause
+	}
+	if hasOpenPRs := c.QueryParam("has_open_prs"); hasOpenPRs != "" {
+		existsClause := " AND EXISTS (SELECT 1 FROM pull_requests pr WHERE pr.repository_id = repositories.id AND pr.state = 'open')"
+		if hasOpenPRs == "false" {
+			existsClause = " AND NOT EXISTS (SELECT 1 FROM pull_requests pr WHERE pr.repository_id = repositories.id AND pr.state = 'open')"
+		}
+		query += existsClause
+		countQuery += existsClause
+	}
 
 	var total int
 	if err := s.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to count repositories")
 	}
 
-	query += " ORDER BY full_name ASC"
+	switch c.QueryParam("sort") {
+	case "open_pr_count":
+		query += " ORDER BY open_pr_count DESC, full_name ASC"
+	default: // "last_activity" or unspecified
+		query += " ORDER BY last_pr_activity_at DESC NULLS LAST, full_name ASC"
+	}
 	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	args = append(args, perPage, (page-1)*perPage)
 
@@ -175,9 +230,17 @@ func (s *Server) ListRepositories(c echo.Context) error {
 
 	repos := make([]RepositoryResponse, 0)
 	for rows.Next() {
-		r, err := scanRepository(rows.Scan)
+		var openPRCount int
+		var lastActivityAt sql.NullTime
+		r, err := scanRepository(func(dest ...interface{}) error {
+			return rows.Scan(append(dest, &openPRCount, &lastActivityAt)...)
+		})
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to scan repository")
+		}
+		r.OpenPRCount = openPRCount
+		if lastActivityAt.Valid {
+			r.LastActivityAt = &lastActivityAt.Time
 		}
 		repos = append(repos, r)
 	}
@@ -205,13 +268,24 @@ func (s *Server) GetRepository(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid repository ID")
 	}
 
-	row := s.db.QueryRow(`SELECT `+repositoryColumns+` FROM repositories WHERE id = $1 AND org_id = $2`, repoID, orgID)
-	r, err := scanRepository(row.Scan)
+	row := s.db.QueryRow(`SELECT `+repositoryColumns+`,
+		(SELECT count(*) FROM pull_requests pr WHERE pr.repository_id = repositories.id AND pr.state = 'open') AS open_pr_count,
+		(SELECT max(pr.provider_updated_at) FROM pull_requests pr WHERE pr.repository_id = repositories.id) AS last_pr_activity_at
+		FROM repositories WHERE id = $1 AND org_id = $2`, repoID, orgID)
+	var openPRCount int
+	var lastActivityAt sql.NullTime
+	r, err := scanRepository(func(dest ...interface{}) error {
+		return row.Scan(append(dest, &openPRCount, &lastActivityAt)...)
+	})
 	if err == sql.ErrNoRows {
 		return echo.NewHTTPError(http.StatusNotFound, "Repository not found")
 	}
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to fetch repository")
+	}
+	r.OpenPRCount = openPRCount
+	if lastActivityAt.Valid {
+		r.LastActivityAt = &lastActivityAt.Time
 	}
 	return c.JSON(http.StatusOK, r)
 }
@@ -443,15 +517,13 @@ func (s *Server) ListPullRequests(c echo.Context) error {
 		args = append(args, connectorID)
 		argIdx++
 	}
-	if provider := c.QueryParam("provider"); provider != "" {
-		fromAndFilters += fmt.Sprintf(" AND pr.provider = $%d", argIdx)
-		args = append(args, provider)
-		argIdx++
+	if clause := multiValueFilterClause("pr.provider", c.QueryParam("provider"), &args, &argIdx); clause != "" {
+		fromAndFilters += clause
 	}
 	if state := c.QueryParam("state"); state != "" && state != "all" {
-		fromAndFilters += fmt.Sprintf(" AND pr.state = $%d", argIdx)
-		args = append(args, state)
-		argIdx++
+		if clause := multiValueFilterClause("pr.state", state, &args, &argIdx); clause != "" {
+			fromAndFilters += clause
+		}
 	}
 	if search := c.QueryParam("search"); search != "" {
 		fromAndFilters += fmt.Sprintf(" AND (pr.title ILIKE $%d OR pr.author_username ILIKE $%d OR r.full_name ILIKE $%d)", argIdx, argIdx, argIdx)
