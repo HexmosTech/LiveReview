@@ -242,3 +242,94 @@ func hasVegaLiteSpec(text string) bool {
 		(strings.Contains(text, `"title"`) && strings.Contains(text, `"spec"`)) ||
 		strings.Contains(text, `"reports"`)
 }
+
+func stripTopLevelVegaJSON(raw string) string {
+	idx := strings.Index(raw, "\n{")
+	if idx < 0 {
+		idx = strings.Index(raw, "{")
+	}
+	if idx < 0 {
+		return raw
+	}
+
+	depth := 0
+	inStr := false
+	esc := false
+	start := -1
+
+	for i := idx; i < len(raw); i++ {
+		ch := raw[i]
+		if inStr {
+			if esc {
+				esc = false
+				continue
+			}
+			if ch == '\\' {
+				esc = true
+			} else if ch == '"' {
+				inStr = false
+			}
+			continue
+		}
+		if ch == '"' {
+			inStr = true
+			esc = false
+			continue
+		}
+		if ch == '{' {
+			if depth == 0 {
+				start = i
+			}
+			depth++
+		} else if ch == '}' {
+			depth--
+			if depth == 0 && start >= 0 {
+				if isVegaJSON([]byte(raw[start : i+1])) {
+					return strings.TrimSpace(raw[:start] + raw[i+1:])
+				}
+				start = -1
+			}
+		}
+	}
+	return raw
+}
+
+func isVegaJSON(data []byte) bool {
+	var raw any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return false
+	}
+	switch v := raw.(type) {
+	case map[string]any:
+		if _, ok := v["reports"]; ok {
+			return true
+		}
+		if _, ok := v["$schema"]; ok {
+			return true
+		}
+		if _, ok := v["spec"]; ok {
+			if _, hasTitle := v["title"]; hasTitle {
+				return true
+			}
+		}
+		if mark := v["mark"]; mark != nil {
+			_, hasEnc := v["encoding"]
+			_, hasTitle := v["title"]
+			if hasEnc || hasTitle {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if m, ok := item.(map[string]any); ok {
+				if _, ok := m["$schema"]; ok {
+					return true
+				}
+				if _, ok := m["spec"]; ok {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}

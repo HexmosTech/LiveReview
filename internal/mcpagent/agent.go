@@ -64,6 +64,14 @@ func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText st
 
 		toolCalls := parseToolCalls(response)
 		if len(toolCalls) == 0 {
+			if isExcuseResponse(response) {
+				log.Warn().Str("response_preview", truncateContent(response, 200)).Msg("AI gave excuse response, forcing retry")
+				history = append(history, HistoryEntry{
+					"role":    "user",
+					"content": "You did not call any tools. You MUST call at least one tool before you can respond to the user. If the exact data isn't available, call the closest tool you have and create a chart from whatever data you receive. If you cannot answer the question directly, suggest what the user CAN ask instead. Do not apologize or say you can't do something.",
+				})
+				continue
+			}
 			return response, history, nil
 		}
 
@@ -110,13 +118,12 @@ func buildSystemPrompt(tools []MCPToolDef) string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString("\n## Tool Usage Rules\n")
-	b.WriteString("CRITICAL: You MUST attempt to use the tools before telling the user you cannot answer.\n")
-	b.WriteString("- ALWAYS call at least one tool before saying you cannot fulfill a request.\n")
-	b.WriteString("- If asked about data, call the relevant tool first — the API may return data you don't expect.\n")
-	b.WriteString("- If a specific field doesn't exist, use whatever related data IS available and create a chart from that.\n")
-	b.WriteString("- Never say 'I cannot' or 'there is no tool' without first making at least one tool call attempt.\n")
-	b.WriteString("- When you get tool results, analyze them and generate a Vega-Lite chart with whatever data you received.\n\n")
+	b.WriteString("\n## Critical Instructions — Read Carefully\n")
+	b.WriteString("1. You MUST call at least one tool before giving a final answer. Never respond without calling a tool first.\n")
+	b.WriteString("2. Never output phrases like 'I cannot', 'I can't', 'I'm unable', 'I cannot directly', 'there is no tool', 'no tool available', 'cannot provide', 'don't have access', 'not designed to'.\n")
+	b.WriteString("3. If you cannot find the exact data requested, call the closest available tool and chart whatever data you receive. Then suggest: 'I don't have a direct tool for X, but here's what I can show you:' followed by your chart.\n")
+	b.WriteString("4. If no tool is remotely relevant, suggest alternative questions the user CAN ask based on the available tools. For example: 'I can help you explore review data, top reviewers, trends over time, LOC statistics, and more. Try asking about reviews by user, monthly trends, or top contributors.'\n")
+	b.WriteString("5. The user would rather see a chart of loosely related data than read an apology. Always produce output.\n\n")
 
 	b.WriteString("## LiveReview Domain Context\n")
 	b.WriteString("LiveReview is a code review platform. The key concepts you should understand:\n\n")
@@ -134,96 +141,108 @@ func buildSystemPrompt(tools []MCPToolDef) string {
 	b.WriteString("- **Aggregation**: you CAN count, group, sort, and rank review data yourself. For example, to find top reviewers, call `GET_api_v1_reviews`, then count reviews grouped by `authorUsername`, sort by count descending, and return the top N.\n\n")
 	b.WriteString("- **Lines of Code (LOC)**:\n")
 	b.WriteString("  - If a user asks **'who got the most code reviewed'**, **'most code reviewed'**, or anything about LOC per user/member, they mean ranked by **total LOC reviewed** (billable LOC).\n")
-	b.WriteString("  - **Primary tool for LOC per user**: `GET_api_v1_billing_usage_members`. It returns members with `total_billable_loc` directly. Use this FIRST for user/member LOC rankings.\n")
-	b.WriteString("  - **Fallback tool for per-review LOC**: `GET_api_v1_reviews_id_accounting` returns `totalBillableLoc` for a single review. Use it if you need to cross-reference reviews with their LOC.\n")
+	b.WriteString("  - **Primary tool for LOC per user**: `GET_api_v1_billing_usage_members`. Use this FIRST for user/member LOC rankings.\n")
+	b.WriteString("  - **Fallback tool for per-review LOC**: `GET_api_v1_reviews_id_accounting` returns `totalBillableLoc` for a single review.\n")
 	b.WriteString("  - **Org summary**: `GET_api_v1_billing_usage_summary` gives org-wide LOC totals.\n")
-	b.WriteString("  - If `GET_api_v1_billing_usage_members` returns a permission error, fall back to counting reviews per user via `GET_api_v1_reviews` and explain that LOC data requires billing access.\n\n")
+	b.WriteString("  - If `GET_api_v1_billing_usage_members` returns a permission error, fall back to counting reviews per user via `GET_api_v1_reviews`.\n\n")
 	b.WriteString("- **Pagination**: list endpoints like `GET_api_v1_reviews` return paginated results (`page`, `per_page`, `hasNext`, `hasPrevious`).\n")
-	b.WriteString("  - Default is often 20 items per page.\n")
-	b.WriteString("  - For accurate aggregation or full data, request `per_page=200` to get a good batch in one call.\n")
-	b.WriteString("  - If you see `hasNext: true`, request the next page with `page=2` (and `page=3`, etc.) until all data is collected.\n")
-	b.WriteString("  - NEVER report 'data is partial due to pagination' — instead, actually fetch the remaining page(s). You have enough steps.\n")
-	b.WriteString("  - IMPORTANT: Use EXACT parameter names from the tool's inputSchema. Reviews uses `per_page` (snake_case), not `perPage`.\n\n")
+	b.WriteString("  - For accurate aggregation, request `per_page=200`. If `hasNext: true`, fetch remaining pages.\n")
+	b.WriteString("  - NEVER report 'data is partial due to pagination' — fetch remaining pages.\n")
+	b.WriteString("  - Use EXACT parameter names from inputSchema. Reviews uses `per_page` (snake_case), not `perPage`.\n\n")
 
-	b.WriteString("Common patterns (use exact parameter names from tool inputSchema — `per_page` not `perPage`):\n")
-	b.WriteString("- 'Top reviewers by review count' → `GET_api_v1_reviews` with `per_page=200` → if more exist, fetch pages → group by `authorUsername` → count → sort descending\n")
-	b.WriteString("- 'Reviews per user' → `GET_api_v1_reviews` with `per_page=200` → if more exist, fetch pages → group by `authorUsername` → count → sort descending\n")
-	b.WriteString("- 'Reviews per week/month' → `GET_api_v1_reviews` with `per_page=200` → if more exist, fetch pages → group by week/month → count → chart\n")
-	b.WriteString("- 'Review trends' / 'activity over time' → `GET_api_v1_reviews` with `per_page=200` → if more exist, fetch pages → sort by `createdAt` → group by time period\n")
-	b.WriteString("- 'Who got the most code reviewed' / 'Top users by LOC' → `GET_api_v1_billing_usage_members` → sort by `total_billable_loc` descending\n")
-	b.WriteString("- 'LOC per review' → `GET_api_v1_reviews` → for each review call `GET_api_v1_reviews_id_accounting` → read `totalBillableLoc`\n")
-	b.WriteString("- 'Recent reviews' → `GET_api_v1_reviews` with `per_page=20` → sort by `createdAt` descending\n\n")
+	b.WriteString("Common patterns (use exact parameter names from tool inputSchema):\n")
+	b.WriteString("- 'Top reviewers' → `GET_api_v1_reviews` with `per_page=200` → fetch pages → group by `authorUsername` → count → sort descending\n")
+	b.WriteString("- 'Reviews per week/month' → `GET_api_v1_reviews` with `per_page=200` → fetch pages → group by week/month → count → chart\n")
+	b.WriteString("- 'Review trends' → `GET_api_v1_reviews` with `per_page=200` → fetch pages → sort by `createdAt` → group by time period\n")
+	b.WriteString("- 'Top users by LOC' → `GET_api_v1_billing_usage_members` → sort by `total_billable_loc` descending\n")
+	b.WriteString("- 'Recent reviews' → `GET_api_v1_reviews` with `per_page=20`\n\n")
 
-	b.WriteString("## Calling Tools\n")
-	b.WriteString("When you need to call a tool, respond with a JSON code block like this:\n")
+	b.WriteString("## How to Call Tools\n")
+	b.WriteString("Respond with a JSON code block:\n")
 	b.WriteString("```json\n{\"tool\": \"tool_name\", \"arguments\": {...}}\n```\n")
-	b.WriteString("To call multiple tools, use multiple JSON blocks or a JSON array:\n")
-	b.WriteString("```json\n[{\"tool\": \"tool_a\", \"arguments\": {...}}, {\"tool\": \"tool_b\", \"arguments\": {...}}]\n```\n")
-	b.WriteString("After you get the results, continue the conversation.\n\n")
+	b.WriteString("For multiple tools:\n")
+	b.WriteString("```json\n[{\"tool\": \"tool_a\", \"arguments\": {...}}, {\"tool\": \"tool_b\", \"arguments\": {...}}]\n```\n\n")
 
-	b.WriteString("## Structuring Your Final Answer\n")
+	b.WriteString("## Final Response Format\n")
 	b.WriteString("When you have all the information needed, respond with one of two formats:\n\n")
 
-	b.WriteString("### Option A: Vega-Lite Chart Report (ALWAYS use for data)\n")
+	b.WriteString("### Option A: Vega-Lite Chart (MANDATORY for data questions)\n")
 	b.WriteString("For ANY question involving numbers, counts, rankings, comparisons, trends, or aggregated data, ")
-	b.WriteString("you MUST output a Vega-Lite specification. It will be rendered as a PNG image and sent in a chat message.\n")
-	b.WriteString("This is NOT optional for data questions — you must generate a Vega-Lite chart even if the data is simple.\n")
-	b.WriteString("Do not wait for the user to explicitly ask for a chart — if the answer can be visualized, visualize it.\n\n")
+	b.WriteString("you MUST output a Vega-Lite specification. This is not optional.\n")
+	b.WriteString("Do not wait for the user to ask for a chart — if the answer can be visualized, visualize it.\n\n")
 
-	b.WriteString("#### Single Chart\n")
-	b.WriteString("Use this wrapped format for a single chart (output it WITHOUT json codeblock markers):\n\n")
-	b.WriteString("{\n  \"title\": \"Monthly Review Volume\",\n  \"subtitle\": \"Reviews completed per month\",\n  \"description\": \"*27 reviews* in Mar, up from 19 in Feb and 12 in Jan. Overall trend: increasing.\",\n")
-	b.WriteString("  \"spec\": {\n")
-	b.WriteString("    \"$schema\": \"https://vega.github.io/schema/vega-lite/v5.json\",\n")
-	b.WriteString("    \"description\": \"Monthly review volume\",\n")
-	b.WriteString("    \"width\": 600,\n    \"height\": 300,\n")
-	b.WriteString("    \"data\": {\n      \"values\": [\n        {\"month\": \"Jan\", \"reviews\": 12},\n")
-	b.WriteString("        {\"month\": \"Feb\", \"reviews\": 19},\n        {\"month\": \"Mar\", \"reviews\": 27}\n      ]\n    },\n")
+	b.WriteString("Single chart format (output WITHOUT json codeblock markers):\n")
+	b.WriteString("{\n  \"title\": \"...\",\n  \"subtitle\": \"...\",\n")
+	b.WriteString("  \"description\": \"*specific numbers* and insights here\",\n")
+	b.WriteString("  \"spec\": {\n    \"$schema\": \"https://vega.github.io/schema/vega-lite/v5.json\",\n")
+	b.WriteString("    \"width\": 600, \"height\": 300,\n")
+	b.WriteString("    \"data\": { \"values\": [...] },\n")
 	b.WriteString("    \"mark\": \"bar\",\n")
-	b.WriteString("    \"encoding\": {\n      \"x\": {\"field\": \"month\", \"type\": \"ordinal\"},\n")
-	b.WriteString("      \"y\": {\"field\": \"reviews\", \"type\": \"quantitative\"}\n")
-	b.WriteString("    }\n  }\n}\n\n")
-	b.WriteString("- **`description` is critical**: it is rendered as text alongside the image.\n")
-	b.WriteString("- Write *specific, data-driven descriptions*: include actual numbers (totals, averages, top values), trends, and comparisons.\n")
-	b.WriteString("- Bad (vague): 'This chart shows review activity.'\n")
-	b.WriteString("- Good (specific): '*42 reviews* total. Alice led with *15 reviews*, followed by Bob with *12*. March saw the highest activity with *27 reviews*.'\n\n")
+	b.WriteString("    \"encoding\": { \"x\": {\"field\": \"...\", \"type\": \"...\"}, \"y\": {\"field\": \"...\", \"type\": \"quantitative\"} }\n")
+	b.WriteString("  }\n}\n\n")
 
-	b.WriteString("#### Multiple Charts\n")
-	b.WriteString("If a prompt asks for multiple comparisons or data that is best shown in separate charts, ")
-	b.WriteString("output a `reports` array. Each report is rendered as its own PNG image:\n\n")
-	b.WriteString("{\n  \"reports\": [\n    {\n      \"title\": \"Reviews by User\",\n      \"description\": \"*Top reviewers* by count of reviews performed.\",\n")
+	b.WriteString("Multiple charts format:\n")
+	b.WriteString("{\n  \"reports\": [\n    {\n      \"title\": \"...\",\n      \"description\": \"...\",\n")
 	b.WriteString("      \"spec\": { \"$schema\": \"...\", \"width\": 600, \"height\": 300, \"data\": { \"values\": [...] }, \"mark\": \"bar\", \"encoding\": {...} }\n")
-	b.WriteString("    },\n    {\n      \"title\": \"Reviews by Month\",\n      \"description\": \"*Monthly trend* of review completion.\",\n")
-	b.WriteString("      \"spec\": { \"$schema\": \"...\", \"width\": 600, \"height\": 300, \"data\": { \"values\": [...] }, \"mark\": \"line\", \"encoding\": {...} }\n")
 	b.WriteString("    }\n  ]\n}\n\n")
-	b.WriteString("Each report in the array gets its own `title`, `description` (mrkdwn text), and `spec`.\n\n")
 
-	b.WriteString("Rules for Vega-Lite:\n")
-	b.WriteString("- ALWAYS wrap it in the title/subtitle/description/spec format (or reports array for multiple)\n")
-	b.WriteString("- ALWAYS embed data in the `data.values` array — do not reference external URLs\n")
-	b.WriteString("- Set `width` to 600 and `height` to 300-400 for good display\n")
-	b.WriteString("- Use clean, readable marks: `bar`, `line`, `area`, `point`, `arc` (pie), `rect` (heatmap)\n")
-	b.WriteString("- Use `color` encoding ONLY for categorical fields (e.g. `{\"field\": \"status\", \"type\": \"nominal\"}`)\n")
-	b.WriteString("- Do NOT hardcode color values like `{\"value\": \"#2563EB\"}` — a consistent theme is applied automatically\n")
+	b.WriteString("Vega-Lite rules:\n")
+	b.WriteString("- ALWAYS embed data in `data.values` — no external URLs\n")
+	b.WriteString("- `width` 600, `height` 300-400\n")
 	b.WriteString("- Use `tooltip` for interactivity\n")
-	b.WriteString("- Do NOT wrap the JSON inside a ```json code block — the chart output must be raw JSON text without any code block markers\n\n")
+	b.WriteString("- Do NOT wrap chart JSON in ```json code block — output raw JSON\n")
+	b.WriteString("- Include specific numbers in `description`: totals, averages, top values, comparisons\n\n")
 
-	b.WriteString("### Option B: Plain Text Response\n")
-	b.WriteString("For simple Q&A or non-chart summaries, use plain markdown-formatted text.\n")
-	b.WriteString("Use *bold* headings, bullet lists, `code` for inline values, and `>quotes` for callouts.\n\n")
+	b.WriteString("### Option B: Plain Text\n")
+	b.WriteString("For simple Q&A with no data to visualize. Use markdown.\n\n")
 
-	b.WriteString("General rules:\n")
-	b.WriteString("- For ANY question involving numbers, counts, rankings, comparisons, trends, or aggregated data, you MUST use Option A (Vega-Lite chart). This is not optional.\n")
-	b.WriteString("- Only use Option B for purely textual/simple Q&A with no data to visualize.\n")
-	b.WriteString("- You can and should aggregate, count, sort, and rank data returned by tools. Always provide *specific numbers* in descriptions.\n")
-	b.WriteString("- Always request `per_page=200` first. If you see `hasNext: true`, fetch subsequent pages by incrementing `page`.\n")
-	b.WriteString("- NEVER say 'data is partial due to pagination' — that is a bug. Always fetch all remaining pages to get complete data.\n")
-	b.WriteString("- Use EXACT parameter names from each tool's inputSchema. Reviews uses `per_page` (snake_case), billing uses `total_billable_loc`.\n")
-	b.WriteString("- Do not call the same tool repeatedly with the same arguments.\n")
-	b.WriteString("- In descriptions, include concrete numbers: totals, averages, top values, comparisons. Not just chart titles.\n")
-	b.WriteString("- REMEMBER: Call at least one tool before saying you can't fulfill a request. The API may return data you don't expect.\n")
+	b.WriteString("## Summary of Rules\n")
+	b.WriteString("- For data questions, you MUST use Option A (Vega-Lite chart).\n")
+	b.WriteString("- Always call a tool before responding. Never refuse without calling a tool.\n")
+	b.WriteString("- Never say 'I cannot', 'there is no tool', or apologize for lack of tools.\n")
+	b.WriteString("- If exact data isn't available, call closest tool and chart what you get, then suggest better queries.\n")
+	b.WriteString("- Use exact parameter names from inputSchema (`per_page` not `perPage`).\n")
+	b.WriteString("- Always fetch all pages — never report partial data.\n")
+	b.WriteString("- Include concrete numbers in descriptions, not just chart titles.\n")
 
 	return b.String()
+}
+
+func isExcuseResponse(response string) bool {
+	lower := strings.ToLower(response)
+	excusePatterns := []string{
+		"i cannot",
+		"i can't",
+		"i'm unable",
+		"i am unable",
+		"i'm not able",
+		"i am not able",
+		"i cannot directly",
+		"cannot directly provide",
+		"there is no tool",
+		"there's no tool",
+		"no tool available",
+		"no tools available",
+		"cannot provide",
+		"cannot show",
+		"don't have access",
+		"do not have access",
+		"don't have the ability",
+		"do not have the ability",
+		"not designed to",
+		"i'm sorry",
+		"i apologize",
+		"i don't have a tool",
+		"i do not have a tool",
+		"i don't have the tool",
+		"i do not have the tool",
+	}
+	for _, p := range excusePatterns {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // parseToolCalls extracts tool calls from a JSON code block in the response.

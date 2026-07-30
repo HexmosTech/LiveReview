@@ -462,6 +462,7 @@ func (oh *orgHandler) uploadReportsToDiscord(channelID string, reports []rendere
 		}
 		cleanText = cleanText[:start] + cleanText[start+end+len("```json")+3:]
 	}
+	cleanText = stripTopLevelVegaJSON(cleanText)
 	cleanText = strings.TrimSpace(cleanText)
 	if cleanText != "" {
 		formatted := FormatDiscordResponse(cleanText)
