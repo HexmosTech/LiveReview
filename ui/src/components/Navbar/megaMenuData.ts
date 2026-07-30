@@ -135,6 +135,12 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
         path: '/dashboard',
     },
     {
+        key: 'chat',
+        name: 'LivereviewBot',
+        icon: React.createElement(Icons.Chat),
+        path: '/chat',
+    },
+    {
         key: 'reviews',
         name: 'Reviews',
         icon: React.createElement(Icons.Reviews),

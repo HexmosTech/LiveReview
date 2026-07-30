@@ -31,6 +31,7 @@ const LicenseAssignment = React.lazy(() => import('./pages/Licenses/LicenseAssig
 const UserForm = React.lazy(() => import('./components/UserManagement/UserForm'));
 const BillingPortfolio = React.lazy(() => import('./pages/Admin/BillingPortfolio'));
 const TaxonomyReports = React.lazy(() => import('./pages/Reports/TaxonomyReports'));
+const Chatbot = React.lazy(() => import('./pages/Chatbot/Chatbot'));
 // import { usePostHog } from '@posthog/react'
 
 const Footer = () => (
@@ -165,6 +166,7 @@ const AppContent: React.FC = () => {
         if (path.startsWith('/git') || path.startsWith('/ai')) return 'providers';
         if (path.startsWith('/admin/billing-portfolio')) return 'admin-billing';
         if (path.startsWith('/reports')) return 'reports';
+        if (path.startsWith('/chat')) return 'chat';
         if (path.startsWith('/settings')) return 'settings';
         return 'dashboard';
     };
@@ -327,6 +329,7 @@ const AppContent: React.FC = () => {
                                 <Route path="/settings/users/edit/:userId" element={<UserForm />} />
                                 <Route path="/admin/billing-portfolio" element={<BillingPortfolio />} />
                                 <Route path="/reports/*" element={<TaxonomyReports />} />
+                                <Route path="/chat" element={<Chatbot />} />
                                 <Route path="/test-middleware" element={<MiddlewareTestPage />} />
                                 <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
                                 <Route path="*" element={<Navigate to="/" replace />} />
@@ -334,8 +337,20 @@ const AppContent: React.FC = () => {
                         </Suspense>
                     </SubscriptionGuard>
                 </div>
-                <Footer />
+                {location.pathname !== '/chat' && <Footer />}
                 {!isCloudMode() && <LicenseModal open={licenseOpen} onClose={() => dispatch(closeLicenseModal())} />}
+                {location.pathname !== '/chat' && (
+                <button
+                    onClick={() => navigate('/chat')}
+                    className="fixed bottom-6 right-6 z-50 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full p-3.5 shadow-lg shadow-indigo-900/40 transition-all hover:scale-110 active:scale-95"
+                    title="LivereviewBot"
+                    aria-label="Open LivereviewBot Chat"
+                >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                </button>
+                )}
             </div>
         );
     }

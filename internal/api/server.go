@@ -1176,6 +1176,17 @@ func (s *Server) setupRoutes() {
 	mcpAgentGroup.Use(authMiddleware.BuildPermissionContext())
 	mcpAgentGroup.POST("/chat", s.HandleMCPAgentChat)
 
+	// Web chat endpoint (auto-discovers connector)
+	chatGroup := v1.Group("/chat")
+	chatGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	chatGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	chatGroup.Use(authMiddleware.ValidateOrgAccess())
+	chatGroup.Use(authMiddleware.BuildPermissionContext())
+	chatGroup.POST("/send", s.HandleWebChat)
+
+	// Chart PNG serving (no auth — images loaded by <img> tags)
+	chatGroup.GET("/charts/:id", s.ServeChartPNG)
+
 	// Dashboard endpoints (organization scoped)
 	dashboardGroup := v1.Group("/dashboard")
 	dashboardGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
