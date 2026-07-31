@@ -98,6 +98,7 @@ type ReviewResult struct {
 	Summary        string
 	CommentsCount  int
 	Comments       []*models.ReviewComment // Added to track actual comment details
+	Quiz           []models.QuizQuestion   // Optional comprehension quiz for this review, nil if none generated
 	BillableLOC    int64
 	Provider       string
 	Model          string
@@ -378,6 +379,7 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	result.Summary = reviewData.Result.Summary
 	result.CommentsCount = len(reviewData.Result.Comments)
 	result.Comments = reviewData.Result.Comments // Include actual comment details
+	result.Quiz = reviewData.Result.Quiz
 	result.BillableLOC = reviewData.BillableLOC
 	providerName := strings.TrimSpace(request.AI.Type)
 	if configuredProvider, ok := request.AI.Config["provider_name"].(string); ok && strings.TrimSpace(configuredProvider) != "" {
