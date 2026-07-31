@@ -42,6 +42,36 @@ func multiValueFilterClause(column, csv string, args *[]interface{}, argIdx *int
 	return fmt.Sprintf(" AND %s IN (%s)", column, strings.Join(placeholders, ","))
 }
 
+// providerFilterClause is like multiValueFilterClause but for the provider
+// column specifically: stored values are compound strings like "github-com",
+// "github-enterprise", "gitlab-com", "gitlab-self-hosted" (see
+// internal/jobqueue/repo_sync_worker.go), not the plain "github"/"gitlab"
+// short keys the UI's checkbox filter sends. An exact IN(...) match (as
+// multiValueFilterClause does) would never match those compound values, so
+// this does a prefix match per selected key instead.
+func providerFilterClause(csv string, args *[]interface{}, argIdx *int) string {
+	seen := make(map[string]bool)
+	vals := make([]string, 0)
+	for _, part := range strings.Split(csv, ",") {
+		v := strings.TrimSpace(part)
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		vals = append(vals, v)
+	}
+	if len(vals) == 0 {
+		return ""
+	}
+	conds := make([]string, len(vals))
+	for i, v := range vals {
+		conds[i] = fmt.Sprintf("provider ILIKE $%d", *argIdx)
+		*args = append(*args, v+"%")
+		*argIdx++
+	}
+	return " AND (" + strings.Join(conds, " OR ") + ")"
+}
+
 // RepositoryResponse is the JSON shape for a repositories row.
 type RepositoryResponse struct {
 	ID             int64      `json:"id"`
@@ -185,7 +215,7 @@ func (s *Server) ListRepositories(c echo.Context) error {
 		query += clause
 		countQuery += clause
 	}
-	if clause := multiValueFilterClause("provider", c.QueryParam("provider"), &args, &argIdx); clause != "" {
+	if clause := providerFilterClause(c.QueryParam("provider"), &args, &argIdx); clause != "" {
 		query += clause
 		countQuery += clause
 	}
@@ -213,12 +243,34 @@ func (s *Server) ListRepositories(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to count repositories")
 	}
 
-	switch c.QueryParam("sort") {
-	case "open_pr_count":
-		query += " ORDER BY open_pr_count DESC, full_name ASC"
-	default: // "last_activity" or unspecified
-		query += " ORDER BY last_pr_activity_at DESC NULLS LAST, full_name ASC"
+	// Whitelisted column expressions only - "sort" is never interpolated
+	// directly into the query, so this can't become a SQL injection vector
+	// no matter what the query param contains.
+	sortColumns := map[string]string{
+		"repository":     "full_name",
+		"provider":       "provider",
+		"default_branch": "default_branch",
+		"sync_status":    "last_sync_status",
+		"open_pr_count":  "open_pr_count",
+		"last_activity":  "last_pr_activity_at",
 	}
+	sortKey := c.QueryParam("sort")
+	sortColumn, ok := sortColumns[sortKey]
+	if !ok {
+		sortKey = "last_activity"
+		sortColumn = sortColumns[sortKey]
+	}
+	order := strings.ToLower(c.QueryParam("order"))
+	if order != "asc" && order != "desc" {
+		// Preserve the previous hardcoded defaults for the two original
+		// sort keys; every other column defaults to ascending.
+		if sortKey == "open_pr_count" || sortKey == "last_activity" {
+			order = "desc"
+		} else {
+			order = "asc"
+		}
+	}
+	query += fmt.Sprintf(" ORDER BY %s %s NULLS LAST, full_name ASC", sortColumn, strings.ToUpper(order))
 	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	args = append(args, perPage, (page-1)*perPage)
 

@@ -1,128 +1,143 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ColumnDef } from '@tanstack/react-table';
+import { ColumnDef, useReactTable, getCoreRowModel, getFilteredRowModel, getSortedRowModel, getPaginationRowModel } from '@tanstack/react-table';
 import toast from 'react-hot-toast';
-import { Button, Icons } from '../../components/UIPrimitives';
-import { DataTable } from '../../components/DataTable/DataTable';
+import { LuSearch } from 'react-icons/lu';
+import { SiGitlab } from 'react-icons/si';
+import { Button, Icons, Tooltip, Input, MultiSelectPanel } from '../../components/UIPrimitives';
+import { ClientTable } from '../../components/DataTable/ClientTable';
+import { SortIcon, SortableHeaderLabel, HeaderFilterPopover, multiSelectFilterFn, TruncatedWithTooltip } from '../../components/DataTable/HeaderControls';
 import ExploreTabs from './ExploreTabs';
-import { getPullRequests, getPRStateColor, getPRStateText, triggerReviewForPullRequest } from '../../api/pullRequests';
+import { getPullRequests, getPRStateText, triggerReviewForPullRequest } from '../../api/pullRequests';
 import { formatRelativeTime } from '../../api/reviews';
-import { PullRequestState, PullRequestsFilters, PullRequestWithRepo } from '../../types/explore';
+import { PullRequestWithRepo } from '../../types/explore';
 
-const perPageOptions = [20, 50, 100];
+const pageSizeOptions = [20, 50, 100];
+
+// Same normalization as Explore > Repositories - real provider values are
+// compound strings like "github-com"/"gitlab-self-hosted", not plain
+// "github"/"gitlab", so filtering/sorting must key off the short prefix.
+const normalizeProvider = (provider: string): string => {
+  const normalized = provider.toLowerCase();
+  if (normalized.startsWith('github')) return 'github';
+  if (normalized.startsWith('gitlab')) return 'gitlab';
+  if (normalized.startsWith('bitbucket')) return 'bitbucket';
+  if (normalized.startsWith('gitea')) return 'gitea';
+  if (normalized.startsWith('azuredevops')) return 'azuredevops';
+  return normalized;
+};
 
 const providerLabel = (provider: string): string => {
-  const normalized = provider.toLowerCase();
-  if (normalized.startsWith('github')) return 'GitHub';
-  if (normalized.startsWith('gitlab')) return 'GitLab';
-  if (normalized.startsWith('bitbucket')) return 'Bitbucket';
-  if (normalized.startsWith('gitea')) return 'Gitea';
-  if (normalized.startsWith('azuredevops')) return 'Azure DevOps';
-  return provider;
+  switch (normalizeProvider(provider)) {
+    case 'github': return 'GitHub';
+    case 'gitlab': return 'GitLab';
+    case 'bitbucket': return 'Bitbucket';
+    case 'gitea': return 'Gitea';
+    case 'azuredevops': return 'Azure DevOps';
+    default: return provider;
+  }
 };
 
 const ProviderIcon: React.FC<{ provider: string }> = ({ provider }) => {
   const normalized = provider.toLowerCase();
   if (normalized.startsWith('github')) return <Icons.GitHub />;
-  if (normalized.startsWith('gitlab')) return <Icons.GitLab />;
+  if (normalized.startsWith('gitlab')) return <SiGitlab className="w-5 h-5" style={{ color: '#FC6D26' }} />;
   if (normalized.startsWith('bitbucket')) return <Icons.Bitbucket />;
   if (normalized.startsWith('gitea')) return <Icons.Gitea />;
   if (normalized.startsWith('azuredevops')) return <Icons.AzureDevOps />;
   return null;
 };
 
+// Transparent-outline + colored text/icon, same visual language as the
+// Sync Status badge on Explore > Repositories - GitHub's own PR state
+// coloring (green while open, purple once merged, red once closed).
+const prStateBadge = (state: string): { label: string; color: string; borderColor: string } => {
+  switch (state) {
+    case 'open':
+      return { label: getPRStateText(state), color: '#4ade80', borderColor: 'rgba(34,197,94,0.35)' };
+    case 'merged':
+      return { label: getPRStateText(state), color: '#c084fc', borderColor: 'rgba(168,85,247,0.35)' };
+    default:
+      return { label: getPRStateText(state), color: '#f87171', borderColor: 'rgba(239,68,68,0.35)' };
+  }
+};
+
+// Same shape as GitHub's octicon "git-pull-request" glyph, colored by PR
+// state the way GitHub colors it.
+const PR_STATE_ICON_COLOR: Record<string, string> = {
+  open: 'text-green-500',
+  merged: 'text-purple-500',
+  closed: 'text-red-500',
+};
+
+const PullRequestStateIcon: React.FC<{ state: string; className?: string }> = ({ state, className = 'w-4 h-4' }) => (
+  <svg
+    className={`${className} ${PR_STATE_ICON_COLOR[state] || 'text-slate-400'}`}
+    viewBox="0 0 16 16"
+    fill="currentColor"
+  >
+    <path d="M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1 1 0 011 1v5.628a2.251 2.251 0 101.5 0V5A2.5 2.5 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z" />
+  </svg>
+);
+
+const TITLE_MAX = 80;
+const truncate = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max)}…` : text);
+
+// One page's worth of rows for the "fetch everything" loop below - large
+// enough to keep the request count low for realistic org sizes while
+// staying under the backend's per_page cap (200). Note: unlike repositories
+// (bounded by repo count), an org's total PR history can be large - this
+// fetches every state (open/closed/merged), not just the open ones the old
+// server-filtered default used to load, so it's a real trade-off for very
+// PR-heavy orgs in exchange for instant client-side sort/filter.
+const FETCH_ALL_PAGE_SIZE = 200;
+
+const MERGE_REQUESTS_COLUMN_WIDTHS = ['30%', '12%', '12%', '15%', '15%', '16%'];
+
 const MergeRequests: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const repositoryId = searchParams.get('repository_id') || undefined;
 
   const [pullRequests, setPullRequests] = useState<PullRequestWithRepo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [total, setTotal] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
   const [triggeringId, setTriggeringId] = useState<number | null>(null);
-
-  const [filters, setFilters] = useState<PullRequestsFilters>({ page: 1, perPage: 20, state: 'open' });
-  const [searchQuery, setSearchQuery] = useState('');
-  const [stateFilter, setStateFilter] = useState<PullRequestState | 'all'>('open');
-  const [providerFilter, setProviderFilter] = useState('');
   const [repositoryFilterName, setRepositoryFilterName] = useState<string | null>(null);
 
-  useEffect(() => {
-    const initialFilters: PullRequestsFilters = {
-      page: parseInt(searchParams.get('page') || '1', 10),
-      perPage: parseInt(searchParams.get('per_page') || '20', 10),
-      repositoryId: searchParams.get('repository_id') || undefined,
-      provider: searchParams.get('provider') || undefined,
-      state: (searchParams.get('state') as PullRequestState | 'all') || 'open',
-      search: searchParams.get('search') || undefined,
-    };
-    setFilters(initialFilters);
-    setSearchQuery(initialFilters.search || '');
-    setStateFilter(initialFilters.state || 'open');
-    setProviderFilter(initialFilters.provider || '');
-  }, [searchParams]);
-
-  const fetchPullRequests = useCallback(async (requestFilters?: PullRequestsFilters) => {
+  // repository_id stays a server-side fetch scope (driven by the URL, e.g.
+  // from a repo's "View PRs" button) rather than a client column filter -
+  // it decides *which* PRs get loaded at all, same as Explore > Repositories
+  // treats its own fetch scope. Search/state/provider/sort are all handled
+  // client-side by TanStack once loaded, same pattern as that page.
+  const fetchPullRequests = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await getPullRequests(requestFilters || filters);
-      setPullRequests(response.pull_requests || []);
-      setTotal(response.total || 0);
-      setTotalPages(response.total_pages || 1);
-      if ((requestFilters || filters).repositoryId && response.pull_requests?.length) {
-        setRepositoryFilterName(response.pull_requests[0].repository_full_name);
-      } else if (!(requestFilters || filters).repositoryId) {
-        setRepositoryFilterName(null);
+      const first = await getPullRequests({ repositoryId, page: 1, perPage: FETCH_ALL_PAGE_SIZE });
+      let all = first.pull_requests || [];
+      const totalPages = first.total_pages || 1;
+      if (totalPages > 1) {
+        const rest = await Promise.all(
+          Array.from({ length: totalPages - 1 }, (_, i) => getPullRequests({ repositoryId, page: i + 2, perPage: FETCH_ALL_PAGE_SIZE }))
+        );
+        for (const page of rest) all = all.concat(page.pull_requests || []);
       }
+      setPullRequests(all);
+      setRepositoryFilterName(repositoryId && all.length > 0 ? all[0].repository_full_name : null);
     } catch (err) {
       console.error('Error fetching pull requests:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch pull/merge requests');
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [repositoryId]);
 
   useEffect(() => {
-    fetchPullRequests(filters);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters]);
+    fetchPullRequests();
+  }, [fetchPullRequests]);
 
-  const updateFilters = useCallback((newFilters: Partial<PullRequestsFilters>) => {
-    const updated = { ...filters, ...newFilters };
-    if (!newFilters.page) updated.page = 1;
-    setFilters(updated);
-
-    const params = new URLSearchParams();
-    if (updated.page && updated.page > 1) params.set('page', updated.page.toString());
-    if (updated.perPage && updated.perPage !== 20) params.set('per_page', updated.perPage.toString());
-    if (updated.repositoryId) params.set('repository_id', updated.repositoryId);
-    if (updated.provider) params.set('provider', updated.provider);
-    if (updated.state && updated.state !== 'all') params.set('state', updated.state);
-    if (updated.search) params.set('search', updated.search);
-    setSearchParams(params);
-  }, [filters, setSearchParams]);
-
-  const handleSearch = () => updateFilters({ search: searchQuery || undefined });
-  const handleStateFilter = (value: PullRequestState | 'all') => {
-    setStateFilter(value);
-    updateFilters({ state: value });
-  };
-  const handleProviderFilter = (value: string) => {
-    setProviderFilter(value);
-    updateFilters({ provider: value || undefined });
-  };
   const clearRepositoryFilter = () => {
-    setRepositoryFilterName(null);
-    updateFilters({ repositoryId: undefined });
-  };
-  const clearFilters = () => {
-    setSearchQuery('');
-    setStateFilter('open');
-    setProviderFilter('');
-    setRepositoryFilterName(null);
     setSearchParams(new URLSearchParams());
-    setFilters({ page: 1, perPage: 20, state: 'open' });
   };
 
   const handleTriggerReview = async (pr: PullRequestWithRepo, e: React.MouseEvent) => {
@@ -142,63 +157,167 @@ const MergeRequests: React.FC = () => {
   const columns = useMemo<ColumnDef<PullRequestWithRepo>[]>(() => [
     {
       id: 'title',
-      header: 'Merge Request',
+      // Searches title + author + repository together, same combined
+      // free-text search the old top search bar offered.
+      accessorFn: (pr) => `${pr.title} ${pr.author_name || pr.author_username || ''} ${pr.repository_full_name}`.toLowerCase(),
+      filterFn: 'includesString',
+      header: ({ column }) => (
+        <div className="flex items-center justify-between gap-2">
+          <SortableHeaderLabel label="Merge Request" onToggle={column.getToggleSortingHandler()} />
+          <div className="flex items-center gap-2">
+            <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+            <HeaderFilterPopover icon={LuSearch} label="Search merge requests">
+              <Input
+                placeholder="Search title, author, or repository..."
+                value={(column.getFilterValue() as string) ?? ''}
+                onChange={(e) => column.setFilterValue(e.target.value || undefined)}
+                icon={<Icons.Search />}
+                aria-label="Search merge requests"
+                className="text-sm"
+              />
+            </HeaderFilterPopover>
+          </div>
+        </div>
+      ),
       cell: ({ row }) => {
         const pr = row.original;
+        const displayTitle = truncate(pr.title || `#${pr.number}`, TITLE_MAX);
         return (
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <span className="text-slate-400"><ProviderIcon provider={pr.provider} /></span>
-              <span className="text-white font-semibold">{pr.title || `#${pr.number}`}</span>
+          <div className="flex flex-col justify-center gap-1 min-w-0 min-h-[44px]">
+            <div className="flex items-center gap-2 min-w-0">
+              <Tooltip content={getPRStateText(pr.state)}>
+                <span className="flex-shrink-0"><PullRequestStateIcon state={pr.state} /></span>
+              </Tooltip>
+              <span className="min-w-0 truncate text-white font-semibold">
+                <TruncatedWithTooltip text={pr.title || `#${pr.number}`} max={TITLE_MAX}>
+                  {displayTitle}
+                </TruncatedWithTooltip>
+              </span>
               <a
                 href={pr.web_url}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="text-blue-400 hover:text-blue-300 text-xs font-medium underline underline-offset-2"
+                className="flex-shrink-0 text-blue-400 hover:text-blue-300 text-xs font-medium underline underline-offset-2"
               >
                 #{pr.number}
               </a>
             </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
-              <span>{pr.repository_full_name}</span>
-              {pr.source_branch && pr.target_branch && (
-                <span className="font-mono">{pr.source_branch} → {pr.target_branch}</span>
-              )}
-            </div>
+            {pr.source_branch && pr.target_branch && (
+              <div className="min-w-0 text-sm text-slate-400 truncate font-mono">
+                {pr.source_branch} → {pr.target_branch}
+              </div>
+            )}
           </div>
         );
       },
     },
     {
-      id: 'state',
-      header: 'State',
+      id: 'provider',
+      accessorFn: (pr) => normalizeProvider(pr.provider),
+      filterFn: multiSelectFilterFn,
+      header: ({ column }) => (
+        <div className="flex items-center justify-between gap-2">
+          <SortableHeaderLabel label="Provider" onToggle={column.getToggleSortingHandler()} />
+          <div className="flex items-center gap-2">
+            <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+            <HeaderFilterPopover>
+              <MultiSelectPanel
+                label="Providers"
+                value={(column.getFilterValue() as string) ?? ''}
+                onChange={(v) => column.setFilterValue(v || undefined)}
+                options={[
+                  { value: 'github', label: 'GitHub' },
+                  { value: 'gitlab', label: 'GitLab' },
+                  { value: 'bitbucket', label: 'Bitbucket' },
+                  { value: 'gitea', label: 'Gitea' },
+                  { value: 'azuredevops', label: 'Azure DevOps' },
+                ]}
+              />
+            </HeaderFilterPopover>
+          </div>
+        </div>
+      ),
       cell: ({ row }) => (
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-white ${getPRStateColor(row.original.state)}`}>
-          {getPRStateText(row.original.state)}
-        </span>
+        <div className="flex items-center gap-1.5 text-white">
+          <ProviderIcon provider={row.original.provider} />
+          {providerLabel(row.original.provider)}
+        </div>
       ),
     },
     {
-      id: 'author',
-      header: 'Author',
+      id: 'state',
+      accessorKey: 'state',
+      filterFn: multiSelectFilterFn,
+      header: ({ column }) => (
+        <div className="flex items-center justify-between gap-2">
+          <SortableHeaderLabel label="State" onToggle={column.getToggleSortingHandler()} />
+          <div className="flex items-center gap-2">
+            <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+            <HeaderFilterPopover>
+              <MultiSelectPanel
+                label="States"
+                value={(column.getFilterValue() as string) ?? ''}
+                onChange={(v) => column.setFilterValue(v || undefined)}
+                options={[
+                  { value: 'open', label: 'Open' },
+                  { value: 'closed', label: 'Closed' },
+                  { value: 'merged', label: 'Merged' },
+                ]}
+              />
+            </HeaderFilterPopover>
+          </div>
+        </div>
+      ),
       cell: ({ row }) => {
-        const pr = row.original;
-        return <span className="text-slate-300">{pr.author_name || pr.author_username || '—'}</span>;
+        const badge = prStateBadge(row.original.state);
+        return (
+          <div className="flex items-center justify-center">
+            <span
+              className="inline-flex items-center rounded-md px-2 py-0.5 text-sm font-medium w-fit"
+              style={{ backgroundColor: 'transparent', color: badge.color, border: `1px solid ${badge.borderColor}` }}
+            >
+              {badge.label}
+            </span>
+          </div>
+        );
       },
     },
     {
-      id: 'updated',
-      header: 'Updated',
+      id: 'author',
+      accessorFn: (pr) => pr.author_name || pr.author_username || '',
+      enableColumnFilter: false,
+      header: ({ column }) => (
+        <div className="flex items-center justify-between gap-2">
+          <SortableHeaderLabel label="Author" onToggle={column.getToggleSortingHandler()} />
+          <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+        </div>
+      ),
       cell: ({ row }) => (
-        <span className="text-slate-400 text-sm">
+        <div className="text-white text-sm">{row.original.author_name || row.original.author_username || '—'}</div>
+      ),
+    },
+    {
+      id: 'updated',
+      accessorFn: (pr) => pr.provider_updated_at || pr.last_synced_at || '',
+      enableColumnFilter: false,
+      header: ({ column }) => (
+        <div className="flex items-center justify-between gap-2">
+          <SortableHeaderLabel label="Updated" onToggle={column.getToggleSortingHandler()} />
+          <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+        </div>
+      ),
+      cell: ({ row }) => (
+        <div className="text-white text-sm">
           {formatRelativeTime(row.original.provider_updated_at || row.original.last_synced_at)}
-        </span>
+        </div>
       ),
     },
     {
       id: 'actions',
-      header: 'Actions',
+      enableSorting: false,
+      enableColumnFilter: false,
+      header: () => <span className="font-semibold text-slate-300 uppercase tracking-wide text-xs">Actions</span>,
       cell: ({ row }) => {
         const pr = row.original;
         return (
@@ -207,7 +326,7 @@ const MergeRequests: React.FC = () => {
             size="sm"
             onClick={(e) => handleTriggerReview(pr, e)}
             disabled={triggeringId === pr.id}
-            className="border-slate-600 text-slate-300 hover:text-white hover:border-slate-500"
+            className="border-slate-400 text-white hover:bg-white/10 hover:border-white text-sm cursor-pointer"
           >
             {triggeringId === pr.id ? 'Triggering…' : 'Trigger Review'}
           </Button>
@@ -216,6 +335,18 @@ const MergeRequests: React.FC = () => {
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [triggeringId]);
+
+  const table = useReactTable({
+    data: pullRequests,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    initialState: {
+      pagination: { pageSize: pageSizeOptions[0] },
+    },
+  });
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -226,91 +357,31 @@ const MergeRequests: React.FC = () => {
 
       <ExploreTabs active="merge-requests" />
 
-      <div className="bg-slate-800 rounded-lg p-6 mb-6 border border-slate-700">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="md:col-span-2">
-            <div className="flex">
-              <input
-                type="text"
-                placeholder="Search title, author, or repository..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                className="flex-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-l-md text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              <Button onClick={handleSearch} variant="primary" className="rounded-l-none px-4">
-                <Icons.Search />
-              </Button>
-            </div>
-          </div>
-          <div>
-            <select
-              value={stateFilter}
-              onChange={(e) => handleStateFilter(e.target.value as PullRequestState | 'all')}
-              className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="all">All States</option>
-              <option value="open">Open</option>
-              <option value="closed">Closed</option>
-              <option value="merged">Merged</option>
-            </select>
-          </div>
-          <div>
-            <select
-              value={providerFilter}
-              onChange={(e) => handleProviderFilter(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">All Providers</option>
-              <option value="github">GitHub</option>
-              <option value="gitlab">GitLab</option>
-            </select>
-          </div>
+      {repositoryFilterName && (
+        <div className="mt-4 flex items-center gap-2 text-sm text-slate-300">
+          <span>Showing PRs for <span className="font-semibold text-white">{repositoryFilterName}</span></span>
+          <button onClick={clearRepositoryFilter} className="text-blue-400 hover:text-blue-300 cursor-pointer">
+            Show all repositories
+          </button>
         </div>
+      )}
 
-        {(searchQuery || stateFilter !== 'open' || providerFilter || repositoryFilterName) && (
-          <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-700">
-            <div className="flex items-center space-x-2 text-sm text-slate-300">
-              <span>Active filters:</span>
-              {searchQuery && <span className="bg-blue-600 px-2 py-1 rounded text-white">Search: "{searchQuery}"</span>}
-              {stateFilter !== 'open' && <span className="bg-blue-600 px-2 py-1 rounded text-white">State: {stateFilter === 'all' ? 'All' : getPRStateText(stateFilter)}</span>}
-              {providerFilter && <span className="bg-blue-600 px-2 py-1 rounded text-white">Provider: {providerLabel(providerFilter)}</span>}
-              {repositoryFilterName && (
-                <span className="bg-blue-600 px-2 py-1 rounded text-white flex items-center gap-1">
-                  Repository: {repositoryFilterName}
-                  <button onClick={clearRepositoryFilter} className="ml-1 hover:text-slate-200" aria-label="Clear repository filter">×</button>
-                </span>
-              )}
-            </div>
-            <Button onClick={clearFilters} variant="ghost" className="text-slate-400 hover:text-white">
-              Clear all
-            </Button>
-          </div>
-        )}
+      <div className="mt-6">
+        <ClientTable
+          table={table}
+          columnWidths={MERGE_REQUESTS_COLUMN_WIDTHS}
+          loading={loading}
+          loadingLabel="Loading merge requests..."
+          error={error}
+          onRetry={() => fetchPullRequests()}
+          isEmpty={pullRequests.length === 0}
+          empty={{
+            title: 'No merge requests found',
+            description: 'Try a different filter, or sync a repository from the Repositories tab.',
+          }}
+          pageSizeOptions={pageSizeOptions}
+        />
       </div>
-
-      <DataTable
-        data={pullRequests}
-        columns={columns}
-        getRowId={(pr) => pr.id}
-        loading={loading}
-        loadingLabel="Loading merge requests..."
-        error={error}
-        onRetry={() => fetchPullRequests()}
-        empty={{
-          title: 'No merge requests found',
-          description: 'Try a different filter, or sync a repository from the Repositories tab.',
-        }}
-        pagination={{
-          page: filters.page || 1,
-          perPage: filters.perPage || 20,
-          total,
-          totalPages,
-          onPageChange: (page) => updateFilters({ page }),
-          onPerPageChange: (perPage) => updateFilters({ perPage }),
-          perPageOptions,
-        }}
-      />
     </div>
   );
 };

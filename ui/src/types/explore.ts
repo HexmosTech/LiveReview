@@ -19,9 +19,14 @@ export interface Repository {
   last_synced_at?: string;
   last_sync_status: 'pending' | 'ok' | 'error';
   last_sync_error?: string;
+  open_pr_count: number;
+  /** Most recent PR/MR provider_updated_at across this repo's pull requests. */
+  last_activity_at?: string;
   created_at: string;
   updated_at: string;
 }
+
+export type RepositoriesSort = 'last_activity' | 'open_pr_count' | 'repository' | 'provider' | 'default_branch' | 'sync_status';
 
 export interface RepositoriesListResponse {
   repositories: Repository[];
@@ -32,9 +37,18 @@ export interface RepositoriesListResponse {
 }
 
 export interface RepositoriesFilters {
+  /** Comma-separated list of connector IDs (multi-select). */
   connectorId?: string;
+  /** Comma-separated list of providers (multi-select). */
   provider?: string;
   search?: string;
+  /** Comma-separated list of 'pending' | 'ok' | 'error' (multi-select). */
+  syncStatus?: string;
+  hasOpenPRs?: 'true' | 'false';
+  /** Defaults to 'last_activity' server-side when omitted. */
+  sort?: RepositoriesSort;
+  /** Defaults server-side to 'desc' for open_pr_count/last_activity, 'asc' for every other sort key. */
+  order?: 'asc' | 'desc';
   page?: number;
   perPage?: number;
 }
@@ -105,8 +119,10 @@ export interface PullRequestDetail extends PullRequest {
 export interface PullRequestsFilters {
   repositoryId?: string;
   connectorId?: string;
+  /** Comma-separated list of providers (multi-select). */
   provider?: string;
-  state?: PullRequestState | 'all';
+  /** Comma-separated list of 'open' | 'closed' | 'merged', or 'all' (multi-select). */
+  state?: string;
   search?: string;
   page?: number;
   perPage?: number;

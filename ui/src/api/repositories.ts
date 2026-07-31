@@ -10,6 +10,10 @@ export const getRepositories = async (filters: RepositoriesFilters = {}): Promis
   if (filters.connectorId) params.append('connector_id', filters.connectorId);
   if (filters.provider) params.append('provider', filters.provider);
   if (filters.search) params.append('search', filters.search);
+  if (filters.syncStatus) params.append('sync_status', filters.syncStatus);
+  if (filters.hasOpenPRs) params.append('has_open_prs', filters.hasOpenPRs);
+  if (filters.sort) params.append('sort', filters.sort);
+  if (filters.order) params.append('order', filters.order);
   if (filters.page) params.append('page', filters.page.toString());
   if (filters.perPage) params.append('per_page', filters.perPage.toString());
 

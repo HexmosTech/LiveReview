@@ -59,21 +59,8 @@ export const triggerReviewForPullRequest = async (pullRequestId: number): Promis
 };
 
 /**
- * Human-friendly label + badge color for a PR/MR state.
+ * Human-friendly label for a PR/MR state.
  */
-export function getPRStateColor(state: string): string {
-  switch (state) {
-    case 'open':
-      return 'bg-green-500';
-    case 'merged':
-      return 'bg-purple-500';
-    case 'closed':
-      return 'bg-slate-500';
-    default:
-      return 'bg-gray-500';
-  }
-}
-
 export function getPRStateText(state: string): string {
   switch (state) {
     case 'open':

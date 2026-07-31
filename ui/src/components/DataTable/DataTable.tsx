@@ -167,7 +167,7 @@ export function DataTable<T>({
   );
 }
 
-const DataTablePaginationControls: React.FC<{ pagination: DataTablePagination }> = ({ pagination }) => {
+export const DataTablePaginationControls: React.FC<{ pagination: DataTablePagination }> = ({ pagination }) => {
   const { page, perPage, total, totalPages, onPageChange, onPerPageChange, perPageOptions } = pagination;
 
   const pageButtons = Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {

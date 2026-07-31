@@ -1,628 +1,481 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Button, Icons } from '../../components/UIPrimitives';
-import { 
-  getReviews, 
-  formatRelativeTime, 
-  getStatusColor, 
-  getStatusText 
-} from '../../api/reviews';
-import { 
-  Review, 
-  ReviewsFilters, 
-  ReviewStatus 
-} from '../../types/reviews';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ColumnDef, useReactTable, getCoreRowModel, getFilteredRowModel, getSortedRowModel, getPaginationRowModel } from '@tanstack/react-table';
+import { LuSearch, LuTerminal } from 'react-icons/lu';
+import { SiGitlab } from 'react-icons/si';
+import { Button, Icons, Input, MultiSelectPanel } from '../../components/UIPrimitives';
+import { ClientTable } from '../../components/DataTable/ClientTable';
+import { SortIcon, SortableHeaderLabel, HeaderFilterPopover, multiSelectFilterFn, TruncatedWithTooltip } from '../../components/DataTable/HeaderControls';
+import { getReviews, formatRelativeTime, getStatusText } from '../../api/reviews';
+import { Review } from '../../types/reviews';
+
+const pageSizeOptions = [20, 50, 100];
+
+// One page's worth of rows for the "fetch everything" loop below. Reviews
+// accumulate indefinitely (unlike repos/PRs, bounded by repo count), so this
+// is a real trade-off: instant client-side sort/filter/search in exchange
+// for loading the org's whole review history up front instead of one
+// server-paginated page at a time. The backend allows per_page up to 1000
+// (internal/api/server.go), used here to keep the request count low.
+const FETCH_ALL_PAGE_SIZE = 500;
+
+const TITLE_MAX = 80;
+const truncate = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max)}…` : text);
+
+const toTitleCase = (value: string): string => value.replace(/\b\w/g, (char) => char.toUpperCase());
+
+// review.provider is literally "cli" for CLI-triggered reviews
+// (internal/jobqueue/review_worker.go), not a real git provider - treated
+// as its own "source" alongside github/gitlab/etc.
+const normalizeSource = (provider?: string): string => {
+  const normalized = (provider || '').toLowerCase();
+  if (normalized === 'cli') return 'cli';
+  if (normalized.startsWith('github')) return 'github';
+  if (normalized.startsWith('gitlab')) return 'gitlab';
+  if (normalized.startsWith('bitbucket')) return 'bitbucket';
+  if (normalized.startsWith('gitea')) return 'gitea';
+  if (normalized.startsWith('azuredevops')) return 'azuredevops';
+  return normalized;
+};
+
+const sourceLabel = (provider?: string): string => {
+  switch (normalizeSource(provider)) {
+    case 'cli': return 'CLI';
+    case 'github': return 'GitHub';
+    case 'gitlab': return 'GitLab';
+    case 'bitbucket': return 'Bitbucket';
+    case 'gitea': return 'Gitea';
+    case 'azuredevops': return 'Azure DevOps';
+    default: return provider ? toTitleCase(provider) : '—';
+  }
+};
+
+const SourceIcon: React.FC<{ provider?: string }> = ({ provider }) => {
+  switch (normalizeSource(provider)) {
+    case 'cli': return <LuTerminal size={18} />;
+    case 'github': return <Icons.GitHub />;
+    case 'gitlab': return <SiGitlab className="w-5 h-5" style={{ color: '#FC6D26' }} />;
+    case 'bitbucket': return <Icons.Bitbucket />;
+    case 'gitea': return <Icons.Gitea />;
+    case 'azuredevops': return <Icons.AzureDevOps />;
+    default: return null;
+  }
+};
+
+// GitHub: /owner/repo/pull/123 -> owner ; GitLab: /owner/repo/-/merge_requests/123 -> owner
+// Bitbucket: /workspace/repo/pull-requests/123 -> workspace
+const extractAuthorFromUrl = (url: string): string | null => {
+  try {
+    const pathParts = new URL(url).pathname.split('/').filter(Boolean);
+    if (pathParts.length >= 2) return pathParts[0];
+  } catch {
+    // ignore malformed URLs
+  }
+  return null;
+};
+
+const extractMRInfo = (url: string): string => {
+  try {
+    const pathParts = new URL(url).pathname.split('/').filter(Boolean);
+    if (pathParts.includes('pull') && pathParts.length >= 4) {
+      return `PR #${pathParts[pathParts.indexOf('pull') + 1]}`;
+    }
+    if (pathParts.includes('merge_requests') && pathParts.length >= 4) {
+      return `MR !${pathParts[pathParts.indexOf('merge_requests') + 1]}`;
+    }
+    if (pathParts.includes('pull-requests') && pathParts.length >= 4) {
+      return `PR #${pathParts[pathParts.indexOf('pull-requests') + 1]}`;
+    }
+    return 'MR/PR';
+  } catch {
+    return 'MR/PR';
+  }
+};
+
+const getExecutionBadge = (review: Review): { label: string; color: string; borderColor: string } | null => {
+  const rawMode = typeof review.metadata?.ai_execution_mode === 'string' ? review.metadata.ai_execution_mode.toLowerCase() : '';
+  const rawPlanCode = typeof review.metadata?.plan_code === 'string' ? review.metadata.plan_code.toLowerCase() : '';
+
+  if (rawMode === 'hosted_auto' || rawPlanCode === 'team_32usd' || rawPlanCode === 'team') {
+    return { label: 'Auto', color: '#6ee7b7', borderColor: 'rgba(16,185,129,0.35)' };
+  }
+  if (rawMode === 'byok_required' || rawMode === 'byok_override' || rawMode === 'byok_optional' || rawPlanCode === 'free_30k' || rawPlanCode === 'free') {
+    return { label: 'BYOK', color: '#fcd34d', borderColor: 'rgba(245,158,11,0.35)' };
+  }
+  return null;
+};
+
+// Transparent-outline + colored text, same visual language as the Sync
+// Status / PR State badges on the other Explore tables.
+const reviewStatusBadge = (status: string): { color: string; borderColor: string } => {
+  switch (status) {
+    case 'completed':
+      return { color: '#4ade80', borderColor: 'rgba(34,197,94,0.35)' };
+    case 'failed':
+      return { color: '#f87171', borderColor: 'rgba(239,68,68,0.35)' };
+    case 'in_progress':
+      return { color: '#60a5fa', borderColor: 'rgba(59,130,246,0.35)' };
+    default:
+      return { color: '#fcd34d', borderColor: 'rgba(245,158,11,0.35)' };
+  }
+};
+
+const getCleanRepository = (review: Review): string =>
+  review.repository ? review.repository.replace(/^https?:\/\//, '').replace(/\/$/, '') : '';
+
+const getRepoShortName = (cleanedRepository: string): string => {
+  const repoSegments = cleanedRepository.split('/').filter(Boolean);
+  return repoSegments.length ? repoSegments[repoSegments.length - 1] : '';
+};
+
+/** Same "what should the primary title read as" logic for a review, used by
+ * both the sort accessor and the cell renderer so they stay consistent. */
+const getPrimaryTitle = (review: Review): string => {
+  const rawMrDescriptor = review.prMrUrl ? extractMRInfo(review.prMrUrl) : '';
+  const mrDescriptor = rawMrDescriptor && rawMrDescriptor !== 'MR/PR' ? rawMrDescriptor : '';
+  const repoShort = getRepoShortName(getCleanRepository(review));
+
+  if (review.triggerType === 'cli_diff') {
+    return review.aiSummaryTitle?.trim() || review.friendlyName?.trim() || repoShort || 'CLI Review';
+  }
+  const mrTitleCandidate = review.mrTitle?.trim();
+  return mrTitleCandidate && mrTitleCandidate.length > 0 ? mrTitleCandidate : (mrDescriptor || repoShort || 'Code Review');
+};
+
+const REVIEWS_COLUMN_WIDTHS = ['24%', '16%', '12%', '14%', '12%', '12%', '10%'];
 
 const Reviews: React.FC = () => {
-    const navigate = useNavigate();
-    const [searchParams, setSearchParams] = useSearchParams();
-    
-    // Helper function to extract author from PR/MR URL
-    const extractAuthorFromUrl = (url: string): string | null => {
-        try {
-            const urlObj = new URL(url);
-            const pathParts = urlObj.pathname.split('/').filter(Boolean);
-            
-            // GitHub: /owner/repo/pull/123 -> owner
-            // GitLab: /owner/repo/-/merge_requests/123 -> owner  
-            // Bitbucket: /workspace/repo/pull-requests/123 -> workspace
-            if (pathParts.length >= 2) {
-                return pathParts[0]; // First part is usually the owner/workspace
-            }
-        } catch (e) {
-            console.warn('Failed to parse URL for author:', url);
-        }
-        return null;
-    };
-    
-    const toTitleCase = (value: string): string => value.replace(/\b\w/g, char => char.toUpperCase());
+  const navigate = useNavigate();
 
-    const getExecutionBadge = (review: Review): { label: string; className: string } | null => {
-        const rawMode = typeof review.metadata?.ai_execution_mode === 'string'
-            ? review.metadata.ai_execution_mode.toLowerCase()
-            : '';
-        const rawPlanCode = typeof review.metadata?.plan_code === 'string'
-            ? review.metadata.plan_code.toLowerCase()
-            : '';
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-        if (rawMode === 'hosted_auto') {
-            return {
-                label: 'Auto',
-                className: 'bg-emerald-900/60 text-emerald-200 border border-emerald-600/40'
-            };
-        }
-
-        if (rawMode === 'byok_required' || rawMode === 'byok_override' || rawMode === 'byok_optional') {
-            return {
-                label: 'BYOK',
-                className: 'bg-amber-900/60 text-amber-200 border border-amber-600/40'
-            };
-        }
-
-        if (rawPlanCode === 'free_30k' || rawPlanCode === 'free') {
-            return {
-                label: 'BYOK',
-                className: 'bg-amber-900/60 text-amber-200 border border-amber-600/40'
-            };
-        }
-
-        if (rawPlanCode === 'team_32usd' || rawPlanCode === 'team') {
-            return {
-                label: 'Auto',
-                className: 'bg-emerald-900/60 text-emerald-200 border border-emerald-600/40'
-            };
-        }
-
-        return null;
-    };
-
-    // Helper function to extract MR/PR info from URL
-    const extractMRInfo = (url: string): string => {
-        try {
-            const urlObj = new URL(url);
-            const pathParts = urlObj.pathname.split('/').filter(Boolean);
-            
-            // GitHub: /owner/repo/pull/123
-            if (pathParts.includes('pull') && pathParts.length >= 4) {
-                const prNumber = pathParts[pathParts.indexOf('pull') + 1];
-                return `PR #${prNumber}`;
-            }
-            
-            // GitLab: /owner/repo/-/merge_requests/123
-            if (pathParts.includes('merge_requests') && pathParts.length >= 4) {
-                const mrNumber = pathParts[pathParts.indexOf('merge_requests') + 1];
-                return `MR !${mrNumber}`;
-            }
-            
-            // Bitbucket: /workspace/repo/pull-requests/123
-            if (pathParts.includes('pull-requests') && pathParts.length >= 4) {
-                const prNumber = pathParts[pathParts.indexOf('pull-requests') + 1];
-                return `PR #${prNumber}`;
-            }
-            
-            return 'MR/PR';
-        } catch (e) {
-            return 'MR/PR';
-        }
-    };
-    
-    const [reviews, setReviews] = useState<Review[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [total, setTotal] = useState(0);
-    const [currentPage, setCurrentPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(1);
-    const perPageOptions = [20, 50, 100];
-    
-    // Filter states
-    const [filters, setFilters] = useState<ReviewsFilters>({
-        page: 1,
-        perPage: 20
-    });
-    const [searchQuery, setSearchQuery] = useState('');
-    const [statusFilter, setStatusFilter] = useState<ReviewStatus | ''>('');
-    const [providerFilter, setProviderFilter] = useState('');
-
-    // Initialize filters from URL params
-    useEffect(() => {
-        const initialFilters: ReviewsFilters = {
-            page: parseInt(searchParams.get('page') || '1'),
-            perPage: parseInt(searchParams.get('per_page') || '20'),
-            status: (searchParams.get('status') as ReviewStatus) || undefined,
-            provider: searchParams.get('provider') || undefined,
-            search: searchParams.get('search') || undefined,
-        };
-        
-        setFilters(initialFilters);
-        setCurrentPage(initialFilters.page || 1);
-        setSearchQuery(initialFilters.search || '');
-        setStatusFilter(initialFilters.status || '');
-        setProviderFilter(initialFilters.provider || '');
-    }, [searchParams]);
-
-    // Fetch reviews from API
-    const fetchReviews = useCallback(async (requestFilters?: ReviewsFilters) => {
-        try {
-            setLoading(true);
-            setError(null);
-            
-            const filtersToUse = requestFilters || filters;
-            const response = await getReviews(filtersToUse);
-            
-            // Defensive programming: handle null reviews array
-            setReviews(response.reviews || []);
-            setTotal(response.total || 0);
-            setCurrentPage(response.page || 1);
-            setTotalPages(response.totalPages || 0);
-        } catch (err) {
-            console.error('Error fetching reviews:', err);
-            setError(err instanceof Error ? err.message : 'Failed to fetch reviews');
-        } finally {
-            setLoading(false);
-        }
-    }, [filters]);
-
-    // Update URL params when filters change
-    const updateFilters = useCallback((newFilters: Partial<ReviewsFilters>) => {
-        const updatedFilters = { ...filters, ...newFilters };
-        
-        // Reset to page 1 when changing filters (except pagination)
-        if (!newFilters.page) {
-            updatedFilters.page = 1;
-        }
-        
-        setFilters(updatedFilters);
-        
-        // Update URL search params
-        const params = new URLSearchParams();
-        if (updatedFilters.page && updatedFilters.page > 1) params.set('page', updatedFilters.page.toString());
-        if (updatedFilters.perPage && updatedFilters.perPage !== 20) params.set('per_page', updatedFilters.perPage.toString());
-        if (updatedFilters.status) params.set('status', updatedFilters.status);
-        if (updatedFilters.provider) params.set('provider', updatedFilters.provider);
-        if (updatedFilters.search) params.set('search', updatedFilters.search);
-        
-        setSearchParams(params);
-        
-        // Fetch with new filters
-        fetchReviews(updatedFilters);
-    }, [filters, setSearchParams, fetchReviews]);
-
-    // Initial load
-    useEffect(() => {
-        fetchReviews();
-    }, []);
-
-    // Light auto-refresh while any review is non-terminal (created/in_progress)
-    useEffect(() => {
-        const hasActive = reviews.some(r => r.status === 'created' || r.status === 'in_progress');
-        if (!hasActive) return;
-        const id = setInterval(() => {
-            fetchReviews();
-        }, 15000); // 15s cadence to avoid hammering
-        return () => clearInterval(id);
-    }, [reviews, fetchReviews]);
-
-    // Handle search
-    const handleSearch = useCallback(() => {
-        updateFilters({ search: searchQuery || undefined });
-    }, [searchQuery, updateFilters]);
-
-    // Handle filter changes
-    const handleStatusFilter = useCallback((status: ReviewStatus | '') => {
-        setStatusFilter(status);
-        updateFilters({ status: status || undefined });
-    }, [updateFilters]);
-
-    const handleProviderFilter = useCallback((provider: string) => {
-        setProviderFilter(provider);
-        updateFilters({ provider: provider || undefined });
-    }, [updateFilters]);
-
-    const handlePerPageChange = useCallback((perPageValue: number) => {
-        updateFilters({ perPage: perPageValue });
-    }, [updateFilters]);
-
-    // Handle pagination
-    const handlePageChange = useCallback((page: number) => {
-        updateFilters({ page });
-    }, [updateFilters]);
-
-    const handleViewReview = (reviewId: number) => {
-        navigate(`/reviews/${reviewId}`);
-    };
-
-    // Clear all filters
-    const clearFilters = useCallback(() => {
-        setSearchQuery('');
-        setStatusFilter('');
-        setProviderFilter('');
-        setFilters({ page: 1, perPage: 20 });
-        setSearchParams(new URLSearchParams());
-        fetchReviews({ page: 1, perPage: 20 });
-    }, [setSearchParams, fetchReviews]);
-
-    if (loading) {
-        return (
-            <div className="container mx-auto px-4 py-8">
-                <div className="flex items-center justify-center min-h-64">
-                    <div className="text-center">
-                        <svg className="w-8 h-8 mx-auto mb-4 text-blue-500 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        <p className="text-slate-300">Loading reviews...</p>
-                    </div>
-                </div>
-            </div>
+  const fetchReviews = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const first = await getReviews({ page: 1, perPage: FETCH_ALL_PAGE_SIZE });
+      let all = first.reviews || [];
+      const totalPages = first.totalPages || 1;
+      if (totalPages > 1) {
+        const rest = await Promise.all(
+          Array.from({ length: totalPages - 1 }, (_, i) => getReviews({ page: i + 2, perPage: FETCH_ALL_PAGE_SIZE }))
         );
+        for (const page of rest) all = all.concat(page.reviews || []);
+      }
+      setReviews(all);
+    } catch (err) {
+      console.error('Error fetching reviews:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch reviews');
+    } finally {
+      setLoading(false);
     }
+  }, []);
 
-    return (
-        <div className="container mx-auto px-4 py-8">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-8">
-                <div>
-                    <h1 className="text-3xl font-bold text-white mb-2">Code Review Previews</h1>
-                    <p className="text-slate-300">Manage and monitor your AI-powered code review sessions</p>
-                </div>
-                <Button
-                    as={Link}
-                    to="/reviews/new"
-                    variant="primary"
-                    icon={<Icons.Add />}
-                    className="bg-green-600 hover:bg-green-700"
-                    title="Safe preview - no comments posted"
-                >
-                    New Review
-                </Button>
-            </div>
+  useEffect(() => {
+    fetchReviews();
+  }, [fetchReviews]);
 
-            {/* Filters */}
-            <div className="bg-slate-800 rounded-lg p-6 mb-6 border border-slate-700">
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                    {/* Search */}
-                    <div className="md:col-span-2">
-                        <div className="flex">
-                            <input
-                                type="text"
-                                placeholder="Search repositories or URLs..."
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                                className="flex-1 px-3 py-2 bg-slate-700 border border-slate-600 rounded-l-md text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            />
-                            <Button
-                                onClick={handleSearch}
-                                variant="primary"
-                                className="rounded-l-none px-4"
-                            >
-                                <Icons.Search />
-                            </Button>
-                        </div>
-                    </div>
-                    
-                    {/* Status Filter */}
-                    <div>
-                        <select
-                            value={statusFilter}
-                            onChange={(e) => handleStatusFilter(e.target.value as ReviewStatus | '')}
-                            className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        >
-                            <option value="">All Statuses</option>
-                            <option value="created">Created</option>
-                            <option value="in_progress">In Progress</option>
-                            <option value="completed">Completed</option>
-                            <option value="failed">Failed</option>
-                        </select>
-                    </div>
-                    
-                    {/* Provider Filter */}
-                    <div>
-                        <select
-                            value={providerFilter}
-                            onChange={(e) => handleProviderFilter(e.target.value)}
-                            className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        >
-                            <option value="">All Providers</option>
-                            <option value="gitlab">GitLab</option>
-                            <option value="github">GitHub</option>
-                            <option value="bitbucket">Bitbucket</option>
-                        </select>
-                    </div>
+  // Light auto-refresh while any review is non-terminal (created/in_progress).
+  useEffect(() => {
+    const hasActive = reviews.some((r) => r.status === 'created' || r.status === 'in_progress');
+    if (!hasActive) return;
+    const id = setInterval(() => fetchReviews(), 15000); // 15s cadence to avoid hammering
+    return () => clearInterval(id);
+  }, [reviews, fetchReviews]);
 
-                    {/* Per Page */}
-                    <div>
-                        <select
-                            value={filters.perPage || 20}
-                            onChange={(e) => handlePerPageChange(parseInt(e.target.value, 10))}
-                            className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        >
-                            {perPageOptions.map(option => (
-                                <option key={option} value={option}>
-                                    {option} per page
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                </div>
-                
-                {/* Active filters indicator and clear button */}
-                {(searchQuery || statusFilter || providerFilter) && (
-                    <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-700">
-                        <div className="flex items-center space-x-2 text-sm text-slate-300">
-                            <span>Active filters:</span>
-                            {searchQuery && (
-                                <span className="bg-blue-600 px-2 py-1 rounded text-white">
-                                    Search: "{searchQuery}"
-                                </span>
-                            )}
-                            {statusFilter && (
-                                <span className="bg-blue-600 px-2 py-1 rounded text-white">
-                                    Status: {getStatusText(statusFilter)}
-                                </span>
-                            )}
-                            {providerFilter && (
-                                <span className="bg-blue-600 px-2 py-1 rounded text-white">
-                                    Provider: {providerFilter}
-                                </span>
-                            )}
-                        </div>
-                        <Button
-                            onClick={clearFilters}
-                            variant="ghost"
-                            className="text-slate-400 hover:text-white"
-                        >
-                            Clear all
-                        </Button>
-                    </div>
-                )}
-            </div>
+  const handleViewReview = useCallback((review: Review) => {
+    navigate(`/reviews/${review.id}`);
+  }, [navigate]);
 
-            {error && (
-                <div className="mb-6 p-4 bg-red-900/50 border border-red-600 rounded-lg">
-                    <div className="flex items-center">
-                        <Icons.Error />
-                        <span className="ml-2 text-red-200">{error}</span>
-                        <Button
-                            variant="ghost"
-                            onClick={() => fetchReviews()}
-                            className="ml-auto text-red-200 hover:text-white"
-                        >
-                            Retry
-                        </Button>
-                    </div>
-                </div>
-            )}
-
-            {/* Reviews Table */}
-            {reviews.length === 0 ? (
-                <div className="text-center py-16">
-                    <Icons.EmptyState />
-                    <h3 className="text-xl font-medium text-slate-300 mt-4">No review previews found</h3>
-                    <p className="text-slate-400 mt-2 mb-6">Get started by creating your first preview session (safe - no comments posted)</p>
-                    <Button
-                        as={Link}
-                        to="/reviews/new"
-                        variant="primary"
-                        icon={<Icons.Add />}
-                        className="bg-green-600 hover:bg-green-700"
-                    >
-                        New Review
-                    </Button>
-                </div>
-            ) : (
-                <div className="bg-slate-800 rounded-lg overflow-hidden border border-slate-700">
-                    <div className="overflow-x-auto">
-                        <table className="w-full">
-                            <thead className="bg-slate-700">
-                                <tr>
-                                    <th className="px-6 py-4 text-left text-sm font-semibold text-slate-200 uppercase tracking-wider">
-                                        Review
-                                    </th>
-                                    <th className="px-6 py-4 text-left text-sm font-semibold text-slate-200 uppercase tracking-wider">
-                                        Status
-                                    </th>
-                                    <th className="px-6 py-4 text-left text-sm font-semibold text-slate-200 uppercase tracking-wider">
-                                        Author  
-                                    </th>
-                                    <th className="px-6 py-4 text-left text-sm font-semibold text-slate-200 uppercase tracking-wider">
-                                        Last Activity
-                                    </th>
-                                    <th className="px-6 py-4 text-left text-sm font-semibold text-slate-200 uppercase tracking-wider">
-                                        Details
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-700">
-                                {reviews.map((review) => {
-                                    const rawMrDescriptor = review.prMrUrl ? extractMRInfo(review.prMrUrl) : '';
-                                    const mrDescriptor = rawMrDescriptor && rawMrDescriptor !== 'MR/PR' ? rawMrDescriptor : '';
-                                    const cleanedRepository = review.repository ? review.repository.replace(/^https?:\/\//, '').replace(/\/$/, '') : '';
-                                    const repoSegments = cleanedRepository.split('/').filter(Boolean);
-                                    const repoShort = repoSegments.length ? repoSegments[repoSegments.length - 1] : '';
-                                    const executionBadge = getExecutionBadge(review);
-                                    
-                                    // Determine primary title based on review type
-                                    let primaryTitle: string;
-                                    if (review.triggerType === 'cli_diff') {
-                                        // For CLI reviews, prefer AI summary title, then friendly name, then fallback
-                                        primaryTitle = review.aiSummaryTitle?.trim() || review.friendlyName?.trim() || repoShort || 'CLI Review';
-                                    } else {
-                                        // For MR reviews, use MR title or fallback
-                                        const mrTitleCandidate = review.mrTitle?.trim();
-                                        primaryTitle = mrTitleCandidate && mrTitleCandidate.length > 0 ? mrTitleCandidate : (mrDescriptor || repoShort || 'Code Review');
-                                    }
-                                    
-                                    const displayProviderRaw = review.provider ? review.provider.replace(/[-_]/g, ' ') : '';
-                                    const displayProvider = displayProviderRaw ? toTitleCase(displayProviderRaw) : '';
-                                    const fallbackAuthorFromUrl = review.prMrUrl ? extractAuthorFromUrl(review.prMrUrl) : null;
-                                    const potentialAuthors = [
-                                        review.authorName?.trim(),
-                                        review.authorUsername?.trim(),
-                                        review.userEmail?.trim(),
-                                        fallbackAuthorFromUrl ? fallbackAuthorFromUrl.trim() : undefined,
-                                        displayProvider,
-                                    ].filter((val): val is string => Boolean(val && val.length > 0));
-                                    const authorPrimary = potentialAuthors[0] || 'System';
-                                    const authorSecondary = potentialAuthors.find(candidate => candidate !== authorPrimary);
-                                    const branchLabel = review.branch?.trim();
-                                    const metaChips = [
-                                        cleanedRepository,
-                                        branchLabel ? `Branch: ${branchLabel}` : '',
-                                        mrDescriptor,
-                                        displayProvider,
-                                    ].filter((val): val is string => Boolean(val && val.length > 0));
-
-                                    return (
-                                        <tr
-                                            key={review.id}
-                                            className="group hover:bg-slate-700/50 transition-colors cursor-pointer focus-within:bg-slate-700/50"
-                                            onClick={() => handleViewReview(review.id)}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter' || e.key === ' ') {
-                                                    e.preventDefault();
-                                                    handleViewReview(review.id);
-                                                }
-                                            }}
-                                            tabIndex={0}
-                                        >
-                                            <td className="px-6 py-4">
-                                                <div className="flex flex-col gap-1">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-white font-semibold">{primaryTitle}</span>
-                                                        {review.prMrUrl && (
-                                                            <a
-                                                                href={review.prMrUrl}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                onClick={(e) => e.stopPropagation()}
-                                                                className="text-blue-400 hover:text-blue-300 text-xs font-medium underline underline-offset-2"
-                                                            >
-                                                                Open PR/MR
-                                                            </a>
-                                                        )}
-                                                    </div>
-                                                    {metaChips.length > 0 && (
-                                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
-                                                            {metaChips.map((chip, idx) => (
-                                                                <span key={`${chip}-${idx}`} className="flex items-center gap-1">
-                                                                    {chip}
-                                                                </span>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <div className="flex flex-wrap items-center gap-2">
-                                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-white ${getStatusColor(review.status)}`}>
-                                                        {getStatusText(review.status)}
-                                                    </span>
-                                                    {executionBadge && (
-                                                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${executionBadge.className}`}>
-                                                            {executionBadge.label}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 text-slate-300">
-                                                <div className="font-medium text-white">{authorPrimary}</div>
-                                                {authorSecondary && (
-                                                    <div className="text-xs text-slate-400 mt-1">
-                                                        {authorSecondary}
-                                                    </div>
-                                                )}
-                                            </td>
-                                            <td className="px-6 py-4 text-slate-300">
-                                                {formatRelativeTime(review.completedAt || review.startedAt || review.createdAt)}
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleViewReview(review.id);
-                                                    }}
-                                                    className="border-slate-600 text-slate-300 hover:text-white hover:border-slate-500"
-                                                >
-                                                    View Details
-                                                </Button>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    {/* Pagination */}
-                    {totalPages > 1 && (
-                        <div className="px-6 py-4 border-t border-slate-700">
-                            <div className="flex items-center justify-between">
-                                <div className="text-sm text-slate-300">
-                                    Showing {((currentPage - 1) * (filters.perPage || 20)) + 1} to {Math.min(currentPage * (filters.perPage || 20), total)} of {total} reviews
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => handlePageChange(currentPage - 1)}
-                                        disabled={currentPage <= 1}
-                                        className="border-slate-600 text-slate-300 hover:text-white hover:border-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                        Previous
-                                    </Button>
-                                    
-                                    {/* Page numbers */}
-                                    <div className="flex items-center space-x-1">
-                                        {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                                            let pageNum;
-                                            if (totalPages <= 5) {
-                                                pageNum = i + 1;
-                                            } else if (currentPage <= 3) {
-                                                pageNum = i + 1;
-                                            } else if (currentPage >= totalPages - 2) {
-                                                pageNum = totalPages - 4 + i;
-                                            } else {
-                                                pageNum = currentPage - 2 + i;
-                                            }
-                                            
-                                            return (
-                                                <Button
-                                                    key={pageNum}
-                                                    variant={pageNum === currentPage ? "primary" : "outline"}
-                                                    size="sm"
-                                                    onClick={() => handlePageChange(pageNum)}
-                                                    className={
-                                                        pageNum === currentPage 
-                                                            ? "bg-blue-600 text-white"
-                                                            : "border-slate-600 text-slate-300 hover:text-white hover:border-slate-500"
-                                                    }
-                                                >
-                                                    {pageNum}
-                                                </Button>
-                                            );
-                                        })}
-                                    </div>
-                                    
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => handlePageChange(currentPage + 1)}
-                                        disabled={currentPage >= totalPages}
-                                        className="border-slate-600 text-slate-300 hover:text-white hover:border-slate-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                        Next
-                                    </Button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
+  const columns = useMemo<ColumnDef<Review>[]>(() => [
+    {
+      id: 'review',
+      accessorFn: (review) => getPrimaryTitle(review),
+      // Searches title/repo/branch/URL/author together, same combined
+      // free-text search the old top search bar offered (it searched
+      // "repositories or URLs"; author is included too since it's visible
+      // in this same column).
+      filterFn: (row, _columnId, filterValue: string) => {
+        const q = (filterValue || '').trim().toLowerCase();
+        if (!q) return true;
+        const r = row.original;
+        return [r.repository, r.branch, r.prMrUrl, r.mrTitle, r.friendlyName, r.aiSummaryTitle, r.authorName, r.authorUsername]
+          .filter((v): v is string => Boolean(v))
+          .some((v) => v.toLowerCase().includes(q));
+      },
+      header: ({ column }) => (
+        <div className="flex items-center justify-between gap-2">
+          <SortableHeaderLabel label="Review" onToggle={column.getToggleSortingHandler()} />
+          <div className="flex items-center gap-2">
+            <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+            <HeaderFilterPopover icon={LuSearch} label="Search reviews">
+              <Input
+                placeholder="Search repositories, URLs, or author..."
+                value={(column.getFilterValue() as string) ?? ''}
+                onChange={(e) => column.setFilterValue(e.target.value || undefined)}
+                icon={<Icons.Search />}
+                aria-label="Search reviews"
+                className="text-sm"
+              />
+            </HeaderFilterPopover>
+          </div>
         </div>
-    );
+      ),
+      cell: ({ row }) => {
+        const review = row.original;
+        const rawMrDescriptor = review.prMrUrl ? extractMRInfo(review.prMrUrl) : '';
+        const mrDescriptor = rawMrDescriptor && rawMrDescriptor !== 'MR/PR' ? rawMrDescriptor : '';
+        const branchLabel = review.branch?.trim();
+        const metaChips = [branchLabel ? `Branch: ${branchLabel}` : '', mrDescriptor]
+          .filter((v): v is string => Boolean(v));
+        const primaryTitle = getPrimaryTitle(review);
+        const displayTitle = truncate(primaryTitle, TITLE_MAX);
+
+        return (
+          <div className="flex flex-col justify-center gap-1 min-w-0 min-h-[44px]">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="min-w-0 truncate text-white font-semibold">
+                <TruncatedWithTooltip text={primaryTitle} max={TITLE_MAX}>
+                  {displayTitle}
+                </TruncatedWithTooltip>
+              </span>
+              {review.prMrUrl && (
+                <a
+                  href={review.prMrUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex-shrink-0 text-blue-400 hover:text-blue-300 text-xs font-medium underline underline-offset-2"
+                >
+                  Open PR/MR
+                </a>
+              )}
+            </div>
+            {metaChips.length > 0 && (
+              <div className="min-w-0 text-sm text-slate-400 truncate">{metaChips.join(' · ')}</div>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: 'repository',
+      accessorFn: (review) => getCleanRepository(review),
+      filterFn: 'includesString',
+      header: ({ column }) => (
+        <div className="flex items-center justify-between gap-2">
+          <SortableHeaderLabel label="Repository" onToggle={column.getToggleSortingHandler()} />
+          <div className="flex items-center gap-2">
+            <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+            <HeaderFilterPopover icon={LuSearch} label="Search repositories">
+              <Input
+                placeholder="Search repositories..."
+                value={(column.getFilterValue() as string) ?? ''}
+                onChange={(e) => column.setFilterValue(e.target.value || undefined)}
+                icon={<Icons.Search />}
+                aria-label="Search repositories"
+                className="text-sm"
+              />
+            </HeaderFilterPopover>
+          </div>
+        </div>
+      ),
+      cell: ({ getValue }) => {
+        const cleanedRepository = getValue() as string;
+        return (
+          <TruncatedWithTooltip text={cleanedRepository} max={TITLE_MAX}>
+            <div className="min-w-0 truncate text-white text-sm">{truncate(cleanedRepository, TITLE_MAX) || '—'}</div>
+          </TruncatedWithTooltip>
+        );
+      },
+    },
+    {
+      id: 'source',
+      accessorFn: (review) => normalizeSource(review.provider),
+      filterFn: multiSelectFilterFn,
+      header: ({ column }) => (
+        <div className="flex items-center justify-between gap-2">
+          <SortableHeaderLabel label="Source" onToggle={column.getToggleSortingHandler()} />
+          <div className="flex items-center gap-2">
+            <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+            <HeaderFilterPopover>
+              <MultiSelectPanel
+                label="Sources"
+                value={(column.getFilterValue() as string) ?? ''}
+                onChange={(v) => column.setFilterValue(v || undefined)}
+                options={[
+                  { value: 'github', label: 'GitHub' },
+                  { value: 'gitlab', label: 'GitLab' },
+                  { value: 'bitbucket', label: 'Bitbucket' },
+                  { value: 'gitea', label: 'Gitea' },
+                  { value: 'azuredevops', label: 'Azure DevOps' },
+                  { value: 'cli', label: 'CLI' },
+                ]}
+              />
+            </HeaderFilterPopover>
+          </div>
+        </div>
+      ),
+      cell: ({ row }) => (
+        <div className="flex items-center gap-1.5 text-white">
+          <SourceIcon provider={row.original.provider} />
+          {sourceLabel(row.original.provider)}
+        </div>
+      ),
+    },
+    {
+      id: 'status',
+      accessorKey: 'status',
+      filterFn: multiSelectFilterFn,
+      header: ({ column }) => (
+        <div className="flex items-center justify-between gap-2">
+          <SortableHeaderLabel label="Status" onToggle={column.getToggleSortingHandler()} />
+          <div className="flex items-center gap-2">
+            <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+            <HeaderFilterPopover>
+              <MultiSelectPanel
+                label="Statuses"
+                value={(column.getFilterValue() as string) ?? ''}
+                onChange={(v) => column.setFilterValue(v || undefined)}
+                options={[
+                  { value: 'created', label: 'Created' },
+                  { value: 'in_progress', label: 'In Progress' },
+                  { value: 'completed', label: 'Completed' },
+                  { value: 'failed', label: 'Failed' },
+                ]}
+              />
+            </HeaderFilterPopover>
+          </div>
+        </div>
+      ),
+      cell: ({ row }) => {
+        const review = row.original;
+        const badge = reviewStatusBadge(review.status);
+        const executionBadge = getExecutionBadge(review);
+        return (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span
+              className="inline-flex items-center rounded-md px-2 py-0.5 text-sm font-medium w-fit"
+              style={{ backgroundColor: 'transparent', color: badge.color, border: `1px solid ${badge.borderColor}` }}
+            >
+              {getStatusText(review.status)}
+            </span>
+            {executionBadge && (
+              <span
+                className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium w-fit"
+                style={{ backgroundColor: 'transparent', color: executionBadge.color, border: `1px solid ${executionBadge.borderColor}` }}
+              >
+                {executionBadge.label}
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: 'author',
+      accessorFn: (review) => {
+        const fallbackAuthorFromUrl = review.prMrUrl ? extractAuthorFromUrl(review.prMrUrl) : null;
+        return review.authorName?.trim() || review.authorUsername?.trim() || review.userEmail?.trim() || fallbackAuthorFromUrl?.trim() || 'System';
+      },
+      enableColumnFilter: false,
+      header: ({ column }) => (
+        <div className="flex items-center justify-between gap-2">
+          <SortableHeaderLabel label="Author" onToggle={column.getToggleSortingHandler()} />
+          <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+        </div>
+      ),
+      cell: ({ getValue }) => <div className="text-white text-sm">{getValue() as string}</div>,
+    },
+    {
+      id: 'last_activity',
+      accessorFn: (review) => review.completedAt || review.startedAt || review.createdAt,
+      enableColumnFilter: false,
+      header: ({ column }) => (
+        <div className="flex items-center justify-between gap-2">
+          <SortableHeaderLabel label="Last Activity" onToggle={column.getToggleSortingHandler()} />
+          <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+        </div>
+      ),
+      cell: ({ getValue }) => <div className="text-white text-sm">{formatRelativeTime(getValue() as string)}</div>,
+    },
+    {
+      id: 'details',
+      enableSorting: false,
+      enableColumnFilter: false,
+      header: () => <span className="font-semibold text-slate-300 uppercase tracking-wide text-xs">Details</span>,
+      cell: ({ row }) => (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleViewReview(row.original);
+          }}
+          className="border-slate-400 text-white hover:bg-white/10 hover:border-white text-sm cursor-pointer"
+        >
+          View Details
+        </Button>
+      ),
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [handleViewReview]);
+
+  const table = useReactTable({
+    data: reviews,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    initialState: {
+      pagination: { pageSize: pageSizeOptions[0] },
+    },
+  });
+
+  return (
+    <div className="container mx-auto px-4 py-8">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-white mb-2">Code Review Previews</h1>
+          <p className="text-slate-300">Manage and monitor your AI-powered code review sessions</p>
+        </div>
+        <Button
+          as={Link}
+          to="/reviews/new"
+          variant="primary"
+          icon={<Icons.Add />}
+          className="bg-green-600 hover:bg-green-700"
+          title="Safe preview - no comments posted"
+        >
+          New Review
+        </Button>
+      </div>
+
+      <ClientTable
+        table={table}
+        columnWidths={REVIEWS_COLUMN_WIDTHS}
+        loading={loading}
+        loadingLabel="Loading reviews..."
+        error={error}
+        onRetry={() => fetchReviews()}
+        isEmpty={reviews.length === 0}
+        empty={{
+          title: 'No review previews found',
+          description: 'Get started by creating your first preview session (safe - no comments posted)',
+          action: (
+            <Button as={Link} to="/reviews/new" variant="primary" icon={<Icons.Add />} className="bg-green-600 hover:bg-green-700">
+              New Review
+            </Button>
+          ),
+        }}
+        pageSizeOptions={pageSizeOptions}
+        onRowClick={handleViewReview}
+      />
+    </div>
+  );
 };
 
 export default Reviews;
