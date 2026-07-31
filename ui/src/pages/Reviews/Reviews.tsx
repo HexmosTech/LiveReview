@@ -447,7 +447,6 @@ const Reviews: React.FC = () => {
           to="/reviews/new"
           variant="primary"
           icon={<Icons.Add />}
-          className="bg-green-600 hover:bg-green-700"
           title="Safe preview - no comments posted"
         >
           New Review
@@ -466,7 +465,7 @@ const Reviews: React.FC = () => {
           title: 'No review previews found',
           description: 'Get started by creating your first preview session (safe - no comments posted)',
           action: (
-            <Button as={Link} to="/reviews/new" variant="primary" icon={<Icons.Add />} className="bg-green-600 hover:bg-green-700">
+            <Button as={Link} to="/reviews/new" variant="primary" icon={<Icons.Add />}>
               New Review
             </Button>
           ),
