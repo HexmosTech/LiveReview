@@ -6980,26 +6980,21 @@ paths:
         - Orgs
   /api/v1/orgs/{org_id}/members/{user_id}/role:
     put:
-      description: ChangeUserRole handles changing a user's role in an organization
+      description: ChangeUserRole changes a user's role in an organization
       operationId: ChangeUserRole
       parameters:
         - in: path
           name: org_id
           required: true
           schema:
-            type: string
+            format: int64
+            type: integer
         - in: path
           name: user_id
           required: true
           schema:
-            type: string
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/users.UserWithRole'
-          description: OK
+            format: int64
+            type: integer
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/slack-config:
@@ -7194,12 +7189,12 @@ paths:
       operationId: GetUser
       parameters:
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
@@ -7246,12 +7241,12 @@ paths:
       operationId: GetUserAuditLog
       parameters:
         - in: path
-          name: user_id
+          name: org_id
           required: true
           schema:
             type: string
         - in: path
-          name: org_id
+          name: user_id
           required: true
           schema:
             type: string
@@ -7286,26 +7281,21 @@ paths:
         - Orgs
   /api/v1/orgs/{org_id}/users/{user_id}/role:
     put:
-      description: ChangeUserRole handles changing a user's role in an organization
+      description: ChangeUserRole changes a user's role in an organization
       operationId: ChangeUserRole
       parameters:
-        - in: path
-          name: user_id
-          required: true
-          schema:
-            type: string
         - in: path
           name: org_id
           required: true
           schema:
-            type: string
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/users.UserWithRole'
-          description: OK
+            format: int64
+            type: integer
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            format: int64
+            type: integer
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/users/check:
