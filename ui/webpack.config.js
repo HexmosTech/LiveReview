@@ -147,6 +147,13 @@ module.exports =  (env, options)=> {
                 'process.env.LR_LISTMONK_URL': JSON.stringify(process.env.LR_LISTMONK_URL || ''),
                 'process.env.LR_LISTMONK_LIST_ID': JSON.stringify(process.env.LR_LISTMONK_LIST_ID || ''),
             }),
+            // webpack 5 no longer auto-polyfills Node globals. Some deps (e.g. react-draggable,
+            // used by react-grid-layout for the customizable dashboard) reference a bare `process`
+            // at runtime (process.env.DRAGGABLE_DEBUG) outside of what DefinePlugin above replaces,
+            // which throws "process is not defined" in the browser without this.
+            new webpack.ProvidePlugin({
+                process: require.resolve('process/browser'),
+            }),
             new MiniCssExtractPlugin({
                 // Options similar to the same options in webpackOptions.output
                 // both options are optional

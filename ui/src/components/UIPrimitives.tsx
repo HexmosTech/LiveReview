@@ -1,4 +1,4 @@
-import React, { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, ElementType, ComponentPropsWithRef, useState, useRef, useLayoutEffect } from 'react';
+import React, { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, ElementType, ComponentPropsWithRef, useState, useRef, useLayoutEffect, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import classNames from 'classnames';
 import {
@@ -1176,4 +1176,219 @@ export const Divider: React.FC<DividerProps> = ({ label, className }) => {
   }
   
   return <hr className={classNames('border-t border-slate-600', className)} />;
+};
+
+// ===== FILTER DROPDOWNS (checkbox multi-select + single-select) =====
+// Shared by Explore > Repositories and Explore > Merge Requests filter bars.
+// Same visual/interaction pattern as the local MultiSelectField originally
+// built for pages/Reports/TaxonomyReports.tsx.
+
+export type FilterOption = { value: string; label: string };
+
+export const parseMultiFilterValue = (v: string): string[] =>
+  (v || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+export const removeMultiFilterValue = (current: string, target: string): string =>
+  parseMultiFilterValue(current).filter((v) => v !== target).join(',');
+
+interface MultiSelectFieldProps {
+  label: string;
+  options: FilterOption[];
+  value: string;
+  onChange: (next: string) => void;
+}
+
+interface MultiSelectPanelProps {
+  label: string;
+  options: FilterOption[];
+  value: string;
+  onChange: (next: string) => void;
+  /** Called after "All X" is picked, so an enclosing popover (if any) can close itself. */
+  onRequestClose?: () => void;
+}
+
+// The search + "All X" + checkbox-list content of MultiSelectField, without
+// the trigger button or open/close state - so callers that need their own
+// trigger (e.g. a header filter icon) can reuse the exact same panel instead
+// of duplicating this logic. MultiSelectField below is just this panel
+// wrapped in its own button + positioning.
+export const MultiSelectPanel: React.FC<MultiSelectPanelProps> = ({ label, options, value, onChange, onRequestClose }) => {
+  const [query, setQuery] = useState('');
+  const selected = parseMultiFilterValue(value);
+  const allSelected = selected.length === 0 || selected.length === options.length;
+  const selectedSet = new Set(allSelected ? options.map((o) => o.value) : selected);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((o) => o.label.toLowerCase().includes(q));
+  }, [options, query]);
+
+  const toggle = (target: string) => {
+    const next = new Set(allSelected ? options.map((o) => o.value) : selected);
+    if (next.has(target)) next.delete(target);
+    else next.add(target);
+    if (next.size === 0 || next.size === options.length) {
+      onChange('');
+      return;
+    }
+    onChange(Array.from(next).join(','));
+  };
+
+  return (
+    <div className="space-y-2">
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search..."
+        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
+      />
+      <button
+        type="button"
+        className="w-full text-left text-sm px-2 py-1.5 rounded bg-slate-900 hover:bg-slate-700 text-slate-200"
+        onClick={() => {
+          onChange('');
+          onRequestClose?.();
+        }}
+      >
+        All {label} ({options.length})
+      </button>
+      <div className="max-h-52 overflow-y-auto space-y-1 pr-1">
+        {filtered.map((o) => (
+          <label key={o.value} className="flex items-center gap-2 text-sm text-slate-200 px-2 py-1.5 rounded hover:bg-slate-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={selectedSet.has(o.value)}
+              onChange={() => toggle(o.value)}
+              className="accent-blue-500"
+            />
+            <span className="truncate">{o.label}</span>
+          </label>
+        ))}
+        {filtered.length === 0 && <p className="text-xs text-slate-500 px-2 py-1.5">No matches</p>}
+      </div>
+    </div>
+  );
+};
+
+export const MultiSelectField: React.FC<MultiSelectFieldProps> = ({ label, options, value, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const selected = parseMultiFilterValue(value);
+  const allSelected = selected.length === 0 || selected.length === options.length;
+
+  const summary = allSelected
+    ? `All ${label}`
+    : selected.length === 1
+      ? options.find((o) => o.value === selected[0])?.label || selected[0]
+      : `${selected.length} selected`;
+
+  useEffect(() => {
+    if (!open) return;
+    const onClickOutside = (ev: MouseEvent) => {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(ev.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label={`Filter by ${label}`}
+        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2.5 text-left text-sm text-white hover:border-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-400"
+      >
+        <span className="flex items-center justify-between gap-2">
+          <span className="truncate">{summary}</span>
+          <span className="text-slate-400">▾</span>
+        </span>
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-1 w-full min-w-[14rem] rounded-lg border border-slate-600 bg-slate-800 shadow-xl p-2">
+          <MultiSelectPanel label={label} options={options} value={value} onChange={onChange} onRequestClose={() => setOpen(false)} />
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface SingleSelectFieldProps {
+  label: string;
+  options: FilterOption[];
+  value: string;
+  onChange: (next: string) => void;
+  /** Set false for exhaustive selectors (e.g. a sort order) where an empty
+   * "All X" state doesn't make sense - every option is mutually exclusive
+   * and one is always active. Defaults to true (shows "All {label}"). */
+  allowClear?: boolean;
+}
+
+// Same button/panel chrome as MultiSelectField above, but single-select (no
+// checkboxes) - for filters whose options are mutually exclusive rather than
+// combinable (e.g. Any/Has open PRs/No open PRs).
+export const SingleSelectField: React.FC<SingleSelectFieldProps> = ({ label, options, value, onChange, allowClear = true }) => {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const current = options.find((o) => o.value === value);
+  const summary = current ? current.label : `All ${label}`;
+
+  useEffect(() => {
+    if (!open) return;
+    const onClickOutside = (ev: MouseEvent) => {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(ev.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [open]);
+
+  const select = (next: string) => {
+    onChange(next);
+    setOpen(false);
+  };
+
+  return (
+    <div ref={rootRef} className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label={`Filter by ${label}`}
+        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2.5 text-left text-sm text-white hover:border-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-400"
+      >
+        <span className="flex items-center justify-between gap-2">
+          <span className="truncate">{summary}</span>
+          <span className="text-slate-400">▾</span>
+        </span>
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-1 w-full min-w-[14rem] rounded-lg border border-slate-600 bg-slate-800 shadow-xl p-2 space-y-1">
+          {allowClear && (
+            <button
+              type="button"
+              className={`w-full text-left text-sm px-2 py-1.5 rounded ${value === '' ? 'bg-blue-600 text-white' : 'bg-slate-900 hover:bg-slate-700 text-slate-200'}`}
+              onClick={() => select('')}
+            >
+              All {label}
+            </button>
+          )}
+          {options.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              className={`w-full text-left text-sm px-2 py-1.5 rounded ${value === o.value ? 'bg-blue-600 text-white' : 'bg-slate-900 hover:bg-slate-700 text-slate-200'}`}
+              onClick={() => select(o.value)}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 };

@@ -21,6 +21,7 @@ import (
 	"github.com/livereview/internal/lrcfetch"
 	"github.com/livereview/internal/prompts"
 	gitlabinput "github.com/livereview/internal/provider_input/gitlab"
+	"github.com/livereview/internal/prsync"
 	storagelicense "github.com/livereview/storage/license"
 )
 
@@ -89,6 +90,15 @@ func NewWebhookOrchestratorV2(server *Server) *WebhookOrchestratorV2 {
 	return orchestrator
 }
 
+// prStateConverter is implemented by webhook providers that can recognize a
+// PR/MR lifecycle event (GitHub "pull_request", GitLab "merge_request") and
+// convert it to a normalized prsync.PullRequestStateEvent. matched=false (with
+// a nil error) means this payload isn't one of those events, so the caller
+// should fall through to the normal comment/reviewer conversion path.
+type prStateConverter interface {
+	ConvertPullRequestStateEvent(headers map[string]string, body []byte) (*prsync.PullRequestStateEvent, bool, error)
+}
+
 // ProcessWebhookEvent is the main entry point for webhook processing (replaces individual handlers)
 func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 	startTime := time.Now()
@@ -127,6 +137,50 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 	}
 
 	log.Printf("[INFO] Detected provider: %s", providerName)
+
+	// Phase 1.5: PR/MR state-sync short-circuit. GitHub's "pull_request" and
+	// GitLab's "merge_request" webhook events are already delivered to this
+	// endpoint today (LiveReview's webhook installer subscribes to them), but
+	// convertToUnifiedEvent below only recognizes comment/reviewer-shaped
+	// events, so these currently either fail outright (GitHub: HTTP 400) or
+	// get silently swallowed as an empty-body no-op (GitLab). Handle them here
+	// instead, bypassing the AI-response pipeline entirely (bot-info lookup,
+	// response-warrant check, LOC preflight are all irrelevant to a state
+	// upsert), and return before any of that runs.
+	if converter, ok := provider.(prStateConverter); ok {
+		if stateEvent, matched, convErr := converter.ConvertPullRequestStateEvent(headers, bodyBytes); matched {
+			if convErr != nil {
+				log.Printf("[ERROR] Failed to convert PR/MR state event (provider=%s): %v", providerName, convErr)
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error":    "failed to process pr state webhook",
+					"provider": providerName,
+				})
+			}
+			connectorID, ok := auth.GetConnectorIDFromContext(c)
+			if !ok {
+				log.Printf("[ERROR] Connector ID not found in context - webhook route configuration error")
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			}
+			orgID, ok := auth.GetOrgIDFromContext(c)
+			if !ok {
+				log.Printf("[ERROR] Org ID not found in context - middleware configuration error")
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			}
+			if wo.server.jobQueue == nil {
+				log.Printf("[ERROR] Job queue not initialized, cannot process PR state event")
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			}
+			if err := wo.server.jobQueue.QueuePRStateSyncJob(c.Request().Context(), orgID, connectorID, providerName, *stateEvent); err != nil {
+				log.Printf("[ERROR] Failed to queue PR state sync job: %v", err)
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to queue pr state sync"})
+			}
+			return c.JSON(http.StatusOK, map[string]string{
+				"status":     "accepted",
+				"provider":   providerName,
+				"event_type": "pr_state_sync",
+			})
+		}
+	}
 
 	// Phase 2: Convert to Unified Event Structure
 	event, err := wo.convertToUnifiedEvent(provider, headers, bodyBytes)

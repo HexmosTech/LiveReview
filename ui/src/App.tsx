@@ -17,6 +17,7 @@ const GitProviders = React.lazy(() => import('./pages/GitProviders/GitProviders'
 const AIProviders = React.lazy(() => import('./pages/AIProviders/AIProviders'));
 const Settings = React.lazy(() => import('./pages/Settings/Settings'));
 const ReviewsRoutes = React.lazy(() => import('./pages/Reviews/ReviewsRoutes'));
+const ExploreRoutes = React.lazy(() => import('./pages/Explore/ExploreRoutes'));
 const Login = React.lazy(() => import('./pages/Auth/Login'));
 const SelfHosted = React.lazy(() => import('./pages/Auth/SelfHosted'));
 const Setup = React.lazy(() => import('./pages/Setup/Setup'));
@@ -162,6 +163,7 @@ const AppContent: React.FC = () => {
         const path = location.pathname;
         if (path.startsWith('/dashboard')) return 'dashboard';
         if (path.startsWith('/reviews')) return 'reviews';
+        if (path.startsWith('/explore')) return 'explore';
         if (path.startsWith('/git') || path.startsWith('/ai')) return 'providers';
         if (path.startsWith('/admin/billing-portfolio')) return 'admin-billing';
         if (path.startsWith('/reports')) return 'reports';
@@ -313,6 +315,7 @@ const AppContent: React.FC = () => {
                                 <Route path="/subscribe/subscriptions/:id/assign" element={<LicenseAssignment />} />
                                 <Route path="/checkout/team" element={<TeamCheckout />} />
                                 <Route path="/reviews/*" element={<ReviewsRoutes />} />
+                                <Route path="/explore/*" element={<ExploreRoutes />} />
                                 <Route path="/git/*" element={<GitProviders />} />
                                 <Route path="/ai" element={<AIProviders />} />
                                 <Route path="/ai/:provider" element={<AIProviders />} />

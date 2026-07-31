@@ -2,7 +2,10 @@ package providers
 
 import (
 	"context"
+	"fmt"
+	"time"
 
+	"github.com/livereview/internal/prsync"
 	"github.com/livereview/pkg/models"
 )
 
@@ -44,4 +47,39 @@ type DiffRefs struct {
 	BaseSHA  string
 	HeadSHA  string
 	StartSHA string
+}
+
+// PullRequestListState is the state filter passed to a bulk PR/MR listing call.
+type PullRequestListState string
+
+const (
+	PRListStateAll    PullRequestListState = "all"
+	PRListStateOpen   PullRequestListState = "open"
+	PRListStateClosed PullRequestListState = "closed"
+)
+
+// RepositoryPage is one page of a bulk repository-listing call, with an opaque
+// cursor for the next page (empty string means no more pages).
+type RepositoryPage struct {
+	Repositories []prsync.RepositorySummary
+	NextCursor   string
+}
+
+// PullRequestPage is one page of a bulk PR/MR-listing call, with an opaque
+// cursor for the next page (empty string means no more pages).
+type PullRequestPage struct {
+	PullRequests []prsync.PullRequestSummary
+	NextCursor   string
+}
+
+// RateLimitedError signals that a provider API call was rejected or should be
+// deferred due to rate limiting. Callers (e.g. the repo/PR sync worker) can
+// check for this via errors.As and reschedule the work instead of failing it.
+type RateLimitedError struct {
+	Provider   string
+	RetryAfter time.Duration
+}
+
+func (e *RateLimitedError) Error() string {
+	return fmt.Sprintf("%s rate limit exceeded, retry after %s", e.Provider, e.RetryAfter)
 }

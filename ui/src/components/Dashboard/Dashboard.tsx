@@ -1,13 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import classNames from 'classnames';
 import { getDashboardData, DashboardData, refreshDashboardData } from '../../api/dashboard';
 import {
-    StatCard,
-    Section,
-    PageHeader,
-    Card,
-    EmptyState,
     Button,
     Icons,
     Tooltip,
@@ -15,7 +9,8 @@ import {
 } from '../UIPrimitives';
 import { HumanizedTimestamp } from '../HumanizedTimestamp/HumanizedTimestamp';
 import RecentActivity from './RecentActivity';
-import { OnboardingStepper } from './OnboardingStepper';
+import { FloatingOnboardingNudge } from './FloatingOnboardingNudge';
+import { DashboardGrid } from './widgets/DashboardGrid';
 import { PlanBadge } from './PlanBadge';
 import { QuotaExhaustedBanner } from './QuotaExhaustedBanner';
 import { QuotaWarningBanner } from './QuotaWarningBanner';
@@ -82,20 +77,12 @@ type DashboardBillingInsight = {
     actionRequiredType: string;
 };
 
-const dashboardPlanLabel = (planCode: string): string => {
-    const normalized = String(planCode || '').trim().toLowerCase();
-    if (normalized === 'free_30k' || normalized === 'free') return 'Free 30k';
-    if (normalized === 'team_32usd' || normalized === 'team') return 'Team 100k';
-    if (normalized === 'loc_200k') return 'Team 200k';
-    if (normalized === 'loc_400k') return 'Team 400k';
-    if (normalized === 'loc_800k') return 'Team 800k';
-    if (normalized === 'loc_1600k') return 'Team 1.6M';
-    if (normalized === 'loc_3200k') return 'Team 3.2M';
-    return planCode || 'Plan';
-};
-
 const getConnectorWarningDismissStorageKey = (userId?: number | string): string => {
     return userId ? `lr_hidden_connector_warnings_${userId}` : 'lr_hidden_connector_warnings';
+};
+
+const getHideStepperStorageKey = (userId?: number | string): string => {
+    return userId ? `lr_hide_get_started_${userId}` : 'lr_hide_get_started';
 };
 
 const parseDismissedConnectorIds = (rawValue: string | null): Set<number> => {
@@ -145,8 +132,7 @@ export const Dashboard: React.FC = () => {
     const [hideStepper, setHideStepper] = useState<boolean>(() => {
         // Scope localStorage to user ID so each user has their own onboarding state
         try {
-            const key = user?.id ? `lr_hide_get_started_${user.id}` : 'lr_hide_get_started';
-            return localStorage.getItem(key) === '1';
+            return localStorage.getItem(getHideStepperStorageKey(user?.id)) === '1';
         } catch {
             return false;
         }
@@ -162,6 +148,16 @@ export const Dashboard: React.FC = () => {
     useEffect(() => {
         const storageKey = getConnectorWarningDismissStorageKey(user?.id);
         setPersistedDismissedConnectors(loadDismissedConnectorIds(storageKey));
+    }, [user?.id]);
+
+    // Re-check once the authenticated user has loaded: the initial mount can run
+    // before Auth.user is hydrated, so the very first read may check the wrong
+    // (unscoped) key while the dismiss handler below writes the per-user key.
+    useEffect(() => {
+        if (!user?.id) return;
+        try {
+            setHideStepper(localStorage.getItem(getHideStepperStorageKey(user.id)) === '1');
+        } catch { /* ignore */ }
     }, [user?.id]);
 
     const dismissConnectorForSession = (connectorId: number): void => {
@@ -305,15 +301,12 @@ export const Dashboard: React.FC = () => {
     }, []);
 
     // Use dashboard API data exclusively - no fallbacks to Redux store
-    const aiComments = dashboardData?.total_comments || 0;
     const codeReviews = dashboardData?.total_reviews || 0;
-    const connectedProviders = dashboardData?.connected_providers || 0;
     const aiConnectors = dashboardData?.active_ai_connectors || 0;
 
     // Derive onboarding state
     const hasCLI = dashboardData?.cli_installed || false;
     const hasAIProvider = aiConnectors > 0;
-    const allSet = hasCLI && hasAIProvider;
     const hasRunReview = codeReviews > 0;
 
     // Build install commands with API key
@@ -329,9 +322,6 @@ export const Dashboard: React.FC = () => {
 
     // Auto-hide feature disabled - users can manually dismiss the onboarding stepper if they want
     // by clicking "Don't show again" button
-
-    // Check if this is an empty state (no connections and no activity)
-    const isEmpty = connectedProviders === 0 && codeReviews === 0 && aiComments === 0;
 
     // Get connectors that need setup attention (filter out dismissed ones)
     const connectorsNeedingSetup = (dashboardData?.connector_setup_progress || []).filter(
@@ -374,11 +364,9 @@ export const Dashboard: React.FC = () => {
         }
     };
 
-    const dashboardOnFreePlan = String(billingInsight?.planCode || '').trim().toLowerCase() === 'free_30k' || String(billingInsight?.planCode || '').trim().toLowerCase() === 'free';
-
     return (
         <div className="min-h-screen">
-            <main className="container mx-auto px-4 py-6">
+            <main className="container mx-auto px-4 py-8">
                 {/* Connector Setup Progress - using standard Alert component */}
                 {connectorsNeedingSetup.length > 0 && (
                     <div className="mb-6 space-y-3">
@@ -474,102 +462,28 @@ export const Dashboard: React.FC = () => {
 
                 {/* Header with aligned content and prominent CTA */}
                 <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6">
-                    <div className="mb-4 sm:mb-0">
-                        <div className="flex items-center gap-2">
-                            <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-                        </div>
-                        <p className="mt-1 text-base text-slate-300">
-                            Monitor your code review activity and connected services
-                            {dashboardData && (
-                                <span className="text-xs text-slate-400 ml-2">
-                                    Last updated: <HumanizedTimestamp
-                                        timestamp={dashboardData.last_updated}
-                                        className="text-slate-400"
-                                    />
-                                </span>
-                            )}
-                        </p>
-                    </div>
+                    <p className="text-sm text-slate-400">
+                        Monitor your code review activity and connected services
+                        {dashboardData && (
+                            <span className="text-xs text-slate-400 ml-2">
+                                Last updated: <HumanizedTimestamp
+                                    timestamp={dashboardData.last_updated}
+                                    className="text-slate-400"
+                                />
+                            </span>
+                        )}
+                    </p>
                     <div className="hidden sm:flex gap-3">
                         <Button
                             variant="primary"
                             icon={<Icons.Add />}
                             onClick={handleNewReviewClick}
-                            className="shadow-xl transition-all duration-300 hover:shadow-2xl hover:scale-105 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600"
                             title={isFreePlan ? "Upgrade your plan to create reviews" : "Safe review - no comments posted"}
                         >
                             New Review
                         </Button>
                     </div>
                 </div>
-
-                {billingInsight && (
-                    <div className="mb-6 bg-slate-800/55 border border-slate-700 rounded-xl p-4">
-                        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                            <div className="space-y-2">
-                                <p className="text-sm text-slate-300">
-                                    Billing status: <span className="text-white font-semibold">{dashboardPlanLabel(billingInsight.planCode)}</span>
-                                    {' • '}
-                                    Usage <span className="text-white font-semibold">{billingInsight.usagePct}%</span>
-                                </p>
-                                <div className="w-full lg:w-80 h-2 rounded-full bg-slate-700 overflow-hidden">
-                                    <div
-                                        className={classNames(
-                                            'h-full transition-all',
-                                            billingInsight.blocked || billingInsight.customerState === 'action_needed' || billingInsight.customerState === 'payment_failed'
-                                                ? 'bg-red-500'
-                                                : billingInsight.usagePct >= 90
-                                                    ? 'bg-amber-500'
-                                                    : billingInsight.usagePct >= 80
-                                                        ? 'bg-amber-500'
-                                                        : 'bg-emerald-500'
-                                        )}
-                                        style={{ width: `${Math.max(0, Math.min(100, billingInsight.usagePct))}%` }}
-                                    />
-                                </div>
-                                <p className="text-xs text-slate-400">
-                                    {billingInsight.locUsed.toLocaleString()} / {billingInsight.locLimit > 0 ? billingInsight.locLimit.toLocaleString() : 'Unlimited'} LOC this period
-                                </p>
-                                {billingInsight.trialActive && (
-                                    <p className="text-xs text-sky-200">
-                                        Trial active: ends {billingInsight.trialEndsAt ? new Date(billingInsight.trialEndsAt).toLocaleString() : 'when synchronization completes'}.
-                                    </p>
-                                )}
-                                {!billingInsight.trialActive && dashboardOnFreePlan && (
-                                    <p className={`text-xs ${billingInsight.trialEligibleForFirstPaidPurchase
-                                        ? 'text-sky-200'
-                                        : billingInsight.trialEligibilityStatus === 'already_used'
-                                            ? 'text-slate-300'
-                                            : 'text-amber-200'
-                                        }`}>
-                                        {billingInsight.trialEligibleForFirstPaidPurchase
-                                            ? `First paid purchase includes ${billingInsight.trialPolicyDays}-day trial on any paid LOC plan.`
-                                            : billingInsight.trialEligibilityStatus === 'already_used'
-                                                ? 'First paid trial already used for this email. New paid purchases bill immediately.'
-                                                : 'Trial eligibility is being synchronized and will be confirmed at checkout.'}
-                                    </p>
-                                )}
-                                {(billingInsight.customerState === 'action_needed' || billingInsight.customerState === 'payment_failed' || billingInsight.blocked || billingInsight.trialReadonly) && (
-                                    <p className="text-xs text-amber-200">
-                                        Action needed: {billingInsight.actionRequiredType || billingInsight.customerState.replace(/_/g, ' ')}
-                                        {billingInsight.supportReference ? ` • Ref ${billingInsight.supportReference}` : ''}
-                                    </p>
-                                )}
-                            </div>
-                            {isCloudMode() && (
-                                <div className="flex items-center gap-2">
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => navigate('/settings-subscriptions-overview')}
-                                        className="text-slate-200 border-slate-500"
-                                    >
-                                        Open Billing Details
-                                    </Button>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
 
                 {/* Error state */}
                 {error && (
@@ -599,14 +513,14 @@ export const Dashboard: React.FC = () => {
                     variant="primary"
                     icon={<Icons.Add />}
                     onClick={handleNewReviewClick}
-                    className="fixed bottom-6 right-6 sm:hidden z-40 rounded-full w-14 h-14 shadow-xl transition-all duration-300 hover:shadow-2xl hover:scale-110 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600"
+                    className="fixed bottom-6 right-6 sm:hidden z-40 rounded-full w-14 h-14 shadow-lg"
                     aria-label={isFreePlan ? "Review creation locked" : "New Review (Safe - no comments posted)"}
                     title={isFreePlan ? "Upgrade your plan to create reviews" : "Safe review - no comments posted"}
                 />
 
-                {/* Get Started stepper – stays visible until the user manually dismisses it */}
+                {/* Floating setup-guide nudge – stays available until the user manually dismisses it */}
                 {!hideStepper && (
-                    <OnboardingStepper
+                    <FloatingOnboardingNudge
                         hasCLI={hasCLI}
                         hasAIProvider={hasAIProvider}
                         hasRunReview={hasRunReview}
@@ -614,153 +528,22 @@ export const Dashboard: React.FC = () => {
                         installCommandWindows={installCommandWindows}
                         onConfigureAI={() => navigate('/ai')}
                         onNewReview={() => navigate('/reviews/new')}
-                        userId={user?.id}
                         isFreePlan={isFreePlan}
                         onUpgrade={() => setShowUpgradeDialog(true)}
                         onDismiss={() => {
                             setHideStepper(true);
                             try {
-                                const key = user?.id ? `lr_hide_get_started_${user.id}` : 'lr_hide_get_started';
-                                localStorage.setItem(key, '1');
+                                localStorage.setItem(getHideStepperStorageKey(user?.id), '1');
                             } catch { }
                         }}
-                        className="mb-6"
                     />
                 )}
 
-                {/* Main Statistics Grid - Improved density and alignment */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    <StatCard
-                        variant="primary"
-                        title="AI Reviews"
-                        value={codeReviews}
-                        icon={
-                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14.72,8.79l-4.29,4.3L8.78,11.44a1,1,0,1,0-1.41,1.41l2.35,2.36a1,1,0,0,0,.71.29,1,1,0,0,0,.7-.29l5-5a1,1,0,0,0,0-1.42A1,1,0,0,0,14.72,8.79ZM12,2A10,10,0,1,0,22,12,10,10,0,0,0,12,2Zm0,18a8,8,0,1,1,8-8A8,8,0,0,1,12,20Z" />
-                            </svg>
-                        }
-                        description="Reviews generated"
-                        emptyNote="No reviews yet."
-                        emptyCtaLabel="Start one now"
-                        onEmptyCta={() => navigate('/reviews/new')}
-                    />
-                    <StatCard
-                        variant="primary"
-                        title="AI Comments"
-                        value={aiComments}
-                        icon={
-                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M12,2A10,10,0,0,0,2,12a9.89,9.89,0,0,0,2.26,6.33l-2,2a1,1,0,0,0-.21,1.09A1,1,0,0,0,3,22h9A10,10,0,0,0,12,2Zm0,18H5.41l.93-.93a1,1,0,0,0,0-1.41A8,8,0,1,1,12,20Z" />
-                            </svg>
-                        }
-                        description="Comments generated"
-                        emptyNote="No comments yet."
-                        emptyCtaLabel="Run a review"
-                        onEmptyCta={() => navigate('/reviews/new')}
-                    />
-                    <div className="relative group">
-                        <StatCard
-                            title="Git Providers"
-                            value={connectedProviders}
-                            icon={<Icons.Git />}
-                            description="Connected services"
-                            emptyNote="No Git providers connected."
-                            emptyCtaLabel="Connect now"
-                            onEmptyCta={() => navigate('/git')}
-                            headerInfo="GitHub, GitLab or Bitbucket accounts connected to LiveReview."
-                            headerInfoPosition="bottom"
-                        />
-                    </div>
-                    <div className="relative group">
-                        <StatCard
-                            title="AI Providers"
-                            value={aiConnectors}
-                            icon={<Icons.AI />}
-                            description="Connected AI backends"
-                            emptyNote="No AI providers configured."
-                            emptyCtaLabel="Configure now"
-                            onEmptyCta={() => navigate('/ai')}
-                            headerInfo="LLM backends like OpenAI or local models used to generate review comments."
-                            headerInfoPosition="bottom"
-                        />
-                    </div>
-                </div>
+                {/* Customizable engineering dashboard — drag/resize/add/remove widgets */}
+                <DashboardGrid userId={user?.id} />
 
-                {/* Main Content Grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-2">
-                        <RecentActivity className="h-fit" />
-                    </div>
-
-                    <div className="space-y-6">
-                        {isEmpty && (
-                            <Card title="Get Started" subtitle="Connect a provider or configure AI to begin">
-                                <div className="space-y-2">
-                                    <Button variant="outline" icon={<Icons.Git />} onClick={() => navigate('/git')} className='mr-2'>
-                                        Connect Git Provider
-                                    </Button>
-                                    <Button variant="outline" icon={<Icons.AI />} onClick={() => navigate('/ai')} className='mr-2'>
-                                        Configure AI Service
-                                    </Button>
-                                    <Button variant="outline" icon={<Icons.Settings />} onClick={() => navigate('/settings')} className='mr-2'>
-                                        Review Settings
-                                    </Button>
-                                </div>
-                            </Card>
-                        )}
-
-                        {/* Performance Summary */}
-                        <Card
-                            title="This Week"
-                            subtitle="Review performance summary"
-                            className="h-fit"
-                        >
-                            <div className="space-y-3">
-                                <div className="flex justify-between items-center">
-                                    <span className="text-sm text-slate-300">Reviews Generated</span>
-                                    <span className="text-sm font-medium text-white">{dashboardData?.performance_metrics?.reviews_this_week || 0}</span>
-                                </div>
-                                <div className="flex justify-between items-center">
-                                    <span className="text-sm text-slate-300">Comments Made</span>
-                                    <span className="text-sm font-medium text-white">{dashboardData?.performance_metrics?.comments_this_week || 0}</span>
-                                </div>
-                                <div className="flex justify-between items-center">
-                                    <span className="text-sm text-slate-300">Avg. Response Time</span>
-                                    <span className="text-sm font-medium text-white">{dashboardData?.performance_metrics?.avg_response_time_seconds?.toFixed(1) || '2.3'}s</span>
-                                </div>
-                                <div className="flex justify-between items-center">
-                                    <span className="text-sm text-slate-300">Success Rate</span>
-                                    <span className="text-sm font-medium text-white">{dashboardData?.performance_metrics?.success_rate_percentage?.toFixed(1) || '100'}%</span>
-                                </div>
-                                <div className="pt-2 border-t border-slate-700">
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="w-full text-blue-300 hover:text-blue-200"
-                                    >
-                                        View Analytics
-                                    </Button>
-                                </div>
-                            </div>
-                        </Card>
-
-                        {/* Improved empty state for metrics */}
-                        {isEmpty && (
-                            <Card className="h-fit" title="No data yet" subtitle="Run your first review to see stats here.">
-                                <EmptyState
-                                    icon={<Icons.EmptyState />}
-                                    title="Nothing to show yet"
-                                    description="Once you run a review, you'll see activity, comments and trends here."
-                                    action={
-                                        <Button variant="primary" icon={<Icons.Add />} onClick={() => navigate('/reviews/new')}>
-                                            New Review
-                                        </Button>
-                                    }
-                                />
-                            </Card>
-                        )}
-                    </div>
-                </div>
+                {/* Real, API-backed activity feed — kept as a fixed section below the widget grid */}
+                <RecentActivity className="mt-6" />
 
                 {/* Upgrade Modal */}
                 <LicenseUpgradeDialog
