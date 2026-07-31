@@ -307,6 +307,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	status := "failed"
 	summary := ""
 	var comments []*models.ReviewComment
+	var quiz []models.QuizQuestion
 	failureReason := ""
 
 	if result != nil {
@@ -370,6 +371,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 		}
 		summary = result.Summary
 		comments = result.Comments
+		quiz = result.Quiz
 	} else {
 		failureReason = "review processing returned no result"
 		if logger != nil {
@@ -382,8 +384,9 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	type diffReviewResultPayload struct {
 		Summary  string                  `json:"summary"`
 		Comments []*models.ReviewComment `json:"comments"`
+		Quiz     []models.QuizQuestion   `json:"quiz,omitempty"`
 	}
-	payload := diffReviewResultPayload{Summary: summary, Comments: comments}
+	payload := diffReviewResultPayload{Summary: summary, Comments: comments, Quiz: quiz}
 	meta := map[string]interface{}{"review_result": payload}
 	if failureReason != "" {
 		meta["failure_reason"] = failureReason
