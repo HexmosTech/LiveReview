@@ -260,17 +260,16 @@ func (s *Server) ListRepositories(c echo.Context) error {
 		sortKey = "last_activity"
 		sortColumn = sortColumns[sortKey]
 	}
-	order := strings.ToLower(c.QueryParam("order"))
-	if order != "asc" && order != "desc" {
-		// Preserve the previous hardcoded defaults for the two original
-		// sort keys; every other column defaults to ascending.
-		if sortKey == "open_pr_count" || sortKey == "last_activity" {
-			order = "desc"
-		} else {
-			order = "asc"
-		}
+	requestedOrder := strings.ToLower(c.QueryParam("order"))
+	descByDefault := sortKey == "open_pr_count" || sortKey == "last_activity"
+	// Resolve to one of two hardcoded literals rather than passing the
+	// (validated) request value through, so the SQL builder never touches
+	// user-controlled input even indirectly.
+	orderClause := "ASC"
+	if requestedOrder == "desc" || (requestedOrder != "asc" && descByDefault) {
+		orderClause = "DESC"
 	}
-	query += fmt.Sprintf(" ORDER BY %s %s NULLS LAST, full_name ASC", sortColumn, strings.ToUpper(order))
+	query += fmt.Sprintf(" ORDER BY %s %s NULLS LAST, full_name ASC", sortColumn, orderClause)
 	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	args = append(args, perPage, (page-1)*perPage)
 
