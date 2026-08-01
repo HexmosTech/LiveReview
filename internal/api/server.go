@@ -626,17 +626,22 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 	}
 
 	connectorStorage := aiconnectors.NewStorage(db)
-	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
+	// Discord-specific overrides fall back to the shared SLACK_* variables for
+	// backwards compatibility (existing deployments only set SLACK_*).
+	mcpServerURL := os.Getenv("DISCORD_MCP_SERVER_URL")
+	if mcpServerURL == "" {
+		mcpServerURL = os.Getenv("SLACK_MCP_SERVER_URL")
+	}
 	if mcpServerURL == "" {
 		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
 	}
+	stepStr := os.Getenv("DISCORD_MAX_AGENT_STEPS")
+	if stepStr == "" {
+		stepStr = os.Getenv("SLACK_MAX_AGENT_STEPS")
+	}
 	maxSteps := 20
-	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
-		if n, err := strconv.Atoi(s); err != nil || n <= 0 {
-			maxSteps = 20
-		} else {
-			maxSteps = n
-		}
+	if n, err := strconv.Atoi(stepStr); err == nil && n > 0 {
+		maxSteps = n
 	}
 
 	var orgCfgs []discordbot.OrgConfig

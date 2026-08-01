@@ -15,6 +15,7 @@ import (
 
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/mcpagent"
+	"github.com/livereview/internal/vlrender"
 )
 
 const (
@@ -231,7 +232,7 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 
 	conv.history = history
 
-	if hasVegaLiteSpec(response) {
+	if vlrender.HasVegaLiteSpec(response) {
 		vlCtx, vlCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer vlCancel()
 		attachments, replyText := buildAttachmentsFromVegaLite(vlCtx, b.baseURL, response)

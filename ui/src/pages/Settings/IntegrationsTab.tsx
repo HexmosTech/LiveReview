@@ -535,7 +535,10 @@ const DiscordIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
             const response = await apiClient.get<DiscordConfig>(`/orgs/${currentOrg.id}/discord-config`);
             setConfig(response);
         } catch {
+            // Treat load failures as "not configured" but surface the error so
+            // network/server problems aren't silently masked.
             setConfig({ configured: false });
+            setError('Failed to load Discord configuration.');
         } finally {
             setLoading(false);
         }

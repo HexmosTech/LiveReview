@@ -17,20 +17,6 @@ func FormatDiscordResponse(text string) string {
 	return parseRichText(trimmed)
 }
 
-type lineKind int
-
-const (
-	lineUnknown  lineKind = iota
-	lineHeader
-	lineDivider
-	lineBullet
-	lineNumbered
-	lineField
-	lineQuote
-	lineCode
-	lineParagraph
-)
-
 var (
 	headerRe   = regexp.MustCompile(`^(#{1,3})\s+(.+)$`)
 	dividerRe  = regexp.MustCompile(`^[-*_]{3,}$`)
@@ -64,41 +50,30 @@ func parseRichText(text string) string {
 			continue
 		}
 
-		switch {
-		case headerRe.MatchString(trimmed):
-			m := headerRe.FindStringSubmatch(trimmed)
-			level := len(m[1])
-			htext := strings.TrimSpace(m[2])
+		if match := headerRe.FindStringSubmatch(trimmed); len(match) > 0 {
+			level := len(match[1])
+			htext := strings.TrimSpace(match[2])
 			if level == 1 {
 				sb.WriteString(fmt.Sprintf("**%s**\n\n", htext))
 			} else {
 				prefix := strings.Repeat("▸ ", level-1)
 				sb.WriteString(fmt.Sprintf("**%s%s**\n\n", prefix, htext))
 			}
-
-		case dividerRe.MatchString(trimmed):
+		} else if dividerRe.MatchString(trimmed) {
 			sb.WriteString("─────────────\n\n")
-
-		case bulletRe.MatchString(trimmed):
-			m := bulletRe.FindStringSubmatch(trimmed)
-			sb.WriteString(fmt.Sprintf("• %s\n", m[1]))
-
-		case numberedRe.MatchString(trimmed):
-			m := numberedRe.FindStringSubmatch(trimmed)
-			sb.WriteString(fmt.Sprintf("%s\n", m[1]))
-
-		case fieldRe.MatchString(trimmed):
-			m := fieldRe.FindStringSubmatch(trimmed)
-			sb.WriteString(fmt.Sprintf("**%s:** %s\n", m[1], m[2]))
-
-		case quoteRe.MatchString(trimmed):
-			m := quoteRe.FindStringSubmatch(trimmed)
-			sb.WriteString(fmt.Sprintf("> %s\n", m[1]))
-
-		case trimmed == "":
+		} else if match := bulletRe.FindStringSubmatch(trimmed); len(match) > 0 {
+			sb.WriteString(fmt.Sprintf("• %s\n", match[1]))
+		} else if match := numberedRe.FindStringSubmatch(trimmed); len(match) > 0 {
+			// Preserve the original numbering (e.g. "1." or "2)") rather than
+			// dropping it and rendering a bare list.
+			sb.WriteString(match[0] + "\n")
+		} else if match := fieldRe.FindStringSubmatch(trimmed); len(match) > 0 {
+			sb.WriteString(fmt.Sprintf("**%s:** %s\n", match[1], match[2]))
+		} else if match := quoteRe.FindStringSubmatch(trimmed); len(match) > 0 {
+			sb.WriteString(fmt.Sprintf("> %s\n", match[1]))
+		} else if trimmed == "" {
 			sb.WriteString("\n")
-
-		default:
+		} else {
 			sb.WriteString(trimmed + "\n")
 		}
 	}

@@ -346,7 +346,7 @@ const AppContent: React.FC = () => {
                     </span>
                     <button
                         onClick={() => navigate('/chat')}
-                        className="relative w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-full shadow-2xl shadow-indigo-500/50 ring-4 ring-indigo-500/30 transition-transform hover:scale-110 active:scale-95"
+                        className="group relative w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-full shadow-2xl shadow-indigo-500/50 ring-4 ring-indigo-500/30 transition-transform hover:scale-110 active:scale-95"
                         title="LivereviewBot"
                         aria-label="Open LivereviewBot Chat"
                     >

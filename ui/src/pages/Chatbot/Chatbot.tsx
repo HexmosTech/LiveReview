@@ -17,20 +17,16 @@ interface ChatEntry {
   images?: ChatImage[];
 }
 
-interface ChatEntry {
-  id: string;
-  role: 'user' | 'assistant';
-  text: string;
-  images?: { url: string; title?: string; description?: string }[];
-}
-
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
 function resolveImageUrl(url: string): string {
-  if (/^https?:\/\//.test(url)) return url;
-  return `${BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+  // Only allow relative, same-origin chart URLs. The backend always returns
+  // relative /api/v1/chat/charts/... paths; rejecting absolute http(s) URLs
+  // prevents loading arbitrary external content from a model-influenced URL.
+  if (!url || !url.startsWith('/')) return '';
+  return `${BASE_URL}${url}`;
 }
 
 function chartFileName(title?: string): string {
@@ -170,8 +166,8 @@ function findNextSpecial(line: string, from: number): number {
 
 const Chatbot: React.FC = () => {
   const navigate = useNavigate();
-  const user = useAppSelector((s: any) => s.Auth.user);
-  const userName = (user as any)?.name || 'there';
+  const user = useAppSelector((state) => state.Auth.user);
+  const userName = user?.name || 'there';
   const [messages, setMessages] = useState<ChatEntry[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);

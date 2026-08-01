@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,15 +18,20 @@ import (
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/api/auth"
 	"github.com/livereview/internal/mcpagent"
+	"github.com/livereview/internal/vlrender"
 	"github.com/rs/zerolog/log"
 )
 
 var (
 	chartFiles   = map[string]*chartFileEntry{}
 	chartFilesMu sync.RWMutex
+	lastCleanup  = time.Now()
 )
 
-const chartTTL = 10 * time.Minute
+const (
+	chartTTL        = 10 * time.Minute
+	cleanupInterval = 1 * time.Minute
+)
 
 type chartFileEntry struct {
 	PNGPath   string
@@ -60,6 +64,14 @@ func lookupChartFile(id string) (string, bool) {
 func cleanupExpiredCharts() {
 	chartFilesMu.Lock()
 	defer chartFilesMu.Unlock()
+	// Throttle the full-map scan: it runs on every register/lookup, so only
+	// re-scan at most once per cleanupInterval to avoid an O(n) walk under
+	// high-frequency image serving. Expired entries are still removed within
+	// TTL + cleanupInterval.
+	if time.Since(lastCleanup) < cleanupInterval {
+		return
+	}
+	lastCleanup = time.Now()
 	now := time.Now()
 	for id, e := range chartFiles {
 		if now.Sub(e.CreatedAt) > chartTTL {
@@ -70,7 +82,7 @@ func cleanupExpiredCharts() {
 }
 
 type WebChatRequest struct {
-	Message string                 `json:"message"`
+	Message string                  `json:"message"`
 	History []mcpagent.HistoryEntry `json:"history,omitempty"`
 }
 
@@ -81,9 +93,9 @@ type WebChatImage struct {
 }
 
 type WebChatResponse struct {
-	Response string            `json:"response"`
+	Response string                  `json:"response"`
 	History  []mcpagent.HistoryEntry `json:"history"`
-	Images   []WebChatImage    `json:"images,omitempty"`
+	Images   []WebChatImage          `json:"images,omitempty"`
 }
 
 func (s *Server) HandleWebChat(c echo.Context) error {
@@ -147,8 +159,8 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		History:  updatedHistory,
 	}
 
-	if hasVegaLiteSpec(responseText) {
-		images, cleanText := s.renderImagesFromVega(ctx, c, responseText)
+	if vlrender.HasVegaLiteSpec(responseText) {
+		images, cleanText := s.renderImagesFromVega(ctx, responseText)
 		if len(images) > 0 {
 			resp.Images = images
 			// The Vega-Lite JSON must never surface in the chat. If stripping
@@ -160,17 +172,17 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-func (s *Server) renderImagesFromVega(ctx context.Context, c echo.Context, text string) ([]WebChatImage, string) {
-	body := extractJSONBlock(text)
+func (s *Server) renderImagesFromVega(ctx context.Context, text string) ([]WebChatImage, string) {
+	body := vlrender.ExtractJSONBlock(text)
 
 	var multi struct {
-		Reports []vegaLiteReport `json:"reports"`
+		Reports []vlrender.VegaLiteReport `json:"reports"`
 	}
 	if err := json.Unmarshal([]byte(body), &multi); err == nil && len(multi.Reports) > 0 {
 		return renderReportsToImages(ctx, multi.Reports)
 	}
 
-	var wrapped vegaLiteReport
+	var wrapped vlrender.VegaLiteReport
 	if err := json.Unmarshal([]byte(body), &wrapped); err == nil && len(wrapped.Spec) > 0 {
 		images, err := renderSpecToImages(ctx, wrapped)
 		if err != nil {
@@ -186,7 +198,7 @@ func (s *Server) renderImagesFromVega(ctx context.Context, c echo.Context, text 
 	if _, ok := rawMap["$schema"]; !ok && rawMap["mark"] == nil && rawMap["layer"] == nil && rawMap["vconcat"] == nil && rawMap["hconcat"] == nil {
 		return nil, text
 	}
-	spec, err := normalizeVegaLiteSpec([]byte(body))
+	spec, err := vlrender.NormalizeVegaLiteSpec([]byte(body))
 	if err != nil {
 		return nil, text
 	}
@@ -197,17 +209,10 @@ func (s *Server) renderImagesFromVega(ctx context.Context, c echo.Context, text 
 	return images, stripVegaBlocks(text)
 }
 
-type vegaLiteReport struct {
-	Title       string          `json:"title"`
-	Subtitle    string          `json:"subtitle,omitempty"`
-	Description string          `json:"description,omitempty"`
-	Spec        json.RawMessage `json:"spec"`
-}
-
-func renderReportsToImages(ctx context.Context, reports []vegaLiteReport) ([]WebChatImage, string) {
+func renderReportsToImages(ctx context.Context, reports []vlrender.VegaLiteReport) ([]WebChatImage, string) {
 	var images []WebChatImage
 	for _, r := range reports {
-		spec, err := normalizeVegaLiteSpec(r.Spec)
+		spec, err := vlrender.NormalizeVegaLiteSpec(r.Spec)
 		if err != nil {
 			continue
 		}
@@ -215,15 +220,15 @@ func renderReportsToImages(ctx context.Context, reports []vegaLiteReport) ([]Web
 		if err != nil {
 			continue
 		}
-		img.Title = friendlyTitle(r.Title, r.Subtitle)
+		img.Title = vlrender.FriendlyTitle(r.Title, r.Subtitle)
 		img.Description = r.Description
 		images = append(images, img)
 	}
 	return images, ""
 }
 
-func renderSpecToImages(ctx context.Context, r vegaLiteReport) ([]WebChatImage, error) {
-	spec, err := normalizeVegaLiteSpec(r.Spec)
+func renderSpecToImages(ctx context.Context, r vlrender.VegaLiteReport) ([]WebChatImage, error) {
+	spec, err := vlrender.NormalizeVegaLiteSpec(r.Spec)
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +236,7 @@ func renderSpecToImages(ctx context.Context, r vegaLiteReport) ([]WebChatImage, 
 	if err != nil {
 		return nil, err
 	}
-	img.Title = friendlyTitle(r.Title, r.Subtitle)
+	img.Title = vlrender.FriendlyTitle(r.Title, r.Subtitle)
 	img.Description = r.Description
 	return []WebChatImage{img}, nil
 }
@@ -246,41 +251,11 @@ func renderRawSpecToImages(ctx context.Context, spec []byte) ([]WebChatImage, er
 }
 
 func convertSpecToImage(ctx context.Context, spec []byte) (WebChatImage, error) {
-	tmpDir, err := os.MkdirTemp("", "vl-report-*")
+	_, tmpDir, err := vlrender.ConvertVegaLiteToPNG(ctx, spec, "2.0")
 	if err != nil {
-		return WebChatImage{}, fmt.Errorf("create temp dir: %w", err)
+		return WebChatImage{}, err
 	}
-
-	inputPath := filepath.Join(tmpDir, "report.vl.json")
 	outputPath := filepath.Join(tmpDir, "report.png")
-
-	if err := os.WriteFile(inputPath, spec, 0644); err != nil {
-		os.RemoveAll(tmpDir)
-		return WebChatImage{}, fmt.Errorf("write spec: %w", err)
-	}
-
-	binary := os.Getenv("VL_CONVERT_BIN")
-	if binary == "" {
-		binary = "vl-convert"
-	}
-
-	theme := os.Getenv("VL_CONVERT_THEME")
-	if theme == "" {
-		theme = "powerbi"
-	}
-
-	cmd := exec.CommandContext(ctx, binary, "vl2png",
-		"-i", inputPath,
-		"-o", outputPath,
-		"-v", "5.21",
-		"--scale", "2.0",
-		"--theme", theme,
-	)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		os.RemoveAll(tmpDir)
-		return WebChatImage{}, fmt.Errorf("vl-convert failed: %w (output: %s)", err, strings.TrimSpace(string(out)))
-	}
 
 	chartID := make([]byte, 8)
 	rand.Read(chartID)
@@ -291,103 +266,8 @@ func convertSpecToImage(ctx context.Context, spec []byte) (WebChatImage, error) 
 	return WebChatImage{URL: imgURL}, nil
 }
 
-func normalizeVegaLiteSpec(spec []byte) ([]byte, error) {
-	var m map[string]any
-	if err := json.Unmarshal(spec, &m); err != nil {
-		return nil, err
-	}
-	injectAxisAngle(m)
-	b, err := json.Marshal(m)
-	if err != nil {
-		return nil, err
-	}
-	return b, nil
-}
-
-func injectAxisAngle(m map[string]any) {
-	if m == nil {
-		return
-	}
-	for _, key := range []string{"layer", "concat", "hconcat", "vconcat"} {
-		if arr, ok := m[key].([]any); ok {
-			for _, item := range arr {
-				if child, ok := item.(map[string]any); ok {
-					injectAxisAngle(child)
-				}
-			}
-		}
-	}
-	if child, ok := m["spec"].(map[string]any); ok {
-		injectAxisAngle(child)
-	}
-	encoding, ok := m["encoding"].(map[string]any)
-	if !ok {
-		return
-	}
-	for channel, v := range encoding {
-		if channel != "x" && channel != "xOffset" && channel != "x2" {
-			continue
-		}
-		channelMap, ok := v.(map[string]any)
-		if !ok {
-			continue
-		}
-		t := ""
-		if typ, ok := channelMap["type"].(string); ok {
-			t = typ
-		}
-		if t == "quantitative" {
-			continue
-		}
-		axis, ok := channelMap["axis"].(map[string]any)
-		if !ok {
-			axis = map[string]any{}
-			channelMap["axis"] = axis
-		}
-		if _, exists := axis["labelAngle"]; !exists {
-			axis["labelAngle"] = float64(45)
-		}
-	}
-}
-
-func friendlyTitle(title, subtitle string) string {
-	title = strings.TrimSpace(title)
-	subtitle = strings.TrimSpace(subtitle)
-	if title == "" {
-		return "LiveReview Chart"
-	}
-	if subtitle != "" {
-		return title + " — " + subtitle
-	}
-	return title
-}
-
-func extractJSONBlock(raw string) string {
-	s := strings.TrimSpace(raw)
-	if idx := strings.Index(s, "```json"); idx >= 0 {
-		start := idx + len("```json")
-		end := strings.Index(s[start:], "```")
-		if end >= 0 {
-			return strings.TrimSpace(s[start : start+end])
-		}
-	}
-	if idx := strings.Index(s, "```"); idx >= 0 {
-		start := idx + len("```")
-		end := strings.Index(s[start:], "```")
-		if end >= 0 {
-			return strings.TrimSpace(s[start : start+end])
-		}
-	}
-	return s
-}
-
-func hasVegaLiteSpec(text string) bool {
-	return strings.Contains(text, `"$schema"`) ||
-		(strings.Contains(text, `"mark"`) && strings.Contains(text, `"encoding"`)) ||
-		(strings.Contains(text, `"title"`) && strings.Contains(text, `"spec"`)) ||
-		strings.Contains(text, `"reports"`)
-}
-
+// stripVegaBlocks recursively removes leading Vega-Lite JSON objects and any
+// leftover code fences from the text, returning the remaining prose.
 func stripVegaBlocks(raw string) string {
 	idx := strings.Index(raw, "\n{")
 	if idx < 0 {
@@ -429,7 +309,7 @@ func stripVegaBlocks(raw string) string {
 		} else if ch == '}' {
 			depth--
 			if depth == 0 && start >= 0 {
-				if isVegaJSON([]byte(raw[start : i+1])) {
+				if vlrender.IsVegaJSON([]byte(raw[start : i+1])) {
 					raw = strings.TrimSpace(raw[:start] + raw[i+1:])
 					return stripVegaBlocks(raw)
 				}
@@ -475,46 +355,6 @@ func (s *Server) resolveOrgConnector(ctx context.Context, orgID int64) (*aiconne
 		return c, nil
 	}
 	return nil, fmt.Errorf("all AI connectors failed to initialize")
-}
-
-func isVegaJSON(data []byte) bool {
-	var raw any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return false
-	}
-	switch v := raw.(type) {
-	case map[string]any:
-		if _, ok := v["reports"]; ok {
-			return true
-		}
-		if _, ok := v["$schema"]; ok {
-			return true
-		}
-		if _, ok := v["spec"]; ok {
-			if _, hasTitle := v["title"]; hasTitle {
-				return true
-			}
-		}
-		if mark := v["mark"]; mark != nil {
-			_, hasEnc := v["encoding"]
-			_, hasTitle := v["title"]
-			if hasEnc || hasTitle {
-				return true
-			}
-		}
-	case []any:
-		for _, item := range v {
-			if m, ok := item.(map[string]any); ok {
-				if _, ok := m["$schema"]; ok {
-					return true
-				}
-				if _, ok := m["spec"]; ok {
-					return true
-				}
-			}
-		}
-	}
-	return false
 }
 
 func (s *Server) ServeChartPNG(c echo.Context) error {
