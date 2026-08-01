@@ -120,8 +120,17 @@ const reviewStatusBadge = (status: string): { color: string; borderColor: string
   }
 };
 
-const getCleanRepository = (review: Review): string =>
-  review.repository ? review.repository.replace(/^https?:\/\//, '').replace(/\/$/, '') : '';
+const getCleanRepository = (review: Review): string => {
+  if (!review.repository) return '';
+  const withoutProtocol = review.repository.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const segments = withoutProtocol.split('/').filter(Boolean);
+  // Drop a leading host segment (e.g. "gitlab.com", "github.com",
+  // "gitlab.internal.corp") so the column shows just the org/repo path.
+  if (segments.length > 1 && segments[0].includes('.')) {
+    return segments.slice(1).join('/');
+  }
+  return withoutProtocol;
+};
 
 const getRepoShortName = (cleanedRepository: string): string => {
   const repoSegments = cleanedRepository.split('/').filter(Boolean);
@@ -142,7 +151,7 @@ const getPrimaryTitle = (review: Review): string => {
   return mrTitleCandidate && mrTitleCandidate.length > 0 ? mrTitleCandidate : (mrDescriptor || repoShort || 'Code Review');
 };
 
-const REVIEWS_COLUMN_WIDTHS = ['24%', '16%', '12%', '14%', '12%', '12%', '10%'];
+const REVIEWS_COLUMN_WIDTHS = ['18%', '12%', '14%', '12%', '12%', '10%', '12%', '10%'];
 
 const Reviews: React.FC = () => {
   const navigate = useNavigate();
@@ -227,9 +236,7 @@ const Reviews: React.FC = () => {
         const review = row.original;
         const rawMrDescriptor = review.prMrUrl ? extractMRInfo(review.prMrUrl) : '';
         const mrDescriptor = rawMrDescriptor && rawMrDescriptor !== 'MR/PR' ? rawMrDescriptor : '';
-        const branchLabel = review.branch?.trim();
-        const metaChips = [branchLabel ? `Branch: ${branchLabel}` : '', mrDescriptor]
-          .filter((v): v is string => Boolean(v));
+        const metaChips = [mrDescriptor].filter((v): v is string => Boolean(v));
         const primaryTitle = getPrimaryTitle(review);
         const displayTitle = truncate(primaryTitle, TITLE_MAX);
 
@@ -257,6 +264,25 @@ const Reviews: React.FC = () => {
               <div className="min-w-0 text-sm text-slate-400 truncate">{metaChips.join(' · ')}</div>
             )}
           </div>
+        );
+      },
+    },
+    {
+      id: 'branch',
+      accessorFn: (review) => review.branch?.trim() || '',
+      enableColumnFilter: false,
+      header: ({ column }) => (
+        <div className="flex items-center justify-between gap-2">
+          <SortableHeaderLabel label="Branch" onToggle={column.getToggleSortingHandler()} />
+          <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+        </div>
+      ),
+      cell: ({ getValue }) => {
+        const branch = getValue() as string;
+        return (
+          <TruncatedWithTooltip text={branch} max={TITLE_MAX}>
+            <div className="min-w-0 truncate text-white text-sm">{truncate(branch, TITLE_MAX) || '—'}</div>
+          </TruncatedWithTooltip>
         );
       },
     },

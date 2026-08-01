@@ -131,6 +131,13 @@ export function ClientTable<TData>({
           ))}
         </thead>
         <tbody className="divide-y divide-slate-700">
+          {table.getRowModel().rows.length === 0 && (
+            <tr>
+              <td colSpan={columnWidths.length} className="px-6 py-10 text-center text-slate-400 text-sm">
+                No results match your current filters. Try adjusting or clearing them above.
+              </td>
+            </tr>
+          )}
           <AnimatePresence initial={false}>
             {table.getRowModel().rows.map((row) => (
               <motion.tr

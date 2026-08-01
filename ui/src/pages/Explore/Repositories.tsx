@@ -515,11 +515,12 @@ const Repositories: React.FC = () => {
           loadingLabel="Loading repositories..."
           error={error}
           onRetry={refetchCurrent}
-          isEmpty={total === 0}
+          // Don't hide the filter controls when a filter causes zero results.
+          isEmpty={total === 0 && columnFilters.length === 0}
           empty={{
             title: 'No repositories found',
             description: connectors.length > 0
-              ? 'Your connector may not have synced yet, or your filters exclude everything. Try syncing.'
+              ? 'Your connector may not have synced yet. Try syncing.'
               : 'Connect a Git provider to see repositories here.',
             action: connectors.length > 0 ? (
               <Button

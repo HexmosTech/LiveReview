@@ -21,7 +21,6 @@ export interface AIConnector {
     providerName: string;
     role?: 'leader' | 'helper';
     apiKey: string; // Masked API key for display
-    fullApiKey?: string; // Full API key for editing
     baseURL?: string; // Base URL for providers like Ollama
     displayOrder: number;
     createdAt: Date;
