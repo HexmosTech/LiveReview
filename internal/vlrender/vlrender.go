@@ -26,6 +26,7 @@ type VegaLiteReport struct {
 	Title       string          `json:"title"`
 	Subtitle    string          `json:"subtitle,omitempty"`
 	Description string          `json:"description,omitempty"`
+	Query       string          `json:"query,omitempty"`
 	Spec        json.RawMessage `json:"spec"`
 }
 
@@ -38,6 +39,7 @@ type Report struct {
 	PNGData     []byte
 	Title       string
 	Description string
+	Query       string
 	PNGPath     string
 }
 
@@ -61,6 +63,30 @@ func RenderVegaLiteReports(ctx context.Context, raw string) ([]Report, error) {
 // vl-convert scale factor (e.g. "1.0" for bots, "2.0" for web/slack).
 func RenderVegaLiteReportsScaled(ctx context.Context, raw string, scale string) ([]Report, error) {
 	return renderVegaLiteReports(ctx, raw, scale)
+}
+
+// RenderVegaLiteReportsWithRetry attempts to render `raw` up to attempts times,
+// returning the first successful set of reports. Transient vl-convert failures
+// are retried silently so callers never have to fall back to raw text. Any
+// partial reports from a failed attempt are cleaned up before the next try. If
+// every attempt fails, the last error is returned.
+func RenderVegaLiteReportsWithRetry(ctx context.Context, raw string, scale string, attempts int) ([]Report, error) {
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		reports, err := renderVegaLiteReports(ctx, raw, scale)
+		if err == nil && len(reports) > 0 {
+			return reports, nil
+		}
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = fmt.Errorf("no charts could be rendered")
+		}
+		if len(reports) > 0 {
+			CleanupReports(reports)
+		}
+	}
+	return nil, lastErr
 }
 
 // renderVegaLiteReports is the shared render pipeline. scale controls the
@@ -92,6 +118,7 @@ func renderVegaLiteReports(ctx context.Context, raw string, scale string) ([]Rep
 			PNGPath:     pngPath,
 			Title:       FriendlyTitle(wrapped.Title, wrapped.Subtitle),
 			Description: wrapped.Description,
+			Query:       wrapped.Query,
 		}}, nil
 	}
 
@@ -131,6 +158,7 @@ func renderReports(ctx context.Context, reports []VegaLiteReport, scale string) 
 			PNGPath:     pngPath,
 			Title:       FriendlyTitle(r.Title, r.Subtitle),
 			Description: r.Description,
+			Query:       r.Query,
 		})
 	}
 	if len(out) == 0 {
@@ -145,12 +173,75 @@ func NormalizeVegaLiteSpec(spec []byte) ([]byte, error) {
 	if err := json.Unmarshal(spec, &m); err != nil {
 		return nil, err
 	}
+	sanitizeAxisFormats(m)
 	injectAxisAngle(m)
 	b, err := json.Marshal(m)
 	if err != nil {
 		return nil, err
 	}
 	return b, nil
+}
+
+// temporalTypes are Vega-Lite field types that use time-based axis formatting.
+var temporalTypes = map[string]bool{
+	"temporal": true,
+	"time":     true,
+	"utc":      true,
+}
+
+// sanitizeAxisFormats recursively walks a Vega-Lite spec and removes time-format
+// (`%` d3-time-format) axis formats from channels that are not temporal.
+// vl-convert applies d3-format to non-time scales, which errors on `%`
+// specifiers (e.g. "%Y-%m-%d") and aborts the whole render. Stripping such
+// formats lets the chart render with default labels instead of failing.
+func sanitizeAxisFormats(m map[string]any) {
+	for _, key := range []string{"layer", "concat", "hconcat", "vconcat"} {
+		if arr, ok := m[key].([]any); ok {
+			for _, item := range arr {
+				if child, ok := item.(map[string]any); ok {
+					sanitizeAxisFormats(child)
+				}
+			}
+		}
+	}
+	if child, ok := m["spec"].(map[string]any); ok {
+		sanitizeAxisFormats(child)
+	}
+	if faceted, ok := m["facet"].(map[string]any); ok {
+		sanitizeAxisFormats(faceted)
+	}
+	encoding, ok := m["encoding"].(map[string]any)
+	if !ok {
+		return
+	}
+	for _, v := range encoding {
+		if channelMap, ok := v.(map[string]any); ok {
+			stripNonTemporalAxisFormat(channelMap)
+		}
+	}
+}
+
+func stripNonTemporalAxisFormat(channelMap map[string]any) {
+	fieldType, _ := channelMap["type"].(string)
+	if temporalTypes[fieldType] {
+		return
+	}
+	if ft, _ := channelMap["formatType"].(string); ft == "time" || ft == "utc" {
+		return
+	}
+	if f, ok := channelMap["format"].(string); ok && strings.Contains(f, "%") {
+		delete(channelMap, "format")
+	}
+	axis, ok := channelMap["axis"].(map[string]any)
+	if !ok {
+		return
+	}
+	if ft, _ := axis["formatType"].(string); ft == "time" || ft == "utc" {
+		return
+	}
+	if f, ok := axis["format"].(string); ok && strings.Contains(f, "%") {
+		delete(axis, "format")
+	}
 }
 
 func injectAxisAngle(m map[string]any) {

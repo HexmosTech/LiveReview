@@ -93,3 +93,13 @@ func (s *Storage) GetAllEnabledConfigs(ctx context.Context) ([]TeamsConfig, erro
 	}
 	return configs, rows.Err()
 }
+
+// OrgNameByID returns the organization name for the given org ID, or "" if not
+// found. It is used to inject the org's name into the agent system prompt.
+func OrgNameByID(ctx context.Context, db *sql.DB, orgID int64) string {
+	var name string
+	if err := db.QueryRowContext(ctx, `SELECT name FROM orgs WHERE id = $1`, orgID).Scan(&name); err != nil {
+		return ""
+	}
+	return name
+}

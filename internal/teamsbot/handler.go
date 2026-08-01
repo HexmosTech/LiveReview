@@ -83,6 +83,7 @@ func buildBot(db *sql.DB) (*Bot, error) {
 
 		botCfgs = append(botCfgs, BotConfig{
 			OrgID:        cfg.OrgID,
+			OrgName:      OrgNameByID(context.Background(), db, cfg.OrgID),
 			BotAppID:     cfg.BotAppID,
 			BotPassword:  cfg.BotPassword,
 			MCPServerURL: mcpServerURL,

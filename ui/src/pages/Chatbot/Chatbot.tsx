@@ -8,6 +8,7 @@ interface ChatImage {
   url: string;
   title?: string;
   description?: string;
+  query?: string;
 }
 
 interface ChatEntry {
@@ -243,134 +244,147 @@ const Chatbot: React.FC = () => {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center space-y-6 px-4">
-            <p className="text-2xl font-semibold text-slate-200">Hello {userName}! How can I help you?</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl w-full">
-              <ExampleCard
-                text="Show me the top reviewers with a chart"
-                onClick={() => setInput('Show me the top reviewers with a chart')}
-              />
-              <ExampleCard
-                text="Give me a dashboard of reviews per status"
-                onClick={() => setInput('Give me a dashboard of reviews per status')}
-              />
-              <ExampleCard
-                text="Who reviewed the most lines of code?"
-                onClick={() => setInput('Who reviewed the most lines of code?')}
-              />
-              <ExampleCard
-                text="Show me review trends over time"
-                onClick={() => setInput('Show me review trends over time')}
-              />
+      <div className="flex-1 overflow-y-auto px-4 py-6">
+        <div className="max-w-4xl mx-auto w-full min-h-full flex flex-col">
+          {messages.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6 px-4">
+              <p className="text-2xl font-semibold text-slate-200">Hello {userName}! How can I help you?</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl w-full">
+                <ExampleCard
+                  text="Show me the top reviewers with a chart"
+                  onClick={() => setInput('Show me the top reviewers with a chart')}
+                />
+                <ExampleCard
+                  text="Give me a dashboard of reviews per status"
+                  onClick={() => setInput('Give me a dashboard of reviews per status')}
+                />
+                <ExampleCard
+                  text="Who reviewed the most lines of code?"
+                  onClick={() => setInput('Who reviewed the most lines of code?')}
+                />
+                <ExampleCard
+                  text="Show me review trends over time"
+                  onClick={() => setInput('Show me review trends over time')}
+                />
+              </div>
+              <p className="text-sm text-slate-500">...and much more. Try asking about reviews, LOC, billing, trends, or comparisons.</p>
             </div>
-            <p className="text-sm text-slate-500">...and much more. Try asking about reviews, LOC, billing, trends, or comparisons.</p>
-          </div>
-        )}
-
-        {messages.map((msg) => (
-          <div key={msg.id} className={`flex items-start gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            {msg.role === 'assistant' && (
-              <img src="/assets/lrbot/lrbot.png" alt="Bot" className="w-8 h-8 rounded-full flex-shrink-0 mt-1" />
-            )}
-            <div
-              className={`max-w-[75%] rounded-2xl px-4 py-3 ${
-                msg.role === 'user'
-                  ? 'bg-indigo-600 text-white rounded-br-md'
-                  : 'bg-slate-800 text-slate-200 rounded-bl-md border border-slate-700'
-              }`}
-            >
-              {msg.role === 'assistant' && msg.images && msg.images.length > 0 && (
-                <div className="space-y-4 mb-3">
-                  {msg.images.map((img, i) => (
-                    <div key={i} className="bg-slate-900 rounded-xl p-3 border border-slate-700">
-                      {img.title && (
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <h3 className="text-sm font-semibold text-slate-300">{img.title}</h3>
-                          <button
-                            onClick={() => downloadImage(img)}
-                            className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-slate-700 text-slate-200 hover:bg-indigo-600 hover:text-white cursor-pointer transition-colors"
-                            title="Download chart"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 3v12m-4-4l4 4 4-4" />
-                            </svg>
-                            Download
-                          </button>
+          ) : (
+            <div className="space-y-6 py-2">
+              {messages.map((msg) =>
+                msg.role === 'user' ? (
+                  <div key={msg.id} className="flex items-start justify-end">
+                    <div className="flex items-center bg-indigo-600 text-white rounded-full rounded-br-md px-4 py-2 max-w-[75%] whitespace-pre-wrap break-words text-base">
+                      {formatText(msg.text)}
+                    </div>
+                  </div>
+                ) : (
+                  <div key={msg.id} className="relative flex items-start">
+                    <div className="absolute -left-16 top-1/2 -translate-y-1/2 w-16 flex justify-end pr-2">
+                      <img src="/assets/lrbot/lrbot.png" alt="Bot" className="w-8 h-8 rounded-full" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      {msg.images && msg.images.length > 0 && (
+                        <div className="space-y-4 mb-4">
+                          {msg.images.map((img, i) => (
+                            <div key={i} className="bg-slate-900 rounded-xl p-3 border border-slate-700">
+                              {img.title && (
+                                <div className="flex items-center justify-between gap-2 mb-2">
+                                  <h3 className="text-sm font-semibold text-slate-300">{img.title}</h3>
+                                  <button
+                                    onClick={() => downloadImage(img)}
+                                    className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-md bg-slate-700 text-slate-200 hover:bg-indigo-600 hover:text-white cursor-pointer transition-colors"
+                                    title="Download chart"
+                                  >
+                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 3v12m-4-4l4 4 4-4" />
+                                    </svg>
+                                    Download
+                                  </button>
+                                </div>
+                              )}
+                              <button
+                                onClick={() => setPreview(img)}
+                                className="block relative w-full overflow-hidden rounded-lg"
+                                title="Click to expand"
+                              >
+                                <img
+                                  src={resolveImageUrl(img.url)}
+                                  alt={img.title || 'Chart'}
+                                  className="w-full max-h-[400px] object-contain rounded-lg cursor-zoom-in border border-slate-700"
+                                  loading="lazy"
+                                />
+                                <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 hover:opacity-100 transition-opacity duration-200">
+                                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800/90 text-xs font-medium text-white shadow-lg">
+                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m-3-3h6" />
+                                    </svg>
+                                    Click to expand
+                                  </span>
+                                </div>
+                              </button>
+                              {img.description && (
+                                <p className="text-sm text-slate-300 mt-2 whitespace-pre-line">{img.description}</p>
+                              )}
+                              {img.query && (
+                                <p className="text-xs text-slate-400 italic mt-1.5 whitespace-pre-line">
+                                  Query used: {img.query}
+                                </p>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       )}
-                      <button
-                        onClick={() => setPreview(img)}
-                        className="block group relative overflow-hidden rounded-lg"
-                        title="Click to expand"
-                      >
-                        <img
-                          src={resolveImageUrl(img.url)}
-                          alt={img.title || 'Chart'}
-                          className="max-w-[280px] max-h-[200px] w-auto h-auto rounded-lg cursor-zoom-in border border-slate-700 transition-transform duration-300 ease-out group-hover:scale-105"
-                          loading="lazy"
-                        />
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800/90 text-xs font-medium text-white shadow-lg">
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m-3-3h6" />
-                            </svg>
-                            Click to expand
-                          </span>
+                      {msg.text && (
+                        <div className="text-base leading-relaxed whitespace-pre-wrap break-words text-slate-200">
+                          {formatText(msg.text)}
                         </div>
-                      </button>
-                      {img.description && (
-                        <p className="text-sm text-slate-300 mt-2">{img.description}</p>
                       )}
                     </div>
-                  ))}
-                </div>
-              )}
-              {msg.text && (
-                <div className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-                  {formatText(msg.text)}
-                </div>
+                  </div>
+                )
               )}
             </div>
-          </div>
-        ))}
+          )}
 
-        {isLoading && (
-          <div className="flex items-start gap-2 justify-start">
-            <img src="/assets/lrbot/lrbot.png" alt="Bot" className="w-8 h-8 rounded-full flex-shrink-0 mt-1" />
-            <div className="bg-slate-800 text-slate-200 rounded-2xl rounded-bl-md px-4 py-3 border border-slate-700">
-              <div className="flex items-center gap-2">
+          {isLoading && (
+            <div className="relative flex items-start mt-4">
+              <div className="absolute -left-16 top-1/2 -translate-y-1/2 w-16 flex justify-end pr-2">
+                <img src="/assets/lrbot/lrbot.png" alt="Bot" className="w-8 h-8 rounded-full" />
+              </div>
+              <div className="flex items-center gap-2 py-1">
                 <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                 <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                 <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
               </div>
             </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
+          )}
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
       <div className="flex-none border-t border-slate-700 bg-slate-800 px-4 py-3">
-        <div className="flex items-center gap-2 max-w-4xl mx-auto">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Engineering insights — reviews, LOC, trends, billing..."
-            disabled={isLoading}
-            className="flex-1 bg-slate-700 text-slate-100 placeholder-slate-400 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 border border-slate-600 disabled:opacity-50"
-          />
-          <button
-            onClick={handleSend}
-            disabled={isLoading || !input.trim()}
-            className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-600 text-white rounded-xl px-4 py-2.5 transition-colors disabled:opacity-50"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-            </svg>
-          </button>
+        <div className="max-w-4xl mx-auto">
+          <div className="relative flex items-center">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Engineering insights — reviews, LOC, trends, billing..."
+              disabled={isLoading}
+              className="w-full bg-slate-700 text-slate-100 placeholder-slate-400 rounded-2xl pl-4 pr-14 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 border border-slate-600 disabled:opacity-50"
+            />
+            <button
+              onClick={handleSend}
+              disabled={isLoading || !input.trim()}
+              className="absolute right-2 top-1/2 -translate-y-1/2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-xl p-2 transition-colors disabled:opacity-50"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -417,8 +431,13 @@ const Chatbot: React.FC = () => {
               />
             </div>
             {preview.description && (
-              <div className="px-4 py-3 bg-slate-800 border-t border-slate-700 text-sm text-slate-300">
+              <div className="px-4 py-3 bg-slate-800 border-t border-slate-700 text-sm text-slate-300 whitespace-pre-line">
                 {preview.description}
+              </div>
+            )}
+            {preview.query && (
+              <div className="px-4 py-2 bg-slate-800 border-t border-slate-700 text-xs text-slate-400 italic whitespace-pre-line">
+                Query used: {preview.query}
               </div>
             )}
           </div>

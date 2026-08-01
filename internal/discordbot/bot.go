@@ -28,6 +28,7 @@ type conversation struct {
 
 type orgHandler struct {
 	orgID         int64
+	orgName       string
 	session       *discordgo.Session
 	agent         *mcpagent.Agent
 	conversations map[string]*conversation
@@ -41,15 +42,16 @@ type orgHandler struct {
 }
 
 type Bot struct {
-	orgs          map[int64]*orgHandler // orgID -> handler
-	guildMap      map[string]int64      // guildID -> orgID
-	mu            sync.RWMutex
-	ctx           context.Context
-	cancel        context.CancelFunc
+	orgs     map[int64]*orgHandler // orgID -> handler
+	guildMap map[string]int64      // guildID -> orgID
+	mu       sync.RWMutex
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 type OrgConfig struct {
 	OrgID         int64
+	OrgName       string
 	BotToken      string
 	MCPServerURL  string
 	MCPHeaders    map[string]string
@@ -104,6 +106,7 @@ func NewOrg(oc OrgConfig) (*orgHandler, []string, error) {
 
 	return &orgHandler{
 		orgID:         oc.OrgID,
+		orgName:       oc.OrgName,
 		session:       session,
 		conversations: make(map[string]*conversation),
 		mcpServerURL:  oc.MCPServerURL,
@@ -210,6 +213,7 @@ func (b *Bot) UpdateBotToken(orgID int64, newToken string) {
 	if oh, ok := b.orgs[orgID]; ok {
 		oc := OrgConfig{
 			OrgID:         oh.orgID,
+			OrgName:       oh.orgName,
 			BotToken:      newToken,
 			MCPServerURL:  oh.mcpServerURL,
 			MCPHeaders:    oh.mcpHeaders,
@@ -350,6 +354,9 @@ func (oh *orgHandler) ensureAgent() error {
 		return fmt.Errorf("org %d: failed to connect to MCP: %w", oh.orgID, err)
 	}
 	provider := mcpagent.NewProvider(oh.connector)
+	if oh.orgName != "" {
+		mcpSession.OrgName = oh.orgName
+	}
 	oh.agent = mcpagent.NewAgent(provider, mcpSession, oh.maxAgentSteps)
 	log.Printf("[DiscordBot] Org %d: connected to MCP. Tools: %v", oh.orgID, toolNames(mcpSession.Tools))
 	return nil
@@ -411,7 +418,11 @@ func (oh *orgHandler) processMessage(channelID, messageID, threadID, text string
 			oh.uploadReportsToDiscord(channelID, reports, finalText)
 			return
 		}
-		log.Printf("[DiscordBot] Vega-Lite spec detected but rendering failed, falling back to text")
+		log.Printf("[DiscordBot] Vega-Lite render failed after retries, sending friendly error")
+		if _, err := oh.session.ChannelMessageSend(channelID, "Having an issue generating the data, please try again."); err != nil {
+			log.Printf("[DiscordBot] Failed to send message: %s", err)
+		}
+		return
 	}
 
 	formatted := FormatDiscordResponse(finalText)
@@ -438,6 +449,12 @@ func (oh *orgHandler) uploadReportsToDiscord(channelID string, reports []rendere
 		msg := r.Description
 		if msg == "" {
 			msg = r.Title
+		}
+		if r.Query != "" {
+			if msg != "" {
+				msg += "\n\n"
+			}
+			msg += fmt.Sprintf("Query used: %s", r.Query)
 		}
 		reader := bytes.NewReader(r.PNGData)
 		name := "report.png"

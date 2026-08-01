@@ -18,12 +18,13 @@ type renderedReport struct {
 	PNGData     []byte
 	Title       string
 	Description string
+	Query       string
 }
 
 // renderVegaLiteReports parses the LLM response and renders 1+ charts at 2x
 // scale, cleaning up temp files afterwards (unless VL_CONVERT_DEBUG_DIR is set).
 func renderVegaLiteReports(ctx context.Context, raw string) ([]renderedReport, error) {
-	reports, err := vlrender.RenderVegaLiteReportsScaled(ctx, raw, "2.0")
+	reports, err := vlrender.RenderVegaLiteReportsWithRetry(ctx, raw, "2.0", 3)
 	if err != nil {
 		return nil, err
 	}
@@ -33,6 +34,7 @@ func renderVegaLiteReports(ctx context.Context, raw string) ([]renderedReport, e
 			PNGData:     r.PNGData,
 			Title:       r.Title,
 			Description: r.Description,
+			Query:       r.Query,
 		}
 		if os.Getenv("VL_CONVERT_DEBUG_DIR") != "" && r.PNGPath != "" {
 			log.Printf("[SlackBot] Vega-Lite debug files kept in: %s", r.PNGPath)
@@ -51,13 +53,20 @@ func (oh *orgHandler) uploadReportsToSlack(channel, threadTS string, reports []r
 		if len(reports) > 1 {
 			filename = fmt.Sprintf("report_%d.png", i+1)
 		}
+		initialComment := r.Description
+		if r.Query != "" {
+			if initialComment != "" {
+				initialComment += "\n\n"
+			}
+			initialComment += "Query used: " + r.Query
+		}
 		params := slack.UploadFileParameters{
 			Channel:         channel,
 			Content:         string(r.PNGData),
 			Filename:        filename,
 			Title:           r.Title,
 			FileSize:        len(r.PNGData),
-			InitialComment:  r.Description,
+			InitialComment:  initialComment,
 			ThreadTimestamp: threadTS,
 		}
 		if _, err := oh.slackClient.UploadFileContext(context.Background(), params); err != nil {

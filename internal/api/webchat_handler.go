@@ -90,6 +90,7 @@ type WebChatImage struct {
 	URL         string `json:"url"`
 	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
+	Query       string `json:"query,omitempty"`
 }
 
 type WebChatResponse struct {
@@ -145,6 +146,13 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		return c.JSON(http.StatusBadGateway, map[string]string{"error": fmt.Sprintf("Failed to connect: %s", err.Error())})
 	}
 
+	if pc.CurrentOrg != nil && pc.CurrentOrg.Name != "" {
+		mcpSession.OrgName = pc.CurrentOrg.Name
+	}
+	if pc.User != nil {
+		mcpSession.UserName = pc.User.FullName()
+	}
+
 	provider := mcpagent.NewProvider(connector)
 	agent := mcpagent.NewAgent(provider, mcpSession, maxSteps)
 
@@ -166,6 +174,9 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 			// The Vega-Lite JSON must never surface in the chat. If stripping
 			// removes everything, keep only the surrounding text (or empty).
 			resp.Response = cleanText
+		} else {
+			// Rendering failed even after retries: never show the raw JSON.
+			resp.Response = "Having an issue generating the data, please try again."
 		}
 	}
 
@@ -222,6 +233,7 @@ func renderReportsToImages(ctx context.Context, reports []vlrender.VegaLiteRepor
 		}
 		img.Title = vlrender.FriendlyTitle(r.Title, r.Subtitle)
 		img.Description = r.Description
+		img.Query = r.Query
 		images = append(images, img)
 	}
 	return images, ""
@@ -238,6 +250,7 @@ func renderSpecToImages(ctx context.Context, r vlrender.VegaLiteReport) ([]WebCh
 	}
 	img.Title = vlrender.FriendlyTitle(r.Title, r.Subtitle)
 	img.Description = r.Description
+	img.Query = r.Query
 	return []WebChatImage{img}, nil
 }
 

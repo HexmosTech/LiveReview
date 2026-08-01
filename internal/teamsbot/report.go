@@ -36,7 +36,7 @@ func LookupChartFile(id string) (string, bool) {
 }
 
 func buildAttachmentsFromVegaLite(ctx context.Context, baseURL string, text string) ([]Attachment, string) {
-	reports, err := vlrender.RenderVegaLiteReports(ctx, text)
+	reports, err := vlrender.RenderVegaLiteReportsWithRetry(ctx, text, "1.0", 3)
 	if err != nil {
 		log.Printf("[TeamsBot] Vega-Lite render failed: %s", err)
 		return nil, text
@@ -55,6 +55,9 @@ func buildAttachmentsFromVegaLite(ctx context.Context, baseURL string, text stri
 
 		if r.Description != "" {
 			descriptions = append(descriptions, r.Description)
+		}
+		if r.Query != "" {
+			descriptions = append(descriptions, "Query used: "+r.Query)
 		}
 
 		card := map[string]any{

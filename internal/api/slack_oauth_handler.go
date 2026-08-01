@@ -445,6 +445,7 @@ func (h *SlackOAuthHandler) addOrgToBot(orgID int64, botToken, apiKey string) {
 	mcpHeaders := map[string]string{"X-API-Key": apiKey}
 	err = h.bot.AddOrg(slackbot.OrgConfig{
 		OrgID:         orgID,
+		OrgName:       slackbot.OrgNameByID(context.Background(), h.db, orgID),
 		SlackBotToken: botToken,
 		MCPServerURL:  h.mcpServerURL,
 		MCPHeaders:    mcpHeaders,

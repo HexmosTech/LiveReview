@@ -30,7 +30,7 @@ func NewAgent(provider *Provider, mcpSession *MCPSession, maxSteps int) *Agent {
 		maxSteps = DefaultMaxAgentSteps
 	}
 	tools := provider.FormatTools(mcpSession.Tools)
-	systemPrompt := buildSystemPrompt(mcpSession.Tools)
+	systemPrompt := buildSystemPrompt(mcpSession.Tools, mcpSession.OrgName, mcpSession.UserName)
 
 	return &Agent{
 		provider:      provider,
@@ -101,7 +101,7 @@ func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText st
 	return "I hit my step limit trying to finish that — try breaking the request down.", history, nil
 }
 
-func buildSystemPrompt(tools []MCPToolDef) string {
+func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
 	if len(tools) == 0 {
 		return ""
 	}
@@ -109,6 +109,17 @@ func buildSystemPrompt(tools []MCPToolDef) string {
 	var b strings.Builder
 	b.WriteString("You are an AI assistant connected to a LiveReview API server. ")
 	b.WriteString("You have access to the following tools:\n\n")
+
+	if orgName != "" || userName != "" {
+		b.WriteString("The user you are helping belongs to the following context. Use these names (never numeric IDs) when scoping answers and chart descriptions:\n")
+		if userName != "" {
+			b.WriteString(fmt.Sprintf("- User: %s\n", userName))
+		}
+		if orgName != "" {
+			b.WriteString(fmt.Sprintf("- Organization: %s\n", orgName))
+		}
+		b.WriteString("\n")
+	}
 
 	for _, t := range tools {
 		b.WriteString(fmt.Sprintf("- `%s`", t.Name))
@@ -174,6 +185,7 @@ func buildSystemPrompt(tools []MCPToolDef) string {
 	b.WriteString("Single chart format (output WITHOUT json codeblock markers):\n")
 	b.WriteString("{\n  \"title\": \"...\",\n  \"subtitle\": \"...\",\n")
 	b.WriteString("  \"description\": \"*specific numbers* and insights here\",\n")
+	b.WriteString("  \"query\": \"humanized form of the exact query used (state the scope level and filters, e.g. 'review completions across your whole organization over the past six months')\",\n")
 	b.WriteString("  \"spec\": {\n    \"$schema\": \"https://vega.github.io/schema/vega-lite/v5.json\",\n")
 	b.WriteString("    \"width\": 600, \"height\": 300,\n")
 	b.WriteString("    \"data\": { \"values\": [...] },\n")
@@ -182,7 +194,7 @@ func buildSystemPrompt(tools []MCPToolDef) string {
 	b.WriteString("  }\n}\n\n")
 
 	b.WriteString("Multiple charts format:\n")
-	b.WriteString("{\n  \"reports\": [\n    {\n      \"title\": \"...\",\n      \"description\": \"...\",\n")
+	b.WriteString("{\n  \"reports\": [\n    {\n      \"title\": \"...\",\n      \"description\": \"...\",\n      \"query\": \"humanized form of the exact query used (state the scope level and filters)\",\n")
 	b.WriteString("      \"spec\": { \"$schema\": \"...\", \"width\": 600, \"height\": 300, \"data\": { \"values\": [...] }, \"mark\": \"bar\", \"encoding\": {...} }\n")
 	b.WriteString("    }\n  ]\n}\n\n")
 
@@ -191,7 +203,16 @@ func buildSystemPrompt(tools []MCPToolDef) string {
 	b.WriteString("- `width` 600, `height` 300-400\n")
 	b.WriteString("- Use `tooltip` for interactivity\n")
 	b.WriteString("- Do NOT wrap chart JSON in ```json code block — output raw JSON\n")
-	b.WriteString("- Include specific numbers in `description`: totals, averages, top values, comparisons\n\n")
+	b.WriteString("- Include specific numbers in `description`: totals, averages, top values, comparisons.\n")
+	b.WriteString("- Write `description` as SHORT LINES, NEVER as a paragraph. Separate every line with a literal `\\n` (newline) inside the string. Each line is one short sentence or one bullet fragment.\n")
+	b.WriteString("- Use ACTIVE voice ONLY. Put the actor (organization, user, or repo) first in every sentence. Never use passive forms like 'were completed', 'was reviewed', 'is shown', 'can be seen'.\n")
+	b.WriteString("- HUMANIZE dates: write the month name (e.g. 'February 12, 2026'), never raw '2026-02-12'. Format large numbers readably.\n")
+	b.WriteString("- Name the scope: use the organization, user, or repository NAME (never the numeric ID) plus the time range, and say whether the data is org-level, member-level, or repo-level.\n")
+	b.WriteString("- Use STE-100 Simplified Technical English: plain, controlled words, one idea per line.\n")
+	b.WriteString("- FOLLOW THIS EXAMPLE exactly — short lines joined by `\\n`, and active voice:\n")
+	b.WriteString("  \"description\": \"The organization completed 23 reviews in June 2026.\\nThe busiest day was May 27 with 4 reviews.\\nVolume rose 30% from May to June.\"\n")
+	b.WriteString("- Always include a `query` field in each chart object: a humanized restatement of the exact query/filters used, naming the scope level and the names (org/user/repo, never IDs) and the time range.\n")
+	b.WriteString("- For date/time fields set `\"type\": \"temporal\"` and only use `%`-style time formats (e.g. `\"axis\": {\"format\": \"%Y-%m-%d\"}`) on temporal axes. Never put `%` time formats on ordinal, nominal, or quantitative axes — they break rendering.\n\n")
 
 	b.WriteString("### Option B: Plain Text\n")
 	b.WriteString("For simple Q&A with no data to visualize. Use markdown.\n\n")
@@ -301,4 +322,3 @@ func truncateContent(s string, maxLen int) string {
 	}
 	return s[:maxLen]
 }
-

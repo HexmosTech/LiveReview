@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strings"
 	"time"
 )
 
@@ -54,6 +55,22 @@ type User struct {
 	CreatedByUserID       *int64     `json:"created_by_user_id,omitempty" db:"created_by_user_id"`
 	PasswordResetRequired bool       `json:"password_reset_required" db:"password_reset_required"`
 	DefaultOrgID          *int64     `json:"default_org_id,omitempty" db:"default_org_id"`
+}
+
+// FullName returns the user's display name (first + last name), falling back to
+// email when no name is set.
+func (u *User) FullName() string {
+	var parts []string
+	if u.FirstName != nil && *u.FirstName != "" {
+		parts = append(parts, *u.FirstName)
+	}
+	if u.LastName != nil && *u.LastName != "" {
+		parts = append(parts, *u.LastName)
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, " ")
+	}
+	return u.Email
 }
 
 // UserWithRole extends User with role information for a specific organization

@@ -22,14 +22,12 @@ import (
 	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/api/organizations"
 	"github.com/livereview/internal/api/users"
+	"github.com/livereview/internal/discordbot"
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/license/payment"
 	azuredevopsprovider "github.com/livereview/internal/provider_input/azuredevops"
-	"github.com/livereview/internal/slackbot"
-	"github.com/livereview/internal/teamsbot"
-	"github.com/livereview/internal/discordbot"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	giteaprovider "github.com/livereview/internal/provider_input/gitea"
 	githubprovider "github.com/livereview/internal/provider_input/github"
@@ -41,6 +39,8 @@ import (
 	gitlaboutput "github.com/livereview/internal/provider_output/gitlab"
 	"github.com/livereview/internal/providers/azuredevops"
 	reviewprocessor "github.com/livereview/internal/review_processor"
+	"github.com/livereview/internal/slackbot"
+	"github.com/livereview/internal/teamsbot"
 	"github.com/livereview/storage/core"
 	// Import FetchGitLabProfile
 )
@@ -146,10 +146,10 @@ type Server struct {
 	slackBotCancel       context.CancelFunc
 
 	// V2 Webhook Providers
-	gitlabProviderV2    *gitlabprovider.GitLabV2Provider
-	githubProviderV2    *githubprovider.GitHubV2Provider
-	bitbucketProviderV2 *bitbucketprovider.BitbucketV2Provider
-	giteaProviderV2     *giteaprovider.GiteaV2Provider
+	gitlabProviderV2      *gitlabprovider.GitLabV2Provider
+	githubProviderV2      *githubprovider.GitHubV2Provider
+	bitbucketProviderV2   *bitbucketprovider.BitbucketV2Provider
+	giteaProviderV2       *giteaprovider.GiteaV2Provider
 	azuredevopsProviderV2 *azuredevopsprovider.AzureDevOpsV2Provider
 
 	gitlabAuthService *gitlabprovider.AuthService
@@ -588,6 +588,7 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 
 		orgCfgs = append(orgCfgs, slackbot.OrgConfig{
 			OrgID:         cfg.OrgID,
+			OrgName:       slackbot.OrgNameByID(context.Background(), db, cfg.OrgID),
 			SlackBotToken: cfg.BotToken,
 			MCPServerURL:  mcpServerURL,
 			MCPHeaders:    mcpHeaders,
@@ -678,6 +679,7 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 
 		orgCfgs = append(orgCfgs, discordbot.OrgConfig{
 			OrgID:         cfg.OrgID,
+			OrgName:       discordbot.OrgNameByID(context.Background(), db, cfg.OrgID),
 			BotToken:      cfg.BotToken,
 			MCPServerURL:  mcpServerURL,
 			MCPHeaders:    mcpHeaders,

@@ -20,6 +20,10 @@ type MCPSession struct {
 	ServerURL string            `json:"server_url"`
 	Headers   map[string]string `json:"headers,omitempty"`
 	Tools     []MCPToolDef      `json:"tools"`
+	// OrgName and UserName carry the requesting user's identity so the agent can
+	// scope its answers (e.g. name the organization in chart descriptions).
+	OrgName  string `json:"org_name,omitempty"`
+	UserName string `json:"user_name,omitempty"`
 }
 
 // Config holds the runtime configuration for the agent.
