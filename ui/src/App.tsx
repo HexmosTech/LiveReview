@@ -303,7 +303,7 @@ const AppContent: React.FC = () => {
                 {/* DemoModeBanner kept for compatibility; now mostly replaced by status bar badge */}
                 {/* <DemoModeBanner /> */}
                 <URLMismatchBanner />
-                {!isCloudMode() && <LicenseStatusBar onOpenModal={() => dispatch(openLicenseModal())} />}
+                {!isCloudMode() && location.pathname !== '/chat' && <LicenseStatusBar onOpenModal={() => dispatch(openLicenseModal())} />}
                 <div className="flex-grow">
                     <SubscriptionGuard>
                         <Suspense fallback={<RouteFallback />}>

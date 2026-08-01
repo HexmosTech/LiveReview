@@ -111,14 +111,16 @@ func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
 	b.WriteString("You have access to the following tools:\n\n")
 
 	if orgName != "" || userName != "" {
-		b.WriteString("The user you are helping belongs to the following context. Use these names (never numeric IDs) when scoping answers and chart descriptions:\n")
+		b.WriteString("The user you are helping belongs to the following context. This is MANDATORY:\n")
 		if userName != "" {
 			b.WriteString(fmt.Sprintf("- User: %s\n", userName))
 		}
 		if orgName != "" {
 			b.WriteString(fmt.Sprintf("- Organization: %s\n", orgName))
 		}
-		b.WriteString("\n")
+		b.WriteString("\nYou MUST write the organization name VERBATIM (exactly as shown above) in both the `description` and the `query` of every chart you produce. ")
+		b.WriteString("Never use a placeholder like 'your organization', 'the organization', 'this org', or 'our org'. ")
+		b.WriteString("Use the organization's real name in the text and in the query every single time.\n\n")
 	}
 
 	for _, t := range tools {
@@ -160,6 +162,11 @@ func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
 	b.WriteString("  - For accurate aggregation, request `per_page=200`. If `hasNext: true`, fetch remaining pages.\n")
 	b.WriteString("  - NEVER report 'data is partial due to pagination' — fetch remaining pages.\n")
 	b.WriteString("  - Use EXACT parameter names from inputSchema. Reviews uses `per_page` (snake_case), not `perPage`.\n\n")
+
+	b.WriteString("- **AI Providers** (for `POST_api_v1_aiconnectors`): to add an AI provider, FIRST call `GET_api_v1_aiconnectors_providers` to fetch the list of supported providers (each has an `id` that is the canonical `provider_name`, plus a display `name`).\n")
+	b.WriteString("  - Take the user's RAW request and determine which supported provider they mean by matching their words to the provider `name`/`id` in that list.\n")
+	b.WriteString("  - Pass the canonical `id` as `provider_name` — NEVER pass a display label or a made-up value.\n")
+	b.WriteString("  - If the user's provider is not in the list, list the supported providers and ask them to choose one.\n\n")
 
 	b.WriteString("Common patterns (use exact parameter names from tool inputSchema):\n")
 	b.WriteString("- 'Top reviewers' → `GET_api_v1_reviews` with `per_page=200` → fetch pages → group by `authorUsername` → count → sort descending\n")
@@ -204,14 +211,14 @@ func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
 	b.WriteString("- Use `tooltip` for interactivity\n")
 	b.WriteString("- Do NOT wrap chart JSON in ```json code block — output raw JSON\n")
 	b.WriteString("- Include specific numbers in `description`: totals, averages, top values, comparisons.\n")
-	b.WriteString("- Write `description` as SHORT LINES, NEVER as a paragraph. Separate every line with a literal `\\n` (newline) inside the string. Each line is one short sentence or one bullet fragment.\n")
+	b.WriteString("- Write `description` as SHORT LINES, NEVER as a paragraph. Separate every line with `\\n\\n` (a newline plus a blank line) inside the string. Each line is one short sentence or one bullet fragment.\n")
 	b.WriteString("- Use ACTIVE voice ONLY. Put the actor (organization, user, or repo) first in every sentence. Never use passive forms like 'were completed', 'was reviewed', 'is shown', 'can be seen'.\n")
 	b.WriteString("- HUMANIZE dates: write the month name (e.g. 'February 12, 2026'), never raw '2026-02-12'. Format large numbers readably.\n")
-	b.WriteString("- Name the scope: use the organization, user, or repository NAME (never the numeric ID) plus the time range, and say whether the data is org-level, member-level, or repo-level.\n")
+	b.WriteString("- Name the scope: write the organization, user, or repository NAME VERBATIM (never the numeric ID, never 'your organization') plus the time range, and say whether the data is org-level, member-level, or repo-level.\n")
 	b.WriteString("- Use STE-100 Simplified Technical English: plain, controlled words, one idea per line.\n")
-	b.WriteString("- FOLLOW THIS EXAMPLE exactly — short lines joined by `\\n`, and active voice:\n")
-	b.WriteString("  \"description\": \"The organization completed 23 reviews in June 2026.\\nThe busiest day was May 27 with 4 reviews.\\nVolume rose 30% from May to June.\"\n")
-	b.WriteString("- Always include a `query` field in each chart object: a humanized restatement of the exact query/filters used, naming the scope level and the names (org/user/repo, never IDs) and the time range.\n")
+	b.WriteString("- FOLLOW THIS EXAMPLE exactly — use the organization name VERBATIM in the first line, short lines separated by a blank line (`\\n\\n`), and active voice:\n")
+	b.WriteString("  \"description\": \"Acme Corp completed 23 reviews in June 2026.\\n\\nThe busiest day was May 27 with 4 reviews.\\n\\nVolume rose 30% from May to June.\"\n")
+	b.WriteString("- Always include a `query` field in each chart object: a humanized restatement of the exact query/filters used, naming the scope level and the names VERBATIM (org/user/repo, never IDs, never 'your organization') and the time range.\n")
 	b.WriteString("- For date/time fields set `\"type\": \"temporal\"` and only use `%`-style time formats (e.g. `\"axis\": {\"format\": \"%Y-%m-%d\"}`) on temporal axes. Never put `%` time formats on ordinal, nominal, or quantitative axes — they break rendering.\n\n")
 
 	b.WriteString("### Option B: Plain Text\n")

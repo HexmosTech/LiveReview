@@ -422,6 +422,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp.RegisterSchema("GET", "/api/v1/diff-review/trigger-local-review", nil, nil)
 	mcp.RegisterSchema("POST", "/api/v1/billing/upgrade/preview", nil, PlanChangeRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/aiconnectors", nil, AIConnectorCreateRequest{})
+	mcp.RegisterSchema("GET", "/api/v1/aiconnectors/providers", nil, nil)
 	mcp.RegisterSchema("POST", "/api/v1/aiconnectors/validate-key", nil, AIConnectorKeyValidationRequest{})
 	mcp.RegisterSchema("PUT", "/api/v1/aiconnectors/reorder", nil, []aiconnectors.DisplayOrderUpdate{})
 	mcp.RegisterSchema("GET", "/api/v1/reviews", nil, ReviewsQuery{})
@@ -462,6 +463,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/prompts/:key/render",
 		"/api/v1/connectors",
 		"/api/v1/aiconnectors",
+		"/api/v1/aiconnectors/providers",
 		"/api/v1/aiconnectors/validate-key",
 		"/api/v1/aiconnectors/reorder",
 		"/api/v1/mcp-api-integration-guide",
@@ -1174,6 +1176,7 @@ func (s *Server) setupRoutes() {
 	aiConnectorGroup.POST("/ollama/models", s.FetchOllamaModels)
 	aiConnectorGroup.POST("/bedrock/models", s.FetchBedrockModels)
 	aiConnectorGroup.GET("/providers/:provider/models", s.GetAIProviderModels)
+	aiConnectorGroup.GET("/providers", s.GetAIProviderCatalog)
 
 	// MCP Agent endpoints (organization scoped)
 	mcpAgentGroup := v1.Group("/mcp-agent")
