@@ -340,16 +340,23 @@ const AppContent: React.FC = () => {
                 {location.pathname !== '/chat' && <Footer />}
                 {!isCloudMode() && <LicenseModal open={licenseOpen} onClose={() => dispatch(closeLicenseModal())} />}
                 {location.pathname !== '/chat' && (
-                <button
-                    onClick={() => navigate('/chat')}
-                    className="fixed bottom-6 right-6 z-50 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full p-3.5 shadow-lg shadow-indigo-900/40 transition-all hover:scale-110 active:scale-95"
-                    title="LivereviewBot"
-                    aria-label="Open LivereviewBot Chat"
-                >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                    </svg>
-                </button>
+                <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3">
+                    <span className="hidden lg:block text-sm font-semibold text-slate-100 px-4 py-2 rounded-full bg-slate-800/90 border border-slate-600 shadow-lg pointer-events-none">
+                        Chat with Livereview Bot
+                    </span>
+                    <button
+                        onClick={() => navigate('/chat')}
+                        className="relative w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-full shadow-2xl shadow-indigo-500/50 ring-4 ring-indigo-500/30 transition-transform hover:scale-110 active:scale-95"
+                        title="LivereviewBot"
+                        aria-label="Open LivereviewBot Chat"
+                    >
+                        <span className="absolute inset-0 rounded-full bg-white/20 animate-ping opacity-0 group-hover:opacity-100" aria-hidden="true" />
+                        <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 border-2 border-white animate-pulse" aria-hidden="true" />
+                        <svg className="w-7 h-7 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                        </svg>
+                    </button>
+                </div>
                 )}
             </div>
         );
