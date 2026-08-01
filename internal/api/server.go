@@ -1184,8 +1184,8 @@ func (s *Server) setupRoutes() {
 	chatGroup.Use(authMiddleware.BuildPermissionContext())
 	chatGroup.POST("/send", s.HandleWebChat)
 
-	// Chart PNG serving (no auth — images loaded by <img> tags)
-	chatGroup.GET("/charts/:id", s.ServeChartPNG)
+	// Chart PNG serving (no auth — loaded by <img> tags; unguessable random IDs + TTL expiry)
+	v1.GET("/chat/charts/:id", s.ServeChartPNG)
 
 	// Dashboard endpoints (organization scoped)
 	dashboardGroup := v1.Group("/dashboard")

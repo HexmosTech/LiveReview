@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/aiconnectors"
@@ -22,21 +23,50 @@ import (
 )
 
 var (
-	chartFiles   = map[string]string{}
+	chartFiles   = map[string]*chartFileEntry{}
 	chartFilesMu sync.RWMutex
 )
 
-func registerChartFile(id, path string) {
+const chartTTL = 10 * time.Minute
+
+type chartFileEntry struct {
+	PNGPath   string
+	TmpDir    string
+	CreatedAt time.Time
+}
+
+func registerChartFile(id, tmpDir, pngPath string) {
 	chartFilesMu.Lock()
-	chartFiles[id] = path
+	// Replace any prior entry for this id (id collision) so its temp dir is cleaned up.
+	if old, ok := chartFiles[id]; ok {
+		os.RemoveAll(old.TmpDir)
+	}
+	chartFiles[id] = &chartFileEntry{PNGPath: pngPath, TmpDir: tmpDir, CreatedAt: time.Now()}
 	chartFilesMu.Unlock()
+	cleanupExpiredCharts()
 }
 
 func lookupChartFile(id string) (string, bool) {
+	cleanupExpiredCharts()
 	chartFilesMu.RLock()
-	p, ok := chartFiles[id]
-	chartFilesMu.RUnlock()
-	return p, ok
+	defer chartFilesMu.RUnlock()
+	e, ok := chartFiles[id]
+	if !ok {
+		return "", false
+	}
+	return e.PNGPath, true
+}
+
+func cleanupExpiredCharts() {
+	chartFilesMu.Lock()
+	defer chartFilesMu.Unlock()
+	now := time.Now()
+	for id, e := range chartFiles {
+		if now.Sub(e.CreatedAt) > chartTTL {
+			os.RemoveAll(e.TmpDir)
+			delete(chartFiles, id)
+		}
+	}
 }
 
 type WebChatRequest struct {
@@ -88,7 +118,16 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		}
 	}
 
-	mcpSession, err := mcpagent.ConnectMCP(ctx, mcpURL, nil)
+	authHeader := c.Request().Header.Get("Authorization")
+	mcpHeaders := map[string]string{}
+	if authHeader != "" {
+		mcpHeaders["Authorization"] = authHeader
+	}
+	if orgCtx := c.Request().Header.Get("X-Org-Context"); orgCtx != "" {
+		mcpHeaders["X-Org-Context"] = orgCtx
+	}
+
+	mcpSession, err := mcpagent.ConnectMCP(ctx, mcpURL, mcpHeaders)
 	if err != nil {
 		log.Error().Err(err).Str("url", mcpURL).Msg("WebChat: failed to connect to MCP server")
 		return c.JSON(http.StatusBadGateway, map[string]string{"error": fmt.Sprintf("Failed to connect: %s", err.Error())})
@@ -112,8 +151,8 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		images, cleanText := s.renderImagesFromVega(ctx, c, responseText)
 		if len(images) > 0 {
 			resp.Images = images
-		}
-		if cleanText != "" {
+			// The Vega-Lite JSON must never surface in the chat. If stripping
+			// removes everything, keep only the surrounding text (or empty).
 			resp.Response = cleanText
 		}
 	}
@@ -128,12 +167,12 @@ func (s *Server) renderImagesFromVega(ctx context.Context, c echo.Context, text 
 		Reports []vegaLiteReport `json:"reports"`
 	}
 	if err := json.Unmarshal([]byte(body), &multi); err == nil && len(multi.Reports) > 0 {
-		return renderReportsToImages(ctx, multi.Reports, s.deploymentConfig.BackendPort)
+		return renderReportsToImages(ctx, multi.Reports)
 	}
 
 	var wrapped vegaLiteReport
 	if err := json.Unmarshal([]byte(body), &wrapped); err == nil && len(wrapped.Spec) > 0 {
-		images, err := renderSpecToImages(ctx, wrapped, s.deploymentConfig.BackendPort)
+		images, err := renderSpecToImages(ctx, wrapped)
 		if err != nil {
 			return nil, text
 		}
@@ -151,7 +190,7 @@ func (s *Server) renderImagesFromVega(ctx context.Context, c echo.Context, text 
 	if err != nil {
 		return nil, text
 	}
-	images, err := renderRawSpecToImages(ctx, spec, s.deploymentConfig.BackendPort)
+	images, err := renderRawSpecToImages(ctx, spec)
 	if err != nil {
 		return nil, text
 	}
@@ -165,14 +204,14 @@ type vegaLiteReport struct {
 	Spec        json.RawMessage `json:"spec"`
 }
 
-func renderReportsToImages(ctx context.Context, reports []vegaLiteReport, port int) ([]WebChatImage, string) {
+func renderReportsToImages(ctx context.Context, reports []vegaLiteReport) ([]WebChatImage, string) {
 	var images []WebChatImage
 	for _, r := range reports {
 		spec, err := normalizeVegaLiteSpec(r.Spec)
 		if err != nil {
 			continue
 		}
-		img, err := convertSpecToImage(ctx, spec, port)
+		img, err := convertSpecToImage(ctx, spec)
 		if err != nil {
 			continue
 		}
@@ -183,12 +222,12 @@ func renderReportsToImages(ctx context.Context, reports []vegaLiteReport, port i
 	return images, ""
 }
 
-func renderSpecToImages(ctx context.Context, r vegaLiteReport, port int) ([]WebChatImage, error) {
+func renderSpecToImages(ctx context.Context, r vegaLiteReport) ([]WebChatImage, error) {
 	spec, err := normalizeVegaLiteSpec(r.Spec)
 	if err != nil {
 		return nil, err
 	}
-	img, err := convertSpecToImage(ctx, spec, port)
+	img, err := convertSpecToImage(ctx, spec)
 	if err != nil {
 		return nil, err
 	}
@@ -197,8 +236,8 @@ func renderSpecToImages(ctx context.Context, r vegaLiteReport, port int) ([]WebC
 	return []WebChatImage{img}, nil
 }
 
-func renderRawSpecToImages(ctx context.Context, spec []byte, port int) ([]WebChatImage, error) {
-	img, err := convertSpecToImage(ctx, spec, port)
+func renderRawSpecToImages(ctx context.Context, spec []byte) ([]WebChatImage, error) {
+	img, err := convertSpecToImage(ctx, spec)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +245,7 @@ func renderRawSpecToImages(ctx context.Context, spec []byte, port int) ([]WebCha
 	return []WebChatImage{img}, nil
 }
 
-func convertSpecToImage(ctx context.Context, spec []byte, port int) (WebChatImage, error) {
+func convertSpecToImage(ctx context.Context, spec []byte) (WebChatImage, error) {
 	tmpDir, err := os.MkdirTemp("", "vl-report-*")
 	if err != nil {
 		return WebChatImage{}, fmt.Errorf("create temp dir: %w", err)
@@ -246,8 +285,8 @@ func convertSpecToImage(ctx context.Context, spec []byte, port int) (WebChatImag
 	chartID := make([]byte, 8)
 	rand.Read(chartID)
 	id := hex.EncodeToString(chartID)
-	registerChartFile(id, outputPath)
-	imgURL := fmt.Sprintf("http://localhost:%d/api/v1/chat/charts/%s", port, id)
+	registerChartFile(id, tmpDir, outputPath)
+	imgURL := fmt.Sprintf("/api/v1/chat/charts/%s", id)
 
 	return WebChatImage{URL: imgURL}, nil
 }
@@ -355,7 +394,7 @@ func stripVegaBlocks(raw string) string {
 		idx = strings.Index(raw, "{")
 	}
 	if idx < 0 {
-		return raw
+		return strings.TrimSpace(removeEmptyCodeFences(raw))
 	}
 
 	depth := 0
@@ -398,7 +437,24 @@ func stripVegaBlocks(raw string) string {
 			}
 		}
 	}
-	return raw
+	return strings.TrimSpace(removeEmptyCodeFences(raw))
+}
+
+// removeEmptyCodeFences removes any leftover ```json / ``` fence markers that
+// may remain after a Vega-Lite JSON block was stripped.
+func removeEmptyCodeFences(raw string) string {
+	if !strings.Contains(raw, "```") {
+		return raw
+	}
+	var lines []string
+	for _, ln := range strings.Split(raw, "\n") {
+		t := strings.TrimSpace(ln)
+		if t == "```" || t == "```json" || t == "```python" || t == "```json ```" {
+			continue
+		}
+		lines = append(lines, ln)
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 func (s *Server) resolveOrgConnector(ctx context.Context, orgID int64) (*aiconnectors.Connector, error) {
