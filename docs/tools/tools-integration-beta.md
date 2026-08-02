@@ -13,6 +13,7 @@ This feature is **cloud-only** and **owner-gated**. It is delivered in three seq
 3. [Phase 2 – Settings UI & API](#phase-2--settings-ui--api)
 4. [Phase 3 – Queue, Lambda Trigger & Review UI](#phase-3--queue-lambda-trigger--review-ui)
 5. [Shared Schemas](#shared-schemas)
+6. [UI/UX Design Specification & Customer Workflow Requirements](#uiux-design-specification--customer-workflow-requirements)
 
 ---
 
@@ -924,3 +925,86 @@ Below are 6 diverse test cases built directly against the rules in `prompts.Taxo
 - **Token Consumption:** Reduced by **~95%** compared to full code reviews (no diff context needed).
 - **Execution Speed:** Classification completes in **< 1 second**.
 - **Unified UI:** Tool findings appear with the exact same rich filtering badges (`Security`, `Critical`, `Cryptography`) as full AI review findings in both `lrc` and the web dashboard.
+
+---
+
+## UI/UX Design Specification & Customer Workflow Requirements
+
+This section details the UI and UX requirements designed from the **Customer Perspective** (Customer Angle).
+
+```
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                    Customer Tool Configuration Architecture                   │
+├───────────────────────────────────────────────┬───────────────────────────────┤
+│        1. LiveReview Globally (Dashboard UI)  │   2. Repo Policy (.lrc)       │
+│  • Org-wide available tools catalog & toggles │   • .lrc/policy/tools.toml    │
+│  • Tool Search Bar (missing feature)          │   • Path inclusion/exclusion  │
+│  • Technology Stack Planning Helper           │   • Active irrespective of    │
+│  • Recommendation Callout for .lrc directory  │     global UI settings        │
+└───────────────────────────────────────────────┴───────────────────────────────┘
+```
+
+### 1. Configuration Options (Customer Perspective)
+
+#### Option 1: LiveReview Global Settings (`Settings` → `Third-Party Tools` Tab)
+Organization owners configure global tool defaults in the web dashboard. The following UI improvements address current friction points:
+
+- **a. Tool Searching Filter (Missing Feature)**:
+  - **Problem**: As the catalog grows beyond 18+ tools (`ruff`, `bandit`, `eslint`, `gitleaks`, `trivy`, `actionlint`, etc.), navigating paginated lists is slow.
+  - **Specification**: Add a real-time instant search input at the top of the table. Searches match against tool name, description, category, and stack keywords (e.g., searching `"python"` filters `ruff` and `bandit`; searching `"secrets"` filters `gitleaks`, `trufflehog`, `detect-secrets`).
+  - **Category Pills**: Include quick-filter tabs (`All Tools`, `Python`, `JS / TS`, `Go`, `Secret Scanning`, `IaC & Container`, `CI/CD & Shell`).
+
+- **b. Stack Planning & Selection Helper**:
+  - **Problem**: Customers setting up LiveReview ask: *"I have TypeScript and Python codebases. Which tools should I enable?"*
+  - **Specification**: Add a **Recommended Presets** toolbar with 1-click stack buttons:
+    - ⚡ **Python Stack**: Automatically enables `ruff` (linter/formatter) and `bandit` (Python SAST).
+    - ⚡ **JS / TS Stack**: Automatically enables `eslint` (JS/TS quality) and `spectral` (API linting).
+    - ⚡ **Go Stack**: Automatically enables `golangci-lint` (Go static analysis).
+    - ⚡ **Secret Scanning**: Automatically enables `gitleaks`, `trufflehog`, and `detect-secrets`.
+    - ⚡ **IaC & Containers**: Automatically enables `tfsec`, `hadolint`, `trivy`, and `kubescape`.
+
+- **c. Recommend Enabling Tools via `.lrc` Directory**:
+  - **Specification**: Include a prominent callout banner in the settings tab guiding users:
+    > *"💡 **Want repository-specific path rules?** You can declare tools locally in your codebase using `.lrc/policy/tools.toml`. Repository policies run automatically with custom path include/exclude rules, irrespective of global UI toggles."*
+  - **Copyable Code Snippet**: Provide a 1-click copy block containing an example `.lrc/policy/tools.toml` file.
+
+#### Option 2: Repository Policy (`.lrc/policy/tools.toml`)
+- **Independent Execution**: Repository configuration inside `.lrc/policy/tools.toml` works **irrespective of global UI settings**. Developers can enforce local linter policies directly inside code repositories.
+- **Source Transparency**: The review dashboard will label tool execution sources (e.g. `Org Global` vs. `.lrc Policy`).
+
+---
+
+### 2. Review UI & Finding Presentation (What Customer Sees After Tool Execution)
+
+#### Beta Phase Requirements (Review Summary Header & Finding Cards)
+
+When a review finishes and comments are returned from static analysis tools, the review page renders a **Static Analysis Execution Summary**:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ ⚡ Static Analysis Tool Execution Summary                                   │
+├───────────────────┬─────────────────────────────────┬───────────────────────┤
+│  Tool Comments    │ Triggered Tools                 │ Review Credits Spent  │
+│    5 findings     │  [ruff]  [bandit]  [gitleaks]   │     3.0 credits       │
+└───────────────────┴─────────────────────────────────┴───────────────────────┘
+```
+
+1. **Review Description / Summary Header**:
+   - **Static Tool Comment Count**: Clear metric showing how many comments were generated specifically by static tools vs. AI (e.g., `5 findings`).
+   - **Triggered Tools List**: Badges for all tools executed for this review (e.g., `Triggered Tools: [ruff] [bandit] [gitleaks]`).
+   - **Review Credit Usage**: Explicit credit deduction counter for the review (e.g., `Credits Spent: 3.0 credits` based on the sum of tool multipliers).
+
+2. **In-Line Finding Cards & Comments**:
+   - **Tool Name Prominently Displayed**: Every comment card derived from a static tool MUST feature a clear tool badge (`[ruff]`, `[gitleaks]`, `[bandit]`) along with rule ID and taxonomy classification (e.g., `[gitleaks • Secret Detection]`).
+
+---
+
+### 3. V1 Architectural Execution Modes (Customer Choices)
+
+Customers can run static analysis tools in three distinct operational modes:
+
+| Mode | Description | Trigger / Command | Best For |
+|---|---|---|---|
+| **Combined Mode (Default)** | Static tools run concurrently alongside full AI code review. Findings from both tools and LLM are presented in a unified timeline. | `lrc r --tools` / PR Webhook | Pull Request reviews before merging. |
+| **Tool-Only Mode** | Runs static analysis tools without invoking AI LLMs. Sub-second execution, zero LLM token consumption. | `lrc r --tools-only` / `POST /api/v1/reviews/tool-reviews` | Pre-commit hooks & rapid local CLI checks. |
+| **Separated / Gatekeeper Mode** | Static tools execute first as a fast gate. If static analysis passes with 0 critical errors, full AI review is automatically triggered. | Orchestrator Pipeline Rule | High-volume repositories looking to optimize LLM spending. |

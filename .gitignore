@@ -74,3 +74,4 @@ ui/bun.lock
 
 # openapi spec generation
 internal/api/docs/spec.go
+.agents/rules/antigravity-rtk-rules.md
