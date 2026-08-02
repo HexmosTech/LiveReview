@@ -118,9 +118,11 @@ func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
 		if orgName != "" {
 			b.WriteString(fmt.Sprintf("- Organization: %s\n", orgName))
 		}
-		b.WriteString("\nYou MUST write the organization name VERBATIM (exactly as shown above) in both the `description` and the `query` of every chart you produce. ")
+		b.WriteString("\nDo NOT repeat the organization name constantly. Write the organization name at most ONCE per chart, and never prefix every sentence or line with it. ")
+		b.WriteString("In a chart `description`, put the organization name at most once (usually in the first sentence or the title); every following sentence must not start with it — refer to 'the organization' or omit it. ")
+		b.WriteString("Do NOT repeat it in the `query`. ")
 		b.WriteString("Never use a placeholder like 'your organization', 'the organization', 'this org', or 'our org'. ")
-		b.WriteString("Use the organization's real name in the text and in the query every single time.\n\n")
+		b.WriteString("If the organization name is an email or looks like a username, you may refer to it as 'the organization' instead of spelling it out repeatedly.\n\n")
 	}
 
 	for _, t := range tools {
@@ -153,7 +155,8 @@ func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
 	b.WriteString("- **User / Reviewer**: in this system, a 'user who did code reviews' is the same as the `authorName` or `authorUsername` of review objects.\n")
 	b.WriteString("- **Aggregation**: you CAN count, group, sort, and rank review data yourself. For example, to find top reviewers, call `GET_api_v1_reviews`, then count reviews grouped by `authorUsername`, sort by count descending, and return the top N.\n\n")
 	b.WriteString("- **Lines of Code (LOC)**:\n")
-	b.WriteString("  - If a user asks **'who got the most code reviewed'**, **'most code reviewed'**, or anything about LOC per user/member, they mean ranked by **total LOC reviewed** (billable LOC).\n")
+	b.WriteString("  - If a user asks **'who got the most code reviewed'**, **'most code reviewed'**, or anything about LOC per user/member, they mean ranked by **total LOC reviewed**.\n")
+	b.WriteString("  - **Naming**: call the metric **'LOC'**, never **'billable LOC'**. The API fields (`total_billable_loc`, `totalBillableLoc`) are just LOC — 'billable' is a cloud-only term and there is no billable distinction on self-hosted/unlimited plans.\n")
 	b.WriteString("  - **Primary tool for LOC per user**: `GET_api_v1_billing_usage_members`. Use this FIRST for user/member LOC rankings.\n")
 	b.WriteString("  - **Fallback tool for per-review LOC**: `GET_api_v1_reviews_id_accounting` returns `totalBillableLoc` for a single review.\n")
 	b.WriteString("  - **Org summary**: `GET_api_v1_billing_usage_summary` gives org-wide LOC totals.\n")
@@ -320,7 +323,45 @@ func parseToolCalls(text string) []ToolCall {
 		text = text[start+end+3:]
 	}
 
-	return calls
+	if len(calls) > 0 {
+		return calls
+	}
+
+	// Fallback: the model sometimes emits the tool call as BARE JSON without a
+	// ```json fence (e.g. `[{"tool": "GET_api_v1_reviews", "arguments": {...}}]`).
+	// Only treat it as a tool call if it actually carries a `tool` field — chart
+	// specs (title/spec/reports) never do, so they are left untouched.
+	trimmed := strings.TrimSpace(text)
+
+	var single struct {
+		Tool      string         `json:"tool"`
+		Arguments map[string]any `json:"arguments"`
+	}
+	if strings.HasPrefix(trimmed, "{") {
+		if err := json.Unmarshal([]byte(trimmed), &single); err == nil && single.Tool != "" {
+			return []ToolCall{{Name: single.Tool, Arguments: single.Arguments}}
+		}
+		return nil
+	}
+
+	if strings.HasPrefix(trimmed, "[") {
+		var arr []struct {
+			Tool      string         `json:"tool"`
+			Arguments map[string]any `json:"arguments"`
+		}
+		if err := json.Unmarshal([]byte(trimmed), &arr); err == nil && len(arr) > 0 {
+			for _, item := range arr {
+				if item.Tool != "" {
+					calls = append(calls, ToolCall{Name: item.Tool, Arguments: item.Arguments})
+				}
+			}
+			if len(calls) > 0 {
+				return calls
+			}
+		}
+	}
+
+	return nil
 }
 
 func truncateContent(s string, maxLen int) string {

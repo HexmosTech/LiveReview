@@ -126,6 +126,10 @@ function formatLine(line: string): React.ReactNode {
         i = end + 1;
         continue;
       }
+      // Stray single '*' with no closing pair (e.g. a leftover emphasis/bullet
+      // marker). Drop it instead of printing a literal asterisk.
+      i += 1;
+      continue;
     }
     if (line[i] === '`') {
       const end = line.indexOf('`', i + 1);
@@ -317,43 +321,45 @@ const Chatbot: React.FC = () => {
               {messages.map((msg) =>
                 msg.role === 'user' ? (
                   <div key={msg.id} className="flex items-start justify-end">
-                    <div className="flex items-center bg-indigo-600 text-white rounded-full rounded-br-md px-4 py-2 max-w-[75%] whitespace-pre-wrap break-words text-base">
+                    <div className="bg-indigo-600 text-white rounded-full rounded-br-md px-4 py-2 max-w-[75%] whitespace-pre-wrap break-words text-base">
                       {formatText(msg.text)}
                     </div>
                   </div>
                 ) : (
                   <div key={msg.id} className="relative flex items-start">
-                    <div className="absolute -left-16 top-1/2 -translate-y-1/2 w-16 flex justify-end pr-2">
+                    <div className="absolute -left-16 bottom-0 w-16 flex justify-end pr-2">
                       <img src="/assets/lrbot/lrbot.png" alt="Bot" className="w-8 h-8 rounded-full" />
                     </div>
                     <div className="min-w-0 flex-1">
                       {msg.images && msg.images.length > 0 && (
-                        <div className="space-y-6 mb-6">
+                        <div className="space-y-6">
                           {msg.images.map((img, i) => (
-                            <div key={i} className="space-y-3 -my-2">
-                              {img.title && (
-                                <h3 className="text-sm font-semibold text-slate-300">{img.title}</h3>
-                              )}
-                              <button
-                                onClick={() => setPreview(img)}
-                                className="block relative overflow-hidden rounded-lg w-fit max-w-full"
-                                title="Click to expand"
-                              >
-                                <img
-                                  src={resolveImageUrl(img.url)}
-                                  alt={img.title || 'Chart'}
-                                  className="block max-w-full max-h-[400px] h-auto rounded-lg cursor-zoom-in border border-slate-700"
-                                  loading="lazy"
-                                />
-                                <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 hover:opacity-100 transition-opacity duration-200">
-                                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800/90 text-xs font-medium text-white shadow-lg">
-                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m-3-3h6" />
-                                    </svg>
-                                    Click to expand
-                                  </span>
-                                </div>
-                              </button>
+                            <div key={i} className="space-y-3">
+                              <div className="space-y-3 !mt-2 !mb-8">
+                                {img.title && (
+                                  <h3 className="text-sm font-semibold text-slate-300">{img.title}</h3>
+                                )}
+                                <button
+                                  onClick={() => setPreview(img)}
+                                  className="block relative overflow-hidden rounded-lg w-fit max-w-full"
+                                  title="Click to expand"
+                                >
+                                  <img
+                                    src={resolveImageUrl(img.url)}
+                                    alt={img.title || 'Chart'}
+                                    className="block max-w-full max-h-[400px] h-auto rounded-lg cursor-zoom-in border border-slate-700"
+                                    loading="lazy"
+                                  />
+                                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 hover:opacity-100 transition-opacity duration-200">
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800/90 text-xs font-medium text-white shadow-lg">
+                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m-3-3h6" />
+                                      </svg>
+                                      Click to expand
+                                    </span>
+                                  </div>
+                                </button>
+                              </div>
                               {img.description && (
                                 <p className="text-sm text-slate-300 whitespace-pre-line">{img.description}</p>
                               )}
@@ -367,7 +373,7 @@ const Chatbot: React.FC = () => {
                         </div>
                       )}
                       {msg.text && (
-                        <div className="text-base leading-relaxed whitespace-pre-wrap break-words text-slate-200">
+                        <div className={`${msg.images && msg.images.length > 0 ? 'mt-6' : ''} text-base leading-snug whitespace-pre-wrap break-words text-slate-200`}>
                           {formatText(msg.text)}
                         </div>
                       )}

@@ -67,42 +67,42 @@ func NewReviewService(cfg *config.Config) *ReviewService {
 func (s *Server) TriggerReviewV2(c echo.Context) error {
 	log.Printf("[DEBUG] TriggerReviewV2: Starting review request handling")
 
-	// LOC Quota preflight check — block before creating any DB records
-	// Only run LOC quota preflight in Cloud Mode
-	if apimiddleware.IsCloudMode() {
-		orgID, orgOK := c.Get("org_id").(int64)
-		planCode := license.PlanFree30K
-		if planCtx, ok := c.Get(apimiddleware.PlanContextKey).(apimiddleware.PlanContext); ok && planCtx.PlanType != "" {
-			planCode = planCtx.PlanType
-		}
-		if orgOK && orgID > 0 {
-			accountingService := license.NewLOCAccountingService(s.db)
-			preflightResult, pfErr := accountingService.CheckPreflight(context.Background(), license.LOCPreflightInput{
-				OrgID:       orgID,
-				RequiredLOC: 0, // unknown at this point, just check current state
-				PlanCode:    planCode,
-			})
-			if pfErr != nil {
-				log.Printf("[WARN] LOC preflight check failed for org=%d: %v", orgID, pfErr)
-			} else {
-				applyPreflightToEnvelopeContext(c, preflightResult)
-				if preflightResult.Blocked {
-					errorCode := "quota_exceeded"
-					errorMessage := "monthly LOC quota exceeded for this organization"
-					if preflightResult.BlockReason == "trial_readonly" {
-						errorCode = "trial_readonly"
-						errorMessage = "trial period ended; review operations are read-only until plan update"
-					}
-					log.Printf("[INFO] TriggerReviewV2: LOC quota blocked for org=%d, used=%d, limit=%d",
-						orgID, preflightResult.LOCUsedMonth, preflightResult.LOCLimitMonth)
-					return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
-						"error":         errorMessage,
-						"error_code":    errorCode,
-						"loc_remaining": preflightResult.LOCRemainingMonth,
-						"usage_percent": preflightResult.UsagePercent,
-						"upgrade_url":   defaultUpgradeURL,
-					})
+	// LOC Quota preflight — always run so the org's billing period rolls forward.
+	// This is crucial for MCP/chat-triggered reviews: without it, org_billing_state
+	// goes stale and current-period usage reports come back empty. Blocking is only
+	// enforced in Cloud Mode; self-hosted deployments are intentionally unlimited.
+	orgID, orgOK := c.Get("org_id").(int64)
+	planCode := license.PlanFree30K
+	if planCtx, ok := c.Get(apimiddleware.PlanContextKey).(apimiddleware.PlanContext); ok && planCtx.PlanType != "" {
+		planCode = planCtx.PlanType
+	}
+	if orgOK && orgID > 0 {
+		accountingService := license.NewLOCAccountingService(s.db)
+		preflightResult, pfErr := accountingService.CheckPreflight(context.Background(), license.LOCPreflightInput{
+			OrgID:       orgID,
+			RequiredLOC: 0, // unknown at this point, just check current state
+			PlanCode:    planCode,
+		})
+		if pfErr != nil {
+			log.Printf("[WARN] LOC preflight check failed for org=%d: %v", orgID, pfErr)
+		} else {
+			applyPreflightToEnvelopeContext(c, preflightResult)
+			if apimiddleware.IsCloudMode() && preflightResult.Blocked {
+				errorCode := "quota_exceeded"
+				errorMessage := "monthly LOC quota exceeded for this organization"
+				if preflightResult.BlockReason == "trial_readonly" {
+					errorCode = "trial_readonly"
+					errorMessage = "trial period ended; review operations are read-only until plan update"
 				}
+				log.Printf("[INFO] TriggerReviewV2: LOC quota blocked for org=%d, used=%d, limit=%d",
+					orgID, preflightResult.LOCUsedMonth, preflightResult.LOCLimitMonth)
+				return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
+					"error":         errorMessage,
+					"error_code":    errorCode,
+					"loc_remaining": preflightResult.LOCRemainingMonth,
+					"usage_percent": preflightResult.UsagePercent,
+					"upgrade_url":   defaultUpgradeURL,
+				})
 			}
 		}
 	}
