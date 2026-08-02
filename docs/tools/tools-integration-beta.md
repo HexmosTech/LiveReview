@@ -1,0 +1,1010 @@
+# Third-Party Tools Integration – Beta
+
+LiveReview can run external static-analysis tools (ruff, bandit, eslint, etc.) as parallel Lambda jobs alongside every AI review. Results are stored as `tool_result` events in the existing `review_events` table and surfaced in the review UI and `lrc` CLI output.
+
+This feature is **cloud-only** and **owner-gated**. It is delivered in three sequential phases.
+
+---
+
+## Table of Contents
+
+1. [Cost Model](#cost-model)
+2. [Phase 1 – DB Schema & Settings Tab](#phase-1--db-schema--settings-tab)
+3. [Phase 2 – Settings UI & API](#phase-2--settings-ui--api)
+4. [Phase 3 – Queue, Lambda Trigger & Review UI](#phase-3--queue-lambda-trigger--review-ui)
+5. [Shared Schemas](#shared-schemas)
+6. [UI/UX Design Specification & Customer Workflow Requirements](#uiux-design-specification--customer-workflow-requirements)
+
+---
+
+## Cost Model
+
+Each tool runs as an independent Lambda invocation. Cost is billed in GB-seconds at the AWS ARM64 rate (`$0.0000133334 / GB-s`).
+
+**Formula per tool invocation:**
+
+```
+cost = (memory_mb / 1024) × timeout_seconds × rate
+```
+
+**Credit budget:** LiveReview provides **50,000 credits** per org. One credit equals the cost of one invocation of the cheapest tool (the baseline). Orgs spend credits from this pool each time a tool runs on a review.
+
+### Tool catalog reference
+
+The table below lists available tools. `multiplier` is computed by the API (`(memory_mb / 1024) × timeout_s` relative to the cheapest tool) and returned in the `GET /api/v1/orgs/:org_id/tools` response. Tools marked **Beta** are included in the initial seed.
+
+| Tool | Multiplier | Use Case |
+|---|---|---|
+| openapi | computed | OpenAPI/YAML validation |
+| actionlint | computed | GitHub Actions lint |
+| shellcheck | computed | Shell script lint |
+| hadolint | computed | Dockerfile lint |
+| ruff | computed | Python lint/format |
+| tfsec | computed | Terraform IaC |
+| zizmor | computed | GitHub Actions security |
+| gitleaks | computed | Secret detection |
+| bandit | computed | Python SAST |
+| eslint | computed | JavaScript/TypeScript SAST |
+| detect-secrets | computed | Secret scanning |
+| trufflehog | computed | Secret scanning (deep) |
+| spectral | computed | API spec lint |
+| kubescape | computed | Kubernetes IaC |
+| trivy | computed | Container/IaC CVE scan |
+| brakeman | computed | Ruby SAST |
+| semgrep | computed | Multi-language SAST |
+| golangci-lint | computed | Go SAST |
+
+**What users see in the UI:** tool name, multiplier tier, use case, and the running total cost per review so they can choose a tool budget that fits within their credit allowance.
+
+---
+
+## Phase 1 – DB Schema & Settings Tab
+
+### DB migrations (dbmate, local only)
+
+Two migrations are added to `db/migrations/`. **Never apply directly to production** — use dbmate.
+
+#### Migration 1: `available_tools` catalog
+
+```sql
+-- migrate:up
+CREATE TABLE IF NOT EXISTS public.available_tools (
+    id          bigserial PRIMARY KEY,
+    name        text NOT NULL UNIQUE,
+    description text NOT NULL,
+    lambda_arn  text NOT NULL,
+    multiplier  numeric(6,2) NOT NULL DEFAULT 1.0,
+    use_case    text NOT NULL DEFAULT '',
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- Seed initial tools (ruff and bandit as the two cheapest beta tools)
+INSERT INTO public.available_tools (name, description, lambda_arn, multiplier, use_case) VALUES
+  ('ruff',   'Fast Python linter and formatter', 'arn:aws:lambda:us-east-1:ACCOUNT:function:ruff-python-linter',  1.0, 'Python lint/format'),
+  ('bandit', 'Python security linter (SAST)',    'arn:aws:lambda:us-east-1:ACCOUNT:function:bandit-linter',       1.0, 'Python SAST')
+ON CONFLICT (name) DO NOTHING;
+
+-- migrate:down
+DROP TABLE IF EXISTS public.available_tools;
+```
+
+#### Migration 2: `org_tools` per-org selection
+
+```sql
+-- migrate:up
+CREATE TABLE IF NOT EXISTS public.org_tools (
+    org_id      bigint NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    tool_id     bigint NOT NULL REFERENCES public.available_tools(id) ON DELETE CASCADE,
+    enabled     boolean NOT NULL DEFAULT false,
+    config_json jsonb   NOT NULL DEFAULT '{}',
+    updated_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (org_id, tool_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_org_tools_org_id ON public.org_tools (org_id);
+
+-- migrate:down
+DROP INDEX  IF EXISTS idx_org_tools_org_id;
+DROP TABLE  IF EXISTS public.org_tools;
+```
+
+**Key design decisions:**
+- `available_tools` is a global catalog — rows are added by platform operators, never by org owners.
+- `org_tools` stores one row per (org, tool) pair when an org has ever interacted with that tool. Rows with `enabled = false` are stored explicitly so toggle state is preserved.
+- `multiplier` on `available_tools` is denormalised from the Lambda config so the UI can display cost tiers without a live Lambda call.
+
+### Settings tab (UI, Phase 1 scope)
+
+A new tab entry is added to `ui/src/pages/Settings/Settings.tsx`:
+
+```typescript
+// Added to the tabs array — only shown when isCloudMode() AND role is 'owner'
+...(isCloudMode() && currentOrg?.role === 'owner' ? [{
+    id: 'third-party-tools',
+    name: 'Third-Party Tools',
+    icon: <ToolsIcon />
+}] : [])
+```
+
+At this phase the tab renders a placeholder ("Tool configuration coming in Phase 2"). Non-owners who navigate directly to `/#/settings#third-party-tools` see a read-only message; the tab button is not shown in the sidebar.
+
+---
+
+## Phase 2 – Settings UI & API
+
+### API endpoints
+
+Both endpoints live under the existing `orgGroup` in `server.go`, which already applies the full middleware chain:
+
+```
+RequireAuthOrAPIKey → BuildOrgContext → ValidateOrgAccess → BuildPermissionContext
+```
+
+The billing check middlewares (`BuildOrgBillingPlanContext`, `BuildPlanContext`) are also applied.
+
+---
+
+#### `GET /api/v1/orgs/:org_id/tools`
+
+Returns the full available tools catalog joined with this org's enabled state.
+
+**Access:** any authenticated org member (owner or member).  
+**Cloud gate:** returns HTTP 403 if `isCloudMode()` is false on the server.  
+**Org isolation:** query is scoped by `org_id` from `PermissionContext`, not from the URL path parameter.
+
+**Response 200:**
+
+```json
+{
+  "tools": [
+    {
+      "id": 1,
+      "name": "ruff",
+      "description": "Fast Python linter and formatter",
+      "multiplier": 1.0,
+      "use_case": "Python lint/format",
+      "enabled": true,
+      "config_json": {}
+    },
+    {
+      "id": 2,
+      "name": "bandit",
+      "description": "Python security linter (SAST)",
+      "multiplier": 1.0,
+      "use_case": "Python SAST",
+      "enabled": false,
+      "config_json": {}
+    }
+  ]
+}
+```
+
+Fields `enabled` and `config_json` default to `false` / `{}` when no `org_tools` row exists for that tool.
+
+**Error responses:**
+
+| Status | Condition |
+|---|---|
+| 401 | Missing or invalid auth token |
+| 403 | Not cloud mode, or org mismatch |
+| 500 | Database error |
+
+---
+
+#### `PUT /api/v1/orgs/:org_id/tools/:tool_id`
+
+Enables or disables a specific tool for the org (upsert).
+
+**Access:** `owner` role only.  
+**Cloud gate:** HTTP 403 if not cloud mode.  
+**Org isolation:** upsert uses `org_id` from `PermissionContext`.
+
+**Request body:**
+
+```json
+{ "enabled": true }
+```
+
+The `enabled` field is required and must be a boolean. Any other value returns HTTP 400.
+
+**Response 200:**
+
+```json
+{
+  "tool_id": 1,
+  "org_id": 42,
+  "enabled": true,
+  "config_json": {}
+}
+```
+
+**Error responses:**
+
+| Status | Condition |
+|---|---|
+| 400 | `enabled` field absent or not a boolean |
+| 401 | Missing or invalid auth token |
+| 403 | Not cloud mode, not owner, or org mismatch |
+| 404 | `tool_id` not found in `available_tools` |
+| 500 | Database error |
+
+---
+
+#### `POST /api/v1/reviews/tool-reviews`
+
+Triggers a tool-only review execution (without any AI/LLM reviews) on a pull request/merge request diff.
+
+**Access:** Any authenticated org member.  
+**Cloud gate:** HTTP 403 if not cloud mode.  
+**Execution Flow:**
+1. **Pre-flight Credit check**: The API handler queries the DB (`org_tool_billing_state`), calculates the sum of multipliers of all currently enabled tools for the organization, and runs a pre-flight check. If the remaining credit balance is insufficient, the API returns **HTTP 402 Payment Required** immediately before scheduling any jobs.
+2. **Review creation**: Creates a review record in the database with `trigger_type = 'tool_review'` and status `processing`.
+3. **Queue job**: Schedules the background job `tool_review_orchestrator` with the calculated total multiplier.
+4. **Asynchronous credit deduction**: When the background worker executes `ExecuteToolsForReview`, it locks the credit table and transactionally deducts the required credits from the organization's monthly credit allowance.
+
+**Request body:**
+
+```json
+{
+  "pr_url": "https://github.com/HexmosTech/git-lrc/pull/42"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "review_id": "10023",
+  "message": "Tool static analysis scheduled successfully"
+}
+```
+
+---
+
+### Settings UI – ThirdPartyToolsTab component
+
+File: `ui/src/pages/Settings/ThirdPartyToolsTab.tsx`
+
+The tab replaces the Phase 1 placeholder. It fetches `GET /api/v1/orgs/:org_id/tools` on mount and renders a table with the following columns:
+
+| Column | Description |
+|---|---|
+| Tool name | Human-readable name |
+| Use case | Short category label (e.g. "Python SAST") |
+| Multiplier | Cost tier (e.g. `1×`, `3×`, `20×`) |
+| Toggle | Enable/disable switch (owner only) |
+
+**Cost summary bar** at the top of the tab shows:
+- Number of enabled tools
+- Total multiplier of all enabled tools (sum)
+- Estimated credits consumed per review = sum of enabled tool multipliers × baseline cost
+
+**Owner behaviour:**
+- Toggling a tool calls `PUT /api/v1/orgs/:org_id/tools/:tool_id` immediately.
+- On API error: inline error message shown, toggle reverted to previous state.
+- While any request is in flight: all toggles are disabled and a spinner is shown.
+
+**Non-owner / member behaviour:**
+- Table renders in read-only state. Toggles are replaced with a static enabled/disabled badge.
+- No PUT calls are made.
+
+---
+
+## Phase 3 – Queue, Lambda Trigger & Review UI
+
+### River job: `tool_invocation`
+
+File: `internal/jobqueue/jobqueue.go` (alongside existing `webhook_install` / `webhook_removal` jobs)
+
+#### Job args
+
+```go
+type ToolInvocationJobArgs struct {
+    ReviewID int64  `json:"review_id"`
+    OrgID    int64  `json:"org_id"`
+    ToolID   int64  `json:"tool_id"`
+    ToolName string `json:"tool_name"`
+    LambdaARN string `json:"lambda_arn"`
+}
+
+func (ToolInvocationJobArgs) Kind() string { return "tool_invocation" }
+```
+
+#### Worker
+
+```go
+type ToolInvocationWorker struct {
+    river.WorkerDefaults[ToolInvocationJobArgs]
+    db         *sql.DB
+    httpClient *http.Client
+}
+```
+
+**Work() logic:**
+
+1. Load the diff from `SELECT diff FROM reviews WHERE id = $1 AND org_id = $2`. If the review has no diff, log and return without error (nothing to analyse).
+2. POST the diff as the Lambda payload to the tool's `lambda_arn` via HTTPS.
+3. On non-2xx response: return an error so River applies its standard retry policy.
+4. On 2xx: insert a `review_events` row (see schema below).
+
+#### Fan-out trigger
+
+In `WebhookOrchestratorV2` (or the unified processor), after diff extraction completes:
+
+```go
+enabledTools, err := store.GetEnabledToolsForOrg(ctx, orgID)
+for _, tool := range enabledTools {
+    _, err = riverClient.Insert(ctx, ToolInvocationJobArgs{
+        ReviewID:  reviewID,
+        OrgID:     orgID,
+        ToolID:    tool.ID,
+        ToolName:  tool.Name,
+        LambdaARN: tool.LambdaARN,
+    }, nil)
+}
+```
+
+All jobs are inserted in a single loop — River runs them concurrently up to `MaxWorkers`.
+
+### Lambda payload & response
+
+**Payload sent to Lambda (JSON):**
+
+```json
+{
+  "review_id": 1234,
+  "diff": "<unified diff string>"
+}
+```
+
+**Expected Lambda response (JSON):**
+
+```json
+{
+  "exit_code": 0,
+  "findings": [
+    {
+      "file": "src/main.py",
+      "line": 42,
+      "col": 5,
+      "rule": "E501",
+      "message": "Line too long (92 > 79 characters)"
+    }
+  ],
+  "lines_of_code": 312,
+  "stderr": ""
+}
+```
+
+The full response body is stored verbatim in the `data` JSONB column of `review_events`.
+
+### `review_events` row for tool results
+
+No new table is needed. A new `event_type` value is added to the existing `review_events` table:
+
+```sql
+-- No migration required — event_type is free-text.
+-- New rows look like:
+INSERT INTO public.review_events (review_id, org_id, event_type, data)
+VALUES (
+  $1,                    -- review_id
+  $2,                    -- org_id (from review record, never from job args directly)
+  'tool_result',
+  '{
+    "tool_id":   1,
+    "tool_name": "ruff",
+    "exit_code": 0,
+    "findings":  [...],
+    "lines_of_code": 312,
+    "stderr": ""
+  }'
+);
+```
+
+`org_id` is always read from the `reviews` row, not from the job args, to prevent any spoofing.
+
+### Beta review UI
+
+Route: `/#/reviews-tools/new`  
+File: `ui/src/pages/Reviews/BetaToolReviewPage.tsx`
+
+- Registered in the React Router config but **not** added to the sidebar or any nav surface.
+- If `isCloudMode()` returns false, renders: *"Tool-based reviews are only available in cloud mode."*
+- Otherwise renders a layout matching the existing AI review page (`NewReview.tsx`) with the trigger form at the top and a live event stream below.
+- `tool_result` events in the stream are rendered with a coloured badge showing the tool name (e.g. `[ruff]`), followed by the findings list.
+
+### Tool result badges in ReviewDetail
+
+File: `ui/src/pages/Reviews/ReviewDetail.tsx`
+
+When the event stream contains events with `event_type === 'tool_result'`:
+
+- A **tool result section** is rendered below AI findings.
+- Each tool result has a badge styled distinctly from AI badges (different colour, labelled with `data.tool_name`).
+- If no `tool_result` events exist for the review, the section is hidden entirely.
+
+### `lrc` CLI output
+
+When `lrc` renders a completed review and encounters events with `event_type === 'tool_result'`:
+
+```
+[ruff] src/auth/login.py:42:5  E501  Line too long (92 > 79 characters)
+[ruff] src/auth/login.py:78:1  F401  'os' imported but unused
+[bandit] src/utils/crypto.py:12:0  B303  Use of MD5 not recommended
+```
+
+Tag format: `[<tool_name>]` followed by the finding in standard linter format.  
+If no `tool_result` events are present, the tool section is skipped entirely (no empty header rendered).
+
+---
+
+## Shared Schemas
+
+### `tool_result` event data shape
+
+```json
+{
+  "tool_id":        1,
+  "tool_name":      "ruff",
+  "exit_code":      0,
+  "findings": [
+    {
+      "file":    "src/main.py",
+      "line":    42,
+      "col":     5,
+      "rule":    "E501",
+      "message": "Line too long (92 > 79 characters)"
+    }
+  ],
+  "lines_of_code":  312,
+  "stderr":         ""
+}
+```
+
+### `tool_invocation` River job schema
+
+```json
+{
+  "review_id":  1234,
+  "org_id":     42,
+  "tool_id":    1,
+  "tool_name":  "ruff",
+  "lambda_arn": "arn:aws:lambda:us-east-1:ACCOUNT:function:ruff-python-linter"
+}
+```
+
+### `available_tools` table
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial | PK |
+| `name` | text | Unique, e.g. `ruff` |
+| `description` | text | Human-readable |
+| `lambda_arn` | text | Full ARN of the Lambda function |
+| `multiplier` | numeric(6,2) | Cost tier relative to baseline tool |
+| `use_case` | text | Short label, e.g. `Python SAST` |
+| `created_at` | timestamptz | |
+
+### `org_tools` table
+
+| Column | Type | Notes |
+|---|---|---|
+| `org_id` | bigint | FK → `organizations.id` |
+| `tool_id` | bigint | FK → `available_tools.id` |
+| `enabled` | boolean | Default `false` |
+| `config_json` | jsonb | Per-org tool config, default `{}` |
+| `updated_at` | timestamptz | |
+
+---
+
+## Manual Testing – Triggering Gitleaks via lrc
+
+This section documents how to manually trigger a tool-based review against the self-hosted instance using a prepared test diff.
+
+### Prerequisites
+
+1. **Build and install lrc locally:**
+   ```bash
+   cd /home/gk/hex/git-lrc
+   make build-local && lrc hooks install
+   ```
+
+2. **Run both LiveReview processes** (two terminals):
+   ```bash
+   # Terminal 1 — API server
+   cd /home/gk/hex/LiveReview && ./tmp/livereview server
+
+   # Terminal 2 — Background worker (processes tool jobs)
+   cd /home/gk/hex/LiveReview && ./tmp/livereview worker
+   ```
+
+3. **Enable Gitleaks in org tool settings:**
+   - Log in as owner at `https://manual-talent.apps.hexmos.com`
+   - Go to **Settings → Third-Party Tools** → toggle **Gitleaks** on
+
+### Trigger Command
+
+```bash
+cd /home/gk/hex/git-lrc
+
+LRC_API_KEY=<your-api-key> \
+  lrc r \
+  --tools \
+  --diff-file test_cases/gitleaks.txt \
+  --force \
+  --api-url https://manual-talent.apps.hexmos.com
+```
+
+#### Flag reference
+
+| Flag | Purpose |
+|---|---|
+| `--tools` | Enables static analysis tool execution alongside the review |
+| `--diff-file test_cases/gitleaks.txt` | Uses a pre-crafted diff with fake secrets instead of a real git diff |
+| `--force` | Skips the interactive commit prompt |
+| `--api-url` | Points to the self-hosted instance instead of cloud |
+| `LRC_API_KEY` | API key scoped to the owner org (Org ID 3) |
+
+### Test Diff File
+
+**Location:** `git-lrc/test_cases/gitleaks.txt`
+
+
+### Verifying Results
+
+1. Open the review URL printed by `lrc` (e.g. `http://localhost:8002/?r=<id>`)
+2. The **ISSUE FILTERS** bar should show **N issues visible**
+3. Each finding appears in the diff view labelled **CRITICAL** with classification `tool-generated`
+4. Comment text reads: *"Gitleaks secret detected: ..."* with the matched secret redacted
+
+---
+
+## Repo-Level Tool Configuration via `.lrc/policy/tools.toml`
+
+In addition to organization-level tool settings managed via the UI (`org_tools`), repositories can configure tool policies locally using a single file: `.lrc/policy/tools.toml`. Each tool is declared as a TOML table with its own `enabled`, `category`, `include`, and `exclude` fields.
+
+### Specification & File Location
+
+Location: `<repo-root>/.lrc/policy/tools.toml`
+
+```toml
+# .lrc/policy/tools.toml
+
+[gitleaks]
+enabled = true
+category = "secret-scanning"
+include = ["*"]
+# exclude = ["tests/fixtures/**", "*.md"]
+
+[ruff]
+enabled = true
+category = "python-sast"
+include = ["**/*.py"]
+
+[golangci-lint]
+enabled = false
+category = "go-sast"
+```
+
+Each section header (`[gitleaks]`, `[ruff]`, etc.) is the tool name. Fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `enabled` | bool | Enable (`true`) or disable (`false`) this tool |
+| `category` | string | Classification (e.g. `secret-scanning`, `python-sast`) |
+| `include` | string[] | Gitignore-style globs — only diff files matching any pattern trigger the tool |
+| `exclude` | string[] | Gitignore-style globs — diff files matching these are ignored |
+
+If `include` is omitted, all files are considered. `exclude` takes priority over `include`.
+
+### Tool Classifications (Available Tools Catalog)
+
+| Domain | Tools | Description |
+|---|---|---|
+| **Secret Scanning** | `gitleaks`, `trufflehog`, `detect-secrets` | Detect hardcoded API keys, tokens, and credentials |
+| **Python Security & Quality** | `ruff`, `bandit` | Python linting, formatting, and SAST security analysis |
+| **JavaScript / TypeScript** | `eslint` | JavaScript and TypeScript linting and code quality |
+| **Go Security & Quality** | `golangci-lint` | Go static analysis and linter aggregator |
+| **Multi-Language SAST** | `semgrep`, `brakeman` | Pattern-matching security analysis for Ruby & multi-language repos |
+| **IaC & Container Security** | `tfsec`, `hadolint`, `kubescape`, `trivy` | Terraform, Dockerfile, Kubernetes, and container CVE scanning |
+| **CI/CD & API Security** | `actionlint`, `shellcheck`, `zizmor`, `openapi`, `spectral` | GitHub Actions, Shell script, and OpenAPI specification linters |
+
+### Path Triggering & Resolution Logic (`ExecuteToolsForReview`)
+
+When a review is submitted by `lrc`, the `.lrc/policy/tools.toml` file is bundled into the review payload ZIP. During review execution in `LiveReview`:
+
+1. **Tool Activation**: LiveReview reads `policy/tools.toml` and merges any tool with `enabled = true` into the active tool list alongside org-level tools.
+2. **Per-Tool Diff Filtering (`ShouldRunToolRuleForDiff`)**:
+   - `include` patterns: If specified, at least one changed file in the diff must match.
+   - `exclude` patterns: Diff files matching exclusion patterns are skipped for that tool.
+   - **Skip Execution**: If all changed files in a review diff match `exclude` (or fail `include`), LiveReview skips invoking that tool's Lambda and logs: `"Tool <name> skipped: no diff files matched trigger rules (.lrc/policy/tools.toml)"`.
+3. **Per-Tool Diff Slicing (`FilterLocalCodeDiffsForTool`)**: When a tool has path filters, only matching file diffs are sent to Lambda — excluding unrelated files from the payload.
+
+### Demo: Path Filtering with Gitleaks
+
+**1. Excluding specific files:**
+```toml
+# .lrc/policy/tools.toml
+
+[gitleaks]
+enabled = true
+category = "secret-scanning"
+include = ["*"]
+exclude = ["backend/auth_secrets.py"]
+```
+*Result:* If a review diff only contains changes to `backend/auth_secrets.py`, `gitleaks` execution is **skipped** — no Lambda invocation, no credits spent.
+
+**2. Including specific directories:**
+```toml
+# .lrc/policy/tools.toml
+
+[gitleaks]
+enabled = true
+category = "secret-scanning"
+include = ["backend/**"]
+```
+*Result:* `gitleaks` runs **only** when files under `backend/` are modified. Changes to `ui/`, `mcu/`, or other directories do not trigger gitleaks.
+
+**3. Multiple tools, mixed configuration:**
+```toml
+# .lrc/policy/tools.toml
+
+[gitleaks]
+enabled = true
+category = "secret-scanning"
+include = ["*"]
+
+[ruff]
+enabled = true
+category = "python-sast"
+include = ["**/*.py"]
+exclude = ["tests/**"]
+
+[golangci-lint]
+enabled = true
+category = "go-sast"
+include = ["**/*.go"]
+```
+*Result:* Each tool independently evaluates changed files against its own `include`/`exclude` rules.
+
+
+## Tool Finding Classification via Lightweight LLM
+
+Static analysis tools (e.g. `gitleaks`, `bandit`, `ruff`, `eslint`) output raw linter findings containing file paths, line numbers, rule IDs, and short messages. To maintain a consistent experience with AI reviews, tool findings are enriched into the standard **LiveReview 10-Category Taxonomy** using a fast, minimal-context LLM invocation.
+
+### Workflow
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│                       1. Tool Execution                          │
+│   Static Analysis Tool (gitleaks / ruff / bandit / eslint / etc.)│
+└────────────────────────────────┬─────────────────────────────────┘
+                                 │
+                                 ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                       2. Raw Tool Finding                        │
+│   { tool: "bandit", rule: "B303", message: "Use of MD5 function" }│
+└────────────────────────────────┬─────────────────────────────────┘
+                                 │
+                                 ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                  3. Minimal Context Builder                      │
+│   Reuses `prompts.TaxonomyClassificationRules` &                 │
+│   `prompts.CommentClassification` (~250 tokens total)            │
+└────────────────────────────────┬─────────────────────────────────┘
+                                 │
+                                 ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                     4. Fast LLM Classification                   │
+│   Lightweight LLM call (<1 second execution, ~95% token savings) │
+└────────────────────────────────┬─────────────────────────────────┘
+                                 │
+                                 ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                     5. Enriched Finding Output                   │
+│   { Category: "Security", Subcategory: "Cryptography",           │
+│     Severity: "critical", Suggestions: ["Use SHA-256 / bcrypt"] }│
+└────────────────────────────────┬─────────────────────────────────┘
+                                 │
+                                 ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                    6. PR & UI Comment Posting                    │
+│   Rendered with rich taxonomy badges in LiveReview Dashboard & PR │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Reusing Existing Prompt Constants (`internal/prompts/templates.go`)
+
+Instead of maintaining a separate prompt definition, the tool classifier directly reuses the existing prompt constants from [internal/prompts/templates.go](file:///home/gk/hex/LiveReview/internal/prompts/templates.go):
+
+- **`prompts.TaxonomyClassificationRules`** ([templates.go:L100-L122](file:///home/gk/hex/LiveReview/internal/prompts/templates.go#L100-L122)): Defines the closed 10-category taxonomy (`Security`, `Reliability`, `Correctness`, `Performance`, `Cost`, `Scalability`, `Maintainability`, `Architecture`, `Developer Experience`, `Compliance & Governance`) and allowed subcategories.
+- **`prompts.CommentClassification`** ([templates.go:L182-L199](file:///home/gk/hex/LiveReview/internal/prompts/templates.go#L182-L199)): Governs external vs. internal visibility (`isInternal = true/false`).
+- **`prompts.CommentRequirements`** ([templates.go:L42-L58](file:///home/gk/hex/LiveReview/internal/prompts/templates.go#L42-L58)): Enforces severity escalation rules (`critical`, `warning`, `info`).
+
+#### Prompt Builder Construction
+
+In `internal/prompts/builder.go`, `BuildToolFindingClassificationPrompt` is added to compose the minimal prompt:
+
+```go
+// BuildToolFindingClassificationPrompt composes a minimal classification prompt
+// by reusing the authoritative prompt constants from templates.go.
+func (pb *PromptBuilder) BuildToolFindingClassificationPrompt(finding ToolFindingInput) string {
+    var sb strings.Builder
+    sb.WriteString("You are a code analysis classifier. Classify the following static tool finding into the LiveReview Taxonomy.\n\n")
+    sb.WriteString(TaxonomyClassificationRules)
+    sb.WriteString("\n\n")
+    sb.WriteString(CommentClassification)
+    sb.WriteString("\n\nRAW TOOL FINDING:\n")
+    sb.WriteString(fmt.Sprintf("Tool: %s\nRule ID: %s\nFile: %s:%d\nMessage: %s\nSnippet: %s\n",
+        finding.ToolName, finding.RuleID, finding.FilePath, finding.LineNumber, finding.Message, finding.CodeSnippet))
+    return sb.String()
+}
+```
+
+---
+
+### Output Schema
+
+The LLM returns a structured JSON classification matching LiveReview's standard comment format:
+
+```json
+{
+  "category": "Security",
+  "subcategory": "Cryptography",
+  "severity": "critical",
+  "type": "Risk",
+  "confidence": "High",
+  "suggestions": [
+    "Replace MD5 with SHA-256 or bcrypt for secure hashing."
+  ],
+  "isInternal": false
+}
+```
+
+---
+
+### Test Cases Designed Against Existing `templates.go` Prompt
+
+Below are 6 diverse test cases built directly against the rules in `prompts.TaxonomyClassificationRules` and `prompts.CommentClassification`:
+
+#### Test Case 1: `gitleaks` (Secret Scanning)
+- **Input:**
+  ```json
+  {
+    "tool_name": "gitleaks",
+    "rule_id": "aws-access-token",
+    "file_path": "backend/config/aws.go",
+    "line_number": 14,
+    "message": "Uncovered secret: AKIAIOSFODNN7EXAMPLE",
+    "code_snippet": "const AWSKey = \"AKIAIOSFODNN7EXAMPLE\""
+  }
+  ```
+- **Classification Result (via `TaxonomyClassificationRules`):**
+  ```json
+  {
+    "category": "Security",
+    "subcategory": "Secrets Management",
+    "severity": "critical",
+    "type": "Risk",
+    "confidence": "High",
+    "suggestions": ["Remove hardcoded AWS key and fetch it from environment variables or AWS Secrets Manager."],
+    "isInternal": false
+  }
+  ```
+
+#### Test Case 2: `bandit` (Weak Cryptography)
+- **Input:**
+  ```json
+  {
+    "tool_name": "bandit",
+    "rule_id": "B303",
+    "file_path": "services/crypto.py",
+    "line_number": 18,
+    "message": "Use of MD5 insecure hash function",
+    "code_snippet": "hashlib.md5(password.encode()).hexdigest()"
+  }
+  ```
+- **Classification Result (via `TaxonomyClassificationRules`):**
+  ```json
+  {
+    "category": "Security",
+    "subcategory": "Cryptography",
+    "severity": "critical",
+    "type": "Risk",
+    "confidence": "High",
+    "suggestions": ["Replace MD5 with a secure hashing algorithm like SHA-256 or bcrypt for password hashing."],
+    "isInternal": false
+  }
+  ```
+
+#### Test Case 3: `golangci-lint` (Unchecked Return Error)
+- **Input:**
+  ```json
+  {
+    "tool_name": "golangci-lint",
+    "rule_id": "errcheck",
+    "file_path": "storage/db.go",
+    "line_number": 88,
+    "message": "Error return value of `file.Close` is not checked",
+    "code_snippet": "defer file.Close()"
+  }
+  ```
+- **Classification Result (via `TaxonomyClassificationRules`):**
+  ```json
+  {
+    "category": "Reliability",
+    "subcategory": "Error Handling",
+    "severity": "warning",
+    "type": "Code Smell",
+    "confidence": "High",
+    "suggestions": ["Check and log the error returned by file.Close() to prevent silent write/close failures."],
+    "isInternal": false
+  }
+  ```
+
+#### Test Case 4: `eslint` (Dangerous `eval()`)
+- **Input:**
+  ```json
+  {
+    "tool_name": "eslint",
+    "rule_id": "no-eval",
+    "file_path": "src/components/DynamicScript.tsx",
+    "line_number": 34,
+    "message": "eval can be harmful.",
+    "code_snippet": "const result = eval(userCodeInput);"
+  }
+  ```
+- **Classification Result (via `TaxonomyClassificationRules`):**
+  ```json
+  {
+    "category": "Security",
+    "subcategory": "Injection Vulnerabilities",
+    "severity": "critical",
+    "type": "Risk",
+    "confidence": "High",
+    "suggestions": ["Avoid eval(); parse input safely or use structured JSON evaluation."],
+    "isInternal": false
+  }
+  ```
+
+#### Test Case 5: `ruff` (Unused Variable)
+- **Input:**
+  ```json
+  {
+    "tool_name": "ruff",
+    "rule_id": "F841",
+    "file_path": "controllers/user.py",
+    "line_number": 102,
+    "message": "Local variable 'temp_res' is assigned to but never used",
+    "code_snippet": "temp_res = calculate_stats(user_id)"
+  }
+  ```
+- **Classification Result (via `CommentClassification`):**
+  ```json
+  {
+    "category": "Maintainability",
+    "subcategory": "Dead Code",
+    "severity": "info",
+    "type": "Code Smell",
+    "confidence": "High",
+    "suggestions": ["Remove unused variable 'temp_res' or use `_` if side effects are required."],
+    "isInternal": true
+  }
+  ```
+
+#### Test Case 6: `actionlint` (GitHub Actions Script Injection)
+- **Input:**
+  ```json
+  {
+    "tool_name": "actionlint",
+    "rule_id": "expression",
+    "file_path": ".github/workflows/deploy.yml",
+    "line_number": 25,
+    "message": "Unsanitized input in run step: github.event.issue.title can lead to script injection",
+    "code_snippet": "run: echo \"${{ github.event.issue.title }}\""
+  }
+  ```
+- **Classification Result (via `TaxonomyClassificationRules`):**
+  ```json
+  {
+    "category": "Developer Experience",
+    "subcategory": "CI/CD",
+    "severity": "critical",
+    "type": "Risk",
+    "confidence": "High",
+    "suggestions": ["Pass event title via environment variable `TITLE: ${{ github.event.issue.title }}` instead of inline script execution."],
+    "isInternal": false
+  }
+  ```
+
+---
+
+### Key Efficiency Gains
+
+- **Single Source of Truth:** Reuses `prompts.TaxonomyClassificationRules` and `prompts.CommentClassification` directly from [internal/prompts/templates.go](file:///home/gk/hex/LiveReview/internal/prompts/templates.go).
+- **Token Consumption:** Reduced by **~95%** compared to full code reviews (no diff context needed).
+- **Execution Speed:** Classification completes in **< 1 second**.
+- **Unified UI:** Tool findings appear with the exact same rich filtering badges (`Security`, `Critical`, `Cryptography`) as full AI review findings in both `lrc` and the web dashboard.
+
+---
+
+## UI/UX Design Specification & Customer Workflow Requirements
+
+This section details the UI and UX requirements designed from the **Customer Perspective** (Customer Angle).
+
+```
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                    Customer Tool Configuration Architecture                   │
+├───────────────────────────────────────────────┬───────────────────────────────┤
+│        1. LiveReview Globally (Dashboard UI)  │   2. Repo Policy (.lrc)       │
+│  • Org-wide available tools catalog & toggles │   • .lrc/policy/tools.toml    │
+│  • Tool Search Bar (missing feature)          │   • Path inclusion/exclusion  │
+│  • Technology Stack Planning Helper           │   • Active irrespective of    │
+│  • Recommendation Callout for .lrc directory  │     global UI settings        │
+└───────────────────────────────────────────────┴───────────────────────────────┘
+```
+
+### 1. Configuration Options (Customer Perspective)
+
+#### Option 1: LiveReview Global Settings (`Settings` → `Third-Party Tools` Tab)
+Organization owners configure global tool defaults in the web dashboard. The following UI improvements address current friction points:
+
+- **a. Tool Searching Filter (Missing Feature)**:
+  - **Problem**: As the catalog grows beyond 18+ tools (`ruff`, `bandit`, `eslint`, `gitleaks`, `trivy`, `actionlint`, etc.), navigating paginated lists is slow.
+  - **Specification**: Add a real-time instant search input at the top of the table. Searches match against tool name, description, category, and stack keywords (e.g., searching `"python"` filters `ruff` and `bandit`; searching `"secrets"` filters `gitleaks`, `trufflehog`, `detect-secrets`).
+  - **Category Pills**: Include quick-filter tabs (`All Tools`, `Python`, `JS / TS`, `Go`, `Secret Scanning`, `IaC & Container`, `CI/CD & Shell`).
+
+- **b. Stack Planning & Selection Helper**:
+  - **Problem**: Customers setting up LiveReview ask: *"I have TypeScript and Python codebases. Which tools should I enable?"*
+  - **Specification**: Add a **Recommended Presets** toolbar with 1-click stack buttons:
+    - ⚡ **Python Stack**: Automatically enables `ruff` (linter/formatter) and `bandit` (Python SAST).
+    - ⚡ **JS / TS Stack**: Automatically enables `eslint` (JS/TS quality) and `spectral` (API linting).
+    - ⚡ **Go Stack**: Automatically enables `golangci-lint` (Go static analysis).
+    - ⚡ **Secret Scanning**: Automatically enables `gitleaks`, `trufflehog`, and `detect-secrets`.
+    - ⚡ **IaC & Containers**: Automatically enables `tfsec`, `hadolint`, `trivy`, and `kubescape`.
+
+- **c. Recommend Enabling Tools via `.lrc` Directory**:
+  - **Specification**: Include a prominent callout banner in the settings tab guiding users:
+    > *"💡 **Want repository-specific path rules?** You can declare tools locally in your codebase using `.lrc/policy/tools.toml`. Repository policies run automatically with custom path include/exclude rules, irrespective of global UI toggles."*
+  - **Copyable Code Snippet**: Provide a 1-click copy block containing an example `.lrc/policy/tools.toml` file.
+
+#### Option 2: Repository Policy (`.lrc/policy/tools.toml`)
+- **Independent Execution**: Repository configuration inside `.lrc/policy/tools.toml` works **irrespective of global UI settings**. Developers can enforce local linter policies directly inside code repositories.
+- **Source Transparency**: The review dashboard will label tool execution sources (e.g. `Org Global` vs. `.lrc Policy`).
+
+---
+
+### 2. Review UI & Finding Presentation (What Customer Sees After Tool Execution)
+
+#### Beta Phase Requirements (Review Summary Header & Finding Cards)
+
+When a review finishes and comments are returned from static analysis tools, the review page renders a **Static Analysis Execution Summary**:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ ⚡ Static Analysis Tool Execution Summary                                   │
+├───────────────────┬─────────────────────────────────┬───────────────────────┤
+│  Tool Comments    │ Triggered Tools                 │ Review Credits Spent  │
+│    5 findings     │  [ruff]  [bandit]  [gitleaks]   │     3.0 credits       │
+└───────────────────┴─────────────────────────────────┴───────────────────────┘
+```
+
+1. **Review Description / Summary Header**:
+   - **Static Tool Comment Count**: Clear metric showing how many comments were generated specifically by static tools vs. AI (e.g., `5 findings`).
+   - **Triggered Tools List**: Badges for all tools executed for this review (e.g., `Triggered Tools: [ruff] [bandit] [gitleaks]`).
+   - **Review Credit Usage**: Explicit credit deduction counter for the review (e.g., `Credits Spent: 3.0 credits` based on the sum of tool multipliers).
+
+2. **In-Line Finding Cards & Comments**:
+   - **Tool Name Prominently Displayed**: Every comment card derived from a static tool MUST feature a clear tool badge (`[ruff]`, `[gitleaks]`, `[bandit]`) along with rule ID and taxonomy classification (e.g., `[gitleaks • Secret Detection]`).
+
+---
+
+### 3. V1 Architectural Execution Modes (Customer Choices)
+
+Customers can run static analysis tools in three distinct operational modes:
+
+| Mode | Description | Trigger / Command | Best For |
+|---|---|---|---|
+| **Combined Mode (Default)** | Static tools run concurrently alongside full AI code review. Findings from both tools and LLM are presented in a unified timeline. | `lrc r --tools` / PR Webhook | Pull Request reviews before merging. |
+| **Tool-Only Mode** | Runs static analysis tools without invoking AI LLMs. Sub-second execution, zero LLM token consumption. | `lrc r --tools-only` / `POST /api/v1/reviews/tool-reviews` | Pre-commit hooks & rapid local CLI checks. |
+| **Separated / Gatekeeper Mode** | Static tools execute first as a fast gate. If static analysis passes with 0 critical errors, full AI review is automatically triggered. | Orchestrator Pipeline Rule | High-volume repositories looking to optimize LLM spending. |

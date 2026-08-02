@@ -1,0 +1,38 @@
+[
+  {
+    "tool_name": "gitleaks",
+    "rule_id": "aws-access-token",
+    "file_path": "src/auth.py",
+    "line_number": 81,
+    "secret": "AKIAIOSFODNN7EXAMPLE",
+    "message": "AWS Access Key ID exposed in auth handler",
+    "code_snippet": "api_secret = 'AKIAIOSFODNN7EXAMPLE'"
+  },
+  {
+    "tool_name": "gitleaks",
+    "rule_id": "generic-api-key",
+    "file_path": "config/settings.json",
+    "line_number": 326,
+    "secret": "supersecretpassword123",
+    "message": "Hardcoded plaintext database password in settings",
+    "code_snippet": "\"database_password\": \"supersecretpassword123\""
+  },
+  {
+    "tool_name": "gitleaks",
+    "rule_id": "slack-bot-token",
+    "file_path": "config/settings.json",
+    "line_number": 327,
+    "secret": "xoxb-1234-5678-abcdef",
+    "message": "Slack Bot OAuth Token exposed in settings",
+    "code_snippet": "\"slack_token\": \"xoxb-1234-5678-abcdef\""
+  },
+  {
+    "tool_name": "gitleaks",
+    "rule_id": "private-key",
+    "file_path": "src/index.js",
+    "line_number": 425,
+    "secret": "-----BEGIN PRIVATE KEY-----",
+    "message": "Uncovered Unencrypted RSA Private Key",
+    "code_snippet": "const privateKey = '-----BEGIN PRIVATE KEY-----\\nMIIEvgIBADAN...'"
+  }
+]
