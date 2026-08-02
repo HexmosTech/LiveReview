@@ -149,8 +149,8 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
     // Size-based styling
     const sizeStyles = {
         sm: {
-            button: 'px-2 py-1 text-sm',
-            dropdown: 'w-48 text-sm',
+            button: '!px-2 !py-1.5 2xl:!py-2 !text-xs',
+            dropdown: 'w-80 text-sm',
             icon: 'w-3 h-3',
         },
         md: {
@@ -261,7 +261,8 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
                     styles.button,
                     'bg-slate-700/60 hover:bg-slate-600/60 text-slate-200 border border-slate-600/60',
                     position === 'sidebar' && 'w-full justify-between',
-                    position !== 'sidebar' && 'justify-start',
+                    position === 'navbar' && 'justify-start max-w-[130px] 2xl:max-w-[180px]',
+                    position === 'inline' && 'justify-start max-w-[180px]',
                     orgSelectorOpen && 'bg-slate-600/60'
                 )}
                 icon={
@@ -277,7 +278,7 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
                 <svg
                     className={classNames(
                         styles.icon,
-                        'ml-auto transition-transform duration-200',
+                        'ml-1.5 shrink-0 transition-transform duration-200',
                         orgSelectorOpen && 'rotate-180'
                     )}
                     fill="none"
@@ -291,7 +292,7 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
             {/* Dropdown Menu */}
             {orgSelectorOpen && (
                 <div className={classNames(
-                    'absolute z-50 mt-1 bg-slate-800 border border-slate-600/60 rounded-lg shadow-xl backdrop-blur-sm flex flex-col',
+                    'absolute z-[110] mt-1 bg-slate-800 border border-slate-600/60 rounded-lg shadow-xl backdrop-blur-sm flex flex-col',
                     styles.dropdown,
                     position === 'navbar' && 'right-0',
                     position === 'sidebar' && 'left-0',
@@ -341,7 +342,7 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                                     </svg>
                                     <div className="flex-1 min-w-0">
-                                        <div className="font-medium truncate">{org.name}</div>
+                                        <div className="font-medium whitespace-nowrap">{org.name}</div>
                                         {org.role && (
                                             <div className="text-xs text-slate-400 capitalize">{org.role}</div>
                                         )}

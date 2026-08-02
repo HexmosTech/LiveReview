@@ -146,22 +146,36 @@ type ReviewResult struct {
 	Summary          string           // High-level summary of what the diff is about
 	Comments         []*ReviewComment // External comments to be posted to the platform
 	InternalComments []*ReviewComment // Internal comments used for synthesis only
+	Quiz             []QuizQuestion   // Optional: 5-question comprehension quiz for this PR, nil if none was generated
+}
+
+// QuizQuestion is one multiple-choice question in a review's comprehension
+// quiz. Generated as an additional part of the same summary-synthesis LLM
+// call (see internal/batch.splitSummaryAndQuiz) — never a separate call.
+// The JSON tags here are the exact shape the LLM is prompted to produce
+// (prompts.QuizJSONStructureExample), so the same struct round-trips
+// unchanged from LLM output -> DB metadata -> HTTP API response.
+type QuizQuestion struct {
+	Type         string   `json:"type"`
+	Question     string   `json:"question"`
+	Options      []string `json:"options"`
+	CorrectIndex int      `json:"correctIndex"`
+	Explanation  string   `json:"explanation,omitempty"`
 }
 
 // ReviewComment represents a single comment from the AI review
 type ReviewComment struct {
-	FilePath      string          `json:"file_path"`
-	Line          int             `json:"line"`
-	Content       string          `json:"content"`
-	Severity      CommentSeverity `json:"severity"`
-	Confidence    string          `json:"confidence,omitempty"`
-	Type          string          `json:"type,omitempty"`
-	Category      string          `json:"category,omitempty"`
-	Subcategory   string          `json:"subcategory,omitempty"`
-	Suggestions   []string        `json:"suggestions,omitempty"`
-	IsDeletedLine bool            `json:"is_deleted_line"`
-	IsInternal    bool            `json:"is_internal"`
-	Source        string          `json:"source,omitempty"` // "tool" for static-analysis tool comments, empty for LLM review comments
+	FilePath      string
+	Line          int
+	Content       string
+	Severity      CommentSeverity
+	Confidence    string
+	Type          string
+	Category      string
+	Subcategory   string
+	Suggestions   []string
+	IsDeletedLine bool // True if comment is on a deleted line (old_line) rather than new_line
+	IsInternal    bool // True if comment is for internal synthesis only, false if it should be posted to user
 }
 
 // CommentSeverity represents the severity level of a review comment

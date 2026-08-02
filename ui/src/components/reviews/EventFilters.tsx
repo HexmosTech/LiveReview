@@ -32,7 +32,6 @@ const EVENT_TYPES = [
   { id: 'timeout', label: 'Timeouts', icon: '⏱️' },
   { id: 'error', label: 'Errors', icon: '❌' },
   { id: 'completed', label: 'Completed', icon: '🎉' },
-  { id: 'tool_result', label: 'Tool Result', icon: '⚙️' },
 ];
 
 const STATUS_TYPES = [

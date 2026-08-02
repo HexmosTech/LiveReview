@@ -59,7 +59,7 @@ const popularAIProviders: AIProvider[] = [
         name: 'DeepSeek',
         url: 'https://platform.deepseek.com/',
         description: 'Native DeepSeek connector with chat as default and R1 available for deeper reasoning.',
-        icon: <Icons.AI />,
+        icon: <Icons.DeepSeek />,
         apiKeyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
         baseURLPlaceholder: 'https://api.deepseek.com/v1'
     },
@@ -68,7 +68,7 @@ const popularAIProviders: AIProvider[] = [
         name: 'OpenRouter',
         url: 'https://openrouter.ai/',
         description: 'Bring your own key and choose any OpenRouter model. Defaults to the free DeepSeek route.',
-        icon: <Icons.AI />,
+        icon: <Icons.OpenRouter />,
         apiKeyPlaceholder: 'sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
         baseURLPlaceholder: 'https://openrouter.ai/api/v1'
     },
@@ -104,7 +104,7 @@ const popularAIProviders: AIProvider[] = [
         name: 'Anthropic Claude',
         url: 'https://www.anthropic.com/',
         description: 'Advanced reasoning & long context. Vote to prioritize deeper integration.',
-        icon: <Icons.AI />,
+        icon: <Icons.Claude />,
         apiKeyPlaceholder: 'sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
     },
     {
@@ -112,7 +112,7 @@ const popularAIProviders: AIProvider[] = [
         name: 'AWS Bedrock',
         url: 'https://aws.amazon.com/bedrock/',
         description: 'Claude, Nova, Llama, and other foundation models via your own AWS account.',
-        icon: <Icons.AI />,
+        icon: <Icons.Aws />,
         apiKeyPlaceholder: 'AWS Secret Access Key'
     },
 ];
@@ -126,6 +126,8 @@ const AIProviders: React.FC = () => {
         isEditing,
         setIsEditing
     } = useProviderSelection(popularAIProviders);
+
+    const routerLocation = useLocation();
 
     const {
         connectors,
@@ -159,6 +161,14 @@ const AIProviders: React.FC = () => {
     });
     const [helperSettingsSaved, setHelperSettingsSaved] = useState(false);
 	const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // Deep-linked from the navbar mega menu (e.g. /ai/gemini?role=leader) to preselect the tab.
+    useEffect(() => {
+        const roleParam = new URLSearchParams(routerLocation.search).get('role');
+        if (roleParam === 'leader' || roleParam === 'helper') {
+            setActiveRole(roleParam);
+        }
+    }, [routerLocation.search]);
 
 	const getDefaultModelFor = (providerId?: string) => {
 		if (!providerId) return '';

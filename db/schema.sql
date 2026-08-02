@@ -1,7 +1,7 @@
 \restrict dbmate
 
--- Dumped from database version 16.14 (Ubuntu 16.14-0ubuntu0.24.04.1)
--- Dumped by pg_dump version 16.14 (Ubuntu 16.14-0ubuntu0.24.04.1)
+-- Dumped from database version 15.17 (Debian 15.17-1.pgdg13+1)
+-- Dumped by pg_dump version 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -107,20 +107,6 @@ $$;
 
 
 --
--- Name: org_tool_billing_state_set_updated_at(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.org_tool_billing_state_set_updated_at() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$;
-
-
---
 -- Name: plan_catalog_set_updated_at(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -214,6 +200,17 @@ $$;
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
+
+--
+-- Name: _seed_backup; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public._seed_backup (
+    org_id bigint NOT NULL,
+    key text NOT NULL,
+    value jsonb
+);
+
 
 --
 -- Name: ai_comments; Type: TABLE; Schema: public; Owner: -
@@ -461,40 +458,6 @@ CREATE SEQUENCE public.auth_tokens_id_seq
 --
 
 ALTER SEQUENCE public.auth_tokens_id_seq OWNED BY public.auth_tokens.id;
-
-
---
--- Name: available_tools; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.available_tools (
-    id bigint NOT NULL,
-    name text NOT NULL,
-    description text NOT NULL,
-    lambda_arn text NOT NULL,
-    multiplier numeric(6,2) DEFAULT 1.0 NOT NULL,
-    use_case text DEFAULT ''::text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: available_tools_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.available_tools_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: available_tools_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.available_tools_id_seq OWNED BY public.available_tools.id;
 
 
 --
@@ -882,6 +845,19 @@ ALTER SEQUENCE public.loc_usage_ledger_id_seq OWNED BY public.loc_usage_ledger.i
 
 
 --
+-- Name: mcp_authorizations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.mcp_authorizations (
+    request_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    status character varying(20) DEFAULT 'pending'::character varying NOT NULL,
+    token_pair jsonb,
+    expires_at timestamp with time zone DEFAULT (now() + '00:10:00'::interval) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: org_billing_state; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1051,56 +1027,6 @@ ALTER SEQUENCE public.org_teams_configs_id_seq OWNED BY public.org_teams_configs
 
 
 --
--- Name: org_tool_billing_state; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.org_tool_billing_state (
-    id bigint NOT NULL,
-    org_id bigint NOT NULL,
-    credits_used_month numeric(18,4) DEFAULT 0.0 NOT NULL,
-    credits_limit_month numeric(18,4) DEFAULT 50000.0 NOT NULL,
-    billing_period_start timestamp with time zone NOT NULL,
-    billing_period_end timestamp with time zone NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT chk_tool_billing_period_valid CHECK ((billing_period_end > billing_period_start)),
-    CONSTRAINT chk_tool_billing_used_non_negative CHECK ((credits_used_month >= 0.0))
-);
-
-
---
--- Name: org_tool_billing_state_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.org_tool_billing_state_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: org_tool_billing_state_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.org_tool_billing_state_id_seq OWNED BY public.org_tool_billing_state.id;
-
-
---
--- Name: org_tools; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.org_tools (
-    org_id bigint NOT NULL,
-    tool_id bigint NOT NULL,
-    enabled boolean DEFAULT false NOT NULL,
-    config_json jsonb DEFAULT '{}'::jsonb NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
 -- Name: orgs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1258,6 +1184,79 @@ CREATE SEQUENCE public.prompt_chunks_id_seq
 --
 
 ALTER SEQUENCE public.prompt_chunks_id_seq OWNED BY public.prompt_chunks.id;
+
+
+--
+-- Name: pull_requests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.pull_requests (
+    id bigint NOT NULL,
+    repository_id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    provider text NOT NULL,
+    provider_pr_id text NOT NULL,
+    number integer NOT NULL,
+    title text DEFAULT ''::text NOT NULL,
+    description text,
+    state text NOT NULL,
+    author_id text,
+    author_username text,
+    author_name text,
+    author_avatar_url text,
+    source_branch text,
+    target_branch text,
+    web_url text NOT NULL,
+    provider_created_at timestamp with time zone,
+    provider_updated_at timestamp with time zone,
+    last_synced_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_synced_source text DEFAULT 'poll'::text NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT pull_requests_last_synced_source_check CHECK ((last_synced_source = ANY (ARRAY['webhook'::text, 'poll'::text, 'backfill'::text]))),
+    CONSTRAINT pull_requests_state_check CHECK ((state = ANY (ARRAY['open'::text, 'closed'::text, 'merged'::text])))
+);
+
+
+--
+-- Name: TABLE pull_requests; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.pull_requests IS 'Canonical pull/merge request per repository, normalized across providers and kept in sync via webhook + periodic reconciliation.';
+
+
+--
+-- Name: COLUMN pull_requests.state; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.pull_requests.state IS 'Normalized state: open | closed | merged. Mapping is provider-specific (see internal/prsync).';
+
+
+--
+-- Name: COLUMN pull_requests.last_synced_source; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.pull_requests.last_synced_source IS 'How last_synced_at was set: webhook | poll | backfill.';
+
+
+--
+-- Name: pull_requests_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.pull_requests_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: pull_requests_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.pull_requests_id_seq OWNED BY public.pull_requests.id;
 
 
 --
@@ -1486,6 +1485,74 @@ ALTER SEQUENCE public.recent_activity_id_seq OWNED BY public.recent_activity.id;
 
 
 --
+-- Name: repositories; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.repositories (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    connector_id bigint NOT NULL,
+    provider text NOT NULL,
+    provider_repo_id text NOT NULL,
+    full_name text NOT NULL,
+    name text NOT NULL,
+    web_url text NOT NULL,
+    clone_url text,
+    ssh_url text,
+    default_branch text,
+    is_private boolean DEFAULT true NOT NULL,
+    description text,
+    last_synced_at timestamp with time zone,
+    last_sync_status text DEFAULT 'pending'::text NOT NULL,
+    last_sync_error text,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT repositories_last_sync_status_check CHECK ((last_sync_status = ANY (ARRAY['pending'::text, 'ok'::text, 'error'::text])))
+);
+
+
+--
+-- Name: TABLE repositories; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.repositories IS 'Canonical repository per connector, discovered from a provider (GitHub/GitLab) and kept in sync via webhook + periodic reconciliation.';
+
+
+--
+-- Name: COLUMN repositories.provider_repo_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.repositories.provider_repo_id IS 'Stable external repository id as reported by the provider API (string form).';
+
+
+--
+-- Name: COLUMN repositories.last_sync_status; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.repositories.last_sync_status IS 'Outcome of the most recent sync attempt for this repository.';
+
+
+--
+-- Name: repositories_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.repositories_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: repositories_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.repositories_id_seq OWNED BY public.repositories.id;
+
+
+--
 -- Name: review_events; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1588,9 +1655,16 @@ CREATE TABLE public.reviews (
     author_name text,
     author_username text,
     friendly_name text,
-    diff text,
+    pull_request_id bigint,
     CONSTRAINT reviews_status_check CHECK (((status)::text = ANY ((ARRAY['created'::character varying, 'in_progress'::character varying, 'completed'::character varying, 'failed'::character varying])::text[])))
 );
+
+
+--
+-- Name: COLUMN reviews.pull_request_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.reviews.pull_request_id IS 'Canonical pull_requests row this review run belongs to, if known. Nullable for reviews triggered by raw URL or predating this column.';
 
 
 --
@@ -1984,39 +2058,6 @@ CREATE TABLE public.system_settings (
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
-
-
---
--- Name: tool_credit_ledger; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.tool_credit_ledger (
-    id bigint NOT NULL,
-    org_id bigint NOT NULL,
-    review_id bigint,
-    credits_deducted numeric(18,4) NOT NULL,
-    idempotency_key character varying(255) NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: tool_credit_ledger_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.tool_credit_ledger_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: tool_credit_ledger_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.tool_credit_ledger_id_seq OWNED BY public.tool_credit_ledger.id;
 
 
 --
@@ -2473,13 +2514,6 @@ ALTER TABLE ONLY public.auth_tokens ALTER COLUMN id SET DEFAULT nextval('public.
 
 
 --
--- Name: available_tools id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.available_tools ALTER COLUMN id SET DEFAULT nextval('public.available_tools_id_seq'::regclass);
-
-
---
 -- Name: billing_notification_outbox id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2550,13 +2584,6 @@ ALTER TABLE ONLY public.org_teams_configs ALTER COLUMN id SET DEFAULT nextval('p
 
 
 --
--- Name: org_tool_billing_state id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.org_tool_billing_state ALTER COLUMN id SET DEFAULT nextval('public.org_tool_billing_state_id_seq'::regclass);
-
-
---
 -- Name: orgs id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2585,6 +2612,13 @@ ALTER TABLE ONLY public.prompt_chunks ALTER COLUMN id SET DEFAULT nextval('publi
 
 
 --
+-- Name: pull_requests id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pull_requests ALTER COLUMN id SET DEFAULT nextval('public.pull_requests_id_seq'::regclass);
+
+
+--
 -- Name: quota_batch_settlements id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2610,6 +2644,13 @@ ALTER TABLE ONLY public.quota_policy_catalog ALTER COLUMN id SET DEFAULT nextval
 --
 
 ALTER TABLE ONLY public.recent_activity ALTER COLUMN id SET DEFAULT nextval('public.recent_activity_id_seq'::regclass);
+
+
+--
+-- Name: repositories id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repositories ALTER COLUMN id SET DEFAULT nextval('public.repositories_id_seq'::regclass);
 
 
 --
@@ -2666,13 +2707,6 @@ ALTER TABLE ONLY public.subscriptions ALTER COLUMN id SET DEFAULT nextval('publi
 --
 
 ALTER TABLE ONLY public.system_default_ai_configs ALTER COLUMN id SET DEFAULT nextval('public.system_default_ai_configs_id_seq'::regclass);
-
-
---
--- Name: tool_credit_ledger id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tool_credit_ledger ALTER COLUMN id SET DEFAULT nextval('public.tool_credit_ledger_id_seq'::regclass);
 
 
 --
@@ -2739,6 +2773,14 @@ ALTER TABLE ONLY public.webhook_registry ALTER COLUMN id SET DEFAULT nextval('pu
 
 
 --
+-- Name: _seed_backup _seed_backup_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public._seed_backup
+    ADD CONSTRAINT _seed_backup_pkey PRIMARY KEY (org_id, key);
+
+
+--
 -- Name: ai_comments ai_comments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2792,22 +2834,6 @@ ALTER TABLE ONLY public.api_keys
 
 ALTER TABLE ONLY public.auth_tokens
     ADD CONSTRAINT auth_tokens_pkey PRIMARY KEY (id);
-
-
---
--- Name: available_tools available_tools_name_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.available_tools
-    ADD CONSTRAINT available_tools_name_key UNIQUE (name);
-
-
---
--- Name: available_tools available_tools_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.available_tools
-    ADD CONSTRAINT available_tools_pkey PRIMARY KEY (id);
 
 
 --
@@ -2915,6 +2941,14 @@ ALTER TABLE ONLY public.loc_usage_ledger
 
 
 --
+-- Name: mcp_authorizations mcp_authorizations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mcp_authorizations
+    ADD CONSTRAINT mcp_authorizations_pkey PRIMARY KEY (request_id);
+
+
+--
 -- Name: org_billing_state org_billing_state_org_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2971,30 +3005,6 @@ ALTER TABLE ONLY public.org_teams_configs
 
 
 --
--- Name: org_tool_billing_state org_tool_billing_state_org_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.org_tool_billing_state
-    ADD CONSTRAINT org_tool_billing_state_org_id_key UNIQUE (org_id);
-
-
---
--- Name: org_tool_billing_state org_tool_billing_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.org_tool_billing_state
-    ADD CONSTRAINT org_tool_billing_state_pkey PRIMARY KEY (id);
-
-
---
--- Name: org_tools org_tools_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.org_tools
-    ADD CONSTRAINT org_tools_pkey PRIMARY KEY (org_id, tool_id);
-
-
---
 -- Name: orgs orgs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3043,6 +3053,14 @@ ALTER TABLE ONLY public.prompt_chunks
 
 
 --
+-- Name: pull_requests pull_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pull_requests
+    ADD CONSTRAINT pull_requests_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: quota_batch_settlements quota_batch_settlements_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3072,6 +3090,14 @@ ALTER TABLE ONLY public.quota_policy_catalog
 
 ALTER TABLE ONLY public.recent_activity
     ADD CONSTRAINT recent_activity_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: repositories repositories_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repositories
+    ADD CONSTRAINT repositories_pkey PRIMARY KEY (id);
 
 
 --
@@ -3227,14 +3253,6 @@ ALTER TABLE ONLY public.system_settings
 
 
 --
--- Name: tool_credit_ledger tool_credit_ledger_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tool_credit_ledger
-    ADD CONSTRAINT tool_credit_ledger_pkey PRIMARY KEY (id);
-
-
---
 -- Name: trial_eligibility trial_eligibility_normalized_email_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3331,6 +3349,14 @@ ALTER TABLE ONLY public.loc_usage_ledger
 
 
 --
+-- Name: pull_requests uq_pull_requests_repo_provider_pr; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pull_requests
+    ADD CONSTRAINT uq_pull_requests_repo_provider_pr UNIQUE (repository_id, provider_pr_id);
+
+
+--
 -- Name: quota_batch_settlements uq_quota_batch_settlements_dedupe; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3355,11 +3381,11 @@ ALTER TABLE ONLY public.quota_policy_catalog
 
 
 --
--- Name: tool_credit_ledger uq_tool_credit_ledger_idempotency; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: repositories uq_repositories_connector_provider_repo; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.tool_credit_ledger
-    ADD CONSTRAINT uq_tool_credit_ledger_idempotency UNIQUE (org_id, idempotency_key);
+ALTER TABLE ONLY public.repositories
+    ADD CONSTRAINT uq_repositories_connector_provider_repo UNIQUE (connector_id, provider_repo_id);
 
 
 --
@@ -3838,6 +3864,13 @@ CREATE INDEX idx_loc_usage_ledger_org_user ON public.loc_usage_ledger USING btre
 
 
 --
+-- Name: idx_mcp_authorizations_status_expiry; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_mcp_authorizations_status_expiry ON public.mcp_authorizations USING btree (status, expires_at);
+
+
+--
 -- Name: idx_org_billing_current_plan; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3887,13 +3920,6 @@ CREATE INDEX idx_org_teams_configs_org_id ON public.org_teams_configs USING btre
 
 
 --
--- Name: idx_org_tools_org_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_org_tools_org_id ON public.org_tools USING btree (org_id);
-
-
---
 -- Name: idx_orgs_active; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3933,6 +3959,34 @@ CREATE INDEX idx_pac_targeting ON public.prompt_application_context USING btree 
 --
 
 CREATE INDEX idx_plan_catalog_active_rank ON public.plan_catalog USING btree (active, rank);
+
+
+--
+-- Name: idx_pull_requests_last_synced_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_pull_requests_last_synced_at ON public.pull_requests USING btree (last_synced_at);
+
+
+--
+-- Name: idx_pull_requests_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_pull_requests_org_id ON public.pull_requests USING btree (org_id);
+
+
+--
+-- Name: idx_pull_requests_org_state; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_pull_requests_org_state ON public.pull_requests USING btree (org_id, state);
+
+
+--
+-- Name: idx_pull_requests_repository_state; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_pull_requests_repository_state ON public.pull_requests USING btree (repository_id, state);
 
 
 --
@@ -4010,6 +4064,34 @@ CREATE INDEX idx_recent_activity_review_id ON public.recent_activity USING btree
 --
 
 CREATE INDEX idx_recent_activity_type ON public.recent_activity USING btree (activity_type);
+
+
+--
+-- Name: idx_repositories_connector_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_repositories_connector_id ON public.repositories USING btree (connector_id);
+
+
+--
+-- Name: idx_repositories_last_synced_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_repositories_last_synced_at ON public.repositories USING btree (last_synced_at);
+
+
+--
+-- Name: idx_repositories_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_repositories_org_id ON public.repositories USING btree (org_id);
+
+
+--
+-- Name: idx_repositories_org_provider; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_repositories_org_provider ON public.repositories USING btree (org_id, provider);
 
 
 --
@@ -4108,6 +4190,13 @@ CREATE INDEX idx_reviews_org_status ON public.reviews USING btree (org_id, statu
 --
 
 CREATE INDEX idx_reviews_provider ON public.reviews USING btree (provider);
+
+
+--
+-- Name: idx_reviews_pull_request_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_reviews_pull_request_id ON public.reviews USING btree (pull_request_id);
 
 
 --
@@ -4531,6 +4620,13 @@ CREATE UNIQUE INDEX river_job_unique_idx ON public.river_job USING btree (unique
 
 
 --
+-- Name: uq_pull_requests_repo_number; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_pull_requests_repo_number ON public.pull_requests USING btree (repository_id, number);
+
+
+--
 -- Name: ux_license_state_singleton; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4563,13 +4659,6 @@ CREATE TRIGGER trg_license_state_updated_at BEFORE UPDATE ON public.license_stat
 --
 
 CREATE TRIGGER trg_org_billing_state_updated_at BEFORE UPDATE ON public.org_billing_state FOR EACH ROW EXECUTE FUNCTION public.org_billing_state_set_updated_at();
-
-
---
--- Name: org_tool_billing_state trg_org_tool_billing_state_updated_at; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_org_tool_billing_state_updated_at BEFORE UPDATE ON public.org_tool_billing_state FOR EACH ROW EXECUTE FUNCTION public.org_tool_billing_state_set_updated_at();
 
 
 --
@@ -4856,30 +4945,6 @@ ALTER TABLE ONLY public.org_teams_configs
 
 
 --
--- Name: org_tool_billing_state org_tool_billing_state_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.org_tool_billing_state
-    ADD CONSTRAINT org_tool_billing_state_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
-
-
---
--- Name: org_tools org_tools_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.org_tools
-    ADD CONSTRAINT org_tools_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
-
-
---
--- Name: org_tools org_tools_tool_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.org_tools
-    ADD CONSTRAINT org_tools_tool_id_fkey FOREIGN KEY (tool_id) REFERENCES public.available_tools(id) ON DELETE CASCADE;
-
-
---
 -- Name: orgs orgs_created_by_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4925,6 +4990,22 @@ ALTER TABLE ONLY public.prompt_chunks
 
 ALTER TABLE ONLY public.prompt_chunks
     ADD CONSTRAINT prompt_chunks_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: pull_requests pull_requests_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pull_requests
+    ADD CONSTRAINT pull_requests_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: pull_requests pull_requests_repository_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pull_requests
+    ADD CONSTRAINT pull_requests_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES public.repositories(id) ON DELETE CASCADE;
 
 
 --
@@ -5000,6 +5081,22 @@ ALTER TABLE ONLY public.recent_activity
 
 
 --
+-- Name: repositories repositories_connector_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repositories
+    ADD CONSTRAINT repositories_connector_id_fkey FOREIGN KEY (connector_id) REFERENCES public.integration_tokens(id) ON DELETE CASCADE;
+
+
+--
+-- Name: repositories repositories_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repositories
+    ADD CONSTRAINT repositories_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
 -- Name: review_events review_events_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5040,6 +5137,14 @@ ALTER TABLE ONLY public.reviews
 
 
 --
+-- Name: reviews reviews_pull_request_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reviews
+    ADD CONSTRAINT reviews_pull_request_id_fkey FOREIGN KEY (pull_request_id) REFERENCES public.pull_requests(id) ON DELETE SET NULL;
+
+
+--
 -- Name: river_client_queue river_client_queue_river_client_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5069,22 +5174,6 @@ ALTER TABLE ONLY public.subscriptions
 
 ALTER TABLE ONLY public.subscriptions
     ADD CONSTRAINT subscriptions_owner_user_id_fkey FOREIGN KEY (owner_user_id) REFERENCES public.users(id);
-
-
---
--- Name: tool_credit_ledger tool_credit_ledger_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tool_credit_ledger
-    ADD CONSTRAINT tool_credit_ledger_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
-
-
---
--- Name: tool_credit_ledger tool_credit_ledger_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tool_credit_ledger
-    ADD CONSTRAINT tool_credit_ledger_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id) ON DELETE SET NULL;
 
 
 --
@@ -5410,18 +5499,14 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260411170000'),
     ('20260419193000'),
     ('20260420140334'),
+    ('20260509195524'),
     ('20260521120000'),
     ('20260521140000'),
     ('20260522120000'),
     ('20260527120000'),
-    ('20260606160000'),
     ('20260611185900'),
     ('20260612152523'),
-    ('20260618100000'),
-    ('20260618100001'),
-    ('20260618100002'),
     ('20260620000000'),
-    ('20260620120000'),
     ('20260621194000'),
     ('20260622180000'),
     ('20260623135113'),
@@ -5431,4 +5516,6 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260702141000'),
     ('20260704150001'),
     ('20260706205257'),
-    ('20260707220001');
+    ('20260707220001'),
+    ('20260727120000'),
+    ('20260727120001');

@@ -15,7 +15,7 @@ module.exports = {
    {
     name: 'livereview-staging-ui',
     script: './livereview',
-    args: 'ui',
+    args: ["ui", "--port", "8081"],
     cwd: __dirname,
     env: {
       LIVEREVIEW_REVERSE_PROXY: "true"

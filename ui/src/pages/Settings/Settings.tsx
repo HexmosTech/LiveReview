@@ -6,7 +6,7 @@ import LicenseTab from './LicenseTab';
 import SubscriptionTab from './SubscriptionTab';
 import LearningsTab from './LearningsTab';
 import APIKeysTab from './APIKeysTab';
-import ThirdPartyToolsTab from './ThirdPartyToolsTab';
+import MCPIntegrationTab from './MCPIntegrationTab';
 import IntegrationsTab from './IntegrationsTab';
 import SMTPSettingsTab from './SMTPSettingsTab';
 import { UserManagement } from '../../components/UserManagement';
@@ -323,6 +323,16 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
+        // MCP integration tab visible to all org members
+        ...((isSuperAdmin || currentOrg) ? [{
+            id: 'mcp',
+            name: 'MCP Integration',
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
+                </svg>
+            )
+        }] : []),
         // User Management tab visible to all org members (read-only for non-owners)
         ...((isSuperAdmin || currentOrg) ? [{ 
             id: 'users', 
@@ -333,8 +343,8 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
-        // Integrations tab visible only in self-hosted mode
-        ...(!isCloudMode() && (isSuperAdmin || currentOrg) ? [{ 
+        // Integrations tab: visible in both modes; cloud mode shows an Enterprise "not available" notice instead of the connect options
+        ...((isSuperAdmin || currentOrg) ? [{
             id: 'integrations', 
             name: 'Integrations', 
             icon: (
@@ -352,12 +362,6 @@ const Settings = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
                 </svg>
             )
-        }] : []),
-        // Third-Party Tools tab visible for org owners or super admins
-        ...(isSuperAdmin || currentOrg?.role === 'owner' ? [{
-            id: 'third-party-tools',
-            name: 'Third-Party Tools',
-            icon: <Icons.Tools />
         }] : []),
     ];
 
@@ -769,6 +773,12 @@ const Settings = () => {
                         </Card>
                     )}
 
+                    {activeTab === 'mcp' && (isSuperAdmin || currentOrg) && (
+                        <Card>
+                            <MCPIntegrationTab />
+                        </Card>
+                    )}
+
                     {activeTab === 'integrations' && (isSuperAdmin || currentOrg) && (
                         <Card>
                             <IntegrationsTab />
@@ -784,19 +794,6 @@ const Settings = () => {
                     {activeTab === 'subscriptions' && (isSuperAdmin || currentOrg) && (
                         <Card>
                             {isCloudMode() ? <SubscriptionTab /> : <LicenseManagement />}
-                        </Card>
-                    )}
-
-                    {activeTab === 'third-party-tools' && isCloudMode() && currentOrg?.role === 'owner' && (
-                        <Card>
-                            <ThirdPartyToolsTab />
-                        </Card>
-                    )}
-                    {activeTab === 'third-party-tools' && isCloudMode() && currentOrg?.role !== 'owner' && (
-                        <Card>
-                            <div className="p-4 text-sm text-red-300">
-                                Tool configuration is only available to organization owners.
-                            </div>
                         </Card>
                     )}
 

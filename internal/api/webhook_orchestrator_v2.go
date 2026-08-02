@@ -21,8 +21,8 @@ import (
 	"github.com/livereview/internal/lrcfetch"
 	"github.com/livereview/internal/prompts"
 	gitlabinput "github.com/livereview/internal/provider_input/gitlab"
+	"github.com/livereview/internal/prsync"
 	storagelicense "github.com/livereview/storage/license"
-	storagetools "github.com/livereview/storage/tools"
 )
 
 // Phase 8: Webhook Orchestrator for coordinating provider and processing layers
@@ -90,6 +90,15 @@ func NewWebhookOrchestratorV2(server *Server) *WebhookOrchestratorV2 {
 	return orchestrator
 }
 
+// prStateConverter is implemented by webhook providers that can recognize a
+// PR/MR lifecycle event (GitHub "pull_request", GitLab "merge_request") and
+// convert it to a normalized prsync.PullRequestStateEvent. matched=false (with
+// a nil error) means this payload isn't one of those events, so the caller
+// should fall through to the normal comment/reviewer conversion path.
+type prStateConverter interface {
+	ConvertPullRequestStateEvent(headers map[string]string, body []byte) (*prsync.PullRequestStateEvent, bool, error)
+}
+
 // ProcessWebhookEvent is the main entry point for webhook processing (replaces individual handlers)
 func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 	startTime := time.Now()
@@ -128,6 +137,50 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 	}
 
 	log.Printf("[INFO] Detected provider: %s", providerName)
+
+	// Phase 1.5: PR/MR state-sync short-circuit. GitHub's "pull_request" and
+	// GitLab's "merge_request" webhook events are already delivered to this
+	// endpoint today (LiveReview's webhook installer subscribes to them), but
+	// convertToUnifiedEvent below only recognizes comment/reviewer-shaped
+	// events, so these currently either fail outright (GitHub: HTTP 400) or
+	// get silently swallowed as an empty-body no-op (GitLab). Handle them here
+	// instead, bypassing the AI-response pipeline entirely (bot-info lookup,
+	// response-warrant check, LOC preflight are all irrelevant to a state
+	// upsert), and return before any of that runs.
+	if converter, ok := provider.(prStateConverter); ok {
+		if stateEvent, matched, convErr := converter.ConvertPullRequestStateEvent(headers, bodyBytes); matched {
+			if convErr != nil {
+				log.Printf("[ERROR] Failed to convert PR/MR state event (provider=%s): %v", providerName, convErr)
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error":    "failed to process pr state webhook",
+					"provider": providerName,
+				})
+			}
+			connectorID, ok := auth.GetConnectorIDFromContext(c)
+			if !ok {
+				log.Printf("[ERROR] Connector ID not found in context - webhook route configuration error")
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			}
+			orgID, ok := auth.GetOrgIDFromContext(c)
+			if !ok {
+				log.Printf("[ERROR] Org ID not found in context - middleware configuration error")
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			}
+			if wo.server.jobQueue == nil {
+				log.Printf("[ERROR] Job queue not initialized, cannot process PR state event")
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			}
+			if err := wo.server.jobQueue.QueuePRStateSyncJob(c.Request().Context(), orgID, connectorID, providerName, *stateEvent); err != nil {
+				log.Printf("[ERROR] Failed to queue PR state sync job: %v", err)
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to queue pr state sync"})
+			}
+			return c.JSON(http.StatusOK, map[string]string{
+				"status":     "accepted",
+				"provider":   providerName,
+				"event_type": "pr_state_sync",
+			})
+		}
+	}
 
 	// Phase 2: Convert to Unified Event Structure
 	event, err := wo.convertToUnifiedEvent(provider, headers, bodyBytes)
@@ -468,59 +521,6 @@ func (wo *WebhookOrchestratorV2) handleFullReviewFlow(ctx context.Context, event
 
 	if usage != nil && usage.Chargeable && usage.BillableLOC > 0 {
 		wo.accountWebhookSuccess(ctx, orgID, event, usage, "webhook_full_review")
-	}
-
-	// Trigger tool review invocation if any are enabled for this organization
-	toolsStore := storagetools.NewToolsStore(wo.server.db)
-	enabledTools, err := toolsStore.GetEnabledToolsForOrg(ctx, orgID)
-	if err == nil && len(enabledTools) > 0 {
-		reviewID := extractWebhookReviewID(event)
-		if reviewID > 0 {
-			var connID int64
-			if event.MergeRequest != nil && event.MergeRequest.Metadata != nil {
-				if cid, ok := event.MergeRequest.Metadata["connector_id"].(int64); ok {
-					connID = cid
-				}
-			}
-			var totalMultiplier float64
-			for _, t := range enabledTools {
-				totalMultiplier += t.Multiplier
-			}
-			
-			// Pre-flight credit check (also enforces paid-plan requirement)
-			webhookPlanCode, planErr := wo.resolveOrgPlanCode(ctx, orgID)
-			creditStore := storagetools.NewCreditStore(wo.server.db)
-			if planErr != nil || !license.IsToolsEligible(webhookPlanCode) {
-				log.Printf("[INFO] Tools not available for org %d (plan=%s): skipping tool fan-out", orgID, webhookPlanCode)
-			} else if err = creditStore.CheckCreditPreflight(ctx, orgID, totalMultiplier, webhookPlanCode); err != nil {
-				log.Printf("[WARN] Insufficient tool credits for org %d: %v", orgID, err)
-			} else {
-				err = wo.server.jobQueue.QueueToolReviewOrchestratorJob(
-					ctx,
-					reviewID,
-					orgID,
-					event.MergeRequest.WebURL,
-					connID,
-					event.Provider,
-					totalMultiplier,
-				)
-				if err != nil {
-					log.Printf("[WARN] Failed to queue tool orchestrator job for review %d: %v", reviewID, err)
-				} else {
-					log.Printf("[INFO] Queued tool orchestrator job for review %d", reviewID)
-				}
-			}
-			if totalMultiplier > 0 {
-				_, err = wo.server.db.Exec(`
-					UPDATE public.reviews 
-					SET metadata = metadata || jsonb_build_object('multiplier_used', $1) 
-					WHERE id = $2
-				`, totalMultiplier, reviewID)
-				if err != nil {
-					log.Printf("[WARN] Webhook: Failed to save multiplier for review %d: %v", reviewID, err)
-				}
-			}
-		}
 	}
 
 	log.Printf("[INFO] Full review posted successfully for event %s/%s with %d comments",

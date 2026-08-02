@@ -8,6 +8,9 @@ import { useOrgContext } from '../../hooks/useOrgContext';
 import { isCloudMode } from '../../utils/deploymentMode';
 import apiClient from '../../api/apiClient';
 import { useAppSelector } from '../../store/configureStore';
+import { buildMegaMenuSections, filterMegaMenuSection, MegaMenuContext } from './megaMenuData';
+import { NavMegaMenu } from './NavMegaMenu';
+import { shortcutKeyLabel } from '../../utils/platform';
 
 type NavbarBillingStatusResponse = {
     billing: {
@@ -366,7 +369,7 @@ const BillingChip: React.FC = () => {
             <button
                 onClick={() => { if (isCloudMode()) navigate('/settings-subscriptions-overview') }}
                 className={classNames(
-                    'px-3 py-2 rounded-lg border text-xs font-semibold transition-colors',
+                    'whitespace-nowrap px-2 py-1.5 2xl:px-3 2xl:py-2 rounded-lg border text-xs font-semibold transition-colors',
                     toneClass,
                     isCloudMode() ? 'cursor-pointer' : 'cursor-default'
                 )}
@@ -377,7 +380,7 @@ const BillingChip: React.FC = () => {
                 {loading ? 'Billing...' : chip ? (chip.trialActive ? `Trial ${chip.trialDaysLeft ?? '?'}d left` : `${planLabel(chip.planCode)} ${chip.usagePct}%`) : 'Billing'}
             </button>
             {chip && isOpen && (
-                <div className="pointer-events-auto absolute left-1/2 top-full z-50 mt-1 w-80 -translate-x-1/2 rounded-lg border border-slate-600 bg-slate-900/95 p-3 opacity-100 transition-all duration-150">
+                <div className="pointer-events-auto absolute left-1/2 top-full z-[110] mt-1 w-80 -translate-x-1/2 rounded-lg border border-slate-600 bg-slate-900/95 p-3 opacity-100 transition-all duration-150">
                     <p className="text-xs text-slate-200 font-semibold">Billing Usage Detail</p>
                     <p className="text-[11px] text-slate-400 mt-1">
                         Scope: organization usage in current billing period. Attribution is charged to the triggering actor.
@@ -554,8 +557,8 @@ type NavLink = {
 const baseNavLinks: NavLink[] = [
     { name: 'Dashboard', key: 'dashboard', icon: <Icons.Dashboard />, path: '/dashboard' },
     { name: 'Reviews', key: 'reviews', icon: <Icons.Reviews />, path: '/reviews' },
-    { name: 'Git Providers', key: 'git', icon: <Icons.Git />, path: '/git', requiresOwnerOrAdmin: true },
-    { name: 'AI Providers', key: 'ai', icon: <Icons.AI />, path: '/ai', requiresOwnerOrAdmin: true },
+    { name: 'Explore', key: 'explore', icon: <Icons.FolderOpen />, path: '/explore/repositories' },
+    { name: 'Providers', key: 'providers', icon: <Icons.Layers />, requiresOwnerOrAdmin: true },
     { name: 'Reports', key: 'reports', icon: <Icons.Reports />, path: '/reports', requiresOwnerOrAdmin: true },
     { name: 'Settings', key: 'settings', icon: <Icons.Settings />, path: '/settings' },
 ];
@@ -573,6 +576,17 @@ const testNavLink: NavLink = {
 
 export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard', onNavigate, onLogout }) => {
     const [isOpen, setIsOpen] = useState(false);
+    const [isMegaMenuOpen, setIsMegaMenuOpen] = useState(false);
+    const [hoveredNavKey, setHoveredNavKey] = useState<string | null>(null);
+    const [searchFocusToken, setSearchFocusToken] = useState(0);
+    const megaMenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // The mega menu should only open/stay open while hovering the logo or the nav-links-through-
+    // search cluster (or the open panel itself) — not the org selector, billing chip, or logout,
+    // which now sit to the right of Search but shouldn't trigger it.
+    const logoRef = useRef<HTMLDivElement>(null);
+    const navTriggerZoneRef = useRef<HTMLDivElement>(null);
+    const megaMenuPanelRef = useRef<HTMLDivElement>(null);
+    const wasMegaMenuOpenRef = useRef(false);
     const { isDevMode } = useSystemInfo();
     const { isSuperAdmin, currentOrg } = useOrgContext();
 
@@ -593,15 +607,104 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
     // Conditionally include test middleware link based on dev mode
     const navLinks = isDevMode ? [...filteredBaseLinks, testNavLink] : filteredBaseLinks;
 
+    const megaMenuContext: MegaMenuContext = {
+        isSuperAdmin,
+        hasOrg: Boolean(currentOrg),
+        orgRole: currentOrg?.role,
+        isDevMode,
+    };
+
+    const filteredMegaMenuSections = buildMegaMenuSections()
+        .filter(section => {
+            if (section.devOnly) return isDevMode;
+            if (section.requiresSuperAdmin) return isSuperAdmin;
+            if (section.requiresOwnerOrAdmin) return canManageCurrentOrg;
+            return true;
+        })
+        .map(section => filterMegaMenuSection(section, megaMenuContext));
+
     const handleNavClick = (target: string) => {
         if (onNavigate) onNavigate(target);
         setIsOpen(false);
+        setIsMegaMenuOpen(false);
     };
 
+    const openMegaMenu = () => {
+        if (megaMenuCloseTimerRef.current) {
+            clearTimeout(megaMenuCloseTimerRef.current);
+            megaMenuCloseTimerRef.current = null;
+        }
+        wasMegaMenuOpenRef.current = true;
+        setIsMegaMenuOpen(true);
+    };
+
+    // Whether the cursor is "inside" the nav can't be tracked with plain onMouseEnter/onMouseLeave
+    // on <nav>: the mega-menu panel resizes as you type in search (results list grows/shrinks),
+    // and that alone can shift the panel's edge out from under a stationary cursor and fire a
+    // spurious mouseleave — closing the menu while you're still actively using it. Tracking real
+    // mouse movement globally and checking actual DOM containment (via elementFromPoint, which
+    // correctly includes the absolutely-positioned panel since it's still a real DOM descendant
+    // of <nav>) only reacts to the cursor actually moving, so it isn't fooled by layout shifts.
+    useEffect(() => {
+        const handleMouseMove = (event: MouseEvent) => {
+            const elementUnderCursor = document.elementFromPoint(event.clientX, event.clientY);
+            const isInsideTriggerZone = Boolean(
+                elementUnderCursor && (
+                    logoRef.current?.contains(elementUnderCursor) ||
+                    navTriggerZoneRef.current?.contains(elementUnderCursor) ||
+                    megaMenuPanelRef.current?.contains(elementUnderCursor)
+                )
+            );
+
+            if (isInsideTriggerZone) {
+                if (megaMenuCloseTimerRef.current) {
+                    clearTimeout(megaMenuCloseTimerRef.current);
+                    megaMenuCloseTimerRef.current = null;
+                }
+                // Focus the search box the moment the menu actually opens (not on every mousemove
+                // tick while it's already open, which would fight the user for focus while typing).
+                if (!wasMegaMenuOpenRef.current) {
+                    wasMegaMenuOpenRef.current = true;
+                    setSearchFocusToken((token) => token + 1);
+                }
+                setIsMegaMenuOpen(true);
+            } else if (!megaMenuCloseTimerRef.current) {
+                megaMenuCloseTimerRef.current = setTimeout(() => {
+                    setIsMegaMenuOpen(false);
+                    setHoveredNavKey(null);
+                    wasMegaMenuOpenRef.current = false;
+                    megaMenuCloseTimerRef.current = null;
+                }, 200);
+            }
+        };
+        document.addEventListener('mousemove', handleMouseMove);
+        return () => document.removeEventListener('mousemove', handleMouseMove);
+    }, []);
+
+    // Ctrl+K / Cmd+K opens the mega menu and focuses its search box from anywhere in the app.
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+                event.preventDefault();
+                if (megaMenuCloseTimerRef.current) {
+                    clearTimeout(megaMenuCloseTimerRef.current);
+                    megaMenuCloseTimerRef.current = null;
+                }
+                wasMegaMenuOpenRef.current = true;
+                setIsMegaMenuOpen(true);
+                setSearchFocusToken((token) => token + 1);
+            }
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, []);
+
     return (
-        <nav className="bg-slate-900/95 backdrop-blur-sm shadow-lg border-b border-slate-700/60 sticky top-0 z-50">
+        <nav
+            className="relative bg-slate-900/95 backdrop-blur-sm shadow-lg border-b border-slate-700/60 sticky top-0 z-50"
+        >
             <div className="container mx-auto px-4 py-3 flex justify-between items-center">
-                <div className="flex items-center">
+                <div ref={logoRef} className="flex items-center">
                     <Link
                         to="/"
                         onClick={() => handleNavClick('dashboard')}
@@ -633,32 +736,75 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                 </div>
 
                 {/* Desktop menu */}
-                <div className="hidden md:flex items-center space-x-2">
+                <div className="hidden md:flex items-center space-x-1 2xl:space-x-2">
+                    <div ref={navTriggerZoneRef} className="flex items-center space-x-1 2xl:space-x-2">
+                        <div
+                            className={classNames(
+                                'flex items-center gap-1 2xl:gap-2 transition-opacity duration-200',
+                                isMegaMenuOpen && 'opacity-50'
+                            )}
+                            onMouseLeave={() => setHoveredNavKey(null)}
+                        >
+                        {navLinks.map(link => {
+                            const linkProps = link.path ? { as: Link, to: link.path } : {};
+                            return (
+                                <Button
+                                    key={link.key}
+                                    variant="ghost"
+                                    onClick={link.path ? () => handleNavClick(link.path as string) : undefined}
+                                    onMouseEnter={() => setHoveredNavKey(link.key)}
+                                    icon={activePage === link.key ? link.icon : <span className="text-slate-400">{link.icon}</span>}
+                                    className={classNames(
+                                        'relative !px-2.5 2xl:!px-4 text-sm font-medium transition-all duration-200 focus:!ring-0 focus:!ring-offset-0',
+                                        activePage === link.key
+                                            ? 'text-white font-semibold hover:bg-transparent'
+                                            : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+                                    )}
+                                    {...linkProps}
+                                >
+                                    {link.name}
+                                    {activePage === link.key && (
+                                        <span
+                                            aria-hidden="true"
+                                            className="absolute -bottom-3 left-2 right-2 h-0.5 rounded-full bg-blue-500"
+                                        />
+                                    )}
+                                </Button>
+                            );
+                        })}
+                    </div>
+
+                    {/* Divider */}
+                    <div className="h-6 w-px bg-slate-700/60" />
+
+                    <Button
+                        variant="ghost"
+                        onMouseEnter={() => {
+                            openMegaMenu();
+                            setSearchFocusToken((token) => token + 1);
+                        }}
+                        onClick={() => {
+                            openMegaMenu();
+                            setSearchFocusToken((token) => token + 1);
+                        }}
+                        icon={<span className="text-slate-400"><Icons.Search /></span>}
+                        aria-label="Search"
+                        className="!px-2.5 2xl:!px-4 text-sm font-medium transition-all duration-200 text-slate-300 hover:text-white hover:bg-slate-700/60 focus:!ring-0 focus:!ring-offset-0"
+                    >
+                        Search
+                        <span className="ml-2 2xl:ml-2.5 whitespace-nowrap font-mono text-[11px] text-slate-500" style={{ letterSpacing: '0.02em' }}>
+                            {shortcutKeyLabel()}
+                        </span>
+                    </Button>
+                    </div>
+
                     {/* Organization Selector */}
                     <OrganizationSelector
                         position="navbar"
                         size="sm"
-                        className="mr-4"
+                        className="ml-2 2xl:ml-4"
                     />
 
-                    {navLinks.map(link => (
-                        <Button
-                            key={link.key}
-                            variant={activePage === link.key ? 'primary' : 'ghost'}
-                            onClick={() => handleNavClick(link.path || link.key)}
-                            icon={link.icon}
-                            className={classNames(
-                                'text-sm font-medium transition-all duration-200',
-                                activePage === link.key
-                                    ? 'bg-blue-600 text-white shadow-lg'
-                                    : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
-                            )}
-                            as={Link}
-                            to={link.path || `/${link.key}`}
-                        >
-                            {link.name}
-                        </Button>
-                    ))}
                     <BillingChip />
 
                     {/* Logout button */}
@@ -666,7 +812,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         <Button
                             variant="ghost"
                             onClick={onLogout}
-                            className="ml-3 text-slate-300 hover:text-red-300 hover:bg-red-900/20 transition-colors"
+                            className="!px-2.5 2xl:!px-4 ml-1 2xl:ml-3 text-slate-300 hover:text-red-300 hover:bg-red-900/20 transition-colors"
                             icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                             </svg>}
@@ -695,7 +841,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         <Button
                             key={link.key}
                             variant={activePage === link.key ? 'primary' : 'ghost'}
-                            onClick={() => handleNavClick(link.path || link.key)}
+                            onClick={() => handleNavClick(link.path || '/git')}
                             icon={link.icon}
                             className={classNames(
                                 'w-full justify-start text-sm font-medium',
@@ -705,7 +851,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                             )}
                             iconPosition="left"
                             as={Link}
-                            to={link.path || `/${link.key}`}
+                            to={link.path || '/git'}
                         >
                             {link.name}
                         </Button>
@@ -727,6 +873,16 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                     )}
                 </div>
             )}
+
+            <div ref={megaMenuPanelRef}>
+                <NavMegaMenu
+                    isOpen={isMegaMenuOpen}
+                    onClose={() => setIsMegaMenuOpen(false)}
+                    sections={filteredMegaMenuSections}
+                    highlightKey={hoveredNavKey}
+                    searchFocusToken={searchFocusToken}
+                />
+            </div>
         </nav>
     );
 };

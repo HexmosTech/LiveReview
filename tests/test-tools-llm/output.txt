@@ -1,0 +1,101 @@
+=== CUMULATIVE OUTPUT CLASSIFICATION TOKEN CONSUMPTION METRICS (4 FINDINGS) ===
+Total Findings Analyzed: 4 findings
+Total Input Tokens:       3,530 tokens
+Total Output Tokens:      740 tokens
+Total Tokens Consumed:    4,270 tokens (Avg ~1,067 tokens per finding)
+Baseline Full Review:     20,000 tokens
+Token Efficiency Gain:    78.65% token savings!
+=============================================================================
+
+[
+  {
+    "finding_id": "auth.py_L81_aws-access-token",
+    "raw_tool_finding": {
+      "tool_name": "gitleaks",
+      "rule_id": "aws-access-token",
+      "file_path": "src/auth.py",
+      "line_number": 81,
+      "message": "AWS Access Key ID exposed in auth handler",
+      "code_snippet": "api_secret = 'AKIAIOSFODNN7EXAMPLE'"
+    },
+    "classified_taxonomy_result": {
+      "category": "Security",
+      "subcategory": "Secrets Management",
+      "severity": "critical",
+      "type": "Bug",
+      "confidence": "High",
+      "suggestions": [
+        "Remove the hardcoded AWS Access Key ID from the codebase immediately.",
+        "Use a secure secrets management solution (e.g., AWS Secrets Manager, environment variables, or a configuration management system) to inject credentials at runtime.",
+        "Rotate or revoke the exposed AWS Access Key ID in your AWS account to prevent unauthorized access.",
+        "Ensure this key is not committed to version control in the future by using pre-commit hooks or repository scanning tools."
+      ],
+      "isInternal": false
+    }
+  },
+  {
+    "finding_id": "settings.json_L326_generic-api-key",
+    "raw_tool_finding": {
+      "tool_name": "gitleaks",
+      "rule_id": "generic-api-key",
+      "file_path": "config/settings.json",
+      "line_number": 326,
+      "message": "Hardcoded plaintext database password in settings",
+      "code_snippet": "\"database_password\": \"supersecretpassword123\""
+    },
+    "classified_taxonomy_result": {
+      "category": "Security",
+      "subcategory": "Secrets Management",
+      "severity": "critical",
+      "type": "Risk",
+      "confidence": "High",
+      "suggestions": "Hardcoding sensitive credentials like database passwords directly in configuration files is a critical security vulnerability. This password should be removed from the file immediately. Instead, use a secure secrets management solution (e.g., environment variables, a dedicated secrets manager like AWS Secrets Manager, Azure Key Vault, or HashiCorp Vault) to inject the password at runtime.",
+      "isInternal": false
+    }
+  },
+  {
+    "finding_id": "settings.json_L327_slack-bot-token",
+    "raw_tool_finding": {
+      "tool_name": "gitleaks",
+      "rule_id": "slack-bot-token",
+      "file_path": "config/settings.json",
+      "line_number": 327,
+      "message": "Slack Bot OAuth Token exposed in settings",
+      "code_snippet": "\"slack_token\": \"xoxb-1234-5678-abcdef\""
+    },
+    "classified_taxonomy_result": {
+      "category": "Security",
+      "subcategory": "Secrets Management",
+      "severity": "critical",
+      "type": "Bug",
+      "confidence": "High",
+      "suggestions": "Remove the Slack Bot OAuth Token from the codebase. Store sensitive credentials securely using environment variables, a dedicated secret management service (e.g., AWS Secrets Manager, Azure Key Vault, HashiCorp Vault), or a configuration management system that handles secrets appropriately. Do not hardcode secrets directly in configuration files or source code.",
+      "isInternal": false
+    }
+  },
+  {
+    "finding_id": "index.js_L425_private-key",
+    "raw_tool_finding": {
+      "tool_name": "gitleaks",
+      "rule_id": "private-key",
+      "file_path": "src/index.js",
+      "line_number": 425,
+      "message": "Uncovered Unencrypted RSA Private Key",
+      "code_snippet": "const privateKey = '-----BEGIN PRIVATE KEY-----\\nMIIEvgIBADAN...'"
+    },
+    "classified_taxonomy_result": {
+      "category": "Security",
+      "subcategory": "Secrets Management",
+      "severity": "critical",
+      "type": "Bug",
+      "confidence": "High",
+      "suggestions": [
+        "Remove this private key from the source code immediately.",
+        "Hardcoding sensitive credentials like private keys is a critical security vulnerability. An attacker gaining access to the codebase could compromise systems or data.",
+        "Instead, use a secure secrets management solution (e.g., environment variables, a dedicated secrets manager like AWS Secrets Manager, Azure Key Vault, HashiCorp Vault, or Kubernetes Secrets) to store and retrieve this key at runtime.",
+        "Ensure the exposed key is rotated immediately, as it is now compromised."
+      ],
+      "isInternal": false
+    }
+  }
+]

@@ -1,3 +1,7 @@
+html {
+  scroll-behavior: smooth;
+}
+
 /* LiveReview Brand Colors */
 :root {
   --primary-blue: #3B82F6;
