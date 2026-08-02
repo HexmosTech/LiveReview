@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/aiconnectors"
+	"github.com/livereview/internal/orgname"
 )
 
 type Handler struct {
@@ -81,9 +82,14 @@ func buildBot(db *sql.DB) (*Bot, error) {
 
 		mcpHeaders := map[string]string{"X-API-Key": cfg.APIKey}
 
+		orgName, orgNameErr := orgname.OrgNameByID(context.Background(), db, cfg.OrgID)
+		if orgNameErr != nil {
+			log.Printf("Teams bot: failed to resolve org name for org %d: %v", cfg.OrgID, orgNameErr)
+		}
+
 		botCfgs = append(botCfgs, BotConfig{
 			OrgID:        cfg.OrgID,
-			OrgName:      OrgNameByID(context.Background(), db, cfg.OrgID),
+			OrgName:      orgName,
 			BotAppID:     cfg.BotAppID,
 			BotPassword:  cfg.BotPassword,
 			MCPServerURL: mcpServerURL,

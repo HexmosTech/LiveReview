@@ -27,6 +27,7 @@ import (
 	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/license/payment"
+	"github.com/livereview/internal/orgname"
 	azuredevopsprovider "github.com/livereview/internal/provider_input/azuredevops"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
 	giteaprovider "github.com/livereview/internal/provider_input/gitea"
@@ -588,9 +589,14 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 
 		mcpHeaders := map[string]string{"X-API-Key": cfg.APIKey}
 
+		orgName, orgNameErr := orgname.OrgNameByID(context.Background(), db, cfg.OrgID)
+		if orgNameErr != nil {
+			log.Printf("Slack bot: failed to resolve org name for org %d: %v", cfg.OrgID, orgNameErr)
+		}
+
 		orgCfgs = append(orgCfgs, slackbot.OrgConfig{
 			OrgID:         cfg.OrgID,
-			OrgName:       slackbot.OrgNameByID(context.Background(), db, cfg.OrgID),
+			OrgName:       orgName,
 			SlackBotToken: cfg.BotToken,
 			MCPServerURL:  mcpServerURL,
 			MCPHeaders:    mcpHeaders,
@@ -679,9 +685,14 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 
 		mcpHeaders := map[string]string{"X-API-Key": cfg.APIKey}
 
+		orgName, orgNameErr := orgname.OrgNameByID(context.Background(), db, cfg.OrgID)
+		if orgNameErr != nil {
+			log.Printf("Discord bot: failed to resolve org name for org %d: %v", cfg.OrgID, orgNameErr)
+		}
+
 		orgCfgs = append(orgCfgs, discordbot.OrgConfig{
 			OrgID:         cfg.OrgID,
-			OrgName:       discordbot.OrgNameByID(context.Background(), db, cfg.OrgID),
+			OrgName:       orgName,
 			BotToken:      cfg.BotToken,
 			MCPServerURL:  mcpServerURL,
 			MCPHeaders:    mcpHeaders,

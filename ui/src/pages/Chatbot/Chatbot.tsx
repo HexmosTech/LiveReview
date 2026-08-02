@@ -334,7 +334,7 @@ const Chatbot: React.FC = () => {
                       {msg.images && msg.images.length > 0 && (
                         <div className="space-y-6">
                           {msg.images.map((img, i) => (
-                            <div key={i} className="space-y-3">
+                            <div key={img.url || img.title || i} className="space-y-3">
                               <div className="space-y-3 !mt-2 !mb-8">
                                 {img.title && (
                                   <h3 className="text-sm font-semibold text-slate-300">{img.title}</h3>
@@ -343,6 +343,7 @@ const Chatbot: React.FC = () => {
                                   onClick={() => setPreview(img)}
                                   className="block relative overflow-hidden rounded-lg w-fit max-w-full"
                                   title="Click to expand"
+                                  aria-label="Expand chart image"
                                 >
                                   <img
                                     src={resolveImageUrl(img.url)}
