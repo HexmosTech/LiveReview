@@ -31,8 +31,36 @@ const ThirdPartyToolsTab: React.FC = () => {
 
 	const [sortField, setSortField] = useState<'name' | 'use_case' | 'multiplier' | 'enabled'>('name');
 	const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+	const [searchQuery, setSearchQuery] = useState('');
+	const [selectedCategory, setSelectedCategory] = useState<string>('all');
 	const [currentPage, setCurrentPage] = useState(1);
 	const pageSize = 10;
+
+	const categoryPresets: Record<string, { label: string; tools: string[] }> = {
+		python: { label: 'Python Stack', tools: ['ruff', 'bandit'] },
+		jsts: { label: 'JS / TS Stack', tools: ['eslint', 'spectral'] },
+		go: { label: 'Go Stack', tools: ['golangci-lint'] },
+		secrets: { label: 'Secret Detection', tools: ['gitleaks', 'trufflehog', 'detect-secrets'] },
+		iac: { label: 'IaC & Container', tools: ['tfsec', 'hadolint', 'kubescape', 'trivy'] },
+		cicd: { label: 'CI/CD & Shell', tools: ['actionlint', 'shellcheck', 'zizmor'] },
+	};
+
+	const applyPreset = (presetKey: string) => {
+		const preset = categoryPresets[presetKey];
+		if (!preset) return;
+
+		setLocalEnabled(prev => {
+			const updated = { ...prev };
+			tools.forEach(t => {
+				if (preset.tools.includes(t.name.toLowerCase())) {
+					updated[t.id] = true;
+				}
+			});
+			return updated;
+		});
+		setSuccess(`Applied preset: ${preset.label}`);
+		setTimeout(() => setSuccess(null), 3000);
+	};
 
 	const handleSort = (field: 'name' | 'use_case' | 'multiplier' | 'enabled') => {
 		if (sortField === field) {
@@ -41,7 +69,7 @@ const ThirdPartyToolsTab: React.FC = () => {
 			setSortField(field);
 			setSortDirection('asc');
 		}
-		setCurrentPage(1); // Reset to first page on sort change
+		setCurrentPage(1);
 	};
 
 	const renderSortIcon = (field: 'name' | 'use_case' | 'multiplier' | 'enabled') => {
@@ -66,7 +94,26 @@ const ThirdPartyToolsTab: React.FC = () => {
 		);
 	};
 
-	const sortedTools = [...tools].sort((a, b) => {
+	const filteredTools = tools.filter(tool => {
+		const matchesQuery = 
+			tool.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+			tool.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+			(tool.use_case || '').toLowerCase().includes(searchQuery.toLowerCase());
+		
+		if (!matchesQuery) return false;
+
+		if (selectedCategory === 'all') return true;
+		if (selectedCategory === 'python') return ['ruff', 'bandit'].includes(tool.name.toLowerCase());
+		if (selectedCategory === 'jsts') return ['eslint', 'spectral'].includes(tool.name.toLowerCase());
+		if (selectedCategory === 'go') return ['golangci-lint'].includes(tool.name.toLowerCase());
+		if (selectedCategory === 'secrets') return ['gitleaks', 'trufflehog', 'detect-secrets'].includes(tool.name.toLowerCase());
+		if (selectedCategory === 'iac') return ['tfsec', 'hadolint', 'kubescape', 'trivy'].includes(tool.name.toLowerCase());
+		if (selectedCategory === 'cicd') return ['actionlint', 'shellcheck', 'zizmor'].includes(tool.name.toLowerCase());
+
+		return true;
+	});
+
+	const sortedTools = [...filteredTools].sort((a, b) => {
 		let valA: any;
 		let valB: any;
 
@@ -209,6 +256,37 @@ const ThirdPartyToolsTab: React.FC = () => {
 				</p>
 			</div>
 
+			{/* Repo Policy Callout Banner */}
+			<div className="bg-gradient-to-r from-slate-800/90 via-violet-950/30 to-slate-800/90 border border-violet-500/30 rounded-xl p-5 backdrop-blur-md shadow-md">
+				<div className="flex items-start justify-between">
+					<div className="space-y-2">
+						<h4 className="text-sm font-semibold text-white flex items-center gap-2">
+							<span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-violet-500/20 text-violet-300 border border-violet-500/40">
+								Repo-Level Policy
+							</span>
+							Recommend Enabling Tools via <code className="text-violet-300 font-mono text-xs bg-slate-900/80 px-2 py-0.5 rounded border border-slate-700">.lrc/policy/tools.toml</code>
+						</h4>
+						<p className="text-xs text-slate-300 leading-relaxed max-w-3xl">
+							In addition to global LiveReview organization settings, developers can configure tools per-repository with fine-grained path filters (<code className="text-amber-300 font-mono">include</code> / <code className="text-amber-300 font-mono">exclude</code> globs). Repository policy runs automatically irrespective of global defaults.
+						</p>
+					</div>
+				</div>
+				<div className="mt-3 bg-slate-950/80 rounded-lg p-3 border border-slate-800 font-mono text-xs text-slate-300 overflow-x-auto relative group">
+					<div className="text-slate-500 font-sans text-[11px] mb-1"># File: &lt;repo-root&gt;/.lrc/policy/tools.toml</div>
+					<pre className="text-emerald-400">
+{`[ruff]
+enabled = true
+category = "python-sast"
+include = ["**/*.py"]
+
+[gitleaks]
+enabled = true
+category = "secret-scanning"
+exclude = ["tests/fixtures/**"]`}
+					</pre>
+				</div>
+			</div>
+
 			{error && (
 				<Alert variant="error" onClose={() => setError(null)}>
 					{error}
@@ -242,6 +320,90 @@ const ThirdPartyToolsTab: React.FC = () => {
 					</span>
 				</div>
 			</div>
+
+			{/* Search, Category Filter & Presets Toolbar */}
+			{tools.length > 0 && !loading && (
+				<div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4 space-y-4 backdrop-blur-md">
+					<div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+						{/* Search Input */}
+						<div className="relative flex-1">
+							<svg className="w-4 h-4 text-slate-400 absolute left-3 top-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+							</svg>
+							<input
+								type="text"
+								placeholder="Search tools by name, description, or stack (e.g. ruff, bandit, python)..."
+								value={searchQuery}
+								onChange={(e) => {
+									setSearchQuery(e.target.value);
+									setCurrentPage(1);
+								}}
+								className="w-full bg-slate-900/90 border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+							/>
+						</div>
+
+						{/* Stack Presets Helper */}
+						{isOwner && (
+							<div className="flex items-center gap-1.5 flex-wrap">
+								<span className="text-xs font-semibold text-slate-400 uppercase mr-1">Quick Presets:</span>
+								<button
+									onClick={() => applyPreset('python')}
+									className="px-2.5 py-1 text-xs rounded bg-slate-700 hover:bg-violet-600 text-slate-200 hover:text-white transition-colors border border-slate-600"
+								>
+									⚡ Python
+								</button>
+								<button
+									onClick={() => applyPreset('jsts')}
+									className="px-2.5 py-1 text-xs rounded bg-slate-700 hover:bg-violet-600 text-slate-200 hover:text-white transition-colors border border-slate-600"
+								>
+									⚡ JS/TS
+								</button>
+								<button
+									onClick={() => applyPreset('go')}
+									className="px-2.5 py-1 text-xs rounded bg-slate-700 hover:bg-violet-600 text-slate-200 hover:text-white transition-colors border border-slate-600"
+								>
+									⚡ Go
+								</button>
+								<button
+									onClick={() => applyPreset('secrets')}
+									className="px-2.5 py-1 text-xs rounded bg-slate-700 hover:bg-violet-600 text-slate-200 hover:text-white transition-colors border border-slate-600"
+								>
+									⚡ Secrets
+								</button>
+							</div>
+						)}
+					</div>
+
+					{/* Category Filter Pills */}
+					<div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
+						<span className="text-slate-400 font-medium mr-1 shrink-0">Filter Category:</span>
+						{[
+							{ id: 'all', label: 'All Tools' },
+							{ id: 'python', label: 'Python' },
+							{ id: 'jsts', label: 'JavaScript / TS' },
+							{ id: 'go', label: 'Go' },
+							{ id: 'secrets', label: 'Secret Scanning' },
+							{ id: 'iac', label: 'IaC & Container' },
+							{ id: 'cicd', label: 'CI/CD & Shell' },
+						].map((cat) => (
+							<button
+								key={cat.id}
+								onClick={() => {
+									setSelectedCategory(cat.id);
+									setCurrentPage(1);
+								}}
+								className={`px-3 py-1 rounded-full font-medium transition-all shrink-0 ${
+									selectedCategory === cat.id
+										? 'bg-violet-600 text-white shadow-sm'
+										: 'bg-slate-900/60 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-700/50'
+								}`}
+							>
+								{cat.label}
+							</button>
+						))}
+					</div>
+				</div>
+			)}
 
 			{/* Action Toolbar */}
 			{tools.length > 0 && !loading && (

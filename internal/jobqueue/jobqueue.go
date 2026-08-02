@@ -34,6 +34,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/gitea"
 	networkjobqueue "github.com/livereview/network/jobqueue"
@@ -2393,6 +2394,12 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, prStateSyncWorker)
 	river.AddWorker(workers, reconciliationWorker)
 
+	awsCfg, awsErr := awsconfig.LoadDefaultConfig(context.Background())
+	if awsErr != nil {
+		log.Printf("[WARN] Failed to load AWS config for Lambda: %v. Lambda tools will fail to invoke.", awsErr)
+	}
+	river.AddWorker(workers, &ToolReviewOrchestratorWorker{db: db, awsCfg: awsCfg})
+
 	coordinatorInterval := config.RepoSyncConfig.CoordinatorInterval
 	if coordinatorInterval <= 0 {
 		coordinatorInterval = 15 * time.Minute
@@ -2536,5 +2543,24 @@ func (jq *JobQueue) QueueUpdateOrgUsageJob(ctx context.Context, args UpdateOrgUs
 		log.Printf("[ERROR] Failed to queue update org usage job: %v", err)
 		return fmt.Errorf("failed to queue update org usage job: %w", err)
 	}
+	return nil
+}
+
+// QueueToolReviewOrchestratorJob queues the single orchestrator job for tool reviews
+func (jq *JobQueue) QueueToolReviewOrchestratorJob(ctx context.Context, reviewID, orgID int64, prURL string, connectorID int64, provider string, totalMultiplier float64) error {
+	args := ToolReviewOrchestratorJobArgs{
+		ReviewID:        reviewID,
+		OrgID:           orgID,
+		PRURL:           prURL,
+		ConnectorID:     connectorID,
+		Provider:        provider,
+		TotalMultiplier: totalMultiplier,
+	}
+
+	_, err := jq.client.Insert(ctx, args, nil)
+	if err != nil {
+		return fmt.Errorf("failed to queue tool review orchestrator job: %w", err)
+	}
+
 	return nil
 }

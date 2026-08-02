@@ -2,6 +2,7 @@ package prompts
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -35,6 +36,52 @@ func (pb *PromptBuilder) BuildSummaryPrompt(entries []TechnicalSummary) string {
 		return ""
 	}
 	return base + "\n\n" + BuildSummarySection(entries) + "\n\n" + SummaryStructure
+}
+
+// ToolFindingInput represents raw linter finding details passed into the classifier
+type ToolFindingInput struct {
+	ToolName    string `json:"tool_name"`
+	RuleID      string `json:"rule_id"`
+	FilePath    string `json:"file_path"`
+	LineNumber  int    `json:"line_number"`
+	Message     string `json:"message"`
+	CodeSnippet string `json:"code_snippet"`
+}
+
+// BuildToolFindingClassificationPrompt composes a minimal classification prompt
+// reusing the authoritative TaxonomyClassificationRules, CommentClassification,
+// and CommentRequirements constants.
+func (pb *PromptBuilder) BuildToolFindingClassificationPrompt(finding ToolFindingInput) string {
+	var sb strings.Builder
+	sb.WriteString("You are an expert code analysis classifier. Classify the following static analysis tool finding into the LiveReview Taxonomy.\n\n")
+	sb.WriteString(TaxonomyClassificationRules)
+	sb.WriteString("\n\n")
+	sb.WriteString(CommentClassification)
+	sb.WriteString("\n\n")
+	sb.WriteString(CommentRequirements)
+	sb.WriteString("\n\nRAW TOOL FINDING (JSON):\n```json\n")
+	findingBytes, err := json.MarshalIndent(finding, "", "  ")
+	if err != nil {
+		fallbackObj := map[string]interface{}{
+			"tool_name":   finding.ToolName,
+			"rule_id":     finding.RuleID,
+			"file_path":   finding.FilePath,
+			"line_number": finding.LineNumber,
+			"message":     finding.Message,
+		}
+		fallbackBytes, _ := json.Marshal(fallbackObj)
+		sb.Write(fallbackBytes)
+	} else {
+		sb.Write(findingBytes)
+	}
+	sb.WriteString("\n```\n")
+	sb.WriteString("\nFormat your response strictly as JSON with keys: category, subcategory, severity, type, confidence, isInternal.\n")
+	sb.WriteString("- 'category' MUST be one of the 10 top-level categories in the taxonomy (e.g., Security, Reliability, Correctness).\n")
+	sb.WriteString("- 'subcategory' MUST be one of the valid subcategories under that category (e.g., Secrets Management).\n")
+	sb.WriteString("- 'severity' MUST be one of: critical, warning, info.\n")
+	sb.WriteString("- 'type' MUST be one of: Bug, Risk, Optimization, Code Smell, Best Practice, Technical Debt.\n")
+	sb.WriteString("- 'confidence' MUST be one of: High, Medium, Low.\n")
+	return sb.String()
 }
 
 // addCodeDiffs adds the actual code changes to the prompt

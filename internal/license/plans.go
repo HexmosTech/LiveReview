@@ -191,3 +191,9 @@ func (p PlanType) IsValid() bool {
 func (p PlanType) String() string {
 	return string(p)
 }
+
+// IsToolsEligible returns true if the plan is allowed to execute tools and consume tool credits.
+func IsToolsEligible(p PlanType) bool {
+	return p.IsValid() || p == ""
+}
+
