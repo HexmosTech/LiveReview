@@ -214,21 +214,25 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	// Build a flat tool_comments list so git-lrc can access tool findings
 	// directly without parsing them out of files[].comments.
 	type toolComment struct {
-		FilePath string `json:"file_path"`
-		Line     int    `json:"line"`
-		Content  string `json:"content"`
-		Severity string `json:"severity"`
-		Category string `json:"category"`
+		FilePath   string `json:"file_path"`
+		Line       int    `json:"line"`
+		Content    string `json:"content"`
+		Severity   string `json:"severity"`
+		Confidence string `json:"confidence,omitempty"`
+		Type       string `json:"type,omitempty"`
+		Category   string `json:"category"`
 	}
 	var toolComments []toolComment
 	for _, c := range result.Comments {
-		if c.Category == "tool-generated" {
+		if c.Source == "tool" {
 			toolComments = append(toolComments, toolComment{
-				FilePath: c.FilePath,
-				Line:     c.Line,
-				Content:  string(c.Content),
-				Severity: string(c.Severity),
-				Category: c.Category,
+				FilePath:   c.FilePath,
+				Line:       c.Line,
+				Content:    string(c.Content),
+				Severity:   string(c.Severity),
+				Confidence: c.Confidence,
+				Type:       c.Type,
+				Category:   c.Category,
 			})
 		}
 	}

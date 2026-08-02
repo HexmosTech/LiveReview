@@ -13,18 +13,23 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/livereview/cmd/mrmodel/lib"
+	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/diffutil"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/lrcconfig"
+	"github.com/livereview/internal/prompts"
 	reviewpkg "github.com/livereview/internal/review"
 	"github.com/livereview/network/tools"
 	"github.com/livereview/pkg/models"
 	storagetools "github.com/livereview/storage/tools"
 	"github.com/riverqueue/river"
+	"github.com/tmc/langchaingo/llms"
+	"github.com/tmc/langchaingo/llms/googleai"
 )
 
 // ToolReviewOrchestratorJobArgs represents the arguments for orchestrating tool reviews
@@ -379,6 +384,9 @@ func ExecuteToolsForReview(
 				return
 			}
 
+			if logger != nil {
+				logger.Log("[TOOL %s] Invoking Lambda ARN: %s", t.Name, t.LambdaARN)
+			}
 			respBytes, err := tools.InvokeTool(ctx, awsCfg, t.LambdaARN, payloadBytes)
 			if err != nil {
 				if logger != nil {
@@ -393,25 +401,84 @@ func ExecuteToolsForReview(
 				}
 			}
 
-			var result struct {
-				LiveReviewComments []struct {
-					FilePath string `json:"filePath"`
-					Line     int    `json:"line"`
-					Content  string `json:"content"`
-					Severity string `json:"severity"`
-					Category string `json:"category"`
-				} `json:"livereview_comments"`
+			var rawFindings []ToolFindingRaw
+			var legacyLrcComments []struct {
+				FilePath string `json:"filePath"`
+				Line     int    `json:"line"`
+				Content  string `json:"content"`
+				Severity string `json:"severity"`
+				Category string `json:"category"`
 			}
-			if err := json.Unmarshal(respBytes, &result); err != nil {
-				if logger != nil {
-					logger.Log("[ERROR] Tool %s response unmarshal failed: %v", t.Name, err)
+			var exitCode int
+
+			trimmedResp := strings.TrimSpace(string(respBytes))
+			if strings.HasPrefix(trimmedResp, "[") {
+				if err := json.Unmarshal(respBytes, &rawFindings); err != nil {
+					if logger != nil {
+						logger.Log("[ERROR] Tool %s raw array response unmarshal failed: %v", t.Name, err)
+					}
 				}
-				return
+				if len(rawFindings) > 0 {
+					exitCode = 1
+				}
+			} else {
+				var rawResp struct {
+					ExitCode int              `json:"exit_code"`
+					Findings []ToolFindingRaw `json:"findings"`
+					LiveReviewComments []struct {
+						FilePath string `json:"filePath"`
+						Line     int    `json:"line"`
+						Content  string `json:"content"`
+						Severity string `json:"severity"`
+						Category string `json:"category"`
+					} `json:"livereview_comments"`
+				}
+				if err := json.Unmarshal(respBytes, &rawResp); err != nil {
+					if logger != nil {
+						logger.Log("[ERROR] Tool %s response unmarshal failed: %v", t.Name, err)
+					}
+					return
+				}
+				rawFindings = rawResp.Findings
+				legacyLrcComments = rawResp.LiveReviewComments
+				exitCode = rawResp.ExitCode
 			}
 
-			if len(result.LiveReviewComments) > 0 {
+			// Immediately sanitize and redact secret fields in memory right after unmarshaling
+			for idx := range rawFindings {
+				rawFindings[idx].Secret = "[REDACTED]"
+				rawFindings[idx].CodeSnippet = "[REDACTED]"
+			}
+
+			if logger != nil {
+				logger.Log("[TOOL %s] Received %d raw findings, exit_code=%d", t.Name, len(rawFindings), exitCode)
+			}
+
+			// Process findings: classify raw findings concurrently with LLM or map legacy comments
+			if len(rawFindings) > 0 {
+				if logger != nil {
+					logger.Log("[TOOL %s] Starting parallel LLM classification for %d findings...", t.Name, len(rawFindings))
+				}
+				var findWg sync.WaitGroup
+				for _, f := range rawFindings {
+					findWg.Add(1)
+					go func(finding ToolFindingRaw) {
+						defer findWg.Done()
+						comment := classifyToolFindingWithLLM(ctx, db, orgID, t.Name, finding, logger)
+						if comment != nil {
+							toolMu.Lock()
+							toolComments = append(toolComments, comment)
+							toolMu.Unlock()
+						}
+					}(f)
+				}
+				findWg.Wait()
+				if logger != nil {
+					logger.Log("[TOOL %s] Completed LLM classification for %d findings.", t.Name, len(rawFindings))
+				}
+			} else if len(legacyLrcComments) > 0 {
 				toolMu.Lock()
-				for _, lrc := range result.LiveReviewComments {
+				for _, lrc := range legacyLrcComments {
 					severity := models.SeverityWarning
 					if lrc.Severity == "critical" {
 						severity = models.SeverityCritical
@@ -424,6 +491,7 @@ func ExecuteToolsForReview(
 						Content:  lrc.Content,
 						Severity: severity,
 						Category: "tool-generated",
+						Source:   "tool",
 					}
 					toolComments = append(toolComments, comment)
 				}
@@ -434,4 +502,360 @@ func ExecuteToolsForReview(
 	wg.Wait()
 
 	return toolComments, nil
+}
+
+type ToolFindingRaw struct {
+	File        string `json:"file"`
+	FilePath    string `json:"file_path"`
+	Path        string `json:"path"`
+	Line        int    `json:"line"`
+	LineNumber  int    `json:"line_number"`
+	Start       struct {
+		Line int `json:"line"`
+		Col  int `json:"col"`
+	} `json:"start"`
+	Col         int    `json:"col"`
+	Rule        string `json:"rule"`
+	RuleID      string `json:"rule_id"`
+	CheckID     string `json:"check_id"`
+	Message     string `json:"message"`
+	Extra       struct {
+		Message  string `json:"message"`
+		Severity string `json:"severity"`
+	} `json:"extra"`
+	Secret      string `json:"secret"`
+	CodeSnippet string `json:"code_snippet"`
+}
+
+func (f ToolFindingRaw) GetFile() string {
+	if f.Path != "" {
+		return f.Path
+	}
+	if f.FilePath != "" {
+		return f.FilePath
+	}
+	return f.File
+}
+
+func (f ToolFindingRaw) GetLine() int {
+	if f.Start.Line > 0 {
+		return f.Start.Line
+	}
+	if f.LineNumber > 0 {
+		return f.LineNumber
+	}
+	return f.Line
+}
+
+func (f ToolFindingRaw) GetRule() string {
+	if f.CheckID != "" {
+		return f.CheckID
+	}
+	if f.RuleID != "" {
+		return f.RuleID
+	}
+	return f.Rule
+}
+
+func (f ToolFindingRaw) GetMessage() string {
+	if f.Extra.Message != "" {
+		return f.Extra.Message
+	}
+	return f.Message
+}
+
+type ClassifiedToolResult struct {
+	Category    string   `json:"category"`
+	Subcategory string   `json:"subcategory"`
+	Severity    string   `json:"severity"`
+	Type        string   `json:"type"`
+	Confidence  string   `json:"confidence"`
+	Suggestions []string `json:"suggestions"`
+	IsInternal  bool     `json:"isInternal"`
+}
+
+func classifyToolFindingWithLLM(
+	ctx context.Context,
+	db *sql.DB,
+	orgID int64,
+	toolName string,
+	finding ToolFindingRaw,
+	logger *logging.ReviewLogger,
+) *models.ReviewComment {
+	// 1. Fetch AI connector details for orgID from database
+	var providerName, selectedModel, apiKey string
+	err := db.QueryRowContext(ctx, `
+		SELECT provider_name, COALESCE(selected_model, ''), api_key 
+		FROM public.ai_connectors 
+		WHERE org_id = $1 AND api_key != '' 
+		ORDER BY id ASC LIMIT 1
+	`, orgID).Scan(&providerName, &selectedModel, &apiKey)
+
+	if err != nil || apiKey == "" {
+		if logger != nil {
+			logger.Log("[WARN] No active AI connector found for org_id=%d: %v", orgID, err)
+		}
+	}
+
+	if selectedModel == "" {
+		storage := aiconnectors.NewStorage(db)
+		selectedModel = storage.GetDefaultModel(ctx, aiconnectors.Provider(providerName))
+	}
+
+	filePath := finding.GetFile()
+	lineNum := finding.GetLine()
+	ruleID := finding.GetRule()
+	findingMsg := cleanFindingMessage(finding.GetMessage())
+
+	// Default fallback values if LLM is unavailable
+	defaultSeverity := models.SeverityCritical
+	ruleLower := strings.ToLower(ruleID)
+	msgLower := strings.ToLower(findingMsg)
+	if strings.Contains(ruleLower, "info") || strings.Contains(msgLower, "info") {
+		defaultSeverity = models.SeverityInfo
+	} else if strings.Contains(ruleLower, "warn") {
+		defaultSeverity = models.SeverityWarning
+	}
+
+	fallbackComment := &models.ReviewComment{
+		FilePath:    filePath,
+		Line:        lineNum,
+		Content:     findingMsg,
+		Severity:    defaultSeverity,
+		Confidence:  "High",
+		Type:        "Risk",
+		Category:    "Security",
+		Subcategory: "Secrets Management",
+		Source:      "tool",
+	}
+
+	if apiKey == "" {
+		if logger != nil {
+			logger.Log("[WARN] No API key available for LLM classification of finding %s:%d, using fallback", filePath, lineNum)
+		}
+		return fallbackComment
+	}
+
+	// 2. Build prompt
+	builder := prompts.NewPromptBuilder()
+	promptInput := prompts.ToolFindingInput{
+		ToolName:    toolName,
+		RuleID:      ruleID,
+		FilePath:    filePath,
+		LineNumber:  lineNum,
+		Message:     findingMsg,
+		CodeSnippet: finding.CodeSnippet,
+	}
+	if promptInput.CodeSnippet == "" && finding.Secret != "" {
+		promptInput.CodeSnippet = "secret = \"[REDACTED]\""
+	}
+
+	promptText := builder.BuildToolFindingClassificationPrompt(promptInput)
+
+	if logger != nil {
+		logger.Log("[CLASSIFY %s] %s:%d (%s) -> Calling LLM model %s", toolName, filePath, lineNum, ruleID, selectedModel)
+	}
+
+	// 3. Call Gemini / LLM model
+	llmModel, errInit := googleai.New(ctx,
+		googleai.WithAPIKey(apiKey),
+		googleai.WithDefaultModel(selectedModel),
+	)
+	if errInit != nil {
+		if logger != nil {
+			logger.Log("[WARN] Failed to init LLM for classification: %v", errInit)
+		}
+		return fallbackComment
+	}
+
+	var respCall string
+	for retry := 0; retry < 3; retry++ {
+		resp, errCall := llms.GenerateFromSinglePrompt(ctx, llmModel, promptText,
+			llms.WithTemperature(0.2),
+			llms.WithMaxTokens(1500),
+		)
+		if errCall == nil && resp != "" {
+			respCall = resp
+			break
+		}
+		if errCall != nil && strings.Contains(errCall.Error(), "429") {
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		if logger != nil {
+			logger.Log("[WARN] LLM call error: %v", errCall)
+		}
+		break
+	}
+
+	if respCall == "" {
+		return fallbackComment
+	}
+
+	// 4. Parse classification result
+	cleanJSON := cleanJSONString(respCall)
+	var classified ClassifiedToolResult
+	if err := json.Unmarshal([]byte(cleanJSON), &classified); err != nil {
+		if logger != nil {
+			logger.Log("[WARN] Failed to parse LLM classification JSON: %v. Raw: %s", err, respCall)
+		}
+		return fallbackComment
+	}
+
+	// Map severity string to models.Severity
+	sev := models.SeverityWarning
+	switch strings.ToLower(classified.Severity) {
+	case "critical":
+		sev = models.SeverityCritical
+	case "info":
+		sev = models.SeverityInfo
+	case "warning":
+		sev = models.SeverityWarning
+	}
+
+	// Validate and normalize Category and Subcategory against closed taxonomy
+	category, subcategory := ValidateAndNormalizeTaxonomy(classified.Category, classified.Subcategory)
+	confidence := NormalizeConfidence(classified.Confidence)
+	commentType := NormalizeType(classified.Type)
+
+	if logger != nil {
+		logger.Log("[CLASSIFY %s] %s:%d -> Category: %s / %s (Severity: %s, Confidence: %s, Type: %s)", toolName, filePath, lineNum, category, subcategory, sev, confidence, commentType)
+	}
+
+	return &models.ReviewComment{
+		FilePath:    filePath,
+		Line:        lineNum,
+		Content:     findingMsg,
+		Severity:    sev,
+		Confidence:  confidence,
+		Type:        commentType,
+		Category:    category,
+		Subcategory: subcategory,
+		Source:      "tool",
+	}
+}
+
+func cleanJSONString(s string) string {
+	if idx := strings.Index(s, "{"); idx != -1 {
+		s = s[idx:]
+	}
+	if idx := strings.LastIndex(s, "}"); idx != -1 {
+		s = s[:idx+1]
+	}
+	return s
+}
+
+func cleanFindingMessage(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if idx := strings.Index(msg, " (Match:"); idx != -1 {
+		msg = strings.TrimSpace(msg[:idx])
+	}
+	if !strings.HasSuffix(msg, ".") && !strings.HasSuffix(msg, "!") {
+		msg += "."
+	}
+	return msg
+}
+
+var ValidTaxonomyMap = map[string][]string{
+	"Security":                {"Authentication", "Authorization", "Secrets Management", "Input Validation", "Injection Vulnerabilities", "Cryptography", "Dependency Vulnerabilities", "Data Exposure", "Session Management", "Security Logging & Auditing"},
+	"Reliability":             {"Error Handling", "Fault Tolerance", "Retry Logic", "Timeout Management", "Resilience Patterns", "Availability Risks", "Data Integrity", "Race Conditions", "Resource Cleanup", "Failure Recovery"},
+	"Correctness":             {"Logic Errors", "Edge Cases", "Data Validation", "State Management", "Concurrency Bugs", "Business Rule Violations", "Numerical Accuracy", "Null Handling", "Type Safety", "API Contract Violations"},
+	"Performance":             {"Database Efficiency", "Algorithmic Complexity", "Memory Usage", "CPU Utilization", "Network Efficiency", "Caching", "Concurrency", "Resource Contention", "Rendering Performance", "Startup Performance"},
+	"Cost":                    {"Cloud Resource Waste", "Infrastructure Overprovisioning", "Storage Optimization", "Database Cost Optimization", "Excessive API Usage", "Third-Party Service Costs", "Redundant Computation", "LLM Token Consumption", "Caching Opportunities", "Data Transfer Costs"},
+	"Scalability":             {"Horizontal Scaling", "Vertical Scaling", "Distributed Systems", "Load Balancing", "Capacity Planning", "Bottleneck Risks", "Concurrency Limits", "Service Growth Constraints", "Database Scaling", "Queue Backpressure"},
+	"Maintainability":         {"Code Complexity", "Readability", "Documentation", "Code Duplication", "Dead Code", "Naming Quality", "Testability", "Technical Debt", "Refactoring Opportunities", "Configuration Management", "UI/UX", "Accessibility"},
+	"Architecture":            {"Separation of Concerns", "Modularity", "Coupling", "Cohesion", "Layering Violations", "Dependency Management", "Service Boundaries", "Domain Modeling", "API Design", "Extensibility"},
+	"Developer Experience":    {"Testing", "CI/CD", "Build System", "Local Development", "Debuggability", "Observability", "Deployment Process", "Automation", "Developer Tooling", "Documentation Quality", "UI/UX", "Accessibility"},
+	"Compliance & Governance": {"Privacy", "Regulatory Compliance", "Auditability", "Data Retention", "Data Residency", "Licensing", "Policy Enforcement", "Access Controls", "Change Management", "Governance Standards"},
+}
+
+var ValidTypes = map[string]string{
+	"bug":            "Bug",
+	"risk":           "Risk",
+	"optimization":   "Optimization",
+	"code smell":     "Code Smell",
+	"best practice":  "Best Practice",
+	"technical debt": "Technical Debt",
+}
+
+var ValidConfidences = map[string]string{
+	"high":   "High",
+	"medium": "Medium",
+	"low":    "Low",
+}
+
+func ValidateAndNormalizeTaxonomy(rawCategory, rawSubcategory string) (string, string) {
+	trimmedCat := strings.TrimSpace(rawCategory)
+	trimmedSub := strings.TrimSpace(rawSubcategory)
+
+	var matchedCategory string
+	var allowedSubcategories []string
+
+	// 1. Try matching rawCategory directly against top-level taxonomy categories
+	for cat, subcats := range ValidTaxonomyMap {
+		if strings.EqualFold(trimmedCat, cat) {
+			matchedCategory = cat
+			allowedSubcategories = subcats
+			break
+		}
+	}
+
+	// 2. If rawCategory is unrecognized, search all taxonomy subcategories to infer category from subcategory
+	if matchedCategory == "" && trimmedSub != "" {
+		for cat, subcats := range ValidTaxonomyMap {
+			for _, sub := range subcats {
+				if strings.EqualFold(trimmedSub, sub) {
+					matchedCategory = cat
+					allowedSubcategories = subcats
+					trimmedSub = sub
+					break
+				}
+			}
+			if matchedCategory != "" {
+				break
+			}
+		}
+	}
+
+	// 3. Fallback to Security only if no category could be matched or inferred
+	if matchedCategory == "" {
+		matchedCategory = "Security"
+		allowedSubcategories = ValidTaxonomyMap["Security"]
+	}
+
+	// 4. Validate subcategory against allowedSubcategories of matchedCategory
+	var matchedSubcategory string
+	if trimmedSub != "" {
+		for _, sub := range allowedSubcategories {
+			if strings.EqualFold(trimmedSub, sub) {
+				matchedSubcategory = sub
+				break
+			}
+		}
+	}
+
+	// 5. Context-aware subcategory fallback if subcategory was empty or invalid
+	if matchedSubcategory == "" {
+		if matchedCategory == "Security" {
+			matchedSubcategory = "Secrets Management"
+		} else if len(allowedSubcategories) > 0 {
+			matchedSubcategory = allowedSubcategories[0]
+		}
+	}
+
+	return matchedCategory, matchedSubcategory
+}
+
+func NormalizeType(raw string) string {
+	if val, ok := ValidTypes[strings.ToLower(strings.TrimSpace(raw))]; ok {
+		return val
+	}
+	return "Risk"
+}
+
+func NormalizeConfidence(raw string) string {
+	if val, ok := ValidConfidences[strings.ToLower(strings.TrimSpace(raw))]; ok {
+		return val
+	}
+	return "High"
 }

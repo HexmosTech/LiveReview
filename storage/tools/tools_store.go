@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 )
 
 type AvailableTool struct {
@@ -192,37 +193,63 @@ func (s *ToolsStore) GetAvailableToolByName(ctx context.Context, name string) (*
 
 // InsertToolResultEvent wraps raw Lambda response and logs it in review_events table.
 func (s *ToolsStore) InsertToolResultEvent(ctx context.Context, reviewID, orgID, toolID int64, toolName string, resultJSON []byte) error {
-	type ToolLambdaResponse struct {
-		ExitCode    int             `json:"exit_code"`
-		Findings    json.RawMessage `json:"findings"`
-		LinesOfCode int             `json:"lines_of_code"`
-		Stderr      string          `json:"stderr"`
-	}
-
-	var resp ToolLambdaResponse
-	// If unmarshaling fails or findings is nil, initialize it with empty array
-	if err := json.Unmarshal(resultJSON, &resp); err != nil {
-		resp.Stderr = fmt.Sprintf("failed to parse lambda response: %v. Raw: %s", err, string(resultJSON))
-		resp.ExitCode = -1
-	}
-	if len(resp.Findings) == 0 {
-		resp.Findings = json.RawMessage("[]")
-	}
-
 	var parsedFindings []ToolFinding
-	if err := json.Unmarshal(resp.Findings, &parsedFindings); err != nil {
-		// If parsing fails, store an empty slice rather than corrupting the event
-		log.Printf("[WARN] StoreToolResultEvent: failed to parse findings for tool %d: %v", toolID, err)
-		parsedFindings = []ToolFinding{}
+	trimmedJSON := strings.TrimSpace(string(resultJSON))
+	var exitCode int
+	var stderr string
+	var loc int
+
+	if strings.HasPrefix(trimmedJSON, "[") {
+		if err := json.Unmarshal(resultJSON, &parsedFindings); err != nil {
+			log.Printf("[WARN] StoreToolResultEvent: failed to parse array findings for tool %d: %v", toolID, err)
+			parsedFindings = []ToolFinding{}
+			stderr = fmt.Sprintf("failed to parse array findings: %v", err)
+			exitCode = -1
+		} else if len(parsedFindings) > 0 {
+			exitCode = 1
+		} else {
+			exitCode = 0
+		}
+	} else {
+		type ToolLambdaResponse struct {
+			ExitCode    int             `json:"exit_code"`
+			Findings    json.RawMessage `json:"findings"`
+			LinesOfCode int             `json:"lines_of_code"`
+			Stderr      string          `json:"stderr"`
+		}
+
+		var resp ToolLambdaResponse
+		if err := json.Unmarshal(resultJSON, &resp); err != nil {
+			stderr = fmt.Sprintf("failed to parse lambda response: %v. Raw: %s", err, string(resultJSON))
+			exitCode = -1
+		} else {
+			exitCode = resp.ExitCode
+			stderr = resp.Stderr
+			loc = resp.LinesOfCode
+			if len(resp.Findings) > 0 {
+				if errFindings := json.Unmarshal(resp.Findings, &parsedFindings); errFindings != nil {
+					log.Printf("[WARN] StoreToolResultEvent: failed to unmarshal findings for tool %d: %v", toolID, errFindings)
+				}
+			}
+		}
+	}
+
+	// Redact plaintext secrets across all finding fields before persisting to database event log
+	for idx := range parsedFindings {
+		parsedFindings[idx].Secret = "[REDACTED]"
+		parsedFindings[idx].CodeSnippet = "[REDACTED]"
+
+		parsedFindings[idx].Message = redactMatchDetails(parsedFindings[idx].Message)
+		parsedFindings[idx].Extra.Message = redactMatchDetails(parsedFindings[idx].Extra.Message)
 	}
 
 	eventData := ToolResultEventData{
 		ToolID:      toolID,
 		ToolName:    toolName,
-		ExitCode:    resp.ExitCode,
+		ExitCode:    exitCode,
 		Findings:    parsedFindings,
-		LinesOfCode: resp.LinesOfCode,
-		Stderr:      resp.Stderr,
+		LinesOfCode: loc,
+		Stderr:      stderr,
 	}
 
 	eventDataBytes, err := json.Marshal(eventData)
@@ -241,12 +268,37 @@ func (s *ToolsStore) InsertToolResultEvent(ctx context.Context, reviewID, orgID,
 	return nil
 }
 
+func redactMatchDetails(msg string) string {
+	msg = strings.TrimSpace(msg)
+	for _, pattern := range []string{" (Match:", "(Match:", " Match:"} {
+		if idx := strings.Index(msg, pattern); idx != -1 {
+			msg = strings.TrimSpace(msg[:idx])
+		}
+	}
+	return msg
+}
+
 type ToolFinding struct {
-	File    string `json:"file"`
-	Line    int    `json:"line"`
-	Col     int    `json:"col"`
-	Rule    string `json:"rule"`
-	Message string `json:"message"`
+	File        string `json:"file"`
+	FilePath    string `json:"file_path"`
+	Path        string `json:"path"`
+	Line        int    `json:"line"`
+	LineNumber  int    `json:"line_number"`
+	Start       struct {
+		Line int `json:"line"`
+		Col  int `json:"col"`
+	} `json:"start"`
+	Col         int    `json:"col"`
+	Rule        string `json:"rule"`
+	RuleID      string `json:"rule_id"`
+	CheckID     string `json:"check_id"`
+	Message     string `json:"message"`
+	Extra       struct {
+		Message  string `json:"message"`
+		Severity string `json:"severity"`
+	} `json:"extra"`
+	Secret      string `json:"secret,omitempty"`
+	CodeSnippet string `json:"code_snippet,omitempty"`
 }
 
 type ToolResultEventData struct {

@@ -150,17 +150,18 @@ type ReviewResult struct {
 
 // ReviewComment represents a single comment from the AI review
 type ReviewComment struct {
-	FilePath      string
-	Line          int
-	Content       string
-	Severity      CommentSeverity
-	Confidence    string
-	Type          string
-	Category      string
-	Subcategory   string
-	Suggestions   []string
-	IsDeletedLine bool // True if comment is on a deleted line (old_line) rather than new_line
-	IsInternal    bool // True if comment is for internal synthesis only, false if it should be posted to user
+	FilePath      string          `json:"file_path"`
+	Line          int             `json:"line"`
+	Content       string          `json:"content"`
+	Severity      CommentSeverity `json:"severity"`
+	Confidence    string          `json:"confidence,omitempty"`
+	Type          string          `json:"type,omitempty"`
+	Category      string          `json:"category,omitempty"`
+	Subcategory   string          `json:"subcategory,omitempty"`
+	Suggestions   []string        `json:"suggestions,omitempty"`
+	IsDeletedLine bool            `json:"is_deleted_line"`
+	IsInternal    bool            `json:"is_internal"`
+	Source        string          `json:"source,omitempty"` // "tool" for static-analysis tool comments, empty for LLM review comments
 }
 
 // CommentSeverity represents the severity level of a review comment
