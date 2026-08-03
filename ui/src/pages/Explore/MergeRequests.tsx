@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ColumnDef, useReactTable, getCoreRowModel, getFilteredRowModel, getSortedRowModel, getPaginationRowModel } from '@tanstack/react-table';
 import toast from 'react-hot-toast';
 import { LuSearch } from 'react-icons/lu';
@@ -95,6 +95,7 @@ const FETCH_ALL_PAGE_SIZE = 200;
 const MERGE_REQUESTS_COLUMN_WIDTHS = ['30%', '12%', '12%', '15%', '15%', '16%'];
 
 const MergeRequests: React.FC = () => {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const repositoryId = searchParams.get('repository_id') || undefined;
 
@@ -102,6 +103,10 @@ const MergeRequests: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [triggeringId, setTriggeringId] = useState<number | null>(null);
+  // In-memory only (not persisted) - reverts to "Trigger Review" on a page
+  // refresh or re-visit, since we have no reliable way to know a triggered
+  // review's live status from here.
+  const [triggeredReviewIds, setTriggeredReviewIds] = useState<Record<number, string>>({});
   const [repositoryFilterName, setRepositoryFilterName] = useState<string | null>(null);
 
   // repository_id stays a server-side fetch scope (driven by the URL, e.g.
@@ -144,7 +149,8 @@ const MergeRequests: React.FC = () => {
     e.stopPropagation();
     setTriggeringId(pr.id);
     try {
-      await triggerReviewForPullRequest(pr.id);
+      const response = await triggerReviewForPullRequest(pr.id);
+      setTriggeredReviewIds((prev) => ({ ...prev, [pr.id]: response.reviewId }));
       toast.success(`Review triggered for #${pr.number}`);
     } catch (err) {
       console.error('Failed to trigger review:', err);
@@ -320,6 +326,22 @@ const MergeRequests: React.FC = () => {
       header: () => <span className="font-semibold text-slate-300 uppercase tracking-wide text-xs">Actions</span>,
       cell: ({ row }) => {
         const pr = row.original;
+        const triggeredReviewId = triggeredReviewIds[pr.id];
+        if (triggeredReviewId) {
+          return (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/reviews/${triggeredReviewId}`);
+              }}
+              className="border-slate-400 text-white hover:bg-white/10 hover:border-white text-sm cursor-pointer"
+            >
+              See Logs
+            </Button>
+          );
+        }
         return (
           <Button
             variant="outline"
@@ -334,7 +356,7 @@ const MergeRequests: React.FC = () => {
       },
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [triggeringId]);
+  ], [triggeringId, triggeredReviewIds, navigate]);
 
   const table = useReactTable({
     data: pullRequests,

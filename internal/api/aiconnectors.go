@@ -145,7 +145,6 @@ type AIConnectorResponse struct {
 	GCPLocation    string `json:"gcp_location,omitempty"`
 	AWSAccessKeyID string `json:"aws_access_key_id,omitempty"`
 	AWSRegion      string `json:"aws_region,omitempty"`
-	APIKey         string `json:"api_key,omitempty"` // Full API key for editing (only when requested)
 }
 
 type ReviewAISettingsRequest struct {
@@ -334,7 +333,6 @@ func (s *Server) GetAIConnectors(c echo.Context) error {
 			GCPLocation:    connector.GCPLocation.String,
 			AWSAccessKeyID: connector.AWSAccessKeyID.String,
 			AWSRegion:      connector.AWSRegion.String,
-			APIKey:         connector.ApiKey, // Include full API key for editing
 		})
 	}
 
@@ -396,13 +394,6 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 		})
 	}
 
-	// API key is optional for Ollama, required for other providers
-	if req.APIKey == "" && req.ProviderName != "ollama" {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "API key is required",
-		})
-	}
-
 	if req.ProviderName == "bedrock" && strings.TrimSpace(req.AWSAccessKeyID) == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "AWS Access Key ID is required",
@@ -441,10 +432,12 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 		})
 	}
 
-	// Update connector fields
+	// Blank api_key means keep the existing one unchanged.
 	existingConnector.ProviderName = req.ProviderName
 	existingConnector.Role = normalizedRole
-	existingConnector.ApiKey = req.APIKey
+	if req.APIKey != "" {
+		existingConnector.ApiKey = req.APIKey
+	}
 	existingConnector.ConnectorName = req.ConnectorName
 	existingConnector.DisplayOrder = req.DisplayOrder
 	existingConnector.OrgID = orgID
@@ -489,7 +482,6 @@ func (s *Server) UpdateAIConnector(c echo.Context) error {
 		GCPLocation:    existingConnector.GCPLocation.String,
 		AWSAccessKeyID: existingConnector.AWSAccessKeyID.String,
 		AWSRegion:      existingConnector.AWSRegion.String,
-		APIKey:         existingConnector.ApiKey,
 	})
 }
 

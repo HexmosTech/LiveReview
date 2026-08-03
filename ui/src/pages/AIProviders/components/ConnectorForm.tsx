@@ -277,16 +277,15 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
         }
 
         if (currentProvider === 'gemini-enterprise') {
-            // Require API Key (Service Account JSON), GCP Project ID and Location.
-            return !!formData.apiKey && !!formData.gcpProjectID && !!formData.gcpLocation;
+            return (!!formData.apiKey || isEditing) && !!formData.gcpProjectID && !!formData.gcpLocation;
         }
 
         if ((providerDetails?.id === 'openrouter' || providerDetails?.id === 'atlas') && !formData.selectedModel) {
             return false;
         }
 
-        // For other providers, require API key
-        return !!formData.apiKey;
+        // Blank api_key is fine when editing - it means keep the existing key.
+        return !!formData.apiKey || isEditing;
     };
 
     return (

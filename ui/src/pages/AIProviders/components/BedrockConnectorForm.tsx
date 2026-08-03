@@ -150,7 +150,7 @@ const BedrockConnectorForm: React.FC<BedrockConnectorFormProps> = ({
             setError('AWS Access Key ID is required');
             return;
         }
-        if (!formState.secretAccessKey.trim()) {
+        if (!formState.secretAccessKey.trim() && !editingConnector) {
             setError('AWS Secret Access Key is required');
             return;
         }
@@ -167,7 +167,7 @@ const BedrockConnectorForm: React.FC<BedrockConnectorFormProps> = ({
     };
 
     const canFetchModels = formState.awsAccessKeyID.trim() && formState.secretAccessKey.trim() && formState.awsRegion.trim() && !fetchingModels;
-    const canSave = formState.name.trim() && formState.awsAccessKeyID.trim() && formState.secretAccessKey.trim() && formState.awsRegion.trim() && formState.selectedModel && !isLoading;
+    const canSave = formState.name.trim() && formState.awsAccessKeyID.trim() && (formState.secretAccessKey.trim() || !!editingConnector) && formState.awsRegion.trim() && formState.selectedModel && !isLoading;
 
     return (
         <Card

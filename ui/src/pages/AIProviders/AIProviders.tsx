@@ -335,7 +335,7 @@ const AIProviders: React.FC = () => {
 		setActiveRole((connector.role || 'leader') as 'leader' | 'helper');
         setFormData({
             name: connector.name,
-            apiKey: connector.fullApiKey || connector.apiKey,
+            apiKey: '',
             providerType: connector.providerName,
             role: (connector.role || 'leader') as 'leader' | 'helper',
             baseURL: connector.baseURL || connector.base_url || '',
@@ -611,7 +611,7 @@ const AIProviders: React.FC = () => {
                                             return {
                                                 name: selectedConnector.name,
                                                 baseURL: selectedConnector.baseURL || '',
-                                                jwtToken: selectedConnector.fullApiKey || '',
+                                                jwtToken: '',
                                                 selectedModel: selectedConnector.selectedModel || ''
                                             };
                                         })() : null}
@@ -628,7 +628,7 @@ const AIProviders: React.FC = () => {
                                         editingConnector={isEditing && selectedConnector ? {
                                             name: selectedConnector.name,
                                             awsAccessKeyID: selectedConnector.awsAccessKeyID || '',
-                                            secretAccessKey: selectedConnector.fullApiKey || '',
+                                            secretAccessKey: '',
                                             awsRegion: selectedConnector.awsRegion || '',
                                             selectedModel: selectedConnector.selectedModel || ''
                                         } : null}
