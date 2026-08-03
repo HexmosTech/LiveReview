@@ -25,6 +25,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.26
 	github.com/aws/aws-sdk-go-v2/service/bedrock v1.64.2
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.54.2
+	github.com/bwmarrin/discordgo v0.29.0
 	github.com/d1vbyz3r0/typed v0.2.3
 	github.com/getkin/kin-openapi v0.145.0
 	github.com/golang-jwt/jwt/v5 v5.3.0

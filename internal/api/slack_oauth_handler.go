@@ -20,6 +20,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/orgname"
 	"github.com/livereview/internal/slackbot"
 	"github.com/slack-go/slack"
 )
@@ -443,8 +444,13 @@ func (h *SlackOAuthHandler) addOrgToBot(orgID int64, botToken, apiKey string) {
 	}
 
 	mcpHeaders := map[string]string{"X-API-Key": apiKey}
+	orgName, orgNameErr := orgname.OrgNameByID(context.Background(), h.db, orgID)
+	if orgNameErr != nil {
+		log.Printf("[SlackOAuth] Org %d: failed to resolve org name: %s", orgID, orgNameErr)
+	}
 	err = h.bot.AddOrg(slackbot.OrgConfig{
 		OrgID:         orgID,
+		OrgName:       orgName,
 		SlackBotToken: botToken,
 		MCPServerURL:  h.mcpServerURL,
 		MCPHeaders:    mcpHeaders,

@@ -67,7 +67,10 @@ func NewReviewService(cfg *config.Config) *ReviewService {
 func (s *Server) TriggerReviewV2(c echo.Context) error {
 	log.Printf("[DEBUG] TriggerReviewV2: Starting review request handling")
 
-	// LOC Quota preflight check — block before creating any DB records
+    // LOC Quota preflight — always run so the org's billing period rolls
+	// forward (crucial for MCP/chat-triggered reviews; without it org_billing_state
+	// goes stale and current-period usage reports come back empty). Blocking is
+	// only enforced in Cloud Mode; self-hosted deployments are intentionally unlimited.
 	if blocked, pfErr := s.preflightLOCQuota(c); blocked {
 		return pfErr
 	}
@@ -172,17 +175,17 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 	return JSONWithEnvelope(c, http.StatusOK, response)
 }
 
-// preflightLOCQuota runs the LOC quota preflight check (Cloud Mode only) for
-// the org in the request context. If the org is blocked, it writes the 403
-// JSON response itself and returns blocked=true; the caller should return
-// the accompanying error value (nil on a successfully-written response)
-// without further processing. Shared by TriggerReviewV2 and
+// preflightLOCQuota runs the LOC quota preflight check for the org in the
+// request context. The underlying CheckPreflight always runs — even in
+// self-hosted mode — so the org's billing period rolls forward (self-healing
+// stale org_billing_state). Only Cloud Mode can block: self-hosted deployments
+// are intentionally unlimited. If the org is blocked, it writes the 403 JSON
+// response itself and returns blocked=true; the caller should return the
+// accompanying error value (nil on a successfully-written response) without
+// further processing. Shared by TriggerReviewV2 and
 // createReviewForPullRequest so both review-trigger entrypoints enforce
 // billing identically.
 func (s *Server) preflightLOCQuota(c echo.Context) (blocked bool, err error) {
-	if !apimiddleware.IsCloudMode() {
-		return false, nil
-	}
 	orgID, orgOK := c.Get("org_id").(int64)
 	if !orgOK || orgID <= 0 {
 		return false, nil
@@ -203,7 +206,7 @@ func (s *Server) preflightLOCQuota(c echo.Context) (blocked bool, err error) {
 		return false, nil
 	}
 	applyPreflightToEnvelopeContext(c, preflightResult)
-	if !preflightResult.Blocked {
+	if !preflightResult.Blocked || !apimiddleware.IsCloudMode() {
 		return false, nil
 	}
 

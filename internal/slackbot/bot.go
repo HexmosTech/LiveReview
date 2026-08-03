@@ -24,18 +24,19 @@ const (
 // Bot is the Slack bot. It owns a single Socket Mode connection and
 // dispatches events to per-org handlers based on the Slack team_id.
 type Bot struct {
-	socketClient  *socketmode.Client
-	orgs          map[string]*orgHandler // teamID -> handler
-	mu            sync.RWMutex
-	ctx           context.Context
-	cancel        context.CancelFunc
-	appToken      string
-	teamIDStored  func(orgID int64, teamID string) error
+	socketClient *socketmode.Client
+	orgs         map[string]*orgHandler // teamID -> handler
+	mu           sync.RWMutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	appToken     string
+	teamIDStored func(orgID int64, teamID string) error
 }
 
 // orgHandler holds per-org state: its own Slack client, agent, and conversations.
 type orgHandler struct {
 	orgID         int64
+	orgName       string
 	teamID        string
 	botUserID     string
 	slackClient   *slack.Client
@@ -59,6 +60,7 @@ type conversation struct {
 // OrgConfig holds per-org configuration for the Slack bot.
 type OrgConfig struct {
 	OrgID         int64
+	OrgName       string
 	SlackBotToken string
 	MCPServerURL  string
 	MCPHeaders    map[string]string
@@ -126,6 +128,7 @@ func New(cfg *Config, teamIDStored func(orgID int64, teamID string) error) (*Bot
 
 		orgs[authResp.TeamID] = &orgHandler{
 			orgID:         oc.OrgID,
+			orgName:       oc.OrgName,
 			teamID:        authResp.TeamID,
 			botUserID:     authResp.UserID,
 			slackClient:   slackClient,
@@ -151,10 +154,10 @@ func New(cfg *Config, teamIDStored func(orgID int64, teamID string) error) (*Bot
 	socketClient := socketmode.New(firstClient)
 
 	return &Bot{
-		socketClient:  socketClient,
-		orgs:          orgs,
-		appToken:      cfg.SlackAppToken,
-		teamIDStored:  teamIDStored,
+		socketClient: socketClient,
+		orgs:         orgs,
+		appToken:     cfg.SlackAppToken,
+		teamIDStored: teamIDStored,
 	}, nil
 }
 
@@ -221,6 +224,7 @@ func (b *Bot) AddOrg(oc OrgConfig) error {
 	}
 	b.orgs[authResp.TeamID] = &orgHandler{
 		orgID:         oc.OrgID,
+		orgName:       oc.OrgName,
 		teamID:        authResp.TeamID,
 		botUserID:     authResp.UserID,
 		slackClient:   slackClient,
@@ -317,6 +321,9 @@ func (oh *orgHandler) ensureAgent() error {
 		return fmt.Errorf("org %d: failed to connect to MCP: %w", oh.orgID, err)
 	}
 	provider := mcpagent.NewProvider(oh.connector)
+	if oh.orgName != "" {
+		mcpSession.OrgName = oh.orgName
+	}
 	oh.agent = mcpagent.NewAgent(provider, mcpSession, oh.maxAgentSteps)
 	log.Printf("[SlackBot] Org %d: connected to MCP lazily. Tools: %v", oh.orgID, toolNames(mcpSession.Tools))
 	return nil
@@ -393,7 +400,11 @@ func (oh *orgHandler) processMessage(channel, ts, threadTS, text string) {
 			oh.uploadReportsToSlack(channel, "", reports)
 			return
 		}
-		log.Printf("[SlackBot] Vega-Lite spec detected but rendering failed, falling back to text")
+		log.Printf("[SlackBot] Vega-Lite render failed after retries, sending friendly error")
+		if _, _, err := oh.slackClient.PostMessage(channel, slack.MsgOptionText("Having an issue generating the data, please try again.", false)); err != nil {
+			log.Printf("[SlackBot] Failed to post response: %s", err)
+		}
+		return
 	}
 
 	blocks := FormatSlackResponse(finalText)
