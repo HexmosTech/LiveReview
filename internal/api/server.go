@@ -1102,7 +1102,36 @@ func (s *Server) setupRoutes() {
 	connectorGroup.GET("/:connectorId/repository-access", s.GetRepositoryAccess)
 	connectorGroup.POST("/:connectorId/enable-manual-trigger", s.EnableManualTriggerForAllProjects)
 	connectorGroup.POST("/:connectorId/disable-manual-trigger", s.DisableManualTriggerForAllProjects)
+	connectorGroup.POST("/:connectorId/repositories/sync", s.TriggerRepositorySync)
 	connectorGroup.POST("/trigger-review", s.TriggerReviewV2, selfHostedLicenseMiddleware)
+
+	// Unified repository + PR/MR listing endpoints (organization-scoped via
+	// headers, same middleware chain as connectorGroup)
+	repositoriesGroup := v1.Group("/repositories")
+	repositoriesGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	repositoriesGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	repositoriesGroup.Use(authMiddleware.ValidateOrgAccess())
+	repositoriesGroup.Use(authMiddleware.BuildPermissionContext())
+	repositoriesGroup.Use(authMiddleware.EnforceSubscriptionLimits())
+	repositoriesGroup.Use(apimiddleware.BuildOrgBillingPlanContext(s.db, s.licenseService()))
+	repositoriesGroup.Use(apimiddleware.BuildPlanContext())
+
+	repositoriesGroup.GET("", s.ListRepositories)
+	repositoriesGroup.GET("/:repoId", s.GetRepository)
+	repositoriesGroup.POST("/:repoId/sync", s.TriggerRepositoryPRSync)
+	repositoriesGroup.GET("/:repoId/pull-requests", s.ListPullRequestsForRepo)
+	repositoriesGroup.GET("/:repoId/pull-requests/:prId", s.GetPullRequest)
+
+	// Unified, cross-repository PR/MR listing (same middleware chain)
+	pullRequestsGroup := v1.Group("/pull-requests")
+	pullRequestsGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	pullRequestsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	pullRequestsGroup.Use(authMiddleware.ValidateOrgAccess())
+	pullRequestsGroup.Use(authMiddleware.BuildPermissionContext())
+	pullRequestsGroup.Use(authMiddleware.EnforceSubscriptionLimits())
+	pullRequestsGroup.Use(apimiddleware.BuildOrgBillingPlanContext(s.db, s.licenseService()))
+	pullRequestsGroup.Use(apimiddleware.BuildPlanContext())
+	pullRequestsGroup.GET("", s.ListPullRequests)
 
 	// GitLab profile validation endpoint
 	v1.POST("/gitlab/validate-profile", s.ValidateGitLabProfile)
@@ -1889,15 +1918,8 @@ func (s *Server) getReviews(c echo.Context) error {
 	return c.JSON(http.StatusOK, response)
 }
 
-// createReview handles POST /api/v1/reviews (trigger review creation)
-func (s *Server) createReview(c echo.Context) error {
-	// This should delegate to the existing TriggerReviewV2 functionality
-	// For now, return a placeholder that explains how to trigger reviews
-	return c.JSON(http.StatusOK, map[string]string{
-		"message": "Use POST /api/v1/connectors/trigger-review to create reviews",
-		"note":    "Direct review creation will be implemented in a future update",
-	})
-}
+// createReview handles POST /api/v1/reviews (trigger review creation from a
+// known pull_requests row) - see pull_request_review_trigger.go.
 
 // getReviewByID handles GET /api/v1/reviews/:id
 func (s *Server) getReviewByID(c echo.Context) error {

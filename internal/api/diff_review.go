@@ -28,6 +28,7 @@ type DiffReviewRequest struct {
 type DiffReviewResult struct {
 	Summary  string                  `json:"summary"`
 	Comments []*models.ReviewComment `json:"comments"`
+	Quiz     []models.QuizQuestion   `json:"quiz,omitempty"`
 }
 
 // DiffReview accepts a base64-encoded ZIP containing a unified diff and triggers a review.
@@ -222,6 +223,9 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	}
 	if aiSummaryTitle, ok := meta["ai_summary_title"].(string); ok && aiSummaryTitle != "" {
 		response["ai_summary_title"] = aiSummaryTitle
+	}
+	if len(result.Quiz) > 0 {
+		response["quiz"] = result.Quiz
 	}
 
 	return JSONWithEnvelope(c, http.StatusOK, response)

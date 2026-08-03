@@ -1,0 +1,15 @@
+/* Dark-theme overrides for react-grid-layout / react-resizable defaults */
+
+.react-grid-item.react-grid-placeholder {
+    background: rgba(59, 130, 246, 0.25);
+    border: 1px dashed rgba(59, 130, 246, 0.6);
+    border-radius: 0.5rem;
+    opacity: 1;
+}
+
+/* The default handle glyph (SVG background image + ::after border) is near-black at low
+   opacity — invert it so it reads as a light mark against the app's dark slate cards
+   instead of vanishing. react-grid-layout's own stylesheet already handles show-on-hover. */
+.react-resizable-handle {
+    filter: invert(1);
+}

@@ -34,9 +34,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/gitea"
 	networkjobqueue "github.com/livereview/network/jobqueue"
 	storagejobqueue "github.com/livereview/storage/jobqueue"
+	"github.com/livereview/storage/providers/pullrequests"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 )
@@ -467,7 +469,13 @@ func (w *WebhookInstallWorker) Work(ctx context.Context, job *river.Job[WebhookI
 	if strings.HasPrefix(args.Provider, "gitlab") {
 		return w.handleGitLabWebhookInstall(ctx, args)
 	} else if strings.HasPrefix(args.Provider, "github") {
-		return w.handleGitHubWebhookInstall(ctx, args)
+		err := w.handleGitHubWebhookInstall(ctx, args)
+		var rlErr *providers.RateLimitedError
+		if errors.As(err, &rlErr) {
+			log.Printf("GitHub rate limit hit while installing webhook for %s; snoozing job for %s", args.ProjectPath, rlErr.RetryAfter)
+			return river.JobSnooze(rlErr.RetryAfter)
+		}
+		return err
 	} else if strings.HasPrefix(args.Provider, "bitbucket") {
 		return w.handleBitbucketWebhookInstall(ctx, args)
 	} else if strings.HasPrefix(args.Provider, "gitea") {
@@ -619,6 +627,45 @@ func (w *WebhookInstallWorker) updateWebhookRegistryGitLab(ctx context.Context, 
 
 // GitHub webhook installation methods
 
+// classifyGitHubResponse inspects a GitHub API response for conditions that
+// should bypass River's default retry/backoff instead of being treated as an
+// ordinary error:
+//
+//   - 401 Bad credentials means the stored token is invalid and will never
+//     succeed on retry, so the job is cancelled outright via river.JobCancel
+//     rather than burning through attempts.
+//   - 403 with a fully depleted rate limit means the token is fine but
+//     temporarily exhausted; the job is snoozed (via the returned
+//     *providers.RateLimitedError, which callers convert with
+//     river.JobSnooze) until GitHub's own reported reset time instead of
+//     retrying on River's fixed backoff, which can give up long before the
+//     window resets.
+//
+// Returns nil if neither condition applies, leaving the caller to interpret
+// the status code as before. When it returns a non-nil error the response
+// body has already been consumed for the 401 case; callers must not read it
+// again.
+func classifyGitHubResponse(resp *http.Response, action string) error {
+	if resp.StatusCode == http.StatusUnauthorized {
+		body, _ := io.ReadAll(resp.Body)
+		return river.JobCancel(fmt.Errorf("GitHub authentication failed while %s (401 Bad credentials): reconnect this connector's GitHub token: %s", action, string(body)))
+	}
+
+	if resp.StatusCode == http.StatusForbidden && resp.Header.Get("X-RateLimit-Remaining") == "0" {
+		retryAfter := 60 * time.Second
+		if resetStr := resp.Header.Get("X-RateLimit-Reset"); resetStr != "" {
+			if resetUnix, err := strconv.ParseInt(resetStr, 10, 64); err == nil {
+				if d := time.Until(time.Unix(resetUnix, 0)); d > 0 {
+					retryAfter = d
+				}
+			}
+		}
+		return &providers.RateLimitedError{Provider: "github", RetryAfter: retryAfter}
+	}
+
+	return nil
+}
+
 // makeGitHubRequest makes a request to the GitHub API
 func (w *WebhookInstallWorker) makeGitHubRequest(ctx context.Context, method, endpoint string, payload interface{}, baseURL, pat string) (*http.Response, error) {
 	var body io.Reader
@@ -673,6 +720,10 @@ func (w *WebhookInstallWorker) gitHubWebhookExists(ctx context.Context, owner, r
 		return nil, fmt.Errorf("failed to list webhooks: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if err := classifyGitHubResponse(resp, "listing existing webhooks"); err != nil {
+		return nil, err
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -753,6 +804,10 @@ func (w *WebhookInstallWorker) installGitHubWebhook(ctx context.Context, owner, 
 		}
 		defer resp.Body.Close()
 
+		if err := classifyGitHubResponse(resp, "updating webhook"); err != nil {
+			return nil, err
+		}
+
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
 			return nil, fmt.Errorf("GitHub API error updating webhook (status %d): %s", resp.StatusCode, string(body))
@@ -772,6 +827,10 @@ func (w *WebhookInstallWorker) installGitHubWebhook(ctx context.Context, owner, 
 			return nil, fmt.Errorf("failed to create webhook: %w", err)
 		}
 		defer resp.Body.Close()
+
+		if err := classifyGitHubResponse(resp, "creating webhook"); err != nil {
+			return nil, err
+		}
 
 		if resp.StatusCode != http.StatusCreated {
 			body, _ := io.ReadAll(resp.Body)
@@ -1388,7 +1447,13 @@ func (w *WebhookRemovalWorker) Work(ctx context.Context, job *river.Job[WebhookR
 	if strings.HasPrefix(args.Provider, "gitlab") {
 		return w.handleGitLabWebhookRemoval(ctx, args)
 	} else if strings.HasPrefix(args.Provider, "github") {
-		return w.handleGitHubWebhookRemoval(ctx, args)
+		err := w.handleGitHubWebhookRemoval(ctx, args)
+		var rlErr *providers.RateLimitedError
+		if errors.As(err, &rlErr) {
+			log.Printf("GitHub rate limit hit while removing webhook for %s; snoozing job for %s", args.ProjectPath, rlErr.RetryAfter)
+			return river.JobSnooze(rlErr.RetryAfter)
+		}
+		return err
 	} else if strings.HasPrefix(args.Provider, "bitbucket") {
 		return w.handleBitbucketWebhookRemoval(ctx, args)
 	} else if strings.HasPrefix(args.Provider, "gitea") {
@@ -1748,6 +1813,10 @@ func (w *WebhookRemovalWorker) removeGitHubWebhooks(ctx context.Context, owner, 
 		return nil
 	}
 
+	if err := classifyGitHubResponse(resp, fmt.Sprintf("fetching hooks for %s/%s", owner, repo)); err != nil {
+		return err
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("GitHub API error fetching hooks (status %d): %s", resp.StatusCode, string(body))
@@ -1772,6 +1841,15 @@ func (w *WebhookRemovalWorker) removeGitHubWebhooks(ctx context.Context, owner, 
 			if err != nil {
 				log.Printf("Failed to delete webhook #%d: %v", hook.ID, err)
 				continue
+			}
+
+			// A dead token or exhausted rate limit will fail identically for
+			// every remaining hook in this repo (and every other repo on the
+			// same connector), so stop immediately instead of logging the
+			// same failure once per hook.
+			if classifyErr := classifyGitHubResponse(resp, fmt.Sprintf("deleting webhook #%d for %s/%s", hook.ID, owner, repo)); classifyErr != nil {
+				resp.Body.Close()
+				return classifyErr
 			}
 			resp.Body.Close()
 
@@ -2269,10 +2347,10 @@ func (w *WebhookRemovalWorker) updateWebhookRegistryForGiteaRemoval(ctx context.
 
 // JobQueue manages the River job queue
 type JobQueue struct {
-	client                *river.Client[pgx.Tx]
-	pool                  *pgxpool.Pool
-	db                    *sql.DB
-	config                *QueueConfig
+	client *river.Client[pgx.Tx]
+	pool   *pgxpool.Pool
+	db     *sql.DB
+	config *QueueConfig
 }
 
 // NewJobQueue creates a new job queue instance
@@ -2301,12 +2379,24 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	webhookWorker := &WebhookReviewWorker{}
 	manualWorker := &ManualReviewWorker{}
 	diffWorker := &DiffReviewWorker{db: db, pool: pool}
+	prStore := pullrequests.NewStore(db)
+	repoPRSyncWorker := &RepoPRSyncWorker{db: db, store: prStore}
+	prStateSyncWorker := &PRStateSyncWorker{db: db, store: prStore}
+	reconciliationWorker := &ReconciliationSweepWorker{db: db, pool: pool, stalenessThreshold: config.RepoSyncConfig.StalenessThreshold}
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, diffWorker)
 	river.AddWorker(workers, webhookWorker)
 	river.AddWorker(workers, manualWorker)
 	river.AddWorker(workers, &UpdateOrgUsageWorker{db: db, pool: pool})
+	river.AddWorker(workers, repoPRSyncWorker)
+	river.AddWorker(workers, prStateSyncWorker)
+	river.AddWorker(workers, reconciliationWorker)
+
+	coordinatorInterval := config.RepoSyncConfig.CoordinatorInterval
+	if coordinatorInterval <= 0 {
+		coordinatorInterval = 15 * time.Minute
+	}
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues:                      config.RiverQueueConfig(),
@@ -2314,6 +2404,21 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 		CompletedJobRetentionPeriod: 365 * 24 * time.Hour,
 		CancelledJobRetentionPeriod: 365 * 24 * time.Hour,
 		DiscardedJobRetentionPeriod: 365 * 24 * time.Hour,
+		PeriodicJobs: []*river.PeriodicJob{
+			river.NewPeriodicJob(
+				river.PeriodicInterval(coordinatorInterval),
+				func() (river.JobArgs, *river.InsertOpts) {
+					return ReconciliationSweepJobArgs{}, &river.InsertOpts{
+						Queue:       "repo_sync",
+						MaxAttempts: 3,
+						UniqueOpts: river.UniqueOpts{
+							ByPeriod: coordinatorInterval - time.Minute,
+						},
+					}
+				},
+				&river.PeriodicJobOpts{RunOnStart: false},
+			),
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create River client: %w", err)
@@ -2328,10 +2433,10 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	webhookWorker.jq = jq
 	manualWorker.jq = jq
 	diffWorker.jq = jq
+	reconciliationWorker.jq = jq
 
 	return jq, nil
 }
-
 
 // Start starts the job queue workers
 func (jq *JobQueue) Start(ctx context.Context) error {
@@ -2433,4 +2538,3 @@ func (jq *JobQueue) QueueUpdateOrgUsageJob(ctx context.Context, args UpdateOrgUs
 	}
 	return nil
 }
-

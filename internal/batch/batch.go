@@ -2,6 +2,7 @@ package batch
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -478,22 +479,105 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 		}
 	}
 	orderedSummaries := flattenSummaries(summaryOrder, summaryByFile)
-	promptText := base + "\n\n" + prompts.BuildRepoRulesSection(ctx) + prompts.BuildSummarySection(orderedSummaries) + "\n\n" + prompts.SummaryStructure
+	// Quiz generation rides along on this same summary-synthesis call (no
+	// extra LLM round-trip): the prompt asks for the markdown summary
+	// followed by a delimited quiz JSON block, which splitSummaryAndQuiz
+	// below pulls back apart.
+	promptText := base + "\n\n" + prompts.BuildRepoRulesSection(ctx) + prompts.BuildSummarySection(orderedSummaries) + "\n\n" + prompts.SummaryStructure +
+		"\n\n" + prompts.QuizRequirements + "\n\n" + prompts.QuizJSONStructureExample + "\n\n" + prompts.QuizOutputDelimiters
 
-	generalSummary, err := llms.GenerateFromSinglePrompt(ctx, llm, promptText, callOptions...)
+	rawResponse, err := llms.GenerateFromSinglePrompt(ctx, llm, promptText, callOptions...)
 	if err != nil {
-		generalSummary = "Error generating summary: " + err.Error()
+		rawResponse = "Error generating summary: " + err.Error()
 	}
+	generalSummary, quiz := splitSummaryAndQuiz(rawResponse, p.Logger)
 
-	p.Logger.Info("Aggregation complete: %d total comments (%d external, %d internal), %d technical summaries",
-		totalComments, len(externalComments), len(internalComments), len(orderedSummaries))
+	p.Logger.Info("Aggregation complete: %d total comments (%d external, %d internal), %d technical summaries, %d quiz questions",
+		totalComments, len(externalComments), len(internalComments), len(orderedSummaries), len(quiz))
 
 	// Output: one general summary, only EXTERNAL comments for posting
 	return &models.ReviewResult{
 		Summary:          generalSummary,
 		Comments:         externalComments,
 		InternalComments: internalComments,
+		Quiz:             quiz,
 	}, nil
+}
+
+// quizJSONStart/quizJSONEnd are the exact sentinel lines the "quiz" prompt
+// instructions (prompts.QuizOutputDelimiters) tell the model to wrap the
+// quiz JSON array in, appended after the markdown summary in the same
+// completion — this lets us split them apart with a plain substring search
+// instead of a markdown-fence-aware parser.
+const (
+	quizJSONStart = "---QUIZ_JSON_START---"
+	quizJSONEnd   = "---QUIZ_JSON_END---"
+)
+
+// splitSummaryAndQuiz splits the raw completion from the summary-synthesis
+// call into the markdown summary and (if present and well-formed) the quiz
+// questions. It is deliberately permissive: if the delimiters are missing,
+// or the JSON between them doesn't parse into exactly 5 well-formed
+// questions, it falls back to treating the whole response as the summary
+// and returning a nil quiz — the model ignoring the new instructions (or
+// producing a malformed quiz) must never fail or degrade the review itself.
+func splitSummaryAndQuiz(raw string, logger Logger) (summary string, quiz []models.QuizQuestion) {
+	startIdx := strings.Index(raw, quizJSONStart)
+	if startIdx == -1 {
+		return raw, nil
+	}
+	summary = strings.TrimSpace(raw[:startIdx])
+
+	rest := raw[startIdx+len(quizJSONStart):]
+	endIdx := strings.Index(rest, quizJSONEnd)
+	if endIdx == -1 {
+		if logger != nil {
+			logger.Warn("quiz JSON start delimiter found without end delimiter; skipping quiz for this review")
+		}
+		return summary, nil
+	}
+	quizRaw := strings.TrimSpace(rest[:endIdx])
+
+	var parsed []models.QuizQuestion
+	if err := json.Unmarshal([]byte(quizRaw), &parsed); err != nil {
+		if logger != nil {
+			logger.Warn("failed to parse quiz JSON, skipping quiz for this review: %v", err)
+		}
+		return summary, nil
+	}
+	if !isValidQuiz(parsed) {
+		if logger != nil {
+			logger.Warn("quiz JSON did not match the expected shape (5 questions, 4 options each, valid correctIndex), skipping quiz for this review")
+		}
+		return summary, nil
+	}
+	return summary, parsed
+}
+
+// isValidQuiz enforces the shape contract so a half-valid quiz never
+// reaches the API: exactly 5 questions, each with a non-empty question
+// string, exactly 4 non-empty options, and a correctIndex in [0,3].
+func isValidQuiz(quiz []models.QuizQuestion) bool {
+	if len(quiz) != 5 {
+		return false
+	}
+	for _, q := range quiz {
+		if strings.TrimSpace(q.Question) == "" {
+			return false
+		}
+		if len(q.Options) != 4 {
+			return false
+		}
+		for _, opt := range q.Options {
+			if strings.TrimSpace(opt) == "" {
+				return false
+			}
+		}
+		if q.CorrectIndex < 0 || q.CorrectIndex > 3 {
+			return false
+		}
+	}
+	return true
 }
 
 func mergeSummaries(existing, incoming string) string {

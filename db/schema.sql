@@ -1,7 +1,7 @@
-\restrict B4Nw0fXw1ioe4HsppuKYuVFffErSu8lYldUIhRH17zwHs8c8MnPmwBhsSvLXVKV
+\restrict dbmate
 
--- Dumped from database version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
--- Dumped by pg_dump version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
+-- Dumped from database version 15.17 (Debian 15.17-1.pgdg13+1)
+-- Dumped by pg_dump version 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -1243,6 +1243,79 @@ ALTER SEQUENCE public.prompt_chunks_id_seq OWNED BY public.prompt_chunks.id;
 
 
 --
+-- Name: pull_requests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.pull_requests (
+    id bigint NOT NULL,
+    repository_id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    provider text NOT NULL,
+    provider_pr_id text NOT NULL,
+    number integer NOT NULL,
+    title text DEFAULT ''::text NOT NULL,
+    description text,
+    state text NOT NULL,
+    author_id text,
+    author_username text,
+    author_name text,
+    author_avatar_url text,
+    source_branch text,
+    target_branch text,
+    web_url text NOT NULL,
+    provider_created_at timestamp with time zone,
+    provider_updated_at timestamp with time zone,
+    last_synced_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_synced_source text DEFAULT 'poll'::text NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT pull_requests_last_synced_source_check CHECK ((last_synced_source = ANY (ARRAY['webhook'::text, 'poll'::text, 'backfill'::text]))),
+    CONSTRAINT pull_requests_state_check CHECK ((state = ANY (ARRAY['open'::text, 'closed'::text, 'merged'::text])))
+);
+
+
+--
+-- Name: TABLE pull_requests; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.pull_requests IS 'Canonical pull/merge request per repository, normalized across providers and kept in sync via webhook + periodic reconciliation.';
+
+
+--
+-- Name: COLUMN pull_requests.state; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.pull_requests.state IS 'Normalized state: open | closed | merged. Mapping is provider-specific (see internal/prsync).';
+
+
+--
+-- Name: COLUMN pull_requests.last_synced_source; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.pull_requests.last_synced_source IS 'How last_synced_at was set: webhook | poll | backfill.';
+
+
+--
+-- Name: pull_requests_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.pull_requests_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: pull_requests_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.pull_requests_id_seq OWNED BY public.pull_requests.id;
+
+
+--
 -- Name: quota_batch_settlements; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1468,6 +1541,74 @@ ALTER SEQUENCE public.recent_activity_id_seq OWNED BY public.recent_activity.id;
 
 
 --
+-- Name: repositories; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.repositories (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    connector_id bigint NOT NULL,
+    provider text NOT NULL,
+    provider_repo_id text NOT NULL,
+    full_name text NOT NULL,
+    name text NOT NULL,
+    web_url text NOT NULL,
+    clone_url text,
+    ssh_url text,
+    default_branch text,
+    is_private boolean DEFAULT true NOT NULL,
+    description text,
+    last_synced_at timestamp with time zone,
+    last_sync_status text DEFAULT 'pending'::text NOT NULL,
+    last_sync_error text,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT repositories_last_sync_status_check CHECK ((last_sync_status = ANY (ARRAY['pending'::text, 'ok'::text, 'error'::text])))
+);
+
+
+--
+-- Name: TABLE repositories; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.repositories IS 'Canonical repository per connector, discovered from a provider (GitHub/GitLab) and kept in sync via webhook + periodic reconciliation.';
+
+
+--
+-- Name: COLUMN repositories.provider_repo_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.repositories.provider_repo_id IS 'Stable external repository id as reported by the provider API (string form).';
+
+
+--
+-- Name: COLUMN repositories.last_sync_status; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.repositories.last_sync_status IS 'Outcome of the most recent sync attempt for this repository.';
+
+
+--
+-- Name: repositories_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.repositories_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: repositories_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.repositories_id_seq OWNED BY public.repositories.id;
+
+
+--
 -- Name: review_events; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1570,8 +1711,16 @@ CREATE TABLE public.reviews (
     author_name text,
     author_username text,
     friendly_name text,
+    pull_request_id bigint,
     CONSTRAINT reviews_status_check CHECK (((status)::text = ANY ((ARRAY['created'::character varying, 'in_progress'::character varying, 'completed'::character varying, 'failed'::character varying])::text[])))
 );
+
+
+--
+-- Name: COLUMN reviews.pull_request_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.reviews.pull_request_id IS 'Canonical pull_requests row this review run belongs to, if known. Nullable for reviews triggered by raw URL or predating this column.';
 
 
 --
@@ -2526,6 +2675,13 @@ ALTER TABLE ONLY public.prompt_chunks ALTER COLUMN id SET DEFAULT nextval('publi
 
 
 --
+-- Name: pull_requests id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pull_requests ALTER COLUMN id SET DEFAULT nextval('public.pull_requests_id_seq'::regclass);
+
+
+--
 -- Name: quota_batch_settlements id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2551,6 +2707,13 @@ ALTER TABLE ONLY public.quota_policy_catalog ALTER COLUMN id SET DEFAULT nextval
 --
 
 ALTER TABLE ONLY public.recent_activity ALTER COLUMN id SET DEFAULT nextval('public.recent_activity_id_seq'::regclass);
+
+
+--
+-- Name: repositories id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repositories ALTER COLUMN id SET DEFAULT nextval('public.repositories_id_seq'::regclass);
 
 
 --
@@ -2969,6 +3132,14 @@ ALTER TABLE ONLY public.prompt_chunks
 
 
 --
+-- Name: pull_requests pull_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pull_requests
+    ADD CONSTRAINT pull_requests_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: quota_batch_settlements quota_batch_settlements_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2998,6 +3169,14 @@ ALTER TABLE ONLY public.quota_policy_catalog
 
 ALTER TABLE ONLY public.recent_activity
     ADD CONSTRAINT recent_activity_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: repositories repositories_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repositories
+    ADD CONSTRAINT repositories_pkey PRIMARY KEY (id);
 
 
 --
@@ -3249,6 +3428,14 @@ ALTER TABLE ONLY public.loc_usage_ledger
 
 
 --
+-- Name: pull_requests uq_pull_requests_repo_provider_pr; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pull_requests
+    ADD CONSTRAINT uq_pull_requests_repo_provider_pr UNIQUE (repository_id, provider_pr_id);
+
+
+--
 -- Name: quota_batch_settlements uq_quota_batch_settlements_dedupe; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3270,6 +3457,14 @@ ALTER TABLE ONLY public.quota_operation_aggregates
 
 ALTER TABLE ONLY public.quota_policy_catalog
     ADD CONSTRAINT uq_quota_policy_catalog_plan_provider UNIQUE (plan_code, provider_key);
+
+
+--
+-- Name: repositories uq_repositories_connector_provider_repo; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repositories
+    ADD CONSTRAINT uq_repositories_connector_provider_repo UNIQUE (connector_id, provider_repo_id);
 
 
 --
@@ -3867,6 +4062,34 @@ CREATE INDEX idx_plan_catalog_active_rank ON public.plan_catalog USING btree (ac
 
 
 --
+-- Name: idx_pull_requests_last_synced_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_pull_requests_last_synced_at ON public.pull_requests USING btree (last_synced_at);
+
+
+--
+-- Name: idx_pull_requests_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_pull_requests_org_id ON public.pull_requests USING btree (org_id);
+
+
+--
+-- Name: idx_pull_requests_org_state; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_pull_requests_org_state ON public.pull_requests USING btree (org_id, state);
+
+
+--
+-- Name: idx_pull_requests_repository_state; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_pull_requests_repository_state ON public.pull_requests USING btree (repository_id, state);
+
+
+--
 -- Name: idx_quota_batch_settlements_org_idempotency; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3941,6 +4164,34 @@ CREATE INDEX idx_recent_activity_review_id ON public.recent_activity USING btree
 --
 
 CREATE INDEX idx_recent_activity_type ON public.recent_activity USING btree (activity_type);
+
+
+--
+-- Name: idx_repositories_connector_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_repositories_connector_id ON public.repositories USING btree (connector_id);
+
+
+--
+-- Name: idx_repositories_last_synced_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_repositories_last_synced_at ON public.repositories USING btree (last_synced_at);
+
+
+--
+-- Name: idx_repositories_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_repositories_org_id ON public.repositories USING btree (org_id);
+
+
+--
+-- Name: idx_repositories_org_provider; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_repositories_org_provider ON public.repositories USING btree (org_id, provider);
 
 
 --
@@ -4039,6 +4290,13 @@ CREATE INDEX idx_reviews_org_status ON public.reviews USING btree (org_id, statu
 --
 
 CREATE INDEX idx_reviews_provider ON public.reviews USING btree (provider);
+
+
+--
+-- Name: idx_reviews_pull_request_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_reviews_pull_request_id ON public.reviews USING btree (pull_request_id);
 
 
 --
@@ -4462,6 +4720,13 @@ CREATE UNIQUE INDEX river_job_unique_idx ON public.river_job USING btree (unique
 
 
 --
+-- Name: uq_pull_requests_repo_number; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_pull_requests_repo_number ON public.pull_requests USING btree (repository_id, number);
+
+
+--
 -- Name: ux_license_state_singleton; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4836,6 +5101,22 @@ ALTER TABLE ONLY public.prompt_chunks
 
 
 --
+-- Name: pull_requests pull_requests_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pull_requests
+    ADD CONSTRAINT pull_requests_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: pull_requests pull_requests_repository_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pull_requests
+    ADD CONSTRAINT pull_requests_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES public.repositories(id) ON DELETE CASCADE;
+
+
+--
 -- Name: quota_batch_settlements quota_batch_settlements_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4908,6 +5189,22 @@ ALTER TABLE ONLY public.recent_activity
 
 
 --
+-- Name: repositories repositories_connector_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repositories
+    ADD CONSTRAINT repositories_connector_id_fkey FOREIGN KEY (connector_id) REFERENCES public.integration_tokens(id) ON DELETE CASCADE;
+
+
+--
+-- Name: repositories repositories_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repositories
+    ADD CONSTRAINT repositories_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
 -- Name: review_events review_events_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4945,6 +5242,14 @@ ALTER TABLE ONLY public.review_feedback
 
 ALTER TABLE ONLY public.reviews
     ADD CONSTRAINT reviews_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: reviews reviews_pull_request_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reviews
+    ADD CONSTRAINT reviews_pull_request_id_fkey FOREIGN KEY (pull_request_id) REFERENCES public.pull_requests(id) ON DELETE SET NULL;
 
 
 --
@@ -5231,7 +5536,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict B4Nw0fXw1ioe4HsppuKYuVFffErSu8lYldUIhRH17zwHs8c8MnPmwBhsSvLXVKV
+\unrestrict dbmate
 
 
 --
@@ -5320,4 +5625,6 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260704150001'),
     ('20260706205257'),
     ('20260707220001'),
+    ('20260727120000'),
+    ('20260727120001'),
     ('20260729150001');

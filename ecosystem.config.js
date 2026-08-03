@@ -12,6 +12,12 @@ module.exports = {
     cwd: __dirname,
     watch: false
   }, {
+    name: 'livereview-worker-2',
+    script: './livereview',
+    args: 'worker',
+    cwd: __dirname,
+    watch: false
+  }, {
     name: 'livereview-ui',
     script: './livereview',
     args: ["ui", "--port", "8081"],

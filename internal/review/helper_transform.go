@@ -201,6 +201,7 @@ func cloneReviewResult(result *models.ReviewResult) *models.ReviewResult {
 		Summary:          result.Summary,
 		Comments:         make([]*models.ReviewComment, 0, len(result.Comments)),
 		InternalComments: make([]*models.ReviewComment, 0, len(result.InternalComments)),
+		Quiz:             append([]models.QuizQuestion(nil), result.Quiz...),
 	}
 
 	for _, comment := range result.Comments {

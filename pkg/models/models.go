@@ -163,6 +163,21 @@ type ReviewResult struct {
 	Summary          string           // High-level summary of what the diff is about
 	Comments         []*ReviewComment // External comments to be posted to the platform
 	InternalComments []*ReviewComment // Internal comments used for synthesis only
+	Quiz             []QuizQuestion   // Optional: 5-question comprehension quiz for this PR, nil if none was generated
+}
+
+// QuizQuestion is one multiple-choice question in a review's comprehension
+// quiz. Generated as an additional part of the same summary-synthesis LLM
+// call (see internal/batch.splitSummaryAndQuiz) — never a separate call.
+// The JSON tags here are the exact shape the LLM is prompted to produce
+// (prompts.QuizJSONStructureExample), so the same struct round-trips
+// unchanged from LLM output -> DB metadata -> HTTP API response.
+type QuizQuestion struct {
+	Type         string   `json:"type"`
+	Question     string   `json:"question"`
+	Options      []string `json:"options"`
+	CorrectIndex int      `json:"correctIndex"`
+	Explanation  string   `json:"explanation,omitempty"`
 }
 
 // ReviewComment represents a single comment from the AI review

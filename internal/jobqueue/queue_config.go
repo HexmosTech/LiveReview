@@ -103,6 +103,26 @@ type QueueConfig struct {
 
 	// Webhook Configuration
 	WebhookConfig WebhookConfig
+
+	// Repository/PR sync Configuration
+	RepoSyncConfig RepoSyncConfig
+}
+
+// RepoSyncConfig controls the periodic reconciliation sweep that catches PR/MR
+// updates missed by webhooks (or backfills repos discovered before webhooks
+// existed for them). Tunable via env vars so ops can trade off freshness
+// against provider API rate-limit usage without a code change.
+type RepoSyncConfig struct {
+	// CoordinatorInterval is how often the sweep looks for stale repositories.
+	CoordinatorInterval time.Duration // default: 15 minutes
+
+	// StalenessThreshold is how old a repository's last_synced_at must be
+	// before the sweep re-syncs it. Repos kept fresh by webhook-driven upserts
+	// naturally stay below this threshold and are skipped.
+	StalenessThreshold time.Duration // default: 20 minutes
+
+	// MaxWorkers is the concurrency of the "repo_sync" queue.
+	MaxWorkers int // default: 5
 }
 
 // RetryPolicy defines how failed jobs are retried
@@ -190,7 +210,39 @@ func DefaultQueueConfig() *QueueConfig {
 				PipelineEvents:      false, // Not needed for code review triggers
 			},
 		},
+
+		// Repository/PR sync configuration - overridable via env vars, see
+		// repoSyncConfigFromEnv.
+		RepoSyncConfig: repoSyncConfigFromEnv(),
 	}
+}
+
+// repoSyncConfigFromEnv builds RepoSyncConfig from defaults, overridable via
+// LIVEREVIEW_REPO_SYNC_INTERVAL_MINUTES / LIVEREVIEW_REPO_SYNC_STALENESS_MINUTES
+// / LIVEREVIEW_REPO_SYNC_MAX_WORKERS so the reconciliation cadence can be tuned
+// per-deployment without a code change.
+func repoSyncConfigFromEnv() RepoSyncConfig {
+	config := RepoSyncConfig{
+		CoordinatorInterval: 15 * time.Minute,
+		StalenessThreshold:  20 * time.Minute,
+		MaxWorkers:          5,
+	}
+	if v := os.Getenv("LIVEREVIEW_REPO_SYNC_INTERVAL_MINUTES"); v != "" {
+		if mins, err := strconv.Atoi(v); err == nil && mins > 0 {
+			config.CoordinatorInterval = time.Duration(mins) * time.Minute
+		}
+	}
+	if v := os.Getenv("LIVEREVIEW_REPO_SYNC_STALENESS_MINUTES"); v != "" {
+		if mins, err := strconv.Atoi(v); err == nil && mins > 0 {
+			config.StalenessThreshold = time.Duration(mins) * time.Minute
+		}
+	}
+	if v := os.Getenv("LIVEREVIEW_REPO_SYNC_MAX_WORKERS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			config.MaxWorkers = n
+		}
+	}
+	return config
 }
 
 // ProductionQueueConfig returns a configuration optimized for production use
@@ -283,12 +335,22 @@ func (c *QueueConfig) RiverQueueConfig() map[string]river.QueueConfig {
 		}
 	}
 
+	repoSyncWorkers := c.RepoSyncConfig.MaxWorkers
+	if repoSyncWorkers <= 0 {
+		repoSyncWorkers = 5
+	}
+
 	return map[string]river.QueueConfig{
 		river.QueueDefault: {
 			MaxWorkers: c.MaxWorkers,
 		},
 		"review": {
 			MaxWorkers: reviewWorkers,
+		},
+		// Repo/PR discovery and sync jobs run on their own queue so they can
+		// never starve AI-review job concurrency on the "review" queue.
+		"repo_sync": {
+			MaxWorkers: repoSyncWorkers,
 		},
 	}
 }
