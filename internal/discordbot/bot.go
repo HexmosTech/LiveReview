@@ -292,7 +292,8 @@ func (b *Bot) makeHandler() func(*discordgo.Session, *discordgo.MessageCreate) {
 
 		isDM := m.GuildID == ""
 
-		b.mu.RLock()
+	// nosemgrep: trailofbits.go.missing-runlock-on-rwmutex -- RLock/RUnlock are correctly paired around the goroutine-spawn loop below; the flagged returns are inside goroutines running after RUnlock.
+	b.mu.RLock()
 		defer b.mu.RUnlock()
 
 		var oh *orgHandler

@@ -11,7 +11,7 @@ import (
 	"net/mail"
 	"net/smtp"
 	"strings"
-	textTemplate "text/template"
+	textTemplate "text/template" // nosemgrep: go.lang.security.audit.xss.import-text-template -- used only for plain-text body; HTML body uses html/template
 	"time"
 	_ "embed"
 	"github.com/rs/zerolog/log"
@@ -113,6 +113,7 @@ func SendRawEmailSMTP(host string, port int, username, password, sender, senderN
 	tlsConfig := &tls.Config{
 		ServerName:         host,
 		InsecureSkipVerify: skipTLS,
+		MinVersion:         tls.VersionTLS12,
 	}
 
 	log.Info().Msgf("[SMTP] Sending email via %s to %s", addr, recipient)
