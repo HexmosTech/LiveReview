@@ -52,7 +52,7 @@ jobs:
           set -euo pipefail
           .github-tools/bin/gitleaks version
       - name: Run gitleaks
-        run: .github-tools/bin/gitleaks git . --redact --exit-code 1
+        run: .github-tools/bin/gitleaks git . --log-opts="HEAD" --redact --exit-code 1
 
       - name: Report status to commit SHA
         if: always() && github.event_name == 'workflow_dispatch'
