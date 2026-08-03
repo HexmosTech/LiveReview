@@ -145,6 +145,16 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
         ],
     },
     {
+        key: 'explore',
+        name: 'Explore',
+        icon: React.createElement(Icons.FolderOpen),
+        path: '/explore/repositories',
+        items: [
+            link('Repositories', React.createElement(Icons.List), '/explore/repositories'),
+            link('Merge Requests', React.createElement(Icons.Reviews), '/explore/merge-requests'),
+        ],
+    },
+    {
         key: 'providers',
         name: 'Providers',
         icon: React.createElement(Icons.Layers),

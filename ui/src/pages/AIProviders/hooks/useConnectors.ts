@@ -77,8 +77,9 @@ export const useConnectors = (): UseConnectorsResult => {
         try {
             setIsLoading(true);
 
-            // For Ollama, skip validation since we've already validated by fetching models
-            if (providerId !== 'ollama') {
+            // Skip validation for Ollama (already validated via model fetch) and for
+            // an edit that didn't supply a new key (blank means keep the existing one).
+            if (providerId !== 'ollama' && (apiKey || !existingConnector)) {
                 // First validate the API key for non-Ollama providers
                 try {
 				const validationResult = await validateAIProviderKey(providerId, apiKey, selectedModel, gcpProjectID, gcpLocation, awsAccessKeyID, awsRegion);
