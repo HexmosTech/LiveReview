@@ -181,6 +181,13 @@ func APIKeyAuthMiddleware(db *sql.DB) echo.MiddlewareFunc {
 	}
 }
 
+// Context keys/values recording which auth path a request took — read by triggerTypeForRequest (review_service.go) to classify how a review was triggered.
+const (
+	authMethodContextKey = "auth_method"
+	authMethodAPIKey      = "api_key"
+	authMethodSession     = "session"
+)
+
 // RequireAuthOrAPIKey creates authentication middleware that supports both Bearer tokens and API keys
 // This allows endpoints to accept either authentication method without breaking existing Bearer auth
 func RequireAuthOrAPIKey(tokenService *auth.TokenService, db *sql.DB) echo.MiddlewareFunc {
@@ -227,6 +234,7 @@ func RequireAuthOrAPIKey(tokenService *auth.TokenService, db *sql.DB) echo.Middl
 				c.Request().Header.Set("X-Org-Context", strconv.FormatInt(keyRecord.OrgID, 10))
 				c.Set("org_id", keyRecord.OrgID)
 				c.Set("api_key_id", keyRecord.ID)
+				c.Set(authMethodContextKey, authMethodAPIKey)
 
 				return next(c)
 			}
@@ -261,11 +269,13 @@ func RequireAuthOrAPIKey(tokenService *auth.TokenService, db *sql.DB) echo.Middl
 				}
 				// Add user to context and continue
 				c.Set(string(auth.UserContextKey), fallbackUser)
+				c.Set(authMethodContextKey, authMethodSession)
 				return next(c)
 			}
 
 			// Add user to context
 			c.Set(string(auth.UserContextKey), user)
+			c.Set(authMethodContextKey, authMethodSession)
 
 			return next(c)
 		}

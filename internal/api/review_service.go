@@ -41,6 +41,18 @@ type reviewSetupContext struct {
 	reviewService *reviewpkg.Service
 	request       *reviewpkg.ReviewRequest
 	requestURL    string
+	triggerType   string
+}
+
+// triggerTypeForRequest classifies how a review-trigger request arrived: MCP tool call, direct API-key call, or a real user session (UI click).
+func triggerTypeForRequest(c echo.Context) string {
+	if isMCPRequest(c) {
+		return "mcp"
+	}
+	if authMethod, _ := c.Get(authMethodContextKey).(string); authMethod == authMethodAPIKey {
+		return "api"
+	}
+	return "manual"
 }
 
 // NewReviewService creates a new review service
@@ -266,15 +278,17 @@ func (s *Server) setupReviewContext(c echo.Context, req TriggerReviewRequest) (*
 	ctx.requestURL = req.URL
 	log.Printf("[DEBUG] ✓ Request parsed successfully - MR/PR URL: %s", req.URL)
 
+	ctx.triggerType = triggerTypeForRequest(c)
+
 	// Create database record first to get proper numeric ID
 	log.Printf("[DEBUG] DATABASE RECORD CREATION: Creating review record...")
 	reviewManager := NewReviewManager(s.db)
 	review, err := reviewManager.CreateReviewWithOrg(
-		req.URL,  // repository (using URL as repository for now)
-		"",       // branch (will be populated during processing)
-		"",       // commit_hash (will be populated during processing)
-		req.URL,  // pr_mr_url
-		"manual", // trigger_type
+		req.URL,         // repository (using URL as repository for now)
+		"",              // branch (will be populated during processing)
+		"",              // commit_hash (will be populated during processing)
+		req.URL,         // pr_mr_url
+		ctx.triggerType, // trigger_type
 		ctx.actorEmail,
 		"unknown", // provider (will be determined during processing)
 		nil,       // connector_id
@@ -544,7 +558,7 @@ func (s *Server) trackActivity(ctx *reviewSetupContext) {
 			"repository":   repository,
 			"branch":       branch,
 			"commit_hash":  commitHash,
-			"trigger_type": "manual",
+			"trigger_type": ctx.triggerType,
 			"provider":     ctx.token.Provider,
 			"user_email":   "admin",
 			"original_url": ctx.requestURL,

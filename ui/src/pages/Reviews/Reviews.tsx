@@ -20,6 +20,7 @@ const pageSizeOptions = [20, 50, 100];
 const FETCH_ALL_PAGE_SIZE = 500;
 
 const TITLE_MAX = 80;
+const AUTHOR_MAX = 20;
 const truncate = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max)}…` : text);
 
 const toTitleCase = (value: string): string => value.replace(/\b\w/g, (char) => char.toUpperCase());
@@ -413,7 +414,14 @@ const Reviews: React.FC = () => {
           <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
         </div>
       ),
-      cell: ({ getValue }) => <div className="text-white text-sm">{getValue() as string}</div>,
+      cell: ({ getValue }) => {
+        const author = getValue() as string;
+        return (
+          <TruncatedWithTooltip text={author} max={AUTHOR_MAX}>
+            <div className="min-w-0 truncate text-white text-sm">{truncate(author, AUTHOR_MAX)}</div>
+          </TruncatedWithTooltip>
+        );
+      },
     },
     {
       id: 'last_activity',
