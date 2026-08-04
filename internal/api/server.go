@@ -43,6 +43,7 @@ import (
 	"github.com/livereview/internal/slackbot"
 	"github.com/livereview/internal/teamsbot"
 	"github.com/livereview/storage/core"
+	"github.com/livereview/storage/dashboard"
 	// Import FetchGitLabProfile
 )
 
@@ -126,9 +127,9 @@ type Server struct {
 	echo                 *echo.Echo
 	port                 int
 	db                   *sql.DB
-	jobQueue             *jobqueue.JobQueue
-	dashboardManager     *DashboardManager
-	autoWebhookInstaller *AutoWebhookInstaller
+	jobQueue              *jobqueue.JobQueue
+	dashboardManager      *DashboardManager
+	autoWebhookInstaller  *AutoWebhookInstaller
 	versionInfo          *VersionInfo
 	deploymentConfig     *DeploymentConfig
 	authHandlers         *auth.AuthHandlers
@@ -270,8 +271,10 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize job queue: %v", err)
 	}
 
-	// Initialize dashboard manager
-	dashboardManager := NewDashboardManager(db, core.NewSchedulerLockStore(db))
+	// Initialize dashboard manager — one goroutine refreshing onboarding data and dashboard_cache every 5 minutes.
+	schedulerLockStore := core.NewSchedulerLockStore(db)
+	dashboardCacheStore := dashboard.NewCacheStore(db)
+	dashboardManager := NewDashboardManager(db, schedulerLockStore, dashboardCacheStore)
 
 	// Initialize auto webhook installer
 	autoWebhookInstaller := NewAutoWebhookInstaller(db, nil, jq) // server will be set later
@@ -315,7 +318,7 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 		port:                 port,
 		db:                   db,
 		jobQueue:             jq,
-		dashboardManager:     dashboardManager,
+		dashboardManager:      dashboardManager,
 		autoWebhookInstaller: autoWebhookInstaller,
 		versionInfo:          versionInfo,
 		deploymentConfig:     deploymentConfig,
@@ -1551,7 +1554,7 @@ func (s *Server) Start() error {
 	}
 	fmt.Println("Press Ctrl+C to stop the server")
 
-	// Start dashboard manager
+	// Start dashboard manager (onboarding data + precomputed widget data, e.g. review_layers)
 	s.dashboardManager.Start()
 	fmt.Println("Dashboard manager started")
 

@@ -47,6 +47,26 @@ export interface ConnectorSetupProgress {
     message: string;
 }
 
+export interface ReviewLayerCategoryCount {
+    category: string;
+    count: number;
+}
+
+export interface ReviewLayer {
+    id: string;
+    label: string;
+    reviews_run: number;
+    issues_found: number;
+    categories: ReviewLayerCategoryCount[];
+}
+
+export interface ReviewLayers {
+    day: ReviewLayer[];
+    week: ReviewLayer[];
+    month: ReviewLayer[];
+    all: ReviewLayer[];
+}
+
 export interface DashboardData {
     total_reviews: number;
     total_comments: number;
@@ -60,6 +80,7 @@ export interface DashboardData {
     recent_activity: ActivityItem[];
     performance_metrics: PerformanceMetrics;
     system_status: SystemStatus;
+    review_layers?: ReviewLayers;
     last_updated: string;
 }
 
@@ -68,7 +89,13 @@ export const getDashboardData = async (): Promise<DashboardData> => {
     return response;
 };
 
+export interface RefreshDashboardResponse {
+    message: string;
+    last_updated: string;
+    review_layers?: ReviewLayers;
+}
+
 // Force-refresh the dashboard cache on the server so counts update immediately
-export const refreshDashboardData = async (): Promise<void> => {
-    await apiClient.post('/api/v1/dashboard/refresh', {});
+export const refreshDashboardData = async (): Promise<RefreshDashboardResponse> => {
+    return apiClient.post<RefreshDashboardResponse>('/api/v1/dashboard/refresh', {});
 };

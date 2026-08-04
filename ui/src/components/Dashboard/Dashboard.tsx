@@ -126,7 +126,6 @@ export const Dashboard: React.FC = () => {
 
     // Dashboard data state
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
     const [hideStepper, setHideStepper] = useState<boolean>(() => {
@@ -202,7 +201,6 @@ export const Dashboard: React.FC = () => {
     useEffect(() => {
         const loadDashboardData = async () => {
             try {
-                setIsLoading(true);
                 setIsSyncing(true);
                 // Ensure backend cache reflects latest connectors/changes
                 try { await refreshDashboardData(); } catch { /* best-effort */ }
@@ -213,7 +211,6 @@ export const Dashboard: React.FC = () => {
                 console.error('Error loading dashboard data:', err);
                 setError('Failed to load dashboard data');
             } finally {
-                setIsLoading(false);
                 setIsSyncing(false);
             }
         };
@@ -494,16 +491,6 @@ export const Dashboard: React.FC = () => {
                                 <h3 className="text-lg font-medium text-red-300">Error Loading Dashboard</h3>
                                 <p className="mt-1 text-red-200">{error}</p>
                             </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Loading state */}
-                {isLoading && !dashboardData && (
-                    <div className="mb-6 bg-slate-800/40 rounded-xl p-6 border border-slate-700/30">
-                        <div className="flex items-center justify-center">
-                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
-                            <span className="ml-3 text-slate-300">Loading dashboard data...</span>
                         </div>
                     </div>
                 )}
