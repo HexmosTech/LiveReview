@@ -168,3 +168,8 @@ Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB
 | license.ApplyScheduledDowngrade | moved | [ApplyScheduledDowngrade](license/plan_change_store.go#L254) |
 | license.ApplyScheduledPlanChange | added | [ApplyScheduledPlanChange](license/plan_change_store.go#L258) |
 | license.insertLifecycleEventTx | moved | [insertLifecycleEventTx](license/plan_change_store.go#L299) |
+| tools.NewToolsStore | added | [NewToolsStore](tools/tools_store.go#L36) |
+| tools.GetAvailableToolsForOrg | added | [GetAvailableToolsForOrg](tools/tools_store.go#L41) |
+| tools.UpsertOrgTool | added | [UpsertOrgTool](tools/tools_store.go#L89) |
+| tools.GetEnabledToolsForOrg | added | [GetEnabledToolsForOrg](tools/tools_store.go#L124) |
+| tools.InsertToolResultEvent | added | [InsertToolResultEvent](tools/tools_store.go#L167) |
