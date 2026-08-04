@@ -263,7 +263,19 @@ func (s *LOCAccountingStore) CheckQuotaPreflight(ctx context.Context, orgID int6
 		}
 		currentPeriodStart = billingPeriodStart
 		currentPeriodEnd = billingPeriodEnd
-		currentUsed = 0
+		// Recompute used LOC from the ledger for the new period instead of
+		// assuming zero, so loc_used_month stays consistent with already
+		// accounted rows (e.g. reviews that landed in the new period).
+		if err := tx.QueryRowContext(ctx, `
+			SELECT COALESCE(SUM(billable_loc), 0)
+			FROM loc_usage_ledger
+			WHERE org_id = $1
+			  AND status = 'accounted'
+			  AND accounted_at >= $2
+			  AND accounted_at < $3
+		`, orgID, currentPeriodStart, currentPeriodEnd).Scan(&currentUsed); err != nil {
+			return PreflightQuotaResult{}, fmt.Errorf("recompute used loc after period rollover: %w", err)
+		}
 		currentCycleLOCGrant = 0
 		currentCycleLOCGrantExpiresAt = sql.NullTime{}
 	}

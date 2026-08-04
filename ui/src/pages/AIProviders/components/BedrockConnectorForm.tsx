@@ -215,7 +215,7 @@ const BedrockConnectorForm: React.FC<BedrockConnectorFormProps> = ({
                     name="awsAccessKeyID"
                     value={formState.awsAccessKeyID}
                     onChange={handleInputChange}
-                    placeholder="AKIAXXXXXXXXXXXXXXXX"
+                    placeholder="AKIAXXXXXXXXXXXXXXXX" // nosemgrep: generic.secrets.security.detected-aws-access-key-id-value -- example/placeholder text for an input field, not a real credential
                 />
 
                 <Input

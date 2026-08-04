@@ -5,7 +5,7 @@ package mockllm
 import (
 	"context"
 	"fmt"
-	"math/rand"
+	"math/rand" // nosemgrep: go.lang.security.audit.crypto.math_random -- mock provider (build tag !production), non-cryptographic randomness is intentional
 	"strings"
 	"time"
 

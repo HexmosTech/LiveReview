@@ -47,6 +47,32 @@ const (
 	ProviderBedrock             Provider = "bedrock"
 )
 
+// ProviderOption describes one supported AI provider for the provider catalog.
+type ProviderOption struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// ProviderCatalog returns the list of supported AI providers (canonical id and
+// display name). This is the source of truth the MCP agent uses to map a user's
+// raw request to the correct canonical provider_name.
+func ProviderCatalog() []ProviderOption {
+	return []ProviderOption{
+		{ID: string(ProviderGemini), Name: "Google Gemini"},
+		{ID: string(ProviderGeminiEnterprise), Name: "Gemini Enterprise"},
+		{ID: string(ProviderDeepSeek), Name: "DeepSeek"},
+		{ID: string(ProviderOpenRouter), Name: "OpenRouter"},
+		{ID: string(ProviderOllama), Name: "Ollama"},
+		{ID: string(ProviderOpenAI), Name: "OpenAI"},
+		{ID: string(ProviderAtlas), Name: "Atlas Cloud"},
+		{ID: string(ProviderClaude), Name: "Anthropic Claude"},
+		{ID: string(ProviderBedrock), Name: "AWS Bedrock"},
+		{ID: string(ProviderAnthropicCompatible), Name: "Anthropic Compatible"},
+		{ID: string(ProviderCohere), Name: "Cohere"},
+		{ID: string(ProviderLocalModel), Name: "Local Model"},
+	}
+}
+
 // ModelConfig contains the configuration for a specific model
 type ModelConfig struct {
 	Temperature float64 `json:"temperature,omitempty"`

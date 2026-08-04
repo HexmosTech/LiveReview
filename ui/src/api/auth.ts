@@ -5,6 +5,7 @@ import apiClient from './apiClient';
 export interface UserInfo {
   id: number;
   email: string;
+  name?: string;
   created_at: string;
   updated_at: string;
   plan_type?: string;

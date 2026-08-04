@@ -15,6 +15,7 @@ import (
 
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/mcpagent"
+	"github.com/livereview/internal/vlrender"
 )
 
 const (
@@ -29,6 +30,7 @@ type conversation struct {
 
 type orgHandler struct {
 	orgID         int64
+	orgName       string
 	botAppID      string
 	botPassword   string
 	agent         *mcpagent.Agent
@@ -53,6 +55,7 @@ type Bot struct {
 
 type BotConfig struct {
 	OrgID        int64
+	OrgName      string
 	BotAppID     string
 	BotPassword  string
 	MCPServerURL string
@@ -73,6 +76,7 @@ func NewBot(ctx context.Context, configs []BotConfig, baseURL string) *Bot {
 	for _, cfg := range configs {
 		oh := &orgHandler{
 			orgID:         cfg.OrgID,
+			orgName:       cfg.OrgName,
 			botAppID:      cfg.BotAppID,
 			botPassword:   cfg.BotPassword,
 			conversations: make(map[string]*conversation),
@@ -103,6 +107,7 @@ func (b *Bot) AddOrg(cfg BotConfig) {
 	defer b.mu.Unlock()
 	oh := &orgHandler{
 		orgID:         cfg.OrgID,
+		orgName:       cfg.OrgName,
 		botAppID:      cfg.BotAppID,
 		botPassword:   cfg.BotPassword,
 		conversations: make(map[string]*conversation),
@@ -231,7 +236,7 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 
 	conv.history = history
 
-	if hasVegaLiteSpec(response) {
+	if vlrender.HasVegaLiteSpec(response) {
 		vlCtx, vlCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer vlCancel()
 		attachments, replyText := buildAttachmentsFromVegaLite(vlCtx, b.baseURL, response)
@@ -247,6 +252,8 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 			}
 			return nil
 		}
+		log.Printf("[TeamsBot] Vega-Lite render failed after retries, sending friendly error")
+		return b.postReply(ctx, activity, b.buildReply("Having an issue generating the data, please try again.", activity, nil))
 	}
 
 	reply := b.buildReply(response, activity, nil)
@@ -404,6 +411,9 @@ func (oh *orgHandler) ensureAgent(ctx context.Context) error {
 	}
 
 	provider := mcpagent.NewProvider(oh.connector)
+	if oh.orgName != "" {
+		mcpSession.OrgName = oh.orgName
+	}
 	agent := mcpagent.NewAgent(provider, mcpSession, oh.maxSteps)
 
 	oh.agent = agent

@@ -757,6 +757,13 @@ type AIProviderModelResponse struct {
 	IsDefault bool   `json:"is_default"`
 }
 
+// GetAIProviderCatalog returns the list of supported AI providers.
+func (s *Server) GetAIProviderCatalog(c echo.Context) error {
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"providers": aiconnectors.ProviderCatalog(),
+	})
+}
+
 // GetAIProviderModels handles requests to get all active models for a specific AI provider
 func (s *Server) GetAIProviderModels(c echo.Context) error {
 	provider := c.Param("provider")

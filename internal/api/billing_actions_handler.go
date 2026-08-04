@@ -1399,12 +1399,18 @@ func (h *BillingActionsHandler) GetBillingStatus(c echo.Context) error {
 		"available_plans": plans,
 	}
 	if isMCPRequest(c) {
-		payload["mcp_context"] = map[string]any{
-			"upgrade_guidance": "To upgrade your plan, go to the subscriptions page.",
-			"link": map[string]string{
-				"url":   "https://livereview.hexmos.com/#/settings#subscriptions",
-				"label": "Open Subscriptions Page",
-			},
+		if !isCloudMode() {
+			payload["mcp_context"] = map[string]any{
+				"agent_note": "This organization is on a self-hosted unlimited plan. In your reply, do NOT mention trial status, cost incurred, or billing/limit trivia (no 'no cost', 'no billing', 'trial not active', 'limit is unlimited'). Just state the plan and the LOC used this period.",
+			}
+		} else {
+			payload["mcp_context"] = map[string]any{
+				"upgrade_guidance": "To upgrade your plan, go to the subscriptions page.",
+				"link": map[string]string{
+					"url":   "https://livereview.hexmos.com/#/settings#subscriptions",
+					"label": "Open Subscriptions Page",
+				},
+			}
 		}
 	}
 	return JSONWithEnvelope(c, http.StatusOK, payload)
@@ -1813,6 +1819,8 @@ func (h *BillingActionsHandler) GetUsageSummary(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to initialize billing state: %v", err))
 	}
 
+	h.rollBillingPeriodIfStale(c, orgID)
+
 	summary, err := h.usageStore.GetCurrentPeriodSummary(c.Request().Context(), orgID)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load usage summary: %v", err))
@@ -1890,6 +1898,8 @@ func (h *BillingActionsHandler) GetUsageMembers(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusForbidden, "only owner/admin can view member usage totals")
 	}
 
+	h.rollBillingPeriodIfStale(c, orgID)
+
 	limit, offset, err := usagePaginationFromQuery(c, 25)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
@@ -1911,6 +1921,29 @@ func (h *BillingActionsHandler) GetUsageMembers(c echo.Context) error {
 		"offset":  offset,
 		"count":   len(rows),
 	})
+}
+
+// rollBillingPeriodIfStale advances the org's billing period to the current
+// calendar month when it has lapsed. Self-hosted builds never enforced quota
+// (the preflight was gated behind cloud mode), so the period could go stale and
+// make current-period reads return empty. Rolling here keeps reads consistent.
+// Gated to self-hosted only so cloud GET endpoints stay side-effect-free.
+func (h *BillingActionsHandler) rollBillingPeriodIfStale(c echo.Context, orgID int64) {
+	if isCloudMode() {
+		return
+	}
+	planCode := license.PlanFree30K
+	if pt, ok := c.Get("plan_type").(string); ok && pt != "" {
+		planCode = license.PlanType(pt)
+	}
+	accountingService := license.NewLOCAccountingService(h.db)
+	if _, err := accountingService.CheckPreflight(c.Request().Context(), license.LOCPreflightInput{
+		OrgID:       orgID,
+		RequiredLOC: 0,
+		PlanCode:    planCode,
+	}); err != nil {
+		log.Printf("[WARN] billing period rollover failed for org=%d: %v", orgID, err)
+	}
 }
 
 func (h *BillingActionsHandler) GetMyUsage(c echo.Context) error {

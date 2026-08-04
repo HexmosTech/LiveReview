@@ -14,16 +14,16 @@ import (
 
 // MCPAgentChatRequest is the request body for the MCP agent chat endpoint.
 type MCPAgentChatRequest struct {
-	ConnectorID  int64                  `json:"connector_id"`
-	MCPServerURL string                 `json:"mcp_server_url"`
-	MCPHeaders   map[string]string      `json:"mcp_headers,omitempty"`
-	Message      string                 `json:"message"`
+	ConnectorID  int64                   `json:"connector_id"`
+	MCPServerURL string                  `json:"mcp_server_url"`
+	MCPHeaders   map[string]string       `json:"mcp_headers,omitempty"`
+	Message      string                  `json:"message"`
 	History      []mcpagent.HistoryEntry `json:"history,omitempty"`
 }
 
 // MCPAgentChatResponse is the response from the MCP agent chat endpoint.
 type MCPAgentChatResponse struct {
-	Response string                `json:"response"`
+	Response string                  `json:"response"`
 	History  []mcpagent.HistoryEntry `json:"history"`
 	Tools    []mcpagent.MCPToolDef   `json:"tools,omitempty"`
 }
@@ -64,6 +64,12 @@ func (s *Server) HandleMCPAgentChat(c echo.Context) error {
 	if err != nil {
 		log.Error().Err(err).Str("url", req.MCPServerURL).Msg("Failed to connect to MCP server")
 		return c.JSON(http.StatusBadGateway, map[string]string{"error": fmt.Sprintf("Failed to connect to MCP server: %s", err.Error())})
+	}
+	if pc.CurrentOrg != nil && pc.CurrentOrg.Name != "" {
+		mcpSession.OrgName = pc.CurrentOrg.Name
+	}
+	if pc.User != nil {
+		mcpSession.UserName = pc.User.FullName()
 	}
 
 	// 3. Create provider and agent

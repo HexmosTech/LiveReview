@@ -49,7 +49,7 @@ function getBaseUrl(): string {
   return baseUrl;
 }
 
-const BASE_URL = getBaseUrl();
+export const BASE_URL = getBaseUrl();
 console.log('🚀 API Client initialized with BASE_URL:', BASE_URL);
 console.log('Final BASE_URL configured as:', BASE_URL);
 console.log('🔍 Current window location:', window.location.href);

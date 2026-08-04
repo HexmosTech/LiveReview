@@ -13,7 +13,7 @@ import {
     Badge,
     Avatar
 } from '../../components/UIPrimitives';
-import { getReviewAISettings, updateReviewAISettings } from '../../api/connectors';
+import { getReviewAISettings, updateReviewAISettings, getAIProviderCatalog } from '../../api/connectors';
 
 // Types
 import { AIProvider, AIConnector, ReviewAISettings } from './types';
@@ -36,8 +36,12 @@ import BedrockConnectorForm from './components/BedrockConnectorForm';
 // Utils
 import { generateFriendlyNameForProvider, getProviderDetails } from './utils/nameUtils';
 
-// Constant data
-const popularAIProviders: AIProvider[] = [
+// Local UI metadata overlay (icons, descriptions, placeholders) keyed by provider id.
+// The canonical set of supported providers comes from the backend catalog
+// (GET /api/v1/aiconnectors/providers) fetched on mount; this array only adds
+// the presentation details the backend doesn't carry. A provider added to the
+// backend catalog appears here automatically (with generic fallback metadata).
+const providerUIMetadata: AIProvider[] = [
     {
         id: 'gemini',
         name: 'Google Gemini',
@@ -118,6 +122,41 @@ const popularAIProviders: AIProvider[] = [
 ];
 
 const AIProviders: React.FC = () => {
+    // Provider list: starts from local UI metadata and is reconciled against the
+    // backend provider catalog so a newly added provider shows up automatically.
+    const [providers, setProviders] = useState<AIProvider[]>(providerUIMetadata);
+
+    useEffect(() => {
+        let cancelled = false;
+        getAIProviderCatalog()
+            .then((catalog) => {
+                if (cancelled) return;
+                const metaById = new Map(providerUIMetadata.map((p) => [p.id, p]));
+                const merged: AIProvider[] = catalog.map((entry) => {
+                    const meta = metaById.get(entry.id);
+                    if (meta) {
+                        return { ...meta, id: entry.id, name: entry.name };
+                    }
+                    // Backend-only provider (no local UI metadata yet): show it with
+                    // generic fallback metadata so it isn't silently hidden.
+                    return {
+                        id: entry.id,
+                        name: entry.name,
+                        url: '',
+                        description: `${entry.name} is supported by LiveReview.`,
+                        icon: <Icons.AI />,
+                        apiKeyPlaceholder: 'Paste your API key'
+                    };
+                });
+                setProviders(merged);
+            })
+            .catch(() => {
+                // On error, fall back to local UI metadata (e.g. offline / stale backend).
+                if (!cancelled) setProviders(providerUIMetadata);
+            });
+        return () => { cancelled = true; };
+    }, []);
+
     // Custom hooks
     const {
         selectedProvider,
@@ -125,7 +164,7 @@ const AIProviders: React.FC = () => {
         updateUrlFragment,
         isEditing,
         setIsEditing
-    } = useProviderSelection(popularAIProviders);
+    } = useProviderSelection(providers);
 
     const routerLocation = useLocation();
 
@@ -172,7 +211,7 @@ const AIProviders: React.FC = () => {
 
 	const getDefaultModelFor = (providerId?: string) => {
 		if (!providerId) return '';
-		const meta = popularAIProviders.find((p) => p.id === providerId);
+		const meta = providers.find((p) => p.id === providerId);
 		return meta?.defaultModel || '';
 	};
 
@@ -254,7 +293,7 @@ const AIProviders: React.FC = () => {
     // Handle adding a new connector
     const handleAddConnector = () => {
         setFormData({
-            name: generateFriendlyNameForProvider(selectedProvider, popularAIProviders),
+            name: generateFriendlyNameForProvider(selectedProvider, providers),
             apiKey: '',
             providerType: selectedProvider === 'all' ? '' : selectedProvider,
             role: activeRole,
@@ -271,7 +310,7 @@ const AIProviders: React.FC = () => {
     // Handle selecting a provider from dropdown
     const handleSelectProviderToAdd = (providerId: string) => {
         setFormData({
-            name: generateFriendlyNameForProvider(providerId, popularAIProviders),
+            name: generateFriendlyNameForProvider(providerId, providers),
             apiKey: '',
             providerType: providerId,
             role: activeRole,
@@ -417,12 +456,12 @@ const AIProviders: React.FC = () => {
             return;
         }
 
-        generateFriendlyName(providerToUse, popularAIProviders);
+        generateFriendlyName(providerToUse, providers);
     };
 
     // Handle provider type change in "all" view
     const handleProviderChange = (providerType: string) => {
-        handleProviderTypeChange(providerType, popularAIProviders);
+        handleProviderTypeChange(providerType, providers);
     };
 
     const handleSaveHelperSettings = async () => {
@@ -494,7 +533,7 @@ const AIProviders: React.FC = () => {
                 <div className="lg:col-span-1">
                     <Card title="AI Providers">
                         <ProvidersList
-                            providers={popularAIProviders}
+                            providers={providers}
                             selectedProvider={selectedProvider}
                             connectorCounts={connectorCounts}
                             onSelectProvider={handleSelectProvider}
@@ -504,7 +543,7 @@ const AIProviders: React.FC = () => {
                         {/* Provider Info - Show only for specific providers, not for "all" view */}
                         {selectedProvider !== 'all' && (
                             <ProviderDetail
-                                provider={popularAIProviders.find(p => p.id === selectedProvider)!}
+                                provider={providers.find(p => p.id === selectedProvider)!}
                             />
                         )}
                     </Card>
@@ -561,7 +600,7 @@ const AIProviders: React.FC = () => {
                                 {/* Special form for Ollama */}
                                 {((selectedProvider === 'ollama') || (selectedProvider === 'all' && formData.providerType === 'ollama')) ? (
                                     <OllamaConnectorForm
-                                        provider={popularAIProviders.find(p => p.id === 'ollama')!}
+                                        provider={providers.find(p => p.id === 'ollama')!}
                                         onSave={handleSaveOllamaConnector}
                                         onCancel={resetForm}
                                         isLoading={isLoading}
@@ -580,7 +619,7 @@ const AIProviders: React.FC = () => {
                                 ) : ((selectedProvider === 'bedrock') || (selectedProvider === 'all' && formData.providerType === 'bedrock')) ? (
                                     /* Special form for Bedrock */
                                     <BedrockConnectorForm
-                                        provider={popularAIProviders.find(p => p.id === 'bedrock')!}
+                                        provider={providers.find(p => p.id === 'bedrock')!}
                                         onSave={handleSaveBedrockConnector}
                                         onCancel={resetForm}
                                         isLoading={isLoading}
@@ -597,7 +636,7 @@ const AIProviders: React.FC = () => {
                                 ) : (
                                     /* Regular form for other providers */
                                     <ConnectorForm
-                                        providers={popularAIProviders}
+                                        providers={providers}
                                         selectedProvider={selectedProvider}
                                         formData={formData}
                                         isEditing={isEditing}
@@ -619,7 +658,7 @@ const AIProviders: React.FC = () => {
                         {/* Connectors List */}
                         <ConnectorsList
                             connectors={roleScopedConnectors}
-                            providers={popularAIProviders}
+                            providers={providers}
                             selectedProvider={selectedProvider}
                             isLoading={isLoading}
                             error={error}

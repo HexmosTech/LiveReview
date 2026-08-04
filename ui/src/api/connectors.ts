@@ -112,6 +112,26 @@ export const getAIConnectors = async (): Promise<any[]> => {
   }
 };
 
+// Backend provider catalog is the single source of truth for the canonical set
+// of supported AI providers. The frontend overlays local UI metadata (icons,
+// descriptions, placeholders) onto this list so a newly added provider shows up
+// in the UI automatically without a separate frontend edit.
+export interface ProviderCatalogEntry {
+  id: string;
+  name: string;
+}
+export const getAIProviderCatalog = async (): Promise<ProviderCatalogEntry[]> => {
+  try {
+    const response = await apiClient.get<{ providers: ProviderCatalogEntry[] }>(
+      '/api/v1/aiconnectors/providers'
+    );
+    return response?.providers ?? [];
+  } catch (error) {
+    console.error('Error fetching AI provider catalog:', error);
+    throw error;
+  }
+};
+
 /**
  * Validate an AI provider API key
  * @param provider The provider name (e.g., 'openai', 'gemini', 'claude')
