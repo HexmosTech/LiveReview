@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+
+	"github.com/livereview/storage/dashboard"
 )
 
 // WebhookHealthSummary represents overall webhook health across all connectors
@@ -47,33 +49,36 @@ type ConnectorSetupProgress struct {
 	Message string `json:"message"`
 }
 
-// DashboardData represents the structure of dashboard information
+// DashboardData: fields marked "currently unpopulated" are trimmed since only onboarding fields and review_layers are needed today; omitempty hides them from the JSON response.
 type DashboardData struct {
-	// Statistics
-	TotalReviews       int `json:"total_reviews"`
-	TotalComments      int `json:"total_comments"`
-	ConnectedProviders int `json:"connected_providers"`
-	ActiveAIConnectors int `json:"active_ai_connectors"`
+	// Statistics — currently unpopulated
+	TotalReviews       int `json:"total_reviews,omitempty"`
+	TotalComments      int `json:"total_comments,omitempty"`
+	ConnectedProviders int `json:"connected_providers,omitempty"`
+	ActiveAIConnectors int `json:"active_ai_connectors,omitempty"`
 
-	// Webhook Health
+	// Webhook Health — currently unpopulated
 	WebhookHealth *WebhookHealthSummary `json:"webhook_health,omitempty"`
 
-	// Connector Setup Progress - shows connectors that need attention
+	// Connector Setup Progress — currently unpopulated
 	ConnectorSetupProgress []ConnectorSetupProgress `json:"connector_setup_progress,omitempty"`
 
-	// Onboarding
+	// Onboarding — still populated
 	OnboardingAPIKey string `json:"onboarding_api_key,omitempty"`
 	APIUrl           string `json:"api_url"`
-	CLIInstalled     bool   `json:"cli_installed"`
+	CLIInstalled     bool   `json:"cli_installed,omitempty"`
 
-	// Recent Activity
-	RecentActivity []ActivityItem `json:"recent_activity"`
+	// Recent Activity — currently unpopulated
+	RecentActivity []ActivityItem `json:"recent_activity,omitempty"`
 
-	// Performance Metrics
-	PerformanceMetrics PerformanceMetrics `json:"performance_metrics"`
+	// Performance Metrics — currently unpopulated; pointer + omitempty so it's fully absent from the response, not an empty object.
+	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics,omitempty"`
 
-	// System Status
-	SystemStatus SystemStatus `json:"system_status"`
+	// System Status — currently unpopulated, same as above.
+	SystemStatus *SystemStatus `json:"system_status,omitempty"`
+
+	// Review Layers — precomputed by DashboardManager's own background tick, read from dashboard_cache (see collectReviewLayers).
+	ReviewLayers json.RawMessage `json:"review_layers,omitempty"`
 
 	// Last updated timestamp
 	LastUpdated time.Time `json:"last_updated"`
@@ -172,21 +177,25 @@ type DashboardManager struct {
 	instance  string
 	logLevel  dashboardLogLevel
 
+	// cacheStore is the read/write layer for dashboard_cache; nil is treated as "no row yet"/"nothing to do".
+	cacheStore *dashboard.CacheStore
+
 	refreshInProgress atomic.Bool
 	refreshCycleID    uint64
 }
 
 // NewDashboardManager creates a new dashboard manager
-func NewDashboardManager(db *sql.DB, lockStore dashboardLeaderLockStore) *DashboardManager {
+func NewDashboardManager(db *sql.DB, lockStore dashboardLeaderLockStore, cacheStore *dashboard.CacheStore) *DashboardManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &DashboardManager{
-		db:        db,
-		ctx:       ctx,
-		cancel:    cancel,
-		cache:     make(map[int64]DashboardData),
-		lockStore: lockStore,
-		instance:  dashboardInstanceID(),
-		logLevel:  parseDashboardLogLevel(os.Getenv("DASHBOARD_LOG_LEVEL")),
+		db:         db,
+		ctx:        ctx,
+		cancel:     cancel,
+		cache:      make(map[int64]DashboardData),
+		lockStore:  lockStore,
+		cacheStore: cacheStore,
+		instance:   dashboardInstanceID(),
+		logLevel:   parseDashboardLogLevel(os.Getenv("DASHBOARD_LOG_LEVEL")),
 	}
 }
 
@@ -374,6 +383,13 @@ func (dm *DashboardManager) updateDashboardData(ctx context.Context, trigger str
 		time.Since(start).Milliseconds(),
 	)
 
+	// Same cycle, org list, and leader lock as the onboarding refresh above — no separate ticker/lock for review_layers anymore.
+	if dm.cacheStore != nil {
+		if err := dm.refreshAllReviewLayers(ctx, orgIDs); err != nil {
+			dm.logErrorf("[dashboard_cache] refresh failed cycle=%d trigger=%s err=%v", cycleID, trigger, err)
+		}
+	}
+
 	return nil
 }
 
@@ -413,41 +429,24 @@ func (dm *DashboardManager) buildDashboardData(ctx context.Context, orgID int64,
 		LastUpdated: time.Now(),
 	}
 
+	// total_reviews/active_ai_connectors drive the onboarding stepper's hasRunReview/hasAIProvider checks — still read by the frontend.
 	if err := dm.collectStatistics(ctx, &data, orgID); err != nil {
 		dm.logErrorf("[dashboard] collect statistics failed org_id=%d err=%v", orgID, err)
-	}
-
-	if err := dm.collectWebhookHealth(ctx, &data, orgID); err != nil {
-		dm.logErrorf("[dashboard] collect webhook_health failed org_id=%d err=%v", orgID, err)
-	}
-
-	if err := dm.collectConnectorSetupProgress(ctx, &data, orgID); err != nil {
-		dm.logErrorf("[dashboard] collect connector_setup failed org_id=%d err=%v", orgID, err)
 	}
 
 	if err := dm.collectOnboardingData(ctx, &data, orgID); err != nil {
 		dm.logErrorf("[dashboard] collect onboarding failed org_id=%d err=%v", orgID, err)
 	}
 
-	if err := dm.collectRecentActivity(ctx, &data, orgID); err != nil {
-		dm.logErrorf("[dashboard] collect recent_activity failed org_id=%d err=%v", orgID, err)
+	// connector_setup_progress drives the "connectors needing setup" banner — still read by the frontend.
+	if err := dm.collectConnectorSetupProgress(ctx, &data, orgID); err != nil {
+		dm.logErrorf("[dashboard] collect connector_setup failed org_id=%d err=%v", orgID, err)
 	}
 
-	if err := dm.collectPerformanceMetrics(ctx, &data, orgID); err != nil {
-		dm.logErrorf("[dashboard] collect performance_metrics failed org_id=%d err=%v", orgID, err)
-	}
-
-	if err := dm.collectSystemStatus(&data); err != nil {
-		dm.logErrorf("[dashboard] collect system_status failed org_id=%d err=%v", orgID, err)
-	}
-
-	webhookConnectors := 0
-	if data.WebhookHealth != nil {
-		webhookConnectors = data.WebhookHealth.TotalConnectors
-	}
+	// review_layers is fetched fresh per request instead, directly in the GetDashboardData handler below.
 
 	dm.logMinimalf(
-		"[dashboard] org refresh complete cycle=%d trigger=%s org_id=%d reviews=%d comments=%d providers=%d connectors=%d webhook_connectors=%d activities=%d duration_ms=%d",
+		"[dashboard] org refresh complete cycle=%d trigger=%s org_id=%d reviews=%d comments=%d providers=%d connectors=%d connectors_needing_setup=%d duration_ms=%d",
 		cycleID,
 		trigger,
 		orgID,
@@ -455,8 +454,7 @@ func (dm *DashboardManager) buildDashboardData(ctx context.Context, orgID int64,
 		data.TotalComments,
 		data.ConnectedProviders,
 		data.ActiveAIConnectors,
-		webhookConnectors,
-		len(data.RecentActivity),
+		len(data.ConnectorSetupProgress),
 		time.Since(startedAt).Milliseconds(),
 	)
 
@@ -497,6 +495,7 @@ func (dm *DashboardManager) RefreshOrgDashboard(ctx context.Context, orgID int64
 	return data, nil
 }
 
+
 // collectStatistics gathers basic statistics
 func (dm *DashboardManager) collectStatistics(ctx context.Context, data *DashboardData, orgID int64) error {
 	dm.logVerbosef("[dashboard] collector start name=statistics org_id=%d", orgID)
@@ -504,7 +503,6 @@ func (dm *DashboardManager) collectStatistics(ctx context.Context, data *Dashboa
 	ctx, cancel := context.WithTimeout(ctx, dashboardDBQueryTimeout)
 	defer cancel()
 
-	// Count total AI reviews directly from reviews table
 	err := dm.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM reviews WHERE org_id = $1`,
 		orgID,
@@ -516,7 +514,6 @@ func (dm *DashboardManager) collectStatistics(ctx context.Context, data *Dashboa
 		dm.logVerbosef("[dashboard] statistics reviews org_id=%d value=%d", orgID, data.TotalReviews)
 	}
 
-	// Count total comments from review completion events
 	err = dm.db.QueryRowContext(ctx,
 		`SELECT COALESCE(SUM(COALESCE(NULLIF(data->>'commentCount', '')::int, 0)), 0)
 		FROM review_events
@@ -531,7 +528,6 @@ func (dm *DashboardManager) collectStatistics(ctx context.Context, data *Dashboa
 		dm.logVerbosef("[dashboard] statistics comments org_id=%d value=%d", orgID, data.TotalComments)
 	}
 
-	// Count connected Git providers correctly
 	err = dm.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM integration_tokens WHERE org_id = $1`,
 		orgID,
@@ -543,7 +539,6 @@ func (dm *DashboardManager) collectStatistics(ctx context.Context, data *Dashboa
 		dm.logVerbosef("[dashboard] statistics providers org_id=%d value=%d", orgID, data.ConnectedProviders)
 	}
 
-	// Count active AI connectors correctly
 	err = dm.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM ai_connectors WHERE org_id = $1`,
 		orgID,
@@ -562,160 +557,6 @@ func (dm *DashboardManager) collectStatistics(ctx context.Context, data *Dashboa
 	return nil
 }
 
-// collectWebhookHealth gathers webhook health information across all connectors
-func (dm *DashboardManager) collectWebhookHealth(ctx context.Context, data *DashboardData, orgID int64) error {
-	dm.logVerbosef("[dashboard] collector start name=webhook_health org_id=%d", orgID)
-
-	ctx, cancel := context.WithTimeout(ctx, dashboardDBQueryTimeout)
-	defer cancel()
-
-	// Get all connectors and their projects_cache
-	rows, err := dm.db.QueryContext(ctx, `
-		SELECT it.id, it.projects_cache
-		FROM integration_tokens it
-		WHERE it.org_id = $1
-	`, orgID)
-	if err != nil {
-		dm.logErrorf("[dashboard] webhook_health connectors_query_failed org_id=%d err=%v", orgID, err)
-		return err
-	}
-	defer rows.Close()
-
-	totalConnectors := 0
-	totalProjects := 0
-	connectorIDs := []int64{}
-
-	for rows.Next() {
-		var connectorID int64
-		var projectsCacheRaw []byte
-		if err := rows.Scan(&connectorID, &projectsCacheRaw); err != nil {
-			dm.logErrorf("[dashboard] webhook_health connector_scan_failed org_id=%d err=%v", orgID, err)
-			continue
-		}
-
-		totalConnectors++
-		connectorIDs = append(connectorIDs, connectorID)
-
-		// Count projects from projects_cache (it's an object with a "projects" key)
-		if projectsCacheRaw != nil {
-			var projectsCache struct {
-				Projects []interface{} `json:"projects"`
-			}
-			if err := json.Unmarshal(projectsCacheRaw, &projectsCache); err == nil {
-				totalProjects += len(projectsCache.Projects)
-			}
-		}
-	}
-
-	if err := rows.Err(); err != nil {
-		dm.logErrorf("[dashboard] webhook_health rows_iteration_failed org_id=%d err=%v", orgID, err)
-		return err
-	}
-
-	if totalConnectors == 0 {
-		// No connectors, no webhook health to report
-		data.WebhookHealth = nil
-		return nil
-	}
-
-	// Count connected projects from webhook_registry for all connectors
-	var connectedProjects int
-	err = dm.db.QueryRowContext(ctx, `
-		SELECT COUNT(*)
-		FROM webhook_registry wr
-		INNER JOIN integration_tokens it ON wr.integration_token_id = it.id
-		WHERE it.org_id = $1 AND (wr.status = 'manual' OR wr.status = 'active' OR wr.status = 'automatic')
-	`, orgID).Scan(&connectedProjects)
-	if err != nil {
-		dm.logErrorf("[dashboard] webhook_health connected_projects_failed org_id=%d err=%v", orgID, err)
-		connectedProjects = 0
-	}
-
-	// Count connectors that need setup (no webhooks at all)
-	var setupRequiredConnectors int
-	err = dm.db.QueryRowContext(ctx, `
-		SELECT COUNT(*)
-		FROM integration_tokens it
-		WHERE it.org_id = $1 
-		AND NOT EXISTS (
-			SELECT 1 FROM webhook_registry wr 
-			WHERE wr.integration_token_id = it.id 
-			AND (wr.status = 'manual' OR wr.status = 'active' OR wr.status = 'automatic')
-		)
-	`, orgID).Scan(&setupRequiredConnectors)
-	if err != nil {
-		dm.logErrorf("[dashboard] webhook_health setup_required_failed org_id=%d err=%v", orgID, err)
-		setupRequiredConnectors = 0
-	}
-
-	// Find the most recently created connector that needs setup
-	var mostRecentConnectorID sql.NullInt64
-	var mostRecentConnectorName sql.NullString
-	err = dm.db.QueryRowContext(ctx, `
-		SELECT it.id, it.connection_name
-		FROM integration_tokens it
-		WHERE it.org_id = $1 
-		AND NOT EXISTS (
-			SELECT 1 FROM webhook_registry wr 
-			WHERE wr.integration_token_id = it.id 
-			AND (wr.status = 'manual' OR wr.status = 'active' OR wr.status = 'automatic')
-		)
-		ORDER BY it.created_at DESC
-		LIMIT 1
-	`, orgID).Scan(&mostRecentConnectorID, &mostRecentConnectorName)
-	if err != nil && err != sql.ErrNoRows {
-		dm.logErrorf("[dashboard] webhook_health most_recent_setup_connector_failed org_id=%d err=%v", orgID, err)
-	}
-
-	unconnectedProjects := totalProjects - connectedProjects
-	if unconnectedProjects < 0 {
-		unconnectedProjects = 0
-	}
-
-	// Calculate health percentage
-	healthPercent := float64(0)
-	if totalProjects > 0 {
-		healthPercent = float64(connectedProjects) / float64(totalProjects) * 100
-	} else if totalConnectors > 0 {
-		// Connectors exist but no projects cached yet - treat as setup_required
-		healthPercent = 0
-	}
-
-	// Determine health status
-	healthStatus := "setup_required"
-	if healthPercent >= 100 {
-		healthStatus = "healthy"
-	} else if healthPercent > 0 {
-		healthStatus = "partial"
-	}
-
-	webhookHealth := &WebhookHealthSummary{
-		TotalConnectors:         totalConnectors,
-		TotalProjects:           totalProjects,
-		ConnectedProjects:       connectedProjects,
-		UnconnectedProjects:     unconnectedProjects,
-		HealthPercent:           healthPercent,
-		HealthStatus:            healthStatus,
-		SetupRequiredConnectors: setupRequiredConnectors,
-	}
-
-	// Add most recent connector needing setup if found
-	if mostRecentConnectorID.Valid {
-		webhookHealth.MostRecentConnectorNeedingSetupID = &mostRecentConnectorID.Int64
-	}
-	if mostRecentConnectorName.Valid {
-		webhookHealth.MostRecentConnectorNeedingSetupName = &mostRecentConnectorName.String
-	}
-
-	data.WebhookHealth = webhookHealth
-
-	dm.logVerbosef("[dashboard] collector complete name=webhook_health org_id=%d connectors=%d projects=%d connected=%d health=%.1f",
-		orgID,
-		totalConnectors, totalProjects, connectedProjects, healthPercent)
-
-	return nil
-}
-
 // collectConnectorSetupProgress gathers setup progress for connectors that need attention
 func (dm *DashboardManager) collectConnectorSetupProgress(ctx context.Context, data *DashboardData, orgID int64) error {
 	dm.logVerbosef("[dashboard] collector start name=connector_setup_progress org_id=%d", orgID)
@@ -723,19 +564,18 @@ func (dm *DashboardManager) collectConnectorSetupProgress(ctx context.Context, d
 	ctx, cancel := context.WithTimeout(ctx, dashboardDBQueryTimeout)
 	defer cancel()
 
-	// Get all connectors created in the last 10 minutes or that need attention
-	// This ensures users see the progress even for fast auto-installations
+	// Recently created or still-setting-up connectors, so fast auto-installations still show progress.
 	rows, err := dm.db.QueryContext(ctx, `
-		SELECT 
-			it.id, 
-			it.connection_name, 
+		SELECT
+			it.id,
+			it.connection_name,
 			it.provider,
 			it.projects_cache,
 			it.created_at,
 			COALESCE((
-				SELECT COUNT(*) 
-				FROM webhook_registry wr 
-				WHERE wr.integration_token_id = it.id 
+				SELECT COUNT(*)
+				FROM webhook_registry wr
+				WHERE wr.integration_token_id = it.id
 				AND (wr.status = 'manual' OR wr.status = 'active' OR wr.status = 'automatic')
 			), 0) as connected_count
 		FROM integration_tokens it
@@ -749,7 +589,7 @@ func (dm *DashboardManager) collectConnectorSetupProgress(ctx context.Context, d
 	defer rows.Close()
 
 	var progressList []ConnectorSetupProgress
-	recentThreshold := time.Now().Add(-10 * time.Minute) // Show recently created connectors for 10 minutes
+	recentThreshold := time.Now().Add(-10 * time.Minute)
 
 	for rows.Next() {
 		var connectorID int64
@@ -763,7 +603,6 @@ func (dm *DashboardManager) collectConnectorSetupProgress(ctx context.Context, d
 			continue
 		}
 
-		// Parse projects_cache to get total project count
 		totalProjects := 0
 		if projectsCacheRaw != nil {
 			var projectsCache struct {
@@ -774,30 +613,22 @@ func (dm *DashboardManager) collectConnectorSetupProgress(ctx context.Context, d
 			}
 		}
 
-		// Determine the phase based on project count and webhook count
 		var phase, message string
-
 		if totalProjects == 0 {
-			// Phase 1: No projects discovered yet
 			phase = "discovering"
 			message = "Discovering projects..."
 		} else if connectedCount == 0 {
-			// Phase 2: Projects exist but no webhooks installed
 			phase = "installing"
 			message = fmt.Sprintf("Installing webhooks: 0/%d", totalProjects)
 		} else if connectedCount < totalProjects {
-			// Phase 2: Some webhooks installed
 			phase = "installing"
 			message = fmt.Sprintf("Installing webhooks: %d/%d", connectedCount, totalProjects)
 		} else {
-			// Phase 3: All done
 			phase = "ready"
 			message = fmt.Sprintf("Ready: %d projects connected", totalProjects)
 		}
 
-		// Include connectors that are either:
-		// 1. Not fully ready (still in setup)
-		// 2. Recently created (within last 10 minutes) so user sees the success
+		// Include connectors still in setup, or ready ones created recently so the user sees the success.
 		isRecent := createdAt.After(recentThreshold)
 		if phase != "ready" || isRecent {
 			progressList = append(progressList, ConnectorSetupProgress{
@@ -890,166 +721,31 @@ func (dm *DashboardManager) collectOnboardingData(ctx context.Context, data *Das
 	return nil
 }
 
-// collectRecentActivity gathers recent activity data
-func (dm *DashboardManager) collectRecentActivity(ctx context.Context, data *DashboardData, orgID int64) error {
-	dm.logVerbosef("[dashboard] collector start name=recent_activity org_id=%d", orgID)
+// collectReviewLayers is a cheap single-row read of the precomputed dashboard_cache; a missing row just leaves the field empty, not an error.
+func (dm *DashboardManager) collectReviewLayers(ctx context.Context, data *DashboardData, orgID int64) error {
+	if dm.cacheStore == nil {
+		return nil
+	}
 
-	ctx, cancel := context.WithTimeout(ctx, dashboardDBQueryTimeout)
+	queryCtx, cancel := context.WithTimeout(ctx, dashboardDBQueryTimeout)
 	defer cancel()
 
-	// Initialize with empty slice instead of nil
-	data.RecentActivity = []ActivityItem{}
-
-	// Get recent job queue activities
-	// Query recent activities from recent_activity table (new system)
-	rows, err := dm.db.QueryContext(ctx,
-		`SELECT ra.id, ra.activity_type, ra.event_data, ra.created_at
-		FROM recent_activity ra
-		WHERE ra.org_id = $1
-		   OR (ra.review_id IS NOT NULL AND EXISTS (
-			SELECT 1 FROM reviews r WHERE r.id = ra.review_id AND r.org_id = $1
-		   ))
-		   OR (
-			ra.activity_type IN ('connector_created', 'webhook_installed')
-			AND EXISTS (
-				SELECT 1
-				FROM integration_tokens it
-				WHERE it.id = CASE
-					WHEN (ra.event_data->>'connector_id') ~ '^[0-9]+$' THEN (ra.event_data->>'connector_id')::bigint
-					ELSE NULL
-				END
-				AND it.org_id = $1
-			)
-		   )
-		ORDER BY ra.created_at DESC
-		LIMIT 10`,
-		orgID,
-	)
+	raw, err := dm.cacheStore.GetFinalJSON(queryCtx, orgID)
 	if err != nil {
-		dm.logErrorf("[dashboard] recent_activity query_failed org_id=%d err=%v", orgID, err)
 		return err
 	}
-	defer rows.Close()
-
-	var activities []ActivityItem
-	for rows.Next() {
-		var id int
-		var activityType string
-		var eventDataBytes []byte
-		var createdAt time.Time
-		if err := rows.Scan(&id, &activityType, &eventDataBytes, &createdAt); err != nil {
-			dm.logErrorf("[dashboard] recent_activity scan_failed org_id=%d err=%v", orgID, err)
-			continue
-		}
-
-		// Default values
-		action := activityType
-		repo := ""
-		uiType := "other"
-
-		// Parse event_data JSON for repository and specialized labels
-		var payload map[string]interface{}
-		if err := json.Unmarshal(eventDataBytes, &payload); err == nil {
-			if r, ok := payload["repository"].(string); ok {
-				repo = r
-			}
-		}
-
-		switch activityType {
-		case "review_triggered":
-			action = "Code review triggered"
-			uiType = "review"
-		case "connector_created":
-			action = "Connector created"
-			uiType = "connection"
-		case "webhook_installed":
-			action = "Webhook installed"
-			uiType = "connection"
-		case "webhook_removed":
-			action = "Webhook removed"
-			uiType = "connection"
-		}
-
-		activities = append(activities, ActivityItem{
-			ID:         id,
-			Action:     action,
-			Repository: repo,
-			Timestamp:  createdAt,
-			TimeAgo:    formatTimeAgo(createdAt),
-			Type:       uiType,
-		})
+	if raw == nil {
+		return nil
 	}
 
-	if err := rows.Err(); err != nil {
-		dm.logErrorf("[dashboard] recent_activity rows_iteration_failed org_id=%d err=%v", orgID, err)
-		return err
+	var wrapper struct {
+		ReviewLayers json.RawMessage `json:"review_layers"`
+	}
+	if err := json.Unmarshal(raw, &wrapper); err != nil {
+		return fmt.Errorf("unmarshal final_json: %w", err)
 	}
 
-	data.RecentActivity = activities
-	dm.logVerbosef("[dashboard] collector complete name=recent_activity org_id=%d activities=%d", orgID, len(activities))
-	return nil
-}
-
-// collectPerformanceMetrics gathers performance data
-func (dm *DashboardManager) collectPerformanceMetrics(ctx context.Context, data *DashboardData, orgID int64) error {
-	dm.logVerbosef("[dashboard] collector start name=performance_metrics org_id=%d", orgID)
-
-	ctx, cancel := context.WithTimeout(ctx, dashboardDBQueryTimeout)
-	defer cancel()
-
-	// Calculate reviews this week using reviews table
-	err := dm.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM reviews
-		WHERE org_id = $1
-		AND created_at >= DATE_TRUNC('week', NOW())`,
-		orgID,
-	).Scan(&data.PerformanceMetrics.ReviewsThisWeek)
-	if err != nil {
-		dm.logErrorf("[dashboard] performance_metrics weekly_reviews_failed org_id=%d err=%v", orgID, err)
-		data.PerformanceMetrics.ReviewsThisWeek = 0
-	} else {
-		dm.logVerbosef("[dashboard] performance_metrics weekly_reviews org_id=%d value=%d", orgID, data.PerformanceMetrics.ReviewsThisWeek)
-	}
-
-	// Calculate comments this week
-	err = dm.db.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(COALESCE(NULLIF(data->>'commentCount', '')::int, 0)), 0)
-		FROM review_events
-		WHERE org_id = $1
-		  AND event_type = 'completion'
-		  AND ts >= DATE_TRUNC('week', NOW())`,
-		orgID,
-	).Scan(&data.PerformanceMetrics.CommentsThisWeek)
-	if err != nil {
-		dm.logErrorf("[dashboard] performance_metrics weekly_comments_failed org_id=%d err=%v", orgID, err)
-		data.PerformanceMetrics.CommentsThisWeek = 0
-	}
-
-	// Calculate success rate
-	// Without legacy job queue metrics, default success rate to 100%
-	data.PerformanceMetrics.SuccessRate = 100.0
-
-	// Set average response time
-	data.PerformanceMetrics.AvgResponseTime = 2.3
-
-	dm.logVerbosef("[dashboard] collector complete name=performance_metrics org_id=%d reviews_week=%d comments_week=%d success_rate=%.1f%% avg_time=%.1f",
-		orgID,
-		data.PerformanceMetrics.ReviewsThisWeek, data.PerformanceMetrics.CommentsThisWeek,
-		data.PerformanceMetrics.SuccessRate, data.PerformanceMetrics.AvgResponseTime)
-
-	return nil
-}
-
-// collectSystemStatus gathers system health information
-func (dm *DashboardManager) collectSystemStatus(data *DashboardData) error {
-	data.SystemStatus.LastHealthCheck = time.Now()
-	data.SystemStatus.APIHealth = "healthy"
-	data.SystemStatus.DatabaseHealth = "healthy"
-
-	// Check job queue health
-	// Legacy job queue removed; mark as not tracked
-	data.SystemStatus.JobQueueHealth = "not_tracked"
-
+	data.ReviewLayers = wrapper.ReviewLayers
 	return nil
 }
 
@@ -1071,6 +767,11 @@ func (s *Server) GetDashboardData(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "Failed to build dashboard data",
 		})
+	}
+
+	// Fetched fresh on every request, deliberately not part of the cached data above.
+	if err := s.dashboardManager.collectReviewLayers(c.Request().Context(), &data, orgID); err != nil {
+		log.Printf("Error collecting review_layers for org %d: %v", orgID, err)
 	}
 
 	return c.JSON(http.StatusOK, data)
@@ -1096,35 +797,21 @@ func (s *Server) RefreshDashboardData(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]interface{}{
+	response := map[string]interface{}{
 		"message":      "Dashboard data refreshed successfully",
 		"last_updated": data.LastUpdated,
-	})
-}
-
-// formatTimeAgo returns a human-readable time difference
-func formatTimeAgo(t time.Time) string {
-	diff := time.Since(t)
-
-	if diff < time.Minute {
-		return "just now"
-	} else if diff < time.Hour {
-		minutes := int(diff.Minutes())
-		if minutes == 1 {
-			return "1m ago"
-		}
-		return fmt.Sprintf("%dm ago", minutes)
-	} else if diff < 24*time.Hour {
-		hours := int(diff.Hours())
-		if hours == 1 {
-			return "1h ago"
-		}
-		return fmt.Sprintf("%dh ago", hours)
-	} else {
-		days := int(diff.Hours() / 24)
-		if days == 1 {
-			return "1d ago"
-		}
-		return fmt.Sprintf("%dd ago", days)
 	}
+
+	// Best-effort: a failed review_layers recompute shouldn't fail the whole refresh.
+	if s.dashboardManager.cacheStore != nil {
+		reviewLayers, err := s.dashboardManager.RefreshOrgReviewLayers(c.Request().Context(), orgID)
+		if err != nil {
+			log.Printf("Error refreshing review_layers for org %d: %v", orgID, err)
+		} else {
+			response["review_layers"] = reviewLayers
+		}
+	}
+
+	return c.JSON(http.StatusOK, response)
 }
+

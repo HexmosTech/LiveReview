@@ -3,8 +3,10 @@ import ReactECharts from 'echarts-for-react';
 import { useNavigate } from 'react-router-dom';
 import { LIVEREVIEW_ECHARTS_THEME, ECHARTS_ANIMATION_DEFAULTS } from './echartsTheme';
 import { useChartResize } from './useChartResize';
-import { MOCK_REVIEW_LAYERS } from './mockData';
 import { useDashboardPeriod } from './DashboardPeriod';
+import { useReviewLayers, hasNoReviewLayerData } from './ReviewLayersData';
+import { EmptyState, Icons } from '../../UIPrimitives';
+import { ChartSkeleton } from './ChartSkeleton';
 
 const LAYER_COLORS: Record<string, string> = {
     'precommit': '#3B82F6',
@@ -20,11 +22,13 @@ const LAYER_COLORS: Record<string, string> = {
 export const ReviewVolumeBar: React.FC = () => {
     const { containerRef, chartRef } = useChartResize();
     const navigate = useNavigate();
-    const { scale } = useDashboardPeriod();
+    const { period } = useDashboardPeriod();
+    const { reviewLayers, loading } = useReviewLayers();
 
-    const layers = [...MOCK_REVIEW_LAYERS].sort((a, b) => b.reviewsRun - a.reviewsRun);
-    const issuesByLabel: Record<string, number> = MOCK_REVIEW_LAYERS.reduce((acc, layer) => {
-        acc[layer.label] = scale(layer.issuesFound);
+    const allLayers = reviewLayers?.[period] ?? [];
+    const layers = [...allLayers].sort((a, b) => b.reviews_run - a.reviews_run);
+    const issuesByLabel: Record<string, number> = allLayers.reduce((acc, layer) => {
+        acc[layer.label] = layer.issues_found;
         return acc;
     }, {} as Record<string, number>);
 
@@ -53,13 +57,27 @@ export const ReviewVolumeBar: React.FC = () => {
                 borderRadius: [0, 4, 4, 0],
                 color: (p: { dataIndex: number }) => LAYER_COLORS[layers[p.dataIndex].id],
             },
-            data: layers.map((layer) => scale(layer.reviewsRun)),
+            data: layers.map((layer) => layer.reviews_run),
         }],
     };
 
     const onEvents = {
         click: () => navigate('/reports?mode=explore'),
     };
+
+    if (loading) {
+        return <ChartSkeleton />;
+    }
+
+    if (hasNoReviewLayerData(layers)) {
+        return (
+            <EmptyState
+                icon={<Icons.EmptyState />}
+                title="No review volume data yet"
+                description="Stage volume comparison will appear here once reviews run for this period."
+            />
+        );
+    }
 
     return (
         <div ref={containerRef} className="w-full h-full">
