@@ -3,13 +3,38 @@ import ReactECharts from 'echarts-for-react';
 import { useNavigate } from 'react-router-dom';
 import { LIVEREVIEW_ECHARTS_THEME, ECHARTS_ANIMATION_DEFAULTS } from './echartsTheme';
 import { useChartResize } from './useChartResize';
-import { MOCK_CALENDAR_ACTIVITY } from './mockData';
+import { usePeople } from './PeopleData';
+import { EmptyState, Icons } from '../../UIPrimitives';
+import { ChartSkeleton } from './ChartSkeleton';
 
+const LOOKBACK_DAYS = 210; // matches calendarLookbackDays server-side
+
+const toISODate = (date: Date): string => date.toISOString().slice(0, 10);
+
+// Not period-scoped — always the full lookback range, regardless of the Day/Week/Month/All selector.
 export const ContributionCalendarHeatmap: React.FC = () => {
     const { containerRef, chartRef } = useChartResize();
     const navigate = useNavigate();
+    const { people, loading } = usePeople();
 
-    const maxCount = Math.max(...MOCK_CALENDAR_ACTIVITY.map((d) => d.count));
+    if (loading) {
+        return <ChartSkeleton />;
+    }
+
+    const calendar = people?.contribution_calendar ?? [];
+    if (calendar.length === 0) {
+        return (
+            <EmptyState
+                icon={<Icons.EmptyState />}
+                title="No activity yet"
+                description="Daily review activity will appear here once reviews start running."
+            />
+        );
+    }
+
+    const maxCount = Math.max(...calendar.map((d) => d.count));
+    const today = new Date();
+    const rangeStart = new Date(today.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
 
     const option = {
         ...ECHARTS_ANIMATION_DEFAULTS,
@@ -29,7 +54,7 @@ export const ContributionCalendarHeatmap: React.FC = () => {
             left: 32,
             right: 16,
             bottom: 8,
-            range: ['2026-01-01', '2026-07-28'],
+            range: [toISODate(rangeStart), toISODate(today)],
             cellSize: ['auto', 15],
             itemStyle: { borderWidth: 3, borderColor: 'transparent' },
             yearLabel: { show: false },
@@ -40,7 +65,7 @@ export const ContributionCalendarHeatmap: React.FC = () => {
         series: [{
             type: 'heatmap',
             coordinateSystem: 'calendar',
-            data: MOCK_CALENDAR_ACTIVITY.map((day) => [day.date, day.count]),
+            data: calendar.map((day) => [day.date, day.count]),
         }],
     };
 

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -41,6 +42,18 @@ type reviewSetupContext struct {
 	reviewService *reviewpkg.Service
 	request       *reviewpkg.ReviewRequest
 	requestURL    string
+	triggerType   string
+}
+
+// triggerTypeForRequest classifies how a review-trigger request arrived: MCP tool call, direct API-key call, or a real user session (UI click).
+func triggerTypeForRequest(c echo.Context) string {
+	if isMCPRequest(c) {
+		return "mcp"
+	}
+	if authMethod, _ := c.Get(authMethodContextKey).(string); authMethod == authMethodAPIKey {
+		return "api"
+	}
+	return "manual"
 }
 
 // NewReviewService creates a new review service
@@ -266,15 +279,31 @@ func (s *Server) setupReviewContext(c echo.Context, req TriggerReviewRequest) (*
 	ctx.requestURL = req.URL
 	log.Printf("[DEBUG] ✓ Request parsed successfully - MR/PR URL: %s", req.URL)
 
+	ctx.triggerType = triggerTypeForRequest(c)
+
+	// If the caller already knows the internal pull_requests.id (e.g. createReview), use it
+	// directly. Otherwise, best-effort resolve it from the URL — a raw-URL trigger for a PR/MR
+	// LiveReview has already synced will still get linked; a miss just leaves it unset, not an error.
+	pullRequestID := req.PullRequestID
+	if pullRequestID == nil && req.URL != "" {
+		var id int64
+		lookupErr := s.db.QueryRow(`SELECT id FROM pull_requests WHERE org_id = $1 AND web_url = $2 LIMIT 1`, orgID, req.URL).Scan(&id)
+		if lookupErr == nil {
+			pullRequestID = &id
+		} else if lookupErr != sql.ErrNoRows {
+			log.Printf("[WARN] pull_request_id lookup by url failed org_id=%d err=%v", orgID, lookupErr)
+		}
+	}
+
 	// Create database record first to get proper numeric ID
 	log.Printf("[DEBUG] DATABASE RECORD CREATION: Creating review record...")
 	reviewManager := NewReviewManager(s.db)
 	review, err := reviewManager.CreateReviewWithOrg(
-		req.URL,  // repository (using URL as repository for now)
-		"",       // branch (will be populated during processing)
-		"",       // commit_hash (will be populated during processing)
-		req.URL,  // pr_mr_url
-		"manual", // trigger_type
+		req.URL,         // repository (using URL as repository for now)
+		"",              // branch (will be populated during processing)
+		"",              // commit_hash (will be populated during processing)
+		req.URL,         // pr_mr_url
+		ctx.triggerType, // trigger_type
 		ctx.actorEmail,
 		"unknown", // provider (will be determined during processing)
 		nil,       // connector_id
@@ -285,6 +314,7 @@ func (s *Server) setupReviewContext(c echo.Context, req TriggerReviewRequest) (*
 		"", // friendlyName (only for CLI reviews)
 		"", // authorName (only for CLI reviews)
 		"", // authorUsername (only for CLI reviews)
+		pullRequestID,
 	)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create database record: %v", err)
@@ -544,7 +574,7 @@ func (s *Server) trackActivity(ctx *reviewSetupContext) {
 			"repository":   repository,
 			"branch":       branch,
 			"commit_hash":  commitHash,
-			"trigger_type": "manual",
+			"trigger_type": ctx.triggerType,
 			"provider":     ctx.token.Provider,
 			"user_email":   "admin",
 			"original_url": ctx.requestURL,
