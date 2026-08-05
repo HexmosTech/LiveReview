@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -280,6 +281,20 @@ func (s *Server) setupReviewContext(c echo.Context, req TriggerReviewRequest) (*
 
 	ctx.triggerType = triggerTypeForRequest(c)
 
+	// If the caller already knows the internal pull_requests.id (e.g. createReview), use it
+	// directly. Otherwise, best-effort resolve it from the URL — a raw-URL trigger for a PR/MR
+	// LiveReview has already synced will still get linked; a miss just leaves it unset, not an error.
+	pullRequestID := req.PullRequestID
+	if pullRequestID == nil && req.URL != "" {
+		var id int64
+		lookupErr := s.db.QueryRow(`SELECT id FROM pull_requests WHERE org_id = $1 AND web_url = $2 LIMIT 1`, orgID, req.URL).Scan(&id)
+		if lookupErr == nil {
+			pullRequestID = &id
+		} else if lookupErr != sql.ErrNoRows {
+			log.Printf("[WARN] pull_request_id lookup by url failed org_id=%d err=%v", orgID, lookupErr)
+		}
+	}
+
 	// Create database record first to get proper numeric ID
 	log.Printf("[DEBUG] DATABASE RECORD CREATION: Creating review record...")
 	reviewManager := NewReviewManager(s.db)
@@ -299,6 +314,7 @@ func (s *Server) setupReviewContext(c echo.Context, req TriggerReviewRequest) (*
 		"", // friendlyName (only for CLI reviews)
 		"", // authorName (only for CLI reviews)
 		"", // authorUsername (only for CLI reviews)
+		pullRequestID,
 	)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create database record: %v", err)

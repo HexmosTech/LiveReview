@@ -3,7 +3,10 @@ import ReactECharts from 'echarts-for-react';
 import { useNavigate } from 'react-router-dom';
 import { LIVEREVIEW_ECHARTS_THEME, ECHARTS_ANIMATION_DEFAULTS } from './echartsTheme';
 import { useChartResize } from './useChartResize';
-import { MOCK_CONTRIBUTORS } from './mockData';
+import { useDashboardPeriod } from './DashboardPeriod';
+import { usePeople, contributorColor } from './PeopleData';
+import { EmptyState, Icons } from '../../UIPrimitives';
+import { ChartSkeleton } from './ChartSkeleton';
 
 const TOP_N = 5;
 
@@ -13,19 +16,41 @@ const TOP_N = 5;
 export const UsageShareDonut: React.FC = () => {
     const { containerRef, chartRef } = useChartResize();
     const navigate = useNavigate();
+    const { period } = useDashboardPeriod();
+    const { people, loading } = usePeople();
 
-    const byUsage = [...MOCK_CONTRIBUTORS].sort((a, b) => b.locReviewed - a.locReviewed);
+    if (loading) {
+        return <ChartSkeleton />;
+    }
+
+    const contributors = people?.contributors[period] ?? [];
+    const total = contributors.reduce((sum, c) => sum + c.loc_reviewed, 0);
+    if (contributors.length === 0 || total === 0) {
+        return (
+            <EmptyState
+                icon={<Icons.EmptyState />}
+                title="No usage data yet"
+                description="Usage share by contributor will appear here once reviews start running."
+            />
+        );
+    }
+
+    // A contributor with loc_reviewed=0 has nothing to show — drop it rather than render an
+    // invisible zero-degree slice that still occupies a legend entry (same reasoning as the
+    // repo hierarchy sunburst's pr_count=0 filter).
+    const byUsage = [...contributors]
+        .filter((c) => c.loc_reviewed > 0)
+        .sort((a, b) => b.loc_reviewed - a.loc_reviewed);
     const top = byUsage.slice(0, TOP_N);
     const others = byUsage.slice(TOP_N);
-    const othersTotal = others.reduce((sum, c) => sum + c.locReviewed, 0);
-    const total = byUsage.reduce((sum, c) => sum + c.locReviewed, 0);
+    const othersTotal = others.reduce((sum, c) => sum + c.loc_reviewed, 0);
 
     const pieData = [
-        ...top.map((c) => ({ name: c.name.split(' ')[0], value: c.locReviewed, itemStyle: { color: c.color } })),
+        ...top.map((c) => ({ name: c.name.split(' ')[0], value: c.loc_reviewed, itemStyle: { color: contributorColor(c.email) } })),
         ...(othersTotal > 0 ? [{ name: 'Others', value: othersTotal, itemStyle: { color: '#475569' } }] : []),
     ];
 
-    const topShare = Math.round((top[0].locReviewed / total) * 100);
+    const topShare = Math.round((top[0].loc_reviewed / total) * 100);
 
     const option = {
         ...ECHARTS_ANIMATION_DEFAULTS,
