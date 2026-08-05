@@ -783,6 +783,7 @@ func (dm *DashboardManager) collectSystemOverview(ctx context.Context, data *Das
 		SystemOverview json.RawMessage `json:"system_overview"`
 	}
 	if err := json.Unmarshal(raw, &wrapper); err != nil {
+		log.Printf("[dashboard_cache] unmarshal final_json failed org_id=%d err=%v raw=%s", orgID, err, raw)
 		return fmt.Errorf("unmarshal final_json: %w", err)
 	}
 
@@ -811,6 +812,7 @@ func (dm *DashboardManager) collectPeople(ctx context.Context, data *DashboardDa
 		People json.RawMessage `json:"people"`
 	}
 	if err := json.Unmarshal(raw, &wrapper); err != nil {
+		log.Printf("[dashboard_cache] unmarshal final_json failed org_id=%d err=%v raw=%s", orgID, err, raw)
 		return fmt.Errorf("unmarshal final_json: %w", err)
 	}
 
