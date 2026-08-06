@@ -16,13 +16,15 @@ const ICON_MAP: Record<string, React.FC> = {
     openai: Icons.OpenAI,
     claude: Icons.Claude,
     anthropic: Icons.Claude,
+    'anthropic-compatible': Icons.AnthropicCompatible,
     google: Icons.Google,
     gemini: Icons.Google,
     'gemini-enterprise': Icons.Google,
     ollama: Icons.Ollama,
     deepseek: Icons.DeepSeek,
-    // No dedicated Atlas Cloud logo — fall back to the generic AI icon rather than showing nothing.
-    atlas: Icons.AI,
+    cohere: Icons.Cohere,
+    atlas: Icons.AtlasCloud,
+    bedrock: Icons.Aws,
 };
 
 // Not period-scoped — always the current connection state, regardless of the Day/Week/Month/All selector.
@@ -65,9 +67,20 @@ export const ConnectedProviders: React.FC = () => {
                                 </p>
                             </div>
                         </div>
-                        <span className="shrink-0 text-[11px] font-medium px-2 py-0.5 rounded-full bg-green-500/15 text-green-300 border border-green-500/30">
-                            Connected
-                        </span>
+                        <div className="shrink-0 flex items-center gap-1.5">
+                            <span
+                                className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${
+                                    provider.kind === 'git'
+                                        ? 'bg-sky-500/15 text-sky-300 border-sky-500/30'
+                                        : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                                }`}
+                            >
+                                {provider.kind === 'git' ? 'Git' : 'AI'}
+                            </span>
+                            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-green-500/15 text-green-300 border border-green-500/30">
+                                Connected
+                            </span>
+                        </div>
                     </button>
                 );
             })}
