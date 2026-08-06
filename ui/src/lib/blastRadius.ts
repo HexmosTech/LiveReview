@@ -168,6 +168,15 @@ export function flattenFilesByRisk(files: DiffReviewFile[]): DiffReviewFile[] {
   return entries.map(({ file, fileIdx, hunk, hunkIdx }) => ({
     ...file,
     hunks: [hunk],
+    // Comments are matched against a hunk's new-side line range (backend's
+    // lineWithinHunks — see diffUtils.ts's commentBelongsToLine doc
+    // comment). Without this filter every synthetic entry inherited the
+    // *whole file's* comment list instead of just this hunk's, inflating
+    // both the per-entry comment badge and the sidebar's total file/comment
+    // counts by roughly the file's hunk count.
+    comments: (file.comments || []).filter(
+      (c) => c.line >= hunk.new_start_line && c.line < hunk.new_start_line + hunk.new_line_count
+    ),
     syntheticId: `${file.file_path}--hunk-${fileIdx}-${hunkIdx}`,
     sourceHunkNumber: hunkIdx + 1,
   }));

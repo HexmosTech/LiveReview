@@ -3,7 +3,7 @@
 // written. git-lrc's server pre-splits hunk content into numbered lines; here that's
 // done client-side by diffUtils.parseHunkLines since LiveReview only sends the raw
 // unified-diff hunk body.
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import classNames from 'classnames';
 import { DiffReviewComment, DiffReviewHunk } from '../../../types/reviews';
 import { commentBelongsToLine, DiffLine, hunkDomId, parseHunkLines } from './diffUtils';
@@ -55,17 +55,37 @@ const HunkBlock: React.FC<HunkBlockProps> = ({ reviewId, filePath, navId, hunk, 
   const lines = parseHunkLines(hunk);
   const [panelOpen, setPanelOpen] = useState(false);
   const blastDetail = hunk.BlastDetail;
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Scrolls to the breakdown panel whenever it opens (or is already open) —
+  // both the hunk header's own RiskBadge (toggle) and every per-comment
+  // RiskBadge (always-open) drive this, so clicking either one always
+  // navigates to the detail, not just the first time.
+  const scrollToPanel = () => {
+    requestAnimationFrame(() => panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+  };
+  const toggleBreakdown = () => {
+    setPanelOpen((v) => {
+      const next = !v;
+      if (next) scrollToPanel();
+      return next;
+    });
+  };
+  const openBreakdown = () => {
+    setPanelOpen(true);
+    scrollToPanel();
+  };
 
   return (
     <div id={hunkDomId(navId, hunkIndex)} className="scroll-mt-24" data-hunk-index={hunkIndex}>
       <div className="flex items-center gap-2 border-t border-slate-700 bg-slate-800/80 px-3 py-1.5 font-mono text-xs text-slate-400">
         {typeof hunk.BlastRadius === 'number' && (
-          <RiskBadge score={hunk.BlastRadius} detail={blastDetail} size="large" onOpen={() => setPanelOpen((v) => !v)} />
+          <RiskBadge score={hunk.BlastRadius} detail={blastDetail} size="large" onOpen={toggleBreakdown} />
         )}
         <span>{hunk.content ? `@@ -${hunk.old_start_line},${hunk.old_line_count} +${hunk.new_start_line},${hunk.new_line_count} @@` : 'No diff content available.'}</span>
       </div>
       {panelOpen && blastDetail && (
-        <div className="border-t border-slate-700 p-3">
+        <div ref={panelRef} className="scroll-mt-24 border-t border-slate-700 p-3">
           <BlastRadiusPanel detail={blastDetail} />
         </div>
       )}
@@ -91,7 +111,13 @@ const HunkBlock: React.FC<HunkBlockProps> = ({ reviewId, filePath, navId, hunk, 
                 {lineComments.length > 0 && (
                   <tr>
                     <td colSpan={3} className="p-0">
-                      <CommentThread reviewId={reviewId} filePath={filePath} comments={lineComments} hunkBlastDetail={blastDetail} />
+                      <CommentThread
+                        reviewId={reviewId}
+                        filePath={filePath}
+                        comments={lineComments}
+                        hunkBlastDetail={blastDetail}
+                        onOpenBreakdown={openBreakdown}
+                      />
                     </td>
                   </tr>
                 )}

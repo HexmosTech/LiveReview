@@ -17,6 +17,7 @@ import SummarySlideshow from './SummarySlideshow';
 import QuizPanel from './QuizPanel';
 
 interface SummaryPanelProps {
+  reviewId: number;
   summary?: string;
   files: DiffReviewFile[];
   quiz: DiffReviewQuizQuestion[];
@@ -25,7 +26,7 @@ interface SummaryPanelProps {
 
 type ViewMode = 'slides' | 'text' | 'quiz';
 
-const SummaryPanel: React.FC<SummaryPanelProps> = ({ summary, files, quiz, onOpenFile }) => {
+const SummaryPanel: React.FC<SummaryPanelProps> = ({ reviewId, summary, files, quiz, onOpenFile }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('slides');
   const [modalOpen, setModalOpen] = useState(false);
   const hasSummary = Boolean(summary && summary.trim());
@@ -99,7 +100,7 @@ const SummaryPanel: React.FC<SummaryPanelProps> = ({ summary, files, quiz, onOpe
           ) : viewMode === 'quiz' ? (
             <QuizPanel quiz={quiz} />
           ) : viewMode === 'slides' ? (
-            <SummarySlideshow summary={summary!} hasQuiz={hasQuiz} onTakeQuiz={() => setViewMode('quiz')} onOpenFile={onOpenFile} />
+            <SummarySlideshow reviewId={reviewId} summary={summary!} hasQuiz={hasQuiz} onTakeQuiz={() => setViewMode('quiz')} onOpenFile={onOpenFile} />
           ) : (
             <Markdown text={summary!} onOpenFile={onOpenFile} />
           )}
@@ -114,7 +115,7 @@ const SummaryPanel: React.FC<SummaryPanelProps> = ({ summary, files, quiz, onOpe
               <button type="button" onClick={() => setModalOpen(false)} className="rounded border border-slate-600 px-3 py-1 text-xs text-slate-400 hover:text-slate-200">Close (Esc)</button>
             </div>
             <div className="flex-1 overflow-y-auto">
-              <SummarySlideshow summary={summary!} hasQuiz={hasQuiz} onTakeQuiz={() => { setModalOpen(false); setViewMode('quiz'); }} onOpenFile={onOpenFile} />
+              <SummarySlideshow reviewId={reviewId} summary={summary!} hasQuiz={hasQuiz} onTakeQuiz={() => { setModalOpen(false); setViewMode('quiz'); }} onOpenFile={onOpenFile} />
             </div>
           </div>
         </div>

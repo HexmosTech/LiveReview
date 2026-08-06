@@ -19,6 +19,11 @@ interface CommentThreadProps {
   filePath: string;
   comments: { comment: DiffReviewComment; idx: number }[];
   hunkBlastDetail?: BlastRadiusHunkReport;
+  // Opens the same BlastRadiusPanel the hunk header's own RiskBadge opens —
+  // git-lrc repeats the hunk's risk pill on every comment's action row "so
+  // score and comment are always assessed together" (RiskBadge.js), and both
+  // copies drive the one shared panel, not independent ones.
+  onOpenBreakdown?: () => void;
 }
 
 function buildMetaItems(comment: DiffReviewComment): { label: string; value: string }[] {
@@ -45,7 +50,8 @@ function buildCopyText(filePath: string, comment: DiffReviewComment): string {
 const CommentCard: React.FC<{
   id: string; reviewId: number; filePath: string; comment: DiffReviewComment;
   hunkBlastDetail?: BlastRadiusHunkReport;
-}> = ({ id, reviewId, filePath, comment, hunkBlastDetail }) => {
+  onOpenBreakdown?: () => void;
+}> = ({ id, reviewId, filePath, comment, hunkBlastDetail, onOpenBreakdown }) => {
   const [hidden, setHidden] = useState(false);
   const [copyLabel, setCopyLabel] = useState<string | null>(null);
 
@@ -81,7 +87,7 @@ const CommentCard: React.FC<{
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           {hunkBlastDetail && typeof hunkBlastDetail.Combined === 'number' && (
-            <RiskBadge score={hunkBlastDetail.Combined} detail={hunkBlastDetail} size="small" />
+            <RiskBadge score={hunkBlastDetail.Combined} detail={hunkBlastDetail} size="small" onOpen={onOpenBreakdown} />
           )}
           <span
             className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
@@ -128,7 +134,7 @@ const CommentCard: React.FC<{
   );
 };
 
-const CommentThread: React.FC<CommentThreadProps> = ({ reviewId, filePath, comments, hunkBlastDetail }) => {
+const CommentThread: React.FC<CommentThreadProps> = ({ reviewId, filePath, comments, hunkBlastDetail, onOpenBreakdown }) => {
   if (!comments.length) return null;
   return (
     <div className="space-y-2 border-l-2 border-slate-700 bg-slate-900/40 px-3 py-2">
@@ -140,6 +146,7 @@ const CommentThread: React.FC<CommentThreadProps> = ({ reviewId, filePath, comme
           filePath={filePath}
           comment={comment}
           hunkBlastDetail={hunkBlastDetail}
+          onOpenBreakdown={onOpenBreakdown}
         />
       ))}
     </div>

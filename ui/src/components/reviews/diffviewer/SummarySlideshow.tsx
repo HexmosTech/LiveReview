@@ -12,6 +12,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'classnames';
 import { Button } from '../../UIPrimitives';
 import { OpenFileFromText, renderInline } from '../../../lib/markdown';
+import VoteButtons from './VoteButtons';
 import {
   calculateTotalReadTime,
   evaluateSummarySlidesEligibility,
@@ -64,13 +65,14 @@ function resolveSlideTypography(slide: Slide, isNarrow: boolean): SlideTypograph
 }
 
 interface SummarySlideshowProps {
+  reviewId: number;
   summary: string;
   hasQuiz: boolean;
   onTakeQuiz: () => void;
   onOpenFile?: OpenFileFromText;
 }
 
-const SummarySlideshow: React.FC<SummarySlideshowProps> = ({ summary, hasQuiz, onTakeQuiz, onOpenFile }) => {
+const SummarySlideshow: React.FC<SummarySlideshowProps> = ({ reviewId, summary, hasQuiz, onTakeQuiz, onOpenFile }) => {
   const slides = useMemo(() => parseMarkdownToSlides(summary), [summary]);
   const eligibility = useMemo(() => evaluateSummarySlidesEligibility(summary), [summary]);
   const chapters = useMemo(() => buildChapterNavigation(slides), [slides]);
@@ -177,85 +179,6 @@ const SummarySlideshow: React.FC<SummarySlideshowProps> = ({ summary, hasQuiz, o
         </p>
       )}
 
-      {/* Chapter progress track — hovering/focusing it reveals the chapter
-          explorer card grid below (git-lrc's openChapterExplorer/
-          .summary-chapter-explorer): a per-chapter card with its own
-          progress fill, slide count, "Starts at slide N" caption, and
-          clickable subchapters, not just a sizing hint for the thin bar. */}
-      <div className="group/track relative mb-4">
-        <div className="flex h-2 gap-0.5 overflow-hidden rounded-full bg-slate-800 pr-8">
-          {explorerCards.map((card) => (
-            <button
-              key={card.key}
-              type="button"
-              title={card.title}
-              onClick={() => goTo(card.startIndex)}
-              style={{ width: `${Math.max(2, (card.slideCount / slides.length) * 100)}%` }}
-              className="group relative h-full overflow-hidden bg-slate-700"
-            >
-              <span
-                className={classNames('absolute inset-y-0 left-0 block', card.isActive ? 'bg-blue-500' : 'bg-slate-500 group-hover:bg-slate-400')}
-                style={{ width: `${card.progressPercent}%` }}
-              />
-            </button>
-          ))}
-        </div>
-        <span className="absolute right-0 top-0 text-[10px] tabular-nums text-slate-500">
-          {Math.round(((currentSlide + 1) / slides.length) * 100)}%
-        </span>
-
-        <div
-          className={classNames(
-            'absolute left-0 right-0 top-3 z-20 overflow-hidden rounded-lg border border-slate-700 bg-slate-900 shadow-xl',
-            'transition-all duration-300 ease-in-out max-h-0 opacity-0 delay-500',
-            'group-hover/track:max-h-[280px] group-hover/track:opacity-100 group-hover/track:delay-300',
-            'group-focus-within/track:max-h-[280px] group-focus-within/track:opacity-100 group-focus-within/track:delay-300'
-          )}
-        >
-          <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 md:grid-cols-4">
-            {explorerCards.map((card) => (
-              <div
-                key={card.key}
-                className={classNames('rounded-md border p-2', card.isActive ? 'border-blue-600 bg-blue-950/30' : 'border-slate-700 bg-slate-800/60')}
-              >
-                <button type="button" onClick={() => goTo(card.startIndex)} className="block w-full text-left">
-                  <div className="truncate text-xs font-medium text-slate-200">{card.title}</div>
-                  <div className="text-[10px] text-slate-500">{card.slideCount} slide{card.slideCount !== 1 ? 's' : ''}</div>
-                  <div className="mt-1 h-1 overflow-hidden rounded-full bg-slate-700">
-                    <span className="block h-full bg-blue-500" style={{ width: `${card.progressPercent}%` }} />
-                  </div>
-                  <div className="mt-1 text-[10px] text-slate-600">
-                    {card.kind === 'complete' ? 'Final slide' : `Starts at slide ${card.startIndex + 1}`}
-                  </div>
-                </button>
-                {card.subchapters.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1">
-                    {card.subchapters.map((sub) => (
-                      <button
-                        key={sub.key}
-                        type="button"
-                        title={sub.tooltipLabel}
-                        onClick={() => goTo(sub.startIndex)}
-                        className={classNames('rounded px-1.5 py-0.5 text-[10px]', sub.isActive ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600')}
-                      >
-                        {sub.title}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
-        {chapters.map((c) => (
-          <button key={c.key} type="button" onClick={() => goTo(c.startIndex)} className={classNames('hover:text-slate-300', activeTrackItemKey === c.key && 'text-slate-200 font-medium')}>
-            {c.title}
-          </button>
-        ))}
-      </div>
-
       {/* Slide content — sized to feel like an actual presentation slide
           (git-lrc's is a near-viewport-height card), not a compact info box. */}
       <div
@@ -307,7 +230,82 @@ const SummarySlideshow: React.FC<SummarySlideshowProps> = ({ summary, hasQuiz, o
         )}
       </div>
 
-      {/* Controls */}
+      {/* Progress track — directly below the slide, above the controls
+          (standard scrubber placement, like a video player). Hovering/
+          focusing it reveals the chapter explorer card grid (git-lrc's
+          openChapterExplorer/.summary-chapter-explorer): a per-chapter card
+          with its own progress fill, slide count, "Starts at slide N"
+          caption, and clickable subchapters — not just a sizing hint for
+          the thin bar. */}
+      <div className="group/track relative mt-3">
+        <div className="flex h-2 gap-0.5 overflow-hidden rounded-full bg-slate-800 pr-8">
+          {explorerCards.map((card) => (
+            <button
+              key={card.key}
+              type="button"
+              title={card.title}
+              onClick={() => goTo(card.startIndex)}
+              style={{ width: `${Math.max(2, (card.slideCount / slides.length) * 100)}%` }}
+              className="group relative h-full overflow-hidden bg-slate-700"
+            >
+              <span
+                className={classNames('absolute inset-y-0 left-0 block', card.isActive ? 'bg-blue-500' : 'bg-slate-500 group-hover:bg-slate-400')}
+                style={{ width: `${card.progressPercent}%` }}
+              />
+            </button>
+          ))}
+        </div>
+        <span className="absolute right-0 top-0 text-[10px] tabular-nums text-slate-500">
+          {Math.round(((currentSlide + 1) / slides.length) * 100)}%
+        </span>
+
+        <div
+          className={classNames(
+            'absolute top-3 left-0 right-0 z-20 overflow-hidden rounded-lg border border-slate-700 bg-slate-900 shadow-xl',
+            'transition-all duration-300 ease-in-out max-h-0 opacity-0 delay-500',
+            'group-hover/track:max-h-[280px] group-hover/track:opacity-100 group-hover/track:delay-300',
+            'group-focus-within/track:max-h-[280px] group-focus-within/track:opacity-100 group-focus-within/track:delay-300'
+          )}
+        >
+          <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 md:grid-cols-4">
+            {explorerCards.map((card) => (
+              <div
+                key={card.key}
+                className={classNames('rounded-md border p-2', card.isActive ? 'border-blue-600 bg-blue-950/30' : 'border-slate-700 bg-slate-800/60')}
+              >
+                <button type="button" onClick={() => goTo(card.startIndex)} className="block w-full text-left">
+                  <div className="truncate text-xs font-medium text-slate-200">{card.title}</div>
+                  <div className="text-[10px] text-slate-500">{card.slideCount} slide{card.slideCount !== 1 ? 's' : ''}</div>
+                  <div className="mt-1 h-1 overflow-hidden rounded-full bg-slate-700">
+                    <span className="block h-full bg-blue-500" style={{ width: `${card.progressPercent}%` }} />
+                  </div>
+                  <div className="mt-1 text-[10px] text-slate-600">
+                    {card.kind === 'complete' ? 'Final slide' : `Starts at slide ${card.startIndex + 1}`}
+                  </div>
+                </button>
+                {card.subchapters.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {card.subchapters.map((sub) => (
+                      <button
+                        key={sub.key}
+                        type="button"
+                        title={sub.tooltipLabel}
+                        onClick={() => goTo(sub.startIndex)}
+                        className={classNames('rounded px-1.5 py-0.5 text-[10px]', sub.isActive ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600')}
+                      >
+                        {sub.title}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Controls — three-column row (nav | position | actions), sitting
+          below the progress track like a video player's button row. */}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <button type="button" onClick={goPrev} disabled={currentSlide === 0} className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-30">‹ Prev</button>
@@ -319,6 +317,12 @@ const SummarySlideshow: React.FC<SummarySlideshowProps> = ({ summary, hasQuiz, o
           >
             {isAutoPlay ? `Playing · ${elapsedActual}s` : 'Auto-play'}
           </button>
+        </div>
+        <div className="flex items-center gap-3 text-xs text-slate-500">
+          <span>{currentSlide + 1} / {slides.length} &middot; {remaining} left</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <VoteButtons reviewId={reviewId} sourceType="slideshow" size="sm" />
           <button
             type="button"
             onClick={copyCurrentSlide}
@@ -333,13 +337,8 @@ const SummarySlideshow: React.FC<SummarySlideshowProps> = ({ summary, hasQuiz, o
             title="Keyboard shortcuts (?)"
             className={classNames('rounded-md border px-3 py-1.5 text-sm', showHelp ? 'border-blue-600 bg-blue-900/30 text-blue-300' : 'border-slate-700 text-slate-300 hover:bg-slate-800')}
           >
-            ?
+            ? Help
           </button>
-        </div>
-        <div className="flex items-center gap-3 text-xs text-slate-500">
-          <span>{currentSlide + 1} / {slides.length}</span>
-          <span title="Total estimated read time">{formatTime(totalReadTime)} total</span>
-          <span title="Remaining estimated read time">{remaining} left</span>
         </div>
       </div>
       <p className="mt-1 text-[11px] text-slate-600">

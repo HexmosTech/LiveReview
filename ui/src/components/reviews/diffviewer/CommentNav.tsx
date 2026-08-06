@@ -7,14 +7,20 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 export interface NavComment {
   id: string;
+  // The file this comment belongs to (file_path, matching DiffViewerPanel's
+  // expandedFiles keying) — needed so jumping to a comment inside a
+  // currently-collapsed file expands it first, and so the jump can go
+  // through the same URL-updating navigation as Sidebar's file/hunk clicks.
+  filePath: string;
 }
 
 interface CommentNavProps {
   comments: NavComment[];
   active: boolean;
+  onNavigate: (comment: NavComment) => void;
 }
 
-const CommentNav: React.FC<CommentNavProps> = ({ comments, active }) => {
+const CommentNav: React.FC<CommentNavProps> = ({ comments, active, onNavigate }) => {
   const [currentIdx, setCurrentIdx] = useState(-1);
 
   useEffect(() => {
@@ -25,9 +31,8 @@ const CommentNav: React.FC<CommentNavProps> = ({ comments, active }) => {
     if (comments.length === 0) return;
     const wrapped = ((idx % comments.length) + comments.length) % comments.length;
     setCurrentIdx(wrapped);
-    const el = document.getElementById(comments[wrapped].id);
-    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [comments]);
+    onNavigate(comments[wrapped]);
+  }, [comments, onNavigate]);
 
   const goNext = useCallback(() => goTo(currentIdx + 1), [goTo, currentIdx]);
   const goPrev = useCallback(() => goTo(currentIdx - 1 < 0 && currentIdx === -1 ? -1 : currentIdx - 1), [goTo, currentIdx]);
