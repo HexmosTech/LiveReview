@@ -671,12 +671,12 @@ raw-deploy: build-with-ui
 		exit 1; \
 	fi
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && mv ./livereview ./livereview.bak || true"
-	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
+	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh install-vl-convert.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
 	rsync -avz ./$(DEPLOY_ACTUAL_ENV_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/.env
 	ssh $(DEPLOY_HOST) "mkdir -p $(DEPLOY_PATH)/config"
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
-	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh install-vl-convert.sh && ./install-vl-convert.sh && ./db-ready.sh"
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
@@ -766,12 +766,12 @@ raw-deploy-low-pricing: build-with-ui
 		exit 1; \
 	fi
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && mv ./livereview ./livereview.bak || true"
-	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
+	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh install-vl-convert.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
 	rsync -avz ./$(DEPLOY_LOW_PRICING_ENV_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/.env
 	ssh $(DEPLOY_HOST) "mkdir -p $(DEPLOY_PATH)/config"
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
-	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh install-vl-convert.sh && ./install-vl-convert.sh && ./db-ready.sh"
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
@@ -809,12 +809,12 @@ raw-deploy-backend:
 		exit 1; \
 	fi
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && mv ./livereview ./livereview.bak || true"
-	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
+	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh install-vl-convert.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
 	rsync -avz ./$(DEPLOY_ACTUAL_ENV_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/.env
 	ssh $(DEPLOY_HOST) "mkdir -p $(DEPLOY_PATH)/config"
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
-	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh install-vl-convert.sh && ./install-vl-convert.sh && ./db-ready.sh"
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
@@ -860,12 +860,12 @@ raw-deploy-backend-low-pricing:
 		exit 1; \
 	fi
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && mv ./livereview ./livereview.bak || true"
-	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
+	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh install-vl-convert.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
 	rsync -avz ./$(DEPLOY_LOW_PRICING_ENV_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/.env
 	ssh $(DEPLOY_HOST) "mkdir -p $(DEPLOY_PATH)/config"
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
-	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh install-vl-convert.sh && ./install-vl-convert.sh && ./db-ready.sh"
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
