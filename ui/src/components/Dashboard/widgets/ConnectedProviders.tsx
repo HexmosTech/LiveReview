@@ -18,8 +18,11 @@ const ICON_MAP: Record<string, React.FC> = {
     anthropic: Icons.Claude,
     google: Icons.Google,
     gemini: Icons.Google,
+    'gemini-enterprise': Icons.Google,
     ollama: Icons.Ollama,
     deepseek: Icons.DeepSeek,
+    // No dedicated Atlas Cloud logo — fall back to the generic AI icon rather than showing nothing.
+    atlas: Icons.AI,
 };
 
 // Not period-scoped — always the current connection state, regardless of the Day/Week/Month/All selector.

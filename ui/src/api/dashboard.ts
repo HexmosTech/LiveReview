@@ -159,9 +159,20 @@ export interface DashboardData {
     last_updated: string;
 }
 
+// Coalesces concurrent callers into a single network request. Dashboard.tsx and each of the
+// three widget-layer providers (ReviewLayers/SystemOverview/People) independently call this on
+// mount, all within the same render — without this they'd fire as separate simultaneous GETs
+// for the exact same response.
+let inFlightDashboardDataRequest: Promise<DashboardData> | null = null;
+
 export const getDashboardData = async (): Promise<DashboardData> => {
-    const response = await apiClient.get<DashboardData>('/api/v1/dashboard');
-    return response;
+    if (inFlightDashboardDataRequest) {
+        return inFlightDashboardDataRequest;
+    }
+    inFlightDashboardDataRequest = apiClient.get<DashboardData>('/api/v1/dashboard').finally(() => {
+        inFlightDashboardDataRequest = null;
+    });
+    return inFlightDashboardDataRequest;
 };
 
 export interface RefreshDashboardResponse {

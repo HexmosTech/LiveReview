@@ -42,7 +42,21 @@ export const ReviewPipelineSankey: React.FC = () => {
 
     const option = {
         ...ECHARTS_ANIMATION_DEFAULTS,
-        tooltip: { trigger: 'item', triggerOn: 'mousemove' },
+        tooltip: {
+            trigger: 'item',
+            triggerOn: 'mousemove',
+            // Default sankey tooltip floats the value next to the label without lining up on
+            // the same baseline — flexbox row keeps the key and value properly aligned.
+            formatter: (params: { dataType: string; name: string; data: { source?: string; target?: string; value?: number } }) => {
+                if (params.dataType === 'edge') {
+                    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
+                        <span>${params.data.source} -- ${params.data.target}</span>
+                        <span style="font-weight:700;">${params.data.value}</span>
+                    </div>`;
+                }
+                return params.name;
+            },
+        },
         series: [{
             type: 'sankey',
             emphasis: { focus: 'adjacency' },
