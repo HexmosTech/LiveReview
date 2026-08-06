@@ -174,9 +174,6 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 			// The Vega-Lite JSON must never surface in the chat. If stripping
 			// removes everything, keep only the surrounding text (or empty).
 			cleanText = strings.TrimSpace(cleanText)
-			if cleanText == "" {
-				cleanText = "Here is the data you asked about."
-			}
 			resp.Response = cleanText
 		} else {
 			// Rendering failed even after retries: never show the raw JSON.
@@ -372,17 +369,17 @@ func looksLikeTruncatedVegaSpec(text string) bool {
 func extractDescriptionFromVegaSpec(text string) string {
 	idx := strings.Index(text, `"description"`)
 	if idx < 0 {
-		return "Here is the data you asked about."
+		return ""
 	}
 	rest := text[idx+len(`"description"`):]
 	// skip optional whitespace + colon
 	rest = strings.TrimSpace(rest)
 	if len(rest) == 0 || rest[0] != ':' {
-		return "Here is the data you asked about."
+		return ""
 	}
 	rest = strings.TrimSpace(rest[1:])
 	if len(rest) == 0 || rest[0] != '"' {
-		return "Here is the data you asked about."
+		return ""
 	}
 	// scan to matching unescaped closing quote
 	var desc strings.Builder
@@ -437,7 +434,7 @@ func extractDescriptionFromVegaSpec(text string) string {
 	}
 	result := strings.TrimSpace(desc.String())
 	if result == "" {
-		return "Here is the data you asked about."
+		return ""
 	}
 	return result
 }
