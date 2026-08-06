@@ -791,3 +791,65 @@ func TestDiffReviewPartialExclusionExposesExcludedFiles(t *testing.T) {
 
 	t.Logf("✓ partially-excluded diff drops main.go from files but records it in excluded_files")
 }
+
+// TestDiffReviewArtifactAllowlistKnowsBlastRadius guards the artifact sync
+// channel's allowlist (see AGENTS.md "Porting from git-lrc" — Put/GetDiffReviewArtifact
+// only accept artifact_type values present here) against silent typos: the
+// git-lrc CLI and this map must agree on the "blast-radius" string exactly.
+func TestDiffReviewArtifactAllowlistKnowsBlastRadius(t *testing.T) {
+	metaKey, ok := diffReviewArtifactMetadataKeys["blast-radius"]
+	if !ok {
+		t.Fatalf("expected \"blast-radius\" to be an allowed artifact_type")
+	}
+	if metaKey != "blast_radius_report" {
+		t.Fatalf("expected blast-radius to map to metadata key blast_radius_report, got %q", metaKey)
+	}
+	if _, ok := diffReviewArtifactMetadataKeys["unknown-artifact"]; ok {
+		t.Fatalf("expected unknown artifact_type to be rejected")
+	}
+}
+
+// TestDiffReviewArtifactStoresAndReadsBackVerbatim exercises the storage half
+// of PutDiffReviewArtifact/GetDiffReviewArtifact (the merge-into-metadata and
+// read-back-by-key logic) against the same mock manager the other handler
+// tests use, since the real handlers bind to a live DB via NewReviewManager
+// and aren't unit-testable without one.
+func TestDiffReviewArtifactStoresAndReadsBackVerbatim(t *testing.T) {
+	mockRM := newMockReviewManager()
+
+	review, err := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{}, 1, "", "", "")
+	if err != nil {
+		t.Fatalf("failed to create review: %v", err)
+	}
+
+	report := json.RawMessage(`{"Project":"demo","Files":[{"Path":"a.go","Hunks":[{"Combined":42.5}]}]}`)
+	metaKey := diffReviewArtifactMetadataKeys["blast-radius"]
+	if err := mockRM.MergeReviewMetadata(review.ID, map[string]interface{}{metaKey: report}); err != nil {
+		t.Fatalf("failed to merge artifact metadata: %v", err)
+	}
+
+	storedReview, err := mockRM.GetReview(review.ID)
+	if err != nil {
+		t.Fatalf("failed to fetch review: %v", err)
+	}
+
+	meta := map[string]json.RawMessage{}
+	if err := json.Unmarshal(storedReview.Metadata, &meta); err != nil {
+		t.Fatalf("failed to unmarshal metadata: %v", err)
+	}
+
+	raw, ok := meta[metaKey]
+	if !ok {
+		t.Fatalf("expected %q key in metadata, got %v", metaKey, meta)
+	}
+
+	var roundTripped map[string]interface{}
+	if err := json.Unmarshal(raw, &roundTripped); err != nil {
+		t.Fatalf("stored artifact is not valid JSON: %v", err)
+	}
+	if roundTripped["Project"] != "demo" {
+		t.Fatalf("expected Project=demo to round-trip, got %v", roundTripped["Project"])
+	}
+
+	t.Logf("✓ blast-radius artifact stored under %q and read back verbatim", metaKey)
+}

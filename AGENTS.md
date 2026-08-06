@@ -112,5 +112,55 @@ Before writing any new endpoint, making database changes, or updating routing, c
     Endpoints that perform destructive actions, credential changes, or billing subscription alterations MUST reject API keys. Gating should explicitly check for JWT authentication.
 
 
+## Porting from git-lrc
+
+`git-lrc` (sibling repo, typically checked out at `../git-lrc`) is where LiveReview's
+local CLI (`lrc`/`git-lrc`) lives, including a mature local review UI
+(`internal/staticserve/static/`, Preact/htm, buildless) and a self-contained blast-radius
+scoring engine (`blastradius/`, its own Go module `github.com/HexmosTech/blastradius`).
+Capabilities built there sometimes need a corresponding home in LiveReview's hosted
+review-details page (`ui/src/pages/Reviews/ReviewDetail.tsx`). See
+`/home/shrsv/.claude/plans/piped-imagining-sky.md` for the design of the first port
+(diff/findings viewer + blast radius).
+
+### Porting convention
+
+Any LiveReview file ported from a git-lrc source must carry a one-line header comment:
+
+```
+// Ported from git-lrc:<path>#L<start>-L<end> (as of <short-sha>)
+```
+
+This makes future re-syncs diffable: check the cited git-lrc path/commit against
+git-lrc's current `HEAD` to see what changed upstream since the port, without having to
+rediscover which LiveReview files came from where.
+
+Because git-lrc's review UI is buildless Preact/htm/plain-CSS and LiveReview's is React
+19 + Redux + Tailwind + `UIPrimitives.tsx`, ports are **not** file copies — treat
+git-lrc's components as the functional spec (especially framework-agnostic pure-logic
+`.mjs` files, which port ~1:1) and rebuild presentational components natively against
+LiveReview's design system.
+
+### Artifact sync channel
+
+git-lrc's CLI computes some things locally that the LiveReview server has no way to
+compute itself (e.g. blast radius requires a live `codebase-memory-mcp` graph index of
+the repo, which only exists on the developer's machine). These sync to LiveReview
+**opportunistically** — only reviews actually run through `git lrc review` will have
+them; webhook- and web-UI-triggered reviews won't, and that's expected, not an error.
+
+The reusable pattern any future git-lrc-computed artifact should follow:
+
+1. CLI computes the artifact locally after (or alongside) submitting the review.
+2. CLI POSTs it to `POST /api/v1/diff-review/:review_id/artifacts/:artifact_type`
+   (fire-and-forget — log a warning on failure, never block or fail the review).
+3. LiveReview stores it under `reviews.metadata["<artifact_type>_report"]` (no schema
+   migration needed — this JSONB column is the established no-migration extension point
+   for ad hoc per-review data; see `preloaded_changes`/`review_result` in
+   `internal/api/diff_review.go`) and serves it back via
+   `GET /api/v1/diff-review/:review_id/artifacts/:artifact_type` (404 when absent).
+
+Adding a new artifact type is just a new `artifact_type` string plus a frontend
+renderer — no new tables, no new endpoint code.
 
 

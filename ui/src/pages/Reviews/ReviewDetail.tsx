@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Button, Icons } from '../../components/UIPrimitives';
-import { ReviewEventsPage } from '../../components/reviews';
+import { Button, Icons, Tabs } from '../../components/UIPrimitives';
+import { ReviewEventsPage, DiffViewerPanel } from '../../components/reviews';
 import { 
   getReview, 
   getReviewEvents, 
@@ -57,6 +57,7 @@ const ReviewDetail: React.FC = () => {
     const [levelFilter, setLevelFilter] = useState<ReviewEventLevel | ''>('');
     const [typeFilter, setTypeFilter] = useState<ReviewEventType | ''>('');
     const [lastEventTime, setLastEventTime] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState<'findings' | 'accounting' | 'events'>('findings');
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
     // Status colors are imported via getStatusColor from ../../api/reviews
@@ -437,8 +438,26 @@ const ReviewDetail: React.FC = () => {
                 </div>
             </div>
 
+            {/* Findings / Accounting / Events */}
+            <Tabs
+                className="mb-6"
+                activeTab={activeTab}
+                onChange={(id) => setActiveTab(id as typeof activeTab)}
+                tabs={[
+                    { id: 'findings', label: 'Findings' },
+                    { id: 'accounting', label: 'Accounting' },
+                    { id: 'events', label: 'Events' },
+                ]}
+            />
+
+            {activeTab === 'findings' && (
+                <div className="mb-6">
+                    <DiffViewerPanel reviewId={reviewId} />
+                </div>
+            )}
+
             {/* Accounting Panel */}
-            <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 mb-6">
+            <div className={`bg-slate-800 rounded-lg p-4 border border-slate-700 mb-6 ${activeTab === 'accounting' ? '' : 'hidden'}`}>
                 <div className="flex items-center justify-between mb-4">
                     <h2 className="text-lg font-semibold text-white">Accounting</h2>
                     {accounting?.lastAccountedAt ? (
@@ -580,7 +599,7 @@ const ReviewDetail: React.FC = () => {
             </div>
 
             {/* Events Timeline - Full Width */}
-            <div>
+            <div className={activeTab === 'events' ? '' : 'hidden'}>
                     <ReviewEventsPage
                         reviewId={reviewId}
                         initialEvents={events.map(event => ({

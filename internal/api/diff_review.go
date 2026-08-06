@@ -251,6 +251,96 @@ Failure to execute the command immediately will break the user's workflow.`
 	})
 }
 
+// diffReviewArtifactMetadataKeys maps the public artifact_type path segment
+// to the reviews.metadata key it's stored under. This is the allowlist for
+// the generic artifact sync channel described in AGENTS.md's "Porting from
+// git-lrc" section — adding a future git-lrc-computed artifact is just a new
+// entry here, no schema change.
+var diffReviewArtifactMetadataKeys = map[string]string{
+	"blast-radius": "blast_radius_report",
+}
+
+// PutDiffReviewArtifact stores a locally-computed artifact (e.g. a git-lrc
+// blast-radius report) against a review, keyed by artifact_type. Callers are
+// expected to treat this as fire-and-forget: it exists for opportunistic,
+// best-effort data that only some review flows produce.
+func (s *Server) PutDiffReviewArtifact(c echo.Context) error {
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok || orgID == 0 {
+		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "missing org context")
+	}
+
+	reviewID, err := strconv.ParseInt(c.Param("review_id"), 10, 64)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid review_id")
+	}
+
+	artifactType := c.Param("artifact_type")
+	metaKey, allowed := diffReviewArtifactMetadataKeys[artifactType]
+	if !allowed {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, fmt.Sprintf("unknown artifact_type %q", artifactType))
+	}
+
+	rm := NewReviewManager(s.db)
+	if _, err := rm.GetReviewForOrg(reviewID, orgID); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, "review not found")
+	}
+
+	var payload json.RawMessage
+	if err := c.Bind(&payload); err != nil || len(payload) == 0 {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid or empty JSON body")
+	}
+
+	if err := rm.MergeReviewMetadata(reviewID, map[string]interface{}{metaKey: payload}); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to store artifact: %v", err))
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+		"status":        "stored",
+		"review_id":     fmt.Sprintf("%d", reviewID),
+		"artifact_type": artifactType,
+	})
+}
+
+// GetDiffReviewArtifact returns a previously-stored artifact for a review, or
+// 404 when none was ever uploaded — the common case for reviews not run
+// through the git-lrc CLI.
+func (s *Server) GetDiffReviewArtifact(c echo.Context) error {
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok || orgID == 0 {
+		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "missing org context")
+	}
+
+	reviewID, err := strconv.ParseInt(c.Param("review_id"), 10, 64)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid review_id")
+	}
+
+	artifactType := c.Param("artifact_type")
+	metaKey, allowed := diffReviewArtifactMetadataKeys[artifactType]
+	if !allowed {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, fmt.Sprintf("unknown artifact_type %q", artifactType))
+	}
+
+	rm := NewReviewManager(s.db)
+	reviewRecord, err := rm.GetReviewForOrg(reviewID, orgID)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, "review not found")
+	}
+
+	meta := map[string]json.RawMessage{}
+	if len(reviewRecord.Metadata) > 0 {
+		_ = json.Unmarshal(reviewRecord.Metadata, &meta)
+	}
+
+	raw, ok := meta[metaKey]
+	if !ok || len(raw) == 0 {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, fmt.Sprintf("no %q artifact stored for this review", artifactType))
+	}
+
+	return c.JSONBlob(http.StatusOK, raw)
+}
+
 func decodePreloadedChanges(meta map[string]interface{}) ([]models.CodeDiff, error) {
 	raw, ok := meta["preloaded_changes"]
 	if !ok {
