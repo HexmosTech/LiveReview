@@ -3,8 +3,11 @@ import ReactECharts from 'echarts-for-react';
 import { useNavigate } from 'react-router-dom';
 import { LIVEREVIEW_ECHARTS_THEME, ECHARTS_ANIMATION_DEFAULTS } from './echartsTheme';
 import { useChartResize } from './useChartResize';
-import { MOCK_REVIEW_LAYERS, ISSUE_CATEGORIES, CATEGORY_COLORS, IssueCategory } from './mockData';
+import { ISSUE_CATEGORIES, CATEGORY_COLORS } from './mockData';
 import { useDashboardPeriod } from './DashboardPeriod';
+import { useReviewLayers, hasNoReviewLayerData } from './ReviewLayersData';
+import { EmptyState, Icons } from '../../UIPrimitives';
+import { ChartSkeleton } from './ChartSkeleton';
 
 const LAYER_COLORS: Record<string, string> = {
     'precommit': '#3B82F6',
@@ -16,24 +19,44 @@ const LAYER_COLORS: Record<string, string> = {
 export const ReviewPipelineSankey: React.FC = () => {
     const { containerRef, chartRef } = useChartResize();
     const navigate = useNavigate();
-    const { scale } = useDashboardPeriod();
+    const { period } = useDashboardPeriod();
+    const { reviewLayers, loading } = useReviewLayers();
 
-    // Every issue found belongs to exactly one of these categories — there is no
-    // separate "clean"/"no issues" bucket in this graph, only where issues landed.
+    // Already period-scoped by the backend — no client-side rescaling needed.
+    const layers = reviewLayers?.[period] ?? [];
+
+    // A layer only gets a node if it actually ran reviews.
+    const activeLayers = useMemo(() => layers.filter((layer) => layer.reviews_run > 0), [layers]);
+
+    // depth pins each node to its column explicitly, since a linkless node can't infer one from topology.
     const nodes = useMemo(() => [
-        ...MOCK_REVIEW_LAYERS.map((layer) => ({ name: layer.label, itemStyle: { color: LAYER_COLORS[layer.id] } })),
-        ...ISSUE_CATEGORIES.map((category) => ({ name: category, itemStyle: { color: CATEGORY_COLORS[category] } })),
-    ], []);
+        ...activeLayers.map((layer) => ({ name: layer.label, depth: 0, itemStyle: { color: LAYER_COLORS[layer.id] } })),
+        ...ISSUE_CATEGORIES.map((category) => ({ name: category, depth: 1, itemStyle: { color: CATEGORY_COLORS[category] } })),
+    ], [activeLayers]);
 
-    const links = useMemo(() => MOCK_REVIEW_LAYERS.flatMap((layer) =>
+    const links = useMemo(() => activeLayers.flatMap((layer) =>
         layer.categories
             .filter((c) => c.count > 0)
-            .map((c) => ({ source: layer.label, target: c.category, value: scale(c.count) }))
-    ), [scale]);
+            .map((c) => ({ source: layer.label, target: c.category, value: c.count }))
+    ), [activeLayers]);
 
     const option = {
         ...ECHARTS_ANIMATION_DEFAULTS,
-        tooltip: { trigger: 'item', triggerOn: 'mousemove' },
+        tooltip: {
+            trigger: 'item',
+            triggerOn: 'mousemove',
+            // Default sankey tooltip floats the value next to the label without lining up on
+            // the same baseline — flexbox row keeps the key and value properly aligned.
+            formatter: (params: { dataType: string; name: string; data: { source?: string; target?: string; value?: number } }) => {
+                if (params.dataType === 'edge') {
+                    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
+                        <span>${params.data.source} -- ${params.data.target}</span>
+                        <span style="font-weight:700;">${params.data.value}</span>
+                    </div>`;
+                }
+                return params.name;
+            },
+        },
         series: [{
             type: 'sankey',
             emphasis: { focus: 'adjacency' },
@@ -53,6 +76,20 @@ export const ReviewPipelineSankey: React.FC = () => {
             }
         },
     };
+
+    if (loading) {
+        return <ChartSkeleton />;
+    }
+
+    if (hasNoReviewLayerData(layers)) {
+        return (
+            <EmptyState
+                icon={<Icons.EmptyState />}
+                title="No review pipeline data yet"
+                description="The pipeline breakdown will appear here once reviews run for this org and period."
+            />
+        );
+    }
 
     return (
         <div ref={containerRef} className="w-full h-full">

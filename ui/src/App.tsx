@@ -267,7 +267,17 @@ const AppContent: React.FC = () => {
         // They can manually open it via LicenseStatusBar if they want to add a license
     }, [isAuthenticated, dispatch]);
 
-    // (Removed old keyboard shortcut & placeholder strict effect to prevent events firing after unmount)
+    // Ctrl+I opens the chatbot from anywhere in the app.
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'i') {
+                e.preventDefault();
+                navigate('/chat');
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [navigate]);
 
     // Decide what to render based on auth/setup states AFTER all hooks declared (avoid hook order issues)
     let body: React.ReactNode;
@@ -344,8 +354,9 @@ const AppContent: React.FC = () => {
                 {!isCloudMode() && <LicenseModal open={licenseOpen} onClose={() => dispatch(closeLicenseModal())} />}
                 {location.pathname !== '/chat' && (
                 <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3">
-                    <span className="hidden lg:block text-sm font-semibold text-slate-100 px-4 py-2 rounded-full bg-slate-800/90 border border-slate-600 shadow-lg pointer-events-none">
-                        Chat with Livereview Bot
+                    <span className="hidden lg:flex items-center gap-2 text-sm font-semibold text-slate-100 px-4 py-2 rounded-full bg-slate-800/90 border border-slate-600 shadow-lg pointer-events-none">
+                        Chat with Livi
+                        <span className="text-[11px] font-semibold text-slate-100 bg-slate-700 px-1.5 py-0.5 rounded">Ctrl + I</span>
                     </span>
                     <button
                         onClick={() => navigate('/chat')}

@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'classnames';
 import { useSearchParams } from 'react-router-dom';
-import { Responsive, WidthProvider } from 'react-grid-layout/legacy';
+import { Responsive } from 'react-grid-layout/legacy';
 import type { Layout } from 'react-grid-layout/legacy';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
@@ -9,15 +9,42 @@ import { Button, Icons, Popover, Tooltip } from '../../UIPrimitives';
 import { useDashboardLayout } from './useDashboardLayout';
 import { WidgetChrome } from './WidgetChrome';
 import { DashboardPeriodProvider } from './DashboardPeriod';
+import { ReviewLayersProvider, useReviewLayers } from './ReviewLayersData';
+import { SystemOverviewProvider, useSystemOverview } from './SystemOverviewData';
+import { PeopleProvider, usePeople } from './PeopleData';
 import { PeriodSelector } from './PeriodSelector';
 import { CATEGORY_BADGE_CLASSES, CATEGORY_LABELS, WidgetCategory } from './registry';
 import './dashboardGrid.css';
 
-const ResponsiveGridLayout = WidthProvider(Responsive);
-
 interface DashboardGridProps {
     userId?: number | string;
 }
+
+// Rendered inside all three providers (not DashboardGrid itself) so it can consume the contexts it wraps.
+const RefreshWidgetsButton: React.FC = () => {
+    const reviewLayers = useReviewLayers();
+    const systemOverview = useSystemOverview();
+    const people = usePeople();
+    const loading = reviewLayers.loading || systemOverview.loading || people.loading;
+    const refetch = () => {
+        reviewLayers.refetch();
+        systemOverview.refetch();
+        people.refetch();
+    };
+    return (
+        <Tooltip content={loading ? 'Refreshing…' : 'Refresh widget data'}>
+            <Button
+                variant="outline"
+                size="sm"
+                onClick={refetch}
+                disabled={loading}
+                aria-label="Refresh dashboard widgets"
+            >
+                <span className={loading ? 'animate-spin' : undefined}><Icons.Refresh /></span>
+            </Button>
+        </Tooltip>
+    );
+};
 
 export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
     const {
@@ -79,8 +106,24 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
         });
     };
 
+    // Measured ourselves (not via WidthProvider) so the real width is known before the grid's first paint, not corrected after it.
+    const gridWrapperRef = useRef<HTMLDivElement>(null);
+    const [gridWidth, setGridWidth] = useState<number | null>(null);
+    useLayoutEffect(() => {
+        const node = gridWrapperRef.current;
+        if (!node) return;
+        const measure = () => setGridWidth(node.getBoundingClientRect().width);
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, []);
+
     return (
         <DashboardPeriodProvider>
+        <ReviewLayersProvider>
+        <SystemOverviewProvider>
+        <PeopleProvider>
         <div className="mb-6">
             <div className="sticky top-16 z-30 py-2 mb-3 bg-slate-800/90 backdrop-blur-sm border-b border-slate-700/80 rounded-lg flex flex-wrap items-center justify-between gap-2 px-4">
                 <div className="flex flex-wrap items-center gap-3">
@@ -135,6 +178,7 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
                             </Button>
                         </Tooltip>
                     )}
+                    <RefreshWidgetsButton />
                     <Button
                         variant={editMode ? 'primary' : 'outline'}
                         size="sm"
@@ -155,41 +199,49 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
                 never reflow into a different column count, so every chart keeps its intended
                 relative width and layout.
             */}
-            <ResponsiveGridLayout
-                className="layout"
-                layouts={{ lg: layout }}
-                breakpoints={{ lg: 0 }}
-                cols={{ lg: 12 }}
-                rowHeight={30}
-                margin={[16, 16]}
-                containerPadding={[0, 0]}
-                isDraggable={editMode}
-                isResizable={editMode}
-                draggableHandle=".widget-drag-handle"
-                onLayoutChange={(currentLayout: Layout) => handleLayoutChange(currentLayout)}
-            >
-                {activeWidgets.map((widget, index) => {
-                    const isSectionAnchor = anchorByCategory[widget.category]?.id === widget.id;
-                    return (
-                        <div
-                            key={widget.id}
-                            id={isSectionAnchor ? `dash-section-${widget.category}` : undefined}
-                            className={isSectionAnchor ? 'scroll-mt-[140px]' : undefined}
-                        >
-                            <WidgetChrome
-                                title={widget.title}
-                                category={widget.category}
-                                editMode={editMode}
-                                animationIndex={index}
-                                onRemove={() => removeWidget(widget.id)}
-                            >
-                                <widget.component />
-                            </WidgetChrome>
-                        </div>
-                    );
-                })}
-            </ResponsiveGridLayout>
+            <div ref={gridWrapperRef}>
+                {gridWidth !== null && (
+                    <Responsive
+                        className="layout"
+                        width={gridWidth}
+                        layouts={{ lg: layout }}
+                        breakpoints={{ lg: 0 }}
+                        cols={{ lg: 12 }}
+                        rowHeight={30}
+                        margin={[16, 16]}
+                        containerPadding={[0, 0]}
+                        isDraggable={editMode}
+                        isResizable={editMode}
+                        draggableHandle=".widget-drag-handle"
+                        onLayoutChange={(currentLayout: Layout) => handleLayoutChange(currentLayout)}
+                    >
+                        {activeWidgets.map((widget, index) => {
+                            const isSectionAnchor = anchorByCategory[widget.category]?.id === widget.id;
+                            return (
+                                <div
+                                    key={widget.id}
+                                    id={isSectionAnchor ? `dash-section-${widget.category}` : undefined}
+                                    className={isSectionAnchor ? 'scroll-mt-[140px]' : undefined}
+                                >
+                                    <WidgetChrome
+                                        title={widget.title}
+                                        category={widget.category}
+                                        editMode={editMode}
+                                        animationIndex={index}
+                                        onRemove={() => removeWidget(widget.id)}
+                                    >
+                                        <widget.component />
+                                    </WidgetChrome>
+                                </div>
+                            );
+                        })}
+                    </Responsive>
+                )}
+            </div>
         </div>
+        </PeopleProvider>
+        </SystemOverviewProvider>
+        </ReviewLayersProvider>
         </DashboardPeriodProvider>
     );
 };

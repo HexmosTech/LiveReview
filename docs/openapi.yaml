@@ -596,6 +596,7 @@ components:
           items:
             $ref: '#/components/schemas/api.ActivityItem'
           type: array
+        review_layers: {}
         system_status:
           $ref: '#/components/schemas/api.SystemStatus'
         total_comments:
@@ -605,15 +606,13 @@ components:
         webhook_health:
           $ref: '#/components/schemas/api.WebhookHealthSummary'
       required:
-        - total_reviews
-        - total_comments
-        - connected_providers
-        - active_ai_connectors
+        - total_reviews,omitempty
+        - total_comments,omitempty
+        - connected_providers,omitempty
+        - active_ai_connectors,omitempty
         - onboarding_api_key,omitempty
         - api_url
-        - cli_installed
-        - performance_metrics
-        - system_status
+        - cli_installed,omitempty
         - last_updated
       type: object
     api.DeploymentConfig:
@@ -665,6 +664,23 @@ components:
           type: string
       required:
         - summary
+      type: object
+    api.DiscordConfigResponse:
+      properties:
+        configured:
+          type: boolean
+        guild_id:
+          type: string
+      required:
+        - configured
+        - guild_id,omitempty
+      type: object
+    api.DiscordConfigUpdateRequest:
+      properties:
+        bot_token:
+          type: string
+      required:
+        - bot_token
       type: object
     api.ErrorResponse:
       properties:
@@ -2187,6 +2203,50 @@ components:
         - GitCommit
         - BuildTime
         - Dirty
+      type: object
+    api.WebChatImage:
+      properties:
+        description:
+          type: string
+        query:
+          type: string
+        title:
+          type: string
+        url:
+          type: string
+      required:
+        - url
+        - title,omitempty
+        - description,omitempty
+        - query,omitempty
+      type: object
+    api.WebChatRequest:
+      properties:
+        history:
+          items:
+            additionalProperties: {}
+            type: object
+          type: array
+        message:
+          type: string
+      required:
+        - message
+      type: object
+    api.WebChatResponse:
+      properties:
+        history:
+          items:
+            additionalProperties: {}
+            type: object
+          type: array
+        images:
+          items:
+            $ref: '#/components/schemas/api.WebChatImage'
+          type: array
+        response:
+          type: string
+      required:
+        - response
       type: object
     api.WebhookHealthSummary:
       properties:
@@ -4903,6 +4963,12 @@ paths:
           description: Bad Request
       tags:
         - Aiconnectors
+  /api/v1/aiconnectors/providers:
+    get:
+      description: GetAIProviderCatalog returns the list of supported AI providers.
+      operationId: GetAIProviderCatalog
+      tags:
+        - Aiconnectors
   /api/v1/aiconnectors/providers/{provider}/models:
     get:
       description: GetAIProviderModels handles requests to get all active models for a specific AI provider
@@ -5549,6 +5615,71 @@ paths:
           description: Bad Request
       tags:
         - Bitbucket
+  /api/v1/chat/charts/{id}:
+    get:
+      operationId: ServeChartPNG
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "400":
+          description: Bad Request
+        "404":
+          description: Not Found
+      tags:
+        - Chat
+  /api/v1/chat/send:
+    post:
+      operationId: HandleWebChat
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.WebChatRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.WebChatResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Request
+        "401":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Unauthorized
+        "500":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Internal Server Error
+        "502":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: Bad Gateway
+      tags:
+        - Chat
   /api/v1/connectors:
     get:
       description: GetConnectors returns all integration tokens (connectors) for the current organization
@@ -5892,12 +6023,12 @@ paths:
       operationId: GetReviewEventsByType
       parameters:
         - in: path
-          name: id
+          name: type
           required: true
           schema:
             type: string
         - in: path
-          name: type
+          name: id
           required: true
           schema:
             type: string
@@ -6932,12 +7063,12 @@ paths:
       operationId: RevokeAPIKeyHandler
       parameters:
         - in: path
-          name: id
+          name: org_id
           required: true
           schema:
             type: string
         - in: path
-          name: org_id
+          name: id
           required: true
           schema:
             type: string
@@ -6976,6 +7107,65 @@ paths:
           description: Internal Server Error
       tags:
         - Orgs
+  /api/v1/orgs/{org_id}/discord-config:
+    delete:
+      operationId: DeleteDiscordConfig
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+          description: OK
+      tags:
+        - Orgs
+    get:
+      operationId: GetDiscordConfig
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.DiscordConfigResponse'
+          description: OK
+      tags:
+        - Orgs
+    put:
+      operationId: UpdateDiscordConfig
+      parameters:
+        - in: path
+          name: org_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/api.DiscordConfigUpdateRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.DiscordConfigResponse'
+          description: OK
+      tags:
+        - Orgs
   /api/v1/orgs/{org_id}/members:
     get:
       description: GetOrganizationMembers returns members of an organization with pagination
@@ -7001,26 +7191,21 @@ paths:
         - Orgs
   /api/v1/orgs/{org_id}/members/{user_id}/role:
     put:
-      description: ChangeUserRole handles changing a user's role in an organization
+      description: ChangeUserRole changes a user's role in an organization
       operationId: ChangeUserRole
       parameters:
         - in: path
           name: org_id
           required: true
           schema:
-            type: string
+            format: int64
+            type: integer
         - in: path
           name: user_id
           required: true
           schema:
-            type: string
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/users.UserWithRole'
-          description: OK
+            format: int64
+            type: integer
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/slack-config:
@@ -7307,26 +7492,21 @@ paths:
         - Orgs
   /api/v1/orgs/{org_id}/users/{user_id}/role:
     put:
-      description: ChangeUserRole handles changing a user's role in an organization
+      description: ChangeUserRole changes a user's role in an organization
       operationId: ChangeUserRole
       parameters:
         - in: path
           name: org_id
           required: true
           schema:
-            type: string
+            format: int64
+            type: integer
         - in: path
           name: user_id
           required: true
           schema:
-            type: string
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/users.UserWithRole'
-          description: OK
+            format: int64
+            type: integer
       tags:
         - Orgs
   /api/v1/orgs/{org_id}/users/check:
@@ -8529,12 +8709,12 @@ paths:
       operationId: RevokeLicense
       parameters:
         - in: path
-          name: id
+          name: user_id
           required: true
           schema:
             type: string
         - in: path
-          name: user_id
+          name: id
           required: true
           schema:
             type: string

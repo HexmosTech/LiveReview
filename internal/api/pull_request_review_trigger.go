@@ -22,8 +22,8 @@ type CreateReviewRequest struct {
 // createReviewRequest -> enrichMetadata -> trackActivity ->
 // launchBackgroundProcessing), so both trigger entrypoints share identical
 // authentication, LOC-quota, and background-processing behavior. The only
-// addition is linking the created review back to its canonical PR/MR row via
-// reviews.pull_request_id.
+// addition is passing the already-known pull_request_id through so setupReviewContext
+// links reviews.pull_request_id atomically at insert time.
 func (s *Server) createReview(c echo.Context) error {
 	orgID, ok := c.Get("org_id").(int64)
 	if !ok {
@@ -56,15 +56,9 @@ func (s *Server) createReview(c echo.Context) error {
 		return pfErr
 	}
 
-	ctx, err := s.setupReviewContext(c, TriggerReviewRequest{URL: webURL})
+	ctx, err := s.setupReviewContext(c, TriggerReviewRequest{URL: webURL, PullRequestID: &req.PullRequestID})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
-	}
-
-	if _, err := s.db.Exec(`UPDATE reviews SET pull_request_id = $1 WHERE id = $2`, req.PullRequestID, ctx.review.ID); err != nil {
-		// Non-fatal: the review can still proceed without the PR link: it will
-		// simply not show up grouped under the PR's review history.
-		log.Printf("[WARN] Failed to link review %d to pull_request_id %d: %v", ctx.review.ID, req.PullRequestID, err)
 	}
 
 	if err := s.prepareAuthentication(ctx); err != nil {

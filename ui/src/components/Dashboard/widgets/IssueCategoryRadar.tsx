@@ -2,27 +2,39 @@ import React from 'react';
 import ReactECharts from 'echarts-for-react';
 import { LIVEREVIEW_ECHARTS_THEME, ECHARTS_ANIMATION_DEFAULTS } from './echartsTheme';
 import { useChartResize } from './useChartResize';
-import { MOCK_REVIEW_LAYERS, ISSUE_CATEGORIES } from './mockData';
+import { ISSUE_CATEGORIES } from './mockData';
+import { useDashboardPeriod } from './DashboardPeriod';
+import { useReviewLayers, hasNoReviewLayerData, layersWithCategoryData } from './ReviewLayersData';
+import { EmptyState, Icons } from '../../UIPrimitives';
+import { ChartSkeleton } from './ChartSkeleton';
 
-const COMPARED_LAYER_IDS: Array<typeof MOCK_REVIEW_LAYERS[number]['id']> = ['precommit', 'mr-pr', 'scheduled'];
 const SERIES_COLORS: Record<string, string> = {
     'precommit': '#3B82F6',
     'mr-pr': '#7C3AED',
+    'api-mcp': '#06B6D4',
     'scheduled': '#22C55E',
 };
 
 export const IssueCategoryRadar: React.FC = () => {
     const { containerRef, chartRef } = useChartResize();
+    const { period } = useDashboardPeriod();
+    const { reviewLayers, loading } = useReviewLayers();
 
-    const comparedLayers = MOCK_REVIEW_LAYERS.filter((layer) => COMPARED_LAYER_IDS.includes(layer.id));
+    const allLayers = reviewLayers?.[period] ?? [];
+    // A layer with reviews but zero issues has nothing to plot, so it's dropped rather than shown as an empty legend entry.
+    const comparedLayers = layersWithCategoryData(allLayers);
     const maxPerCategory = Math.max(
+        0,
         ...comparedLayers.flatMap((layer) => layer.categories.map((c) => c.count))
     );
     const indicatorMax = Math.ceil(maxPerCategory * 1.2 / 10) * 10;
 
     const option = {
         ...ECHARTS_ANIMATION_DEFAULTS,
-        tooltip: {},
+        // confine keeps the tooltip within this chart's own box — without it, the radar's
+        // full category breakdown (tall content) can spill outside the widget card and
+        // overlap whatever's above it in the dashboard grid.
+        tooltip: { confine: true },
         legend: { bottom: 8, textStyle: { color: '#CBD5E1', fontSize: 13 }, itemWidth: 16, itemHeight: 16 },
         radar: {
             center: ['50%', '48%'],
@@ -46,6 +58,20 @@ export const IssueCategoryRadar: React.FC = () => {
             })),
         }],
     };
+
+    if (loading) {
+        return <ChartSkeleton />;
+    }
+
+    if (hasNoReviewLayerData(comparedLayers)) {
+        return (
+            <EmptyState
+                icon={<Icons.EmptyState />}
+                title="No issue data yet"
+                description="Issue category comparisons will appear here once reviews have run for this period."
+            />
+        );
+    }
 
     return (
         <div ref={containerRef} className="w-full h-full">

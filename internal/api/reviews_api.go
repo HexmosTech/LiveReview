@@ -45,6 +45,9 @@ func validateAndParseURL(rawURL string) (*url.URL, string, error) {
 // TriggerReviewRequest represents the request to trigger a new code review
 type TriggerReviewRequest struct {
 	URL string `json:"url"`
+	// PullRequestID, if the caller already knows the internal pull_requests.id (e.g. createReview),
+	// skips setupReviewContext's best-effort web_url lookup and links the review directly.
+	PullRequestID *int64 `json:"-"`
 }
 
 // TriggerReviewResponse represents the response from triggering a code review

@@ -514,8 +514,16 @@ CREATE TABLE public.dashboard_cache (
     updated_at timestamp with time zone DEFAULT now(),
     created_at timestamp with time zone DEFAULT now(),
     org_id bigint DEFAULT 1 NOT NULL,
-    CONSTRAINT single_dashboard_row CHECK ((id = 1))
+    json_raw jsonb DEFAULT '{}'::jsonb NOT NULL,
+    final_json jsonb DEFAULT '{}'::jsonb NOT NULL
 );
+
+
+--
+-- Name: TABLE dashboard_cache; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.dashboard_cache IS 'Precomputed per-org dashboard widget data. json_raw = one entry per calendar day (source of truth, unbounded retention). final_json = derived day/week/month/all summaries read by GET /api/v1/dashboard. Refreshed by DashboardCacheManager every 5 min. Legacy id/data/created_at columns predate this repurposing (20250805104629) and are unused by current code.';
 
 
 --
@@ -2912,7 +2920,7 @@ ALTER TABLE ONLY public.billing_notification_outbox
 --
 
 ALTER TABLE ONLY public.dashboard_cache
-    ADD CONSTRAINT dashboard_cache_pkey PRIMARY KEY (id);
+    ADD CONSTRAINT dashboard_cache_pkey PRIMARY KEY (org_id);
 
 
 --
@@ -3730,13 +3738,6 @@ CREATE INDEX idx_chunks_appctx ON public.prompt_chunks USING btree (application_
 --
 
 CREATE INDEX idx_chunks_prompt_var ON public.prompt_chunks USING btree (prompt_key, variable_name);
-
-
---
--- Name: idx_dashboard_cache_org_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_dashboard_cache_org_id ON public.dashboard_cache USING btree (org_id);
 
 
 --
@@ -5627,4 +5628,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260707220001'),
     ('20260727120000'),
     ('20260727120001'),
+    ('20260803154217');
     ('20260729150001');
