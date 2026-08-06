@@ -173,11 +173,17 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 			resp.Images = images
 			// The Vega-Lite JSON must never surface in the chat. If stripping
 			// removes everything, keep only the surrounding text (or empty).
+			cleanText = strings.TrimSpace(cleanText)
+			if cleanText == "" {
+				cleanText = "Here is the data you asked about."
+			}
 			resp.Response = cleanText
 		} else {
 			// Rendering failed even after retries: never show the raw JSON.
 			resp.Response = "Having an issue generating the data, please try again."
 		}
+	} else if looksLikeTruncatedVegaSpec(responseText) {
+		resp.Response = extractDescriptionFromVegaSpec(responseText)
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -348,6 +354,92 @@ func removeEmptyCodeFences(raw string) string {
 		lines = append(lines, ln)
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+// looksLikeTruncatedVegaSpec returns true if text looks like a Vega-Lite
+// report wrapper that was cut off before the "spec" field was emitted.
+func looksLikeTruncatedVegaSpec(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" || trimmed[0] != '{' || trimmed[len(trimmed)-1] == '}' {
+		return false
+	}
+	return strings.Contains(text, `"title"`) && strings.Contains(text, `"description"`) && !strings.Contains(text, `"spec"`)
+}
+
+// extractDescriptionFromVegaSpec tries to pull the "description" value out of
+// a truncated Vega-Lite JSON string using a simple scan (json.Unmarshal cannot
+// parse incomplete JSON). Returns a user-friendly fallback on failure.
+func extractDescriptionFromVegaSpec(text string) string {
+	idx := strings.Index(text, `"description"`)
+	if idx < 0 {
+		return "Here is the data you asked about."
+	}
+	rest := text[idx+len(`"description"`):]
+	// skip optional whitespace + colon
+	rest = strings.TrimSpace(rest)
+	if len(rest) == 0 || rest[0] != ':' {
+		return "Here is the data you asked about."
+	}
+	rest = strings.TrimSpace(rest[1:])
+	if len(rest) == 0 || rest[0] != '"' {
+		return "Here is the data you asked about."
+	}
+	// scan to matching unescaped closing quote
+	var desc strings.Builder
+	inEscape := false
+	for i := 1; i < len(rest); i++ {
+		ch := rest[i]
+		if inEscape {
+			switch ch {
+			case 'n':
+				desc.WriteByte('\n')
+			case 't':
+				desc.WriteByte('\t')
+			case 'r':
+				desc.WriteByte('\r')
+			case 'b':
+				desc.WriteByte('\b')
+			case 'f':
+				desc.WriteByte('\f')
+			case '/':
+				desc.WriteByte('/')
+			case '\\':
+				desc.WriteByte('\\')
+			case '"':
+				desc.WriteByte('"')
+			case 'u':
+				// Decode \uXXXX unicode escapes.
+				if i+4 < len(rest) {
+					if r, err := strconv.ParseUint(rest[i+1:i+5], 16, 32); err == nil {
+						desc.WriteRune(rune(r))
+						i += 4
+					} else {
+						desc.WriteString(`\u`)
+					}
+				} else {
+					desc.WriteString(`\u`)
+				}
+			default:
+				desc.WriteByte('\\')
+				desc.WriteByte(ch)
+			}
+			inEscape = false
+			continue
+		}
+		if ch == '\\' {
+			inEscape = true
+			continue
+		}
+		if ch == '"' {
+			break
+		}
+		desc.WriteByte(ch)
+	}
+	result := strings.TrimSpace(desc.String())
+	if result == "" {
+		return "Here is the data you asked about."
+	}
+	return result
 }
 
 func (s *Server) resolveOrgConnector(ctx context.Context, orgID int64) (*aiconnectors.Connector, error) {
