@@ -64,8 +64,13 @@ const Sidebar: React.FC<SidebarProps> = ({ files, hunkNav, activeFileId, filters
   return (
     // Sticky so the file list stays reachable while the (much longer) diff
     // content scrolls past it — git-lrc's sidebar is a fixed side panel for
-    // the same reason.
-    <div className="sticky top-4 flex max-h-[calc(100vh-2rem)] w-64 shrink-0 flex-col overflow-hidden rounded-lg border border-slate-700 bg-slate-800/60">
+    // the same reason. LiveReview's own <Navbar> is itself "sticky top-0
+    // z-50" (65px tall) — sticking this to top-4 (16px) put it underneath
+    // the navbar once scrolled, clipping its top edge. top-16 seats it
+    // right below the navbar instead, matching the same fix already applied
+    // to IssueFilterBar's sticky offset; max-height is adjusted to match so
+    // it doesn't run off the bottom of the viewport.
+    <div className="sticky top-16 flex max-h-[calc(100vh-5rem)] w-64 shrink-0 flex-col overflow-hidden rounded-lg border border-slate-700 bg-slate-800/60">
       <div className="border-b border-slate-700 px-3 py-2.5">
         <h2 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
           <Icons.Folder />
