@@ -12,10 +12,14 @@ import (
 
 type SlackConfigHandler struct {
 	storage *slackbot.Storage
+	apiKeys *APIKeyManager
 }
 
 func NewSlackConfigHandler(db *sql.DB) *SlackConfigHandler {
-	return &SlackConfigHandler{storage: slackbot.NewStorage(db)}
+	return &SlackConfigHandler{
+		storage: slackbot.NewStorage(db),
+		apiKeys: NewAPIKeyManager(db),
+	}
 }
 
 // GetSlackConfig returns the org's slack bot configuration (without secrets).
@@ -69,7 +73,6 @@ func (h *SlackConfigHandler) PutSlackConfig(c echo.Context) error {
 
 	var req struct {
 		BotToken string `json:"bot_token"`
-		APIKey   string `json:"api_key"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
@@ -77,11 +80,23 @@ func (h *SlackConfigHandler) PutSlackConfig(c echo.Context) error {
 	if req.BotToken == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot_token is required")
 	}
-	if req.APIKey == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "api_key is required")
+
+	userID := pc.GetUserID()
+
+	apiKey := ""
+	existing, err := h.storage.GetSlackConfig(c.Request().Context(), orgID)
+	if err == nil && existing != nil {
+		apiKey = existing.APIKey
+	}
+	if apiKey == "" {
+		_, plainKey, err := h.apiKeys.CreateAPIKey(userID, orgID, "slack-bot", []string{}, nil)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to generate API key")
+		}
+		apiKey = plainKey
 	}
 
-	cfg, err := h.storage.UpsertSlackConfig(c.Request().Context(), orgID, req.BotToken, req.APIKey)
+	cfg, err := h.storage.UpsertSlackConfig(c.Request().Context(), orgID, req.BotToken, apiKey)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to save slack config")
 	}
@@ -110,6 +125,13 @@ func (h *SlackConfigHandler) DeleteSlackConfig(c echo.Context) error {
 	}
 	if !pc.IsSuperAdmin && (pc.OrgID != orgID || pc.Role != "owner") {
 		return echo.NewHTTPError(http.StatusForbidden, "owner or super admin privileges required")
+	}
+
+	existing, err := h.storage.GetSlackConfig(c.Request().Context(), orgID)
+	if err == nil && existing != nil && existing.APIKey != "" {
+		if err := h.apiKeys.RevokeAPIKeyByPlainKey(c.Request().Context(), existing.APIKey); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to revoke slack API key")
+		}
 	}
 
 	if err := h.storage.DeleteSlackConfig(c.Request().Context(), orgID); err != nil {
