@@ -3,10 +3,12 @@ package users
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/rs/zerolog/log"
 	"github.com/livereview/network/email"
 	storageusers "github.com/livereview/storage/users"
@@ -261,6 +263,331 @@ func (us *UserService) CheckUserByEmail(email string) (*UserCheckResponse, error
 		FirstName: firstName.String,
 		LastName:  lastName.String,
 	}, nil
+}
+
+// BulkCheckUserRow represents a single candidate row submitted for bulk invite verification
+type BulkCheckUserRow struct {
+	Email     string `json:"email" validate:"required,email"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Role      string `json:"role"`
+}
+
+// BulkCheckResultRow is a BulkCheckUserRow enriched with existing-membership info.
+// The Old* fields are only populated when the org already has a member with that
+// email and the corresponding field differs from what was submitted.
+type BulkCheckResultRow struct {
+	Email          string `json:"email"`
+	FirstName      string `json:"first_name"`
+	LastName       string `json:"last_name"`
+	Role           string `json:"role"`
+	Exists         bool   `json:"exists"`
+	ExistsGlobally bool   `json:"exists_globally"`
+	OldEmail       string `json:"old_email,omitempty"`
+	OldFirstName   string `json:"old_first_name,omitempty"`
+	OldLastName    string `json:"old_last_name,omitempty"`
+	OldRole        string `json:"old_role,omitempty"`
+}
+
+// BulkCheckUsersInOrg compares a batch of candidate rows (e.g. parsed from a CSV upload)
+// against existing members of orgID, matched by email. It does not create or modify
+// any users — it's a read-only preview used before an actual bulk invite is submitted.
+func (us *UserService) BulkCheckUsersInOrg(orgID int64, rows []BulkCheckUserRow) ([]BulkCheckResultRow, error) {
+	emails := make([]string, 0, len(rows))
+	for _, r := range rows {
+		emails = append(emails, strings.ToLower(strings.TrimSpace(r.Email)))
+	}
+
+	type existingMember struct {
+		Email     string
+		FirstName string
+		LastName  string
+		Role      string
+	}
+	existingByEmail := make(map[string]existingMember, len(rows))
+
+	if len(emails) > 0 {
+		dbRows, err := us.store.Query(`
+			SELECT u.email, u.first_name, u.last_name, r.name
+			FROM users u
+			JOIN user_roles ur ON u.id = ur.user_id
+			JOIN roles r ON ur.role_id = r.id
+			WHERE ur.org_id = $1 AND LOWER(u.email) = ANY($2)
+		`, orgID, pq.Array(emails))
+		if err != nil {
+			return nil, fmt.Errorf("failed to look up existing members: %w", err)
+		}
+		defer dbRows.Close()
+
+		for dbRows.Next() {
+			var m existingMember
+			var firstName, lastName sql.NullString
+			if err := dbRows.Scan(&m.Email, &firstName, &lastName, &m.Role); err != nil {
+				return nil, fmt.Errorf("failed to scan existing member: %w", err)
+			}
+			m.FirstName = firstName.String
+			m.LastName = lastName.String
+			existingByEmail[strings.ToLower(m.Email)] = m
+		}
+	}
+
+	globalEmails := make(map[string]bool, len(rows))
+	if len(emails) > 0 {
+		globalRows, err := us.store.Query(`SELECT LOWER(email) FROM users WHERE LOWER(email) = ANY($1)`, pq.Array(emails))
+		if err != nil {
+			return nil, fmt.Errorf("failed to look up global users: %w", err)
+		}
+		defer globalRows.Close()
+		for globalRows.Next() {
+			var email string
+			if err := globalRows.Scan(&email); err != nil {
+				return nil, fmt.Errorf("failed to scan global user: %w", err)
+			}
+			globalEmails[email] = true
+		}
+	}
+
+	results := make([]BulkCheckResultRow, 0, len(rows))
+	for _, r := range rows {
+		result := BulkCheckResultRow{
+			Email:     strings.TrimSpace(r.Email),
+			FirstName: strings.TrimSpace(r.FirstName),
+			LastName:  strings.TrimSpace(r.LastName),
+			Role:      strings.TrimSpace(r.Role),
+		}
+		result.ExistsGlobally = globalEmails[strings.ToLower(result.Email)]
+
+		if existing, ok := existingByEmail[strings.ToLower(result.Email)]; ok {
+			result.Exists = true
+			if existing.Email != result.Email {
+				result.OldEmail = existing.Email
+			}
+			if existing.FirstName != result.FirstName {
+				result.OldFirstName = existing.FirstName
+			}
+			if existing.LastName != result.LastName {
+				result.OldLastName = existing.LastName
+			}
+			if !strings.EqualFold(existing.Role, result.Role) {
+				result.OldRole = existing.Role
+			}
+		}
+
+		results = append(results, result)
+	}
+
+	return results, nil
+}
+
+// BulkInviteUserRow represents a single row submitted for a real bulk invite/update
+type BulkInviteUserRow struct {
+	Email           string `json:"email"`
+	FirstName       string `json:"first_name"`
+	LastName        string `json:"last_name"`
+	Role            string `json:"role"`
+	Password        string `json:"password"`
+	ConfirmPassword string `json:"confirm_password"`
+}
+
+// BulkInviteResultRow reports what happened to a single BulkInviteUserRow
+type BulkInviteResultRow struct {
+	Email   string `json:"email"`
+	Status  string `json:"status"` // "invited" | "updated" | "unchanged" | "error"
+	Message string `json:"message,omitempty"`
+}
+
+// BulkInvitePermissions mirrors the finer-grained permissions the single-user
+// endpoints check (CreateUser needs create_users, UpdateUser needs edit_users,
+// ChangeUserRole needs manage_roles) so a future split of these permissions
+// doesn't silently let a create-only actor also edit or re-role existing members.
+type BulkInvitePermissions struct {
+	CanCreate      bool
+	CanEdit        bool
+	CanManageRoles bool
+}
+
+// BulkInviteUsersInOrg processes a batch of rows (e.g. from a reviewed CSV upload),
+// creating brand-new org members and updating existing ones. Rows are processed
+// independently (best-effort) so one bad row doesn't block the rest of the batch.
+func (us *UserService) BulkInviteUsersInOrg(orgID, actorUserID int64, rows []BulkInviteUserRow, perms BulkInvitePermissions) ([]BulkInviteResultRow, error) {
+	roleIDsByName := make(map[string]int64)
+	roleRows, err := us.store.Query(`SELECT id, name FROM roles`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load roles: %w", err)
+	}
+	for roleRows.Next() {
+		var id int64
+		var name string
+		if err := roleRows.Scan(&id, &name); err != nil {
+			roleRows.Close()
+			return nil, fmt.Errorf("failed to scan role: %w", err)
+		}
+		roleIDsByName[strings.ToLower(name)] = id
+	}
+	roleRows.Close()
+
+	type existingMember struct {
+		UserID    int64
+		FirstName string
+		LastName  string
+		RoleID    int64
+		RoleName  string
+	}
+	emails := make([]string, 0, len(rows))
+	for _, r := range rows {
+		emails = append(emails, strings.ToLower(strings.TrimSpace(r.Email)))
+	}
+	existingByEmail := make(map[string]existingMember, len(rows))
+	if len(emails) > 0 {
+		dbRows, err := us.store.Query(`
+			SELECT u.id, u.email, u.first_name, u.last_name, r.id, r.name
+			FROM users u
+			JOIN user_roles ur ON u.id = ur.user_id
+			JOIN roles r ON ur.role_id = r.id
+			WHERE ur.org_id = $1 AND LOWER(u.email) = ANY($2)
+		`, orgID, pq.Array(emails))
+		if err != nil {
+			return nil, fmt.Errorf("failed to look up existing members: %w", err)
+		}
+		for dbRows.Next() {
+			var m existingMember
+			var email, firstName, lastName sql.NullString
+			if err := dbRows.Scan(&m.UserID, &email, &firstName, &lastName, &m.RoleID, &m.RoleName); err != nil {
+				dbRows.Close()
+				return nil, fmt.Errorf("failed to scan existing member: %w", err)
+			}
+			m.FirstName = firstName.String
+			m.LastName = lastName.String
+			existingByEmail[strings.ToLower(email.String)] = m
+		}
+		dbRows.Close()
+	}
+
+	results := make([]BulkInviteResultRow, 0, len(rows))
+	for _, r := range rows {
+		email := strings.TrimSpace(r.Email)
+		firstName := strings.TrimSpace(r.FirstName)
+		lastName := strings.TrimSpace(r.LastName)
+		roleName := strings.ToLower(strings.TrimSpace(r.Role))
+
+		roleID, roleKnown := roleIDsByName[roleName]
+		if !roleKnown {
+			results = append(results, BulkInviteResultRow{Email: email, Status: "error", Message: fmt.Sprintf("Unknown role '%s'", r.Role)})
+			continue
+		}
+
+		if existing, ok := existingByEmail[strings.ToLower(email)]; ok {
+			updateReq := UpdateUserRequest{}
+			nameChanging := false
+
+			if firstName != existing.FirstName {
+				updateReq.FirstName = &firstName
+				nameChanging = true
+			}
+			if lastName != existing.LastName {
+				updateReq.LastName = &lastName
+				nameChanging = true
+			}
+			roleChanging := roleID != existing.RoleID
+
+			if (nameChanging || roleChanging) && !perms.CanEdit {
+				results = append(results, BulkInviteResultRow{Email: email, Status: "error", Message: "Permission denied: cannot update users"})
+				continue
+			}
+			if roleChanging && !perms.CanManageRoles {
+				results = append(results, BulkInviteResultRow{Email: email, Status: "error", Message: "Permission denied: cannot change user roles"})
+				continue
+			}
+
+			if roleChanging {
+				if strings.EqualFold(existing.RoleName, "owner") {
+					var remainingOwners int
+					err := us.store.QueryRow(`
+						SELECT COUNT(*) FROM user_roles ur
+						JOIN roles r ON ur.role_id = r.id
+						WHERE ur.org_id = $1 AND LOWER(r.name) = 'owner' AND ur.user_id != $2
+					`, orgID, existing.UserID).Scan(&remainingOwners)
+					if err != nil {
+						results = append(results, BulkInviteResultRow{Email: email, Status: "error", Message: "Failed to verify owner count"})
+						continue
+					}
+					if remainingOwners == 0 {
+						results = append(results, BulkInviteResultRow{Email: email, Status: "error", Message: "Cannot change role: this is the only owner of the organization"})
+						continue
+					}
+				}
+				updateReq.RoleID = &roleID
+			}
+
+			if !nameChanging && !roleChanging {
+				results = append(results, BulkInviteResultRow{Email: email, Status: "unchanged"})
+				continue
+			}
+
+			if _, err := us.UpdateUserInOrg(orgID, existing.UserID, actorUserID, updateReq); err != nil {
+				results = append(results, BulkInviteResultRow{Email: email, Status: "error", Message: friendlyBulkInviteError(err, "update")})
+				continue
+			}
+			results = append(results, BulkInviteResultRow{Email: email, Status: "updated"})
+			continue
+		}
+
+		if !perms.CanCreate {
+			results = append(results, BulkInviteResultRow{Email: email, Status: "error", Message: "Permission denied: cannot create users"})
+			continue
+		}
+
+		if r.Password != "" {
+			if len(r.Password) < 8 {
+				results = append(results, BulkInviteResultRow{Email: email, Status: "error", Message: "Password must be at least 8 characters"})
+				continue
+			}
+			if r.Password != r.ConfirmPassword {
+				results = append(results, BulkInviteResultRow{Email: email, Status: "error", Message: "Passwords do not match"})
+				continue
+			}
+		}
+
+		_, err := us.CreateUserInOrg(orgID, actorUserID, CreateUserRequest{
+			Email:     email,
+			Password:  r.Password,
+			FirstName: firstName,
+			LastName:  lastName,
+			RoleID:    roleID,
+		})
+		if err != nil {
+			results = append(results, BulkInviteResultRow{Email: email, Status: "error", Message: friendlyBulkInviteError(err, "invite")})
+			continue
+		}
+		results = append(results, BulkInviteResultRow{Email: email, Status: "invited"})
+	}
+
+	return results, nil
+}
+
+// friendlyBulkInviteError maps known CreateUserInOrg/UpdateUserInOrg error cases to a
+// message safe to show an admin, logging the raw error for anything unexpected.
+func friendlyBulkInviteError(err error, action string) string {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "already a member"):
+		return "Already a member of this organization"
+	case strings.Contains(msg, "password is required for new users"):
+		return "Password is required for new users"
+	case strings.Contains(msg, "passwords do not match"):
+		return "Passwords do not match"
+	}
+
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+		return "Email already exists"
+	}
+
+	log.Error().Err(err).Str("action", action).Msg("Bulk invite row failed")
+	if action == "update" {
+		return "Failed to update user"
+	}
+	return "Failed to invite user"
 }
 
 // GetUserInOrg gets a user in a specific organization with their role

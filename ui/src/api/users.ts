@@ -11,6 +11,59 @@ export const checkUserByEmail = async (orgId: string, email: string): Promise<Us
   return apiClient.get<UserCheckResponse>(`/orgs/${orgId}/users/check?email=${encodeURIComponent(email)}`);
 };
 
+export interface BulkCheckUserRow {
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: string;
+}
+
+export interface BulkCheckResultRow {
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: string;
+  exists: boolean;
+  exists_globally: boolean;
+  old_email?: string;
+  old_first_name?: string;
+  old_last_name?: string;
+  old_role?: string;
+}
+
+export interface BulkCheckResponse {
+  results: BulkCheckResultRow[];
+}
+
+export const bulkCheckUsers = async (orgId: string, users: BulkCheckUserRow[]): Promise<BulkCheckResultRow[]> => {
+  const response = await apiClient.post<BulkCheckResponse>(`/orgs/${orgId}/users/bulk-check`, { users });
+  return response.results;
+};
+
+export interface BulkInviteUserRow {
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: string;
+  password: string;
+  confirm_password: string;
+}
+
+export interface BulkInviteResultRow {
+  email: string;
+  status: 'invited' | 'updated' | 'unchanged' | 'error';
+  message?: string;
+}
+
+export interface BulkInviteResponse {
+  results: BulkInviteResultRow[];
+}
+
+export const submitBulkInvite = async (orgId: string, users: BulkInviteUserRow[]): Promise<BulkInviteResultRow[]> => {
+  const response = await apiClient.post<BulkInviteResponse>(`/orgs/${orgId}/users/bulk-invite`, { users });
+  return response.results;
+};
+
 // --- TypeScript Interfaces ---
 
 export interface Member {
