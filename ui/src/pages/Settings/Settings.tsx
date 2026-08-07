@@ -296,7 +296,7 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
-        ...(isSuperAdmin && !isCloudMode() ? [{
+        ...(isSuperAdmin ? [{
             id: 'storage',
             name: 'Storage',
             icon: (
@@ -741,7 +741,7 @@ const Settings = () => {
                         </Card>
                     )}
 
-                    {activeTab === 'storage' && isSuperAdmin && !isCloudMode() && (
+                    {activeTab === 'storage' && isSuperAdmin && (
                         <Card>
                             <StorageSettingsTab />
                         </Card>
