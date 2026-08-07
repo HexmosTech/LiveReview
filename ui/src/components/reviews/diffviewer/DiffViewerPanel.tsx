@@ -17,7 +17,7 @@ import { Button, EmptyState, Icons, Spinner } from '../../UIPrimitives';
 import { getBlastRadiusReport, getDiffReview } from '../../../api/reviews';
 import { BlastRadiusHunkReport, DiffReviewFile, DiffReviewStatusResponse } from '../../../types/reviews';
 import { attachBlastData, buildBlastLookup, flattenFilesByRisk, hasBlastRadiusData, sortFilesByBlastRadius } from '../../../lib/blastRadius';
-import { commentDomId, fileNavId } from './diffUtils';
+import { commentDomId, fileNavId, scrollElementIntoViewBelowStickyBars } from './diffUtils';
 import {
   buildFilterFacets,
   commentMatchesFilters,
@@ -231,7 +231,7 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId }) => {
       // first (highest-ranked) one, matching git-lrc's handleFileClick
       // fallback exactly (app.js:632-634).
       const el = document.getElementById(to) || document.querySelector(`[id^="${to}--hunk-"]`);
-      el?.scrollIntoView({ behavior: 'smooth', block: file ? 'center' : 'start' });
+      scrollElementIntoViewBelowStickyBars(el as HTMLElement | null);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);

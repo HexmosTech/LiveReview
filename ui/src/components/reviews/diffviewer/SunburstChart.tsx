@@ -2,7 +2,7 @@
 // leaf-count-proportional radial partition — same layout algorithm as FlameGraph.tsx,
 // just polar instead of Cartesian) as of the git-lrc HEAD current when this port was
 // written. Rebuilt as plain SVG + React state instead of D3 selections/arc generators.
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { BlastRadiusSymbolContribution } from '../../../types/reviews';
 import { buildHierarchy, CallHierarchyNode, emptyCallGraphMessage } from '../../../lib/blastRadius';
 
@@ -113,6 +113,21 @@ const SunburstChart: React.FC<SunburstChartProps> = ({ symbol, width, height, ho
     return layoutSegments(root, maxRadius);
   }, [symbol, maxRadius]);
 
+  // Entrance animation — git-lrc's D3 join animates each arc in with
+  // `.transition().duration(400).delay((d,i) => i*8)` (SunburstChart.js:94),
+  // a staggered grow/fade-in. Replicated here as a CSS transition on
+  // opacity+scale (no D3 dependency): segments start scaled down/transparent
+  // and animate to full size on mount, with the same per-index 8ms stagger.
+  // Re-triggers whenever the layout changes (symbol nav, sort mode) so
+  // switching symbols redraws with the same entrance instead of just
+  // snapping to the new shape.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(false);
+    const raf = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(raf);
+  }, [layout]);
+
   if (!symbol || !symbol.Callers || symbol.Callers.length === 0) {
     return <div className="flex items-center justify-center text-xs text-slate-500" style={{ width, height }}>{emptyCallGraphMessage(symbol)}</div>;
   }
@@ -129,9 +144,14 @@ const SunburstChart: React.FC<SunburstChartProps> = ({ symbol, width, height, ho
             key={`${seg.node.qualifiedName}-${i}`}
             d={arcPath(cx, cy, seg.innerR, seg.outerR, seg.startAngle, seg.endAngle)}
             fill={DEPTH_COLORS[seg.depth % DEPTH_COLORS.length]}
-            opacity={dimmed ? 0.25 : 0.9}
+            opacity={mounted ? (dimmed ? 0.25 : 0.9) : 0}
             stroke="#1a1a1a"
             strokeWidth={0.75}
+            style={{
+              transformOrigin: `${cx}px ${cy}px`,
+              transform: mounted ? 'scale(1)' : 'scale(0.6)',
+              transition: `opacity 320ms ease ${i * 8}ms, transform 320ms cubic-bezier(0.22, 1, 0.36, 1) ${i * 8}ms`,
+            }}
             onMouseEnter={() => setHovered(seg.node.qualifiedName)}
             onMouseLeave={() => setHovered(null)}
           >

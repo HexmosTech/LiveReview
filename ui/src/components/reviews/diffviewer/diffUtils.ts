@@ -95,6 +95,44 @@ export function hunkDomId(navId: string, hunkIndex: number): string {
   return `hunk-${navId}-${hunkIndex}`;
 }
 
+// Every programmatic scroll-to-element in the diff viewer (sidebar file/hunk
+// clicks, comment nav, Open Breakdown) has to clear TWO stacked floating
+// bars, not one: LiveReview's own top <nav> (always sticky) and
+// IssueFilterBar (sticky once scrolled to it — see its `data-issue-filter-
+// bar` attribute). Plain `scrollIntoView({block:'start'})` (or a static
+// `scroll-mt-*` class) only ever accounts for a fixed guess, so targets
+// consistently land underneath one or both bars once the filter bar has
+// stuck. This measures both bars' actual current height — the filter bar's
+// only counts if it's actually stuck at scroll time, so jumping to
+// something above its natural position doesn't over-reserve space — and
+// scrolls with that combined offset instead of trusting scrollIntoView's
+// own alignment.
+function computeStickyScrollOffset(): number {
+  const nav = document.querySelector('nav');
+  const navHeight = nav ? nav.getBoundingClientRect().height : 0;
+  const filterBar = document.querySelector('[data-issue-filter-bar]');
+  let filterBarHeight = 0;
+  if (filterBar) {
+    const rect = filterBar.getBoundingClientRect();
+    // Stuck iff its top edge is pinned at (roughly) the navbar's bottom
+    // edge, its sticky `top` offset — anything higher means it's still in
+    // normal flow above that point and isn't actually occupying space at
+    // the current scroll position.
+    if (rect.top <= navHeight + 2) {
+      filterBarHeight = rect.height;
+    }
+  }
+  // Generous gap, not a tight minimum — landing a target flush against the
+  // sticky bars still reads as "cut off" even when technically uncovered.
+  return navHeight + filterBarHeight + 32;
+}
+
+export function scrollElementIntoViewBelowStickyBars(el: HTMLElement | null): void {
+  if (!el) return;
+  const top = el.getBoundingClientRect().top + window.scrollY - computeStickyScrollOffset();
+  window.scrollTo({ top, behavior: 'smooth' });
+}
+
 // Badge's shared info/warning/danger variants use light-mode Tailwind colors
 // (bg-blue-100 text-blue-800 etc) meant for a light surface elsewhere in the
 // app — on the dark comment card they render as washed-out pastel chips with

@@ -105,6 +105,38 @@ function groupSignalsBySymbol(signals: BlastRadiusSignal[]) {
   return { ungrouped, groups };
 }
 
+const DETAIL_LIST_PREVIEW = 6;
+
+// Some signal Detail strings are comma-separated lists (impacted route
+// names, package paths, caller names) that can run to dozens of entries
+// with no truncation applied server-side — clamp them client-side with a
+// "+N more"/"show less" toggle instead of dumping the whole wall of text
+// inline, the same preview pattern already used for ChipList/CallerGroupView.
+const SignalDetailText: React.FC<{ detail: string }> = ({ detail }) => {
+  const [showAll, setShowAll] = useState(false);
+  const parts = detail.split(', ');
+  if (parts.length <= DETAIL_LIST_PREVIEW) return <>{detail}</>;
+  if (showAll) {
+    return (
+      <>
+        {detail}{' '}
+        <button type="button" className="text-slate-400 underline decoration-dotted hover:text-slate-200" onClick={(e) => { e.stopPropagation(); setShowAll(false); }}>
+          show less
+        </button>
+      </>
+    );
+  }
+  const hidden = parts.length - DETAIL_LIST_PREVIEW;
+  return (
+    <>
+      {parts.slice(0, DETAIL_LIST_PREVIEW).join(', ')}{' '}
+      <button type="button" className="text-slate-400 underline decoration-dotted hover:text-slate-200" onClick={(e) => { e.stopPropagation(); setShowAll(true); }}>
+        +{hidden} more
+      </button>
+    </>
+  );
+};
+
 const SignalRow: React.FC<{ s: BlastRadiusSignal; dormant?: boolean }> = ({ s, dormant }) => {
   const positive = (s.Points || 0) >= 0;
   return (
@@ -114,7 +146,7 @@ const SignalRow: React.FC<{ s: BlastRadiusSignal; dormant?: boolean }> = ({ s, d
       </span>
       <span className={classNames('flex-1', dormant ? 'text-slate-600' : 'text-slate-300')}>
         {s.Name}
-        {s.Detail && <span className="ml-1 text-slate-500">— {s.Detail}</span>}
+        {s.Detail && <span className="ml-1 text-slate-500">— <SignalDetailText detail={s.Detail} /></span>}
       </span>
     </li>
   );
@@ -211,30 +243,42 @@ function renderMathDimension(
   const stepScale = n++;
   const isSelf = maxSource.file === self.file && maxSource.header === self.header;
 
+  // Ported 1:1 from git-lrc's .math-section/.math-step CSS (styles.css:2940-2996):
+  // each dimension is its own bordered card with a title separated by a rule,
+  // step labels are small/bold/uppercase/blue, and the actual arithmetic lines
+  // switch to a monospace font while explanatory prose ("dim") lines stay
+  // sans-serif — a distinction the port previously collapsed into one flat
+  // text style for everything.
   const node = (
-    <div className="space-y-2">
-      <div className="text-sm font-semibold text-slate-200">{title}</div>
-      <div>
-        <div className="text-xs font-medium text-slate-400">Step {stepAdd} — add up each symbol's own signals</div>
-        {perSymbol.length === 0 && !hunkExpr && <div className="text-xs text-slate-500">No signals fired for this dimension.</div>}
+    <div className="rounded-md border border-slate-700 bg-slate-900 p-3">
+      <div className="mb-2 border-b border-slate-700 pb-1.5 text-xs font-bold text-slate-200">{title}</div>
+      <div className="mb-2.5">
+        <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {stepAdd} — add up each symbol's own signals</div>
+        {perSymbol.length === 0 && !hunkExpr && <div className="pl-1 text-xs text-slate-500">No signals fired for this dimension.</div>}
         {perSymbol.map((l, i) => (
-          <div key={i} className="text-xs text-slate-300"><code className="text-slate-400">{l.name}</code>: {l.text} = <strong>{l.total.toFixed(1)}</strong></div>
+          <div key={i} className="pl-1 font-mono text-xs leading-relaxed text-slate-300">
+            <span className="font-semibold text-slate-500">{l.name}</span>: {l.text} = <strong className="text-slate-100">{l.total.toFixed(1)}</strong>
+          </div>
         ))}
-        {hunkExpr && <div className="text-xs text-slate-300">This hunk (file-level signals): {hunkExpr.text} = <strong>{hunkExpr.total.toFixed(1)}</strong></div>}
+        {hunkExpr && (
+          <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">
+            <span className="font-semibold text-slate-500">This hunk (file-level signals)</span>: {hunkExpr.text} = <strong className="text-slate-100">{hunkExpr.total.toFixed(1)}</strong>
+          </div>
+        )}
       </div>
       {stepSum !== null && (
-        <div>
-          <div className="text-xs font-medium text-slate-400">Step {stepSum} — add every subtotal together</div>
-          <div className="text-xs text-slate-300">{totalExpr.text} = <strong>{totalExpr.total.toFixed(1)}</strong></div>
+        <div className="mb-2.5">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {stepSum} — add every subtotal together</div>
+          <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">{totalExpr.text} = <strong className="text-slate-100">{totalExpr.total.toFixed(1)}</strong></div>
         </div>
       )}
       <div>
-        <div className="text-xs font-medium text-slate-400">Step {stepScale} — scale against the highest-scoring hunk in this diff</div>
-        <div className="text-xs text-slate-300">
-          {max ? <>{(raw || 0).toFixed(1)} ÷ {max.toFixed(1)} × 100 = <strong>{(norm || 0).toFixed(1)}</strong></> : 'no hunk in this diff scored above 0 for this dimension, so this is 0'}
+        <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {stepScale} — scale against the highest-scoring hunk in this diff</div>
+        <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">
+          {max ? <>{(raw || 0).toFixed(1)} ÷ {max.toFixed(1)} × 100 = <strong className="text-slate-100">{(norm || 0).toFixed(1)}</strong></> : <>no hunk in this diff scored above 0 for this dimension, so this is <strong className="text-slate-100">0</strong></>}
         </div>
         {max > 0 && (
-          <div className="text-xs text-slate-500">
+          <div className="pl-1 text-xs text-slate-500">
             {isSelf
               ? `${max.toFixed(1)} is this very hunk's own score — it's the highest for this dimension anywhere in this diff.`
               : `${max.toFixed(1)} is the highest score for this dimension anywhere in this diff, from ${maxSource.file ? fileBaseName(maxSource.file) : 'another hunk'}${maxSource.header ? ` (${maxSource.header})` : ''}.`}
@@ -284,24 +328,28 @@ const MathModeView: React.FC<{ detail: BlastRadiusHunkReport }> = ({ detail }) =
   const stepHygiene = afterPriority + 1;
 
   return (
-    <div className="space-y-4 rounded-lg border border-slate-700 bg-slate-900 p-3">
+    <div className="flex flex-col gap-3.5">
       {blastNode}
       {priorityNode}
-      <div className="space-y-2 border-t border-slate-700 pt-3">
-        <div className="text-sm font-semibold text-slate-200">Combine Into Final Score</div>
-        <div>
-          <div className="text-xs font-medium text-slate-400">Step {stepBlend} — blend Blast Radius and Review Priority</div>
-          <div className="text-xs text-slate-300">
-            ({weights.BlastRadius.toFixed(2)} × {blastNorm.toFixed(1)}) + ({weights.ReviewPriority.toFixed(2)} × {priorityNorm.toFixed(1)}) = {blastShare.toFixed(1)} + {priorityShare.toFixed(1)} = <strong>{blended.toFixed(1)}</strong>
+      <div className="rounded-md border border-slate-700 bg-slate-900 p-3">
+        <div className="mb-2 border-b border-slate-700 pb-1.5 text-xs font-bold text-slate-200">Combine Into Final Score</div>
+        <div className="mb-2.5">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {stepBlend} — blend Blast Radius and Review Priority</div>
+          <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">
+            ({weights.BlastRadius.toFixed(2)} × {blastNorm.toFixed(1)}) + ({weights.ReviewPriority.toFixed(2)} × {priorityNorm.toFixed(1)}) = {blastShare.toFixed(1)} + {priorityShare.toFixed(1)} = <strong className="text-slate-100">{blended.toFixed(1)}</strong>
           </div>
         </div>
-        <div>
-          <div className="text-xs font-medium text-slate-400">Step {stepHygiene} — apply the hygiene multiplier</div>
-          <div className="text-xs text-slate-300">{blended.toFixed(1)} × {hygiene} = <strong>{final.toFixed(1)}</strong></div>
+        <div className="mb-2.5">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {stepHygiene} — apply the hygiene multiplier</div>
+          <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">{blended.toFixed(1)} × {hygiene} = <strong className="text-slate-100">{final.toFixed(1)}</strong></div>
         </div>
-        <div className="border-t border-slate-700 pt-2 text-sm">
-          <span className="text-slate-400">Final Score: </span>
-          Rounded to the nearest whole number: <strong className="text-white">{Math.round(detail.Combined || 0)}</strong> out of 100
+        {/* .math-step.final — top border + larger blue final number, distinct
+            from the other steps above it. */}
+        <div className="border-t border-slate-700 pt-2.5">
+          <div className="mb-1 text-xs font-bold text-slate-200">Final Score</div>
+          <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">
+            Rounded to the nearest whole number: <strong className="text-base text-sky-400">{Math.round(detail.Combined || 0)}</strong> out of 100
+          </div>
         </div>
       </div>
     </div>

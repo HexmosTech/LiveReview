@@ -96,10 +96,21 @@ const SummarySlideshow: React.FC<SummarySlideshowProps> = ({ reviewId, summary, 
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  const isLast = currentSlide >= slides.length - 1;
+  // git-lrc appends one virtual "complete" slide past the last real content
+  // slide (currentSlide can reach slides.length, not just slides.length-1 —
+  // SummarySlideshow.js:747-751's clampSlideIndex is called with
+  // parsedSlides.length, not length-1) — it's what renders the celebration
+  // screen, and it's the only thing that makes the "Complete" chapter-track
+  // segment (buildProgressTrackItems' COMPLETE_TRACK_ITEM_KEY, already
+  // ported in chapterNav.ts) ever actually reachable/fillable. Without it,
+  // the progress readout could hit 100% on the last *content* slide while
+  // the track's final segment stayed permanently unfilled, since its
+  // startIndex (slides.length) was a position nothing could ever reach.
+  const isCompleteSlide = currentSlide >= slides.length;
+  const totalSlidesWithComplete = slides.length + 1;
 
-  const goTo = (idx: number) => setCurrentSlide(clampSlideIndex(idx, slides.length - 1));
-  const goNext = () => { if (!isLast) goTo(currentSlide + 1); else setIsAutoPlay(false); };
+  const goTo = (idx: number) => setCurrentSlide(clampSlideIndex(idx, slides.length));
+  const goNext = () => { if (!isCompleteSlide) goTo(currentSlide + 1); else setIsAutoPlay(false); };
   const goPrev = () => goTo(currentSlide - 1);
 
   const copyCurrentSlide = () => {
@@ -112,14 +123,13 @@ const SummarySlideshow: React.FC<SummarySlideshowProps> = ({ reviewId, summary, 
     });
   };
 
-  // Autoplay: advance to the next slide after its own read-time elapses.
+  // Autoplay: advance to the next slide after its own read-time elapses;
+  // stops on its own once it reaches the complete slide.
   useEffect(() => {
     if (!isAutoPlay || slides.length === 0) return;
+    if (isCompleteSlide) { setIsAutoPlay(false); return; }
     const slide = slides[currentSlide];
-    const timer = window.setTimeout(() => {
-      if (isLast) setIsAutoPlay(false);
-      else goNext();
-    }, (slide?.readTime || 5) * 1000);
+    const timer = window.setTimeout(() => goNext(), (slide?.readTime || 5) * 1000);
     autoplayTimerRef.current = timer;
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -156,20 +166,37 @@ const SummarySlideshow: React.FC<SummarySlideshowProps> = ({ reviewId, summary, 
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentSlide, slides.length, isLast]);
+  }, [currentSlide, slides.length, isCompleteSlide]);
 
   if (slides.length === 0) {
     return <p className="text-sm text-slate-500">No summary was generated for this review.</p>;
   }
 
-  const slide = slides[currentSlide];
-  const typography = resolveSlideTypography(slide, isNarrow);
+  const slide = !isCompleteSlide ? slides[currentSlide] : undefined;
+  const typography = slide ? resolveSlideTypography(slide, isNarrow) : null;
   const activeTrackItemKey = getActiveProgressTrackItemKey(trackItems, currentSlide);
   const activeTrackMarkerKey = getActiveProgressTrackMarkerKey(trackItems, currentSlide);
   const explorerCards = buildChapterExplorerCards(trackItems, currentSlide, activeTrackItemKey, activeTrackMarkerKey);
   const totalReadTime = calculateTotalReadTime(slides);
   const remaining = formatRemainingTime(slides, currentSlide);
   const elapsedActual = Math.max(1, Math.round((now - startTime) / 1000));
+  // git-lrc's formatActualElapsed/formatElapsed (SummarySlideshow.js:101-122)
+  // — "actual" time spent vs. the "Planned" estimate from calculateTotalReadTime.
+  const formatDuration = (totalSeconds: number): string => {
+    if (totalSeconds < 60) return `${totalSeconds}s`;
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  };
+  const actualElapsed = formatDuration(Math.max(1, Math.round((Date.now() - startTime) / 1000)));
+  const plannedElapsed = formatDuration(totalReadTime);
+  // Ported 1:1 from git-lrc's progressValue (SummarySlideshow.js:750-752) —
+  // reaches 100% only on the true complete slide, not one slide early on
+  // the last *content* slide, which is what made the readout and the
+  // "Complete" track segment's fill disagree.
+  const progressValue = totalSlidesWithComplete
+    ? ((Math.min(currentSlide, totalSlidesWithComplete - 1) + 1) / totalSlidesWithComplete) * 100
+    : 0;
 
   return (
     <div ref={containerRef} className="relative">
@@ -182,50 +209,75 @@ const SummarySlideshow: React.FC<SummarySlideshowProps> = ({ reviewId, summary, 
       {/* Slide content — sized to feel like an actual presentation slide
           (git-lrc's is a near-viewport-height card), not a compact info box. */}
       <div
-        className="flex min-h-[55vh] max-h-[640px] flex-col justify-center rounded-lg border p-10"
-        style={{ background: slide.color.surface, borderColor: slide.color.accent + '80' }}
+        className={classNames(
+          'flex min-h-[55vh] max-h-[640px] flex-col justify-center rounded-lg border p-10',
+          isCompleteSlide && 'items-center text-center'
+        )}
+        style={isCompleteSlide ? { background: '#1f2430', borderColor: '#38455e' } : { background: slide!.color.surface, borderColor: slide!.color.accent + '80' }}
       >
-        {slide.kind === 'intro' ? (
-          <h2 style={{ fontSize: typography.fontSize, lineHeight: typography.lineHeight, maxWidth: typography.maxWidth, color: slide.color.title }} className="font-bold">
-            {slide.title}
+        {isCompleteSlide ? (
+          // Ported 1:1 from git-lrc's .summary-slideshow-complete block
+          // (SummarySlideshow.js:963-1007) — the celebration screen shown
+          // once every real content slide has been passed, not just a bare
+          // "Take the Quiz" button tacked onto the last content slide.
+          <div className="mx-auto max-w-[520px]">
+            <svg viewBox="0 0 240 84" width={220} height={76} className="mx-auto" aria-hidden="true">
+              <circle cx="32" cy="24" r="5" fill="#4f8cff" />
+              <circle cx="58" cy="14" r="4" fill="#38b28a" />
+              <circle cx="86" cy="28" r="4" fill="#f5a524" />
+              <circle cx="152" cy="18" r="5" fill="#9a7bff" />
+              <circle cx="188" cy="30" r="4" fill="#ff6b94" />
+              <circle cx="212" cy="16" r="5" fill="#4f8cff" />
+              <rect x="106" y="14" width="28" height="28" rx="14" fill="#233046" stroke="#7fb3ff" strokeWidth={2} />
+              <path d="M112 28l6 6 10-12" fill="none" stroke="#9ed8ff" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <div className="mb-2.5 mt-2 text-3xl font-bold tracking-tight text-slate-100">Review complete</div>
+            <p className="mb-4 text-base text-slate-300">You finished all {slides.length} slides.</p>
+            <p className="mb-4 text-sm text-slate-500">Your commitment to higher engineering standards made this review possible.</p>
+            <div className="mb-1">
+              <span className="text-2xl font-bold tracking-tight text-slate-100">{actualElapsed}</span>
+              <span className="ml-2 text-sm text-slate-500">actual</span>
+            </div>
+            <p className="mb-5 text-xs text-slate-500">Planned: {plannedElapsed}</p>
+            {hasQuiz && (
+              <Button variant="primary" onClick={onTakeQuiz} title="Take the comprehension quiz for this review">Take the Quiz →</Button>
+            )}
+          </div>
+        ) : slide!.kind === 'intro' ? (
+          <h2 style={{ fontSize: typography!.fontSize, lineHeight: typography!.lineHeight, maxWidth: typography!.maxWidth, color: slide!.color.title }} className="font-bold">
+            {slide!.title}
           </h2>
         ) : (
-          <div>
-            {slide.title && <p className="mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: slide.color.accent }}>{slide.title}</p>}
-            {slide.kind === 'file-point' && slide.meta?.kind === 'file-point' && (() => {
-              const fileMeta = slide.meta;
+          <div className="w-full text-left">
+            {slide!.title && <p className="mb-2 text-xs font-medium uppercase tracking-wide" style={{ color: slide!.color.accent }}>{slide!.title}</p>}
+            {slide!.kind === 'file-point' && slide!.meta?.kind === 'file-point' && (() => {
+              const fileMeta = slide!.meta;
               return onOpenFile ? (
                 <button
                   type="button"
                   onClick={() => onOpenFile(fileMeta.filePath, fileMeta.line ?? undefined)}
                   title={`Open in diff: ${fileMeta.pathShort}`}
                   className="mb-2 inline-block rounded bg-black/30 px-2 py-1 font-mono text-xs underline decoration-dotted hover:brightness-125"
-                  style={{ color: slide.color.accent }}
+                  style={{ color: slide!.color.accent }}
                 >
                   {fileMeta.pathShort}
                 </button>
               ) : (
-                <code className="mb-2 inline-block rounded bg-black/30 px-2 py-1 font-mono text-xs" style={{ color: slide.color.accent }}>
+                <code className="mb-2 inline-block rounded bg-black/30 px-2 py-1 font-mono text-xs" style={{ color: slide!.color.accent }}>
                   {fileMeta.pathShort}
                 </code>
               );
             })()}
-            {slide.kind === 'label-point' && slide.meta?.kind === 'label-point' && (
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide" style={{ color: slide.color.accent }}>{slide.meta.label}</p>
+            {slide!.kind === 'label-point' && slide!.meta?.kind === 'label-point' && (
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide" style={{ color: slide!.color.accent }}>{slide!.meta.label}</p>
             )}
-            {slide.kind === 'code' ? (
-              <pre className="overflow-x-auto rounded-md bg-black/30 p-3 text-sm" style={{ color: slide.color.text }}><code>{slide.content}</code></pre>
+            {slide!.kind === 'code' ? (
+              <pre className="overflow-x-auto rounded-md bg-black/30 p-3 text-sm" style={{ color: slide!.color.text }}><code>{slide!.content}</code></pre>
             ) : (
-              <p style={{ fontSize: typography.fontSize, lineHeight: typography.lineHeight, maxWidth: typography.maxWidth, color: slide.color.text }} className="font-medium">
-                {renderInline(slide.content, `slide-${currentSlide}`, onOpenFile)}
+              <p style={{ fontSize: typography!.fontSize, lineHeight: typography!.lineHeight, maxWidth: typography!.maxWidth, color: slide!.color.text }} className="font-medium">
+                {renderInline(slide!.content, `slide-${currentSlide}`, onOpenFile)}
               </p>
             )}
-          </div>
-        )}
-
-        {isLast && hasQuiz && (
-          <div className="mt-6 border-t border-white/10 pt-4">
-            <Button variant="primary" onClick={onTakeQuiz}>Take the Quiz →</Button>
           </div>
         )}
       </div>
@@ -236,7 +288,15 @@ const SummarySlideshow: React.FC<SummarySlideshowProps> = ({ reviewId, summary, 
           openChapterExplorer/.summary-chapter-explorer): a per-chapter card
           with its own progress fill, slide count, "Starts at slide N"
           caption, and clickable subchapters — not just a sizing hint for
-          the thin bar. */}
+          the thin bar.
+          git-lrc's explorer is NOT an absolutely-positioned overlay
+          (styles.css:1448-1459: no `position: absolute` anywhere on
+          .summary-chapter-explorer, and its ancestors are explicitly
+          `overflow: visible`) — it's a normal grid row that expands its own
+          `max-height` on open, pushing whatever comes after it (the controls
+          row) down. An absolute overlay here gets clipped by whatever
+          container happens to sit above/behind it; growing in normal flow
+          can't be clipped by anything. */}
       <div className="group/track relative mt-3">
         <div className="flex h-2 gap-0.5 overflow-hidden rounded-full bg-slate-800 pr-8">
           {explorerCards.map((card) => (
@@ -245,7 +305,7 @@ const SummarySlideshow: React.FC<SummarySlideshowProps> = ({ reviewId, summary, 
               type="button"
               title={card.title}
               onClick={() => goTo(card.startIndex)}
-              style={{ width: `${Math.max(2, (card.slideCount / slides.length) * 100)}%` }}
+              style={{ width: `${Math.max(2, (card.slideCount / totalSlidesWithComplete) * 100)}%` }}
               className="group relative h-full overflow-hidden bg-slate-700"
             >
               <span
@@ -256,15 +316,15 @@ const SummarySlideshow: React.FC<SummarySlideshowProps> = ({ reviewId, summary, 
           ))}
         </div>
         <span className="absolute right-0 top-0 text-[10px] tabular-nums text-slate-500">
-          {Math.round(((currentSlide + 1) / slides.length) * 100)}%
+          {Math.round(progressValue)}%
         </span>
 
         <div
           className={classNames(
-            'absolute top-3 left-0 right-0 z-20 overflow-hidden rounded-lg border border-slate-700 bg-slate-900 shadow-xl',
-            'transition-all duration-300 ease-in-out max-h-0 opacity-0 delay-500',
-            'group-hover/track:max-h-[280px] group-hover/track:opacity-100 group-hover/track:delay-300',
-            'group-focus-within/track:max-h-[280px] group-focus-within/track:opacity-100 group-focus-within/track:delay-300'
+            'mt-3 overflow-hidden rounded-lg border border-slate-700 bg-slate-900 shadow-xl',
+            'transition-all duration-300 ease-in-out max-h-0 opacity-0 -translate-y-2 delay-500',
+            'group-hover/track:max-h-[320px] group-hover/track:opacity-100 group-hover/track:translate-y-0 group-hover/track:delay-300',
+            'group-focus-within/track:max-h-[320px] group-focus-within/track:opacity-100 group-focus-within/track:translate-y-0 group-focus-within/track:delay-300'
           )}
         >
           <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 md:grid-cols-4">
@@ -309,7 +369,7 @@ const SummarySlideshow: React.FC<SummarySlideshowProps> = ({ reviewId, summary, 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <button type="button" onClick={goPrev} disabled={currentSlide === 0} className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-30">‹ Prev</button>
-          <button type="button" onClick={goNext} disabled={isLast} className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-30">Next ›</button>
+          <button type="button" onClick={goNext} disabled={isCompleteSlide} className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-30">Next ›</button>
           <button
             type="button"
             onClick={() => setIsAutoPlay((v) => !v)}
@@ -319,7 +379,11 @@ const SummarySlideshow: React.FC<SummarySlideshowProps> = ({ reviewId, summary, 
           </button>
         </div>
         <div className="flex items-center gap-3 text-xs text-slate-500">
-          <span>{currentSlide + 1} / {slides.length} &middot; {remaining} left</span>
+          <span>
+            {isCompleteSlide
+              ? `${totalSlidesWithComplete} / ${totalSlidesWithComplete} · complete`
+              : `${currentSlide + 1} / ${totalSlidesWithComplete} · ${remaining} left`}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <VoteButtons reviewId={reviewId} sourceType="slideshow" size="sm" />

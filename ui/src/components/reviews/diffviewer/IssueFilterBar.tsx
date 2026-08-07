@@ -151,7 +151,10 @@ const IssueFilterBar: React.FC<IssueFilterBarProps> = ({
     // filter panel opens on hover/focus-within (0.3s delay), in addition to
     // being pinnable open via the "Open Filters" click toggle, and closes
     // 0.5s after the pointer leaves rather than instantly.
-    <div className={classNames('group sticky top-16 z-40 flex flex-col gap-2 rounded-md border border-slate-700 bg-slate-800/95 px-3 py-2 shadow-lg backdrop-blur', isPinnedOpen && 'expanded')}>
+    <div
+      data-issue-filter-bar
+      className={classNames('group sticky top-16 z-40 flex flex-col gap-2 rounded-md border border-slate-700 bg-slate-800/95 px-3 py-2 shadow-lg backdrop-blur', isPinnedOpen && 'expanded')}
+    >
       <div className="flex min-w-0 items-center justify-between gap-3">
         <div className="flex shrink-0 flex-wrap items-center gap-2.5">
           <span className="text-xs font-bold uppercase tracking-wide text-slate-200">Issue Filters</span>

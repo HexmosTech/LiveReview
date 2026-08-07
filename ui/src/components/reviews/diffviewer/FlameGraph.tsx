@@ -3,7 +3,7 @@
 // of the git-lrc HEAD current when this port was written. Rebuilt as plain SVG + React
 // state instead of D3 selections/transitions, since LiveReview doesn't otherwise depend
 // on D3 and this layout doesn't need d3-hierarchy — it's a direct recursive partition.
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { BlastRadiusSymbolContribution } from '../../../types/reviews';
 import { buildHierarchy, CallHierarchyNode, emptyCallGraphMessage } from '../../../lib/blastRadius';
 
@@ -90,6 +90,18 @@ const FlameGraph: React.FC<FlameGraphProps> = ({ symbol, width, height, hovered:
     return layoutBars(root, width, height);
   }, [symbol, width, height]);
 
+  // Entrance animation — git-lrc's D3 join grows each bar's width from 0 with
+  // `.transition().duration(300).delay((d,i) => i*8)` (FlameGraph.js:110), a
+  // staggered fade+grow-in from the left edge. Replicated as a CSS
+  // transition on width+opacity (no D3 dependency), same per-index 8ms
+  // stagger, re-triggered whenever the layout changes (symbol nav, sort mode).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(false);
+    const raf = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(raf);
+  }, [layout]);
+
   if (!symbol || !symbol.Callers || symbol.Callers.length === 0) {
     return <div className="flex items-center justify-center text-xs text-slate-500" style={{ width, height }}>{emptyCallGraphMessage(symbol)}</div>;
   }
@@ -99,19 +111,22 @@ const FlameGraph: React.FC<FlameGraphProps> = ({ symbol, width, height, hovered:
 
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-      {bars.map((bar) => {
+      {bars.map((bar, i) => {
         const dimmed = hovered !== null && hovered !== bar.node.qualifiedName;
         return (
           <g key={bar.node.qualifiedName + bar.x + bar.depth}>
             <rect
               x={bar.x}
               y={bar.y}
-              width={bar.width}
               height={bar.height}
               fill={DEPTH_COLORS[bar.depth % DEPTH_COLORS.length]}
-              opacity={dimmed ? 0.25 : 0.92}
               stroke="#3d0000"
               strokeWidth={1}
+              style={{
+                width: mounted ? bar.width : 0,
+                opacity: mounted ? (dimmed ? 0.25 : 0.92) : 0,
+                transition: `width 300ms cubic-bezier(0.22, 1, 0.36, 1) ${i * 8}ms, opacity 300ms ease ${i * 8}ms`,
+              }}
               onMouseEnter={() => setHovered(bar.node.qualifiedName)}
               onMouseLeave={() => setHovered(null)}
             >

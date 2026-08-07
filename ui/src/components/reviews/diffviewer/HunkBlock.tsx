@@ -6,7 +6,7 @@
 import React, { useRef, useState } from 'react';
 import classNames from 'classnames';
 import { DiffReviewComment, DiffReviewHunk } from '../../../types/reviews';
-import { commentBelongsToLine, DiffLine, hunkDomId, parseHunkLines } from './diffUtils';
+import { commentBelongsToLine, DiffLine, hunkDomId, parseHunkLines, scrollElementIntoViewBelowStickyBars } from './diffUtils';
 import { commentMatchesFilters, IssueFilters } from './issueFilters';
 import CommentThread from './CommentThread';
 import RiskBadge from './RiskBadge';
@@ -55,14 +55,18 @@ const HunkBlock: React.FC<HunkBlockProps> = ({ reviewId, filePath, navId, hunk, 
   const lines = parseHunkLines(hunk);
   const [panelOpen, setPanelOpen] = useState(false);
   const blastDetail = hunk.BlastDetail;
-  const panelRef = useRef<HTMLDivElement>(null);
+  const hunkRef = useRef<HTMLDivElement>(null);
 
-  // Scrolls to the breakdown panel whenever it opens (or is already open) —
-  // both the hunk header's own RiskBadge (toggle) and every per-comment
-  // RiskBadge (always-open) drive this, so clicking either one always
-  // navigates to the detail, not just the first time.
+  // Scrolls to the *hunk's own header* (not the breakdown panel itself)
+  // whenever the panel opens (or is already open) — landing the panel flush
+  // against the sticky bars still read as "cut off" even once it was no
+  // longer literally covered by them. Anchoring on the hunk header instead
+  // gives the risk badge + `@@ ... @@` line as visible context above the
+  // panel, with real breathing room, and both the hunk header's own
+  // RiskBadge (toggle) and every per-comment RiskBadge (always-open) drive
+  // this, so clicking either one always navigates to the detail.
   const scrollToPanel = () => {
-    requestAnimationFrame(() => panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+    requestAnimationFrame(() => scrollElementIntoViewBelowStickyBars(hunkRef.current));
   };
   const toggleBreakdown = () => {
     setPanelOpen((v) => {
@@ -77,7 +81,7 @@ const HunkBlock: React.FC<HunkBlockProps> = ({ reviewId, filePath, navId, hunk, 
   };
 
   return (
-    <div id={hunkDomId(navId, hunkIndex)} className="scroll-mt-24" data-hunk-index={hunkIndex}>
+    <div id={hunkDomId(navId, hunkIndex)} ref={hunkRef} className="scroll-mt-24" data-hunk-index={hunkIndex}>
       <div className="flex items-center gap-2 border-t border-slate-700 bg-slate-800/80 px-3 py-1.5 font-mono text-xs text-slate-400">
         {typeof hunk.BlastRadius === 'number' && (
           <RiskBadge score={hunk.BlastRadius} detail={blastDetail} size="large" onOpen={toggleBreakdown} />
@@ -85,7 +89,7 @@ const HunkBlock: React.FC<HunkBlockProps> = ({ reviewId, filePath, navId, hunk, 
         <span>{hunk.content ? `@@ -${hunk.old_start_line},${hunk.old_line_count} +${hunk.new_start_line},${hunk.new_line_count} @@` : 'No diff content available.'}</span>
       </div>
       {panelOpen && blastDetail && (
-        <div ref={panelRef} className="scroll-mt-24 border-t border-slate-700 p-3">
+        <div className="border-t border-slate-700 p-3">
           <BlastRadiusPanel detail={blastDetail} />
         </div>
       )}
