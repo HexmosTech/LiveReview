@@ -3,3 +3,9 @@ d8d3e9e4d9160690d208a3079f0a688dce6e5ed4:docs/releases/v0.0.45.md:aws-access-tok
 d8d3e9e4d9160690d208a3079f0a688dce6e5ed4:docs/releases/v0.0.45.md:aws-access-token:21
 9540c5b71982faff8c5f6ab123fb4e9c629ece42:docs/releases/v0.0.45.md:aws-access-token:17
 9540c5b71982faff8c5f6ab123fb4e9c629ece42:docs/releases/v0.0.45.md:aws-access-token:21
+
+# Fake example secrets in a deleted test fixture (verified own app's secret-detection prompt/logic)
+dee92e4b94723fa493a38cd68947a490b545a17e:internal/prompts/gitleaks_verification_test.go:private-key:90
+
+# Throwaway JWT_SECRET from a local self-hosted setup walkthrough pasted into docs (never used on a real deployment); doc file since deleted from HEAD
+a17c5bc978b377073b971111237038b8c6ed3c9e:docs/lrc-to-lr-port.md:generic-api-key:2382
