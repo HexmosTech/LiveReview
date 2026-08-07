@@ -3,3 +3,8 @@ d8d3e9e4d9160690d208a3079f0a688dce6e5ed4:docs/releases/v0.0.45.md:aws-access-tok
 d8d3e9e4d9160690d208a3079f0a688dce6e5ed4:docs/releases/v0.0.45.md:aws-access-token:21
 9540c5b71982faff8c5f6ab123fb4e9c629ece42:docs/releases/v0.0.45.md:aws-access-token:17
 9540c5b71982faff8c5f6ab123fb4e9c629ece42:docs/releases/v0.0.45.md:aws-access-token:21
+
+# Locally-generated JWT_SECRET for a throwaway .env.selfhosted dev DB in a
+# captured migration-session transcript — never used outside that local
+# self-hosted test run, not a real/production credential.
+a17c5bc978b377073b971111237038b8c6ed3c9e:docs/lrc-to-lr-port.md:generic-api-key:2382

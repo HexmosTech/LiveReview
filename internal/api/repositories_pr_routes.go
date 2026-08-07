@@ -587,8 +587,8 @@ func (s *Server) ListPullRequests(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to count pull requests")
 	}
 
-	// nosemgrep: go.lang.security.audit.database.string-formatted-query -- SQL string is built only from parameter placeholders ($n); all user values are passed via args.
-	query := `SELECT ` + pullRequestColumnsQualified + `, r.full_name, r.web_url ` + fromAndFilters
+	// SQL string is built only from parameter placeholders ($n); all user values are passed via args.
+	query := `SELECT ` + pullRequestColumnsQualified + `, r.full_name, r.web_url ` + fromAndFilters // nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query
 	query += " ORDER BY pr.provider_updated_at DESC NULLS LAST, pr.id DESC"
 	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	args = append(args, perPage, (page-1)*perPage)

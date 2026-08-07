@@ -355,8 +355,8 @@ func ConvertVegaLiteToPNG(ctx context.Context, spec []byte, scale string) ([]byt
 		theme = vlThemeDefault
 	}
 
-	// nosemgrep: go.lang.security.audit.dangerous-exec-command -- exec.Command with arg slice (no shell); binary/theme come from server env vars, spec is written to a temp file, not argv.
-	cmd := exec.CommandContext(ctx, binary, "vl2png",
+	// exec.Command with arg slice (no shell); binary/theme come from server env vars, spec is written to a temp file, not argv.
+	cmd := exec.CommandContext(ctx, binary, "vl2png", // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 		"-i", inputPath,
 		"-o", outputPath,
 		"-v", vlVersion,

@@ -2379,8 +2379,7 @@
   ⎿  Wrote 6 lines to .env.selfhosted
       1 DATABASE_URL=postgres://livereview:livereview_password_123@localh
         ost:5432/livereview?sslmode=disable
-      2 JWT_SECRET=6efa0fc4a65cf09169d44f65bf6daab9f70c75469a9fffecb505b4
-        f12e0962f3
+      2 JWT_SECRET=<redacted-local-throwaway-secret>
       3 LIVEREVIEW_BACKEND_PORT=8888
       4 LIVEREVIEW_FRONTEND_PORT=8081
       5 LIVEREVIEW_REVERSE_PROXY=false

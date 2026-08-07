@@ -11,7 +11,7 @@ import (
 	"net/mail"
 	"net/smtp"
 	"strings"
-	textTemplate "text/template" // nosemgrep: go.lang.security.audit.xss.import-text-template -- used only for plain-text body; HTML body uses html/template
+	textTemplate "text/template" // nosemgrep: go.lang.security.audit.xss.import-text-template.import-text-template -- used only for plain-text body; HTML body uses html/template
 	"time"
 	_ "embed"
 	"github.com/rs/zerolog/log"
