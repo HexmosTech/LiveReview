@@ -4,9 +4,5 @@ id = "GO-2026-5932"
 reason = "False positive — golang.org/x/crypto/openpgp sub-package is never imported by this project; only golang.org/x/crypto/bcrypt is used."
 
 [[ignoredVulns]]
-id = "GHSA-mh99-v99m-4gvg"
-reason = "No patch available for brace-expansion v1.x — the advisory (DoS via unbounded expansion length) only has a fix in the v5.0.8 branch. brace-expansion@1 is used exclusively as a transitive dependency in dev tooling (never in production) and never processes untrusted user input."
-
-[[ignoredVulns]]
 id = "GHSA-qwww-vcr4-c8h2"
 reason = "Only affects React Router unstable RSC (React Server Components) APIs. This application uses HashRouter in a standard SPA configuration with no RSC or server-side rendering."
