@@ -505,19 +505,17 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		fmt.Printf("Cloud mode: Teams bot initialization skipped\n")
 	}
 
-	// Initialize org-scoped Discord bot (self-hosted only) from DB config
-	if !server.deploymentConfig.IsCloud {
-		bot, err := startOrgDiscordBots(server.db)
-		if err != nil {
-			fmt.Printf("Warning: Failed to initialize Discord bot: %v (Discord bot disabled)\n", err)
-		} else if bot != nil {
-			server.discordBot = bot
-			fmt.Printf("Discord bot initialized (will start with server)\n")
-		} else {
-			fmt.Printf("No Discord bot configs found (Discord bot disabled)\n")
-		}
+	// Initialize org-scoped Discord bot.  In self-hosted mode the bot is
+	// configured from the database.  In cloud mode the bot starts only when
+	// DISCORD_BOT_TOKEN + DISCORD_BOT_API_KEY env vars are set (public bot).
+	bot, err := startOrgDiscordBots(server.db)
+	if err != nil {
+		fmt.Printf("Warning: Failed to initialize Discord bot: %v (Discord bot disabled)\n", err)
+	} else if bot != nil {
+		server.discordBot = bot
+		fmt.Printf("Discord bot initialized (will start with server)\n")
 	} else {
-		fmt.Printf("Cloud mode: Discord bot initialization skipped\n")
+		fmt.Printf("No Discord bot configs found (Discord bot disabled)\n")
 	}
 
 	return server, nil
@@ -633,9 +631,6 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query Discord configs: %w", err)
 	}
-	if len(configs) == 0 {
-		return nil, fmt.Errorf("no enabled Discord bot configs found")
-	}
 
 	connectorStorage := aiconnectors.NewStorage(db)
 	// Discord-specific overrides fall back to the shared SLACK_* variables for
@@ -702,6 +697,79 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 			Connector:     connector,
 			MaxAgentSteps: maxSteps,
 		})
+	}
+
+	// Env-var-based public bot for cloud deployment.  When DISCORD_BOT_TOKEN
+	// and DISCORD_BOT_API_KEY are set, a bot is started for the specified org
+	// using the demo account's API key.  This sits alongside any database-
+	// configured org bots.
+	if envToken := os.Getenv("DISCORD_BOT_TOKEN"); envToken != "" {
+		envAPIKey := os.Getenv("DISCORD_BOT_API_KEY")
+		if envAPIKey == "" {
+			log.Printf("Discord bot: DISCORD_BOT_TOKEN set but DISCORD_BOT_API_KEY missing — skipping env bot")
+		} else {
+			envOrgID := int64(0)
+			invalidEnvOrgID := false
+			if s := os.Getenv("DISCORD_BOT_ORG_ID"); s != "" {
+				if parsed, err := strconv.ParseInt(s, 10, 64); err == nil {
+					envOrgID = parsed
+				} else {
+					log.Printf("Discord bot: invalid DISCORD_BOT_ORG_ID %q — skipping env-var bot", s)
+					invalidEnvOrgID = true
+				}
+			}
+
+			if !invalidEnvOrgID {
+				alreadyConfigured := false
+				for _, existing := range orgCfgs {
+					if existing.OrgID == envOrgID {
+						alreadyConfigured = true
+						break
+					}
+				}
+				if alreadyConfigured {
+					log.Printf("Discord bot: org %d already configured via database — skipping env-var bot", envOrgID)
+				} else {
+					connectors, err := connectorStorage.GetAllConnectors(context.Background(), envOrgID)
+					if err != nil {
+						log.Printf("Discord bot: failed to query connectors for env org %d: %v — skipping", envOrgID, err)
+					} else if len(connectors) == 0 {
+						log.Printf("Discord bot: no AI connectors configured in env org %d — skipping", envOrgID)
+					} else {
+						var connector *aiconnectors.Connector
+						for _, record := range connectors {
+							options := connectorStorage.GetConnectorOptions(context.Background(), record)
+							c, err := aiconnectors.NewConnector(context.Background(), options)
+							if err != nil {
+								log.Printf("Discord bot env org %d: connector %q failed to init: %v — trying next", envOrgID, record.ConnectorName, err)
+								continue
+							}
+							connector = c
+							log.Printf("Discord bot env org %d: using connector %q (%s, model=%s)", envOrgID, record.ConnectorName, record.ProviderName, options.ModelConfig.Model)
+							break
+						}
+						if connector == nil {
+							log.Printf("Discord bot: all connectors for env org %d failed to initialize — skipping", envOrgID)
+						} else {
+							envOrgName, _ := orgname.OrgNameByID(context.Background(), db, envOrgID)
+							if envOrgName == "" {
+								log.Printf("Discord bot env org %d: resolved org name is empty", envOrgID)
+							}
+							orgCfgs = append(orgCfgs, discordbot.OrgConfig{
+								OrgID:         envOrgID,
+								OrgName:       envOrgName,
+								BotToken:      envToken,
+								MCPServerURL:  mcpServerURL,
+								MCPHeaders:    map[string]string{"X-API-Key": envAPIKey},
+								Connector:     connector,
+								MaxAgentSteps: maxSteps,
+							})
+							log.Printf("Discord bot: env-var bot configured for org %d (%s)", envOrgID, envOrgName)
+						}
+					}
+				}
+			}
+		}
 	}
 
 	if len(orgCfgs) == 0 {

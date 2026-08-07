@@ -33,7 +33,7 @@ const ProvidersList: React.FC<ProvidersListProps> = ({
                 onClick={() => onSelectProvider('all')}
             >
                 <div className="flex items-center">
-                    <div className="h-10 w-10 rounded-full bg-blue-600 text-white flex items-center justify-center mr-3">
+                    <div className="h-10 w-10 rounded-full bg-slate-900 border border-slate-700 text-white flex items-center justify-center mr-3">
                         <Icons.Dashboard />
                     </div>
                     <div>
@@ -66,7 +66,7 @@ const ProvidersList: React.FC<ProvidersListProps> = ({
                     >
                         <div className="flex items-center justify-between">
                             <div className="flex items-center">
-                                <div className="h-10 w-10 rounded-full bg-blue-600 text-white flex items-center justify-center mr-3">
+                                <div className="h-10 w-10 rounded-full bg-slate-900 border border-slate-700 text-white flex items-center justify-center mr-3">
                                     {provider.icon}
                                 </div>
                                 <div>

@@ -124,7 +124,7 @@ const buildAiProviderLinks = (role: 'leader' | 'helper'): MegaMenuLinkNode[] => 
     link('DeepSeek', React.createElement(Icons.DeepSeek), `/ai/deepseek?role=${role}`),
     link('OpenRouter', React.createElement(Icons.OpenRouter), `/ai/openrouter?role=${role}`),
     link('Ollama', React.createElement(Icons.Ollama), `/ai/ollama?role=${role}`),
-    link('Atlas Cloud', React.createElement(Icons.AI), `/ai/atlas?role=${role}`),
+    link('Atlas Cloud', React.createElement(Icons.AtlasCloud), `/ai/atlas?role=${role}`),
 ];
 
 export const buildMegaMenuSections = (): MegaMenuSection[] => [

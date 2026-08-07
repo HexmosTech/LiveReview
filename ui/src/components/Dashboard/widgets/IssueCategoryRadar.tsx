@@ -31,7 +31,10 @@ export const IssueCategoryRadar: React.FC = () => {
 
     const option = {
         ...ECHARTS_ANIMATION_DEFAULTS,
-        tooltip: {},
+        // confine keeps the tooltip within this chart's own box — without it, the radar's
+        // full category breakdown (tall content) can spill outside the widget card and
+        // overlap whatever's above it in the dashboard grid.
+        tooltip: { confine: true },
         legend: { bottom: 8, textStyle: { color: '#CBD5E1', fontSize: 13 }, itemWidth: 16, itemHeight: 16 },
         radar: {
             center: ['50%', '48%'],

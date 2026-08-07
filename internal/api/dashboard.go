@@ -125,6 +125,9 @@ const (
 	dashboardTriggerTicker    = "ticker"
 	dashboardTriggerCacheMiss = "cache_miss"
 	dashboardTriggerManual    = "manual"
+	// connectorSetupRecentThreshold: a connector created within this window is still
+	// considered "setting up" rather than stalled if it has no active webhook yet.
+	connectorSetupRecentThreshold = 10 * time.Minute
 )
 
 type dashboardLeaderLockStore interface {
@@ -361,22 +364,19 @@ func (dm *DashboardManager) updateDashboardData(ctx context.Context, trigger str
 		return fmt.Errorf("failed to list organizations: %w", err)
 	}
 
-	successCount := 0
-	failureCount := 0
-
-	for _, orgID := range orgIDs {
-		data, buildErr := dm.buildDashboardData(ctx, orgID, trigger, cycleID)
-		if buildErr != nil {
-			dm.logErrorf("[dashboard] org refresh failed cycle=%d trigger=%s org_id=%d err=%v", cycleID, trigger, orgID, buildErr)
-			failureCount++
-			continue
-		}
-
-		dm.mu.Lock()
-		dm.cache[orgID] = data
-		dm.mu.Unlock()
-		successCount++
+	// Batched across all orgs (3 read passes total) instead of buildDashboardData's ~6 queries
+	// repeated per org — the per-org loop this replaced was the source of hundreds of individual
+	// round trips every tick.
+	dataByOrg, err := dm.buildDashboardDataBatch(ctx, orgIDs)
+	if err != nil {
+		return fmt.Errorf("build dashboard data batch: %w", err)
 	}
+
+	dm.mu.Lock()
+	for orgID, data := range dataByOrg {
+		dm.cache[orgID] = data
+	}
+	dm.mu.Unlock()
 
 	dm.logMinimalf(
 		"[dashboard] refresh summary cycle=%d trigger=%s instance=%s org_total=%d org_success=%d org_failed=%d duration_ms=%d",
@@ -384,8 +384,8 @@ func (dm *DashboardManager) updateDashboardData(ctx context.Context, trigger str
 		trigger,
 		dm.instance,
 		len(orgIDs),
-		successCount,
-		failureCount,
+		len(dataByOrg),
+		len(orgIDs)-len(dataByOrg),
 		time.Since(start).Milliseconds(),
 	)
 
@@ -458,7 +458,7 @@ func (dm *DashboardManager) buildDashboardData(ctx context.Context, orgID int64,
 
 	// review_layers is fetched fresh per request instead, directly in the GetDashboardData handler below.
 
-	dm.logMinimalf(
+	dm.logVerbosef(
 		"[dashboard] org refresh complete cycle=%d trigger=%s org_id=%d reviews=%d comments=%d providers=%d connectors=%d connectors_needing_setup=%d duration_ms=%d",
 		cycleID,
 		trigger,
@@ -602,7 +602,7 @@ func (dm *DashboardManager) collectConnectorSetupProgress(ctx context.Context, d
 	defer rows.Close()
 
 	var progressList []ConnectorSetupProgress
-	recentThreshold := time.Now().Add(-10 * time.Minute)
+	recentThreshold := time.Now().Add(-connectorSetupRecentThreshold)
 
 	for rows.Next() {
 		var connectorID int64

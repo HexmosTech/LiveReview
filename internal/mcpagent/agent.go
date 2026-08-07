@@ -64,6 +64,14 @@ func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText st
 
 		toolCalls := parseToolCalls(response)
 		if len(toolCalls) == 0 {
+			if strings.TrimSpace(response) == "" {
+				log.Warn().Int("step", step).Msg("AI returned an empty response, forcing retry")
+				history = append(history, HistoryEntry{
+					"role":    "user",
+					"content": "Your previous reply was empty. You MUST call at least one tool before you can respond to the user, then give a complete answer. If the exact data isn't available, call the closest tool you have and create a chart from whatever data you receive.",
+				})
+				continue
+			}
 			if isExcuseResponse(response) {
 				log.Warn().Str("response_preview", truncateContent(response, 200)).Msg("AI gave excuse response, forcing retry")
 				history = append(history, HistoryEntry{
