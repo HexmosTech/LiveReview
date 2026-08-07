@@ -9,6 +9,7 @@ import APIKeysTab from './APIKeysTab';
 import MCPIntegrationTab from './MCPIntegrationTab';
 import IntegrationsTab from './IntegrationsTab';
 import SMTPSettingsTab from './SMTPSettingsTab';
+import StorageSettingsTab from './StorageSettingsTab';
 import { UserManagement } from '../../components/UserManagement';
 import LicenseManagement from '../Licenses/LicenseManagement';
 import { useOrgContext } from '../../hooks/useOrgContext';
@@ -295,8 +296,17 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
-        ...(isSuperAdmin ? [{ 
-            id: 'deployment', 
+        ...(isSuperAdmin && !isCloudMode() ? [{
+            id: 'storage',
+            name: 'Storage',
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0H4m8-9v9" />
+                </svg>
+            )
+        }] : []),
+        ...(isSuperAdmin ? [{
+            id: 'deployment',
             name: 'Deployment', 
             icon: (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -728,6 +738,12 @@ const Settings = () => {
                     {activeTab === 'smtp' && isSuperAdmin && !isCloudMode() && (
                         <Card>
                             <SMTPSettingsTab />
+                        </Card>
+                    )}
+
+                    {activeTab === 'storage' && isSuperAdmin && !isCloudMode() && (
+                        <Card>
+                            <StorageSettingsTab />
                         </Card>
                     )}
 

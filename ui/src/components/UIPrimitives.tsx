@@ -949,23 +949,38 @@ interface PopoverProps {
   className?: string;
   hover?: boolean; // open on hover instead of click
   delay?: number; // closing delay for hover
+  // Used only for viewport clamp/flip math below, since that has to happen
+  // before the (portal-rendered) content has a real measured size — mirrors
+  // git-lrc's RiskBadge.js CARD_WIDTH/CARD_EST_HEIGHT constants.
+  estimatedWidth?: number;
+  estimatedHeight?: number;
 }
 
-export const Popover: React.FC<PopoverProps> = ({ trigger, children, align = 'left', className, hover = false, delay = 180 }) => {
+export const Popover: React.FC<PopoverProps> = ({
+  trigger, children, align = 'left', className, hover = false, delay = 180,
+  estimatedWidth = 320, estimatedHeight = 280,
+}) => {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLDivElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const closeTimer = useRef<number | null>(null);
-  const [position, setPosition] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [position, setPosition] = useState<{ top: number; left: number; flipped: boolean }>({ top: 0, left: 0, flipped: false });
 
   const computePosition = () => {
-    if (triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      let left = rect.left;
-      if (align === 'center') left = rect.left + rect.width / 2;
-      if (align === 'right') left = rect.right;
-      setPosition({ top: rect.bottom + window.scrollY + 6, left: left + window.scrollX });
-    }
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    let left = rect.left;
+    if (align === 'center') left = rect.left + rect.width / 2 - estimatedWidth / 2;
+    if (align === 'right') left = rect.right - estimatedWidth;
+    // Clamp horizontally so the card never runs off either viewport edge.
+    left = Math.max(8, Math.min(left, window.innerWidth - estimatedWidth - 12));
+
+    // Flip above the trigger when there isn't room below but there is above —
+    // otherwise a badge deep in a long page renders its card off-screen.
+    const flipped = rect.bottom + estimatedHeight > window.innerHeight && rect.top > estimatedHeight;
+    const top = flipped ? rect.top + window.scrollY - estimatedHeight - 6 : rect.bottom + window.scrollY + 6;
+
+    setPosition({ top, left: left + window.scrollX, flipped });
   };
 
   useLayoutEffect(() => { if (open) computePosition(); }, [open, align]);
@@ -1004,7 +1019,7 @@ export const Popover: React.FC<PopoverProps> = ({ trigger, children, align = 'le
         'z-50 absolute w-80 rounded-md shadow-lg border border-slate-600 bg-slate-800 text-slate-200 text-sm p-4 animate-fadeIn',
         className
       )}
-      style={{ top: position.top, left: align === 'center' ? position.left - 160 : align === 'right' ? position.left - 320 : position.left }}
+      style={{ top: position.top, left: position.left }}
       role="dialog"
       aria-modal="false"
       onMouseEnter={hover ? clearTimer : undefined}
@@ -1421,6 +1436,50 @@ export const SingleSelectField: React.FC<SingleSelectFieldProps> = ({ label, opt
           ))}
         </div>
       )}
+    </div>
+  );
+};
+
+// ===== TABS COMPONENT =====
+export interface TabItem {
+  id: string;
+  label: ReactNode;
+  badge?: ReactNode;
+}
+
+interface TabsProps {
+  tabs: TabItem[];
+  activeTab: string;
+  onChange: (id: string) => void;
+  className?: string;
+}
+
+export const Tabs: React.FC<TabsProps> = ({ tabs, activeTab, onChange, className }) => {
+  return (
+    <div className={classNames('flex items-center gap-1 border-b border-slate-700', className)} role="tablist">
+      {tabs.map((tab) => {
+        const active = tab.id === activeTab;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(tab.id)}
+            className={classNames(
+              'flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors duration-150',
+              active
+                ? 'border-blue-500 text-white'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-600'
+            )}
+          >
+            {tab.label}
+            {tab.badge !== undefined && (
+              <span className="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">{tab.badge}</span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 };
