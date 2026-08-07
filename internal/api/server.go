@@ -895,6 +895,11 @@ func (s *Server) setupRoutes() {
 	adminGroup.PUT("/settings/smtp", s.UpdateSMTPSettings)
 	adminGroup.POST("/settings/smtp/test", s.TestSMTPSettings)
 
+	// Super admin blob-storage settings endpoints (see internal/blobstore)
+	adminGroup.GET("/settings/storage", s.GetStorageSettings)
+	adminGroup.PUT("/settings/storage", s.UpdateStorageSettings)
+	adminGroup.POST("/settings/storage/test", s.TestStorageSettings)
+
 	// Organization management endpoints
 	// User organization access (get their orgs) - needs permission context to detect super admin
 	protectedOrgsGroup := protected.Group("")

@@ -797,59 +797,37 @@ func TestDiffReviewPartialExclusionExposesExcludedFiles(t *testing.T) {
 // only accept artifact_type values present here) against silent typos: the
 // git-lrc CLI and this map must agree on the "blast-radius" string exactly.
 func TestDiffReviewArtifactAllowlistKnowsBlastRadius(t *testing.T) {
-	metaKey, ok := diffReviewArtifactMetadataKeys["blast-radius"]
-	if !ok {
+	if !diffReviewArtifactTypes["blast-radius"] {
 		t.Fatalf("expected \"blast-radius\" to be an allowed artifact_type")
 	}
-	if metaKey != "blast_radius_report" {
-		t.Fatalf("expected blast-radius to map to metadata key blast_radius_report, got %q", metaKey)
-	}
-	if _, ok := diffReviewArtifactMetadataKeys["unknown-artifact"]; ok {
+	if diffReviewArtifactTypes["unknown-artifact"] {
 		t.Fatalf("expected unknown artifact_type to be rejected")
 	}
 }
 
-// TestDiffReviewArtifactStoresAndReadsBackVerbatim exercises the storage half
-// of PutDiffReviewArtifact/GetDiffReviewArtifact (the merge-into-metadata and
-// read-back-by-key logic) against the same mock manager the other handler
-// tests use, since the real handlers bind to a live DB via NewReviewManager
-// and aren't unit-testable without one.
-func TestDiffReviewArtifactStoresAndReadsBackVerbatim(t *testing.T) {
-	mockRM := newMockReviewManager()
-
-	review, err := mockRM.CreateReviewWithOrg("test-repo", "", "", "", "cli_diff", "", "cli", nil, map[string]interface{}{}, 1, "", "", "")
-	if err != nil {
-		t.Fatalf("failed to create review: %v", err)
+// TestDiffReviewArtifactBlobKeyIsScopedPerOrgAndReview guards the blob key
+// scheme Put/GetDiffReviewArtifact use against the blob store (see
+// internal/blobstore and AGENTS.md "Porting from git-lrc") against
+// collisions across orgs, reviews, or artifact types. The actual
+// write/read round trip against a bucket is covered by
+// internal/blobstore's own tests; the real HTTP handlers still require a
+// live Postgres connection to exercise end-to-end (system_settings lookup +
+// GetReviewForOrg), same limitation as before this change.
+func TestDiffReviewArtifactBlobKeyIsScopedPerOrgAndReview(t *testing.T) {
+	cases := []struct {
+		orgID, reviewID int64
+		artifactType    string
+	}{
+		{1, 42, "blast-radius"},
+		{2, 42, "blast-radius"}, // different org, same review id
+		{1, 43, "blast-radius"}, // different review, same org
 	}
-
-	report := json.RawMessage(`{"Project":"demo","Files":[{"Path":"a.go","Hunks":[{"Combined":42.5}]}]}`)
-	metaKey := diffReviewArtifactMetadataKeys["blast-radius"]
-	if err := mockRM.MergeReviewMetadata(review.ID, map[string]interface{}{metaKey: report}); err != nil {
-		t.Fatalf("failed to merge artifact metadata: %v", err)
+	seen := map[string]bool{}
+	for _, tc := range cases {
+		key := diffReviewArtifactBlobKey(tc.orgID, tc.reviewID, tc.artifactType)
+		if seen[key] {
+			t.Fatalf("blob key collision for org=%d review=%d type=%s: %q", tc.orgID, tc.reviewID, tc.artifactType, key)
+		}
+		seen[key] = true
 	}
-
-	storedReview, err := mockRM.GetReview(review.ID)
-	if err != nil {
-		t.Fatalf("failed to fetch review: %v", err)
-	}
-
-	meta := map[string]json.RawMessage{}
-	if err := json.Unmarshal(storedReview.Metadata, &meta); err != nil {
-		t.Fatalf("failed to unmarshal metadata: %v", err)
-	}
-
-	raw, ok := meta[metaKey]
-	if !ok {
-		t.Fatalf("expected %q key in metadata, got %v", metaKey, meta)
-	}
-
-	var roundTripped map[string]interface{}
-	if err := json.Unmarshal(raw, &roundTripped); err != nil {
-		t.Fatalf("stored artifact is not valid JSON: %v", err)
-	}
-	if roundTripped["Project"] != "demo" {
-		t.Fatalf("expected Project=demo to round-trip, got %v", roundTripped["Project"])
-	}
-
-	t.Logf("✓ blast-radius artifact stored under %q and read back verbatim", metaKey)
 }

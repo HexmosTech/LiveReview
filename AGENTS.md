@@ -154,13 +154,19 @@ The reusable pattern any future git-lrc-computed artifact should follow:
 1. CLI computes the artifact locally after (or alongside) submitting the review.
 2. CLI POSTs it to `POST /api/v1/diff-review/:review_id/artifacts/:artifact_type`
    (fire-and-forget — log a warning on failure, never block or fail the review).
-3. LiveReview stores it under `reviews.metadata["<artifact_type>_report"]` (no schema
-   migration needed — this JSONB column is the established no-migration extension point
-   for ad hoc per-review data; see `preloaded_changes`/`review_result` in
-   `internal/api/diff_review.go`) and serves it back via
-   `GET /api/v1/diff-review/:review_id/artifacts/:artifact_type` (404 when absent).
+3. LiveReview writes the raw JSON body to whatever blob store is currently configured
+   (`internal/blobstore`, default: local filesystem; optionally S3-compatible, covering
+   both real AWS S3 and Backblaze B2) under key `org/:org_id/review/:review_id/artifacts/
+   :artifact_type.json`, and serves it back via
+   `GET /api/v1/diff-review/:review_id/artifacts/:artifact_type` (404 when absent). See
+   `internal/api/diff_review.go`'s `getBlobBucket`/`PutDiffReviewArtifact`/
+   `GetDiffReviewArtifact`. The storage backend itself is admin-configurable at runtime
+   from Settings → Storage (`internal/api/storage_settings.go`, backed by a
+   `system_settings` row named `blob_storage`, read fresh on every artifact request — no
+   redeploy needed to switch backends or rotate credentials.
 
-Adding a new artifact type is just a new `artifact_type` string plus a frontend
-renderer — no new tables, no new endpoint code.
+Adding a new artifact type is just a new entry in `diffReviewArtifactTypes` plus a
+frontend renderer — no new tables, no new endpoint code, and it lands in whichever blob
+store is already configured.
 
 
