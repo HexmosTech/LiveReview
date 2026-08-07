@@ -22,6 +22,17 @@ func validateStorageSettings(cfg *blobstore.Config) error {
 		if cfg.Bucket == "" {
 			return errors.New("bucket is required for the S3-compatible backend")
 		}
+	case blobstore.BackendGCS:
+		if cfg.Bucket == "" {
+			return errors.New("bucket is required for the Google Cloud Storage backend")
+		}
+	case blobstore.BackendAzure:
+		if cfg.Bucket == "" {
+			return errors.New("container name is required for the Azure Blob Storage backend")
+		}
+		if cfg.AzureAccountName == "" {
+			return errors.New("storage account name is required for the Azure Blob Storage backend")
+		}
 	default:
 		return errors.New("unknown storage backend")
 	}

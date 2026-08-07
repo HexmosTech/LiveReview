@@ -3,14 +3,19 @@ import { Button, Input } from '../../components/UIPrimitives';
 import apiClient from '../../api/apiClient';
 import toast from 'react-hot-toast';
 
+type Backend = 'filesystem' | 's3' | 'gcs' | 'azure';
+
 interface StorageSettings {
-    backend: 'filesystem' | 's3';
+    backend: Backend;
     local_dir?: string;
     bucket?: string;
     endpoint?: string;
     region?: string;
     access_key_id?: string;
     secret_access_key?: string;
+    gcs_credentials_json?: string;
+    azure_account_name?: string;
+    azure_account_key?: string;
 }
 
 const DEFAULT_SETTINGS: StorageSettings = {
@@ -21,13 +26,16 @@ const DEFAULT_SETTINGS: StorageSettings = {
     region: '',
     access_key_id: '',
     secret_access_key: '',
+    gcs_credentials_json: '',
+    azure_account_name: '',
+    azure_account_key: '',
 };
 
 // Where git-lrc-computed review artifacts (e.g. blast-radius reports) are
 // stored - see internal/blobstore and internal/api/diff_review.go's
 // Put/GetDiffReviewArtifact. Filesystem is the zero-config default; the
-// S3-compatible backend covers both real AWS S3 and Backblaze B2 (B2 speaks
-// the S3 API over a custom endpoint).
+// remaining backends cover S3-compatible storage (real AWS S3 or Backblaze
+// B2, over a custom endpoint), Google Cloud Storage, and Azure Blob Storage.
 const StorageSettingsTab: React.FC = () => {
     const [settings, setSettings] = useState<StorageSettings>(DEFAULT_SETTINGS);
     const [isLoading, setIsLoading] = useState(true);
@@ -57,11 +65,22 @@ const StorageSettingsTab: React.FC = () => {
     };
 
     const isS3 = settings.backend === 's3';
-    const canSubmit = !isS3 || !!settings.bucket;
+    const isGCS = settings.backend === 'gcs';
+    const isAzure = settings.backend === 'azure';
+
+    const validationError = (): string | null => {
+        if (isS3 && !settings.bucket) return 'Please enter a bucket name';
+        if (isGCS && !settings.bucket) return 'Please enter a bucket name';
+        if (isAzure && !settings.bucket) return 'Please enter a container name';
+        if (isAzure && !settings.azure_account_name) return 'Please enter a storage account name';
+        return null;
+    };
+    const canSubmit = validationError() === null;
 
     const handleSave = async () => {
-        if (isS3 && !settings.bucket) {
-            toast.error('Please enter a bucket name');
+        const err = validationError();
+        if (err) {
+            toast.error(err);
             return;
         }
         setIsSaving(true);
@@ -76,8 +95,9 @@ const StorageSettingsTab: React.FC = () => {
     };
 
     const handleTest = async () => {
-        if (isS3 && !settings.bucket) {
-            toast.error('Please enter a bucket name');
+        const err = validationError();
+        if (err) {
+            toast.error(err);
             return;
         }
         setIsTesting(true);
@@ -124,11 +144,13 @@ const StorageSettingsTab: React.FC = () => {
                         >
                             <option value="filesystem">Filesystem (local disk)</option>
                             <option value="s3">S3-compatible (AWS S3 / Backblaze B2)</option>
+                            <option value="gcs">Google Cloud Storage</option>
+                            <option value="azure">Azure Blob Storage</option>
                         </select>
                     </div>
                 </div>
 
-                {!isS3 && (
+                {settings.backend === 'filesystem' && (
                     <div className="grid grid-cols-1 gap-4">
                         <Input
                             label="Local directory"
@@ -175,6 +197,66 @@ const StorageSettingsTab: React.FC = () => {
                                 placeholder="••••••••"
                                 value={settings.secret_access_key || ''}
                                 onChange={(e) => handleChange('secret_access_key', e.target.value)}
+                            />
+                        </div>
+                    </>
+                )}
+
+                {isGCS && (
+                    <>
+                        <div className="grid grid-cols-1 gap-4">
+                            <Input
+                                label="Bucket"
+                                placeholder="livereview-artifacts"
+                                value={settings.bucket || ''}
+                                onChange={(e) => handleChange('bucket', e.target.value)}
+                            />
+                        </div>
+                        <div className="grid grid-cols-1 gap-4">
+                            <label className="block text-sm font-medium text-slate-300 mb-1">
+                                Service account JSON key (leave blank to use Application Default Credentials)
+                            </label>
+                            <textarea
+                                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white font-mono text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                rows={6}
+                                placeholder='{ "type": "service_account", ... }'
+                                value={settings.gcs_credentials_json || ''}
+                                onChange={(e) => handleChange('gcs_credentials_json', e.target.value)}
+                            />
+                        </div>
+                    </>
+                )}
+
+                {isAzure && (
+                    <>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <Input
+                                label="Container"
+                                placeholder="livereview-artifacts"
+                                value={settings.bucket || ''}
+                                onChange={(e) => handleChange('bucket', e.target.value)}
+                            />
+                            <Input
+                                label="Storage account name"
+                                value={settings.azure_account_name || ''}
+                                onChange={(e) => handleChange('azure_account_name', e.target.value)}
+                            />
+                        </div>
+                        <div className="grid grid-cols-1 gap-4">
+                            <Input
+                                label="Custom service URL (leave blank for https://<account>.blob.core.windows.net)"
+                                placeholder="https://<account>.blob.core.windows.net"
+                                value={settings.endpoint || ''}
+                                onChange={(e) => handleChange('endpoint', e.target.value)}
+                            />
+                        </div>
+                        <div className="grid grid-cols-1 gap-4">
+                            <Input
+                                label="Account key (leave blank to use the default Azure credential chain)"
+                                type="password"
+                                placeholder="••••••••"
+                                value={settings.azure_account_key || ''}
+                                onChange={(e) => handleChange('azure_account_key', e.target.value)}
                             />
                         </div>
                     </>

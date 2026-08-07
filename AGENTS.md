@@ -155,9 +155,10 @@ The reusable pattern any future git-lrc-computed artifact should follow:
 2. CLI POSTs it to `POST /api/v1/diff-review/:review_id/artifacts/:artifact_type`
    (fire-and-forget — log a warning on failure, never block or fail the review).
 3. LiveReview writes the raw JSON body to whatever blob store is currently configured
-   (`internal/blobstore`, default: local filesystem; optionally S3-compatible, covering
-   both real AWS S3 and Backblaze B2) under key `org/:org_id/review/:review_id/artifacts/
-   :artifact_type.json`, and serves it back via
+   (`internal/blobstore`, default: local filesystem; optionally S3-compatible covering
+   both real AWS S3 and Backblaze B2, Google Cloud Storage, or Azure Blob Storage) under
+   key `org/:org_id/review/:review_id/artifacts/:artifact_type.json`, and serves it back
+   via
    `GET /api/v1/diff-review/:review_id/artifacts/:artifact_type` (404 when absent). See
    `internal/api/diff_review.go`'s `getBlobBucket`/`PutDiffReviewArtifact`/
    `GetDiffReviewArtifact`. The storage backend itself is admin-configurable at runtime

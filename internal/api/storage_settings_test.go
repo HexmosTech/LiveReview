@@ -22,6 +22,11 @@ func TestValidateStorageSettings(t *testing.T) {
 		{"explicit filesystem", blobstore.Config{Backend: blobstore.BackendFilesystem}, false, blobstore.BackendFilesystem},
 		{"s3 without bucket is rejected", blobstore.Config{Backend: blobstore.BackendS3}, true, ""},
 		{"s3 with bucket is valid", blobstore.Config{Backend: blobstore.BackendS3, Bucket: "livereview-private"}, false, blobstore.BackendS3},
+		{"gcs without bucket is rejected", blobstore.Config{Backend: blobstore.BackendGCS}, true, ""},
+		{"gcs with bucket is valid", blobstore.Config{Backend: blobstore.BackendGCS, Bucket: "livereview-artifacts"}, false, blobstore.BackendGCS},
+		{"azure without container is rejected", blobstore.Config{Backend: blobstore.BackendAzure, AzureAccountName: "acct"}, true, ""},
+		{"azure without account name is rejected", blobstore.Config{Backend: blobstore.BackendAzure, Bucket: "artifacts"}, true, ""},
+		{"azure with container and account name is valid", blobstore.Config{Backend: blobstore.BackendAzure, Bucket: "artifacts", AzureAccountName: "acct"}, false, blobstore.BackendAzure},
 		{"unknown backend is rejected", blobstore.Config{Backend: "carrier-pigeon"}, true, ""},
 	}
 	for _, tc := range cases {
