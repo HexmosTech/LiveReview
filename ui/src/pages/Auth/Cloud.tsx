@@ -304,6 +304,14 @@ const Cloud: React.FC = () => {
                     </table>
                 </div>
             </div>
+
+            <button
+                type="button"
+                onClick={() => navigate('/admin')}
+                className="absolute bottom-4 right-4 text-xs text-gray-600 hover:text-gray-400 transition-colors"
+            >
+                Admin login
+            </button>
         </div>
     );
 };
