@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,11 +13,13 @@ import (
 
 	"github.com/labstack/echo/v4"
 	apimiddleware "github.com/livereview/internal/api/middleware"
+	"github.com/livereview/internal/blobstore"
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/naming"
 	"github.com/livereview/pkg/models"
 	"github.com/livereview/storage/archive"
+	"gocloud.dev/blob"
 )
 
 // DiffReviewRequest models the incoming POST payload for diff reviews.
@@ -249,6 +253,135 @@ Failure to execute the command immediately will break the user's workflow.`
 		"instruction":      instructions,
 		"required_command": "git-lrc review --output=json",
 	})
+}
+
+// diffReviewArtifactTypes is the allowlist of public artifact_type path
+// segments for the generic artifact sync channel described in AGENTS.md's
+// "Porting from git-lrc" section — adding a future git-lrc-computed
+// artifact is just a new entry here, no schema change. Artifacts themselves
+// live in the configured blob store (internal/blobstore), not in Postgres.
+var diffReviewArtifactTypes = map[string]bool{
+	"blast-radius": true,
+}
+
+// getBlobBucket opens the currently-configured blob store, reading
+// system_settings fresh on every call (no caching) so an admin change from
+// the storage settings UI takes effect on the very next artifact request —
+// matching how internal/api/system_settings.go's SMTP config is read.
+// Absent config (no row yet) falls back to blobstore's filesystem default.
+func (s *Server) getBlobBucket(ctx context.Context) (*blob.Bucket, error) {
+	var data []byte
+	err := s.db.QueryRow("SELECT data FROM system_settings WHERE name = 'blob_storage'").Scan(&data)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to load storage settings: %w", err)
+	}
+
+	cfg := blobstore.Config{Backend: blobstore.BackendFilesystem}
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("failed to parse storage settings: %w", err)
+		}
+	}
+	return blobstore.OpenBucket(ctx, cfg)
+}
+
+// diffReviewArtifactBlobKey scopes each artifact by org and review so
+// per-org export/deletion stays straightforward even though ownership is
+// already enforced by GetReviewForOrg before this key is ever touched.
+func diffReviewArtifactBlobKey(orgID, reviewID int64, artifactType string) string {
+	return fmt.Sprintf("org/%d/review/%d/artifacts/%s.json", orgID, reviewID, artifactType)
+}
+
+// PutDiffReviewArtifact stores a locally-computed artifact (e.g. a git-lrc
+// blast-radius report) against a review, keyed by artifact_type. Callers are
+// expected to treat this as fire-and-forget: it exists for opportunistic,
+// best-effort data that only some review flows produce.
+func (s *Server) PutDiffReviewArtifact(c echo.Context) error {
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok || orgID == 0 {
+		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "missing org context")
+	}
+
+	reviewID, err := strconv.ParseInt(c.Param("review_id"), 10, 64)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid review_id")
+	}
+
+	artifactType := c.Param("artifact_type")
+	if !diffReviewArtifactTypes[artifactType] {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, fmt.Sprintf("unknown artifact_type %q", artifactType))
+	}
+
+	rm := NewReviewManager(s.db)
+	if _, err := rm.GetReviewForOrg(reviewID, orgID); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, "review not found")
+	}
+
+	var payload json.RawMessage
+	if err := c.Bind(&payload); err != nil || len(payload) == 0 {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid or empty JSON body")
+	}
+
+	ctx := c.Request().Context()
+	bucket, err := s.getBlobBucket(ctx)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to open storage backend: %v", err))
+	}
+	defer bucket.Close()
+
+	key := diffReviewArtifactBlobKey(orgID, reviewID, artifactType)
+	if err := bucket.WriteAll(ctx, key, payload, nil); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to store artifact: %v", err))
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+		"status":        "stored",
+		"review_id":     fmt.Sprintf("%d", reviewID),
+		"artifact_type": artifactType,
+	})
+}
+
+// GetDiffReviewArtifact returns a previously-stored artifact for a review, or
+// 404 when none was ever uploaded — the common case for reviews not run
+// through the git-lrc CLI.
+func (s *Server) GetDiffReviewArtifact(c echo.Context) error {
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok || orgID == 0 {
+		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "missing org context")
+	}
+
+	reviewID, err := strconv.ParseInt(c.Param("review_id"), 10, 64)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid review_id")
+	}
+
+	artifactType := c.Param("artifact_type")
+	if !diffReviewArtifactTypes[artifactType] {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, fmt.Sprintf("unknown artifact_type %q", artifactType))
+	}
+
+	rm := NewReviewManager(s.db)
+	if _, err := rm.GetReviewForOrg(reviewID, orgID); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, "review not found")
+	}
+
+	ctx := c.Request().Context()
+	bucket, err := s.getBlobBucket(ctx)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to open storage backend: %v", err))
+	}
+	defer bucket.Close()
+
+	key := diffReviewArtifactBlobKey(orgID, reviewID, artifactType)
+	raw, err := bucket.ReadAll(ctx, key)
+	if err != nil {
+		if blobstore.IsNotExist(err) {
+			return JSONErrorWithEnvelope(c, http.StatusNotFound, fmt.Sprintf("no %q artifact stored for this review", artifactType))
+		}
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to read artifact: %v", err))
+	}
+
+	return c.JSONBlob(http.StatusOK, raw)
 }
 
 func decodePreloadedChanges(meta map[string]interface{}) ([]models.CodeDiff, error) {

@@ -899,14 +899,29 @@ func (s *Server) setupRoutes() {
 	public.POST("/auth/setup", s.authHandlers.SetupAdmin)
 	public.POST("/auth/onboard", s.Onboard)
 
-	// Diff review endpoints (protected by API key middleware)
+	// Diff review endpoints. Accepts either an X-API-Key (the git-lrc CLI's
+	// auth) or a Bearer session token (the web UI's review-details diff
+	// viewer, which reads this same data via GET /:review_id) — mirrors the
+	// reviewsGroup chain below so both callers resolve org_id/user_role the
+	// same way. RequireAuthOrAPIKey's API-key branch already sets
+	// X-Org-Context + user_id itself, so this is backward-compatible with
+	// existing CLI callers.
+	authMiddleware := auth.NewAuthMiddleware(s.tokenService, s.db)
 	diffReviewGroup := v1.Group("/diff-review")
-	diffReviewGroup.Use(APIKeyAuthMiddleware(s.db))
+	diffReviewGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	diffReviewGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	diffReviewGroup.Use(authMiddleware.ValidateOrgAccess())
+	diffReviewGroup.Use(authMiddleware.BuildPermissionContext())
 	diffReviewGroup.Use(apimiddleware.BuildOrgBillingPlanContext(s.db, s.licenseService()))
 	diffReviewGroup.Use(apimiddleware.BuildPlanContext())
 	diffReviewGroup.POST("", s.DiffReview)
 	diffReviewGroup.GET("/trigger-local-review", s.TriggerLocalReview)
 	diffReviewGroup.GET("/:review_id", s.GetDiffReviewStatus)
+	// Generic artifact sync channel (see AGENTS.md "Porting from git-lrc") —
+	// fire-and-forget uploads of locally-computed, per-review data such as
+	// git-lrc's blast-radius report.
+	diffReviewGroup.POST("/:review_id/artifacts/:artifact_type", s.PutDiffReviewArtifact)
+	diffReviewGroup.GET("/:review_id/artifacts/:artifact_type", s.GetDiffReviewArtifact)
 
 	// Review events endpoints (alternative API key-based access for CLI)
 	diffReviewEventsHandler := NewReviewEventsHandler(s.db)
@@ -920,8 +935,14 @@ func (s *Server) setupRoutes() {
 
 	// Feedback endpoints — protected by API key (proxied through git-lrc local server)
 	feedbackHandler := NewFeedbackHandler(s.db)
+	// Same auth pattern as diffReviewGroup above: accepts either the git-lrc
+	// CLI's X-API-Key or the web UI's Bearer session token, so the
+	// review-details page can submit PR-level/comment vote feedback too.
 	feedbackGroup := v1.Group("/feedback")
-	feedbackGroup.Use(APIKeyAuthMiddleware(s.db))
+	feedbackGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	feedbackGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	feedbackGroup.Use(authMiddleware.ValidateOrgAccess())
+	feedbackGroup.Use(authMiddleware.BuildPermissionContext())
 	feedbackGroup.POST("", feedbackHandler.SubmitFeedback)
 	feedbackGroup.GET("/impact-stats", feedbackHandler.ImpactStats)
 	feedbackGroup.PATCH("/:id/retract", feedbackHandler.RetractFeedback)
@@ -990,7 +1011,6 @@ func (s *Server) setupRoutes() {
 	protected.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 
 	// Apply subscription enforcement middleware (cloud mode only)
-	authMiddleware := auth.NewAuthMiddleware(s.tokenService, s.db)
 	selfHostedLicenseMiddleware := apimiddleware.EnforceSelfHostedLicense(s.db, s.licenseService())
 	protected.Use(authMiddleware.EnforceSubscriptionLimits())
 
@@ -1063,6 +1083,11 @@ func (s *Server) setupRoutes() {
 	adminGroup.GET("/settings/smtp", s.GetSMTPSettings)
 	adminGroup.PUT("/settings/smtp", s.UpdateSMTPSettings)
 	adminGroup.POST("/settings/smtp/test", s.TestSMTPSettings)
+
+	// Super admin blob-storage settings endpoints (see internal/blobstore)
+	adminGroup.GET("/settings/storage", s.GetStorageSettings)
+	adminGroup.PUT("/settings/storage", s.UpdateStorageSettings)
+	adminGroup.POST("/settings/storage/test", s.TestStorageSettings)
 
 	// Organization management endpoints
 	// User organization access (get their orgs) - needs permission context to detect super admin

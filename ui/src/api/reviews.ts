@@ -1,11 +1,13 @@
 import apiClient from './apiClient';
-import { 
-  Review, 
-  ReviewsListResponse, 
-  ReviewsFilters, 
-  ReviewEventsResponse, 
+import {
+  Review,
+  ReviewsListResponse,
+  ReviewsFilters,
+  ReviewEventsResponse,
   ReviewSummary,
-  ReviewAccounting
+  ReviewAccounting,
+  DiffReviewStatusResponse,
+  BlastRadiusReport
 } from '../types/reviews';
 
 export interface TriggerReviewRequest {
@@ -150,6 +152,39 @@ export const getReviewAccounting = async (reviewId: number): Promise<ReviewAccou
     return await apiClient.get<ReviewAccounting>(`/api/v1/reviews/${reviewId}/accounting`);
   } catch (error) {
     console.error('Error fetching review accounting:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get the diff/findings viewer payload for a review: files, hunks, and
+ * inline AI comments. Backed by the same GET /api/v1/diff-review/:review_id
+ * endpoint the git-lrc CLI already polls.
+ * @param reviewId The ID of the review
+ * @returns Promise with the diff review status/result
+ */
+export const getDiffReview = async (reviewId: number): Promise<DiffReviewStatusResponse> => {
+  try {
+    return await apiClient.get<DiffReviewStatusResponse>(`/api/v1/diff-review/${reviewId}`);
+  } catch (error) {
+    console.error('Error fetching diff review:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get the blast-radius report git-lrc uploaded for a review, if any. Most
+ * reviews won't have one (only ones actually run via `git lrc review` with
+ * a local codebase-memory-mcp graph do) — callers should treat a 404 as
+ * "nothing to show", not an error.
+ * @param reviewId The ID of the review
+ * @returns Promise with the blast radius report
+ */
+export const getBlastRadiusReport = async (reviewId: number): Promise<BlastRadiusReport> => {
+  try {
+    return await apiClient.get<BlastRadiusReport>(`/api/v1/diff-review/${reviewId}/artifacts/blast-radius`);
+  } catch (error) {
+    console.error('Error fetching blast radius report:', error);
     throw error;
   }
 };

@@ -170,9 +170,9 @@ func (b *Bot) Start(ctx context.Context) error {
 			oh.session.AddHandler(b.makeReadyHandler())
 			if err := oh.session.Open(); err != nil {
 				errCh <- fmt.Errorf("org %d: failed to open session: %w", oh.orgID, err)
-				return
+				return // nosemgrep: trailofbits.go.missing-runlock-on-rwmutex.missing-runlock-on-rwmutex -- this return exits the goroutine closure, not Start(); b.mu is RLocked/RUnlocked in Start's own scope (lines above/below this loop) and is never held here.
 			}
-			log.Printf("[DiscordBot] Org %d: connected to gateway", oh.orgID)
+			log.Printf("[DiscordBot] Org %d: connected to gateway", oh.orgID) // nosemgrep: trailofbits.go.missing-runlock-on-rwmutex.missing-runlock-on-rwmutex -- same false positive: this line is inside the goroutine closure, not Start()'s lock scope.
 		}()
 	}
 	b.mu.RUnlock()
@@ -292,7 +292,7 @@ func (b *Bot) makeHandler() func(*discordgo.Session, *discordgo.MessageCreate) {
 
 		isDM := m.GuildID == ""
 
-	// nosemgrep: trailofbits.go.missing-runlock-on-rwmutex -- RLock/RUnlock are correctly paired around the goroutine-spawn loop below; the flagged returns are inside goroutines running after RUnlock.
+	// nosemgrep: trailofbits.go.missing-runlock-on-rwmutex.missing-runlock-on-rwmutex -- RLock/RUnlock are correctly paired around the goroutine-spawn loop below; the flagged returns are inside goroutines running after RUnlock.
 	b.mu.RLock()
 		defer b.mu.RUnlock()
 
