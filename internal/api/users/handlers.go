@@ -39,6 +39,82 @@ func (uh *UserHandlers) CheckUser(c echo.Context) error {
 	return c.JSON(http.StatusOK, result)
 }
 
+// BulkCheckUsers handles verifying a batch of candidate users (e.g. parsed from an
+// uploaded CSV) against existing org members ahead of a bulk invite. It is read-only —
+// it does not create or modify any users.
+func (uh *UserHandlers) BulkCheckUsers(c echo.Context) error {
+	// Get permission context from middleware
+	permCtx := auth.MustGetPermissionContext(c)
+
+	// Same permission as single-user invite, since this is a precursor to it
+	if !permCtx.HasPermission(auth.PermissionCreateUsers) {
+		return echo.NewHTTPError(http.StatusForbidden, "Permission denied: cannot create users")
+	}
+
+	var req struct {
+		Users []BulkCheckUserRow `json:"users" validate:"required"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
+	}
+	if len(req.Users) == 0 {
+		return echo.NewHTTPError(http.StatusBadRequest, "No users provided")
+	}
+	if len(req.Users) > 1000 {
+		return echo.NewHTTPError(http.StatusBadRequest, "Too many rows in a single upload (max 1000)")
+	}
+
+	results, err := uh.userService.BulkCheckUsersInOrg(permCtx.OrgID, req.Users)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to check users")
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"results": results,
+	})
+}
+
+// BulkInviteUsers handles creating/updating a batch of users (e.g. from a reviewed
+// CSV upload). Unlike BulkCheckUsers, this actually writes to the database. Rows are
+// processed independently — one bad row doesn't block the rest of the batch.
+func (uh *UserHandlers) BulkInviteUsers(c echo.Context) error {
+	// Get permission context from middleware
+	permCtx := auth.MustGetPermissionContext(c)
+
+	// Same permission as single-user invite and BulkCheckUsers
+	if !permCtx.HasPermission(auth.PermissionCreateUsers) {
+		return echo.NewHTTPError(http.StatusForbidden, "Permission denied: cannot create users")
+	}
+
+	var req struct {
+		Users []BulkInviteUserRow `json:"users" validate:"required"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
+	}
+	if len(req.Users) == 0 {
+		return echo.NewHTTPError(http.StatusBadRequest, "No users provided")
+	}
+	if len(req.Users) > 1000 {
+		return echo.NewHTTPError(http.StatusBadRequest, "Too many rows in a single upload (max 1000)")
+	}
+
+	perms := BulkInvitePermissions{
+		CanCreate:      permCtx.HasPermission(auth.PermissionCreateUsers),
+		CanEdit:        permCtx.HasPermission(auth.PermissionEditUsers),
+		CanManageRoles: permCtx.HasPermission(auth.PermissionManageRoles),
+	}
+
+	results, err := uh.userService.BulkInviteUsersInOrg(permCtx.OrgID, permCtx.User.ID, req.Users, perms)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to process bulk invite")
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"results": results,
+	})
+}
+
 // CreateUser handles creating a new user in an organization
 func (uh *UserHandlers) CreateUser(c echo.Context) error {
 	// Get permission context from middleware
