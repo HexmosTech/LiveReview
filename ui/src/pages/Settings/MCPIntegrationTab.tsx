@@ -3,7 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { Button, Icons } from '../../components/UIPrimitives';
 import { getApiUrl } from '../../utils/apiUrl';
 
-const MCPIntegrationTab: React.FC = () => {
+interface MCPIntegrationTabProps {
+    // Settings shows its own tab heading; pages that already have their own section
+    // heading (e.g. the "Create via MCP" page) can suppress this one.
+    showHeading?: boolean;
+}
+
+const MCPIntegrationTab: React.FC<MCPIntegrationTabProps> = ({ showHeading = true }) => {
     const navigate = useNavigate();
     const [copied, setCopied] = useState(false);
 
@@ -34,12 +40,14 @@ const MCPIntegrationTab: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h3 className="text-lg font-medium text-white mb-1">Model Context Protocol (MCP) Server</h3>
-                <p className="text-sm text-slate-300">
-                    Integrate LiveReview natively into your favorite AI-powered IDEs and clients, including Cursor, Claude Desktop, Windsurf, and VS Code.
-                </p>
-            </div>
+            {showHeading && (
+                <div>
+                    <h3 className="text-lg font-medium text-white mb-1">Model Context Protocol (MCP) Server</h3>
+                    <p className="text-sm text-slate-300">
+                        Integrate LiveReview natively into your favorite AI-powered IDEs and clients, including Cursor, Claude Desktop, Windsurf, and VS Code.
+                    </p>
+                </div>
+            )}
 
             <div className="bg-slate-800 rounded-lg border border-slate-700 p-5">
                 <h4 className="text-white font-medium mb-3">1. Get your API key</h4>

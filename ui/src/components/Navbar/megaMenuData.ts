@@ -142,6 +142,10 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
         items: [
             link('List Reviews', React.createElement(Icons.List), '/reviews'),
             link('Create Review', React.createElement(Icons.Add), '/reviews/new'),
+            link('Create via Chatbot', React.createElement(Icons.Chat), '/chat?prefill=' + encodeURIComponent('Trigger a review for <paste PR link here>')),
+            link('Create via CLI', React.createElement(Icons.Download), '/reviews/create-cli'),
+            link('Create via MCP', React.createElement(Icons.AI), '/reviews/create-mcp'),
+            link('Schedule Review', React.createElement(Icons.Clock), '/reviews/scheduled'),
         ],
     },
     {

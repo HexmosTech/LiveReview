@@ -8,11 +8,15 @@ import {
   SiGitea,
   SiOllama,
   SiClaude,
+  SiClaudecode,
+  SiCursor,
+  SiWindsurf,
   SiDeepseek,
   SiOpenrouter,
 } from 'react-icons/si';
 import { FaSlack, FaAws } from 'react-icons/fa6';
 import { TbUserPlus, TbUsersPlus } from 'react-icons/tb';
+import { VscVscode } from 'react-icons/vsc';
 
 // ===== BUTTON COMPONENTS =====
 type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
@@ -348,6 +352,50 @@ export const Badge: React.FC<BadgeProps> = ({
     >
       {children}
     </span>
+  );
+};
+
+// ===== TOGGLE COMPONENT =====
+interface ToggleProps {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+  isLoading?: boolean;
+  className?: string;
+  'aria-label'?: string;
+}
+
+export const Toggle: React.FC<ToggleProps> = ({
+  checked,
+  onChange,
+  disabled = false,
+  isLoading = false,
+  className,
+  'aria-label': ariaLabel,
+}) => {
+  const inactive = disabled || isLoading;
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      disabled={inactive}
+      onClick={() => !inactive && onChange(!checked)}
+      className={classNames(
+        'relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 focus:ring-offset-slate-900',
+        checked ? 'bg-blue-600' : 'bg-slate-600',
+        inactive ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer',
+        className
+      )}
+    >
+      <span
+        className={classNames(
+          'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+          checked ? 'translate-x-6' : 'translate-x-1'
+        )}
+      />
+    </button>
   );
 };
 
@@ -718,6 +766,14 @@ export const Icons = {
       <path d="M7.47 5.13 2 18.86h3.06l1.12-2.88h5.73l1.12 2.88h3.06L10.62 5.13H7.48Zm3.44 8.3H7.16L9.03 8.6l1.87 4.83ZM13.52 5.13 19 18.87h3L16.53 5.13z" />
     </svg>
   ),
+  // Claude Code CLI mark (distinct Simple Icons entry from the general Anthropic/Claude mark above).
+  ClaudeCode: () => <SiClaudecode className="w-5 h-5 text-[#D97757]" />,
+  // Cursor/Windsurf publish near-black/black as their official color — invisible on this app's
+  // dark-only UI, so (matching GitHub/OpenAI/Ollama above) they use white instead.
+  Cursor: () => <SiCursor className="w-5 h-5 text-white" />,
+  Windsurf: () => <SiWindsurf className="w-5 h-5 text-white" />,
+  // VS Code's own icon package (not Simple Icons) — real brand mark, official blue.
+  VSCode: () => <VscVscode className="w-5 h-5 text-[#007ACC]" />,
   DeepSeek: () => <SiDeepseek className="w-5 h-5 text-[#5786FE]" />,
   OpenRouter: () => <SiOpenrouter className="w-5 h-5 text-[#94A3B8]" />,
   Slack: ({ className = 'w-5 h-5 text-[#4A154B]' }: { className?: string } = {}) => <FaSlack className={className} />,

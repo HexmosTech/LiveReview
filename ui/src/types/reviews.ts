@@ -321,6 +321,23 @@ export interface BlastRadiusPackageImpact {
   MaxBlastRadiusRaw: number;
 }
 
+// Per-repo scheduled-review configuration (backend currently only persists a fixed
+// interval_hours=24; the cron_expression here is UI-side only until the backend is
+// updated to store and act on it).
+export interface ScheduledReviewConfig {
+  id: number;
+  project_full_name: string;
+  enabled: boolean;
+  interval_hours: number;
+  last_run_at?: string;
+  next_run_at: string;
+}
+
+export interface SetScheduledReviewRequest {
+  project_path: string;
+  enabled: boolean;
+}
+
 export interface BlastRadiusReport {
   Project: string;
   GeneratedAt: string;
