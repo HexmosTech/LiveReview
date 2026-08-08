@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Button, Alert } from '../../components/UIPrimitives';
+import { Button, Alert, Icons } from '../../components/UIPrimitives';
 import apiClient from '../../api/apiClient';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { isCloudMode } from '../../utils/deploymentMode';
@@ -71,6 +71,45 @@ const SlackIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
     const [success, setSuccess] = useState<string | null>(null);
     const [editMode, setEditMode] = useState(false);
     const [botToken, setBotToken] = useState('');
+    const [appToken, setAppToken] = useState('');
+    const [manifestCopied, setManifestCopied] = useState(false);
+
+    const slackManifest = `display_information:
+  name: Livi
+  description: LiveReview Bot
+  background_color: "#001c5e"
+features:
+  bot_user:
+    display_name: Livi
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - channels:read
+      - app_mentions:read
+      - channels:history
+      - chat:write
+      - files:write
+      - groups:history
+      - im:history
+      - im:read
+      - im:write
+      - users:read
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - message.im
+  interactivity:
+    is_enabled: true
+  socket_mode_enabled: true
+  token_rotation_enabled: false`;
+
+    const copyManifest = () => {
+        navigator.clipboard.writeText(slackManifest);
+        setManifestCopied(true);
+        setTimeout(() => setManifestCopied(false), 2000);
+    };
 
     const loadConfig = useCallback(async () => {
         if (!currentOrg) return;
@@ -96,17 +135,22 @@ const SlackIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
             setError('Bot token is required');
             return;
         }
+        if (!appToken) {
+            setError('App-level token is required');
+            return;
+        }
         setSaving(true);
         setError(null);
         setSuccess(null);
         try {
             const response = await apiClient.put<SlackConfig>(
                 `/orgs/${currentOrg.id}/slack-config`,
-                { bot_token: botToken }
+                { bot_token: botToken, app_token: appToken }
             );
             setConfig(response);
             setEditMode(false);
             setBotToken('');
+            setAppToken('');
             setSuccess('Slack bot configured successfully.');
         } catch (err: any) {
             setError(err.message || 'Failed to save Slack configuration');
@@ -205,6 +249,16 @@ const SlackIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                         ) : (
                             <div className="mt-3 space-y-3">
                                 <div>
+                                    <label className="block text-xs font-medium text-slate-400 mb-1">App-Level Token</label>
+                                    <input
+                                        type="password"
+                                        value={appToken}
+                                        onChange={(e) => setAppToken(e.target.value)}
+                                        placeholder="xapp-1-xxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                                        className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    />
+                                </div>
+                                <div>
                                     <label className="block text-xs font-medium text-slate-400 mb-1">Bot Token</label>
                                     <input
                                         type="password"
@@ -214,25 +268,55 @@ const SlackIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                         className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     />
                                 </div>
-                                <div className="text-xs text-slate-400 space-y-2">
-                                    <p className="font-medium text-slate-300">Step-by-step setup:</p>
+                                <div className="text-xs text-slate-400 space-y-3">
+                                    <p className="font-medium text-slate-300">Create the app from a manifest:</p>
                                     <ol className="list-decimal list-inside space-y-1.5">
                                         <li>
-                                            Go to the{' '}
+                                            In{' '}
                                             <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">
                                                 Slack API Apps
                                             </a>
-                                            {' '}and click <strong className="text-slate-200">Create New App</strong>.
+                                            , click <strong className="text-slate-200">Create New App</strong>, choose <strong className="text-slate-200">From manifest</strong>.
                                         </li>
                                         <li>
-                                            Under <strong className="text-slate-200">OAuth &amp; Permissions</strong>, add the <code className="bg-slate-700 px-1 rounded">chat:write</code> and{' '}
-                                            <code className="bg-slate-700 px-1 rounded">app_mentions:read</code> Bot Token Scopes.
+                                            Paste the manifest below and click <strong className="text-slate-200">Next &gt; Create</strong>.
                                         </li>
                                         <li>
-                                            Click <strong className="text-slate-200">Install to Workspace</strong> to install the app, then copy the generated <strong className="text-slate-200">Bot User OAuth Token</strong> (starts with <code className="bg-slate-700 px-1 rounded">xoxb-</code>).
+                                            Choose your workspace.
                                         </li>
                                         <li>
-                                            Paste the token below and click <strong className="text-slate-200">Save</strong>, then invite the bot to the channel you want to use.
+                                            When prompted, <strong className="text-slate-200">Allow the Livi app to access Slack</strong>, and click <strong className="text-slate-200">Allow</strong>.
+                                        </li>
+                                    </ol>
+                                    <div className="relative">
+                                        <pre className="bg-slate-900 rounded p-3 text-xs text-slate-200 font-mono overflow-x-auto whitespace-pre">{slackManifest}</pre>
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="absolute top-2 right-2"
+                                            onClick={copyManifest}
+                                            icon={<Icons.Copy />}
+                                        >
+                                            {manifestCopied ? 'Copied!' : 'Copy'}
+                                        </Button>
+                                    </div>
+                                    <ol className="list-decimal list-inside space-y-1.5" start={5}>
+                                        <li>
+                                            Go to <strong className="text-slate-200">Settings &gt; Basic Information</strong>, scroll down to <strong className="text-slate-200">App-Level Tokens</strong>, click <strong className="text-slate-200">Generate Token</strong>, and paste it into the <em className="text-slate-300">App-Level Token</em> field above.
+                                        </li>
+                                        <li>
+                                            Go to <strong className="text-slate-200">Settings &gt; Install App</strong>:
+                                            <ol className="list-decimal list-inside space-y-1.5 mt-1 ml-4">
+                                                <li>
+                                                    Copy the <strong className="text-slate-200">Bot User OAuth Token</strong>.
+                                                </li>
+                                                <li>
+                                                    Paste it into the <em className="text-slate-300">Bot Token</em> field above.
+                                                </li>
+                                            </ol>
+                                        </li>
+                                        <li>
+                                            Click <strong className="text-slate-200">Save</strong>.
                                         </li>
                                     </ol>
                                 </div>
@@ -241,7 +325,7 @@ const SlackIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                         size="sm"
                                         variant="primary"
                                         onClick={handleSave}
-                                        disabled={saving || !botToken}
+                                        disabled={saving || !botToken || !appToken}
                                         isLoading={saving}
                                     >
                                         Save
@@ -253,6 +337,7 @@ const SlackIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                             onClick={() => {
                                                 setEditMode(false);
                                                 setBotToken('');
+                                                setAppToken('');
                                             }}
                                         >
                                             Cancel

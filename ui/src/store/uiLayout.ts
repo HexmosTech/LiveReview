@@ -1,16 +1,18 @@
 import { useSyncExternalStore } from 'react';
 
-// Whether the FloatingOnboardingNudge bar is currently occupying the bottom
-// of the viewport. The global floating chat button reads this so it can
-// position itself above the bar when it's up, and drop back to its default
-// position when the bar is closed or scrolled away.
-let nudgeOccupying = false;
+// Tracks whether any floating element is occupying the bottom-right region of
+// the viewport, so the global floating chat button can adapt its position and
+// label. Bitmask so multiple blockers can coexist if needed.
+//
+// bit 1: the FloatingOnboardingNudge bar (full-width bottom bar) — the chat
+//        button moves above it.
+// bit 2: the diff-viewer CommentNav prev/next pill — the chat label hides so
+//        only the round button remains, clearing the pill (which sits at
+//        right-24, just left of the button).
+let blockers = 0;
+let snapshot = blockers;
 
 const listeners = new Set<() => void>();
-
-function emit() {
-    listeners.forEach((l) => l());
-}
 
 function subscribe(cb: () => void) {
     listeners.add(cb);
@@ -18,15 +20,20 @@ function subscribe(cb: () => void) {
 }
 
 function getSnapshot() {
-    return nudgeOccupying;
+    return snapshot;
 }
 
-export function setNudgeOccupying(occupying: boolean) {
-    if (nudgeOccupying === occupying) return;
-    nudgeOccupying = occupying;
-    emit();
+function setBit(bit: number, on: boolean) {
+    const next = on ? blockers | bit : blockers & ~bit;
+    if (next === blockers) return;
+    blockers = next;
+    snapshot = blockers;
+    listeners.forEach((l) => l());
 }
 
-export function useNudgeOccupying() {
+export const setNudgeOccupying = (on: boolean) => setBit(1, on);
+export const setCommentNavOccupying = (on: boolean) => setBit(2, on);
+
+export function useBottomRightBlockers() {
     return useSyncExternalStore(subscribe, getSnapshot);
 }

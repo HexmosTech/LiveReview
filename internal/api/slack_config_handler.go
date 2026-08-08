@@ -73,12 +73,16 @@ func (h *SlackConfigHandler) PutSlackConfig(c echo.Context) error {
 
 	var req struct {
 		BotToken string `json:"bot_token"`
+		AppToken string `json:"app_token"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
 	}
 	if req.BotToken == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "bot_token is required")
+	}
+	if req.AppToken == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "app_token is required")
 	}
 
 	userID := pc.GetUserID()
@@ -96,7 +100,7 @@ func (h *SlackConfigHandler) PutSlackConfig(c echo.Context) error {
 		apiKey = plainKey
 	}
 
-	cfg, err := h.storage.UpsertSlackConfig(c.Request().Context(), orgID, req.BotToken, apiKey)
+	cfg, err := h.storage.UpsertSlackConfig(c.Request().Context(), orgID, req.BotToken, req.AppToken, apiKey)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to save slack config")
 	}

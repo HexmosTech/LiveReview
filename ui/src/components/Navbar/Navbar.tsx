@@ -580,6 +580,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
     const [hoveredNavKey, setHoveredNavKey] = useState<string | null>(null);
     const [searchFocusToken, setSearchFocusToken] = useState(0);
     const megaMenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const megaMenuOpenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     // The mega menu should only open/stay open while hovering the logo or the nav-links-through-
     // search cluster (or the open panel itself) — not the org selector, billing chip, or logout,
     // which now sit to the right of Search but shouldn't trigger it.
@@ -630,12 +631,36 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
     };
 
     const openMegaMenu = () => {
+        if (megaMenuOpenTimerRef.current) {
+            clearTimeout(megaMenuOpenTimerRef.current);
+            megaMenuOpenTimerRef.current = null;
+        }
         if (megaMenuCloseTimerRef.current) {
             clearTimeout(megaMenuCloseTimerRef.current);
             megaMenuCloseTimerRef.current = null;
         }
         wasMegaMenuOpenRef.current = true;
         setIsMegaMenuOpen(true);
+    };
+
+    // Hover-opening should match the submenu's delay (see openGroup in
+    // NavMegaMenu) so the menu doesn't pop open the instant the cursor passes
+    // over the nav cluster. One-shot: doesn't reset on every mousemove tick.
+    const scheduleMegaMenuOpen = () => {
+        if (wasMegaMenuOpenRef.current) return;
+        if (megaMenuOpenTimerRef.current) return;
+        megaMenuOpenTimerRef.current = setTimeout(() => {
+            megaMenuOpenTimerRef.current = null;
+            openMegaMenu();
+            setSearchFocusToken((token) => token + 1);
+        }, 500);
+    };
+
+    const cancelScheduledMegaMenuOpen = () => {
+        if (megaMenuOpenTimerRef.current) {
+            clearTimeout(megaMenuOpenTimerRef.current);
+            megaMenuOpenTimerRef.current = null;
+        }
     };
 
     // Whether the cursor is "inside" the nav can't be tracked with plain onMouseEnter/onMouseLeave
@@ -661,24 +686,37 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                     clearTimeout(megaMenuCloseTimerRef.current);
                     megaMenuCloseTimerRef.current = null;
                 }
-                // Focus the search box the moment the menu actually opens (not on every mousemove
-                // tick while it's already open, which would fight the user for focus while typing).
-                if (!wasMegaMenuOpenRef.current) {
-                    wasMegaMenuOpenRef.current = true;
-                    setSearchFocusToken((token) => token + 1);
+                // Keep an already-open menu open; otherwise schedule the open
+                // with the same delay as the submenu, so a quick pass over the
+                // nav cluster doesn't pop it up.
+                if (wasMegaMenuOpenRef.current) {
+                    setIsMegaMenuOpen(true);
+                } else {
+                    scheduleMegaMenuOpen();
                 }
-                setIsMegaMenuOpen(true);
-            } else if (!megaMenuCloseTimerRef.current) {
-                megaMenuCloseTimerRef.current = setTimeout(() => {
-                    setIsMegaMenuOpen(false);
-                    setHoveredNavKey(null);
-                    wasMegaMenuOpenRef.current = false;
-                    megaMenuCloseTimerRef.current = null;
-                }, 200);
+            } else {
+                // Cursor left the trigger zone — cancel any pending open and
+                // schedule the close if not already pending.
+                cancelScheduledMegaMenuOpen();
+                if (!megaMenuCloseTimerRef.current) {
+                    megaMenuCloseTimerRef.current = setTimeout(() => {
+                        setIsMegaMenuOpen(false);
+                        setHoveredNavKey(null);
+                        wasMegaMenuOpenRef.current = false;
+                        megaMenuCloseTimerRef.current = null;
+                    }, 200);
+                }
             }
         };
         document.addEventListener('mousemove', handleMouseMove);
-        return () => document.removeEventListener('mousemove', handleMouseMove);
+        return () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            cancelScheduledMegaMenuOpen();
+            if (megaMenuCloseTimerRef.current) {
+                clearTimeout(megaMenuCloseTimerRef.current);
+                megaMenuCloseTimerRef.current = null;
+            }
+        };
     }, []);
 
     // Ctrl+K / Cmd+K opens the mega menu and focuses its search box from anywhere in the app.
@@ -686,6 +724,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
         const handleKeyDown = (event: KeyboardEvent) => {
             if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
                 event.preventDefault();
+                cancelScheduledMegaMenuOpen();
                 if (megaMenuCloseTimerRef.current) {
                     clearTimeout(megaMenuCloseTimerRef.current);
                     megaMenuCloseTimerRef.current = null;
@@ -779,10 +818,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
 
                     <Button
                         variant="ghost"
-                        onMouseEnter={() => {
-                            openMegaMenu();
-                            setSearchFocusToken((token) => token + 1);
-                        }}
+                        onMouseEnter={() => scheduleMegaMenuOpen()}
                         onClick={() => {
                             openMegaMenu();
                             setSearchFocusToken((token) => token + 1);

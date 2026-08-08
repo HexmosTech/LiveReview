@@ -172,8 +172,6 @@ type Server struct {
 	discordBot       *discordbot.Bot
 	discordBotCancel context.CancelFunc
 
-	slackOAuthHandler *SlackOAuthHandler
-
 	openapiSpec string
 }
 
@@ -476,16 +474,15 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 
 	mcp.Mount("/api/mcp")
 
-	// Initialize org-scoped Slack bots (self-hosted only)
-	if !server.deploymentConfig.IsCloud && os.Getenv("SLACK_APP_TOKEN") != "" {
+	// Initialize org-scoped Slack bots (self-hosted only). Each org supplies its
+	// own bot + app tokens via the UI, so no server-level env vars are required.
+	if !server.deploymentConfig.IsCloud {
 		bots, err := startOrgSlackBots(server.db)
 		if err != nil {
 			fmt.Printf("Warning: Failed to initialize Slack bots: %v (Slack bot disabled)\n", err)
-		} else {
+		} else if len(bots) > 0 {
 			server.slackBots = bots
-			if len(bots) > 0 {
-				server.slackBot = bots[0]
-			}
+			server.slackBot = bots[0]
 			fmt.Printf("Slack bots initialized for %d org(s) (will start with server)\n", len(bots))
 		}
 	}
@@ -526,27 +523,40 @@ func WorkerContext(versionInfo *VersionInfo) (*Server, error) {
 	return appContext(0, versionInfo)
 }
 
+// resolveMCPBaseURL derives the MCP endpoint the bots talk to. It prefers the
+// explicitly configured SLACK_MCP_SERVER_URL, then the production URL set in the
+// instance settings (Settings → Instance → Production URL), and finally falls
+// back to the cloud endpoint.
+func resolveMCPBaseURL(db *sql.DB) string {
+	var prodURL sql.NullString
+	if err := db.QueryRow("SELECT livereview_prod_url FROM instance_details LIMIT 1").Scan(&prodURL); err == nil && prodURL.Valid && prodURL.String != "" {
+		return strings.TrimSuffix(prodURL.String, "/") + "/api/mcp"
+	}
+	return "https://livereview.hexmos.com/api/mcp"
+}
+
 // startOrgSlackBots reads all enabled Slack bot configs from the DB,
 // resolves each org's AI connector, and creates the multi-org Slack bot.
+// Each org supplies its own Slack bot + app-level tokens, so no server-level
+// Slack env vars are required.
 func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
-	appToken := os.Getenv("SLACK_APP_TOKEN")
-	if appToken == "" {
-		return nil, fmt.Errorf("SLACK_APP_TOKEN is required")
-	}
-
 	configStorage := slackbot.NewStorage(db)
 	configs, err := configStorage.GetAllEnabledConfigs(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to query slack configs: %w", err)
 	}
 	if len(configs) == 0 {
-		return nil, fmt.Errorf("no enabled Slack bot configs found")
+		return nil, nil
 	}
+
+	// Backwards compatibility: configs created before app tokens were stored
+	// (e.g. existing cloud installs) fall back to the env-provided app token.
+	legacyAppToken := os.Getenv("SLACK_APP_TOKEN")
 
 	connectorStorage := aiconnectors.NewStorage(db)
 	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
 	if mcpServerURL == "" {
-		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
+		mcpServerURL = resolveMCPBaseURL(db)
 	}
 	maxSteps := 20
 	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
@@ -560,6 +570,15 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 	var orgCfgs []slackbot.OrgConfig
 
 	for _, cfg := range configs {
+		appToken := cfg.AppToken
+		if appToken == "" {
+			appToken = legacyAppToken
+		}
+		if appToken == "" {
+			log.Printf("Slack bot: org %d has no app token configured — skipping", cfg.OrgID)
+			continue
+		}
+
 		// Find a working AI connector for this org
 		connectors, err := connectorStorage.GetAllConnectors(context.Background(), cfg.OrgID)
 		if err != nil {
@@ -599,6 +618,7 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 			OrgID:         cfg.OrgID,
 			OrgName:       orgName,
 			SlackBotToken: cfg.BotToken,
+			SlackAppToken: appToken,
 			MCPServerURL:  mcpServerURL,
 			MCPHeaders:    mcpHeaders,
 			Connector:     connector,
@@ -607,12 +627,11 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 	}
 
 	if len(orgCfgs) == 0 {
-		return nil, fmt.Errorf("no orgs could be configured for Slack bot")
+		return nil, nil
 	}
 
 	bot, err := slackbot.New(&slackbot.Config{
-		SlackAppToken: appToken,
-		Orgs:          orgCfgs,
+		Orgs: orgCfgs,
 	}, func(orgID int64, teamID string) error {
 		return configStorage.UpdateTeamID(context.Background(), orgID, teamID)
 	})
@@ -640,7 +659,7 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 		mcpServerURL = os.Getenv("SLACK_MCP_SERVER_URL")
 	}
 	if mcpServerURL == "" {
-		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
+		mcpServerURL = resolveMCPBaseURL(db)
 	}
 	stepStr := os.Getenv("DISCORD_MAX_AGENT_STEPS")
 	if stepStr == "" {
@@ -957,38 +976,6 @@ func (s *Server) setupRoutes() {
 	// Cloud user ensure endpoint (now public; handler performs CLOUD_JWT_SECRET validation)
 	public.POST("/auth/ensure-cloud-user", s.authHandlers.EnsureCloudUser)
 
-	// Slack OAuth — reads common env vars
-	slackClientID := os.Getenv("SLACK_CLIENT_ID")
-	slackClientSecret := os.Getenv("SLACK_CLIENT_SECRET")
-	slackRedirectURL := os.Getenv("SLACK_REDIRECT_URL")
-	selfURL := os.Getenv("LIVEREVIEW_SELF_URL")
-	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
-	if mcpServerURL == "" {
-		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
-	}
-	maxSteps := 20
-	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			maxSteps = n
-		}
-	}
-
-	if slackClientID != "" && slackClientSecret != "" && slackRedirectURL != "" {
-		if s.deploymentConfig.IsCloud {
-			// Cloud: proxy callback endpoint (ungated — Slack redirects here)
-			cloudHandler := NewSlackOAuthHandler(s.db, slackClientID, slackClientSecret, slackRedirectURL, mcpServerURL, maxSteps, nil, selfURL, true)
-			public.GET("/auth/slack/proxy-callback", cloudHandler.SlackOAuthProxyCallback)
-			fmt.Println("Slack OAuth proxy callback endpoint registered (cloud)")
-		} else {
-			// Self-hosted: direct callback + install + proxy-receive endpoint
-			slackOAuthHandler := NewSlackOAuthHandler(s.db, slackClientID, slackClientSecret, slackRedirectURL, mcpServerURL, maxSteps, s.slackBot, selfURL, false)
-			public.GET("/auth/slack/callback", slackOAuthHandler.SlackOAuthCallback)
-			public.POST("/orgs/:org_id/slack-proxy-callback", slackOAuthHandler.SlackProxyCallback)
-			fmt.Println("Slack OAuth direct callback registered (self-hosted)")
-			s.slackOAuthHandler = slackOAuthHandler
-		}
-	}
-
 	// Teams bot messages endpoint (public — Bot Framework sends activities here)
 	s.echo.POST("/api/messages", func(c echo.Context) error {
 		if s.teamsHandler == nil {
@@ -1021,12 +1008,6 @@ func (s *Server) setupRoutes() {
 
 	// Clear onboarding API key
 	protected.POST("/onboarding/clear-api-key", s.ClearOnboardingAPIKey)
-
-	// Slack OAuth install — protected (user must be logged in, self-hosted only)
-	if s.slackOAuthHandler != nil && !s.deploymentConfig.IsCloud {
-		protected.GET("/auth/slack/install", s.slackOAuthHandler.InstallSlackBot)
-		fmt.Println("Slack OAuth install endpoint registered")
-	}
 
 	// Self-service profile endpoints
 	protected.GET("/users/profile", s.profileHandlers.GetProfile)
