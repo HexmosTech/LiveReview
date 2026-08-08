@@ -48,7 +48,7 @@ func (s *TokenStore) ListRecentGiteaIntegrationTokens(limit int) ([]IntegrationT
 	return records, nil
 }
 
-func (s *TokenStore) GetGiteaIntegrationTokenByID(connectorID int) (*IntegrationTokenRecord, error) {
+func (s *TokenStore) GetGiteaIntegrationTokenByID(connectorID int64) (*IntegrationTokenRecord, error) {
 	rec := &IntegrationTokenRecord{}
 	err := s.db.QueryRow(`
 		SELECT id, provider, provider_url, pat_token, org_id, COALESCE(metadata, '{}') as metadata

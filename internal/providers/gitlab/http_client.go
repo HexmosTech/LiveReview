@@ -185,6 +185,14 @@ func (c *GitLabHTTPClient) GetMergeRequest(projectID string, mrIID int) (*GitLab
 	// Print all request headers for debugging
 	fmt.Println("GetMergeRequest: Request headers:")
 	for key, values := range req.Header {
+		if strings.EqualFold(key, "PRIVATE-TOKEN") || strings.EqualFold(key, "Authorization") {
+			masked := make([]string, len(values))
+			for i := range values {
+				masked[i] = maskToken(values[i])
+			}
+			fmt.Printf("  %s: %s\n", key, masked)
+			continue
+		}
 		fmt.Printf("  %s: %s\n", key, values)
 	}
 

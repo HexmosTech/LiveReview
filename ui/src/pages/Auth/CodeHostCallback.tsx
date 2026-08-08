@@ -36,8 +36,9 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Retrieve connector details from localStorage
-    const storedDetails = localStorage.getItem('pendingGitLabConnector');
+    // Retrieve connector details (written to sessionStorage by
+    // GitLabConnector.tsx before the redirect to GitLab)
+    const storedDetails = sessionStorage.getItem('pendingGitLabConnector');
     if (storedDetails) {
       try {
         const parsedDetails = JSON.parse(storedDetails);
@@ -47,7 +48,7 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
         console.error("Error parsing connector details:", e);
       }
     } else {
-      console.log("No pending GitLab connector found in localStorage");
+      console.log("No pending GitLab connector found in sessionStorage");
     }
 
     // If code and error are passed as props, use them
@@ -118,11 +119,11 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
 
         setTokenDetails(response);
         console.log("Token exchange successful:", response);
-        
+
         // No automatic redirection - let the user control when to proceed
         // Just clear the stored connector details as they're no longer needed
-        localStorage.removeItem('pendingGitLabConnector');
-        
+        sessionStorage.removeItem('pendingGitLabConnector');
+
       } catch (error: any) {
         console.error("Error exchanging code for token:", error);
         let errorMessage = "Failed to exchange authorization code for access token";
@@ -144,6 +145,11 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
         });
         
         setTokenError(errorMessage);
+        // The redirect this was needed to survive has already happened;
+        // don't leave it sitting in storage just because the exchange
+        // failed. (connectorDetails stays available in component state for
+        // the rest of this page's lifetime if needed.)
+        sessionStorage.removeItem('pendingGitLabConnector');
       } finally {
         setTokenLoading(false);
       }
@@ -154,7 +160,7 @@ const CodeHostCallback: React.FC<CodeHostCallbackProps> = ({ code: propCode, err
 
   const handleBackToGitProviders = () => {
     // Clear the stored connector details when navigating away
-    localStorage.removeItem('pendingGitLabConnector');
+    sessionStorage.removeItem('pendingGitLabConnector');
     navigate('/git');
   };
 

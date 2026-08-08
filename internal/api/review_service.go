@@ -474,9 +474,15 @@ func (s *Server) enrichMetadata(ctx *reviewSetupContext) {
 	providerFactory := reviewpkg.NewStandardProviderFactory()
 	providerInstance, providerErr := providerFactory.CreateProvider(metadataCtx, ctx.request.Provider)
 	if providerErr != nil {
-		log.Printf("[WARN] TriggerReviewV2: Failed to create provider for metadata prefetch: %v", providerErr)
+		// This is a best-effort metadata prefetch (the function just returns
+		// on failure without affecting the review itself), so it's not worth
+		// forwarding the raw provider-creation error - which was built from
+		// ctx.request.Provider.Config and, for some providers, that config
+		// carries a credential (e.g. gitea's basic-auth password) - into
+		// logs. Note the provider type instead.
+		log.Printf("[WARN] TriggerReviewV2: Failed to create provider (type=%s) for metadata prefetch", ctx.request.Provider.Type)
 		if ctx.logger != nil {
-			ctx.logger.Log("⚠ Unable to create provider for metadata prefetch: %v", providerErr)
+			ctx.logger.Log("⚠ Unable to create provider (type=%s) for metadata prefetch", ctx.request.Provider.Type)
 		}
 		return
 	}

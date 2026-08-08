@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	gcstorage "cloud.google.com/go/storage"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -94,6 +96,15 @@ func openFileBucket(cfg Config) (*blob.Bucket, error) {
 	dir := cfg.LocalDir
 	if dir == "" {
 		dir = DefaultLocalDir
+	}
+	// LocalDir is admin-supplied (internal/api/storage_settings.go); an
+	// absolute path is a legitimate way to point at a mounted volume, but a
+	// relative path that climbs above where it started (e.g. "../../etc")
+	// serves no such purpose and only lets it escape the app's working
+	// directory, so that shape is rejected.
+	dir = filepath.Clean(dir)
+	if dir == ".." || strings.HasPrefix(dir, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("blobstore: local_dir must not traverse above its starting directory")
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("blobstore: creating local blob dir %s: %w", dir, err)

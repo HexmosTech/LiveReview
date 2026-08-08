@@ -12,6 +12,20 @@ type GitLabConnectorProps = {
   disableRouting?: boolean;
 };
 
+// The self-hosted GitLab URL is free-text user input that this component
+// turns into a clickable link and an OAuth form action. Restricting it to
+// http(s) here blocks a "javascript:" (or other non-navigational scheme)
+// value from being interpreted as script instead of a destination to
+// navigate to.
+const isHttpUrl = (value: string): boolean => {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
 const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit, disableRouting = false }) => {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
@@ -96,7 +110,13 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit, disab
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
+    const gitProviderBaseURLForValidation = type === 'gitlab-com' ? 'https://gitlab.com' : formData.url;
+    if (!isHttpUrl(gitProviderBaseURLForValidation)) {
+      setErrorMessage('GitLab URL must be a valid http(s) URL.');
+      return;
+    }
+
     // Store connector data
     const connectorData = {
       name: formData.name,
@@ -173,8 +193,23 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit, disab
     const SCOPES = ['api'];
     const gitProviderBaseURL = type === 'gitlab-com' ? 'https://gitlab.com' : formData.url;
     const gitClientID = formData.applicationId;
-    
-    // Store connector details in localStorage for use after OAuth callback
+
+    if (!isHttpUrl(gitProviderBaseURL)) {
+      // Defense in depth: handleSubmit already validates this before
+      // showing the loading overlay, but guard here too in case this is
+      // ever called from elsewhere. Clean up the overlay if present so the
+      // UI doesn't get stuck.
+      document.getElementById('gitlab-redirect-overlay')?.remove();
+      setErrorMessage('GitLab URL must be a valid http(s) URL.');
+      return;
+    }
+
+    // Store connector details for use after the OAuth callback. This has to
+    // survive the full-page redirect to GitLab and back, which destroys any
+    // in-memory JS state, so it can't be passed any other way; sessionStorage
+    // (rather than localStorage) at least keeps it out of persistent
+    // storage - CodeHostCallback.tsx removes it as soon as it's consumed,
+    // on every exit path (success, error, and manual navigation away).
     const connectorDetails = {
       name: formData.name,
       type,
@@ -182,7 +217,7 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit, disab
       applicationId: formData.applicationId,
       applicationSecret: formData.applicationSecret
     };
-    localStorage.setItem('pendingGitLabConnector', JSON.stringify(connectorDetails));
+    sessionStorage.setItem('pendingGitLabConnector', JSON.stringify(connectorDetails));
     
     // Use the homepage as redirect URI since GitLab doesn't allow fragments
     let REDIRECT_URI = '';
@@ -360,7 +395,10 @@ const GitLabConnector: React.FC<GitLabConnectorProps> = ({ type, onSubmit, disab
 
   const renderStep2 = () => {
     const gitlabURL = type === 'gitlab-com' ? 'https://gitlab.com' : formData.url;
-    const gitlabApplicationsUrl = `${gitlabURL}/-/user_settings/applications`;
+    // formData.url is free-text for self-hosted instances; only build a
+    // navigable link out of it once it's confirmed http(s), so a value like
+    // "javascript:..." can't end up as this anchor's href.
+    const gitlabApplicationsUrl = isHttpUrl(gitlabURL) ? `${gitlabURL}/-/user_settings/applications` : '#';
     
     return (
       <>

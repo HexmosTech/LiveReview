@@ -476,6 +476,27 @@ type authTransport struct {
 	token     string
 }
 
+// maskCredentialHeader masks a header's value when the header name looks
+// like it carries a credential (Authorization, API keys, tokens). This
+// transport's debug logging runs on every LLM request in production, so
+// without this every connector's API key would land in plaintext in the
+// server log via the Authorization header dump below.
+func maskCredentialHeader(name string, values []string) []string {
+	lower := strings.ToLower(name)
+	if lower != "authorization" && lower != "x-api-key" && !strings.Contains(lower, "token") && !strings.Contains(lower, "secret") {
+		return values
+	}
+	masked := make([]string, len(values))
+	for i, v := range values {
+		if len(v) <= 12 {
+			masked[i] = "[HIDDEN]"
+		} else {
+			masked[i] = v[:8] + "...[HIDDEN]"
+		}
+	}
+	return masked
+}
+
 func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Add Authorization header
 	req.Header.Set("Authorization", "Bearer "+t.token)
@@ -486,7 +507,7 @@ func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	fmt.Printf("[HTTP DEBUG] Authorization header set with token length: %d\n", len(t.token))
 	fmt.Printf("[HTTP DEBUG] All Headers:\n")
 	for k, v := range req.Header {
-		fmt.Printf("  %s: %v\n", k, v)
+		fmt.Printf("  %s: %v\n", k, maskCredentialHeader(k, v))
 	}
 
 	// Log request body for debugging
@@ -510,7 +531,7 @@ func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		fmt.Printf("[HTTP DEBUG] Response content-type: %s\n", resp.Header.Get("Content-Type"))
 		fmt.Printf("[HTTP DEBUG] Response headers:\n")
 		for k, v := range resp.Header {
-			fmt.Printf("  %s: %v\n", k, v)
+			fmt.Printf("  %s: %v\n", k, maskCredentialHeader(k, v))
 		}
 	}
 

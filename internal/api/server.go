@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -190,8 +191,16 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 		)
 	}
 
-	// print env variables
-	fmt.Printf("Environment Variables: %+v\n", env)
+	// Log which .env variables were loaded, not their values - env holds
+	// this deployment's secrets (DATABASE_URL, JWT_SECRET, payment provider
+	// keys, webhook secrets, etc), so printing the full map would put all
+	// of them in cleartext in the startup log on every boot.
+	envKeys := make([]string, 0, len(env))
+	for k := range env {
+		envKeys = append(envKeys, k)
+	}
+	sort.Strings(envKeys)
+	fmt.Printf("Environment Variables loaded from .env: %v\n", envKeys)
 
 	// Get deployment configuration from environment variables
 	deploymentConfig := getDeploymentConfig()

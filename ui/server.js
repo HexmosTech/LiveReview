@@ -1,6 +1,7 @@
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const csrf = require('csurf');
+const rateLimit = require('express-rate-limit');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const path = require('path');
 
@@ -13,6 +14,16 @@ const csrfProtection = csrf({
     secure: process.env.NODE_ENV === 'production',
   },
 });
+
+// Applies to every route below, including the static-file and catch-all
+// handlers - each request does file I/O (or proxies to the backend), so
+// without a cap a single client can force unbounded work on this process.
+app.use(rateLimit({
+  windowMs: 60 * 1000,
+  limit: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+}));
 
 app.use(cookieParser());
 

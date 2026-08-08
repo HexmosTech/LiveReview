@@ -37,7 +37,12 @@ export interface EnsureLatestLrcOptions {
 }
 
 const semverFromString = (input: string): string | undefined => {
-	const match = input.trim().match(/v?(\d+)\.(\d+)\.(\d+)/);
+	// Each digit run is capped at 10 chars (any real version number is far
+	// shorter) so a pathological input with no literal '.' anywhere - many
+	// repeated digits - can't force quadratic backtracking across the
+	// string; the un-anchored match still finds a semver substring anywhere
+	// in a normal string.
+	const match = input.trim().match(/v?(\d{1,10})\.(\d{1,10})\.(\d{1,10})/);
 	return match ? `v${match[1]}.${match[2]}.${match[3]}` : undefined;
 };
 
