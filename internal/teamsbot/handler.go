@@ -9,11 +9,24 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/orgname"
 )
+
+// resolveMCPBaseURL derives the MCP endpoint the bots talk to. It prefers the
+// explicitly configured SLACK_MCP_SERVER_URL, then the production URL set in the
+// instance settings (Settings → Instance → Production URL), and finally falls
+// back to the cloud endpoint.
+func resolveMCPBaseURL(db *sql.DB) string {
+	var prodURL sql.NullString
+	if err := db.QueryRow("SELECT livereview_prod_url FROM instance_details LIMIT 1").Scan(&prodURL); err == nil && prodURL.Valid && prodURL.String != "" {
+		return strings.TrimSuffix(prodURL.String, "/") + "/api/mcp"
+	}
+	return "https://livereview.hexmos.com/api/mcp"
+}
 
 type Handler struct {
 	Bot    *Bot
@@ -35,7 +48,7 @@ func NewHandler(db *sql.DB) (*Handler, error) {
 func buildBot(db *sql.DB) (*Bot, error) {
 	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
 	if mcpServerURL == "" {
-		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
+		mcpServerURL = resolveMCPBaseURL(db)
 	}
 	maxSteps := 20
 	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {

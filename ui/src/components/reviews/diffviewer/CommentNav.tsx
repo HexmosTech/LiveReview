@@ -4,6 +4,7 @@
 // comments (a feature LiveReview's viewer doesn't have), so this is a plain wrapping
 // index over the visible-comment list, no reconciliation needed.
 import React, { useCallback, useEffect, useState } from 'react';
+import { setCommentNavOccupying } from '../../../store/uiLayout';
 
 export interface NavComment {
   id: string;
@@ -56,10 +57,18 @@ const CommentNav: React.FC<CommentNavProps> = ({ comments, active, onNavigate })
     return () => document.removeEventListener('keydown', handler);
   }, [active, comments.length, goNext, goPrev]);
 
+  // Report when this pill is on screen so the global chat button can hide its
+  // label (and keep only the round button) instead of overlapping it.
+  const rendered = active && comments.length > 0;
+  useEffect(() => {
+    setCommentNavOccupying(rendered);
+    return () => setCommentNavOccupying(false);
+  }, [rendered]);
+
   if (!active || comments.length === 0) return null;
 
   return (
-    <div className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800 px-3 py-2 shadow-lg">
+    <div className="fixed bottom-6 right-24 z-40 flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800 px-3 py-2 shadow-lg">
       <button type="button" onClick={goPrev} title="Previous comment (k)" className="px-1 text-slate-300 hover:text-white">
         ‹
       </button>

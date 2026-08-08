@@ -11,6 +11,7 @@ import LicenseStatusBar from './components/License/LicenseStatusBar';
 import { isCloudMode } from './utils/deploymentMode';
 import { SubscriptionGuard } from './components/SubscriptionGuard';
 import { Toaster } from 'react-hot-toast';
+import { useBottomRightBlockers } from './store/uiLayout';
 
 const Dashboard = React.lazy(() => import('./components/Dashboard/Dashboard').then((m) => ({ default: m.Dashboard })));
 const GitProviders = React.lazy(() => import('./pages/GitProviders/GitProviders'));
@@ -117,6 +118,9 @@ const AppContent: React.FC = () => {
     const licenseStatus = useAppSelector(s => s.License.status);
     const licenseOpen = useAppSelector(s => s.License.modalOpen);
     const licenseLoadedOnce = useAppSelector(s => s.License.loadedOnce);
+    const blockers = useBottomRightBlockers();
+    const nudgeOccupying = (blockers & 1) !== 0;
+    const commentNavOccupying = (blockers & 2) !== 0;
     // Subtle fade-in for main content to make initial paint feel smoother
     const [uiReady, setUiReady] = useState(false);
     const [bootVisible, setBootVisible] = useState(true);
@@ -270,7 +274,7 @@ const AppContent: React.FC = () => {
     // Ctrl+I opens the chatbot from anywhere in the app.
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'i') {
+            if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'i') {
                 e.preventDefault();
                 navigate('/chat');
             }
@@ -354,11 +358,13 @@ const AppContent: React.FC = () => {
                 {location.pathname !== '/chat' && <Footer />}
                 {!isCloudMode() && <LicenseModal open={licenseOpen} onClose={() => dispatch(closeLicenseModal())} />}
                 {location.pathname !== '/chat' && (
-                <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3">
+                <div className={`fixed right-6 z-50 flex items-center gap-3 transition-all duration-300 ${nudgeOccupying ? 'bottom-20' : 'bottom-6'}`}>
+                    {!commentNavOccupying && (
                     <span className="hidden lg:flex items-center gap-2 text-sm font-semibold text-slate-100 px-4 py-2 rounded-full bg-slate-800/90 border border-slate-600 shadow-lg pointer-events-none">
                         Chat with Livi
                         <span className="text-[11px] font-semibold text-slate-100 bg-slate-700 px-1.5 py-0.5 rounded">Ctrl + I</span>
                     </span>
+                    )}
                     <button
                         onClick={() => navigate('/chat')}
                         className="relative w-14 h-14 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-lg flex items-center justify-center"
