@@ -519,6 +519,10 @@ const UserForm: React.FC = () => {
         );
     }
 
+    // Once the bulk review table is showing, drop the steps panel so the
+    // table can use the full width instead of being squeezed into a narrow column.
+    const showSteps = !isEditMode && !(activeTab === 'bulk' && bulkRows !== null);
+
     return (
         <div className="bg-gray-900 text-white">
             <div className="container mx-auto px-4 py-4">
@@ -558,12 +562,12 @@ const UserForm: React.FC = () => {
 
                     <div
                         className={
-                            isEditMode
-                                ? ''
-                                : 'grid grid-cols-1 lg:grid-cols-[440px_1fr]'
+                            showSteps
+                                ? 'grid grid-cols-1 lg:grid-cols-[520px_1fr]'
+                                : ''
                         }
                     >
-                        {!isEditMode && (
+                        {showSteps && (
                             <div className="p-5 bg-slate-900/40 border-b lg:border-b-0 lg:border-r border-slate-700/70">
                                 <p className="text-xs font-semibold tracking-wider text-blue-400 uppercase mb-1">
                                     {activeTab === 'single'
@@ -670,7 +674,10 @@ const UserForm: React.FC = () => {
                                                       </>,
                                                   ];
                                         return steps.map((step, i) => (
-                                            <li key={i} className="flex gap-3">
+                                            <li
+                                                key={i}
+                                                className="flex gap-4 mt-2"
+                                            >
                                                 <div className="flex flex-col items-center">
                                                     <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-blue-600 text-xs font-semibold text-white">
                                                         {i + 1}
@@ -679,7 +686,7 @@ const UserForm: React.FC = () => {
                                                         <div className="w-px flex-1 my-1 bg-slate-700/70" />
                                                     )}
                                                 </div>
-                                                <p className="text-sm text-slate-300 leading-relaxed pb-5">
+                                                <p className="text-sm text-slate-300 leading-relaxed pb-8">
                                                     {step}
                                                 </p>
                                             </li>
