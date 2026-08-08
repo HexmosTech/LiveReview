@@ -339,6 +339,7 @@ const AppContent: React.FC = () => {
                                 <Route path="/settings-subscriptions-assign" element={<Settings />} />
                                 <Route path="/settings-subscriptions-portfolio" element={<Settings />} />
                                 <Route path="/settings/users/add" element={<UserForm />} />
+                                <Route path="/settings/users/add/bulk" element={<UserForm />} />
                                 <Route path="/settings/users/edit/:userId" element={<UserForm />} />
                                 <Route path="/admin/billing-portfolio" element={<BillingPortfolio />} />
                                 <Route path="/reports/*" element={<TaxonomyReports />} />

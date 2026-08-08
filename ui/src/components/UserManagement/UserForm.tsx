@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import {
@@ -55,6 +55,7 @@ type UserFormData = z.infer<typeof baseSchema>;
 
 const UserForm: React.FC = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const dispatch = useAppDispatch();
     const { userId } = useParams<{ userId: string }>();
     const { currentOrgId, currentOrg } = useOrgContext();
@@ -133,7 +134,14 @@ const UserForm: React.FC = () => {
     const [showUpgradeModal, setShowUpgradeModal] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
 
-    const [activeTab, setActiveTab] = useState<'single' | 'bulk'>('single');
+    const [activeTab, setActiveTab] = useState<'single' | 'bulk'>(
+        location.pathname.endsWith('/bulk') ? 'bulk' : 'single'
+    );
+
+    const selectTab = (tab: 'single' | 'bulk') => {
+        setActiveTab(tab);
+        navigate(tab === 'bulk' ? '/settings/users/add/bulk' : '/settings/users/add', { replace: true });
+    };
     const [bulkFile, setBulkFile] = useState<File | null>(null);
     const [isDragging, setIsDragging] = useState(false);
     const [bulkVerifying, setBulkVerifying] = useState(false);
@@ -567,10 +575,10 @@ const UserForm: React.FC = () => {
                         <div className="flex gap-6 px-6 pt-6 border-b border-slate-700">
                             <button
                                 type="button"
-                                onClick={() => setActiveTab('single')}
+                                onClick={() => selectTab('single')}
                                 className={`pb-3 text-sm font-medium border-b-2 -mb-px transition-colors ${
                                     activeTab === 'single'
-                                        ? 'border-white text-white'
+                                        ? 'border-blue-500 text-white'
                                         : 'border-transparent text-slate-400 hover:text-slate-200'
                                 }`}
                             >
@@ -578,10 +586,10 @@ const UserForm: React.FC = () => {
                             </button>
                             <button
                                 type="button"
-                                onClick={() => setActiveTab('bulk')}
+                                onClick={() => selectTab('bulk')}
                                 className={`pb-3 text-sm font-medium border-b-2 -mb-px transition-colors ${
                                     activeTab === 'bulk'
-                                        ? 'border-white text-white'
+                                        ? 'border-blue-500 text-white'
                                         : 'border-transparent text-slate-400 hover:text-slate-200'
                                 }`}
                             >
