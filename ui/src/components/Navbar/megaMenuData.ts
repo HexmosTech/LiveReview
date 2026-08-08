@@ -212,7 +212,7 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
             group('Manage Team', [
                 link('View Users', React.createElement(Icons.List), '/settings#users', (ctx) => ctx.isSuperAdmin || ctx.hasOrg),
                 link('Invite a user', React.createElement(Icons.UserAdd), '/settings/users/add', (ctx) => ctx.isSuperAdmin || ctx.hasOrg),
-                link('Send bulk invitation', React.createElement(Icons.GroupAdd), '/settings/users/add/bulk', (ctx) => ctx.isSuperAdmin || ctx.hasOrg),
+                link('Invite multiple users', React.createElement(Icons.GroupAdd), '/settings/users/add/bulk', (ctx) => ctx.isSuperAdmin || ctx.hasOrg),
             ], React.createElement(Icons.User)),
             group('Customize AI', [
                 link('Edit Prompts', React.createElement(Icons.Settings), '/settings#prompts', (ctx) => ctx.isSuperAdmin || (ctx.hasOrg && ['owner', 'member'].includes(ctx.orgRole || ''))),

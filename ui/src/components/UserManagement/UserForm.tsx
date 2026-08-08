@@ -593,7 +593,7 @@ const UserForm: React.FC = () => {
                                         : 'border-transparent text-slate-400 hover:text-slate-200'
                                 }`}
                             >
-                                Send bulk invitation
+                                Invite multiple users
                             </button>
                         </div>
                     )}
@@ -609,8 +609,8 @@ const UserForm: React.FC = () => {
                             <div className="p-5 bg-slate-900/40 border-b lg:border-b-0 lg:border-r border-slate-700/70">
                                 <p className="text-xs font-semibold tracking-wider text-blue-400 uppercase mb-1">
                                     {activeTab === 'single'
-                                        ? 'Single invite'
-                                        : 'Bulk invite'}
+                                        ? 'Invite a user'
+                                        : 'Invite multiple users'}
                                 </p>
                                 <h2 className="text-lg font-semibold text-white mb-2">
                                     How it works
