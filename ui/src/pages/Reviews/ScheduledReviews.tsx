@@ -591,7 +591,6 @@ const ScheduledReviews: React.FC = () => {
 
       {editingRepos && editingRepos.length > 0 && (
         <EditScheduleModal
-          open
           subtitle={editingRepos.length === 1 ? editingRepos[0].full_name : `${editingRepos.length} repositories`}
           initialCronExpression={
             editingRepos.length === 1 ? scheduleByRepoId[editingRepos[0].id]?.cronExpression || DEFAULT_CRON : DEFAULT_CRON

@@ -5,7 +5,6 @@ import { getNextRuns } from './cronNextRuns';
 import { localTimeZoneName } from './cronTimezone';
 
 interface EditScheduleModalProps {
-  open: boolean;
   /** Single repo's full_name, or a summary like "4 repositories" for a bulk edit. */
   subtitle: string;
   initialCronExpression: string;
@@ -28,8 +27,12 @@ const formatRunDate = (date: Date, zone: string): string =>
     minute: '2-digit',
   })} ${zone}`;
 
+// The parent (ScheduledReviews.tsx) shows/hides this via conditional rendering
+// ({editingRepos && <EditScheduleModal .../>}), not by toggling a persistent `open` prop -
+// so mount = opened, unmount = closed. That's why there's no `open` prop here: `initialCronExpression`
+// is only ever read once, at mount, via useState's initializer, and the fade-in below just
+// runs on mount. (There's deliberately no fade-out - closing unmounts immediately.)
 export const EditScheduleModal: React.FC<EditScheduleModalProps> = ({
-  open,
   subtitle,
   initialCronExpression,
   onClose,
@@ -40,22 +43,12 @@ export const EditScheduleModal: React.FC<EditScheduleModalProps> = ({
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (open) {
-      setCronExpression(initialCronExpression);
-      const id = requestAnimationFrame(() => setMounted(true));
-      return () => {
-        cancelAnimationFrame(id);
-        setMounted(false);
-      };
-    }
-    setMounted(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+    const id = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   const nextRuns = useMemo(() => getNextRuns(cronExpression, 7), [cronExpression]);
   const zoneName = useMemo(() => localTimeZoneName(), []);
-
-  if (!open) return null;
 
   return (
     <div
