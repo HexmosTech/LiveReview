@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Button, Alert } from '../../components/UIPrimitives';
+import { Button, Alert, Icons } from '../../components/UIPrimitives';
 import apiClient from '../../api/apiClient';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { isCloudMode } from '../../utils/deploymentMode';
@@ -14,7 +14,6 @@ interface SlackConfig {
     created_at?: string;
     updated_at?: string;
 }
-
 interface TeamsConfig {
     configured: boolean;
     bot_app_id?: string;
@@ -65,11 +64,52 @@ const IntegrationsTab: React.FC = () => {
 const SlackIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
     const [config, setConfig] = useState<SlackConfig | null>(null);
     const [loading, setLoading] = useState(true);
-    const [connecting, setConnecting] = useState(false);
+    const [saving, setSaving] = useState(false);
     const [disconnecting, setDisconnecting] = useState(false);
     const [showDisconnectModal, setShowDisconnectModal] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
+    const [editMode, setEditMode] = useState(false);
+    const [botToken, setBotToken] = useState('');
+    const [appToken, setAppToken] = useState('');
+    const [manifestCopied, setManifestCopied] = useState(false);
+
+    const slackManifest = `display_information:
+  name: Livi
+  description: LiveReview Bot
+  background_color: "#001c5e"
+features:
+  bot_user:
+    display_name: Livi
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - channels:read
+      - app_mentions:read
+      - channels:history
+      - chat:write
+      - files:write
+      - groups:history
+      - im:history
+      - im:read
+      - im:write
+      - users:read
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - message.im
+  interactivity:
+    is_enabled: true
+  socket_mode_enabled: true
+  token_rotation_enabled: false`;
+
+    const copyManifest = () => {
+        navigator.clipboard.writeText(slackManifest);
+        setManifestCopied(true);
+        setTimeout(() => setManifestCopied(false), 2000);
+    };
 
     const loadConfig = useCallback(async () => {
         if (!currentOrg) return;
@@ -89,17 +129,33 @@ const SlackIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
         loadConfig();
     }, [loadConfig]);
 
-    const handleConnect = async () => {
+    const handleSave = async () => {
         if (!currentOrg) return;
-        setConnecting(true);
+        if (!botToken) {
+            setError('Bot token is required');
+            return;
+        }
+        if (!appToken) {
+            setError('App-level token is required');
+            return;
+        }
+        setSaving(true);
         setError(null);
+        setSuccess(null);
         try {
-            const redirectTo = encodeURIComponent(window.location.origin + '/#/settings#integrations');
-            const response = await apiClient.get<{ url: string }>(`/auth/slack/install?org_id=${currentOrg.id}&redirect_to=${redirectTo}`);
-            window.location.href = response.url;
-        } catch (err: unknown) {
-            setError(err instanceof Error ? err.message : 'Failed to initiate Slack connection');
-            setConnecting(false);
+            const response = await apiClient.put<SlackConfig>(
+                `/orgs/${currentOrg.id}/slack-config`,
+                { bot_token: botToken, app_token: appToken }
+            );
+            setConfig(response);
+            setEditMode(false);
+            setBotToken('');
+            setAppToken('');
+            setSuccess('Slack bot configured successfully.');
+        } catch (err: any) {
+            setError(err.message || 'Failed to save Slack configuration');
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -117,6 +173,7 @@ const SlackIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
             await apiClient.delete(`/orgs/${currentOrg.id}/slack-config`);
             setSuccess('Slack bot disconnected successfully.');
             setConfig({ configured: false });
+            setEditMode(false);
             setShowDisconnectModal(false);
         } catch (err: any) {
             setError(err.message || 'Failed to disconnect Slack bot');
@@ -175,28 +232,107 @@ const SlackIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                             <div className="mt-3">
                                 <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                             </div>
-                        ) : config?.configured ? (
+                        ) : config?.configured && !editMode ? (
                             <div className="mt-3 flex items-center space-x-3">
                                 {config.team_id && (
                                     <span className="text-xs text-slate-500">
                                         Workspace: <code className="bg-slate-700 px-1 rounded">{config.team_id}</code>
                                     </span>
                                 )}
+                                <Button size="sm" variant="ghost" className="text-blue-400 hover:text-blue-300" onClick={() => setEditMode(true)}>
+                                    Edit
+                                </Button>
                                 <Button size="sm" variant="ghost" className="text-red-400 hover:text-red-300" onClick={handleDisconnect}>
                                     Disconnect
                                 </Button>
                             </div>
                         ) : (
-                            <div className="mt-3">
-                                <Button
-                                    size="sm"
-                                    variant="primary"
-                                    onClick={handleConnect}
-                                    disabled={connecting}
-                                    isLoading={connecting}
-                                >
-                                    Connect
-                                </Button>
+                            <div className="mt-3 space-y-3">
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-400 mb-1">App-Level Token</label>
+                                    <input
+                                        type="password"
+                                        value={appToken}
+                                        onChange={(e) => setAppToken(e.target.value)}
+                                        placeholder="xapp-1-xxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                                        className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-400 mb-1">Bot Token</label>
+                                    <input
+                                        type="password"
+                                        value={botToken}
+                                        onChange={(e) => setBotToken(e.target.value)}
+                                        placeholder="xoxb-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx"
+                                        className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    />
+                                </div>
+                                <div className="text-xs text-slate-400 space-y-3">
+                                    <ol className="list-decimal list-inside space-y-1.5">
+                                        <li>
+                                            In{' '}
+                                            <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">
+                                                Slack API Apps
+                                            </a>
+                                            , click <strong className="text-slate-200">Create New App</strong>, choose <strong className="text-slate-200">From manifest</strong>.
+                                        </li>
+                                        <li>
+                                            Paste the manifest below and choose your workspace
+                                        </li>
+
+                                    </ol>
+                                    <div className="relative">
+                                        <pre className="bg-slate-900 rounded p-3 text-xs text-slate-200 font-mono overflow-x-auto whitespace-pre">{slackManifest}</pre>
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="absolute top-2 right-2"
+                                            onClick={copyManifest}
+                                            icon={<Icons.Copy />}
+                                        >
+                                            {manifestCopied ? 'Copied!' : 'Copy'}
+                                        </Button>
+                                    </div>
+                                    <ol className="list-decimal list-inside space-y-1.5" start={3}>
+                                        <li>
+                                            Click <strong className="text-slate-200">"Next" &gt; "Create and Install"</strong>.
+                                        </li>
+                                        <li>
+                                            When prompted <strong className="text-slate-200">Allow the "Livi" app to access Slack</strong>, click <strong className="text-slate-200">Allow</strong>.
+                                        </li>
+                                        <li>
+                                            The app has been created. Expand <strong className="text-slate-200">"Your app credentials"</strong>, and copy the <strong className="text-slate-200">App token</strong>, and the <strong className="text-slate-200">Bot token</strong> and paste it in the fields above.
+                                        </li>
+                                        <li>
+                                            Click <strong className="text-slate-200">Save</strong>.
+                                        </li>
+                                    </ol>
+                                </div>
+                                <div className="flex items-center space-x-3">
+                                    <Button
+                                        size="sm"
+                                        variant="primary"
+                                        onClick={handleSave}
+                                        disabled={saving || !botToken || !appToken}
+                                        isLoading={saving}
+                                    >
+                                        Save
+                                    </Button>
+                                    {editMode && (
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={() => {
+                                                setEditMode(false);
+                                                setBotToken('');
+                                                setAppToken('');
+                                            }}
+                                        >
+                                            Cancel
+                                        </Button>
+                                    )}
+                                </div>
                             </div>
                         )}
                     </div>

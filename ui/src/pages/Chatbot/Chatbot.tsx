@@ -252,7 +252,7 @@ const Chatbot: React.FC = () => {
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
             <img src="/assets/lrbot/lrbot.png" alt="Bot" className="w-5 h-5 rounded-full opacity-80" />
-            <h1 className="text-sm font-medium text-slate-400">Chat with Livereview Bot</h1>
+            <h1 className="text-sm font-medium text-slate-400">Chat with Livi</h1>
           </div>
           <button
             onClick={() => navigate(-1)}
