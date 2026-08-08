@@ -408,7 +408,11 @@ func extractDescriptionFromVegaSpec(text string) string {
 			case 'u':
 				// Decode \uXXXX unicode escapes.
 				if i+4 < len(rest) {
-					if r, err := strconv.ParseUint(rest[i+1:i+5], 16, 32); err == nil && utf8.ValidRune(rune(r)) {
+					// Bound-check r (still uint64) against utf8.MaxRune before
+					// converting to rune, so the conversion itself is never
+					// reached with an out-of-range value.
+					r, err := strconv.ParseUint(rest[i+1:i+5], 16, 32)
+					if err == nil && r <= utf8.MaxRune && utf8.ValidRune(rune(r)) {
 						desc.WriteRune(rune(r))
 						i += 4
 					} else {
