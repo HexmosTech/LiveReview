@@ -243,6 +243,10 @@ func (r *socketRunner) addOrg(oc *OrgConfig, teamIDStored func(orgID int64, team
 // UpdateBotToken immediately swaps the Slack API client for an org to a new token.
 // The app token is used to keep the org attached to the correct socket runner.
 func (b *Bot) UpdateBotToken(orgID int64, newToken, appToken string) {
+	if newToken == "" {
+		log.Printf("[SlackBot] Org %d: bot token empty, cannot update token", orgID)
+		return
+	}
 	if appToken == "" {
 		log.Printf("[SlackBot] Org %d: app token empty, cannot update token", orgID)
 		return
