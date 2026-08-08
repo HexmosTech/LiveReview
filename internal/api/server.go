@@ -179,7 +179,7 @@ type Server struct {
 // appContext initializes the core backend database, configurations, queues, and provider subsystems
 func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Load environment variables from .env file
-	env := map[string]string{}
+	env := map[string]string{} // nosemgrep: trailofbits.go.iterate-over-empty-map.iterate-over-empty-map -- reassigned from loadEnvFile below before it's iterated
 
 	// Try loading .env, but don't fail if missing
 	if loadedEnv, err := loadEnvFile(".env"); err == nil {

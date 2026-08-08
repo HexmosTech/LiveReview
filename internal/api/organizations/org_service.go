@@ -482,6 +482,7 @@ func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset 
 	}
 
 	// Get members with pagination
+	// nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query -- sortColumn/sortOrder below are whitelisted by the caller (org_handlers.go), never raw query params
 	query := `
 		SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.last_login_at,
 		       u.created_at, u.updated_at, u.created_by_user_id, u.password_reset_required,
