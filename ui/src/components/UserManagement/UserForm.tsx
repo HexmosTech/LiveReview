@@ -128,6 +128,7 @@ const UserForm: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [bulkVerifying, setBulkVerifying] = useState(false);
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
+  const [bulkSubmitted, setBulkSubmitted] = useState(false);
   const [bulkRows, setBulkRows] = useState<BulkRow[] | null>(null);
   const bulkFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -232,6 +233,7 @@ const UserForm: React.FC = () => {
   const handleBulkReset = () => {
     setBulkFile(null);
     setBulkRows(null);
+    setBulkSubmitted(false);
   };
 
   const updateBulkRow = (id: string, patch: Partial<BulkRow>) => {
@@ -278,12 +280,17 @@ const UserForm: React.FC = () => {
         },
         { invited: 0, updated: 0, unchanged: 0, error: 0 }
       );
-      const summary = `${counts.invited} invited, ${counts.updated} updated, ${counts.unchanged} unchanged`;
+      const parts: string[] = [];
+      if (counts.invited > 0) parts.push(`${counts.invited} user${counts.invited !== 1 ? 's' : ''} added`);
+      if (counts.updated > 0) parts.push(`${counts.updated} updated`);
+      if (counts.unchanged > 0) parts.push(`${counts.unchanged} unchanged`);
+      const summary = parts.length > 0 ? parts.join(', ') : 'No changes made';
       if (counts.error > 0) {
         toast.error(`${summary}, ${counts.error} failed — see table for details.`);
       } else {
         toast.success(summary);
       }
+      setBulkSubmitted(true);
       dispatch(loadUserOrganizations());
     } catch (error) {
       console.error('Bulk invite submit failed', error);
@@ -630,20 +637,42 @@ const UserForm: React.FC = () => {
 
                   <div className="flex justify-end space-x-4 pt-2">
                     <Button
-                      variant="secondary"
+                      variant={bulkSubmitted ? 'primary' : 'secondary'}
                       type="button"
                       onClick={() => navigate('/settings#users')}
                       disabled={bulkSubmitting}
                     >
-                      Cancel
+                      {bulkSubmitted ? 'Close' : 'Cancel'}
                     </Button>
-                    <Button type="button" onClick={handleBulkSubmit} disabled={bulkRows.length === 0 || bulkSubmitting}>
+                    <Button
+                      variant={bulkSubmitted ? 'secondary' : 'primary'}
+                      type="button"
+                      onClick={handleBulkSubmit}
+                      isLoading={bulkSubmitting}
+                      disabled={bulkRows.length === 0 || bulkSubmitting}
+                    >
                       {bulkSubmitting ? 'Submitting...' : 'Submit'}
                     </Button>
                   </div>
                 </div>
               ) : (
                 <div className="space-y-5">
+                  <p className="text-sm text-slate-400">
+                    Download the sample format, fill it in with your users, then upload it here.
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadSample}
+                    className="w-full flex items-center justify-between px-4 py-3 bg-slate-900/40 hover:bg-slate-700/60 border border-slate-700 rounded-lg text-sm text-slate-200 transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Icons.Download />
+                      Download sample format
+                    </span>
+                    <Icons.ChevronRight />
+                  </button>
+
                   <div
                     onClick={handleUploadUsersClick}
                     onDragOver={handleBulkDragOver}
@@ -665,18 +694,6 @@ const UserForm: React.FC = () => {
                       onChange={handleBulkFileChange}
                     />
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={handleDownloadSample}
-                    className="w-full flex items-center justify-between px-4 py-3 bg-slate-900/40 hover:bg-slate-700/60 border border-slate-700 rounded-lg text-sm text-slate-200 transition-colors"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Icons.Download />
-                      Download sample format
-                    </span>
-                    <Icons.ChevronRight />
-                  </button>
 
                   <div className="flex justify-end space-x-4 pt-2">
                     <Button
