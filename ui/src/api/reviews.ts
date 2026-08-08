@@ -48,6 +48,8 @@ export const getReviews = async (filters: ReviewsFilters = {}): Promise<ReviewsL
     if (filters.status) params.append('status', filters.status);
     if (filters.provider) params.append('provider', filters.provider);
     if (filters.search) params.append('search', filters.search);
+    if (filters.sort) params.append('sort', filters.sort);
+    if (filters.order) params.append('order', filters.order);
     if (filters.page) params.append('page', filters.page.toString());
     if (filters.perPage) params.append('per_page', filters.perPage.toString());
 

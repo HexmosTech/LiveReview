@@ -1,55 +1,122 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import classNames from 'classnames';
-import { Button, Tooltip, Popover } from '../UIPrimitives';
+import {
+    ColumnDef,
+    SortingState,
+    ColumnFiltersState,
+    PaginationState,
+    RowSelectionState,
+    OnChangeFn,
+    useReactTable,
+    getCoreRowModel,
+} from '@tanstack/react-table';
+import { LuSearch } from 'react-icons/lu';
+import { Button, Popover, Input, Icons } from '../UIPrimitives';
+import { ClientTable } from '../DataTable/ClientTable';
+import { SortIcon, SortableHeaderLabel, HeaderFilterPopover } from '../DataTable/HeaderControls';
 import { Member } from '../../api/users';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import toast from 'react-hot-toast';
 
+const USER_LIST_COLUMN_WIDTHS_WITH_CHECKBOX_AND_ORG = ['4%', '26%', '10%', '10%', '14%', '12%', '12%', '12%'];
+const USER_LIST_COLUMN_WIDTHS_WITH_CHECKBOX = ['4%', '30%', '11%', '11%', '16%', '13%', '15%'];
+const USER_LIST_COLUMN_WIDTHS_WITH_ORG = ['28%', '11%', '11%', '15%', '13%', '13%', '9%'];
+const USER_LIST_COLUMN_WIDTHS_PLAIN = ['32%', '12%', '12%', '17%', '15%', '12%'];
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50];
+
+const CHECKBOX_CLASS = 'rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-blue-500 focus:ring-offset-slate-800';
+
+// Module-level (never-recreated) header/cell renderers for the selection
+// column, reading selection state via TanStack's own row-selection API
+// (table.getIsAllRowsSelected()/row.getIsSelected()) instead of closing over
+// component state. A column's header/cell must keep the exact same function
+// identity across re-renders of the `columns` memo - if it doesn't, React
+// treats it as a different component type at that position and remounts it,
+// silently resetting any local state inside (e.g. the "User" column's search
+// popover open/closed state). See .agents/design.md.
+const SelectAllHeaderCell: NonNullable<ColumnDef<Member>['header']> = ({ table }) => (
+    <input
+        type="checkbox"
+        checked={table.getIsAllRowsSelected()}
+        onChange={table.getToggleAllRowsSelectedHandler()}
+        className={CHECKBOX_CLASS}
+    />
+);
+
+const SelectRowCell: NonNullable<ColumnDef<Member>['cell']> = ({ row }) => (
+    <input
+        type="checkbox"
+        checked={row.getIsSelected()}
+        onChange={row.getToggleSelectedHandler()}
+        className={CHECKBOX_CLASS}
+    />
+);
+
 export interface UserListProps {
     /**
-     * Users to display
+     * Users to display - just the current page's rows. Sorting, searching,
+     * and pagination are all server-driven (see UserManagement.tsx), so this
+     * is never the org's full member list.
      */
     users: Member[];
-    
+
+    /**
+     * Org-wide total row count and page count, as reported by the API -
+     * needed for the pagination footer since `users` only holds one page.
+     */
+    total: number;
+    totalPages: number;
+
     /**
      * Loading state
      */
     loading?: boolean;
-    
+
     /**
      * Error message
      */
     error?: string | null;
-    
+
     /**
      * Whether the current user can manage users
      */
     canManageUsers?: boolean;
-    
+
     /**
      * Whether this is a super admin view (shows all orgs)
      */
     isSuperAdminView?: boolean;
-    
+
     /**
      * Callback when user should be deactivated
      */
     onDeactivateUser?: (user: Member) => void;
-    
+
     /**
      * Callback when user should be transferred (super admin only)
      */
     onTransferUser?: (user: Member) => void;
-    
+
     /**
      * Callback to refresh the user list
      */
     onRefresh?: () => void;
+
+    /** Server-driven table state, owned by the parent (see UserManagement.tsx). */
+    sorting: SortingState;
+    onSortingChange: OnChangeFn<SortingState>;
+    columnFilters: ColumnFiltersState;
+    onColumnFiltersChange: OnChangeFn<ColumnFiltersState>;
+    pagination: PaginationState;
+    onPaginationChange: OnChangeFn<PaginationState>;
 }
 
 export const UserList: React.FC<UserListProps> = ({
     users,
+    total,
+    totalPages,
     loading = false,
     error,
     canManageUsers = false,
@@ -57,40 +124,29 @@ export const UserList: React.FC<UserListProps> = ({
     onDeactivateUser,
     onTransferUser,
     onRefresh,
+    sorting,
+    onSortingChange,
+    columnFilters,
+    onColumnFiltersChange,
+    pagination,
+    onPaginationChange,
 }) => {
     const { currentOrg, isFreePlan } = useOrgContext();
-    const [selectedUsers, setSelectedUsers] = useState<Set<number>>(new Set());
+    const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+    const selectedCount = Object.values(rowSelection).filter(Boolean).length;
 
-    // Clear selection when users change
+    // Clear selection when the visible page changes
     useEffect(() => {
-        setSelectedUsers(new Set());
+        setRowSelection({});
     }, [users]);
 
-    const handleSelectUser = (userId: number) => {
-        const newSelection = new Set(selectedUsers);
-        if (newSelection.has(userId)) {
-            newSelection.delete(userId);
-        } else {
-            newSelection.add(userId);
-        }
-        setSelectedUsers(newSelection);
-    };
-
-    const handleSelectAll = () => {
-        if (selectedUsers.size === users.length) {
-            setSelectedUsers(new Set());
-        } else {
-            setSelectedUsers(new Set(users.map(u => u.id)));
-        }
-    };
-
     const handleDownloadSelectedCredentials = () => {
-        if (selectedUsers.size === 0) {
+        if (selectedCount === 0) {
             toast.error('Please select at least one user first');
             return;
         }
 
-        const selectedMembers = users.filter(u => selectedUsers.has(u.id));
+        const selectedMembers = users.filter(u => rowSelection[String(u.id)]);
         const installUrl = window.location.origin;
 
         const headers = ['Email', 'Name', 'Linux/Mac Command', 'Windows Command'];
@@ -115,67 +171,249 @@ export const UserList: React.FC<UserListProps> = ({
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        toast.success(`git-lrc-setup.csv downloaded successfully for ${selectedUsers.size} user(s)!`);
+        toast.success(`git-lrc-setup.csv downloaded successfully for ${selectedCount} user(s)!`);
     };
 
-    // Loading state
-    if (loading && users.length === 0) {
-        return (
-            <div className="bg-slate-800 rounded-lg border border-slate-700">
-                <div className="p-6 text-center">
-                    <div className="animate-spin w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full mx-auto mb-4"></div>
-                    <p className="text-slate-400">Loading users...</p>
-                </div>
-            </div>
-        );
-    }
+    const columns = useMemo<ColumnDef<Member>[]>(() => {
+        const cols: ColumnDef<Member>[] = [];
 
-    // Error state
-    if (error) {
-        return (
-            <div className="bg-slate-800 rounded-lg border border-slate-700">
-                <div className="p-6 text-center">
-                    <div className="w-12 h-12 bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
+        if (canManageUsers) {
+            cols.push({
+                id: 'select',
+                enableSorting: false,
+                enableColumnFilter: false,
+                header: SelectAllHeaderCell,
+                cell: SelectRowCell,
+            });
+        }
+
+        cols.push({
+            id: 'user',
+            accessorFn: (user) => (user.first_name && user.last_name ? `${user.first_name} ${user.last_name}` : user.email),
+            header: ({ column }) => (
+                <div className="flex items-center justify-between gap-2">
+                    <SortableHeaderLabel label="User" onToggle={column.getToggleSortingHandler()} />
+                    <div className="flex items-center gap-2">
+                        <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+                        <HeaderFilterPopover icon={LuSearch} label="Search users">
+                            <Input
+                                placeholder="Search by name or email..."
+                                value={(column.getFilterValue() as string) ?? ''}
+                                onChange={(e) => column.setFilterValue(e.target.value || undefined)}
+                                icon={<Icons.Search />}
+                                aria-label="Search users"
+                                className="text-sm"
+                            />
+                        </HeaderFilterPopover>
                     </div>
-                    <p className="text-red-400 mb-4">{error}</p>
-                    {onRefresh && (
-                        <Button
-                            variant="secondary"
-                            onClick={onRefresh}
-                            className="text-sm"
+                </div>
+            ),
+            cell: ({ row }) => {
+                const user = row.original;
+                return (
+                    <div className="flex items-center">
+                        <div className="w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center mr-3">
+                            <span className="text-sm font-medium text-slate-300">
+                                {(user.first_name || user.email).charAt(0).toUpperCase()}
+                            </span>
+                        </div>
+                        <div>
+                            <div className="text-sm font-medium text-white">
+                                {user.first_name && user.last_name ? `${user.first_name} ${user.last_name}` : user.email}
+                            </div>
+                            <div className="text-sm text-slate-400">
+                                {user.email}
+                            </div>
+                        </div>
+                    </div>
+                );
+            },
+        });
+
+        cols.push({
+            id: 'status',
+            accessorFn: (user) => (user.is_active ? 1 : 0),
+            enableColumnFilter: false,
+            header: ({ column }) => (
+                <div className="flex items-center justify-between gap-2">
+                    <SortableHeaderLabel label="Status" onToggle={column.getToggleSortingHandler()} />
+                    <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+                </div>
+            ),
+            cell: ({ row }) => (
+                <span className={classNames(
+                    'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
+                    row.original.is_active
+                        ? 'bg-green-900/20 text-green-300'
+                        : 'bg-red-900/20 text-red-300'
+                )}>
+                    {row.original.is_active ? 'Active' : 'Inactive'}
+                </span>
+            ),
+        });
+
+        cols.push({
+            id: 'role',
+            accessorKey: 'role',
+            enableColumnFilter: false,
+            header: ({ column }) => (
+                <div className="flex items-center justify-between gap-2">
+                    <SortableHeaderLabel label="Role" onToggle={column.getToggleSortingHandler()} />
+                    <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+                </div>
+            ),
+            cell: ({ row }) => (
+                <span className="text-sm text-slate-400 capitalize">{row.original.role}</span>
+            ),
+        });
+
+        cols.push({
+            id: 'access',
+            enableSorting: false,
+            enableColumnFilter: false,
+            header: () => (
+                <div className="flex items-center justify-center gap-1">
+                    git-lrc Access
+                    {isFreePlan && (
+                        <Popover
+                            hover={true}
+                            align="center"
+                            trigger={
+                                <svg className="w-4 h-4 text-slate-500 hover:text-slate-300 transition-colors cursor-help cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            }
                         >
-                            Try Again
-                        </Button>
+                            <p>
+                                On the Free plan, reviews can only be triggered via the git-lrc CLI by the org owner. Dashboard triggers require Premium.{' '}
+                                <a href="/#/settings-subscriptions-overview" className="text-blue-300 hover:text-blue-200 underline">
+                                    Upgrade to Premium
+                                </a>
+                            </p>
+                        </Popover>
                     )}
                 </div>
-            </div>
-        );
-    }
-
-    // Empty state
-    if (users.length === 0) {
-        return (
-            <div className="bg-slate-800 rounded-lg border border-slate-700">
-                <div className="p-6 text-center">
-                    <div className="w-12 h-12 bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
-                        </svg>
+            ),
+            cell: ({ row }) => {
+                const user = row.original;
+                const hasAccess = !isFreePlan || currentOrg?.created_by_user_id === user.id;
+                return (
+                    <div className="flex justify-center">
+                        {hasAccess ? (
+                            <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-label="Has Review Access">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                            </svg>
+                        ) : (
+                            <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-label="No Review Access">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        )}
                     </div>
-                    <p className="text-slate-400 mb-2">No users found</p>
-                    <p className="text-slate-500 text-sm">
-                        {isSuperAdminView 
-                            ? 'No users exist in any organization.' 
-                            : `No users found in ${currentOrg?.name || 'this organization'}.`
-                        }
-                    </p>
+                );
+            },
+        });
+
+        if (isSuperAdminView) {
+            cols.push({
+                id: 'organizations',
+                enableSorting: false,
+                enableColumnFilter: false,
+                header: () => 'Organizations',
+                cell: () => <span className="text-slate-500 text-sm">N/A</span>,
+            });
+        }
+
+        cols.push({
+            id: 'joined',
+            accessorKey: 'created_at',
+            enableColumnFilter: false,
+            header: ({ column }) => (
+                <div className="flex items-center justify-between gap-2">
+                    <SortableHeaderLabel label="Joined" onToggle={column.getToggleSortingHandler()} />
+                    <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
                 </div>
-            </div>
-        );
-    }
+            ),
+            cell: ({ row }) => (
+                <span className="text-sm text-slate-400">{new Date(row.original.created_at).toLocaleDateString()}</span>
+            ),
+        });
+
+        if (canManageUsers) {
+            cols.push({
+                id: 'actions',
+                enableSorting: false,
+                enableColumnFilter: false,
+                header: () => <div className="text-right">Actions</div>,
+                cell: ({ row }) => {
+                    const user = row.original;
+                    return (
+                        <div className="flex items-center justify-end space-x-2 text-sm font-medium">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                as={Link}
+                                to={`/settings/users/edit/${user.id}`}
+                                className="text-blue-400 hover:text-blue-300"
+                            >
+                                Edit
+                            </Button>
+                            {onTransferUser && isSuperAdminView && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => onTransferUser(user)}
+                                    className="text-purple-400 hover:text-purple-300"
+                                >
+                                    Transfer
+                                </Button>
+                            )}
+                            {onDeactivateUser && user.is_active && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => onDeactivateUser(user)}
+                                    className="text-red-400 hover:text-red-300"
+                                >
+                                    Deactivate
+                                </Button>
+                            )}
+                        </div>
+                    );
+                },
+            });
+        }
+
+        return cols;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [canManageUsers, isSuperAdminView, isFreePlan, currentOrg, onTransferUser, onDeactivateUser]);
+
+    const columnWidths = canManageUsers && isSuperAdminView
+        ? USER_LIST_COLUMN_WIDTHS_WITH_CHECKBOX_AND_ORG
+        : canManageUsers
+            ? USER_LIST_COLUMN_WIDTHS_WITH_CHECKBOX
+            : isSuperAdminView
+                ? USER_LIST_COLUMN_WIDTHS_WITH_ORG
+                : USER_LIST_COLUMN_WIDTHS_PLAIN;
+
+    // Server-side: TanStack just renders whatever page of already-
+    // filtered/sorted rows the API returned, instead of computing
+    // filtered/sorted/paginated row models itself from a client-side array
+    // (same pattern as Explore > Repositories - see .agents/design.md).
+    const table = useReactTable({
+        data: users,
+        columns,
+        getRowId: (user) => String(user.id),
+        getCoreRowModel: getCoreRowModel(),
+        manualSorting: true,
+        manualFiltering: true,
+        manualPagination: true,
+        pageCount: totalPages,
+        state: { sorting, columnFilters, pagination, rowSelection },
+        onSortingChange,
+        onColumnFiltersChange,
+        onPaginationChange,
+        onRowSelectionChange: setRowSelection,
+    });
 
     return (
         <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
@@ -187,10 +425,10 @@ export const UserList: React.FC<UserListProps> = ({
                             Users {isSuperAdminView ? '(All Organizations)' : `in ${currentOrg?.name}`}
                         </h3>
                         <span className="text-sm text-slate-400">
-                            {users.length} user{users.length !== 1 ? 's' : ''}
+                            {total} user{total !== 1 ? 's' : ''}
                         </span>
                     </div>
-                    
+
                     <div className="flex items-center space-x-2">
                         {canManageUsers && (
                             <Button
@@ -229,17 +467,17 @@ export const UserList: React.FC<UserListProps> = ({
             </div>
 
             {/* Bulk Actions (if users selected and can manage) */}
-            {selectedUsers.size > 0 && canManageUsers && (
+            {selectedCount > 0 && canManageUsers && (
                 <div className="px-6 py-3 bg-blue-900/20 border-b border-slate-700">
                     <div className="flex items-center justify-between">
                         <span className="text-sm text-blue-300">
-                            {selectedUsers.size} user{selectedUsers.size !== 1 ? 's' : ''} selected
+                            {selectedCount} user{selectedCount !== 1 ? 's' : ''} selected
                         </span>
                         <div className="flex items-center space-x-2">
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => setSelectedUsers(new Set())}
+                                onClick={() => setRowSelection({})}
                                 className="text-slate-400"
                             >
                                 Clear
@@ -250,183 +488,24 @@ export const UserList: React.FC<UserListProps> = ({
             )}
 
             {/* Table */}
-            <div className="overflow-x-auto">
-                <table className="w-full">
-                    <thead className="bg-slate-900/30">
-                        <tr>
-                            {canManageUsers && (
-                                <th className="w-8 px-6 py-3 text-left">
-                                    <input
-                                        type="checkbox"
-                                        checked={selectedUsers.size === users.length}
-                                        onChange={handleSelectAll}
-                                        className="rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-blue-500 focus:ring-offset-slate-800"
-                                    />
-                                </th>
-                            )}
-                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                                User
-                            </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                                Status
-                            </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                                Role
-                            </th>
-                            <th className="px-6 py-3 text-center text-xs font-medium text-slate-400 uppercase tracking-wider">
-                                <div className="flex items-center justify-center gap-1">
-                                    git-lrc Access
-                                    {isFreePlan && (
-                                        <Popover 
-                                            hover={true} 
-                                            align="center"
-                                            trigger={
-                                                <svg className="w-4 h-4 text-slate-500 hover:text-slate-300 transition-colors cursor-help cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                </svg>
-                                            }
-                                        >
-                                            <p>
-                                                On the Free plan, reviews can only be triggered via the git-lrc CLI by the org owner. Dashboard triggers require Premium.{' '}
-                                                <a href="/#/settings-subscriptions-overview" className="text-blue-300 hover:text-blue-200 underline">
-                                                    Upgrade to Premium
-                                                </a>
-                                            </p>
-                                        </Popover>
-                                    )}
-                                </div>
-                            </th>
-                            {isSuperAdminView && (
-                                <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                                    Organizations
-                                </th>
-                            )}
-                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                                Joined
-                            </th>
-                            {canManageUsers && (
-                                <th className="px-6 py-3 text-right text-xs font-medium text-slate-400 uppercase tracking-wider">
-                                    Actions
-                                </th>
-                            )}
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-700">
-                        {users.map((user) => (
-                            <tr key={user.id} className="hover:bg-slate-700/30 transition-colors">
-                                {canManageUsers && (
-                                    <td className="px-6 py-4">
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedUsers.has(user.id)}
-                                            onChange={() => handleSelectUser(user.id)}
-                                            className="rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-blue-500 focus:ring-offset-slate-800"
-                                        />
-                                    </td>
-                                )}
-                                <td className="px-6 py-4">
-                                    <div className="flex items-center">
-                                        <div className="w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center mr-3">
-                                            <span className="text-sm font-medium text-slate-300">
-                                                {(user.first_name || user.email).charAt(0).toUpperCase()}
-                                            </span>
-                                        </div>
-                                        <div>
-                                            <div className="text-sm font-medium text-white">
-                                                {user.first_name && user.last_name ? `${user.first_name} ${user.last_name}` : user.email}
-                                            </div>
-                                            <div className="text-sm text-slate-400">
-                                                {user.email}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td className="px-6 py-4">
-                                    <span className={classNames(
-                                        'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
-                                        user.is_active 
-                                            ? 'bg-green-900/20 text-green-300' 
-                                            : 'bg-red-900/20 text-red-300'
-                                    )}>
-                                        {user.is_active ? 'Active' : 'Inactive'}
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4 text-sm text-slate-400 capitalize">
-                                    {user.role}
-                                </td>
-                                <td className="px-6 py-4">
-                                    <div className="flex justify-center">
-                                        {(!isFreePlan || currentOrg?.created_by_user_id === user.id) ? (
-                                            <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-label="Has Review Access">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                                            </svg>
-                                        ) : (
-                                            <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-label="No Review Access">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                            </svg>
-                                        )}
-                                    </div>
-                                </td>
-                                {isSuperAdminView && (
-                                    <td className="px-6 py-4">
-                                        <span className="text-slate-500 text-sm">N/A</span>
-                                    </td>
-                                )}
-                                <td className="px-6 py-4 text-sm text-slate-400">
-                                    {new Date(user.created_at).toLocaleDateString()}
-                                </td>
-                                {canManageUsers && (
-                                    <td className="px-6 py-4 text-right text-sm font-medium">
-                                        <div className="flex items-center justify-end space-x-2">
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                as={Link}
-                                                to={`/settings/users/edit/${user.id}`}
-                                                className="text-blue-400 hover:text-blue-300"
-                                            >
-                                                Edit
-                                            </Button>
-                                            {onTransferUser && isSuperAdminView && (
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => onTransferUser(user)}
-                                                    className="text-purple-400 hover:text-purple-300"
-                                                >
-                                                    Transfer
-                                                </Button>
-                                            )}
-                                            {onDeactivateUser && user.is_active && (
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => onDeactivateUser(user)}
-                                                    className="text-red-400 hover:text-red-300"
-                                                >
-                                                    Deactivate
-                                                </Button>
-                                            )}
-                                        </div>
-                                    </td>
-                                )}
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-
-            {/* Loading overlay for refresh */}
-            {loading && users.length > 0 && (
-                <div className="absolute inset-0 bg-slate-900/50 flex items-center justify-center">
-                    <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
-                        <div className="flex items-center space-x-3">
-                            <div className="animate-spin w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full"></div>
-                            <span className="text-slate-300">Updating...</span>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <ClientTable
+                table={table}
+                columnWidths={columnWidths}
+                loading={loading}
+                loadingLabel="Loading users..."
+                error={error ?? null}
+                onRetry={() => onRefresh?.()}
+                // Don't hide the search box when a search causes zero results.
+                isEmpty={total === 0 && columnFilters.length === 0}
+                empty={{
+                    title: 'No users found',
+                    description: isSuperAdminView
+                        ? 'No users exist in any organization.'
+                        : `No users found in ${currentOrg?.name || 'this organization'}.`,
+                }}
+                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                manualTotal={total}
+            />
         </div>
     );
 };
