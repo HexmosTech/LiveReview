@@ -48,7 +48,10 @@ sort-filter mechanism. If you touch a page that still has one of those, port it 
    only reorders the current page instead of the whole list) the moment the list
    exceeds one page. Canonical examples of the full backend-driven wiring:
    `ui/src/pages/Explore/Repositories.tsx` (`buildFetchParams`/`fetchRepositories`
-   pattern) and `UserManagement/UserManagement.tsx` +
+   pattern), `ui/src/pages/Reviews/Reviews.tsx` (same pattern; `sort`/`order`/`status`/
+   `provider`/`search`/`page`/`per_page` handled in `internal/api/server.go`'s
+   `getReviews`, reusing `multiValueFilterClause`/`providerFilterClause` from
+   `repositories_pr_routes.go`), and `UserManagement/UserManagement.tsx` +
    `UserManagement/UserList.tsx` (users list: `sort`/`order`/`search`/`page`/`limit`
    query params handled in `internal/api/organizations/org_handlers.go` +
    `org_service.go`, with sort columns whitelisted server-side into literal SQL

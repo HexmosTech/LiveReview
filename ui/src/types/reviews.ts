@@ -136,10 +136,16 @@ export interface ReviewAccounting {
   latestOperation?: ReviewAccountingOperation;
 }
 
+export type ReviewsSort = 'review' | 'branch' | 'repository' | 'source' | 'status' | 'author' | 'last_activity';
+
 export interface ReviewsFilters {
-  status?: ReviewStatus;
+  /** Comma-separated for multi-select (backend: multiValueFilterClause). */
+  status?: string;
+  /** Comma-separated short provider keys (backend: providerFilterClause prefix-matches compound values). */
   provider?: string;
   search?: string;
+  sort?: ReviewsSort;
+  order?: 'asc' | 'desc';
   page?: number;
   perPage?: number;
 }

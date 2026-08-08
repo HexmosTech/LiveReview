@@ -1812,9 +1812,11 @@ type ReviewResponse struct {
 type ReviewsQuery struct {
 	Page     int    `form:"page" query:"page" json:"page,omitempty" jsonschema:"description=Page number for pagination"`
 	PerPage  int    `form:"per_page" query:"per_page" json:"per_page,omitempty" jsonschema:"description=Number of items per page"`
-	Status   string `form:"status" query:"status" json:"status,omitempty" jsonschema:"description=Filter reviews by status (e.g. pending, completed, failed)"`
-	Provider string `form:"provider" query:"provider" json:"provider,omitempty" jsonschema:"description=Filter reviews by Git provider (e.g. github, gitlab)"`
-	Search   string `form:"search" query:"search" json:"search,omitempty" jsonschema:"description=Search pattern for repository name, MR title, or author"`
+	Status   string `form:"status" query:"status" json:"status,omitempty" jsonschema:"description=Filter reviews by status, comma-separated for multiple (e.g. created,in_progress,completed,failed)"`
+	Provider string `form:"provider" query:"provider" json:"provider,omitempty" jsonschema:"description=Filter reviews by Git provider, comma-separated for multiple (e.g. github, gitlab, cli)"`
+	Search   string `form:"search" query:"search" json:"search,omitempty" jsonschema:"description=Search pattern for repository name, branch, MR title, or author"`
+	Sort     string `form:"sort" query:"sort" json:"sort,omitempty" jsonschema:"description=Sort column: review, branch, repository, source, status, author, or last_activity (default last_activity)"`
+	Order    string `form:"order" query:"order" json:"order,omitempty" jsonschema:"description=Sort direction: asc or desc (default desc)"`
 }
 
 type ReviewsListResponse struct {
@@ -1892,29 +1894,29 @@ func (s *Server) getReviews(c echo.Context) error {
 	args := []interface{}{orgID}
 	argIndex := 2
 
-	// Add filters
-	status := c.QueryParam("status")
-	if status != "" {
-		baseQuery += fmt.Sprintf(" AND status = $%d", argIndex)
-		countQuery += fmt.Sprintf(" AND status = $%d", argIndex)
-		args = append(args, status)
-		argIndex++
+	// Add filters. status/provider accept comma-separated values from the
+	// UI's checkbox multi-select filters (multiValueFilterClause/
+	// providerFilterClause also handle a single bare value fine, so this
+	// stays backward compatible with any other caller still passing one).
+	if clause := multiValueFilterClause("status", c.QueryParam("status"), &args, &argIndex); clause != "" {
+		baseQuery += clause
+		countQuery += clause
 	}
-
-	provider := c.QueryParam("provider")
-	if provider != "" {
-		baseQuery += fmt.Sprintf(" AND provider = $%d", argIndex)
-		countQuery += fmt.Sprintf(" AND provider = $%d", argIndex)
-		args = append(args, provider)
-		argIndex++
+	if clause := providerFilterClause(c.QueryParam("provider"), &args, &argIndex); clause != "" {
+		baseQuery += clause
+		countQuery += clause
 	}
 
 	// Add search functionality
 	search := c.QueryParam("search")
 	if search != "" {
 		searchPattern := "%" + search + "%"
-		baseQuery += fmt.Sprintf(" AND (repository ILIKE $%d OR pr_mr_url ILIKE $%d OR mr_title ILIKE $%d OR author_name ILIKE $%d OR author_username ILIKE $%d)", argIndex, argIndex, argIndex, argIndex, argIndex)
-		countQuery += fmt.Sprintf(" AND (repository ILIKE $%d OR pr_mr_url ILIKE $%d OR mr_title ILIKE $%d OR author_name ILIKE $%d OR author_username ILIKE $%d)", argIndex, argIndex, argIndex, argIndex, argIndex)
+		searchClause := fmt.Sprintf(
+			" AND (repository ILIKE $%d OR pr_mr_url ILIKE $%d OR mr_title ILIKE $%d OR author_name ILIKE $%d OR author_username ILIKE $%d OR branch ILIKE $%d OR friendly_name ILIKE $%d)",
+			argIndex, argIndex, argIndex, argIndex, argIndex, argIndex, argIndex,
+		)
+		baseQuery += searchClause
+		countQuery += searchClause
 		args = append(args, searchPattern)
 		argIndex++
 	}
@@ -1926,8 +1928,30 @@ func (s *Server) getReviews(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to count reviews")
 	}
 
-	// Add ordering and pagination
-	baseQuery += " ORDER BY created_at DESC"
+	// Whitelisted column expressions only - "sort" is never interpolated
+	// directly into the query (same pattern as ListRepositories). "review"
+	// approximates the frontend's title-priority logic (which also branches
+	// on trigger_type/AI-summary metadata for CLI reviews) closely enough
+	// for a sort order, without duplicating that full logic in SQL.
+	sortColumns := map[string]string{
+		"review":        "COALESCE(NULLIF(mr_title, ''), NULLIF(friendly_name, ''), repository)",
+		"branch":        "branch",
+		"repository":    "repository",
+		"source":        "provider",
+		"status":        "status",
+		"author":        "COALESCE(NULLIF(author_name, ''), NULLIF(author_username, ''), NULLIF(user_email, ''))",
+		"last_activity": "COALESCE(completed_at, started_at, created_at)",
+	}
+	sortKey := c.QueryParam("sort")
+	sortColumn, ok := sortColumns[sortKey]
+	if !ok {
+		sortColumn = sortColumns["last_activity"]
+	}
+	orderClause := "DESC"
+	if strings.ToLower(c.QueryParam("order")) == "asc" {
+		orderClause = "ASC"
+	}
+	baseQuery += fmt.Sprintf(" ORDER BY %s %s NULLS LAST, id DESC", sortColumn, orderClause)
 	offset := (page - 1) * perPage
 	baseQuery += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
 	args = append(args, perPage, offset)
