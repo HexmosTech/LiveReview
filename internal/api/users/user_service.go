@@ -391,9 +391,10 @@ type BulkInviteUserRow struct {
 
 // BulkInviteResultRow reports what happened to a single BulkInviteUserRow
 type BulkInviteResultRow struct {
-	Email   string `json:"email"`
-	Status  string `json:"status"` // "invited" | "updated" | "unchanged" | "error"
-	Message string `json:"message,omitempty"`
+	Email            string `json:"email"`
+	Status           string `json:"status"` // "invited" | "updated" | "unchanged" | "error"
+	Message          string `json:"message,omitempty"`
+	OnboardingAPIKey string `json:"onboarding_api_key,omitempty"`
 }
 
 // BulkInvitePermissions mirrors the finer-grained permissions the single-user
@@ -524,11 +525,12 @@ func (us *UserService) BulkInviteUsersInOrg(orgID, actorUserID int64, rows []Bul
 				continue
 			}
 
-			if _, err := us.UpdateUserInOrg(orgID, existing.UserID, actorUserID, updateReq); err != nil {
+			updatedUser, err := us.UpdateUserInOrg(orgID, existing.UserID, actorUserID, updateReq)
+			if err != nil {
 				results = append(results, BulkInviteResultRow{Email: email, Status: "error", Message: friendlyBulkInviteError(err, "update")})
 				continue
 			}
-			results = append(results, BulkInviteResultRow{Email: email, Status: "updated"})
+			results = append(results, BulkInviteResultRow{Email: email, Status: "updated", OnboardingAPIKey: updatedUser.OnboardingAPIKey})
 			continue
 		}
 
@@ -548,7 +550,7 @@ func (us *UserService) BulkInviteUsersInOrg(orgID, actorUserID int64, rows []Bul
 			}
 		}
 
-		_, err := us.CreateUserInOrg(orgID, actorUserID, CreateUserRequest{
+		newUser, err := us.CreateUserInOrg(orgID, actorUserID, CreateUserRequest{
 			Email:     email,
 			Password:  r.Password,
 			FirstName: firstName,
@@ -559,7 +561,7 @@ func (us *UserService) BulkInviteUsersInOrg(orgID, actorUserID int64, rows []Bul
 			results = append(results, BulkInviteResultRow{Email: email, Status: "error", Message: friendlyBulkInviteError(err, "invite")})
 			continue
 		}
-		results = append(results, BulkInviteResultRow{Email: email, Status: "invited"})
+		results = append(results, BulkInviteResultRow{Email: email, Status: "invited", OnboardingAPIKey: newUser.OnboardingAPIKey})
 	}
 
 	return results, nil

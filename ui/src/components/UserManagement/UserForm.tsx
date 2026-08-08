@@ -20,6 +20,7 @@ import { useAppDispatch } from '../../store/configureStore';
 import { loadUserOrganizations } from '../../store/Organizations/reducer';
 import { UpgradePromptModal } from '../Subscriptions';
 import { UserOnboardingDetails } from './UserOnboardingDetails';
+import { BulkOnboardingDetails, BulkOnboardingRow } from './BulkOnboardingDetails';
 import { parseUserInviteCsv } from './bulkInviteCsv';
 
 interface BulkRow extends BulkCheckResultRow {
@@ -139,6 +140,7 @@ const UserForm: React.FC = () => {
     const [bulkSubmitting, setBulkSubmitting] = useState(false);
     const [bulkSubmitted, setBulkSubmitted] = useState(false);
     const [bulkRows, setBulkRows] = useState<BulkRow[] | null>(null);
+    const [bulkCompletedRows, setBulkCompletedRows] = useState<BulkOnboardingRow[] | null>(null);
     const bulkFileInputRef = useRef<HTMLInputElement>(null);
 
     const handleDownloadSample = () => {
@@ -319,14 +321,33 @@ const UserForm: React.FC = () => {
                 parts.length > 0
                     ? `${parts.join(', ')} successfully`
                     : 'No changes made';
+
             if (counts.error > 0) {
                 toast.error(
                     `${summary}, ${counts.error} failed — see table for details.`
                 );
+                setBulkSubmitted(true);
+            } else if (counts.invited > 0 || counts.updated > 0) {
+                const completed: BulkOnboardingRow[] = results.reduce<BulkOnboardingRow[]>(
+                    (acc, result, index) => {
+                        if (result.status !== 'invited' && result.status !== 'updated') return acc;
+                        const row = bulkRows[index];
+                        acc.push({
+                            email: row.email,
+                            name: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
+                            role: row.role,
+                            status: result.status,
+                            onboardingApiKey: result.onboarding_api_key,
+                        });
+                        return acc;
+                    },
+                    []
+                );
+                setBulkCompletedRows(completed);
             } else {
                 toast.success(summary);
+                setBulkSubmitted(true);
             }
-            setBulkSubmitted(true);
             dispatch(loadUserOrganizations());
         } catch (error) {
             console.error('Bulk invite submit failed', error);
@@ -515,6 +536,15 @@ const UserForm: React.FC = () => {
                         navigate('/settings#users');
                     }
                 }}
+            />
+        );
+    }
+
+    if (bulkCompletedRows) {
+        return (
+            <BulkOnboardingDetails
+                rows={bulkCompletedRows}
+                onContinue={() => navigate('/settings#users')}
             />
         );
     }

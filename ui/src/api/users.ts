@@ -53,6 +53,7 @@ export interface BulkInviteResultRow {
   email: string;
   status: 'invited' | 'updated' | 'unchanged' | 'error';
   message?: string;
+  onboarding_api_key?: string;
 }
 
 export interface BulkInviteResponse {
