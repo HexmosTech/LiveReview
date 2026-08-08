@@ -269,7 +269,6 @@ settings:
                                     />
                                 </div>
                                 <div className="text-xs text-slate-400 space-y-3">
-                                    <p className="font-medium text-slate-300">Create the app from a manifest:</p>
                                     <ol className="list-decimal list-inside space-y-1.5">
                                         <li>
                                             In{' '}
@@ -279,14 +278,9 @@ settings:
                                             , click <strong className="text-slate-200">Create New App</strong>, choose <strong className="text-slate-200">From manifest</strong>.
                                         </li>
                                         <li>
-                                            Paste the manifest below and click <strong className="text-slate-200">Next &gt; Create</strong>.
+                                            Paste the manifest below and choose your workspace
                                         </li>
-                                        <li>
-                                            Choose your workspace.
-                                        </li>
-                                        <li>
-                                            When prompted, <strong className="text-slate-200">Allow the Livi app to access Slack</strong>, and click <strong className="text-slate-200">Allow</strong>.
-                                        </li>
+
                                     </ol>
                                     <div className="relative">
                                         <pre className="bg-slate-900 rounded p-3 text-xs text-slate-200 font-mono overflow-x-auto whitespace-pre">{slackManifest}</pre>
@@ -300,20 +294,15 @@ settings:
                                             {manifestCopied ? 'Copied!' : 'Copy'}
                                         </Button>
                                     </div>
-                                    <ol className="list-decimal list-inside space-y-1.5" start={5}>
+                                    <ol className="list-decimal list-inside space-y-1.5" start={3}>
                                         <li>
-                                            Go to <strong className="text-slate-200">Settings &gt; Basic Information</strong>, scroll down to <strong className="text-slate-200">App-Level Tokens</strong>, click <strong className="text-slate-200">Generate Token</strong>, and paste it into the <em className="text-slate-300">App-Level Token</em> field above.
+                                            Click <strong className="text-slate-200">"Next" &gt; "Create and Install"</strong>.
                                         </li>
                                         <li>
-                                            Go to <strong className="text-slate-200">Settings &gt; Install App</strong>:
-                                            <ol className="list-decimal list-inside space-y-1.5 mt-1 ml-4">
-                                                <li>
-                                                    Copy the <strong className="text-slate-200">Bot User OAuth Token</strong>.
-                                                </li>
-                                                <li>
-                                                    Paste it into the <em className="text-slate-300">Bot Token</em> field above.
-                                                </li>
-                                            </ol>
+                                            When prompted <strong className="text-slate-200">Allow the "Livi" app to access Slack</strong>, click <strong className="text-slate-200">Allow</strong>.
+                                        </li>
+                                        <li>
+                                            The app has been created. Expand <strong className="text-slate-200">"Your app credentials"</strong>, and copy the <strong className="text-slate-200">App token</strong>, and the <strong className="text-slate-200">Bot token</strong> and paste it in the fields above.
                                         </li>
                                         <li>
                                             Click <strong className="text-slate-200">Save</strong>.

@@ -274,7 +274,7 @@ const AppContent: React.FC = () => {
     // Ctrl+I opens the chatbot from anywhere in the app.
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'i') {
+            if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'i') {
                 e.preventDefault();
                 navigate('/chat');
             }

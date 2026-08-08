@@ -459,6 +459,8 @@ func (oh *orgHandler) ensureAgent() error {
 }
 
 func (oh *orgHandler) processMessage(channel, ts, threadTS, text string) {
+	log.Printf("[SlackBot] Org %d: message received channel=%s ts=%s thread=%q text=%q", oh.orgID, channel, ts, threadTS, truncate(text, 80))
+
 	key := channel + ":" + ts
 	if threadTS != "" {
 		key = channel + ":" + threadTS
@@ -491,7 +493,9 @@ func (oh *orgHandler) processMessage(channel, ts, threadTS, text string) {
 	ctx, cancel := context.WithTimeout(context.Background(), agentTimeout)
 	defer cancel()
 
+	log.Printf("[SlackBot] Org %d: RunTurn starting (timeout %s)", oh.orgID, agentTimeout)
 	finalText, updatedHistory, err := oh.agent.RunTurn(ctx, history, text)
+	log.Printf("[SlackBot] Org %d: RunTurn returned err=%v len=%d", oh.orgID, err, len(finalText))
 	if err != nil {
 		log.Printf("[SlackBot] RunTurn error: %s", err)
 		blocks := []slack.Block{
@@ -597,4 +601,11 @@ func toolNames(tools []mcpagent.MCPToolDef) []string {
 		names[i] = t.Name
 	}
 	return names
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
