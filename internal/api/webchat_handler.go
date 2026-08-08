@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/aiconnectors"
@@ -407,7 +408,7 @@ func extractDescriptionFromVegaSpec(text string) string {
 			case 'u':
 				// Decode \uXXXX unicode escapes.
 				if i+4 < len(rest) {
-					if r, err := strconv.ParseUint(rest[i+1:i+5], 16, 32); err == nil {
+					if r, err := strconv.ParseUint(rest[i+1:i+5], 16, 32); err == nil && utf8.ValidRune(rune(r)) {
 						desc.WriteRune(rune(r))
 						i += 4
 					} else {

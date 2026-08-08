@@ -116,8 +116,8 @@ func (s *OrgUsageStore) ListCurrentPeriodOperations(ctx context.Context, orgID i
 	if limit <= 0 {
 		limit = 25
 	}
-	if limit > 200 {
-		limit = 200
+	if limit > maxUsagePageSize {
+		limit = maxUsagePageSize
 	}
 	if offset < 0 {
 		offset = 0
@@ -163,7 +163,10 @@ func (s *OrgUsageStore) ListCurrentPeriodOperations(ctx context.Context, orgID i
 	}
 	defer rows.Close()
 
-	ops := make([]OrgUsageOperation, 0, limit)
+	// limit is clamped to <= maxUsagePageSize above; pre-allocate at that
+	// same literal ceiling instead of the clamped variable so this
+	// allocation size is a constant, not data-dependent.
+	ops := make([]OrgUsageOperation, 0, maxUsagePageSize)
 	for rows.Next() {
 		var op OrgUsageOperation
 		if err := rows.Scan(
@@ -198,8 +201,8 @@ func (s *OrgUsageStore) ListCurrentPeriodMemberUsage(ctx context.Context, orgID 
 	if limit <= 0 {
 		limit = 25
 	}
-	if limit > 200 {
-		limit = 200
+	if limit > maxUsagePageSize {
+		limit = maxUsagePageSize
 	}
 	if offset < 0 {
 		offset = 0
@@ -246,7 +249,10 @@ func (s *OrgUsageStore) ListCurrentPeriodMemberUsage(ctx context.Context, orgID 
 	}
 	defer rows.Close()
 
-	items := make([]OrgMemberUsageSummary, 0, limit)
+	// limit is clamped to <= maxUsagePageSize above; pre-allocate at that
+	// same literal ceiling instead of the clamped variable so this
+	// allocation size is a constant, not data-dependent.
+	items := make([]OrgMemberUsageSummary, 0, maxUsagePageSize)
 	for rows.Next() {
 		var item OrgMemberUsageSummary
 		if err := rows.Scan(

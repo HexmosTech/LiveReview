@@ -562,7 +562,7 @@ class WebhookListener:
             
         except Exception as e:
             print(f"ERROR processing webhook: {e}")
-            return jsonify({'error': str(e)}), 500
+            return jsonify({'error': 'internal error processing webhook'}), 500
     
     def handle_push_event(self, payload: Dict):
         """Handle push event."""

@@ -1632,7 +1632,7 @@ func (p *UnifiedProcessorV2Impl) buildGiteaArtifactFromEvent(ctx context.Context
 		err   error
 	)
 	if connectorID, ok := parseInt64MetadataValue(event.MergeRequest.Metadata, "connector_id"); ok && connectorID > 0 {
-		token, _, err = giteainput.FindIntegrationTokenByConnectorID(p.server.DB(), int(connectorID))
+		token, _, err = giteainput.FindIntegrationTokenByConnectorID(p.server.DB(), connectorID)
 		if err != nil {
 			log.Printf("[WARN] Gitea token lookup by connector_id failed for connector=%d org=%d: %v", connectorID, orgID, err)
 			return nil, fmt.Errorf("gitea integration token lookup failed (positive connector ID provided but lookup failed)")

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -51,6 +52,19 @@ func Disable() {
 	captureEnabled.Store(false)
 }
 
+// sanitizePathComponent makes s safe to use as a single path segment (never
+// containing a separator or resolving to "." or ".."), since several
+// callers build category/namespace from webhook-supplied values (e.g. an
+// event-type header) that would otherwise let a crafted value steer
+// writeFile's output path outside the intended capture directory.
+func sanitizePathComponent(s string) string {
+	s = strings.NewReplacer("/", "_", "\\", "_", "\x00", "").Replace(s)
+	if s == "" || s == "." || s == ".." {
+		return "_"
+	}
+	return s
+}
+
 // writeFile writes the provided bytes to the capture directory under the given
 // category and extension. It creates any missing directories and logs failures.
 func captureDir(namespace string) string {
@@ -58,7 +72,7 @@ func captureDir(namespace string) string {
 		return dir
 	}
 	if namespace != "" {
-		return filepath.Join("docs/raw/captures", namespace)
+		return filepath.Join("docs/raw/captures", sanitizePathComponent(namespace))
 	}
 	return defaultCaptureDir
 }
@@ -76,7 +90,7 @@ func writeFile(namespace, category, ext string, data []byte) {
 		return
 	}
 
-	filename := fmt.Sprintf("%s-%04d.%s", category, seq, ext)
+	filename := fmt.Sprintf("%s-%04d.%s", sanitizePathComponent(category), seq, sanitizePathComponent(ext))
 	path := filepath.Join(sessionDir, filename)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		log.Printf("[WARN] capture: failed to write file %s: %v", path, err)

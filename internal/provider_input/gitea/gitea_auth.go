@@ -74,7 +74,7 @@ func FindIntegrationTokenForGiteaRepo(db *sql.DB, repoFullName string) (*Integra
 }
 
 // FindIntegrationTokenByConnectorID finds the integration token by connector ID.
-func FindIntegrationTokenByConnectorID(db *sql.DB, connectorID int) (*IntegrationToken, string, error) {
+func FindIntegrationTokenByConnectorID(db *sql.DB, connectorID int64) (*IntegrationToken, string, error) {
 	if db == nil {
 		return nil, "", fmt.Errorf("database connection is nil")
 	}

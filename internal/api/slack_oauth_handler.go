@@ -3,7 +3,9 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -14,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -59,6 +62,35 @@ type SlackOAuthHandler struct {
 	states          map[string]*slackOAuthState
 	proxySetupStore map[string]*proxySetupState
 	statesMu        sync.RWMutex
+}
+
+// signProxyState HMAC-signs the base64-encoded proxy state payload so that
+// SlackOAuthProxyCallback can trust fields (notably the target URL it later
+// makes a request to) only if they were produced by this server, and not
+// forged by a caller hitting the callback endpoint directly with an
+// arbitrary "state" query parameter.
+func signProxyState(encoded string) (string, error) {
+	secret := previewTokenSecret()
+	if secret == "" {
+		return "", fmt.Errorf("JWT_SECRET must be set for proxy state signing")
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(encoded))
+	return hex.EncodeToString(mac.Sum(nil)), nil
+}
+
+func verifyProxyState(encoded, signature string) error {
+	secret := previewTokenSecret()
+	if secret == "" {
+		return fmt.Errorf("JWT_SECRET must be set for proxy state verification")
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(encoded))
+	expected := hex.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(expected), []byte(signature)) {
+		return fmt.Errorf("invalid proxy state signature")
+	}
+	return nil
 }
 
 func NewSlackOAuthHandler(db *sql.DB, clientID, clientSecret, redirectURL, mcpServerURL string, maxSteps int, bot *slackbot.Bot, selfURL string, isCloud bool) *SlackOAuthHandler {
@@ -131,7 +163,12 @@ func (h *SlackOAuthHandler) InstallSlackBot(c echo.Context) error {
 			"setup_token": setupTokenStr,
 		}
 		stateJSON, _ := json.Marshal(statePayload)
-		stateStr = base64.URLEncoding.EncodeToString(stateJSON)
+		encodedState := base64.URLEncoding.EncodeToString(stateJSON)
+		signature, err := signProxyState(encodedState)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to sign proxy state")
+		}
+		stateStr = encodedState + "." + signature
 	} else {
 		// Direct flow: state stores org/user for local callback
 		stateBytes := make([]byte, 32)
@@ -214,8 +251,17 @@ func (h *SlackOAuthHandler) SlackOAuthProxyCallback(c echo.Context) error {
 		return c.HTML(http.StatusBadRequest, "<h2>Error</h2><p>Missing code or state parameter. Please try again.</p>")
 	}
 
-	// Decode state to get target server info
-	stateJSON, err := base64.URLEncoding.DecodeString(stateStr)
+	// Decode and verify state to get target server info. The signature check
+	// ensures targetURL below was set by this server (in InstallSlackBot),
+	// not supplied by whoever calls this callback endpoint.
+	stateParts := strings.SplitN(stateStr, ".", 2)
+	if len(stateParts) != 2 {
+		return c.HTML(http.StatusBadRequest, "<h2>Error</h2><p>Invalid state. Please try again.</p>")
+	}
+	if err := verifyProxyState(stateParts[0], stateParts[1]); err != nil {
+		return c.HTML(http.StatusBadRequest, "<h2>Error</h2><p>Invalid state. Please try again.</p>")
+	}
+	stateJSON, err := base64.URLEncoding.DecodeString(stateParts[0])
 	if err != nil {
 		return c.HTML(http.StatusBadRequest, "<h2>Error</h2><p>Invalid state. Please try again.</p>")
 	}

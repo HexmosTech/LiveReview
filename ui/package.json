@@ -95,6 +95,7 @@
     "dotenv": "^17.2.3",
     "echarts": "^6.1.0",
     "echarts-for-react": "^3.0.6",
+    "express-rate-limit": "^8.6.2",
     "framer-motion": "^12.43.0",
     "helper-toolkit-ts": "^1.1.13",
     "jspdf": "^4.2.1",
