@@ -287,7 +287,9 @@ func (p *BitbucketV2Provider) CanHandleWebhook(headers map[string]string, body [
 
 		for _, event := range bitbucketEvents {
 			if strings.Contains(eventKey, event) {
-				log.Printf("[DEBUG] Bitbucket provider can handle event: %s", eventKey)
+				// Log the matched entry from our fixed bitbucketEvents list,
+				// not the raw X-Event-Key header value.
+				log.Printf("[DEBUG] Bitbucket provider can handle event: %s", event)
 				return true
 			}
 		}
@@ -296,7 +298,7 @@ func (p *BitbucketV2Provider) CanHandleWebhook(headers map[string]string, body [
 	// Check User-Agent for Bitbucket
 	if userAgent, exists := headers["User-Agent"]; exists {
 		if strings.Contains(strings.ToLower(userAgent), "bitbucket") {
-			log.Printf("[DEBUG] Bitbucket provider detected via User-Agent: %s", userAgent)
+			log.Printf("[DEBUG] Bitbucket provider detected via User-Agent match")
 			return true
 		}
 	}

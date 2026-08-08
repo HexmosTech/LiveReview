@@ -92,12 +92,16 @@ func writeFile(namespace, category, ext string, data []byte) {
 
 	filename := fmt.Sprintf("%s-%04d.%s", sanitizePathComponent(category), seq, sanitizePathComponent(ext))
 	path := filepath.Join(sessionDir, filename)
+	// category (and so filename/path) is built from caller-supplied data that,
+	// for webhook captures, ultimately comes from an HTTP header (event type);
+	// logging namespace/ext/seq instead of the full path keeps that header
+	// value out of the log regardless of what a caller passes as category.
 	if err := os.WriteFile(path, data, 0o644); err != nil {
-		log.Printf("[WARN] capture: failed to write file %s: %v", path, err)
+		log.Printf("[WARN] capture: failed to write file (namespace=%q ext=%q seq=%d): %v", namespace, ext, seq, err)
 		return
 	}
 
-	log.Printf("[INFO] capture: wrote %s", path)
+	log.Printf("[INFO] capture: wrote file (namespace=%q ext=%q seq=%d, %d bytes)", namespace, ext, seq, len(data))
 }
 
 // WriteJSON marshals the payload to indented JSON and stores it in the capture
@@ -109,7 +113,9 @@ func WriteJSON(category string, payload interface{}) {
 
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
-		log.Printf("[WARN] capture: failed to marshal %s payload: %v", category, err)
+		// category can be built from an HTTP header (event type) by webhook
+		// callers; leave it out of the log, same reasoning as in writeFile.
+		log.Printf("[WARN] capture: failed to marshal payload: %v", err)
 		return
 	}
 
@@ -132,7 +138,9 @@ func WriteJSONForNamespace(namespace, category string, payload interface{}) {
 
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
-		log.Printf("[WARN] capture: failed to marshal %s payload: %v", category, err)
+		// category can be built from an HTTP header (event type) by webhook
+		// callers; leave it out of the log, same reasoning as in writeFile.
+		log.Printf("[WARN] capture: failed to marshal payload: %v", err)
 		return
 	}
 

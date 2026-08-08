@@ -7,6 +7,7 @@ import (
 	"time"
 
 	coreprocessor "github.com/livereview/internal/core_processor"
+	"github.com/livereview/internal/webhookutils"
 )
 
 type (
@@ -298,8 +299,8 @@ func ConvertReviewerEvent(headers map[string]string, body []byte) (*UnifiedWebho
 	if eventType == "" {
 		eventType = headers["x-github-event"]
 	}
-	log.Printf("[DEBUG] GitHub reviewer event type: '%s'", eventType)
-	log.Printf("[DEBUG] Available headers: %v", headers)
+	log.Printf("[DEBUG] GitHub reviewer event type: '%s'", githubEventTypeLabel(eventType))
+	log.Printf("[DEBUG] Available headers: %v", webhookutils.HeaderNames(headers))
 
 	var payload GitHubV2WebhookPayload
 	if err := json.Unmarshal(body, &payload); err != nil {

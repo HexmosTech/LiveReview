@@ -9,6 +9,24 @@ import (
 	"time"
 )
 
+// maskSecretHeader keeps this debug tool's output safe to paste into a
+// ticket or chat by masking any header that carries a credential.
+func maskSecretHeader(name string, values []string) []string {
+	lower := strings.ToLower(name)
+	if lower != "authorization" && lower != "x-api-key" && !strings.Contains(lower, "token") && !strings.Contains(lower, "secret") {
+		return values
+	}
+	masked := make([]string, len(values))
+	for i, v := range values {
+		if len(v) <= 12 {
+			masked[i] = "[HIDDEN]"
+		} else {
+			masked[i] = v[:8] + "...[HIDDEN]"
+		}
+	}
+	return masked
+}
+
 func main() {
 	// Test the raw HTTP request to see what Ollama is actually returning
 	baseURL := strings.TrimSpace(os.Getenv("LIVEREVIEW_DEBUG_OLLAMA_CHAT_URL"))
@@ -57,7 +75,7 @@ func main() {
 
 	fmt.Println("Request headers:")
 	for name, values := range req.Header {
-		fmt.Printf("  %s: %v\n", name, values)
+		fmt.Printf("  %s: %v\n", name, maskSecretHeader(name, values))
 	}
 	fmt.Printf("Request body: %s\n", requestBody)
 	fmt.Println()

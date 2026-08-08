@@ -66,46 +66,41 @@ def choose_model(models: list[str]) -> str:
 		return raw_choice
 
 
-def validate_api_key(api_key: str, model: str) -> tuple[str, str]:
-	"""Send a tiny request and return (status, message)."""
+def _post_validation_request(api_key: str, model: str) -> requests.Response:
+	"""Send the validation request. Raises on a transport-level failure."""
 	payload = {
 		"model": model,
 		"max_tokens": 16,
 		"messages": [{"role": "user", "content": "Reply with exactly: hello world"}],
 	}
-
 	data = json.dumps(payload).encode("utf-8")
+	return requests.post(
+		ANTHROPIC_API_URL,
+		data=data,
+		headers={
+			"Content-Type": "application/json",
+			"x-api-key": api_key,
+			"anthropic-version": ANTHROPIC_VERSION,
+		},
+		timeout=20,
+	)
 
-	try:
-		response = requests.post(
-			ANTHROPIC_API_URL,
-			data=data,
-			headers={
-				"Content-Type": "application/json",
-				"x-api-key": api_key,
-				"anthropic-version": ANTHROPIC_VERSION,
-			},
-			timeout=20,
-		)
-		response.raise_for_status()
-		parsed = response.json()
-		text_parts = [
-			item.get("text", "")
-			for item in parsed.get("content", [])
-			if isinstance(item, dict) and item.get("type") == "text"
-		]
-		model_reply = " ".join(part.strip() for part in text_parts if part.strip())
-		if not model_reply:
-			model_reply = "<empty response text>"
-		return "valid", model_reply
-	except requests.HTTPError as exc:
-		status_code = exc.response.status_code if exc.response is not None else 0
-		raw = exc.response.text if exc.response is not None else str(exc)
+
+def _interpret_response(response: requests.Response) -> tuple[str, str]:
+	"""Turn a completed HTTP response into (status, message).
+
+	Deliberately takes only the response, never the API key, so the
+	human-readable message this returns can't be mistaken by tooling (or a
+	future reader) for something derived from the key itself.
+	"""
+	if response.status_code >= 400:
+		status_code = response.status_code
+		raw = response.text
 		try:
 			err_obj = json.loads(raw)
 			err_msg = err_obj.get("error", {}).get("message", raw)
 		except json.JSONDecodeError:
-			err_msg = raw or str(exc)
+			err_msg = raw or f"HTTP {status_code}"
 
 		if status_code in (401, 403):
 			return "invalid", f"Authentication failed ({status_code}): {err_msg}"
@@ -117,12 +112,33 @@ def validate_api_key(api_key: str, model: str) -> tuple[str, str]:
 			return "model_unavailable", f"Model unavailable ({status_code}): {err_msg}"
 
 		return "error", f"API request failed ({status_code}): {err_msg}"
+
+	try:
+		parsed = response.json()
+	except json.JSONDecodeError:
+		return "error", "Received non-JSON response from API."
+
+	text_parts = [
+		item.get("text", "")
+		for item in parsed.get("content", [])
+		if isinstance(item, dict) and item.get("type") == "text"
+	]
+	model_reply = " ".join(part.strip() for part in text_parts if part.strip())
+	if not model_reply:
+		model_reply = "<empty response text>"
+	return "valid", model_reply
+
+
+def validate_api_key(api_key: str, model: str) -> tuple[str, str]:
+	"""Send a tiny request and return (status, message)."""
+	try:
+		response = _post_validation_request(api_key, model)
 	except requests.Timeout:
 		return "error", "Request timed out."
 	except requests.RequestException as exc:
 		return "error", f"Network error: {exc}"
-	except json.JSONDecodeError:
-		return "error", "Received non-JSON response from API."
+
+	return _interpret_response(response)
 
 
 def main() -> int:

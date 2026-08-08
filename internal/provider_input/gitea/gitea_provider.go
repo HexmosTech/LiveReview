@@ -84,11 +84,30 @@ func (p *GiteaV2Provider) CanHandleWebhook(headers map[string]string, body []byt
 	return false
 }
 
+// giteaEventTypeLabel maps eventType to one of a fixed set of literal
+// labels for logging. Unlike returning eventType itself, this can't carry
+// through whatever byte content a caller's X-Gitea-Event header actually
+// held - an unrecognized value logs as "unrecognized", not its raw text.
+func giteaEventTypeLabel(eventType string) string {
+	switch eventType {
+	case "issue_comment":
+		return "issue_comment"
+	case "pull_request_comment":
+		return "pull_request_comment"
+	case "pull_request_review_comment":
+		return "pull_request_review_comment"
+	case "pull_request":
+		return "pull_request"
+	default:
+		return "unrecognized"
+	}
+}
+
 // ConvertCommentEvent converts Gitea comment webhook to unified format.
 func (p *GiteaV2Provider) ConvertCommentEvent(headers map[string]string, body []byte) (*UnifiedWebhookEventV2, error) {
 	eventType, _ := webhookutils.GetHeaderCaseInsensitive(headers, "X-Gitea-Event")
-	log.Printf("[DEBUG] Gitea webhook event type: '%s'", eventType)
-	log.Printf("[DEBUG] Available headers: %v", headers)
+	log.Printf("[DEBUG] Gitea webhook event type: '%s'", giteaEventTypeLabel(eventType))
+	log.Printf("[DEBUG] Available headers: %v", webhookutils.HeaderNames(headers))
 
 	canonicalType := canonicalGiteaEventType(eventType)
 	var (
@@ -106,7 +125,7 @@ func (p *GiteaV2Provider) ConvertCommentEvent(headers map[string]string, body []
 		log.Printf("[DEBUG] Processing Gitea pull_request event")
 		event, err = ConvertGiteaPullRequestEvent(body)
 	default:
-		log.Printf("[WARN] Unsupported Gitea comment event type: '%s' (supported: issue_comment, pull_request_comment, pull_request)", eventType)
+		log.Printf("[WARN] Unsupported Gitea comment event type: '%s' (supported: issue_comment, pull_request_comment, pull_request)", giteaEventTypeLabel(eventType))
 		err = fmt.Errorf("unsupported Gitea comment event type: '%s'", eventType)
 	}
 

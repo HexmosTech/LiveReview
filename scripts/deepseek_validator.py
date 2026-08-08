@@ -28,8 +28,8 @@ def request_api_key() -> str:
 	return key
 
 
-def validate_api_key(api_key: str) -> tuple[bool, str]:
-	"""Send a tiny request and return (is_valid, message)."""
+def _post_validation_request(api_key: str) -> requests.Response:
+	"""Send the validation request. Raises on a transport-level failure."""
 	payload = {
 		"model": MODEL,
 		"messages": [
@@ -38,32 +38,26 @@ def validate_api_key(api_key: str) -> tuple[bool, str]:
 		"max_tokens": 16,
 		"temperature": 0,
 	}
-
 	data = json.dumps(payload).encode("utf-8")
+	return requests.post(
+		DEEPSEEK_API_URL,
+		data=data,
+		headers={
+			"Content-Type": "application/json",
+			"Authorization": f"Bearer {api_key}",
+		},
+		timeout=20,
+	)
 
-	try:
-		response = requests.post(
-			DEEPSEEK_API_URL,
-			data=data,
-			headers={
-				"Content-Type": "application/json",
-				"Authorization": f"Bearer {api_key}",
-			},
-			timeout=20,
-		)
-		response.raise_for_status()
-		parsed = response.json()
-		choices = parsed.get("choices", [])
-		if choices and isinstance(choices[0], dict):
-			message = choices[0].get("message", {})
-			if isinstance(message, dict):
-				reply = str(message.get("content", "")).strip()
-				if reply:
-					return True, reply
-		return True, "<empty response text>"
-	except requests.HTTPError as exc:
-		status_code = exc.response.status_code if exc.response is not None else 0
-		raw = exc.response.text if exc.response is not None else str(exc)
+
+def _interpret_response(response: requests.Response) -> tuple[bool, str]:
+	"""Turn a completed HTTP response into (is_valid, message).
+
+	Deliberately takes only the response, never the API key.
+	"""
+	if response.status_code >= 400:
+		status_code = response.status_code
+		raw = response.text
 		try:
 			err_obj = json.loads(raw)
 		except json.JSONDecodeError:
@@ -75,17 +69,37 @@ def validate_api_key(api_key: str) -> tuple[bool, str]:
 			else None
 		)
 		if not err_msg:
-			err_msg = raw or str(exc)
+			err_msg = raw or f"HTTP {status_code}"
 
 		if status_code in (401, 403):
 			return False, f"Authentication failed ({status_code}): {err_msg}"
 		return False, f"API request failed ({status_code}): {err_msg}"
+
+	try:
+		parsed = response.json()
+	except json.JSONDecodeError:
+		return False, "Received non-JSON response from API."
+
+	choices = parsed.get("choices", [])
+	if choices and isinstance(choices[0], dict):
+		message = choices[0].get("message", {})
+		if isinstance(message, dict):
+			reply = str(message.get("content", "")).strip()
+			if reply:
+				return True, reply
+	return True, "<empty response text>"
+
+
+def validate_api_key(api_key: str) -> tuple[bool, str]:
+	"""Send a tiny request and return (is_valid, message)."""
+	try:
+		response = _post_validation_request(api_key)
 	except requests.Timeout:
 		return False, "Request timed out."
 	except requests.RequestException as exc:
 		return False, f"Network error: {exc}"
-	except json.JSONDecodeError:
-		return False, "Received non-JSON response from API."
+
+	return _interpret_response(response)
 
 
 def main() -> int:
