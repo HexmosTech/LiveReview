@@ -23,6 +23,84 @@ There is **no shared `Modal` or `Tabs` component** — every modal
 markup. If you need one, follow an existing modal's structure rather than adding a
 new abstraction.
 
+## Tables
+
+**`ClientTable` (backend-driven) is the standard table for this app. Every table that
+lists real, potentially-growing data — reviews, repositories, users, connectors,
+learnings, billing history, whatever — gets ported to it. Do not add a new table with
+raw `<table>` markup, the legacy `DataTable` component, or any other bespoke/client-side
+sort-filter mechanism. If you touch a page that still has one of those, port it to
+`ClientTable` as part of that change instead of leaving it as-is.**
+
+1. **`ClientTable`** (`ui/src/components/DataTable/ClientTable.tsx` +
+   `HeaderControls.tsx` in the same folder) — a TanStack Table wrapper with sortable
+   headers (`SortableHeaderLabel` + `SortIcon`) and column-filter popovers
+   (`HeaderFilterPopover`, pass `icon={LuSearch}` for a free-text search column).
+   **Backend-driven, not client-side row models.** Wire it up **server-side**: pass
+   `manualSorting: true, manualFiltering: true, manualPagination: true, pageCount` to
+   `useReactTable`, keep `sorting`/`columnFilters`/`pagination` as state in the page
+   (or a container component) that owns data-fetching, and re-fetch from the API on
+   every change (debounce free-text search ~300ms; checkbox/discrete filters and sort
+   clicks fire immediately). Do **not** reach for `getSortedRowModel`/
+   `getFilteredRowModel`/`getPaginationRowModel` (client-side row models) for a page
+   backed by an API — it only sorts/filters/paginates whatever page of rows is
+   already in memory, which silently produces wrong results (e.g. "sort by name"
+   only reorders the current page instead of the whole list) the moment the list
+   exceeds one page. Canonical examples of the full backend-driven wiring:
+   `ui/src/pages/Explore/Repositories.tsx` (`buildFetchParams`/`fetchRepositories`
+   pattern) and `UserManagement/UserManagement.tsx` +
+   `UserManagement/UserList.tsx` (users list: `sort`/`order`/`search`/`page`/`limit`
+   query params handled in `internal/api/organizations/org_handlers.go` +
+   `org_service.go`, with sort columns whitelisted server-side into literal SQL
+   column expressions — never interpolate the raw `sort` query param into a query).
+
+   **A subtle trap that breaks the search/sort UI, not just the data:** every
+   column's `header`/`cell` function must keep the *same reference* across
+   re-renders. If the `columns` array is rebuilt (a `useMemo` re-running) with a new
+   header function for the same column, React treats it as a different component
+   type at that spot and remounts it — which silently resets any local state inside,
+   like `HeaderFilterPopover`'s open/closed state (symptom: the search box closes
+   itself after every keystroke). This happens whenever the `columns` memo's
+   dependency array contains something that gets a new identity on every render —
+   most commonly a callback prop from the parent that isn't wrapped in
+   `useCallback`, or one that's `useCallback`'d but itself depends on the very state
+   (`sorting`/`columnFilters`/`pagination`) that changes on every keystroke. Fix by
+   making every dependency genuinely stable (`useCallback` with only rarely-changing
+   deps; read fast-changing state via a `ref` inside the callback instead of putting
+   it in the dep array), and for anything that doesn't need to close over per-row
+   state at all (e.g. a checkbox-select column), define the `header`/`cell` as a
+   plain module-level function/component so it never has a "new" identity in the
+   first place — see `SelectAllHeaderCell`/`SelectRowCell` in
+   `UserManagement/UserList.tsx` and `refetchCurrent`'s ref-based state read in
+   `UserManagement/UserManagement.tsx`.
+
+2. **`SimpleTable`** (`ui/src/components/DataTable/SimpleTable.tsx`) — a lightweight,
+   non-sortable table shell (`Table`, `TableHead`, `TableHeaderCell`, `TableBody`,
+   `TableRow`, `TableCell`) that matches `ClientTable`'s visual styling without any of
+   the sorting machinery. **Narrow exception, not a default.** Only use this when the
+   table is genuinely meant to show every row at once with no need to ever sort,
+   search, or paginate it — e.g. the bulk-invite review table in
+   `UserManagement/UserForm.tsx` (a short, already-filtered CSV preview the admin is
+   about to submit, not a browsable list). If you find yourself wanting to add a
+   sort arrow or a search box to a `SimpleTable`, that's a sign it should have been
+   `ClientTable` from the start — migrate it, don't bolt ad-hoc sort/filter state
+   onto `SimpleTable`.
+
+3. **`DataTable`** (`ui/src/components/DataTable/DataTable.tsx`) — an older,
+   **deprecated** server-driven table (used by `pages/Reports/TaxonomyReports.tsx`).
+   It predates `ClientTable`/`HeaderControls` and has no sortable headers or
+   column-filter popovers, and its header styling (`bg-slate-700`) doesn't match the
+   approved `ClientTable` look (`bg-[#2A3340]`). **Do not use it for new tables.** If
+   you're touching a page that uses it, port that page to `ClientTable` instead of
+   extending `DataTable`.
+
+Never write a raw `<table>`/`<thead>`/`<tbody>` by hand for a new feature —
+`ClientTable` (or, in the narrow case above, `SimpleTable`) already gives you the
+approved look for free. Known raw-`<table>` holdouts to port opportunistically when
+touched: `pages/Admin/BillingPortfolio.tsx`, `pages/Auth/Cloud.tsx`,
+`pages/Settings/LearningsTab.tsx`, `pages/Settings/SubscriptionTab.tsx`,
+`pages/Subscribe/Subscribe.tsx`, `components/License/LicenseUpgradeDialog.tsx`.
+
 ## Icons
 
 `Icons` in `ui/src/components/UIPrimitives.tsx` is the shared icon object — check it

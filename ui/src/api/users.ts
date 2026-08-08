@@ -91,8 +91,23 @@ export interface FetchUsersResponse {
   total_pages: number;
 }
 
-export const fetchOrgUsers = async (orgId: string): Promise<FetchUsersResponse> => {
-  return apiClient.get<FetchUsersResponse>(`/orgs/${orgId}/users`);
+export interface FetchOrgUsersParams {
+  page?: number;
+  perPage?: number;
+  search?: string;
+  sort?: 'user' | 'status' | 'role' | 'joined';
+  order?: 'asc' | 'desc';
+}
+
+export const fetchOrgUsers = async (orgId: string, params: FetchOrgUsersParams = {}): Promise<FetchUsersResponse> => {
+  const query = new URLSearchParams();
+  if (params.page) query.append('page', params.page.toString());
+  if (params.perPage) query.append('limit', params.perPage.toString());
+  if (params.search) query.append('search', params.search);
+  if (params.sort) query.append('sort', params.sort);
+  if (params.order) query.append('order', params.order);
+  const qs = query.toString();
+  return apiClient.get<FetchUsersResponse>(`/orgs/${orgId}/users${qs ? `?${qs}` : ''}`);
 };
 
 export interface UserFormData {
