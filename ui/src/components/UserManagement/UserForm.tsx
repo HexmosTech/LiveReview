@@ -281,10 +281,10 @@ const UserForm: React.FC = () => {
         { invited: 0, updated: 0, unchanged: 0, error: 0 }
       );
       const parts: string[] = [];
-      if (counts.invited > 0) parts.push(`${counts.invited} user${counts.invited !== 1 ? 's' : ''} added`);
+      if (counts.invited > 0) parts.push(`${counts.invited} user(s) added`);
       if (counts.updated > 0) parts.push(`${counts.updated} updated`);
       if (counts.unchanged > 0) parts.push(`${counts.unchanged} unchanged`);
-      const summary = parts.length > 0 ? parts.join(', ') : 'No changes made';
+      const summary = parts.length > 0 ? `${parts.join(', ')} successfully` : 'No changes made';
       if (counts.error > 0) {
         toast.error(`${summary}, ${counts.error} failed — see table for details.`);
       } else {
@@ -459,8 +459,8 @@ const UserForm: React.FC = () => {
   }
 
   return (
-    <div className="p-6 bg-gray-900 text-white">
-      <div className="max-w-5xl mx-auto">
+    <div className="bg-gray-900 text-white">
+      <div className="container mx-auto px-4 py-8">
         <h1 className="text-3xl font-bold mb-6">{isEditMode ? 'Edit User' : 'Invite User'}</h1>
 
         <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-xl">
@@ -591,26 +591,37 @@ const UserForm: React.FC = () => {
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap">
                                 {row.exists ? (
-                                  <span className="inline-block px-2 py-0.5 rounded-full text-xs bg-amber-900/40 text-amber-300 border border-amber-700/50 whitespace-nowrap">
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-900/20 text-amber-300 whitespace-nowrap">
                                     Existing member
                                   </span>
                                 ) : (
-                                  <span className="inline-block px-2 py-0.5 rounded-full text-xs bg-green-900/40 text-green-300 border border-green-700/50 whitespace-nowrap">
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900/20 text-green-300 whitespace-nowrap">
                                     New invite
                                   </span>
                                 )}
                                 {hasGlobalAccount && (
                                   <p className="text-xs text-blue-400 mt-1">Has a LiveReview account — name can&apos;t be edited here</p>
                                 )}
-                                {row.submit_status === 'error' ? (
-                                  <p className="text-xs text-red-400 mt-1">✗ {row.submit_message}</p>
-                                ) : row.submit_status === 'invited' ? (
-                                  <p className="text-xs text-green-400 mt-1">✓ Invited</p>
-                                ) : row.submit_status === 'updated' ? (
-                                  <p className="text-xs text-green-400 mt-1">✓ Updated</p>
-                                ) : row.submit_status === 'unchanged' ? (
-                                  <p className="text-xs text-slate-400 mt-1">No changes</p>
-                                ) : null}
+                                {row.submit_status && (
+                                  <div className="mt-1.5">
+                                    {row.submit_status === 'error' ? (
+                                      <>
+                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-900/20 text-red-300 whitespace-nowrap">
+                                          Failed
+                                        </span>
+                                        <p className="text-xs text-red-400 mt-1">{row.submit_message}</p>
+                                      </>
+                                    ) : row.submit_status === 'unchanged' ? (
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700/40 text-slate-300 whitespace-nowrap">
+                                        No changes
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900/20 text-green-300 whitespace-nowrap">
+                                        {row.submit_status === 'invited' ? 'Invited' : 'Updated'}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                               </td>
                               <td className="px-4 py-3">
                                 <button
@@ -635,9 +646,9 @@ const UserForm: React.FC = () => {
                     </p>
                   )}
 
-                  <div className="flex justify-end space-x-4 pt-2">
+                  <div className="flex justify-end space-x-4 pt-4">
                     <Button
-                      variant={bulkSubmitted ? 'primary' : 'secondary'}
+                      variant={bulkSubmitted ? 'primary' : 'ghost'}
                       type="button"
                       onClick={() => navigate('/settings#users')}
                       disabled={bulkSubmitting}
@@ -645,7 +656,7 @@ const UserForm: React.FC = () => {
                       {bulkSubmitted ? 'Close' : 'Cancel'}
                     </Button>
                     <Button
-                      variant={bulkSubmitted ? 'secondary' : 'primary'}
+                      variant={bulkSubmitted ? 'ghost' : 'primary'}
                       type="button"
                       onClick={handleBulkSubmit}
                       isLoading={bulkSubmitting}
@@ -695,9 +706,9 @@ const UserForm: React.FC = () => {
                     />
                   </div>
 
-                  <div className="flex justify-end space-x-4 pt-2">
+                  <div className="flex justify-end space-x-4 pt-4">
                     <Button
-                      variant="secondary"
+                      variant="ghost"
                       type="button"
                       onClick={() => navigate('/settings#users')}
                     >
@@ -807,7 +818,7 @@ const UserForm: React.FC = () => {
 
                 <div className="flex justify-end space-x-4 pt-4">
                   <Button
-                    variant="secondary"
+                    variant="ghost"
                     type="button"
                     onClick={() => navigate('/settings#users')}
                     disabled={isSubmitting}
