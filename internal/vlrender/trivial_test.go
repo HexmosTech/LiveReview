@@ -45,6 +45,20 @@ func TestSpecIsTrivial(t *testing.T) {
 	}
 }
 
+func TestSpecIsTrivialUnknownSource(t *testing.T) {
+	// Data sourced from a URL/source (not inline values) — the row count is
+	// unknown, so the spec must never be treated as trivial.
+	urlData := `{"$schema":"https://vega.github.io/schema/vega-lite/v5.json","mark":"bar","data":{"url":"/data.json"},"encoding":{"x":{"field":"a","type":"ordinal"},"y":{"field":"b","type":"quantitative"}}}`
+	sourceData := `{"$schema":"https://vega.github.io/schema/vega-lite/v5.json","mark":"bar","data":{"source":"raw"},"encoding":{"x":{"field":"a","type":"ordinal"},"y":{"field":"b","type":"quantitative"}}}`
+
+	if SpecIsTrivial([]byte(urlData)) {
+		t.Errorf("spec with data.url must NOT be trivial (count unknown)")
+	}
+	if SpecIsTrivial([]byte(sourceData)) {
+		t.Errorf("spec with data.source must NOT be trivial (count unknown)")
+	}
+}
+
 func TestTrivialDescription(t *testing.T) {
 	desc, query, ok := TrivialDescription(multi(values(`{"a":"x","b":5}`)))
 	if !ok {

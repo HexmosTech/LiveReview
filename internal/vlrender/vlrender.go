@@ -58,31 +58,50 @@ func SpecIsTrivial(spec []byte) bool {
 	if err := json.Unmarshal(spec, &m); err != nil {
 		return false
 	}
-	return countDataValues(m) <= 1
+	count, known := countDataValues(m)
+	// Only treat a spec as trivial when the row count is actually known and
+	// there is at most one value. If the data source isn't inline `values`
+	// (e.g. data.url / data.source / transforms), the count is unknown, so we
+	// must NOT guess — render it as usual.
+	return known && count <= 1
 }
 
 // countDataValues recursively tallies the number of rows across all `data.values`
-// arrays embedded in a spec (including layered/concat compositions).
-func countDataValues(m map[string]any) int {
-	total := 0
+// arrays embedded in a spec (including layered/concat compositions). known is
+// false when any data source is not an inline `values` array, in which case the
+// total cannot be trusted and callers should not treat the spec as trivial.
+func countDataValues(m map[string]any) (total int, known bool) {
+	known = true
 	for _, key := range []string{"layer", "concat", "hconcat", "vconcat"} {
 		if arr, ok := m[key].([]any); ok {
 			for _, item := range arr {
 				if child, ok := item.(map[string]any); ok {
-					total += countDataValues(child)
+					t, k := countDataValues(child)
+					total += t
+					if !k {
+						known = false
+					}
 				}
 			}
 		}
 	}
 	if child, ok := m["spec"].(map[string]any); ok {
-		total += countDataValues(child)
+		t, k := countDataValues(child)
+		total += t
+		if !k {
+			known = false
+		}
 	}
 	if data, ok := m["data"].(map[string]any); ok {
 		if values, ok := data["values"].([]any); ok {
 			total += len(values)
+		} else {
+			// data.url, data.source, data.sequence, datasets, etc. — we cannot
+			// count these, so the result is not known to be trivial.
+			known = false
 		}
 	}
-	return total
+	return total, known
 }
 
 // TrivialDescription returns the human-readable description and the query used
