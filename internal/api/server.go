@@ -129,9 +129,9 @@ type Server struct {
 	echo                 *echo.Echo
 	port                 int
 	db                   *sql.DB
-	jobQueue              *jobqueue.JobQueue
-	dashboardManager      *DashboardManager
-	autoWebhookInstaller  *AutoWebhookInstaller
+	jobQueue             *jobqueue.JobQueue
+	dashboardManager     *DashboardManager
+	autoWebhookInstaller *AutoWebhookInstaller
 	versionInfo          *VersionInfo
 	deploymentConfig     *DeploymentConfig
 	authHandlers         *auth.AuthHandlers
@@ -326,7 +326,7 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 		port:                 port,
 		db:                   db,
 		jobQueue:             jq,
-		dashboardManager:      dashboardManager,
+		dashboardManager:     dashboardManager,
 		autoWebhookInstaller: autoWebhookInstaller,
 		versionInfo:          versionInfo,
 		deploymentConfig:     deploymentConfig,
@@ -442,6 +442,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/events", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/summary", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/accounting", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/commits", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/learnings", nil, LearningsQuery{})
 	mcp.RegisterSchema("POST", "/api/v1/learnings", nil, UpsertLearningRequest{})
 	mcp.RegisterSchema("GET", "/api/v1/learnings/:id", nil, nil)
@@ -468,6 +469,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/reviews/:id/events",
 		"/api/v1/reviews/:id/summary",
 		"/api/v1/reviews/:id/accounting",
+		"/api/v1/reviews/:id/commits",
 		"/api/v1/learnings",
 		"/api/v1/learnings/:id",
 		"/api/v1/prompts/catalog",
@@ -936,6 +938,10 @@ func (s *Server) setupRoutes() {
 	// git-lrc's blast-radius report.
 	diffReviewGroup.POST("/:review_id/artifacts/:artifact_type", s.PutDiffReviewArtifact)
 	diffReviewGroup.GET("/:review_id/artifacts/:artifact_type", s.GetDiffReviewArtifact)
+	// Offline-first sync target for git-lrc's post-commit queue (see
+	// AGENTS.md "Porting from git-lrc"): records which commit a staged
+	// review ended up in, once that commit actually happens.
+	diffReviewGroup.POST("/:review_id/commit", s.AttachDiffReviewCommit)
 
 	// Review events endpoints (alternative API key-based access for CLI)
 	diffReviewEventsHandler := NewReviewEventsHandler(s.db)
@@ -946,6 +952,16 @@ func (s *Server) setupRoutes() {
 	// Onboarding endpoints
 	// CLI usage tracking (protected by API key)
 	diffReviewGroup.POST("/cli-used", s.TrackCLIUsage)
+
+	// Review coverage lookup (CI/CD gate support): given a list of commit
+	// SHAs/ranges, report every backend-stored review that covers them.
+	// Same auth pattern as diffReviewGroup (API key or session Bearer token).
+	reviewCoverageGroup := v1.Group("/review-coverage")
+	reviewCoverageGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	reviewCoverageGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	reviewCoverageGroup.Use(authMiddleware.ValidateOrgAccess())
+	reviewCoverageGroup.Use(authMiddleware.BuildPermissionContext())
+	reviewCoverageGroup.POST("", s.ReviewCoverage)
 
 	// Feedback endpoints — protected by API key (proxied through git-lrc local server)
 	feedbackHandler := NewFeedbackHandler(s.db)
@@ -1357,6 +1373,7 @@ func (s *Server) setupRoutes() {
 	reviewsGroup.GET("/:id/events/:type", reviewEventsHandler.GetReviewEventsByType)
 	reviewsGroup.GET("/:id/summary", reviewEventsHandler.GetReviewSummary)
 	reviewsGroup.GET("/:id/accounting", reviewEventsHandler.GetReviewAccounting)
+	reviewsGroup.GET("/:id/commits", s.GetReviewCommits)
 
 	// Subscription endpoints (organization scoped)
 	subscriptionsHandler := NewSubscriptionsHandler(s.db)

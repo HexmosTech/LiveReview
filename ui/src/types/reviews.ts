@@ -136,6 +136,17 @@ export interface ReviewAccounting {
   latestOperation?: ReviewAccountingOperation;
 }
 
+export interface ReviewCommit {
+  ref: string;
+  refType: 'commit' | 'range';
+  createdAt: string;
+}
+
+export interface ReviewCommitsResponse {
+  reviewId: number;
+  commits: ReviewCommit[];
+}
+
 export type ReviewsSort = 'review' | 'branch' | 'repository' | 'source' | 'status' | 'author' | 'last_activity';
 
 export interface ReviewsFilters {

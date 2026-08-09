@@ -80,7 +80,7 @@ func NewReviewService(cfg *config.Config) *ReviewService {
 func (s *Server) TriggerReviewV2(c echo.Context) error {
 	log.Printf("[DEBUG] TriggerReviewV2: Starting review request handling")
 
-    // LOC Quota preflight — always run so the org's billing period rolls
+	// LOC Quota preflight — always run so the org's billing period rolls
 	// forward (crucial for MCP/chat-triggered reviews; without it org_billing_state
 	// goes stale and current-period usage reports come back empty). Blocking is
 	// only enforced in Cloud Mode; self-hosted deployments are intentionally unlimited.
@@ -550,6 +550,22 @@ func (s *Server) enrichMetadata(ctx *reviewSetupContext) {
 	}
 
 	rm := NewReviewManager(s.db)
+
+	// Persist the PR/MR's head (and base) commit SHAs so a later
+	// review-coverage lookup can find this review by commit. This is the
+	// same DiffRefs data already fetched above for metadata enrichment,
+	// just also written to review_commits.
+	var commitRefs []CommitRef
+	if sha := strings.TrimSpace(details.DiffRefs.HeadSHA); sha != "" {
+		commitRefs = append(commitRefs, CommitRef{Ref: sha, Type: "commit"})
+	}
+	if sha := strings.TrimSpace(details.DiffRefs.BaseSHA); sha != "" && sha != details.DiffRefs.HeadSHA {
+		commitRefs = append(commitRefs, CommitRef{Ref: sha, Type: "commit"})
+	}
+	if err := s.insertReviewCommits(metadataCtx, ctx.review.ID, ctx.orgID, commitRefs); err != nil {
+		log.Printf("[WARN] TriggerReviewV2: Failed to persist review_commits: %v", err)
+	}
+
 	if err := rm.UpdateReviewMetadata(ctx.review.ID, update); err != nil {
 		log.Printf("[WARN] TriggerReviewV2: Failed to update review metadata: %v", err)
 		if ctx.logger != nil {

@@ -2,23 +2,25 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Button, Icons, Tabs } from '../../components/UIPrimitives';
 import { ReviewEventsPage, DiffViewerPanel } from '../../components/reviews';
-import { 
-  getReview, 
-  getReviewEvents, 
-  getReviewSummary, 
+import {
+  getReview,
+  getReviewEvents,
+  getReviewSummary,
     getReviewAccounting,
-  formatRelativeTime, 
-  getStatusColor, 
-  getStatusText 
+    getReviewCommits,
+  formatRelativeTime,
+  getStatusColor,
+  getStatusText
 } from '../../api/reviews';
-import { 
-  Review, 
-  ReviewEvent, 
-  ReviewSummary, 
+import {
+  Review,
+  ReviewEvent,
+  ReviewSummary,
     ReviewAccounting,
     ReviewAccountingStage,
+    ReviewCommit,
   ReviewEventLevel,
-  ReviewEventType 
+  ReviewEventType
 } from '../../types/reviews';
 
 const ACCOUNTING_REFRESH_INTERVAL_MS = 15000;
@@ -51,6 +53,8 @@ const ReviewDetail: React.FC = () => {
     const [accountingError, setAccountingError] = useState<string | null>(null);
     const [accountingErrorTone, setAccountingErrorTone] = useState<'info' | 'warning'>('info');
     const [accountingRouteUnavailable, setAccountingRouteUnavailable] = useState(false);
+    const [commits, setCommits] = useState<ReviewCommit[]>([]);
+    const [commitsExpanded, setCommitsExpanded] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [pollingEnabled, setPollingEnabled] = useState(true);
@@ -159,6 +163,16 @@ const ReviewDetail: React.FC = () => {
             setReview(reviewData);
             setSummary(summaryData);
             await fetchAccountingDetails(reviewId, reviewData.status);
+
+            // Relevant commits are best-effort/informational -- never block
+            // or fail the rest of the page on this.
+            try {
+                const commitsData = await getReviewCommits(reviewId);
+                setCommits(commitsData.commits || []);
+            } catch (commitsErr) {
+                console.warn('Review commits endpoint unavailable:', commitsErr);
+                setCommits([]);
+            }
             
             const newEvents = (eventsData?.events as ReviewEvent[] | undefined) || [];
             setEvents(newEvents);
@@ -183,6 +197,8 @@ const ReviewDetail: React.FC = () => {
     useEffect(() => {
         setEvents([]);
         setLastEventTime(null);
+        setCommits([]);
+        setCommitsExpanded(false);
     }, [id]);
 
     // Derive available filter values from current events
@@ -437,6 +453,53 @@ const ReviewDetail: React.FC = () => {
                     )}
                 </div>
             </div>
+
+            {/* Relevant Commits - collapsed by default, shown only when we have any */}
+            {commits.length > 0 && (
+                <div className="bg-slate-800 rounded-lg border border-slate-700 mb-6">
+                    <button
+                        type="button"
+                        onClick={() => setCommitsExpanded((v) => !v)}
+                        className="w-full flex items-center justify-between px-4 py-3 text-left"
+                        aria-expanded={commitsExpanded}
+                    >
+                        <div className="flex items-center gap-2">
+                            <span className="text-slate-400">
+                                {commitsExpanded ? <Icons.ChevronDown /> : <Icons.ChevronRight />}
+                            </span>
+                            <h2 className="text-sm font-semibold text-white">Relevant commits</h2>
+                            <span className="text-xs text-slate-400">({commits.length})</span>
+                        </div>
+                    </button>
+                    {commitsExpanded && (
+                        <div className="px-4 pb-4 border-t border-slate-700">
+                            <ul className="divide-y divide-slate-700">
+                                {commits.map((commit) => (
+                                    <li key={commit.ref} className="flex items-center justify-between gap-4 py-2 text-sm">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span
+                                                className={`shrink-0 text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border ${
+                                                    commit.refType === 'range'
+                                                        ? 'bg-purple-900/30 text-purple-300 border-purple-700'
+                                                        : 'bg-slate-700 text-slate-300 border-slate-600'
+                                                }`}
+                                            >
+                                                {commit.refType}
+                                            </span>
+                                            <span className="font-mono text-xs text-white break-all">
+                                                {commit.refType === 'commit' ? commit.ref.substring(0, 12) : commit.ref}
+                                            </span>
+                                        </div>
+                                        <span className="shrink-0 text-xs text-slate-400">
+                                            {formatRelativeTime(commit.createdAt)}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Findings / Accounting / Events */}
             <Tabs

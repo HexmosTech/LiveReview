@@ -7,7 +7,8 @@ import {
   ReviewSummary,
   ReviewAccounting,
   DiffReviewStatusResponse,
-  BlastRadiusReport
+  BlastRadiusReport,
+  ReviewCommitsResponse
 } from '../types/reviews';
 
 export interface TriggerReviewRequest {
@@ -187,6 +188,23 @@ export const getBlastRadiusReport = async (reviewId: number): Promise<BlastRadiu
     return await apiClient.get<BlastRadiusReport>(`/api/v1/diff-review/${reviewId}/artifacts/blast-radius`);
   } catch (error) {
     console.error('Error fetching blast radius report:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get the commit SHAs (and/or literal ranges) recorded against a review, if
+ * any -- populated for --commit/--range CLI reviews and PR/MR reviews;
+ * empty for a plain staged/working-tree review that hasn't synced a commit
+ * yet.
+ * @param reviewId The ID of the review
+ * @returns Promise with the review's recorded commits
+ */
+export const getReviewCommits = async (reviewId: number): Promise<ReviewCommitsResponse> => {
+  try {
+    return await apiClient.get<ReviewCommitsResponse>(`/api/v1/reviews/${reviewId}/commits`);
+  } catch (error) {
+    console.error('Error fetching review commits:', error);
     throw error;
   }
 };
