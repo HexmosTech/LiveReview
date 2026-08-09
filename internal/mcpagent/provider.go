@@ -18,6 +18,14 @@ func NewProvider(connector *aiconnectors.Connector) *Provider {
 	return &Provider{connector: connector}
 }
 
+// Describe returns a short "provider/model" string for logging.
+func (p *Provider) Describe() string {
+	if p == nil || p.connector == nil {
+		return "unknown"
+	}
+	return fmt.Sprintf("%s/%s", p.connector.GetProvider(), p.connector.GetModel())
+}
+
 // FormatTools converts MCP tool definitions into langchaingo tool schemas.
 func (p *Provider) FormatTools(tools []MCPToolDef) []llms.Tool {
 	if len(tools) == 0 {
