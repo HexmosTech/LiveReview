@@ -20,6 +20,7 @@ import { useAppDispatch } from '../../store/configureStore';
 import { loadUserOrganizations } from '../../store/Organizations/reducer';
 import { UpgradePromptModal } from '../Subscriptions';
 import { UserOnboardingDetails } from './UserOnboardingDetails';
+import { Table, TableHead, TableHeaderCell, TableBody, TableRow, TableCell } from '../DataTable/SimpleTable';
 import { BulkOnboardingDetails, BulkOnboardingRow } from './BulkOnboardingDetails';
 import { parseUserInviteCsv } from './bulkInviteCsv';
 
@@ -582,7 +583,7 @@ const UserForm: React.FC = () => {
                                         : 'border-transparent text-slate-400 hover:text-slate-200'
                                 }`}
                             >
-                                Invite a user
+                                Invite User
                             </button>
                             <button
                                 type="button"
@@ -593,7 +594,7 @@ const UserForm: React.FC = () => {
                                         : 'border-transparent text-slate-400 hover:text-slate-200'
                                 }`}
                             >
-                                Invite multiple users
+                                Invite Multiple Users
                             </button>
                         </div>
                     )}
@@ -607,11 +608,6 @@ const UserForm: React.FC = () => {
                     >
                         {showSteps && (
                             <div className="p-5 bg-slate-900/40 border-b lg:border-b-0 lg:border-r border-slate-700/70">
-                                <p className="text-xs font-semibold tracking-wider text-blue-400 uppercase mb-1">
-                                    {activeTab === 'single'
-                                        ? 'Invite a user'
-                                        : 'Invite multiple users'}
-                                </p>
                                 <h2 className="text-lg font-semibold text-white mb-2">
                                     How it works
                                 </h2>
@@ -766,41 +762,23 @@ const UserForm: React.FC = () => {
 
                                         {bulkRows.length > 0 ? (
                                             <div className="overflow-x-auto border border-slate-700 rounded-lg">
-                                                <table
-                                                    className="w-full text-sm text-left"
-                                                    style={{ minWidth: 720 }}
-                                                >
-                                                    <thead className="bg-slate-900/60 text-slate-400 uppercase text-xs">
-                                                        <tr>
-                                                            <th className="px-4 py-2.5 whitespace-nowrap">
-                                                                Email
-                                                            </th>
-                                                            <th className="px-4 py-2.5 whitespace-nowrap">
-                                                                First Name
-                                                            </th>
-                                                            <th className="px-4 py-2.5 whitespace-nowrap">
-                                                                Last Name
-                                                            </th>
-                                                            <th className="px-4 py-2.5 whitespace-nowrap">
-                                                                Role
-                                                            </th>
-                                                            <th className="px-4 py-2.5 whitespace-nowrap">
-                                                                Status
-                                                            </th>
-                                                            <th className="px-4 py-2.5 w-10" />
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="divide-y divide-slate-700">
+                                                <Table style={{ minWidth: 720 }}>
+                                                    <TableHead>
+                                                        <TableHeaderCell>Email</TableHeaderCell>
+                                                        <TableHeaderCell>First Name</TableHeaderCell>
+                                                        <TableHeaderCell>Last Name</TableHeaderCell>
+                                                        <TableHeaderCell>Role</TableHeaderCell>
+                                                        <TableHeaderCell>Status</TableHeaderCell>
+                                                        <TableHeaderCell className="w-10" />
+                                                    </TableHead>
+                                                    <TableBody>
                                                         {bulkRows.map((row) => {
                                                             const hasGlobalAccount =
                                                                 row.exists_globally &&
                                                                 !row.exists;
                                                             return (
-                                                                <tr
-                                                                    key={row.id}
-                                                                    className="align-top"
-                                                                >
-                                                                    <td className="px-4 py-3 text-slate-200 whitespace-nowrap">
+                                                                <TableRow key={row.id}>
+                                                                    <TableCell className="text-slate-200 whitespace-nowrap">
                                                                         {
                                                                             row.email
                                                                         }
@@ -812,8 +790,8 @@ const UserForm: React.FC = () => {
                                                                                 }
                                                                             </p>
                                                                         )}
-                                                                    </td>
-                                                                    <td className="px-4 py-3 min-w-[140px]">
+                                                                    </TableCell>
+                                                                    <TableCell className="min-w-[140px]">
                                                                         <input
                                                                             value={
                                                                                 row.first_name
@@ -845,8 +823,8 @@ const UserForm: React.FC = () => {
                                                                                 }
                                                                             </p>
                                                                         )}
-                                                                    </td>
-                                                                    <td className="px-4 py-3 min-w-[140px]">
+                                                                    </TableCell>
+                                                                    <TableCell className="min-w-[140px]">
                                                                         <input
                                                                             value={
                                                                                 row.last_name
@@ -878,8 +856,8 @@ const UserForm: React.FC = () => {
                                                                                 }
                                                                             </p>
                                                                         )}
-                                                                    </td>
-                                                                    <td className="px-4 py-3 min-w-[140px]">
+                                                                    </TableCell>
+                                                                    <TableCell className="min-w-[140px]">
                                                                         <div className="relative">
                                                                             <select
                                                                                 value={
@@ -945,8 +923,8 @@ const UserForm: React.FC = () => {
                                                                                 }
                                                                             </p>
                                                                         )}
-                                                                    </td>
-                                                                    <td className="px-4 py-3 whitespace-nowrap">
+                                                                    </TableCell>
+                                                                    <TableCell className="whitespace-nowrap">
                                                                         {row.exists ? (
                                                                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-900/20 text-amber-300 whitespace-nowrap">
                                                                                 Existing
@@ -1002,8 +980,8 @@ const UserForm: React.FC = () => {
                                                                                 )}
                                                                             </div>
                                                                         )}
-                                                                    </td>
-                                                                    <td className="px-4 py-3">
+                                                                    </TableCell>
+                                                                    <TableCell>
                                                                         <button
                                                                             type="button"
                                                                             onClick={() =>
@@ -1019,12 +997,12 @@ const UserForm: React.FC = () => {
                                                                         >
                                                                             <Icons.Delete />
                                                                         </button>
-                                                                    </td>
-                                                                </tr>
+                                                                    </TableCell>
+                                                                </TableRow>
                                                             );
                                                         })}
-                                                    </tbody>
-                                                </table>
+                                                    </TableBody>
+                                                </Table>
                                             </div>
                                         ) : (
                                             <p className="text-sm text-slate-400 text-center py-6 border border-dashed border-slate-700 rounded-lg">
@@ -1081,13 +1059,10 @@ const UserForm: React.FC = () => {
                                         <button
                                             type="button"
                                             onClick={handleDownloadSample}
-                                            className="w-full flex items-center justify-between px-4 py-3 bg-slate-900/40 hover:bg-slate-700/60 border border-slate-700 rounded-lg text-sm text-slate-200 transition-colors"
+                                            className="w-full flex items-center gap-2 px-4 py-3 bg-slate-900/40 hover:bg-slate-700/60 border border-slate-700 rounded-lg text-sm text-slate-200 transition-colors"
                                         >
-                                            <span className="flex items-center gap-2">
-                                                <Icons.Download />
-                                                Download sample format
-                                            </span>
-                                            <Icons.ChevronRight />
+                                            <Icons.Download />
+                                            Download sample format
                                         </button>
 
                                         <div

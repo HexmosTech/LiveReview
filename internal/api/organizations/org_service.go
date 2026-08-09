@@ -452,7 +452,19 @@ func (s *OrganizationService) DeactivateOrganization(orgID int64, deactivatedByU
 }
 
 // GetOrganizationMembers returns all members of an organization with their roles
-func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset int) ([]*models.UserWithRole, int64, error) {
+func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset int, search, sortColumn, sortOrder string) ([]*models.UserWithRole, int64, error) {
+	// search/sortColumn/sortOrder participate in a shared WHERE/ORDER BY clause
+	// across both the count and the page query, so they're built once here.
+	// sortColumn/sortOrder are pre-validated against a whitelist by the caller
+	// (org_handlers.go) - only search is raw user input, and it's always bound
+	// as a query parameter, never interpolated into the SQL string.
+	args := []interface{}{orgID}
+	searchClause := ""
+	if search != "" {
+		searchClause = " AND (u.email ILIKE $2 OR u.first_name ILIKE $2 OR u.last_name ILIKE $2)"
+		args = append(args, "%"+search+"%")
+	}
+
 	// Get total count
 	countQuery := `
 		SELECT COUNT(*)
@@ -460,16 +472,17 @@ func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset 
 		INNER JOIN user_roles ur ON u.id = ur.user_id
 		INNER JOIN roles r ON ur.role_id = r.id
 		WHERE ur.org_id = $1 AND u.is_active = true
-	`
+	` + searchClause
 
 	var totalCount int64
-	err := s.db.QueryRow(countQuery, orgID).Scan(&totalCount)
+	err := s.db.QueryRow(countQuery, args...).Scan(&totalCount)
 	if err != nil {
 		s.logger.Printf("Error counting organization members: %v", err)
 		return nil, 0, fmt.Errorf("failed to count members: %w", err)
 	}
 
 	// Get members with pagination
+	// nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query -- sortColumn/sortOrder below are whitelisted by the caller (org_handlers.go), never raw query params
 	query := `
 		SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.last_login_at,
 		       u.created_at, u.updated_at, u.created_by_user_id, u.password_reset_required,
@@ -485,11 +498,10 @@ func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset 
 		LEFT JOIN subscriptions s ON ur.active_subscription_id = s.id
 		LEFT JOIN org_billing_state obs ON ur.org_id = obs.org_id
 		WHERE ur.org_id = $1 AND u.is_active = true
-		ORDER BY u.email ASC
-		LIMIT $2 OFFSET $3
-	`
+	` + searchClause + fmt.Sprintf(" ORDER BY %s %s, u.email ASC LIMIT $%d OFFSET $%d", sortColumn, sortOrder, len(args)+1, len(args)+2)
 
-	rows, err := s.db.Query(query, orgID, limit, offset)
+	queryArgs := append(append([]interface{}{}, args...), limit, offset)
+	rows, err := s.db.Query(query, queryArgs...)
 	if err != nil {
 		s.logger.Printf("Error querying organization members: %v", err)
 		return nil, 0, fmt.Errorf("failed to get members: %w", err)

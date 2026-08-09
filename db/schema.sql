@@ -1,7 +1,7 @@
-\restrict dbmate
+\restrict HKiks9DoNhzQDx4VBfohzqJ2nYkhzLW2zAD7qua1hjhA5kzEkWNIEexKDSF7aHX
 
--- Dumped from database version 15.17 (Debian 15.17-1.pgdg13+1)
--- Dumped by pg_dump version 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
+-- Dumped from database version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
+-- Dumped by pg_dump version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -926,7 +926,8 @@ CREATE TABLE public.org_discord_configs (
     guild_id text DEFAULT ''::text NOT NULL,
     enabled boolean DEFAULT false NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    application_id text DEFAULT ''::text NOT NULL
 );
 
 
@@ -949,6 +950,13 @@ COMMENT ON COLUMN public.org_discord_configs.bot_token IS 'Discord bot token';
 --
 
 COMMENT ON COLUMN public.org_discord_configs.guild_id IS 'Discord guild (server) ID, learned after first auth test';
+
+
+--
+-- Name: COLUMN org_discord_configs.application_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.org_discord_configs.application_id IS 'Discord Application ID, used to build the OAuth2 bot invite URL';
 
 
 --
@@ -996,7 +1004,8 @@ CREATE TABLE public.org_slack_configs (
     team_id text DEFAULT ''::text NOT NULL,
     enabled boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    app_token text DEFAULT ''::text NOT NULL
 );
 
 
@@ -1012,6 +1021,13 @@ COMMENT ON TABLE public.org_slack_configs IS 'Per-org Slack bot configuration';
 --
 
 COMMENT ON COLUMN public.org_slack_configs.team_id IS 'Slack workspace team ID, learned after first auth test';
+
+
+--
+-- Name: COLUMN org_slack_configs.app_token; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.org_slack_configs.app_token IS 'Slack Socket Mode app-level token (xapp-...) owned by the installing org, used to open the real-time events socket';
 
 
 --
@@ -5537,7 +5553,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict dbmate
+\unrestrict HKiks9DoNhzQDx4VBfohzqJ2nYkhzLW2zAD7qua1hjhA5kzEkWNIEexKDSF7aHX
 
 
 --
@@ -5628,5 +5644,7 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260707220001'),
     ('20260727120000'),
     ('20260727120001'),
-    ('20260803154217');
-    ('20260729150001');
+    ('20260729150001'),
+    ('20260803154217'),
+    ('20260808000000'),
+    ('20260808120000');

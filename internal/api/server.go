@@ -173,15 +173,13 @@ type Server struct {
 	discordBot       *discordbot.Bot
 	discordBotCancel context.CancelFunc
 
-	slackOAuthHandler *SlackOAuthHandler
-
 	openapiSpec string
 }
 
 // appContext initializes the core backend database, configurations, queues, and provider subsystems
 func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Load environment variables from .env file
-	env := map[string]string{}
+	env := map[string]string{} // nosemgrep: trailofbits.go.iterate-over-empty-map.iterate-over-empty-map -- reassigned from loadEnvFile below before it's iterated
 
 	// Try loading .env, but don't fail if missing
 	if loadedEnv, err := loadEnvFile(".env"); err == nil {
@@ -485,16 +483,15 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 
 	mcp.Mount("/api/mcp")
 
-	// Initialize org-scoped Slack bots (self-hosted only)
-	if !server.deploymentConfig.IsCloud && os.Getenv("SLACK_APP_TOKEN") != "" {
+	// Initialize org-scoped Slack bots (self-hosted only). Each org supplies its
+	// own bot + app tokens via the UI, so no server-level env vars are required.
+	if !server.deploymentConfig.IsCloud {
 		bots, err := startOrgSlackBots(server.db)
 		if err != nil {
 			fmt.Printf("Warning: Failed to initialize Slack bots: %v (Slack bot disabled)\n", err)
-		} else {
+		} else if len(bots) > 0 {
 			server.slackBots = bots
-			if len(bots) > 0 {
-				server.slackBot = bots[0]
-			}
+			server.slackBot = bots[0]
 			fmt.Printf("Slack bots initialized for %d org(s) (will start with server)\n", len(bots))
 		}
 	}
@@ -535,40 +532,48 @@ func WorkerContext(versionInfo *VersionInfo) (*Server, error) {
 	return appContext(0, versionInfo)
 }
 
+// resolveMCPBaseURL derives the MCP endpoint the bots talk to. In cloud mode
+// it uses the cloud endpoint; in self-hosted mode it uses the production URL
+// set in the instance settings (Settings → Instance → Production URL), falling
+// back to the cloud endpoint if none is configured.
+func resolveMCPBaseURL(db *sql.DB) string {
+	if isCloudMode() {
+		return "https://livereview.hexmos.com/api/mcp"
+	}
+	var prodURL sql.NullString
+	if err := db.QueryRow("SELECT livereview_prod_url FROM instance_details LIMIT 1").Scan(&prodURL); err == nil && prodURL.Valid && prodURL.String != "" {
+		return strings.TrimSuffix(prodURL.String, "/") + "/api/mcp"
+	}
+	return "https://livereview.hexmos.com/api/mcp"
+}
+
 // startOrgSlackBots reads all enabled Slack bot configs from the DB,
 // resolves each org's AI connector, and creates the multi-org Slack bot.
+// Each org supplies its own Slack bot + app-level tokens, so no server-level
+// Slack env vars are required.
 func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
-	appToken := os.Getenv("SLACK_APP_TOKEN")
-	if appToken == "" {
-		return nil, fmt.Errorf("SLACK_APP_TOKEN is required")
-	}
-
 	configStorage := slackbot.NewStorage(db)
 	configs, err := configStorage.GetAllEnabledConfigs(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to query slack configs: %w", err)
 	}
 	if len(configs) == 0 {
-		return nil, fmt.Errorf("no enabled Slack bot configs found")
+		return nil, nil
 	}
 
 	connectorStorage := aiconnectors.NewStorage(db)
-	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
-	if mcpServerURL == "" {
-		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
-	}
+	mcpServerURL := resolveMCPBaseURL(db)
 	maxSteps := 20
-	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
-		if n, err := strconv.Atoi(s); err != nil || n <= 0 {
-			maxSteps = 20
-		} else {
-			maxSteps = n
-		}
-	}
 
 	var orgCfgs []slackbot.OrgConfig
 
 	for _, cfg := range configs {
+		appToken := cfg.AppToken
+		if appToken == "" {
+			log.Printf("Slack bot: org %d has no app token configured — skipping", cfg.OrgID)
+			continue
+		}
+
 		// Find a working AI connector for this org
 		connectors, err := connectorStorage.GetAllConnectors(context.Background(), cfg.OrgID)
 		if err != nil {
@@ -608,6 +613,7 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 			OrgID:         cfg.OrgID,
 			OrgName:       orgName,
 			SlackBotToken: cfg.BotToken,
+			SlackAppToken: appToken,
 			MCPServerURL:  mcpServerURL,
 			MCPHeaders:    mcpHeaders,
 			Connector:     connector,
@@ -616,12 +622,11 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 	}
 
 	if len(orgCfgs) == 0 {
-		return nil, fmt.Errorf("no orgs could be configured for Slack bot")
+		return nil, nil
 	}
 
 	bot, err := slackbot.New(&slackbot.Config{
-		SlackAppToken: appToken,
-		Orgs:          orgCfgs,
+		Orgs: orgCfgs,
 	}, func(orgID int64, teamID string) error {
 		return configStorage.UpdateTeamID(context.Background(), orgID, teamID)
 	})
@@ -642,19 +647,12 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 	}
 
 	connectorStorage := aiconnectors.NewStorage(db)
-	// Discord-specific overrides fall back to the shared SLACK_* variables for
-	// backwards compatibility (existing deployments only set SLACK_*).
+	// Discord-specific overrides fall back to the shared MCP base URL resolver.
 	mcpServerURL := os.Getenv("DISCORD_MCP_SERVER_URL")
 	if mcpServerURL == "" {
-		mcpServerURL = os.Getenv("SLACK_MCP_SERVER_URL")
-	}
-	if mcpServerURL == "" {
-		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
+		mcpServerURL = resolveMCPBaseURL(db)
 	}
 	stepStr := os.Getenv("DISCORD_MAX_AGENT_STEPS")
-	if stepStr == "" {
-		stepStr = os.Getenv("SLACK_MAX_AGENT_STEPS")
-	}
 	maxSteps := 20
 	if n, err := strconv.Atoi(stepStr); err == nil && n > 0 {
 		maxSteps = n
@@ -966,38 +964,6 @@ func (s *Server) setupRoutes() {
 	// Cloud user ensure endpoint (now public; handler performs CLOUD_JWT_SECRET validation)
 	public.POST("/auth/ensure-cloud-user", s.authHandlers.EnsureCloudUser)
 
-	// Slack OAuth — reads common env vars
-	slackClientID := os.Getenv("SLACK_CLIENT_ID")
-	slackClientSecret := os.Getenv("SLACK_CLIENT_SECRET")
-	slackRedirectURL := os.Getenv("SLACK_REDIRECT_URL")
-	selfURL := os.Getenv("LIVEREVIEW_SELF_URL")
-	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
-	if mcpServerURL == "" {
-		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
-	}
-	maxSteps := 20
-	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			maxSteps = n
-		}
-	}
-
-	if slackClientID != "" && slackClientSecret != "" && slackRedirectURL != "" {
-		if s.deploymentConfig.IsCloud {
-			// Cloud: proxy callback endpoint (ungated — Slack redirects here)
-			cloudHandler := NewSlackOAuthHandler(s.db, slackClientID, slackClientSecret, slackRedirectURL, mcpServerURL, maxSteps, nil, selfURL, true)
-			public.GET("/auth/slack/proxy-callback", cloudHandler.SlackOAuthProxyCallback)
-			fmt.Println("Slack OAuth proxy callback endpoint registered (cloud)")
-		} else {
-			// Self-hosted: direct callback + install + proxy-receive endpoint
-			slackOAuthHandler := NewSlackOAuthHandler(s.db, slackClientID, slackClientSecret, slackRedirectURL, mcpServerURL, maxSteps, s.slackBot, selfURL, false)
-			public.GET("/auth/slack/callback", slackOAuthHandler.SlackOAuthCallback)
-			public.POST("/orgs/:org_id/slack-proxy-callback", slackOAuthHandler.SlackProxyCallback)
-			fmt.Println("Slack OAuth direct callback registered (self-hosted)")
-			s.slackOAuthHandler = slackOAuthHandler
-		}
-	}
-
 	// Teams bot messages endpoint (public — Bot Framework sends activities here)
 	s.echo.POST("/api/messages", func(c echo.Context) error {
 		if s.teamsHandler == nil {
@@ -1030,12 +996,6 @@ func (s *Server) setupRoutes() {
 
 	// Clear onboarding API key
 	protected.POST("/onboarding/clear-api-key", s.ClearOnboardingAPIKey)
-
-	// Slack OAuth install — protected (user must be logged in, self-hosted only)
-	if s.slackOAuthHandler != nil && !s.deploymentConfig.IsCloud {
-		protected.GET("/auth/slack/install", s.slackOAuthHandler.InstallSlackBot)
-		fmt.Println("Slack OAuth install endpoint registered")
-	}
 
 	// Self-service profile endpoints
 	protected.GET("/users/profile", s.profileHandlers.GetProfile)
@@ -1812,9 +1772,11 @@ type ReviewResponse struct {
 type ReviewsQuery struct {
 	Page     int    `form:"page" query:"page" json:"page,omitempty" jsonschema:"description=Page number for pagination"`
 	PerPage  int    `form:"per_page" query:"per_page" json:"per_page,omitempty" jsonschema:"description=Number of items per page"`
-	Status   string `form:"status" query:"status" json:"status,omitempty" jsonschema:"description=Filter reviews by status (e.g. pending, completed, failed)"`
-	Provider string `form:"provider" query:"provider" json:"provider,omitempty" jsonschema:"description=Filter reviews by Git provider (e.g. github, gitlab)"`
-	Search   string `form:"search" query:"search" json:"search,omitempty" jsonschema:"description=Search pattern for repository name, MR title, or author"`
+	Status   string `form:"status" query:"status" json:"status,omitempty" jsonschema:"description=Filter reviews by status, comma-separated for multiple (e.g. created,in_progress,completed,failed)"`
+	Provider string `form:"provider" query:"provider" json:"provider,omitempty" jsonschema:"description=Filter reviews by Git provider, comma-separated for multiple (e.g. github, gitlab, cli)"`
+	Search   string `form:"search" query:"search" json:"search,omitempty" jsonschema:"description=Search pattern for repository name, branch, MR title, or author"`
+	Sort     string `form:"sort" query:"sort" json:"sort,omitempty" jsonschema:"description=Sort column: review, branch, repository, source, status, author, or last_activity (default last_activity)"`
+	Order    string `form:"order" query:"order" json:"order,omitempty" jsonschema:"description=Sort direction: asc or desc (default desc)"`
 }
 
 type ReviewsListResponse struct {
@@ -1892,29 +1854,29 @@ func (s *Server) getReviews(c echo.Context) error {
 	args := []interface{}{orgID}
 	argIndex := 2
 
-	// Add filters
-	status := c.QueryParam("status")
-	if status != "" {
-		baseQuery += fmt.Sprintf(" AND status = $%d", argIndex)
-		countQuery += fmt.Sprintf(" AND status = $%d", argIndex)
-		args = append(args, status)
-		argIndex++
+	// Add filters. status/provider accept comma-separated values from the
+	// UI's checkbox multi-select filters (multiValueFilterClause/
+	// providerFilterClause also handle a single bare value fine, so this
+	// stays backward compatible with any other caller still passing one).
+	if clause := multiValueFilterClause("status", c.QueryParam("status"), &args, &argIndex); clause != "" {
+		baseQuery += clause
+		countQuery += clause
 	}
-
-	provider := c.QueryParam("provider")
-	if provider != "" {
-		baseQuery += fmt.Sprintf(" AND provider = $%d", argIndex)
-		countQuery += fmt.Sprintf(" AND provider = $%d", argIndex)
-		args = append(args, provider)
-		argIndex++
+	if clause := providerFilterClause(c.QueryParam("provider"), &args, &argIndex); clause != "" {
+		baseQuery += clause
+		countQuery += clause
 	}
 
 	// Add search functionality
 	search := c.QueryParam("search")
 	if search != "" {
 		searchPattern := "%" + search + "%"
-		baseQuery += fmt.Sprintf(" AND (repository ILIKE $%d OR pr_mr_url ILIKE $%d OR mr_title ILIKE $%d OR author_name ILIKE $%d OR author_username ILIKE $%d)", argIndex, argIndex, argIndex, argIndex, argIndex)
-		countQuery += fmt.Sprintf(" AND (repository ILIKE $%d OR pr_mr_url ILIKE $%d OR mr_title ILIKE $%d OR author_name ILIKE $%d OR author_username ILIKE $%d)", argIndex, argIndex, argIndex, argIndex, argIndex)
+		searchClause := fmt.Sprintf(
+			" AND (repository ILIKE $%d OR pr_mr_url ILIKE $%d OR mr_title ILIKE $%d OR author_name ILIKE $%d OR author_username ILIKE $%d OR branch ILIKE $%d OR friendly_name ILIKE $%d)",
+			argIndex, argIndex, argIndex, argIndex, argIndex, argIndex, argIndex,
+		)
+		baseQuery += searchClause
+		countQuery += searchClause
 		args = append(args, searchPattern)
 		argIndex++
 	}
@@ -1926,8 +1888,30 @@ func (s *Server) getReviews(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to count reviews")
 	}
 
-	// Add ordering and pagination
-	baseQuery += " ORDER BY created_at DESC"
+	// Whitelisted column expressions only - "sort" is never interpolated
+	// directly into the query (same pattern as ListRepositories). "review"
+	// approximates the frontend's title-priority logic (which also branches
+	// on trigger_type/AI-summary metadata for CLI reviews) closely enough
+	// for a sort order, without duplicating that full logic in SQL.
+	sortColumns := map[string]string{
+		"review":        "COALESCE(NULLIF(mr_title, ''), NULLIF(friendly_name, ''), repository)",
+		"branch":        "branch",
+		"repository":    "repository",
+		"source":        "provider",
+		"status":        "status",
+		"author":        "COALESCE(NULLIF(author_name, ''), NULLIF(author_username, ''), NULLIF(user_email, ''))",
+		"last_activity": "COALESCE(completed_at, started_at, created_at)",
+	}
+	sortKey := c.QueryParam("sort")
+	sortColumn, ok := sortColumns[sortKey]
+	if !ok {
+		sortColumn = sortColumns["last_activity"]
+	}
+	orderClause := "DESC"
+	if strings.ToLower(c.QueryParam("order")) == "asc" {
+		orderClause = "ASC"
+	}
+	baseQuery += fmt.Sprintf(" ORDER BY %s %s NULLS LAST, id DESC", sortColumn, orderClause)
 	offset := (page - 1) * perPage
 	baseQuery += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
 	args = append(args, perPage, offset)

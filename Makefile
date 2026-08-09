@@ -685,14 +685,14 @@ DEPLOY_STAGING_PATH=/home/ubuntu/staging_lr
 DEPLOY_STAGING_HOST=nats03-do
 
 build-staging-with-ui:
-	@echo "🔨 Building for STAGING deployment (mock AI enabled)"
+	@echo "🔨 Building for STAGING deployment"
 	@if [ ! -f .env.staging ]; then \
 		echo "❌ ERROR: .env.staging not found! Cannot build for staging."; \
 		exit 1; \
 	fi
 	rm $(BINARY_NAME) || true
-	cd ui/ && npm install && set -a && . ./.env.staging && set +a && LIVEREVIEW_BUILD_MODE=prod NODE_ENV=production npm run build:obfuscated && cd ..
-	env -u GOROOT go build livereview.go
+	cd ui/ && npm install && set -a && . ../.env.staging && set +a && LIVEREVIEW_BUILD_MODE=staging NODE_ENV=production npm run build:obfuscated && cd ..
+	$(GOBUILD) -o $(BINARY_NAME) .
 	@echo "✅ Staging build complete. Binary ready for raw-deploy-staging."
 
 raw-deploy-staging: build-staging-with-ui

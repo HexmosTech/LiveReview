@@ -109,7 +109,7 @@ func openFileBucket(cfg Config) (*blob.Bucket, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("blobstore: creating local blob dir %s: %w", dir, err)
 	}
-	return fileblob.OpenBucket(dir, nil)
+	return fileblob.OpenBucket(dir, &fileblob.Options{NoTempDir: true})
 }
 
 func openS3Bucket(ctx context.Context, cfg Config) (*blob.Bucket, error) {

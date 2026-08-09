@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import classNames from 'classnames';
 import { Button, Icons } from '../UIPrimitives';
 import { OnboardingSteps } from './OnboardingSteps';
+import { SafetyBanner } from '../SafetyBanner/SafetyBanner';
+import { setNudgeOccupying } from '../../store/uiLayout';
 
 interface FloatingOnboardingNudgeProps {
   hasCLI: boolean;
@@ -77,6 +79,14 @@ export const FloatingOnboardingNudge: React.FC<FloatingOnboardingNudgeProps> = (
       setClosedForSession(false);
     }
   }, [forceOpen]);
+  // Report whether the bar is currently occupying the bottom of the viewport
+  // so the global floating chat button can sit above it (or drop back down
+  // when the bar is closed or scrolled away).
+  const rendered = !closedForSession;
+  useEffect(() => {
+    setNudgeOccupying(rendered && visible);
+    return () => setNudgeOccupying(false);
+  }, [rendered, visible]);
 
   if (closedForSession) return null;
 

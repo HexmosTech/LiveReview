@@ -23,12 +23,14 @@ func NewDiscordConfigHandler(db *sql.DB) *DiscordConfigHandler {
 }
 
 type DiscordConfigResponse struct {
-	Configured bool   `json:"configured"`
-	GuildID    string `json:"guild_id,omitempty"`
+	Configured    bool   `json:"configured"`
+	GuildID       string `json:"guild_id,omitempty"`
+	ApplicationID string `json:"application_id,omitempty"`
 }
 
 type DiscordConfigUpdateRequest struct {
-	BotToken string `json:"bot_token"`
+	BotToken      string `json:"bot_token"`
+	ApplicationID string `json:"application_id"`
 }
 
 func (h *DiscordConfigHandler) GetDiscordConfig(c echo.Context) error {
@@ -46,8 +48,9 @@ func (h *DiscordConfigHandler) GetDiscordConfig(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, DiscordConfigResponse{
-		Configured: true,
-		GuildID:    cfg.GuildID,
+		Configured:    true,
+		GuildID:       cfg.GuildID,
+		ApplicationID: cfg.ApplicationID,
 	})
 }
 
@@ -85,7 +88,7 @@ func (h *DiscordConfigHandler) UpdateDiscordConfig(c echo.Context) error {
 		apiKey = plainKey
 	}
 
-	cfg, err := h.storage.UpsertDiscordConfig(c.Request().Context(), permCtx.OrgID, req.BotToken, apiKey)
+	cfg, err := h.storage.UpsertDiscordConfig(c.Request().Context(), permCtx.OrgID, req.BotToken, apiKey, req.ApplicationID)
 	if err != nil {
 		log.Printf("[DiscordConfig] Failed to save config for org %d: %s", permCtx.OrgID, err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to save config")
@@ -94,8 +97,9 @@ func (h *DiscordConfigHandler) UpdateDiscordConfig(c echo.Context) error {
 	log.Printf("[DiscordConfig] Org %d: Discord bot configured", permCtx.OrgID)
 
 	return c.JSON(http.StatusOK, DiscordConfigResponse{
-		Configured: true,
-		GuildID:    cfg.GuildID,
+		Configured:    true,
+		GuildID:       cfg.GuildID,
+		ApplicationID: cfg.ApplicationID,
 	})
 }
 

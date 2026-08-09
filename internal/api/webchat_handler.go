@@ -121,16 +121,8 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		return c.JSON(http.StatusBadGateway, map[string]string{"error": err.Error()})
 	}
 
-	mcpURL := os.Getenv("SLACK_MCP_SERVER_URL")
-	if mcpURL == "" {
-		mcpURL = fmt.Sprintf("http://localhost:%d/api/mcp", s.deploymentConfig.BackendPort)
-	}
+	mcpURL := resolveMCPBaseURL(s.db)
 	maxSteps := 20
-	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			maxSteps = n
-		}
-	}
 
 	authHeader := c.Request().Header.Get("Authorization")
 	mcpHeaders := map[string]string{}
@@ -408,7 +400,11 @@ func extractDescriptionFromVegaSpec(text string) string {
 			case 'u':
 				// Decode \uXXXX unicode escapes.
 				if i+4 < len(rest) {
-					if r, err := strconv.ParseUint(rest[i+1:i+5], 16, 32); err == nil && utf8.ValidRune(rune(r)) {
+					// Bound-check r (still uint64) against utf8.MaxRune before
+					// converting to rune, so the conversion itself is never
+					// reached with an out-of-range value.
+					r, err := strconv.ParseUint(rest[i+1:i+5], 16, 32)
+					if err == nil && r <= utf8.MaxRune && utf8.ValidRune(rune(r)) {
 						desc.WriteRune(rune(r))
 						i += 4
 					} else {

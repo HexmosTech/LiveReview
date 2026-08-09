@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { LuListFilter } from 'react-icons/lu';
 import { FaArrowUpLong, FaArrowDownLong } from 'react-icons/fa6';
-import { Tooltip, parseMultiFilterValue } from '../UIPrimitives';
+import { parseMultiFilterValue } from '../UIPrimitives';
 
 // Shared header/cell building blocks for pages that build their own
 // client-side TanStack table (Explore > Repositories, Explore > Merge
@@ -11,12 +11,15 @@ import { Tooltip, parseMultiFilterValue } from '../UIPrimitives';
 // are TanStack-column-shaped (expect `column`/`onToggle`/filterFn signatures)
 // rather than generic UI.
 
-/** Wraps `children` in the app's Tooltip only when `text` actually got cut
- * down to `max` chars - otherwise the tooltip would just repeat what's
- * already visible. */
+/** Wraps `children` in a native `title` attribute (plain browser tooltip,
+ * not the app's custom floating `Tooltip` component) only when `text`
+ * actually got cut down to `max` chars - otherwise the tooltip would just
+ * repeat what's already visible. Table cells hover a lot as the cursor
+ * crosses the row, so the instant, no-JS native tooltip reads better here
+ * than a positioned popup. */
 export const TruncatedWithTooltip: React.FC<{ text: string; max: number; children: React.ReactNode }> = ({ text, max, children }) => {
   if (text.length <= max) return <>{children}</>;
-  return <Tooltip content={text}>{children}</Tooltip>;
+  return <div className="inline-block min-w-0" title={text}>{children}</div>;
 };
 
 /** Sort indicator icon - distinct up/down arrows (FaArrowUpLong/FaArrowDownLong)
