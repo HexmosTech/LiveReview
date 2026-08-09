@@ -26,6 +26,7 @@ import (
 type DiffReviewRequest struct {
 	DiffZipBase64 string `json:"diff_zip_base64"`
 	RepoName      string `json:"repo_name"`
+	BranchName    string `json:"branch_name"`
 }
 
 // DiffReviewResult holds persisted review output that is safe to marshal.
@@ -83,15 +84,16 @@ func (s *Server) DiffReview(c echo.Context) error {
 	if repoName == "" {
 		repoName = "cli-diff"
 	}
+	branchName := strings.TrimSpace(req.BranchName)
 
 	friendlyName := naming.GenerateFriendlyName()
 	log.Printf("[DiffReview] Generated friendlyName='%s'", friendlyName)
 
 	rm := NewReviewManager(s.db)
-	log.Printf("[DiffReview] Creating review with: repoName=%s, userEmail=%s, orgID=%d, friendlyName=%s, authorName=%s, authorUsername=%s",
-		repoName, userEmail, orgID, friendlyName, authorName, authorUsername)
+	log.Printf("[DiffReview] Creating review with: repoName=%s, branchName=%s, userEmail=%s, orgID=%d, friendlyName=%s, authorName=%s, authorUsername=%s",
+		repoName, branchName, userEmail, orgID, friendlyName, authorName, authorUsername)
 	initialMeta := map[string]interface{}{"source": "diff-review"}
-	reviewRecord, err := rm.CreateReviewWithOrg(repoName, "", "", "", "cli_diff", userEmail, "cli", nil, initialMeta, orgID, friendlyName, authorName, authorUsername, nil)
+	reviewRecord, err := rm.CreateReviewWithOrg(repoName, branchName, "", "", "cli_diff", userEmail, "cli", nil, initialMeta, orgID, friendlyName, authorName, authorUsername, nil)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to create review record")
 	}

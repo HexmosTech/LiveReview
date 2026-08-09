@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -16,16 +15,24 @@ import (
 	"github.com/livereview/internal/orgname"
 )
 
-// resolveMCPBaseURL derives the MCP endpoint the bots talk to. It prefers the
-// explicitly configured SLACK_MCP_SERVER_URL, then the production URL set in the
-// instance settings (Settings → Instance → Production URL), and finally falls
-// back to the cloud endpoint.
+// resolveMCPBaseURL derives the MCP endpoint the bots talk to. In cloud mode
+// it uses the cloud endpoint; in self-hosted mode it uses the production URL
+// set in the instance settings (Settings → Instance → Production URL), falling
+// back to the cloud endpoint if none is configured.
 func resolveMCPBaseURL(db *sql.DB) string {
+	if isCloudMode() {
+		return "https://livereview.hexmos.com/api/mcp"
+	}
 	var prodURL sql.NullString
 	if err := db.QueryRow("SELECT livereview_prod_url FROM instance_details LIMIT 1").Scan(&prodURL); err == nil && prodURL.Valid && prodURL.String != "" {
 		return strings.TrimSuffix(prodURL.String, "/") + "/api/mcp"
 	}
 	return "https://livereview.hexmos.com/api/mcp"
+}
+
+// isCloudMode reports whether LiveReview is running in cloud mode.
+func isCloudMode() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("LIVEREVIEW_IS_CLOUD")), "true")
 }
 
 type Handler struct {
@@ -46,16 +53,8 @@ func NewHandler(db *sql.DB) (*Handler, error) {
 }
 
 func buildBot(db *sql.DB) (*Bot, error) {
-	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
-	if mcpServerURL == "" {
-		mcpServerURL = resolveMCPBaseURL(db)
-	}
+	mcpServerURL := resolveMCPBaseURL(db)
 	maxSteps := 20
-	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			maxSteps = n
-		}
-	}
 
 	configStorage := NewStorage(db)
 	configs, err := configStorage.GetAllEnabledConfigs(context.Background())

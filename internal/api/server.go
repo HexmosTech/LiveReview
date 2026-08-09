@@ -532,11 +532,14 @@ func WorkerContext(versionInfo *VersionInfo) (*Server, error) {
 	return appContext(0, versionInfo)
 }
 
-// resolveMCPBaseURL derives the MCP endpoint the bots talk to. It prefers the
-// explicitly configured SLACK_MCP_SERVER_URL, then the production URL set in the
-// instance settings (Settings → Instance → Production URL), and finally falls
-// back to the cloud endpoint.
+// resolveMCPBaseURL derives the MCP endpoint the bots talk to. In cloud mode
+// it uses the cloud endpoint; in self-hosted mode it uses the production URL
+// set in the instance settings (Settings → Instance → Production URL), falling
+// back to the cloud endpoint if none is configured.
 func resolveMCPBaseURL(db *sql.DB) string {
+	if isCloudMode() {
+		return "https://livereview.hexmos.com/api/mcp"
+	}
 	var prodURL sql.NullString
 	if err := db.QueryRow("SELECT livereview_prod_url FROM instance_details LIMIT 1").Scan(&prodURL); err == nil && prodURL.Valid && prodURL.String != "" {
 		return strings.TrimSuffix(prodURL.String, "/") + "/api/mcp"
@@ -558,31 +561,14 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 		return nil, nil
 	}
 
-	// Backwards compatibility: configs created before app tokens were stored
-	// (e.g. existing cloud installs) fall back to the env-provided app token.
-	legacyAppToken := os.Getenv("SLACK_APP_TOKEN")
-
 	connectorStorage := aiconnectors.NewStorage(db)
-	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
-	if mcpServerURL == "" {
-		mcpServerURL = resolveMCPBaseURL(db)
-	}
+	mcpServerURL := resolveMCPBaseURL(db)
 	maxSteps := 20
-	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
-		if n, err := strconv.Atoi(s); err != nil || n <= 0 {
-			maxSteps = 20
-		} else {
-			maxSteps = n
-		}
-	}
 
 	var orgCfgs []slackbot.OrgConfig
 
 	for _, cfg := range configs {
 		appToken := cfg.AppToken
-		if appToken == "" {
-			appToken = legacyAppToken
-		}
 		if appToken == "" {
 			log.Printf("Slack bot: org %d has no app token configured — skipping", cfg.OrgID)
 			continue
@@ -661,19 +647,12 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 	}
 
 	connectorStorage := aiconnectors.NewStorage(db)
-	// Discord-specific overrides fall back to the shared SLACK_* variables for
-	// backwards compatibility (existing deployments only set SLACK_*).
+	// Discord-specific overrides fall back to the shared MCP base URL resolver.
 	mcpServerURL := os.Getenv("DISCORD_MCP_SERVER_URL")
-	if mcpServerURL == "" {
-		mcpServerURL = os.Getenv("SLACK_MCP_SERVER_URL")
-	}
 	if mcpServerURL == "" {
 		mcpServerURL = resolveMCPBaseURL(db)
 	}
 	stepStr := os.Getenv("DISCORD_MAX_AGENT_STEPS")
-	if stepStr == "" {
-		stepStr = os.Getenv("SLACK_MAX_AGENT_STEPS")
-	}
 	maxSteps := 20
 	if n, err := strconv.Atoi(stepStr); err == nil && n > 0 {
 		maxSteps = n
