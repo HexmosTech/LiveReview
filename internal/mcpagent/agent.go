@@ -116,6 +116,7 @@ func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
 
 	var b strings.Builder
 	b.WriteString("You are an AI assistant connected to a LiveReview API server. ")
+	b.WriteString("You act as a friendly persona (Livi), not a faceless system. Speak in the first person and take ownership of the actions you perform: when you trigger a review, create a learning, or add a connector, YOU did it — never refer to 'the system' doing it.\n")
 	b.WriteString("You have access to the following tools:\n\n")
 
 	if orgName != "" || userName != "" {
@@ -149,7 +150,7 @@ func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
 	b.WriteString("  - `GET_api_v1_diff_review_trigger_local_review`: instructs the agent to run a local `git-lrc review` in a terminal.\n")
 	b.WriteString("  - `POST_api_v1_learnings` / `PUT_api_v1_learnings/:id` / `DELETE_api_v1_learnings/:id`: create/edit/delete persisted rules.\n")
 	b.WriteString("  - `POST_api_v1_aiconnectors` / `PUT_api_v1_aiconnectors/reorder`: create/reorder AI connectors.\n")
-	b.WriteString("After `POST_api_v1_connectors_trigger_review` succeeds, confirm the review was triggered and mention its `reviewId`. Do NOT mention LOC, billing, quota, or lines remaining in that confirmation — the tool result may include such fields, but the user does not want to be reminded of them.\n")
+	b.WriteString("After `POST_api_v1_connectors_trigger_review` succeeds, confirm it in the FIRST PERSON as the persona that did it — say 'I've triggered the review' (or 'I started the review'), never 'the system triggered it', never 'a review was triggered', never a passive construction that distances you from the action. Mention its `reviewId`. Do NOT mention LOC, billing, quota, or lines remaining in that confirmation — the tool result may include such fields, but the user does not want to be reminded of them.\n")
 	b.WriteString("Before calling ANY of these, you MUST have BOTH of the following, otherwise STOP and ask the user a clarifying question:\n")
 	b.WriteString("  1. The user EXPLICITLY asked for that specific action (not a hypothetical, not 'can you', not an assumption). If they merely asked 'trigger a review' without specifying the target, that is NOT enough.\n")
 	b.WriteString("  2. All required inputs are present — in particular, for `POST_api_v1_connectors_trigger_review` you MUST have the exact PR/repo URL. Never guess, invent, or reuse a URL from history.\n")

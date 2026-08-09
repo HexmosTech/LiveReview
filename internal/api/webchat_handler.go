@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -161,13 +162,28 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	}
 
 	if vlrender.HasVegaLiteSpec(responseText) {
-		images, cleanText := s.renderImagesFromVega(ctx, responseText)
-		if len(images) > 0 {
+		images, cleanText, err := s.renderImagesFromVega(ctx, responseText)
+		if err == nil && len(images) > 0 {
 			resp.Images = images
 			// The Vega-Lite JSON must never surface in the chat. If stripping
 			// removes everything, keep only the surrounding text (or empty).
 			cleanText = strings.TrimSpace(cleanText)
 			resp.Response = cleanText
+		} else if errors.Is(err, vlrender.ErrTrivialSpec) {
+			// A single value/bar is not worth a chart — show the description
+			// (and query) as plain text instead.
+			desc, query, ok := vlrender.TrivialDescription(responseText)
+			text := desc
+			if query != "" {
+				if text != "" {
+					text += "\n\n"
+				}
+				text += "Query used: " + query
+			}
+			if !ok || text == "" {
+				text = strings.TrimSpace(cleanText)
+			}
+			resp.Response = text
 		} else {
 			// Rendering failed even after retries: never show the raw JSON.
 			resp.Response = "Having an issue generating the data, please try again."
@@ -179,50 +195,57 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-func (s *Server) renderImagesFromVega(ctx context.Context, text string) ([]WebChatImage, string) {
+func (s *Server) renderImagesFromVega(ctx context.Context, text string) ([]WebChatImage, string, error) {
 	body := vlrender.ExtractJSONBlock(text)
 
 	var multi struct {
 		Reports []vlrender.VegaLiteReport `json:"reports"`
 	}
 	if err := json.Unmarshal([]byte(body), &multi); err == nil && len(multi.Reports) > 0 {
-		return renderReportsToImages(ctx, multi.Reports)
+		images, err := renderReportsToImages(ctx, multi.Reports)
+		return images, text, err
 	}
 
 	var wrapped vlrender.VegaLiteReport
 	if err := json.Unmarshal([]byte(body), &wrapped); err == nil && len(wrapped.Spec) > 0 {
 		images, err := renderSpecToImages(ctx, wrapped)
 		if err != nil {
-			return nil, text
+			return nil, text, err
 		}
-		return images, stripVegaBlocks(text)
+		return images, stripVegaBlocks(text), nil
 	}
 
 	var rawMap map[string]any
 	if err := json.Unmarshal([]byte(body), &rawMap); err != nil {
-		return nil, text
+		return nil, text, nil
 	}
 	if _, ok := rawMap["$schema"]; !ok && rawMap["mark"] == nil && rawMap["layer"] == nil && rawMap["vconcat"] == nil && rawMap["hconcat"] == nil {
-		return nil, text
+		return nil, text, nil
 	}
 	spec, err := vlrender.NormalizeVegaLiteSpec([]byte(body))
 	if err != nil {
-		return nil, text
+		return nil, text, nil
 	}
 	images, err := renderRawSpecToImages(ctx, spec)
 	if err != nil {
-		return nil, text
+		return nil, text, err
 	}
-	return images, stripVegaBlocks(text)
+	return images, stripVegaBlocks(text), nil
 }
 
-func renderReportsToImages(ctx context.Context, reports []vlrender.VegaLiteReport) ([]WebChatImage, string) {
+func renderReportsToImages(ctx context.Context, reports []vlrender.VegaLiteReport) ([]WebChatImage, error) {
 	var images []WebChatImage
+	trivialOnly := true
 	for _, r := range reports {
 		spec, err := vlrender.NormalizeVegaLiteSpec(r.Spec)
 		if err != nil {
+			trivialOnly = false
 			continue
 		}
+		if vlrender.SpecIsTrivial(spec) {
+			continue
+		}
+		trivialOnly = false
 		img, err := convertSpecToImage(ctx, spec)
 		if err != nil {
 			continue
@@ -232,13 +255,22 @@ func renderReportsToImages(ctx context.Context, reports []vlrender.VegaLiteRepor
 		img.Query = r.Query
 		images = append(images, img)
 	}
-	return images, ""
+	if len(images) == 0 {
+		if trivialOnly {
+			return nil, vlrender.ErrTrivialSpec
+		}
+		return nil, errors.New("no charts could be rendered")
+	}
+	return images, nil
 }
 
 func renderSpecToImages(ctx context.Context, r vlrender.VegaLiteReport) ([]WebChatImage, error) {
 	spec, err := vlrender.NormalizeVegaLiteSpec(r.Spec)
 	if err != nil {
 		return nil, err
+	}
+	if vlrender.SpecIsTrivial(spec) {
+		return nil, vlrender.ErrTrivialSpec
 	}
 	img, err := convertSpecToImage(ctx, spec)
 	if err != nil {
@@ -251,6 +283,9 @@ func renderSpecToImages(ctx context.Context, r vlrender.VegaLiteReport) ([]WebCh
 }
 
 func renderRawSpecToImages(ctx context.Context, spec []byte) ([]WebChatImage, error) {
+	if vlrender.SpecIsTrivial(spec) {
+		return nil, vlrender.ErrTrivialSpec
+	}
 	img, err := convertSpecToImage(ctx, spec)
 	if err != nil {
 		return nil, err

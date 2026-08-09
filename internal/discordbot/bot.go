@@ -13,6 +13,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/mcpagent"
+	"github.com/livereview/internal/vlrender"
 )
 
 const (
@@ -417,6 +418,16 @@ func (oh *orgHandler) processMessage(channelID, messageID, threadID, text string
 		defer vlCancel()
 		if reports, ok := parseAndRenderVegaLiteReports(vlCtx, finalText); ok {
 			oh.uploadReportsToDiscord(channelID, reports, finalText)
+			return
+		}
+		// A single value/bar isn't worth a chart — reply with the description text.
+		if desc, query, ok := vlrender.TrivialDescription(finalText); ok && desc != "" {
+			if query != "" {
+				desc += "\n\nQuery used: " + query
+			}
+			if _, err := oh.session.ChannelMessageSend(channelID, desc); err != nil {
+				log.Printf("[DiscordBot] Failed to send message: %s", err)
+			}
 			return
 		}
 		log.Printf("[DiscordBot] Vega-Lite render failed after retries, sending friendly error")

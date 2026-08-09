@@ -253,6 +253,13 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 			}
 			return nil
 		}
+		// A single value/bar isn't worth a chart — reply with the description text.
+		if desc, query, ok := vlrender.TrivialDescription(response); ok && desc != "" {
+			if query != "" {
+				desc += "\n\nQuery used: " + query
+			}
+			return b.postReply(ctx, activity, b.buildReply(desc, activity, nil))
+		}
 		log.Printf("[TeamsBot] Vega-Lite render failed after retries, sending friendly error")
 		return b.postReply(ctx, activity, b.buildReply("Having an issue generating the data, please try again.", activity, nil))
 	}
