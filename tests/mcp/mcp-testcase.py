@@ -36,12 +36,12 @@ BASE_DIR = Path(__file__).parent
 # -----------------------------------------
 # API KEYS
 # -----------------------------------------
-TOKENROUTER_API_KEY = os.getenv("TOKENROUTER_API_KEY")
+ATLAS_API_KEY = os.getenv("ATLAS_API_KEY")
 LIVEREVIEW_API_KEY = os.getenv("LIVEREVIEW_API_KEY_TR")
 
-if not TOKENROUTER_API_KEY:
+if not ATLAS_API_KEY:
     print(
-        "❌ ERROR: TOKENROUTER_API_KEY environment variable not set",
+        "❌ ERROR: ATLAS_API_KEY environment variable not set",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -51,24 +51,18 @@ if not TOKENROUTER_API_KEY:
 # MODEL CONFIG
 # -----------------------------------------
 
-# Free model
-# MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
-
-# Paid model
-# qwen/qwen3.5-9b
-# Input: $0.10 / 1M tokens
-# Output: $0.15 / 1M tokens
-MODEL = "qwen/qwen3.5-9b"
+# Cheap model (Atlas Cloud default)
+MODEL = "deepseek-ai/deepseek-v4-flash"
 
 MAX_TOOL_ITERATIONS = 10
 
 
 # -----------------------------------------
-# TOKENROUTER OPENAI CLIENT
+# ATLAS CLOUD OPENAI-COMPATIBLE CLIENT
 # -----------------------------------------
 client = AsyncOpenAI(
-    base_url="https://api.tokenrouter.com/v1",
-    api_key=TOKENROUTER_API_KEY,
+    base_url="https://api.atlascloud.ai/v1",
+    api_key=ATLAS_API_KEY,
 )
 
 
