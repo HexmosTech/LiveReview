@@ -49,6 +49,12 @@ jobs:
       - name: Build LiveReview
         run: make build-ci
 
+      - name: Install dbmate
+        run: sudo npm install -g dbmate
+
+      - name: Run staging migrations
+        run: dbmate --url "$DATABASE_URL" up
+
       - name: Start MCP server
         run: |
           nohup ./livereview api > server.log 2>&1 &
