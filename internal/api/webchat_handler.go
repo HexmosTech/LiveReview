@@ -121,16 +121,8 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		return c.JSON(http.StatusBadGateway, map[string]string{"error": err.Error()})
 	}
 
-	mcpURL := os.Getenv("SLACK_MCP_SERVER_URL")
-	if mcpURL == "" {
-		mcpURL = fmt.Sprintf("http://localhost:%d/api/mcp", s.deploymentConfig.BackendPort)
-	}
+	mcpURL := resolveMCPBaseURL(s.db)
 	maxSteps := 20
-	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			maxSteps = n
-		}
-	}
 
 	authHeader := c.Request().Header.Get("Authorization")
 	mcpHeaders := map[string]string{}
