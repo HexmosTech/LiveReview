@@ -495,7 +495,7 @@ func (oh *orgHandler) processMessage(channel, ts, threadTS, text string) {
 	defer cancel()
 
 	log.Printf("[SlackBot] Org %d: RunTurn starting (timeout %s)", oh.orgID, agentTimeout)
-	finalText, updatedHistory, err := oh.agent.RunTurn(ctx, history, text)
+	finalText, updatedHistory, err := oh.agent.RunTurn(ctx, history, text, key, "slack")
 	log.Printf("[SlackBot] Org %d: RunTurn returned err=%v len=%d", oh.orgID, err, len(finalText))
 	if err != nil {
 		log.Printf("[SlackBot] RunTurn error: %s", err)

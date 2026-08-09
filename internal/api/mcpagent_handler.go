@@ -77,7 +77,7 @@ func (s *Server) HandleMCPAgentChat(c echo.Context) error {
 	agent := mcpagent.NewAgent(provider, mcpSession, 0)
 
 	// 4. Run the agent loop
-	responseText, updatedHistory, err := agent.RunTurn(ctx, req.History, req.Message)
+	responseText, updatedHistory, err := agent.RunTurn(ctx, req.History, req.Message, newChatSessionID(), "api")
 	if err != nil {
 		log.Error().Err(err).Msg("Agent loop failed")
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Agent loop failed: %s", err.Error())})

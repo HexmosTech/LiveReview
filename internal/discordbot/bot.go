@@ -394,7 +394,7 @@ func (oh *orgHandler) processMessage(channelID, messageID, threadID, text string
 
 	oh.session.ChannelTyping(channelID)
 
-	finalText, updatedHistory, err := oh.agent.RunTurn(ctx, history, text)
+	finalText, updatedHistory, err := oh.agent.RunTurn(ctx, history, text, key, "discord")
 	if err != nil {
 		log.Printf("[DiscordBot] RunTurn error: %s", err)
 		oh.session.ChannelMessageSend(channelID, "⚠️ Sorry, I ran into an error processing your request.")

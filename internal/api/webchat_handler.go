@@ -84,8 +84,9 @@ func cleanupExpiredCharts() {
 }
 
 type WebChatRequest struct {
-	Message string                  `json:"message"`
-	History []mcpagent.HistoryEntry `json:"history,omitempty"`
+	Message   string                  `json:"message"`
+	History   []mcpagent.HistoryEntry `json:"history,omitempty"`
+	SessionID string                  `json:"sessionId,omitempty"`
 }
 
 type WebChatImage struct {
@@ -96,9 +97,18 @@ type WebChatImage struct {
 }
 
 type WebChatResponse struct {
-	Response string                  `json:"response"`
-	History  []mcpagent.HistoryEntry `json:"history"`
-	Images   []WebChatImage          `json:"images,omitempty"`
+	Response  string                  `json:"response"`
+	History   []mcpagent.HistoryEntry `json:"history"`
+	Images    []WebChatImage          `json:"images,omitempty"`
+	SessionID string                  `json:"sessionId,omitempty"`
+}
+
+// newChatSessionID mints a random session id for correlating debug log
+// lines across one chat conversation's turns (see internal/logging.ChatTurnLogger).
+func newChatSessionID() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 func (s *Server) HandleWebChat(c echo.Context) error {
@@ -150,15 +160,21 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	provider := mcpagent.NewProvider(connector)
 	agent := mcpagent.NewAgent(provider, mcpSession, maxSteps)
 
-	responseText, updatedHistory, err := agent.RunTurn(ctx, req.History, req.Message)
+	sessionID := req.SessionID
+	if sessionID == "" {
+		sessionID = newChatSessionID()
+	}
+
+	responseText, updatedHistory, err := agent.RunTurn(ctx, req.History, req.Message, sessionID, "livi")
 	if err != nil {
 		log.Error().Err(err).Msg("WebChat: agent loop failed")
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Agent loop failed: %s", err.Error())})
 	}
 
 	resp := WebChatResponse{
-		Response: responseText,
-		History:  updatedHistory,
+		Response:  responseText,
+		History:   updatedHistory,
+		SessionID: sessionID,
 	}
 
 	if vlrender.HasVegaLiteSpec(responseText) {

@@ -226,7 +226,7 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 	}
 
 	tStart := time.Now()
-	response, history, err := oh.agent.RunTurn(ctx, conv.history, text)
+	response, history, err := oh.agent.RunTurn(ctx, conv.history, text, convID, "teams")
 	elapsed := time.Since(tStart)
 	if err != nil {
 		log.Printf("[TeamsBot] Org %d: agent error after %s: %s", oh.orgID, elapsed, err)
