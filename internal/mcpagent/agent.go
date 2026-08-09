@@ -127,6 +127,19 @@ func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText st
 			}
 			log.Debug().Str("tool", tc.Name).Int("result_len", displayLen).Msg("MCP tool result received")
 			log.Debug().Str("tool", tc.Name).Str("result_preview", content[:min(len(content), toolResultPreviewLen)]).Msg("MCP tool result (truncated for LLM)")
+
+			// An expired/invalid session token can't be fixed by trying a
+			// different tool - every tool call will fail identically. Without
+			// this, the model (per its "never give up, try another tool"
+			// instructions) burns a full LLM call per tool it tries, cycling
+			// through most of the tool list before giving up.
+			if isAuthError(content) {
+				const authErrorResponse = "Your session has expired. Please refresh the page and sign in again."
+				log.Warn().Str("tool", tc.Name).Msg("Auth error from tool call, stopping agent loop instead of retrying")
+				clog.FinalResponse(authErrorResponse + " (stopped after auth error from " + tc.Name + ")")
+				return authErrorResponse, history, nil
+			}
+
 			history = append(history, HistoryEntry{
 				"role":    "user",
 				"content": fmt.Sprintf("Result of `%s`:\n```\n%s\n```", tc.Name, content),
@@ -173,6 +186,25 @@ func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
 	b.WriteString(agentInstructions) // imported from prompts/agent_instructions.md
 
 	return b.String()
+}
+
+// isAuthError reports whether a tool result signals an expired/invalid
+// session token or missing auth - the exact messages LiveReview's own auth
+// middleware returns (internal/api/auth/middleware.go). Retrying with a
+// different tool can never recover from these; every tool call would fail
+// identically until the user re-authenticates.
+func isAuthError(content string) bool {
+	authErrorSubstrings := []string{
+		"Invalid or expired token",
+		"Authorization header required",
+		"Invalid authorization header format",
+	}
+	for _, s := range authErrorSubstrings {
+		if strings.Contains(content, s) {
+			return true
+		}
+	}
+	return false
 }
 
 func isExcuseResponse(response string) bool {
