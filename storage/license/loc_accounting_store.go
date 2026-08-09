@@ -280,10 +280,6 @@ func (s *LOCAccountingStore) CheckQuotaPreflight(ctx context.Context, orgID int6
 		currentCycleLOCGrantExpiresAt = sql.NullTime{}
 	}
 
-	if currentPlanCode != planCode {
-		currentPlanCode = planCode
-	}
-
 	trialReadOnly := currentTrialReadOnly
 	var trialEndsAtPtr *time.Time
 	if currentTrialEndsAt.Valid {
