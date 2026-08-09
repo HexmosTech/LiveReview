@@ -170,4 +170,29 @@ Adding a new artifact type is just a new entry in `diffReviewArtifactTypes` plus
 frontend renderer — no new tables, no new endpoint code, and it lands in whichever blob
 store is already configured.
 
+## Keeping the Navigation Mega Menu in Sync
+
+The nav mega menu (`ui/src/components/Navbar/NavMegaMenu.tsx` + its data source
+`ui/src/components/Navbar/megaMenuData.ts`) is the primary way users discover and reach
+every section of the app. Whenever you add something new — a new page, route, settings
+tab, or any feature section that a user should be able to navigate to — you MUST ensure it
+is also reflected in the mega menu.
+
+**Rule: no new section/page/tab ships without a corresponding mega-menu entry.**
+
+- For a new top-level area, add a `MegaMenuSection` to `buildMegaMenuSections()` in
+  `megaMenuData.ts`.
+- For a new sub-page or settings tab under an existing area, add a `link(...)` (and, if
+  grouped, a `group(...)`) node to the relevant section's `items` array. Reuse the same
+  route the page actually lives on (e.g. `/settings#storage` for a settings tab) and the
+  appropriate `Icons.*` glyph, and gate it with the matching `isVisible` /
+  `requiresOwnerOrAdmin` / `requiresSuperAdmin` predicate.
+- New settings tabs are typically registered in
+  `ui/src/pages/Settings/Settings.tsx` (the `tabs` array, by permission) — make the mega
+  menu entry mirror that same gating so both stay consistent.
+
+If a new feature is not navigable from the mega menu (e.g. it is only reached from a
+button inside an existing page), call that out explicitly rather than silently skipping
+the entry. Keeping the mega menu complete is what makes new capabilities discoverable.
+
 
