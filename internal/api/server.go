@@ -28,6 +28,7 @@ import (
 	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/license/payment"
+	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/orgname"
 	azuredevopsprovider "github.com/livereview/internal/provider_input/azuredevops"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
@@ -482,6 +483,12 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	})
 
 	mcp.Mount("/api/mcp")
+
+	// Enables the Livi/Slack/Discord/Teams chat debug log when LIVI_DEBUG_LOG
+	// is set. This process (livereview-api) is the only pm2 app that runs
+	// chat/bot code, so wiping the log file here at boot is safe - workers
+	// never write to it.
+	logging.InitChatDebugLog() // reads LIVI_DEBUG_LOG at boot
 
 	// Initialize org-scoped Slack bots (self-hosted only). Each org supplies its
 	// own bot + app tokens via the UI, so no server-level env vars are required.
