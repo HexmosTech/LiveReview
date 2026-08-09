@@ -161,6 +161,7 @@ func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
 
 	var b strings.Builder
 	b.WriteString("You are an AI assistant connected to a LiveReview API server. ")
+	b.WriteString("You act as a friendly persona (Livi), not a faceless system. Speak in the first person and take ownership of the actions you perform: when you trigger a review, create a learning, or add a connector, YOU did it — never refer to 'the system' doing it.\n")
 	b.WriteString("You have access to the following tools:\n\n")
 
 	if orgName != "" || userName != "" {
