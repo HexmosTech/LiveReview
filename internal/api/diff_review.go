@@ -24,9 +24,19 @@ import (
 
 // DiffReviewRequest models the incoming POST payload for diff reviews.
 type DiffReviewRequest struct {
-	DiffZipBase64 string `json:"diff_zip_base64"`
-	RepoName      string `json:"repo_name"`
-	BranchName    string `json:"branch_name"`
+	DiffZipBase64 string      `json:"diff_zip_base64"`
+	RepoName      string      `json:"repo_name"`
+	BranchName    string      `json:"branch_name"`
+	CommitRefs    []CommitRef `json:"commit_refs,omitempty"`
+}
+
+// CommitRef identifies a commit or commit range that a review's diff
+// corresponds to. Only sent by callers that already know the concrete
+// ref(s) at request time (git-lrc's --commit/--range post-commit reviews) —
+// plain staged/working diffs have no commit yet, so they send none.
+type CommitRef struct {
+	Ref  string `json:"ref"`
+	Type string `json:"type"` // "commit" | "range"
 }
 
 // DiffReviewResult holds persisted review output that is safe to marshal.
@@ -96,6 +106,10 @@ func (s *Server) DiffReview(c echo.Context) error {
 	reviewRecord, err := rm.CreateReviewWithOrg(repoName, branchName, "", "", "cli_diff", userEmail, "cli", nil, initialMeta, orgID, friendlyName, authorName, authorUsername, nil)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to create review record")
+	}
+
+	if err := s.insertReviewCommits(c.Request().Context(), reviewRecord.ID, orgID, req.CommitRefs); err != nil {
+		log.Printf("[WARN] DiffReview: failed to persist commit_refs for review %d: %v", reviewRecord.ID, err)
 	}
 
 	_ = rm.UpdateReviewStatus(reviewRecord.ID, "processing")
@@ -235,6 +249,60 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	}
 
 	return JSONWithEnvelope(c, http.StatusOK, response)
+}
+
+// AttachDiffReviewCommitRequest is the payload for POST /api/v1/diff-review/:review_id/commit.
+type AttachDiffReviewCommitRequest struct {
+	CommitSHA string `json:"commit_sha"`
+}
+
+// AttachDiffReviewCommit records the commit SHA a previously-submitted CLI
+// diff review ended up in, once the caller (git-lrc's offline sync queue —
+// see AGENTS.md "Porting from git-lrc") has actually committed the staged
+// changes that review covered. Org scoping and existence are enforced by
+// GetReviewForOrg (the same check every other /diff-review/:review_id/...
+// route already relies on); trigger_type is further restricted to cli_diff
+// so this can't be used to attach commits to PR/MR/API/MCP-triggered
+// reviews, which get their commit linkage through enrichMetadata instead.
+// Idempotent: review_commits' UNIQUE(review_id, ref) + ON CONFLICT DO
+// NOTHING means retrying (or racing) the same attach is a harmless no-op.
+func (s *Server) AttachDiffReviewCommit(c echo.Context) error {
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok || orgID == 0 {
+		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "missing org context")
+	}
+
+	reviewID, err := strconv.ParseInt(c.Param("review_id"), 10, 64)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid review_id")
+	}
+
+	var req AttachDiffReviewCommitRequest
+	if err := c.Bind(&req); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
+	}
+	commitSHA := strings.TrimSpace(req.CommitSHA)
+	if commitSHA == "" {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "commit_sha is required")
+	}
+
+	rm := NewReviewManager(s.db)
+	review, err := rm.GetReviewForOrg(reviewID, orgID)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, "review not found")
+	}
+	if review.TriggerType != "cli_diff" {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "commit attachment is only supported for cli_diff reviews")
+	}
+
+	if err := s.insertReviewCommits(c.Request().Context(), reviewID, orgID, []CommitRef{{Ref: commitSHA, Type: "commit"}}); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to record commit")
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+		"status":    "recorded",
+		"review_id": fmt.Sprintf("%d", reviewID),
+	})
 }
 
 // TriggerLocalReview returns instructions for the AI agent on how to trigger a local review via the terminal.
