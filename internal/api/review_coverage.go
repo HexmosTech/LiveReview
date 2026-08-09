@@ -123,3 +123,63 @@ func (s *Server) ReviewCoverage(c echo.Context) error {
 func formatReviewID(id int64) string {
 	return strconv.FormatInt(id, 10)
 }
+
+// ReviewCommitEntry is one commit/range ref recorded against a review, for
+// display on the review detail page. Uses camelCase JSON tags to match the
+// other /api/v1/reviews/:id/* endpoints (unlike review-coverage above,
+// which is a snake_case CI-facing API).
+type ReviewCommitEntry struct {
+	Ref       string    `json:"ref"`
+	RefType   string    `json:"refType"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// GetReviewCommits handles GET /api/v1/reviews/:id/commits: the commit
+// SHAs (and/or literal ranges) that were reviewed as part of this review
+// run. Org-scoped the same way as getReviewByID -- a review from another
+// org 404s rather than leaking whether the ID exists.
+func (s *Server) GetReviewCommits(c echo.Context) error {
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok || orgID == 0 {
+		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "missing org context")
+	}
+
+	reviewID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid review id")
+	}
+
+	rm := NewReviewManager(s.db)
+	if _, err := rm.GetReviewForOrg(reviewID, orgID); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, "review not found")
+	}
+
+	rows, err := s.db.QueryContext(c.Request().Context(), `
+		SELECT rc.ref, rc.ref_type, rc.created_at
+		FROM review_commits rc
+		JOIN reviews r ON r.id = rc.review_id
+		WHERE rc.review_id = $1 AND r.org_id = $2
+		ORDER BY rc.ref_type ASC, rc.created_at ASC`,
+		reviewID, orgID)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to query review commits")
+	}
+	defer rows.Close()
+
+	commits := make([]ReviewCommitEntry, 0)
+	for rows.Next() {
+		var entry ReviewCommitEntry
+		if err := rows.Scan(&entry.Ref, &entry.RefType, &entry.CreatedAt); err != nil {
+			return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to scan review commit row")
+		}
+		commits = append(commits, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "error iterating review commit rows")
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+		"reviewId": reviewID,
+		"commits":  commits,
+	})
+}

@@ -442,6 +442,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/events", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/summary", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/accounting", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/commits", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/learnings", nil, LearningsQuery{})
 	mcp.RegisterSchema("POST", "/api/v1/learnings", nil, UpsertLearningRequest{})
 	mcp.RegisterSchema("GET", "/api/v1/learnings/:id", nil, nil)
@@ -468,6 +469,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/reviews/:id/events",
 		"/api/v1/reviews/:id/summary",
 		"/api/v1/reviews/:id/accounting",
+		"/api/v1/reviews/:id/commits",
 		"/api/v1/learnings",
 		"/api/v1/learnings/:id",
 		"/api/v1/prompts/catalog",
@@ -1371,6 +1373,7 @@ func (s *Server) setupRoutes() {
 	reviewsGroup.GET("/:id/events/:type", reviewEventsHandler.GetReviewEventsByType)
 	reviewsGroup.GET("/:id/summary", reviewEventsHandler.GetReviewSummary)
 	reviewsGroup.GET("/:id/accounting", reviewEventsHandler.GetReviewAccounting)
+	reviewsGroup.GET("/:id/commits", s.GetReviewCommits)
 
 	// Subscription endpoints (organization scoped)
 	subscriptionsHandler := NewSubscriptionsHandler(s.db)
