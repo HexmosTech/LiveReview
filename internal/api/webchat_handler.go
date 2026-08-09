@@ -219,7 +219,12 @@ func (s *Server) renderImagesFromVega(ctx context.Context, text string) ([]WebCh
 	}
 	if err := json.Unmarshal([]byte(body), &multi); err == nil && len(multi.Reports) > 0 {
 		images, err := renderReportsToImages(ctx, multi.Reports)
-		return images, text, err
+		// stripVegaBlocks' brace-scanning heuristic expects prose before the
+		// JSON payload and can mismatch on a nested object when the response
+		// IS the JSON (no leading prose, as here). We already know the exact
+		// substring that parsed as the reports payload, so remove that
+		// directly instead of re-scanning for it.
+		return images, strings.TrimSpace(strings.Replace(text, body, "", 1)), err
 	}
 
 	var wrapped vlrender.VegaLiteReport
