@@ -1770,13 +1770,15 @@ type ReviewResponse struct {
 }
 
 type ReviewsQuery struct {
-	Page     int    `form:"page" query:"page" json:"page,omitempty" jsonschema:"description=Page number for pagination"`
-	PerPage  int    `form:"per_page" query:"per_page" json:"per_page,omitempty" jsonschema:"description=Number of items per page"`
+	Page     int    `form:"page" query:"page" json:"page,omitempty" jsonschema:"description=Page number for pagination (only used when per_page is set)"`
+	PerPage  int    `form:"per_page" query:"per_page" json:"per_page,omitempty" jsonschema:"description=Number of items per page. If omitted, ALL matching reviews are returned unpaginated - always pass this explicitly when you only need a bounded sample"`
 	Status   string `form:"status" query:"status" json:"status,omitempty" jsonschema:"description=Filter reviews by status, comma-separated for multiple (e.g. created,in_progress,completed,failed)"`
 	Provider string `form:"provider" query:"provider" json:"provider,omitempty" jsonschema:"description=Filter reviews by Git provider, comma-separated for multiple (e.g. github, gitlab, cli)"`
 	Search   string `form:"search" query:"search" json:"search,omitempty" jsonschema:"description=Search pattern for repository name, branch, MR title, or author"`
 	Sort     string `form:"sort" query:"sort" json:"sort,omitempty" jsonschema:"description=Sort column: review, branch, repository, source, status, author, or last_activity (default last_activity)"`
 	Order    string `form:"order" query:"order" json:"order,omitempty" jsonschema:"description=Sort direction: asc or desc (default desc)"`
+	DateFrom string `form:"date_from" query:"date_from" json:"date_from,omitempty" jsonschema:"description=Only include reviews with last activity (completed/started/created) on or after this date. Accepts YYYY-MM-DD or RFC3339"`
+	DateTo   string `form:"date_to" query:"date_to" json:"date_to,omitempty" jsonschema:"description=Only include reviews with last activity (completed/started/created) on or before this date (inclusive of the whole day if bare YYYY-MM-DD). Accepts YYYY-MM-DD or RFC3339"`
 }
 
 type ReviewsListResponse struct {
@@ -1818,6 +1820,24 @@ type RenderPromptQuery struct {
 	Repository         string `form:"repository" query:"repository" json:"repository,omitempty" jsonschema:"description=Repository name"`
 }
 
+// parseDateFilterParam parses a date_from/date_to query value, accepting
+// either a full RFC3339 timestamp or a bare YYYY-MM-DD date. A bare date
+// passed as the upper bound (endOfDay) is rolled forward to the last instant
+// of that day so date_to is inclusive of the whole day.
+func parseDateFilterParam(v string, endOfDay bool) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, v); err == nil {
+		return t, nil
+	}
+	t, err := time.Parse("2006-01-02", v)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("expected RFC3339 timestamp or YYYY-MM-DD date")
+	}
+	if endOfDay {
+		t = t.Add(24*time.Hour - time.Nanosecond)
+	}
+	return t, nil
+}
+
 // getReviews handles GET /api/v1/reviews with filtering and pagination
 func (s *Server) getReviews(c echo.Context) error {
 	// Extract org context from middleware
@@ -1826,7 +1846,10 @@ func (s *Server) getReviews(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
 	}
 
-	// Parse query parameters
+	// Parse query parameters. Pagination is opt-in: callers (the UI, the MCP
+	// tool) decide their own page size and pass it explicitly. If per_page is
+	// omitted entirely, no LIMIT/OFFSET is applied and every matching review
+	// is returned in one page.
 	page := 1
 	if pageStr := c.QueryParam("page"); pageStr != "" {
 		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
@@ -1834,19 +1857,50 @@ func (s *Server) getReviews(c echo.Context) error {
 		}
 	}
 
-	perPage := 20
+	perPage := 0
+	paginated := false
 	if perPageStr := c.QueryParam("per_page"); perPageStr != "" {
 		if pp, err := strconv.Atoi(perPageStr); err == nil && pp > 0 && pp <= 1000 {
 			perPage = pp
+			paginated = true
 		}
 	}
 
-	// Build base query
+	// Optional date range filter, applied against the same timestamp basis as
+	// the "last_activity" sort/column (completed_at, falling back to
+	// started_at/created_at). Accepts RFC3339 timestamps or bare dates
+	// (YYYY-MM-DD); a bare date_to is treated as inclusive of that whole day.
+	var dateFrom, dateTo time.Time
+	var hasDateFrom, hasDateTo bool
+	if v := c.QueryParam("date_from"); v != "" {
+		t, err := parseDateFilterParam(v, false)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "Invalid date_from: "+err.Error())
+		}
+		dateFrom, hasDateFrom = t, true
+	}
+	if v := c.QueryParam("date_to"); v != "" {
+		t, err := parseDateFilterParam(v, true)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "Invalid date_to: "+err.Error())
+		}
+		dateTo, hasDateTo = t, true
+	}
+
+	// Build base query. The list view only ever reads a handful of metadata
+	// keys (ai_execution_mode, plan_code for the Auto/BYOK badge; ai_summary_title
+	// for CLI reviews) - pulling those via jsonb operators instead of the full
+	// metadata column avoids shipping each review's full AI result/cost
+	// breakdown (which can be substantial) just to render the list.
 	baseQuery := `
 		SELECT id, repository, branch, commit_hash, pr_mr_url, connector_id,
 		       status, trigger_type, user_email, provider, mr_title, friendly_name, author_name, author_username,
-		       created_at, started_at, completed_at, metadata, org_id
-		FROM public.reviews 
+		       created_at, started_at, completed_at,
+		       metadata->>'ai_execution_mode' AS ai_execution_mode,
+		       metadata->>'plan_code' AS plan_code,
+		       CASE WHEN trigger_type = 'cli_diff' THEN metadata->>'ai_summary_title' END AS ai_summary_title,
+		       org_id
+		FROM public.reviews
 		WHERE org_id = $1
 	`
 	countQuery := `SELECT COUNT(*) FROM public.reviews WHERE org_id = $1`
@@ -1881,6 +1935,21 @@ func (s *Server) getReviews(c echo.Context) error {
 		argIndex++
 	}
 
+	if hasDateFrom {
+		clause := fmt.Sprintf(" AND COALESCE(completed_at, started_at, created_at) >= $%d", argIndex)
+		baseQuery += clause
+		countQuery += clause
+		args = append(args, dateFrom)
+		argIndex++
+	}
+	if hasDateTo {
+		clause := fmt.Sprintf(" AND COALESCE(completed_at, started_at, created_at) <= $%d", argIndex)
+		baseQuery += clause
+		countQuery += clause
+		args = append(args, dateTo)
+		argIndex++
+	}
+
 	// Get total count
 	var total int
 	err := s.db.QueryRow(countQuery, args...).Scan(&total)
@@ -1912,9 +1981,11 @@ func (s *Server) getReviews(c echo.Context) error {
 		orderClause = "ASC"
 	}
 	baseQuery += fmt.Sprintf(" ORDER BY %s %s NULLS LAST, id DESC", sortColumn, orderClause)
-	offset := (page - 1) * perPage
-	baseQuery += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
-	args = append(args, perPage, offset)
+	if paginated {
+		offset := (page - 1) * perPage
+		baseQuery += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
+		args = append(args, perPage, offset)
+	}
 
 	// Execute query
 	rows, err := s.db.Query(baseQuery, args...)
@@ -1927,8 +1998,8 @@ func (s *Server) getReviews(c echo.Context) error {
 	reviews := make([]ReviewResponse, 0)
 	for rows.Next() {
 		var review ReviewResponse
-		var metadataJSON sql.NullString
 		var mrTitleNS, friendlyNameNS, authorNameNS, authorUsernameNS sql.NullString
+		var execModeNS, planCodeNS, aiSummaryTitleNS sql.NullString
 
 		err := rows.Scan(
 			&review.ID,
@@ -1948,19 +2019,22 @@ func (s *Server) getReviews(c echo.Context) error {
 			&review.CreatedAt,
 			&review.StartedAt,
 			&review.CompletedAt,
-			&metadataJSON,
+			&execModeNS,
+			&planCodeNS,
+			&aiSummaryTitleNS,
 			&review.OrgID,
 		)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to scan review")
 		}
 
-		// Parse metadata JSON
-		if metadataJSON.Valid && metadataJSON.String != "" {
+		if execModeNS.Valid || planCodeNS.Valid {
 			review.Metadata = make(map[string]interface{})
-			if err := json.Unmarshal([]byte(metadataJSON.String), &review.Metadata); err != nil {
-				// Log error but continue with empty metadata
-				fmt.Printf("Failed to parse metadata for review %d: %v\n", review.ID, err)
+			if execModeNS.Valid {
+				review.Metadata["ai_execution_mode"] = execModeNS.String
+			}
+			if planCodeNS.Valid {
+				review.Metadata["plan_code"] = planCodeNS.String
 			}
 		}
 
@@ -1976,12 +2050,8 @@ func (s *Server) getReviews(c echo.Context) error {
 		if authorUsernameNS.Valid {
 			review.AuthorUsername = &authorUsernameNS.String
 		}
-
-		// For CLI reviews, extract AI summary title from metadata if available
-		if review.TriggerType == "cli_diff" && review.Metadata != nil {
-			if aiSummaryTitle, ok := review.Metadata["ai_summary_title"].(string); ok && aiSummaryTitle != "" {
-				review.AISummaryTitle = &aiSummaryTitle
-			}
+		if aiSummaryTitleNS.Valid && aiSummaryTitleNS.String != "" {
+			review.AISummaryTitle = &aiSummaryTitleNS.String
 		}
 
 		reviews = append(reviews, review)
@@ -1991,16 +2061,25 @@ func (s *Server) getReviews(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Error iterating reviews")
 	}
 
-	// Calculate pagination metadata
-	totalPages := (total + perPage - 1) / perPage
-	hasNext := page < totalPages
-	hasPrevious := page > 1
+	// Calculate pagination metadata. When per_page wasn't supplied, every
+	// matching review was fetched in one page.
+	responsePerPage := perPage
+	totalPages := 1
+	hasNext := false
+	hasPrevious := false
+	if paginated {
+		totalPages = (total + perPage - 1) / perPage
+		hasNext = page < totalPages
+		hasPrevious = page > 1
+	} else {
+		responsePerPage = len(reviews)
+	}
 
 	response := ReviewsListResponse{
 		Reviews:     reviews,
 		Total:       total,
 		Page:        page,
-		PerPage:     perPage,
+		PerPage:     responsePerPage,
 		TotalPages:  totalPages,
 		HasNext:     hasNext,
 		HasPrevious: hasPrevious,
