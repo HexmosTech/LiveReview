@@ -1,0 +1,49 @@
+flowchart TD
+    U[User message] --> W[Livi / WebChat handler]
+    W --> P1IN
+
+    subgraph P1SG["LLM call #1"]
+        P1IN["Input: DB schema + tool list<br/>+ user question (NO row data)"] --> P1OUT{"Single call decides intent<br/>by RESPONSE SHAPE"}
+        P1OUT -->|"shape: action tool call"| P1A["Emits action tool call<br/>(trigger review, create learning,<br/>add connector, etc.)"]
+        P1OUT -->|"shape: count query"| P1Q["Proposes a SELECT count(*) query —<br/>counts how many rows the actual<br/>answer to the question would be,<br/>based on schema, before fetching<br/>any real data. That count is what<br/>LLM call #2 uses to propose<br/>chart or csv as response_type"]
+    end
+
+    P1A --> ACTION["Existing MCP tool-calling path<br/>(unchanged) — confirm intent + inputs,<br/>call the specific REST-backed tool"]
+    ACTION --> UI
+
+    P1Q --> V["SQL Validator / Wrapper<br/>(reject if: not SELECT,<br/>no org_id filter,<br/>malformed / fails to parse)"]
+    V -->|"reject"| ERR["Reject / ask LLM to<br/>rewrite the count query"]
+    V -->|"add query timeout (DB safety net only)"| RO1[("Read-only Postgres<br/>connection — runs COUNT query")]
+
+    RO1 -->|"row count"| P1B["LLM call #2<br/>(same conversation, sees row count)<br/>-> finalizes: response_type (chart | csv),<br/>mark type if chart, title, description,<br/>and the FINAL data-fetching SQL<br/>(may pick coarser grain if count too high)"]
+    RO1 -->|"execution error"| P1Q
+
+    P1B --> V2["SQL Validator / Wrapper<br/>(reject if: not SELECT,<br/>no org_id filter,<br/>malformed / fails to parse)"]
+    V2 -->|"reject"| ERR2["Reject / ask LLM to retry"]
+    V2 -->|"add query timeout (DB safety net only)"| RO2[("Read-only Postgres<br/>connection — runs FINAL query")]
+
+    RO2 --> ROWS["Scan rows dynamically<br/>(rows.Columns + []any, no fixed struct)<br/>-> []map[string]any"]
+
+    ROWS --> TYPE{"response_type<br/>from LLM call #2"}
+
+    TYPE -->|"csv"| TBL["Go formats rows directly<br/>(CSV file, headers = SQL columns)<br/>NO further LLM call"]
+    TBL --> UI[Chat UI: CSV file or chart]
+
+    TYPE -->|"chart"| CHK["Go validates: mark + encoding<br/>fields (from LLM call #2) exist in<br/>SQL result columns?"]
+    CHK -->|"no"| ERR3["Reject / ask LLM to retry"]
+    CHK -->|"yes"| MERGE["Go merges spec programmatically:<br/>data.values = ROWS (verbatim, full set)<br/>encoding/mark/title/description = from LLM call #2"]
+
+    MERGE --> VL["vl-convert<br/>(Vega-Lite -> PNG)"]
+    VL --> UI
+
+    style P1OUT fill:#1f3a5a,stroke:#3d8,color:#fff
+    style ACTION fill:#1f3a5a,stroke:#3d8,color:#fff
+    style V fill:#1f3a5a,stroke:#3d8,color:#fff
+    style V2 fill:#1f3a5a,stroke:#3d8,color:#fff
+    style RO1 fill:#1f3a5a,stroke:#3d8,color:#fff
+    style RO2 fill:#1f3a5a,stroke:#3d8,color:#fff
+    style ROWS fill:#1f3a5a,stroke:#3d8,color:#fff
+    style TYPE fill:#1f3a5a,stroke:#3d8,color:#fff
+    style TBL fill:#1f3a5a,stroke:#3d8,color:#fff
+    style CHK fill:#1f3a5a,stroke:#3d8,color:#fff
+    style MERGE fill:#1f3a5a,stroke:#3d8,color:#fff

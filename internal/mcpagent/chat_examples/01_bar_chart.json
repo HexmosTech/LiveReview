@@ -1,0 +1,21 @@
+{
+  "title": "Reviews Completed by Month",
+  "description": "Acme Corp completed 55 reviews in May 2026.\n\nAcme Corp completed 18 reviews in June 2026.\n\nVolume dropped 67% from May to June.",
+  "query": "Monthly count of completed reviews for Acme Corp, May 2026 through June 2026",
+  "spec": {
+    "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+    "width": 600,
+    "height": 300,
+    "data": {
+      "values": [
+        { "month": "2026-05", "review_count": 55 },
+        { "month": "2026-06", "review_count": 18 }
+      ]
+    },
+    "mark": "bar",
+    "encoding": {
+      "x": { "field": "month", "type": "ordinal", "title": "Month" },
+      "y": { "field": "review_count", "type": "quantitative", "title": "Reviews Completed" }
+    }
+  }
+}

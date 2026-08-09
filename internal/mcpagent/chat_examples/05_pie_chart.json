@@ -1,0 +1,22 @@
+{
+  "title": "Review Status Breakdown",
+  "description": "Acme Corp triggered 210 reviews this month.\n\n180 completed, 20 failed, 10 pending.\n\n86% of triggered reviews finished successfully.",
+  "query": "Review count grouped by status for Acme Corp, current month",
+  "spec": {
+    "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+    "width": 600,
+    "height": 300,
+    "data": {
+      "values": [
+        { "status": "completed", "review_count": 180 },
+        { "status": "failed", "review_count": 20 },
+        { "status": "pending", "review_count": 10 }
+      ]
+    },
+    "mark": "arc",
+    "encoding": {
+      "theta": { "field": "review_count", "type": "quantitative" },
+      "color": { "field": "status", "type": "nominal", "title": "Status" }
+    }
+  }
+}

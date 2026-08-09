@@ -1,0 +1,27 @@
+{
+  "title": "Reviews vs. LOC per Engineer",
+  "description": "Acme Corp has 8 engineers active this quarter.\n\nalice-dev leads with 42 reviews covering 18,300 LOC.\n\nMost engineers cluster between 10-20 reviews and 3,000-8,000 LOC.",
+  "query": "Per-engineer review count vs. total LOC reviewed for Acme Corp, current quarter",
+  "spec": {
+    "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+    "width": 600,
+    "height": 300,
+    "data": {
+      "values": [
+        { "author_username": "alice-dev", "review_count": 42, "total_loc": 18300 },
+        { "author_username": "bob-dev", "review_count": 18, "total_loc": 7600 },
+        { "author_username": "carol-dev", "review_count": 15, "total_loc": 5200 },
+        { "author_username": "dave-dev", "review_count": 12, "total_loc": 4100 },
+        { "author_username": "erin-dev", "review_count": 20, "total_loc": 8100 },
+        { "author_username": "frank-dev", "review_count": 9, "total_loc": 3000 },
+        { "author_username": "grace-dev", "review_count": 25, "total_loc": 9500 },
+        { "author_username": "heidi-dev", "review_count": 11, "total_loc": 3800 }
+      ]
+    },
+    "mark": "point",
+    "encoding": {
+      "x": { "field": "review_count", "type": "quantitative", "title": "Reviews Completed" },
+      "y": { "field": "total_loc", "type": "quantitative", "title": "Total LOC Reviewed" }
+    }
+  }
+}
