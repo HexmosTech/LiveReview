@@ -55,6 +55,7 @@ const ReviewDetail: React.FC = () => {
     const [accountingRouteUnavailable, setAccountingRouteUnavailable] = useState(false);
     const [commits, setCommits] = useState<ReviewCommit[]>([]);
     const [commitsExpanded, setCommitsExpanded] = useState(false);
+    const [commitsLoaded, setCommitsLoaded] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [pollingEnabled, setPollingEnabled] = useState(true);
@@ -172,6 +173,8 @@ const ReviewDetail: React.FC = () => {
             } catch (commitsErr) {
                 console.warn('Review commits endpoint unavailable:', commitsErr);
                 setCommits([]);
+            } finally {
+                setCommitsLoaded(true);
             }
             
             const newEvents = (eventsData?.events as ReviewEvent[] | undefined) || [];
@@ -199,6 +202,7 @@ const ReviewDetail: React.FC = () => {
         setLastEventTime(null);
         setCommits([]);
         setCommitsExpanded(false);
+        setCommitsLoaded(false);
     }, [id]);
 
     // Derive available filter values from current events
@@ -454,25 +458,35 @@ const ReviewDetail: React.FC = () => {
                 </div>
             </div>
 
-            {/* Relevant Commits - collapsed by default, shown only when we have any */}
-            {commits.length > 0 && (
-                <div className="bg-slate-800 rounded-lg border border-slate-700 mb-6">
-                    <button
-                        type="button"
-                        onClick={() => setCommitsExpanded((v) => !v)}
-                        className="w-full flex items-center justify-between px-4 py-3 text-left"
-                        aria-expanded={commitsExpanded}
-                    >
-                        <div className="flex items-center gap-2">
-                            <span className="text-slate-400">
-                                {commitsExpanded ? <Icons.ChevronDown /> : <Icons.ChevronRight />}
-                            </span>
-                            <h2 className="text-sm font-semibold text-white">Relevant commits</h2>
-                            <span className="text-xs text-slate-400">({commits.length})</span>
-                        </div>
-                    </button>
-                    {commitsExpanded && (
-                        <div className="px-4 pb-4 border-t border-slate-700">
+            {/* Relevant Commits - always visible as its own panel, whether or
+                not any commit info has synced yet, so this isn't missed
+                among the rest of the page; content inside collapses. */}
+            <div className="bg-slate-800 rounded-lg border border-slate-700 mb-6">
+                <button
+                    type="button"
+                    onClick={() => setCommitsExpanded((v) => !v)}
+                    className="w-full flex items-center justify-between px-4 py-3 text-left"
+                    aria-expanded={commitsExpanded}
+                >
+                    <div className="flex items-center gap-2">
+                        <span className="text-slate-400">
+                            {commitsExpanded ? <Icons.ChevronDown /> : <Icons.ChevronRight />}
+                        </span>
+                        <h2 className="text-sm font-semibold text-white">Relevant commits</h2>
+                        <span className="text-xs text-slate-400">
+                            {commitsLoaded ? `(${commits.length})` : '(checking...)'}
+                        </span>
+                    </div>
+                </button>
+                {commitsExpanded && (
+                    <div className="px-4 pb-4 border-t border-slate-700">
+                        {commits.length === 0 ? (
+                            <p className="pt-3 text-xs text-slate-400">
+                                {commitsLoaded
+                                    ? 'No commit information recorded for this review yet. Plain "lrc review" (staged/working) commits sync in the background after `git commit` and may take a moment to appear; PR/MR and --commit/--range reviews are recorded immediately once submitted.'
+                                    : 'Checking for commit information...'}
+                            </p>
+                        ) : (
                             <ul className="divide-y divide-slate-700">
                                 {commits.map((commit) => (
                                     <li key={commit.ref} className="flex items-center justify-between gap-4 py-2 text-sm">
@@ -496,10 +510,10 @@ const ReviewDetail: React.FC = () => {
                                     </li>
                                 ))}
                             </ul>
-                        </div>
-                    )}
-                </div>
-            )}
+                        )}
+                    </div>
+                )}
+            </div>
 
             {/* Findings / Accounting / Events */}
             <Tabs
