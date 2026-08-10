@@ -458,6 +458,17 @@ db-flip:
 	@echo "New DATABASE_URL in .env:"
 	@grep "DATABASE_URL=" .env
 
+# Generate a token-compact schema dump of the prod DB (public schema) for LLM context.
+.PHONY: compressed-schema
+compressed-schema:
+	@if [ ! -f .env.prod ]; then \
+		echo "❌ ERROR: .env.prod not found"; \
+		exit 1; \
+	fi
+	@mkdir -p db
+	@set -a && . ./.env.prod && set +a && python3 scripts/llm-schema.py db/schema-compressed.txt
+	@echo "✅ Wrote db/schema-compressed.txt"
+
 # Multi-architecture Docker build targets
 docker-multiarch:
 	@python scripts/lrops.py build --docker --multiarch $(ARGS)

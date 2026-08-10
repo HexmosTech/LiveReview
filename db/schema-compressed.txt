@@ -1,0 +1,121 @@
+# LiveReview schema (public). types: int2/int4/int8=smallint/integer/bigint, bool=boolean, vc=varchar, c=char (lengths omitted), timestamp=timestamp w/o tz, timestamptz=timestamp with tz, float8=double precision. flags: ^ PK; = unique; ? nullable (no flag -> NOT NULL); >table[.col] FK (col omitted -> id)
+
+ai_comments: id int8 ^, review_id int8 >reviews, comment_type vc, content jsonb, file_path text ?, line_number int4 ?, created_at timestamptz ?, org_id int8 >orgs
+
+ai_connectors: id int4 ^, org_id int8 >orgs, gcp_project_id text ?, gcp_location text ?, role vc, aws_access_key_id text ?, aws_region text ?, provider_name vc, api_key text, display_order int4, created_at timestamptz ?, updated_at timestamptz ?, connector_name vc ?, base_url text ?, selected_model text ?
+
+ai_models: id int4 ^, model_id vc =, provider vc, name vc, is_active bool ?, is_default bool ?, metadata jsonb ?, created_at timestamp ?, updated_at timestamp ?
+
+api_keys: id int8 ^, expires_at timestamp ?, revoked_at timestamp ?, user_id int8 >users, org_id int8 >orgs, key_hash vc =, key_prefix vc, label vc, scopes jsonb ?, last_used_at timestamp ?, created_at timestamp
+
+auth_tokens: id int8 ^, permissions jsonb ?, rate_limit_requests_per_hour int4 ?, last_rate_limit_reset timestamptz ?, requests_this_hour int4 ?, revoked_at timestamptz ?, is_active bool, user_id int8 >users, token_hash vc, token_type vc, expires_at timestamptz, created_at timestamptz, last_used_at timestamptz, user_agent text ?, ip_address inet ?
+
+billing_notification_outbox: =(channel,dedupe_key), id int8 ^, retry_count int4, last_error text ?, send_after timestamptz, sent_at timestamptz ?, created_at timestamptz, updated_at timestamptz, org_id int8 >orgs, event_type vc, channel vc, dedupe_key vc, payload jsonb, recipient_user_id int8 >users ?, recipient_email vc ?, status vc
+
+dashboard_cache: id int4, data jsonb, updated_at timestamptz ?, created_at timestamptz ?, org_id int8 ^ >orgs, json_raw jsonb, final_json jsonb
+
+instance_details: id int4 ^, livereview_prod_url text ?, created_at timestamptz, updated_at timestamptz, admin_password text
+
+integration_tokens: id int8 ^, created_at timestamptz, updated_at timestamptz, code text ?, connection_name text, provider_url text, client_secret text ?, pat_token text ?, projects_cache jsonb ?, org_id int8 >orgs, provider text, provider_app_id text, access_token text, refresh_token text ?, token_type text ?, scope text ?, expires_at timestamptz ?, metadata jsonb ?
+
+learning_events: id uuid ^, file_path text ?, line_start int4 ?, line_end int4 ?, actor_id int8 ?, reason_snippet text ?, classifier text ?, context jsonb ?, created_at timestamptz, learning_id uuid >learnings, org_id int8, action text, provider text, thread_id text ?, comment_id text ?, repository text ?, commit_sha text ?
+
+learnings: id uuid ^, confidence int4, simhash int8, embedding bytea ?, tsv tsvector ?, source_urls text[], source_context jsonb ?, created_by int8 ?, updated_by int8 ?, created_at timestamptz, updated_at timestamptz, short_id text =, org_id int8, scope_kind learning_scope, repo_id text ?, title text, body text, tags text[], status learning_status
+
+license_log: id int8 ^, processed_at timestamptz ?, error_message text ?, created_at timestamptz, description text ?, subscription_id int8 >subscriptions ?, user_id int8 >users ?, org_id int8 >orgs ?, event_type vc, actor_id int8 >users ?, razorpay_event_id vc = ?, metadata jsonb ?, processed bool ?
+
+license_seat_assignments: id int8 ^, user_id int8 >users, assigned_by_user_id int8 >users ?, assigned_at timestamptz, revoked_at timestamptz ?, is_active bool, created_at timestamptz, updated_at timestamptz
+
+license_state: id int2 ^, last_validated_at timestamptz ?, last_validation_error_code vc ?, validation_failures int4 ?, status vc, grace_started_at timestamptz ?, created_at timestamptz ?, updated_at timestamptz ?, token text ?, kid vc ?, subject vc ?, app_name vc ?, seat_count int4 ?, unlimited bool ?, issued_at timestamptz ?, expires_at timestamptz ?
+
+loc_lifecycle_log: =(org_id,event_key), id int8 ^, notified_at timestamptz ?, created_at timestamptz, org_id int8 >orgs, event_type vc, threshold_percent int4 ?, usage_ledger_id int8 >loc_usage_ledger ?, plan_code vc >plan_catalog.plan_code ?, event_key vc, payload jsonb, notified_email bool
+
+loc_usage_ledger: =(org_id,idempotency_key), id int8 ^, accounted_at timestamptz, billing_period_start timestamptz, billing_period_end timestamptz, status vc, metadata jsonb, created_at timestamptz, provider vc ?, model vc ?, pricing_version vc ?, input_tokens int8 ?, org_id int8 >orgs, output_tokens int8 ?, llm_cost_usd float8 ?, actor_kind vc ?, actor_email_snapshot vc ?, review_id int8 >reviews ?, user_id int8 >users ?, operation_type vc, trigger_source vc, operation_id vc, idempotency_key vc, billable_loc int8
+
+org_billing_state: id int8 ^, trial_readonly bool, scheduled_plan_code vc >plan_catalog.plan_code ?, scheduled_plan_effective_at timestamptz ?, last_reset_at timestamptz, created_at timestamptz, updated_at timestamptz, upgrade_loc_grant_current_cycle int8, upgrade_loc_grant_expires_at timestamptz ?, org_id int8 = >orgs, current_plan_code vc >plan_catalog.plan_code, billing_period_start timestamptz, billing_period_end timestamptz, loc_used_month int8, loc_blocked bool, trial_started_at timestamptz ?, trial_ends_at timestamptz ?
+
+org_billing_state_audit: id int8 ^, org_id int8 ?, old_plan_code text ?, new_plan_code text ?, changed_at timestamptz ?, client_addr inet ?, application_name text ?, db_user text ?, backend_pid int4 ?
+
+org_discord_configs: id int8 ^, org_id int8 = >orgs, bot_token text, api_key text, guild_id text, enabled bool, created_at timestamptz, updated_at timestamptz, application_id text
+
+org_review_ai_settings: org_id int8 ^ >orgs, helper_enabled bool, helper_mode vc, created_at timestamptz, updated_at timestamptz
+
+org_slack_configs: id int8 ^, org_id int8 = >orgs, bot_token text, api_key text, team_id text, enabled bool, created_at timestamptz, updated_at timestamptz, app_token text
+
+org_teams_configs: id int8 ^, org_id int8 = >orgs, bot_app_id text, bot_password text, api_key text, tenant_id text, enabled bool, created_at timestamptz, updated_at timestamptz
+
+orgs: id int8 ^, max_users int4 ?, name vc, description text ?, created_at timestamptz ?, updated_at timestamptz ?, settings jsonb ?, is_active bool, created_by_user_id int8 >users ?, subscription_plan vc ?
+
+plan_catalog: id int8 ^, trial_days int4, envelope_show_price bool, created_at timestamptz, updated_at timestamptz, plan_code vc =, display_name vc, active bool, rank int4, monthly_price_usd int4, monthly_loc_limit int8, feature_flags jsonb, trial_enabled bool
+
+prompt_application_context: id int8 ^, org_id int8 >orgs, ai_connector_id int4 >ai_connectors ?, integration_token_id int8 >integration_tokens ?, group_identifier text ?, repository text ?, created_at timestamptz, updated_at timestamptz
+
+prompt_chunks: =(application_context_id,prompt_key,variable_name,sequence_index), id int8 ^, enabled bool, allow_markdown bool, redact_on_log bool, created_by int8 ?, updated_by int8 ?, created_at timestamptz, updated_at timestamptz, org_id int8 >orgs, application_context_id int8 >prompt_application_context, prompt_key text, variable_name text, chunk_type text, title text ?, body text, sequence_index int4
+
+pull_requests: =(repository_id,provider_pr_id), id int8 ^, author_id text ?, author_username text ?, author_name text ?, author_avatar_url text ?, source_branch text ?, target_branch text ?, web_url text, provider_created_at timestamptz ?, provider_updated_at timestamptz ?, last_synced_at timestamptz, repository_id int8 >repositories, last_synced_source text, metadata jsonb, created_at timestamptz, updated_at timestamptz, org_id int8 >orgs, provider text, provider_pr_id text, number int4, title text, description text ?, state text
+
+quota_batch_settlements: =(org_id,idempotency_key,batch_index), id int8 ^, policy_provider_key vc, pricing_version vc, raw_loc_batch int8, effective_loc_batch int8, extra_effective_loc_batch int8, diff_input_tokens_batch int8, context_chars_batch int8, context_tokens_batch int8, allowed_context_tokens_batch int8, extra_context_tokens_batch int8, org_id int8 >orgs, provider_total_input_tokens_batch int8, output_tokens_batch int8, input_cost_usd_batch float8, output_cost_usd_batch float8, total_cost_usd_batch float8, context_tokens_per_loc_allowance float8, accounted_at timestamptz, created_at timestamptz, updated_at timestamptz, review_id int8 >reviews ?, operation_type vc, trigger_source vc, operation_id vc, idempotency_key vc, batch_index int4, plan_code vc >plan_catalog.plan_code
+
+quota_operation_aggregates: =(org_id,idempotency_key), id int8 ^, model vc ?, pricing_version vc, batch_count int4, raw_loc_total int8, effective_loc_total int8, extra_effective_loc_total int8, diff_input_tokens_total int8, context_chars_total int8, context_tokens_total int8, allowed_context_tokens_total int8, org_id int8 >orgs, extra_context_tokens_total int8, provider_total_input_tokens_total int8, output_tokens_total int8, input_cost_usd_total float8, output_cost_usd_total float8, total_cost_usd_total float8, finalized_at timestamptz, created_at timestamptz, updated_at timestamptz, review_id int8 >reviews ?, operation_type vc, trigger_source vc, operation_id vc, idempotency_key vc, plan_code vc >plan_catalog.plan_code, provider vc ?
+
+quota_policy_catalog: =(plan_code,provider_key), id int8 ^, input_cost_per_million_tokens_usd float8, output_cost_per_million_tokens_usd float8, rounding_scale int4, active bool, created_at timestamptz, updated_at timestamptz, plan_code vc >plan_catalog.plan_code, provider_key vc, input_chars_per_loc int4, output_chars_per_loc int4, chars_per_token int4, loc_budget_ratio float8, context_budget_ratio float8, ops_reserved_ratio float8
+
+recent_activity: id int4 ^, activity_type vc, event_data jsonb, created_at timestamptz ?, review_id int8 >reviews ?, org_id int8 >orgs
+
+repositories: =(connector_id,provider_repo_id), id int8 ^, ssh_url text ?, default_branch text ?, is_private bool, description text ?, last_synced_at timestamptz ?, last_sync_status text, last_sync_error text ?, metadata jsonb, created_at timestamptz, updated_at timestamptz, org_id int8 >orgs, connector_id int8 >integration_tokens, provider text, provider_repo_id text, full_name text, name text, web_url text, clone_url text ?
+
+review_commits: =(review_id,ref), id int8 ^, review_id int8 >reviews, org_id int8 >orgs, repository_id int8 >repositories ?, ref vc, ref_type text, created_at timestamptz
+
+review_events: id int8 ^, review_id int8 >reviews, org_id int8, ts timestamptz, event_type text, level text ?, batch_id text ?, data jsonb
+
+review_feedback: id int8 ^, file_path text ?, severity vc ?, source_type vc, lrc_version vc ?, created_at timestamptz ?, retracted_at timestamptz ?, org_id int8 >orgs, review_id int8 >reviews ?, ai_comment_id int8 >ai_comments ?, vote_type vc, tags text[] ?, feedback_text text ?, comment_content text ?, code_excerpt text ?
+
+reviews: id int8 ^, provider vc ?, created_at timestamptz ?, started_at timestamptz ?, completed_at timestamptz ?, metadata jsonb ?, org_id int8 >orgs, mr_title text ?, author_name text ?, author_username text ?, friendly_name text ?, repository vc, pull_request_id int8 >pull_requests ?, branch vc ?, commit_hash vc ?, pr_mr_url text ?, connector_id int8 ?, status vc, trigger_type vc, user_email vc ?
+
+reviews_backup_20260806: id int8 ?, user_email vc ?, org_id int8 ?
+
+river_client: id text ^, created_at timestamptz, metadata jsonb, paused_at timestamptz ?, updated_at timestamptz
+
+river_client_queue: ^(river_client_id,name), river_client_id text >river_client, name text, created_at timestamptz, max_workers int8, metadata jsonb, num_jobs_completed int8, num_jobs_running int8, updated_at timestamptz
+
+river_job: id int8 ^, args jsonb, attempted_by text[] ?, errors jsonb[] ?, kind text, metadata jsonb, queue text, tags vc[], unique_key bytea ?, unique_states bit(8) ?, state river_job_state, attempt int2, max_attempts int2, attempted_at timestamptz ?, created_at timestamptz, finalized_at timestamptz ?, scheduled_at timestamptz, priority int2
+
+river_leader: elected_at timestamptz, expires_at timestamptz, leader_id text, name text ^
+
+river_migration: ^(line,version), line text, version int8, created_at timestamptz
+
+river_queue: name text ^, created_at timestamptz, metadata jsonb, paused_at timestamptz ?, updated_at timestamptz
+
+roles: id int8 ^, name vc =, created_at timestamptz ?, updated_at timestamptz ?
+
+scheduled_review_configs: =(integration_token_id,project_full_name), id int8 ^, next_run_at timestamptz, created_at timestamptz, updated_at timestamptz, org_id int8 >orgs, integration_token_id int8 >integration_tokens, project_full_name text, enabled bool, interval_hours int4, default_branch text ?, last_synced_sha text ?, last_run_at timestamptz ?
+
+schema_migrations: version vc ^
+
+subscription_payments: id int8 ^, authorized_at timestamptz ?, captured_at timestamptz ?, failed_at timestamptz ?, refunded_at timestamptz ?, razorpay_data jsonb ?, error_code vc ?, error_description text ?, created_at timestamptz, updated_at timestamptz, captured bool, subscription_id int8 >subscriptions ?, razorpay_payment_id vc =, razorpay_order_id vc ?, razorpay_invoice_id vc ?, amount int8, currency vc, status vc, method vc ?
+
+subscriptions: id int8 ^, current_period_end timestamptz ?, created_at timestamptz, activated_at timestamptz ?, cancelled_at timestamptz ?, expired_at timestamptz ?, razorpay_data jsonb ?, org_id int8 >orgs ?, license_expires_at timestamptz ?, notes jsonb ?, updated_at timestamptz, razorpay_subscription_id vc =, last_payment_id vc ?, last_payment_status vc ?, last_payment_received_at timestamptz ?, payment_verified bool, cancel_at_period_end bool ?, short_url vc ?, razorpay_plan_id vc, owner_user_id int8 >users, plan_type vc, quantity int4, assigned_seats int4, status vc, current_period_start timestamptz ?
+
+system_default_ai_configs: id int4 ^, tier_name vc =, provider_name vc, model_name vc, master_api_key text, is_active bool ?, created_at timestamptz ?, updated_at timestamptz ?
+
+system_settings: name vc ^, data jsonb, created_at timestamptz ?, updated_at timestamptz ?
+
+trial_eligibility: id int8 ^, reserved_org_id int8 >orgs ?, reserved_plan_code vc ?, consumed bool, consumed_at timestamptz ?, created_at timestamptz, updated_at timestamptz, normalized_email vc =, first_user_id int8 >users ?, first_org_id int8 >orgs ?, first_subscription_id int8 >subscriptions ?, first_plan_code vc ?, reservation_token vc ?, reservation_expires_at timestamptz ?, reserved_user_id int8 >users ?
+
+upgrade_payment_attempts: id int8 ^, razorpay_payment_id vc ?, status vc, execute_idempotency_key vc ?, execute_response jsonb ?, error_code vc ?, error_reason vc ?, error_description text ?, error_source vc ?, error_step vc ?, prepared_at timestamptz, org_id int8, payment_failed_at timestamptz ?, payment_captured_at timestamptz ?, executed_at timestamptz ?, created_at timestamptz, updated_at timestamptz, upgrade_request_id vc >upgrade_requests.upgrade_request_id ?, preview_token_sha256 c, from_plan_code vc, to_plan_code vc, amount_cents int8, currency vc, razorpay_mode vc, razorpay_order_id vc =
+
+upgrade_replacement_cutovers: id int8 ^, target_quantity int4, currency vc, cutover_at timestamptz, old_cancellation_scheduled bool, status vc, retry_count int4, next_retry_at timestamptz ?, last_error text ?, last_attempted_at timestamptz ?, resolved_at timestamptz ?, upgrade_request_id vc = >upgrade_requests.upgrade_request_id, created_at timestamptz, updated_at timestamptz, org_id int8 >orgs, owner_user_id int8 >users, old_local_subscription_id int8 >subscriptions, old_razorpay_subscription_id vc, replacement_local_subscription_id int8 >subscriptions ?, replacement_razorpay_subscription_id vc ?, target_plan_code vc
+
+upgrade_request_events: id int8 ^, created_at timestamptz, upgrade_request_id vc >upgrade_requests.upgrade_request_id, org_id int8 >orgs, event_source vc, event_type vc, from_status vc ?, to_status vc ?, event_payload jsonb ?, event_time timestamptz
+
+upgrade_requests: id int8 ^, razorpay_mode vc ?, razorpay_order_id vc ?, razorpay_payment_id vc ?, local_subscription_id int8 >subscriptions ?, razorpay_subscription_id vc ?, target_quantity int4 ?, payment_capture_confirmed bool, payment_capture_confirmed_at timestamptz ?, subscription_change_confirmed bool, subscription_change_confirmed_at timestamptz ?, upgrade_request_id vc =, plan_grant_applied bool, plan_grant_applied_at timestamptz ?, current_status vc, failure_reason text ?, resolved_at timestamptz ?, created_at timestamptz, updated_at timestamptz, customer_state vc ?, action_needed_at timestamptz ?, last_customer_state_change_at timestamptz ?, org_id int8 >orgs, actor_user_id int8 >users, from_plan_code vc, to_plan_code vc, expected_amount_cents int8, currency vc, preview_token_sha256 c
+
+user_management_audit: id int8 ^, org_id int8 >orgs, target_user_id int8 >users, performed_by_user_id int8 >users, action vc, details jsonb ?, created_at timestamp
+
+user_role_history: id int8 ^, user_id int8 >users, org_id int8 >orgs, old_role_id int8 >roles ?, new_role_id int8 >roles, changed_by_user_id int8 >users, reason text ?, created_at timestamp
+
+user_roles: ^(user_id,role_id,org_id), user_id int8 >users, role_id int8 >roles, org_id int8 >orgs, created_at timestamptz ?, updated_at timestamptz ?, plan_type vc, license_expires_at timestamptz ?, active_subscription_id int8 >subscriptions ?
+
+users: id int8 ^, created_by_user_id int8 >users ?, deactivated_at timestamp ?, deactivated_by_user_id int8 >users ?, password_reset_required bool, onboarding_api_key text ?, last_cli_used_at timestamptz ?, default_org_id int8 >orgs ?, email vc =, password_hash vc, created_at timestamptz ?, updated_at timestamptz ?, first_name vc ?, last_name vc ?, is_active bool, last_login_at timestamp ?
+
+webhook_registry: id int4 ^, events text ?, status text ?, last_verified_at timestamp ?, created_at timestamp, updated_at timestamp, integration_token_id int8 >integration_tokens ?, org_id int8 >orgs, provider text, provider_project_id text, project_name text, project_full_name text, webhook_id text, webhook_url text, webhook_secret text ?, webhook_name text ?
