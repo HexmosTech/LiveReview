@@ -322,11 +322,65 @@ func NormalizeVegaLiteSpec(spec []byte) ([]byte, error) {
 	}
 	sanitizeAxisFormats(m)
 	injectAxisAngle(m)
+	injectSafeFonts(m)
 	b, err := json.Marshal(m)
 	if err != nil {
 		return nil, err
 	}
 	return b, nil
+}
+
+// safeFontStack is a font family every environment has, with fallbacks.
+const safeFontStack = "Helvetica, Arial, sans-serif"
+
+// injectSafeFonts works around a rendering bug in the vl-convert theme (see
+// vlThemeDefault): the "powerbi" theme's config.font is a bare "Segoe UI",
+// with no fallback family. Axis TITLES still render, because their font
+// setting is a full CSS-style stack ("wf_standard-font, helvetica, arial,
+// sans-serif") that resolves to an installed font - but axis tick labels,
+// legend labels, and header labels inherit the bare top-level "font" and have
+// no fallback, so vl-convert's SVG renderer draws them with zero-width glyphs
+// on any server without Segoe UI installed (i.e. every non-Windows server).
+// The chart LOOKS complete - correct colors, correct bar heights, axis
+// titles all present - but every number and category name is silently
+// missing. This has affected every chart rendered by this package, not only
+// the SQL analytics path.
+//
+// Fix: force a font family with real fallbacks. This is layered on top of
+// whatever theme is active (spec-level config merges with the theme rather
+// than replacing it), so bar/line colors and other theme styling are
+// untouched - only the font resolves differently. config is spec-level
+// (top-level), so unlike sanitizeAxisFormats/injectAxisAngle this needs no
+// recursion into layer/concat/facet children.
+func injectSafeFonts(m map[string]any) {
+	if m == nil {
+		return
+	}
+	config, _ := m["config"].(map[string]any)
+	if config == nil {
+		config = map[string]any{}
+		m["config"] = config
+	}
+	setIfAbsent(config, "font", safeFontStack)
+	ensureNestedFont(config, "axis", "labelFont")
+	ensureNestedFont(config, "legend", "labelFont")
+	ensureNestedFont(config, "header", "labelFont")
+	ensureNestedFont(config, "text", "font")
+}
+
+func ensureNestedFont(config map[string]any, section, key string) {
+	sub, _ := config[section].(map[string]any)
+	if sub == nil {
+		sub = map[string]any{}
+		config[section] = sub
+	}
+	setIfAbsent(sub, key, safeFontStack)
+}
+
+func setIfAbsent(m map[string]any, key string, value any) {
+	if _, exists := m[key]; !exists {
+		m[key] = value
+	}
 }
 
 // temporalTypes are Vega-Lite field types that use time-based axis formatting.

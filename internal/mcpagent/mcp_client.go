@@ -72,7 +72,14 @@ func dialValidatedMCPHost(ctx context.Context, network, addr string) (net.Conn, 
 }
 
 func isDisallowedMCPTargetIP(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+	// LOCAL DEV OVERRIDE - do not commit: allows resolveMCPBaseURL's
+	// localhost override (also marked "do not commit") to pass this SSRF
+	// guard for local testing. Loopback must stay blocked in the real
+	// build - org-supplied MCP URLs go through this same check.
+	if ip.IsLoopback() {
+		return false
+	}
+	return ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
 		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
 }
 

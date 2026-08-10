@@ -129,6 +129,59 @@ func (l *ChatTurnLogger) StepLimitHit(maxSteps int) {
 	l.write("Error", "hit step limit (%d steps) without a final answer", maxSteps)
 }
 
+// SQL analytics phases. The whole reason Livi's wrong numbers were hard to
+// diagnose is that nothing recorded what was actually computed - so every
+// generated statement, every rejection and every row count is logged verbatim
+// here. reportID identifies one entry of a multi-report turn; phase is "count"
+// or "data".
+
+// SQLPlan records the report array the model proposed for this turn.
+func (l *ChatTurnLogger) SQLPlan(step int, planJSON string) {
+	l.write("SQL Plan", "step=%d %s", step, planJSON)
+}
+
+// SQLGenerated records the model's raw SQL before the guard touches it, so a
+// rejection can be traced back to exactly what was written.
+func (l *ChatTurnLogger) SQLGenerated(reportID, phase, rawSQL string) {
+	l.write("SQL Generated", "report=%s phase=%s %s", reportID, phase, collapseSQL(rawSQL))
+}
+
+// SQLRewritten records the org-scoped statement that will actually execute.
+// This is the ground truth for "where did this number come from".
+func (l *ChatTurnLogger) SQLRewritten(reportID, phase, rewritten string) {
+	l.write("SQL Rewritten", "report=%s phase=%s %s", reportID, phase, collapseSQL(rewritten))
+}
+
+// SQLRejected records a guard refusal and the attempt number, so a retry loop
+// that is not converging is visible rather than silent.
+func (l *ChatTurnLogger) SQLRejected(reportID, phase string, attempt int, reason string) {
+	l.write("SQL Rejected", "report=%s phase=%s attempt=%d reason=%s", reportID, phase, attempt, reason)
+}
+
+// SQLResult records what the database returned.
+func (l *ChatTurnLogger) SQLResult(reportID, phase string, elapsed time.Duration, rows int, truncated bool) {
+	l.write("SQL Result", "report=%s phase=%s elapsed=%s rows=%d truncated=%v",
+		reportID, phase, elapsed.Round(time.Millisecond), rows, truncated)
+}
+
+// SQLError records an execution failure (timeout, unresolved relation, ...).
+func (l *ChatTurnLogger) SQLError(reportID, phase string, elapsed time.Duration, err error) {
+	l.write("SQL Error", "report=%s phase=%s elapsed=%s error=%v",
+		reportID, phase, elapsed.Round(time.Millisecond), err)
+}
+
+// ReportFinalized records how one report ended up being presented.
+func (l *ChatTurnLogger) ReportFinalized(reportID, responseType, title string, rows int) {
+	l.write("Report Finalized", "report=%s type=%s rows=%d title=%q", reportID, responseType, rows, title)
+}
+
+// collapseSQL folds a multi-line statement onto one line so the log stays
+// greppable - a rewritten query carries a dozen shadow CTEs and would
+// otherwise swamp the file it shares with every other session.
+func collapseSQL(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
 var secretPattern = regexp.MustCompile(`(?i)"(authorization|bearer|api[_-]?key|token|password|secret)"\s*:\s*"([^"]{0,4})[^"]*"`)
 
 // redactSecrets masks likely-sensitive values in JSON-ish text before it hits

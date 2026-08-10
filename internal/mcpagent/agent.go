@@ -18,13 +18,25 @@ const (
 	toolResultPreviewLen = 500
 )
 
+// llmProvider is the slice of *Provider the agent actually uses. Keeping it an
+// interface lets the analytics orchestration be driven by a scripted fake in
+// tests, so the SQL path can be verified end to end without a live model.
+type llmProvider interface {
+	Complete(ctx context.Context, history []HistoryEntry, tools []llms.Tool) (string, error)
+	Describe() string
+	FormatTools(tools []MCPToolDef) []llms.Tool
+}
+
 // Agent runs the ReAct tool-calling loop.
 type Agent struct {
-	provider      *Provider
+	provider      llmProvider
 	mcpSession    *MCPSession
 	providerTools []llms.Tool
 	systemPrompt  string
 	maxSteps      int
+	// analytics executes generated SQL. Nil leaves the agent tool-only, which
+	// is the pre-existing behaviour; see WithAnalytics.
+	analytics AnalyticsEngine
 }
 
 func NewAgent(provider *Provider, mcpSession *MCPSession, maxSteps int) *Agent {
@@ -32,7 +44,7 @@ func NewAgent(provider *Provider, mcpSession *MCPSession, maxSteps int) *Agent {
 		maxSteps = DefaultMaxAgentSteps
 	}
 	tools := provider.FormatTools(mcpSession.Tools)
-	systemPrompt := buildSystemPrompt(mcpSession.Tools, mcpSession.OrgName, mcpSession.UserName)
+	systemPrompt := buildSystemPrompt(mcpSession.Tools, mcpSession.OrgName, mcpSession.UserName, false)
 
 	return &Agent{
 		provider:      provider,
@@ -49,6 +61,14 @@ func NewAgent(provider *Provider, mcpSession *MCPSession, maxSteps int) *Agent {
 // Agent instance itself is reused across many sessions by the bots, so the
 // session identity has to be passed in per call rather than baked into Agent.
 func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText string, sessionID, source string) (string, []HistoryEntry, error) {
+	text, updated, _, err := a.RunTurnWithArtifacts(ctx, history, userText, sessionID, source)
+	return text, updated, err
+}
+
+// RunTurnWithArtifacts is RunTurn plus any files the turn produced (CSV
+// exports). Callers that cannot deliver a file - the bots today - can keep
+// using RunTurn and lose nothing but the attachment.
+func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry, userText string, sessionID, source string) (string, []HistoryEntry, []Artifact, error) {
 	log.Debug().Int("history_entries", len(history)).Int("user_text_len", len(userText)).Msg("Agent RunTurn starting")
 
 	clog := logging.NewChatTurnLogger(sessionID, source)
@@ -73,7 +93,7 @@ func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText st
 		if err != nil {
 			log.Error().Err(err).Int("step", step).Msg("LLM completion failed")
 			clog.AIError(step, aiElapsed, err)
-			return "", history, fmt.Errorf("llm completion step %d: %w", step, err)
+			return "", history, nil, fmt.Errorf("llm completion step %d: %w", step, err)
 		}
 		log.Debug().Int("step", step).Int("response_len", len(response)).Msg("LLM call succeeded")
 		clog.AIResponse(step, aiElapsed, response)
@@ -82,6 +102,16 @@ func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText st
 
 		toolCalls := parseToolCalls(response)
 		if len(toolCalls) == 0 {
+			// A response carrying no `tool` field falls through parseToolCalls
+			// untouched, so this is where an analytics plan surfaces. Checked
+			// before the empty/excuse nags so a valid plan is never mistaken for
+			// a non-answer.
+			if a.analyticsEnabled() {
+				if plan, ok := parseAnalyticsPlan(response); ok {
+					clog.SQLPlan(step, response)
+					return a.runAnalyticsPlan(ctx, plan, history, userText, clog)
+				}
+			}
 			if strings.TrimSpace(response) == "" {
 				log.Warn().Int("step", step).Msg("AI returned an empty response, forcing retry")
 				history = append(history, HistoryEntry{
@@ -99,7 +129,7 @@ func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText st
 				continue
 			}
 			clog.FinalResponse(response)
-			return response, history, nil
+			return response, history, nil, nil
 		}
 
 		for _, tc := range toolCalls {
@@ -137,7 +167,7 @@ func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText st
 				const authErrorResponse = "Your session has expired. Please refresh the page and sign in again."
 				log.Warn().Str("tool", tc.Name).Msg("Auth error from tool call, stopping agent loop instead of retrying")
 				clog.FinalResponse(authErrorResponse + " (stopped after auth error from " + tc.Name + ")")
-				return authErrorResponse, history, nil
+				return authErrorResponse, history, nil, nil
 			}
 
 			history = append(history, HistoryEntry{
@@ -151,10 +181,10 @@ func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText st
 
 	log.Warn().Int("max_steps", a.maxSteps).Msg("Agent hit step limit")
 	clog.StepLimitHit(a.maxSteps)
-	return "I hit my step limit trying to finish that — try breaking the request down.", history, nil
+	return "I hit my step limit trying to finish that — try breaking the request down.", history, nil, nil
 }
 
-func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
+func buildSystemPrompt(tools []MCPToolDef, orgName, userName string, withAnalytics bool) string {
 	if len(tools) == 0 {
 		return ""
 	}
@@ -185,6 +215,17 @@ func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
 		b.WriteString("\n")
 	}
 	b.WriteString(agentInstructions) // imported from prompts/agent_instructions.md
+
+	if withAnalytics {
+		// Order matters: the schema teaches what can be queried, the plan
+		// instructions teach how to ask for it. Both come after the general
+		// instructions so the SQL rules override the older "aggregate the rows
+		// yourself" guidance still present there.
+		b.WriteString("\n\n")
+		b.WriteString(analyticsSchema) // imported from prompts/analytics_schema.md
+		b.WriteString("\n\n")
+		b.WriteString(analyticsPlanInstructions) // imported from prompts/analytics_plan.md
+	}
 
 	return b.String()
 }

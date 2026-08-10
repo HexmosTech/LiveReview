@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { sendChatMessage, ChatHistoryEntry } from '../../api/chatbot';
+import { sendChatMessage, ChatHistoryEntry, ChatFile } from '../../api/chatbot';
 import { BASE_URL } from '../../api/apiClient';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../store/configureStore';
@@ -16,6 +16,12 @@ interface ChatEntry {
   role: 'user' | 'assistant';
   text: string;
   images?: ChatImage[];
+  files?: ChatFile[];
+}
+
+function formatRowCount(rows?: number): string {
+  if (!rows || rows < 1) return 'CSV';
+  return `CSV · ${rows.toLocaleString()} row${rows === 1 ? '' : 's'}`;
 }
 
 function generateId(): string {
@@ -175,12 +181,45 @@ function findNextSpecial(line: string, from: number): number {
 const Chatbot: React.FC = () => {
   const navigate = useNavigate();
   const user = useAppSelector((state) => state.Auth.user);
+  // CSV exports come from an authenticated, org-scoped endpoint, so the
+  // download has to carry the same headers apiClient sends. The chart <img>
+  // path cannot do this, which is why charts stay on the unauthenticated route.
+  const accessToken = useAppSelector((state) => state.Auth.accessToken);
+  const currentOrgId = useAppSelector((state) => state.Organizations.currentOrgId);
+
+  const downloadFile = useCallback(
+    async (file: ChatFile) => {
+      const url = resolveImageUrl(file.url);
+      if (!url) return;
+      try {
+        const headers: Record<string, string> = {};
+        if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+        if (currentOrgId) headers['X-Org-Context'] = String(currentOrgId);
+
+        const res = await fetch(url, { headers, credentials: 'same-origin' });
+        if (!res.ok) throw new Error('download failed');
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        a.download = file.filename || 'livereview-export.csv';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(objectUrl);
+      } catch {
+        alert('Could not download the file. It may have expired — try asking again.');
+      }
+    },
+    [accessToken, currentOrgId],
+  );
   const userName = user?.name || 'there';
   const [messages, setMessages] = useState<ChatEntry[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [history, setHistory] = useState<ChatHistoryEntry[]>([]);
   const [preview, setPreview] = useState<ChatImage | null>(null);
+  const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [showAISetup, setShowAISetup] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -202,14 +241,16 @@ const Chatbot: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const result = await sendChatMessage(text, history);
+      const result = await sendChatMessage(text, history, sessionId);
       setHistory(result.history);
+      if (result.sessionId) setSessionId(result.sessionId);
 
       const assistantEntry: ChatEntry = {
         id: generateId(),
         role: 'assistant',
         text: result.response,
         images: result.images && result.images.length > 0 ? result.images : undefined,
+        files: result.files && result.files.length > 0 ? result.files : undefined,
       };
       setMessages((prev) => [...prev, assistantEntry]);
     } catch (err: any) {
@@ -373,8 +414,40 @@ const Chatbot: React.FC = () => {
                           ))}
                         </div>
                       )}
+                      {msg.files && msg.files.length > 0 && (
+                        <div className="space-y-3">
+                          {msg.files.map((file, i) => (
+                            <div key={file.url || file.filename || i} className="space-y-2">
+                              {file.title && (
+                                <h3 className="text-sm font-semibold text-slate-300">{file.title}</h3>
+                              )}
+                              <button
+                                onClick={() => downloadFile(file)}
+                                className="flex items-center gap-3 w-full max-w-md px-4 py-3 rounded-lg border border-slate-700 bg-slate-800/60 hover:bg-slate-800 hover:border-slate-600 transition-colors text-left"
+                                title={`Download ${file.filename}`}
+                              >
+                                <svg className="w-5 h-5 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-sm font-medium text-slate-200 truncate">{file.filename}</span>
+                                  <span className="block text-xs text-slate-400">{formatRowCount(file.rows)}</span>
+                                </span>
+                              </button>
+                              {file.description && (
+                                <p className="text-sm text-slate-300 whitespace-pre-line">{file.description}</p>
+                              )}
+                              {file.query && (
+                                <p className="text-xs text-slate-400 italic whitespace-pre-line">
+                                  Query used: {file.query}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {msg.text && (
-                        <div className={`${msg.images && msg.images.length > 0 ? 'mt-6' : ''} text-base leading-snug whitespace-pre-wrap break-words text-slate-200`}>
+                        <div className={`${(msg.images && msg.images.length > 0) || (msg.files && msg.files.length > 0) ? 'mt-6' : ''} text-base leading-snug whitespace-pre-wrap break-words text-slate-200`}>
                           {formatText(msg.text)}
                         </div>
                       )}

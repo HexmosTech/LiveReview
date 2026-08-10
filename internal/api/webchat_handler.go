@@ -19,8 +19,10 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/livisql"
 	"github.com/livereview/internal/mcpagent"
 	"github.com/livereview/internal/vlrender"
+	storageanalytics "github.com/livereview/storage/analytics"
 	"github.com/rs/zerolog/log"
 )
 
@@ -39,6 +41,11 @@ type chartFileEntry struct {
 	PNGPath   string
 	TmpDir    string
 	CreatedAt time.Time
+	// Filename and OrgID are set for downloadable exports (see chat_files.go).
+	// A chart PNG is a rendered picture; a CSV is bulk organization data, so it
+	// carries the org that produced it and is only served back to that org.
+	Filename string
+	OrgID    int64
 }
 
 func registerChartFile(id, tmpDir, pngPath string) {
@@ -100,7 +107,21 @@ type WebChatResponse struct {
 	Response  string                  `json:"response"`
 	History   []mcpagent.HistoryEntry `json:"history"`
 	Images    []WebChatImage          `json:"images,omitempty"`
+	Files     []WebChatFile           `json:"files,omitempty"`
 	SessionID string                  `json:"sessionId,omitempty"`
+}
+
+// analyticsRoleFor maps permissions onto the SQL catalog's roles. Super admins
+// and owners see billing tables; everyone else sees only review data.
+func analyticsRoleFor(pc *auth.PermissionContext) string {
+	switch {
+	case pc.IsSuperAdmin:
+		return string(livisql.RoleSuperAdmin)
+	case pc.IsOwner:
+		return string(livisql.RoleOwner)
+	default:
+		return string(livisql.RoleMember)
+	}
 }
 
 // newChatSessionID mints a random session id for correlating debug log
@@ -156,16 +177,22 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	if pc.User != nil {
 		mcpSession.UserName = pc.User.FullName()
 	}
+	// Scope for generated SQL. Derived from the permission booleans rather than
+	// pc.Role, which is a free-form label; getting this wrong would let a member
+	// read billing data that the REST tools gate behind ownership.
+	mcpSession.OrgID = orgID
+	mcpSession.UserRole = analyticsRoleFor(pc)
 
 	provider := mcpagent.NewProvider(connector)
-	agent := mcpagent.NewAgent(provider, mcpSession, maxSteps)
+	agent := mcpagent.NewAgent(provider, mcpSession, maxSteps).
+		WithAnalytics(storageanalytics.NewAdHocStore(s.db))
 
 	sessionID := req.SessionID
 	if sessionID == "" {
 		sessionID = newChatSessionID()
 	}
 
-	responseText, updatedHistory, err := agent.RunTurn(ctx, req.History, req.Message, sessionID, "livi")
+	responseText, updatedHistory, artifacts, err := agent.RunTurnWithArtifacts(ctx, req.History, req.Message, sessionID, "livi")
 	if err != nil {
 		log.Error().Err(err).Msg("WebChat: agent loop failed")
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Agent loop failed: %s", err.Error())})
@@ -175,6 +202,7 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		Response:  responseText,
 		History:   updatedHistory,
 		SessionID: sessionID,
+		Files:     registerChatExports(artifacts, orgID),
 	}
 
 	if vlrender.HasVegaLiteSpec(responseText) {

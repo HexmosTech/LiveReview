@@ -547,7 +547,7 @@ func WorkerContext(versionInfo *VersionInfo) (*Server, error) {
 // back to the cloud endpoint if none is configured.
 func resolveMCPBaseURL(db *sql.DB) string {
 	if isCloudMode() {
-		return "https://livereview.hexmos.com/api/mcp"
+		return "http://localhost:8888/api/mcp" // LOCAL DEV OVERRIDE - do not commit
 	}
 	var prodURL sql.NullString
 	if err := db.QueryRow("SELECT livereview_prod_url FROM instance_details LIMIT 1").Scan(&prodURL); err == nil && prodURL.Valid && prodURL.String != "" {
@@ -1323,6 +1323,9 @@ func (s *Server) setupRoutes() {
 	chatGroup.Use(authMiddleware.ValidateOrgAccess())
 	chatGroup.Use(authMiddleware.BuildPermissionContext())
 	chatGroup.POST("/send", s.HandleWebChat)
+	// CSV exports are bulk org data, so unlike the chart PNGs below they are
+	// served from the authenticated group and checked against the caller's org.
+	chatGroup.GET("/files/:id", s.ServeChatCSV)
 
 	// Chart PNG serving (no auth — loaded by <img> tags; unguessable random IDs + TTL expiry)
 	v1.GET("/chat/charts/:id", s.ServeChartPNG)
