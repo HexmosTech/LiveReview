@@ -65,6 +65,7 @@ func registerChatExports(artifacts []mcpagent.Artifact, orgID int64) []WebChatFi
 			os.RemoveAll(old.TmpDir)
 		}
 		chartFiles[id] = &chartFileEntry{
+			Kind:      chartFileKindExport,
 			PNGPath:   path,
 			TmpDir:    tmpDir,
 			CreatedAt: time.Now(),
@@ -105,7 +106,7 @@ func (s *Server) ServeChatCSV(c echo.Context) error {
 
 	// Report a wrong-org request as absent rather than forbidden, so the
 	// endpoint cannot be used to confirm that an id exists.
-	if !ok || entry.Filename == "" || entry.OrgID != pc.OrgID {
+	if !ok || entry.Kind != chartFileKindExport || entry.OrgID != pc.OrgID {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "file not found or expired"})
 	}
 	return c.Attachment(entry.PNGPath, entry.Filename)

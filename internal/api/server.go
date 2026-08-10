@@ -547,7 +547,7 @@ func WorkerContext(versionInfo *VersionInfo) (*Server, error) {
 // back to the cloud endpoint if none is configured.
 func resolveMCPBaseURL(db *sql.DB) string {
 	if isCloudMode() {
-		return "http://localhost:8888/api/mcp" // LOCAL DEV OVERRIDE - do not commit
+		return "https://livereview.hexmos.com/api/mcp"
 	}
 	var prodURL sql.NullString
 	if err := db.QueryRow("SELECT livereview_prod_url FROM instance_details LIMIT 1").Scan(&prodURL); err == nil && prodURL.Valid && prodURL.String != "" {

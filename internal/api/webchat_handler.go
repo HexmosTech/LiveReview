@@ -37,7 +37,19 @@ const (
 	cleanupInterval = 1 * time.Minute
 )
 
+// chartFileKind distinguishes the two things this shared registry holds, so
+// the unauthenticated chart route can never be used to fetch an export
+// regardless of what a caller passes as :id. Do not infer kind from whether
+// Filename/OrgID happen to be set - check Kind explicitly.
+type chartFileKind string
+
+const (
+	chartFileKindChart  chartFileKind = "chart"
+	chartFileKindExport chartFileKind = "export"
+)
+
 type chartFileEntry struct {
+	Kind      chartFileKind
 	PNGPath   string
 	TmpDir    string
 	CreatedAt time.Time
@@ -54,17 +66,22 @@ func registerChartFile(id, tmpDir, pngPath string) {
 	if old, ok := chartFiles[id]; ok {
 		os.RemoveAll(old.TmpDir)
 	}
-	chartFiles[id] = &chartFileEntry{PNGPath: pngPath, TmpDir: tmpDir, CreatedAt: time.Now()}
+	chartFiles[id] = &chartFileEntry{Kind: chartFileKindChart, PNGPath: pngPath, TmpDir: tmpDir, CreatedAt: time.Now()}
 	chartFilesMu.Unlock()
 	cleanupExpiredCharts()
 }
 
+// lookupChartFile resolves a chart PNG only. This route has no auth (it's
+// loaded by <img> tags), so it must never be able to return an export entry -
+// registerChatExports (chat_files.go) writes into this same map, and without
+// this Kind check any export's id would be fetchable here with zero auth or
+// org check, bypassing ServeChatCSV's authorization entirely.
 func lookupChartFile(id string) (string, bool) {
 	cleanupExpiredCharts()
 	chartFilesMu.RLock()
 	defer chartFilesMu.RUnlock()
 	e, ok := chartFiles[id]
-	if !ok {
+	if !ok || e.Kind != chartFileKindChart {
 		return "", false
 	}
 	return e.PNGPath, true
