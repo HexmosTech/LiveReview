@@ -8,10 +8,7 @@ export const getScheduledReviewConfigs = async (connectorId: number): Promise<Sc
   return apiClient.get<ScheduledReviewConfig[]>(`/api/v1/connectors/${connectorId}/scheduled-reviews`);
 };
 
-/**
- * Enable/disable scheduled review for a single repo under a connector. The backend currently
- * ignores everything but {project_path, enabled} — it always applies a fixed 24h interval.
- */
+/** Enable/disable/(re)schedule a repo's scheduled review; cron_expression is UTC (CronBuilder converts local time). */
 export const setScheduledReview = async (
   connectorId: number,
   request: SetScheduledReviewRequest

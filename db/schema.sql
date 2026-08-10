@@ -1921,6 +1921,72 @@ ALTER SEQUENCE public.roles_id_seq OWNED BY public.roles.id;
 
 
 --
+-- Name: scheduled_review_configs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.scheduled_review_configs (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    repository_id bigint NOT NULL,
+    enabled boolean DEFAULT true NOT NULL,
+    cron_expression text DEFAULT '0 9 * * *'::text NOT NULL,
+    default_branch text,
+    last_synced_sha text,
+    last_run_at timestamp with time zone,
+    next_run_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE scheduled_review_configs; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.scheduled_review_configs IS 'Per-repo configuration for periodic default-branch reviews';
+
+
+--
+-- Name: COLUMN scheduled_review_configs.repository_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.scheduled_review_configs.repository_id IS 'One config per repo - the repositories row already carries full_name/connector_id/org_id, so those are joined rather than duplicated here';
+
+
+--
+-- Name: COLUMN scheduled_review_configs.cron_expression; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.scheduled_review_configs.cron_expression IS 'Standard 5-field cron expression (UTC) - the frontend converts the user''s local time before sending';
+
+
+--
+-- Name: COLUMN scheduled_review_configs.last_synced_sha; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.scheduled_review_configs.last_synced_sha IS 'Checkpoint SHA used as the base for the next scheduled diff';
+
+
+--
+-- Name: scheduled_review_configs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.scheduled_review_configs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: scheduled_review_configs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.scheduled_review_configs_id_seq OWNED BY public.scheduled_review_configs.id;
+
+
+--
 -- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2776,6 +2842,13 @@ ALTER TABLE ONLY public.roles ALTER COLUMN id SET DEFAULT nextval('public.roles_
 
 
 --
+-- Name: scheduled_review_configs id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scheduled_review_configs ALTER COLUMN id SET DEFAULT nextval('public.scheduled_review_configs_id_seq'::regclass);
+
+
+--
 -- Name: subscription_payments id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3289,6 +3362,22 @@ ALTER TABLE ONLY public.roles
 
 ALTER TABLE ONLY public.roles
     ADD CONSTRAINT roles_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: scheduled_review_configs scheduled_review_configs_repository_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scheduled_review_configs
+    ADD CONSTRAINT scheduled_review_configs_repository_id_key UNIQUE (repository_id);
+
+
+--
+-- Name: scheduled_review_configs scheduled_review_configs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scheduled_review_configs
+    ADD CONSTRAINT scheduled_review_configs_pkey PRIMARY KEY (id);
 
 
 --
@@ -4331,6 +4420,20 @@ CREATE INDEX idx_reviews_status ON public.reviews USING btree (status);
 
 
 --
+-- Name: idx_scheduled_review_configs_due; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_scheduled_review_configs_due ON public.scheduled_review_configs USING btree (next_run_at) WHERE (enabled = true);
+
+
+--
+-- Name: idx_scheduled_review_configs_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_scheduled_review_configs_org_id ON public.scheduled_review_configs USING btree (org_id);
+
+
+--
 -- Name: idx_subscription_payments_captured; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5278,6 +5381,22 @@ ALTER TABLE ONLY public.river_client_queue
 
 
 --
+-- Name: scheduled_review_configs scheduled_review_configs_repository_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scheduled_review_configs
+    ADD CONSTRAINT scheduled_review_configs_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES public.repositories(id) ON DELETE CASCADE;
+
+
+--
+-- Name: scheduled_review_configs scheduled_review_configs_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scheduled_review_configs
+    ADD CONSTRAINT scheduled_review_configs_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
 -- Name: subscription_payments subscription_payments_subscription_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5647,4 +5766,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260729150001'),
     ('20260803154217'),
     ('20260808000000'),
-    ('20260808120000');
+    ('20260808120000'),
+    ('20260809150000');

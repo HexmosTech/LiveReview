@@ -1,7 +1,4 @@
-// The cron strings this app builds/stores are always UTC (that's what the backend worker
-// evaluates against), but the picker itself should let the user think in their own local
-// time. These helpers convert between the two, leaning on the JS Date engine's own
-// local<->UTC handling rather than manually computing offsets (so DST is handled correctly).
+// Cron strings are always UTC; these helpers convert to/from local time via JS Date so DST is handled correctly.
 
 import { getCronText, CronTextResult } from './cronUtils';
 
@@ -32,11 +29,7 @@ export function utcTimeToLocal({ hour, minute }: TimeOfDay): TimeOfDay {
   return { hour: ref.getHours(), minute: ref.getMinutes() };
 }
 
-/**
- * Local day-of-week (0=Sun..6=Sat) + HH:MM -> the UTC day-of-week + HH:MM. Crossing midnight
- * against the local offset can shift the day-of-week by one - that's the whole reason this
- * needs a real Date instead of just converting the hour.
- */
+/** Local day-of-week + HH:MM -> UTC day-of-week + HH:MM; uses a real Date since the offset can shift the day. */
 export function localWeeklyToUTC(dayOfWeek: number, time: TimeOfDay): { dayOfWeek: number } & TimeOfDay {
   const ref = new Date();
   ref.setDate(ref.getDate() + ((dayOfWeek - ref.getDay() + 7) % 7));
@@ -51,13 +44,7 @@ export function utcWeeklyToLocal(dayOfWeek: number, time: TimeOfDay): { dayOfWee
   return { dayOfWeek: ref.getDay(), hour: ref.getHours(), minute: ref.getMinutes() };
 }
 
-/**
- * Local day-of-month (1-31) + HH:MM -> UTC day-of-month + HH:MM. Uses a 31-day reference
- * month so every day value is valid; a day near a month boundary can shift by one when
- * converted (e.g. local day 1 just after midnight can land on UTC day 28-31 of the prior
- * month) - acceptable for a monthly review cadence, where exact-midnight precision doesn't
- * matter as much as it would for, say, billing.
- */
+/** Local day-of-month + HH:MM -> UTC; a day near month boundary can shift by one, acceptable for this cadence. */
 export function localMonthlyDayToUTC(day: number, time: TimeOfDay): { day: number } & TimeOfDay {
   const ref = new Date();
   ref.setMonth(0, day);
@@ -74,24 +61,13 @@ export function utcMonthlyDayToLocal(day: number, time: TimeOfDay): { day: numbe
 
 const sortedUnique = (values: number[]): number[] => Array.from(new Set(values)).sort((a, b) => a - b);
 
-/**
- * Converts every selected local minute to its UTC equivalent for the "hourly" schedule type
- * (fires every hour, so only the offset's minute component matters - the hour component
- * doesn't change "every hour").
- */
+/** Converts selected local minutes to UTC for "hourly" - only the minute component matters. */
 export function convertHourlyMinutes(minutes: number[], direction: 'toUTC' | 'toLocal'): number[] {
   const convert = direction === 'toUTC' ? localTimeToUTC : utcTimeToLocal;
   return sortedUnique(minutes.map((m) => convert({ hour: 0, minute: m }).minute));
 }
 
-/**
- * Converts the full cartesian set of selected local hour/minute combinations (the "daily"
- * schedule type) to their UTC equivalents. Multiple hours and minutes are independent
- * multi-selects in the UI, so each combination is converted individually and the resulting
- * hour/minute values are re-collapsed into two flat lists - exact for a single selected
- * hour+minute, a safe (if occasionally over-inclusive) approximation for multi-select
- * combined with a fractional-hour timezone offset.
- */
+/** Converts the cartesian set of local hour/minute combos to UTC for "daily"; can over-include for multi-select. */
 export function convertDailyTime(hours: number[], minutes: number[], direction: 'toUTC' | 'toLocal'): { hours: number[]; minutes: number[] } {
   const convert = direction === 'toUTC' ? localTimeToUTC : utcTimeToLocal;
   const hourSet: number[] = [];
@@ -157,22 +133,19 @@ export function convertMonthlyCombos(
 const numbersOrStar = (values: number[], wildcardLength: number): string =>
   values.length === wildcardLength ? '*' : values.join(',');
 
-/**
- * Rewrites a UTC cron string's minute/hour/day fields into their local-time equivalents,
- * purely so cronstrue's description reads in local time - never used for actual scheduling
- * (that stays UTC). Falls back to returning the input unchanged for anything it can't
- * confidently re-map (e.g. a hand-typed Custom expression), so the description just
- * describes the literal (UTC) field values in that case instead of guessing wrong.
- */
+// A field this module can convert: '*'/'?' or a comma-separated list of integers - not step/range/named syntax.
+export const isSimpleCronField = (part: string): boolean => part === '*' || part === '?' || /^\d+(,\d+)*$/.test(part);
+
+/** Rewrites a UTC cron string to local time purely for cronstrue's description; falls back unchanged if it can't confidently re-map. */
 export function utcCronToLocalCronString(cronExpr: string): string {
   const cleanExpr = cronExpr.trim();
   const parts = cleanExpr.split(' ');
   if (parts.length !== 5) return cleanExpr;
 
   const [min, hour, dom, month, dow] = parts;
-  // None of the branches below know how to re-map a month restriction (and the friendly
-  // picker never produces one), so bail out rather than silently drop it from the description.
+  // None of the branches below can re-map a month restriction, so bail out rather than drop it.
   if (month !== '*' && month !== '?') return cleanExpr;
+  if (![min, hour, dom, dow].every(isSimpleCronField)) return cleanExpr;
 
   const parseNumbers = (part: string): number[] => {
     if (part === '*' || part === '?') return [];

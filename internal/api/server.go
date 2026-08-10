@@ -41,6 +41,7 @@ import (
 	gitlaboutput "github.com/livereview/internal/provider_output/gitlab"
 	"github.com/livereview/internal/providers/azuredevops"
 	reviewprocessor "github.com/livereview/internal/review_processor"
+	"github.com/livereview/internal/scheduledreview"
 	"github.com/livereview/internal/slackbot"
 	"github.com/livereview/internal/teamsbot"
 	"github.com/livereview/storage/core"
@@ -125,28 +126,31 @@ func isMCPRequest(c echo.Context) bool {
 
 // Server represents the API server
 type Server struct {
-	echo                 *echo.Echo
-	port                 int
-	db                   *sql.DB
+	echo                  *echo.Echo
+	port                  int
+	db                    *sql.DB
 	jobQueue              *jobqueue.JobQueue
 	dashboardManager      *DashboardManager
 	autoWebhookInstaller  *AutoWebhookInstaller
-	versionInfo          *VersionInfo
-	deploymentConfig     *DeploymentConfig
-	authHandlers         *auth.AuthHandlers
-	tokenService         *auth.TokenService
-	userHandlers         *users.UserHandlers
-	userService          *users.UserService
-	profileHandlers      *users.ProfileHandlers
-	orgHandlers          *organizations.OrganizationHandlers
-	orgService           *organizations.OrganizationService
-	testHandlers         *TestHandlers
-	devMode              bool
-	_licenseSvc          interface{} // holds *license.Service lazily (typed in license.go)
-	licenseScheduler     *license.Scheduler
-	billingActionsCancel context.CancelFunc
-	modelSyncCancel      context.CancelFunc
-	slackBotCancel       context.CancelFunc
+	versionInfo           *VersionInfo
+	deploymentConfig      *DeploymentConfig
+	authHandlers          *auth.AuthHandlers
+	tokenService          *auth.TokenService
+	userHandlers          *users.UserHandlers
+	userService           *users.UserService
+	profileHandlers       *users.ProfileHandlers
+	orgHandlers           *organizations.OrganizationHandlers
+	orgService            *organizations.OrganizationService
+	testHandlers          *TestHandlers
+	devMode               bool
+	_licenseSvc           interface{} // holds *license.Service lazily (typed in license.go)
+	licenseScheduler      *license.Scheduler
+	billingActionsCancel  context.CancelFunc
+	modelSyncCancel       context.CancelFunc
+	slackBotCancel        context.CancelFunc
+	scheduledReviewCancel context.CancelFunc
+	// scheduledReviewWakeCh nudges the scheduler to recheck immediately after a create/edit/enable; buffered so sends never block.
+	scheduledReviewWakeCh chan struct{}
 
 	// V2 Webhook Providers
 	gitlabProviderV2      *gitlabprovider.GitLabV2Provider
@@ -1170,6 +1174,8 @@ func (s *Server) setupRoutes() {
 	connectorGroup.POST("/:connectorId/enable-manual-trigger", s.EnableManualTriggerForAllProjects)
 	connectorGroup.POST("/:connectorId/disable-manual-trigger", s.DisableManualTriggerForAllProjects)
 	connectorGroup.POST("/:connectorId/repositories/sync", s.TriggerRepositorySync)
+	connectorGroup.GET("/:connectorId/scheduled-reviews", s.GetScheduledReviewConfigs)
+	connectorGroup.PUT("/:connectorId/scheduled-reviews", s.SetScheduledReview)
 	connectorGroup.POST("/trigger-review", s.TriggerReviewV2, selfHostedLicenseMiddleware)
 
 	// Unified repository + PR/MR listing endpoints (organization-scoped via
@@ -1651,6 +1657,14 @@ func (s *Server) Start() error {
 		aiconnectors.RunAIModelSyncScheduler(syncCtx, s.db, 24*time.Hour)
 	}
 
+	if s.scheduledReviewCancel == nil && s.jobQueue != nil {
+		scheduledReviewCtx, cancel := context.WithCancel(context.Background())
+		s.scheduledReviewCancel = cancel
+		s.scheduledReviewWakeCh = make(chan struct{}, 1)
+		go scheduledreview.RunScheduler(scheduledReviewCtx, s.db, s.jobQueue, s.scheduledReviewWakeCh)
+		fmt.Println("Scheduled review scheduler started")
+	}
+
 	// Start Slack bots if configured
 	if len(s.slackBots) > 0 {
 		slackCtx, cancel := context.WithCancel(context.Background())
@@ -1740,6 +1754,12 @@ func (s *Server) Start() error {
 		s.modelSyncCancel()
 		s.modelSyncCancel = nil
 		fmt.Println("Dynamic AI models sync scheduler stopped")
+	}
+
+	if s.scheduledReviewCancel != nil {
+		s.scheduledReviewCancel()
+		s.scheduledReviewCancel = nil
+		fmt.Println("Scheduled review scheduler stopped")
 	}
 
 	return s.echo.Shutdown(ctx)

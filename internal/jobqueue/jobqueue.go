@@ -2408,11 +2408,13 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	repoPRSyncWorker := &RepoPRSyncWorker{db: db, store: prStore}
 	prStateSyncWorker := &PRStateSyncWorker{db: db, store: prStore}
 	reconciliationWorker := &ReconciliationSweepWorker{db: db, pool: pool, stalenessThreshold: config.RepoSyncConfig.StalenessThreshold}
+	scheduledReviewWorker := &ScheduledReviewWorker{db: db}
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, diffWorker)
 	river.AddWorker(workers, webhookWorker)
 	river.AddWorker(workers, manualWorker)
+	river.AddWorker(workers, scheduledReviewWorker)
 	river.AddWorker(workers, &UpdateOrgUsageWorker{db: db, pool: pool})
 	river.AddWorker(workers, repoPRSyncWorker)
 	river.AddWorker(workers, prStateSyncWorker)
@@ -2459,6 +2461,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	manualWorker.jq = jq
 	diffWorker.jq = jq
 	reconciliationWorker.jq = jq
+	scheduledReviewWorker.jq = jq
 
 	return jq, nil
 }
@@ -2550,6 +2553,17 @@ func (jq *JobQueue) QueueManualReviewJob(ctx context.Context, orgID int64, planC
 	if err != nil {
 		log.Printf("[ERROR] Failed to queue manual review job: %v", err)
 		return fmt.Errorf("failed to queue manual review job: %w", err)
+	}
+	return nil
+}
+
+// QueueScheduledReviewJob enqueues a scheduled-review run for a single config.
+func (jq *JobQueue) QueueScheduledReviewJob(ctx context.Context, configID int64) error {
+	args := ScheduledReviewJobArgs{ConfigID: configID}
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review", MaxAttempts: 3})
+	if err != nil {
+		log.Printf("[ERROR] Failed to queue scheduled review job: %v", err)
+		return fmt.Errorf("failed to queue scheduled review job: %w", err)
 	}
 	return nil
 }

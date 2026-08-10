@@ -12,7 +12,7 @@ import {
 import toast from 'react-hot-toast';
 import { LuSearch } from 'react-icons/lu';
 import { SiGitlab } from 'react-icons/si';
-import { PageHeader, Button, Icons, Toggle, Badge, Input, MultiSelectPanel, parseMultiFilterValue } from '../../components/UIPrimitives';
+import { PageHeader, Button, Icons, Toggle, Input, MultiSelectPanel, parseMultiFilterValue } from '../../components/UIPrimitives';
 import { ClientTable } from '../../components/DataTable/ClientTable';
 import { SortIcon, SortableHeaderLabel, HeaderFilterPopover, multiSelectFilterFn, TruncatedWithTooltip } from '../../components/DataTable/HeaderControls';
 import { EditScheduleModal } from '../../components/reviews/cronbuilder/EditScheduleModal';
@@ -26,8 +26,7 @@ const DEFAULT_CRON = '0 9 * * *';
 const SEARCH_DEBOUNCE_MS = 300;
 const SCHEDULED_REVIEWS_COLUMN_WIDTHS = ['4%', '24%', '11%', '9%', '10%', '18%', '14%', '10%'];
 
-// Same normalization as Explore > Repositories - real provider values are compound
-// strings like "github-com"/"gitlab-self-hosted", not the short filter keys.
+// Same normalization as Explore > Repositories - real provider values are compound strings like "github-com".
 const normalizeProvider = (provider: string): string => {
   const normalized = provider.toLowerCase();
   if (normalized.startsWith('github')) return 'github';
@@ -66,33 +65,21 @@ const truncate = (text: string, max: number): string => (text.length > max ? `${
 
 interface RepoScheduleState {
   enabled: boolean;
-  intervalHours: number;
+  cronExpression: string;
   nextRunAt: string;
   lastRunAt?: string;
-  cronExpression: string;
-  hasCustomCron: boolean;
   toggleBusy: boolean;
 }
 
 const defaultScheduleState: RepoScheduleState = {
   enabled: false,
-  intervalHours: 24,
+  cronExpression: DEFAULT_CRON,
   nextRunAt: '',
   lastRunAt: undefined,
-  cronExpression: '',
-  hasCustomCron: false,
   toggleBusy: false,
 };
 
-// next_run_at/last_run_at from the backend are absolute UTC timestamps - formatting without
-// a `timeZone` override renders each one in the viewer's own local timezone.
-const formatLocalTime = (iso?: string): string => {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '';
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-};
-
+// last_run_at is absolute UTC - formatting without a `timeZone` override renders it in local time.
 const formatLocalDateTime = (iso?: string): string => {
   if (!iso) return 'Never';
   const d = new Date(iso);
@@ -107,7 +94,8 @@ const ScheduledReviews: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [sorting, setSorting] = useState<SortingState>([]);
+  // Default sort: enabled schedules first, most-recently-run first (see sort=schedule in ListRepositories).
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'schedule', desc: true }]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: pageSizeOptions[0] });
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
@@ -116,8 +104,7 @@ const ScheduledReviews: React.FC = () => {
   const [scheduleByRepoId, setScheduleByRepoId] = useState<Record<number, RepoScheduleState>>({});
   const loadedConnectorIdsRef = useRef<Set<number>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
-  // Client-side only (schedule state isn't part of the /repositories response, so this can't
-  // go through the server-driven columnFilters) - narrows the current page's rows.
+  // Client-side only - schedule state isn't part of /repositories, so it can't use columnFilters.
   const [scheduleStatusFilter, setScheduleStatusFilter] = useState('');
 
   const [editingRepos, setEditingRepos] = useState<Repository[] | null>(null);
@@ -166,9 +153,7 @@ const ScheduledReviews: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchRepositories, sorting, columnFilters, pagination]);
 
-  // Pulls existing scheduled-review configs for every connector represented on the current
-  // page, so the Scheduled toggle/column reflects real backend state instead of defaulting
-  // every row to "off" until individually touched.
+  // Pulls scheduled-review configs per connector on the current page, so toggles reflect real backend state.
   useEffect(() => {
     const connectorIds = Array.from(new Set(repositories.map((r) => r.connector_id))).filter(
       (id) => !loadedConnectorIdsRef.current.has(id)
@@ -185,12 +170,12 @@ const ScheduledReviews: React.FC = () => {
             const { id: connectorId, configs } = result.value;
             for (const repo of repositories) {
               if (repo.connector_id !== connectorId || next[repo.id]) continue;
-              const match = configs.find((c) => c.project_full_name === repo.full_name);
+              const match = configs.find((c) => c.repository_id === repo.id);
               next[repo.id] = match
                 ? {
                     ...defaultScheduleState,
                     enabled: match.enabled,
-                    intervalHours: match.interval_hours,
+                    cronExpression: match.cron_expression,
                     nextRunAt: match.next_run_at,
                     lastRunAt: match.last_run_at,
                   }
@@ -238,18 +223,23 @@ const ScheduledReviews: React.FC = () => {
   };
 
   const applyToggle = async (repo: Repository, enabled: boolean) => {
+    const current = scheduleByRepoId[repo.id] || defaultScheduleState;
     setScheduleByRepoId((prev) => ({
       ...prev,
       [repo.id]: { ...(prev[repo.id] || defaultScheduleState), toggleBusy: true },
     }));
     try {
-      const cfg = await setScheduledReview(repo.connector_id, { project_path: repo.full_name, enabled });
+      const cfg = await setScheduledReview(repo.connector_id, {
+        repository_id: repo.id,
+        enabled,
+        cron_expression: current.cronExpression || DEFAULT_CRON,
+      });
       setScheduleByRepoId((prev) => ({
         ...prev,
         [repo.id]: {
           ...(prev[repo.id] || defaultScheduleState),
           enabled: cfg.enabled,
-          intervalHours: cfg.interval_hours,
+          cronExpression: cfg.cron_expression,
           nextRunAt: cfg.next_run_at,
           lastRunAt: cfg.last_run_at,
           toggleBusy: false,
@@ -290,16 +280,18 @@ const ScheduledReviews: React.FC = () => {
     setModalSaving(true);
     const results = await Promise.allSettled(
       editingRepos.map(async (repo) => {
-        const cfg = await setScheduledReview(repo.connector_id, { project_path: repo.full_name, enabled: true });
+        const cfg = await setScheduledReview(repo.connector_id, {
+          repository_id: repo.id,
+          enabled: true,
+          cron_expression: cronExpression,
+        });
         setScheduleByRepoId((prev) => ({
           ...prev,
           [repo.id]: {
             enabled: cfg.enabled,
-            intervalHours: cfg.interval_hours,
+            cronExpression: cfg.cron_expression,
             nextRunAt: cfg.next_run_at,
             lastRunAt: cfg.last_run_at,
-            cronExpression,
-            hasCustomCron: true,
             toggleBusy: false,
           },
         }));
@@ -479,21 +471,7 @@ const ScheduledReviews: React.FC = () => {
       cell: ({ row }) => {
         const state = scheduleByRepoId[row.original.id];
         if (!state?.enabled) return <span className="text-sm text-slate-500">Not scheduled</span>;
-        if (state.hasCustomCron && state.cronExpression) {
-          const text = getLocalCronText(state.cronExpression).value;
-          return (
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm text-slate-200">{text}</span>
-              <Badge variant="warning" size="sm">Preview</Badge>
-            </div>
-          );
-        }
-        const time = formatLocalTime(state.nextRunAt);
-        return (
-          <span className="text-sm text-slate-200">
-            Every {state.intervalHours}h{time ? ` at ${time}` : ''}
-          </span>
-        );
+        return <span className="text-sm text-slate-200">{getLocalCronText(state.cronExpression).value}</span>;
       },
     },
     {
@@ -520,9 +498,7 @@ const ScheduledReviews: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [scheduleByRepoId, scheduleStatusFilter]);
 
-  // Applies the local Scheduled-status filter on top of the already-fetched page of
-  // repositories - narrows what's visible within the current page rather than re-querying
-  // the server (schedule state isn't part of the /repositories response).
+  // Local Scheduled-status filter only - schedule state isn't in /repositories, so this still can't be server-side; sort is server-side now via sort=schedule.
   const visibleRepositories = useMemo(() => {
     const selected = parseMultiFilterValue(scheduleStatusFilter);
     if (selected.length === 0) return repositories;

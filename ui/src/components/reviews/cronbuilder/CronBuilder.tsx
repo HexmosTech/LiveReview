@@ -8,17 +8,10 @@ import {
   convertWeeklyCombos,
   convertMonthlyCombos,
   getLocalCronText,
+  isSimpleCronField,
 } from './cronTimezone';
 
-// Ported from https://github.com/vpfaiz/cron-builder-ui (MIT) — logic kept, styling
-// rewritten to this app's slate/blue dark palette instead of shadcn CSS-variable tokens,
-// and the Radix ToggleGroup swapped for a plain button row (no Radix elsewhere in this app).
-//
-// The picker itself operates in the viewer's local time (labels, defaults, everything the
-// user clicks) - the underlying cron string is still always UTC (what the backend worker
-// evaluates against), so every value crosses that boundary via cronTimezone's converters
-// exactly once: on the way in (parseCronExpression, UTC -> local) and on the way out
-// (buildExpression, local -> UTC).
+// Ported from https://github.com/vpfaiz/cron-builder-ui (MIT), restyled to this app's palette. Operates in local time; crosses to/from UTC only via cronTimezone's converters.
 
 export interface CronBuilderProps {
   onChange: (cronExpression: string) => void;
@@ -107,8 +100,7 @@ export function CronBuilder({ onChange, defaultValue, className }: CronBuilderPr
   const defaultSchedule = defaultValue || '0 9 * * *';
   const zoneName = useMemo(() => localTimeZoneName(), []);
 
-  // Cron fields on the wire are always UTC - convert to local right away so every picker
-  // control below only ever deals in the viewer's own time.
+  // Cron fields on the wire are always UTC - convert to local right away.
   const parseCronExpression = (cronExpr: string): ParsedCron => {
     if (!cronExpr || cronExpr === '') return { type: 'day', values: {} };
 
@@ -117,9 +109,10 @@ export function CronBuilder({ onChange, defaultValue, className }: CronBuilderPr
     if (parts.length !== 5) return { type: 'custom', values: { custom: cleanExpr } };
 
     const [min, hour, dom, month, dow] = parts;
-    // None of the friendly-picker types below can represent a month restriction (there's no
-    // month selector), so treat it as Custom rather than silently drop the restriction.
+    // No friendly-picker type can represent a month restriction, so treat it as Custom.
     if (month !== '*' && month !== '?') return { type: 'custom', values: { custom: cleanExpr } };
+    // Step/range/named syntax (e.g. */5) isn't representable either - same reason.
+    if (![min, hour, dom, dow].every(isSimpleCronField)) return { type: 'custom', values: { custom: cleanExpr } };
 
     const parseNumbers = (part: string): number[] => {
       if (part === '*' || part === '?') return [];
@@ -167,8 +160,7 @@ export function CronBuilder({ onChange, defaultValue, className }: CronBuilderPr
     setDaysOfWeek([1]);
   }
 
-  // Local picker state -> a UTC cron string, the one place that crosses back over the
-  // timezone boundary. Custom mode is untouched - that field is always raw UTC cron.
+  // Local picker state -> UTC cron string; Custom mode is untouched (already raw UTC cron).
   const buildExpression = useMemo((): string => {
     if (scheduleType === 'custom') return custom || '';
 
@@ -378,8 +370,7 @@ export function CronBuilder({ onChange, defaultValue, className }: CronBuilderPr
           if (!getCronText(buildExpression).status) {
             return <p className="rounded-md bg-red-950/40 p-3 text-sm text-red-300">Invalid cron expression</p>;
           }
-          // Described in local time (not the underlying UTC field values) so this matches
-          // whatever hour/minute the user actually clicked above.
+          // Described in local time, not the underlying UTC field values.
           return <p className="rounded-md bg-slate-900/40 p-3 text-sm text-slate-200">{getLocalCronText(buildExpression).value}</p>;
         })()}
       </div>

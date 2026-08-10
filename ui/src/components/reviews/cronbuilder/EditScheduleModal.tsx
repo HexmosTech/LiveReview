@@ -13,11 +13,7 @@ interface EditScheduleModalProps {
   saving?: boolean;
 }
 
-// getNextRuns computes real absolute timestamps (parsed as UTC, since that's what the cron
-// fields represent on the wire). Formatting here deliberately omits a `timeZone` override so
-// the browser renders each one in the viewer's own local timezone - the IANA zone name (e.g.
-// "Asia/Kolkata") is appended manually rather than via toLocaleString's `timeZoneName`
-// option, which for many zones (India included) only has a "GMT+5:30"-style short form.
+// Zone name is appended manually since toLocaleString's timeZoneName often only gives "GMT+5:30".
 const formatRunDate = (date: Date, zone: string): string =>
   `${date.toLocaleString('en-US', {
     weekday: 'short',
@@ -27,11 +23,7 @@ const formatRunDate = (date: Date, zone: string): string =>
     minute: '2-digit',
   })} ${zone}`;
 
-// The parent (ScheduledReviews.tsx) shows/hides this via conditional rendering
-// ({editingRepos && <EditScheduleModal .../>}), not by toggling a persistent `open` prop -
-// so mount = opened, unmount = closed. That's why there's no `open` prop here: `initialCronExpression`
-// is only ever read once, at mount, via useState's initializer, and the fade-in below just
-// runs on mount. (There's deliberately no fade-out - closing unmounts immediately.)
+// Parent shows/hides via conditional rendering (mount = opened, unmount = closed), so there's no `open` prop.
 export const EditScheduleModal: React.FC<EditScheduleModalProps> = ({
   subtitle,
   initialCronExpression,

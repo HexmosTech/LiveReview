@@ -228,6 +228,9 @@ const getPrimaryTitle = (review: Review): string => {
             'CLI Review'
         );
     }
+    if (review.triggerType === 'scheduled') {
+        return review.friendlyName?.trim() || repoShort || 'Scheduled Review';
+    }
     const mrTitleCandidate = review.mrTitle?.trim();
     return mrTitleCandidate && mrTitleCandidate.length > 0
         ? mrTitleCandidate

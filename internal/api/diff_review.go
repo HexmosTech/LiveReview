@@ -17,6 +17,7 @@ import (
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/naming"
+	githubprovider "github.com/livereview/internal/providers/github"
 	"github.com/livereview/pkg/models"
 	"github.com/livereview/storage/archive"
 	"gocloud.dev/blob"
@@ -201,10 +202,21 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 		c.Set(EnvelopeIdempotencyKeyContextKey, v)
 	}
 
+	liveFetch := false
 	preloaded, err := decodePreloadedChanges(meta)
 	if err != nil {
-		log.Printf("[WARN] preloaded_changes unavailable for review %d, serving without code context: %v", reviewID, err)
-		preloaded = nil
+		// Scheduled reviews never persist the diff, so fetch it live from the provider instead.
+		live, ok, liveErr := s.fetchLiveDiffFromMetadata(c.Request().Context(), meta)
+		if liveErr != nil {
+			log.Printf("[WARN] live diff fetch failed for review %d: %v", reviewID, liveErr)
+			preloaded = nil
+		} else if ok {
+			preloaded = live
+			liveFetch = true
+		} else {
+			log.Printf("[WARN] preloaded_changes unavailable for review %d, serving without code context: %v", reviewID, err)
+			preloaded = nil
+		}
 	}
 
 	result, err := decodeReviewResult(meta)
@@ -219,6 +231,9 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 		"review_id": fmt.Sprintf("%d", reviewRecord.ID),
 		"summary":   result.Summary,
 		"files":     files,
+	}
+	if liveFetch {
+		response["live_fetch"] = true
 	}
 
 	if excluded, ok := meta["excluded_files"].([]interface{}); ok && len(excluded) > 0 {
@@ -384,6 +399,55 @@ func (s *Server) GetDiffReviewArtifact(c echo.Context) error {
 	}
 
 	return c.JSONBlob(http.StatusOK, raw)
+}
+
+// fetchLiveDiffFromMetadata re-fetches a diff from the provider using stored base/head SHAs; ok=false if metadata is insufficient.
+func (s *Server) fetchLiveDiffFromMetadata(ctx context.Context, meta map[string]interface{}) ([]models.CodeDiff, bool, error) {
+	connectorID, ok := readInt64Meta(meta, "connector_id")
+	if !ok {
+		return nil, false, nil
+	}
+	repoFullName, ok := readStringMeta(meta, "repo_full_name")
+	if !ok {
+		return nil, false, nil
+	}
+	baseSHA, ok := readStringMeta(meta, "base_sha")
+	if !ok {
+		return nil, false, nil
+	}
+	headSHA, ok := readStringMeta(meta, "head_sha")
+	if !ok {
+		return nil, false, nil
+	}
+
+	parts := strings.SplitN(repoFullName, "/", 2)
+	if len(parts) != 2 {
+		return nil, false, fmt.Errorf("invalid repo_full_name %q", repoFullName)
+	}
+	owner, repo := parts[0], parts[1]
+
+	var provider, patToken string
+	err := s.db.QueryRowContext(ctx, `SELECT provider, pat_token FROM integration_tokens WHERE id = $1`, connectorID).Scan(&provider, &patToken)
+	if err != nil {
+		return nil, true, fmt.Errorf("failed to load integration token %d: %w", connectorID, err)
+	}
+	if !strings.HasPrefix(provider, "github") {
+		return nil, true, fmt.Errorf("live diff fetch not supported for provider %q", provider)
+	}
+
+	ghProvider := githubprovider.NewGitHubProvider(patToken)
+	diffs, err := ghProvider.GetCompareChanges(ctx, owner, repo, baseSHA, headSHA)
+	if err != nil {
+		return nil, true, fmt.Errorf("failed to fetch compare diff: %w", err)
+	}
+
+	out := make([]models.CodeDiff, 0, len(diffs))
+	for _, d := range diffs {
+		if d != nil {
+			out = append(out, *d)
+		}
+	}
+	return out, true, nil
 }
 
 func decodePreloadedChanges(meta map[string]interface{}) ([]models.CodeDiff, error) {
