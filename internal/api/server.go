@@ -1327,9 +1327,6 @@ func (s *Server) setupRoutes() {
 	// served from the authenticated group and checked against the caller's org.
 	chatGroup.GET("/files/:id", s.ServeChatCSV)
 
-	// Chart PNG serving (no auth — loaded by <img> tags; unguessable random IDs + TTL expiry)
-	v1.GET("/chat/charts/:id", s.ServeChartPNG)
-
 	// Dashboard endpoints (organization scoped)
 	dashboardGroup := v1.Group("/dashboard")
 	dashboardGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))

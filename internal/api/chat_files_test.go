@@ -27,46 +27,20 @@ func registerTestExport(t *testing.T, id string, orgID int64, data string) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	chartFilesMu.Lock()
-	chartFiles[id] = &chartFileEntry{
-		Kind:      chartFileKindExport,
-		PNGPath:   path,
+	chatExportsMu.Lock()
+	chatExports[id] = &chatExportEntry{
+		Path:      path,
 		TmpDir:    tmpDir,
 		CreatedAt: time.Now(),
 		Filename:  "export.csv",
 		OrgID:     orgID,
 	}
-	chartFilesMu.Unlock()
+	chatExportsMu.Unlock()
 	t.Cleanup(func() {
-		chartFilesMu.Lock()
-		delete(chartFiles, id)
-		chartFilesMu.Unlock()
+		chatExportsMu.Lock()
+		delete(chatExports, id)
+		chatExportsMu.Unlock()
 	})
-}
-
-// The unauthenticated chart PNG route must never be able to serve a CSV
-// export, regardless of id, because that route carries no auth or org check
-// at all - it exists only because <img> tags can't send headers. If this
-// ever regresses, any org's bulk exported review data becomes fetchable by
-// anyone who learns (or guesses/observes) an export id.
-func TestServeChartPNGCannotServeAnExport(t *testing.T) {
-	const id = "cross-endpoint-export-id"
-	registerTestExport(t, id, 42, "id,repository,status\n1,repo,completed\n")
-
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/chat/charts/"+id, nil)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	c.SetParamNames("id")
-	c.SetParamValues(id)
-
-	s := &Server{}
-	if err := s.ServeChartPNG(c); err != nil {
-		t.Fatalf("handler returned error: %v", err)
-	}
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("ServeChartPNG served an export entry: status=%d body=%q", rec.Code, rec.Body.String())
-	}
 }
 
 // The authenticated export endpoint must still work for the org that owns it.

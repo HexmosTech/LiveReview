@@ -11,11 +11,14 @@ export interface ChatHistoryEntry {
   text?: string;
 }
 
-export interface ChatImage {
-  url: string;
+// A chart report the backend hands back as a raw Vega-Lite spec rather than a
+// rendered image, so the frontend can render it interactively (tooltips,
+// hover, legend filtering) instead of a flat PNG.
+export interface ChatChart {
   title?: string;
   description?: string;
   query?: string;
+  spec: Record<string, unknown>;
 }
 
 // A downloadable export (CSV) produced alongside an answer. Unlike charts,
@@ -33,7 +36,7 @@ export interface ChatFile {
 export interface ChatResponse {
   response: string;
   history: ChatHistoryEntry[];
-  images?: ChatImage[];
+  charts?: ChatChart[];
   files?: ChatFile[];
   sessionId?: string;
 }

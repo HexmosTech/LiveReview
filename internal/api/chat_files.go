@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -14,13 +15,50 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// Downloadable chat exports (CSV) reuse the chart registry in
-// webchat_handler.go: same map, same TTL, same throttled cleanup. Sharing it
-// keeps one expiry policy rather than two that can drift apart.
-//
-// Unlike chart PNGs, an export is bulk organization data, so it is served only
-// to an authenticated caller in the org that produced it. The random id alone
-// is not treated as sufficient authorization.
+// Downloadable chat exports (CSV). Unlike a chart spec, which the frontend
+// renders directly and never touches the backend again, an export is bulk
+// organization data, so it is served only to an authenticated caller in the
+// org that produced it. The random id alone is not treated as sufficient
+// authorization.
+
+const (
+	exportTTL             = 10 * time.Minute
+	exportCleanupInterval = 1 * time.Minute
+)
+
+var (
+	chatExports       = map[string]*chatExportEntry{}
+	chatExportsMu     sync.RWMutex
+	lastExportCleanup = time.Now()
+)
+
+type chatExportEntry struct {
+	Path      string
+	TmpDir    string
+	CreatedAt time.Time
+	Filename  string
+	OrgID     int64
+}
+
+// cleanupExpiredExports throttles the full-map scan to once per
+// exportCleanupInterval, so it can be called on every register/lookup without
+// an O(n) walk on each request. Expired entries are still removed within
+// exportTTL + exportCleanupInterval.
+func cleanupExpiredExports() {
+	chatExportsMu.Lock()
+	defer chatExportsMu.Unlock()
+	if time.Since(lastExportCleanup) < exportCleanupInterval {
+		return
+	}
+	lastExportCleanup = time.Now()
+	now := time.Now()
+	for id, e := range chatExports {
+		if now.Sub(e.CreatedAt) > exportTTL {
+			os.RemoveAll(e.TmpDir)
+			delete(chatExports, id)
+		}
+	}
+}
 
 // WebChatFile is a downloadable artifact offered alongside a chat answer.
 type WebChatFile struct {
@@ -60,20 +98,19 @@ func registerChatExports(artifacts []mcpagent.Artifact, orgID int64) []WebChatFi
 		}
 
 		id := newChatFileID()
-		chartFilesMu.Lock()
-		if old, ok := chartFiles[id]; ok {
+		chatExportsMu.Lock()
+		if old, ok := chatExports[id]; ok {
 			os.RemoveAll(old.TmpDir)
 		}
-		chartFiles[id] = &chartFileEntry{
-			Kind:      chartFileKindExport,
-			PNGPath:   path,
+		chatExports[id] = &chatExportEntry{
+			Path:      path,
 			TmpDir:    tmpDir,
 			CreatedAt: time.Now(),
 			Filename:  art.Filename,
 			OrgID:     orgID,
 		}
-		chartFilesMu.Unlock()
-		cleanupExpiredCharts()
+		chatExportsMu.Unlock()
+		cleanupExpiredExports()
 
 		files = append(files, WebChatFile{
 			URL:         "/api/v1/chat/files/" + id,
@@ -98,16 +135,16 @@ func (s *Server) ServeChatCSV(c echo.Context) error {
 	}
 
 	id := c.Param("id")
-	cleanupExpiredCharts()
+	cleanupExpiredExports()
 
-	chartFilesMu.RLock()
-	entry, ok := chartFiles[id]
-	chartFilesMu.RUnlock()
+	chatExportsMu.RLock()
+	entry, ok := chatExports[id]
+	chatExportsMu.RUnlock()
 
 	// Report a wrong-org request as absent rather than forbidden, so the
 	// endpoint cannot be used to confirm that an id exists.
-	if !ok || entry.Kind != chartFileKindExport || entry.OrgID != pc.OrgID {
+	if !ok || entry.OrgID != pc.OrgID {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "file not found or expired"})
 	}
-	return c.Attachment(entry.PNGPath, entry.Filename)
+	return c.Attachment(entry.Path, entry.Filename)
 }

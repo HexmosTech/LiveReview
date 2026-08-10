@@ -1,21 +1,16 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { sendChatMessage, ChatHistoryEntry, ChatFile } from '../../api/chatbot';
+import type { View } from 'vega';
+import { sendChatMessage, ChatHistoryEntry, ChatFile, ChatChart } from '../../api/chatbot';
 import { BASE_URL } from '../../api/apiClient';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../store/configureStore';
-
-interface ChatImage {
-  url: string;
-  title?: string;
-  description?: string;
-  query?: string;
-}
+import { InteractiveChart, downloadChartView } from './InteractiveChart';
 
 interface ChatEntry {
   id: string;
   role: 'user' | 'assistant';
   text: string;
-  images?: ChatImage[];
+  charts?: ChatChart[];
   files?: ChatFile[];
 }
 
@@ -29,9 +24,10 @@ function generateId(): string {
 }
 
 function resolveImageUrl(url: string): string {
-  // Only allow relative, same-origin chart URLs. The backend always returns
-  // relative /api/v1/chat/charts/... paths; rejecting absolute http(s) URLs
-  // prevents loading arbitrary external content from a model-influenced URL.
+  // Only allow relative, same-origin URLs. The backend always returns
+  // relative /api/v1/chat/files/... paths for CSV exports; rejecting absolute
+  // http(s) URLs prevents loading arbitrary external content from a
+  // model-influenced URL.
   if (!url || !url.startsWith('/')) return '';
   return `${BASE_URL}${url}`;
 }
@@ -43,24 +39,6 @@ function chartFileName(title?: string): string {
   const yy = String(now.getFullYear()).slice(-2);
   const base = (title || 'livereview-chart').replace(/[\/\\]+/g, '_');
   return `${base}__LiveReview__${dd}${mm}${yy}.png`;
-}
-
-async function downloadImage(img: ChatImage): Promise<void> {
-  try {
-    const res = await fetch(resolveImageUrl(img.url), { credentials: 'same-origin' });
-    if (!res.ok) throw new Error('download failed');
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = chartFileName(img.title);
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  } catch (err) {
-    alert('Could not download the chart.');
-  }
 }
 
 function formatText(text: string): React.ReactNode[] {
@@ -182,8 +160,9 @@ const Chatbot: React.FC = () => {
   const navigate = useNavigate();
   const user = useAppSelector((state) => state.Auth.user);
   // CSV exports come from an authenticated, org-scoped endpoint, so the
-  // download has to carry the same headers apiClient sends. The chart <img>
-  // path cannot do this, which is why charts stay on the unauthenticated route.
+  // download has to carry the same headers apiClient sends. Charts don't need
+  // this - they render client-side from a spec and never fetch from the
+  // backend again.
   const accessToken = useAppSelector((state) => state.Auth.accessToken);
   const currentOrgId = useAppSelector((state) => state.Organizations.currentOrgId);
 
@@ -218,7 +197,12 @@ const Chatbot: React.FC = () => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [history, setHistory] = useState<ChatHistoryEntry[]>([]);
-  const [preview, setPreview] = useState<ChatImage | null>(null);
+  const [preview, setPreview] = useState<ChatChart | null>(null);
+  const previewViewRef = useRef<View | null>(null);
+  // Inline charts render their own View independent of the modal's, so a
+  // chart can be downloaded straight from the chat without first expanding
+  // it. Keyed per chart instance since one message can carry several charts.
+  const chartViewsRef = useRef<Map<string, View>>(new Map());
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [showAISetup, setShowAISetup] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -249,7 +233,7 @@ const Chatbot: React.FC = () => {
         id: generateId(),
         role: 'assistant',
         text: result.response,
-        images: result.images && result.images.length > 0 ? result.images : undefined,
+        charts: result.charts && result.charts.length > 0 ? result.charts : undefined,
         files: result.files && result.files.length > 0 ? result.files : undefined,
       };
       setMessages((prev) => [...prev, assistantEntry]);
@@ -286,6 +270,23 @@ const Chatbot: React.FC = () => {
       handleSend();
     }
   };
+
+  const [previewSize, setPreviewSize] = useState<{ width: number; height: number }>({ width: 840, height: 480 });
+
+  const openPreview = useCallback((chart: ChatChart) => {
+    // Size the expanded chart off the current viewport so "expand" reads as
+    // a real full-screen analysis view rather than a slightly bigger card.
+    setPreviewSize({
+      width: Math.round(Math.min(1200, window.innerWidth * 0.85)),
+      height: Math.round(Math.min(720, window.innerHeight * 0.7)),
+    });
+    setPreview(chart);
+  }, []);
+
+  const closePreview = useCallback(() => {
+    setPreview(null);
+    previewViewRef.current = null;
+  }, []);
 
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col bg-slate-900">
@@ -372,46 +373,60 @@ const Chatbot: React.FC = () => {
                       <img src="/assets/lrbot/lrbot.png" alt="Bot" className="w-8 h-8 rounded-full" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      {msg.images && msg.images.length > 0 && (
+                      {msg.charts && msg.charts.length > 0 && (
                         <div className="space-y-6">
-                          {msg.images.map((img, i) => (
-                            <div key={img.url || img.title || i} className="space-y-3">
+                          {msg.charts.map((chart, i) => {
+                            const chartKey = `${msg.id}-${i}`;
+                            return (
+                            <div key={chart.title || i} className="space-y-3">
                               <div className="space-y-3 !mt-2 !mb-8">
-                                {img.title && (
-                                  <h3 className="text-sm font-semibold text-slate-300">{img.title}</h3>
+                                {chart.title && (
+                                  <h3 className="text-sm font-semibold text-slate-300">{chart.title}</h3>
                                 )}
-                                <button
-                                  onClick={() => setPreview(img)}
-                                  className="block relative overflow-hidden rounded-lg w-fit max-w-full"
-                                  title="Click to expand"
-                                  aria-label="Expand chart image"
-                                >
-                                  <img
-                                    src={resolveImageUrl(img.url)}
-                                    alt={img.title || 'Chart'}
-                                    className="block max-w-full max-h-[400px] h-auto rounded-lg cursor-zoom-in border border-slate-700"
-                                    loading="lazy"
+                                <div className="group relative overflow-x-auto max-w-full rounded-lg border border-slate-700">
+                                  <InteractiveChart
+                                    spec={chart.spec}
+                                    className="block"
+                                    onViewReady={(view) => {
+                                      chartViewsRef.current.set(chartKey, view);
+                                    }}
                                   />
-                                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 hover:opacity-100 transition-opacity duration-200">
-                                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800/90 text-xs font-medium text-white shadow-lg">
-                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m-3-3h6" />
+                                  <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                                    <button
+                                      onClick={() =>
+                                        downloadChartView(chartViewsRef.current.get(chartKey) ?? null, chartFileName(chart.title))
+                                      }
+                                      className="p-1.5 rounded-md bg-slate-800/90 text-slate-300 hover:text-white hover:bg-slate-700 shadow-lg transition-colors"
+                                      title="Download chart"
+                                      aria-label="Download chart"
+                                    >
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 3v12m-4-4l4 4 4-4" />
                                       </svg>
-                                      Click to expand
-                                    </span>
+                                    </button>
+                                    <button
+                                      onClick={() => openPreview(chart)}
+                                      className="p-1.5 rounded-md bg-slate-800/90 text-slate-300 hover:text-white hover:bg-slate-700 shadow-lg transition-colors"
+                                      title="Expand chart"
+                                      aria-label="Expand chart"
+                                    >
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-5v4m0-4h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                                      </svg>
+                                    </button>
                                   </div>
-                                </button>
+                                </div>
                               </div>
-                              {img.description && (
-                                <p className="text-sm text-slate-300 whitespace-pre-line">{img.description}</p>
+                              {chart.description && (
+                                <p className="text-sm text-slate-300 whitespace-pre-line">{chart.description}</p>
                               )}
-                              {img.query && (
+                              {chart.query && (
                                 <p className="text-xs text-slate-400 italic whitespace-pre-line">
-                                  Query used: {img.query}
+                                  Query used: {chart.query}
                                 </p>
                               )}
                             </div>
-                          ))}
+                          );})}
                         </div>
                       )}
                       {msg.files && msg.files.length > 0 && (
@@ -447,7 +462,7 @@ const Chatbot: React.FC = () => {
                         </div>
                       )}
                       {msg.text && (
-                        <div className={`${(msg.images && msg.images.length > 0) || (msg.files && msg.files.length > 0) ? 'mt-6' : ''} text-base leading-snug whitespace-pre-wrap break-words text-slate-200`}>
+                        <div className={`${(msg.charts && msg.charts.length > 0) || (msg.files && msg.files.length > 0) ? 'mt-6' : ''} text-base leading-snug whitespace-pre-wrap break-words text-slate-200`}>
                           {formatText(msg.text)}
                         </div>
                       )}
@@ -502,10 +517,10 @@ const Chatbot: React.FC = () => {
       {preview && (
         <div
           className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
-          onClick={() => setPreview(null)}
+          onClick={closePreview}
         >
           <div
-            className="relative max-w-4xl w-full bg-slate-900 rounded-2xl border border-slate-700 overflow-hidden"
+            className="relative w-full max-w-[95vw] max-h-[95vh] bg-slate-900 rounded-2xl border border-slate-700 overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 py-3 bg-slate-800 border-b border-slate-700">
@@ -514,7 +529,7 @@ const Chatbot: React.FC = () => {
               </h3>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => downloadImage(preview)}
+                  onClick={() => downloadChartView(previewViewRef.current, chartFileName(preview.title))}
                   className="inline-flex items-center gap-1 text-xs font-medium text-slate-100 hover:text-white px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-indigo-600 cursor-pointer transition-colors"
                   title="Download"
                 >
@@ -524,7 +539,7 @@ const Chatbot: React.FC = () => {
                   Download
                 </button>
                 <button
-                  onClick={() => setPreview(null)}
+                  onClick={closePreview}
                   className="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
                   title="Close"
                 >
@@ -534,11 +549,14 @@ const Chatbot: React.FC = () => {
                 </button>
               </div>
             </div>
-            <div className="max-h-[75vh] overflow-auto bg-slate-950">
-              <img
-                src={resolveImageUrl(preview.url)}
-                alt={preview.title || 'Chart'}
-                className="w-full h-auto"
+            <div className="max-h-[85vh] overflow-auto bg-slate-950 flex items-center justify-center p-4">
+              <InteractiveChart
+                spec={preview.spec}
+                width={previewSize.width}
+                height={previewSize.height}
+                onViewReady={(view) => {
+                  previewViewRef.current = view;
+                }}
               />
             </div>
           </div>
