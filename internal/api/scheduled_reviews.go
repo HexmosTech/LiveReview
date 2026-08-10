@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/livereview/internal/api/auth"
 	scheduledreviewstore "github.com/livereview/storage/scheduledreview"
 )
 
@@ -93,10 +92,6 @@ func (s *Server) SetScheduledReview(c echo.Context) error {
 	}
 	if req.RepositoryID == 0 {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "repository_id is required"})
-	}
-
-	if _, ok := auth.GetOrgIDFromContext(c); !ok {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Org context not found"})
 	}
 
 	cronExpr := strings.TrimSpace(req.CronExpression)

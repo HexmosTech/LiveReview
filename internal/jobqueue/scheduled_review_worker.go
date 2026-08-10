@@ -80,6 +80,9 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 	parts := strings.SplitN(cfg.ProjectFullName, "/", 2)
 	if len(parts) != 2 {
 		log.Printf("[ERROR] ScheduledReviewWorker: invalid project_full_name %q for config %d; disabling", cfg.ProjectFullName, cfg.ID)
+		if err := store.Disable(ctx, cfg.ID); err != nil {
+			log.Printf("[WARN] ScheduledReviewWorker: failed to disable config %d: %v", cfg.ID, err)
+		}
 		return nil
 	}
 	owner, repo := parts[0], parts[1]

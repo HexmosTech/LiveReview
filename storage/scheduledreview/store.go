@@ -161,3 +161,9 @@ func (s *Store) Claim(ctx context.Context, id int64, until time.Time) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE scheduled_review_configs SET next_run_at = $1, updated_at = NOW() WHERE id = $2`, until, id)
 	return err
 }
+
+// Disable turns off a config that can no longer run (e.g. unrecoverable data error), so it stops being picked up by ListDue.
+func (s *Store) Disable(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE scheduled_review_configs SET enabled = false, updated_at = NOW() WHERE id = $1`, id)
+	return err
+}
