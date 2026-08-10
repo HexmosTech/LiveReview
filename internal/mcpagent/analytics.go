@@ -210,7 +210,7 @@ func (a *Agent) runOneReport(
 func (a *Agent) runCountPhase(ctx context.Context, entry PlanEntry, clog *logging.ChatTurnLogger) (int64, bool) {
 	sqlText := entry.CountSQL
 	for attempt := 1; attempt <= maxSQLAttempts; attempt++ {
-		clog.SQLGenerated(entry.ID, "count", sqlText)
+		clog.SQLGenerated(entry.ID, "count", attempt, sqlText)
 
 		rewritten, err := a.guard().Rewrite(sqlText)
 		if err != nil {
@@ -218,29 +218,29 @@ func (a *Agent) runCountPhase(ctx context.Context, entry PlanEntry, clog *loggin
 			if attempt == maxSQLAttempts {
 				return 0, false
 			}
-			sqlText, err = a.repairSQL(ctx, entry.Question, sqlText, hintFor(err), clog)
+			sqlText, err = a.repairSQL(ctx, entry.ID, attempt, entry.Question, sqlText, hintFor(err), clog)
 			if err != nil {
 				return 0, false
 			}
 			continue
 		}
-		clog.SQLRewritten(entry.ID, "count", rewritten)
+		clog.SQLRewritten(entry.ID, "count", attempt, rewritten)
 
 		start := time.Now()
 		count, err := a.analytics.Count(ctx, a.mcpSession.OrgID, rewritten)
 		if err != nil {
-			clog.SQLError(entry.ID, "count", time.Since(start), err)
+			clog.SQLError(entry.ID, "count", attempt, time.Since(start), err)
 			if attempt == maxSQLAttempts {
 				return 0, false
 			}
-			sqlText, err = a.repairSQL(ctx, entry.Question, sqlText,
+			sqlText, err = a.repairSQL(ctx, entry.ID, attempt, entry.Question, sqlText,
 				"The query failed to execute: "+err.Error()+" Rewrite it.", clog)
 			if err != nil {
 				return 0, false
 			}
 			continue
 		}
-		clog.SQLResult(entry.ID, "count", time.Since(start), 1, false)
+		clog.SQLResult(entry.ID, "count", attempt, time.Since(start), 1, false)
 		return count, true
 	}
 	return 0, false
@@ -255,7 +255,7 @@ func (a *Agent) runFinalizePhase(
 	count int64,
 	clog *logging.ChatTurnLogger,
 ) *FinalizePlan {
-	raw, err := a.completeOnce(ctx, analyticsFinalizeInstructions,
+	raw, err := a.completeOnce(ctx, clog, "finalize", entry.ID, 1, analyticsFinalizeInstructions,
 		fmt.Sprintf("Original question: %s\n\nThis report answers: %s\n\nThe result will contain %d rows.\n\nThe counting query used was:\n%s",
 			userText, entry.Question, count, entry.CountSQL))
 	if err != nil {
@@ -292,7 +292,7 @@ func (a *Agent) materializeReport(
 
 	sqlText := plan.DataSQL
 	for attempt := 1; attempt <= maxSQLAttempts; attempt++ {
-		clog.SQLGenerated(entry.ID, "data", sqlText)
+		clog.SQLGenerated(entry.ID, "data", attempt, sqlText)
 
 		rewritten, err := a.guard().Rewrite(sqlText)
 		if err != nil {
@@ -300,27 +300,27 @@ func (a *Agent) materializeReport(
 			if attempt == maxSQLAttempts {
 				break
 			}
-			if sqlText, err = a.repairSQL(ctx, entry.Question, sqlText, hintFor(err), clog); err != nil {
+			if sqlText, err = a.repairSQL(ctx, entry.ID, attempt, entry.Question, sqlText, hintFor(err), clog); err != nil {
 				break
 			}
 			continue
 		}
-		clog.SQLRewritten(entry.ID, "data", rewritten)
+		clog.SQLRewritten(entry.ID, "data", attempt, rewritten)
 
 		start := time.Now()
 		rs, err := a.analytics.Query(ctx, a.mcpSession.OrgID, rewritten, maxRows)
 		if err != nil {
-			clog.SQLError(entry.ID, "data", time.Since(start), err)
+			clog.SQLError(entry.ID, "data", attempt, time.Since(start), err)
 			if attempt == maxSQLAttempts {
 				break
 			}
-			if sqlText, err = a.repairSQL(ctx, entry.Question, sqlText,
+			if sqlText, err = a.repairSQL(ctx, entry.ID, attempt, entry.Question, sqlText,
 				"The query failed to execute: "+err.Error()+" Rewrite it.", clog); err != nil {
 				break
 			}
 			continue
 		}
-		clog.SQLResult(entry.ID, "data", time.Since(start), len(rs.Rows), rs.Truncated)
+		clog.SQLResult(entry.ID, "data", attempt, time.Since(start), len(rs.Rows), rs.Truncated)
 
 		if len(rs.Rows) == 0 {
 			clog.ReportFinalized(entry.ID, ResponseTypeNoData, plan.Title, 0)
@@ -460,7 +460,7 @@ func (a *Agent) buildCSVReport(
 // noDataText asks the model for one clean sentence. If that call fails the
 // fallback is still a sentence, never an empty chart or a generic error.
 func (a *Agent) noDataText(ctx context.Context, entry PlanEntry, userText string, clog *logging.ChatTurnLogger) string {
-	raw, err := a.completeOnce(ctx, analyticsNoDataInstructions,
+	raw, err := a.completeOnce(ctx, clog, "no_data", entry.ID, 1, analyticsNoDataInstructions,
 		fmt.Sprintf("Original question: %s\n\nThis report answers: %s\n\nThere are zero matching rows.", userText, entry.Question))
 	if err == nil {
 		if plan, perr := parseFinalizePlan(raw); perr == nil && strings.TrimSpace(plan.Text) != "" {
@@ -474,9 +474,12 @@ func (a *Agent) noDataText(ctx context.Context, entry PlanEntry, userText string
 }
 
 // repairSQL gives the model one chance to fix a rejected statement. Only the
-// hint is fed back, never internal guard detail.
-func (a *Agent) repairSQL(ctx context.Context, question, badSQL, hint string, clog *logging.ChatTurnLogger) (string, error) {
-	raw, err := a.completeOnce(ctx, analyticsRepairInstructions,
+// hint is fed back, never internal guard detail. failedAttempt is the attempt
+// number of the statement being repaired, so the resulting log line ties the
+// repair call back to the rejection that triggered it.
+func (a *Agent) repairSQL(ctx context.Context, reportID string, failedAttempt int, question, badSQL, hint string, clog *logging.ChatTurnLogger) (string, error) {
+	raw, err := a.completeOnce(ctx, clog, "repair", reportID, failedAttempt,
+		analyticsRepairInstructions,
 		fmt.Sprintf("Question: %s\n\nThis query was rejected:\n%s\n\nReason: %s\n\nReturn only the corrected SQL.", question, badSQL, hint))
 	if err != nil {
 		return "", err
@@ -491,11 +494,35 @@ func (a *Agent) repairSQL(ctx context.Context, question, badSQL, hint string, cl
 // completeOnce makes a one-shot LLM call outside the agent loop: a fresh
 // two-message conversation, no tools, no accumulated history. Keeping it
 // isolated is what stops one report's retries from polluting another's context.
-func (a *Agent) completeOnce(ctx context.Context, system, user string) (string, error) {
-	return a.provider.Complete(ctx, []HistoryEntry{
+//
+// Unlike the main RunTurn step loop, these calls carry no step number, so
+// they were previously invisible in the debug log - no request, no response,
+// no latency, no token count. kind/reportID/attempt exist purely to make
+// these calls traceable: kind distinguishes finalize/no_data/repair, reportID
+// ties the call to one entry of a multi-report turn, attempt ties a repair
+// call back to the SQL attempt it is fixing.
+func (a *Agent) completeOnce(ctx context.Context, clog *logging.ChatTurnLogger, kind, reportID string, attempt int, system, user string) (string, error) {
+	if clog.Enabled() {
+		if b, err := json.Marshal([]HistoryEntry{
+			{"role": "system", "content": system},
+			{"role": "user", "content": user},
+		}); err == nil {
+			clog.LLMCallRequest(kind, reportID, attempt, string(b))
+		}
+	}
+
+	start := time.Now()
+	text, usage, err := a.provider.Complete(ctx, []HistoryEntry{
 		{"role": "system", "content": system},
 		{"role": "user", "content": user},
 	}, nil)
+	elapsed := time.Since(start)
+	if err != nil {
+		clog.LLMCallError(kind, reportID, attempt, elapsed, err)
+		return "", err
+	}
+	clog.LLMCallResponse(kind, reportID, attempt, elapsed, usage.InputTokens, usage.OutputTokens, text)
+	return text, nil
 }
 
 func hintFor(err error) string {

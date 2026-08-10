@@ -22,7 +22,7 @@ const (
 // interface lets the analytics orchestration be driven by a scripted fake in
 // tests, so the SQL path can be verified end to end without a live model.
 type llmProvider interface {
-	Complete(ctx context.Context, history []HistoryEntry, tools []llms.Tool) (string, error)
+	Complete(ctx context.Context, history []HistoryEntry, tools []llms.Tool) (string, TokenUsage, error)
 	Describe() string
 	FormatTools(tools []MCPToolDef) []llms.Tool
 }
@@ -88,7 +88,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			}
 		}
 		aiStart := time.Now()
-		response, err := a.provider.Complete(ctx, history, a.providerTools)
+		response, usage, err := a.provider.Complete(ctx, history, a.providerTools)
 		aiElapsed := time.Since(aiStart)
 		if err != nil {
 			log.Error().Err(err).Int("step", step).Msg("LLM completion failed")
@@ -96,7 +96,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			return "", history, nil, fmt.Errorf("llm completion step %d: %w", step, err)
 		}
 		log.Debug().Int("step", step).Int("response_len", len(response)).Msg("LLM call succeeded")
-		clog.AIResponse(step, aiElapsed, response)
+		clog.AIResponse(step, aiElapsed, usage.InputTokens, usage.OutputTokens, response)
 
 		history = append(history, HistoryEntry{"role": "assistant", "text": response})
 

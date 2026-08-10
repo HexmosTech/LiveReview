@@ -23,18 +23,18 @@ type scriptedProvider struct {
 	prompts []string
 }
 
-func (p *scriptedProvider) Complete(_ context.Context, history []HistoryEntry, _ []llms.Tool) (string, error) {
+func (p *scriptedProvider) Complete(_ context.Context, history []HistoryEntry, _ []llms.Tool) (string, TokenUsage, error) {
 	if len(history) > 0 {
 		if content, ok := history[len(history)-1]["content"].(string); ok {
 			p.prompts = append(p.prompts, content)
 		}
 	}
 	if p.calls >= len(p.replies) {
-		return "", fmt.Errorf("scripted provider exhausted after %d calls", p.calls)
+		return "", TokenUsage{}, fmt.Errorf("scripted provider exhausted after %d calls", p.calls)
 	}
 	reply := p.replies[p.calls]
 	p.calls++
-	return reply, nil
+	return reply, TokenUsage{}, nil
 }
 
 func (p *scriptedProvider) Describe() string                       { return "scripted/test" }

@@ -100,12 +100,31 @@ func (l *ChatTurnLogger) AIRequest(step int, historyJSON string) {
 	l.write("AI Request", "step=%d payload=%s", step, redactSecrets(historyJSON))
 }
 
-func (l *ChatTurnLogger) AIResponse(step int, elapsed time.Duration, response string) {
-	l.write("AI Response", "step=%d elapsed=%s %s", step, elapsed.Round(time.Millisecond), response)
+func (l *ChatTurnLogger) AIResponse(step int, elapsed time.Duration, tokensIn, tokensOut int, response string) {
+	l.write("AI Response", "step=%d elapsed=%s tokens_in=%d tokens_out=%d %s",
+		step, elapsed.Round(time.Millisecond), tokensIn, tokensOut, response)
 }
 
 func (l *ChatTurnLogger) AIError(step int, elapsed time.Duration, err error) {
 	l.write("AI Error", "step=%d elapsed=%s error=%v", step, elapsed.Round(time.Millisecond), err)
+}
+
+// LLMCallRequest/LLMCallResponse/LLMCallError log the one-shot calls that run
+// outside the main step loop (analytics finalize, no-data, and SQL repair -
+// see mcpagent.Agent.completeOnce). Each one is otherwise invisible: it does
+// not carry a step number, so kind/report/attempt together are what let you
+// tell which of a turn's several off-loop calls produced a given line.
+func (l *ChatTurnLogger) LLMCallRequest(kind, reportID string, attempt int, payload string) {
+	l.write("AI Request", "kind=%s report=%s attempt=%d payload=%s", kind, reportID, attempt, redactSecrets(payload))
+}
+
+func (l *ChatTurnLogger) LLMCallResponse(kind, reportID string, attempt int, elapsed time.Duration, tokensIn, tokensOut int, response string) {
+	l.write("AI Response", "kind=%s report=%s attempt=%d elapsed=%s tokens_in=%d tokens_out=%d %s",
+		kind, reportID, attempt, elapsed.Round(time.Millisecond), tokensIn, tokensOut, response)
+}
+
+func (l *ChatTurnLogger) LLMCallError(kind, reportID string, attempt int, elapsed time.Duration, err error) {
+	l.write("AI Error", "kind=%s report=%s attempt=%d elapsed=%s error=%v", kind, reportID, attempt, elapsed.Round(time.Millisecond), err)
 }
 
 func (l *ChatTurnLogger) ToolCall(step int, name, argsJSON string) {
@@ -141,15 +160,18 @@ func (l *ChatTurnLogger) SQLPlan(step int, planJSON string) {
 }
 
 // SQLGenerated records the model's raw SQL before the guard touches it, so a
-// rejection can be traced back to exactly what was written.
-func (l *ChatTurnLogger) SQLGenerated(reportID, phase, rawSQL string) {
-	l.write("SQL Generated", "report=%s phase=%s %s", reportID, phase, collapseSQL(rawSQL))
+// rejection can be traced back to exactly what was written. attempt
+// distinguishes the original statement (1) from repair retries (2, ...) -
+// without it, a rewritten repair line and the original are indistinguishable
+// except by reading the SQL text itself.
+func (l *ChatTurnLogger) SQLGenerated(reportID, phase string, attempt int, rawSQL string) {
+	l.write("SQL Generated", "report=%s phase=%s attempt=%d %s", reportID, phase, attempt, collapseSQL(rawSQL))
 }
 
 // SQLRewritten records the org-scoped statement that will actually execute.
 // This is the ground truth for "where did this number come from".
-func (l *ChatTurnLogger) SQLRewritten(reportID, phase, rewritten string) {
-	l.write("SQL Rewritten", "report=%s phase=%s %s", reportID, phase, collapseSQL(rewritten))
+func (l *ChatTurnLogger) SQLRewritten(reportID, phase string, attempt int, rewritten string) {
+	l.write("SQL Rewritten", "report=%s phase=%s attempt=%d %s", reportID, phase, attempt, collapseSQL(rewritten))
 }
 
 // SQLRejected records a guard refusal and the attempt number, so a retry loop
@@ -159,15 +181,15 @@ func (l *ChatTurnLogger) SQLRejected(reportID, phase string, attempt int, reason
 }
 
 // SQLResult records what the database returned.
-func (l *ChatTurnLogger) SQLResult(reportID, phase string, elapsed time.Duration, rows int, truncated bool) {
-	l.write("SQL Result", "report=%s phase=%s elapsed=%s rows=%d truncated=%v",
-		reportID, phase, elapsed.Round(time.Millisecond), rows, truncated)
+func (l *ChatTurnLogger) SQLResult(reportID, phase string, attempt int, elapsed time.Duration, rows int, truncated bool) {
+	l.write("SQL Result", "report=%s phase=%s attempt=%d elapsed=%s rows=%d truncated=%v",
+		reportID, phase, attempt, elapsed.Round(time.Millisecond), rows, truncated)
 }
 
 // SQLError records an execution failure (timeout, unresolved relation, ...).
-func (l *ChatTurnLogger) SQLError(reportID, phase string, elapsed time.Duration, err error) {
-	l.write("SQL Error", "report=%s phase=%s elapsed=%s error=%v",
-		reportID, phase, elapsed.Round(time.Millisecond), err)
+func (l *ChatTurnLogger) SQLError(reportID, phase string, attempt int, elapsed time.Duration, err error) {
+	l.write("SQL Error", "report=%s phase=%s attempt=%d elapsed=%s error=%v",
+		reportID, phase, attempt, elapsed.Round(time.Millisecond), err)
 }
 
 // ReportFinalized records how one report ended up being presented.
