@@ -1,7 +1,7 @@
-\restrict HKiks9DoNhzQDx4VBfohzqJ2nYkhzLW2zAD7qua1hjhA5kzEkWNIEexKDSF7aHX
+\restrict dbmate
 
--- Dumped from database version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
--- Dumped by pg_dump version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
+-- Dumped from database version 15.17 (Debian 15.17-1.pgdg13+1)
+-- Dumped by pg_dump version 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -1633,6 +1633,55 @@ ALTER SEQUENCE public.repositories_id_seq OWNED BY public.repositories.id;
 
 
 --
+-- Name: review_commits; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.review_commits (
+    id bigint NOT NULL,
+    review_id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    repository_id bigint,
+    ref character varying(160) NOT NULL,
+    ref_type text DEFAULT 'commit'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT review_commits_ref_type_check CHECK ((ref_type = ANY (ARRAY['commit'::text, 'range'::text])))
+);
+
+
+--
+-- Name: TABLE review_commits; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.review_commits IS 'Commit identifiers covered by a given review run. A review may cover zero (staged/working diff), one, or many commits. When a --range review is submitted, both the expanded individual commit SHAs and the literal range expression are stored, so later lookups match whichever identifier form the caller supplies. Matched for CI lookups by exact (org_id, ref) string equality only -- no ancestry computation.';
+
+
+--
+-- Name: COLUMN review_commits.ref; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.review_commits.ref IS 'A full commit SHA, or a literal "<from>..<to>" range expression as submitted by the caller.';
+
+
+--
+-- Name: review_commits_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.review_commits_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: review_commits_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.review_commits_id_seq OWNED BY public.review_commits.id;
+
+
+--
 -- Name: review_events; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2807,6 +2856,13 @@ ALTER TABLE ONLY public.repositories ALTER COLUMN id SET DEFAULT nextval('public
 
 
 --
+-- Name: review_commits id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_commits ALTER COLUMN id SET DEFAULT nextval('public.review_commits_id_seq'::regclass);
+
+
+--
 -- Name: review_events id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3277,6 +3333,14 @@ ALTER TABLE ONLY public.repositories
 
 
 --
+-- Name: review_commits review_commits_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_commits
+    ADD CONSTRAINT review_commits_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: review_events review_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3578,6 +3642,14 @@ ALTER TABLE ONLY public.quota_policy_catalog
 
 ALTER TABLE ONLY public.repositories
     ADD CONSTRAINT uq_repositories_connector_provider_repo UNIQUE (connector_id, provider_repo_id);
+
+
+--
+-- Name: review_commits uq_review_commits_review_ref; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_commits
+    ADD CONSTRAINT uq_review_commits_review_ref UNIQUE (review_id, ref);
 
 
 --
@@ -4298,6 +4370,20 @@ CREATE INDEX idx_repositories_org_id ON public.repositories USING btree (org_id)
 --
 
 CREATE INDEX idx_repositories_org_provider ON public.repositories USING btree (org_id, provider);
+
+
+--
+-- Name: idx_review_commits_org_ref; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_commits_org_ref ON public.review_commits USING btree (org_id, ref);
+
+
+--
+-- Name: idx_review_commits_review_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_commits_review_id ON public.review_commits USING btree (review_id);
 
 
 --
@@ -5325,6 +5411,30 @@ ALTER TABLE ONLY public.repositories
 
 
 --
+-- Name: review_commits review_commits_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_commits
+    ADD CONSTRAINT review_commits_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: review_commits review_commits_repository_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_commits
+    ADD CONSTRAINT review_commits_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES public.repositories(id);
+
+
+--
+-- Name: review_commits review_commits_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_commits
+    ADD CONSTRAINT review_commits_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id) ON DELETE CASCADE;
+
+
+--
 -- Name: review_events review_events_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5672,7 +5782,7 @@ ALTER TABLE ONLY public.webhook_registry
 -- PostgreSQL database dump complete
 --
 
-\unrestrict HKiks9DoNhzQDx4VBfohzqJ2nYkhzLW2zAD7qua1hjhA5kzEkWNIEexKDSF7aHX
+\unrestrict dbmate
 
 
 --
@@ -5768,3 +5878,4 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260808000000'),
     ('20260808120000'),
     ('20260809150000');
+    ('20260809120000');

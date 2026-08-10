@@ -7,6 +7,7 @@ package vlrender
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -43,6 +44,132 @@ type Report struct {
 	PNGPath     string
 }
 
+// ErrTrivialSpec is returned when a Vega-Lite payload resolves to only a single
+// value/bar, which is not worth charting. Callers should present the
+// human-readable description as text instead of rendering a chart or reporting
+// an error.
+var ErrTrivialSpec = errors.New("chart is trivial: only a single value to show")
+
+// SpecIsTrivial reports whether a Vega-Lite spec encodes only a single data
+// point (one value, e.g. a lone bar). Rendering such a spec adds no insight
+// over stating the number in text, so callers skip chart generation for it.
+func SpecIsTrivial(spec []byte) bool {
+	var m map[string]any
+	if err := json.Unmarshal(spec, &m); err != nil {
+		return false
+	}
+	count, known := countDataValues(m)
+	// Only treat a spec as trivial when the row count is actually known and
+	// there is at most one value. If the data source isn't inline `values`
+	// (e.g. data.url / data.source / transforms), the count is unknown, so we
+	// must NOT guess — render it as usual.
+	return known && count <= 1
+}
+
+// countDataValues recursively tallies the number of rows across all `data.values`
+// arrays embedded in a spec (including layered/concat compositions). known is
+// false when any data source is not an inline `values` array, in which case the
+// total cannot be trusted and callers should not treat the spec as trivial.
+func countDataValues(m map[string]any) (total int, known bool) {
+	known = true
+	for _, key := range []string{"layer", "concat", "hconcat", "vconcat"} {
+		if arr, ok := m[key].([]any); ok {
+			for _, item := range arr {
+				if child, ok := item.(map[string]any); ok {
+					t, k := countDataValues(child)
+					total += t
+					if !k {
+						known = false
+					}
+				}
+			}
+		}
+	}
+	if child, ok := m["spec"].(map[string]any); ok {
+		t, k := countDataValues(child)
+		total += t
+		if !k {
+			known = false
+		}
+	}
+	if data, ok := m["data"].(map[string]any); ok {
+		if values, ok := data["values"].([]any); ok {
+			total += len(values)
+		} else {
+			// data.url, data.source, data.sequence, datasets, etc. — we cannot
+			// count these, so the result is not known to be trivial.
+			known = false
+		}
+	}
+	return total, known
+}
+
+// TrivialDescription returns the human-readable description and the query used
+// to show in place of a chart when the payload's spec(s) resolve to only a
+// single value/bar, plus true if that is the case. Callers render the returned
+// text instead of a chart and may append the query with their own phrasing.
+func TrivialDescription(raw string) (desc string, query string, ok bool) {
+	body := ExtractJSONBlock(raw)
+
+	var multi struct {
+		Reports []VegaLiteReport `json:"reports"`
+	}
+	if err := json.Unmarshal([]byte(body), &multi); err == nil && len(multi.Reports) > 0 {
+		trivial := true
+		var parts []string
+		var queries []string
+		for _, r := range multi.Reports {
+			spec, err := NormalizeVegaLiteSpec(r.Spec)
+			if err != nil {
+				trivial = false
+				continue
+			}
+			if !SpecIsTrivial(spec) {
+				trivial = false
+			}
+			if strings.TrimSpace(r.Description) != "" {
+				parts = append(parts, r.Description)
+			}
+			if strings.TrimSpace(r.Query) != "" {
+				queries = append(queries, r.Query)
+			}
+		}
+		if !trivial {
+			return "", "", false
+		}
+		return strings.Join(parts, "\n\n"), strings.Join(queries, "\n\n"), true
+	}
+
+	var wrapped VegaLiteReport
+	if err := json.Unmarshal([]byte(body), &wrapped); err == nil && len(wrapped.Spec) > 0 {
+		spec, err := NormalizeVegaLiteSpec(wrapped.Spec)
+		if err != nil {
+			return "", "", false
+		}
+		if !SpecIsTrivial(spec) {
+			return "", "", false
+		}
+		return wrapped.Description, wrapped.Query, true
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal([]byte(body), &m); err != nil {
+		return "", "", false
+	}
+	spec, err := NormalizeVegaLiteSpec([]byte(body))
+	if err != nil {
+		return "", "", false
+	}
+	if !SpecIsTrivial(spec) {
+		return "", "", false
+	}
+	q, _ := m["query"].(string)
+	if d, ok := m["description"].(string); ok {
+		return d, q, true
+	}
+	return "", q, true
+}
+
 // CleanupReports removes the temp directories backing the given reports.
 func CleanupReports(reports []Report) {
 	for i := range reports {
@@ -77,6 +204,10 @@ func RenderVegaLiteReportsWithRetry(ctx context.Context, raw string, scale strin
 		if err == nil && len(reports) > 0 {
 			return reports, nil
 		}
+		if errors.Is(err, ErrTrivialSpec) {
+			// Trivial specs are not transient failures — don't retry them.
+			return nil, ErrTrivialSpec
+		}
 		if err != nil {
 			lastErr = err
 		} else {
@@ -109,6 +240,9 @@ func renderVegaLiteReports(ctx context.Context, raw string, scale string) ([]Rep
 		if err != nil {
 			return nil, err
 		}
+		if SpecIsTrivial(spec) {
+			return nil, ErrTrivialSpec
+		}
 		png, pngPath, err := ConvertVegaLiteToPNG(ctx, spec, scale)
 		if err != nil {
 			return nil, err
@@ -133,6 +267,9 @@ func renderVegaLiteReports(ctx context.Context, raw string, scale string) ([]Rep
 	if err != nil {
 		return nil, err
 	}
+	if SpecIsTrivial(spec) {
+		return nil, ErrTrivialSpec
+	}
 	png, pngPath, err := ConvertVegaLiteToPNG(ctx, spec, scale)
 	if err != nil {
 		return nil, err
@@ -142,12 +279,19 @@ func renderVegaLiteReports(ctx context.Context, raw string, scale string) ([]Rep
 
 func renderReports(ctx context.Context, reports []VegaLiteReport, scale string) ([]Report, error) {
 	var out []Report
+	trivialOnly := true
 	for _, r := range reports {
 		spec, err := NormalizeVegaLiteSpec(r.Spec)
 		if err != nil {
+			trivialOnly = false
 			log.Printf("[VegaRender] Skipping report %q: failed to normalize spec: %s", r.Title, err)
 			continue
 		}
+		if SpecIsTrivial(spec) {
+			log.Printf("[VegaRender] Skipping trivial chart %q (single value, showing text instead)", r.Title)
+			continue
+		}
+		trivialOnly = false
 		png, pngPath, err := ConvertVegaLiteToPNG(ctx, spec, scale)
 		if err != nil {
 			log.Printf("[VegaRender] Skipping report %q: failed to render chart: %s", r.Title, err)
@@ -162,6 +306,9 @@ func renderReports(ctx context.Context, reports []VegaLiteReport, scale string) 
 		})
 	}
 	if len(out) == 0 {
+		if trivialOnly {
+			return nil, ErrTrivialSpec
+		}
 		return nil, fmt.Errorf("no reports could be rendered")
 	}
 	return out, nil

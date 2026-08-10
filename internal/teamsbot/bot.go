@@ -226,7 +226,7 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 	}
 
 	tStart := time.Now()
-	response, history, err := oh.agent.RunTurn(ctx, conv.history, text)
+	response, history, err := oh.agent.RunTurn(ctx, conv.history, text, convID, "teams")
 	elapsed := time.Since(tStart)
 	if err != nil {
 		log.Printf("[TeamsBot] Org %d: agent error after %s: %s", oh.orgID, elapsed, err)
@@ -252,6 +252,13 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 				}
 			}
 			return nil
+		}
+		// A single value/bar isn't worth a chart — reply with the description text.
+		if desc, query, ok := vlrender.TrivialDescription(response); ok && desc != "" {
+			if query != "" {
+				desc += "\n\nQuery used: " + query
+			}
+			return b.postReply(ctx, activity, b.buildReply(desc, activity, nil))
 		}
 		log.Printf("[TeamsBot] Vega-Lite render failed after retries, sending friendly error")
 		return b.postReply(ctx, activity, b.buildReply("Having an issue generating the data, please try again.", activity, nil))

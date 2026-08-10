@@ -2,26 +2,36 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Button, Icons, Tabs } from '../../components/UIPrimitives';
 import { ReviewEventsPage, DiffViewerPanel } from '../../components/reviews';
-import { 
-  getReview, 
-  getReviewEvents, 
-  getReviewSummary, 
+import {
+  getReview,
+  getReviewEvents,
+  getReviewSummary,
     getReviewAccounting,
-  formatRelativeTime, 
-  getStatusColor, 
-  getStatusText 
+    getReviewCommits,
+  formatRelativeTime,
+  getStatusColor,
+  getStatusText
 } from '../../api/reviews';
-import { 
-  Review, 
-  ReviewEvent, 
-  ReviewSummary, 
+import {
+  Review,
+  ReviewEvent,
+  ReviewSummary,
     ReviewAccounting,
     ReviewAccountingStage,
+    ReviewCommit,
   ReviewEventLevel,
-  ReviewEventType 
+  ReviewEventType
 } from '../../types/reviews';
 
 const ACCOUNTING_REFRESH_INTERVAL_MS = 15000;
+const COMMITS_PREVIEW_LIMIT = 5;
+
+const HeaderStat: React.FC<{ label: string; value: string; className?: string }> = ({ label, value, className }) => (
+    <div className="shrink-0">
+        <p className="text-[11px] text-slate-400 whitespace-nowrap">{label}</p>
+        <p className={`text-sm text-white whitespace-nowrap ${className || ''}`}>{value}</p>
+    </div>
+);
 
 const hasAccountingDetails = (value: ReviewAccounting | null): boolean => {
         if (!value) {
@@ -51,6 +61,9 @@ const ReviewDetail: React.FC = () => {
     const [accountingError, setAccountingError] = useState<string | null>(null);
     const [accountingErrorTone, setAccountingErrorTone] = useState<'info' | 'warning'>('info');
     const [accountingRouteUnavailable, setAccountingRouteUnavailable] = useState(false);
+    const [commits, setCommits] = useState<ReviewCommit[]>([]);
+    const [detailsExpanded, setDetailsExpanded] = useState(false);
+    const [commitsLoaded, setCommitsLoaded] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [pollingEnabled, setPollingEnabled] = useState(true);
@@ -159,6 +172,18 @@ const ReviewDetail: React.FC = () => {
             setReview(reviewData);
             setSummary(summaryData);
             await fetchAccountingDetails(reviewId, reviewData.status);
+
+            // Relevant commits are best-effort/informational -- never block
+            // or fail the rest of the page on this.
+            try {
+                const commitsData = await getReviewCommits(reviewId);
+                setCommits(commitsData.commits || []);
+            } catch (commitsErr) {
+                console.warn('Review commits endpoint unavailable:', commitsErr);
+                setCommits([]);
+            } finally {
+                setCommitsLoaded(true);
+            }
             
             const newEvents = (eventsData?.events as ReviewEvent[] | undefined) || [];
             setEvents(newEvents);
@@ -183,6 +208,9 @@ const ReviewDetail: React.FC = () => {
     useEffect(() => {
         setEvents([]);
         setLastEventTime(null);
+        setCommits([]);
+        setDetailsExpanded(false);
+        setCommitsLoaded(false);
     }, [id]);
 
     // Derive available filter values from current events
@@ -196,6 +224,18 @@ const ReviewDetail: React.FC = () => {
         const s = new Set<string>();
         events.forEach(e => { if (e.level) s.add(e.level); });
         return s;
+    }, [events]);
+
+    // Events by severity, derived from the already-loaded events list --
+    // error=High, warn=Medium, info/debug=Low.
+    const eventSeverityCounts = useMemo(() => {
+        let high = 0, medium = 0, low = 0;
+        events.forEach(e => {
+            if (e.level === 'error') high++;
+            else if (e.level === 'warn') medium++;
+            else low++;
+        });
+        return { high, medium, low };
     }, [events]);
 
     // Initial load
@@ -303,6 +343,20 @@ const ReviewDetail: React.FC = () => {
         return `$${value.toFixed(4)}`;
     };
 
+    const formatDuration = (startedAt?: string, completedAt?: string): string | null => {
+        if (!startedAt || !completedAt) {
+            return null;
+        }
+        const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime();
+        if (!isFinite(ms) || ms < 0) {
+            return null;
+        }
+        const totalSeconds = Math.round(ms / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+    };
+
     const leaderAIExecutionMode = typeof review.metadata?.leader_ai_execution_mode === 'string' ? review.metadata.leader_ai_execution_mode : '';
     const leaderAIExecutionSource = typeof review.metadata?.leader_ai_execution_source === 'string' ? review.metadata.leader_ai_execution_source : '';
     const leaderAIExecutionProvider = typeof review.metadata?.leader_ai_provider_name === 'string' ? review.metadata.leader_ai_provider_name : '';
@@ -390,52 +444,128 @@ const ReviewDetail: React.FC = () => {
                 </div>
             </div>
 
-            {/* Review Info Panel - Compact */}
-            <div className="bg-slate-800 rounded-lg p-3 border border-slate-700 mb-6">
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-                    <div className="flex items-center gap-2">
-                        <span className="text-slate-400">Repository:</span>
-                        <span className="text-white font-mono text-xs break-all">{review.repository}</span>
-                    </div>
-                    {review.provider && (
-                        <div className="flex items-center gap-2">
-                            <span className="text-slate-400">Provider:</span>
-                            <span className="text-white capitalize">{review.provider}</span>
+            {/* Review Info: compact one-row header, expands inline for
+                commits + review details rather than spreading everything
+                across the page by default. */}
+            <div className="bg-slate-800 rounded-lg border border-slate-700 mb-6">
+                <button
+                    type="button"
+                    onClick={() => setDetailsExpanded((v) => !v)}
+                    className="w-full flex items-center gap-6 px-4 py-3 text-left overflow-x-auto"
+                    aria-expanded={detailsExpanded}
+                >
+                    <div className="flex items-center gap-2 shrink-0">
+                        <div className="text-slate-400"><Icons.Git /></div>
+                        <div>
+                            <p className="text-sm font-semibold text-white max-w-[180px] truncate">
+                                {review.repository.split('/').pop() || review.repository}
+                            </p>
+                            <p className="text-xs text-slate-400">#{review.id}</p>
                         </div>
-                    )}
-                    {review.userEmail && (
-                        <div className="flex items-center gap-2">
-                            <span className="text-slate-400">User:</span>
-                            <span className="text-white">{review.userEmail}</span>
-                        </div>
-                    )}
-                    {review.commitHash && (
-                        <div className="flex items-center gap-2">
-                            <span className="text-slate-400">Commit:</span>
-                            <span className="text-white font-mono text-xs">{review.commitHash.substring(0, 8)}</span>
-                        </div>
-                    )}
-                    <div className="flex items-center gap-2">
-                        <span className="text-slate-400">Created:</span>
-                        <span className="text-white text-xs">{new Date(review.createdAt).toLocaleString()}</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-slate-400">Last Activity:</span>
-                        <span className="text-white text-xs">{new Date(review.completedAt || review.startedAt || review.createdAt).toLocaleString()}</span>
+                    <HeaderStat label="Provider" value={review.provider || '-'} className="capitalize" />
+                    <HeaderStat label="Branch" value={review.branch || '-'} />
+                    <HeaderStat label="Commits" value={commitsLoaded ? String(commits.length) : '...'} />
+                    <HeaderStat label="Last activity" value={formatRelativeTime(review.completedAt || review.startedAt || review.createdAt)} />
+                    <HeaderStat label="Events" value={String(Object.values(summary?.eventCounts || {}).reduce((a: number, b: number) => a + b, 0))} />
+                    <HeaderStat label="Batches" value={String(summary?.batchCount ?? 0)} />
+                    <div className="ml-auto flex items-center gap-3 shrink-0">
+                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium text-white ${getStatusColor(review.status)}`}>
+                            {review.status.replace('_', ' ').toUpperCase()}
+                        </span>
+                        <span className="flex items-center gap-1 text-xs text-slate-300">
+                            {detailsExpanded ? 'Less' : 'More'}
+                            {detailsExpanded ? <Icons.ChevronDown /> : <Icons.ChevronRight />}
+                        </span>
                     </div>
-                    {summary && (
-                        <>
-                            <div className="flex items-center gap-2">
-                                <span className="text-slate-400">Events:</span>
-                                <span className="text-white text-xs">{Object.values(summary.eventCounts || {}).reduce((a: number, b: number) => a + b, 0)}</span>
+                </button>
+
+                {detailsExpanded && (
+                    <div className="border-t border-slate-700 px-4 py-4 grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                        <div>
+                            <h3 className="text-xs font-semibold text-white uppercase tracking-wide mb-2">
+                                Commits{commitsLoaded && ` (${commits.length})`}
+                            </h3>
+                            {!commitsLoaded && (
+                                <p className="text-xs text-slate-400">Checking for commit information...</p>
+                            )}
+                            {commitsLoaded && commits.length === 0 && (
+                                <p className="text-xs text-slate-400">
+                                    No commit information recorded for this review yet. Plain "lrc review" (staged/working) commits sync in the background after `git commit` and may take a moment to appear; PR/MR and --commit/--range reviews are recorded immediately once submitted.
+                                </p>
+                            )}
+                            {commits.length > 0 && (
+                                <>
+                                    <ul className="space-y-2">
+                                        {commits.slice(0, COMMITS_PREVIEW_LIMIT).map((commit) => (
+                                            <li key={commit.ref} className="flex items-center justify-between gap-3 text-xs">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <span className="font-mono text-slate-200 shrink-0">
+                                                        {commit.refType === 'commit' ? commit.ref.substring(0, 8) : commit.ref}
+                                                    </span>
+                                                    <span
+                                                        className={`shrink-0 text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border ${
+                                                            commit.refType === 'range'
+                                                                ? 'bg-purple-900/30 text-purple-300 border-purple-700'
+                                                                : 'bg-slate-700 text-slate-300 border-slate-600'
+                                                        }`}
+                                                    >
+                                                        {commit.refType}
+                                                    </span>
+                                                </div>
+                                                <span className="shrink-0 text-slate-400">{formatRelativeTime(commit.createdAt)}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    {commits.length > COMMITS_PREVIEW_LIMIT && (
+                                        <p className="mt-2 text-xs text-slate-400">
+                                            +{commits.length - COMMITS_PREVIEW_LIMIT} more commits
+                                        </p>
+                                    )}
+                                </>
+                            )}
+                        </div>
+
+                        <div>
+                            <h3 className="text-xs font-semibold text-white uppercase tracking-wide mb-2">Review details</h3>
+                            <dl className="space-y-1 text-xs">
+                                <div className="flex justify-between gap-4">
+                                    <dt className="text-slate-400">Created by</dt>
+                                    <dd className="text-white text-right">{review.userEmail || '-'}</dd>
+                                </div>
+                                <div className="flex justify-between gap-4">
+                                    <dt className="text-slate-400">Created</dt>
+                                    <dd className="text-white text-right">{new Date(review.createdAt).toLocaleString()}</dd>
+                                </div>
+                                <div className="flex justify-between gap-4">
+                                    <dt className="text-slate-400">Batches</dt>
+                                    <dd className="text-white text-right">{summary?.batchCount ?? 0}</dd>
+                                </div>
+                                {formatDuration(review.startedAt, review.completedAt) && (
+                                    <div className="flex justify-between gap-4">
+                                        <dt className="text-slate-400">Duration</dt>
+                                        <dd className="text-white text-right">{formatDuration(review.startedAt, review.completedAt)}</dd>
+                                    </div>
+                                )}
+                            </dl>
+                            <div className="mt-3">
+                                <p className="text-xs text-slate-400 mb-1">Events by severity</p>
+                                <div className="flex gap-4 text-xs">
+                                    <span className="text-red-400">High {eventSeverityCounts.high}</span>
+                                    <span className="text-amber-400">Medium {eventSeverityCounts.medium}</span>
+                                    <span className="text-sky-400">Low {eventSeverityCounts.low}</span>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <span className="text-slate-400">Batches:</span>
-                                <span className="text-white text-xs">{summary.batchCount}</span>
-                            </div>
-                        </>
-                    )}
-                </div>
+                            <button
+                                type="button"
+                                onClick={() => setActiveTab('events')}
+                                className="mt-3 text-xs text-blue-400 hover:text-blue-300"
+                            >
+                                View all events →
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Findings / Accounting / Events */}

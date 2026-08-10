@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/livereview/internal/logging"
 	"github.com/rs/zerolog/log"
 	"github.com/tmc/langchaingo/llms"
 )
@@ -42,9 +44,16 @@ func NewAgent(provider *Provider, mcpSession *MCPSession, maxSteps int) *Agent {
 }
 
 // RunTurn processes one user message through the ReAct loop and returns the
-// final text response and updated history.
-func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText string) (string, []HistoryEntry, error) {
+// final text response and updated history. sessionID/source identify the
+// conversation for the debug log (see internal/logging.ChatTurnLogger) - the
+// Agent instance itself is reused across many sessions by the bots, so the
+// session identity has to be passed in per call rather than baked into Agent.
+func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText string, sessionID, source string) (string, []HistoryEntry, error) {
 	log.Debug().Int("history_entries", len(history)).Int("user_text_len", len(userText)).Msg("Agent RunTurn starting")
+
+	clog := logging.NewChatTurnLogger(sessionID, source)
+	clog.Context(a.mcpSession.OrgName, a.mcpSession.UserName, a.provider.Describe())
+	clog.UserInput(userText)
 
 	if len(history) == 0 && a.systemPrompt != "" {
 		history = append(history, HistoryEntry{"role": "system", "content": a.systemPrompt})
@@ -53,12 +62,21 @@ func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText st
 
 	for step := 0; step < a.maxSteps; step++ {
 		log.Debug().Int("step", step).Int("history_len", len(history)).Int("num_tools", len(a.providerTools)).Msg("Calling LLM")
+		if clog.Enabled() {
+			if b, err := json.Marshal(history); err == nil {
+				clog.AIRequest(step, string(b))
+			}
+		}
+		aiStart := time.Now()
 		response, err := a.provider.Complete(ctx, history, a.providerTools)
+		aiElapsed := time.Since(aiStart)
 		if err != nil {
 			log.Error().Err(err).Int("step", step).Msg("LLM completion failed")
+			clog.AIError(step, aiElapsed, err)
 			return "", history, fmt.Errorf("llm completion step %d: %w", step, err)
 		}
 		log.Debug().Int("step", step).Int("response_len", len(response)).Msg("LLM call succeeded")
+		clog.AIResponse(step, aiElapsed, response)
 
 		history = append(history, HistoryEntry{"role": "assistant", "text": response})
 
@@ -80,19 +98,32 @@ func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText st
 				})
 				continue
 			}
+			clog.FinalResponse(response)
 			return response, history, nil
 		}
 
 		for _, tc := range toolCalls {
 			log.Info().Str("tool", tc.Name).Any("arguments", tc.Arguments).Msg("Calling MCP tool")
+			if clog.Enabled() {
+				if b, err := json.Marshal(tc.Arguments); err == nil {
+					clog.ToolCall(step, tc.Name, string(b))
+				}
+			}
+			toolStart := time.Now()
 			content, err := CallTool(ctx, a.mcpSession, tc.Name, tc.Arguments)
+			toolElapsed := time.Since(toolStart)
 			if err != nil {
+				clog.ToolError(step, tc.Name, toolElapsed, err)
 				content = fmt.Sprintf("[Tool call failed: %s]", err)
 			}
 			displayLen := len(content)
 			content = truncateContent(content, maxToolResultLen)
-			if displayLen > maxToolResultLen {
+			truncated := displayLen > maxToolResultLen
+			if truncated {
 				content += "\n\n_[Result truncated to " + fmt.Sprintf("%d", maxToolResultLen) + " characters — original was " + fmt.Sprintf("%d", displayLen) + " chars. You can request data in smaller batches (lower perPage) or additional pages.]_"
+			}
+			if err == nil {
+				clog.ToolResponse(step, tc.Name, toolElapsed, displayLen, truncated, content)
 			}
 			log.Debug().Str("tool", tc.Name).Int("result_len", displayLen).Msg("MCP tool result received")
 			log.Debug().Str("tool", tc.Name).Str("result_preview", content[:min(len(content), toolResultPreviewLen)]).Msg("MCP tool result (truncated for LLM)")
@@ -106,6 +137,7 @@ func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText st
 	}
 
 	log.Warn().Int("max_steps", a.maxSteps).Msg("Agent hit step limit")
+	clog.StepLimitHit(a.maxSteps)
 	return "I hit my step limit trying to finish that — try breaking the request down.", history, nil
 }
 
@@ -116,6 +148,7 @@ func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
 
 	var b strings.Builder
 	b.WriteString("You are an AI assistant connected to a LiveReview API server. ")
+	b.WriteString("You act as a friendly persona (Livi), not a faceless system. Speak in the first person and take ownership of the actions you perform: when you trigger a review, create a learning, or add a connector, YOU did it — never refer to 'the system' doing it.\n")
 	b.WriteString("You have access to the following tools:\n\n")
 
 	if orgName != "" || userName != "" {
@@ -149,7 +182,7 @@ func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
 	b.WriteString("  - `GET_api_v1_diff_review_trigger_local_review`: instructs the agent to run a local `git-lrc review` in a terminal.\n")
 	b.WriteString("  - `POST_api_v1_learnings` / `PUT_api_v1_learnings/:id` / `DELETE_api_v1_learnings/:id`: create/edit/delete persisted rules.\n")
 	b.WriteString("  - `POST_api_v1_aiconnectors` / `PUT_api_v1_aiconnectors/reorder`: create/reorder AI connectors.\n")
-	b.WriteString("After `POST_api_v1_connectors_trigger_review` succeeds, confirm the review was triggered and mention its `reviewId`. Do NOT mention LOC, billing, quota, or lines remaining in that confirmation — the tool result may include such fields, but the user does not want to be reminded of them.\n")
+	b.WriteString("After `POST_api_v1_connectors_trigger_review` succeeds, confirm it in the FIRST PERSON as the persona that did it — say 'I've triggered the review' (or 'I started the review'), never 'the system triggered it', never 'a review was triggered', never a passive construction that distances you from the action. Mention its `reviewId`. Do NOT mention LOC, billing, quota, or lines remaining in that confirmation — the tool result may include such fields, but the user does not want to be reminded of them.\n")
 	b.WriteString("Before calling ANY of these, you MUST have BOTH of the following, otherwise STOP and ask the user a clarifying question:\n")
 	b.WriteString("  1. The user EXPLICITLY asked for that specific action (not a hypothetical, not 'can you', not an assumption). If they merely asked 'trigger a review' without specifying the target, that is NOT enough.\n")
 	b.WriteString("  2. All required inputs are present — in particular, for `POST_api_v1_connectors_trigger_review` you MUST have the exact PR/repo URL. Never guess, invent, or reuse a URL from history.\n")

@@ -28,6 +28,7 @@ import (
 	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/license/payment"
+	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/orgname"
 	azuredevopsprovider "github.com/livereview/internal/provider_input/azuredevops"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
@@ -149,7 +150,6 @@ type Server struct {
 	modelSyncCancel       context.CancelFunc
 	slackBotCancel        context.CancelFunc
 	scheduledReviewCancel context.CancelFunc
-	// scheduledReviewWakeCh nudges the scheduler to recheck immediately after a create/edit/enable; buffered so sends never block.
 	scheduledReviewWakeCh chan struct{}
 
 	// V2 Webhook Providers
@@ -329,7 +329,7 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 		port:                 port,
 		db:                   db,
 		jobQueue:             jq,
-		dashboardManager:      dashboardManager,
+		dashboardManager:     dashboardManager,
 		autoWebhookInstaller: autoWebhookInstaller,
 		versionInfo:          versionInfo,
 		deploymentConfig:     deploymentConfig,
@@ -445,6 +445,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/events", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/summary", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/accounting", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/commits", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/learnings", nil, LearningsQuery{})
 	mcp.RegisterSchema("POST", "/api/v1/learnings", nil, UpsertLearningRequest{})
 	mcp.RegisterSchema("GET", "/api/v1/learnings/:id", nil, nil)
@@ -471,6 +472,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/reviews/:id/events",
 		"/api/v1/reviews/:id/summary",
 		"/api/v1/reviews/:id/accounting",
+		"/api/v1/reviews/:id/commits",
 		"/api/v1/learnings",
 		"/api/v1/learnings/:id",
 		"/api/v1/prompts/catalog",
@@ -486,6 +488,12 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	})
 
 	mcp.Mount("/api/mcp")
+
+	// Enables the Livi/Slack/Discord/Teams chat debug log when LIVI_DEBUG_LOG
+	// is set. This process (livereview-api) is the only pm2 app that runs
+	// chat/bot code, so wiping the log file here at boot is safe - workers
+	// never write to it.
+	logging.InitChatDebugLog() // reads LIVI_DEBUG_LOG at boot
 
 	// Initialize org-scoped Slack bots (self-hosted only). Each org supplies its
 	// own bot + app tokens via the UI, so no server-level env vars are required.
@@ -933,6 +941,10 @@ func (s *Server) setupRoutes() {
 	// git-lrc's blast-radius report.
 	diffReviewGroup.POST("/:review_id/artifacts/:artifact_type", s.PutDiffReviewArtifact)
 	diffReviewGroup.GET("/:review_id/artifacts/:artifact_type", s.GetDiffReviewArtifact)
+	// Offline-first sync target for git-lrc's post-commit queue (see
+	// AGENTS.md "Porting from git-lrc"): records which commit a staged
+	// review ended up in, once that commit actually happens.
+	diffReviewGroup.POST("/:review_id/commit", s.AttachDiffReviewCommit)
 
 	// Review events endpoints (alternative API key-based access for CLI)
 	diffReviewEventsHandler := NewReviewEventsHandler(s.db)
@@ -943,6 +955,16 @@ func (s *Server) setupRoutes() {
 	// Onboarding endpoints
 	// CLI usage tracking (protected by API key)
 	diffReviewGroup.POST("/cli-used", s.TrackCLIUsage)
+
+	// Review coverage lookup (CI/CD gate support): given a list of commit
+	// SHAs/ranges, report every backend-stored review that covers them.
+	// Same auth pattern as diffReviewGroup (API key or session Bearer token).
+	reviewCoverageGroup := v1.Group("/review-coverage")
+	reviewCoverageGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	reviewCoverageGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	reviewCoverageGroup.Use(authMiddleware.ValidateOrgAccess())
+	reviewCoverageGroup.Use(authMiddleware.BuildPermissionContext())
+	reviewCoverageGroup.POST("", s.ReviewCoverage)
 
 	// Feedback endpoints — protected by API key (proxied through git-lrc local server)
 	feedbackHandler := NewFeedbackHandler(s.db)
@@ -1356,6 +1378,7 @@ func (s *Server) setupRoutes() {
 	reviewsGroup.GET("/:id/events/:type", reviewEventsHandler.GetReviewEventsByType)
 	reviewsGroup.GET("/:id/summary", reviewEventsHandler.GetReviewSummary)
 	reviewsGroup.GET("/:id/accounting", reviewEventsHandler.GetReviewAccounting)
+	reviewsGroup.GET("/:id/commits", s.GetReviewCommits)
 
 	// Subscription endpoints (organization scoped)
 	subscriptionsHandler := NewSubscriptionsHandler(s.db)
