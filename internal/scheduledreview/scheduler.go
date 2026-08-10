@@ -49,9 +49,13 @@ func RunScheduler(ctx context.Context, db *sql.DB, jq *jobqueue.JobQueue, wake <
 			continue
 		}
 		for _, cfg := range due {
-			// Claim (push next_run_at out) before enqueueing so this config isn't re-picked-up while its job runs.
-			if err := store.Claim(ctx, cfg.ID, time.Now().Add(maxSleep)); err != nil {
+			// Claim (push next_run_at out) before enqueueing so this config isn't re-picked-up while its job runs; claimed=false means another scheduler instance already claimed it first, so skip enqueueing to avoid a duplicate.
+			claimed, err := store.Claim(ctx, cfg.ID, time.Now().Add(maxSleep))
+			if err != nil {
 				log.Printf("[scheduled-review-scheduler] config=%d project=%s claim failed: %v", cfg.ID, cfg.ProjectFullName, err)
+				continue
+			}
+			if !claimed {
 				continue
 			}
 			if err := jq.QueueScheduledReviewJob(ctx, cfg.ID); err != nil {

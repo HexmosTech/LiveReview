@@ -156,10 +156,17 @@ func (s *Store) UpdateCheckpoint(ctx context.Context, id int64, defaultBranch, l
 	return err
 }
 
-// Claim pushes next_run_at forward without touching the checkpoint, so it isn't re-enqueued while its job is still running.
-func (s *Store) Claim(ctx context.Context, id int64, until time.Time) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE scheduled_review_configs SET next_run_at = $1, updated_at = NOW() WHERE id = $2`, until, id)
-	return err
+// Claim atomically pushes next_run_at forward, but only if the row is still actually due (enabled AND next_run_at <= NOW()) - the WHERE guard is what makes this safe against two scheduler instances (e.g. an overlapping deploy/restart) racing on the same config; returns claimed=false, no error, if someone else already claimed it first.
+func (s *Store) Claim(ctx context.Context, id int64, until time.Time) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE scheduled_review_configs SET next_run_at = $1, updated_at = NOW() WHERE id = $2 AND enabled = true AND next_run_at <= NOW()`, until, id)
+	if err != nil {
+		return false, err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
 }
 
 // Disable turns off a config that can no longer run (e.g. unrecoverable data error), so it stops being picked up by ListDue.
