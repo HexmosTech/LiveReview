@@ -1881,6 +1881,39 @@ func parseDateFilterParam(v string, endOfDay bool) (time.Time, error) {
 	return t, nil
 }
 
+// reviewSourceFilterClause is providerFilterClause plus a "scheduled" option matching trigger_type instead of a provider prefix, since scheduled reviews store the real git provider, not a sentinel like CLI's "cli".
+func reviewSourceFilterClause(csv string, args *[]interface{}, argIdx *int) string {
+	var providerVals []string
+	hasScheduled := false
+	for _, part := range strings.Split(csv, ",") {
+		v := strings.TrimSpace(part)
+		if v == "" {
+			continue
+		}
+		if strings.EqualFold(v, "scheduled") {
+			hasScheduled = true
+			continue
+		}
+		providerVals = append(providerVals, v)
+	}
+
+	conds := make([]string, 0, len(providerVals)+1)
+	for _, v := range providerVals {
+		conds = append(conds, fmt.Sprintf("provider ILIKE $%d", *argIdx))
+		*args = append(*args, v+"%")
+		*argIdx++
+	}
+	if hasScheduled {
+		conds = append(conds, fmt.Sprintf("trigger_type = $%d", *argIdx))
+		*args = append(*args, "scheduled")
+		*argIdx++
+	}
+	if len(conds) == 0 {
+		return ""
+	}
+	return " AND (" + strings.Join(conds, " OR ") + ")"
+}
+
 // getReviews handles GET /api/v1/reviews with filtering and pagination
 func (s *Server) getReviews(c echo.Context) error {
 	// Extract org context from middleware
@@ -1959,7 +1992,7 @@ func (s *Server) getReviews(c echo.Context) error {
 		baseQuery += clause
 		countQuery += clause
 	}
-	if clause := providerFilterClause(c.QueryParam("provider"), &args, &argIndex); clause != "" {
+	if clause := reviewSourceFilterClause(c.QueryParam("provider"), &args, &argIndex); clause != "" {
 		baseQuery += clause
 		countQuery += clause
 	}

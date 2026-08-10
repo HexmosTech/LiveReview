@@ -5,7 +5,7 @@ import React, {
     useRef,
     useState,
 } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
     ColumnDef,
     SortingState,
@@ -15,7 +15,7 @@ import {
     useReactTable,
     getCoreRowModel,
 } from '@tanstack/react-table';
-import { LuSearch, LuTerminal } from 'react-icons/lu';
+import { LuSearch, LuTerminal, LuClock } from 'react-icons/lu';
 import { SiGitlab } from 'react-icons/si';
 import {
     Button,
@@ -55,8 +55,11 @@ const toTitleCase = (value: string): string =>
 
 // review.provider is literally "cli" for CLI-triggered reviews
 // (internal/jobqueue/review_worker.go), not a real git provider - treated
-// as its own "source" alongside github/gitlab/etc.
-const normalizeSource = (provider?: string): string => {
+// as its own "source" alongside github/gitlab/etc. Scheduled reviews carry
+// a real git provider (whatever the connector uses), so they're identified
+// by triggerType instead - checked first so it takes priority over provider.
+const normalizeSource = (provider?: string, triggerType?: string): string => {
+    if (triggerType === 'scheduled') return 'scheduled';
     const normalized = (provider || '').toLowerCase();
     if (normalized === 'cli') return 'cli';
     if (normalized.startsWith('github')) return 'github';
@@ -67,8 +70,10 @@ const normalizeSource = (provider?: string): string => {
     return normalized;
 };
 
-const sourceLabel = (provider?: string): string => {
-    switch (normalizeSource(provider)) {
+const sourceLabel = (provider?: string, triggerType?: string): string => {
+    switch (normalizeSource(provider, triggerType)) {
+        case 'scheduled':
+            return 'Scheduled';
         case 'cli':
             return 'CLI';
         case 'github':
@@ -86,8 +91,10 @@ const sourceLabel = (provider?: string): string => {
     }
 };
 
-const SourceIcon: React.FC<{ provider?: string }> = ({ provider }) => {
-    switch (normalizeSource(provider)) {
+const SourceIcon: React.FC<{ provider?: string; triggerType?: string }> = ({ provider, triggerType }) => {
+    switch (normalizeSource(provider, triggerType)) {
+        case 'scheduled':
+            return <LuClock size={18} />;
         case 'cli':
             return <LuTerminal size={18} />;
         case 'github':
@@ -248,8 +255,21 @@ const REVIEWS_COLUMN_WIDTHS = [
     '10%',
 ];
 
+// Reads initial Source/search filters from the URL (e.g. a "View Reviews" link) so a direct link lands pre-filtered.
+const initialColumnFiltersFromURL = (params: URLSearchParams): ColumnFiltersState => {
+    const filters: ColumnFiltersState = [];
+    const search = params.get('search');
+    if (search) filters.push({ id: 'review', value: search });
+    const source = params.get('source');
+    if (source) filters.push({ id: 'source', value: source });
+    const status = params.get('status');
+    if (status) filters.push({ id: 'status', value: status });
+    return filters;
+};
+
 const Reviews: React.FC = () => {
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
 
     const [reviews, setReviews] = useState<Review[]>([]);
     const [total, setTotal] = useState(0);
@@ -257,14 +277,11 @@ const Reviews: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Sorting/filtering/pagination are server-driven - these three are the
-    // single source of truth the table's header controls (sort icons, search
-    // input, checkbox filters) read from and write to, and every change
-    // re-fetches the current page from the API instead of TanStack recomputing
-    // rows from an already-loaded client-side array (same pattern as
-    // Explore > Repositories - see .agents/design.md).
+    // Sorting/filtering/pagination are server-driven; columnFilters also mirrors to/from the URL so filtered views are linkable.
     const [sorting, setSorting] = useState<SortingState>([]);
-    const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+    const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(() =>
+        initialColumnFiltersFromURL(searchParams)
+    );
     const [pagination, setPagination] = useState<PaginationState>({
         pageIndex: 0,
         pageSize: pageSizeOptions[0],
@@ -361,12 +378,25 @@ const Reviews: React.FC = () => {
         fetchReviews(buildFetchParams(next, columnFilters, nextPagination));
     };
 
+    // Mirrors filters into the URL (replace, not push, so filter changes don't spam history).
+    const syncFiltersToURL = (filters: ColumnFiltersState) => {
+        const next = new URLSearchParams();
+        const search = filters.find((f) => f.id === 'review')?.value as string | undefined;
+        const source = filters.find((f) => f.id === 'source')?.value as string | undefined;
+        const status = filters.find((f) => f.id === 'status')?.value as string | undefined;
+        if (search) next.set('search', search);
+        if (source) next.set('source', source);
+        if (status) next.set('status', status);
+        setSearchParams(next, { replace: true });
+    };
+
     const handleColumnFiltersChange: OnChangeFn<ColumnFiltersState> = (
         updater
     ) => {
         const next =
             typeof updater === 'function' ? updater(columnFilters) : updater;
         setColumnFilters(next);
+        syncFiltersToURL(next);
         const nextPagination = { ...pagination, pageIndex: 0 };
 
         const prevSearch = columnFilters.find((f) => f.id === 'review')?.value;
@@ -571,7 +601,7 @@ const Reviews: React.FC = () => {
             },
             {
                 id: 'source',
-                accessorFn: (review) => normalizeSource(review.provider),
+                accessorFn: (review) => normalizeSource(review.provider, review.triggerType),
                 filterFn: multiSelectFilterFn,
                 header: ({ column }) => (
                     <div className="flex items-center justify-between gap-2">
@@ -607,6 +637,7 @@ const Reviews: React.FC = () => {
                                             label: 'Azure DevOps',
                                         },
                                         { value: 'cli', label: 'CLI' },
+                                        { value: 'scheduled', label: 'Scheduled' },
                                     ]}
                                 />
                             </HeaderFilterPopover>
@@ -615,8 +646,8 @@ const Reviews: React.FC = () => {
                 ),
                 cell: ({ row }) => (
                     <div className="flex items-center gap-1.5 text-white">
-                        <SourceIcon provider={row.original.provider} />
-                        {sourceLabel(row.original.provider)}
+                        <SourceIcon provider={row.original.provider} triggerType={row.original.triggerType} />
+                        {sourceLabel(row.original.provider, row.original.triggerType)}
                     </div>
                 ),
             },

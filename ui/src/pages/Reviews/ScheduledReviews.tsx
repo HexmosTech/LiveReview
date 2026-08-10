@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ColumnDef,
   SortingState,
@@ -24,7 +25,7 @@ import { Repository, RepositoriesFilters, RepositoriesSort } from '../../types/e
 const pageSizeOptions = [20, 50, 100];
 const DEFAULT_CRON = '0 9 * * *';
 const SEARCH_DEBOUNCE_MS = 300;
-const SCHEDULED_REVIEWS_COLUMN_WIDTHS = ['4%', '24%', '11%', '9%', '10%', '18%', '14%', '10%'];
+const SCHEDULED_REVIEWS_COLUMN_WIDTHS = ['4%', '26%', '10%', '9%', '9%', '13%', '11%', '18%'];
 
 // Same normalization as Explore > Repositories - real provider values are compound strings like "github-com".
 const normalizeProvider = (provider: string): string => {
@@ -88,6 +89,7 @@ const formatLocalDateTime = (iso?: string): string => {
 };
 
 const ScheduledReviews: React.FC = () => {
+  const navigate = useNavigate();
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -399,10 +401,10 @@ const ScheduledReviews: React.FC = () => {
                 onChange={(v) => column.setFilterValue(v || undefined)}
                 options={[
                   { value: 'github', label: 'GitHub' },
-                  { value: 'gitlab', label: 'GitLab' },
-                  { value: 'bitbucket', label: 'Bitbucket' },
-                  { value: 'gitea', label: 'Gitea' },
-                  { value: 'azuredevops', label: 'Azure DevOps' },
+                  { value: 'gitlab', label: 'GitLab', disabled: true },
+                  { value: 'bitbucket', label: 'Bitbucket', disabled: true },
+                  { value: 'gitea', label: 'Gitea', disabled: true },
+                  { value: 'azuredevops', label: 'Azure DevOps', disabled: true },
                 ]}
               />
             </HeaderFilterPopover>
@@ -489,14 +491,31 @@ const ScheduledReviews: React.FC = () => {
       enableSorting: false,
       enableColumnFilter: false,
       header: () => <span className="font-semibold text-slate-300 uppercase tracking-wide text-xs">Actions</span>,
-      cell: ({ row }) => (
-        <Button variant="outline" size="sm" onClick={() => setEditingRepos([row.original])}>
-          Edit Schedule
-        </Button>
-      ),
+      cell: ({ row }) => {
+        const isScheduled = scheduleByRepoId[row.original.id]?.enabled ?? false;
+        return (
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="whitespace-nowrap" onClick={() => setEditingRepos([row.original])}>
+            Edit Schedule
+          </Button>
+          {isScheduled && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-slate-400 text-white hover:bg-white/10 hover:border-white w-32 shrink-0 whitespace-nowrap text-sm"
+              onClick={() =>
+                navigate(`/reviews?search=${encodeURIComponent(row.original.full_name)}&source=scheduled`)
+              }
+            >
+              View Reviews
+            </Button>
+          )}
+        </div>
+        );
+      },
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [scheduleByRepoId, scheduleStatusFilter]);
+  ], [scheduleByRepoId, scheduleStatusFilter, navigate]);
 
   // Local Scheduled-status filter only - schedule state isn't in /repositories, so this still can't be server-side; sort is server-side now via sort=schedule.
   const visibleRepositories = useMemo(() => {

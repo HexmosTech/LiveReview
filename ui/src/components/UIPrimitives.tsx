@@ -1289,7 +1289,7 @@ export const Divider: React.FC<DividerProps> = ({ label, className }) => {
 // Same visual/interaction pattern as the local MultiSelectField originally
 // built for pages/Reports/TaxonomyReports.tsx.
 
-export type FilterOption = { value: string; label: string };
+export type FilterOption = { value: string; label: string; disabled?: boolean };
 
 export const parseMultiFilterValue = (v: string): string[] =>
   (v || '')
@@ -1323,9 +1323,10 @@ interface MultiSelectPanelProps {
 // wrapped in its own button + positioning.
 export const MultiSelectPanel: React.FC<MultiSelectPanelProps> = ({ label, options, value, onChange, onRequestClose }) => {
   const [query, setQuery] = useState('');
+  const selectable = useMemo(() => options.filter((o) => !o.disabled), [options]);
   const selected = parseMultiFilterValue(value);
-  const allSelected = selected.length === 0 || selected.length === options.length;
-  const selectedSet = new Set(allSelected ? options.map((o) => o.value) : selected);
+  const allSelected = selected.length === 0 || selected.length === selectable.length;
+  const selectedSet = new Set(allSelected ? selectable.map((o) => o.value) : selected);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -1334,10 +1335,10 @@ export const MultiSelectPanel: React.FC<MultiSelectPanelProps> = ({ label, optio
   }, [options, query]);
 
   const toggle = (target: string) => {
-    const next = new Set(allSelected ? options.map((o) => o.value) : selected);
+    const next = new Set(allSelected ? selectable.map((o) => o.value) : selected);
     if (next.has(target)) next.delete(target);
     else next.add(target);
-    if (next.size === 0 || next.size === options.length) {
+    if (next.size === 0 || next.size === selectable.length) {
       onChange('');
       return;
     }
@@ -1360,14 +1361,18 @@ export const MultiSelectPanel: React.FC<MultiSelectPanelProps> = ({ label, optio
           onRequestClose?.();
         }}
       >
-        All {label} ({options.length})
+        All {label} ({selectable.length})
       </button>
       <div className="max-h-52 overflow-y-auto space-y-1 pr-1">
         {filtered.map((o) => (
-          <label key={o.value} className="flex items-center gap-2 text-sm text-slate-200 px-2 py-1.5 rounded hover:bg-slate-700 cursor-pointer">
+          <label
+            key={o.value}
+            className={`flex items-center gap-2 text-sm px-2 py-1.5 rounded ${o.disabled ? 'text-slate-500 opacity-60 cursor-not-allowed' : 'text-slate-200 hover:bg-slate-700 cursor-pointer'}`}
+          >
             <input
               type="checkbox"
-              checked={selectedSet.has(o.value)}
+              checked={!o.disabled && selectedSet.has(o.value)}
+              disabled={o.disabled}
               onChange={() => toggle(o.value)}
               className="accent-blue-500"
             />

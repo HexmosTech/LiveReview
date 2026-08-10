@@ -504,7 +504,7 @@ func (s *Server) fetchLiveDiffFromMetadata(ctx context.Context, meta map[string]
 	}
 
 	ghProvider := githubprovider.NewGitHubProvider(patToken)
-	diffs, err := ghProvider.GetCompareChanges(ctx, owner, repo, baseSHA, headSHA)
+	diffs, _, err := ghProvider.GetCompareChanges(ctx, owner, repo, baseSHA, headSHA)
 	if err != nil {
 		return nil, true, fmt.Errorf("failed to fetch compare diff: %w", err)
 	}

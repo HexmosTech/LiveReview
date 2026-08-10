@@ -398,26 +398,29 @@ func (p *GitHubProvider) GetMergeRequestChanges(ctx context.Context, mrID string
 	return diffs, nil
 }
 
-// GetCompareChanges fetches the diff between two refs via GitHub's compare-two-commits API; used for scheduled reviews (no PR to diff against).
-func (p *GitHubProvider) GetCompareChanges(ctx context.Context, owner, repo, base, head string) ([]*models.CodeDiff, error) {
+// GetCompareChanges fetches the diff between two refs via GitHub's compare-two-commits API, plus the SHAs of every commit in that range (oldest first, as GitHub returns them); used for scheduled reviews (no PR to diff against).
+func (p *GitHubProvider) GetCompareChanges(ctx context.Context, owner, repo, base, head string) ([]*models.CodeDiff, []string, error) {
 	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/compare/%s...%s", owner, repo, base, head)
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	req.Header.Set("Authorization", "token "+p.PAT)
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("GitHub compare failed: %s: %s", resp.Status, string(body))
+		return nil, nil, fmt.Errorf("GitHub compare failed: %s: %s", resp.Status, string(body))
 	}
 
 	var compare struct {
+		Commits []struct {
+			SHA string `json:"sha"`
+		} `json:"commits"`
 		Files []struct {
 			Filename  string `json:"filename"`
 			Status    string `json:"status"`
@@ -429,7 +432,7 @@ func (p *GitHubProvider) GetCompareChanges(ctx context.Context, owner, repo, bas
 		} `json:"files"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&compare); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var diffs []*models.CodeDiff
@@ -446,6 +449,11 @@ func (p *GitHubProvider) GetCompareChanges(ctx context.Context, owner, repo, bas
 		})
 	}
 
+	commitSHAs := make([]string, 0, len(compare.Commits))
+	for _, c := range compare.Commits {
+		commitSHAs = append(commitSHAs, c.SHA)
+	}
+
 	if capture.Enabled() {
 		capture.WriteJSON("github-compare-diffs", map[string]interface{}{
 			"owner": owner,
@@ -456,7 +464,7 @@ func (p *GitHubProvider) GetCompareChanges(ctx context.Context, owner, repo, bas
 		})
 	}
 
-	return diffs, nil
+	return diffs, commitSHAs, nil
 }
 
 // GetDefaultBranch returns the repository's default branch name (e.g. "main").

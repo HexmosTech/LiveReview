@@ -10,6 +10,7 @@ import (
 
 	"github.com/livereview/internal/aiselection"
 	"github.com/livereview/internal/license"
+	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/naming"
 	githubprovider "github.com/livereview/internal/providers/github"
 	"github.com/livereview/internal/review"
@@ -121,7 +122,7 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 		return store.UpdateCheckpoint(ctx, cfg.ID, branch, headSHA, time.Now(), nextRunAt)
 	}
 
-	diffs, err := ghProvider.GetCompareChanges(ctx, owner, repo, baseSHA, headSHA)
+	diffs, commitSHAs, err := ghProvider.GetCompareChanges(ctx, owner, repo, baseSHA, headSHA)
 	if err != nil {
 		return fmt.Errorf("failed to fetch compare diff for %s (%s...%s): %w", cfg.ProjectFullName, baseSHA, headSHA, err)
 	}
@@ -164,9 +165,27 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 	}
 	_ = rm.UpdateReviewStatus(reviewRecord.ID, "in_progress")
 
+	commitRefs := make([]reviewprocessor.CommitRef, 0, len(commitSHAs))
+	for _, sha := range commitSHAs {
+		commitRefs = append(commitRefs, reviewprocessor.CommitRef{Ref: sha, Type: "commit"})
+	}
+	if err := reviewprocessor.InsertReviewCommits(ctx, w.db, reviewRecord.ID, cfg.OrgID, &cfg.RepositoryID, commitRefs); err != nil {
+		log.Printf("[WARN] ScheduledReviewWorker: failed to persist review_commits for review %d: %v", reviewRecord.ID, err)
+	}
+
+	// Registers this review with the package-level logger registry that review.Service looks itself up from (GetLoggerByReviewID) - without this, ProcessReview's event emission silently no-ops.
+	reviewIDStr := fmt.Sprintf("%d", reviewRecord.ID)
+	logger, loggerErr := logging.StartReviewLoggingWithIDs(reviewIDStr, reviewRecord.ID, cfg.OrgID)
+	if loggerErr != nil {
+		log.Printf("[WARN] ScheduledReviewWorker: failed to start event logging for review %d: %v", reviewRecord.ID, loggerErr)
+	} else {
+		logger.SetEventSink(reviewprocessor.NewDatabaseEventSink(w.db))
+		defer logger.Close()
+	}
+
 	reviewRequest := review.ReviewRequest{
 		URL:              fmt.Sprintf("scheduled:%s@%s", cfg.ProjectFullName, headSHA),
-		ReviewID:         fmt.Sprintf("%d", reviewRecord.ID),
+		ReviewID:         reviewIDStr,
 		Provider:         review.ProviderConfig{Type: "cli", Config: map[string]interface{}{}}, // "cli" skips posting comments back — there's no PR to comment on.
 		AI:               selection.Leader,
 		HelperAI:         selection.Helper,
