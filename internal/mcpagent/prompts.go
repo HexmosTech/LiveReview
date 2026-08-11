@@ -43,14 +43,6 @@ var analyticsSchemaIntro string
 //go:embed prompts/analytics_schema_examples.md
 var analyticsSchemaExamples string
 
-// analyticsSchemaFallback stands in for dbctxTableText's output when the
-// dbctx index isn't ready or failed to build - see schema_index.go and
-// schema_render.go. Deliberately minimal (table names only, no columns)
-// rather than a full duplicate of what dbctx normally supplies.
-//
-//go:embed prompts/analytics_schema_fallback.md
-var analyticsSchemaFallback string
-
 // analyticsPlanInstructions teaches the first call to answer a data question
 // with a count plan instead of a tool call.
 //

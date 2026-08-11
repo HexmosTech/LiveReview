@@ -34,14 +34,14 @@ import (
 // used only to pick which tables to render; the actual rendering always
 // goes through TableDetail + renderTable below.
 //
-// Returns the fallback text and a non-nil error when the live index isn't
-// available. The caller is expected to log that via
+// Returns "" and a non-nil error when the live index isn't available - no
+// fallback text. The caller is expected to log that via
 // ChatTurnLogger.SchemaSourceDegraded - this function has no session/turn
 // context of its own to log through.
 func dbctxTableText(role livisql.Role, queryText string) (string, error) {
 	idx := schemaIndex()
 	if idx == nil {
-		return analyticsSchemaFallback, fmt.Errorf("dbctx index unavailable")
+		return "", fmt.Errorf("dbctx index unavailable")
 	}
 
 	tables := livisql.CatalogFor(role, orgScopedColumns()).Tables()
@@ -68,7 +68,7 @@ func dbctxTableText(role livisql.Role, queryText string) (string, error) {
 	}
 
 	if rendered == 0 {
-		return analyticsSchemaFallback, fmt.Errorf("dbctx returned no renderable tables for role %q", role)
+		return "", fmt.Errorf("dbctx returned no renderable tables for role %q", role)
 	}
 	return b.String(), nil
 }
