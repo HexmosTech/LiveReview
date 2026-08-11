@@ -23,9 +23,20 @@ func testDB(t *testing.T) *sql.DB {
 	return db
 }
 
+// testOrgScopedColumns stands in for the live dbctx-sourced map
+// mcpagent.orgScopedColumns normally supplies to livisql.CatalogFor - just
+// enough columns for the queries this file's tests exercise. users is not
+// listed: it is one of CatalogFor's two hand-written specials (no org_id
+// column at all), always present regardless of this map.
+func testOrgScopedColumns() map[string][]string {
+	return map[string][]string{
+		"reviews": {"id", "org_id", "created_at", "completed_at", "status"},
+	}
+}
+
 func rewrite(t *testing.T, role livisql.Role, sql string) string {
 	t.Helper()
-	out, err := livisql.New(livisql.CatalogFor(role)).Rewrite(sql)
+	out, err := livisql.New(livisql.CatalogFor(role, testOrgScopedColumns())).Rewrite(sql)
 	if err != nil {
 		t.Fatalf("guard rejected a query the test expects to run: %v", err)
 	}
