@@ -52,18 +52,33 @@ type AnalyticsEngine interface {
 // WithAnalytics enables the SQL analytics path. With a nil engine, or a session
 // carrying no org id, behaviour is byte-identical to the tool-only agent.
 //
-// Enabling it rebuilds the tool list and system prompt, because the two changes
-// have to happen together: the raw-row tools are withdrawn at the same moment
-// the model is told to write SQL instead. Leaving both available would let it
-// keep counting rows in its head, which is the bug this path exists to fix.
+// Enabling it precomputes the three branch-specific (prompt, tools) pairs
+// call #0 dispatches between - see livi_analytics_plan.md's "Call #0"
+// section and agent.go's Agent struct doc comment. The raw-row tools are
+// withdrawn from the action branch's tool list at the same moment the
+// count_query branch is taught to write SQL instead: leaving both available
+// would let the model keep counting rows in its head, which is the bug this
+// path exists to fix.
 func (a *Agent) WithAnalytics(engine AnalyticsEngine) *Agent {
 	a.analytics = engine
 	if !a.analyticsEnabled() {
 		return a
 	}
+	orgName, userName := a.mcpSession.OrgName, a.mcpSession.UserName
 	tools := withoutRawRowTools(a.mcpSession.Tools)
-	a.providerTools = a.provider.FormatTools(tools)
-	a.systemPrompt = buildSystemPrompt(tools, a.mcpSession.OrgName, a.mcpSession.UserName, true)
+
+	a.actionTools = a.provider.FormatTools(tools)
+	a.actionPrompt = buildSystemPrompt(tools, orgName, userName)
+	a.chatPrompt = buildPromptHeader(orgName, userName)
+	a.classifyPrompt = buildClassifyPrompt(tools)
+	a.countQueryHead, a.countQueryTail = buildCountQueryPromptHalves(orgName, userName)
+
+	// Kept in sync for any caller still reading systemPrompt/providerTools
+	// directly (there is none in this codebase today, but they remain
+	// public-ish Agent state) - the action branch is the closest equivalent
+	// to what those fields meant before this split.
+	a.providerTools = a.actionTools
+	a.systemPrompt = a.actionPrompt
 	return a
 }
 
@@ -104,16 +119,23 @@ func (a *Agent) analyticsEnabled() bool {
 	return a.analytics != nil && a.mcpSession != nil && a.mcpSession.OrgID != 0
 }
 
-// guard builds the SQL guard for this session's role. Unknown roles fall back
-// to the least privileged catalog.
-func (a *Agent) guard() *livisql.Guard {
+// analyticsRole normalizes this session's role for SQL/schema purposes.
+// Unknown or unrecognized roles fall back to the least privileged catalog -
+// this matters for the bots, which authenticate an organization rather than
+// a user and so never carry a real role.
+func (a *Agent) analyticsRole() livisql.Role {
 	role := livisql.Role(strings.ToLower(strings.TrimSpace(a.mcpSession.UserRole)))
 	switch role {
 	case livisql.RoleOwner, livisql.RoleSuperAdmin:
 	default:
 		role = livisql.RoleMember
 	}
-	return livisql.New(livisql.CatalogFor(role))
+	return role
+}
+
+// guard builds the SQL guard for this session's role.
+func (a *Agent) guard() *livisql.Guard {
+	return livisql.New(livisql.CatalogFor(a.analyticsRole()))
 }
 
 // finishedReport is one completed entry of a multi-report answer.

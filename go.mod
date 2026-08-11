@@ -35,7 +35,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/kaptinlin/jsonrepair v0.2.3
 	github.com/labstack/echo/v4 v4.15.1
 	github.com/lib/pq v1.12.0
@@ -45,9 +45,11 @@ require (
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.32.0
 	github.com/rs/zerolog v1.34.0
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
+	github.com/shrsv/dbctx v0.0.0-20260811102815-06e6e23228a2
 	github.com/slack-go/slack v0.27.0
 	github.com/stretchr/testify v1.11.1
 	github.com/tmc/langchaingo v0.1.14
+	github.com/wasilibs/go-pgquery v0.0.0-20260728010200-155ebad2880e
 	github.com/xuri/excelize/v2 v2.11.0
 	github.com/zricethezav/gitleaks/v8 v8.30.1
 	gocloud.dev v0.46.0
@@ -117,6 +119,7 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dlclark/regexp2 v1.11.0 // indirect
 	github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707 // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.37.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.3.3 // indirect
 	github.com/fatih/semgroup v1.2.0 // indirect
@@ -160,7 +163,7 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/mholt/archives v0.1.5 // indirect
 	github.com/mikelolasagasti/xz v1.0.1 // indirect
@@ -169,6 +172,7 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
+	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/nwaples/rardecode/v2 v2.2.0 // indirect
 	github.com/oasdiff/yaml v0.1.1 // indirect
 	github.com/oasdiff/yaml3 v0.0.14 // indirect
@@ -180,6 +184,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
+	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/richardlehane/mscfb v1.0.7 // indirect
 	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/riverqueue/river/riverdriver v0.32.0 // indirect
@@ -189,6 +194,7 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/sagikazarmark/locafero v0.7.0 // indirect
 	github.com/sagikazarmark/slog-shim v0.1.0 // indirect
+	github.com/sahilm/fuzzy v0.1.3 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
@@ -211,7 +217,6 @@ require (
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
-	github.com/wasilibs/go-pgquery v0.0.0-20260728010200-155ebad2880e // indirect
 	github.com/wasilibs/go-re2 v1.9.0 // indirect
 	github.com/wasilibs/wazero-helpers v0.0.0-20250123031827-cd30c44769bb // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
@@ -248,6 +253,10 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	modernc.org/libc v1.74.4 // indirect
+	modernc.org/mathutil v1.7.1 // indirect
+	modernc.org/memory v1.11.0 // indirect
+	modernc.org/sqlite v1.56.0 // indirect
 )
 
 replace github.com/BrunoKrugel/echo-mcp => github.com/RijulTP/echo-mcp v0.0.0-20260521161450-0737ad06cc38

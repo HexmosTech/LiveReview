@@ -22,14 +22,34 @@ var agentInstructions string
 // system prompt when the analytics engine is wired up, so an agent without it
 // behaves exactly as before.
 
-// analyticsSchema documents the tables generated SQL may read. It is written by
-// hand rather than introspected from information_schema on purpose: it has to
-// mirror the guard's allowlist exactly (internal/livisql/catalog.go), and it
-// carries meaning no catalog exposes - that author_username is the reviewer,
-// what the status values imply, which timestamp answers which question.
+// analyticsSchemaIntro is the hand-written half of the schema section: SQL
+// dialect rules, worked examples, and the enum/join facts dbctx cannot supply
+// (representative values are deliberately never rendered from the live index
+// - see dbctx_schema_plan.md - so the fixed, safe-to-share ones like
+// reviews.status's four values stay hand-written here). The table/column
+// listing itself used to live here too; it is now generated per-turn by
+// schema_render.go's dbctxTableText from the live database schema, appended
+// after this file's content rather than embedded in it.
 //
-//go:embed prompts/analytics_schema.md
-var analyticsSchema string
+//go:embed prompts/analytics_schema_intro.md
+var analyticsSchemaIntro string
+
+// analyticsSchemaExamples is the second hand-written half: the enum/join
+// facts dbctx cannot supply, dialect rules, and worked examples. Sits after
+// the generated table text in the prompt (see buildCountQueryPromptHalves),
+// which is why it's a separate embed rather than one file with
+// analyticsSchemaIntro - the generated text has to be spliced between them.
+//
+//go:embed prompts/analytics_schema_examples.md
+var analyticsSchemaExamples string
+
+// analyticsSchemaFallback stands in for dbctxTableText's output when the
+// dbctx index isn't ready or failed to build - see schema_index.go and
+// schema_render.go. Deliberately minimal (table names only, no columns)
+// rather than a full duplicate of what dbctx normally supplies.
+//
+//go:embed prompts/analytics_schema_fallback.md
+var analyticsSchemaFallback string
 
 // analyticsPlanInstructions teaches the first call to answer a data question
 // with a count plan instead of a tool call.
@@ -54,3 +74,11 @@ var analyticsRepairInstructions string
 //
 //go:embed prompts/analytics_nodata.md
 var analyticsNoDataInstructions string
+
+// classifyInstructions is call #0's system prompt: the three-way shape
+// decision (action | count_query | chat) that routes a turn before any
+// schema or full tool definitions are built. See classify.go and
+// livi_analytics_plan.md's "Call #0" section.
+//
+//go:embed prompts/analytics_classify.md
+var classifyInstructions string

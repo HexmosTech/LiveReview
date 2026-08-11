@@ -37,6 +37,24 @@ type Agent struct {
 	// analytics executes generated SQL. Nil leaves the agent tool-only, which
 	// is the pre-existing behaviour; see WithAnalytics.
 	analytics AnalyticsEngine
+
+	// The following are precomputed once by WithAnalytics and only
+	// meaningful when analyticsEnabled() is true - RunTurnWithArtifacts
+	// falls back to systemPrompt/providerTools above otherwise, byte-
+	// identical to a plain tool-only agent. See livi_analytics_plan.md's
+	// "Call #0" section: the point of splitting these out is that each
+	// branch's call gets ONLY the prompt content it needs - the action
+	// branch never sees the SQL schema, and the count_query/chat branches
+	// never see the general tool list.
+	classifyPrompt string       // call #0's system prompt: shape instructions + tool NAMES only
+	actionPrompt   string       // call #1: identical in shape to the plain tool-only prompt
+	actionTools    []llms.Tool  // call #1's tools (raw-row tools withheld, same as before the split)
+	chatPrompt     string       // persona/org header only, no tools, no schema
+	countQueryHead string       // header + analyticsSchemaIntro, precomputed
+	countQueryTail string       // examples + plan instructions, precomputed
+	// countQueryHead/Tail bracket dbctxTableText's output, which can only be
+	// resolved per turn (schema_index.go's index may not have been ready
+	// when WithAnalytics ran) - see (*Agent).countQueryPrompt.
 }
 
 func NewAgent(provider *Provider, mcpSession *MCPSession, maxSteps int) *Agent {
@@ -44,7 +62,7 @@ func NewAgent(provider *Provider, mcpSession *MCPSession, maxSteps int) *Agent {
 		maxSteps = DefaultMaxAgentSteps
 	}
 	tools := provider.FormatTools(mcpSession.Tools)
-	systemPrompt := buildSystemPrompt(mcpSession.Tools, mcpSession.OrgName, mcpSession.UserName, false)
+	systemPrompt := buildSystemPrompt(mcpSession.Tools, mcpSession.OrgName, mcpSession.UserName)
 
 	return &Agent{
 		provider:      provider,
@@ -75,20 +93,67 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 	clog.Context(a.mcpSession.OrgName, a.mcpSession.UserName, a.provider.Describe())
 	clog.UserInput(userText)
 
-	if len(history) == 0 && a.systemPrompt != "" {
-		history = append(history, HistoryEntry{"role": "system", "content": a.systemPrompt})
+	systemPrompt := a.systemPrompt
+	tools := a.providerTools
+
+	// Call #0: classify before paying for schema/tool-schema tokens. Only
+	// runs when analytics is enabled - a plain tool-only agent keeps its
+	// single fixed prompt, byte-identical to before this split existed.
+	if a.analyticsEnabled() {
+		shape, err := a.classify(ctx, history, userText, clog)
+		if err != nil {
+			// No retry here: a second classify call would double the very
+			// cost this split exists to avoid. Degrade to the safest
+			// branch - no schema, no tool side effects triggered blindly -
+			// and let the user re-ask if that guess was wrong.
+			log.Warn().Err(err).Msg("call #0 classify failed; degrading to chat-only response for this turn")
+			shape = shapeChat
+		}
+
+		switch shape {
+		case shapeAction:
+			systemPrompt = a.actionPrompt
+			tools = a.actionTools
+		case shapeCountQuery:
+			systemPrompt = a.countQueryPrompt(clog)
+			tools = nil
+		default:
+			systemPrompt = a.chatPrompt
+			tools = nil
+		}
+		clog.BranchSelected(string(shape), len(systemPrompt), len(tools))
+	}
+
+	// Swapped every turn, not appended once: which prompt a turn needs is
+	// decided fresh above, so a session that changes shape turn-to-turn
+	// (a data question, then "trigger a review for that repo", then
+	// another data question) must not keep whatever was baked in on turn
+	// one. The rest of history (actual conversation content) is untouched.
+	switch {
+	case len(history) == 0:
+		if systemPrompt != "" {
+			history = append(history, HistoryEntry{"role": "system", "content": systemPrompt})
+		}
+	case history[0]["role"] == "system":
+		if systemPrompt != "" {
+			history[0] = HistoryEntry{"role": "system", "content": systemPrompt}
+		}
+	default:
+		if systemPrompt != "" {
+			history = append([]HistoryEntry{{"role": "system", "content": systemPrompt}}, history...)
+		}
 	}
 	history = append(history, HistoryEntry{"role": "user", "content": userText})
 
 	for step := 0; step < a.maxSteps; step++ {
-		log.Debug().Int("step", step).Int("history_len", len(history)).Int("num_tools", len(a.providerTools)).Msg("Calling LLM")
+		log.Debug().Int("step", step).Int("history_len", len(history)).Int("num_tools", len(tools)).Msg("Calling LLM")
 		if clog.Enabled() {
 			if b, err := json.Marshal(history); err == nil {
 				clog.AIRequest(step, string(b))
 			}
 		}
 		aiStart := time.Now()
-		response, usage, err := a.provider.Complete(ctx, history, a.providerTools)
+		response, usage, err := a.provider.Complete(ctx, history, tools)
 		aiElapsed := time.Since(aiStart)
 		if err != nil {
 			log.Error().Err(err).Int("step", step).Msg("LLM completion failed")
@@ -111,6 +176,23 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 					clog.SQLPlan(step, response)
 					return a.runAnalyticsPlan(ctx, plan, history, userText, clog)
 				}
+			}
+			// The "you MUST call a tool" nudges below only make sense when
+			// this turn's branch actually offered tools (the action
+			// branch). The count_query/chat branches offer none - after
+			// the call #0 split, telling the model to call a tool it was
+			// never given would be nonsensical, not a helpful retry.
+			if len(tools) == 0 {
+				if strings.TrimSpace(response) == "" {
+					log.Warn().Int("step", step).Msg("AI returned an empty response on a no-tools branch, forcing retry")
+					history = append(history, HistoryEntry{
+						"role":    "user",
+						"content": "Your previous reply was empty. Please give a complete answer to the question.",
+					})
+					continue
+				}
+				clog.FinalResponse(response)
+				return response, history, nil, nil
 			}
 			if strings.TrimSpace(response) == "" {
 				log.Warn().Int("step", step).Msg("AI returned an empty response, forcing retry")
@@ -184,14 +266,48 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 	return "I hit my step limit trying to finish that — try breaking the request down.", history, nil, nil
 }
 
-func buildSystemPrompt(tools []MCPToolDef, orgName, userName string, withAnalytics bool) string {
+// personaIntro is the one sentence every branch's prompt opens with -
+// shared by buildSystemPrompt (tool-bearing branches: the plain tool-only
+// agent and call #1's action branch) and buildPromptHeader (call #2's
+// count_query branch and the chat branch, neither of which lists tools).
+const personaIntro = "You are an AI assistant connected to a LiveReview API server. " +
+	"You act as a friendly persona (Livi), not a faceless system. Speak in the first person and take ownership of the actions you perform: when you trigger a review, create a learning, or add a connector, YOU did it — never refer to 'the system' doing it.\n"
+
+// buildPromptHeader is the persona + org/user context block with no tool
+// list - the shared prefix for branches that never call a tool
+// (count_query, chat). Kept separate from buildSystemPrompt rather than
+// having the tool-bearing prompt strip its own tool section, so the
+// no-tools prompt never risks carrying "You have access to the following
+// tools:" language when there are none.
+func buildPromptHeader(orgName, userName string) string {
+	var b strings.Builder
+	b.WriteString(personaIntro)
+	if orgName != "" || userName != "" {
+		b.WriteString("The user you are helping belongs to the following context. This is MANDATORY:\n")
+		if userName != "" {
+			b.WriteString(fmt.Sprintf("- User: %s\n", userName))
+		}
+		if orgName != "" {
+			b.WriteString(fmt.Sprintf("- Organization: %s\n", orgName))
+		}
+		b.WriteString("\n")
+		b.WriteString(orgPromptGuidance) // imported from prompts/org_prompt.md
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// buildSystemPrompt is the tool-bearing prompt: the plain tool-only agent
+// (NewAgent) and call #1's action branch both use it unchanged - the action
+// branch is deliberately built to look exactly like the pre-analytics
+// prompt, since its whole point is to never carry SQL/schema content.
+func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
 	if len(tools) == 0 {
 		return ""
 	}
 
 	var b strings.Builder
-	b.WriteString("You are an AI assistant connected to a LiveReview API server. ")
-	b.WriteString("You act as a friendly persona (Livi), not a faceless system. Speak in the first person and take ownership of the actions you perform: when you trigger a review, create a learning, or add a connector, YOU did it — never refer to 'the system' doing it.\n")
+	b.WriteString(personaIntro)
 	b.WriteString("You have access to the following tools:\n\n")
 
 	if orgName != "" || userName != "" {
@@ -216,18 +332,40 @@ func buildSystemPrompt(tools []MCPToolDef, orgName, userName string, withAnalyti
 	}
 	b.WriteString(agentInstructions) // imported from prompts/agent_instructions.md
 
-	if withAnalytics {
-		// Order matters: the schema teaches what can be queried, the plan
-		// instructions teach how to ask for it. Both come after the general
-		// instructions so the SQL rules override the older "aggregate the rows
-		// yourself" guidance still present there.
-		b.WriteString("\n\n")
-		b.WriteString(analyticsSchema) // imported from prompts/analytics_schema.md
-		b.WriteString("\n\n")
-		b.WriteString(analyticsPlanInstructions) // imported from prompts/analytics_plan.md
-	}
-
 	return b.String()
+}
+
+// buildCountQueryPromptHalves precomputes the static parts of call #2's
+// system prompt. They bracket dbctxTableText's output, which is resolved
+// fresh per turn by (*Agent).countQueryPrompt rather than here, because the
+// dbctx index's readiness can change over the process's life in a way none
+// of the other precomputed prompts depend on.
+func buildCountQueryPromptHalves(orgName, userName string) (head, tail string) {
+	var h strings.Builder
+	h.WriteString(buildPromptHeader(orgName, userName))
+	h.WriteString(analyticsSchemaIntro) // imported from prompts/analytics_schema_intro.md
+	head = h.String()
+
+	var t strings.Builder
+	t.WriteString("\n\n")
+	t.WriteString(analyticsSchemaExamples) // imported from prompts/analytics_schema_examples.md
+	t.WriteString("\n\n")
+	t.WriteString(analyticsPlanInstructions) // imported from prompts/analytics_plan.md
+	tail = t.String()
+
+	return head, tail
+}
+
+// countQueryPrompt assembles call #2's full system prompt for this turn,
+// splicing the live dbctx table text between the precomputed head and tail.
+// Logs SchemaSourceDegraded when the live index wasn't available and the
+// static fallback table list was used instead - see schema_render.go.
+func (a *Agent) countQueryPrompt(clog *logging.ChatTurnLogger) string {
+	tableText, err := dbctxTableText(a.analyticsRole())
+	if err != nil {
+		clog.SchemaSourceDegraded(err.Error())
+	}
+	return a.countQueryHead + "\n\n" + tableText + a.countQueryTail
 }
 
 // isAuthError reports whether a tool result signals an expired/invalid

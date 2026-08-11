@@ -127,6 +127,28 @@ func (l *ChatTurnLogger) LLMCallError(kind, reportID string, attempt int, elapse
 	l.write("AI Error", "kind=%s report=%s attempt=%d elapsed=%s error=%v", kind, reportID, attempt, elapsed.Round(time.Millisecond), err)
 }
 
+// BranchSelected records call #0's classify decision and which (prompt,
+// tools) pair got swapped into the turn's system message, at the point the
+// decision is made - not left to be inferred later from which shape of
+// prompt/response shows up downstream. This is the one line that answers
+// "why did this turn go down the wrong path" for the call #0/dispatch split
+// (see livi_analytics_plan.md's "Call #0" section).
+func (l *ChatTurnLogger) BranchSelected(shape string, promptLen, toolCount int) {
+	l.write("Branch Selected", "shape=%s prompt_len=%d tools=%d", shape, promptLen, toolCount)
+}
+
+// SchemaSourceDegraded records that a count_query-branch turn rendered the
+// static fallback table list instead of the live dbctx-derived schema,
+// because the index wasn't ready or failed to build (see
+// dbctx_schema_plan.md's Rollout/risk section). The index failure itself is
+// logged once, at process startup, via zerolog - this is the per-turn
+// counterpart: it answers "was this specific bad SQL caused by a stale
+// schema" for a turn that otherwise looks identical in the log to one that
+// ran against the real schema.
+func (l *ChatTurnLogger) SchemaSourceDegraded(reason string) {
+	l.write("Schema Source Degraded", "reason=%s", reason)
+}
+
 func (l *ChatTurnLogger) ToolCall(step int, name, argsJSON string) {
 	l.write("Tool Call", "step=%d %s %s", step, name, redactSecrets(argsJSON))
 }
