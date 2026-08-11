@@ -1,5 +1,7 @@
 -- migrate:up
 
+DROP TABLE IF EXISTS scheduled_review_configs;
+
 CREATE TABLE scheduled_review_configs (
     id                    BIGSERIAL PRIMARY KEY,
     org_id                BIGINT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
@@ -15,8 +17,8 @@ CREATE TABLE scheduled_review_configs (
     UNIQUE (repository_id)
 );
 
-CREATE INDEX idx_scheduled_review_configs_org_id ON scheduled_review_configs(org_id);
-CREATE INDEX idx_scheduled_review_configs_due ON scheduled_review_configs(next_run_at) WHERE enabled = true;
+CREATE INDEX IF NOT EXISTS idx_scheduled_review_configs_org_id ON scheduled_review_configs(org_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_review_configs_due ON scheduled_review_configs(next_run_at) WHERE enabled = true;
 
 COMMENT ON TABLE scheduled_review_configs IS 'Per-repo configuration for periodic default-branch reviews';
 COMMENT ON COLUMN scheduled_review_configs.repository_id IS 'One config per repo - the repositories row already carries full_name/connector_id/org_id, so those are joined rather than duplicated here';
