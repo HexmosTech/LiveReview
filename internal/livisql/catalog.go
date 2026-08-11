@@ -69,6 +69,15 @@ var secretColumns = map[string]bool{
 	"key_hash":           true,
 }
 
+// IsSecretColumn reports whether name is on the secretColumns denylist -
+// exported so mcpagent's schema-text renderer (schema_render.go) can keep
+// secret column NAMES out of the LLM prompt too, using the same list the SQL
+// guard already uses to keep their VALUES out of query results, rather than
+// maintaining a second copy of it.
+func IsSecretColumn(name string) bool {
+	return secretColumns[name]
+}
+
 // AutoOrgScopedShadow builds a shadow for a table that carries org_id
 // directly: every column except secretColumns, from the live schema (see
 // mcpagent's orgScopedColumns, sourced from the dbctx index) rather than a
@@ -93,6 +102,35 @@ func AutoOrgScopedShadow(table string, columns []string) (shadow, bool) {
 	}, true
 }
 
+// deniedTables are excluded from CatalogFor entirely, regardless of what
+// orgScopedColumns supplies - not visible to the SQL guard (no shadow, so
+// any query referencing them is rejected as CodeUnknownTable) and, since
+// mcpagent's schema-text renderer sources its table list from this same
+// Catalog, not visible in the LLM prompt either. One list, one place.
+var deniedTables = map[string]bool{
+	"upgrade_requests":             true,
+	"quota_batch_settlements":      true,
+	"billing_notification_outbox":  true,
+	"webhook_registry":             true,
+	"integration_tokens":           true,
+	"org_slack_configs":            true,
+	"org_discord_configs":          true,
+	"org_teams_configs":            true,
+	"api_keys":                     true,
+	"reviews_backup_20260806":      true,
+	"prompt_chunks":                true,
+	"prompt_application_context":   true,
+	"dashboard_cache":              true,
+	"upgrade_request_events":       true,
+	"upgrade_replacement_cutovers": true,
+	"upgrade_payment_attempts":     true,
+	"user_management_audit":        true,
+	"user_role_history":            true,
+	"org_billing_state":            true,
+	"subscriptions":                true,
+	"license_log":                  true,
+}
+
 // Catalog is the set of relations that may be referenced in a generated
 // query, plus the shadow bodies used to rewrite them.
 type Catalog struct {
@@ -101,14 +139,18 @@ type Catalog struct {
 
 // CatalogFor returns the relations visible for this turn: the two
 // hand-written specials (orgs, users) plus an auto-generated shadow for
-// every table in orgScopedColumns (table name -> its column list). role is
-// no longer used to restrict the table set - see the Role doc comment.
+// every table in orgScopedColumns (table name -> its column list) that
+// isn't on deniedTables. role is no longer used to restrict the table set -
+// see the Role doc comment.
 func CatalogFor(role Role, orgScopedColumns map[string][]string) Catalog {
 	c := Catalog{shadows: make(map[string]string, len(specialShadows)+len(orgScopedColumns))}
 	for _, s := range specialShadows {
 		c.shadows[s.name] = s.body
 	}
 	for table, cols := range orgScopedColumns {
+		if deniedTables[table] {
+			continue
+		}
 		if s, ok := AutoOrgScopedShadow(table, cols); ok {
 			c.shadows[s.name] = s.body
 		}

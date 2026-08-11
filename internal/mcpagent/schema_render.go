@@ -11,12 +11,17 @@ import (
 // dbctxTableText renders the "### Tables" section of the count_query/
 // finalize branches' system prompt from the live dbctx index, narrowed to
 // what idx.Query(queryText) returns (see narrowTables). Renders every
-// column dbctx reports for a table - no catalog.go/livisql.ColumnsFor
-// allowlist - per explicit instruction after being told this means
-// users.password_hash, users.onboarding_api_key, and reviews.metadata are
-// now included in the schema text (and therefore in chat_debug_logs/
-// chat_debug.log). Column-level filtering can be reintroduced later; this
-// is deliberately the simplest version first.
+// column dbctx reports for a table EXCEPT livisql.IsSecretColumn matches -
+// the same exact-name denylist the SQL guard uses (password_hash, api_key,
+// access_token, ...), reused here rather than duplicated. This is narrower
+// than the old catalog.go/livisql.ColumnsFor allowlist that used to filter
+// this text (removed entirely, then partially restored to just this
+// denylist): secrets stay out of the prompt, but reviews.metadata and every
+// other non-secret column are still rendered in full. Note this denylist
+// only excludes ~13 exact column names schema-wide - it is not a meaningful
+// prompt-size reduction on its own. The token-count jump from removing
+// ColumnsFor came from restoring EVERY non-secret column of every table,
+// which this change does not undo.
 //
 // ColumnInfo.Values and JSONBPathInfo.SampleValues are still never
 // rendered - both come from dbctx's pg_stats/TABLESAMPLE sampling, which
@@ -105,11 +110,17 @@ func narrowTables(idx *dbctx.Index, allVisible []string, visible map[string]bool
 }
 
 // renderTable writes one table's structural entry: every column dbctx
-// reports for it, unfiltered - see dbctxTableText's doc comment. Returns
-// false (writing nothing) if the table has no columns at all, which should
-// not happen but must never render an empty, confusing table header.
+// reports for it except livisql.IsSecretColumn matches - see
+// dbctxTableText's doc comment. Returns false (writing nothing) if nothing
+// is left to render, which should not happen for a real table but must
+// never render an empty, confusing table header.
 func renderTable(b *strings.Builder, name string, detail *dbctx.TableDetail, visible map[string]bool) bool {
-	cols := detail.Columns
+	cols := make([]dbctx.ColumnDetail, 0, len(detail.Columns))
+	for _, c := range detail.Columns {
+		if !livisql.IsSecretColumn(c.Name) {
+			cols = append(cols, c)
+		}
+	}
 	if len(cols) == 0 {
 		return false
 	}

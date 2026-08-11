@@ -894,6 +894,14 @@ pm2-logs:
 	echo "📜 Fetching last $$LOG_LINES lines of PM2 logs from master..."; \
 	ssh master "tail -n $$LOG_LINES ~/.pm2/logs/livereview-api-out.log ~/.pm2/logs/livereview-api-error.log ~/.pm2/logs/livereview-ui-out.log ~/.pm2/logs/livereview-ui-error.log"
 
+# Stream the production chat_debug.log (requires LIVI_DEBUG_LOG=true on the
+# server - see internal/logging/chat_debug_logger.go) live, mirroring it into
+# the local chat_debug_logs/ dir as it grows. Runs until Ctrl+C.
+chat_debug:
+	@echo "📥 Tailing chat_debug.log from $(DEPLOY_HOST) (Ctrl+C to stop)..."
+	@mkdir -p chat_debug_logs
+	ssh $(DEPLOY_HOST) "tail -n 200 -f $(DEPLOY_PATH)/chat_debug_logs/chat_debug.log" | tee chat_debug_logs/prod_chat_debug.log
+
 run-selfhosted:
 	which air || $(GOCMD) install github.com/air-verse/air@latest
 	air -- --env-file .env.selfhosted

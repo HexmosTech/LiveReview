@@ -176,7 +176,7 @@ func TestCatalogRoleIsInert(t *testing.T) {
 	owner := CatalogFor(RoleOwner, cols)
 	unknown := CatalogFor(Role("nonsense"), cols)
 
-	for _, table := range []string{"reviews", "loc_usage_ledger", "org_billing_state", "orgs", "users"} {
+	for _, table := range []string{"reviews", "loc_usage_ledger", "orgs", "users"} {
 		if !member.Allows(table) || !owner.Allows(table) || !unknown.Allows(table) {
 			t.Fatalf("table %q must be visible regardless of role (member=%v owner=%v unknown=%v)",
 				table, member.Allows(table), owner.Allows(table), unknown.Allows(table))
@@ -185,6 +185,13 @@ func TestCatalogRoleIsInert(t *testing.T) {
 
 	if _, err := New(member).Rewrite(`SELECT sum(billable_loc) AS loc FROM loc_usage_ledger`); err != nil {
 		t.Fatalf("member billing query should be accepted: %v", err)
+	}
+
+	// org_billing_state is on deniedTables even though testOrgScopedColumns
+	// supplies it - deniedTables must win over orgScopedColumns regardless
+	// of role.
+	if member.Allows("org_billing_state") || owner.Allows("org_billing_state") {
+		t.Fatal("a table on deniedTables must stay invisible even when orgScopedColumns supplies it")
 	}
 
 	// A table absent from orgScopedColumns (no org_id in the real schema, or
