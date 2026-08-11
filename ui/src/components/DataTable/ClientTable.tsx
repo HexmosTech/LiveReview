@@ -113,7 +113,8 @@ export function ClientTable<TData>({
 
   return (
     <div className="bg-[#1F2836] rounded-lg border border-slate-700">
-      <table className="w-full table-fixed text-sm">
+      <div className="overflow-x-auto">
+      <table className="w-full table-fixed text-sm min-w-[900px]">
         <colgroup>
           {columnWidths.map((width, i) => (
             <col key={i} style={{ width }} />
@@ -170,6 +171,7 @@ export function ClientTable<TData>({
           </AnimatePresence>
         </tbody>
       </table>
+      </div>
 
       {totalPages > 1 && (
         <DataTablePaginationControls

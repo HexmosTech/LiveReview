@@ -11,20 +11,20 @@ export const SafetyBanner: React.FC<SafetyBannerProps> = ({
   variant = 'detailed', 
   className 
 }) => {
-  const [expandedImage, setExpandedImage] = useState<string | null>(null);
-  
-  const images = ['/assets/lr_cli1.png', '/assets/lr_cli2.png'];
+  const [videoExpanded, setVideoExpanded] = useState(false);
+
+  const demoVideo = '/assets/git-lrc-demo.mp4';
 
   // Handle escape key to close modal
   React.useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && expandedImage) {
-        setExpandedImage(null);
+      if (e.key === 'Escape' && videoExpanded) {
+        setVideoExpanded(false);
       }
     };
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
-  }, [expandedImage]);
+  }, [videoExpanded]);
 
   if (variant === 'compact') {
     return (
@@ -58,7 +58,7 @@ export const SafetyBanner: React.FC<SafetyBannerProps> = ({
           <div className="flex-1">
             <div className="flex items-start flex-wrap gap-2 mb-3">
               <h4 className="text-lg font-bold text-cyan-300">
-                ⚡ Instant CLI Mode
+                Instant CLI Mode
               </h4>
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-400/30">
                 Get started in 2 minutes
@@ -101,38 +101,21 @@ export const SafetyBanner: React.FC<SafetyBannerProps> = ({
           </div>
         </div>
 
-        {/* Column 2 - Image 1 (25%) */}
-        <div className="w-full lg:basis-1/4 flex-shrink-0">
+        {/* Column 2 - Demo video (50%) */}
+        <div className="w-full lg:basis-1/2 flex-shrink-0">
           <button
             type="button"
-            className="group w-full rounded border border-slate-500/70 hover:border-cyan-400 transition-colors bg-slate-800/60 hover:bg-slate-800 p-3 h-32 sm:h-36 lg:h-40 flex items-center justify-center relative"
-            onClick={() => setExpandedImage(images[0])}
-            aria-label="Enlarge CLI command screenshot"
+            className="group w-full rounded border border-slate-500/70 hover:border-cyan-400 transition-colors bg-slate-800/60 hover:bg-slate-800 overflow-hidden h-40 sm:h-48 lg:h-56 flex items-center justify-center relative"
+            onClick={() => setVideoExpanded(true)}
+            aria-label="Enlarge git-lrc demo video"
           >
-            <img
-              src={images[0]}
-              alt="CLI Review Command"
-              className="max-h-full w-auto rounded"
-            />
-            <div className="absolute inset-0 rounded pointer-events-none bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-            <div className="absolute bottom-1 right-2 text-[10px] uppercase tracking-wide text-slate-200/80 group-hover:text-white bg-black/50 px-1.5 py-0.5 rounded-sm">
-              Click to enlarge
-            </div>
-          </button>
-        </div>
-
-        {/* Column 3 - Image 2 (25%) */}
-        <div className="w-full lg:basis-1/4 flex-shrink-0">
-          <button
-            type="button"
-            className="group w-full rounded border border-slate-500/70 hover:border-cyan-400 transition-colors bg-slate-800/60 hover:bg-slate-800 p-3 h-32 sm:h-36 lg:h-40 flex items-center justify-center relative"
-            onClick={() => setExpandedImage(images[1])}
-            aria-label="Enlarge CLI output screenshot"
-          >
-            <img
-              src={images[1]}
-              alt="CLI Review Output"
-              className="max-h-full w-auto rounded"
+            <video
+              src={demoVideo}
+              className="h-full w-full object-cover"
+              autoPlay
+              loop
+              muted
+              playsInline
             />
             <div className="absolute inset-0 rounded pointer-events-none bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             <div className="absolute bottom-1 right-2 text-[10px] uppercase tracking-wide text-slate-200/80 group-hover:text-white bg-black/50 px-1.5 py-0.5 rounded-sm">
@@ -141,31 +124,33 @@ export const SafetyBanner: React.FC<SafetyBannerProps> = ({
           </button>
         </div>
       </div>
-      
-      {/* Image Modal */}
-      {expandedImage && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
-          onClick={() => setExpandedImage(null)}
+
+      {/* Video Modal */}
+      {videoExpanded && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950"
+          onClick={() => setVideoExpanded(false)}
         >
-          <div className="relative max-w-6xl max-h-[90vh] w-full">
-            <button
-              onClick={() => setExpandedImage(null)}
-              className="absolute -top-12 right-0 text-white hover:text-cyan-400 transition-colors"
-              aria-label="Close (or press Escape)"
-            >
-              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            <img 
-              src={expandedImage} 
-              alt="Expanded view" 
-              className="w-full h-auto rounded-lg shadow-2xl border border-cyan-400/50"
-              onClick={(e) => e.stopPropagation()}
-            />
-            <p className="text-center text-slate-300 text-sm mt-3">Press ESC to close</p>
-          </div>
+          <button
+            onClick={() => setVideoExpanded(false)}
+            className="absolute top-4 right-4 z-10 text-white hover:text-cyan-400 transition-colors"
+            aria-label="Close (or press Escape)"
+          >
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <video
+            src={demoVideo}
+            className="w-full h-full object-contain"
+            autoPlay
+            loop
+            muted
+            controls
+            playsInline
+            onClick={(e) => e.stopPropagation()}
+          />
+          <p className="absolute bottom-4 left-1/2 -translate-x-1/2 text-slate-400 text-sm">Press ESC to close</p>
         </div>
       )}
     </div>
