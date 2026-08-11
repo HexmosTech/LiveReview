@@ -136,7 +136,7 @@ func (a *Agent) analyticsRole() livisql.Role {
 
 // guard builds the SQL guard for this session's role.
 func (a *Agent) guard() *livisql.Guard {
-	return livisql.New(livisql.CatalogFor(a.analyticsRole()))
+	return livisql.New(livisql.CatalogFor(a.analyticsRole(), orgScopedColumns()))
 }
 
 // finishedReport is one completed entry of a multi-report answer.
@@ -241,7 +241,7 @@ func (a *Agent) runCountPhase(ctx context.Context, entry PlanEntry, clog *loggin
 			if attempt == maxSQLAttempts {
 				return 0, false
 			}
-			sqlText, err = a.repairSQL(ctx, entry.ID, attempt, entry.Question, sqlText, hintFor(err), clog)
+			sqlText, err = a.repairSQL(ctx, 2, entry.ID, attempt, entry.Question, sqlText, hintFor(err), clog)
 			if err != nil {
 				return 0, false
 			}
@@ -256,7 +256,7 @@ func (a *Agent) runCountPhase(ctx context.Context, entry PlanEntry, clog *loggin
 			if attempt == maxSQLAttempts {
 				return 0, false
 			}
-			sqlText, err = a.repairSQL(ctx, entry.ID, attempt, entry.Question, sqlText,
+			sqlText, err = a.repairSQL(ctx, 2, entry.ID, attempt, entry.Question, sqlText,
 				"The query failed to execute: "+err.Error()+" Rewrite it.", clog)
 			if err != nil {
 				return 0, false
@@ -285,10 +285,10 @@ func (a *Agent) runFinalizePhase(
 	base := fmt.Sprintf("Original question: %s\n\nThis report answers: %s\n\nThe result will contain %d rows.\n\nThe counting query used was:\n%s",
 		userText, entry.Question, count, entry.CountSQL)
 	user := base
-	system := a.finalizePrompt(clog)
+	system := a.finalizePrompt(clog, entry.Question)
 
 	for attempt := 1; attempt <= maxSQLAttempts; attempt++ {
-		raw, err := a.completeOnce(ctx, clog, "finalize", entry.ID, attempt, system, user)
+		raw, err := a.completeOnce(ctx, clog, 3, "finalize", entry.ID, attempt, system, user)
 		if err != nil {
 			log.Error().Err(err).Str("report", entry.ID).Msg("analytics finalize call failed")
 			return nil
@@ -336,7 +336,7 @@ func (a *Agent) materializeReport(
 			if attempt == maxSQLAttempts {
 				break
 			}
-			if sqlText, err = a.repairSQL(ctx, entry.ID, attempt, entry.Question, sqlText, hintFor(err), clog); err != nil {
+			if sqlText, err = a.repairSQL(ctx, 3, entry.ID, attempt, entry.Question, sqlText, hintFor(err), clog); err != nil {
 				break
 			}
 			continue
@@ -350,7 +350,7 @@ func (a *Agent) materializeReport(
 			if attempt == maxSQLAttempts {
 				break
 			}
-			if sqlText, err = a.repairSQL(ctx, entry.ID, attempt, entry.Question, sqlText,
+			if sqlText, err = a.repairSQL(ctx, 3, entry.ID, attempt, entry.Question, sqlText,
 				"The query failed to execute: "+err.Error()+" Rewrite it.", clog); err != nil {
 				break
 			}
@@ -503,7 +503,7 @@ func (a *Agent) buildCSVReport(
 // noDataText asks the model for one clean sentence. If that call fails the
 // fallback is still a sentence, never an empty chart or a generic error.
 func (a *Agent) noDataText(ctx context.Context, entry PlanEntry, userText string, clog *logging.ChatTurnLogger) string {
-	raw, err := a.completeOnce(ctx, clog, "no_data", entry.ID, 1, analyticsNoDataInstructions,
+	raw, err := a.completeOnce(ctx, clog, 3, "no_data", entry.ID, 1, analyticsNoDataInstructions,
 		fmt.Sprintf("Original question: %s\n\nThis report answers: %s\n\nThere are zero matching rows.", userText, entry.Question))
 	if err == nil {
 		if plan, perr := parseFinalizePlan(raw); perr == nil && strings.TrimSpace(plan.Text) != "" {
@@ -519,9 +519,11 @@ func (a *Agent) noDataText(ctx context.Context, entry PlanEntry, userText string
 // repairSQL gives the model one chance to fix a rejected statement. Only the
 // hint is fed back, never internal guard detail. failedAttempt is the attempt
 // number of the statement being repaired, so the resulting log line ties the
-// repair call back to the rejection that triggered it.
-func (a *Agent) repairSQL(ctx context.Context, reportID string, failedAttempt int, question, badSQL, hint string, clog *logging.ChatTurnLogger) (string, error) {
-	raw, err := a.completeOnce(ctx, clog, "repair", reportID, failedAttempt,
+// repair call back to the rejection that triggered it. call is the diagram
+// number of the phase being repaired: 2 for a count-phase statement, 3 for a
+// data-phase one - repair itself is not a distinct box in the diagram.
+func (a *Agent) repairSQL(ctx context.Context, call int, reportID string, failedAttempt int, question, badSQL, hint string, clog *logging.ChatTurnLogger) (string, error) {
+	raw, err := a.completeOnce(ctx, clog, call, "repair", reportID, failedAttempt,
 		analyticsRepairInstructions,
 		fmt.Sprintf("Question: %s\n\nThis query was rejected:\n%s\n\nReason: %s\n\nReturn only the corrected SQL.", question, badSQL, hint))
 	if err != nil {
@@ -544,13 +546,13 @@ func (a *Agent) repairSQL(ctx context.Context, reportID string, failedAttempt in
 // these calls traceable: kind distinguishes finalize/no_data/repair, reportID
 // ties the call to one entry of a multi-report turn, attempt ties a repair
 // call back to the SQL attempt it is fixing.
-func (a *Agent) completeOnce(ctx context.Context, clog *logging.ChatTurnLogger, kind, reportID string, attempt int, system, user string) (string, error) {
+func (a *Agent) completeOnce(ctx context.Context, clog *logging.ChatTurnLogger, call int, kind, reportID string, attempt int, system, user string) (string, error) {
 	if clog.Enabled() {
 		if b, err := json.Marshal([]HistoryEntry{
 			{"role": "system", "content": system},
 			{"role": "user", "content": user},
 		}); err == nil {
-			clog.LLMCallRequest(kind, reportID, attempt, string(b))
+			clog.LLMCallRequest(call, kind, reportID, attempt, string(b))
 		}
 	}
 
@@ -561,10 +563,10 @@ func (a *Agent) completeOnce(ctx context.Context, clog *logging.ChatTurnLogger, 
 	}, nil)
 	elapsed := time.Since(start)
 	if err != nil {
-		clog.LLMCallError(kind, reportID, attempt, elapsed, err)
+		clog.LLMCallError(call, kind, reportID, attempt, elapsed, err)
 		return "", err
 	}
-	clog.LLMCallResponse(kind, reportID, attempt, elapsed, usage.InputTokens, usage.OutputTokens, text)
+	clog.LLMCallResponse(call, kind, reportID, attempt, elapsed, usage.InputTokens, usage.OutputTokens, text)
 	return text, nil
 }
 

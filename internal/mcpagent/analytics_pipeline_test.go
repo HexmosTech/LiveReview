@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/livereview/internal/database"
 	"github.com/livereview/internal/logging"
@@ -47,6 +48,30 @@ func testAgent(t *testing.T, orgID int64, replies ...string) (*Agent, *scriptedP
 		t.Skipf("skipping: no database available: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
+
+	// The guard's table catalog is now auto-generated from the live dbctx
+	// index (see livisql.CatalogFor/mcpagent.orgScopedColumns) rather than a
+	// static Go list, so a real index has to exist for a real guard to
+	// recognize any table at all. InitSchemaIndex is a sync.Once - later
+	// calls across other tests in this package are no-ops.
+	if dsn, err := database.LoadDatabaseURL(); err == nil {
+		InitSchemaIndex(dsn)
+	}
+	// schemaIndex() itself only waits schemaIndexWaitTimeout (3s, sized for
+	// interactive chat latency) - a first build against 56 tables can take
+	// longer than that, so wait on the real Ready() channel here instead of
+	// skipping on a slow but otherwise healthy build. schemaIdx is this
+	// package's own unexported singleton (schema_index.go); accessible
+	// directly since this test file lives in the same package.
+	if schemaIdx != nil {
+		select {
+		case <-schemaIdx.Ready():
+		case <-time.After(30 * time.Second):
+		}
+	}
+	if schemaIndex() == nil {
+		t.Skip("skipping: dbctx schema index not available")
+	}
 
 	prov := &scriptedProvider{replies: replies}
 	agent := &Agent{

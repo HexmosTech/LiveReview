@@ -1,11 +1,15 @@
 package livisql
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
-// Role is the caller's permission level. Raw SQL bypasses the per-endpoint
-// authorization the REST/MCP tools used to apply, so the visible table set has
-// to be re-derived from the role here — otherwise a member could query billing
-// tables that GET_api_v1_billing_usage_members gates behind ownership.
+// Role is the caller's permission level. Kept for callers outside this
+// package (chat session role mapping, auth middleware) - CatalogFor no
+// longer branches on it: member and owner see the same table set (explicit
+// decision - the previous owner-only gate on billing/quota/license tables
+// was dropped along with the hand-curated table list, see CatalogFor).
 type Role string
 
 const (
@@ -18,91 +22,94 @@ const (
 // applies the org filter itself, so a generated query cannot widen its scope:
 // it only ever sees rows that already passed this WHERE clause. $1 is the org
 // id, bound by the executor.
-//
-// Two projection rules matter:
-//   - secrets are never projected (users.password_hash, users.onboarding_api_key)
-//   - large free-text jsonb is dropped (reviews.metadata holds diff/PR content,
-//     which has no analytics value and would bloat a CSV export)
 type shadow struct {
 	name string
 	body string
 }
 
-// orgScoped tables carry org_id directly, so the shadow is a plain filter.
-var memberShadows = []shadow{
-	{"reviews", `SELECT id, repository, branch, commit_hash, pr_mr_url, connector_id,
-		status, trigger_type, user_email, provider, created_at, started_at, completed_at,
-		org_id, mr_title, author_name, author_username, friendly_name, pull_request_id
-		FROM public.reviews WHERE org_id = $1`},
-
-	{"repositories", `SELECT id, org_id, connector_id, provider, provider_repo_id,
-		full_name, name, web_url, default_branch, is_private, description,
-		last_synced_at, last_sync_status, created_at, updated_at
-		FROM public.repositories WHERE org_id = $1`},
-
-	{"pull_requests", `SELECT id, repository_id, org_id, provider, provider_pr_id, number,
-		title, state, author_id, author_username, author_name, source_branch, target_branch,
-		web_url, provider_created_at, provider_updated_at, created_at, updated_at
-		FROM public.pull_requests WHERE org_id = $1`},
-
-	{"ai_comments", `SELECT id, review_id, comment_type, file_path, line_number, created_at, org_id
-		FROM public.ai_comments WHERE org_id = $1`},
-
-	{"review_events", `SELECT id, review_id, org_id, ts, event_type, level, batch_id
-		FROM public.review_events WHERE org_id = $1`},
-
-	{"review_feedback", `SELECT id, org_id, review_id, ai_comment_id, vote_type, severity,
-		source_type, lrc_version, created_at, retracted_at
-		FROM public.review_feedback WHERE org_id = $1`},
-
-	// orgs is the tenant row itself, keyed by id rather than org_id. settings
-	// (jsonb) is withheld — it holds org configuration, not analytics data.
+// specialShadows are tables that cannot be templated by AutoOrgScopedShadow:
+// orgs is the tenant row itself, keyed by id rather than org_id; users has no
+// org_id at all - membership lives in user_roles, so a join is what scopes
+// it, and the hand-written projection is what keeps password_hash and
+// onboarding_api_key structurally unreachable (secretColumns can't help here
+// since these two are excluded by never being in the projection to begin
+// with, not by being filtered out of one).
+var specialShadows = []shadow{
 	{"orgs", `SELECT id, name, description, created_at, updated_at, is_active, subscription_plan
 		FROM public.orgs WHERE id = $1`},
 
-	// users has no org_id at all: membership lives in user_roles. The join is
-	// what scopes it, and the projection is what keeps password_hash and
-	// onboarding_api_key structurally unreachable.
 	{"users", `SELECT DISTINCT u.id, u.email, u.first_name, u.last_name, u.is_active,
 		u.created_at, u.last_login_at, u.last_cli_used_at
 		FROM public.users u
 		JOIN public.user_roles ur ON ur.user_id = u.id
 		WHERE ur.org_id = $1`},
-
-	{"user_roles", `SELECT user_id, role_id, org_id, created_at, updated_at
-		FROM public.user_roles WHERE org_id = $1`},
 }
 
-// Billing and cost data was owner-gated at the REST layer; keep it that way.
-var ownerShadows = []shadow{
-	{"loc_usage_ledger", `SELECT id, org_id, review_id, user_id, operation_type, trigger_source,
-		billable_loc, accounted_at, billing_period_start, billing_period_end, status,
-		created_at, provider, model, input_tokens, output_tokens, llm_cost_usd,
-		actor_kind, actor_email_snapshot
-		FROM public.loc_usage_ledger WHERE org_id = $1`},
-
-	{"org_billing_state", `SELECT id, org_id, current_plan_code, billing_period_start,
-		billing_period_end, loc_used_month, loc_blocked, trial_started_at, trial_ends_at,
-		created_at, updated_at
-		FROM public.org_billing_state WHERE org_id = $1`},
+// secretColumns is an exact-name denylist applied when auto-generating a
+// shadow for an org_id-scoped table (see AutoOrgScopedShadow) - real
+// credentials found in this schema's org_id-having tables (checked against
+// the live DB, not guessed). Exact names, not substrings: several legitimate
+// analytics columns contain "token" (loc_usage_ledger.input_tokens,
+// quota_batch_settlements.context_tokens_batch, ...) without being secrets,
+// so a substring match would wrongly exclude real analytics data.
+var secretColumns = map[string]bool{
+	"password_hash":      true,
+	"onboarding_api_key": true,
+	"api_key":            true,
+	"master_api_key":     true,
+	"access_token":       true,
+	"refresh_token":      true,
+	"pat_token":          true,
+	"bot_token":          true,
+	"client_secret":      true,
+	"webhook_secret":     true,
+	"bot_password":       true,
+	"admin_password":     true,
+	"token_hash":         true,
+	"key_hash":           true,
 }
 
-// Catalog is the set of relations a given role may reference, plus the shadow
-// bodies used to rewrite them.
+// AutoOrgScopedShadow builds a shadow for a table that carries org_id
+// directly: every column except secretColumns, from the live schema (see
+// mcpagent's orgScopedColumns, sourced from the dbctx index) rather than a
+// hand-written per-table list. columns is expected to include org_id - the
+// caller is responsible for only calling this for tables that actually have
+// that column (a table without one would produce an invalid WHERE clause).
+// Returns false if every column was denylisted, so a real table never ends
+// up with an empty, useless shadow.
+func AutoOrgScopedShadow(table string, columns []string) (shadow, bool) {
+	kept := make([]string, 0, len(columns))
+	for _, c := range columns {
+		if !secretColumns[c] {
+			kept = append(kept, c)
+		}
+	}
+	if len(kept) == 0 {
+		return shadow{}, false
+	}
+	return shadow{
+		name: table,
+		body: "SELECT " + strings.Join(kept, ", ") + " FROM public." + table + " WHERE org_id = $1",
+	}, true
+}
+
+// Catalog is the set of relations that may be referenced in a generated
+// query, plus the shadow bodies used to rewrite them.
 type Catalog struct {
 	shadows map[string]string
 }
 
-// CatalogFor returns the relations visible to role. Unknown roles get the
-// member catalog: surfaces that authenticate an organization rather than a
-// user (the Slack/Discord/Teams bots) must not silently gain owner visibility.
-func CatalogFor(role Role) Catalog {
-	c := Catalog{shadows: make(map[string]string, len(memberShadows)+len(ownerShadows))}
-	for _, s := range memberShadows {
+// CatalogFor returns the relations visible for this turn: the two
+// hand-written specials (orgs, users) plus an auto-generated shadow for
+// every table in orgScopedColumns (table name -> its column list). role is
+// no longer used to restrict the table set - see the Role doc comment.
+func CatalogFor(role Role, orgScopedColumns map[string][]string) Catalog {
+	c := Catalog{shadows: make(map[string]string, len(specialShadows)+len(orgScopedColumns))}
+	for _, s := range specialShadows {
 		c.shadows[s.name] = s.body
 	}
-	if role == RoleOwner || role == RoleSuperAdmin {
-		for _, s := range ownerShadows {
+	for table, cols := range orgScopedColumns {
+		if s, ok := AutoOrgScopedShadow(table, cols); ok {
 			c.shadows[s.name] = s.body
 		}
 	}

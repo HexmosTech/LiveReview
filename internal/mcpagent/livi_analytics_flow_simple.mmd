@@ -1,0 +1,31 @@
+flowchart TD
+    U[User message] --> C0["Call #0: Classify<br/>(cheap, no schema)"]
+
+    C0 -->|action| C1["Call #1: Action<br/>(tool call)"]
+    C0 -->|chat| CHAT["Plain-text reply"]
+    C0 -->|count_query| SCHEMA[("dbctx schema,<br/>narrowed to the question")]
+
+    C1 --> UI[Response to user]
+    CHAT --> UI
+
+    SCHEMA --> C2["Call #2: Propose reports<br/>+ a count query each"]
+    C2 --> COUNT[("Run count query")]
+    COUNT --> ZERO{Any rows?}
+    ZERO -->|no| NODATA["'No data' reply"]
+    ZERO -->|yes| C3["Call #3: Finalize<br/>(chart / csv / mark, per report)"]
+    C3 --> DATA[("Run data query")]
+    DATA --> RENDER["Build chart or CSV"]
+
+    RENDER --> UI
+    NODATA --> UI
+
+    style C0 fill:#5a3a1f,stroke:#d83,color:#fff
+    style C1 fill:#1f3a5a,stroke:#3d8,color:#fff
+    style C2 fill:#1f3a5a,stroke:#3d8,color:#fff
+    style C3 fill:#1f3a5a,stroke:#3d8,color:#fff
+    style SCHEMA fill:#4a1f5a,stroke:#a3d,color:#fff
+    style COUNT fill:#1f3a5a,stroke:#3d8,color:#fff
+    style DATA fill:#1f3a5a,stroke:#3d8,color:#fff
+    style RENDER fill:#1f3a5a,stroke:#3d8,color:#fff
+    style NODATA fill:#1f3a5a,stroke:#3d8,color:#fff
+    style CHAT fill:#5a3a1f,stroke:#d83,color:#fff

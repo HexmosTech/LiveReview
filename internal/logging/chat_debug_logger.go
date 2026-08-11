@@ -96,35 +96,66 @@ func (l *ChatTurnLogger) UserInput(text string) {
 	l.write("User Input", "%s", text)
 }
 
-func (l *ChatTurnLogger) AIRequest(step int, historyJSON string) {
-	l.write("AI Request", "step=%d payload=%s", step, redactSecrets(historyJSON))
+// call is the LLM call number from livi_analytics_plan.md's "Call #0"
+// diagram (0=classify, 1=action, 2=count-query proposal, 3=finalize), so a
+// log line can be matched straight to a box in the diagram without having
+// to infer it from the preceding Branch Selected line. 0 on these
+// step-numbered lines means "not part of the numbered pipeline" (the chat
+// branch, or a plain tool-only agent with analytics disabled) rather than
+// classify - classify never goes through AIRequest/AIResponse, it has its
+// own LLMCallRequest/LLMCallResponse lines below, always tagged call=0.
+func (l *ChatTurnLogger) AIRequest(call, step int, historyJSON string) {
+	l.write("AI Request", "call=%d step=%d payload=%s", call, step, redactSecrets(historyJSON))
 }
 
-func (l *ChatTurnLogger) AIResponse(step int, elapsed time.Duration, tokensIn, tokensOut int, response string) {
-	l.write("AI Response", "step=%d elapsed=%s tokens_in=%d tokens_out=%d %s",
-		step, elapsed.Round(time.Millisecond), tokensIn, tokensOut, response)
+func (l *ChatTurnLogger) AIResponse(call, step int, elapsed time.Duration, tokensIn, tokensOut int, response string) {
+	l.write("AI Response", "call=%d step=%d elapsed=%s tokens_in=%d tokens_out=%d %s",
+		call, step, elapsed.Round(time.Millisecond), tokensIn, tokensOut, response)
 }
 
-func (l *ChatTurnLogger) AIError(step int, elapsed time.Duration, err error) {
-	l.write("AI Error", "step=%d elapsed=%s error=%v", step, elapsed.Round(time.Millisecond), err)
+func (l *ChatTurnLogger) AIError(call, step int, elapsed time.Duration, err error) {
+	l.write("AI Error", "call=%d step=%d elapsed=%s error=%v", call, step, elapsed.Round(time.Millisecond), err)
 }
 
 // LLMCallRequest/LLMCallResponse/LLMCallError log the one-shot calls that run
-// outside the main step loop (analytics finalize, no-data, and SQL repair -
-// see mcpagent.Agent.completeOnce). Each one is otherwise invisible: it does
-// not carry a step number, so kind/report/attempt together are what let you
-// tell which of a turn's several off-loop calls produced a given line.
-func (l *ChatTurnLogger) LLMCallRequest(kind, reportID string, attempt int, payload string) {
-	l.write("AI Request", "kind=%s report=%s attempt=%d payload=%s", kind, reportID, attempt, redactSecrets(payload))
+// outside the main step loop (classify, analytics finalize, no-data, and SQL
+// repair - see mcpagent.Agent.completeOnce and classify.go). Each one is
+// otherwise invisible: it does not carry a step number, so call/kind/report/
+// attempt together are what let you tell which of a turn's several off-loop
+// calls produced a given line. call is the diagram call number (see
+// AIRequest's doc comment) - repair and no-data reuse the number of the call
+// whose SQL/report they are patching (2 for a count-phase repair, 3 for a
+// data-phase repair or a no-data substitute for finalize), since neither is
+// a distinct box in the diagram.
+func (l *ChatTurnLogger) LLMCallRequest(call int, kind, reportID string, attempt int, payload string) {
+	l.write("AI Request", "call=%d kind=%s report=%s attempt=%d payload=%s", call, kind, reportID, attempt, redactSecrets(payload))
 }
 
-func (l *ChatTurnLogger) LLMCallResponse(kind, reportID string, attempt int, elapsed time.Duration, tokensIn, tokensOut int, response string) {
-	l.write("AI Response", "kind=%s report=%s attempt=%d elapsed=%s tokens_in=%d tokens_out=%d %s",
-		kind, reportID, attempt, elapsed.Round(time.Millisecond), tokensIn, tokensOut, response)
+func (l *ChatTurnLogger) LLMCallResponse(call int, kind, reportID string, attempt int, elapsed time.Duration, tokensIn, tokensOut int, response string) {
+	l.write("AI Response", "call=%d kind=%s report=%s attempt=%d elapsed=%s tokens_in=%d tokens_out=%d %s",
+		call, kind, reportID, attempt, elapsed.Round(time.Millisecond), tokensIn, tokensOut, response)
 }
 
-func (l *ChatTurnLogger) LLMCallError(kind, reportID string, attempt int, elapsed time.Duration, err error) {
-	l.write("AI Error", "kind=%s report=%s attempt=%d elapsed=%s error=%v", kind, reportID, attempt, elapsed.Round(time.Millisecond), err)
+func (l *ChatTurnLogger) LLMCallError(call int, kind, reportID string, attempt int, elapsed time.Duration, err error) {
+	l.write("AI Error", "call=%d kind=%s report=%s attempt=%d elapsed=%s error=%v", call, kind, reportID, attempt, elapsed.Round(time.Millisecond), err)
+}
+
+// DBCtxRequest/DBCtxResponse log dbctx's schema lookup - the Go-side call
+// that builds the "### Tables" section of call #2/#3's prompt (see
+// mcpagent/schema_render.go's dbctxTableText). This is NOT an LLM call and
+// the model never invokes it directly; it runs before the LLM call to
+// assemble that call's system prompt, so these lines appear just before the
+// AIRequest/LLMCallRequest line for the call whose prompt they fed.
+func (l *ChatTurnLogger) DBCtxRequest(call int, role, queryText string) {
+	l.write("DBCtx Request", "call=%d role=%s query=%q", call, role, queryText)
+}
+
+func (l *ChatTurnLogger) DBCtxResponse(call int, elapsed time.Duration, tableText string, err error) {
+	if err != nil {
+		l.write("DBCtx Response", "call=%d elapsed=%s degraded=true error=%v", call, elapsed.Round(time.Millisecond), err)
+		return
+	}
+	l.write("DBCtx Response", "call=%d elapsed=%s len=%d %s", call, elapsed.Round(time.Millisecond), len(tableText), tableText)
 }
 
 // BranchSelected records call #0's classify decision and which (prompt,

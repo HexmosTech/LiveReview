@@ -103,6 +103,11 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 
 	systemPrompt := a.systemPrompt
 	tools := a.providerTools
+	// callNumber is livi_analytics_plan.md's "Call #0" diagram number for
+	// whichever call the main step loop below ends up making (1=action,
+	// 2=count-query proposal). 0 means "not a numbered diagram call" - the
+	// chat branch, or a plain tool-only agent with analytics disabled.
+	callNumber := 0
 
 	// Call #0: classify before paying for schema/tool-schema tokens. Only
 	// runs when analytics is enabled - a plain tool-only agent keeps its
@@ -122,9 +127,11 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 		case shapeAction:
 			systemPrompt = a.actionPrompt
 			tools = a.actionTools
+			callNumber = 1
 		case shapeCountQuery:
-			systemPrompt = a.countQueryPrompt(clog)
+			systemPrompt = a.countQueryPrompt(clog, userText)
 			tools = nil
+			callNumber = 2
 		default:
 			systemPrompt = a.chatPrompt
 			tools = nil
@@ -157,7 +164,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 		log.Debug().Int("step", step).Int("history_len", len(history)).Int("num_tools", len(tools)).Msg("Calling LLM")
 		if clog.Enabled() {
 			if b, err := json.Marshal(history); err == nil {
-				clog.AIRequest(step, string(b))
+				clog.AIRequest(callNumber, step, string(b))
 			}
 		}
 		aiStart := time.Now()
@@ -165,11 +172,11 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 		aiElapsed := time.Since(aiStart)
 		if err != nil {
 			log.Error().Err(err).Int("step", step).Msg("LLM completion failed")
-			clog.AIError(step, aiElapsed, err)
+			clog.AIError(callNumber, step, aiElapsed, err)
 			return "", history, nil, fmt.Errorf("llm completion step %d: %w", step, err)
 		}
 		log.Debug().Int("step", step).Int("response_len", len(response)).Msg("LLM call succeeded")
-		clog.AIResponse(step, aiElapsed, usage.InputTokens, usage.OutputTokens, response)
+		clog.AIResponse(callNumber, step, aiElapsed, usage.InputTokens, usage.OutputTokens, response)
 
 		history = append(history, HistoryEntry{"role": "assistant", "text": response})
 
@@ -385,8 +392,12 @@ func buildCountQueryPromptHalves(orgName, userName string) (head, tail string) {
 // splicing the live dbctx table text between the precomputed head and tail.
 // Logs SchemaSourceDegraded when the live index wasn't available and the
 // static fallback table list was used instead - see schema_render.go.
-func (a *Agent) countQueryPrompt(clog *logging.ChatTurnLogger) string {
-	tableText, err := dbctxTableText(a.analyticsRole())
+func (a *Agent) countQueryPrompt(clog *logging.ChatTurnLogger, userText string) string {
+	role := a.analyticsRole()
+	clog.DBCtxRequest(2, string(role), userText)
+	start := time.Now()
+	tableText, err := dbctxTableText(role, userText)
+	clog.DBCtxResponse(2, time.Since(start), tableText, err)
 	if err != nil {
 		clog.SchemaSourceDegraded(err.Error())
 	}
@@ -416,9 +427,17 @@ func buildFinalizePromptHalves(orgName, userName string) (head, tail string) {
 }
 
 // finalizePrompt assembles call #3's full system prompt for this turn, the
-// same way countQueryPrompt does for call #2.
-func (a *Agent) finalizePrompt(clog *logging.ChatTurnLogger) string {
-	tableText, err := dbctxTableText(a.analyticsRole())
+// same way countQueryPrompt does for call #2. queryText is the specific
+// report question (entry.Question) rather than the original raw user
+// message - by call #3 that's the more precise text to narrow the schema
+// against, since one user turn can fan out into several reports each
+// needing different tables.
+func (a *Agent) finalizePrompt(clog *logging.ChatTurnLogger, queryText string) string {
+	role := a.analyticsRole()
+	clog.DBCtxRequest(3, string(role), queryText)
+	start := time.Now()
+	tableText, err := dbctxTableText(role, queryText)
+	clog.DBCtxResponse(3, time.Since(start), tableText, err)
 	if err != nil {
 		clog.SchemaSourceDegraded(err.Error())
 	}

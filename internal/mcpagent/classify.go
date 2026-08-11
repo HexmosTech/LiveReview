@@ -61,16 +61,16 @@ func (a *Agent) classify(ctx context.Context, history []HistoryEntry, userText s
 			payload = string(b)
 		}
 	}
-	clog.LLMCallRequest("classify", "", 1, payload)
+	clog.LLMCallRequest(0, "classify", "", 1, payload)
 
 	start := time.Now()
 	response, usage, err := a.provider.Complete(ctx, classifyHistory, nil)
 	elapsed := time.Since(start)
 	if err != nil {
-		clog.LLMCallError("classify", "", 1, elapsed, err)
+		clog.LLMCallError(0, "classify", "", 1, elapsed, err)
 		return "", fmt.Errorf("classify call: %w", err)
 	}
-	clog.LLMCallResponse("classify", "", 1, elapsed, usage.InputTokens, usage.OutputTokens, response)
+	clog.LLMCallResponse(0, "classify", "", 1, elapsed, usage.InputTokens, usage.OutputTokens, response)
 
 	shape, ok := parseClassifyShape(response)
 	if !ok {

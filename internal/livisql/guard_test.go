@@ -15,10 +15,24 @@ func codeOf(t *testing.T, err error) RejectionCode {
 	return re.Code
 }
 
+// testOrgScopedColumns stands in for the live dbctx-sourced map CatalogFor
+// normally gets from mcpagent.orgScopedColumns - just enough columns for the
+// queries these tests exercise. api_keys and auth_tokens are deliberately
+// absent: neither has an org_id column in the real schema, so they are
+// never auto-scoped, matching the "unknown table" rejections below.
+func testOrgScopedColumns() map[string][]string {
+	return map[string][]string{
+		"reviews": {"id", "org_id", "repository", "status", "created_at",
+			"author_username", "user_email"},
+		"loc_usage_ledger":  {"id", "org_id", "billable_loc"},
+		"org_billing_state": {"id", "org_id", "loc_used_month"},
+	}
+}
+
 // The queries a guard must refuse. Each one is an escape route: if any of these
 // starts passing, tenant isolation is broken.
 func TestRewriteRejects(t *testing.T) {
-	g := New(CatalogFor(RoleMember))
+	g := New(CatalogFor(RoleMember, testOrgScopedColumns()))
 
 	cases := []struct {
 		name string
@@ -67,10 +81,6 @@ func TestRewriteRejects(t *testing.T) {
 			`SELECT * FROM reviews FOR UPDATE`, CodeLocking},
 		{"bind parameter would displace the org id",
 			`SELECT count(*) FROM reviews WHERE org_id = $1`, CodePlaceholder},
-		{"billing table is owner-only",
-			`SELECT sum(billable_loc) FROM loc_usage_ledger`, CodeUnknownTable},
-		{"billing state is owner-only",
-			`SELECT loc_used_month FROM org_billing_state`, CodeUnknownTable},
 		{"empty query",
 			`   `, CodeUnparseable},
 		{"garbage",
@@ -95,7 +105,7 @@ func TestRewriteRejects(t *testing.T) {
 // Queries that must survive the guard: the ones Livi actually needs to answer
 // CTO questions. A guard that rejects these is useless even if it is safe.
 func TestRewriteAccepts(t *testing.T) {
-	g := New(CatalogFor(RoleMember))
+	g := New(CatalogFor(RoleMember, testOrgScopedColumns()))
 
 	cases := []struct {
 		name string
@@ -142,7 +152,7 @@ func TestRewriteAccepts(t *testing.T) {
 // The org filter must be structural: an injected OR cannot widen it, because it
 // only ever applies inside an already-scoped relation.
 func TestRewriteNeutralizesOrInjection(t *testing.T) {
-	g := New(CatalogFor(RoleMember))
+	g := New(CatalogFor(RoleMember, testOrgScopedColumns()))
 	out, err := g.Rewrite(`SELECT count(*) FROM reviews WHERE org_id = 3 OR 1=1`)
 	if err != nil {
 		t.Fatalf("query should be accepted and neutralized, not rejected: %v", err)
@@ -156,28 +166,52 @@ func TestRewriteNeutralizesOrInjection(t *testing.T) {
 	}
 }
 
-// Role gating: billing tables appear for owners and vanish for members.
-func TestCatalogRoleGating(t *testing.T) {
-	member := CatalogFor(RoleMember)
-	owner := CatalogFor(RoleOwner)
+// Role no longer restricts table visibility: CatalogFor's table set comes
+// entirely from orgScopedColumns (auto-generated from the live schema) plus
+// the two hand-written specials. member/owner/an unrecognized role all see
+// the same tables - this is the explicit, current behaviour, not a bug.
+func TestCatalogRoleIsInert(t *testing.T) {
+	cols := testOrgScopedColumns()
+	member := CatalogFor(RoleMember, cols)
+	owner := CatalogFor(RoleOwner, cols)
+	unknown := CatalogFor(Role("nonsense"), cols)
 
-	if member.Allows("loc_usage_ledger") {
-		t.Fatal("member must not see loc_usage_ledger")
-	}
-	if !owner.Allows("loc_usage_ledger") {
-		t.Fatal("owner must see loc_usage_ledger")
-	}
-	if !member.Allows("reviews") || !owner.Allows("reviews") {
-		t.Fatal("both roles must see reviews")
-	}
-
-	if _, err := New(owner).Rewrite(`SELECT sum(billable_loc) AS loc FROM loc_usage_ledger`); err != nil {
-		t.Fatalf("owner billing query should be accepted: %v", err)
+	for _, table := range []string{"reviews", "loc_usage_ledger", "org_billing_state", "orgs", "users"} {
+		if !member.Allows(table) || !owner.Allows(table) || !unknown.Allows(table) {
+			t.Fatalf("table %q must be visible regardless of role (member=%v owner=%v unknown=%v)",
+				table, member.Allows(table), owner.Allows(table), unknown.Allows(table))
+		}
 	}
 
-	// An unknown role must not be treated as privileged.
-	if CatalogFor(Role("nonsense")).Allows("loc_usage_ledger") {
-		t.Fatal("unknown role fell back to owner visibility")
+	if _, err := New(member).Rewrite(`SELECT sum(billable_loc) AS loc FROM loc_usage_ledger`); err != nil {
+		t.Fatalf("member billing query should be accepted: %v", err)
+	}
+
+	// A table absent from orgScopedColumns (no org_id in the real schema, or
+	// simply not supplied) stays invisible regardless of role.
+	if member.Allows("api_keys") || owner.Allows("api_keys") {
+		t.Fatal("a table absent from orgScopedColumns must not become visible")
+	}
+}
+
+// AutoOrgScopedShadow must never project a denylisted column, and must
+// refuse to produce a shadow with nothing left to select.
+func TestAutoOrgScopedShadowWithholdsSecrets(t *testing.T) {
+	s, ok := AutoOrgScopedShadow("api_keys", []string{"id", "org_id", "key_hash", "key_prefix", "label"})
+	if !ok {
+		t.Fatal("expected a shadow with non-secret columns remaining")
+	}
+	if strings.Contains(s.body, "key_hash") {
+		t.Fatalf("shadow projects a denylisted column:\n%s", s.body)
+	}
+	for _, want := range []string{"id", "org_id", "key_prefix", "label"} {
+		if !strings.Contains(s.body, want) {
+			t.Fatalf("shadow dropped a legitimate column %q:\n%s", want, s.body)
+		}
+	}
+
+	if _, ok := AutoOrgScopedShadow("secrets_only", []string{"api_key"}); ok {
+		t.Fatal("a table with nothing left after denylisting must not produce a shadow")
 	}
 }
 
@@ -185,7 +219,7 @@ func TestCatalogRoleGating(t *testing.T) {
 // absent from the rewrite; the companion DB test proves Postgres then rejects
 // the reference.
 func TestUsersShadowWithholdsSecrets(t *testing.T) {
-	g := New(CatalogFor(RoleMember))
+	g := New(CatalogFor(RoleMember, testOrgScopedColumns()))
 	out, err := g.Rewrite(`SELECT email FROM users`)
 	if err != nil {
 		t.Fatalf("unexpected rejection: %v", err)
@@ -204,7 +238,7 @@ func TestUsersShadowWithholdsSecrets(t *testing.T) {
 // A CTE the model defines itself is legitimate and must resolve even though the
 // guard collects CTE names in a separate pass from the reference check.
 func TestOwnCTEResolvesRegardlessOfWalkOrder(t *testing.T) {
-	g := New(CatalogFor(RoleMember))
+	g := New(CatalogFor(RoleMember, testOrgScopedColumns()))
 	for i := 0; i < 50; i++ {
 		if _, err := g.Rewrite(
 			`WITH per_month AS (SELECT date_trunc('month', created_at) AS m FROM reviews)
