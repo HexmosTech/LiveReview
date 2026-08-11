@@ -1,8 +1,6 @@
 -- migrate:up
 
-DROP TABLE IF EXISTS scheduled_review_configs;
-
-CREATE TABLE scheduled_review_configs (
+CREATE TABLE IF NOT EXISTS scheduled_review_configs (
     id                    BIGSERIAL PRIMARY KEY,
     org_id                BIGINT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
     repository_id         BIGINT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
