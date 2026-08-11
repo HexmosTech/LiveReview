@@ -1,11 +1,37 @@
 flowchart TD
-    U[User message] --> W[Livi / WebChat handler]
-    W --> P1IN
+    subgraph SCHEMASG["Schema source (server startup + per-render filter)"]
+        CAT["internal/livisql/catalog.go<br/>shadow structs — SINGLE source of<br/>truth for table/column allowlist<br/>(unchanged, security-critical)"] --> DBCTX[("dbctx.BuildAsync(ctx, dsn, nil)<br/>against real public schema<br/>(confirmed: dbctx cannot see VIEWs,<br/>relkind filter is tables-only)<br/>in-memory index: columns, types, FKs,<br/>is-enum-shaped flag")]
+        DBCTX --> FILTER["dbctxTableText(role):<br/>per table in CatalogFor(role).Tables(),<br/>TableDetail() filtered to<br/>ColumnsFor(table) from catalog.go.<br/>STRUCTURE ONLY — never renders<br/>ColumnInfo.Values / JSONBPaths samples<br/>(confirmed unscoped by org_id —<br/>would leak cross-tenant repo names,<br/>usernames, PR file paths, costs)"]
+        CAT --> FILTER
+        FILTER --> TXT["Generated ### Tables section.<br/>Actual enum VALUES (status, vote_type, ...)<br/>stay hand-written in<br/>analytics_schema_intro.md — fixed by<br/>app code, not learned from tenant data"]
+    end
 
-    subgraph P1SG["LLM call #1"]
-        P1IN["Input: DB schema + tool list<br/>+ user question (NO row data)"] --> P1OUT{"Single call decides intent<br/>by RESPONSE SHAPE"}
-        P1OUT -->|"shape: action tool call"| P1A["Emits action tool call<br/>(trigger review, create learning,<br/>add connector, etc.)"]
-        P1OUT -->|"shape: count query array"| P1Q["Proposes an ARRAY of report requests —<br/>one per sub-question the user's ask implies<br/>(e.g. 'reviews by month' + 'top reviewers'<br/>both come from one user message).<br/>Each entry is its own SELECT count(*) query —<br/>counts how many rows that entry's answer<br/>would be, based on schema, before fetching<br/>any real data. Each count is what LLM call #2<br/>uses to propose chart or csv for THAT entry"]
+    U[User message] --> W[Livi / WebChat handler]
+    W --> BOUND
+
+    subgraph DISPATCH["Per-turn dispatch (runs BEFORE the main session history is touched)"]
+        BOUND["Build call #0's OWN bounded input:<br/>last ~2-3 exchanges + new message<br/>+ tool NAMES only — NEVER the full,<br/>growing session history (would defeat<br/>the point of keeping call #0 cheap)"] --> P0IN
+
+        subgraph P0SG["LLM call #0 — classify (small, cheap; NO schema, NO tool param schemas)"]
+            P0IN["candidate for a smaller/cheaper model"] --> P0OUT{"shape?"}
+        end
+
+        P0OUT --> SWAP["3 (prompt, tools) pairs precomputed ONCE<br/>at Agent construction — action / count_query / chat.<br/>Overwrite session history[0] with the resolved<br/>branch's pair (insert if absent) — NOT append-once.<br/>Rest of session history (real turns) untouched,<br/>so branch can legitimately change turn-to-turn."]
+    end
+
+    SWAP -->|"action"| P1IN
+    SWAP -->|"count_query"| P2IN
+    SWAP -->|"chat"| CHATOUT["Plain-text call, no schema no tools"]
+    CHATOUT --> UI
+
+    TXT -.->|"role-filtered schema text"| P2IN
+
+    subgraph P1SG["LLM call #1 — action ONLY (dedicated prompt, never sees schema/SQL rules)"]
+        P1IN["Input: tool list + question<br/>NO schema, NO SQL rules,<br/>NO analytics_plan shape at all"] --> P1A["Emits the tool call directly<br/>(trigger review, create learning,<br/>add connector, etc.)"]
+    end
+
+    subgraph P2SG["LLM call #2 — count-query proposal ONLY (dedicated prompt, no general tool list)"]
+        P2IN["Input: DB structure (dbctx) + hand-written<br/>enum values/SQL rules/examples + question<br/>NO general tool-calling instructions"] --> P1Q["Proposes an ARRAY of report requests —<br/>one per sub-question the user's ask implies<br/>(e.g. 'reviews by month' + 'top reviewers'<br/>both come from one user message).<br/>Each entry is its own SELECT count(*) query —<br/>counts how many rows that entry's answer<br/>would be, based on schema, before fetching<br/>any real data. Each count is what LLM call #3<br/>uses to propose chart or csv for THAT entry"]
     end
 
     P1A --> ACTION["Existing MCP tool-calling path<br/>(unchanged) — confirm intent + inputs,<br/>call the specific REST-backed tool"]
@@ -18,10 +44,10 @@ flowchart TD
         V -->|"reject"| ERR["Reject / ask LLM to<br/>rewrite this report's count query"]
         V -->|"add query timeout (DB safety net only)"| RO1[("Read-only Postgres<br/>connection — runs COUNT query")]
 
-        RO1 -->|"row count"| P1B["LLM call #2<br/>(same conversation, sees row count)<br/>-> finalizes: response_type (chart | csv | no_data),<br/>mark type if chart, title, description,<br/>and the FINAL data-fetching SQL<br/>(may pick coarser grain if count too high)"]
+        RO1 -->|"row count"| P3["LLM call #3<br/>(fresh 3-message conversation, sees row count)<br/>-> finalizes: response_type (chart | csv | no_data),<br/>mark type if chart, title, description,<br/>and the FINAL data-fetching SQL<br/>(may pick coarser grain if count too high)"]
         RO1 -->|"execution error"| P1Q
 
-        P1B --> ZEROCHK{"count == 0?"}
+        P3 --> ZEROCHK{"count == 0?"}
         ZEROCHK -->|"yes"| NODATA["response_type = no_data<br/>LLM writes a clean 'no data' text reply<br/>(e.g. 'No reviews were completed today')<br/>NO final query run, NO chart/csv attempted"]
 
         ZEROCHK -->|"no"| V2["SQL Validator / Wrapper<br/>(reject if: not SELECT,<br/>no org_id filter,<br/>malformed / fails to parse)"]
@@ -30,13 +56,13 @@ flowchart TD
 
         RO2 --> ROWS["Scan rows dynamically<br/>(rows.Columns + []any, no fixed struct)<br/>-> []map[string]any"]
 
-        ROWS --> TYPE{"response_type<br/>from LLM call #2"}
+        ROWS --> TYPE{"response_type<br/>from LLM call #3"}
 
         TYPE -->|"csv"| TBL["Go formats rows directly<br/>(CSV file, headers = SQL columns)<br/>NO further LLM call"]
 
-        TYPE -->|"chart"| CHK["Go validates: mark + encoding<br/>fields (from LLM call #2) exist in<br/>SQL result columns?"]
+        TYPE -->|"chart"| CHK["Go validates: mark + encoding<br/>fields (from LLM call #3) exist in<br/>SQL result columns?"]
         CHK -->|"no"| ERR3["Reject / ask LLM to retry"]
-        CHK -->|"yes"| MERGE["Go merges spec programmatically:<br/>data.values = ROWS (verbatim, full set)<br/>encoding/mark/title/description = from LLM call #2"]
+        CHK -->|"yes"| MERGE["Go merges spec programmatically:<br/>data.values = ROWS (verbatim, full set)<br/>encoding/mark/title/description = from LLM call #3"]
 
         MERGE --> VL["vl-convert<br/>(Vega-Lite -> PNG)"]
     end
@@ -46,7 +72,7 @@ flowchart TD
     NODATA --> ASSEMBLE
     ASSEMBLE --> UI
 
-    style P1OUT fill:#1f3a5a,stroke:#3d8,color:#fff
+    style P3 fill:#1f3a5a,stroke:#3d8,color:#fff
     style ACTION fill:#1f3a5a,stroke:#3d8,color:#fff
     style FANOUT fill:#1f3a5a,stroke:#3d8,color:#fff
     style V fill:#1f3a5a,stroke:#3d8,color:#fff
@@ -61,3 +87,11 @@ flowchart TD
     style ASSEMBLE fill:#1f3a5a,stroke:#3d8,color:#fff
     style ZEROCHK fill:#1f3a5a,stroke:#3d8,color:#fff
     style NODATA fill:#1f3a5a,stroke:#3d8,color:#fff
+    style CAT fill:#4a1f5a,stroke:#a3d,color:#fff
+    style DBCTX fill:#4a1f5a,stroke:#a3d,color:#fff
+    style FILTER fill:#4a1f5a,stroke:#a3d,color:#fff
+    style TXT fill:#4a1f5a,stroke:#a3d,color:#fff
+    style P0OUT fill:#5a3a1f,stroke:#d83,color:#fff
+    style CHATOUT fill:#5a3a1f,stroke:#d83,color:#fff
+    style BOUND fill:#5a3a1f,stroke:#d83,color:#fff
+    style SWAP fill:#5a3a1f,stroke:#d83,color:#fff
