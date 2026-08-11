@@ -88,6 +88,30 @@ func TestParseFinalizePlan(t *testing.T) {
 		}
 	})
 
+	t.Run("layered chart", func(t *testing.T) {
+		p, err := parseFinalizePlan(`{"response_type":"chart","title":"Turnaround",
+			"description":"d","query":"q","data_sql":"SELECT 1 AS day, 2 AS avg_hours, 3 AS rolling_avg_hours",
+			"layer":[
+				{"mark":"line","encoding":{"x":{"field":"day","type":"temporal"},"y":{"field":"avg_hours","type":"quantitative"}}},
+				{"mark":"line","encoding":{"x":{"field":"day","type":"temporal"},"y":{"field":"rolling_avg_hours","type":"quantitative"}}}
+			]}`)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Mark != "" || len(p.Encoding) != 0 {
+			t.Fatalf("expected a layered plan with no flat mark/encoding, got mark=%q encoding=%q", p.Mark, p.Encoding)
+		}
+		got := map[string]bool{}
+		for _, f := range p.encodingFields() {
+			got[f] = true
+		}
+		for _, want := range []string{"day", "avg_hours", "rolling_avg_hours"} {
+			if !got[want] {
+				t.Fatalf("field %q not found in %v", want, p.encodingFields())
+			}
+		}
+	})
+
 	t.Run("nested and array channels are found", func(t *testing.T) {
 		p := &FinalizePlan{Encoding: json.RawMessage(
 			`{"x":{"field":"month"},"tooltip":[{"field":"a"},{"field":"b"}],"color":{"condition":{"field":"c"}}}`)}

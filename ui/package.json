@@ -117,6 +117,7 @@
     "redux": "^5.0.1",
     "redux-thunk": "^3.1.0",
     "shell-quote": "^1.9.0",
+    "thinking-orbs": "^0.2.0",
     "vega": "^6.3.1",
     "vega-embed": "^7.1.0",
     "vega-lite": "^6.4.3",

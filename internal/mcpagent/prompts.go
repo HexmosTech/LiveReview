@@ -75,6 +75,18 @@ var analyticsRepairInstructions string
 //go:embed prompts/analytics_nodata.md
 var analyticsNoDataInstructions string
 
+// chatOnlyInstructions is appended to the chat branch's prompt (call #0's
+// "chat" shape) - see analytics.go's WithAnalytics. Without it the model has
+// no tools, no schema, and no format contract for this turn, and nothing
+// stops it from fabricating a chart-shaped JSON blob out of its own
+// initiative (observed: a misclassified data question landed on this branch
+// and the model invented an ad hoc {"chart": {...}, "learning": {...}}
+// object that matched none of the response parsers, so it rendered as raw
+// JSON text in the UI instead of a chart or a sentence).
+//
+//go:embed prompts/chat_only.md
+var chatOnlyInstructions string
+
 // classifyInstructions is call #0's system prompt: the three-way shape
 // decision (action | count_query | chat) that routes a turn before any
 // schema or full tool definitions are built. See classify.go and

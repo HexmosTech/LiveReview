@@ -54,8 +54,14 @@ type FinalizePlan struct {
 	DataSQL      string          `json:"data_sql"`
 	Mark         string          `json:"mark"`
 	Encoding     json.RawMessage `json:"encoding"`
-	CSVFilename  string          `json:"csv_filename"`
-	Text         string          `json:"text"`
+	// Layer is an alternative to Mark/Encoding for a chart that needs more
+	// than one mark (a trend plus its rolling average, a value plus a target
+	// line, a bar plus a cumulative-percent curve). Each element is expected
+	// to carry its own complete "mark"/"encoding" pair - layers don't inherit
+	// fields from each other in this protocol.
+	Layer       json.RawMessage `json:"layer,omitempty"`
+	CSVFilename string          `json:"csv_filename"`
+	Text        string          `json:"text"`
 }
 
 // parseAnalyticsPlan reports whether the model asked for analytics, and if so
@@ -143,13 +149,6 @@ func parseFinalizePlan(text string) (*FinalizePlan, error) {
 // actual result columns before a chart is built, because a model that
 // misremembers its own alias would otherwise produce a silently empty chart.
 func (p *FinalizePlan) encodingFields() []string {
-	if len(p.Encoding) == 0 {
-		return nil
-	}
-	var doc any
-	if err := json.Unmarshal(p.Encoding, &doc); err != nil {
-		return nil
-	}
 	seen := map[string]bool{}
 	var out []string
 	var walk func(any)
@@ -172,7 +171,16 @@ func (p *FinalizePlan) encodingFields() []string {
 			}
 		}
 	}
-	walk(doc)
+	for _, raw := range [][]byte{p.Encoding, p.Layer} {
+		if len(raw) == 0 {
+			continue
+		}
+		var doc any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			continue
+		}
+		walk(doc)
+	}
 	return out
 }
 

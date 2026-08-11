@@ -5,6 +5,7 @@ import { BASE_URL } from '../../api/apiClient';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../store/configureStore';
 import { InteractiveChart, downloadChartView } from './InteractiveChart';
+import { ThinkingIndicator } from './ThinkingIndicator';
 
 interface ChatEntry {
   id: string;
@@ -478,11 +479,7 @@ const Chatbot: React.FC = () => {
               <div className="absolute -left-16 top-1/2 -translate-y-1/2 w-16 flex justify-end pr-2">
                 <img src="/assets/lrbot/lrbot.png" alt="Bot" className="w-8 h-8 rounded-full" />
               </div>
-              <div className="flex items-center gap-2 py-1">
-                <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-              </div>
+              <ThinkingIndicator />
             </div>
           )}
           <div ref={messagesEndRef} />

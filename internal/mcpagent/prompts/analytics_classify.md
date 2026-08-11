@@ -15,6 +15,11 @@ object and nothing else** — no prose, no markdown fence:
 - **`count_query`** — the user is asking a quantitative question that needs
   counting, grouping, ranking, trends, or comparisons across many records:
   "reviews per month", "who reviewed the most", "how many failed last week".
+  This includes yes/no- or opinion-phrased questions that can only be
+  answered by looking at data: "are engineers actually using this",
+  "is adoption increasing", "has this repo gotten slower" all need a query,
+  not a guess - a question's grammar does not decide its shape, what
+  answering it honestly requires does.
 - **`chat`** — anything else: greetings, questions about what you can do,
   clarifying questions, conversation that isn't a request for an action or a
   data answer.

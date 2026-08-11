@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/livereview/internal/logging"
+	"github.com/livereview/internal/vlrender"
 	"github.com/rs/zerolog/log"
 	"github.com/tmc/langchaingo/llms"
 )
@@ -55,6 +56,13 @@ type Agent struct {
 	// countQueryHead/Tail bracket dbctxTableText's output, which can only be
 	// resolved per turn (schema_index.go's index may not have been ready
 	// when WithAnalytics ran) - see (*Agent).countQueryPrompt.
+	finalizeHead string // header + analyticsSchemaIntro, precomputed
+	finalizeTail string // examples + finalize/chart instructions, precomputed
+	// finalizeHead/Tail bracket dbctxTableText's output the same way
+	// countQueryHead/Tail do - call #3 writes its own data_sql from scratch
+	// (it is not handed the count call's SQL to extend) and needs the same
+	// column-name grounding, or it silently guesses wrong column names for
+	// anything the count query didn't already select. See (*Agent).finalizePrompt.
 }
 
 func NewAgent(provider *Provider, mcpSession *MCPSession, maxSteps int) *Agent {
@@ -188,6 +196,23 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 					history = append(history, HistoryEntry{
 						"role":    "user",
 						"content": "Your previous reply was empty. Please give a complete answer to the question.",
+					})
+					continue
+				}
+				// A whole-message JSON object that got this far matched
+				// neither a tool call nor a valid analytics plan, so it is
+				// not a shape anything downstream understands - showing it
+				// verbatim just dumps raw JSON into the chat UI (observed:
+				// a misclassified turn on the chat branch fabricated a
+				// {"chart": ..., "learning": ...} object nothing parses).
+				// One retry asking for prose is cheap and much better than
+				// that.
+				if looksLikeUnrecognizedJSON(response) {
+					log.Warn().Int("step", step).Str("response_preview", truncateContent(response, 200)).
+						Msg("AI produced an unrecognized JSON object on a no-tools branch, forcing retry")
+					history = append(history, HistoryEntry{
+						"role":    "user",
+						"content": "Your previous reply was a JSON object, but this turn has no data or chart capability. Answer in plain prose instead - do not output JSON.",
 					})
 					continue
 				}
@@ -368,6 +393,38 @@ func (a *Agent) countQueryPrompt(clog *logging.ChatTurnLogger) string {
 	return a.countQueryHead + "\n\n" + tableText + a.countQueryTail
 }
 
+// buildFinalizePromptHalves precomputes the static parts of call #3's system
+// prompt, mirroring buildCountQueryPromptHalves. Call #3 writes a brand new
+// data_sql (not a reuse of the count call's SQL, and not part of the same
+// conversation - completeOnce is a fresh two-message exchange), so it needs
+// the same table/column reference the count call gets, not just the chart-
+// format rules in analytics_finalize.md.
+func buildFinalizePromptHalves(orgName, userName string) (head, tail string) {
+	var h strings.Builder
+	h.WriteString(buildPromptHeader(orgName, userName))
+	h.WriteString(analyticsSchemaIntro) // imported from prompts/analytics_schema_intro.md
+	head = h.String()
+
+	var t strings.Builder
+	t.WriteString("\n\n")
+	t.WriteString(analyticsSchemaExamples) // imported from prompts/analytics_schema_examples.md
+	t.WriteString("\n\n")
+	t.WriteString(analyticsFinalizeInstructions) // imported from prompts/analytics_finalize.md
+	tail = t.String()
+
+	return head, tail
+}
+
+// finalizePrompt assembles call #3's full system prompt for this turn, the
+// same way countQueryPrompt does for call #2.
+func (a *Agent) finalizePrompt(clog *logging.ChatTurnLogger) string {
+	tableText, err := dbctxTableText(a.analyticsRole())
+	if err != nil {
+		clog.SchemaSourceDegraded(err.Error())
+	}
+	return a.finalizeHead + "\n\n" + tableText + a.finalizeTail
+}
+
 // isAuthError reports whether a tool result signals an expired/invalid
 // session token or missing auth - the exact messages LiveReview's own auth
 // middleware returns (internal/api/auth/middleware.go). Retrying with a
@@ -385,6 +442,17 @@ func isAuthError(content string) bool {
 		}
 	}
 	return false
+}
+
+// looksLikeUnrecognizedJSON reports whether response, once any code fence is
+// stripped, is a single whole-message JSON object. A prose answer never
+// starts with `{` as its first character, so this only fires on a response
+// that was clearly attempting some structured shape - one this codebase's
+// parsers already had a chance to recognize (parseToolCalls,
+// parseAnalyticsPlan) and did not.
+func looksLikeUnrecognizedJSON(response string) bool {
+	body := strings.TrimSpace(vlrender.ExtractJSONBlock(response))
+	return strings.HasPrefix(body, "{") && strings.HasSuffix(body, "}")
 }
 
 func isExcuseResponse(response string) bool {

@@ -69,9 +69,10 @@ func (a *Agent) WithAnalytics(engine AnalyticsEngine) *Agent {
 
 	a.actionTools = a.provider.FormatTools(tools)
 	a.actionPrompt = buildSystemPrompt(tools, orgName, userName)
-	a.chatPrompt = buildPromptHeader(orgName, userName)
+	a.chatPrompt = buildPromptHeader(orgName, userName) + "\n\n" + chatOnlyInstructions
 	a.classifyPrompt = buildClassifyPrompt(tools)
 	a.countQueryHead, a.countQueryTail = buildCountQueryPromptHalves(orgName, userName)
+	a.finalizeHead, a.finalizeTail = buildFinalizePromptHalves(orgName, userName)
 
 	// Kept in sync for any caller still reading systemPrompt/providerTools
 	// directly (there is none in this codebase today, but they remain
@@ -269,7 +270,11 @@ func (a *Agent) runCountPhase(ctx context.Context, entry PlanEntry, clog *loggin
 }
 
 // runFinalizePhase asks the model how to present the report now that the row
-// count is known, then validates and runs the data query.
+// count is known, then validates and runs the data query. An unparseable
+// reply (invalid JSON, or - as seen with Gemini's reasoning eating into its
+// output budget on a richer chart decision - a response cut off mid-object)
+// gets one repair attempt, the same budget the SQL phases already give a
+// rejected statement, instead of failing the report outright.
 func (a *Agent) runFinalizePhase(
 	ctx context.Context,
 	entry PlanEntry,
@@ -277,23 +282,32 @@ func (a *Agent) runFinalizePhase(
 	count int64,
 	clog *logging.ChatTurnLogger,
 ) *FinalizePlan {
-	raw, err := a.completeOnce(ctx, clog, "finalize", entry.ID, 1, analyticsFinalizeInstructions,
-		fmt.Sprintf("Original question: %s\n\nThis report answers: %s\n\nThe result will contain %d rows.\n\nThe counting query used was:\n%s",
-			userText, entry.Question, count, entry.CountSQL))
-	if err != nil {
-		log.Error().Err(err).Str("report", entry.ID).Msg("analytics finalize call failed")
-		return nil
+	base := fmt.Sprintf("Original question: %s\n\nThis report answers: %s\n\nThe result will contain %d rows.\n\nThe counting query used was:\n%s",
+		userText, entry.Question, count, entry.CountSQL)
+	user := base
+	system := a.finalizePrompt(clog)
+
+	for attempt := 1; attempt <= maxSQLAttempts; attempt++ {
+		raw, err := a.completeOnce(ctx, clog, "finalize", entry.ID, attempt, system, user)
+		if err != nil {
+			log.Error().Err(err).Str("report", entry.ID).Msg("analytics finalize call failed")
+			return nil
+		}
+		plan, perr := parseFinalizePlan(raw)
+		if perr == nil {
+			// The model does not get to decide that "too much data for a chart" is fine.
+			if plan.ResponseType == ResponseTypeChart && count > maxChartRows {
+				plan.ResponseType = ResponseTypeCSV
+			}
+			return plan
+		}
+		clog.SQLRejected(entry.ID, "finalize", attempt, perr.Error())
+		if attempt == maxSQLAttempts {
+			return nil
+		}
+		user = fmt.Sprintf("%s\n\nYour previous reply was rejected: %s\n\nReply again with a single complete JSON object and nothing else - no prose, no markdown fence, no partial or truncated output.", base, perr.Error())
 	}
-	plan, err := parseFinalizePlan(raw)
-	if err != nil {
-		clog.SQLRejected(entry.ID, "finalize", 1, err.Error())
-		return nil
-	}
-	// The model does not get to decide that "too much data for a chart" is fine.
-	if plan.ResponseType == ResponseTypeChart && count > maxChartRows {
-		plan.ResponseType = ResponseTypeCSV
-	}
-	return plan
+	return nil
 }
 
 // materializeReport runs the data query and turns rows into a chart or a CSV.
@@ -388,10 +402,6 @@ func (a *Agent) buildChartReport(
 		return a.buildCSVReport(entry, plan, rs, clog)
 	}
 
-	mark := plan.Mark
-	if strings.TrimSpace(mark) == "" {
-		mark = "bar"
-	}
 	spec := map[string]any{
 		"$schema": "https://vega.github.io/schema/vega-lite/v5.json",
 		"width":   600,
@@ -405,8 +415,19 @@ func (a *Agent) buildChartReport(
 		// of where the PNG ends up.
 		"background": "#ffffff",
 		"data":       map[string]any{"values": rs.Rows},
-		"mark":       mark,
-		"encoding":   json.RawMessage(plan.Encoding),
+	}
+	if len(strings.TrimSpace(string(plan.Layer))) > 0 {
+		// A layered chart (trend + rolling average, value + target line, ...)
+		// carries its own mark/encoding per layer; a top-level mark/encoding
+		// pair would be redundant and Vega-Lite rejects having both.
+		spec["layer"] = json.RawMessage(plan.Layer)
+	} else {
+		mark := plan.Mark
+		if strings.TrimSpace(mark) == "" {
+			mark = "bar"
+		}
+		spec["mark"] = mark
+		spec["encoding"] = json.RawMessage(plan.Encoding)
 	}
 	specJSON, err := json.Marshal(spec)
 	if err != nil {

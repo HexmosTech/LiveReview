@@ -37,6 +37,26 @@ func TestParseClassifyShape(t *testing.T) {
 	}
 }
 
+// The finalize call (#3) writes its own data_sql from scratch in a fresh,
+// history-less exchange - it must get the same table/column reference the
+// count call gets, or it silently guesses wrong column names for anything
+// the count query didn't already select (e.g. "who did the review" is
+// author_username, not a guessable reviewer_id/user_id). See
+// buildFinalizePromptHalves.
+func TestFinalizePromptCarriesSchema(t *testing.T) {
+	head, tail := buildFinalizePromptHalves("Acme", "alice@acme.com")
+	prompt := head + tail
+	if !strings.Contains(prompt, "author_username") {
+		t.Fatalf("finalize prompt is missing the schema/column reference that names author_username: %q", prompt)
+	}
+	if !strings.Contains(prompt, "finalizing one report") {
+		t.Fatalf("finalize prompt lost its chart/csv format instructions: %q", prompt)
+	}
+	if strings.Contains(tail, "How to start a data question") {
+		t.Fatalf("finalize prompt should not carry the analytics_plan instructions meant for call #2: %q", tail)
+	}
+}
+
 func TestBoundedRecentHistory(t *testing.T) {
 	history := []HistoryEntry{
 		{"role": "system", "content": "sys"}, // must be dropped regardless of position
@@ -246,6 +266,31 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 // that returns something unparseable must not crash the turn or fall
 // through to a stale/wrong prompt - it degrades to the chat branch (no
 // schema, no tools) for that turn.
+// A fabricated JSON object on a no-tools branch (chat or count_query) must
+// never reach the user verbatim - it matches no downstream parser, so the
+// UI would just render raw JSON. See looksLikeUnrecognizedJSON.
+func TestChatBranchRejectsFabricatedJSON(t *testing.T) {
+	prov := &recordingProvider{replies: []string{
+		`{"shape":"chat"}`,
+		// The model invents its own ad hoc chart shape instead of answering
+		// in prose - none of parseToolCalls/parseAnalyticsPlan recognize it.
+		`{"chart": {"title": "x"}, "learning": {"title": "y"}}`,
+		"I don't have live data for that right now - try asking it as a data question.",
+	}}
+	agent := dispatchTestAgent(prov)
+
+	text, _, _, err := agent.RunTurnWithArtifacts(context.Background(), nil, "are engineers using this daily?", "s1", "test")
+	if err != nil {
+		t.Fatalf("expected the turn to recover, not error: %v", err)
+	}
+	if text != "I don't have live data for that right now - try asking it as a data question." {
+		t.Fatalf("fabricated JSON reached the user instead of triggering a retry: %q", text)
+	}
+	if len(prov.toolsPerCall) != 3 {
+		t.Fatalf("expected classify + rejected reply + retry = 3 calls, got %d", len(prov.toolsPerCall))
+	}
+}
+
 func TestDispatchClassifyFailureDegradesToChat(t *testing.T) {
 	prov := &recordingProvider{replies: []string{
 		"I'm not sure what you mean, could you clarify?", // classify call: not the {"shape": ...} JSON it was told to return

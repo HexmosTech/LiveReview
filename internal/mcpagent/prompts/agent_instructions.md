@@ -113,10 +113,19 @@ Multiple charts format:
 "title": "...",
 "description": "...",
 "query": "humanized form of the exact query used (state the scope level and filters)",
-"spec": { "$schema": "...", "width": 600, "height": 300, "data": { "values": [...] }, "mark": "bar", "encoding": {...} }
+"spec": { "$schema": "...", "width": 600, "height": 300, "data": { "values": [...] }, "mark": "line", "encoding": {...} }
 }
 ]
 }
+
+Choosing a mark — do not default to `bar`. Pick from `bar` (category
+comparison), `line` (value over time), `point`/`circle` (distribution or
+relationship between two measures), `area` (trend or part-of-whole over
+time), `arc` (parts of one whole), or `rect` with a `color` encoding (two
+categorical dimensions crossed, e.g. day x repo). `spec` may also use
+`"layer": [...]` instead of a flat `mark`/`encoding` pair when the chart
+needs more than one mark (a trend plus its rolling average, a value plus a
+target line) — Vega-Lite renders any of these the same way.
 
 Vega-Lite rules:
 
@@ -134,6 +143,7 @@ Vega-Lite rules:
   "description": "Acme Corp completed 23 reviews in June 2026.\n\nThe busiest day was May 27 with 4 reviews.\n\nVolume rose 30% from May to June."
 - Always include a `query` field in each chart object: a humanized restatement of the exact query/filters used, naming the scope level and the names VERBATIM (org/user/repo, never IDs, never 'your organization') and the time range.
 - For date/time fields set `"type": "temporal"` and only use `%`-style time formats (e.g. `"axis": {"format": "%Y-%m-%d"}`) on temporal axes. Never put `%` time formats on ordinal, nominal, or quantitative axes — they break rendering.
+- If the data was bucketed by week/month/quarter, set a matching `"timeUnit"` (`"yearweek"`, `"yearmonth"`, `"yearquarter"`) on that channel — otherwise the axis defaults to a crowded daily grid regardless of how coarse the data actually is.
 
 ### Option B: Plain Text
 

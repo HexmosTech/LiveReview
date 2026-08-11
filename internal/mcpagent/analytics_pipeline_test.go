@@ -220,6 +220,145 @@ func TestAnalyticsPipelineRepairsThenGivesUp(t *testing.T) {
 	}
 }
 
+// A layered chart (trend + rolling average) must assemble a "layer" array in
+// the spec rather than a flat mark/encoding pair, and survive normalization
+// and the triviality check the same way a flat chart does.
+func TestAnalyticsPipelineProducesLayeredChart(t *testing.T) {
+	agent, _, db := testAgent(t, 0)
+	orgID := orgWithCompletedReviews(t, db)
+	agent.mcpSession.OrgID = orgID
+
+	countSQL := `SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS m FROM reviews WHERE status = 'completed' GROUP BY 1) t`
+	dataSQL := `SELECT to_char(date_trunc('month', completed_at), 'YYYY-MM') AS month, count(*) AS review_count, count(*) AS rolling_avg FROM reviews WHERE status = 'completed' GROUP BY 1 ORDER BY 1`
+
+	agent.provider = &scriptedProvider{replies: []string{
+		fmt.Sprintf(`{"response_type":"chart","title":"Reviews by Month","description":"d","query":"q","data_sql":%q,
+			"layer":[
+				{"mark":"line","encoding":{"x":{"field":"month","type":"ordinal"},"y":{"field":"review_count","type":"quantitative"}}},
+				{"mark":"line","encoding":{"x":{"field":"month","type":"ordinal"},"y":{"field":"rolling_avg","type":"quantitative"}}}
+			]}`, dataSQL),
+	}}
+
+	clog := logging.NewChatTurnLogger("test", "livi")
+	plan := []PlanEntry{{ID: "r1", Question: "reviews per month with rolling average", CountSQL: countSQL}}
+
+	text, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "reviews per month with rolling average", clog)
+	if err != nil {
+		t.Fatalf("pipeline failed: %v", err)
+	}
+	if len(artifacts) != 0 {
+		t.Fatalf("expected a chart, got %d artifacts", len(artifacts))
+	}
+
+	var payload struct {
+		Reports []struct {
+			Spec struct {
+				Mark  string           `json:"mark"`
+				Layer []map[string]any `json:"layer"`
+			} `json:"spec"`
+		} `json:"reports"`
+	}
+	if err := json.Unmarshal([]byte(text), &payload); err != nil {
+		t.Fatalf("response is not the expected reports envelope: %v\n%s", err, text)
+	}
+	if len(payload.Reports) != 1 {
+		t.Fatalf("expected 1 report, got %d", len(payload.Reports))
+	}
+	spec := payload.Reports[0].Spec
+	if spec.Mark != "" {
+		t.Fatalf("layered chart should not carry a top-level mark, got %q", spec.Mark)
+	}
+	if len(spec.Layer) != 2 {
+		t.Fatalf("expected 2 layers in the spec, got %d: %s", len(spec.Layer), text)
+	}
+}
+
+// A layer referencing a field the query never selects must degrade to CSV,
+// the same safety net a flat chart already has.
+func TestAnalyticsPipelineLayeredChartMissingFieldFallsBackToCSV(t *testing.T) {
+	agent, _, db := testAgent(t, 0)
+	orgID := orgWithCompletedReviews(t, db)
+	agent.mcpSession.OrgID = orgID
+
+	countSQL := `SELECT count(*) AS n FROM reviews WHERE status = 'completed'`
+	dataSQL := `SELECT id, repository, status FROM reviews WHERE status = 'completed' ORDER BY id LIMIT 5`
+
+	agent.provider = &scriptedProvider{replies: []string{
+		fmt.Sprintf(`{"response_type":"chart","title":"Bad layer","description":"d","query":"q","data_sql":%q,
+			"layer":[{"mark":"line","encoding":{"x":{"field":"id","type":"ordinal"},"y":{"field":"does_not_exist","type":"quantitative"}}}]}`, dataSQL),
+	}}
+
+	clog := logging.NewChatTurnLogger("test", "livi")
+	plan := []PlanEntry{{ID: "r1", Question: "bad layer field", CountSQL: countSQL}}
+
+	_, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "bad layer field", clog)
+	if err != nil {
+		t.Fatalf("pipeline failed: %v", err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("expected the missing field to fall back to a CSV artifact, got %d artifacts", len(artifacts))
+	}
+}
+
+// An unparseable finalize reply (e.g. truncated mid-JSON, as seen with
+// Gemini's reasoning eating into its output budget) gets one repair
+// attempt, the same budget the SQL phases already give a rejected
+// statement, and must still produce a chart rather than giving up.
+func TestAnalyticsPipelineFinalizeRepairsAfterBadJSON(t *testing.T) {
+	agent, _, db := testAgent(t, 0)
+	orgID := orgWithCompletedReviews(t, db)
+	agent.mcpSession.OrgID = orgID
+
+	countSQL := `SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS m FROM reviews WHERE status = 'completed' GROUP BY 1) t`
+	dataSQL := `SELECT to_char(date_trunc('month', completed_at), 'YYYY-MM') AS month, count(*) AS review_count FROM reviews WHERE status = 'completed' GROUP BY 1 ORDER BY 1`
+
+	agent.provider = &scriptedProvider{replies: []string{
+		// attempt 1: cut off mid-object, as if the model's output budget ran out.
+		`{"response_type": "chart", "title": "Reviews by Month", "description": "d", "query`,
+		// attempt 2 (repair): valid.
+		fmt.Sprintf(`{"response_type":"chart","title":"Reviews by Month","description":"d","query":"q","data_sql":%q,"mark":"bar","encoding":{"x":{"field":"month","type":"ordinal"},"y":{"field":"review_count","type":"quantitative"}}}`, dataSQL),
+	}}
+
+	clog := logging.NewChatTurnLogger("test", "livi")
+	plan := []PlanEntry{{ID: "r1", Question: "reviews per month", CountSQL: countSQL}}
+
+	text, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "reviews per month", clog)
+	if err != nil {
+		t.Fatalf("pipeline failed: %v", err)
+	}
+	if len(artifacts) != 0 {
+		t.Fatalf("expected a chart, got %d artifacts", len(artifacts))
+	}
+	if !strings.Contains(text, "\"reports\"") {
+		t.Fatalf("expected the repair attempt to still produce a chart, got: %s", text)
+	}
+}
+
+// Two bad finalize replies in a row exhaust the repair budget and degrade
+// gracefully rather than erroring the turn.
+func TestAnalyticsPipelineFinalizeGivesUpAfterRepairFails(t *testing.T) {
+	agent, _, db := testAgent(t, 0)
+	orgID := orgWithCompletedReviews(t, db)
+	agent.mcpSession.OrgID = orgID
+
+	countSQL := `SELECT count(*) AS n FROM reviews WHERE status = 'completed'`
+	agent.provider = &scriptedProvider{replies: []string{
+		`not json at all`,
+		`still not json`,
+	}}
+
+	clog := logging.NewChatTurnLogger("test", "livi")
+	plan := []PlanEntry{{ID: "r1", Question: "reviews per month", CountSQL: countSQL}}
+
+	text, _, _, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "reviews per month", clog)
+	if err != nil {
+		t.Fatalf("a failing report must not fail the turn: %v", err)
+	}
+	if !strings.Contains(text, "could not build the result") {
+		t.Fatalf("expected a graceful degradation message, got: %s", text)
+	}
+}
+
 // A CSV request produces a downloadable artifact rather than a chart.
 func TestAnalyticsPipelineProducesCSV(t *testing.T) {
 	agent, _, db := testAgent(t, 0)
