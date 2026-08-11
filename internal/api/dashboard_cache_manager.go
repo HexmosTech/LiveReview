@@ -25,10 +25,11 @@ var reviewLayerLabels = map[string]string{
 	"precommit": "Pre-commit",
 	"mr-pr":     "MR / PR",
 	"api-mcp":   "API / MCP",
+	"scheduled": "Scheduled",
 }
 
-// reviewLayerOrder is precommit/mr-pr/api-mcp for now — scheduled comes once that trigger type is real.
-var reviewLayerOrder = []string{"precommit", "mr-pr", "api-mcp"}
+// reviewLayerOrder is precommit/mr-pr/api-mcp/scheduled.
+var reviewLayerOrder = []string{"precommit", "mr-pr", "api-mcp", "scheduled"}
 
 // reviewLayersSourceQuery is the validated batched shape (~50x faster than looping per org, see cmd/dashboard-perf-test); trigger_type is mapped at read time since the column still holds the old raw values.
 const reviewLayersSourceQuery = `
@@ -40,6 +41,7 @@ SELECT
     WHEN 'manual' THEN 'mr-pr'
     WHEN 'api' THEN 'api-mcp'
     WHEN 'mcp' THEN 'api-mcp'
+    WHEN 'scheduled' THEN 'scheduled'
   END AS trigger_type,
   COALESCE(NULLIF(c.comment->>'category',''), NULLIF(c.comment->>'Category','')) AS category
 FROM reviews r
@@ -51,7 +53,7 @@ LEFT JOIN LATERAL jsonb_array_elements(
   END
 ) AS c(comment) ON true
 WHERE r.org_id = ANY($1)
-  AND r.trigger_type IN ('cli_diff', 'manual', 'api', 'mcp')
+  AND r.trigger_type IN ('cli_diff', 'manual', 'api', 'mcp', 'scheduled')
   AND r.created_at >= $2
   AND r.created_at <  $2::date + INTERVAL '1 day'
 `

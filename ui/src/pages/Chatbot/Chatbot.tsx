@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { View } from 'vega';
 import { sendChatMessage, ChatHistoryEntry, ChatFile, ChatChart } from '../../api/chatbot';
 import { BASE_URL } from '../../api/apiClient';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppSelector } from '../../store/configureStore';
 import { InteractiveChart, downloadChartView } from './InteractiveChart';
 import { ThinkingIndicator } from './ThinkingIndicator';
@@ -159,6 +159,7 @@ function findNextSpecial(line: string, from: number): number {
 
 const Chatbot: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const user = useAppSelector((state) => state.Auth.user);
   // CSV exports come from an authenticated, org-scoped endpoint, so the
   // download has to carry the same headers apiClient sends. Charts don't need
@@ -195,7 +196,7 @@ const Chatbot: React.FC = () => {
   );
   const userName = user?.name || 'there';
   const [messages, setMessages] = useState<ChatEntry[]>([]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(() => searchParams.get('prefill') || '');
   const [isLoading, setIsLoading] = useState(false);
   const [history, setHistory] = useState<ChatHistoryEntry[]>([]);
   const [preview, setPreview] = useState<ChatChart | null>(null);

@@ -89,6 +89,8 @@
     "@tanstack/react-table": "^8.21.3",
     "classnames": "^2.2.6",
     "cookie-parser": "^1.4.7",
+    "cron-parser": "^5.7.0",
+    "cronstrue": "^3.24.0",
     "csurf": "^1.11.0",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",

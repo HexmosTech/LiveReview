@@ -338,6 +338,23 @@ export interface BlastRadiusPackageImpact {
   MaxBlastRadiusRaw: number;
 }
 
+// Per-repo scheduled-review configuration; cron_expression is UTC (CronBuilder converts local time).
+export interface ScheduledReviewConfig {
+  id: number;
+  repository_id: number;
+  project_full_name: string;
+  enabled: boolean;
+  cron_expression: string;
+  last_run_at?: string;
+  next_run_at: string;
+}
+
+export interface SetScheduledReviewRequest {
+  repository_id: number;
+  enabled: boolean;
+  cron_expression: string;
+}
+
 export interface BlastRadiusReport {
   Project: string;
   GeneratedAt: string;
