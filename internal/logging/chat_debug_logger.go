@@ -96,16 +96,88 @@ func (l *ChatTurnLogger) UserInput(text string) {
 	l.write("User Input", "%s", text)
 }
 
-func (l *ChatTurnLogger) AIRequest(step int, historyJSON string) {
-	l.write("AI Request", "step=%d payload=%s", step, redactSecrets(historyJSON))
+// call is the LLM call number from livi_analytics_plan.md's "Call #0"
+// diagram (0=classify, 1=action, 2=count-query proposal, 3=finalize), so a
+// log line can be matched straight to a box in the diagram without having
+// to infer it from the preceding Branch Selected line. 0 on these
+// step-numbered lines means "not part of the numbered pipeline" (the chat
+// branch, or a plain tool-only agent with analytics disabled) rather than
+// classify - classify never goes through AIRequest/AIResponse, it has its
+// own LLMCallRequest/LLMCallResponse lines below, always tagged call=0.
+func (l *ChatTurnLogger) AIRequest(call, step int, historyJSON string) {
+	l.write("AI Request", "call=%d step=%d payload=%s", call, step, redactSecrets(historyJSON))
 }
 
-func (l *ChatTurnLogger) AIResponse(step int, elapsed time.Duration, response string) {
-	l.write("AI Response", "step=%d elapsed=%s %s", step, elapsed.Round(time.Millisecond), response)
+func (l *ChatTurnLogger) AIResponse(call, step int, elapsed time.Duration, tokensIn, tokensOut int, response string) {
+	l.write("AI Response", "call=%d step=%d elapsed=%s tokens_in=%d tokens_out=%d %s",
+		call, step, elapsed.Round(time.Millisecond), tokensIn, tokensOut, response)
 }
 
-func (l *ChatTurnLogger) AIError(step int, elapsed time.Duration, err error) {
-	l.write("AI Error", "step=%d elapsed=%s error=%v", step, elapsed.Round(time.Millisecond), err)
+func (l *ChatTurnLogger) AIError(call, step int, elapsed time.Duration, err error) {
+	l.write("AI Error", "call=%d step=%d elapsed=%s error=%v", call, step, elapsed.Round(time.Millisecond), err)
+}
+
+// LLMCallRequest/LLMCallResponse/LLMCallError log the one-shot calls that run
+// outside the main step loop (classify, analytics finalize, no-data, and SQL
+// repair - see mcpagent.Agent.completeOnce and classify.go). Each one is
+// otherwise invisible: it does not carry a step number, so call/kind/report/
+// attempt together are what let you tell which of a turn's several off-loop
+// calls produced a given line. call is the diagram call number (see
+// AIRequest's doc comment) - repair and no-data reuse the number of the call
+// whose SQL/report they are patching (2 for a count-phase repair, 3 for a
+// data-phase repair or a no-data substitute for finalize), since neither is
+// a distinct box in the diagram.
+func (l *ChatTurnLogger) LLMCallRequest(call int, kind, reportID string, attempt int, payload string) {
+	l.write("AI Request", "call=%d kind=%s report=%s attempt=%d payload=%s", call, kind, reportID, attempt, redactSecrets(payload))
+}
+
+func (l *ChatTurnLogger) LLMCallResponse(call int, kind, reportID string, attempt int, elapsed time.Duration, tokensIn, tokensOut int, response string) {
+	l.write("AI Response", "call=%d kind=%s report=%s attempt=%d elapsed=%s tokens_in=%d tokens_out=%d %s",
+		call, kind, reportID, attempt, elapsed.Round(time.Millisecond), tokensIn, tokensOut, response)
+}
+
+func (l *ChatTurnLogger) LLMCallError(call int, kind, reportID string, attempt int, elapsed time.Duration, err error) {
+	l.write("AI Error", "call=%d kind=%s report=%s attempt=%d elapsed=%s error=%v", call, kind, reportID, attempt, elapsed.Round(time.Millisecond), err)
+}
+
+// DBCtxRequest/DBCtxResponse log dbctx's schema lookup - the Go-side call
+// that builds the "### Tables" section of call #2/#3's prompt (see
+// mcpagent/schema_render.go's dbctxTableText). This is NOT an LLM call and
+// the model never invokes it directly; it runs before the LLM call to
+// assemble that call's system prompt, so these lines appear just before the
+// AIRequest/LLMCallRequest line for the call whose prompt they fed.
+func (l *ChatTurnLogger) DBCtxRequest(call int, role, queryText string) {
+	l.write("DBCtx Request", "call=%d role=%s query=%q", call, role, queryText)
+}
+
+func (l *ChatTurnLogger) DBCtxResponse(call int, elapsed time.Duration, tableText string, err error) {
+	if err != nil {
+		l.write("DBCtx Response", "call=%d elapsed=%s degraded=true error=%v", call, elapsed.Round(time.Millisecond), err)
+		return
+	}
+	l.write("DBCtx Response", "call=%d elapsed=%s len=%d %s", call, elapsed.Round(time.Millisecond), len(tableText), tableText)
+}
+
+// BranchSelected records call #0's classify decision and which (prompt,
+// tools) pair got swapped into the turn's system message, at the point the
+// decision is made - not left to be inferred later from which shape of
+// prompt/response shows up downstream. This is the one line that answers
+// "why did this turn go down the wrong path" for the call #0/dispatch split
+// (see livi_analytics_plan.md's "Call #0" section).
+func (l *ChatTurnLogger) BranchSelected(shape string, promptLen, toolCount int) {
+	l.write("Branch Selected", "shape=%s prompt_len=%d tools=%d", shape, promptLen, toolCount)
+}
+
+// SchemaSourceDegraded records that a count_query-branch turn rendered the
+// static fallback table list instead of the live dbctx-derived schema,
+// because the index wasn't ready or failed to build (see
+// dbctx_schema_plan.md's Rollout/risk section). The index failure itself is
+// logged once, at process startup, via zerolog - this is the per-turn
+// counterpart: it answers "was this specific bad SQL caused by a stale
+// schema" for a turn that otherwise looks identical in the log to one that
+// ran against the real schema.
+func (l *ChatTurnLogger) SchemaSourceDegraded(reason string) {
+	l.write("Schema Source Degraded", "reason=%s", reason)
 }
 
 func (l *ChatTurnLogger) ToolCall(step int, name, argsJSON string) {
@@ -127,6 +199,62 @@ func (l *ChatTurnLogger) FinalResponse(text string) {
 
 func (l *ChatTurnLogger) StepLimitHit(maxSteps int) {
 	l.write("Error", "hit step limit (%d steps) without a final answer", maxSteps)
+}
+
+// SQL analytics phases. The whole reason Livi's wrong numbers were hard to
+// diagnose is that nothing recorded what was actually computed - so every
+// generated statement, every rejection and every row count is logged verbatim
+// here. reportID identifies one entry of a multi-report turn; phase is "count"
+// or "data".
+
+// SQLPlan records the report array the model proposed for this turn.
+func (l *ChatTurnLogger) SQLPlan(step int, planJSON string) {
+	l.write("SQL Plan", "step=%d %s", step, planJSON)
+}
+
+// SQLGenerated records the model's raw SQL before the guard touches it, so a
+// rejection can be traced back to exactly what was written. attempt
+// distinguishes the original statement (1) from repair retries (2, ...) -
+// without it, a rewritten repair line and the original are indistinguishable
+// except by reading the SQL text itself.
+func (l *ChatTurnLogger) SQLGenerated(reportID, phase string, attempt int, rawSQL string) {
+	l.write("SQL Generated", "report=%s phase=%s attempt=%d %s", reportID, phase, attempt, collapseSQL(rawSQL))
+}
+
+// SQLRewritten records the org-scoped statement that will actually execute.
+// This is the ground truth for "where did this number come from".
+func (l *ChatTurnLogger) SQLRewritten(reportID, phase string, attempt int, rewritten string) {
+	l.write("SQL Rewritten", "report=%s phase=%s attempt=%d %s", reportID, phase, attempt, collapseSQL(rewritten))
+}
+
+// SQLRejected records a guard refusal and the attempt number, so a retry loop
+// that is not converging is visible rather than silent.
+func (l *ChatTurnLogger) SQLRejected(reportID, phase string, attempt int, reason string) {
+	l.write("SQL Rejected", "report=%s phase=%s attempt=%d reason=%s", reportID, phase, attempt, reason)
+}
+
+// SQLResult records what the database returned.
+func (l *ChatTurnLogger) SQLResult(reportID, phase string, attempt int, elapsed time.Duration, rows int, truncated bool) {
+	l.write("SQL Result", "report=%s phase=%s attempt=%d elapsed=%s rows=%d truncated=%v",
+		reportID, phase, attempt, elapsed.Round(time.Millisecond), rows, truncated)
+}
+
+// SQLError records an execution failure (timeout, unresolved relation, ...).
+func (l *ChatTurnLogger) SQLError(reportID, phase string, attempt int, elapsed time.Duration, err error) {
+	l.write("SQL Error", "report=%s phase=%s attempt=%d elapsed=%s error=%v",
+		reportID, phase, attempt, elapsed.Round(time.Millisecond), err)
+}
+
+// ReportFinalized records how one report ended up being presented.
+func (l *ChatTurnLogger) ReportFinalized(reportID, responseType, title string, rows int) {
+	l.write("Report Finalized", "report=%s type=%s rows=%d title=%q", reportID, responseType, rows, title)
+}
+
+// collapseSQL folds a multi-line statement onto one line so the log stays
+// greppable - a rewritten query carries a dozen shadow CTEs and would
+// otherwise swamp the file it shares with every other session.
+func collapseSQL(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 var secretPattern = regexp.MustCompile(`(?i)"(authorization|bearer|api[_-]?key|token|password|secret)"\s*:\s*"([^"]{0,4})[^"]*"`)
