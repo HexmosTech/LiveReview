@@ -24,8 +24,8 @@ func testOrgScopedColumns() map[string][]string {
 	return map[string][]string{
 		"reviews": {"id", "org_id", "repository", "status", "created_at",
 			"author_username", "user_email"},
-		"loc_usage_ledger":  {"id", "org_id", "billable_loc"},
-		"org_billing_state": {"id", "org_id", "loc_used_month"},
+		"loc_usage_ledger": {"id", "org_id", "billable_loc"},
+		"upgrade_requests": {"id", "org_id", "status"},
 	}
 }
 
@@ -187,10 +187,10 @@ func TestCatalogRoleIsInert(t *testing.T) {
 		t.Fatalf("member billing query should be accepted: %v", err)
 	}
 
-	// org_billing_state is on deniedTables even though testOrgScopedColumns
+	// upgrade_requests is on deniedTables even though testOrgScopedColumns
 	// supplies it - deniedTables must win over orgScopedColumns regardless
 	// of role.
-	if member.Allows("org_billing_state") || owner.Allows("org_billing_state") {
+	if member.Allows("upgrade_requests") || owner.Allows("upgrade_requests") {
 		t.Fatal("a table on deniedTables must stay invisible even when orgScopedColumns supplies it")
 	}
 
