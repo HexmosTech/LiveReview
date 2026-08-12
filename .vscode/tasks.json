@@ -50,9 +50,9 @@
             "problemMatcher": []
         },
         {
-            "label": "livereview: niceurl2",
+            "label": "livereview: niceurl",
             "type": "shell",
-            "command": "bash -lc 'ui_ready=/tmp/livereview-ui-ready; until [ -f \"$ui_ready\" ] && (echo >/dev/tcp/127.0.0.1/8081) >/dev/null 2>&1; do echo \"Waiting for LiveReview UI startup\"; sleep 1; done; echo \"LiveReview UI port 8081 is available\"; exec make niceurl2'",
+            "command": "bash -lc 'ui_ready=/tmp/livereview-ui-ready; until [ -f \"$ui_ready\" ] && (echo >/dev/tcp/127.0.0.1/8081) >/dev/null 2>&1; do echo \"Waiting for LiveReview UI startup\"; sleep 1; done; echo \"LiveReview UI port 8081 is available\"; exec make ${input:niceurlTarget}'",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
@@ -68,10 +68,19 @@
                 "livereview: api",
                 "livereview: ui",
                 "livereview: worker",
-                "livereview: niceurl2"
+                "livereview: niceurl"
             ],
             "dependsOrder": "parallel",
             "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "niceurlTarget",
+            "type": "pickString",
+            "description": "Which niceurl tunnel to start?",
+            "options": ["niceurl2", "niceurl", "niceurl3"],
+            "default": "niceurl2"
         }
     ]
 }
