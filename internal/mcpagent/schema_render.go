@@ -80,10 +80,12 @@ func dbctxTableText(queryText string) (string, error) {
 
 // narrowTables asks dbctx which of the role-visible tables are relevant to
 // queryText - the user's question, or the specific report question being
-// finalized - via idx.Query, and renders only those. Uses .All() (matched
-// plus FK-expanded neighbors) rather than .Matched() alone so a join target
-// reachable only through a foreign key isn't dropped just because it didn't
-// score on its own.
+// finalized - via idx.Query, and renders only those. Uses .Matched() (score
+// > 0 only) rather than .All(), so a table dbctx did not itself think was
+// relevant is not rendered just because it happens to sit next to a matched
+// table in the FK graph - trading away join-target recall (a table reachable
+// only through a foreign key, with no direct lexical/semantic match of its
+// own, will not be rendered) for a tighter, more precise table list.
 //
 // Falls back to every role-visible table when queryText is empty, idx.Query
 // errors, or nothing matches, so a turn never renders an empty schema.
@@ -97,7 +99,7 @@ func narrowTables(idx *dbctx.Index, allVisible []string, visible map[string]bool
 	}
 	seen := make(map[string]bool, len(allVisible))
 	var narrowed []string
-	for _, tc := range rs.All().Tables() {
+	for _, tc := range rs.Matched().Tables() {
 		if visible[tc.TableName] && !seen[tc.TableName] {
 			seen[tc.TableName] = true
 			narrowed = append(narrowed, tc.TableName)

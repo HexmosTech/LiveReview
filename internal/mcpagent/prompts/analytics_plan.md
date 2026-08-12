@@ -22,6 +22,19 @@ above, which counts months, not reviews. This number decides whether the result
 becomes a chart or a downloadable file, so getting it wrong produces the wrong
 kind of answer.
 
+**Default to a grouped answer, even for a bare "how many X" question.** "How
+many reviews are being finished?" is not a request for one static number - the
+useful answer is a trend (reviews completed per day/week/month) or a
+comparison, the same way the final chart is required to have one (see the
+finalize instructions you will get next). Write `count_sql` as if the answer
+will be grouped by time (or by whatever dimension makes the comparison), and
+count *that* - do not wrap the raw, ungrouped `count(*)` of the underlying
+rows as `count_sql` just because the question reads like it wants a single
+total. If `count_sql` returns 1, the next step is contractually forced to
+answer with a single bare number, which is never the right shape - only write
+a 1-row `count_sql` when the user has explicitly asked for one fixed value
+(e.g. "how many reviews were completed on exactly May 3rd").
+
 Do not include the data query yet, and do not describe the results — you have
 not seen them. You will be asked for both once the count is known.
 

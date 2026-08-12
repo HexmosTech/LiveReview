@@ -194,7 +194,7 @@ func (a *Agent) runAnalyticsPlan(
 		notes = append(notes, fmt.Sprintf("I answered the first %d parts of that question. Ask again for the rest.", maxReportsPerTurn))
 	}
 
-	responseText := assembleAnalyticsResponse(reports, notes)
+	responseText := assembleAnalyticsResponse(reports, notes, len(artifacts) > 0)
 	clog.FinalResponse(responseText)
 
 	history = append(history, HistoryEntry{"role": "assistant", "text": responseText})
@@ -586,10 +586,20 @@ func hintFor(err error) string {
 
 // assembleAnalyticsResponse produces the string RunTurn returns. Charts go into
 // the existing {"reports":[...]} envelope that every surface already renders;
-// plain notes are returned as prose when there is nothing to draw.
-func assembleAnalyticsResponse(reports []vlrender.VegaLiteReport, notes []string) string {
+// plain notes are returned as prose when there is nothing to draw. hasArtifacts
+// must be true whenever the turn produced at least one CSV (or other file)
+// artifact - those are returned separately (see RunTurnWithArtifacts) and
+// never appear in reports/notes, so without this a successful CSV-only turn
+// (reports and notes both empty, but a real file was produced and attached)
+// would otherwise fall through to the "could not find anything" message
+// right next to the correctly-delivered file - a contradiction a user would
+// rightly read as a bug, because it is one.
+func assembleAnalyticsResponse(reports []vlrender.VegaLiteReport, notes []string, hasArtifacts bool) string {
 	if len(reports) == 0 {
 		if len(notes) == 0 {
+			if hasArtifacts {
+				return ""
+			}
 			return "I could not find anything to answer that."
 		}
 		return strings.Join(notes, "\n\n")

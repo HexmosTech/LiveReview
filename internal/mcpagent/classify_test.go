@@ -251,6 +251,22 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 		t.Fatalf("turn 3: system prompt was not swapped to the count_query branch")
 	}
 
+	// The raw {"analytics_plan": [...]} JSON the model replied with for turn 3
+	// must never persist in history - runAnalyticsPlan's own final text is
+	// the only assistant entry for this turn. A leaked raw plan poisons every
+	// later call's conversation history (classify included), since the model
+	// then imitates its own prior "reply with a JSON blob" turn instead of
+	// following whatever the later call actually asked for.
+	for _, h := range history {
+		if h["role"] != "assistant" {
+			continue
+		}
+		text, _ := h["text"].(string)
+		if strings.Contains(text, "analytics_plan") {
+			t.Fatalf("raw analytics_plan JSON leaked into history as an assistant turn: %q", text)
+		}
+	}
+
 	// history[0] must still be exactly ONE system message throughout - the
 	// swap replaces it in place, it never accumulates extra system entries.
 	systemCount := 0

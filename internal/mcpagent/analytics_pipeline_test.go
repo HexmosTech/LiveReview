@@ -400,12 +400,20 @@ func TestAnalyticsPipelineProducesCSV(t *testing.T) {
 	clog := logging.NewChatTurnLogger("test", "livi")
 	plan := []PlanEntry{{ID: "r1", Question: "export completed reviews", CountSQL: countSQL}}
 
-	_, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "export them", clog)
+	text, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "export them", clog)
 	if err != nil {
 		t.Fatalf("pipeline failed: %v", err)
 	}
 	if len(artifacts) != 1 {
 		t.Fatalf("expected 1 CSV artifact, got %d", len(artifacts))
+	}
+	// A CSV-only turn (no chart, no notes) must not also claim nothing was
+	// found - the file itself, delivered separately, IS the answer. Regression
+	// guard for the exact contradiction seen in production: a correctly
+	// attached CSV alongside the chat text "I could not find anything to
+	// answer that."
+	if text != "" {
+		t.Fatalf("expected empty response text alongside the CSV artifact, got %q", text)
 	}
 	art := artifacts[0]
 	if art.Filename != "completed.csv" {

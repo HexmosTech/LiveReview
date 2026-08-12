@@ -189,7 +189,17 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			if a.analyticsEnabled() {
 				if plan, ok := parseAnalyticsPlan(response); ok {
 					clog.SQLPlan(step, response)
-					return a.runAnalyticsPlan(ctx, plan, history, userText, clog)
+					// history's last entry is the raw analytics_plan JSON just
+					// appended above (line 181) - runAnalyticsPlan appends its
+					// own final user-facing text in its place. Without
+					// dropping it here, both entries would persist: the raw
+					// plan JSON AND the real answer, as two separate
+					// "assistant" turns. That raw JSON then leaks into every
+					// later call's conversation history (classify included),
+					// and the model starts imitating its own prior "reply
+					// with a JSON blob" turn instead of following whatever
+					// that later call actually asked for.
+					return a.runAnalyticsPlan(ctx, plan, history[:len(history)-1], userText, clog)
 				}
 			}
 			// The "you MUST call a tool" nudges below only make sense when
