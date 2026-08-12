@@ -2,6 +2,7 @@ package mcpagent
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"sync"
 	"time"
@@ -9,6 +10,20 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/shrsv/dbctx"
 )
+
+// terminologyJSON maps LiveReview-specific vocabulary (LOC, LRC, org, repo,
+// PR/MR/"MR/PR") to the exact schema objects they refer to, so dbctx's
+// retrieval can resolve a question phrased in domain jargon even when
+// neither lexical nor semantic matching would get there on its own - see
+// Index.ImportTerminology and the package doc's "Terminology" section.
+// Purely additive: never populated automatically, reviewed by hand before
+// being embedded here. Some targets (org_billing_state.*,
+// quota_batch_settlements.*, api_keys.*) point at tables now on
+// livisql.deniedTables - harmless, just an inert entry for retrieval
+// purposes, since those tables never render regardless of what matches.
+//
+//go:embed terminology.json
+var terminologyJSON []byte
 
 // Persisting the dbctx index to disk (Options.Path) was tried here, so a
 // server restart could reuse cached embeddings instead of paying dbctx
@@ -96,6 +111,19 @@ func InitSchemaIndex(dsn string) {
 				Int("tables", stats.Tables).Int("columns", stats.Columns).
 				Int("foreign_keys", stats.ForeignKeys).Int("state_fields", stats.StateFields).
 				Msg("dbctx schema index: ready")
+
+			termResult, err := idx.ImportTerminology(terminologyJSON)
+			if err != nil {
+				fmt.Printf("[dbctx] terminology import failed: %v\n", err)
+				log.Error().Err(err).Msg("dbctx terminology import failed")
+				return
+			}
+			fmt.Printf("[dbctx] terminology imported: %d accepted, %d rejected\n", termResult.Accepted, len(termResult.Rejected))
+			for _, r := range termResult.Rejected {
+				fmt.Printf("[dbctx] terminology entry rejected: %+v\n", r)
+			}
+			log.Info().Int("accepted", termResult.Accepted).Int("rejected", len(termResult.Rejected)).
+				Msg("dbctx terminology imported")
 		}()
 	})
 }
