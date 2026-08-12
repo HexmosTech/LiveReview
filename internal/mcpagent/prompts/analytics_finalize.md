@@ -12,8 +12,8 @@ For a chart:
  "query": "review completions across the organization, by month",
  "data_sql": "SELECT date_trunc('month', completed_at) AS month, count(*) AS review_count FROM reviews WHERE status = 'completed' GROUP BY 1 ORDER BY 1",
  "mark": "bar",
- "encoding": {"x": {"field": "month", "type": "temporal"},
-              "y": {"field": "review_count", "type": "quantitative"}}}
+ "encoding": {"x": {"field": "month", "type": "temporal", "timeUnit": "yearmonth", "title": "Month"},
+              "y": {"field": "review_count", "type": "quantitative", "title": "Reviews Completed"}}}
 ```
 
 For a layered chart (a trend plus something else - a rolling average, a
@@ -26,8 +26,8 @@ target line, a cumulative curve):
  "query": "daily review turnaround with a 7-day rolling average",
  "data_sql": "SELECT day, avg_hours, avg(avg_hours) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS rolling_avg_hours FROM (...) t ORDER BY day",
  "layer": [
-   {"mark": "line", "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "avg_hours", "type": "quantitative"}, "opacity": {"value": 0.4}}},
-   {"mark": "line", "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "rolling_avg_hours", "type": "quantitative"}}}
+   {"mark": "line", "encoding": {"x": {"field": "day", "type": "temporal", "title": "Day"}, "y": {"field": "avg_hours", "type": "quantitative", "title": "Avg Turnaround (Hours)"}, "opacity": {"value": 0.4}}},
+   {"mark": "line", "encoding": {"x": {"field": "day", "type": "temporal", "title": "Day"}, "y": {"field": "rolling_avg_hours", "type": "quantitative", "title": "7-Day Avg Turnaround (Hours)"}}}
  ]}
 ```
 
@@ -81,6 +81,13 @@ Rules:
 - Set `"type": "temporal"` for date columns, `"quantitative"` for numbers,
   `"ordinal"` or `"nominal"` for categories. Only use `%`-style axis formats on
   temporal axes.
+- **Give every axis/legend channel an explicit human-readable `"title"`** -
+  never let it fall back to the raw `data_sql` column alias. `{"field":
+  "total_billing_usage", "type": "quantitative"}` must become `{"field":
+  "total_billing_usage", "type": "quantitative", "title": "Total Billing
+  Usage"}`. This also matters for temporal fields with a `"timeUnit"`:
+  without an explicit title Vega-Lite renders one like `"month
+  (year-month)"`; add `"title": "Month"` to get a clean axis label instead.
 - **If `data_sql` bucketed the date with `date_trunc('week'|'month'|'quarter',
   ...)`, set a matching `"timeUnit"`** on that channel (`"timeUnit":
   "yearweek"`, `"yearmonth"`, or `"yearquarter"`) instead of leaving it as a

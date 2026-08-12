@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 const (
@@ -323,6 +324,7 @@ func NormalizeVegaLiteSpec(spec []byte) ([]byte, error) {
 	sanitizeAxisFormats(m)
 	injectAxisAngle(m)
 	injectSafeFonts(m)
+	injectFriendlyTitles(m)
 	b, err := json.Marshal(m)
 	if err != nil {
 		return nil, err
@@ -489,6 +491,117 @@ func injectAxisAngle(m map[string]any) {
 			axis["labelAngle"] = float64(45)
 		}
 	}
+}
+
+// titleableChannels are the Vega-Lite encoding channels that render a visible
+// title (axis title, legend title, or header title) and therefore benefit
+// from a human-readable fallback. Channels like "tooltip", "order", and
+// "detail" never render a title on their own, so they are left alone.
+var titleableChannels = map[string]bool{
+	"x": true, "y": true, "x2": true, "y2": true,
+	"xOffset": true, "yOffset": true,
+	"theta": true, "radius": true,
+	"color": true, "fill": true, "stroke": true,
+	"size": true, "opacity": true, "shape": true,
+	"column": true, "row": true, "facet": true,
+	"text": true,
+}
+
+// axisTitleAcronyms are words humanizeFieldName should upper-case wholesale
+// instead of simply capitalizing the first letter.
+var axisTitleAcronyms = map[string]string{
+	"id": "ID", "sql": "SQL", "url": "URL", "ai": "AI",
+	"pr": "PR", "mr": "MR", "loc": "LOC", "api": "API",
+}
+
+// injectFriendlyTitles walks a Vega-Lite spec and gives every titleable
+// encoding channel that lacks an explicit "title" a human-readable one
+// derived from its "field" (e.g. "total_billing_usage" -> "Total Billing
+// Usage"). This runs regardless of what the model produced, so it is a
+// backstop rather than the primary fix - the finalize prompt is expected to
+// set good titles itself, but SQL column aliases (the model's `data_sql`
+// output) otherwise flow straight through `encoding.<channel>.field` into
+// the rendered axis title unless something rewrites them.
+func injectFriendlyTitles(m map[string]any) {
+	if m == nil {
+		return
+	}
+	for _, key := range []string{"layer", "concat", "hconcat", "vconcat"} {
+		if arr, ok := m[key].([]any); ok {
+			for _, item := range arr {
+				if child, ok := item.(map[string]any); ok {
+					injectFriendlyTitles(child)
+				}
+			}
+		}
+	}
+	if child, ok := m["spec"].(map[string]any); ok {
+		injectFriendlyTitles(child)
+	}
+	if faceted, ok := m["facet"].(map[string]any); ok {
+		injectFriendlyTitles(faceted)
+	}
+	encoding, ok := m["encoding"].(map[string]any)
+	if !ok {
+		return
+	}
+	for channel, v := range encoding {
+		if !titleableChannels[channel] {
+			continue
+		}
+		if channelMap, ok := v.(map[string]any); ok {
+			applyFriendlyTitle(channelMap)
+		}
+	}
+}
+
+func applyFriendlyTitle(channelMap map[string]any) {
+	if _, exists := channelMap["title"]; exists {
+		return
+	}
+	field, _ := channelMap["field"].(string)
+	friendly := humanizeFieldName(field)
+	if friendly == "" {
+		return
+	}
+	channelMap["title"] = friendly
+}
+
+// humanizeFieldName turns a SQL column alias into a human-readable label:
+// "total_billing_usage" -> "Total Billing Usage", "reviewCount" -> "Review
+// Count". Also setting an explicit title on a temporal channel suppresses
+// Vega-Lite's own auto-generated "field (year-month)" suffix for a
+// timeUnit-bucketed field, which is the other half of why raw field names
+// were leaking into chart axes.
+func humanizeFieldName(field string) string {
+	if field == "" || field == "*" {
+		return ""
+	}
+	if idx := strings.LastIndex(field, "."); idx >= 0 {
+		field = field[idx+1:]
+	}
+	field = strings.NewReplacer("_", " ", "-", " ").Replace(field)
+	var withSpaces strings.Builder
+	runes := []rune(field)
+	for i, r := range runes {
+		if i > 0 && unicode.IsUpper(r) && !unicode.IsUpper(runes[i-1]) {
+			withSpaces.WriteByte(' ')
+		}
+		withSpaces.WriteRune(r)
+	}
+	words := strings.Fields(withSpaces.String())
+	if len(words) == 0 {
+		return ""
+	}
+	for i, w := range words {
+		if upper, ok := axisTitleAcronyms[strings.ToLower(w)]; ok {
+			words[i] = upper
+			continue
+		}
+		lower := strings.ToLower(w)
+		words[i] = strings.ToUpper(lower[:1]) + lower[1:]
+	}
+	return strings.Join(words, " ")
 }
 
 // FriendlyTitle combines a chart title and subtitle for display.
