@@ -24,11 +24,13 @@ import (
 	"github.com/livereview/internal/api/organizations"
 	"github.com/livereview/internal/api/users"
 	"github.com/livereview/internal/discordbot"
+	"github.com/livereview/internal/database"
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/license/payment"
 	"github.com/livereview/internal/logging"
+	"github.com/livereview/internal/mcpagent"
 	"github.com/livereview/internal/orgname"
 	azuredevopsprovider "github.com/livereview/internal/provider_input/azuredevops"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
@@ -494,6 +496,16 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// chat/bot code, so wiping the log file here at boot is safe - workers
 	// never write to it.
 	logging.InitChatDebugLog() // reads LIVI_DEBUG_LOG at boot
+
+	// Starts building the dbctx schema index in the background (non-blocking -
+	// see schema_index.go). It replaces the hand-written table listing in the
+	// analytics system prompt; a failed/slow build degrades to the static
+	// fallback rather than blocking startup or a chat turn indefinitely.
+	if dsn, err := database.LoadDatabaseURL(); err == nil {
+		mcpagent.InitSchemaIndex(dsn)
+	} else {
+		fmt.Printf("Warning: dbctx schema index not started: %v (analytics prompts will use the static fallback schema)\n", err)
+	}
 
 	// Initialize org-scoped Slack bots (self-hosted only). Each org supplies its
 	// own bot + app tokens via the UI, so no server-level env vars are required.
@@ -1329,9 +1341,9 @@ func (s *Server) setupRoutes() {
 	chatGroup.Use(authMiddleware.ValidateOrgAccess())
 	chatGroup.Use(authMiddleware.BuildPermissionContext())
 	chatGroup.POST("/send", s.HandleWebChat)
-
-	// Chart PNG serving (no auth — loaded by <img> tags; unguessable random IDs + TTL expiry)
-	v1.GET("/chat/charts/:id", s.ServeChartPNG)
+	// CSV exports are bulk org data, so unlike the chart PNGs below they are
+	// served from the authenticated group and checked against the caller's org.
+	chatGroup.GET("/files/:id", s.ServeChatCSV)
 
 	// Dashboard endpoints (organization scoped)
 	dashboardGroup := v1.Group("/dashboard")

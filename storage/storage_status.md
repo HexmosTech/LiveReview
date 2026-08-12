@@ -168,3 +168,8 @@ Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB
 | license.ApplyScheduledDowngrade | moved | [ApplyScheduledDowngrade](license/plan_change_store.go#L254) |
 | license.ApplyScheduledPlanChange | added | [ApplyScheduledPlanChange](license/plan_change_store.go#L258) |
 | license.insertLifecycleEventTx | moved | [insertLifecycleEventTx](license/plan_change_store.go#L299) |
+| analytics.NewAdHocStore | added | [NewAdHocStore](analytics/adhoc_store.go#L50) |
+| analytics.WithStatementTimeout | added | [WithStatementTimeout](analytics/adhoc_store.go#L55) |
+| analytics.Count | added | [Count](analytics/adhoc_store.go#L67) |
+| analytics.Query | added | [Query](analytics/adhoc_store.go#L89) |
+| analytics.Ping | added | [Ping](analytics/adhoc_store.go#L186) |
