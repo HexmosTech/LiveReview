@@ -154,14 +154,26 @@ html {
 }
 
 @keyframes slideUp {
-  from { 
-    opacity: 0; 
-    transform: translateY(20px); 
+  from {
+    opacity: 0;
+    transform: translateY(20px);
   }
-  to { 
-    opacity: 1; 
-    transform: translateY(0); 
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
+}
+
+/* Draws the eye to the chat input right after a preselected question fills
+   it, without leaving a permanent visual change once the user notices it. */
+.input-draw-attention {
+  animation: inputDrawAttention 1s ease-out 2;
+}
+
+@keyframes inputDrawAttention {
+  0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.55); }
+  70% { box-shadow: 0 0 0 8px rgba(99, 102, 241, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
 }
 
 /* Enhanced Empty State */
