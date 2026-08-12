@@ -393,10 +393,9 @@ func buildCountQueryPromptHalves(orgName, userName string) (head, tail string) {
 // Logs SchemaSourceDegraded when the live index wasn't available and the
 // static fallback table list was used instead - see schema_render.go.
 func (a *Agent) countQueryPrompt(clog *logging.ChatTurnLogger, userText string) string {
-	role := a.analyticsRole()
-	clog.DBCtxRequest(2, string(role), userText)
+	clog.DBCtxRequest(2, string(a.analyticsRole()), userText)
 	start := time.Now()
-	tableText, err := dbctxTableText(role, userText)
+	tableText, err := dbctxTableText(userText)
 	clog.DBCtxResponse(2, time.Since(start), tableText, err)
 	if err != nil {
 		clog.SchemaSourceDegraded(err.Error())
@@ -433,10 +432,9 @@ func buildFinalizePromptHalves(orgName, userName string) (head, tail string) {
 // against, since one user turn can fan out into several reports each
 // needing different tables.
 func (a *Agent) finalizePrompt(clog *logging.ChatTurnLogger, queryText string) string {
-	role := a.analyticsRole()
-	clog.DBCtxRequest(3, string(role), queryText)
+	clog.DBCtxRequest(3, string(a.analyticsRole()), queryText)
 	start := time.Now()
-	tableText, err := dbctxTableText(role, queryText)
+	tableText, err := dbctxTableText(queryText)
 	clog.DBCtxResponse(3, time.Since(start), tableText, err)
 	if err != nil {
 		clog.SchemaSourceDegraded(err.Error())

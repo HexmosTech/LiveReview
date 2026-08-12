@@ -32,7 +32,7 @@ func testOrgScopedColumns() map[string][]string {
 // The queries a guard must refuse. Each one is an escape route: if any of these
 // starts passing, tenant isolation is broken.
 func TestRewriteRejects(t *testing.T) {
-	g := New(CatalogFor(RoleMember, testOrgScopedColumns()))
+	g := New(CatalogFor(testOrgScopedColumns()))
 
 	cases := []struct {
 		name string
@@ -105,7 +105,7 @@ func TestRewriteRejects(t *testing.T) {
 // Queries that must survive the guard: the ones Livi actually needs to answer
 // CTO questions. A guard that rejects these is useless even if it is safe.
 func TestRewriteAccepts(t *testing.T) {
-	g := New(CatalogFor(RoleMember, testOrgScopedColumns()))
+	g := New(CatalogFor(testOrgScopedColumns()))
 
 	cases := []struct {
 		name string
@@ -152,7 +152,7 @@ func TestRewriteAccepts(t *testing.T) {
 // The org filter must be structural: an injected OR cannot widen it, because it
 // only ever applies inside an already-scoped relation.
 func TestRewriteNeutralizesOrInjection(t *testing.T) {
-	g := New(CatalogFor(RoleMember, testOrgScopedColumns()))
+	g := New(CatalogFor(testOrgScopedColumns()))
 	out, err := g.Rewrite(`SELECT count(*) FROM reviews WHERE org_id = 3 OR 1=1`)
 	if err != nil {
 		t.Fatalf("query should be accepted and neutralized, not rejected: %v", err)
@@ -166,37 +166,32 @@ func TestRewriteNeutralizesOrInjection(t *testing.T) {
 	}
 }
 
-// Role no longer restricts table visibility: CatalogFor's table set comes
-// entirely from orgScopedColumns (auto-generated from the live schema) plus
-// the two hand-written specials. member/owner/an unrecognized role all see
-// the same tables - this is the explicit, current behaviour, not a bug.
-func TestCatalogRoleIsInert(t *testing.T) {
+// CatalogFor's table set comes entirely from orgScopedColumns
+// (auto-generated from the live schema) plus the two hand-written specials -
+// there is no role input at all (see the Role doc comment in catalog.go).
+func TestCatalogFor(t *testing.T) {
 	cols := testOrgScopedColumns()
-	member := CatalogFor(RoleMember, cols)
-	owner := CatalogFor(RoleOwner, cols)
-	unknown := CatalogFor(Role("nonsense"), cols)
+	cat := CatalogFor(cols)
 
 	for _, table := range []string{"reviews", "loc_usage_ledger", "orgs", "users"} {
-		if !member.Allows(table) || !owner.Allows(table) || !unknown.Allows(table) {
-			t.Fatalf("table %q must be visible regardless of role (member=%v owner=%v unknown=%v)",
-				table, member.Allows(table), owner.Allows(table), unknown.Allows(table))
+		if !cat.Allows(table) {
+			t.Fatalf("table %q must be visible", table)
 		}
 	}
 
-	if _, err := New(member).Rewrite(`SELECT sum(billable_loc) AS loc FROM loc_usage_ledger`); err != nil {
-		t.Fatalf("member billing query should be accepted: %v", err)
+	if _, err := New(cat).Rewrite(`SELECT sum(billable_loc) AS loc FROM loc_usage_ledger`); err != nil {
+		t.Fatalf("billing query should be accepted: %v", err)
 	}
 
 	// upgrade_requests is on deniedTables even though testOrgScopedColumns
-	// supplies it - deniedTables must win over orgScopedColumns regardless
-	// of role.
-	if member.Allows("upgrade_requests") || owner.Allows("upgrade_requests") {
+	// supplies it - deniedTables must win over orgScopedColumns.
+	if cat.Allows("upgrade_requests") {
 		t.Fatal("a table on deniedTables must stay invisible even when orgScopedColumns supplies it")
 	}
 
 	// A table absent from orgScopedColumns (no org_id in the real schema, or
-	// simply not supplied) stays invisible regardless of role.
-	if member.Allows("api_keys") || owner.Allows("api_keys") {
+	// simply not supplied) stays invisible.
+	if cat.Allows("api_keys") {
 		t.Fatal("a table absent from orgScopedColumns must not become visible")
 	}
 }
@@ -226,7 +221,7 @@ func TestAutoOrgScopedShadowWithholdsSecrets(t *testing.T) {
 // absent from the rewrite; the companion DB test proves Postgres then rejects
 // the reference.
 func TestUsersShadowWithholdsSecrets(t *testing.T) {
-	g := New(CatalogFor(RoleMember, testOrgScopedColumns()))
+	g := New(CatalogFor(testOrgScopedColumns()))
 	out, err := g.Rewrite(`SELECT email FROM users`)
 	if err != nil {
 		t.Fatalf("unexpected rejection: %v", err)
@@ -245,7 +240,7 @@ func TestUsersShadowWithholdsSecrets(t *testing.T) {
 // A CTE the model defines itself is legitimate and must resolve even though the
 // guard collects CTE names in a separate pass from the reference check.
 func TestOwnCTEResolvesRegardlessOfWalkOrder(t *testing.T) {
-	g := New(CatalogFor(RoleMember, testOrgScopedColumns()))
+	g := New(CatalogFor(testOrgScopedColumns()))
 	for i := 0; i < 50; i++ {
 		if _, err := g.Rewrite(
 			`WITH per_month AS (SELECT date_trunc('month', created_at) AS m FROM reviews)

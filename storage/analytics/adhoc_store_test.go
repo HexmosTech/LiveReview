@@ -34,9 +34,9 @@ func testOrgScopedColumns() map[string][]string {
 	}
 }
 
-func rewrite(t *testing.T, role livisql.Role, sql string) string {
+func rewrite(t *testing.T, sql string) string {
 	t.Helper()
-	out, err := livisql.New(livisql.CatalogFor(role, testOrgScopedColumns())).Rewrite(sql)
+	out, err := livisql.New(livisql.CatalogFor(testOrgScopedColumns())).Rewrite(sql)
 	if err != nil {
 		t.Fatalf("guard rejected a query the test expects to run: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestQueryIsolatesTenants(t *testing.T) {
 		`SELECT count(*) AS n FROM reviews WHERE org_id = 1 OR 1=1`,
 		`SELECT count(*) AS n FROM reviews WHERE true`,
 	} {
-		q := rewrite(t, livisql.RoleMember, attack)
+		q := rewrite(t, attack)
 		for _, orgID := range []int64{orgA, orgB} {
 			got, err := store.Count(ctx, orgID, q)
 			if err != nil {
@@ -144,7 +144,7 @@ func TestUserSecretsUnreachable(t *testing.T) {
 	store := NewAdHocStore(db)
 	orgA, _ := orgsWithReviews(t, db)
 
-	q := rewrite(t, livisql.RoleMember, `SELECT password_hash FROM users`)
+	q := rewrite(t, `SELECT password_hash FROM users`)
 	_, err := store.Query(context.Background(), orgA, q, 10)
 	if err == nil {
 		t.Fatal("password_hash was readable through the users shadow")
@@ -161,7 +161,7 @@ func TestCoercionProducesMarshalableRows(t *testing.T) {
 	store := NewAdHocStore(db)
 	orgA, _ := orgsWithReviews(t, db)
 
-	q := rewrite(t, livisql.RoleMember, `
+	q := rewrite(t, `
 		SELECT date_trunc('month', created_at) AS bucket,
 		       count(*) AS n,
 		       avg(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completion_rate,
@@ -201,7 +201,7 @@ func TestTruncationIsDetected(t *testing.T) {
 	store := NewAdHocStore(db)
 	orgA, _ := orgsWithReviews(t, db)
 
-	q := rewrite(t, livisql.RoleMember, `SELECT id FROM reviews ORDER BY id`)
+	q := rewrite(t, `SELECT id FROM reviews ORDER BY id`)
 
 	rs, err := store.Query(context.Background(), orgA, q, 2)
 	if err != nil {
@@ -225,7 +225,7 @@ func TestDuplicateColumnsRejected(t *testing.T) {
 	store := NewAdHocStore(db)
 	orgA, _ := orgsWithReviews(t, db)
 
-	q := rewrite(t, livisql.RoleMember, `SELECT count(*) AS n, count(*) AS n FROM reviews`)
+	q := rewrite(t, `SELECT count(*) AS n, count(*) AS n FROM reviews`)
 	if _, err := store.Query(context.Background(), orgA, q, 10); err == nil {
 		t.Fatal("duplicate output columns were accepted")
 	}

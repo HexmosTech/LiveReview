@@ -120,10 +120,12 @@ func (a *Agent) analyticsEnabled() bool {
 	return a.analytics != nil && a.mcpSession != nil && a.mcpSession.OrgID != 0
 }
 
-// analyticsRole normalizes this session's role for SQL/schema purposes.
-// Unknown or unrecognized roles fall back to the least privileged catalog -
-// this matters for the bots, which authenticate an organization rather than
-// a user and so never carry a real role.
+// analyticsRole normalizes this session's role for logging only - it has no
+// bearing on which tables/columns are visible (see livisql.CatalogFor).
+// Unknown or unrecognized roles normalize to "member" so debug logs never
+// show a raw, unnormalized value; this matters for the bots, which
+// authenticate an organization rather than a user and so never carry a
+// real role.
 func (a *Agent) analyticsRole() livisql.Role {
 	role := livisql.Role(strings.ToLower(strings.TrimSpace(a.mcpSession.UserRole)))
 	switch role {
@@ -134,9 +136,9 @@ func (a *Agent) analyticsRole() livisql.Role {
 	return role
 }
 
-// guard builds the SQL guard for this session's role.
+// guard builds the SQL guard for this session's org.
 func (a *Agent) guard() *livisql.Guard {
-	return livisql.New(livisql.CatalogFor(a.analyticsRole(), orgScopedColumns()))
+	return livisql.New(livisql.CatalogFor(orgScopedColumns()))
 }
 
 // finishedReport is one completed entry of a multi-report answer.

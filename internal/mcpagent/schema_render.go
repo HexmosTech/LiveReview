@@ -43,13 +43,13 @@ import (
 // fallback text. The caller is expected to log that via
 // ChatTurnLogger.SchemaSourceDegraded - this function has no session/turn
 // context of its own to log through.
-func dbctxTableText(role livisql.Role, queryText string) (string, error) {
+func dbctxTableText(queryText string) (string, error) {
 	idx := schemaIndex()
 	if idx == nil {
 		return "", fmt.Errorf("dbctx index unavailable")
 	}
 
-	tables := livisql.CatalogFor(role, orgScopedColumns()).Tables()
+	tables := livisql.CatalogFor(orgScopedColumns()).Tables()
 	visible := make(map[string]bool, len(tables))
 	for _, t := range tables {
 		visible[t] = true
@@ -73,7 +73,7 @@ func dbctxTableText(role livisql.Role, queryText string) (string, error) {
 	}
 
 	if rendered == 0 {
-		return "", fmt.Errorf("dbctx returned no renderable tables for role %q", role)
+		return "", fmt.Errorf("dbctx returned no renderable tables")
 	}
 	return b.String(), nil
 }

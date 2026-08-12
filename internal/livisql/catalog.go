@@ -5,11 +5,13 @@ import (
 	"strings"
 )
 
-// Role is the caller's permission level. Kept for callers outside this
-// package (chat session role mapping, auth middleware) - CatalogFor no
-// longer branches on it: member and owner see the same table set (explicit
-// decision - the previous owner-only gate on billing/quota/license tables
-// was dropped along with the hand-curated table list, see CatalogFor).
+// Role is the caller's permission level. CatalogFor does not take one -
+// member and owner see the same table set (explicit decision - the
+// previous owner-only gate on billing/quota/license tables was dropped
+// along with the hand-curated table list). Kept only for callers outside
+// this package that still log/normalize a role for diagnostics (mcpagent's
+// analyticsRole, chat debug log lines) - it has no bearing on table
+// visibility.
 type Role string
 
 const (
@@ -135,9 +137,8 @@ type Catalog struct {
 // CatalogFor returns the relations visible for this turn: the two
 // hand-written specials (orgs, users) plus an auto-generated shadow for
 // every table in orgScopedColumns (table name -> its column list) that
-// isn't on deniedTables. role is no longer used to restrict the table set -
-// see the Role doc comment.
-func CatalogFor(role Role, orgScopedColumns map[string][]string) Catalog {
+// isn't on deniedTables. There is no role input - see the Role doc comment.
+func CatalogFor(orgScopedColumns map[string][]string) Catalog {
 	c := Catalog{shadows: make(map[string]string, len(specialShadows)+len(orgScopedColumns))}
 	for _, s := range specialShadows {
 		c.shadows[s.name] = s.body
