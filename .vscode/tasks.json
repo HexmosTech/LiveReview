@@ -47,7 +47,7 @@
         {
             "label": "livereview: worker",
             "type": "shell",
-            "command": "bash -lc 'api_ready=/tmp/livereview-api-ready; until [ -f \"$api_ready\" ] && (echo >/dev/tcp/127.0.0.1/8888) >/dev/null 2>&1; do echo \"Waiting for LiveReview API startup\"; sleep 1; done; pkill -9 -f \"tmp/lrworker worker\" || true; go build -o ./tmp/lrworker . && exec ./tmp/lrworker worker --env-file .env'",
+            "command": "bash -lc 'api_ready=/tmp/livereview-api-ready; until [ -f \"$api_ready\" ] && (echo >/dev/tcp/127.0.0.1/8888) >/dev/null 2>&1; do echo \"Waiting for LiveReview API startup\"; sleep 1; done; pkill -9 -f \"^./tmp/lrworker worker\" || true; go build -o ./tmp/lrworker . && exec ./tmp/lrworker worker --env-file .env'",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
