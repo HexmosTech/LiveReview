@@ -367,14 +367,27 @@ func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
 	return b.String()
 }
 
+// orgIDFilterInstruction tells the model the literal org_id value every SQL
+// query it writes must filter by. This has to be explicit now: the SQL
+// guard (internal/livisql) no longer injects org scoping itself - it only
+// checks that some `org_id = ...` comparison is present (see the guard's
+// package doc) - so the model is the only place the correct value can come
+// from at all.
+func orgIDFilterInstruction(orgID int64) string {
+	return fmt.Sprintf("\nEvery query you write MUST include `org_id = %d` in its WHERE clause "+
+		"(join other tables' own org_id the same way). This is the organization's actual id - "+
+		"use this exact number, not a placeholder or a guess. A query without it will be rejected.\n\n", orgID)
+}
+
 // buildCountQueryPromptHalves precomputes the static parts of call #2's
 // system prompt. They bracket dbctxTableText's output, which is resolved
 // fresh per turn by (*Agent).countQueryPrompt rather than here, because the
 // dbctx index's readiness can change over the process's life in a way none
 // of the other precomputed prompts depend on.
-func buildCountQueryPromptHalves(orgName, userName string) (head, tail string) {
+func buildCountQueryPromptHalves(orgName, userName string, orgID int64) (head, tail string) {
 	var h strings.Builder
 	h.WriteString(buildPromptHeader(orgName, userName))
+	h.WriteString(orgIDFilterInstruction(orgID))
 	h.WriteString(analyticsSchemaIntro) // imported from prompts/analytics_schema_intro.md
 	head = h.String()
 
@@ -409,9 +422,10 @@ func (a *Agent) countQueryPrompt(clog *logging.ChatTurnLogger, userText string) 
 // conversation - completeOnce is a fresh two-message exchange), so it needs
 // the same table/column reference the count call gets, not just the chart-
 // format rules in analytics_finalize.md.
-func buildFinalizePromptHalves(orgName, userName string) (head, tail string) {
+func buildFinalizePromptHalves(orgName, userName string, orgID int64) (head, tail string) {
 	var h strings.Builder
 	h.WriteString(buildPromptHeader(orgName, userName))
+	h.WriteString(orgIDFilterInstruction(orgID))
 	h.WriteString(analyticsSchemaIntro) // imported from prompts/analytics_schema_intro.md
 	head = h.String()
 

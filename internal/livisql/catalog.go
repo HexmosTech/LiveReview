@@ -1,15 +1,10 @@
 package livisql
 
-import (
-	"sort"
-	"strings"
-)
+import "sort"
 
-// Role is the caller's permission level. CatalogFor does not take one -
-// member and owner see the same table set (explicit decision - the
-// previous owner-only gate on billing/quota/license tables was dropped
-// along with the hand-curated table list). Kept only for callers outside
-// this package that still log/normalize a role for diagnostics (mcpagent's
+// Role is the caller's permission level. Catalog does not take one - member
+// and owner see the same table set. Kept only for callers outside this
+// package that still log/normalize a role for diagnostics (mcpagent's
 // analyticsRole, chat debug log lines) - it has no bearing on table
 // visibility.
 type Role string
@@ -20,40 +15,14 @@ const (
 	RoleSuperAdmin Role = "super_admin"
 )
 
-// shadow is the body of the CTE that stands in for a real table. Every shadow
-// applies the org filter itself, so a generated query cannot widen its scope:
-// it only ever sees rows that already passed this WHERE clause. $1 is the org
-// id, bound by the executor.
-type shadow struct {
-	name string
-	body string
-}
-
-// specialShadows are tables that cannot be templated by AutoOrgScopedShadow:
-// orgs is the tenant row itself, keyed by id rather than org_id; users has no
-// org_id at all - membership lives in user_roles, so a join is what scopes
-// it, and the hand-written projection is what keeps password_hash and
-// onboarding_api_key structurally unreachable (secretColumns can't help here
-// since these two are excluded by never being in the projection to begin
-// with, not by being filtered out of one).
-var specialShadows = []shadow{
-	{"orgs", `SELECT id, name, description, created_at, updated_at, is_active, subscription_plan
-		FROM public.orgs WHERE id = $1`},
-
-	{"users", `SELECT DISTINCT u.id, u.email, u.first_name, u.last_name, u.is_active,
-		u.created_at, u.last_login_at, u.last_cli_used_at
-		FROM public.users u
-		JOIN public.user_roles ur ON ur.user_id = u.id
-		WHERE ur.org_id = $1`},
-}
-
-// secretColumns is an exact-name denylist applied when auto-generating a
-// shadow for an org_id-scoped table (see AutoOrgScopedShadow) - real
-// credentials found in this schema's org_id-having tables (checked against
-// the live DB, not guessed). Exact names, not substrings: several legitimate
-// analytics columns contain "token" (loc_usage_ledger.input_tokens,
-// quota_batch_settlements.context_tokens_batch, ...) without being secrets,
-// so a substring match would wrongly exclude real analytics data.
+// secretColumns is an exact-name denylist of credential columns. Guard uses
+// it to refuse any query that references one of these by name (see
+// checkColumnRef in guard.go); schema_render.go uses IsSecretColumn to keep
+// the same names out of the LLM-facing schema text. Exact names, not
+// substrings: several legitimate analytics columns contain "token"
+// (loc_usage_ledger.input_tokens, quota_batch_settlements.context_tokens_batch,
+// ...) without being secrets, so a substring match would wrongly exclude
+// real analytics data.
 var secretColumns = map[string]bool{
 	"password_hash":      true,
 	"onboarding_api_key": true,
@@ -74,41 +43,15 @@ var secretColumns = map[string]bool{
 // IsSecretColumn reports whether name is on the secretColumns denylist -
 // exported so mcpagent's schema-text renderer (schema_render.go) can keep
 // secret column NAMES out of the LLM prompt too, using the same list the SQL
-// guard already uses to keep their VALUES out of query results, rather than
-// maintaining a second copy of it.
+// guard uses to refuse queries that reference them.
 func IsSecretColumn(name string) bool {
 	return secretColumns[name]
 }
 
-// AutoOrgScopedShadow builds a shadow for a table that carries org_id
-// directly: every column except secretColumns, from the live schema (see
-// mcpagent's orgScopedColumns, sourced from the dbctx index) rather than a
-// hand-written per-table list. columns is expected to include org_id - the
-// caller is responsible for only calling this for tables that actually have
-// that column (a table without one would produce an invalid WHERE clause).
-// Returns false if every column was denylisted, so a real table never ends
-// up with an empty, useless shadow.
-func AutoOrgScopedShadow(table string, columns []string) (shadow, bool) {
-	kept := make([]string, 0, len(columns))
-	for _, c := range columns {
-		if !secretColumns[c] {
-			kept = append(kept, c)
-		}
-	}
-	if len(kept) == 0 {
-		return shadow{}, false
-	}
-	return shadow{
-		name: table,
-		body: "SELECT " + strings.Join(kept, ", ") + " FROM public." + table + " WHERE org_id = $1",
-	}, true
-}
-
-// deniedTables are excluded from CatalogFor entirely, regardless of what
-// orgScopedColumns supplies - not visible to the SQL guard (no shadow, so
-// any query referencing them is rejected as CodeUnknownTable) and, since
-// mcpagent's schema-text renderer sources its table list from this same
-// Catalog, not visible in the LLM prompt either. One list, one place.
+// deniedTables are excluded from Catalog entirely - not visible to the SQL
+// guard (any query referencing them is rejected as CodeUnknownTable) and,
+// since mcpagent's schema-text renderer sources its table list from this
+// same Catalog, not visible in the LLM prompt either. One list, one place.
 var deniedTables = map[string]bool{
 	"upgrade_requests":             true,
 	"webhook_registry":             true,
@@ -128,27 +71,26 @@ var deniedTables = map[string]bool{
 	"user_role_history":            true,
 }
 
-// Catalog is the set of relations that may be referenced in a generated
-// query, plus the shadow bodies used to rewrite them.
+// Catalog is the set of real table names a generated query may reference.
+// There is no per-table shadow/rewrite anymore - the guard validates the
+// query's shape (read-only, table denylist, secret-column denylist, an
+// org_id filter present, no constant-vs-constant tautology) and then runs
+// the model's own SQL essentially as written. See guard.go's package doc for
+// what that trades away.
 type Catalog struct {
-	shadows map[string]string
+	tables map[string]bool
 }
 
-// CatalogFor returns the relations visible for this turn: the two
-// hand-written specials (orgs, users) plus an auto-generated shadow for
-// every table in orgScopedColumns (table name -> its column list) that
-// isn't on deniedTables. There is no role input - see the Role doc comment.
-func CatalogFor(orgScopedColumns map[string][]string) Catalog {
-	c := Catalog{shadows: make(map[string]string, len(specialShadows)+len(orgScopedColumns))}
-	for _, s := range specialShadows {
-		c.shadows[s.name] = s.body
-	}
-	for table, cols := range orgScopedColumns {
-		if deniedTables[table] {
-			continue
-		}
-		if s, ok := AutoOrgScopedShadow(table, cols); ok {
-			c.shadows[s.name] = s.body
+// CatalogFor returns the relations visible for this turn: every name in
+// allTables that isn't on deniedTables. allTables is expected to be every
+// real table name the live schema (dbctx) reports - see mcpagent's
+// schemaIndex/idx.Tables(), which needs no per-table column introspection
+// now that there is nothing to auto-generate a shadow body from.
+func CatalogFor(allTables []string) Catalog {
+	c := Catalog{tables: make(map[string]bool, len(allTables))}
+	for _, t := range allTables {
+		if !deniedTables[t] {
+			c.tables[t] = true
 		}
 	}
 	return c
@@ -156,14 +98,13 @@ func CatalogFor(orgScopedColumns map[string][]string) Catalog {
 
 // Allows reports whether relname may appear in a generated query.
 func (c Catalog) Allows(relname string) bool {
-	_, ok := c.shadows[relname]
-	return ok
+	return c.tables[relname]
 }
 
 // Tables lists the visible relation names, sorted for stable prompts and tests.
 func (c Catalog) Tables() []string {
-	out := make([]string, 0, len(c.shadows))
-	for name := range c.shadows {
+	out := make([]string, 0, len(c.tables))
+	for name := range c.tables {
 		out = append(out, name)
 	}
 	sort.Strings(out)

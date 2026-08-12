@@ -49,7 +49,7 @@ func dbctxTableText(queryText string) (string, error) {
 		return "", fmt.Errorf("dbctx index unavailable")
 	}
 
-	tables := livisql.CatalogFor(orgScopedColumns()).Tables()
+	tables := livisql.CatalogFor(allTableNames()).Tables()
 	visible := make(map[string]bool, len(tables))
 	for _, t := range tables {
 		visible[t] = true
@@ -62,9 +62,9 @@ func dbctxTableText(queryText string) (string, error) {
 	for _, name := range renderNames {
 		detail, err := idx.TableDetail(name)
 		if err != nil || detail == nil {
-			// A shadow with no live counterpart is a drift bug caught by
-			// shadow_columns_test.go, not something to fail this render
-			// over - skip it and still render every other table.
+			// A catalog table dbctx can no longer describe (deleted/renamed
+			// since the index was built) is not something to fail this
+			// render over - skip it and still render every other table.
 			continue
 		}
 		if renderTable(&b, name, detail, visible) {

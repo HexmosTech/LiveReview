@@ -105,8 +105,8 @@ func TestAnalyticsPipelineProducesExactCounts(t *testing.T) {
 	orgID := orgWithCompletedReviews(t, db)
 	agent.mcpSession.OrgID = orgID
 
-	countSQL := `SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS m FROM reviews WHERE status = 'completed' GROUP BY 1) t`
-	dataSQL := `SELECT to_char(date_trunc('month', completed_at), 'YYYY-MM') AS month, count(*) AS review_count FROM reviews WHERE status = 'completed' GROUP BY 1 ORDER BY 1`
+	countSQL := fmt.Sprintf(`SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS m FROM reviews WHERE status = 'completed' AND org_id = %d GROUP BY 1) t`, orgID)
+	dataSQL := fmt.Sprintf(`SELECT to_char(date_trunc('month', completed_at), 'YYYY-MM') AS month, count(*) AS review_count FROM reviews WHERE status = 'completed' AND org_id = %d GROUP BY 1 ORDER BY 1`, orgID)
 
 	agent.provider = &scriptedProvider{replies: []string{
 		fmt.Sprintf(`{"analytics_plan":[{"id":"r1","question":"reviews per month","count_sql":%q}]}`, countSQL),
@@ -186,7 +186,7 @@ func TestAnalyticsPipelineZeroRowsShortCircuits(t *testing.T) {
 	agent.mcpSession.OrgID = orgID
 
 	// A predicate that cannot match anything.
-	countSQL := `SELECT count(*) AS n FROM reviews WHERE status = 'completed' AND completed_at < '1971-01-01'`
+	countSQL := fmt.Sprintf(`SELECT count(*) AS n FROM reviews WHERE status = 'completed' AND completed_at < '1971-01-01' AND org_id = %d`, orgID)
 	prov := &scriptedProvider{replies: []string{
 		`{"response_type":"no_data","text":"TestOrg completed no reviews in that period."}`,
 	}}
@@ -253,8 +253,8 @@ func TestAnalyticsPipelineProducesLayeredChart(t *testing.T) {
 	orgID := orgWithCompletedReviews(t, db)
 	agent.mcpSession.OrgID = orgID
 
-	countSQL := `SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS m FROM reviews WHERE status = 'completed' GROUP BY 1) t`
-	dataSQL := `SELECT to_char(date_trunc('month', completed_at), 'YYYY-MM') AS month, count(*) AS review_count, count(*) AS rolling_avg FROM reviews WHERE status = 'completed' GROUP BY 1 ORDER BY 1`
+	countSQL := fmt.Sprintf(`SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS m FROM reviews WHERE status = 'completed' AND org_id = %d GROUP BY 1) t`, orgID)
+	dataSQL := fmt.Sprintf(`SELECT to_char(date_trunc('month', completed_at), 'YYYY-MM') AS month, count(*) AS review_count, count(*) AS rolling_avg FROM reviews WHERE status = 'completed' AND org_id = %d GROUP BY 1 ORDER BY 1`, orgID)
 
 	agent.provider = &scriptedProvider{replies: []string{
 		fmt.Sprintf(`{"response_type":"chart","title":"Reviews by Month","description":"d","query":"q","data_sql":%q,
@@ -305,8 +305,8 @@ func TestAnalyticsPipelineLayeredChartMissingFieldFallsBackToCSV(t *testing.T) {
 	orgID := orgWithCompletedReviews(t, db)
 	agent.mcpSession.OrgID = orgID
 
-	countSQL := `SELECT count(*) AS n FROM reviews WHERE status = 'completed'`
-	dataSQL := `SELECT id, repository, status FROM reviews WHERE status = 'completed' ORDER BY id LIMIT 5`
+	countSQL := fmt.Sprintf(`SELECT count(*) AS n FROM reviews WHERE status = 'completed' AND org_id = %d`, orgID)
+	dataSQL := fmt.Sprintf(`SELECT id, repository, status FROM reviews WHERE status = 'completed' AND org_id = %d ORDER BY id LIMIT 5`, orgID)
 
 	agent.provider = &scriptedProvider{replies: []string{
 		fmt.Sprintf(`{"response_type":"chart","title":"Bad layer","description":"d","query":"q","data_sql":%q,
@@ -334,8 +334,8 @@ func TestAnalyticsPipelineFinalizeRepairsAfterBadJSON(t *testing.T) {
 	orgID := orgWithCompletedReviews(t, db)
 	agent.mcpSession.OrgID = orgID
 
-	countSQL := `SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS m FROM reviews WHERE status = 'completed' GROUP BY 1) t`
-	dataSQL := `SELECT to_char(date_trunc('month', completed_at), 'YYYY-MM') AS month, count(*) AS review_count FROM reviews WHERE status = 'completed' GROUP BY 1 ORDER BY 1`
+	countSQL := fmt.Sprintf(`SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS m FROM reviews WHERE status = 'completed' AND org_id = %d GROUP BY 1) t`, orgID)
+	dataSQL := fmt.Sprintf(`SELECT to_char(date_trunc('month', completed_at), 'YYYY-MM') AS month, count(*) AS review_count FROM reviews WHERE status = 'completed' AND org_id = %d GROUP BY 1 ORDER BY 1`, orgID)
 
 	agent.provider = &scriptedProvider{replies: []string{
 		// attempt 1: cut off mid-object, as if the model's output budget ran out.
@@ -366,7 +366,7 @@ func TestAnalyticsPipelineFinalizeGivesUpAfterRepairFails(t *testing.T) {
 	orgID := orgWithCompletedReviews(t, db)
 	agent.mcpSession.OrgID = orgID
 
-	countSQL := `SELECT count(*) AS n FROM reviews WHERE status = 'completed'`
+	countSQL := fmt.Sprintf(`SELECT count(*) AS n FROM reviews WHERE status = 'completed' AND org_id = %d`, orgID)
 	agent.provider = &scriptedProvider{replies: []string{
 		`not json at all`,
 		`still not json`,
@@ -390,8 +390,8 @@ func TestAnalyticsPipelineProducesCSV(t *testing.T) {
 	orgID := orgWithCompletedReviews(t, db)
 	agent.mcpSession.OrgID = orgID
 
-	countSQL := `SELECT count(*) AS n FROM reviews WHERE status = 'completed'`
-	dataSQL := `SELECT id, repository, status FROM reviews WHERE status = 'completed' ORDER BY id LIMIT 5`
+	countSQL := fmt.Sprintf(`SELECT count(*) AS n FROM reviews WHERE status = 'completed' AND org_id = %d`, orgID)
+	dataSQL := fmt.Sprintf(`SELECT id, repository, status FROM reviews WHERE status = 'completed' AND org_id = %d ORDER BY id LIMIT 5`, orgID)
 
 	agent.provider = &scriptedProvider{replies: []string{
 		fmt.Sprintf(`{"response_type":"csv","title":"Completed reviews","description":"d","query":"q","data_sql":%q,"csv_filename":"completed.csv"}`, dataSQL),

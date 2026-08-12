@@ -1,5 +1,7 @@
-// Package analytics executes the org-scoped SQL that internal/livisql produces
-// for Livi's analytics answers.
+// Package analytics executes the SQL that internal/livisql's guard has
+// validated for Livi's analytics answers. Org scoping is not enforced here -
+// it is whatever WHERE org_id = ... the model's own SQL contains, checked
+// only for presence by the guard. See internal/livisql's package doc.
 //
 // Everything here runs inside a read-only transaction, so writes are refused by
 // Postgres itself (SQLSTATE 25006) rather than by our own inspection of the
@@ -62,10 +64,12 @@ func (s *AdHocStore) WithStatementTimeout(ms int) *AdHocStore {
 }
 
 // Count runs a rewritten count query and returns its single numeric result.
-// rewritten must already have come from livisql.Guard.Rewrite, which is what
-// binds orgID to $1.
-func (s *AdHocStore) Count(ctx context.Context, orgID int64, rewritten string) (int64, error) {
-	rs, err := s.Query(ctx, orgID, rewritten, 2)
+// rewritten must already have come from livisql.Guard.Rewrite - the guard
+// checks the query's shape (including that it filters by org_id) but does
+// not bind or verify the value, so the org scoping is only as good as what
+// the model actually wrote. See internal/livisql's package doc.
+func (s *AdHocStore) Count(ctx context.Context, rewritten string) (int64, error) {
+	rs, err := s.Query(ctx, rewritten, 2)
 	if err != nil {
 		return 0, err
 	}
@@ -86,7 +90,7 @@ func (s *AdHocStore) Count(ctx context.Context, orgID int64, rewritten string) (
 // row beyond the limit purely to set Truncated, so the caller can tell "exactly
 // at the limit" apart from "more than the limit" — the difference between a
 // complete chart and a misleading one.
-func (s *AdHocStore) Query(ctx context.Context, orgID int64, rewritten string, maxRows int) (*ResultSet, error) {
+func (s *AdHocStore) Query(ctx context.Context, rewritten string, maxRows int) (*ResultSet, error) {
 	if maxRows <= 0 {
 		return nil, errors.New("maxRows must be positive")
 	}
@@ -103,19 +107,19 @@ func (s *AdHocStore) Query(ctx context.Context, orgID int64, rewritten string, m
 	for _, stmt := range []string{
 		fmt.Sprintf("SET LOCAL statement_timeout = %d", s.statementTimeoutMS),
 		fmt.Sprintf("SET LOCAL idle_in_transaction_session_timeout = %d", idleInTxTimeoutMS),
-		// An empty search_path means any unqualified relation that is not one of
-		// the guard's shadow CTEs fails to resolve at all, instead of quietly
-		// binding to the real table. The shadow bodies are public-qualified, so
-		// they are unaffected. pg_catalog stays implicitly searchable, so
-		// operators and builtins still work.
-		"SET LOCAL search_path = ''",
+		// search_path is 'public' (not empty) because there are no more shadow
+		// CTEs for an unqualified name to resolve through - the guard's
+		// CodeCrossSchema check is what keeps a query inside the public schema
+		// instead. pg_catalog stays implicitly searchable, so operators and
+		// builtins still work.
+		"SET LOCAL search_path = 'public'",
 	} {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
 			return nil, fmt.Errorf("apply session guard %q: %w", stmt, err)
 		}
 	}
 
-	rows, err := tx.QueryContext(ctx, rewritten, orgID)
+	rows, err := tx.QueryContext(ctx, rewritten)
 	if err != nil {
 		return nil, fmt.Errorf("execute analytics query: %w", err)
 	}

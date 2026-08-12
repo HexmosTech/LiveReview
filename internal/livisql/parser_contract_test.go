@@ -83,23 +83,3 @@ func TestParserExposesRejectableShapes(t *testing.T) {
 	}
 	t.Log("UPDATE correctly not a SelectStmt")
 }
-
-// Contract: the whole security model rests on a prepended CTE shadowing the real
-// table name. Confirm the parser round-trips that rewrite.
-func TestParserRoundTripsShadowRewrite(t *testing.T) {
-	llm := `SELECT date_trunc('month', created_at) AS month, count(*) AS n FROM reviews WHERE org_id = 1 OR 1=1 GROUP BY 1`
-	shadowed := `WITH reviews AS NOT MATERIALIZED (SELECT id, created_at, status, author_username, org_id FROM public.reviews WHERE org_id = $1) ` + llm
-
-	tree, err := pgquery.Parse(shadowed)
-	if err != nil {
-		t.Fatalf("shadowed query failed to parse: %v", err)
-	}
-	out, err := pgquery.Deparse(tree)
-	if err != nil {
-		t.Fatalf("deparse failed: %v", err)
-	}
-	t.Logf("rewritten: %s", out)
-	if !strings.Contains(out, "$1") {
-		t.Fatal("placeholder lost in deparse")
-	}
-}

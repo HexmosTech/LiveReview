@@ -8,7 +8,7 @@ nothing else:
 {"analytics_plan": [
   {"id": "r1",
    "question": "Reviews completed per month",
-   "count_sql": "SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS month FROM reviews WHERE status = 'completed' GROUP BY 1) t"}
+   "count_sql": "SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS month FROM reviews WHERE status = 'completed' AND org_id = 42 GROUP BY 1) t"}
 ]}
 ```
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -23,20 +24,16 @@ func testDB(t *testing.T) *sql.DB {
 	return db
 }
 
-// testOrgScopedColumns stands in for the live dbctx-sourced map
-// mcpagent.orgScopedColumns normally supplies to livisql.CatalogFor - just
-// enough columns for the queries this file's tests exercise. users is not
-// listed: it is one of CatalogFor's two hand-written specials (no org_id
-// column at all), always present regardless of this map.
-func testOrgScopedColumns() map[string][]string {
-	return map[string][]string{
-		"reviews": {"id", "org_id", "created_at", "completed_at", "status"},
-	}
+// testTables stands in for the live dbctx-sourced table list
+// mcpagent.allTableNames normally supplies to livisql.CatalogFor - just
+// enough tables for the queries this file's tests exercise.
+func testTables() []string {
+	return []string{"reviews", "users"}
 }
 
-func rewrite(t *testing.T, sql string) string {
+func rewrite(t *testing.T, orgID int64, sql string) string {
 	t.Helper()
-	out, err := livisql.New(livisql.CatalogFor(testOrgScopedColumns())).Rewrite(sql)
+	out, err := livisql.New(livisql.CatalogFor(testTables()), orgID).Rewrite(sql)
 	if err != nil {
 		t.Fatalf("guard rejected a query the test expects to run: %v", err)
 	}
@@ -66,16 +63,35 @@ func orgsWithReviews(t *testing.T, db *sql.DB) (int64, int64) {
 	return ids[0], ids[1]
 }
 
-// The core guarantee: the same generated SQL, bound to two different orgs, must
-// never return the other org's rows — even when the query tries to widen its own
-// WHERE clause.
-func TestQueryIsolatesTenants(t *testing.T) {
+// There is no structural org-scoping anymore (see internal/livisql's package
+// doc): a query's org_id filter is whatever literal the model wrote, checked
+// by the guard only for presence and for the OR-1=1 tautology shape. This
+// test asserts what the guard DOES still catch, and separately proves an
+// honestly-scoped query returns only that literal org's rows - ordinary SQL
+// behavior, not something this package enforces.
+func TestGuardRejectsUnscopedAndTautologousQueries(t *testing.T) {
+	g := livisql.New(livisql.CatalogFor(testTables()), 1)
+
+	for _, attack := range []string{
+		`SELECT count(*) AS n FROM reviews`,
+		`SELECT count(*) AS n FROM reviews WHERE org_id = 1 OR 1=1`,
+		`SELECT count(*) AS n FROM reviews WHERE org_id = 1 OR TRUE`,
+	} {
+		if _, err := g.Rewrite(attack); err == nil {
+			t.Fatalf("expected %q to be rejected, it was accepted", attack)
+		}
+	}
+}
+
+// An honestly org-scoped query only returns that org's rows. This is
+// ordinary SQL, not a guarantee this package makes - see the test above and
+// internal/livisql's package doc for what actually still limits the model.
+func TestHonestlyScopedQueryReturnsOnlyThatOrg(t *testing.T) {
 	db := testDB(t)
 	store := NewAdHocStore(db)
 	ctx := context.Background()
 	orgA, orgB := orgsWithReviews(t, db)
 
-	// Ground truth straight from the table, bypassing the guard entirely.
 	truth := func(orgID int64) int64 {
 		var n int64
 		if err := db.QueryRow(`SELECT count(*) FROM reviews WHERE org_id = $1`, orgID).Scan(&n); err != nil {
@@ -84,36 +100,31 @@ func TestQueryIsolatesTenants(t *testing.T) {
 		return n
 	}
 
-	for _, attack := range []string{
-		`SELECT count(*) AS n FROM reviews`,
-		`SELECT count(*) AS n FROM reviews WHERE org_id = 1 OR 1=1`,
-		`SELECT count(*) AS n FROM reviews WHERE true`,
-	} {
-		q := rewrite(t, attack)
-		for _, orgID := range []int64{orgA, orgB} {
-			got, err := store.Count(ctx, orgID, q)
-			if err != nil {
-				t.Fatalf("count failed for org %d: %v", orgID, err)
-			}
-			if want := truth(orgID); got != want {
-				t.Fatalf("org %d: query %q returned %d, expected exactly that org's %d rows",
-					orgID, attack, got, want)
-			}
+	for _, orgID := range []int64{orgA, orgB} {
+		q := rewrite(t, orgID, fmt.Sprintf(`SELECT count(*) AS n FROM reviews WHERE org_id = %d`, orgID))
+		got, err := store.Count(ctx, q)
+		if err != nil {
+			t.Fatalf("count failed for org %d: %v", orgID, err)
+		}
+		if want := truth(orgID); got != want {
+			t.Fatalf("org %d: query returned %d, expected exactly that org's %d rows", orgID, got, want)
 		}
 	}
 }
 
-// Writes must fail at the database, not merely at the guard. The table is
-// schema-qualified on purpose: an unqualified name is stopped earlier by
-// search_path='', which would make this pass without exercising read-only at
-// all. Qualifying it isolates the layer under test.
+// Writes must fail at the database, not merely at the guard - the second
+// line of defence. This deliberately bypasses the guard (store.Query is
+// called directly with an INSERT), and is schema-qualified because that is
+// now a query the guard itself would also tolerate (search_path is
+// 'public', not empty - see adhoc_store.go) - qualifying it here just keeps
+// this test's SQL valid regardless of the guard's own opinion of it, since
+// the whole point is to bypass the guard entirely.
 func TestReadOnlyTransactionRefusesWrites(t *testing.T) {
 	db := testDB(t)
 	store := NewAdHocStore(db)
 
-	// Deliberately bypasses the guard: this asserts the second line of defence.
-	_, err := store.Query(context.Background(), 1,
-		`INSERT INTO public.reviews (repository, status, org_id) VALUES ('guard-test', 'created', $1)`, 10)
+	_, err := store.Query(context.Background(),
+		`INSERT INTO public.reviews (repository, status, org_id) VALUES ('guard-test', 'created', 999999999)`, 10)
 	if err == nil {
 		t.Fatal("an INSERT succeeded inside a read-only transaction")
 	}
@@ -122,35 +133,21 @@ func TestReadOnlyTransactionRefusesWrites(t *testing.T) {
 	}
 }
 
-// search_path='' means an unqualified relation that is not a shadow CTE cannot
-// resolve, so a query that slipped past the guard still cannot reach a table.
-func TestUnshadowedTableIsUnreachable(t *testing.T) {
-	db := testDB(t)
-	store := NewAdHocStore(db)
-
-	_, err := store.Query(context.Background(), 1, `SELECT count(*) AS n FROM api_keys`, 10)
-	if err == nil {
-		t.Fatal("reached a table with no shadow CTE")
-	}
-	if !strings.Contains(err.Error(), "does not exist") {
-		t.Fatalf("expected an unresolved relation error, got: %v", err)
-	}
-}
-
-// The users shadow must make credential columns unreachable at the database, not
-// just absent from the rewrite text.
-func TestUserSecretsUnreachable(t *testing.T) {
-	db := testDB(t)
-	store := NewAdHocStore(db)
-	orgA, _ := orgsWithReviews(t, db)
-
-	q := rewrite(t, `SELECT password_hash FROM users`)
-	_, err := store.Query(context.Background(), orgA, q, 10)
-	if err == nil {
-		t.Fatal("password_hash was readable through the users shadow")
-	}
-	if !strings.Contains(err.Error(), "does not exist") {
-		t.Fatalf("expected a missing-column error, got: %v", err)
+// The guard is the only thing keeping a credential column out of a result
+// now (there is no shadow projection to fall back on if it has a bug - see
+// internal/livisql's package doc). This asserts the guard itself refuses
+// the reference; it does not and cannot assert the column is unreachable at
+// the database if the guard were wrong, because nothing else stops it
+// anymore.
+func TestUserSecretColumnsRejectedByGuard(t *testing.T) {
+	g := livisql.New(livisql.CatalogFor(testTables()), 1)
+	for _, sql := range []string{
+		`SELECT password_hash FROM users WHERE org_id = 1`,
+		`SELECT * FROM users WHERE org_id = 1`,
+	} {
+		if _, err := g.Rewrite(sql); err == nil {
+			t.Fatalf("expected %q to be rejected, it was accepted", sql)
+		}
 	}
 }
 
@@ -161,15 +158,15 @@ func TestCoercionProducesMarshalableRows(t *testing.T) {
 	store := NewAdHocStore(db)
 	orgA, _ := orgsWithReviews(t, db)
 
-	q := rewrite(t, `
+	q := rewrite(t, orgA, fmt.Sprintf(`
 		SELECT date_trunc('month', created_at) AS bucket,
 		       count(*) AS n,
 		       avg(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completion_rate,
 		       max(completed_at) AS last_completed,
 		       bool_or(status = 'failed') AS any_failed
-		FROM reviews GROUP BY 1 ORDER BY 1`)
+		FROM reviews WHERE org_id = %d GROUP BY 1 ORDER BY 1`, orgA))
 
-	rs, err := store.Query(context.Background(), orgA, q, 500)
+	rs, err := store.Query(context.Background(), q, 500)
 	if err != nil {
 		// bool_or is not in the function allowlist by design; if the guard
 		// refused it the rewrite above would have failed, so a failure here is
@@ -201,9 +198,9 @@ func TestTruncationIsDetected(t *testing.T) {
 	store := NewAdHocStore(db)
 	orgA, _ := orgsWithReviews(t, db)
 
-	q := rewrite(t, `SELECT id FROM reviews ORDER BY id`)
+	q := rewrite(t, orgA, fmt.Sprintf(`SELECT id FROM reviews WHERE org_id = %d ORDER BY id`, orgA))
 
-	rs, err := store.Query(context.Background(), orgA, q, 2)
+	rs, err := store.Query(context.Background(), q, 2)
 	if err != nil {
 		t.Fatalf("query failed: %v", err)
 	}
@@ -225,8 +222,8 @@ func TestDuplicateColumnsRejected(t *testing.T) {
 	store := NewAdHocStore(db)
 	orgA, _ := orgsWithReviews(t, db)
 
-	q := rewrite(t, `SELECT count(*) AS n, count(*) AS n FROM reviews`)
-	if _, err := store.Query(context.Background(), orgA, q, 10); err == nil {
+	q := rewrite(t, orgA, fmt.Sprintf(`SELECT count(*) AS n, count(*) AS n FROM reviews WHERE org_id = %d`, orgA))
+	if _, err := store.Query(context.Background(), q, 10); err == nil {
 		t.Fatal("duplicate output columns were accepted")
 	}
 }

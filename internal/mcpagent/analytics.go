@@ -45,8 +45,8 @@ const (
 // AnalyticsEngine executes guard-rewritten SQL. Declared here rather than
 // imported as a concrete type so the orchestration can be tested with a fake.
 type AnalyticsEngine interface {
-	Count(ctx context.Context, orgID int64, rewritten string) (int64, error)
-	Query(ctx context.Context, orgID int64, rewritten string, maxRows int) (*storageanalytics.ResultSet, error)
+	Count(ctx context.Context, rewritten string) (int64, error)
+	Query(ctx context.Context, rewritten string, maxRows int) (*storageanalytics.ResultSet, error)
 }
 
 // WithAnalytics enables the SQL analytics path. With a nil engine, or a session
@@ -71,8 +71,8 @@ func (a *Agent) WithAnalytics(engine AnalyticsEngine) *Agent {
 	a.actionPrompt = buildSystemPrompt(tools, orgName, userName)
 	a.chatPrompt = buildPromptHeader(orgName, userName) + "\n\n" + chatOnlyInstructions
 	a.classifyPrompt = buildClassifyPrompt(tools)
-	a.countQueryHead, a.countQueryTail = buildCountQueryPromptHalves(orgName, userName)
-	a.finalizeHead, a.finalizeTail = buildFinalizePromptHalves(orgName, userName)
+	a.countQueryHead, a.countQueryTail = buildCountQueryPromptHalves(orgName, userName, a.mcpSession.OrgID)
+	a.finalizeHead, a.finalizeTail = buildFinalizePromptHalves(orgName, userName, a.mcpSession.OrgID)
 
 	// Kept in sync for any caller still reading systemPrompt/providerTools
 	// directly (there is none in this codebase today, but they remain
@@ -138,7 +138,7 @@ func (a *Agent) analyticsRole() livisql.Role {
 
 // guard builds the SQL guard for this session's org.
 func (a *Agent) guard() *livisql.Guard {
-	return livisql.New(livisql.CatalogFor(orgScopedColumns()))
+	return livisql.New(livisql.CatalogFor(allTableNames()), a.mcpSession.OrgID)
 }
 
 // finishedReport is one completed entry of a multi-report answer.
@@ -252,7 +252,7 @@ func (a *Agent) runCountPhase(ctx context.Context, entry PlanEntry, clog *loggin
 		clog.SQLRewritten(entry.ID, "count", attempt, rewritten)
 
 		start := time.Now()
-		count, err := a.analytics.Count(ctx, a.mcpSession.OrgID, rewritten)
+		count, err := a.analytics.Count(ctx, rewritten)
 		if err != nil {
 			clog.SQLError(entry.ID, "count", attempt, time.Since(start), err)
 			if attempt == maxSQLAttempts {
@@ -346,7 +346,7 @@ func (a *Agent) materializeReport(
 		clog.SQLRewritten(entry.ID, "data", attempt, rewritten)
 
 		start := time.Now()
-		rs, err := a.analytics.Query(ctx, a.mcpSession.OrgID, rewritten, maxRows)
+		rs, err := a.analytics.Query(ctx, rewritten, maxRows)
 		if err != nil {
 			clog.SQLError(entry.ID, "data", attempt, time.Since(start), err)
 			if attempt == maxSQLAttempts {
@@ -525,8 +525,12 @@ func (a *Agent) noDataText(ctx context.Context, entry PlanEntry, userText string
 // number of the phase being repaired: 2 for a count-phase statement, 3 for a
 // data-phase one - repair itself is not a distinct box in the diagram.
 func (a *Agent) repairSQL(ctx context.Context, call int, reportID string, failedAttempt int, question, badSQL, hint string, clog *logging.ChatTurnLogger) (string, error) {
+	// This is a fresh, isolated exchange (see completeOnce's doc comment) - it
+	// never sees the count/finalize prompt's org context header, so the
+	// org_id value has to be repeated here too, or a missing-org-filter
+	// rejection could never actually be fixed.
 	raw, err := a.completeOnce(ctx, clog, call, "repair", reportID, failedAttempt,
-		analyticsRepairInstructions,
+		analyticsRepairInstructions+orgIDFilterInstruction(a.mcpSession.OrgID),
 		fmt.Sprintf("Question: %s\n\nThis query was rejected:\n%s\n\nReason: %s\n\nReturn only the corrected SQL.", question, badSQL, hint))
 	if err != nil {
 		return "", err

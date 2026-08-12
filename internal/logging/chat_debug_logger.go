@@ -251,8 +251,8 @@ func (l *ChatTurnLogger) ReportFinalized(reportID, responseType, title string, r
 }
 
 // collapseSQL folds a multi-line statement onto one line so the log stays
-// greppable - a rewritten query carries a dozen shadow CTEs and would
-// otherwise swamp the file it shares with every other session.
+// greppable - a multi-line query would otherwise swamp the file it shares
+// with every other session.
 func collapseSQL(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }

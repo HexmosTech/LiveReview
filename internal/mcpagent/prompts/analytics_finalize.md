@@ -10,7 +10,7 @@ For a chart:
  "title": "Reviews Completed by Month",
  "description": "Short lines with the specific numbers.",
  "query": "review completions across the organization, by month",
- "data_sql": "SELECT date_trunc('month', completed_at) AS month, count(*) AS review_count FROM reviews WHERE status = 'completed' GROUP BY 1 ORDER BY 1",
+ "data_sql": "SELECT date_trunc('month', completed_at) AS month, count(*) AS review_count FROM reviews WHERE status = 'completed' AND org_id = 42 GROUP BY 1 ORDER BY 1",
  "mark": "bar",
  "encoding": {"x": {"field": "month", "type": "temporal", "timeUnit": "yearmonth", "title": "Month"},
               "y": {"field": "review_count", "type": "quantitative", "title": "Reviews Completed"}}}
