@@ -16,6 +16,8 @@ export interface DataTableEmptyState {
   title: string;
   description?: string;
   action?: ReactNode;
+  /** Hide the default empty-state graphic, e.g. when a heading above already conveys "empty". */
+  hideIcon?: boolean;
 }
 
 export interface DataTableProps<T> {

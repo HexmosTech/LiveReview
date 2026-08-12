@@ -91,7 +91,7 @@ export function ClientTable<TData>({
   if (isEmpty) {
     return (
       <div className="text-center py-16">
-        <Icons.EmptyState />
+        {!empty.hideIcon && <Icons.EmptyState />}
         <h3 className="text-xl font-medium text-slate-300 mt-4">{empty.title}</h3>
         {empty.description && <p className="text-slate-400 mt-2 mb-6">{empty.description}</p>}
         {empty.action}

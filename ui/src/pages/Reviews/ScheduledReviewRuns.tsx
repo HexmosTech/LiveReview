@@ -365,7 +365,9 @@ const ScheduledReviewRuns: React.FC = () => {
         />
       )}
 
-      <h2 className="text-xl font-semibold text-white mb-3">Run History ({total})</h2>
+      {!(total === 0 && columnFilters.length === 0) && (
+        <h2 className="text-xl font-semibold text-white mb-3">Run History ({total})</h2>
+      )}
 
       <ClientTable
         table={table}
@@ -378,6 +380,7 @@ const ScheduledReviewRuns: React.FC = () => {
         empty={{
           title: 'No runs yet',
           description: 'This repo has no scheduled-review run history. Runs are recorded starting from when scheduling was enabled.',
+          hideIcon: true,
         }}
         pageSizeOptions={pageSizeOptions}
         manualTotal={total}
