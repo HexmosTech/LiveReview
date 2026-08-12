@@ -10,7 +10,7 @@ tmp_dir = "tmp"
 # Build with debug symbols enabled for delve debugger.
 # OpenAPI spec generation is opt-in via SKIP_TYPED_GEN: "0" regenerates
 # docs/openapi.yaml on each rebuild; "1" or unset skips it (default off).
-cmd = "if [ \"${SKIP_TYPED_GEN}\" = \"0\" ]; then make generate-openapi; fi && CGO_ENABLED=0 env -u GOROOT go build -gcflags='all=-N -l' -o ./tmp/livereview ."
+cmd = "if [ \"${SKIP_TYPED_GEN}\" = \"0\" ]; then make generate-openapi; fi && CGO_ENABLED=1 env -u GOROOT go build -gcflags='all=-N -l' -o ./tmp/livereview ."
 # Binary file yields from `cmd`.
 bin = "tmp/livereview"
 # Customize binary - run through delve for debugging

@@ -548,6 +548,12 @@ niceurl:
 		echo "autossh is not installed. Install it with: sudo apt install autossh"; \
 		exit 1; \
 	}
+	@PIDS="$$(lsof -tiTCP:20000 -sTCP:LISTEN 2>/dev/null || true) $$(pgrep -f '^/usr/lib/autossh/autossh -M 20000 ' || true)"; \
+	PIDS="$$(printf '%s\n' $$PIDS | tr ' ' '\n' | awk 'NF' | sort -u | tr '\n' ' ')"; \
+	if [ -n "$$PIDS" ]; then \
+		echo "Stopping existing local autossh/ssh for niceurl: $$PIDS"; \
+		kill -9 $$PIDS || true; \
+	fi
 	@ssh root@master "PID=\$$( netstat -tulpn | grep :6543 | awk '{print \$$7}' | cut -d/ -f1 | head -n 1); [ -n \"\$$PID\" ] && kill -9 \$$PID || true" || true
 	@echo "Starting autossh reverse tunnel on remote port 6543 -> localhost:8081"
 	@AUTOSSH_GATETIME=0 AUTOSSH_POLL=60 AUTOSSH_FIRST_POLL=30 AUTOSSH_LOGLEVEL=6 autossh -M 20000 \
@@ -586,6 +592,12 @@ niceurl3:
 		echo "autossh is not installed. Install it with: sudo apt install autossh"; \
 		exit 1; \
 	}
+	@PIDS="$$(lsof -tiTCP:20002 -sTCP:LISTEN 2>/dev/null || true) $$(pgrep -f '^/usr/lib/autossh/autossh -M 20002 ' || true)"; \
+	PIDS="$$(printf '%s\n' $$PIDS | tr ' ' '\n' | awk 'NF' | sort -u | tr '\n' ' ')"; \
+	if [ -n "$$PIDS" ]; then \
+		echo "Stopping existing local autossh/ssh for niceurl3: $$PIDS"; \
+		kill -9 $$PIDS || true; \
+	fi
 	@ssh root@master "PID=\$$( netstat -tulpn | grep :6545 | awk '{print \$$7}' | cut -d/ -f1 | head -n 1); [ -n \"\$$PID\" ] && kill -9 \$$PID || true" || true
 	@echo "Starting autossh reverse tunnel on remote port 6545 -> localhost:8081"
 	@AUTOSSH_GATETIME=0 AUTOSSH_POLL=60 AUTOSSH_FIRST_POLL=30 AUTOSSH_LOGLEVEL=6 autossh -M 20002 \

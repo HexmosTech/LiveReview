@@ -8,6 +8,12 @@ spelled out here instead:
   A question about work that actually finished means `status = 'completed'`.
 - `pull_requests.state` is one of `open`, `closed`, `merged`.
 - `review_feedback.vote_type` is one of `up`, `down`.
+- `loc_usage_ledger.operation_type` is `diff_review` - the only value this
+  column ever takes today. Never filter it to `'review'`; that value does
+  not exist and silently produces zero rows.
+- `loc_usage_ledger.status` is one of `accounted`, `ignored` (a database
+  constraint, not just observed data). `actor_kind` is one of `member`,
+  `system`, `unknown`.
 - `author_username` / `author_name` (on `reviews` and `pull_requests`) identify
   the person the review or PR belongs to. "Top reviewers", "reviews per
   engineer" and "who reviewed most" all group by `author_username`.

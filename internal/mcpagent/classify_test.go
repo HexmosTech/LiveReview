@@ -291,6 +291,34 @@ func TestChatBranchRejectsFabricatedJSON(t *testing.T) {
 	}
 }
 
+// A response cut off mid-JSON (observed in production: Gemini's reasoning
+// ate into its output budget, tokens_out in the tens for a call that should
+// have been hundreds) must not reach the user as raw text either - same as
+// the fabricated-JSON case above, but the earlier version of
+// looksLikeUnrecognizedJSON required the response to end with "}", which a
+// truncated object never does, so it slipped through both parseAnalyticsPlan
+// (correctly rejects invalid JSON) and the safety net.
+func TestCountQueryBranchRejectsTruncatedJSON(t *testing.T) {
+	prov := &recordingProvider{replies: []string{
+		`{"shape":"count_query"}`,
+		// Truncated mid-object: no closing quote, no closing brackets.
+		`{"analytics_plan": [{"id": "r1", "question": "q", "count_sql": "SELECT count(*) FROM reviews`,
+		"I could not work out a full query for that - try rephrasing it.",
+	}}
+	agent := dispatchTestAgent(prov)
+
+	text, _, _, err := agent.RunTurnWithArtifacts(context.Background(), nil, "what's our billing status?", "s1", "test")
+	if err != nil {
+		t.Fatalf("expected the turn to recover, not error: %v", err)
+	}
+	if text != "I could not work out a full query for that - try rephrasing it." {
+		t.Fatalf("truncated JSON reached the user instead of triggering a retry: %q", text)
+	}
+	if len(prov.toolsPerCall) != 3 {
+		t.Fatalf("expected classify + rejected reply + retry = 3 calls, got %d", len(prov.toolsPerCall))
+	}
+}
+
 func TestDispatchClassifyFailureDegradesToChat(t *testing.T) {
 	prov := &recordingProvider{replies: []string{
 		"I'm not sure what you mean, could you clarify?", // classify call: not the {"shape": ...} JSON it was told to return

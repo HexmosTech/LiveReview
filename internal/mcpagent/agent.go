@@ -464,14 +464,19 @@ func isAuthError(content string) bool {
 }
 
 // looksLikeUnrecognizedJSON reports whether response, once any code fence is
-// stripped, is a single whole-message JSON object. A prose answer never
-// starts with `{` as its first character, so this only fires on a response
-// that was clearly attempting some structured shape - one this codebase's
-// parsers already had a chance to recognize (parseToolCalls,
-// parseAnalyticsPlan) and did not.
+// stripped, looks like an attempted JSON object - complete or not. A prose
+// answer never starts with `{` as its first character, so this only fires
+// on a response that was clearly attempting some structured shape - one
+// this codebase's parsers already had a chance to recognize (parseToolCalls,
+// parseAnalyticsPlan) and did not. Deliberately does NOT require the body to
+// end with `}`: a response cut off mid-object (observed - Gemini's reasoning
+// eating into its output budget, tokens_out in the tens for a call that
+// should have been hundreds) is exactly the case this exists to catch, and
+// requiring a closing brace let a truncated {"analytics_plan": [...] reach
+// the user as raw JSON text instead of triggering this retry.
 func looksLikeUnrecognizedJSON(response string) bool {
 	body := strings.TrimSpace(vlrender.ExtractJSONBlock(response))
-	return strings.HasPrefix(body, "{") && strings.HasSuffix(body, "}")
+	return strings.HasPrefix(body, "{")
 }
 
 func isExcuseResponse(response string) bool {

@@ -6,9 +6,9 @@ import { ThinkingOrb } from 'thinking-orbs';
 // of the wait - see PHASE_DELAY_MS below.
 const CAPTION_PAIRS: [string, string][] = [
   ['Solving', 'Working'],
-  ['Solving', 'Agent weaving'],
-  ['Agent weaving', 'Agent shaping'],
-  ['Agent breathing', 'Agent shaping'],
+  ['Solving', 'Livi weaving'],
+  ['Livi weaving', 'Livi shaping'],
+  ['Livi breathing', 'Livi shaping'],
 ];
 
 // thinking-orbs' nine states, keyed by the caption text that selects them.
@@ -16,9 +16,9 @@ const ORB_STATE: Record<string, 'working' | 'solving' | 'weaving' | 'shaping' | 
   Thinking: 'breathing',
   Solving: 'solving',
   Working: 'working',
-  'Agent weaving': 'weaving',
-  'Agent shaping': 'shaping',
-  'Agent breathing': 'breathing',
+  'Livi weaving': 'weaving',
+  'Livi shaping': 'shaping',
+  'Livi breathing': 'breathing',
 };
 
 const THINKING_PHASE_MS = 3000;

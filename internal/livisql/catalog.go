@@ -109,8 +109,6 @@ func AutoOrgScopedShadow(table string, columns []string) (shadow, bool) {
 // Catalog, not visible in the LLM prompt either. One list, one place.
 var deniedTables = map[string]bool{
 	"upgrade_requests":             true,
-	"quota_batch_settlements":      true,
-	"billing_notification_outbox":  true,
 	"webhook_registry":             true,
 	"integration_tokens":           true,
 	"org_slack_configs":            true,
@@ -126,9 +124,6 @@ var deniedTables = map[string]bool{
 	"upgrade_payment_attempts":     true,
 	"user_management_audit":        true,
 	"user_role_history":            true,
-	"org_billing_state":            true,
-	"subscriptions":                true,
-	"license_log":                  true,
 }
 
 // Catalog is the set of relations that may be referenced in a generated
