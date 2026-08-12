@@ -355,6 +355,38 @@ export interface SetScheduledReviewRequest {
   cron_expression: string;
 }
 
+export type ScheduledReviewRunOutcome = 'reviewed' | 'no_changes' | 'failed' | 'skipped_unsupported_provider' | 'quota_blocked';
+
+// One scheduler attempt for a repo's schedule - not every run produces a review (see outcome).
+export interface ScheduledReviewRun {
+  id: number;
+  review_id?: number;
+  outcome: ScheduledReviewRunOutcome;
+  branch?: string;
+  base_sha?: string;
+  head_sha?: string;
+  commit_count: number;
+  error_message?: string;
+  started_at: string;
+  completed_at?: string;
+}
+
+export interface ScheduledReviewRunsListResponse {
+  runs: ScheduledReviewRun[];
+  total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
+}
+
+export interface ScheduledReviewRunsFilters {
+  page?: number;
+  perPage?: number;
+  /** Comma-separated for multi-select. */
+  outcome?: string;
+  order?: 'asc' | 'desc';
+}
+
 export interface BlastRadiusReport {
   Project: string;
   GeneratedAt: string;

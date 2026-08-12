@@ -1216,6 +1216,7 @@ func (s *Server) setupRoutes() {
 	repositoriesGroup.POST("/:repoId/sync", s.TriggerRepositoryPRSync)
 	repositoriesGroup.GET("/:repoId/pull-requests", s.ListPullRequestsForRepo)
 	repositoriesGroup.GET("/:repoId/pull-requests/:prId", s.GetPullRequest)
+	repositoriesGroup.GET("/:repoId/scheduled-review-runs", s.GetScheduledReviewRuns)
 
 	// Unified, cross-repository PR/MR listing (same middleware chain)
 	pullRequestsGroup := v1.Group("/pull-requests")

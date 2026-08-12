@@ -2036,6 +2036,59 @@ ALTER SEQUENCE public.scheduled_review_configs_id_seq OWNED BY public.scheduled_
 
 
 --
+-- Name: scheduled_review_runs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.scheduled_review_runs (
+    id bigint NOT NULL,
+    config_id bigint NOT NULL,
+    review_id bigint,
+    outcome text NOT NULL,
+    branch text,
+    base_sha text,
+    head_sha text,
+    commit_count integer DEFAULT 0 NOT NULL,
+    error_message text,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    CONSTRAINT scheduled_review_runs_outcome_check CHECK ((outcome = ANY (ARRAY['reviewed'::text, 'no_changes'::text, 'failed'::text, 'skipped_unsupported_provider'::text, 'quota_blocked'::text])))
+);
+
+
+--
+-- Name: TABLE scheduled_review_runs; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.scheduled_review_runs IS 'One row per scheduler attempt (not per successful review) - lets the UI show "did it run, and what happened" even for cron ticks that found nothing to review. repository_id/org_id are deliberately not stored here - derive via config_id, same pattern as scheduled_review_configs itself not duplicating repositories.full_name/connector_id.';
+
+
+--
+-- Name: COLUMN scheduled_review_runs.review_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.scheduled_review_runs.review_id IS 'Set only when outcome = reviewed; the actual AI review record this run produced. Issue/severity counts live on the review itself, not duplicated here.';
+
+
+--
+-- Name: scheduled_review_runs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.scheduled_review_runs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: scheduled_review_runs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.scheduled_review_runs_id_seq OWNED BY public.scheduled_review_runs.id;
+
+
+--
 -- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2905,6 +2958,13 @@ ALTER TABLE ONLY public.scheduled_review_configs ALTER COLUMN id SET DEFAULT nex
 
 
 --
+-- Name: scheduled_review_runs id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scheduled_review_runs ALTER COLUMN id SET DEFAULT nextval('public.scheduled_review_runs_id_seq'::regclass);
+
+
+--
 -- Name: subscription_payments id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3442,6 +3502,14 @@ ALTER TABLE ONLY public.scheduled_review_configs
 
 ALTER TABLE ONLY public.scheduled_review_configs
     ADD CONSTRAINT scheduled_review_configs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: scheduled_review_runs scheduled_review_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scheduled_review_runs
+    ADD CONSTRAINT scheduled_review_runs_pkey PRIMARY KEY (id);
 
 
 --
@@ -4520,6 +4588,13 @@ CREATE INDEX idx_scheduled_review_configs_org_id ON public.scheduled_review_conf
 
 
 --
+-- Name: idx_scheduled_review_runs_config_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_scheduled_review_runs_config_id ON public.scheduled_review_runs USING btree (config_id, started_at DESC);
+
+
+--
 -- Name: idx_subscription_payments_captured; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5507,6 +5582,22 @@ ALTER TABLE ONLY public.scheduled_review_configs
 
 
 --
+-- Name: scheduled_review_runs scheduled_review_runs_config_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scheduled_review_runs
+    ADD CONSTRAINT scheduled_review_runs_config_id_fkey FOREIGN KEY (config_id) REFERENCES public.scheduled_review_configs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: scheduled_review_runs scheduled_review_runs_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scheduled_review_runs
+    ADD CONSTRAINT scheduled_review_runs_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id) ON DELETE SET NULL;
+
+
+--
 -- Name: subscription_payments subscription_payments_subscription_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5877,5 +5968,7 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260803154217'),
     ('20260808000000'),
     ('20260808120000'),
-    ('20260809150000');
+    ('20260809120000'),
+    ('20260809150000'),
+    ('20260811120000');
     ('20260809120000');
