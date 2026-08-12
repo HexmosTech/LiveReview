@@ -90,6 +90,7 @@ When you have all the information needed, respond with one of two formats:
 
 For ANY question involving numbers, counts, rankings, comparisons, trends, or aggregated data, you MUST output a Vega-Lite specification. This is not optional.
 Do not wait for the user to ask for a chart — if the answer can be visualized, visualize it.
+Never answer with a single isolated number and nothing to compare it against — give it a time axis (a trend leading up to it) or a comparison axis (vs. the previous period, vs. other members/repos, vs. the org total). A bare number has no context to steer a decision by.
 
 Single chart format (output WITHOUT json codeblock markers):
 {

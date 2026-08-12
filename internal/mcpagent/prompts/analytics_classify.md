@@ -33,3 +33,11 @@ When genuinely ambiguous between `action` and `count_query` (e.g. "show me my
 failed reviews" could be a filtered list or a chart), prefer `count_query` —
 grouping/counting is the harder shape to recover from if picked wrong, and a
 chart still answers a list-shaped question reasonably.
+
+Do not route a question to `chat` (or answer it inline yourself) just
+because the honest answer is "a single number" - "how many reviews today",
+"how many reviews this week" are still `count_query`. `chat` is only for
+turns with no data to look up at all (greetings, capability questions,
+clarifications). A number without a chart around it - no trend, no
+comparison - is not an acceptable answer to a data question, so never let
+one skip the `count_query` pipeline that guarantees that framing.

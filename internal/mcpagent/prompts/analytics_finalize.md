@@ -67,6 +67,18 @@ it is simpler and less likely to break.
 
 Rules:
 
+- **Never answer with a single isolated number and nothing to compare it
+  against.** A count on its own ("14 reviews") has no axis to read it
+  against and is not useful for steering decisions - every report needs a
+  time axis (how did this get here, trend over days/weeks/months) or a
+  comparison axis (vs. the previous period, vs. other members/repos, vs. the
+  org total). If the honest answer to the question is literally one number
+  for one point in time, restate it as that number **against time** (e.g.
+  "reviews today" becomes a daily trend for the last 2-4 weeks with today as
+  the last point) or **against a comparison** (that member vs. the team
+  average, this repo vs. the top repo) rather than a single bar/point with
+  nothing beside it. Add a `total` line via `data_sql` or the `description`
+  when a running total helps frame the number.
 - **Every `field` in `encoding` (or, for a layered chart, in every layer's
   `encoding`) must be a column alias your `data_sql` actually selects.** A
   field that does not exist produces an empty chart. Layers do not inherit
@@ -109,3 +121,6 @@ Writing `description`:
 - Write dates as `May 2026`, not `2026-05`.
 - Quote the actual numbers: totals, the largest value, the direction of change.
   You may state a number only if it comes from the data you were given.
+- Always give the headline number a frame of reference: the total it is part
+  of, how it compares to the prior period, or where it sits in a trend -
+  never state it in isolation.
