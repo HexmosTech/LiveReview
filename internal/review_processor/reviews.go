@@ -173,6 +173,15 @@ func (rm *ReviewManager) UpdateReviewStatus(reviewID int64, status string) error
 	return nil
 }
 
+// UpdateReviewConnector backfills connector_id once it's resolved - the raw-URL trigger flow creates the review row before the integration token/connector is known, so this fills it in afterward.
+func (rm *ReviewManager) UpdateReviewConnector(reviewID int64, connectorID int64) error {
+	_, err := rm.store.Exec(`UPDATE reviews SET connector_id = $1 WHERE id = $2`, connectorID, reviewID)
+	if err != nil {
+		return fmt.Errorf("failed to update review connector: %w", err)
+	}
+	return nil
+}
+
 // GetReview retrieves a review by ID
 func (rm *ReviewManager) GetReview(reviewID int64) (*Review, error) {
 	query := `

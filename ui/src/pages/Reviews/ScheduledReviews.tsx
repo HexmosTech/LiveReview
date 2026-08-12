@@ -25,7 +25,7 @@ import { Repository, RepositoriesFilters, RepositoriesSort } from '../../types/e
 const pageSizeOptions = [20, 50, 100];
 const DEFAULT_CRON = '0 9 * * *';
 const SEARCH_DEBOUNCE_MS = 300;
-const SCHEDULED_REVIEWS_COLUMN_WIDTHS = ['4%', '26%', '9%', '8%', '8%', '11%', '10%', '20%', '4%'];
+const SCHEDULED_REVIEWS_COLUMN_WIDTHS = ['4%', '23%', '9%', '8%', '8%', '10%', '10%', '24%', '4%'];
 
 // Same normalization as Explore > Repositories - real provider values are compound strings like "github-com".
 const normalizeProvider = (provider: string): string => {

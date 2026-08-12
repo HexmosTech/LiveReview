@@ -266,7 +266,7 @@ const ScheduledReviewRuns: React.FC = () => {
                 href={`${githubBaseUrl}/compare/${r.base_sha}...${r.head_sha}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-slate-300 hover:text-blue-300 text-sm font-mono"
+                className="inline-flex items-center gap-1.5 text-white hover:text-blue-300 text-sm font-mono"
               >
                 <SiGithub className="w-4 h-4 shrink-0" />
                 {label}
@@ -274,14 +274,14 @@ const ScheduledReviewRuns: React.FC = () => {
             </div>
           );
         }
-        return <div className="text-center text-slate-300 text-sm font-mono">{label}</div>;
+        return <div className="text-center text-white text-sm font-mono">{label}</div>;
       },
     },
     {
       id: 'duration',
       enableSorting: false,
       header: () => <div className="text-center font-semibold text-slate-300 uppercase tracking-wide text-xs">Duration</div>,
-      cell: ({ row }) => <div className="text-center text-slate-300 text-sm">{formatDuration(row.original.started_at, row.original.completed_at)}</div>,
+      cell: ({ row }) => <div className="text-center text-white text-sm">{formatDuration(row.original.started_at, row.original.completed_at)}</div>,
     },
     {
       id: 'actions',
@@ -294,7 +294,13 @@ const ScheduledReviewRuns: React.FC = () => {
         }
         return (
           <div className="flex justify-center">
-            <Button as={Link} to={`/reviews/${r.review_id}`} variant="outline" size="sm" className="whitespace-nowrap">
+            <Button
+              as={Link}
+              to={`/reviews/${r.review_id}`}
+              variant="outline"
+              size="sm"
+              className="border-slate-400 text-white hover:bg-white/10 hover:border-white whitespace-nowrap"
+            >
               View Review
             </Button>
           </div>

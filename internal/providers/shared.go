@@ -40,6 +40,8 @@ type MergeRequestDetails struct {
 	WebURL         string
 	ProviderType   string
 	RepositoryURL  string
+	// Commits is every individual commit SHA on this PR/MR, oldest first - populated only by providers that support fetching it (GitHub so far); empty for the rest, who fall back to DiffRefs' head/base pair.
+	Commits []string
 }
 
 // DiffRefs contains references to the diff endpoints

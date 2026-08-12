@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -219,17 +220,44 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	liveFetch := false
 	preloaded, err := decodePreloadedChanges(meta)
 	if err != nil {
-		// Scheduled reviews never persist the diff, so fetch it live from the provider instead.
-		live, ok, liveErr := s.fetchLiveDiffFromMetadata(c.Request().Context(), meta)
-		if liveErr != nil {
-			log.Printf("[WARN] live diff fetch failed for review %d: %v", reviewID, liveErr)
-			preloaded = nil
-		} else if ok {
-			preloaded = live
-			liveFetch = true
-		} else {
-			log.Printf("[WARN] preloaded_changes unavailable for review %d, serving without code context: %v", reviewID, err)
-			preloaded = nil
+		preloaded = nil
+		// decodePreloadedChanges only ever succeeds for cli_diff (the only trigger type that persists the diff) - every other trigger type dispatches to its own live-fetch strategy by trigger_type, not by guessing from metadata shape.
+		switch reviewRecord.TriggerType {
+		case "scheduled":
+			live, ok, liveErr := s.fetchLiveDiffFromMetadata(c.Request().Context(), meta)
+			if liveErr != nil {
+				log.Printf("[WARN] live diff fetch failed for scheduled review %d: %v", reviewID, liveErr)
+			} else if ok {
+				preloaded = live
+				liveFetch = true
+			}
+		case "cli_diff":
+			log.Printf("[WARN] preloaded_changes unavailable for CLI review %d: %v", reviewID, err)
+		default:
+			// manual, webhook, api, mcp, or any other trigger reviewing a real PR/MR.
+			connectorID := reviewRecord.ConnectorID
+			if connectorID == nil && reviewRecord.PrMrURL != "" {
+				// Pre-backfill reviews have connector_id unset - resolve it the same way prepareAuthentication does, and persist it so this only runs once per review.
+				if _, baseURL, parseErr := validateAndParseURL(reviewRecord.PrMrURL); parseErr == nil {
+					if token, tokenErr := s.findIntegrationToken(baseURL, orgID); tokenErr == nil {
+						connectorID = &token.ID
+						if updErr := rm.UpdateReviewConnector(reviewRecord.ID, token.ID); updErr != nil {
+							log.Printf("[WARN] Failed to backfill connector_id for review %d: %v", reviewID, updErr)
+						}
+					}
+				}
+			}
+			if connectorID != nil && reviewRecord.PrMrURL != "" {
+				prLive, prErr := s.fetchLiveDiffFromPR(c.Request().Context(), *connectorID, reviewRecord.PrMrURL)
+				if prErr != nil {
+					log.Printf("[WARN] live PR diff fetch failed for review %d: %v", reviewID, prErr)
+				} else {
+					preloaded = prLive
+					liveFetch = true
+				}
+			} else {
+				log.Printf("[WARN] preloaded_changes unavailable for review %d (trigger_type=%s): %v", reviewID, reviewRecord.TriggerType, err)
+			}
 		}
 	}
 
@@ -516,6 +544,42 @@ func (s *Server) fetchLiveDiffFromMetadata(ctx context.Context, meta map[string]
 		}
 	}
 	return out, true, nil
+}
+
+// fetchLiveDiffFromPR re-fetches a diff for a manual/webhook PR/MR review using the review's own connector_id/pr_mr_url columns (these reviews never persist the diff, see internal/review_processor/manual.go), the same GetMergeRequestChanges call that produced the diff in the first place.
+func (s *Server) fetchLiveDiffFromPR(ctx context.Context, connectorID int64, prMrURL string) ([]models.CodeDiff, error) {
+	var provider, patToken string
+	err := s.db.QueryRowContext(ctx, `SELECT provider, pat_token FROM integration_tokens WHERE id = $1`, connectorID).Scan(&provider, &patToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load integration token %d: %w", connectorID, err)
+	}
+	if !strings.HasPrefix(provider, "github") {
+		return nil, fmt.Errorf("live diff fetch not supported for provider %q", provider)
+	}
+
+	u, err := url.Parse(prMrURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid PR URL %q: %w", prMrURL, err)
+	}
+	parts := strings.Split(u.Path, "/")
+	if len(parts) < 5 || parts[3] != "pull" {
+		return nil, fmt.Errorf("invalid GitHub PR URL %q: expected /owner/repo/pull/number", prMrURL)
+	}
+	prID := parts[1] + "/" + parts[2] + "/" + parts[4]
+
+	ghProvider := githubprovider.NewGitHubProvider(patToken)
+	diffs, err := ghProvider.GetMergeRequestChanges(ctx, prID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch PR diff: %w", err)
+	}
+
+	out := make([]models.CodeDiff, 0, len(diffs))
+	for _, d := range diffs {
+		if d != nil {
+			out = append(out, *d)
+		}
+	}
+	return out, nil
 }
 
 func decodePreloadedChanges(meta map[string]interface{}) ([]models.CodeDiff, error) {

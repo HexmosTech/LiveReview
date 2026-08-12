@@ -380,6 +380,13 @@ func (s *Server) prepareAuthentication(ctx *reviewSetupContext) error {
 		ctx.logger.Log("✓ Integration token found - Provider: %s", token.Provider)
 	}
 
+	// setupReviewContext creates the review row before the connector is known - backfill it now, best-effort.
+	if ctx.review != nil {
+		if err := NewReviewManager(s.db).UpdateReviewConnector(ctx.review.ID, token.ID); err != nil {
+			log.Printf("[WARN] Failed to backfill connector_id for review %d: %v", ctx.review.ID, err)
+		}
+	}
+
 	// Validate that the provider is supported
 	if ctx.logger != nil {
 		ctx.logger.Log("Validating provider: %s", token.Provider)
@@ -551,16 +558,23 @@ func (s *Server) enrichMetadata(ctx *reviewSetupContext) {
 
 	rm := NewReviewManager(s.db)
 
-	// Persist the PR/MR's head (and base) commit SHAs so a later
-	// review-coverage lookup can find this review by commit. This is the
-	// same DiffRefs data already fetched above for metadata enrichment,
-	// just also written to review_commits.
+	// Persist the PR/MR's commit SHAs so a later review-coverage lookup can find this review
+	// by commit. Providers that return the full commit list (GitHub so far) get every commit
+	// recorded; the rest fall back to just the head/base pair from DiffRefs.
 	var commitRefs []CommitRef
-	if sha := strings.TrimSpace(details.DiffRefs.HeadSHA); sha != "" {
-		commitRefs = append(commitRefs, CommitRef{Ref: sha, Type: "commit"})
-	}
-	if sha := strings.TrimSpace(details.DiffRefs.BaseSHA); sha != "" && sha != details.DiffRefs.HeadSHA {
-		commitRefs = append(commitRefs, CommitRef{Ref: sha, Type: "commit"})
+	if len(details.Commits) > 0 {
+		for _, sha := range details.Commits {
+			if sha = strings.TrimSpace(sha); sha != "" {
+				commitRefs = append(commitRefs, CommitRef{Ref: sha, Type: "commit"})
+			}
+		}
+	} else {
+		if sha := strings.TrimSpace(details.DiffRefs.HeadSHA); sha != "" {
+			commitRefs = append(commitRefs, CommitRef{Ref: sha, Type: "commit"})
+		}
+		if sha := strings.TrimSpace(details.DiffRefs.BaseSHA); sha != "" && sha != details.DiffRefs.HeadSHA {
+			commitRefs = append(commitRefs, CommitRef{Ref: sha, Type: "commit"})
+		}
 	}
 	if err := s.insertReviewCommits(metadataCtx, ctx.review.ID, ctx.orgID, commitRefs); err != nil {
 		log.Printf("[WARN] TriggerReviewV2: Failed to persist review_commits: %v", err)
