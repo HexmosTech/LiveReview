@@ -126,6 +126,34 @@ func (s *Server) findIntegrationToken(baseURL string, orgID int64) (*Integration
 	return token, nil
 }
 
+// loadIntegrationTokenByID loads an integration token by its primary key, for callers that already have a connector_id (e.g. reviews.connector_id) rather than a URL to match against.
+func (s *Server) loadIntegrationTokenByID(connectorID int64) (*IntegrationToken, error) {
+	sqlQuery := `
+		SELECT id, provider, access_token, refresh_token, expires_at, provider_app_id, client_secret, provider_url, token_type, pat_token, COALESCE(metadata, '{}'), org_id
+		FROM integration_tokens
+		WHERE id = $1
+	`
+	token := &IntegrationToken{}
+	var metadataJSON string
+	err := s.db.QueryRow(sqlQuery, connectorID).Scan(
+		&token.ID, &token.Provider, &token.AccessToken, &token.RefreshToken,
+		&token.ExpiresAt, &token.ClientID, &token.ClientSecret, &token.ProviderURL,
+		&token.TokenType, &token.PatToken, &metadataJSON, &token.OrgID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load integration token %d: %w", connectorID, err)
+	}
+
+	token.Metadata = make(map[string]interface{})
+	if metadataJSON != "" && metadataJSON != "{}" {
+		if err := json.Unmarshal([]byte(metadataJSON), &token.Metadata); err != nil {
+			log.Printf("[DEBUG] loadIntegrationTokenByID: Failed to parse metadata: %v", err)
+		}
+	}
+
+	return token, nil
+}
+
 // logAvailableTokens logs all available tokens in the database for debugging
 func (s *Server) logAvailableTokens() {
 	var count int
@@ -351,7 +379,24 @@ func (s *Server) buildReviewRequest(
 		return nil, fmt.Errorf("failed to get AI configuration from database: %w", err)
 	}
 
-	// Build provider configuration
+	providerConfig := buildProviderConfig(token, requestURL, accessToken)
+
+	// Create review request directly without config service
+	reviewRequest := &review.ReviewRequest{
+		URL:           requestURL,
+		ReviewID:      reviewID,
+		Provider:      providerConfig,
+		AI:            selection.Leader,
+		HelperAI:      selection.Helper,
+		HelperEnabled: selection.HelperEnabled,
+		HelperMode:    selection.HelperMode,
+	}
+
+	return reviewRequest, nil
+}
+
+// buildProviderConfig builds the review.ProviderConfig a provider factory needs to instantiate a provider, given the integration token and the target PR/MR URL. accessToken is the fallback token used for non-PAT integrations (e.g. OAuth).
+func buildProviderConfig(token *IntegrationToken, requestURL, accessToken string) review.ProviderConfig {
 	providerToken := accessToken
 	providerConfigMap := map[string]interface{}{}
 	if token.TokenType == "PAT" && token.PatToken != "" {
@@ -402,25 +447,12 @@ func (s *Server) buildReviewRequest(
 		}
 	}
 
-	providerConfig := review.ProviderConfig{
+	return review.ProviderConfig{
 		Type:   token.Provider,
 		URL:    token.ProviderURL,
 		Token:  providerToken,
 		Config: providerConfigMap,
 	}
-
-	// Create review request directly without config service
-	reviewRequest := &review.ReviewRequest{
-		URL:           requestURL,
-		ReviewID:      reviewID,
-		Provider:      providerConfig,
-		AI:            selection.Leader,
-		HelperAI:      selection.Helper,
-		HelperEnabled: selection.HelperEnabled,
-		HelperMode:    selection.HelperMode,
-	}
-
-	return reviewRequest, nil
 }
 
 // truncateString truncates a string to the specified length

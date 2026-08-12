@@ -74,6 +74,7 @@ func ProcessManualReview(
 			"review_result": map[string]interface{}{
 				"summary":  result.Summary,
 				"comments": result.Comments,
+				"quiz":     result.Quiz,
 			},
 		}); err != nil {
 			log.Printf("[WARN] failed to persist review_result for review %d: %v", reviewID, err)

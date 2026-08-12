@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +17,9 @@ import (
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/naming"
+	"github.com/livereview/internal/providers"
 	githubprovider "github.com/livereview/internal/providers/github"
+	reviewpkg "github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
 	"github.com/livereview/storage/archive"
 	"gocloud.dev/blob"
@@ -546,29 +547,26 @@ func (s *Server) fetchLiveDiffFromMetadata(ctx context.Context, meta map[string]
 	return out, true, nil
 }
 
-// fetchLiveDiffFromPR re-fetches a diff for a manual/webhook PR/MR review using the review's own connector_id/pr_mr_url columns (these reviews never persist the diff, see internal/review_processor/manual.go), the same GetMergeRequestChanges call that produced the diff in the first place.
+// fetchLiveDiffFromPR re-fetches a diff for a manual/webhook PR/MR review using the review's own connector_id/pr_mr_url columns (these reviews never persist the diff, see internal/review_processor/manual.go), going through the same provider factory the original review used so any provider (GitHub, GitLab, Bitbucket, ...) works, not just GitHub.
 func (s *Server) fetchLiveDiffFromPR(ctx context.Context, connectorID int64, prMrURL string) ([]models.CodeDiff, error) {
-	var provider, patToken string
-	err := s.db.QueryRowContext(ctx, `SELECT provider, pat_token FROM integration_tokens WHERE id = $1`, connectorID).Scan(&provider, &patToken)
+	token, err := s.loadIntegrationTokenByID(connectorID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load integration token %d: %w", connectorID, err)
-	}
-	if !strings.HasPrefix(provider, "github") {
-		return nil, fmt.Errorf("live diff fetch not supported for provider %q", provider)
+		return nil, err
 	}
 
-	u, err := url.Parse(prMrURL)
+	providerConfig := buildProviderConfig(token, prMrURL, token.AccessToken)
+	providerInstance, err := reviewpkg.NewStandardProviderFactory().CreateProvider(ctx, providerConfig)
 	if err != nil {
-		return nil, fmt.Errorf("invalid PR URL %q: %w", prMrURL, err)
+		return nil, fmt.Errorf("failed to create provider (type=%s): %w", token.Provider, err)
 	}
-	parts := strings.Split(u.Path, "/")
-	if len(parts) < 5 || parts[3] != "pull" {
-		return nil, fmt.Errorf("invalid GitHub PR URL %q: expected /owner/repo/pull/number", prMrURL)
-	}
-	prID := parts[1] + "/" + parts[2] + "/" + parts[4]
 
-	ghProvider := githubprovider.NewGitHubProvider(patToken)
-	diffs, err := ghProvider.GetMergeRequestChanges(ctx, prID)
+	details, err := providerInstance.GetMergeRequestDetails(ctx, prMrURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch MR details: %w", err)
+	}
+
+	prID := providers.ResolveMRID(details)
+	diffs, err := providerInstance.GetMergeRequestChanges(ctx, prID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR diff: %w", err)
 	}
