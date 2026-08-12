@@ -208,17 +208,6 @@ const Chatbot: React.FC = () => {
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [showAISetup, setShowAISetup] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [inputAttention, setInputAttention] = useState(false);
-
-  const fillFromExample = useCallback((text: string) => {
-    setInput(text);
-    inputRef.current?.focus();
-    // Retrigger the CSS animation even if it's already mid-run from a
-    // previous click by bouncing the class off and back on.
-    setInputAttention(false);
-    requestAnimationFrame(() => setInputAttention(true));
-  }, []);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -227,12 +216,6 @@ const Chatbot: React.FC = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
-
-  useEffect(() => {
-    if (!inputAttention) return;
-    const t = setTimeout(() => setInputAttention(false), 2000);
-    return () => clearTimeout(t);
-  }, [inputAttention]);
 
   const handleSend = async () => {
     const text = input.trim();
@@ -307,15 +290,6 @@ const Chatbot: React.FC = () => {
     previewViewRef.current = null;
   }, []);
 
-  useEffect(() => {
-    if (!preview) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closePreview();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [preview, closePreview]);
-
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col bg-slate-900">
       <div className="flex-none px-4 py-2">
@@ -361,27 +335,27 @@ const Chatbot: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl w-full">
                 <ExampleCard
                   text="Show me how our review productivity and throughput have trended over the last few months"
-                  onClick={() => fillFromExample('Show me how our review productivity and throughput have trended over the last few months')}
+                  onClick={() => setInput('Show me how our review productivity and throughput have trended over the last few months')}
                 />
                 <ExampleCard
                   text="What's our current billing status and total billing usage?"
-                  onClick={() => fillFromExample('What\u0027s our current billing status and total billing usage?')}
+                  onClick={() => setInput('What\u0027s our current billing status and total billing usage?')}
                 />
                 <ExampleCard
                   text="Show me review activity per month and the top reviewers"
-                  onClick={() => fillFromExample('Show me review activity per month and the top reviewers')}
+                  onClick={() => setInput('Show me review activity per month and the top reviewers')}
                 />
                 <ExampleCard
                   text="Show me all members sorted by lines of code reviewed"
-                  onClick={() => fillFromExample('Show me all members sorted by lines of code reviewed')}
+                  onClick={() => setInput('Show me all members sorted by lines of code reviewed')}
                 />
                 <ExampleCard
                   text="Trigger a full code review on my latest pull request"
-                  onClick={() => fillFromExample('Trigger a full code review on my latest pull request')}
+                  onClick={() => setInput('Trigger a full code review on my latest pull request')}
                 />
                 <ExampleCard
                   text="Help me add an AI provider to Livereview"
-                  onClick={() => fillFromExample('Help me add an AI provider to Livereview')}
+                  onClick={() => setInput('Help me add an AI provider to Livereview')}
                 />
               </div>
               <p className="text-sm text-slate-500">Try one of these, or ask your own question.</p>
@@ -517,14 +491,13 @@ const Chatbot: React.FC = () => {
         <div className="max-w-4xl mx-auto">
           <div className="relative flex items-center">
             <input
-              ref={inputRef}
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ask for insights or get things done — reviews, trends, billing, and more..."
               disabled={isLoading}
-              className={`w-full bg-slate-700 text-slate-100 placeholder-slate-400 rounded-full pl-5 pr-14 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 border border-slate-600 disabled:opacity-50 ${inputAttention ? 'input-draw-attention' : ''}`}
+              className="w-full bg-slate-700 text-slate-100 placeholder-slate-400 rounded-full pl-5 pr-14 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 border border-slate-600 disabled:opacity-50"
             />
             <button
               onClick={handleSend}

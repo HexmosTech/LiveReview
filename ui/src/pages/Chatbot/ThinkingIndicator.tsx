@@ -28,19 +28,8 @@ const FIRST_CAPTION_PHASE_MS = 3000;
 // second word (which then holds until the response arrives and this
 // component unmounts). A fresh random pair is picked every time a new wait
 // starts.
-function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}m ${s}s`;
-}
-
-// This component's lifetime spans exactly one wait (mounted when the request
-// starts, unmounted when the response arrives), so a plain mount-time clock
-// doubles as the request's elapsed-time counter.
 export function ThinkingIndicator() {
   const [caption, setCaption] = useState('Thinking');
-  const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
     const pair = CAPTION_PAIRS[Math.floor(Math.random() * CAPTION_PAIRS.length)];
@@ -55,14 +44,6 @@ export function ThinkingIndicator() {
     };
   }, []);
 
-  useEffect(() => {
-    const startedAt = Date.now();
-    const tick = () => setElapsed(Math.floor((Date.now() - startedAt) / 1000));
-    tick();
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
   return (
     <div className="flex items-center gap-2 py-1">
       {/* The app has no light-mode variant (see .agents/design.md's dark
@@ -70,9 +51,7 @@ export function ThinkingIndicator() {
           "auto" - auto would otherwise follow the OS's color-scheme
           preference, which has no relationship to this always-dark UI. */}
       <ThinkingOrb state={ORB_STATE[caption]} size={20} theme="dark" aria-label={caption} />
-      <span className="text-sm text-slate-400">
-        {caption}… <span className="text-slate-500">{formatElapsed(elapsed)}</span>
-      </span>
+      <span className="text-sm text-slate-400">{caption}…</span>
     </div>
   );
 }
