@@ -21,6 +21,10 @@
                 "reveal": "always",
                 "panel": "dedicated"
             },
+            "icon": {
+                "id": "server-process",
+                "color": "terminal.ansiGreen"
+            },
             "problemMatcher": []
         },
         {
@@ -33,6 +37,10 @@
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
+            },
+            "icon": {
+                "id": "browser",
+                "color": "terminal.ansiBlue"
             },
             "problemMatcher": []
         },
@@ -47,18 +55,26 @@
                 "reveal": "always",
                 "panel": "dedicated"
             },
+            "icon": {
+                "id": "gear",
+                "color": "terminal.ansiYellow"
+            },
             "problemMatcher": []
         },
         {
-            "label": "livereview: niceurl",
+            "label": "livereview: niceurlX",
             "type": "shell",
-            "command": "bash -lc 'ui_ready=/tmp/livereview-ui-ready; until [ -f \"$ui_ready\" ] && (echo >/dev/tcp/127.0.0.1/8081) >/dev/null 2>&1; do echo \"Waiting for LiveReview UI startup\"; sleep 1; done; echo \"LiveReview UI port 8081 is available\"; exec make ${input:niceurlTarget}'",
+            "command": "bash -lc 'printf \"\\033]0;niceurl: ${input:niceurlTarget}\\007\"; echo \"### Selected tunnel: ${input:niceurlTarget} ###\"; ui_ready=/tmp/livereview-ui-ready; until [ -f \"$ui_ready\" ] && (echo >/dev/tcp/127.0.0.1/8081) >/dev/null 2>&1; do echo \"Waiting for LiveReview UI startup\"; sleep 1; done; echo \"LiveReview UI port 8081 is available\"; exec make ${input:niceurlTarget}'",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
+            },
+            "icon": {
+                "id": "link",
+                "color": "terminal.ansiMagenta"
             },
             "problemMatcher": []
         },
@@ -68,7 +84,7 @@
                 "livereview: api",
                 "livereview: ui",
                 "livereview: worker",
-                "livereview: niceurl"
+                "livereview: niceurlX"
             ],
             "dependsOrder": "parallel",
             "problemMatcher": []
