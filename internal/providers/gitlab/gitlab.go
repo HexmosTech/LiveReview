@@ -77,7 +77,19 @@ func (p *GitLabProvider) GetMergeRequestDetails(ctx context.Context, mrURL strin
 	}
 
 	// Convert GitLab MR to our internal model
-	return ConvertToMergeRequestDetails(mr, projectID), nil
+	details := ConvertToMergeRequestDetails(mr, projectID)
+
+	if commits, commitsErr := p.httpClient.GetMergeRequestCommits(projectID, mrIID); commitsErr != nil {
+		fmt.Printf("[WARN] GitLabProvider: failed to fetch MR commits for project=%s mrIID=%d: %v\n", projectID, mrIID, commitsErr)
+	} else {
+		shas := make([]string, 0, len(commits))
+		for _, c := range commits {
+			shas = append(shas, c.ID)
+		}
+		details.Commits = shas
+	}
+
+	return details, nil
 }
 
 // GetMergeRequestChanges retrieves the code changes in a merge request

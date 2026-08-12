@@ -300,44 +300,10 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 			s.logger.Log("  Provider type: %s", reviewData.MRDetails.ProviderType)
 		}
 
-		// For GitHub, we need to convert the MR ID to owner/repo/number format for posting comments
-		postingID := reviewData.MRDetails.ID
-		if reviewData.MRDetails.ProviderType == "github" {
-			if s.logger != nil {
-				s.logger.Log("Converting GitHub MR ID for comment posting...")
-			}
-			u, err := neturl.Parse(reviewData.MRDetails.URL)
-			if err == nil {
-				parts := strings.Split(u.Path, "/")
-				if len(parts) >= 5 && parts[3] == "pull" {
-					owner := parts[1]
-					repo := parts[2]
-					number := parts[4]
-					postingID = owner + "/" + repo + "/" + number
-					if s.logger != nil {
-						s.logger.Log("✓ GitHub posting ID: %s", postingID)
-					}
-					log.Printf("[DEBUG] GitHub: Using posting ID '%s' for comments", postingID)
-				}
-			}
-		} else if reviewData.MRDetails.ProviderType == "bitbucket" {
-			if s.logger != nil {
-				s.logger.Log("Converting Bitbucket MR ID for comment posting...")
-			}
-			u, err := neturl.Parse(reviewData.MRDetails.URL)
-			if err == nil {
-				parts := strings.Split(u.Path, "/")
-				if len(parts) >= 5 && parts[3] == "pull-requests" {
-					workspace := parts[1]
-					repo := parts[2]
-					number := parts[4]
-					postingID = workspace + "/" + repo + "/" + number
-					if s.logger != nil {
-						s.logger.Log("✓ Bitbucket posting ID: %s", postingID)
-					}
-					log.Printf("[DEBUG] Bitbucket: Using posting ID '%s' for comments", postingID)
-				}
-			}
+		// For GitHub/Bitbucket, we need to convert the MR ID to owner/repo/number format for posting comments
+		postingID := providers.ResolveMRID(reviewData.MRDetails)
+		if s.logger != nil {
+			s.logger.Log("Using posting ID: %s", postingID)
 		}
 		if provider == nil {
 			err := fmt.Errorf("provider is nil; cannot post results")
@@ -487,69 +453,7 @@ func (s *Service) executeReviewWorkflow(
 			s.logger.Log("Fetching merge request changes for MR ID: %s", mrDetails.ID)
 		}
 		log.Printf("[DEBUG] Fetching merge request changes for MR ID: %s", mrDetails.ID)
-		// For GitHub, pass owner/repo/number as PR ID
-		prID := mrDetails.ID
-		if mrDetails.ProviderType == "github" {
-			if s.logger != nil {
-				s.logger.Log("Converting GitHub URL for changes API...")
-			}
-			// Robustly parse owner, repo, number from MR URL
-			// Example: https://github.com/owner/repo/pull/123
-			u, err := neturl.Parse(mrDetails.URL)
-			if err == nil {
-				parts := strings.Split(u.Path, "/")
-				if len(parts) >= 5 && parts[3] == "pull" {
-					owner := parts[1]
-					repo := parts[2]
-					number := parts[4]
-					prID = owner + "/" + repo + "/" + number
-					if s.logger != nil {
-						s.logger.Log("✓ GitHub PR ID: %s", prID)
-					}
-					log.Printf("[DEBUG] GitHub: Converted MR ID from '%s' to '%s'", mrDetails.ID, prID)
-				} else {
-					if s.logger != nil {
-						s.logger.Log("⚠ Failed to parse GitHub URL parts (len=%d)", len(parts))
-					}
-					log.Printf("[DEBUG] GitHub: Failed to parse URL parts, len=%d, parts=%v", len(parts), parts)
-				}
-			} else {
-				if s.logger != nil {
-					s.logger.LogError("Failed to parse GitHub URL", err)
-				}
-				log.Printf("[DEBUG] GitHub: Failed to parse URL: %v", err)
-			}
-		} else if mrDetails.ProviderType == "bitbucket" {
-			if s.logger != nil {
-				s.logger.Log("Converting Bitbucket URL for changes API...")
-			}
-			// Robustly parse workspace, repo, number from MR URL
-			// Example: https://bitbucket.org/workspace/repository/pull-requests/123
-			u, err := neturl.Parse(mrDetails.URL)
-			if err == nil {
-				parts := strings.Split(u.Path, "/")
-				if len(parts) >= 5 && parts[3] == "pull-requests" {
-					workspace := parts[1]
-					repo := parts[2]
-					number := parts[4]
-					prID = workspace + "/" + repo + "/" + number
-					if s.logger != nil {
-						s.logger.Log("✓ Bitbucket PR ID: %s", prID)
-					}
-					log.Printf("[DEBUG] Bitbucket: Converted MR ID from '%s' to '%s'", mrDetails.ID, prID)
-				} else {
-					if s.logger != nil {
-						s.logger.Log("⚠ Failed to parse Bitbucket URL parts (len=%d)", len(parts))
-					}
-					log.Printf("[DEBUG] Bitbucket: Failed to parse URL parts, len=%d, parts=%v", len(parts), parts)
-				}
-			} else {
-				if s.logger != nil {
-					s.logger.LogError("Failed to parse Bitbucket URL", err)
-				}
-				log.Printf("[DEBUG] Bitbucket: Failed to parse URL: %v", err)
-			}
-		}
+		prID := providers.ResolveMRID(mrDetails)
 		if s.logger != nil {
 			s.logger.Log("Using PR ID for changes API: %s", prID)
 		}

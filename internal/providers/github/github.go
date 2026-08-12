@@ -296,6 +296,12 @@ func (p *GitHubProvider) GetMergeRequestDetails(ctx context.Context, mrURL strin
 		RepositoryURL: fmt.Sprintf("https://github.com/%s/%s", owner, repo),
 	}
 
+	if commits, commitsErr := p.fetchPullRequestCommits(ctx, owner, repo, number); commitsErr != nil {
+		log.Printf("[WARN] GitHubProvider: failed to fetch PR commits for %s/%s#%s: %v", owner, repo, number, commitsErr)
+	} else {
+		details.Commits = commits
+	}
+
 	if capture.Enabled() {
 		payload := map[string]interface{}{
 			"owner":   owner,
@@ -308,6 +314,44 @@ func (p *GitHubProvider) GetMergeRequestDetails(ctx context.Context, mrURL strin
 	}
 
 	return details, nil
+}
+
+// fetchPullRequestCommits returns every commit SHA on a PR, oldest first; paginates at 100/page, capped at 250 commits (GitHub's own limit for this endpoint regardless of pagination).
+func (p *GitHubProvider) fetchPullRequestCommits(ctx context.Context, owner, repo, number string) ([]string, error) {
+	var shas []string
+	const perPage = 100
+	for page := 1; page <= 3; page++ {
+		apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s/commits?per_page=%d&page=%d", owner, repo, number, perPage, page)
+		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "token "+p.PAT)
+		req.Header.Set("Accept", "application/vnd.github.v3+json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		var commits []struct {
+			SHA string `json:"sha"`
+		}
+		decodeErr := json.NewDecoder(resp.Body).Decode(&commits)
+		statusCode := resp.StatusCode
+		resp.Body.Close()
+		if statusCode != 200 {
+			return nil, fmt.Errorf("GitHub PR commits failed: status %d", statusCode)
+		}
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		for _, c := range commits {
+			shas = append(shas, c.SHA)
+		}
+		if len(commits) < perPage {
+			break
+		}
+	}
+	return shas, nil
 }
 
 func (p *GitHubProvider) GetMergeRequestChanges(ctx context.Context, mrID string) ([]*models.CodeDiff, error) {

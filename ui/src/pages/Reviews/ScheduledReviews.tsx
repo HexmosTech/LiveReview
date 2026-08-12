@@ -25,7 +25,7 @@ import { Repository, RepositoriesFilters, RepositoriesSort } from '../../types/e
 const pageSizeOptions = [20, 50, 100];
 const DEFAULT_CRON = '0 9 * * *';
 const SEARCH_DEBOUNCE_MS = 300;
-const SCHEDULED_REVIEWS_COLUMN_WIDTHS = ['4%', '26%', '10%', '9%', '9%', '13%', '11%', '18%'];
+const SCHEDULED_REVIEWS_COLUMN_WIDTHS = ['4%', '23%', '9%', '8%', '8%', '10%', '10%', '24%', '4%'];
 
 // Same normalization as Explore > Repositories - real provider values are compound strings like "github-com".
 const normalizeProvider = (provider: string): string => {
@@ -333,6 +333,7 @@ const ScheduledReviews: React.FC = () => {
           type="checkbox"
           checked={row.getIsSelected()}
           onChange={row.getToggleSelectedHandler()}
+          onClick={(e) => e.stopPropagation()}
           className="h-4 w-4 rounded border-slate-500 bg-slate-800 text-blue-500"
           aria-label={`Select ${row.original.full_name}`}
         />
@@ -429,7 +430,7 @@ const ScheduledReviews: React.FC = () => {
         </div>
       ),
       cell: ({ row }) => (
-        <div className="text-center text-white text-sm">{row.original.default_branch || '—'}</div>
+        <div className="text-center text-white text-sm whitespace-nowrap">{row.original.default_branch || '—'}</div>
       ),
     },
     {
@@ -456,12 +457,14 @@ const ScheduledReviews: React.FC = () => {
         const repo = row.original;
         const state = scheduleByRepoId[repo.id];
         return (
-          <Toggle
-            checked={state?.enabled ?? false}
-            isLoading={state?.toggleBusy}
-            onChange={(checked) => applyToggle(repo, checked)}
-            aria-label={`Toggle scheduled review for ${repo.full_name}`}
-          />
+          <div onClick={(e) => e.stopPropagation()} className="inline-flex">
+            <Toggle
+              checked={state?.enabled ?? false}
+              isLoading={state?.toggleBusy}
+              onChange={(checked) => applyToggle(repo, checked)}
+              aria-label={`Toggle scheduled review for ${repo.full_name}`}
+            />
+          </div>
         );
       },
     },
@@ -472,8 +475,8 @@ const ScheduledReviews: React.FC = () => {
       header: () => <span className="font-semibold text-slate-300 uppercase tracking-wide text-xs">Schedule</span>,
       cell: ({ row }) => {
         const state = scheduleByRepoId[row.original.id];
-        if (!state?.enabled) return <span className="text-sm text-slate-500">Not scheduled</span>;
-        return <span className="text-sm text-slate-200">{getLocalCronText(state.cronExpression).value}</span>;
+        if (!state?.enabled) return <span className="text-sm text-slate-500 whitespace-nowrap">Not scheduled</span>;
+        return <span className="text-sm text-slate-200 whitespace-nowrap">{getLocalCronText(state.cronExpression).value}</span>;
       },
     },
     {
@@ -483,7 +486,7 @@ const ScheduledReviews: React.FC = () => {
       header: () => <span className="font-semibold text-slate-300 uppercase tracking-wide text-xs">Last Run</span>,
       cell: ({ row }) => {
         const state = scheduleByRepoId[row.original.id];
-        return <span className="text-sm text-slate-400">{formatLocalDateTime(state?.lastRunAt)}</span>;
+        return <span className="text-sm text-slate-400 whitespace-nowrap">{formatLocalDateTime(state?.lastRunAt)}</span>;
       },
     },
     {
@@ -494,8 +497,16 @@ const ScheduledReviews: React.FC = () => {
       cell: ({ row }) => {
         const isScheduled = scheduleByRepoId[row.original.id]?.enabled ?? false;
         return (
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="whitespace-nowrap" onClick={() => setEditingRepos([row.original])}>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="whitespace-nowrap"
+            onClick={(e) => {
+              e.stopPropagation();
+              setEditingRepos([row.original]);
+            }}
+          >
             Edit Schedule
           </Button>
           {isScheduled && (
@@ -503,9 +514,10 @@ const ScheduledReviews: React.FC = () => {
               variant="outline"
               size="sm"
               className="border-slate-400 text-white hover:bg-white/10 hover:border-white w-32 shrink-0 whitespace-nowrap text-sm"
-              onClick={() =>
-                navigate(`/reviews?search=${encodeURIComponent(row.original.full_name)}&source=scheduled`)
-              }
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/reviews?search=${encodeURIComponent(row.original.full_name)}&source=scheduled`);
+              }}
             >
               View Reviews
             </Button>
@@ -513,6 +525,17 @@ const ScheduledReviews: React.FC = () => {
         </div>
         );
       },
+    },
+    {
+      id: 'chevron',
+      enableSorting: false,
+      enableColumnFilter: false,
+      header: () => null,
+      cell: () => (
+        <div className="flex justify-end text-slate-500">
+          <Icons.ChevronRight />
+        </div>
+      ),
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [scheduleByRepoId, scheduleStatusFilter, navigate]);
@@ -582,6 +605,7 @@ const ScheduledReviews: React.FC = () => {
         }}
         pageSizeOptions={pageSizeOptions}
         manualTotal={total}
+        onRowClick={(repo) => navigate(`/reviews/scheduled/${repo.id}/runs`)}
       />
 
       {editingRepos && editingRepos.length > 0 && (

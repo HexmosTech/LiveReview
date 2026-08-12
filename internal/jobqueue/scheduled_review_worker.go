@@ -60,9 +60,19 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 		return nil
 	}
 
+	// Records one row in scheduled_review_runs for this attempt no matter which path below returns - defaults to "failed" so a path that returns without explicitly setting run.Outcome still leaves an accurate (if terse) trace rather than none at all.
+	run := scheduledreviewstore.InsertRunParams{ConfigID: cfg.ID, Outcome: scheduledreviewstore.RunOutcomeFailed, StartedAt: time.Now()}
+	defer func() {
+		run.CompletedAt = time.Now()
+		if err := store.InsertRun(ctx, run); err != nil {
+			log.Printf("[WARN] ScheduledReviewWorker: failed to record run history for config %d: %v", cfg.ID, err)
+		}
+	}()
+
 	nextRunAt, err := scheduledreviewstore.NextRunAfter(cfg.CronExpression, time.Now())
 	if err != nil {
 		log.Printf("[ERROR] ScheduledReviewWorker: config %d has invalid cron_expression %q: %v", cfg.ID, cfg.CronExpression, err)
+		run.ErrorMessage = err.Error()
 		return nil // needs a user fix via the API, not a retry
 	}
 
@@ -71,16 +81,21 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 		Scan(&provider, &providerURL, &patToken)
 	if err != nil {
 		log.Printf("[ERROR] ScheduledReviewWorker: failed to load integration token %d for config %d: %v", cfg.ConnectorID, cfg.ID, err)
+		run.ErrorMessage = err.Error()
 		return fmt.Errorf("failed to load integration token: %w", err)
 	}
 	if !strings.HasPrefix(provider, "github") {
 		log.Printf("[WARN] ScheduledReviewWorker: config %d has unsupported provider %q; skipping", cfg.ID, provider)
+		run.Outcome = scheduledreviewstore.RunOutcomeSkippedUnsupportedProvider
+		run.Branch = cfg.DefaultBranch.String
+		run.ErrorMessage = fmt.Sprintf("unsupported provider %q", provider)
 		return store.UpdateCheckpoint(ctx, cfg.ID, cfg.DefaultBranch.String, cfg.LastSyncedSHA.String, time.Now(), nextRunAt)
 	}
 
 	parts := strings.SplitN(cfg.ProjectFullName, "/", 2)
 	if len(parts) != 2 {
 		log.Printf("[ERROR] ScheduledReviewWorker: invalid project_full_name %q for config %d; disabling", cfg.ProjectFullName, cfg.ID)
+		run.ErrorMessage = fmt.Sprintf("invalid project_full_name %q", cfg.ProjectFullName)
 		if err := store.Disable(ctx, cfg.ID); err != nil {
 			log.Printf("[WARN] ScheduledReviewWorker: failed to disable config %d: %v", cfg.ID, err)
 		}
@@ -94,14 +109,18 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 	if branch == "" {
 		branch, err = ghProvider.GetDefaultBranch(ctx, owner, repo)
 		if err != nil {
+			run.ErrorMessage = err.Error()
 			return fmt.Errorf("failed to resolve default branch for %s: %w", cfg.ProjectFullName, err)
 		}
 	}
+	run.Branch = branch
 
 	headSHA, err := ghProvider.GetBranchHeadSHA(ctx, owner, repo, branch)
 	if err != nil {
+		run.ErrorMessage = err.Error()
 		return fmt.Errorf("failed to resolve branch head for %s: %w", cfg.ProjectFullName, err)
 	}
+	run.HeadSHA = headSHA
 
 	baseSHA := cfg.LastSyncedSHA.String
 	if baseSHA == "" {
@@ -113,25 +132,32 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 		lookback := time.Now().Add(-lookbackInterval)
 		baseSHA, err = ghProvider.GetCommitBefore(ctx, owner, repo, branch, lookback)
 		if err != nil {
+			run.ErrorMessage = err.Error()
 			return fmt.Errorf("failed to resolve lookback commit for %s: %w", cfg.ProjectFullName, err)
 		}
 	}
+	run.BaseSHA = baseSHA
 
 	// Nothing changed (or no history before the lookback window yet) — just checkpoint.
 	if baseSHA == "" || baseSHA == headSHA {
+		run.Outcome = scheduledreviewstore.RunOutcomeNoChanges
 		return store.UpdateCheckpoint(ctx, cfg.ID, branch, headSHA, time.Now(), nextRunAt)
 	}
 
 	diffs, commitSHAs, err := ghProvider.GetCompareChanges(ctx, owner, repo, baseSHA, headSHA)
 	if err != nil {
+		run.ErrorMessage = err.Error()
 		return fmt.Errorf("failed to fetch compare diff for %s (%s...%s): %w", cfg.ProjectFullName, baseSHA, headSHA, err)
 	}
+	run.CommitCount = len(commitSHAs)
 	if len(diffs) == 0 {
+		run.Outcome = scheduledreviewstore.RunOutcomeNoChanges
 		return store.UpdateCheckpoint(ctx, cfg.ID, branch, headSHA, time.Now(), nextRunAt)
 	}
 
 	planCode, err := resolveOrgPlanCode(ctx, w.db, cfg.OrgID)
 	if err != nil {
+		run.ErrorMessage = err.Error()
 		return fmt.Errorf("failed to resolve plan for org %d: %w", cfg.OrgID, err)
 	}
 
@@ -140,11 +166,13 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 	preflight, err := quotaModule.PreflightCheck(ctx, license.QuotaPreflightInput{OrgID: cfg.OrgID, RequiredLOC: 0, PlanCode: planCode})
 	if err == nil && preflight.Blocked {
 		log.Printf("[WARN] ScheduledReviewWorker: org %d is over quota; skipping scheduled review for %s", cfg.OrgID, cfg.ProjectFullName)
+		run.Outcome = scheduledreviewstore.RunOutcomeQuotaBlocked
 		return store.UpdateCheckpoint(ctx, cfg.ID, branch, headSHA, time.Now(), nextRunAt)
 	}
 
 	selection, err := aiselection.GetReviewAISelection(ctx, w.db, cfg.OrgID, planCode)
 	if err != nil {
+		run.ErrorMessage = err.Error()
 		return fmt.Errorf("failed to load AI config for org %d: %w", cfg.OrgID, err)
 	}
 
@@ -161,8 +189,10 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 	}
 	reviewRecord, err := rm.CreateReviewWithOrg(cfg.ProjectFullName, branch, headSHA, "", "scheduled", "", provider, &connectorID, initialMeta, cfg.OrgID, friendlyName, "", "", nil)
 	if err != nil {
+		run.ErrorMessage = err.Error()
 		return fmt.Errorf("failed to create review record: %w", err)
 	}
+	run.ReviewID = &reviewRecord.ID
 	_ = rm.UpdateReviewStatus(reviewRecord.ID, "in_progress")
 
 	commitRefs := make([]reviewprocessor.CommitRef, 0, len(commitSHAs))
@@ -218,6 +248,13 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 		}
 	} else {
 		failureReason = "review processing returned no result"
+	}
+
+	if status == "completed" {
+		run.Outcome = scheduledreviewstore.RunOutcomeReviewed
+	} else {
+		run.Outcome = scheduledreviewstore.RunOutcomeFailed
+		run.ErrorMessage = failureReason
 	}
 
 	reviewResult := map[string]interface{}{

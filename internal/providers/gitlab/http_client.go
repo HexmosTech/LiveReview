@@ -64,6 +64,11 @@ type GitLabMergeRequest struct {
 		Name      string `json:"name"`
 		AvatarURL string `json:"avatar_url"`
 	} `json:"author"`
+	DiffRefs struct {
+		BaseSHA  string `json:"base_sha"`
+		HeadSHA  string `json:"head_sha"`
+		StartSHA string `json:"start_sha"`
+	} `json:"diff_refs"`
 }
 
 // GitLabMergeRequestChanges represents the changes in a GitLab merge request
@@ -804,6 +809,11 @@ func ConvertToMergeRequestDetails(mr *GitLabMergeRequest, projectID string) *pro
 		ProviderType:   "gitlab",
 		MergeStatus:    "unknown", // Not available in this API response
 		RepositoryURL:  repoURL,
+		DiffRefs: providers.DiffRefs{
+			BaseSHA:  mr.DiffRefs.BaseSHA,
+			HeadSHA:  mr.DiffRefs.HeadSHA,
+			StartSHA: mr.DiffRefs.StartSHA,
+		},
 	}
 }
 
