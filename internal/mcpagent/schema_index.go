@@ -10,6 +10,18 @@ import (
 	"github.com/shrsv/dbctx"
 )
 
+// Persisting the dbctx index to disk (Options.Path) was tried here, so a
+// server restart could reuse cached embeddings instead of paying dbctx
+// v0.1.1's semantic-index build cost every time (measured against this
+// schema: ~31s cold vs ~1s for the old in-memory/no-semantic build).
+// Reverted: the SECOND build against an existing .dtx file fails - "store
+// schema: insert table ai_comments: constraint failed: UNIQUE constraint
+// failed: tables.schema, tables.name" - which degrades gracefully (falls
+// back to no schema for that turn) but would repeat on every restart after
+// the first, permanently, since the .dtx file's state doesn't self-heal.
+// That's worse than the in-memory cold-start cost this was meant to avoid.
+// Worth reporting upstream to shrijith; revisit persistence once fixed.
+
 // schemaIdx is the process-wide dbctx index used to describe the analytics
 // schema to the LLM instead of the hand-written table listing that used to
 // live in prompts/analytics_schema.md. See dbctx_schema_plan.md for why it
