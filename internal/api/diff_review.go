@@ -251,7 +251,7 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 			if connectorID != nil && reviewRecord.PrMrURL != "" {
 				prLive, prErr := s.fetchLiveDiffFromPR(c.Request().Context(), *connectorID, reviewRecord.PrMrURL)
 				if prErr != nil {
-					log.Printf("[WARN] live PR diff fetch failed for review %d: %v", reviewID, prErr)
+					log.Printf("[WARN] live PR diff fetch failed for review %d", reviewID)
 				} else {
 					preloaded = prLive
 					liveFetch = true
