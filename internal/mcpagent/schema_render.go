@@ -43,13 +43,13 @@ import (
 // fallback text. The caller is expected to log that via
 // ChatTurnLogger.SchemaSourceDegraded - this function has no session/turn
 // context of its own to log through.
-func dbctxTableText(role livisql.Role, queryText string) (string, error) {
+func dbctxTableText(queryText string) (string, error) {
 	idx := schemaIndex()
 	if idx == nil {
 		return "", fmt.Errorf("dbctx index unavailable")
 	}
 
-	tables := livisql.CatalogFor(role, orgScopedColumns()).Tables()
+	tables := livisql.CatalogFor(allTableNames()).Tables()
 	visible := make(map[string]bool, len(tables))
 	for _, t := range tables {
 		visible[t] = true
@@ -62,9 +62,9 @@ func dbctxTableText(role livisql.Role, queryText string) (string, error) {
 	for _, name := range renderNames {
 		detail, err := idx.TableDetail(name)
 		if err != nil || detail == nil {
-			// A shadow with no live counterpart is a drift bug caught by
-			// shadow_columns_test.go, not something to fail this render
-			// over - skip it and still render every other table.
+			// A catalog table dbctx can no longer describe (deleted/renamed
+			// since the index was built) is not something to fail this
+			// render over - skip it and still render every other table.
 			continue
 		}
 		if renderTable(&b, name, detail, visible) {
@@ -73,17 +73,24 @@ func dbctxTableText(role livisql.Role, queryText string) (string, error) {
 	}
 
 	if rendered == 0 {
-		return "", fmt.Errorf("dbctx returned no renderable tables for role %q", role)
+		return "", fmt.Errorf("dbctx returned no renderable tables")
 	}
 	return b.String(), nil
 }
 
 // narrowTables asks dbctx which of the role-visible tables are relevant to
 // queryText - the user's question, or the specific report question being
-// finalized - via idx.Query, and renders only those. Uses .All() (matched
-// plus FK-expanded neighbors) rather than .Matched() alone so a join target
-// reachable only through a foreign key isn't dropped just because it didn't
-// score on its own.
+// finalized - via idx.Query, and renders only those. Uses .Matched()
+// (dbctx v0.1.2: matched + FK-expanded join context, the library's
+// recommended default as of this version - table names may have swapped
+// meaning between dbctx releases, since v0.1.1's .Matched() meant score > 0
+// only, what v0.1.2 calls .ScoredOnly(); check the installed dbctx version's
+// doc comment on Query/ResultSet before assuming which one this is on a
+// future bump). .ScoredOnly() (direct hits only, no FK expansion) is
+// available but intentionally not used here - shrijith's guidance is that
+// .Matched() is the one to keep using across the CLI/UI/library, so bugs in
+// its relevance/FK logic get fixed in one place rather than every caller
+// picking its own narrower selection.
 //
 // Falls back to every role-visible table when queryText is empty, idx.Query
 // errors, or nothing matches, so a turn never renders an empty schema.
@@ -97,7 +104,7 @@ func narrowTables(idx *dbctx.Index, allVisible []string, visible map[string]bool
 	}
 	seen := make(map[string]bool, len(allVisible))
 	var narrowed []string
-	for _, tc := range rs.All().Tables() {
+	for _, tc := range rs.Matched().Tables() {
 		if visible[tc.TableName] && !seen[tc.TableName] {
 			seen[tc.TableName] = true
 			narrowed = append(narrowed, tc.TableName)

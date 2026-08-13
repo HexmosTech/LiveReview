@@ -45,8 +45,8 @@ const (
 // AnalyticsEngine executes guard-rewritten SQL. Declared here rather than
 // imported as a concrete type so the orchestration can be tested with a fake.
 type AnalyticsEngine interface {
-	Count(ctx context.Context, orgID int64, rewritten string) (int64, error)
-	Query(ctx context.Context, orgID int64, rewritten string, maxRows int) (*storageanalytics.ResultSet, error)
+	Count(ctx context.Context, rewritten string) (int64, error)
+	Query(ctx context.Context, rewritten string, maxRows int) (*storageanalytics.ResultSet, error)
 }
 
 // WithAnalytics enables the SQL analytics path. With a nil engine, or a session
@@ -71,8 +71,8 @@ func (a *Agent) WithAnalytics(engine AnalyticsEngine) *Agent {
 	a.actionPrompt = buildSystemPrompt(tools, orgName, userName)
 	a.chatPrompt = buildPromptHeader(orgName, userName) + "\n\n" + chatOnlyInstructions
 	a.classifyPrompt = buildClassifyPrompt(tools)
-	a.countQueryHead, a.countQueryTail = buildCountQueryPromptHalves(orgName, userName)
-	a.finalizeHead, a.finalizeTail = buildFinalizePromptHalves(orgName, userName)
+	a.countQueryHead, a.countQueryTail = buildCountQueryPromptHalves(orgName, userName, a.mcpSession.OrgID)
+	a.finalizeHead, a.finalizeTail = buildFinalizePromptHalves(orgName, userName, a.mcpSession.OrgID)
 
 	// Kept in sync for any caller still reading systemPrompt/providerTools
 	// directly (there is none in this codebase today, but they remain
@@ -120,10 +120,12 @@ func (a *Agent) analyticsEnabled() bool {
 	return a.analytics != nil && a.mcpSession != nil && a.mcpSession.OrgID != 0
 }
 
-// analyticsRole normalizes this session's role for SQL/schema purposes.
-// Unknown or unrecognized roles fall back to the least privileged catalog -
-// this matters for the bots, which authenticate an organization rather than
-// a user and so never carry a real role.
+// analyticsRole normalizes this session's role for logging only - it has no
+// bearing on which tables/columns are visible (see livisql.CatalogFor).
+// Unknown or unrecognized roles normalize to "member" so debug logs never
+// show a raw, unnormalized value; this matters for the bots, which
+// authenticate an organization rather than a user and so never carry a
+// real role.
 func (a *Agent) analyticsRole() livisql.Role {
 	role := livisql.Role(strings.ToLower(strings.TrimSpace(a.mcpSession.UserRole)))
 	switch role {
@@ -134,9 +136,9 @@ func (a *Agent) analyticsRole() livisql.Role {
 	return role
 }
 
-// guard builds the SQL guard for this session's role.
+// guard builds the SQL guard for this session's org.
 func (a *Agent) guard() *livisql.Guard {
-	return livisql.New(livisql.CatalogFor(a.analyticsRole(), orgScopedColumns()))
+	return livisql.New(livisql.CatalogFor(allTableNames()), a.mcpSession.OrgID)
 }
 
 // finishedReport is one completed entry of a multi-report answer.
@@ -192,7 +194,7 @@ func (a *Agent) runAnalyticsPlan(
 		notes = append(notes, fmt.Sprintf("I answered the first %d parts of that question. Ask again for the rest.", maxReportsPerTurn))
 	}
 
-	responseText := assembleAnalyticsResponse(reports, notes)
+	responseText := assembleAnalyticsResponse(reports, notes, len(artifacts) > 0)
 	clog.FinalResponse(responseText)
 
 	history = append(history, HistoryEntry{"role": "assistant", "text": responseText})
@@ -250,7 +252,7 @@ func (a *Agent) runCountPhase(ctx context.Context, entry PlanEntry, clog *loggin
 		clog.SQLRewritten(entry.ID, "count", attempt, rewritten)
 
 		start := time.Now()
-		count, err := a.analytics.Count(ctx, a.mcpSession.OrgID, rewritten)
+		count, err := a.analytics.Count(ctx, rewritten)
 		if err != nil {
 			clog.SQLError(entry.ID, "count", attempt, time.Since(start), err)
 			if attempt == maxSQLAttempts {
@@ -344,7 +346,7 @@ func (a *Agent) materializeReport(
 		clog.SQLRewritten(entry.ID, "data", attempt, rewritten)
 
 		start := time.Now()
-		rs, err := a.analytics.Query(ctx, a.mcpSession.OrgID, rewritten, maxRows)
+		rs, err := a.analytics.Query(ctx, rewritten, maxRows)
 		if err != nil {
 			clog.SQLError(entry.ID, "data", attempt, time.Since(start), err)
 			if attempt == maxSQLAttempts {
@@ -416,12 +418,20 @@ func (a *Agent) buildChartReport(
 		"background": "#ffffff",
 		"data":       map[string]any{"values": rs.Rows},
 	}
-	if len(strings.TrimSpace(string(plan.Layer))) > 0 {
+	switch {
+	case len(strings.TrimSpace(string(plan.Facet))) > 0:
+		// A faceted/trellis chart (one small panel per contributor, per
+		// repository, ...) carries its facet channel plus a single-panel
+		// spec repeated per facet value - a top-level mark/encoding pair
+		// would be redundant and Vega-Lite rejects having both.
+		spec["facet"] = json.RawMessage(plan.Facet)
+		spec["spec"] = json.RawMessage(plan.Spec)
+	case len(strings.TrimSpace(string(plan.Layer))) > 0:
 		// A layered chart (trend + rolling average, value + target line, ...)
 		// carries its own mark/encoding per layer; a top-level mark/encoding
 		// pair would be redundant and Vega-Lite rejects having both.
 		spec["layer"] = json.RawMessage(plan.Layer)
-	} else {
+	default:
 		mark := plan.Mark
 		if strings.TrimSpace(mark) == "" {
 			mark = "bar"
@@ -523,8 +533,12 @@ func (a *Agent) noDataText(ctx context.Context, entry PlanEntry, userText string
 // number of the phase being repaired: 2 for a count-phase statement, 3 for a
 // data-phase one - repair itself is not a distinct box in the diagram.
 func (a *Agent) repairSQL(ctx context.Context, call int, reportID string, failedAttempt int, question, badSQL, hint string, clog *logging.ChatTurnLogger) (string, error) {
+	// This is a fresh, isolated exchange (see completeOnce's doc comment) - it
+	// never sees the count/finalize prompt's org context header, so the
+	// org_id value has to be repeated here too, or a missing-org-filter
+	// rejection could never actually be fixed.
 	raw, err := a.completeOnce(ctx, clog, call, "repair", reportID, failedAttempt,
-		analyticsRepairInstructions,
+		analyticsRepairInstructions+orgIDFilterInstruction(a.mcpSession.OrgID),
 		fmt.Sprintf("Question: %s\n\nThis query was rejected:\n%s\n\nReason: %s\n\nReturn only the corrected SQL.", question, badSQL, hint))
 	if err != nil {
 		return "", err
@@ -580,10 +594,20 @@ func hintFor(err error) string {
 
 // assembleAnalyticsResponse produces the string RunTurn returns. Charts go into
 // the existing {"reports":[...]} envelope that every surface already renders;
-// plain notes are returned as prose when there is nothing to draw.
-func assembleAnalyticsResponse(reports []vlrender.VegaLiteReport, notes []string) string {
+// plain notes are returned as prose when there is nothing to draw. hasArtifacts
+// must be true whenever the turn produced at least one CSV (or other file)
+// artifact - those are returned separately (see RunTurnWithArtifacts) and
+// never appear in reports/notes, so without this a successful CSV-only turn
+// (reports and notes both empty, but a real file was produced and attached)
+// would otherwise fall through to the "could not find anything" message
+// right next to the correctly-delivered file - a contradiction a user would
+// rightly read as a bug, because it is one.
+func assembleAnalyticsResponse(reports []vlrender.VegaLiteReport, notes []string, hasArtifacts bool) string {
 	if len(reports) == 0 {
 		if len(notes) == 0 {
+			if hasArtifacts {
+				return ""
+			}
 			return "I could not find anything to answer that."
 		}
 		return strings.Join(notes, "\n\n")

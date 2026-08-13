@@ -44,13 +44,16 @@ func TestParseClassifyShape(t *testing.T) {
 // author_username, not a guessable reviewer_id/user_id). See
 // buildFinalizePromptHalves.
 func TestFinalizePromptCarriesSchema(t *testing.T) {
-	head, tail := buildFinalizePromptHalves("Acme", "alice@acme.com")
+	head, tail := buildFinalizePromptHalves("Acme", "alice@acme.com", 42)
 	prompt := head + tail
 	if !strings.Contains(prompt, "author_username") {
 		t.Fatalf("finalize prompt is missing the schema/column reference that names author_username: %q", prompt)
 	}
 	if !strings.Contains(prompt, "finalizing one report") {
 		t.Fatalf("finalize prompt lost its chart/csv format instructions: %q", prompt)
+	}
+	if !strings.Contains(head, "org_id = 42") {
+		t.Fatalf("finalize prompt is missing the org_id filter instruction: %q", head)
 	}
 	if strings.Contains(tail, "How to start a data question") {
 		t.Fatalf("finalize prompt should not carry the analytics_plan instructions meant for call #2: %q", tail)
@@ -124,8 +127,8 @@ func (p *recordingProvider) FormatTools(tools []MCPToolDef) []llms.Tool {
 
 type nopAnalyticsEngine struct{}
 
-func (nopAnalyticsEngine) Count(context.Context, int64, string) (int64, error) { return 0, nil }
-func (nopAnalyticsEngine) Query(context.Context, int64, string, int) (*storageanalytics.ResultSet, error) {
+func (nopAnalyticsEngine) Count(context.Context, string) (int64, error) { return 0, nil }
+func (nopAnalyticsEngine) Query(context.Context, string, int) (*storageanalytics.ResultSet, error) {
 	return nil, nil
 }
 
@@ -246,6 +249,22 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 	}
 	if sys3 == sys2 || sys3 == sys1 {
 		t.Fatalf("turn 3: system prompt was not swapped to the count_query branch")
+	}
+
+	// The raw {"analytics_plan": [...]} JSON the model replied with for turn 3
+	// must never persist in history - runAnalyticsPlan's own final text is
+	// the only assistant entry for this turn. A leaked raw plan poisons every
+	// later call's conversation history (classify included), since the model
+	// then imitates its own prior "reply with a JSON blob" turn instead of
+	// following whatever the later call actually asked for.
+	for _, h := range history {
+		if h["role"] != "assistant" {
+			continue
+		}
+		text, _ := h["text"].(string)
+		if strings.Contains(text, "analytics_plan") {
+			t.Fatalf("raw analytics_plan JSON leaked into history as an assistant turn: %q", text)
+		}
 	}
 
 	// history[0] must still be exactly ONE system message throughout - the

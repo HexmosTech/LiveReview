@@ -22,6 +22,17 @@ spelled out here instead:
   time" if the question does not distinguish.
 - `users` has no foreign key to `reviews` in the schema — join them yourself
   on `users.email = reviews.user_email`.
+- **Do not join `reviews` to `repositories` through `pull_requests`** -
+  `reviews.pull_request_id` is unpopulated for most reviews (many are
+  triggered outside a PR/MR flow), so that join silently drops rows. Group or
+  filter by repository using `reviews.repository` (a plain name column)
+  directly - it needs no join at all.
+- There is no single "how was this review triggered" column. `reviews.trigger_type`
+  (`webhook` = PR/MR, `cli_diff` = pre-commit, `mcp` = MCP) and
+  `loc_usage_ledger.trigger_source` (`api`, ...) are two different columns on
+  two different tables, and neither one alone is the full taxonomy - check
+  which table the rest of the question's metric actually lives on before
+  picking which trigger column to group by.
 
 ### Rules
 
@@ -37,7 +48,11 @@ spelled out here instead:
   split_part replace left right lpad rpad jsonb_array_length jsonb_typeof
   generate_series unnest`. Nothing else is available.
 - One `SELECT` statement. No `INSERT`, `UPDATE`, `DELETE`, `WITH RECURSIVE`,
-  `FOR UPDATE`, or bind parameters like `$1`.
+  `FOR UPDATE`, `SELECT *`, or bind parameters like `$1`.
+- **Every query must filter by `org_id`** using the exact organization id
+  given earlier in this conversation (`WHERE org_id = <that number>`; join
+  other org_id-having tables the same way). A query without it is rejected.
+- List the columns you need by name - never `SELECT *` or `table.*`.
 - Do not name a CTE after one of the tables above.
 - Compute period-over-period change **in SQL** with `lag()`, never by
   subtracting two numbers yourself.
@@ -49,7 +64,7 @@ Reviews completed per month:
 ```sql
 SELECT date_trunc('month', completed_at) AS month, count(*) AS review_count
 FROM reviews
-WHERE status = 'completed'
+WHERE status = 'completed' AND org_id = 42
 GROUP BY 1
 ORDER BY 1
 ```
@@ -59,7 +74,7 @@ Top reviewers:
 ```sql
 SELECT author_username, count(*) AS review_count
 FROM reviews
-WHERE status = 'completed'
+WHERE status = 'completed' AND org_id = 42
 GROUP BY 1
 ORDER BY review_count DESC
 LIMIT 10
@@ -70,7 +85,7 @@ Month-over-month percentage change — note the arithmetic is the database's job
 ```sql
 WITH monthly AS (
   SELECT date_trunc('month', completed_at) AS month, count(*) AS review_count
-  FROM reviews WHERE status = 'completed' GROUP BY 1
+  FROM reviews WHERE status = 'completed' AND org_id = 42 GROUP BY 1
 )
 SELECT month,
        review_count,

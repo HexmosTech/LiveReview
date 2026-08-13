@@ -189,7 +189,17 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			if a.analyticsEnabled() {
 				if plan, ok := parseAnalyticsPlan(response); ok {
 					clog.SQLPlan(step, response)
-					return a.runAnalyticsPlan(ctx, plan, history, userText, clog)
+					// history's last entry is the raw analytics_plan JSON just
+					// appended above (line 181) - runAnalyticsPlan appends its
+					// own final user-facing text in its place. Without
+					// dropping it here, both entries would persist: the raw
+					// plan JSON AND the real answer, as two separate
+					// "assistant" turns. That raw JSON then leaks into every
+					// later call's conversation history (classify included),
+					// and the model starts imitating its own prior "reply
+					// with a JSON blob" turn instead of following whatever
+					// that later call actually asked for.
+					return a.runAnalyticsPlan(ctx, plan, history[:len(history)-1], userText, clog)
 				}
 			}
 			// The "you MUST call a tool" nudges below only make sense when
@@ -367,14 +377,27 @@ func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
 	return b.String()
 }
 
+// orgIDFilterInstruction tells the model the literal org_id value every SQL
+// query it writes must filter by. This has to be explicit now: the SQL
+// guard (internal/livisql) no longer injects org scoping itself - it only
+// checks that some `org_id = ...` comparison is present (see the guard's
+// package doc) - so the model is the only place the correct value can come
+// from at all.
+func orgIDFilterInstruction(orgID int64) string {
+	return fmt.Sprintf("\nEvery query you write MUST include `org_id = %d` in its WHERE clause "+
+		"(join other tables' own org_id the same way). This is the organization's actual id - "+
+		"use this exact number, not a placeholder or a guess. A query without it will be rejected.\n\n", orgID)
+}
+
 // buildCountQueryPromptHalves precomputes the static parts of call #2's
 // system prompt. They bracket dbctxTableText's output, which is resolved
 // fresh per turn by (*Agent).countQueryPrompt rather than here, because the
 // dbctx index's readiness can change over the process's life in a way none
 // of the other precomputed prompts depend on.
-func buildCountQueryPromptHalves(orgName, userName string) (head, tail string) {
+func buildCountQueryPromptHalves(orgName, userName string, orgID int64) (head, tail string) {
 	var h strings.Builder
 	h.WriteString(buildPromptHeader(orgName, userName))
+	h.WriteString(orgIDFilterInstruction(orgID))
 	h.WriteString(analyticsSchemaIntro) // imported from prompts/analytics_schema_intro.md
 	head = h.String()
 
@@ -393,10 +416,9 @@ func buildCountQueryPromptHalves(orgName, userName string) (head, tail string) {
 // Logs SchemaSourceDegraded when the live index wasn't available and the
 // static fallback table list was used instead - see schema_render.go.
 func (a *Agent) countQueryPrompt(clog *logging.ChatTurnLogger, userText string) string {
-	role := a.analyticsRole()
-	clog.DBCtxRequest(2, string(role), userText)
+	clog.DBCtxRequest(2, string(a.analyticsRole()), userText)
 	start := time.Now()
-	tableText, err := dbctxTableText(role, userText)
+	tableText, err := dbctxTableText(userText)
 	clog.DBCtxResponse(2, time.Since(start), tableText, err)
 	if err != nil {
 		clog.SchemaSourceDegraded(err.Error())
@@ -410,9 +432,10 @@ func (a *Agent) countQueryPrompt(clog *logging.ChatTurnLogger, userText string) 
 // conversation - completeOnce is a fresh two-message exchange), so it needs
 // the same table/column reference the count call gets, not just the chart-
 // format rules in analytics_finalize.md.
-func buildFinalizePromptHalves(orgName, userName string) (head, tail string) {
+func buildFinalizePromptHalves(orgName, userName string, orgID int64) (head, tail string) {
 	var h strings.Builder
 	h.WriteString(buildPromptHeader(orgName, userName))
+	h.WriteString(orgIDFilterInstruction(orgID))
 	h.WriteString(analyticsSchemaIntro) // imported from prompts/analytics_schema_intro.md
 	head = h.String()
 
@@ -433,10 +456,9 @@ func buildFinalizePromptHalves(orgName, userName string) (head, tail string) {
 // against, since one user turn can fan out into several reports each
 // needing different tables.
 func (a *Agent) finalizePrompt(clog *logging.ChatTurnLogger, queryText string) string {
-	role := a.analyticsRole()
-	clog.DBCtxRequest(3, string(role), queryText)
+	clog.DBCtxRequest(3, string(a.analyticsRole()), queryText)
 	start := time.Now()
-	tableText, err := dbctxTableText(role, queryText)
+	tableText, err := dbctxTableText(queryText)
 	clog.DBCtxResponse(3, time.Since(start), tableText, err)
 	if err != nil {
 		clog.SchemaSourceDegraded(err.Error())

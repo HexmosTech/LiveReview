@@ -105,8 +105,8 @@ func TestAnalyticsPipelineProducesExactCounts(t *testing.T) {
 	orgID := orgWithCompletedReviews(t, db)
 	agent.mcpSession.OrgID = orgID
 
-	countSQL := `SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS m FROM reviews WHERE status = 'completed' GROUP BY 1) t`
-	dataSQL := `SELECT to_char(date_trunc('month', completed_at), 'YYYY-MM') AS month, count(*) AS review_count FROM reviews WHERE status = 'completed' GROUP BY 1 ORDER BY 1`
+	countSQL := fmt.Sprintf(`SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS m FROM reviews WHERE status = 'completed' AND org_id = %d GROUP BY 1) t`, orgID)
+	dataSQL := fmt.Sprintf(`SELECT to_char(date_trunc('month', completed_at), 'YYYY-MM') AS month, count(*) AS review_count FROM reviews WHERE status = 'completed' AND org_id = %d GROUP BY 1 ORDER BY 1`, orgID)
 
 	agent.provider = &scriptedProvider{replies: []string{
 		fmt.Sprintf(`{"analytics_plan":[{"id":"r1","question":"reviews per month","count_sql":%q}]}`, countSQL),
@@ -186,7 +186,7 @@ func TestAnalyticsPipelineZeroRowsShortCircuits(t *testing.T) {
 	agent.mcpSession.OrgID = orgID
 
 	// A predicate that cannot match anything.
-	countSQL := `SELECT count(*) AS n FROM reviews WHERE status = 'completed' AND completed_at < '1971-01-01'`
+	countSQL := fmt.Sprintf(`SELECT count(*) AS n FROM reviews WHERE status = 'completed' AND completed_at < '1971-01-01' AND org_id = %d`, orgID)
 	prov := &scriptedProvider{replies: []string{
 		`{"response_type":"no_data","text":"TestOrg completed no reviews in that period."}`,
 	}}
@@ -253,8 +253,8 @@ func TestAnalyticsPipelineProducesLayeredChart(t *testing.T) {
 	orgID := orgWithCompletedReviews(t, db)
 	agent.mcpSession.OrgID = orgID
 
-	countSQL := `SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS m FROM reviews WHERE status = 'completed' GROUP BY 1) t`
-	dataSQL := `SELECT to_char(date_trunc('month', completed_at), 'YYYY-MM') AS month, count(*) AS review_count, count(*) AS rolling_avg FROM reviews WHERE status = 'completed' GROUP BY 1 ORDER BY 1`
+	countSQL := fmt.Sprintf(`SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS m FROM reviews WHERE status = 'completed' AND org_id = %d GROUP BY 1) t`, orgID)
+	dataSQL := fmt.Sprintf(`SELECT to_char(date_trunc('month', completed_at), 'YYYY-MM') AS month, count(*) AS review_count, count(*) AS rolling_avg FROM reviews WHERE status = 'completed' AND org_id = %d GROUP BY 1 ORDER BY 1`, orgID)
 
 	agent.provider = &scriptedProvider{replies: []string{
 		fmt.Sprintf(`{"response_type":"chart","title":"Reviews by Month","description":"d","query":"q","data_sql":%q,
@@ -298,6 +298,58 @@ func TestAnalyticsPipelineProducesLayeredChart(t *testing.T) {
 	}
 }
 
+// A faceted chart (one small panel per author) must assemble a "facet"+"spec"
+// pair in the rendered spec rather than a flat mark/encoding pair, and
+// survive normalization the same way a flat or layered chart does.
+func TestAnalyticsPipelineProducesFacetedChart(t *testing.T) {
+	agent, _, db := testAgent(t, 0)
+	orgID := orgWithCompletedReviews(t, db)
+	agent.mcpSession.OrgID = orgID
+
+	countSQL := fmt.Sprintf(`SELECT count(DISTINCT author_username) AS n FROM reviews WHERE status = 'completed' AND org_id = %d`, orgID)
+	dataSQL := fmt.Sprintf(`SELECT author_username, repository, count(*) AS n FROM reviews WHERE status = 'completed' AND org_id = %d GROUP BY 1, 2`, orgID)
+
+	agent.provider = &scriptedProvider{replies: []string{
+		fmt.Sprintf(`{"response_type":"chart","title":"Reviews by Repository, per Author","description":"d","query":"q","data_sql":%q,
+			"facet":{"field":"author_username","type":"nominal","columns":4},
+			"spec":{"mark":"bar","encoding":{"x":{"field":"repository","type":"nominal"},"y":{"field":"n","type":"quantitative"}}}}`, dataSQL),
+	}}
+
+	clog := logging.NewChatTurnLogger("test", "livi")
+	plan := []PlanEntry{{ID: "r1", Question: "reviews by repository, one panel per author", CountSQL: countSQL}}
+
+	text, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "reviews by repository, one panel per author", clog)
+	if err != nil {
+		t.Fatalf("pipeline failed: %v", err)
+	}
+	if len(artifacts) != 0 {
+		t.Fatalf("expected a chart, got %d artifacts", len(artifacts))
+	}
+
+	var payload struct {
+		Reports []struct {
+			Spec struct {
+				Mark  string         `json:"mark"`
+				Facet map[string]any `json:"facet"`
+				Spec  map[string]any `json:"spec"`
+			} `json:"spec"`
+		} `json:"reports"`
+	}
+	if err := json.Unmarshal([]byte(text), &payload); err != nil {
+		t.Fatalf("response is not the expected reports envelope: %v\n%s", err, text)
+	}
+	if len(payload.Reports) != 1 {
+		t.Fatalf("expected 1 report, got %d", len(payload.Reports))
+	}
+	spec := payload.Reports[0].Spec
+	if spec.Mark != "" {
+		t.Fatalf("faceted chart should not carry a top-level mark, got %q", spec.Mark)
+	}
+	if spec.Facet == nil || spec.Spec == nil {
+		t.Fatalf("expected both facet and spec in the rendered chart, got facet=%v spec=%v", spec.Facet, spec.Spec)
+	}
+}
+
 // A layer referencing a field the query never selects must degrade to CSV,
 // the same safety net a flat chart already has.
 func TestAnalyticsPipelineLayeredChartMissingFieldFallsBackToCSV(t *testing.T) {
@@ -305,8 +357,8 @@ func TestAnalyticsPipelineLayeredChartMissingFieldFallsBackToCSV(t *testing.T) {
 	orgID := orgWithCompletedReviews(t, db)
 	agent.mcpSession.OrgID = orgID
 
-	countSQL := `SELECT count(*) AS n FROM reviews WHERE status = 'completed'`
-	dataSQL := `SELECT id, repository, status FROM reviews WHERE status = 'completed' ORDER BY id LIMIT 5`
+	countSQL := fmt.Sprintf(`SELECT count(*) AS n FROM reviews WHERE status = 'completed' AND org_id = %d`, orgID)
+	dataSQL := fmt.Sprintf(`SELECT id, repository, status FROM reviews WHERE status = 'completed' AND org_id = %d ORDER BY id LIMIT 5`, orgID)
 
 	agent.provider = &scriptedProvider{replies: []string{
 		fmt.Sprintf(`{"response_type":"chart","title":"Bad layer","description":"d","query":"q","data_sql":%q,
@@ -334,8 +386,8 @@ func TestAnalyticsPipelineFinalizeRepairsAfterBadJSON(t *testing.T) {
 	orgID := orgWithCompletedReviews(t, db)
 	agent.mcpSession.OrgID = orgID
 
-	countSQL := `SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS m FROM reviews WHERE status = 'completed' GROUP BY 1) t`
-	dataSQL := `SELECT to_char(date_trunc('month', completed_at), 'YYYY-MM') AS month, count(*) AS review_count FROM reviews WHERE status = 'completed' GROUP BY 1 ORDER BY 1`
+	countSQL := fmt.Sprintf(`SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS m FROM reviews WHERE status = 'completed' AND org_id = %d GROUP BY 1) t`, orgID)
+	dataSQL := fmt.Sprintf(`SELECT to_char(date_trunc('month', completed_at), 'YYYY-MM') AS month, count(*) AS review_count FROM reviews WHERE status = 'completed' AND org_id = %d GROUP BY 1 ORDER BY 1`, orgID)
 
 	agent.provider = &scriptedProvider{replies: []string{
 		// attempt 1: cut off mid-object, as if the model's output budget ran out.
@@ -366,7 +418,7 @@ func TestAnalyticsPipelineFinalizeGivesUpAfterRepairFails(t *testing.T) {
 	orgID := orgWithCompletedReviews(t, db)
 	agent.mcpSession.OrgID = orgID
 
-	countSQL := `SELECT count(*) AS n FROM reviews WHERE status = 'completed'`
+	countSQL := fmt.Sprintf(`SELECT count(*) AS n FROM reviews WHERE status = 'completed' AND org_id = %d`, orgID)
 	agent.provider = &scriptedProvider{replies: []string{
 		`not json at all`,
 		`still not json`,
@@ -390,8 +442,8 @@ func TestAnalyticsPipelineProducesCSV(t *testing.T) {
 	orgID := orgWithCompletedReviews(t, db)
 	agent.mcpSession.OrgID = orgID
 
-	countSQL := `SELECT count(*) AS n FROM reviews WHERE status = 'completed'`
-	dataSQL := `SELECT id, repository, status FROM reviews WHERE status = 'completed' ORDER BY id LIMIT 5`
+	countSQL := fmt.Sprintf(`SELECT count(*) AS n FROM reviews WHERE status = 'completed' AND org_id = %d`, orgID)
+	dataSQL := fmt.Sprintf(`SELECT id, repository, status FROM reviews WHERE status = 'completed' AND org_id = %d ORDER BY id LIMIT 5`, orgID)
 
 	agent.provider = &scriptedProvider{replies: []string{
 		fmt.Sprintf(`{"response_type":"csv","title":"Completed reviews","description":"d","query":"q","data_sql":%q,"csv_filename":"completed.csv"}`, dataSQL),
@@ -400,12 +452,20 @@ func TestAnalyticsPipelineProducesCSV(t *testing.T) {
 	clog := logging.NewChatTurnLogger("test", "livi")
 	plan := []PlanEntry{{ID: "r1", Question: "export completed reviews", CountSQL: countSQL}}
 
-	_, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "export them", clog)
+	text, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "export them", clog)
 	if err != nil {
 		t.Fatalf("pipeline failed: %v", err)
 	}
 	if len(artifacts) != 1 {
 		t.Fatalf("expected 1 CSV artifact, got %d", len(artifacts))
+	}
+	// A CSV-only turn (no chart, no notes) must not also claim nothing was
+	// found - the file itself, delivered separately, IS the answer. Regression
+	// guard for the exact contradiction seen in production: a correctly
+	// attached CSV alongside the chat text "I could not find anything to
+	// answer that."
+	if text != "" {
+		t.Fatalf("expected empty response text alongside the CSV artifact, got %q", text)
 	}
 	art := artifacts[0]
 	if art.Filename != "completed.csv" {

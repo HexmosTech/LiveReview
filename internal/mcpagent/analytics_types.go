@@ -59,7 +59,16 @@ type FinalizePlan struct {
 	// line, a bar plus a cumulative-percent curve). Each element is expected
 	// to carry its own complete "mark"/"encoding" pair - layers don't inherit
 	// fields from each other in this protocol.
-	Layer       json.RawMessage `json:"layer,omitempty"`
+	Layer json.RawMessage `json:"layer,omitempty"`
+	// Facet + Spec are a third alternative to Mark/Encoding (and mutually
+	// exclusive with Layer): Facet is the faceting channel ({"field": ...,
+	// "type": ..., "columns": N}), Spec is the single-panel mark/encoding
+	// repeated once per facet value (a small-multiples/trellis chart - one
+	// mini chart per contributor, per repository, ...). vlrender already
+	// recurses into "facet" when sanitizing a spec; this is what lets the
+	// model actually ask for one.
+	Facet       json.RawMessage `json:"facet,omitempty"`
+	Spec        json.RawMessage `json:"spec,omitempty"`
 	CSVFilename string          `json:"csv_filename"`
 	Text        string          `json:"text"`
 }
@@ -171,7 +180,7 @@ func (p *FinalizePlan) encodingFields() []string {
 			}
 		}
 	}
-	for _, raw := range [][]byte{p.Encoding, p.Layer} {
+	for _, raw := range [][]byte{p.Encoding, p.Layer, p.Facet, p.Spec} {
 		if len(raw) == 0 {
 			continue
 		}

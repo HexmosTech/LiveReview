@@ -158,13 +158,10 @@ func schemaIndex() *dbctx.Index {
 	return schemaIdx
 }
 
-// orgScopedColumns returns table name -> column names for every table dbctx
-// knows about that has a direct org_id column, feeding
-// livisql.CatalogFor's auto-generated shadows (see AutoOrgScopedShadow).
-// Returns nil if the index isn't ready, in which case CatalogFor falls back
-// to just its two hand-written specials (orgs, users) - degraded, but never
-// zero tables.
-func orgScopedColumns() map[string][]string {
+// allTableNames returns every table name dbctx knows about, feeding
+// livisql.CatalogFor (which then subtracts deniedTables). Returns nil if the
+// index isn't ready, in which case CatalogFor returns an empty catalog.
+func allTableNames() []string {
 	idx := schemaIndex()
 	if idx == nil {
 		return nil
@@ -173,23 +170,9 @@ func orgScopedColumns() map[string][]string {
 	if err != nil {
 		return nil
 	}
-	out := make(map[string][]string, len(tables))
+	out := make([]string, 0, len(tables))
 	for _, t := range tables {
-		detail, err := idx.TableDetail(t.Name)
-		if err != nil || detail == nil {
-			continue
-		}
-		hasOrgID := false
-		cols := make([]string, 0, len(detail.Columns))
-		for _, c := range detail.Columns {
-			cols = append(cols, c.Name)
-			if c.Name == "org_id" {
-				hasOrgID = true
-			}
-		}
-		if hasOrgID {
-			out[t.Name] = cols
-		}
+		out = append(out, t.Name)
 	}
 	return out
 }
