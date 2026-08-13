@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button, Input, Icons } from '../../components/UIPrimitives';
 import apiClient from '../../api/apiClient';
-import toast from 'react-hot-toast';
+import { notify } from '../../utils/notify';
 
 interface SMTPSettings {
     host: string;
@@ -39,7 +39,7 @@ const SMTPSettingsTab: React.FC = () => {
             }
         } catch (error) {
             console.error('Failed to fetch SMTP settings:', error);
-            toast.error('Failed to load SMTP settings');
+            notify.error('Failed to load SMTP settings');
         } finally {
             setIsLoading(false);
         }
@@ -53,15 +53,15 @@ const SMTPSettingsTab: React.FC = () => {
 
     const handleSave = async () => {
         if (!settings.sender || !isValidEmail(settings.sender)) {
-            toast.error('Please enter a valid Sender Email address');
+            notify.error('Please enter a valid Sender Email address');
             return;
         }
         setIsSaving(true);
         try {
             await apiClient.put('/api/v1/admin/settings/smtp', settings);
-            toast.success('SMTP settings saved successfully!');
+            notify.success('SMTP settings saved successfully!');
         } catch (error: any) {
-            toast.error(error?.message || 'Failed to save SMTP settings');
+            notify.error(error?.message || 'Failed to save SMTP settings');
         } finally {
             setIsSaving(false);
         }
@@ -69,15 +69,15 @@ const SMTPSettingsTab: React.FC = () => {
 
     const handleTest = async () => {
         if (!settings.sender || !isValidEmail(settings.sender)) {
-            toast.error('Please enter a valid Sender Email address');
+            notify.error('Please enter a valid Sender Email address');
             return;
         }
         setIsTesting(true);
         try {
             const response = await apiClient.post<{message: string}>('/api/v1/admin/settings/smtp/test', settings);
-            toast.success(response?.message || 'Test email sent successfully! Please check your inbox.');
+            notify.success(response?.message || 'Test email sent successfully! Please check your inbox.');
         } catch (error: any) {
-            toast.error(error?.message || 'Failed to send test email');
+            notify.error(error?.message || 'Failed to send test email');
         } finally {
             setIsTesting(false);
         }

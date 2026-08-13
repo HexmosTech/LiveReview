@@ -16,11 +16,16 @@ import { QuotaExhaustedBanner } from './QuotaExhaustedBanner';
 import { QuotaWarningBanner } from './QuotaWarningBanner';
 import { handleUserLoginNotification } from '../../utils/userNotifications';
 import { getApiUrl } from '../../utils/apiUrl';
-import { useAppSelector } from '../../store/configureStore';
+import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { isCloudMode } from '../../utils/deploymentMode';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import LicenseUpgradeDialog from '../License/LicenseUpgradeDialog';
 import apiClient from '../../api/apiClient';
+import {
+    add as addNotification,
+    dismiss as dismissNotification,
+    dismissPermanently as dismissNotificationPermanently,
+} from '../../store/Notifications/slice';
 
 type DashboardBillingStatusResponse = {
     billing: {
@@ -77,47 +82,8 @@ type DashboardBillingInsight = {
     actionRequiredType: string;
 };
 
-const getConnectorWarningDismissStorageKey = (userId?: number | string): string => {
-    return userId ? `lr_hidden_connector_warnings_${userId}` : 'lr_hidden_connector_warnings';
-};
-
-const getHideStepperStorageKey = (userId?: number | string): string => {
-    return userId ? `lr_hide_get_started_${userId}` : 'lr_hide_get_started';
-};
-
-const parseDismissedConnectorIds = (rawValue: string | null): Set<number> => {
-    if (!rawValue) return new Set<number>();
-
-    try {
-        const parsed = JSON.parse(rawValue);
-        if (!Array.isArray(parsed)) return new Set<number>();
-
-        const validIds = parsed
-            .map((item) => Number(item))
-            .filter((item) => Number.isInteger(item) && item > 0);
-
-        return new Set<number>(validIds);
-    } catch {
-        return new Set<number>();
-    }
-};
-
-const loadDismissedConnectorIds = (storageKey: string): Set<number> => {
-    try {
-        return parseDismissedConnectorIds(localStorage.getItem(storageKey));
-    } catch {
-        return new Set<number>();
-    }
-};
-
-const saveDismissedConnectorIds = (storageKey: string, connectorIds: Set<number>): void => {
-    try {
-        const sortedIds = Array.from(connectorIds).sort((a, b) => a - b);
-        localStorage.setItem(storageKey, JSON.stringify(sortedIds));
-    } catch {
-        // no-op: keep UI functional when localStorage is unavailable
-    }
-};
+const connectorNotificationId = (connectorId: number): string => `connector-${connectorId}`;
+const ONBOARDING_STEPPER_ID = 'onboarding-stepper';
 
 export const Dashboard: React.FC = () => {
     const navigate = useNavigate();
@@ -130,58 +96,24 @@ export const Dashboard: React.FC = () => {
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
-    const [hideStepper, setHideStepper] = useState<boolean>(() => {
-        // Scope localStorage to user ID so each user has their own onboarding state
-        try {
-            return localStorage.getItem(getHideStepperStorageKey(user?.id)) === '1';
-        } catch {
-            return false;
-        }
-    });
     const [notificationSent, setNotificationSent] = useState(false);
-    // Track dismissed connector progress notifications for this tab session
-    const [dismissedConnectors, setDismissedConnectors] = useState<Set<number>>(new Set());
     const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
-    // Track connector warnings explicitly hidden by the user across page reloads
-    const [persistedDismissedConnectors, setPersistedDismissedConnectors] = useState<Set<number>>(new Set());
     const [billingInsight, setBillingInsight] = useState<DashboardBillingInsight | null>(null);
+    const dispatch = useAppDispatch();
+    const notificationItems = useAppSelector(state => state.Notifications.items);
+    const hideStepper = !!notificationItems.find(n => n.id === ONBOARDING_STEPPER_ID)?.dismissed;
 
-    useEffect(() => {
-        const storageKey = getConnectorWarningDismissStorageKey(user?.id);
-        setPersistedDismissedConnectors(loadDismissedConnectorIds(storageKey));
-    }, [user?.id]);
-
-    // Re-check once the authenticated user has loaded: the initial mount can run
-    // before Auth.user is hydrated, so the very first read may check the wrong
-    // (unscoped) key while the dismiss handler below writes the per-user key.
-    useEffect(() => {
-        if (!user?.id) return;
-        try {
-            setHideStepper(localStorage.getItem(getHideStepperStorageKey(user.id)) === '1');
-        } catch { /* ignore */ }
-    }, [user?.id]);
+    const isConnectorDismissed = (connectorId: number): boolean => {
+        const item = notificationItems.find(n => n.id === connectorNotificationId(connectorId));
+        return !!item?.dismissed;
+    };
 
     const dismissConnectorForSession = (connectorId: number): void => {
-        setDismissedConnectors((prev) => {
-            if (prev.has(connectorId)) return prev;
-
-            const updated = new Set(prev);
-            updated.add(connectorId);
-            return updated;
-        });
+        dispatch(dismissNotification(connectorNotificationId(connectorId)));
     };
 
     const dismissConnectorPermanently = (connectorId: number): void => {
-        dismissConnectorForSession(connectorId);
-
-        setPersistedDismissedConnectors((prev) => {
-            if (prev.has(connectorId)) return prev;
-
-            const updated = new Set(prev);
-            updated.add(connectorId);
-            saveDismissedConnectorIds(getConnectorWarningDismissStorageKey(user?.id), updated);
-            return updated;
-        });
+        dispatch(dismissNotificationPermanently(connectorNotificationId(connectorId)));
     };
 
     // Handle user notification on first dashboard load
@@ -234,6 +166,22 @@ export const Dashboard: React.FC = () => {
             document.removeEventListener('visibilitychange', onVisibility);
         };
     }, []);
+
+    // Register the onboarding stepper as a (session-visible, permanently
+    // dismissible) notification once dashboard data has loaded — deferring
+    // past the synchronous mount phase gives ToastBridge's hydrate() time to
+    // apply any prior "don't show again" dismissal before this first add().
+    useEffect(() => {
+        if (!dashboardData) return;
+        dispatch(addNotification({
+            dedupeKey: ONBOARDING_STEPPER_ID,
+            severity: 'info',
+            message: 'Complete your onboarding checklist to get the most out of LiveReview.',
+            source: 'onboarding',
+            toast: false,
+            persistDismiss: false,
+        }));
+    }, [dashboardData, dispatch]);
 
     useEffect(() => {
 
@@ -324,7 +272,7 @@ export const Dashboard: React.FC = () => {
 
     // Get connectors that need setup attention (filter out dismissed ones)
     const connectorsNeedingSetup = (dashboardData?.connector_setup_progress || []).filter(
-        c => !dismissedConnectors.has(c.connector_id) && !persistedDismissedConnectors.has(c.connector_id)
+        c => !isConnectorDismissed(c.connector_id)
     );
 
     // Helper to get phase variant for Alert
@@ -354,6 +302,30 @@ export const Dashboard: React.FC = () => {
                 return `${connectorName} (${provider})`;
         }
     };
+
+    // Mirror connector setup progress into the Notifications store — gives the
+    // dismiss actions above an id to operate on, and surfaces setup issues in
+    // the global tray even after the banner itself is dismissed from the dashboard.
+    useEffect(() => {
+        const progress = dashboardData?.connector_setup_progress || [];
+        progress.forEach((connector) => {
+            dispatch(addNotification({
+                dedupeKey: connectorNotificationId(connector.connector_id),
+                severity: getPhaseVariant(connector.phase),
+                message: getPhaseMessage(
+                    connector.phase,
+                    connector.connector_name,
+                    connector.provider,
+                    connector.total_projects,
+                    connector.connected_projects
+                ),
+                source: 'connector',
+                toast: false,
+                persistDismiss: false,
+            }));
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dashboardData?.connector_setup_progress, dispatch]);
 
     const handleNewReviewClick = () => {
         if (isFreePlan) {
@@ -520,12 +492,7 @@ export const Dashboard: React.FC = () => {
                         isFreePlan={isFreePlan}
                         onUpgrade={() => setShowUpgradeDialog(true)}
                         forceOpen={forceShowCli}
-                        onDismiss={() => {
-                            setHideStepper(true);
-                            try {
-                                localStorage.setItem(getHideStepperStorageKey(user?.id), '1');
-                            } catch { }
-                        }}
+                        onDismiss={() => dispatch(dismissNotificationPermanently(ONBOARDING_STEPPER_ID))}
                     />
                 )}
 

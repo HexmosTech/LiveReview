@@ -9,7 +9,7 @@ import {
   useReactTable,
   getCoreRowModel,
 } from '@tanstack/react-table';
-import toast from 'react-hot-toast';
+import { notify } from '../../utils/notify';
 import { LuSearch } from 'react-icons/lu';
 import { SiGitlab } from 'react-icons/si';
 import { Button, Icons, Tooltip, Input, MultiSelectPanel } from '../../components/UIPrimitives';
@@ -236,7 +236,7 @@ const Repositories: React.FC = () => {
 
   const handleSyncAllConnectors = async () => {
     if (connectors.length === 0) {
-      toast.error('No connectors found. Connect a Git provider first.');
+      notify.error('No connectors found. Connect a Git provider first.');
       return;
     }
     setSyncingAll(true);
@@ -246,9 +246,9 @@ const Repositories: React.FC = () => {
       );
       const failed = results.filter((r) => r.status === 'rejected').length;
       if (failed === 0) {
-        toast.success(`Repository sync started for ${connectors.length} connector(s). New repositories and PRs will appear shortly.`);
+        notify.success(`Repository sync started for ${connectors.length} connector(s). New repositories and PRs will appear shortly.`);
       } else {
-        toast.error(`Sync started, but failed for ${failed} of ${connectors.length} connector(s).`);
+        notify.error(`Sync started, but failed for ${failed} of ${connectors.length} connector(s).`);
       }
       // Give the backfill a moment to at least upsert repositories (PR data
       // arrives asynchronously via the job queue) before refreshing the list.

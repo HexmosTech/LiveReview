@@ -3,13 +3,19 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { Provider } from 'react-redux';
 import configureStore from 'redux-mock-store';
+import { thunk } from 'redux-thunk';
 import LicenseStatusBar from './LicenseStatusBar';
 
 jest.mock('../../api/system', () => ({
   getSystemInfo: jest.fn(() => Promise.resolve({ deployment_mode: 'production' }))
 }));
 
-const mockStore = configureStore([]);
+// triggerLicenseRefresh is a createAsyncThunk — needs thunk middleware to actually
+// dispatch its pending action instead of pushing the raw thunk function into the log.
+// redux-thunk v3's bundled types target a newer `redux` (UnknownAction) than
+// @types/redux-mock-store's pinned Middleware type (AnyAction) — the `any` cast
+// is a test-only shim for that version skew, not a real behavioral difference.
+const mockStore = configureStore([thunk as any]);
 
 function setup(stateOverrides: any = {}) {
   const store = mockStore({
@@ -32,13 +38,13 @@ describe('LicenseStatusBar', () => {
     const { onOpenModal } = setup();
     expect(screen.getByTestId('license-status-bar')).toBeInTheDocument();
     expect(screen.getByText(/Missing/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByText(/Enter License/i));
+    fireEvent.click(screen.getByText(/Have a license/i));
     expect(onOpenModal).toHaveBeenCalled();
   });
 
   it('renders active state and can refresh', () => {
     const { store } = setup({ status: 'active', expiresAt: new Date(Date.now()+86400000).toISOString() });
-    expect(screen.getByText(/Active/)).toBeInTheDocument();
+    expect(screen.getByText(/Licensed/)).toBeInTheDocument();
     const refreshBtn = screen.getByRole('button', { name: /Refresh license/i });
     fireEvent.click(refreshBtn);
     const actions = store.getActions().map(a => a.type);

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import toast from 'react-hot-toast';
+import { notify } from '../../utils/notify';
 import { useAppSelector, useAppDispatch } from '../../store/configureStore';
 import { fetchLicenseStatus } from '../../store/License/slice';
 import {
@@ -85,10 +85,10 @@ const LicenseSeatAssignment: React.FC = () => {
         try {
             setProcessing(userId);
             await assignSeat(userId);
-            toast.success('Seat assigned successfully');
+            notify.success('Seat assigned successfully');
             await loadData();
         } catch (err: any) {
-            toast.error(err.message || 'Failed to assign seat');
+            notify.error(err.message || 'Failed to assign seat');
         } finally {
             setProcessing(null);
         }
@@ -102,10 +102,10 @@ const LicenseSeatAssignment: React.FC = () => {
         try {
             setProcessing(userId);
             await revokeSeat(userId);
-            toast.success('Seat revoked successfully');
+            notify.success('Seat revoked successfully');
             await loadData();
         } catch (err: any) {
-            toast.error(err.message || 'Failed to revoke seat');
+            notify.error(err.message || 'Failed to revoke seat');
         } finally {
             setProcessing(null);
         }
@@ -113,7 +113,7 @@ const LicenseSeatAssignment: React.FC = () => {
 
     const handleBulkAssign = async () => {
         if (selectedUnassigned.size === 0) {
-            toast.error('No users selected');
+            notify.error('No users selected');
             return;
         }
 
@@ -123,7 +123,7 @@ const LicenseSeatAssignment: React.FC = () => {
         if (!license.unlimited && license.seatCount != null) {
             const available = license.seatCount - (license.assignedSeats || 0);
             if (userIds.length > available) {
-                toast.error(`Only ${available} seat(s) available, but ${userIds.length} selected`);
+                notify.error(`Only ${available} seat(s) available, but ${userIds.length} selected`);
                 return;
             }
         }
@@ -131,11 +131,11 @@ const LicenseSeatAssignment: React.FC = () => {
         try {
             setBulkProcessing(true);
             const result = await bulkAssignSeats(userIds);
-            toast.success(`${result.assigned} seat(s) assigned successfully`);
+            notify.success(`${result.assigned} seat(s) assigned successfully`);
             setSelectedUnassigned(new Set());
             await loadData();
         } catch (err: any) {
-            toast.error(err.message || 'Failed to assign seats');
+            notify.error(err.message || 'Failed to assign seats');
         } finally {
             setBulkProcessing(false);
         }
@@ -143,7 +143,7 @@ const LicenseSeatAssignment: React.FC = () => {
 
     const handleBulkRevoke = async () => {
         if (selectedAssigned.size === 0) {
-            toast.error('No users selected');
+            notify.error('No users selected');
             return;
         }
 
@@ -154,11 +154,11 @@ const LicenseSeatAssignment: React.FC = () => {
         try {
             setBulkProcessing(true);
             const result = await bulkRevokeSeats(Array.from(selectedAssigned));
-            toast.success(`${result.revoked} seat(s) revoked successfully`);
+            notify.success(`${result.revoked} seat(s) revoked successfully`);
             setSelectedAssigned(new Set());
             await loadData();
         } catch (err: any) {
-            toast.error(err.message || 'Failed to revoke seats');
+            notify.error(err.message || 'Failed to revoke seats');
         } finally {
             setBulkProcessing(false);
         }

@@ -7,10 +7,12 @@ import { useSystemInfo } from '../../hooks/useSystemInfo';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { isCloudMode } from '../../utils/deploymentMode';
 import apiClient from '../../api/apiClient';
-import { useAppSelector } from '../../store/configureStore';
+import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { buildMegaMenuSections, filterMegaMenuSection, MegaMenuContext } from './megaMenuData';
 import { NavMegaMenu } from './NavMegaMenu';
 import { shortcutKeyLabel } from '../../utils/platform';
+import { NotificationBell } from '../Notifications/NotificationBell';
+import { add as addNotification, dismiss as dismissNotification } from '../../store/Notifications/slice';
 
 type NavbarBillingStatusResponse = {
     billing: {
@@ -135,6 +137,7 @@ const formatTrialEndsAt = (value?: string | null): string => {
 
 const BillingChip: React.FC = () => {
     const navigate = useNavigate();
+    const dispatch = useAppDispatch();
     const { currentOrg, isSuperAdmin } = useOrgContext();
     const license = useAppSelector((state) => state.License);
     const [loading, setLoading] = useState(false);
@@ -318,6 +321,47 @@ const BillingChip: React.FC = () => {
             }
         };
     }, [currentOrg?.id, currentOrg?.plan_type, license.loadedOnce, license.status]);
+
+    // Mirror the quota state into the global notification tray/toast — the
+    // chip itself only surfaces this on hover, so this gives users a proactive
+    // nudge the first time they cross into warning/exhausted/blocked territory.
+    useEffect(() => {
+        if (!chip) return;
+        const level: 'blocked' | 'exhausted' | 'warning' | null = chip.blocked
+            ? 'blocked'
+            : chip.usagePct >= 100
+                ? 'exhausted'
+                : chip.usagePct >= 90
+                    ? 'warning'
+                    : null;
+
+        (['blocked', 'exhausted', 'warning'] as const).forEach((l) => {
+            if (l !== level) dispatch(dismissNotification(`quota-${l}`));
+        });
+        if (!level) return;
+
+        const locLimitText = chip.locLimit > 0 ? chip.locLimit.toLocaleString() : 'N/A';
+        const messages: Record<'blocked' | 'exhausted' | 'warning', string> = {
+            blocked: `Monthly LOC quota exceeded (${chip.locUsed.toLocaleString()} / ${locLimitText} LOC). Reviews are blocked until quota resets or you upgrade.`,
+            exhausted: `You've used all ${locLimitText} LOC this month. Upgrade to continue reviewing without interruption.`,
+            warning: `You've used ${chip.locUsed.toLocaleString()} of ${locLimitText} LOC (${chip.usagePct}%) this month.`,
+        };
+        const titles: Record<'blocked' | 'exhausted' | 'warning', string> = {
+            blocked: 'Quota Exceeded',
+            exhausted: 'Monthly Limit Reached',
+            warning: 'LOC Usage Nearing Limit',
+        };
+
+        dispatch(addNotification({
+            dedupeKey: `quota-${level}`,
+            severity: level === 'warning' ? 'warning' : 'error',
+            title: titles[level],
+            message: messages[level],
+            source: 'quota',
+            toast: true,
+            persistDismiss: false,
+        }));
+    }, [chip, dispatch]);
 
     const openPopup = () => {
         if (closeTimerRef.current) {
@@ -843,6 +887,8 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
 
                     <BillingChip />
 
+                    <NotificationBell />
+
                     {/* Logout button */}
                     {onLogout && (
                         <Button
@@ -871,6 +917,9 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                     </div>
                     <div className="mb-3">
                         <BillingChip />
+                    </div>
+                    <div className="mb-3">
+                        <NotificationBell />
                     </div>
 
                     {navLinks.map(link => (

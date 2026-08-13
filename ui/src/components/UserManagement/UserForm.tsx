@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import toast from 'react-hot-toast';
+import { notify } from '../../utils/notify';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import {
     createOrgUser,
@@ -175,14 +175,14 @@ const UserForm: React.FC = () => {
 
     const processBulkFile = async (file: File) => {
         if (!currentOrgId) {
-            toast.error('No organization selected.');
+            notify.error('No organization selected.');
             return;
         }
 
         const text = await file.text();
         const parsedRows = parseUserInviteCsv(text);
         if (parsedRows.length === 0) {
-            toast.error('No valid rows found in that CSV.');
+            notify.error('No valid rows found in that CSV.');
             return;
         }
 
@@ -222,7 +222,7 @@ const UserForm: React.FC = () => {
             );
         } catch (error) {
             console.error('Bulk user check failed', error);
-            toast.error(
+            notify.error(
                 'Failed to verify users against your organization. Please try again.'
             );
             setBulkFile(null);
@@ -332,7 +332,7 @@ const UserForm: React.FC = () => {
                     : 'No changes made';
 
             if (counts.error > 0) {
-                toast.error(
+                notify.error(
                     `${summary}, ${counts.error} failed — see table for details.`
                 );
                 setBulkSubmitted(true);
@@ -354,13 +354,13 @@ const UserForm: React.FC = () => {
                 );
                 setBulkCompletedRows(completed);
             } else {
-                toast.success(summary);
+                notify.success(summary);
                 setBulkSubmitted(true);
             }
             dispatch(loadUserOrganizations());
         } catch (error) {
             console.error('Bulk invite submit failed', error);
-            toast.error('Failed to submit bulk invite. Please try again.');
+            notify.error('Failed to submit bulk invite. Please try again.');
         } finally {
             setBulkSubmitting(false);
         }
@@ -431,7 +431,7 @@ const UserForm: React.FC = () => {
                     });
                 })
                 .catch((err) => {
-                    toast.error(`Failed to load user: ${err.message}`);
+                    notify.error(`Failed to load user: ${err.message}`);
                     navigate('/settings#users');
                 })
                 .finally(() => setLoading(false));
@@ -472,7 +472,7 @@ const UserForm: React.FC = () => {
 
     const onSubmit = async (data: UserFormData) => {
         if (!currentOrgId) {
-            toast.error('No organization selected.');
+            notify.error('No organization selected.');
             return;
         }
 
@@ -491,13 +491,13 @@ const UserForm: React.FC = () => {
                     user.id.toString(),
                     payload
                 );
-                toast.success(
+                notify.success(
                     `User ${updatedUser.email} updated successfully!`
                 );
                 dispatch(loadUserOrganizations());
             } else {
                 if (!existsGlobally && !data.password) {
-                    toast.error('Password is required for new users.');
+                    notify.error('Password is required for new users.');
                     return;
                 }
                 const newUser = await createOrgUser(currentOrgId.toString(), {
@@ -507,7 +507,7 @@ const UserForm: React.FC = () => {
                     role_id: roleNameToId(data.role),
                     password: data.password,
                 });
-                toast.success(`User ${newUser.email} invited successfully!`);
+                notify.success(`User ${newUser.email} invited successfully!`);
                 setCreatedUser(newUser);
                 return;
             }
@@ -521,7 +521,7 @@ const UserForm: React.FC = () => {
                     .replace(/[\r\n]+/g, ' ')
                     .trim()
                     .slice(0, 200) || 'An unknown error occurred.';
-            toast.error(['Failed to', action, 'user:', errorMessage].join(' '));
+            notify.error(['Failed to', action, 'user:', errorMessage].join(' '));
             console.error('User operation error', { action, error });
         }
     };
