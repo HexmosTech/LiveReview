@@ -597,6 +597,18 @@ func maybeAddRollingAverageLayer(mark string, encoding json.RawMessage, rowCount
 		}
 	}
 
+	// Every layer's y channel gets the exact same explicit title
+	// (baseLabel), instead of each layer defaulting to a title derived from
+	// its own field name ("Reviews Completed" vs "rolling_avg" vs
+	// "period_avg"). All three layers share one y-axis/scale (Vega-Lite's
+	// default resolve), and when layers sharing an axis carry different
+	// titles, Vega-Lite concatenates them into one garbled label instead of
+	// picking one - identical titles on every layer sidesteps that instead
+	// of fighting it. An earlier version of this used "axis": null on the
+	// second/third layers to suppress the title collision, which turned out
+	// to suppress the ENTIRE shared axis (no tick labels at all) rather
+	// than just that layer's title - do not reintroduce that.
+	channels["y"] = mustMarshalJSON(map[string]any{"field": y.Field, "type": "quantitative", "title": baseLabel})
 	channels["color"] = mustMarshalJSON(colorFor(baseLabel))
 	baseEncoding, err := json.Marshal(channels)
 	if err != nil {
@@ -613,17 +625,15 @@ func maybeAddRollingAverageLayer(mark string, encoding json.RawMessage, rowCount
 			}},
 			"mark": map[string]any{"type": "line", "strokeWidth": 2.5},
 			"encoding": map[string]any{
-				"x": xRaw,
-				// axis: null suppresses this layer's own y-axis so it
-				// doesn't compete with layer 1's axis title - both layers
-				// share one scale/axis (Vega-Lite's default resolve), and
-				// giving each layer a different title here previously made
-				// Vega-Lite concatenate both into one garbled axis label.
-				"y":     map[string]any{"field": "rolling_avg", "type": "quantitative", "axis": nil},
+				"x":     xRaw,
+				"y":     map[string]any{"field": "rolling_avg", "type": "quantitative", "title": baseLabel},
 				"color": colorFor(rollingLabel),
 				"tooltip": []any{
 					map[string]any{"field": x.Field, "type": "temporal", "title": "Period"},
-					map[string]any{"field": "rolling_avg", "type": "quantitative", "title": rollingLabel},
+					// format: the mean/window aggregates below are raw
+					// floats (e.g. 4.333333...) with no rounding of their
+					// own - .2f keeps the tooltip readable.
+					map[string]any{"field": "rolling_avg", "type": "quantitative", "title": rollingLabel, "format": ".2f"},
 				},
 			},
 		},
@@ -638,10 +648,10 @@ func maybeAddRollingAverageLayer(mark string, encoding json.RawMessage, rowCount
 			}},
 			"mark": map[string]any{"type": "rule", "strokeDash": []any{6, 4}, "strokeWidth": 1.5},
 			"encoding": map[string]any{
-				"y":     map[string]any{"field": "period_avg", "type": "quantitative", "axis": nil},
+				"y":     map[string]any{"field": "period_avg", "type": "quantitative", "title": baseLabel},
 				"color": colorFor(baselineLabel),
 				"tooltip": []any{
-					map[string]any{"field": "period_avg", "type": "quantitative", "title": baselineLabel},
+					map[string]any{"field": "period_avg", "type": "quantitative", "title": baselineLabel, "format": ".2f"},
 				},
 			},
 		},
