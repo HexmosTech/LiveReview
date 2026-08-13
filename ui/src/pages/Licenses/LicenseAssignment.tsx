@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import moment from 'moment-timezone';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import apiClient from '../../api/apiClient';
-import toast from 'react-hot-toast';
+import { notify } from '../../utils/notify';
 import { CancelSubscriptionModal, UpgradePromptModal } from '../../components/Subscriptions';
 import { getSubscriptionBadgeClassByLabel, getSubscriptionStatusLabel } from '../../utils/subscriptionStatus';
 
@@ -99,7 +99,7 @@ const LicenseAssignment: React.FC = () => {
 
         // Check if seats available
         if (subscription.assigned_seats >= subscription.quantity) {
-            toast.error('No available seats. Increase subscription quantity first.');
+            notify.error('No available seats. Increase subscription quantity first.');
             return;
         }
 
@@ -109,10 +109,10 @@ const LicenseAssignment: React.FC = () => {
                 user_id: userId,
             });
 
-            toast.success('License assigned successfully');
+            notify.success('License assigned successfully');
             loadData(); // Reload to get updated state
         } catch (err: any) {
-            toast.error(err.message || 'Failed to assign license');
+            notify.error(err.message || 'Failed to assign license');
         } finally {
             setProcessing(null);
         }
@@ -129,10 +129,10 @@ const LicenseAssignment: React.FC = () => {
             setProcessing(userId);
             await apiClient.delete(`/subscriptions/${subscriptionId}/users/${userId}`);
 
-            toast.success('License revoked successfully');
+            notify.success('License revoked successfully');
             loadData(); // Reload to get updated state
         } catch (err: any) {
-            toast.error(err.message || 'Failed to revoke license');
+            notify.error(err.message || 'Failed to revoke license');
         } finally {
             setProcessing(null);
         }
@@ -177,13 +177,13 @@ const LicenseAssignment: React.FC = () => {
         });
 
         if (unlicensedSelected.length === 0) {
-            toast.error('No unlicensed members selected');
+            notify.error('No unlicensed members selected');
             return;
         }
 
         const availableSeats = subscription.quantity - subscription.assigned_seats;
         if (unlicensedSelected.length > availableSeats) {
-            toast.error(`Only ${availableSeats} seat(s) available, but ${unlicensedSelected.length} selected`);
+            notify.error(`Only ${availableSeats} seat(s) available, but ${unlicensedSelected.length} selected`);
             return;
         }
 
@@ -206,10 +206,10 @@ const LicenseAssignment: React.FC = () => {
         setSelectedMembers(new Set());
 
         if (successCount > 0) {
-            toast.success(`${successCount} license(s) assigned successfully`);
+            notify.success(`${successCount} license(s) assigned successfully`);
         }
         if (errorCount > 0) {
-            toast.error(`${errorCount} assignment(s) failed`);
+            notify.error(`${errorCount} assignment(s) failed`);
         }
 
         loadData();
@@ -224,7 +224,7 @@ const LicenseAssignment: React.FC = () => {
         });
 
         if (licensedSelected.length === 0) {
-            toast.error('No licensed members selected');
+            notify.error('No licensed members selected');
             return;
         }
 
@@ -249,10 +249,10 @@ const LicenseAssignment: React.FC = () => {
         setSelectedMembers(new Set());
 
         if (successCount > 0) {
-            toast.success(`${successCount} license(s) revoked successfully`);
+            notify.success(`${successCount} license(s) revoked successfully`);
         }
         if (errorCount > 0) {
-            toast.error(`${errorCount} revocation(s) failed`);
+            notify.error(`${errorCount} revocation(s) failed`);
         }
 
         loadData();

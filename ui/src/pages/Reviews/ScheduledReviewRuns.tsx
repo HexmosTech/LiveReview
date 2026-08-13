@@ -10,7 +10,7 @@ import {
   getCoreRowModel,
 } from '@tanstack/react-table';
 import { SiGithub } from 'react-icons/si';
-import toast from 'react-hot-toast';
+import { notify } from '../../utils/notify';
 import { Button, Icons, MultiSelectPanel, Toggle, Tooltip } from '../../components/UIPrimitives';
 import { ClientTable } from '../../components/DataTable/ClientTable';
 import { SortIcon, SortableHeaderLabel, HeaderFilterPopover } from '../../components/DataTable/HeaderControls';
@@ -147,7 +147,7 @@ const ScheduledReviewRuns: React.FC = () => {
       });
       setConfig(cfg);
     } catch {
-      toast.error(`Failed to update schedule for ${repository.full_name}`);
+      notify.error(`Failed to update schedule for ${repository.full_name}`);
     } finally {
       setToggleBusy(false);
     }
@@ -163,10 +163,10 @@ const ScheduledReviewRuns: React.FC = () => {
         cron_expression: cronExpression,
       });
       setConfig(cfg);
-      toast.success(`Schedule saved for ${repository.full_name}`);
+      notify.success(`Schedule saved for ${repository.full_name}`);
       setEditingSchedule(false);
     } catch {
-      toast.error(`Failed to save schedule for ${repository.full_name}`);
+      notify.error(`Failed to save schedule for ${repository.full_name}`);
     } finally {
       setModalSaving(false);
     }

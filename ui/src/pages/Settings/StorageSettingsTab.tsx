@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button, Input } from '../../components/UIPrimitives';
 import apiClient from '../../api/apiClient';
-import toast from 'react-hot-toast';
+import { notify } from '../../utils/notify';
 
 type Backend = 'filesystem' | 's3' | 'gcs' | 'azure';
 
@@ -54,7 +54,7 @@ const StorageSettingsTab: React.FC = () => {
             }
         } catch (error) {
             console.error('Failed to fetch storage settings:', error);
-            toast.error('Failed to load storage settings');
+            notify.error('Failed to load storage settings');
         } finally {
             setIsLoading(false);
         }
@@ -80,15 +80,15 @@ const StorageSettingsTab: React.FC = () => {
     const handleSave = async () => {
         const err = validationError();
         if (err) {
-            toast.error(err);
+            notify.error(err);
             return;
         }
         setIsSaving(true);
         try {
             await apiClient.put('/api/v1/admin/settings/storage', settings);
-            toast.success('Storage settings saved successfully!');
+            notify.success('Storage settings saved successfully!');
         } catch (error: any) {
-            toast.error(error?.message || 'Failed to save storage settings');
+            notify.error(error?.message || 'Failed to save storage settings');
         } finally {
             setIsSaving(false);
         }
@@ -97,15 +97,15 @@ const StorageSettingsTab: React.FC = () => {
     const handleTest = async () => {
         const err = validationError();
         if (err) {
-            toast.error(err);
+            notify.error(err);
             return;
         }
         setIsTesting(true);
         try {
             const response = await apiClient.post<{ message: string }>('/api/v1/admin/settings/storage/test', settings);
-            toast.success(response?.message || 'Storage connection succeeded');
+            notify.success(response?.message || 'Storage connection succeeded');
         } catch (error: any) {
-            toast.error(error?.message || 'Storage connection failed');
+            notify.error(error?.message || 'Storage connection failed');
         } finally {
             setIsTesting(false);
         }

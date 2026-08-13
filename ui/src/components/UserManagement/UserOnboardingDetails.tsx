@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import toast from 'react-hot-toast';
+import { notify } from '../../utils/notify';
 import { Member } from '../../api/users';
 import { Button } from '../UIPrimitives';
 
@@ -20,7 +20,7 @@ export const UserOnboardingDetails: React.FC<UserOnboardingDetailsProps> = ({ us
   const handleCopyCommand = (cmd: string, type: 'linux' | 'windows') => {
     navigator.clipboard.writeText(cmd);
     setCopiedType(type);
-    toast.success('Command copied to clipboard!');
+    notify.success('Command copied to clipboard!');
     setTimeout(() => setCopiedType(null), 2000);
   };
 
@@ -42,7 +42,7 @@ export const UserOnboardingDetails: React.FC<UserOnboardingDetailsProps> = ({ us
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast.success('git-lrc-setup.csv downloaded successfully!');
+    notify.success('git-lrc-setup.csv downloaded successfully!');
   };
 
   return (

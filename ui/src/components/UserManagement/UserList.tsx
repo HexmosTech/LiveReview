@@ -17,7 +17,7 @@ import { ClientTable } from '../DataTable/ClientTable';
 import { SortIcon, SortableHeaderLabel, HeaderFilterPopover } from '../DataTable/HeaderControls';
 import { Member } from '../../api/users';
 import { useOrgContext } from '../../hooks/useOrgContext';
-import toast from 'react-hot-toast';
+import { notify } from '../../utils/notify';
 
 const USER_LIST_COLUMN_WIDTHS_WITH_CHECKBOX_AND_ORG = ['4%', '26%', '10%', '10%', '14%', '12%', '12%', '12%'];
 const USER_LIST_COLUMN_WIDTHS_WITH_CHECKBOX = ['4%', '30%', '11%', '11%', '16%', '13%', '15%'];
@@ -142,7 +142,7 @@ export const UserList: React.FC<UserListProps> = ({
 
     const handleDownloadSelectedCredentials = () => {
         if (selectedCount === 0) {
-            toast.error('Please select at least one user first');
+            notify.error('Please select at least one user first');
             return;
         }
 
@@ -171,7 +171,7 @@ export const UserList: React.FC<UserListProps> = ({
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        toast.success(`git-lrc-setup.csv downloaded successfully for ${selectedCount} user(s)!`);
+        notify.success(`git-lrc-setup.csv downloaded successfully for ${selectedCount} user(s)!`);
     };
 
     const columns = useMemo<ColumnDef<Member>[]>(() => {

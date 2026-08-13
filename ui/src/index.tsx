@@ -13,6 +13,7 @@ import configureAppStore, { getPreloadedState } from './store/configureStore';
 import AppContextProvider from './contexts/AppContextProvider';
 import App from './App';
 import { injectStore } from './api/apiClient';
+import { injectStore as injectNotifyStore } from './utils/notify';
 
 type ClarityFunction = ((...args: unknown[]) => void) & {
     q?: IArguments[];
@@ -55,6 +56,7 @@ const ensureMicrosoftClarity = (siteId: string) => {
 const preloadedState = getPreloadedState();
 const store = configureAppStore(preloadedState);
 injectStore(store);
+injectNotifyStore(store);
 
 // Make store available globally for token refresh
 (window as ClarityWindow).__REDUX_STORE__ = store;

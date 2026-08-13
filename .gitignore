@@ -2,7 +2,11 @@ hunk_format_logs
 air.log
 
 /livereview
-/tmp/livereview
+/tmp/
+
+# Playwright run artifacts (screenshots, reports, last-run tracking) — never commit
+scripts/integration/test-results/
+scripts/integration/playwright-report/
 
 # Log files
 *.log
