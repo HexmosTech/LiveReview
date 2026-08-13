@@ -109,18 +109,16 @@ func (s *LOCAccountingStore) AccountSuccess(ctx context.Context, rec AccountSucc
 	if rec.CostUSD != nil {
 		metadata["llm_cost_usd"] = *rec.CostUSD
 	}
-	actorKind := "unknown"
+	// No ActorUserID means no human triggered this (scheduled/webhook runs), so it's system by default - matches the read-time fallback in org_usage_store.go (user_id IS NULL => 'system').
+	actorKind := "system"
 	if rec.ActorEmail != "" {
 		metadata["actor_email"] = rec.ActorEmail
 	}
 	if rec.ActorUserID != nil && *rec.ActorUserID > 0 {
 		actorKind = "member"
-		metadata["actor_kind"] = "member"
 		metadata["actor_user_id"] = *rec.ActorUserID
-	} else if rec.ActorEmail != "" {
-		actorKind = "system"
-		metadata["actor_kind"] = "system"
 	}
+	metadata["actor_kind"] = actorKind
 
 	metadataJSON, err := json.Marshal(metadata)
 	if err != nil {

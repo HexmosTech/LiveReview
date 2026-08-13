@@ -62,6 +62,7 @@ const ReviewDetail: React.FC = () => {
     const [accountingErrorTone, setAccountingErrorTone] = useState<'info' | 'warning'>('info');
     const [accountingRouteUnavailable, setAccountingRouteUnavailable] = useState(false);
     const [commits, setCommits] = useState<ReviewCommit[]>([]);
+    const [allCommitsShown, setAllCommitsShown] = useState(false);
     const [detailsExpanded, setDetailsExpanded] = useState(false);
     const [commitsLoaded, setCommitsLoaded] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -211,7 +212,13 @@ const ReviewDetail: React.FC = () => {
         setCommits([]);
         setDetailsExpanded(false);
         setCommitsLoaded(false);
+        setAllCommitsShown(false);
     }, [id]);
+
+    const githubBaseUrl = useMemo(() => {
+        if (!review || !review.provider?.toLowerCase().startsWith('github')) return null;
+        return `https://github.com/${review.repository}`;
+    }, [review]);
 
     // Derive available filter values from current events
     const presentTypes = useMemo(() => {
@@ -496,31 +503,42 @@ const ReviewDetail: React.FC = () => {
                             )}
                             {commits.length > 0 && (
                                 <>
-                                    <ul className="space-y-2">
-                                        {commits.slice(0, COMMITS_PREVIEW_LIMIT).map((commit) => (
+                                    <ul className={`space-y-2 ${allCommitsShown && commits.length > COMMITS_PREVIEW_LIMIT ? 'max-h-64 overflow-y-auto pr-1' : ''}`}>
+                                        {(allCommitsShown ? commits : commits.slice(0, COMMITS_PREVIEW_LIMIT)).map((commit) => (
                                             <li key={commit.ref} className="flex items-center justify-between gap-3 text-xs">
                                                 <div className="flex items-center gap-2 min-w-0">
-                                                    <span className="font-mono text-slate-200 shrink-0">
-                                                        {commit.refType === 'commit' ? commit.ref.substring(0, 8) : commit.ref}
-                                                    </span>
-                                                    <span
-                                                        className={`shrink-0 text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border ${
-                                                            commit.refType === 'range'
-                                                                ? 'bg-purple-900/30 text-purple-300 border-purple-700'
-                                                                : 'bg-slate-700 text-slate-300 border-slate-600'
-                                                        }`}
-                                                    >
-                                                        {commit.refType}
-                                                    </span>
+                                                    {commit.refType === 'commit' && githubBaseUrl ? (
+                                                        <a
+                                                            href={`${githubBaseUrl}/commit/${commit.ref}`}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="font-mono text-slate-200 shrink-0 hover:text-blue-400 hover:underline"
+                                                        >
+                                                            {commit.ref.substring(0, 8)}
+                                                        </a>
+                                                    ) : (
+                                                        <span className="font-mono text-slate-200 shrink-0">
+                                                            {commit.refType === 'commit' ? commit.ref.substring(0, 8) : commit.ref}
+                                                        </span>
+                                                    )}
+                                                    {commit.refType === 'range' && (
+                                                        <span className="shrink-0 text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border bg-purple-900/30 text-purple-300 border-purple-700">
+                                                            range
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 <span className="shrink-0 text-slate-400">{formatRelativeTime(commit.createdAt)}</span>
                                             </li>
                                         ))}
                                     </ul>
                                     {commits.length > COMMITS_PREVIEW_LIMIT && (
-                                        <p className="mt-2 text-xs text-slate-400">
-                                            +{commits.length - COMMITS_PREVIEW_LIMIT} more commits
-                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => setAllCommitsShown((prev) => !prev)}
+                                            className="mt-2 text-xs text-slate-400 hover:text-white hover:underline"
+                                        >
+                                            {allCommitsShown ? 'Show less' : `+${commits.length - COMMITS_PREVIEW_LIMIT} more commits`}
+                                        </button>
                                     )}
                                 </>
                             )}
