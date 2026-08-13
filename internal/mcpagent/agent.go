@@ -108,6 +108,12 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 	// 2=count-query proposal). 0 means "not a numbered diagram call" - the
 	// chat branch, or a plain tool-only agent with analytics disabled.
 	callNumber := 0
+	// schemaTableText is the schema block dbctx rendered for call #2 (the
+	// count-query/plan branch). It is the turn's one and only dbctx fetch -
+	// runAnalyticsPlan threads it through to every report's finalize call
+	// instead of each one re-querying dbctx for its own narrower slice. See
+	// finalizePrompt's doc comment.
+	var schemaTableText string
 
 	// Call #0: classify before paying for schema/tool-schema tokens. Only
 	// runs when analytics is enabled - a plain tool-only agent keeps its
@@ -129,7 +135,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			tools = a.actionTools
 			callNumber = 1
 		case shapeCountQuery:
-			systemPrompt = a.countQueryPrompt(clog, userText)
+			systemPrompt, schemaTableText = a.countQueryPrompt(clog, userText)
 			tools = nil
 			callNumber = 2
 		default:
@@ -199,7 +205,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 					// and the model starts imitating its own prior "reply
 					// with a JSON blob" turn instead of following whatever
 					// that later call actually asked for.
-					return a.runAnalyticsPlan(ctx, plan, history[:len(history)-1], userText, clog)
+					return a.runAnalyticsPlan(ctx, plan, history[:len(history)-1], userText, schemaTableText, clog)
 				}
 			}
 			// The "you MUST call a tool" nudges below only make sense when
@@ -415,7 +421,13 @@ func buildCountQueryPromptHalves(orgName, userName string, orgID int64) (head, t
 // splicing the live dbctx table text between the precomputed head and tail.
 // Logs SchemaSourceDegraded when the live index wasn't available and the
 // static fallback table list was used instead - see schema_render.go.
-func (a *Agent) countQueryPrompt(clog *logging.ChatTurnLogger, userText string) string {
+//
+// Also returns the raw tableText itself: this is the one and only dbctx
+// fetch/narrowing call for the whole turn. Every later step that needs
+// schema in its prompt (today: finalizePrompt, once per report) reuses this
+// same rendered text instead of re-querying dbctx - see finalizePrompt's
+// doc comment for why a second, differently-narrowed fetch isn't needed.
+func (a *Agent) countQueryPrompt(clog *logging.ChatTurnLogger, userText string) (systemPrompt, tableText string) {
 	clog.DBCtxRequest(2, string(a.analyticsRole()), userText)
 	start := time.Now()
 	tableText, err := dbctxTableText(userText)
@@ -423,7 +435,7 @@ func (a *Agent) countQueryPrompt(clog *logging.ChatTurnLogger, userText string) 
 	if err != nil {
 		clog.SchemaSourceDegraded(err.Error())
 	}
-	return a.countQueryHead + "\n\n" + tableText + a.countQueryTail
+	return a.countQueryHead + "\n\n" + tableText + a.countQueryTail, tableText
 }
 
 // buildFinalizePromptHalves precomputes the static parts of call #3's system
@@ -449,20 +461,22 @@ func buildFinalizePromptHalves(orgName, userName string, orgID int64) (head, tai
 	return head, tail
 }
 
-// finalizePrompt assembles call #3's full system prompt for this turn, the
-// same way countQueryPrompt does for call #2. queryText is the specific
-// report question (entry.Question) rather than the original raw user
-// message - by call #3 that's the more precise text to narrow the schema
-// against, since one user turn can fan out into several reports each
-// needing different tables.
-func (a *Agent) finalizePrompt(clog *logging.ChatTurnLogger, queryText string) string {
-	clog.DBCtxRequest(3, string(a.analyticsRole()), queryText)
-	start := time.Now()
-	tableText, err := dbctxTableText(queryText)
-	clog.DBCtxResponse(3, time.Since(start), tableText, err)
-	if err != nil {
-		clog.SchemaSourceDegraded(err.Error())
-	}
+// finalizePrompt assembles call #3's full system prompt for this turn.
+// tableText is the schema text dbctx rendered once for call #2
+// (countQueryPrompt), reused here rather than re-fetched: call #2 narrows
+// against the raw user message, which in practice renders the large
+// majority of the catalog already (observed: 36 of ~37 tables for a
+// realistic query), so a second, more narrowly-targeted fetch per report
+// bought negligible precision for the cost of an extra ~10s dbctx round
+// trip and a near-duplicate schema block in every report's prompt. Call #3
+// is still its own fresh, isolated completeOnce exchange (no shared
+// conversation history with call #2 or with other reports' finalize
+// calls - see completeOnce's doc comment on why that isolation matters);
+// only the already-rendered table text is shared, not the conversation.
+// If a report's SQL ever needs a table this fetch didn't surface, the
+// existing SQL-guard repair loop (runFinalizePhase) catches and fixes it
+// the same way it catches any other rejected query.
+func (a *Agent) finalizePrompt(tableText string) string {
 	return a.finalizeHead + "\n\n" + tableText + a.finalizeTail
 }
 

@@ -121,7 +121,7 @@ func TestAnalyticsPipelineProducesExactCounts(t *testing.T) {
 	// Consume the plan reply so the finalize reply is next.
 	agent.provider.(*scriptedProvider).calls = 1
 
-	text, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "how many reviews per month?", clog)
+	text, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "how many reviews per month?", "", clog)
 	if err != nil {
 		t.Fatalf("pipeline failed: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestAnalyticsPipelineZeroRowsShortCircuits(t *testing.T) {
 	clog := logging.NewChatTurnLogger("test", "livi")
 	plan := []PlanEntry{{ID: "r1", Question: "reviews before 1971", CountSQL: countSQL}}
 
-	text, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "any reviews before 1971?", clog)
+	text, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "any reviews before 1971?", "", clog)
 	if err != nil {
 		t.Fatalf("pipeline failed: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestAnalyticsPipelineRepairsThenGivesUp(t *testing.T) {
 	clog := logging.NewChatTurnLogger("test", "livi")
 	plan := []PlanEntry{{ID: "r1", Question: "bad query", CountSQL: `SELECT count(*) FROM secret_table`}}
 
-	text, _, _, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "q", clog)
+	text, _, _, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "q", "", clog)
 	if err != nil {
 		t.Fatalf("a failing report must not fail the turn: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestAnalyticsPipelineProducesLayeredChart(t *testing.T) {
 	clog := logging.NewChatTurnLogger("test", "livi")
 	plan := []PlanEntry{{ID: "r1", Question: "reviews per month with rolling average", CountSQL: countSQL}}
 
-	text, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "reviews per month with rolling average", clog)
+	text, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "reviews per month with rolling average", "", clog)
 	if err != nil {
 		t.Fatalf("pipeline failed: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestAnalyticsPipelineProducesFacetedChart(t *testing.T) {
 	clog := logging.NewChatTurnLogger("test", "livi")
 	plan := []PlanEntry{{ID: "r1", Question: "reviews by repository, one panel per author", CountSQL: countSQL}}
 
-	text, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "reviews by repository, one panel per author", clog)
+	text, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "reviews by repository, one panel per author", "", clog)
 	if err != nil {
 		t.Fatalf("pipeline failed: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestAnalyticsPipelineLayeredChartMissingFieldFallsBackToCSV(t *testing.T) {
 	clog := logging.NewChatTurnLogger("test", "livi")
 	plan := []PlanEntry{{ID: "r1", Question: "bad layer field", CountSQL: countSQL}}
 
-	_, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "bad layer field", clog)
+	_, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "bad layer field", "", clog)
 	if err != nil {
 		t.Fatalf("pipeline failed: %v", err)
 	}
@@ -399,7 +399,7 @@ func TestAnalyticsPipelineFinalizeRepairsAfterBadJSON(t *testing.T) {
 	clog := logging.NewChatTurnLogger("test", "livi")
 	plan := []PlanEntry{{ID: "r1", Question: "reviews per month", CountSQL: countSQL}}
 
-	text, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "reviews per month", clog)
+	text, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "reviews per month", "", clog)
 	if err != nil {
 		t.Fatalf("pipeline failed: %v", err)
 	}
@@ -427,7 +427,7 @@ func TestAnalyticsPipelineFinalizeGivesUpAfterRepairFails(t *testing.T) {
 	clog := logging.NewChatTurnLogger("test", "livi")
 	plan := []PlanEntry{{ID: "r1", Question: "reviews per month", CountSQL: countSQL}}
 
-	text, _, _, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "reviews per month", clog)
+	text, _, _, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "reviews per month", "", clog)
 	if err != nil {
 		t.Fatalf("a failing report must not fail the turn: %v", err)
 	}
@@ -452,7 +452,7 @@ func TestAnalyticsPipelineProducesCSV(t *testing.T) {
 	clog := logging.NewChatTurnLogger("test", "livi")
 	plan := []PlanEntry{{ID: "r1", Question: "export completed reviews", CountSQL: countSQL}}
 
-	text, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "export them", clog)
+	text, _, artifacts, err := agent.runAnalyticsPlan(context.Background(), plan, nil, "export them", "", clog)
 	if err != nil {
 		t.Fatalf("pipeline failed: %v", err)
 	}

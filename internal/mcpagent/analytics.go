@@ -158,6 +158,7 @@ func (a *Agent) runAnalyticsPlan(
 	plan []PlanEntry,
 	history []HistoryEntry,
 	userText string,
+	schemaTableText string,
 	clog *logging.ChatTurnLogger,
 ) (string, []HistoryEntry, []Artifact, error) {
 	ctx, cancel := context.WithTimeout(ctx, analyticsTurnTimeout)
@@ -179,7 +180,7 @@ func (a *Agent) runAnalyticsPlan(
 	// LLM call, and sequential failure semantics are far easier to reason about.
 	// Bounded concurrency is a follow-up once latency is measured.
 	for _, entry := range plan {
-		done := a.runOneReport(ctx, entry, userText, clog)
+		done := a.runOneReport(ctx, entry, userText, schemaTableText, clog)
 		switch {
 		case done.report != nil:
 			reports = append(reports, *done.report)
@@ -208,6 +209,7 @@ func (a *Agent) runOneReport(
 	ctx context.Context,
 	entry PlanEntry,
 	userText string,
+	schemaTableText string,
 	clog *logging.ChatTurnLogger,
 ) finishedReport {
 	count, ok := a.runCountPhase(ctx, entry, clog)
@@ -223,7 +225,7 @@ func (a *Agent) runOneReport(
 		return finishedReport{text: text}
 	}
 
-	final := a.runFinalizePhase(ctx, entry, userText, count, clog)
+	final := a.runFinalizePhase(ctx, entry, userText, count, schemaTableText, clog)
 	if final == nil {
 		return finishedReport{text: fmt.Sprintf("I could not build the result for %q.", entry.Question)}
 	}
@@ -282,12 +284,13 @@ func (a *Agent) runFinalizePhase(
 	entry PlanEntry,
 	userText string,
 	count int64,
+	schemaTableText string,
 	clog *logging.ChatTurnLogger,
 ) *FinalizePlan {
 	base := fmt.Sprintf("Original question: %s\n\nThis report answers: %s\n\nThe result will contain %d rows.\n\nThe counting query used was:\n%s",
 		userText, entry.Question, count, entry.CountSQL)
 	user := base
-	system := a.finalizePrompt(clog, entry.Question)
+	system := a.finalizePrompt(schemaTableText)
 
 	for attempt := 1; attempt <= maxSQLAttempts; attempt++ {
 		raw, err := a.completeOnce(ctx, clog, 3, "finalize", entry.ID, attempt, system, user)
