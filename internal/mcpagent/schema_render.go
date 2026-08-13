@@ -80,12 +80,17 @@ func dbctxTableText(queryText string) (string, error) {
 
 // narrowTables asks dbctx which of the role-visible tables are relevant to
 // queryText - the user's question, or the specific report question being
-// finalized - via idx.Query, and renders only those. Uses .Matched() (score
-// > 0 only) rather than .All(), so a table dbctx did not itself think was
-// relevant is not rendered just because it happens to sit next to a matched
-// table in the FK graph - trading away join-target recall (a table reachable
-// only through a foreign key, with no direct lexical/semantic match of its
-// own, will not be rendered) for a tighter, more precise table list.
+// finalized - via idx.Query, and renders only those. Uses .Matched()
+// (dbctx v0.1.2: matched + FK-expanded join context, the library's
+// recommended default as of this version - table names may have swapped
+// meaning between dbctx releases, since v0.1.1's .Matched() meant score > 0
+// only, what v0.1.2 calls .ScoredOnly(); check the installed dbctx version's
+// doc comment on Query/ResultSet before assuming which one this is on a
+// future bump). .ScoredOnly() (direct hits only, no FK expansion) is
+// available but intentionally not used here - shrijith's guidance is that
+// .Matched() is the one to keep using across the CLI/UI/library, so bugs in
+// its relevance/FK logic get fixed in one place rather than every caller
+// picking its own narrower selection.
 //
 // Falls back to every role-visible table when queryText is empty, idx.Query
 // errors, or nothing matches, so a turn never renders an empty schema.
