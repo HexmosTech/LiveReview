@@ -31,6 +31,21 @@ target line, a cumulative curve):
  ]}
 ```
 
+For a faceted / small-multiples chart (the same mini chart repeated once per
+category - one panel per contributor, per repository, ...):
+
+```
+{"response_type": "chart",
+ "title": "Reviews by Repository, per Contributor",
+ "description": "...",
+ "query": "reviews per repository, broken out by contributor",
+ "data_sql": "SELECT author_username, repository, count(*) AS review_count FROM reviews WHERE status = 'completed' AND org_id = 42 GROUP BY 1, 2",
+ "facet": {"field": "author_username", "type": "nominal", "columns": 4, "title": "Contributor"},
+ "spec": {"mark": "bar",
+          "encoding": {"x": {"field": "repository", "type": "nominal", "title": "Repository"},
+                       "y": {"field": "review_count", "type": "quantitative", "title": "Reviews"}}}}
+```
+
 For a downloadable file:
 
 ```
@@ -47,23 +62,40 @@ Choosing a chart shape:
 First decide what kind of question this is, then pick the matching pattern.
 Do not default to `bar` - read the row.
 
-| The question is about... | Reach for |
-|---|---|
-| a value changing over time | `line` (add a second `line` layer for a rolling average if the trend is noisy; add a `rule` layer for a target/threshold) |
-| comparing named categories against each other | `bar`, sorted by value; use `point`/`circle` instead if there are many categories and exact position matters more than length |
-| how one number is distributed across many rows | `bar` over SQL-computed bins (histogram), or `point`/jittered `circle` for a raw spread |
-| parts of one whole, few categories (<= 6) | `arc` |
-| parts of a whole, changing over time | stacked `area` or stacked `bar`; add `"stack": "normalize"` on the y encoding for a 100%-stacked / share-of-total view |
-| relationship between two numeric measures | `point`/`circle`, with `size` for a third measure (bubble chart) |
-| concentration - who accounts for most of a total | sorted `bar` + a second `line` layer of cumulative percent (Pareto) |
-| two categorical dimensions crossed (e.g. day x repo, severity x trigger) | `rect` with a `color` encoding (heatmap) |
-| a metric compared across exactly two periods | `line` with two x-points per series (slope graph), or grouped `bar` |
-| a running total building up or down | stacked `bar` with a SQL-computed invisible base segment and a visible delta segment (waterfall) |
+| The question is about... | Named technique | Reach for |
+|---|---|---|
+| a value changing over time | trend line | `line` (add a second `line` layer for a rolling average if the trend is noisy; add a `rule` layer for a target/threshold) |
+| a value changing over time, at a glance, over a long span (30-90+ points) | horizon graph | 2-3 `area` layers of the SAME field, each clamped to a band via SQL (`LEAST(GREATEST(v - band_low, 0), band_high - band_low)`), stacked with rising `opacity` (e.g. 0.33/0.66/1.0) so the eye reads intensity instead of a tall, sparse line |
+| how confident/noisy a metric is over time, not just its center | percentile / error band | an `errorband` layer with `y`+`y2` set to the low/high percentile columns (compute with `percentile_cont` in `data_sql`) plus a `line` layer of the median on top |
+| comparing named categories against each other | sorted bar / dot plot | `bar`, sorted by value; use `point`/`circle` instead if there are many categories and exact position matters more than length; add a `rule` layer for a fixed target threshold |
+| how one number is distributed across many rows, as an aggregate shape | histogram | `bar` over SQL-computed bins |
+| how one number is distributed across many rows, keeping every point visible | strip plot / beeswarm | `point`/`circle` with a categorical `y`; add `"transform": [{"calculate": "random()", "as": "jitter"}]` and encode `jitter` on `yOffset` to spread overlapping points - this is a spec-level transform, not SQL, since `random()` is not in the SQL function list |
+| parts of one whole, few categories (<= 6) | pie / donut | `arc` |
+| parts of a whole, changing over time | stacked area / stacked bar | stacked `area` or stacked `bar`; add `"stack": "normalize"` on the y encoding for a 100%-stacked / share-of-total view |
+| relationship between two numeric measures | scatter / bubble | `point`/`circle`, with `size` for a third measure (bubble chart) |
+| concentration - who accounts for most of a total | Pareto | sorted `bar` + a second `line` layer of cumulative percent |
+| two categorical dimensions crossed (e.g. day x repo, severity x trigger) | heatmap | `rect` with a `color` encoding |
+| a metric compared across exactly two periods, one line per entity | slope graph | `line` with two x-points per series |
+| tracking one entity's state across several periods as a trajectory | connected scatterplot | a `line` layer (points ordered by period via an `"order"` encoding channel, not by SQL row order) plus a `point` layer at the same x/y so each period reads as a labeled dot |
+| a running total building up or down | waterfall | stacked `bar` with a SQL-computed invisible base segment and a visible delta segment |
+| two roughly opposite quantities on either side of a zero line (e.g. upvotes vs downvotes) | diverging bar | two `bar` layers sharing one categorical axis: one layer's value stays positive, the other's is negated in `data_sql` (`-count(*)`) so it renders below the zero line |
+| the same mini chart repeated once per category (per contributor, per repository) | small multiples / trellis | top-level `"facet"` (the category field) + `"spec"` (the single-panel `mark`+`encoding`, written once) - see the worked example above; do not use `"layer"` for this, layers overlay in the SAME panel |
+| two metrics (e.g. this week vs last week) crossed with several named rows (e.g. one row per metric) | change matrix | pivot in `data_sql` (`UNION ALL` one row per metric with `period` and `value` columns, or two explicit columns `w1_value`/`w2_value` plus a computed `delta`), then render as a `rect`+`color` heatmap (metric x period, color = delta) with a `text` layer overlaying the actual numbers |
+
+Vega-Lite has no native treemap or Sankey mark. If a question seems to call
+for one (e.g. "what kinds of issues is LiveReview finding, broken down by
+category"), do not attempt to fake one - answer it with a sorted `bar`
+(count per category, optionally colored by severity) instead. That is a
+faithful, honest answer to the same question, just not the same picture.
 
 Reach for `"layer": [...]` only when a single mark cannot say what you mean -
 a trend plus its rolling average, a value plus a target line, a distribution
-plus a cumulative curve. Otherwise use the flat `"mark"` + `"encoding"` shape;
-it is simpler and less likely to break.
+plus a cumulative curve, a connected scatterplot's line-plus-points, a
+diverging bar's two directions. Reach for `"facet"` + `"spec"` (never
+combined with `"layer"` in the same chart) only for true small multiples -
+the same chart repeated per category, not several series sharing one panel.
+Otherwise use the flat `"mark"` + `"encoding"` shape; it is simpler and less
+likely to break.
 
 Rules:
 
@@ -79,12 +111,16 @@ Rules:
   average, this repo vs. the top repo) rather than a single bar/point with
   nothing beside it. Add a `total` line via `data_sql` or the `description`
   when a running total helps frame the number.
-- **Every `field` in `encoding` (or, for a layered chart, in every layer's
-  `encoding`) must be a column alias your `data_sql` actually selects.** A
-  field that does not exist produces an empty chart. Layers do not inherit
-  fields from each other - each one needs its own complete `encoding`.
+- **Every `field` in `encoding` (in a layer's own `encoding`, in `facet`, or
+  in a faceted chart's `spec.encoding`) must be a column alias your
+  `data_sql` actually selects.** A field that does not exist produces an
+  empty chart. Layers do not inherit fields from each other - each one needs
+  its own complete `encoding`. A faceted chart's `spec` needs its own
+  complete `encoding` too - `facet` only supplies the panel-splitting field.
 - Choose `mark` from `bar`, `line`, `point`, `circle`, `area`, `arc`, `rect`,
-  or use `"layer"` to combine several of these in one chart.
+  `errorband`, or `text` (for numeric labels overlaid on another mark, e.g.
+  the change-matrix pattern above); use `"layer"` to combine several of these
+  in one panel, or `"facet"` + `"spec"` to repeat one of them across panels.
 - Compute rolling averages, cumulative sums/percentages, and running totals in
   `data_sql` with a window function (`OVER (ORDER BY ... ROWS BETWEEN ...)`),
   not in the chart spec. Use `"stack": "normalize"` in `encoding` (not SQL)

@@ -22,6 +22,17 @@ spelled out here instead:
   time" if the question does not distinguish.
 - `users` has no foreign key to `reviews` in the schema — join them yourself
   on `users.email = reviews.user_email`.
+- **Do not join `reviews` to `repositories` through `pull_requests`** -
+  `reviews.pull_request_id` is unpopulated for most reviews (many are
+  triggered outside a PR/MR flow), so that join silently drops rows. Group or
+  filter by repository using `reviews.repository` (a plain name column)
+  directly - it needs no join at all.
+- There is no single "how was this review triggered" column. `reviews.trigger_type`
+  (`webhook` = PR/MR, `cli_diff` = pre-commit, `mcp` = MCP) and
+  `loc_usage_ledger.trigger_source` (`api`, ...) are two different columns on
+  two different tables, and neither one alone is the full taxonomy - check
+  which table the rest of the question's metric actually lives on before
+  picking which trigger column to group by.
 
 ### Rules
 

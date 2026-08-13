@@ -122,11 +122,17 @@ Multiple charts format:
 Choosing a mark — do not default to `bar`. Pick from `bar` (category
 comparison), `line` (value over time), `point`/`circle` (distribution or
 relationship between two measures), `area` (trend or part-of-whole over
-time), `arc` (parts of one whole), or `rect` with a `color` encoding (two
-categorical dimensions crossed, e.g. day x repo). `spec` may also use
-`"layer": [...]` instead of a flat `mark`/`encoding` pair when the chart
-needs more than one mark (a trend plus its rolling average, a value plus a
-target line) — Vega-Lite renders any of these the same way.
+time), `arc` (parts of one whole), `rect` with a `color` encoding (two
+categorical dimensions crossed, e.g. day x repo), or `errorband` (a
+confidence/percentile range around a line). `spec` may also use `"layer":
+[...]` instead of a flat `mark`/`encoding` pair when the chart needs more
+than one mark in the same panel (a trend plus its rolling average, a value
+plus a target line, a diverging bar's two directions, a connected
+scatterplot's line-plus-points), or `"facet"` + a nested `"spec"` for true
+small multiples — the same mini chart repeated once per category (never mix
+`layer` and `facet` in the one chart). Vega-Lite has no native treemap or
+Sankey mark — answer that shape of question with a sorted `bar` instead of
+attempting one.
 
 Vega-Lite rules:
 

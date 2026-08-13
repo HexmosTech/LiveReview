@@ -112,6 +112,29 @@ func TestParseFinalizePlan(t *testing.T) {
 		}
 	})
 
+	t.Run("faceted chart", func(t *testing.T) {
+		p, err := parseFinalizePlan(`{"response_type":"chart","title":"Per Contributor",
+			"description":"d","query":"q","data_sql":"SELECT 'alice' AS author_username, 'reviews' AS repository, 3 AS n",
+			"facet":{"field":"author_username","type":"nominal","columns":4},
+			"spec":{"mark":"bar","encoding":{"x":{"field":"repository","type":"nominal"},"y":{"field":"n","type":"quantitative"}}}}`)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.Mark != "" || len(p.Encoding) != 0 || len(p.Layer) != 0 {
+			t.Fatalf("expected a faceted plan with no flat mark/encoding/layer, got mark=%q encoding=%q layer=%q",
+				p.Mark, p.Encoding, p.Layer)
+		}
+		got := map[string]bool{}
+		for _, f := range p.encodingFields() {
+			got[f] = true
+		}
+		for _, want := range []string{"author_username", "repository", "n"} {
+			if !got[want] {
+				t.Fatalf("field %q not found in %v", want, p.encodingFields())
+			}
+		}
+	})
+
 	t.Run("nested and array channels are found", func(t *testing.T) {
 		p := &FinalizePlan{Encoding: json.RawMessage(
 			`{"x":{"field":"month"},"tooltip":[{"field":"a"},{"field":"b"}],"color":{"condition":{"field":"c"}}}`)}

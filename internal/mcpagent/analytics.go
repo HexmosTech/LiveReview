@@ -418,12 +418,20 @@ func (a *Agent) buildChartReport(
 		"background": "#ffffff",
 		"data":       map[string]any{"values": rs.Rows},
 	}
-	if len(strings.TrimSpace(string(plan.Layer))) > 0 {
+	switch {
+	case len(strings.TrimSpace(string(plan.Facet))) > 0:
+		// A faceted/trellis chart (one small panel per contributor, per
+		// repository, ...) carries its facet channel plus a single-panel
+		// spec repeated per facet value - a top-level mark/encoding pair
+		// would be redundant and Vega-Lite rejects having both.
+		spec["facet"] = json.RawMessage(plan.Facet)
+		spec["spec"] = json.RawMessage(plan.Spec)
+	case len(strings.TrimSpace(string(plan.Layer))) > 0:
 		// A layered chart (trend + rolling average, value + target line, ...)
 		// carries its own mark/encoding per layer; a top-level mark/encoding
 		// pair would be redundant and Vega-Lite rejects having both.
 		spec["layer"] = json.RawMessage(plan.Layer)
-	} else {
+	default:
 		mark := plan.Mark
 		if strings.TrimSpace(mark) == "" {
 			mark = "bar"
