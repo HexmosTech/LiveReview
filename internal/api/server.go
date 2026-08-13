@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -23,10 +24,13 @@ import (
 	"github.com/livereview/internal/api/organizations"
 	"github.com/livereview/internal/api/users"
 	"github.com/livereview/internal/discordbot"
+	"github.com/livereview/internal/database"
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/license/payment"
+	"github.com/livereview/internal/logging"
+	"github.com/livereview/internal/mcpagent"
 	"github.com/livereview/internal/orgname"
 	azuredevopsprovider "github.com/livereview/internal/provider_input/azuredevops"
 	bitbucketprovider "github.com/livereview/internal/provider_input/bitbucket"
@@ -40,6 +44,7 @@ import (
 	gitlaboutput "github.com/livereview/internal/provider_output/gitlab"
 	"github.com/livereview/internal/providers/azuredevops"
 	reviewprocessor "github.com/livereview/internal/review_processor"
+	"github.com/livereview/internal/scheduledreview"
 	"github.com/livereview/internal/slackbot"
 	"github.com/livereview/internal/teamsbot"
 	"github.com/livereview/storage/core"
@@ -124,28 +129,30 @@ func isMCPRequest(c echo.Context) bool {
 
 // Server represents the API server
 type Server struct {
-	echo                 *echo.Echo
-	port                 int
-	db                   *sql.DB
+	echo                  *echo.Echo
+	port                  int
+	db                    *sql.DB
 	jobQueue              *jobqueue.JobQueue
 	dashboardManager      *DashboardManager
 	autoWebhookInstaller  *AutoWebhookInstaller
-	versionInfo          *VersionInfo
-	deploymentConfig     *DeploymentConfig
-	authHandlers         *auth.AuthHandlers
-	tokenService         *auth.TokenService
-	userHandlers         *users.UserHandlers
-	userService          *users.UserService
-	profileHandlers      *users.ProfileHandlers
-	orgHandlers          *organizations.OrganizationHandlers
-	orgService           *organizations.OrganizationService
-	testHandlers         *TestHandlers
-	devMode              bool
-	_licenseSvc          interface{} // holds *license.Service lazily (typed in license.go)
-	licenseScheduler     *license.Scheduler
-	billingActionsCancel context.CancelFunc
-	modelSyncCancel      context.CancelFunc
-	slackBotCancel       context.CancelFunc
+	versionInfo           *VersionInfo
+	deploymentConfig      *DeploymentConfig
+	authHandlers          *auth.AuthHandlers
+	tokenService          *auth.TokenService
+	userHandlers          *users.UserHandlers
+	userService           *users.UserService
+	profileHandlers       *users.ProfileHandlers
+	orgHandlers           *organizations.OrganizationHandlers
+	orgService            *organizations.OrganizationService
+	testHandlers          *TestHandlers
+	devMode               bool
+	_licenseSvc           interface{} // holds *license.Service lazily (typed in license.go)
+	licenseScheduler      *license.Scheduler
+	billingActionsCancel  context.CancelFunc
+	modelSyncCancel       context.CancelFunc
+	slackBotCancel        context.CancelFunc
+	scheduledReviewCancel context.CancelFunc
+	scheduledReviewWakeCh chan struct{}
 
 	// V2 Webhook Providers
 	gitlabProviderV2      *gitlabprovider.GitLabV2Provider
@@ -172,15 +179,13 @@ type Server struct {
 	discordBot       *discordbot.Bot
 	discordBotCancel context.CancelFunc
 
-	slackOAuthHandler *SlackOAuthHandler
-
 	openapiSpec string
 }
 
 // appContext initializes the core backend database, configurations, queues, and provider subsystems
 func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Load environment variables from .env file
-	env := map[string]string{}
+	env := map[string]string{} // nosemgrep: trailofbits.go.iterate-over-empty-map.iterate-over-empty-map -- reassigned from loadEnvFile below before it's iterated
 
 	// Try loading .env, but don't fail if missing
 	if loadedEnv, err := loadEnvFile(".env"); err == nil {
@@ -192,8 +197,16 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 		)
 	}
 
-	// print env variables
-	fmt.Printf("Environment Variables: %+v\n", env)
+	// Log which .env variables were loaded, not their values - env holds
+	// this deployment's secrets (DATABASE_URL, JWT_SECRET, payment provider
+	// keys, webhook secrets, etc), so printing the full map would put all
+	// of them in cleartext in the startup log on every boot.
+	envKeys := make([]string, 0, len(env))
+	for k := range env {
+		envKeys = append(envKeys, k)
+	}
+	sort.Strings(envKeys)
+	fmt.Printf("Environment Variables loaded from .env: %v\n", envKeys)
 
 	// Get deployment configuration from environment variables
 	deploymentConfig := getDeploymentConfig()
@@ -318,7 +331,7 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 		port:                 port,
 		db:                   db,
 		jobQueue:             jq,
-		dashboardManager:      dashboardManager,
+		dashboardManager:     dashboardManager,
 		autoWebhookInstaller: autoWebhookInstaller,
 		versionInfo:          versionInfo,
 		deploymentConfig:     deploymentConfig,
@@ -434,6 +447,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/events", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/summary", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/accounting", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/reviews/:id/commits", nil, nil)
 	mcp.RegisterSchema("GET", "/api/v1/learnings", nil, LearningsQuery{})
 	mcp.RegisterSchema("POST", "/api/v1/learnings", nil, UpsertLearningRequest{})
 	mcp.RegisterSchema("GET", "/api/v1/learnings/:id", nil, nil)
@@ -460,6 +474,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/reviews/:id/events",
 		"/api/v1/reviews/:id/summary",
 		"/api/v1/reviews/:id/accounting",
+		"/api/v1/reviews/:id/commits",
 		"/api/v1/learnings",
 		"/api/v1/learnings/:id",
 		"/api/v1/prompts/catalog",
@@ -476,16 +491,31 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 
 	mcp.Mount("/api/mcp")
 
-	// Initialize org-scoped Slack bots (self-hosted only)
-	if !server.deploymentConfig.IsCloud && os.Getenv("SLACK_APP_TOKEN") != "" {
+	// Enables the Livi/Slack/Discord/Teams chat debug log when LIVI_DEBUG_LOG
+	// is set. This process (livereview-api) is the only pm2 app that runs
+	// chat/bot code, so wiping the log file here at boot is safe - workers
+	// never write to it.
+	logging.InitChatDebugLog() // reads LIVI_DEBUG_LOG at boot
+
+	// Starts building the dbctx schema index in the background (non-blocking -
+	// see schema_index.go). It replaces the hand-written table listing in the
+	// analytics system prompt; a failed/slow build degrades to the static
+	// fallback rather than blocking startup or a chat turn indefinitely.
+	if dsn, err := database.LoadDatabaseURL(); err == nil {
+		mcpagent.InitSchemaIndex(dsn)
+	} else {
+		fmt.Printf("Warning: dbctx schema index not started: %v (analytics prompts will use the static fallback schema)\n", err)
+	}
+
+	// Initialize org-scoped Slack bots (self-hosted only). Each org supplies its
+	// own bot + app tokens via the UI, so no server-level env vars are required.
+	if !server.deploymentConfig.IsCloud {
 		bots, err := startOrgSlackBots(server.db)
 		if err != nil {
 			fmt.Printf("Warning: Failed to initialize Slack bots: %v (Slack bot disabled)\n", err)
-		} else {
+		} else if len(bots) > 0 {
 			server.slackBots = bots
-			if len(bots) > 0 {
-				server.slackBot = bots[0]
-			}
+			server.slackBot = bots[0]
 			fmt.Printf("Slack bots initialized for %d org(s) (will start with server)\n", len(bots))
 		}
 	}
@@ -505,19 +535,17 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		fmt.Printf("Cloud mode: Teams bot initialization skipped\n")
 	}
 
-	// Initialize org-scoped Discord bot (self-hosted only) from DB config
-	if !server.deploymentConfig.IsCloud {
-		bot, err := startOrgDiscordBots(server.db)
-		if err != nil {
-			fmt.Printf("Warning: Failed to initialize Discord bot: %v (Discord bot disabled)\n", err)
-		} else if bot != nil {
-			server.discordBot = bot
-			fmt.Printf("Discord bot initialized (will start with server)\n")
-		} else {
-			fmt.Printf("No Discord bot configs found (Discord bot disabled)\n")
-		}
+	// Initialize org-scoped Discord bot.  In self-hosted mode the bot is
+	// configured from the database.  In cloud mode the bot starts only when
+	// DISCORD_BOT_TOKEN + DISCORD_BOT_API_KEY env vars are set (public bot).
+	bot, err := startOrgDiscordBots(server.db)
+	if err != nil {
+		fmt.Printf("Warning: Failed to initialize Discord bot: %v (Discord bot disabled)\n", err)
+	} else if bot != nil {
+		server.discordBot = bot
+		fmt.Printf("Discord bot initialized (will start with server)\n")
 	} else {
-		fmt.Printf("Cloud mode: Discord bot initialization skipped\n")
+		fmt.Printf("No Discord bot configs found (Discord bot disabled)\n")
 	}
 
 	return server, nil
@@ -528,40 +556,48 @@ func WorkerContext(versionInfo *VersionInfo) (*Server, error) {
 	return appContext(0, versionInfo)
 }
 
+// resolveMCPBaseURL derives the MCP endpoint the bots talk to. In cloud mode
+// it uses the cloud endpoint; in self-hosted mode it uses the production URL
+// set in the instance settings (Settings → Instance → Production URL), falling
+// back to the cloud endpoint if none is configured.
+func resolveMCPBaseURL(db *sql.DB) string {
+	if isCloudMode() {
+		return "https://livereview.hexmos.com/api/mcp"
+	}
+	var prodURL sql.NullString
+	if err := db.QueryRow("SELECT livereview_prod_url FROM instance_details LIMIT 1").Scan(&prodURL); err == nil && prodURL.Valid && prodURL.String != "" {
+		return strings.TrimSuffix(prodURL.String, "/") + "/api/mcp"
+	}
+	return "https://livereview.hexmos.com/api/mcp"
+}
+
 // startOrgSlackBots reads all enabled Slack bot configs from the DB,
 // resolves each org's AI connector, and creates the multi-org Slack bot.
+// Each org supplies its own Slack bot + app-level tokens, so no server-level
+// Slack env vars are required.
 func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
-	appToken := os.Getenv("SLACK_APP_TOKEN")
-	if appToken == "" {
-		return nil, fmt.Errorf("SLACK_APP_TOKEN is required")
-	}
-
 	configStorage := slackbot.NewStorage(db)
 	configs, err := configStorage.GetAllEnabledConfigs(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to query slack configs: %w", err)
 	}
 	if len(configs) == 0 {
-		return nil, fmt.Errorf("no enabled Slack bot configs found")
+		return nil, nil
 	}
 
 	connectorStorage := aiconnectors.NewStorage(db)
-	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
-	if mcpServerURL == "" {
-		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
-	}
+	mcpServerURL := resolveMCPBaseURL(db)
 	maxSteps := 20
-	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
-		if n, err := strconv.Atoi(s); err != nil || n <= 0 {
-			maxSteps = 20
-		} else {
-			maxSteps = n
-		}
-	}
 
 	var orgCfgs []slackbot.OrgConfig
 
 	for _, cfg := range configs {
+		appToken := cfg.AppToken
+		if appToken == "" {
+			log.Printf("Slack bot: org %d has no app token configured — skipping", cfg.OrgID)
+			continue
+		}
+
 		// Find a working AI connector for this org
 		connectors, err := connectorStorage.GetAllConnectors(context.Background(), cfg.OrgID)
 		if err != nil {
@@ -601,6 +637,7 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 			OrgID:         cfg.OrgID,
 			OrgName:       orgName,
 			SlackBotToken: cfg.BotToken,
+			SlackAppToken: appToken,
 			MCPServerURL:  mcpServerURL,
 			MCPHeaders:    mcpHeaders,
 			Connector:     connector,
@@ -609,12 +646,11 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 	}
 
 	if len(orgCfgs) == 0 {
-		return nil, fmt.Errorf("no orgs could be configured for Slack bot")
+		return nil, nil
 	}
 
 	bot, err := slackbot.New(&slackbot.Config{
-		SlackAppToken: appToken,
-		Orgs:          orgCfgs,
+		Orgs: orgCfgs,
 	}, func(orgID int64, teamID string) error {
 		return configStorage.UpdateTeamID(context.Background(), orgID, teamID)
 	})
@@ -633,24 +669,14 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query Discord configs: %w", err)
 	}
-	if len(configs) == 0 {
-		return nil, fmt.Errorf("no enabled Discord bot configs found")
-	}
 
 	connectorStorage := aiconnectors.NewStorage(db)
-	// Discord-specific overrides fall back to the shared SLACK_* variables for
-	// backwards compatibility (existing deployments only set SLACK_*).
+	// Discord-specific overrides fall back to the shared MCP base URL resolver.
 	mcpServerURL := os.Getenv("DISCORD_MCP_SERVER_URL")
 	if mcpServerURL == "" {
-		mcpServerURL = os.Getenv("SLACK_MCP_SERVER_URL")
-	}
-	if mcpServerURL == "" {
-		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
+		mcpServerURL = resolveMCPBaseURL(db)
 	}
 	stepStr := os.Getenv("DISCORD_MAX_AGENT_STEPS")
-	if stepStr == "" {
-		stepStr = os.Getenv("SLACK_MAX_AGENT_STEPS")
-	}
 	maxSteps := 20
 	if n, err := strconv.Atoi(stepStr); err == nil && n > 0 {
 		maxSteps = n
@@ -702,6 +728,79 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 			Connector:     connector,
 			MaxAgentSteps: maxSteps,
 		})
+	}
+
+	// Env-var-based public bot for cloud deployment.  When DISCORD_BOT_TOKEN
+	// and DISCORD_BOT_API_KEY are set, a bot is started for the specified org
+	// using the demo account's API key.  This sits alongside any database-
+	// configured org bots.
+	if envToken := os.Getenv("DISCORD_BOT_TOKEN"); envToken != "" {
+		envAPIKey := os.Getenv("DISCORD_BOT_API_KEY")
+		if envAPIKey == "" {
+			log.Printf("Discord bot: DISCORD_BOT_TOKEN set but DISCORD_BOT_API_KEY missing — skipping env bot")
+		} else {
+			envOrgID := int64(0)
+			invalidEnvOrgID := false
+			if s := os.Getenv("DISCORD_BOT_ORG_ID"); s != "" {
+				if parsed, err := strconv.ParseInt(s, 10, 64); err == nil {
+					envOrgID = parsed
+				} else {
+					log.Printf("Discord bot: invalid DISCORD_BOT_ORG_ID %q — skipping env-var bot", s)
+					invalidEnvOrgID = true
+				}
+			}
+
+			if !invalidEnvOrgID {
+				alreadyConfigured := false
+				for _, existing := range orgCfgs {
+					if existing.OrgID == envOrgID {
+						alreadyConfigured = true
+						break
+					}
+				}
+				if alreadyConfigured {
+					log.Printf("Discord bot: org %d already configured via database — skipping env-var bot", envOrgID)
+				} else {
+					connectors, err := connectorStorage.GetAllConnectors(context.Background(), envOrgID)
+					if err != nil {
+						log.Printf("Discord bot: failed to query connectors for env org %d: %v — skipping", envOrgID, err)
+					} else if len(connectors) == 0 {
+						log.Printf("Discord bot: no AI connectors configured in env org %d — skipping", envOrgID)
+					} else {
+						var connector *aiconnectors.Connector
+						for _, record := range connectors {
+							options := connectorStorage.GetConnectorOptions(context.Background(), record)
+							c, err := aiconnectors.NewConnector(context.Background(), options)
+							if err != nil {
+								log.Printf("Discord bot env org %d: connector %q failed to init: %v — trying next", envOrgID, record.ConnectorName, err)
+								continue
+							}
+							connector = c
+							log.Printf("Discord bot env org %d: using connector %q (%s, model=%s)", envOrgID, record.ConnectorName, record.ProviderName, options.ModelConfig.Model)
+							break
+						}
+						if connector == nil {
+							log.Printf("Discord bot: all connectors for env org %d failed to initialize — skipping", envOrgID)
+						} else {
+							envOrgName, _ := orgname.OrgNameByID(context.Background(), db, envOrgID)
+							if envOrgName == "" {
+								log.Printf("Discord bot env org %d: resolved org name is empty", envOrgID)
+							}
+							orgCfgs = append(orgCfgs, discordbot.OrgConfig{
+								OrgID:         envOrgID,
+								OrgName:       envOrgName,
+								BotToken:      envToken,
+								MCPServerURL:  mcpServerURL,
+								MCPHeaders:    map[string]string{"X-API-Key": envAPIKey},
+								Connector:     connector,
+								MaxAgentSteps: maxSteps,
+							})
+							log.Printf("Discord bot: env-var bot configured for org %d (%s)", envOrgID, envOrgName)
+						}
+					}
+				}
+			}
+		}
 	}
 
 	if len(orgCfgs) == 0 {
@@ -831,14 +930,33 @@ func (s *Server) setupRoutes() {
 	public.POST("/auth/setup", s.authHandlers.SetupAdmin)
 	public.POST("/auth/onboard", s.Onboard)
 
-	// Diff review endpoints (protected by API key middleware)
+	// Diff review endpoints. Accepts either an X-API-Key (the git-lrc CLI's
+	// auth) or a Bearer session token (the web UI's review-details diff
+	// viewer, which reads this same data via GET /:review_id) — mirrors the
+	// reviewsGroup chain below so both callers resolve org_id/user_role the
+	// same way. RequireAuthOrAPIKey's API-key branch already sets
+	// X-Org-Context + user_id itself, so this is backward-compatible with
+	// existing CLI callers.
+	authMiddleware := auth.NewAuthMiddleware(s.tokenService, s.db)
 	diffReviewGroup := v1.Group("/diff-review")
-	diffReviewGroup.Use(APIKeyAuthMiddleware(s.db))
+	diffReviewGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	diffReviewGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	diffReviewGroup.Use(authMiddleware.ValidateOrgAccess())
+	diffReviewGroup.Use(authMiddleware.BuildPermissionContext())
 	diffReviewGroup.Use(apimiddleware.BuildOrgBillingPlanContext(s.db, s.licenseService()))
 	diffReviewGroup.Use(apimiddleware.BuildPlanContext())
 	diffReviewGroup.POST("", s.DiffReview)
 	diffReviewGroup.GET("/trigger-local-review", s.TriggerLocalReview)
 	diffReviewGroup.GET("/:review_id", s.GetDiffReviewStatus)
+	// Generic artifact sync channel (see AGENTS.md "Porting from git-lrc") —
+	// fire-and-forget uploads of locally-computed, per-review data such as
+	// git-lrc's blast-radius report.
+	diffReviewGroup.POST("/:review_id/artifacts/:artifact_type", s.PutDiffReviewArtifact)
+	diffReviewGroup.GET("/:review_id/artifacts/:artifact_type", s.GetDiffReviewArtifact)
+	// Offline-first sync target for git-lrc's post-commit queue (see
+	// AGENTS.md "Porting from git-lrc"): records which commit a staged
+	// review ended up in, once that commit actually happens.
+	diffReviewGroup.POST("/:review_id/commit", s.AttachDiffReviewCommit)
 
 	// Review events endpoints (alternative API key-based access for CLI)
 	diffReviewEventsHandler := NewReviewEventsHandler(s.db)
@@ -850,10 +968,26 @@ func (s *Server) setupRoutes() {
 	// CLI usage tracking (protected by API key)
 	diffReviewGroup.POST("/cli-used", s.TrackCLIUsage)
 
+	// Review coverage lookup (CI/CD gate support): given a list of commit
+	// SHAs/ranges, report every backend-stored review that covers them.
+	// Same auth pattern as diffReviewGroup (API key or session Bearer token).
+	reviewCoverageGroup := v1.Group("/review-coverage")
+	reviewCoverageGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	reviewCoverageGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	reviewCoverageGroup.Use(authMiddleware.ValidateOrgAccess())
+	reviewCoverageGroup.Use(authMiddleware.BuildPermissionContext())
+	reviewCoverageGroup.POST("", s.ReviewCoverage)
+
 	// Feedback endpoints — protected by API key (proxied through git-lrc local server)
 	feedbackHandler := NewFeedbackHandler(s.db)
+	// Same auth pattern as diffReviewGroup above: accepts either the git-lrc
+	// CLI's X-API-Key or the web UI's Bearer session token, so the
+	// review-details page can submit PR-level/comment vote feedback too.
 	feedbackGroup := v1.Group("/feedback")
-	feedbackGroup.Use(APIKeyAuthMiddleware(s.db))
+	feedbackGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	feedbackGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	feedbackGroup.Use(authMiddleware.ValidateOrgAccess())
+	feedbackGroup.Use(authMiddleware.BuildPermissionContext())
 	feedbackGroup.POST("", feedbackHandler.SubmitFeedback)
 	feedbackGroup.GET("/impact-stats", feedbackHandler.ImpactStats)
 	feedbackGroup.PATCH("/:id/retract", feedbackHandler.RetractFeedback)
@@ -867,38 +1001,6 @@ func (s *Server) setupRoutes() {
 
 	// Cloud user ensure endpoint (now public; handler performs CLOUD_JWT_SECRET validation)
 	public.POST("/auth/ensure-cloud-user", s.authHandlers.EnsureCloudUser)
-
-	// Slack OAuth — reads common env vars
-	slackClientID := os.Getenv("SLACK_CLIENT_ID")
-	slackClientSecret := os.Getenv("SLACK_CLIENT_SECRET")
-	slackRedirectURL := os.Getenv("SLACK_REDIRECT_URL")
-	selfURL := os.Getenv("LIVEREVIEW_SELF_URL")
-	mcpServerURL := os.Getenv("SLACK_MCP_SERVER_URL")
-	if mcpServerURL == "" {
-		mcpServerURL = "https://livereview.hexmos.com/api/mcp"
-	}
-	maxSteps := 20
-	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			maxSteps = n
-		}
-	}
-
-	if slackClientID != "" && slackClientSecret != "" && slackRedirectURL != "" {
-		if s.deploymentConfig.IsCloud {
-			// Cloud: proxy callback endpoint (ungated — Slack redirects here)
-			cloudHandler := NewSlackOAuthHandler(s.db, slackClientID, slackClientSecret, slackRedirectURL, mcpServerURL, maxSteps, nil, selfURL, true)
-			public.GET("/auth/slack/proxy-callback", cloudHandler.SlackOAuthProxyCallback)
-			fmt.Println("Slack OAuth proxy callback endpoint registered (cloud)")
-		} else {
-			// Self-hosted: direct callback + install + proxy-receive endpoint
-			slackOAuthHandler := NewSlackOAuthHandler(s.db, slackClientID, slackClientSecret, slackRedirectURL, mcpServerURL, maxSteps, s.slackBot, selfURL, false)
-			public.GET("/auth/slack/callback", slackOAuthHandler.SlackOAuthCallback)
-			public.POST("/orgs/:org_id/slack-proxy-callback", slackOAuthHandler.SlackProxyCallback)
-			fmt.Println("Slack OAuth direct callback registered (self-hosted)")
-			s.slackOAuthHandler = slackOAuthHandler
-		}
-	}
 
 	// Teams bot messages endpoint (public — Bot Framework sends activities here)
 	s.echo.POST("/api/messages", func(c echo.Context) error {
@@ -922,7 +1024,6 @@ func (s *Server) setupRoutes() {
 	protected.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
 
 	// Apply subscription enforcement middleware (cloud mode only)
-	authMiddleware := auth.NewAuthMiddleware(s.tokenService, s.db)
 	selfHostedLicenseMiddleware := apimiddleware.EnforceSelfHostedLicense(s.db, s.licenseService())
 	protected.Use(authMiddleware.EnforceSubscriptionLimits())
 
@@ -933,12 +1034,6 @@ func (s *Server) setupRoutes() {
 
 	// Clear onboarding API key
 	protected.POST("/onboarding/clear-api-key", s.ClearOnboardingAPIKey)
-
-	// Slack OAuth install — protected (user must be logged in, self-hosted only)
-	if s.slackOAuthHandler != nil && !s.deploymentConfig.IsCloud {
-		protected.GET("/auth/slack/install", s.slackOAuthHandler.InstallSlackBot)
-		fmt.Println("Slack OAuth install endpoint registered")
-	}
 
 	// Self-service profile endpoints
 	protected.GET("/users/profile", s.profileHandlers.GetProfile)
@@ -970,6 +1065,8 @@ func (s *Server) setupRoutes() {
 	// User management in organization
 	orgGroup.GET("/users", s.orgHandlers.GetOrganizationMembers)
 	orgGroup.GET("/users/check", s.userHandlers.CheckUser)
+	orgGroup.POST("/users/bulk-check", s.userHandlers.BulkCheckUsers)
+	orgGroup.POST("/users/bulk-invite", s.userHandlers.BulkInviteUsers)
 	orgGroup.POST("/users", s.userHandlers.CreateUser)
 	orgGroup.GET("/users/:user_id", s.userHandlers.GetUser)
 	orgGroup.PUT("/users/:user_id", s.userHandlers.UpdateUser)
@@ -996,6 +1093,11 @@ func (s *Server) setupRoutes() {
 	// Super admin tools catalog endpoints (called by lr-tools deployer after Lambda deployment)
 	adminGroup.POST("/tools", s.UpsertAvailableTool)
 	adminGroup.GET("/tools", s.ListAvailableTools)
+
+	// Super admin blob-storage settings endpoints (see internal/blobstore)
+	adminGroup.GET("/settings/storage", s.GetStorageSettings)
+	adminGroup.PUT("/settings/storage", s.UpdateStorageSettings)
+	adminGroup.POST("/settings/storage/test", s.TestStorageSettings)
 
 	// Organization management endpoints
 	// User organization access (get their orgs) - needs permission context to detect super admin
@@ -1113,6 +1215,8 @@ func (s *Server) setupRoutes() {
 	connectorGroup.POST("/:connectorId/enable-manual-trigger", s.EnableManualTriggerForAllProjects)
 	connectorGroup.POST("/:connectorId/disable-manual-trigger", s.DisableManualTriggerForAllProjects)
 	connectorGroup.POST("/:connectorId/repositories/sync", s.TriggerRepositorySync)
+	connectorGroup.GET("/:connectorId/scheduled-reviews", s.GetScheduledReviewConfigs)
+	connectorGroup.PUT("/:connectorId/scheduled-reviews", s.SetScheduledReview)
 	connectorGroup.POST("/trigger-review", s.TriggerReviewV2, selfHostedLicenseMiddleware)
 
 	// Unified repository + PR/MR listing endpoints (organization-scoped via
@@ -1131,6 +1235,7 @@ func (s *Server) setupRoutes() {
 	repositoriesGroup.POST("/:repoId/sync", s.TriggerRepositoryPRSync)
 	repositoriesGroup.GET("/:repoId/pull-requests", s.ListPullRequestsForRepo)
 	repositoriesGroup.GET("/:repoId/pull-requests/:prId", s.GetPullRequest)
+	repositoriesGroup.GET("/:repoId/scheduled-review-runs", s.GetScheduledReviewRuns)
 
 	// Unified, cross-repository PR/MR listing (same middleware chain)
 	pullRequestsGroup := v1.Group("/pull-requests")
@@ -1243,9 +1348,9 @@ func (s *Server) setupRoutes() {
 	chatGroup.Use(authMiddleware.ValidateOrgAccess())
 	chatGroup.Use(authMiddleware.BuildPermissionContext())
 	chatGroup.POST("/send", s.HandleWebChat)
-
-	// Chart PNG serving (no auth — loaded by <img> tags; unguessable random IDs + TTL expiry)
-	v1.GET("/chat/charts/:id", s.ServeChartPNG)
+	// CSV exports are bulk org data, so unlike the chart PNGs below they are
+	// served from the authenticated group and checked against the caller's org.
+	chatGroup.GET("/files/:id", s.ServeChatCSV)
 
 	// Dashboard endpoints (organization scoped)
 	dashboardGroup := v1.Group("/dashboard")
@@ -1293,6 +1398,7 @@ func (s *Server) setupRoutes() {
 	reviewsGroup.GET("/:id/events/:type", reviewEventsHandler.GetReviewEventsByType)
 	reviewsGroup.GET("/:id/summary", reviewEventsHandler.GetReviewSummary)
 	reviewsGroup.GET("/:id/accounting", reviewEventsHandler.GetReviewAccounting)
+	reviewsGroup.GET("/:id/commits", s.GetReviewCommits)
 
 	// Subscription endpoints (organization scoped)
 	subscriptionsHandler := NewSubscriptionsHandler(s.db)
@@ -1594,6 +1700,14 @@ func (s *Server) Start() error {
 		aiconnectors.RunAIModelSyncScheduler(syncCtx, s.db, 24*time.Hour)
 	}
 
+	if s.scheduledReviewCancel == nil && s.jobQueue != nil {
+		scheduledReviewCtx, cancel := context.WithCancel(context.Background())
+		s.scheduledReviewCancel = cancel
+		s.scheduledReviewWakeCh = make(chan struct{}, 1)
+		go scheduledreview.RunScheduler(scheduledReviewCtx, s.db, s.jobQueue, s.scheduledReviewWakeCh)
+		fmt.Println("Scheduled review scheduler started")
+	}
+
 	// Start Slack bots if configured
 	if len(s.slackBots) > 0 {
 		slackCtx, cancel := context.WithCancel(context.Background())
@@ -1685,6 +1799,12 @@ func (s *Server) Start() error {
 		fmt.Println("Dynamic AI models sync scheduler stopped")
 	}
 
+	if s.scheduledReviewCancel != nil {
+		s.scheduledReviewCancel()
+		s.scheduledReviewCancel = nil
+		fmt.Println("Scheduled review scheduler stopped")
+	}
+
 	return s.echo.Shutdown(ctx)
 }
 
@@ -1713,11 +1833,15 @@ type ReviewResponse struct {
 }
 
 type ReviewsQuery struct {
-	Page     int    `form:"page" query:"page" json:"page,omitempty" jsonschema:"description=Page number for pagination"`
-	PerPage  int    `form:"per_page" query:"per_page" json:"per_page,omitempty" jsonschema:"description=Number of items per page"`
-	Status   string `form:"status" query:"status" json:"status,omitempty" jsonschema:"description=Filter reviews by status (e.g. pending, completed, failed)"`
-	Provider string `form:"provider" query:"provider" json:"provider,omitempty" jsonschema:"description=Filter reviews by Git provider (e.g. github, gitlab)"`
-	Search   string `form:"search" query:"search" json:"search,omitempty" jsonschema:"description=Search pattern for repository name, MR title, or author"`
+	Page     int    `form:"page" query:"page" json:"page,omitempty" jsonschema:"description=Page number for pagination (only used when per_page is set)"`
+	PerPage  int    `form:"per_page" query:"per_page" json:"per_page,omitempty" jsonschema:"description=Number of items per page. If omitted, ALL matching reviews are returned unpaginated - always pass this explicitly when you only need a bounded sample"`
+	Status   string `form:"status" query:"status" json:"status,omitempty" jsonschema:"description=Filter reviews by status, comma-separated for multiple (e.g. created,in_progress,completed,failed)"`
+	Provider string `form:"provider" query:"provider" json:"provider,omitempty" jsonschema:"description=Filter reviews by Git provider, comma-separated for multiple (e.g. github, gitlab, cli)"`
+	Search   string `form:"search" query:"search" json:"search,omitempty" jsonschema:"description=Search pattern for repository name, branch, MR title, or author"`
+	Sort     string `form:"sort" query:"sort" json:"sort,omitempty" jsonschema:"description=Sort column: review, branch, repository, source, status, author, or last_activity (default last_activity)"`
+	Order    string `form:"order" query:"order" json:"order,omitempty" jsonschema:"description=Sort direction: asc or desc (default desc)"`
+	DateFrom string `form:"date_from" query:"date_from" json:"date_from,omitempty" jsonschema:"description=Only include reviews with last activity (completed/started/created) on or after this date. Accepts YYYY-MM-DD or RFC3339"`
+	DateTo   string `form:"date_to" query:"date_to" json:"date_to,omitempty" jsonschema:"description=Only include reviews with last activity (completed/started/created) on or before this date (inclusive of the whole day if bare YYYY-MM-DD). Accepts YYYY-MM-DD or RFC3339"`
 }
 
 type ReviewsListResponse struct {
@@ -1759,6 +1883,57 @@ type RenderPromptQuery struct {
 	Repository         string `form:"repository" query:"repository" json:"repository,omitempty" jsonschema:"description=Repository name"`
 }
 
+// parseDateFilterParam parses a date_from/date_to query value, accepting
+// either a full RFC3339 timestamp or a bare YYYY-MM-DD date. A bare date
+// passed as the upper bound (endOfDay) is rolled forward to the last instant
+// of that day so date_to is inclusive of the whole day.
+func parseDateFilterParam(v string, endOfDay bool) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, v); err == nil {
+		return t, nil
+	}
+	t, err := time.Parse("2006-01-02", v)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("expected RFC3339 timestamp or YYYY-MM-DD date")
+	}
+	if endOfDay {
+		t = t.Add(24*time.Hour - time.Nanosecond)
+	}
+	return t, nil
+}
+
+// reviewSourceFilterClause is providerFilterClause plus a "scheduled" option matching trigger_type instead of a provider prefix, since scheduled reviews store the real git provider, not a sentinel like CLI's "cli".
+func reviewSourceFilterClause(csv string, args *[]interface{}, argIdx *int) string {
+	var providerVals []string
+	hasScheduled := false
+	for _, part := range strings.Split(csv, ",") {
+		v := strings.TrimSpace(part)
+		if v == "" {
+			continue
+		}
+		if strings.EqualFold(v, "scheduled") {
+			hasScheduled = true
+			continue
+		}
+		providerVals = append(providerVals, v)
+	}
+
+	conds := make([]string, 0, len(providerVals)+1)
+	for _, v := range providerVals {
+		conds = append(conds, fmt.Sprintf("provider ILIKE $%d", *argIdx))
+		*args = append(*args, v+"%")
+		*argIdx++
+	}
+	if hasScheduled {
+		conds = append(conds, fmt.Sprintf("trigger_type = $%d", *argIdx))
+		*args = append(*args, "scheduled")
+		*argIdx++
+	}
+	if len(conds) == 0 {
+		return ""
+	}
+	return " AND (" + strings.Join(conds, " OR ") + ")"
+}
+
 // getReviews handles GET /api/v1/reviews with filtering and pagination
 func (s *Server) getReviews(c echo.Context) error {
 	// Extract org context from middleware
@@ -1767,7 +1942,10 @@ func (s *Server) getReviews(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "Missing organization context")
 	}
 
-	// Parse query parameters
+	// Parse query parameters. Pagination is opt-in: callers (the UI, the MCP
+	// tool) decide their own page size and pass it explicitly. If per_page is
+	// omitted entirely, no LIMIT/OFFSET is applied and every matching review
+	// is returned in one page.
 	page := 1
 	if pageStr := c.QueryParam("page"); pageStr != "" {
 		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
@@ -1775,19 +1953,50 @@ func (s *Server) getReviews(c echo.Context) error {
 		}
 	}
 
-	perPage := 20
+	perPage := 0
+	paginated := false
 	if perPageStr := c.QueryParam("per_page"); perPageStr != "" {
 		if pp, err := strconv.Atoi(perPageStr); err == nil && pp > 0 && pp <= 1000 {
 			perPage = pp
+			paginated = true
 		}
 	}
 
-	// Build base query
+	// Optional date range filter, applied against the same timestamp basis as
+	// the "last_activity" sort/column (completed_at, falling back to
+	// started_at/created_at). Accepts RFC3339 timestamps or bare dates
+	// (YYYY-MM-DD); a bare date_to is treated as inclusive of that whole day.
+	var dateFrom, dateTo time.Time
+	var hasDateFrom, hasDateTo bool
+	if v := c.QueryParam("date_from"); v != "" {
+		t, err := parseDateFilterParam(v, false)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "Invalid date_from: "+err.Error())
+		}
+		dateFrom, hasDateFrom = t, true
+	}
+	if v := c.QueryParam("date_to"); v != "" {
+		t, err := parseDateFilterParam(v, true)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "Invalid date_to: "+err.Error())
+		}
+		dateTo, hasDateTo = t, true
+	}
+
+	// Build base query. The list view only ever reads a handful of metadata
+	// keys (ai_execution_mode, plan_code for the Auto/BYOK badge; ai_summary_title
+	// for CLI reviews) - pulling those via jsonb operators instead of the full
+	// metadata column avoids shipping each review's full AI result/cost
+	// breakdown (which can be substantial) just to render the list.
 	baseQuery := `
 		SELECT id, repository, branch, commit_hash, pr_mr_url, connector_id,
 		       status, trigger_type, user_email, provider, mr_title, friendly_name, author_name, author_username,
-		       created_at, started_at, completed_at, metadata, org_id
-		FROM public.reviews 
+		       created_at, started_at, completed_at,
+		       metadata->>'ai_execution_mode' AS ai_execution_mode,
+		       metadata->>'plan_code' AS plan_code,
+		       CASE WHEN trigger_type = 'cli_diff' THEN metadata->>'ai_summary_title' END AS ai_summary_title,
+		       org_id
+		FROM public.reviews
 		WHERE org_id = $1
 	`
 	countQuery := `SELECT COUNT(*) FROM public.reviews WHERE org_id = $1`
@@ -1795,30 +2004,45 @@ func (s *Server) getReviews(c echo.Context) error {
 	args := []interface{}{orgID}
 	argIndex := 2
 
-	// Add filters
-	status := c.QueryParam("status")
-	if status != "" {
-		baseQuery += fmt.Sprintf(" AND status = $%d", argIndex)
-		countQuery += fmt.Sprintf(" AND status = $%d", argIndex)
-		args = append(args, status)
-		argIndex++
+	// Add filters. status/provider accept comma-separated values from the
+	// UI's checkbox multi-select filters (multiValueFilterClause/
+	// providerFilterClause also handle a single bare value fine, so this
+	// stays backward compatible with any other caller still passing one).
+	if clause := multiValueFilterClause("status", c.QueryParam("status"), &args, &argIndex); clause != "" {
+		baseQuery += clause
+		countQuery += clause
 	}
-
-	provider := c.QueryParam("provider")
-	if provider != "" {
-		baseQuery += fmt.Sprintf(" AND provider = $%d", argIndex)
-		countQuery += fmt.Sprintf(" AND provider = $%d", argIndex)
-		args = append(args, provider)
-		argIndex++
+	if clause := reviewSourceFilterClause(c.QueryParam("provider"), &args, &argIndex); clause != "" {
+		baseQuery += clause
+		countQuery += clause
 	}
 
 	// Add search functionality
 	search := c.QueryParam("search")
 	if search != "" {
 		searchPattern := "%" + search + "%"
-		baseQuery += fmt.Sprintf(" AND (repository ILIKE $%d OR pr_mr_url ILIKE $%d OR mr_title ILIKE $%d OR author_name ILIKE $%d OR author_username ILIKE $%d)", argIndex, argIndex, argIndex, argIndex, argIndex)
-		countQuery += fmt.Sprintf(" AND (repository ILIKE $%d OR pr_mr_url ILIKE $%d OR mr_title ILIKE $%d OR author_name ILIKE $%d OR author_username ILIKE $%d)", argIndex, argIndex, argIndex, argIndex, argIndex)
+		searchClause := fmt.Sprintf(
+			" AND (repository ILIKE $%d OR pr_mr_url ILIKE $%d OR mr_title ILIKE $%d OR author_name ILIKE $%d OR author_username ILIKE $%d OR branch ILIKE $%d OR friendly_name ILIKE $%d)",
+			argIndex, argIndex, argIndex, argIndex, argIndex, argIndex, argIndex,
+		)
+		baseQuery += searchClause
+		countQuery += searchClause
 		args = append(args, searchPattern)
+		argIndex++
+	}
+
+	if hasDateFrom {
+		clause := fmt.Sprintf(" AND COALESCE(completed_at, started_at, created_at) >= $%d", argIndex)
+		baseQuery += clause
+		countQuery += clause
+		args = append(args, dateFrom)
+		argIndex++
+	}
+	if hasDateTo {
+		clause := fmt.Sprintf(" AND COALESCE(completed_at, started_at, created_at) <= $%d", argIndex)
+		baseQuery += clause
+		countQuery += clause
+		args = append(args, dateTo)
 		argIndex++
 	}
 
@@ -1829,11 +2053,35 @@ func (s *Server) getReviews(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to count reviews")
 	}
 
-	// Add ordering and pagination
-	baseQuery += " ORDER BY created_at DESC"
-	offset := (page - 1) * perPage
-	baseQuery += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
-	args = append(args, perPage, offset)
+	// Whitelisted column expressions only - "sort" is never interpolated
+	// directly into the query (same pattern as ListRepositories). "review"
+	// approximates the frontend's title-priority logic (which also branches
+	// on trigger_type/AI-summary metadata for CLI reviews) closely enough
+	// for a sort order, without duplicating that full logic in SQL.
+	sortColumns := map[string]string{
+		"review":        "COALESCE(NULLIF(mr_title, ''), NULLIF(friendly_name, ''), repository)",
+		"branch":        "branch",
+		"repository":    "repository",
+		"source":        "provider",
+		"status":        "status",
+		"author":        "COALESCE(NULLIF(author_name, ''), NULLIF(author_username, ''), NULLIF(user_email, ''))",
+		"last_activity": "COALESCE(completed_at, started_at, created_at)",
+	}
+	sortKey := c.QueryParam("sort")
+	sortColumn, ok := sortColumns[sortKey]
+	if !ok {
+		sortColumn = sortColumns["last_activity"]
+	}
+	orderClause := "DESC"
+	if strings.ToLower(c.QueryParam("order")) == "asc" {
+		orderClause = "ASC"
+	}
+	baseQuery += fmt.Sprintf(" ORDER BY %s %s NULLS LAST, id DESC", sortColumn, orderClause)
+	if paginated {
+		offset := (page - 1) * perPage
+		baseQuery += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
+		args = append(args, perPage, offset)
+	}
 
 	// Execute query
 	rows, err := s.db.Query(baseQuery, args...)
@@ -1846,8 +2094,8 @@ func (s *Server) getReviews(c echo.Context) error {
 	reviews := make([]ReviewResponse, 0)
 	for rows.Next() {
 		var review ReviewResponse
-		var metadataJSON sql.NullString
 		var mrTitleNS, friendlyNameNS, authorNameNS, authorUsernameNS sql.NullString
+		var execModeNS, planCodeNS, aiSummaryTitleNS sql.NullString
 
 		err := rows.Scan(
 			&review.ID,
@@ -1867,19 +2115,22 @@ func (s *Server) getReviews(c echo.Context) error {
 			&review.CreatedAt,
 			&review.StartedAt,
 			&review.CompletedAt,
-			&metadataJSON,
+			&execModeNS,
+			&planCodeNS,
+			&aiSummaryTitleNS,
 			&review.OrgID,
 		)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, "Failed to scan review")
 		}
 
-		// Parse metadata JSON
-		if metadataJSON.Valid && metadataJSON.String != "" {
+		if execModeNS.Valid || planCodeNS.Valid {
 			review.Metadata = make(map[string]interface{})
-			if err := json.Unmarshal([]byte(metadataJSON.String), &review.Metadata); err != nil {
-				// Log error but continue with empty metadata
-				fmt.Printf("Failed to parse metadata for review %d: %v\n", review.ID, err)
+			if execModeNS.Valid {
+				review.Metadata["ai_execution_mode"] = execModeNS.String
+			}
+			if planCodeNS.Valid {
+				review.Metadata["plan_code"] = planCodeNS.String
 			}
 		}
 
@@ -1895,12 +2146,8 @@ func (s *Server) getReviews(c echo.Context) error {
 		if authorUsernameNS.Valid {
 			review.AuthorUsername = &authorUsernameNS.String
 		}
-
-		// For CLI reviews, extract AI summary title from metadata if available
-		if review.TriggerType == "cli_diff" && review.Metadata != nil {
-			if aiSummaryTitle, ok := review.Metadata["ai_summary_title"].(string); ok && aiSummaryTitle != "" {
-				review.AISummaryTitle = &aiSummaryTitle
-			}
+		if aiSummaryTitleNS.Valid && aiSummaryTitleNS.String != "" {
+			review.AISummaryTitle = &aiSummaryTitleNS.String
 		}
 
 		reviews = append(reviews, review)
@@ -1910,16 +2157,25 @@ func (s *Server) getReviews(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Error iterating reviews")
 	}
 
-	// Calculate pagination metadata
-	totalPages := (total + perPage - 1) / perPage
-	hasNext := page < totalPages
-	hasPrevious := page > 1
+	// Calculate pagination metadata. When per_page wasn't supplied, every
+	// matching review was fetched in one page.
+	responsePerPage := perPage
+	totalPages := 1
+	hasNext := false
+	hasPrevious := false
+	if paginated {
+		totalPages = (total + perPage - 1) / perPage
+		hasNext = page < totalPages
+		hasPrevious = page > 1
+	} else {
+		responsePerPage = len(reviews)
+	}
 
 	response := ReviewsListResponse{
 		Reviews:     reviews,
 		Total:       total,
 		Page:        page,
-		PerPage:     perPage,
+		PerPage:     responsePerPage,
 		TotalPages:  totalPages,
 		HasNext:     hasNext,
 		HasPrevious: hasPrevious,

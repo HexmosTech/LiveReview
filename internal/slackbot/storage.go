@@ -11,6 +11,7 @@ type SlackConfig struct {
 	ID        int64     `json:"id"`
 	OrgID     int64     `json:"org_id"`
 	BotToken  string    `json:"bot_token"`
+	AppToken  string    `json:"app_token,omitempty"`
 	APIKey    string    `json:"api_key,omitempty"`
 	TeamID    string    `json:"team_id"`
 	Enabled   bool      `json:"enabled"`
@@ -31,13 +32,13 @@ func NewStorage(db *sql.DB) *Storage {
 // GetSlackConfig returns the slack config for an org, or sql.ErrNoRows if none.
 func (s *Storage) GetSlackConfig(ctx context.Context, orgID int64) (*SlackConfig, error) {
 	query := `
-		SELECT id, org_id, bot_token, api_key, team_id, enabled, created_at, updated_at
+		SELECT id, org_id, bot_token, app_token, api_key, team_id, enabled, created_at, updated_at
 		FROM org_slack_configs
 		WHERE org_id = $1`
 
 	cfg := &SlackConfig{}
 	err := s.db.QueryRowContext(ctx, query, orgID).Scan(
-		&cfg.ID, &cfg.OrgID, &cfg.BotToken, &cfg.APIKey, &cfg.TeamID, &cfg.Enabled, &cfg.CreatedAt, &cfg.UpdatedAt,
+		&cfg.ID, &cfg.OrgID, &cfg.BotToken, &cfg.AppToken, &cfg.APIKey, &cfg.TeamID, &cfg.Enabled, &cfg.CreatedAt, &cfg.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -46,17 +47,17 @@ func (s *Storage) GetSlackConfig(ctx context.Context, orgID int64) (*SlackConfig
 }
 
 // UpsertSlackConfig creates or updates the slack config for an org.
-func (s *Storage) UpsertSlackConfig(ctx context.Context, orgID int64, botToken, apiKey string) (*SlackConfig, error) {
+func (s *Storage) UpsertSlackConfig(ctx context.Context, orgID int64, botToken, appToken, apiKey string) (*SlackConfig, error) {
 	query := `
-		INSERT INTO org_slack_configs (org_id, bot_token, api_key, enabled, created_at, updated_at)
-		VALUES ($1, $2, $3, true, NOW(), NOW())
+		INSERT INTO org_slack_configs (org_id, bot_token, app_token, api_key, enabled, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, true, NOW(), NOW())
 		ON CONFLICT (org_id)
-		DO UPDATE SET bot_token = $2, api_key = $3, enabled = true, updated_at = NOW()
-		RETURNING id, org_id, bot_token, api_key, team_id, enabled, created_at, updated_at`
+		DO UPDATE SET bot_token = $2, app_token = $3, api_key = $4, enabled = true, updated_at = NOW()
+		RETURNING id, org_id, bot_token, app_token, api_key, team_id, enabled, created_at, updated_at`
 
 	cfg := &SlackConfig{}
-	err := s.db.QueryRowContext(ctx, query, orgID, botToken, apiKey).Scan(
-		&cfg.ID, &cfg.OrgID, &cfg.BotToken, &cfg.APIKey, &cfg.TeamID, &cfg.Enabled, &cfg.CreatedAt, &cfg.UpdatedAt,
+	err := s.db.QueryRowContext(ctx, query, orgID, botToken, appToken, apiKey).Scan(
+		&cfg.ID, &cfg.OrgID, &cfg.BotToken, &cfg.AppToken, &cfg.APIKey, &cfg.TeamID, &cfg.Enabled, &cfg.CreatedAt, &cfg.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -79,7 +80,7 @@ func (s *Storage) DeleteSlackConfig(ctx context.Context, orgID int64) error {
 // GetAllEnabledConfigs returns all enabled slack configs.
 func (s *Storage) GetAllEnabledConfigs(ctx context.Context) ([]SlackConfig, error) {
 	query := `
-		SELECT id, org_id, bot_token, api_key, team_id, enabled, created_at, updated_at
+		SELECT id, org_id, bot_token, app_token, api_key, team_id, enabled, created_at, updated_at
 		FROM org_slack_configs
 		WHERE enabled = true
 		ORDER BY org_id`
@@ -93,7 +94,7 @@ func (s *Storage) GetAllEnabledConfigs(ctx context.Context) ([]SlackConfig, erro
 	var configs []SlackConfig
 	for rows.Next() {
 		var cfg SlackConfig
-		if err := rows.Scan(&cfg.ID, &cfg.OrgID, &cfg.BotToken, &cfg.APIKey, &cfg.TeamID, &cfg.Enabled, &cfg.CreatedAt, &cfg.UpdatedAt); err != nil {
+		if err := rows.Scan(&cfg.ID, &cfg.OrgID, &cfg.BotToken, &cfg.AppToken, &cfg.APIKey, &cfg.TeamID, &cfg.Enabled, &cfg.CreatedAt, &cfg.UpdatedAt); err != nil {
 			return nil, err
 		}
 		configs = append(configs, cfg)

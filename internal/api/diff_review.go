@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,17 +13,33 @@ import (
 
 	"github.com/labstack/echo/v4"
 	apimiddleware "github.com/livereview/internal/api/middleware"
+	"github.com/livereview/internal/blobstore"
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/naming"
+	"github.com/livereview/internal/providers"
+	githubprovider "github.com/livereview/internal/providers/github"
+	reviewpkg "github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
 	"github.com/livereview/storage/archive"
+	"gocloud.dev/blob"
 )
 
 // DiffReviewRequest models the incoming POST payload for diff reviews.
 type DiffReviewRequest struct {
-	DiffZipBase64 string `json:"diff_zip_base64"`
-	RepoName      string `json:"repo_name"`
+	DiffZipBase64 string      `json:"diff_zip_base64"`
+	RepoName      string      `json:"repo_name"`
+	BranchName    string      `json:"branch_name"`
+	CommitRefs    []CommitRef `json:"commit_refs,omitempty"`
+}
+
+// CommitRef identifies a commit or commit range that a review's diff
+// corresponds to. Only sent by callers that already know the concrete
+// ref(s) at request time (git-lrc's --commit/--range post-commit reviews) —
+// plain staged/working diffs have no commit yet, so they send none.
+type CommitRef struct {
+	Ref  string `json:"ref"`
+	Type string `json:"type"` // "commit" | "range"
 }
 
 // DiffReviewResult holds persisted review output that is safe to marshal.
@@ -79,17 +97,22 @@ func (s *Server) DiffReview(c echo.Context) error {
 	if repoName == "" {
 		repoName = "cli-diff"
 	}
+	branchName := strings.TrimSpace(req.BranchName)
 
 	friendlyName := naming.GenerateFriendlyName()
 	log.Printf("[DiffReview] Generated friendlyName='%s'", friendlyName)
 
 	rm := NewReviewManager(s.db)
-	log.Printf("[DiffReview] Creating review with: repoName=%s, userEmail=%s, orgID=%d, friendlyName=%s, authorName=%s, authorUsername=%s",
-		repoName, userEmail, orgID, friendlyName, authorName, authorUsername)
+	log.Printf("[DiffReview] Creating review with: repoName=%s, branchName=%s, userEmail=%s, orgID=%d, friendlyName=%s, authorName=%s, authorUsername=%s",
+		repoName, branchName, userEmail, orgID, friendlyName, authorName, authorUsername)
 	initialMeta := map[string]interface{}{"source": "diff-review"}
-	reviewRecord, err := rm.CreateReviewWithOrg(repoName, "", "", "", "cli_diff", userEmail, "cli", nil, initialMeta, orgID, friendlyName, authorName, authorUsername)
+	reviewRecord, err := rm.CreateReviewWithOrg(repoName, branchName, "", "", "cli_diff", userEmail, "cli", nil, initialMeta, orgID, friendlyName, authorName, authorUsername, nil)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to create review record")
+	}
+
+	if err := s.insertReviewCommits(c.Request().Context(), reviewRecord.ID, orgID, req.CommitRefs); err != nil {
+		log.Printf("[WARN] DiffReview: failed to persist commit_refs for review %d: %v", reviewRecord.ID, err)
 	}
 
 	_ = rm.UpdateReviewStatus(reviewRecord.ID, "processing")
@@ -195,10 +218,48 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 		c.Set(EnvelopeIdempotencyKeyContextKey, v)
 	}
 
+	liveFetch := false
 	preloaded, err := decodePreloadedChanges(meta)
 	if err != nil {
-		log.Printf("[WARN] preloaded_changes unavailable for review %d, serving without code context: %v", reviewID, err)
 		preloaded = nil
+		// decodePreloadedChanges only ever succeeds for cli_diff (the only trigger type that persists the diff) - every other trigger type dispatches to its own live-fetch strategy by trigger_type, not by guessing from metadata shape.
+		switch reviewRecord.TriggerType {
+		case "scheduled":
+			live, ok, liveErr := s.fetchLiveDiffFromMetadata(c.Request().Context(), meta)
+			if liveErr != nil {
+				log.Printf("[WARN] live diff fetch failed for scheduled review %d: %v", reviewID, liveErr)
+			} else if ok {
+				preloaded = live
+				liveFetch = true
+			}
+		case "cli_diff":
+			log.Printf("[WARN] preloaded_changes unavailable for CLI review %d: %v", reviewID, err)
+		default:
+			// manual, webhook, api, mcp, or any other trigger reviewing a real PR/MR.
+			connectorID := reviewRecord.ConnectorID
+			if connectorID == nil && reviewRecord.PrMrURL != "" {
+				// Pre-backfill reviews have connector_id unset - resolve it the same way prepareAuthentication does, and persist it so this only runs once per review.
+				if _, baseURL, parseErr := validateAndParseURL(reviewRecord.PrMrURL); parseErr == nil {
+					if token, tokenErr := s.findIntegrationToken(baseURL, orgID); tokenErr == nil {
+						connectorID = &token.ID
+						if updErr := rm.UpdateReviewConnector(reviewRecord.ID, token.ID); updErr != nil {
+							log.Printf("[WARN] Failed to backfill connector_id for review %d: %v", reviewID, updErr)
+						}
+					}
+				}
+			}
+			if connectorID != nil && reviewRecord.PrMrURL != "" {
+				prLive, prErr := s.fetchLiveDiffFromPR(c.Request().Context(), *connectorID, reviewRecord.PrMrURL)
+				if prErr != nil {
+					log.Printf("[WARN] live PR diff fetch failed for review %d", reviewID)
+				} else {
+					preloaded = prLive
+					liveFetch = true
+				}
+			} else {
+				log.Printf("[WARN] preloaded_changes unavailable for review %d (trigger_type=%s): %v", reviewID, reviewRecord.TriggerType, err)
+			}
+		}
 	}
 
 	result, err := decodeReviewResult(meta)
@@ -213,6 +274,9 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 		"review_id": fmt.Sprintf("%d", reviewRecord.ID),
 		"summary":   result.Summary,
 		"files":     files,
+	}
+	if liveFetch {
+		response["live_fetch"] = true
 	}
 
 	if excluded, ok := meta["excluded_files"].([]interface{}); ok && len(excluded) > 0 {
@@ -229,6 +293,60 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	}
 
 	return JSONWithEnvelope(c, http.StatusOK, response)
+}
+
+// AttachDiffReviewCommitRequest is the payload for POST /api/v1/diff-review/:review_id/commit.
+type AttachDiffReviewCommitRequest struct {
+	CommitSHA string `json:"commit_sha"`
+}
+
+// AttachDiffReviewCommit records the commit SHA a previously-submitted CLI
+// diff review ended up in, once the caller (git-lrc's offline sync queue —
+// see AGENTS.md "Porting from git-lrc") has actually committed the staged
+// changes that review covered. Org scoping and existence are enforced by
+// GetReviewForOrg (the same check every other /diff-review/:review_id/...
+// route already relies on); trigger_type is further restricted to cli_diff
+// so this can't be used to attach commits to PR/MR/API/MCP-triggered
+// reviews, which get their commit linkage through enrichMetadata instead.
+// Idempotent: review_commits' UNIQUE(review_id, ref) + ON CONFLICT DO
+// NOTHING means retrying (or racing) the same attach is a harmless no-op.
+func (s *Server) AttachDiffReviewCommit(c echo.Context) error {
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok || orgID == 0 {
+		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "missing org context")
+	}
+
+	reviewID, err := strconv.ParseInt(c.Param("review_id"), 10, 64)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid review_id")
+	}
+
+	var req AttachDiffReviewCommitRequest
+	if err := c.Bind(&req); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
+	}
+	commitSHA := strings.TrimSpace(req.CommitSHA)
+	if commitSHA == "" {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "commit_sha is required")
+	}
+
+	rm := NewReviewManager(s.db)
+	review, err := rm.GetReviewForOrg(reviewID, orgID)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, "review not found")
+	}
+	if review.TriggerType != "cli_diff" {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "commit attachment is only supported for cli_diff reviews")
+	}
+
+	if err := s.insertReviewCommits(c.Request().Context(), reviewID, orgID, []CommitRef{{Ref: commitSHA, Type: "commit"}}); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to record commit")
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+		"status":    "recorded",
+		"review_id": fmt.Sprintf("%d", reviewID),
+	})
 }
 
 // TriggerLocalReview returns instructions for the AI agent on how to trigger a local review via the terminal.
@@ -249,6 +367,217 @@ Failure to execute the command immediately will break the user's workflow.`
 		"instruction":      instructions,
 		"required_command": "git-lrc review --output=json",
 	})
+}
+
+// diffReviewArtifactTypes is the allowlist of public artifact_type path
+// segments for the generic artifact sync channel described in AGENTS.md's
+// "Porting from git-lrc" section — adding a future git-lrc-computed
+// artifact is just a new entry here, no schema change. Artifacts themselves
+// live in the configured blob store (internal/blobstore), not in Postgres.
+var diffReviewArtifactTypes = map[string]bool{
+	"blast-radius": true,
+}
+
+// getBlobBucket opens the currently-configured blob store, reading
+// system_settings fresh on every call (no caching) so an admin change from
+// the storage settings UI takes effect on the very next artifact request —
+// matching how internal/api/system_settings.go's SMTP config is read.
+// Absent config (no row yet) falls back to blobstore's filesystem default.
+func (s *Server) getBlobBucket(ctx context.Context) (*blob.Bucket, error) {
+	var data []byte
+	err := s.db.QueryRow("SELECT data FROM system_settings WHERE name = 'blob_storage'").Scan(&data)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to load storage settings: %w", err)
+	}
+
+	cfg := blobstore.Config{Backend: blobstore.BackendFilesystem}
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("failed to parse storage settings: %w", err)
+		}
+	}
+	return blobstore.OpenBucket(ctx, cfg)
+}
+
+// diffReviewArtifactBlobKey scopes each artifact by org and review so
+// per-org export/deletion stays straightforward even though ownership is
+// already enforced by GetReviewForOrg before this key is ever touched.
+func diffReviewArtifactBlobKey(orgID, reviewID int64, artifactType string) string {
+	return fmt.Sprintf("org/%d/review/%d/artifacts/%s.json", orgID, reviewID, artifactType)
+}
+
+// PutDiffReviewArtifact stores a locally-computed artifact (e.g. a git-lrc
+// blast-radius report) against a review, keyed by artifact_type. Callers are
+// expected to treat this as fire-and-forget: it exists for opportunistic,
+// best-effort data that only some review flows produce.
+func (s *Server) PutDiffReviewArtifact(c echo.Context) error {
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok || orgID == 0 {
+		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "missing org context")
+	}
+
+	reviewID, err := strconv.ParseInt(c.Param("review_id"), 10, 64)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid review_id")
+	}
+
+	artifactType := c.Param("artifact_type")
+	if !diffReviewArtifactTypes[artifactType] {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, fmt.Sprintf("unknown artifact_type %q", artifactType))
+	}
+
+	rm := NewReviewManager(s.db)
+	if _, err := rm.GetReviewForOrg(reviewID, orgID); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, "review not found")
+	}
+
+	var payload json.RawMessage
+	if err := c.Bind(&payload); err != nil || len(payload) == 0 {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid or empty JSON body")
+	}
+
+	ctx := c.Request().Context()
+	bucket, err := s.getBlobBucket(ctx)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to open storage backend: %v", err))
+	}
+	defer bucket.Close()
+
+	key := diffReviewArtifactBlobKey(orgID, reviewID, artifactType)
+	if err := bucket.WriteAll(ctx, key, payload, nil); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to store artifact: %v", err))
+	}
+
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+		"status":        "stored",
+		"review_id":     fmt.Sprintf("%d", reviewID),
+		"artifact_type": artifactType,
+	})
+}
+
+// GetDiffReviewArtifact returns a previously-stored artifact for a review, or
+// 404 when none was ever uploaded — the common case for reviews not run
+// through the git-lrc CLI.
+func (s *Server) GetDiffReviewArtifact(c echo.Context) error {
+	orgID, ok := c.Get("org_id").(int64)
+	if !ok || orgID == 0 {
+		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "missing org context")
+	}
+
+	reviewID, err := strconv.ParseInt(c.Param("review_id"), 10, 64)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid review_id")
+	}
+
+	artifactType := c.Param("artifact_type")
+	if !diffReviewArtifactTypes[artifactType] {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, fmt.Sprintf("unknown artifact_type %q", artifactType))
+	}
+
+	rm := NewReviewManager(s.db)
+	if _, err := rm.GetReviewForOrg(reviewID, orgID); err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusNotFound, "review not found")
+	}
+
+	ctx := c.Request().Context()
+	bucket, err := s.getBlobBucket(ctx)
+	if err != nil {
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to open storage backend: %v", err))
+	}
+	defer bucket.Close()
+
+	key := diffReviewArtifactBlobKey(orgID, reviewID, artifactType)
+	raw, err := bucket.ReadAll(ctx, key)
+	if err != nil {
+		if blobstore.IsNotExist(err) {
+			return JSONErrorWithEnvelope(c, http.StatusNotFound, fmt.Sprintf("no %q artifact stored for this review", artifactType))
+		}
+		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to read artifact: %v", err))
+	}
+
+	return c.JSONBlob(http.StatusOK, raw)
+}
+
+// fetchLiveDiffFromMetadata re-fetches a diff from the provider using stored base/head SHAs; ok=false if metadata is insufficient.
+func (s *Server) fetchLiveDiffFromMetadata(ctx context.Context, meta map[string]interface{}) ([]models.CodeDiff, bool, error) {
+	connectorID, ok := readInt64Meta(meta, "connector_id")
+	if !ok {
+		return nil, false, nil
+	}
+	repoFullName, ok := readStringMeta(meta, "repo_full_name")
+	if !ok {
+		return nil, false, nil
+	}
+	baseSHA, ok := readStringMeta(meta, "base_sha")
+	if !ok {
+		return nil, false, nil
+	}
+	headSHA, ok := readStringMeta(meta, "head_sha")
+	if !ok {
+		return nil, false, nil
+	}
+
+	parts := strings.SplitN(repoFullName, "/", 2)
+	if len(parts) != 2 {
+		return nil, false, fmt.Errorf("invalid repo_full_name %q", repoFullName)
+	}
+	owner, repo := parts[0], parts[1]
+
+	var provider, patToken string
+	err := s.db.QueryRowContext(ctx, `SELECT provider, pat_token FROM integration_tokens WHERE id = $1`, connectorID).Scan(&provider, &patToken)
+	if err != nil {
+		return nil, true, fmt.Errorf("failed to load integration token %d: %w", connectorID, err)
+	}
+	if !strings.HasPrefix(provider, "github") {
+		return nil, true, fmt.Errorf("live diff fetch not supported for provider %q", provider)
+	}
+
+	ghProvider := githubprovider.NewGitHubProvider(patToken)
+	diffs, _, err := ghProvider.GetCompareChanges(ctx, owner, repo, baseSHA, headSHA)
+	if err != nil {
+		return nil, true, fmt.Errorf("failed to fetch compare diff: %w", err)
+	}
+
+	out := make([]models.CodeDiff, 0, len(diffs))
+	for _, d := range diffs {
+		if d != nil {
+			out = append(out, *d)
+		}
+	}
+	return out, true, nil
+}
+
+// fetchLiveDiffFromPR re-fetches a diff for a manual/webhook PR/MR review using the review's own connector_id/pr_mr_url columns (these reviews never persist the diff, see internal/review_processor/manual.go), going through the same provider factory the original review used so any provider (GitHub, GitLab, Bitbucket, ...) works, not just GitHub.
+func (s *Server) fetchLiveDiffFromPR(ctx context.Context, connectorID int64, prMrURL string) ([]models.CodeDiff, error) {
+	token, err := s.loadIntegrationTokenByID(connectorID)
+	if err != nil {
+		return nil, err
+	}
+
+	providerConfig := buildProviderConfig(token, prMrURL, token.AccessToken)
+	providerInstance, err := reviewpkg.NewStandardProviderFactory().CreateProvider(ctx, providerConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create provider (type=%s): %w", token.Provider, err)
+	}
+
+	details, err := providerInstance.GetMergeRequestDetails(ctx, prMrURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch MR details: %w", err)
+	}
+
+	prID := providers.ResolveMRID(details)
+	diffs, err := providerInstance.GetMergeRequestChanges(ctx, prID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch PR diff: %w", err)
+	}
+
+	out := make([]models.CodeDiff, 0, len(diffs))
+	for _, d := range diffs {
+		if d != nil {
+			out = append(out, *d)
+		}
+	}
+	return out, nil
 }
 
 func decodePreloadedChanges(meta map[string]interface{}) ([]models.CodeDiff, error) {

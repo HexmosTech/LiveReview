@@ -262,7 +262,26 @@ func (h *OrganizationHandlers) GetOrganizationMembers(c echo.Context) error {
 
 	offset := (page - 1) * limit
 
-	members, totalCount, err := h.service.GetOrganizationMembers(orgID, limit, offset)
+	// Whitelisted column expressions only - "sort" is never interpolated
+	// directly into the query, so this can't become a SQL injection vector
+	// no matter what the query param contains (same pattern as ListRepositories).
+	sortColumns := map[string]string{
+		"user":   "COALESCE(NULLIF(TRIM(u.first_name || ' ' || u.last_name), ''), u.email)",
+		"status": "u.is_active",
+		"role":   "r.name",
+		"joined": "u.created_at",
+	}
+	sortColumn, ok := sortColumns[c.QueryParam("sort")]
+	if !ok {
+		sortColumn = "u.email"
+	}
+	orderClause := "ASC"
+	if strings.ToLower(c.QueryParam("order")) == "desc" {
+		orderClause = "DESC"
+	}
+	search := c.QueryParam("search")
+
+	members, totalCount, err := h.service.GetOrganizationMembers(orgID, limit, offset, search, sortColumn, orderClause)
 	if err != nil {
 		h.logger.Printf("Error getting organization members: %v", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get members")

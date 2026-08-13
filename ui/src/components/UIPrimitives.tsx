@@ -6,13 +6,17 @@ import {
   SiGitlab,
   SiBitbucket,
   SiGitea,
-  SiGooglegemini,
   SiOllama,
   SiClaude,
+  SiClaudecode,
+  SiCursor,
+  SiWindsurf,
   SiDeepseek,
   SiOpenrouter,
 } from 'react-icons/si';
 import { FaSlack, FaAws } from 'react-icons/fa6';
+import { TbUserPlus, TbUsersPlus } from 'react-icons/tb';
+import { VscVscode } from 'react-icons/vsc';
 
 // ===== BUTTON COMPONENTS =====
 type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
@@ -351,6 +355,50 @@ export const Badge: React.FC<BadgeProps> = ({
   );
 };
 
+// ===== TOGGLE COMPONENT =====
+interface ToggleProps {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+  isLoading?: boolean;
+  className?: string;
+  'aria-label'?: string;
+}
+
+export const Toggle: React.FC<ToggleProps> = ({
+  checked,
+  onChange,
+  disabled = false,
+  isLoading = false,
+  className,
+  'aria-label': ariaLabel,
+}) => {
+  const inactive = disabled || isLoading;
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      disabled={inactive}
+      onClick={() => !inactive && onChange(!checked)}
+      className={classNames(
+        'relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 focus:ring-offset-slate-900',
+        checked ? 'bg-blue-600' : 'bg-slate-600',
+        inactive ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer',
+        className
+      )}
+    >
+      <span
+        className={classNames(
+          'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+          checked ? 'translate-x-6' : 'translate-x-1'
+        )}
+      />
+    </button>
+  );
+};
+
 // ===== EMPTY STATE COMPONENT =====
 interface EmptyStateProps {
   icon?: ReactNode;
@@ -657,6 +705,8 @@ export const Icons = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
     </svg>
   ),
+  UserAdd: () => <TbUserPlus className="w-5 h-5" />,
+  GroupAdd: () => <TbUsersPlus className="w-5 h-5" />,
   Edit: () => (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -700,30 +750,61 @@ export const Icons = {
     </svg>
   ),
 
-  // Logo icons (from react-icons — Simple Icons / Font Awesome brand sets)
-  GitHub: () => <SiGithub className="w-5 h-5" />,
-  GitLab: () => <SiGitlab className="w-5 h-5" />,
-  Bitbucket: () => <SiBitbucket className="w-5 h-5" />,
-  Gitea: () => <SiGitea className="w-5 h-5" />,
-  Claude: () => <SiClaude className="w-5 h-5" />,
-  DeepSeek: () => <SiDeepseek className="w-5 h-5" />,
-  OpenRouter: () => <SiOpenrouter className="w-5 h-5" />,
-  Slack: ({ className = 'w-5 h-5' }: { className?: string } = {}) => <FaSlack className={className} />,
-  Aws: () => <FaAws className="w-5 h-5" />,
+  // Logo icons (from react-icons — Simple Icons / Font Awesome brand sets), tinted with each
+  // brand's official color (per the simple-icons package data). GitHub/OpenAI/Ollama publish
+  // near-black as their official color, which is invisible on this app's dark-only UI, so those
+  // three use the brands' official white-on-dark variant instead.
+  GitHub: () => <SiGithub className="w-5 h-5 text-white" />,
+  GitLab: () => <SiGitlab className="w-5 h-5 text-[#FC6D26]" />,
+  Bitbucket: () => <SiBitbucket className="w-5 h-5 text-[#0052CC]" />,
+  Gitea: () => <SiGitea className="w-5 h-5 text-[#609926]" />,
+  Claude: () => <SiClaude className="w-5 h-5 text-[#D97757]" />,
+  // Anthropic Compatible (custom Claude-API-shaped endpoints) — supplied SVG, inlined so
+  // text-[hex] can tint it, distinct from the Claude mark used for the main Anthropic provider.
+  AnthropicCompatible: () => (
+    <svg className="w-5 h-5 text-[#D97757]" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M7.47 5.13 2 18.86h3.06l1.12-2.88h5.73l1.12 2.88h3.06L10.62 5.13H7.48Zm3.44 8.3H7.16L9.03 8.6l1.87 4.83ZM13.52 5.13 19 18.87h3L16.53 5.13z" />
+    </svg>
+  ),
+  // Claude Code CLI mark (distinct Simple Icons entry from the general Anthropic/Claude mark above).
+  ClaudeCode: () => <SiClaudecode className="w-5 h-5 text-[#D97757]" />,
+  // Cursor/Windsurf publish near-black/black as their official color — invisible on this app's
+  // dark-only UI, so (matching GitHub/OpenAI/Ollama above) they use white instead.
+  Cursor: () => <SiCursor className="w-5 h-5 text-white" />,
+  Windsurf: () => <SiWindsurf className="w-5 h-5 text-white" />,
+  // VS Code's own icon package (not Simple Icons) — real brand mark, official blue.
+  VSCode: () => <VscVscode className="w-5 h-5 text-[#007ACC]" />,
+  DeepSeek: () => <SiDeepseek className="w-5 h-5 text-[#5786FE]" />,
+  OpenRouter: () => <SiOpenrouter className="w-5 h-5 text-[#94A3B8]" />,
+  Slack: ({ className = 'w-5 h-5 text-[#4A154B]' }: { className?: string } = {}) => <FaSlack className={className} />,
+  Aws: () => <FaAws className="w-5 h-5 text-[#FF9900]" />,
   // Not on Simple Icons / Font Awesome (removed or never added for these brands) — kept hand-drawn.
   AzureDevOps: () => (
-    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <svg className="w-5 h-5 text-[#0078D7]" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
       <path d="M23.995 6.617l-4.55-3.556-9.617 3.605V2.44L3.36 8.404 0 9.877v4.396l3.36-1.377v4.75l6.467 2.914 10.107-4.895V6.617zM9.828 17.535l-4.83-1.976v-3.605l4.83 2.183v3.398zm.687-9.096l3.925 2.79-6.29 2.516-3.176-1.436 5.541-3.87zm10.083 8.13l-8.207 3.95v-3.328l5.28-2.176V8.988l2.927 2.293v5.288z"/>
     </svg>
   ),
   OpenAI: () => (
-    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
       <path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.5093-2.6067-1.4998z"/>
     </svg>
   ),
   // Used only for Google Gemini AI provider entries — the Gemini mark, not the generic Google "G".
-  Google: () => <SiGooglegemini className="w-5 h-5" />,
-  Ollama: () => <SiOllama className="w-5 h-5" />,
+  // Official full-color mark supplied as SVG; loaded as an image since its gradients/filters
+  // aren't tintable via currentColor.
+  Google: ({ className = 'w-5 h-5' }: { className?: string } = {}) => (
+    <img src="/assets/gemini.svg" alt="" className={className} />
+  ),
+  Ollama: () => <SiOllama className="w-5 h-5 text-white" />,
+  // Official full-color mark supplied as SVG; loaded as an image since its multi-tone fills
+  // aren't tintable via currentColor.
+  Cohere: ({ className = 'w-5 h-5' }: { className?: string } = {}) => (
+    <img src="/assets/Cohere.svg" alt="" className={className} />
+  ),
+  // Official mark supplied as a raster PNG (no SVG available) — loaded as an image.
+  AtlasCloud: ({ className = 'w-5 h-5 rounded-full' }: { className?: string } = {}) => (
+    <img src="/assets/atlascloud.png" alt="" className={className} />
+  ),
   // Microsoft Teams isn't in Simple Icons or Font Awesome's brand set — kept as the official logo asset.
   Teams: ({ className = 'w-5 h-5 rounded-sm' }: { className?: string } = {}) => (
     <img src="/assets/teams-logo.svg" alt="" className={className} />
@@ -933,23 +1014,38 @@ interface PopoverProps {
   className?: string;
   hover?: boolean; // open on hover instead of click
   delay?: number; // closing delay for hover
+  // Used only for viewport clamp/flip math below, since that has to happen
+  // before the (portal-rendered) content has a real measured size — mirrors
+  // git-lrc's RiskBadge.js CARD_WIDTH/CARD_EST_HEIGHT constants.
+  estimatedWidth?: number;
+  estimatedHeight?: number;
 }
 
-export const Popover: React.FC<PopoverProps> = ({ trigger, children, align = 'left', className, hover = false, delay = 180 }) => {
+export const Popover: React.FC<PopoverProps> = ({
+  trigger, children, align = 'left', className, hover = false, delay = 180,
+  estimatedWidth = 320, estimatedHeight = 280,
+}) => {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLDivElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const closeTimer = useRef<number | null>(null);
-  const [position, setPosition] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [position, setPosition] = useState<{ top: number; left: number; flipped: boolean }>({ top: 0, left: 0, flipped: false });
 
   const computePosition = () => {
-    if (triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      let left = rect.left;
-      if (align === 'center') left = rect.left + rect.width / 2;
-      if (align === 'right') left = rect.right;
-      setPosition({ top: rect.bottom + window.scrollY + 6, left: left + window.scrollX });
-    }
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    let left = rect.left;
+    if (align === 'center') left = rect.left + rect.width / 2 - estimatedWidth / 2;
+    if (align === 'right') left = rect.right - estimatedWidth;
+    // Clamp horizontally so the card never runs off either viewport edge.
+    left = Math.max(8, Math.min(left, window.innerWidth - estimatedWidth - 12));
+
+    // Flip above the trigger when there isn't room below but there is above —
+    // otherwise a badge deep in a long page renders its card off-screen.
+    const flipped = rect.bottom + estimatedHeight > window.innerHeight && rect.top > estimatedHeight;
+    const top = flipped ? rect.top + window.scrollY - estimatedHeight - 6 : rect.bottom + window.scrollY + 6;
+
+    setPosition({ top, left: left + window.scrollX, flipped });
   };
 
   useLayoutEffect(() => { if (open) computePosition(); }, [open, align]);
@@ -988,7 +1084,7 @@ export const Popover: React.FC<PopoverProps> = ({ trigger, children, align = 'le
         'z-50 absolute w-80 rounded-md shadow-lg border border-slate-600 bg-slate-800 text-slate-200 text-sm p-4 animate-fadeIn',
         className
       )}
-      style={{ top: position.top, left: align === 'center' ? position.left - 160 : align === 'right' ? position.left - 320 : position.left }}
+      style={{ top: position.top, left: position.left }}
       role="dialog"
       aria-modal="false"
       onMouseEnter={hover ? clearTimer : undefined}
@@ -1199,7 +1295,7 @@ export const Divider: React.FC<DividerProps> = ({ label, className }) => {
 // Same visual/interaction pattern as the local MultiSelectField originally
 // built for pages/Reports/TaxonomyReports.tsx.
 
-export type FilterOption = { value: string; label: string };
+export type FilterOption = { value: string; label: string; disabled?: boolean };
 
 export const parseMultiFilterValue = (v: string): string[] =>
   (v || '')
@@ -1233,9 +1329,10 @@ interface MultiSelectPanelProps {
 // wrapped in its own button + positioning.
 export const MultiSelectPanel: React.FC<MultiSelectPanelProps> = ({ label, options, value, onChange, onRequestClose }) => {
   const [query, setQuery] = useState('');
+  const selectable = useMemo(() => options.filter((o) => !o.disabled), [options]);
   const selected = parseMultiFilterValue(value);
-  const allSelected = selected.length === 0 || selected.length === options.length;
-  const selectedSet = new Set(allSelected ? options.map((o) => o.value) : selected);
+  const allSelected = selected.length === 0 || selected.length === selectable.length;
+  const selectedSet = new Set(allSelected ? selectable.map((o) => o.value) : selected);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -1244,10 +1341,10 @@ export const MultiSelectPanel: React.FC<MultiSelectPanelProps> = ({ label, optio
   }, [options, query]);
 
   const toggle = (target: string) => {
-    const next = new Set(allSelected ? options.map((o) => o.value) : selected);
+    const next = new Set(allSelected ? selectable.map((o) => o.value) : selected);
     if (next.has(target)) next.delete(target);
     else next.add(target);
-    if (next.size === 0 || next.size === options.length) {
+    if (next.size === 0 || next.size === selectable.length) {
       onChange('');
       return;
     }
@@ -1270,14 +1367,18 @@ export const MultiSelectPanel: React.FC<MultiSelectPanelProps> = ({ label, optio
           onRequestClose?.();
         }}
       >
-        All {label} ({options.length})
+        All {label} ({selectable.length})
       </button>
       <div className="max-h-52 overflow-y-auto space-y-1 pr-1">
         {filtered.map((o) => (
-          <label key={o.value} className="flex items-center gap-2 text-sm text-slate-200 px-2 py-1.5 rounded hover:bg-slate-700 cursor-pointer">
+          <label
+            key={o.value}
+            className={`flex items-center gap-2 text-sm px-2 py-1.5 rounded ${o.disabled ? 'text-slate-500 opacity-60 cursor-not-allowed' : 'text-slate-200 hover:bg-slate-700 cursor-pointer'}`}
+          >
             <input
               type="checkbox"
-              checked={selectedSet.has(o.value)}
+              checked={!o.disabled && selectedSet.has(o.value)}
+              disabled={o.disabled}
               onChange={() => toggle(o.value)}
               className="accent-blue-500"
             />
@@ -1405,6 +1506,50 @@ export const SingleSelectField: React.FC<SingleSelectFieldProps> = ({ label, opt
           ))}
         </div>
       )}
+    </div>
+  );
+};
+
+// ===== TABS COMPONENT =====
+export interface TabItem {
+  id: string;
+  label: ReactNode;
+  badge?: ReactNode;
+}
+
+interface TabsProps {
+  tabs: TabItem[];
+  activeTab: string;
+  onChange: (id: string) => void;
+  className?: string;
+}
+
+export const Tabs: React.FC<TabsProps> = ({ tabs, activeTab, onChange, className }) => {
+  return (
+    <div className={classNames('flex items-center gap-1 border-b border-slate-700', className)} role="tablist">
+      {tabs.map((tab) => {
+        const active = tab.id === activeTab;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(tab.id)}
+            className={classNames(
+              'flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors duration-150',
+              active
+                ? 'border-blue-500 text-white'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-600'
+            )}
+          >
+            {tab.label}
+            {tab.badge !== undefined && (
+              <span className="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">{tab.badge}</span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 };

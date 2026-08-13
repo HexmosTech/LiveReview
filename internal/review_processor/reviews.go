@@ -25,6 +25,7 @@ type Review struct {
 	FriendlyName   *string         `json:"friendly_name"`
 	AuthorName     *string         `json:"author_name"`
 	AuthorUsername *string         `json:"author_username"`
+	PullRequestID  *int64          `json:"pull_request_id"`
 	CreatedAt      time.Time       `json:"created_at"`
 	StartedAt      *time.Time      `json:"started_at"`
 	CompletedAt    *time.Time      `json:"completed_at"`
@@ -94,8 +95,10 @@ func (rm *ReviewManager) CreateReview(repository, branch, commitHash, prMrURL, t
 	return &review, nil
 }
 
-// CreateReviewWithOrg creates a new review record with explicit org scoping
-func (rm *ReviewManager) CreateReviewWithOrg(repository, branch, commitHash, prMrURL, triggerType, userEmail, provider string, connectorID *int64, metadata map[string]interface{}, orgID int64, friendlyName string, authorName string, authorUsername string) (*Review, error) {
+// CreateReviewWithOrg creates a new review record with explicit org scoping. pullRequestID is
+// nil for reviews not tied to a known PR row (CLI diffs, or a raw-URL trigger that couldn't be
+// resolved to an existing pull_requests row).
+func (rm *ReviewManager) CreateReviewWithOrg(repository, branch, commitHash, prMrURL, triggerType, userEmail, provider string, connectorID *int64, metadata map[string]interface{}, orgID int64, friendlyName string, authorName string, authorUsername string, pullRequestID *int64) (*Review, error) {
 	var metadataJSON []byte
 	var err error
 
@@ -109,13 +112,13 @@ func (rm *ReviewManager) CreateReviewWithOrg(repository, branch, commitHash, prM
 	}
 
 	query := `
-		INSERT INTO reviews (repository, branch, commit_hash, pr_mr_url, connector_id, trigger_type, user_email, provider, metadata, org_id, friendly_name, author_name, author_username)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		INSERT INTO reviews (repository, branch, commit_hash, pr_mr_url, connector_id, trigger_type, user_email, provider, metadata, org_id, friendly_name, author_name, author_username, pull_request_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING id, created_at
 	`
 
 	var review Review
-	err = rm.store.QueryRow(query, repository, branch, commitHash, prMrURL, connectorID, triggerType, userEmail, provider, metadataJSON, orgID, friendlyName, authorName, authorUsername).Scan(&review.ID, &review.CreatedAt)
+	err = rm.store.QueryRow(query, repository, branch, commitHash, prMrURL, connectorID, triggerType, userEmail, provider, metadataJSON, orgID, friendlyName, authorName, authorUsername, pullRequestID).Scan(&review.ID, &review.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create review: %w", err)
 	}
@@ -131,6 +134,7 @@ func (rm *ReviewManager) CreateReviewWithOrg(repository, branch, commitHash, prM
 	review.UserEmail = userEmail
 	review.Provider = provider
 	review.Metadata = metadataJSON
+	review.PullRequestID = pullRequestID
 	if friendlyName != "" {
 		review.FriendlyName = &friendlyName
 	}
@@ -166,6 +170,15 @@ func (rm *ReviewManager) UpdateReviewStatus(reviewID int64, status string) error
 		return fmt.Errorf("failed to update review status: %w", err)
 	}
 
+	return nil
+}
+
+// UpdateReviewConnector backfills connector_id once it's resolved - the raw-URL trigger flow creates the review row before the integration token/connector is known, so this fills it in afterward.
+func (rm *ReviewManager) UpdateReviewConnector(reviewID int64, connectorID int64) error {
+	_, err := rm.store.Exec(`UPDATE reviews SET connector_id = $1 WHERE id = $2`, connectorID, reviewID)
+	if err != nil {
+		return fmt.Errorf("failed to update review connector: %w", err)
+	}
 	return nil
 }
 

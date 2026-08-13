@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -225,7 +226,7 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 	}
 
 	tStart := time.Now()
-	response, history, err := oh.agent.RunTurn(ctx, conv.history, text)
+	response, history, err := oh.agent.RunTurn(ctx, conv.history, text, convID, "teams")
 	elapsed := time.Since(tStart)
 	if err != nil {
 		log.Printf("[TeamsBot] Org %d: agent error after %s: %s", oh.orgID, elapsed, err)
@@ -251,6 +252,13 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 				}
 			}
 			return nil
+		}
+		// A single value/bar isn't worth a chart — reply with the description text.
+		if desc, query, ok := vlrender.TrivialDescription(response); ok && desc != "" {
+			if query != "" {
+				desc += "\n\nQuery used: " + query
+			}
+			return b.postReply(ctx, activity, b.buildReply(desc, activity, nil))
 		}
 		log.Printf("[TeamsBot] Vega-Lite render failed after retries, sending friendly error")
 		return b.postReply(ctx, activity, b.buildReply("Having an issue generating the data, please try again.", activity, nil))
@@ -339,11 +347,35 @@ func (b *Bot) buildReply(text string, orig *Activity, attachments []Attachment) 
 	}
 }
 
+// isTrustedBotFrameworkServiceURL reports whether serviceURL points at one
+// of Microsoft's known Bot Framework Connector Service endpoints. Although
+// requests reaching here already carry a JWT validated against Microsoft's
+// JWKS (see auth.go), that token only proves the caller is some genuine Bot
+// Framework channel for this bot's App ID — it does not bind the
+// activity's serviceUrl field, which a malicious or misconfigured channel
+// could otherwise set to an arbitrary internal or attacker-controlled host.
+// This check prevents that host from being used as the target of our
+// outbound reply request. See Microsoft's Bot Framework security guidance
+// on validating serviceUrl before use.
+func isTrustedBotFrameworkServiceURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "smba.trafficmanager.net" ||
+		host == "api.botframework.com" ||
+		strings.HasSuffix(host, ".botframework.com")
+}
+
 // postReply sends an Activity to the Bot Framework Connector API via
 // POST {serviceUrl}/v3/conversations/{conversationId}/activities
 func (b *Bot) postReply(ctx context.Context, orig *Activity, reply *Activity) error {
 	if orig.ServiceURL == "" {
 		return fmt.Errorf("no serviceUrl on incoming activity")
+	}
+	if !isTrustedBotFrameworkServiceURL(orig.ServiceURL) {
+		return fmt.Errorf("refusing to post reply: untrusted serviceUrl %q", orig.ServiceURL)
 	}
 
 	u := fmt.Sprintf("%s/v3/conversations/%s/activities",

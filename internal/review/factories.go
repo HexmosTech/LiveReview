@@ -61,7 +61,10 @@ func (f *StandardProviderFactory) CreateProvider(ctx context.Context, config Pro
 		if repoURL == "" {
 			return nil, fmt.Errorf("failed to create bitbucket provider: repo_url is required but was not provided")
 		}
-		log.Printf("[DEBUG] Bitbucket token exists: %v, email: %s, repoURL: %s", len(apiToken) > 0, email, repoURL)
+		// config.Config is shared across all provider branches in this
+		// function and, for gitea, can hold a "password" key - log presence
+		// and length here rather than the raw email/repoURL values.
+		log.Printf("[DEBUG] Bitbucket token exists: %v, email set: %v, repoURL len: %d", len(apiToken) > 0, email != "", len(repoURL))
 		provider, err := bitbucket.NewBitbucketProvider(apiToken, email, repoURL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create bitbucket provider: %w", err)

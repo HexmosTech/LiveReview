@@ -7,14 +7,15 @@ import (
 )
 
 type DiscordConfig struct {
-	ID        int64     `json:"id"`
-	OrgID     int64     `json:"org_id"`
-	BotToken  string    `json:"-"`
-	APIKey    string    `json:"api_key,omitempty"`
-	GuildID   string    `json:"guild_id"`
-	Enabled   bool      `json:"enabled"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID            int64     `json:"id"`
+	OrgID         int64     `json:"org_id"`
+	BotToken      string    `json:"-"`
+	APIKey        string    `json:"api_key,omitempty"`
+	GuildID       string    `json:"guild_id"`
+	ApplicationID string    `json:"application_id"`
+	Enabled       bool      `json:"enabled"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type Storage struct {
@@ -27,13 +28,13 @@ func NewStorage(db *sql.DB) *Storage {
 
 func (s *Storage) GetDiscordConfig(ctx context.Context, orgID int64) (*DiscordConfig, error) {
 	query := `
-		SELECT id, org_id, bot_token, api_key, guild_id, enabled, created_at, updated_at
+		SELECT id, org_id, bot_token, api_key, guild_id, application_id, enabled, created_at, updated_at
 		FROM org_discord_configs
 		WHERE org_id = $1`
 
 	cfg := &DiscordConfig{}
 	err := s.db.QueryRowContext(ctx, query, orgID).Scan(
-		&cfg.ID, &cfg.OrgID, &cfg.BotToken, &cfg.APIKey, &cfg.GuildID, &cfg.Enabled, &cfg.CreatedAt, &cfg.UpdatedAt,
+		&cfg.ID, &cfg.OrgID, &cfg.BotToken, &cfg.APIKey, &cfg.GuildID, &cfg.ApplicationID, &cfg.Enabled, &cfg.CreatedAt, &cfg.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -41,17 +42,17 @@ func (s *Storage) GetDiscordConfig(ctx context.Context, orgID int64) (*DiscordCo
 	return cfg, nil
 }
 
-func (s *Storage) UpsertDiscordConfig(ctx context.Context, orgID int64, botToken, apiKey string) (*DiscordConfig, error) {
+func (s *Storage) UpsertDiscordConfig(ctx context.Context, orgID int64, botToken, apiKey, applicationID string) (*DiscordConfig, error) {
 	query := `
-		INSERT INTO org_discord_configs (org_id, bot_token, api_key, enabled, created_at, updated_at)
-		VALUES ($1, $2, $3, true, NOW(), NOW())
+		INSERT INTO org_discord_configs (org_id, bot_token, api_key, application_id, enabled, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, true, NOW(), NOW())
 		ON CONFLICT (org_id)
-		DO UPDATE SET bot_token = $2, api_key = $3, enabled = true, updated_at = NOW()
-		RETURNING id, org_id, bot_token, api_key, guild_id, enabled, created_at, updated_at`
+		DO UPDATE SET bot_token = $2, api_key = $3, application_id = $4, enabled = true, updated_at = NOW()
+		RETURNING id, org_id, bot_token, api_key, guild_id, application_id, enabled, created_at, updated_at`
 
 	cfg := &DiscordConfig{}
-	err := s.db.QueryRowContext(ctx, query, orgID, botToken, apiKey).Scan(
-		&cfg.ID, &cfg.OrgID, &cfg.BotToken, &cfg.APIKey, &cfg.GuildID, &cfg.Enabled, &cfg.CreatedAt, &cfg.UpdatedAt,
+	err := s.db.QueryRowContext(ctx, query, orgID, botToken, apiKey, applicationID).Scan(
+		&cfg.ID, &cfg.OrgID, &cfg.BotToken, &cfg.APIKey, &cfg.GuildID, &cfg.ApplicationID, &cfg.Enabled, &cfg.CreatedAt, &cfg.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -71,7 +72,7 @@ func (s *Storage) DeleteDiscordConfig(ctx context.Context, orgID int64) error {
 
 func (s *Storage) GetAllEnabledConfigs(ctx context.Context) ([]DiscordConfig, error) {
 	query := `
-		SELECT id, org_id, bot_token, api_key, guild_id, enabled, created_at, updated_at
+		SELECT id, org_id, bot_token, api_key, guild_id, application_id, enabled, created_at, updated_at
 		FROM org_discord_configs
 		WHERE enabled = true
 		ORDER BY org_id`
@@ -85,7 +86,7 @@ func (s *Storage) GetAllEnabledConfigs(ctx context.Context) ([]DiscordConfig, er
 	var configs []DiscordConfig
 	for rows.Next() {
 		var cfg DiscordConfig
-		if err := rows.Scan(&cfg.ID, &cfg.OrgID, &cfg.BotToken, &cfg.APIKey, &cfg.GuildID, &cfg.Enabled, &cfg.CreatedAt, &cfg.UpdatedAt); err != nil {
+		if err := rows.Scan(&cfg.ID, &cfg.OrgID, &cfg.BotToken, &cfg.APIKey, &cfg.GuildID, &cfg.ApplicationID, &cfg.Enabled, &cfg.CreatedAt, &cfg.UpdatedAt); err != nil {
 			return nil, err
 		}
 		configs = append(configs, cfg)

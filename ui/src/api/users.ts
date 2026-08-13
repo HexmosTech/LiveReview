@@ -11,6 +11,60 @@ export const checkUserByEmail = async (orgId: string, email: string): Promise<Us
   return apiClient.get<UserCheckResponse>(`/orgs/${orgId}/users/check?email=${encodeURIComponent(email)}`);
 };
 
+export interface BulkCheckUserRow {
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: string;
+}
+
+export interface BulkCheckResultRow {
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: string;
+  exists: boolean;
+  exists_globally: boolean;
+  old_email?: string;
+  old_first_name?: string;
+  old_last_name?: string;
+  old_role?: string;
+}
+
+export interface BulkCheckResponse {
+  results: BulkCheckResultRow[];
+}
+
+export const bulkCheckUsers = async (orgId: string, users: BulkCheckUserRow[]): Promise<BulkCheckResultRow[]> => {
+  const response = await apiClient.post<BulkCheckResponse>(`/orgs/${orgId}/users/bulk-check`, { users });
+  return response.results;
+};
+
+export interface BulkInviteUserRow {
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: string;
+  password: string;
+  confirm_password: string;
+}
+
+export interface BulkInviteResultRow {
+  email: string;
+  status: 'invited' | 'updated' | 'unchanged' | 'error';
+  message?: string;
+  onboarding_api_key?: string;
+}
+
+export interface BulkInviteResponse {
+  results: BulkInviteResultRow[];
+}
+
+export const submitBulkInvite = async (orgId: string, users: BulkInviteUserRow[]): Promise<BulkInviteResultRow[]> => {
+  const response = await apiClient.post<BulkInviteResponse>(`/orgs/${orgId}/users/bulk-invite`, { users });
+  return response.results;
+};
+
 // --- TypeScript Interfaces ---
 
 export interface Member {
@@ -37,8 +91,23 @@ export interface FetchUsersResponse {
   total_pages: number;
 }
 
-export const fetchOrgUsers = async (orgId: string): Promise<FetchUsersResponse> => {
-  return apiClient.get<FetchUsersResponse>(`/orgs/${orgId}/users`);
+export interface FetchOrgUsersParams {
+  page?: number;
+  perPage?: number;
+  search?: string;
+  sort?: 'user' | 'status' | 'role' | 'joined';
+  order?: 'asc' | 'desc';
+}
+
+export const fetchOrgUsers = async (orgId: string, params: FetchOrgUsersParams = {}): Promise<FetchUsersResponse> => {
+  const query = new URLSearchParams();
+  if (params.page) query.append('page', params.page.toString());
+  if (params.perPage) query.append('limit', params.perPage.toString());
+  if (params.search) query.append('search', params.search);
+  if (params.sort) query.append('sort', params.sort);
+  if (params.order) query.append('order', params.order);
+  const qs = query.toString();
+  return apiClient.get<FetchUsersResponse>(`/orgs/${orgId}/users${qs ? `?${qs}` : ''}`);
 };
 
 export interface UserFormData {

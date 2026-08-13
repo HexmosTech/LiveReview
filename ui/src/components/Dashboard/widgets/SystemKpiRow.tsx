@@ -1,8 +1,10 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { StatCard, Icons } from '../../UIPrimitives';
+import { StatCard, Icons, EmptyState } from '../../UIPrimitives';
 import { useCountUp } from './useCountUp';
-import { MOCK_SYSTEM_KPIS } from './mockData';
+import { useDashboardPeriod } from './DashboardPeriod';
+import { useSystemOverview, hasNoSystemOverviewData } from './SystemOverviewData';
+import { ChartSkeleton } from './ChartSkeleton';
 
 interface KpiTileProps {
     title: string;
@@ -28,13 +30,31 @@ const KpiTile: React.FC<KpiTileProps> = ({ title, value, icon, onClick }) => {
 
 export const SystemKpiRow: React.FC = () => {
     const navigate = useNavigate();
+    const { period } = useDashboardPeriod();
+    const { systemOverview, loading } = useSystemOverview();
+
+    if (loading) {
+        return <ChartSkeleton />;
+    }
+
+    if (hasNoSystemOverviewData(systemOverview)) {
+        return (
+            <EmptyState
+                icon={<Icons.EmptyState />}
+                title="Nothing connected yet"
+                description="Git hosts, AI connectors, and repositories will appear here once you connect them."
+            />
+        );
+    }
+
+    const overview = systemOverview!;
 
     return (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 h-full">
-            <KpiTile title="Git Hosts" value={MOCK_SYSTEM_KPIS.gitHosts} icon={<Icons.Git />} onClick={() => navigate('/git')} />
-            <KpiTile title="AI Connectors" value={MOCK_SYSTEM_KPIS.aiConnectors} icon={<Icons.AI />} onClick={() => navigate('/ai')} />
-            <KpiTile title="Repositories" value={MOCK_SYSTEM_KPIS.totalRepos} icon={<Icons.Folder />} onClick={() => navigate('/explore/repositories')} />
-            <KpiTile title="PRs / MRs Tracked" value={MOCK_SYSTEM_KPIS.totalPRs} icon={<Icons.Layers />} onClick={() => navigate('/explore/merge-requests')} />
+            <KpiTile title="Git Hosts" value={overview.git_hosts[period]} icon={<Icons.Git />} onClick={() => navigate('/git')} />
+            <KpiTile title="AI Connectors" value={overview.ai_connectors[period]} icon={<Icons.AI />} onClick={() => navigate('/ai')} />
+            <KpiTile title="Repositories" value={overview.total_repos[period]} icon={<Icons.Folder />} onClick={() => navigate('/explore/repositories')} />
+            <KpiTile title="PRs / MRs Tracked" value={overview.total_prs[period]} icon={<Icons.Layers />} onClick={() => navigate('/explore/merge-requests')} />
             <KpiTile title="Third-Party Tools" value={15} icon={<Icons.Settings />} onClick={() => navigate('/settings#third-party-tools')} />
         </div>
     );

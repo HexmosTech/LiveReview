@@ -74,10 +74,12 @@ func (r *WebhookProviderRegistry) DetectProvider(headers map[string]string, body
 func getRelevantHeaders(headers map[string]string) map[string]string {
 	relevant := make(map[string]string)
 
-	// Look for common webhook headers
+	// Look for common webhook headers. X-Gitlab-Token deliberately excluded:
+	// unlike the *-Signature headers (an HMAC digest, safe to log), it's the
+	// raw configured webhook secret itself.
 	webhookHeaders := []string{
 		"X-GitHub-Event", "X-GitHub-Delivery", "X-Hub-Signature",
-		"X-Gitlab-Event", "X-Gitlab-Token", "X-Gitlab-Event-UUID",
+		"X-Gitlab-Event", "X-Gitlab-Event-UUID",
 		"X-Event-Key", "X-Request-UUID", "X-Hook-UUID", // Bitbucket
 		"X-Gitea-Event", "X-Gitea-Delivery", "X-Gitea-Signature", // Gitea
 		"User-Agent", "Content-Type",

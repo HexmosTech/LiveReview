@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getDashboardData, DashboardData, refreshDashboardData } from '../../api/dashboard';
 import {
     Button,
@@ -121,6 +121,8 @@ const saveDismissedConnectorIds = (storageKey: string, connectorIds: Set<number>
 
 export const Dashboard: React.FC = () => {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const forceShowCli = searchParams.get('showCli') === '1';
     const user = useAppSelector(state => state.Auth.user);
     const { isFreePlan } = useOrgContext();
 
@@ -506,7 +508,7 @@ export const Dashboard: React.FC = () => {
                 />
 
                 {/* Floating setup-guide nudge – stays available until the user manually dismisses it */}
-                {!hideStepper && (
+                {(!hideStepper || forceShowCli) && (
                     <FloatingOnboardingNudge
                         hasCLI={hasCLI}
                         hasAIProvider={hasAIProvider}
@@ -517,6 +519,7 @@ export const Dashboard: React.FC = () => {
                         onNewReview={() => navigate('/reviews/new')}
                         isFreePlan={isFreePlan}
                         onUpgrade={() => setShowUpgradeDialog(true)}
+                        forceOpen={forceShowCli}
                         onDismiss={() => {
                             setHideStepper(true);
                             try {

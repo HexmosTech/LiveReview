@@ -112,5 +112,87 @@ Before writing any new endpoint, making database changes, or updating routing, c
     Endpoints that perform destructive actions, credential changes, or billing subscription alterations MUST reject API keys. Gating should explicitly check for JWT authentication.
 
 
+## Porting from git-lrc
+
+`git-lrc` (sibling repo, typically checked out at `../git-lrc`) is where LiveReview's
+local CLI (`lrc`/`git-lrc`) lives, including a mature local review UI
+(`internal/staticserve/static/`, Preact/htm, buildless) and a self-contained blast-radius
+scoring engine (`blastradius/`, its own Go module `github.com/HexmosTech/blastradius`).
+Capabilities built there sometimes need a corresponding home in LiveReview's hosted
+review-details page (`ui/src/pages/Reviews/ReviewDetail.tsx`). See
+`/home/shrsv/.claude/plans/piped-imagining-sky.md` for the design of the first port
+(diff/findings viewer + blast radius).
+
+### Porting convention
+
+Any LiveReview file ported from a git-lrc source must carry a one-line header comment:
+
+```
+// Ported from git-lrc:<path>#L<start>-L<end> (as of <short-sha>)
+```
+
+This makes future re-syncs diffable: check the cited git-lrc path/commit against
+git-lrc's current `HEAD` to see what changed upstream since the port, without having to
+rediscover which LiveReview files came from where.
+
+Because git-lrc's review UI is buildless Preact/htm/plain-CSS and LiveReview's is React
+19 + Redux + Tailwind + `UIPrimitives.tsx`, ports are **not** file copies — treat
+git-lrc's components as the functional spec (especially framework-agnostic pure-logic
+`.mjs` files, which port ~1:1) and rebuild presentational components natively against
+LiveReview's design system.
+
+### Artifact sync channel
+
+git-lrc's CLI computes some things locally that the LiveReview server has no way to
+compute itself (e.g. blast radius requires a live `codebase-memory-mcp` graph index of
+the repo, which only exists on the developer's machine). These sync to LiveReview
+**opportunistically** — only reviews actually run through `git lrc review` will have
+them; webhook- and web-UI-triggered reviews won't, and that's expected, not an error.
+
+The reusable pattern any future git-lrc-computed artifact should follow:
+
+1. CLI computes the artifact locally after (or alongside) submitting the review.
+2. CLI POSTs it to `POST /api/v1/diff-review/:review_id/artifacts/:artifact_type`
+   (fire-and-forget — log a warning on failure, never block or fail the review).
+3. LiveReview writes the raw JSON body to whatever blob store is currently configured
+   (`internal/blobstore`, default: local filesystem; optionally S3-compatible covering
+   both real AWS S3 and Backblaze B2, Google Cloud Storage, or Azure Blob Storage) under
+   key `org/:org_id/review/:review_id/artifacts/:artifact_type.json`, and serves it back
+   via
+   `GET /api/v1/diff-review/:review_id/artifacts/:artifact_type` (404 when absent). See
+   `internal/api/diff_review.go`'s `getBlobBucket`/`PutDiffReviewArtifact`/
+   `GetDiffReviewArtifact`. The storage backend itself is admin-configurable at runtime
+   from Settings → Storage (`internal/api/storage_settings.go`, backed by a
+   `system_settings` row named `blob_storage`, read fresh on every artifact request — no
+   redeploy needed to switch backends or rotate credentials.
+
+Adding a new artifact type is just a new entry in `diffReviewArtifactTypes` plus a
+frontend renderer — no new tables, no new endpoint code, and it lands in whichever blob
+store is already configured.
+
+## Keeping the Navigation Mega Menu in Sync
+
+The nav mega menu (`ui/src/components/Navbar/NavMegaMenu.tsx` + its data source
+`ui/src/components/Navbar/megaMenuData.ts`) is the primary way users discover and reach
+every section of the app. Whenever you add something new — a new page, route, settings
+tab, or any feature section that a user should be able to navigate to — you MUST ensure it
+is also reflected in the mega menu.
+
+**Rule: no new section/page/tab ships without a corresponding mega-menu entry.**
+
+- For a new top-level area, add a `MegaMenuSection` to `buildMegaMenuSections()` in
+  `megaMenuData.ts`.
+- For a new sub-page or settings tab under an existing area, add a `link(...)` (and, if
+  grouped, a `group(...)`) node to the relevant section's `items` array. Reuse the same
+  route the page actually lives on (e.g. `/settings#storage` for a settings tab) and the
+  appropriate `Icons.*` glyph, and gate it with the matching `isVisible` /
+  `requiresOwnerOrAdmin` / `requiresSuperAdmin` predicate.
+- New settings tabs are typically registered in
+  `ui/src/pages/Settings/Settings.tsx` (the `tabs` array, by permission) — make the mega
+  menu entry mirror that same gating so both stay consistent.
+
+If a new feature is not navigable from the mega menu (e.g. it is only reached from a
+button inside an existing page), call that out explicitly rather than silently skipping
+the entry. Keeping the mega menu complete is what makes new capabilities discoverable.
 
 

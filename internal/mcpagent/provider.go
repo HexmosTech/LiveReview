@@ -14,8 +14,56 @@ type Provider struct {
 	connector *aiconnectors.Connector
 }
 
+// TokenUsage carries per-call token counts pulled from the provider's raw
+// response. Providers vary in which GenerationInfo keys they populate
+// (OpenAI: PromptTokens/CompletionTokens, Anthropic: InputTokens/OutputTokens,
+// Google AI: input_tokens/output_tokens), so extraction checks all of them.
+// Zero means the provider did not report usage, not that usage was zero.
+type TokenUsage struct {
+	InputTokens  int
+	OutputTokens int
+}
+
+func firstInt(gi map[string]any, keys ...string) int {
+	for _, k := range keys {
+		v, ok := gi[k]
+		if !ok || v == nil {
+			continue
+		}
+		switch n := v.(type) {
+		case int:
+			return n
+		case int32:
+			return int(n)
+		case int64:
+			return int(n)
+		case float64:
+			return int(n)
+		}
+	}
+	return 0
+}
+
+func extractTokenUsage(gi map[string]any) TokenUsage {
+	if gi == nil {
+		return TokenUsage{}
+	}
+	return TokenUsage{
+		InputTokens:  firstInt(gi, "InputTokens", "PromptTokens", "input_tokens", "prompt_tokens"),
+		OutputTokens: firstInt(gi, "OutputTokens", "CompletionTokens", "output_tokens", "completion_tokens"),
+	}
+}
+
 func NewProvider(connector *aiconnectors.Connector) *Provider {
 	return &Provider{connector: connector}
+}
+
+// Describe returns a short "provider/model" string for logging.
+func (p *Provider) Describe() string {
+	if p == nil || p.connector == nil {
+		return "unknown"
+	}
+	return fmt.Sprintf("%s/%s", p.connector.GetProvider(), p.connector.GetModel())
 }
 
 // FormatTools converts MCP tool definitions into langchaingo tool schemas.
@@ -45,10 +93,11 @@ func (p *Provider) FormatTools(tools []MCPToolDef) []llms.Tool {
 	return result
 }
 
-// Complete sends the conversation to the LLM and returns the response text.
+// Complete sends the conversation to the LLM and returns the response text
+// plus the token usage the provider reported for this call.
 // Tool calls from the LLM (via WithTools) are converted to ReAct JSON blocks
 // embedded in the returned text so the agent can parse them.
-func (p *Provider) Complete(ctx context.Context, history []HistoryEntry, tools []llms.Tool) (string, error) {
+func (p *Provider) Complete(ctx context.Context, history []HistoryEntry, tools []llms.Tool) (string, TokenUsage, error) {
 	messages := p.historyToMessages(history)
 
 	var opts []llms.CallOption
@@ -58,14 +107,15 @@ func (p *Provider) Complete(ctx context.Context, history []HistoryEntry, tools [
 
 	resp, err := p.connector.GenerateContent(ctx, messages, opts...)
 	if err != nil {
-		return "", err
+		return "", TokenUsage{}, err
 	}
 
 	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("no choices in LLM response")
+		return "", TokenUsage{}, fmt.Errorf("no choices in LLM response")
 	}
 
 	choice := resp.Choices[0]
+	usage := extractTokenUsage(choice.GenerationInfo)
 
 	if len(choice.ToolCalls) > 0 {
 		// Convert structured tool calls to ReAct JSON block
@@ -82,10 +132,10 @@ func (p *Provider) Complete(ctx context.Context, history []HistoryEntry, tools [
 			text += block
 		}
 		log.Debug().Str("text", text).Msg("LLM returned tool calls, converted to ReAct block")
-		return text, nil
+		return text, usage, nil
 	}
 
-	return choice.Content, nil
+	return choice.Content, usage, nil
 }
 
 // historyToMessages converts generic history entries to langchaingo MessageContent.

@@ -1,27 +1,26 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { LuTerminal } from 'react-icons/lu';
-import { SiGitlab } from 'react-icons/si';
-import { Button, Icons } from '../../components/UIPrimitives';
-import { ReviewEventsPage } from '../../components/reviews';
-import { ToolAnalysisCard, ToolAccountingData } from '../../components/reviews/ToolAnalysisCard';
-import { 
-  getReview, 
-  getReviewEvents, 
-  getReviewSummary, 
+import { Button, Icons, Tabs } from '../../components/UIPrimitives';
+import { ReviewEventsPage, DiffViewerPanel } from '../../components/reviews';
+import {
+  getReview,
+  getReviewEvents,
+  getReviewSummary,
     getReviewAccounting,
-  formatRelativeTime, 
-  getStatusColor, 
-  getStatusText 
+    getReviewCommits,
+  formatRelativeTime,
+  getStatusColor,
+  getStatusText
 } from '../../api/reviews';
-import { 
-  Review, 
-  ReviewEvent, 
-  ReviewSummary, 
+import {
+  Review,
+  ReviewEvent,
+  ReviewSummary,
     ReviewAccounting,
     ReviewAccountingStage,
+    ReviewCommit,
   ReviewEventLevel,
-  ReviewEventType 
+  ReviewEventType
 } from '../../types/reviews';
 
 const normalizeSource = (provider?: string, prMrUrl?: string): string => {
@@ -84,6 +83,14 @@ const SourceIcon: React.FC<{ provider?: string; prMrUrl?: string }> = ({ provide
 };
 
 const ACCOUNTING_REFRESH_INTERVAL_MS = 15000;
+const COMMITS_PREVIEW_LIMIT = 5;
+
+const HeaderStat: React.FC<{ label: string; value: string; className?: string }> = ({ label, value, className }) => (
+    <div className="shrink-0">
+        <p className="text-[11px] text-slate-400 whitespace-nowrap">{label}</p>
+        <p className={`text-sm text-white whitespace-nowrap ${className || ''}`}>{value}</p>
+    </div>
+);
 
 const hasAccountingDetails = (value: ReviewAccounting | null): boolean => {
         if (!value) {
@@ -113,12 +120,17 @@ const ReviewDetail: React.FC = () => {
     const [accountingError, setAccountingError] = useState<string | null>(null);
     const [accountingErrorTone, setAccountingErrorTone] = useState<'info' | 'warning'>('info');
     const [accountingRouteUnavailable, setAccountingRouteUnavailable] = useState(false);
+    const [commits, setCommits] = useState<ReviewCommit[]>([]);
+    const [allCommitsShown, setAllCommitsShown] = useState(false);
+    const [detailsExpanded, setDetailsExpanded] = useState(false);
+    const [commitsLoaded, setCommitsLoaded] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [pollingEnabled, setPollingEnabled] = useState(true);
     const [levelFilter, setLevelFilter] = useState<ReviewEventLevel | ''>('');
     const [typeFilter, setTypeFilter] = useState<ReviewEventType | ''>('');
     const [lastEventTime, setLastEventTime] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState<'findings' | 'accounting' | 'events'>('findings');
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
     // Status colors are imported via getStatusColor from ../../api/reviews
@@ -448,6 +460,18 @@ const ReviewDetail: React.FC = () => {
             setReview(reviewData);
             setSummary(summaryData);
             await fetchAccountingDetails(reviewId, reviewData.status);
+
+            // Relevant commits are best-effort/informational -- never block
+            // or fail the rest of the page on this.
+            try {
+                const commitsData = await getReviewCommits(reviewId);
+                setCommits(commitsData.commits || []);
+            } catch (commitsErr) {
+                console.warn('Review commits endpoint unavailable:', commitsErr);
+                setCommits([]);
+            } finally {
+                setCommitsLoaded(true);
+            }
             
             const newEvents = (eventsData?.events as ReviewEvent[] | undefined) || [];
             setEvents(newEvents);
@@ -472,7 +496,16 @@ const ReviewDetail: React.FC = () => {
     useEffect(() => {
         setEvents([]);
         setLastEventTime(null);
+        setCommits([]);
+        setDetailsExpanded(false);
+        setCommitsLoaded(false);
+        setAllCommitsShown(false);
     }, [id]);
+
+    const githubBaseUrl = useMemo(() => {
+        if (!review || !review.provider?.toLowerCase().startsWith('github')) return null;
+        return `https://github.com/${review.repository}`;
+    }, [review]);
 
     // Derive available filter values from current events
     const presentTypes = useMemo(() => {
@@ -485,6 +518,18 @@ const ReviewDetail: React.FC = () => {
         const s = new Set<string>();
         events.forEach(e => { if (e.level) s.add(e.level); });
         return s;
+    }, [events]);
+
+    // Events by severity, derived from the already-loaded events list --
+    // error=High, warn=Medium, info/debug=Low.
+    const eventSeverityCounts = useMemo(() => {
+        let high = 0, medium = 0, low = 0;
+        events.forEach(e => {
+            if (e.level === 'error') high++;
+            else if (e.level === 'warn') medium++;
+            else low++;
+        });
+        return { high, medium, low };
     }, [events]);
 
     // Initial load
@@ -592,6 +637,20 @@ const ReviewDetail: React.FC = () => {
         return `$${value.toFixed(4)}`;
     };
 
+    const formatDuration = (startedAt?: string, completedAt?: string): string | null => {
+        if (!startedAt || !completedAt) {
+            return null;
+        }
+        const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime();
+        if (!isFinite(ms) || ms < 0) {
+            return null;
+        }
+        const totalSeconds = Math.round(ms / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+    };
+
     const leaderAIExecutionMode = typeof review.metadata?.leader_ai_execution_mode === 'string' ? review.metadata.leader_ai_execution_mode : '';
     const leaderAIExecutionSource = typeof review.metadata?.leader_ai_execution_source === 'string' ? review.metadata.leader_ai_execution_source : '';
     const leaderAIExecutionProvider = typeof review.metadata?.leader_ai_provider_name === 'string' ? review.metadata.leader_ai_provider_name : '';
@@ -680,123 +739,163 @@ const ReviewDetail: React.FC = () => {
                     </div>
                 </div>
 
-                {/* LEVEL 2: Single Unbroken Line */}
-                <div className="flex flex-nowrap items-center justify-between gap-3 text-xs whitespace-nowrap overflow-x-auto scrollbar-none pt-1">
-                    {/* Left: Remaining Review Info + Progress Badge (No Provider repetition) */}
-                    <div className="flex items-center gap-x-3 text-xs shrink-0">
-                        {review.userEmail && (
-                            <div className="flex items-center gap-1">
-                                <span className="text-slate-400">User:</span>
-                                <span className="text-white text-xs">{review.userEmail}</span>
-                            </div>
-                        )}
-                        <div className="flex items-center gap-1">
-                            <span className="text-slate-400">Created:</span>
-                            <span className="text-white text-xs">{new Date(review.createdAt).toLocaleDateString()} {new Date(review.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            {/* Review Info: compact one-row header, expands inline for
+                commits + review details rather than spreading everything
+                across the page by default. */}
+            <div className="bg-slate-800 rounded-lg border border-slate-700 mb-6">
+                <button
+                    type="button"
+                    onClick={() => setDetailsExpanded((v) => !v)}
+                    className="w-full flex items-center gap-6 px-4 py-3 text-left overflow-x-auto"
+                    aria-expanded={detailsExpanded}
+                >
+                    <div className="flex items-center gap-2 shrink-0">
+                        <div className="text-slate-400"><Icons.Git /></div>
+                        <div>
+                            <p className="text-sm font-semibold text-white max-w-[180px] truncate">
+                                {review.repository.split('/').pop() || review.repository}
+                            </p>
+                            <p className="text-xs text-slate-400">#{review.id}</p>
                         </div>
-                        {summary?.lastActivity && (
-                            <div className="flex items-center gap-1">
-                                <span className="text-slate-400">Last Activity:</span>
-                                <span className="text-white text-xs">{new Date(summary.lastActivity).toLocaleDateString()} {new Date(summary.lastActivity).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                            </div>
-                        )}
-                        {summary && (
-                            <div className="flex items-center gap-1">
-                                <span className="text-slate-400">Events:</span>
-                                <span className="text-white text-xs">{Object.values(summary.eventCounts || {}).reduce((a: number, b: number) => a + b, 0)}</span>
-                            </div>
-                        )}
-                        {summary && (
-                            <div className="flex items-center gap-1">
-                                <span className="text-slate-400">Batches:</span>
-                                <span className="text-white text-xs">{summary.batchCount}</span>
-                            </div>
-                        )}
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-wide text-white uppercase shadow-sm shrink-0 ${getStatusColor(review.status)}`}>
-                            {review.status.replace('_', ' ')}
+                    </div>
+                    <HeaderStat label="Provider" value={review.provider || '-'} className="capitalize" />
+                    <HeaderStat label="Branch" value={review.branch || '-'} />
+                    <HeaderStat label="Commits" value={commitsLoaded ? String(commits.length) : '...'} />
+                    <HeaderStat label="Last activity" value={formatRelativeTime(review.completedAt || review.startedAt || review.createdAt)} />
+                    <HeaderStat label="Events" value={String(Object.values(summary?.eventCounts || {}).reduce((a: number, b: number) => a + b, 0))} />
+                    <HeaderStat label="Batches" value={String(summary?.batchCount ?? 0)} />
+                    <div className="ml-auto flex items-center gap-3 shrink-0">
+                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium text-white ${getStatusColor(review.status)}`}>
+                            {review.status.replace('_', ' ').toUpperCase()}
+                        </span>
+                        <span className="flex items-center gap-1 text-xs text-slate-300">
+                            {detailsExpanded ? 'Less' : 'More'}
+                            {detailsExpanded ? <Icons.ChevronDown /> : <Icons.ChevronRight />}
                         </span>
                     </div>
+                </button>
 
-                    {/* Right: Static Numbers (Tools:15 Findings:14 Credits:4 cr) & Expand Button */}
-                    <div className="shrink-0 flex items-center gap-3">
-                        {toolAccounting && (() => {
-                            const totalTools = toolAccounting.toolBreakdown.length || toolAccounting.toolsExecuted;
-                            const totalFindings = toolAccounting.totalCommentsGenerated;
-                            const totalCredits = toolAccounting.totalToolCredits;
-                            const hasFindings = totalFindings > 0;
-                            return (
-                                <div className="flex items-center gap-3">
-                                    <div className="flex items-center gap-2.5 text-xs">
-                                        <div className="flex items-center gap-1">
-                                            <span className="text-slate-400">Tools:</span>
-                                            <span className="text-white font-mono text-xs">{totalTools}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                            <span className="text-slate-400">Findings:</span>
-                                            <span className={`font-mono text-xs ${hasFindings ? 'text-amber-400 font-bold' : 'text-white'}`}>{totalFindings}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                            <span className="text-slate-400">Credits:</span>
-                                            <span className="text-white font-mono text-xs">{totalCredits % 1 === 0 ? totalCredits.toFixed(0) : totalCredits.toFixed(1)} cr</span>
-                                        </div>
-                                    </div>
+                {detailsExpanded && (
+                    <div className="border-t border-slate-700 px-4 py-4 grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                        <div>
+                            <h3 className="text-xs font-semibold text-white uppercase tracking-wide mb-2">
+                                Commits{commitsLoaded && ` (${commits.length})`}
+                            </h3>
+                            {!commitsLoaded && (
+                                <p className="text-xs text-slate-400">Checking for commit information...</p>
+                            )}
+                            {commitsLoaded && commits.length === 0 && (
+                                <p className="text-xs text-slate-400">
+                                    No commit information recorded for this review yet. Plain "lrc review" (staged/working) commits sync in the background after `git commit` and may take a moment to appear; PR/MR and --commit/--range reviews are recorded immediately once submitted.
+                                </p>
+                            )}
+                            {commits.length > 0 && (
+                                <>
+                                    <ul className={`space-y-2 ${allCommitsShown && commits.length > COMMITS_PREVIEW_LIMIT ? 'max-h-64 overflow-y-auto pr-1' : ''}`}>
+                                        {(allCommitsShown ? commits : commits.slice(0, COMMITS_PREVIEW_LIMIT)).map((commit) => (
+                                            <li key={commit.ref} className="flex items-center justify-between gap-3 text-xs">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    {commit.refType === 'commit' && githubBaseUrl ? (
+                                                        <a
+                                                            href={`${githubBaseUrl}/commit/${commit.ref}`}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="font-mono text-slate-200 shrink-0 hover:text-blue-400 hover:underline"
+                                                        >
+                                                            {commit.ref.substring(0, 8)}
+                                                        </a>
+                                                    ) : (
+                                                        <span className="font-mono text-slate-200 shrink-0">
+                                                            {commit.refType === 'commit' ? commit.ref.substring(0, 8) : commit.ref}
+                                                        </span>
+                                                    )}
+                                                    {commit.refType === 'range' && (
+                                                        <span className="shrink-0 text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border bg-purple-900/30 text-purple-300 border-purple-700">
+                                                            range
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <span className="shrink-0 text-slate-400">{formatRelativeTime(commit.createdAt)}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    {commits.length > COMMITS_PREVIEW_LIMIT && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setAllCommitsShown((prev) => !prev)}
+                                            className="mt-2 text-xs text-slate-400 hover:text-white hover:underline"
+                                        >
+                                            {allCommitsShown ? 'Show less' : `+${commits.length - COMMITS_PREVIEW_LIMIT} more commits`}
+                                        </button>
+                                    )}
+                                </>
+                            )}
+                        </div>
 
-                                    <button
-                                        type="button"
-                                        onClick={() => setToolExpanded(!toolExpanded)}
-                                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs font-medium transition-colors shrink-0 bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700 hover:text-white"
-                                    >
-                                        {toolExpanded ? (
-                                            /* Collapse icon - arrows pointing inward */
-                                            <svg className="w-3.5 h-3.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9L4 4m0 0h5m-5 0v5M15 9l5-5m0 0h-5m5 0v5M9 15l-5 5m0 0h5m-5 0v-5M15 15l5 5m0 0h-5m5 0v-5" />
-                                            </svg>
-                                        ) : (
-                                            /* Expand icon - arrows pointing outward */
-                                            <svg className="w-3.5 h-3.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5h-4m4 0v-4m0 4l-5-5" />
-                                            </svg>
-                                        )}
-                                        <span>Static Analysis Tools</span>
-                                    </button>
+                        <div>
+                            <h3 className="text-xs font-semibold text-white uppercase tracking-wide mb-2">Review details</h3>
+                            <dl className="space-y-1 text-xs">
+                                <div className="flex justify-between gap-4">
+                                    <dt className="text-slate-400">Created by</dt>
+                                    <dd className="text-white text-right">{review.userEmail || '-'}</dd>
                                 </div>
-                            );
-                        })()}
-                    </div>
-                </div>
-
-                {/* Expanded Breakdown Panel below */}
-                {toolAccounting && toolExpanded && (
-                    <div className="w-full mt-1.5">
-                        <ToolAnalysisCard data={toolAccounting} embedded isExpanded={toolExpanded} hideSummary />
+                                <div className="flex justify-between gap-4">
+                                    <dt className="text-slate-400">Created</dt>
+                                    <dd className="text-white text-right">{new Date(review.createdAt).toLocaleString()}</dd>
+                                </div>
+                                <div className="flex justify-between gap-4">
+                                    <dt className="text-slate-400">Batches</dt>
+                                    <dd className="text-white text-right">{summary?.batchCount ?? 0}</dd>
+                                </div>
+                                {formatDuration(review.startedAt, review.completedAt) && (
+                                    <div className="flex justify-between gap-4">
+                                        <dt className="text-slate-400">Duration</dt>
+                                        <dd className="text-white text-right">{formatDuration(review.startedAt, review.completedAt)}</dd>
+                                    </div>
+                                )}
+                            </dl>
+                            <div className="mt-3">
+                                <p className="text-xs text-slate-400 mb-1">Events by severity</p>
+                                <div className="flex gap-4 text-xs">
+                                    <span className="text-red-400">High {eventSeverityCounts.high}</span>
+                                    <span className="text-amber-400">Medium {eventSeverityCounts.medium}</span>
+                                    <span className="text-sky-400">Low {eventSeverityCounts.low}</span>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setActiveTab('events')}
+                                className="mt-3 text-xs text-blue-400 hover:text-blue-300"
+                            >
+                                View all events →
+                            </button>
+                        </div>
                     </div>
                 )}
             </div>
 
-            {/* Priority #1: Events Timeline & Review Findings (Dominates the screen) */}
-            <div className="mb-8">
-                <ReviewEventsPage
-                    reviewId={reviewId}
-                    initialEvents={events.map(event => ({
-                        id: event.id.toString(),
-                        timestamp: event.time,
-                        eventType: mapEventType(event.type) as 'log' | 'status' | 'batch' | 'artifact' | 'completion' | 'retry' | 'json_repair' | 'timeout' | 'started' | 'progress' | 'batch_complete' | 'error' | 'completed',
-                        message: formatEventData(event),
-                        details: {
-                            batchId: event.batchId,
-                            ...event.data
-                        },
-                        severity: mapEventLevel(event.level) as 'info' | 'success' | 'warning' | 'warn' | 'error' | 'debug'
-                    }))}
-                    isLive={review?.status === 'in_progress'}
-                />
-            </div>
+            {/* Findings / Accounting / Events */}
+            <Tabs
+                className="mb-6"
+                activeTab={activeTab}
+                onChange={(id) => setActiveTab(id as typeof activeTab)}
+                tabs={[
+                    { id: 'findings', label: 'Findings' },
+                    { id: 'accounting', label: 'Accounting' },
+                    { id: 'events', label: 'Events' },
+                ]}
+            />
 
-            {/* Tertiary Utility: AI Accounting Panel */}
-            {(!toolAccounting || (accounting && hasAccountingDetails(accounting))) && (
-            <div className="bg-slate-800/80 rounded-lg p-4 border border-slate-700/70 text-xs">
-                <div className="flex items-center justify-between mb-3">
-                    <h2 className="text-sm font-semibold text-slate-300">AI Model Accounting</h2>
+            {activeTab === 'findings' && (
+                <div className="mb-6">
+                    <DiffViewerPanel reviewId={reviewId} />
+                </div>
+            )}
+
+            {/* Accounting Panel */}
+            <div className={`bg-slate-800 rounded-lg p-4 border border-slate-700 mb-6 ${activeTab === 'accounting' ? '' : 'hidden'}`}>
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-semibold text-white">Accounting</h2>
                     {accounting?.lastAccountedAt ? (
                         <span className="text-slate-500">
                             Last accounted {formatRelativeTime(accounting.lastAccountedAt)}
@@ -887,6 +986,49 @@ const ReviewDetail: React.FC = () => {
                         </div>
                     </div>
                 )}
+                {accounting?.latestOperation && (
+                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700 text-xs">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-y-2 gap-x-4">
+                            <p className="text-slate-300"><span className="text-slate-500">Latest operation:</span> {accounting.latestOperation.operationType}</p>
+                            <p className="text-slate-300"><span className="text-slate-500">Trigger:</span> {accounting.latestOperation.triggerSource}</p>
+                            <p className="text-slate-300"><span className="text-slate-500">Provider/Model:</span> {(accounting.latestOperation.provider || 'unknown')} / {(accounting.latestOperation.model || 'unknown')}</p>
+                            <p className="text-slate-300"><span className="text-slate-500">Pricing version:</span> {accounting.latestOperation.pricingVersion || 'unknown'}</p>
+                            <p className="text-slate-300"><span className="text-slate-500">Operation ID:</span> {accounting.latestOperation.operationId}</p>
+                            <p className="text-slate-300"><span className="text-slate-500">Idempotency key:</span> {accounting.latestOperation.idempotencyKey}</p>
+                            {(leaderAIExecutionMode || leaderAIExecutionSource) && (
+                                <p className="text-slate-300"><span className="text-slate-500">Leader execution:</span> {(leaderAIExecutionMode || 'unknown')} via {(leaderAIExecutionSource || 'unknown')}</p>
+                            )}
+                            {(leaderAIExecutionProvider || leaderAIExecutionConnector) && (
+                                <p className="text-slate-300"><span className="text-slate-500">Leader route:</span> {(leaderAIExecutionProvider || 'unknown')} / {(leaderAIExecutionConnector || 'unknown')}</p>
+                            )}
+                            {helperEnabled && (helperAIExecutionMode || helperAIExecutionSource) && (
+                                <p className="text-slate-300"><span className="text-slate-500">Helper execution:</span> {(helperAIExecutionMode || 'unknown')} via {(helperAIExecutionSource || 'unknown')}</p>
+                            )}
+                            {helperEnabled && (helperAIExecutionProvider || helperAIExecutionConnector) && (
+                                <p className="text-slate-300"><span className="text-slate-500">Helper route:</span> {(helperAIExecutionProvider || 'unknown')} / {(helperAIExecutionConnector || 'unknown')}</p>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* Events Timeline - Full Width */}
+            <div className={activeTab === 'events' ? '' : 'hidden'}>
+                    <ReviewEventsPage
+                        reviewId={reviewId}
+                        initialEvents={events.map(event => ({
+                            id: event.id.toString(),
+                            timestamp: event.time,
+                            eventType: mapEventType(event.type) as 'log' | 'status' | 'batch' | 'artifact' | 'completion' | 'retry' | 'json_repair' | 'timeout' | 'started' | 'progress' | 'batch_complete' | 'error' | 'completed',
+                            message: formatEventData(event),
+                            details: {
+                                batchId: event.batchId,
+                                ...event.data
+                            },
+                            severity: mapEventLevel(event.level) as 'info' | 'success' | 'warning' | 'warn' | 'error' | 'debug'
+                        }))}
+                        isLive={review?.status === 'in_progress'}
+                    />
             </div>
             )}
         </div>

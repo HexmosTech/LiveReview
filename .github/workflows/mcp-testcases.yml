@@ -7,6 +7,9 @@ on:
       - main
       - master
 
+permissions:
+  contents: read
+
 jobs:
   mcp-test:
     runs-on: ubuntu-latest
@@ -14,8 +17,13 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
-      TOKENROUTER_API_KEY: ${{ secrets.TOKENROUTER_API_KEY }}
+      ATLAS_API_KEY: ${{ secrets.ATLAS_API_KEY }}
       LIVEREVIEW_API_KEY_TR: ${{ secrets.LIVEREVIEW_API_KEY_TR }}
+      TEST_REPO_URL: ${{ secrets.TEST_REPO_URL }}
+      LIVEREVIEW_IS_CLOUD: ${{ secrets.LIVEREVIEW_IS_CLOUD }}
+      RAZORPAY_MODE: ${{ secrets.RAZORPAY_MODE }}
+      LIVEREVIEW_PRICING_PROFILE: ${{ secrets.LIVEREVIEW_PRICING_PROFILE }}
+
 
     steps:
       - name: Checkout repo
@@ -40,6 +48,12 @@ jobs:
 
       - name: Build LiveReview
         run: make build-ci
+
+      - name: Install dbmate
+        run: sudo npm install -g dbmate
+
+      - name: Run staging migrations
+        run: dbmate --url "$DATABASE_URL" up
 
       - name: Start MCP server
         run: |

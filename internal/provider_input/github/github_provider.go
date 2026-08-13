@@ -72,11 +72,29 @@ func (p *GitHubV2Provider) CanHandleWebhook(headers map[string]string, body []by
 	return false
 }
 
+// githubEventTypeLabel maps eventType to one of a fixed set of literal
+// labels for logging, rather than logging the raw X-GitHub-Event header
+// value itself.
+func githubEventTypeLabel(eventType string) string {
+	switch eventType {
+	case "issue_comment":
+		return "issue_comment"
+	case "pull_request_review_comment":
+		return "pull_request_review_comment"
+	case "pull_request_review":
+		return "pull_request_review"
+	case "pull_request":
+		return "pull_request"
+	default:
+		return "unrecognized"
+	}
+}
+
 // ConvertCommentEvent converts GitHub comment webhook to unified format.
 func (p *GitHubV2Provider) ConvertCommentEvent(headers map[string]string, body []byte) (*UnifiedWebhookEventV2, error) {
 	eventType, _ := webhookutils.GetHeaderCaseInsensitive(headers, "X-GitHub-Event")
-	log.Printf("[DEBUG] GitHub webhook event type: '%s'", eventType)
-	log.Printf("[DEBUG] Available headers: %v", headers)
+	log.Printf("[DEBUG] GitHub webhook event type: '%s'", githubEventTypeLabel(eventType))
+	log.Printf("[DEBUG] Available headers: %v", webhookutils.HeaderNames(headers))
 
 	canonicalType := canonicalGitHubEventType(eventType)
 	var (
@@ -95,7 +113,7 @@ func (p *GitHubV2Provider) ConvertCommentEvent(headers map[string]string, body [
 		log.Printf("[DEBUG] Processing GitHub pull_request_review event")
 		event, err = ConvertPullRequestReviewEvent(body)
 	default:
-		log.Printf("[WARN] Unsupported GitHub comment event type: '%s' (supported: issue_comment, pull_request_review_comment, pull_request_review)", eventType)
+		log.Printf("[WARN] Unsupported GitHub comment event type: '%s' (supported: issue_comment, pull_request_review_comment, pull_request_review)", githubEventTypeLabel(eventType))
 		err = fmt.Errorf("unsupported GitHub comment event type: '%s'", eventType)
 	}
 

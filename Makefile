@@ -458,6 +458,66 @@ db-flip:
 	@echo "New DATABASE_URL in .env:"
 	@grep "DATABASE_URL=" .env
 
+# Generate a token-compact schema dump of the prod DB (public schema) for LLM context.
+.PHONY: compressed-schema
+compressed-schema:
+	@if [ ! -f .env.prod ]; then \
+		echo "❌ ERROR: .env.prod not found"; \
+		exit 1; \
+	fi
+	@mkdir -p db
+	@set -a && . ./.env.prod && set +a && python3 scripts/llm-schema.py db/schema-compressed.txt
+	@echo "✅ Wrote db/schema-compressed.txt"
+
+# Export a full snapshot of the prod DB (schema + data) using .env.prod's
+# DATABASE_URL, for restoring into a separate, non-prod Postgres instance to
+# test against locally without pointing a dev server at prod itself. pg_dump
+# is read-only against its source by construction - it only ever issues SELECT-
+# shaped queries - so this cannot write to or modify the prod database.
+.PHONY: prod-data-export
+prod-data-export:
+	@if [ ! -f .env.prod ]; then \
+		echo "❌ ERROR: .env.prod not found"; \
+		exit 1; \
+	fi
+	@command -v pg_dump >/dev/null 2>&1 || { echo "❌ ERROR: pg_dump not found - install postgresql-client"; exit 1; }
+	@mkdir -p db/prod-exports
+	@set -a && . ./.env.prod && set +a && \
+	OUT="db/prod-exports/prod-$$(date +%Y%m%d-%H%M%S).dump" && \
+	echo "Exporting prod data (read-only pg_dump) to $$OUT ..." && \
+	pg_dump "$$DATABASE_URL" --format=custom --no-owner --no-privileges --verbose \
+	  --exclude-table=review_events \
+	  --exclude-table=upgrade_request_events \
+	  --exclude-table=river_job \
+	  --file="$$OUT" && \
+	echo "✅ Wrote $$OUT" && \
+	echo "Now run: make prod-data-import"
+
+# Restores the most recent db/prod-exports/*.dump into your LOCAL Postgres
+# server (via `sudo -u postgres`, i.e. the local Unix socket - it never
+# connects to prod). Target database/user come from THIS repo's local .env
+# DATABASE_URL. Interactive: asks for sudo's password if needed, asks before
+# dropping an existing local database, and asks before creating a new local
+# role (showing the username/password it's about to create). See
+# scripts/prod-data-import.sh for the exact sequence.
+.PHONY: prod-data-import
+prod-data-import:
+	@if [ ! -f .env ]; then \
+		echo "❌ ERROR: .env not found"; \
+		exit 1; \
+	fi
+	@command -v pg_restore >/dev/null 2>&1 || { echo "❌ ERROR: pg_restore not found - install postgresql-client"; exit 1; }
+	@bash scripts/prod-data-import.sh
+
+# Export then import in one go. Two separate $(MAKE) calls, not a
+# multi-prerequisite target, so they run strictly in order even under `make
+# -j` - import must never start before export has actually finished writing
+# the dump file.
+.PHONY: prod-data-sync
+prod-data-sync:
+	@$(MAKE) prod-data-export
+	@$(MAKE) prod-data-import
+
 # Multi-architecture Docker build targets
 docker-multiarch:
 	@python scripts/lrops.py build --docker --multiarch $(ARGS)
@@ -537,6 +597,12 @@ niceurl:
 		echo "autossh is not installed. Install it with: sudo apt install autossh"; \
 		exit 1; \
 	}
+	@PIDS="$$(lsof -tiTCP:20000 -sTCP:LISTEN 2>/dev/null || true) $$(pgrep -f '^/usr/lib/autossh/autossh -M 20000 ' || true)"; \
+	PIDS="$$(printf '%s\n' $$PIDS | tr ' ' '\n' | awk 'NF' | sort -u | tr '\n' ' ')"; \
+	if [ -n "$$PIDS" ]; then \
+		echo "Stopping existing local autossh/ssh for niceurl: $$PIDS"; \
+		kill -9 $$PIDS || true; \
+	fi
 	@ssh root@master "PID=\$$( netstat -tulpn | grep :6543 | awk '{print \$$7}' | cut -d/ -f1 | head -n 1); [ -n \"\$$PID\" ] && kill -9 \$$PID || true" || true
 	@echo "Starting autossh reverse tunnel on remote port 6543 -> localhost:8081"
 	@AUTOSSH_GATETIME=0 AUTOSSH_POLL=60 AUTOSSH_FIRST_POLL=30 AUTOSSH_LOGLEVEL=6 autossh -M 20000 \
@@ -575,6 +641,12 @@ niceurl3:
 		echo "autossh is not installed. Install it with: sudo apt install autossh"; \
 		exit 1; \
 	}
+	@PIDS="$$(lsof -tiTCP:20002 -sTCP:LISTEN 2>/dev/null || true) $$(pgrep -f '^/usr/lib/autossh/autossh -M 20002 ' || true)"; \
+	PIDS="$$(printf '%s\n' $$PIDS | tr ' ' '\n' | awk 'NF' | sort -u | tr '\n' ' ')"; \
+	if [ -n "$$PIDS" ]; then \
+		echo "Stopping existing local autossh/ssh for niceurl3: $$PIDS"; \
+		kill -9 $$PIDS || true; \
+	fi
 	@ssh root@master "PID=\$$( netstat -tulpn | grep :6545 | awk '{print \$$7}' | cut -d/ -f1 | head -n 1); [ -n \"\$$PID\" ] && kill -9 \$$PID || true" || true
 	@echo "Starting autossh reverse tunnel on remote port 6545 -> localhost:8081"
 	@AUTOSSH_GATETIME=0 AUTOSSH_POLL=60 AUTOSSH_FIRST_POLL=30 AUTOSSH_LOGLEVEL=6 autossh -M 20002 \
@@ -672,12 +744,12 @@ raw-deploy: build-with-ui
 		exit 1; \
 	fi
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && mv ./livereview ./livereview.bak || true"
-	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
+	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh install-vl-convert.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
 	rsync -avz ./$(DEPLOY_ACTUAL_ENV_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/.env
 	ssh $(DEPLOY_HOST) "mkdir -p $(DEPLOY_PATH)/config"
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
-	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh install-vl-convert.sh && ./install-vl-convert.sh && ./db-ready.sh"
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
@@ -686,14 +758,14 @@ DEPLOY_STAGING_PATH=/home/ubuntu/staging_lr
 DEPLOY_STAGING_HOST=nats03-do
 
 build-staging-with-ui:
-	@echo "🔨 Building for STAGING deployment (mock AI enabled)"
+	@echo "🔨 Building for STAGING deployment"
 	@if [ ! -f .env.staging ]; then \
 		echo "❌ ERROR: .env.staging not found! Cannot build for staging."; \
 		exit 1; \
 	fi
 	rm $(BINARY_NAME) || true
-	cd ui/ && npm install && set -a && . ./.env.staging && set +a && LIVEREVIEW_BUILD_MODE=prod NODE_ENV=production npm run build:obfuscated && cd ..
-	env -u GOROOT go build livereview.go
+	cd ui/ && npm install && set -a && . ../.env.staging && set +a && LIVEREVIEW_BUILD_MODE=staging NODE_ENV=production npm run build:obfuscated && cd ..
+	$(GOBUILD) -o $(BINARY_NAME) .
 	@echo "✅ Staging build complete. Binary ready for raw-deploy-staging."
 
 raw-deploy-staging: build-staging-with-ui
@@ -767,12 +839,12 @@ raw-deploy-low-pricing: build-with-ui
 		exit 1; \
 	fi
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && mv ./livereview ./livereview.bak || true"
-	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
+	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh install-vl-convert.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
 	rsync -avz ./$(DEPLOY_LOW_PRICING_ENV_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/.env
 	ssh $(DEPLOY_HOST) "mkdir -p $(DEPLOY_PATH)/config"
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
-	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh install-vl-convert.sh && ./install-vl-convert.sh && ./db-ready.sh"
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
@@ -810,12 +882,12 @@ raw-deploy-backend:
 		exit 1; \
 	fi
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && mv ./livereview ./livereview.bak || true"
-	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
+	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh install-vl-convert.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
 	rsync -avz ./$(DEPLOY_ACTUAL_ENV_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/.env
 	ssh $(DEPLOY_HOST) "mkdir -p $(DEPLOY_PATH)/config"
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
-	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh install-vl-convert.sh && ./install-vl-convert.sh && ./db-ready.sh"
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
@@ -861,12 +933,12 @@ raw-deploy-backend-low-pricing:
 		exit 1; \
 	fi
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && mv ./livereview ./livereview.bak || true"
-	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
+	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh install-vl-convert.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
 	rsync -avz ./$(DEPLOY_LOW_PRICING_ENV_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/.env
 	ssh $(DEPLOY_HOST) "mkdir -p $(DEPLOY_PATH)/config"
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
-	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh && ./db-ready.sh"
+	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh install-vl-convert.sh && ./install-vl-convert.sh && ./db-ready.sh"
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
@@ -883,6 +955,14 @@ pm2-logs:
 	@LOG_LINES=$${LINES:-200}; \
 	echo "📜 Fetching last $$LOG_LINES lines of PM2 logs from master..."; \
 	ssh master "tail -n $$LOG_LINES ~/.pm2/logs/livereview-api-out.log ~/.pm2/logs/livereview-api-error.log ~/.pm2/logs/livereview-ui-out.log ~/.pm2/logs/livereview-ui-error.log"
+
+# Stream the production chat_debug.log (requires LIVI_DEBUG_LOG=true on the
+# server - see internal/logging/chat_debug_logger.go) live, mirroring it into
+# the local chat_debug_logs/ dir as it grows. Runs until Ctrl+C.
+chat_debug:
+	@echo "📥 Tailing chat_debug.log from $(DEPLOY_HOST) (Ctrl+C to stop)..."
+	@mkdir -p chat_debug_logs
+	ssh $(DEPLOY_HOST) "tail -n 200 -f $(DEPLOY_PATH)/chat_debug_logs/chat_debug.log" | tee chat_debug_logs/prod_chat_debug.log
 
 run-selfhosted:
 	which air || $(GOCMD) install github.com/air-verse/air@latest

@@ -11,6 +11,7 @@ import (
 
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/mcpagent"
+	"github.com/livereview/internal/vlrender"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
@@ -21,16 +22,25 @@ const (
 	agentTimeout     = 2 * time.Minute
 )
 
-// Bot is the Slack bot. It owns a single Socket Mode connection and
-// dispatches events to per-org handlers based on the Slack team_id.
+// Bot is the Slack bot manager. It owns one Socket Mode connection per distinct
+// Slack app-level token, since a Socket Mode socket can only authenticate with a
+// single app. Events are dispatched to per-org handlers based on the team_id.
 type Bot struct {
-	socketClient *socketmode.Client
-	orgs         map[string]*orgHandler // teamID -> handler
+	runners      []*socketRunner // one runner per app token
 	mu           sync.RWMutex
 	ctx          context.Context
 	cancel       context.CancelFunc
-	appToken     string
 	teamIDStored func(orgID int64, teamID string) error
+}
+
+// socketRunner owns a single Socket Mode connection (one app token) and the
+// per-org handlers that share that app token.
+type socketRunner struct {
+	bot          *Bot
+	appToken     string
+	socketClient *socketmode.Client
+	orgs         map[string]*orgHandler // teamID -> handler
+	mu           sync.RWMutex
 }
 
 // orgHandler holds per-org state: its own Slack client, agent, and conversations.
@@ -62,6 +72,7 @@ type OrgConfig struct {
 	OrgID         int64
 	OrgName       string
 	SlackBotToken string
+	SlackAppToken string
 	MCPServerURL  string
 	MCPHeaders    map[string]string
 	Connector     *aiconnectors.Connector
@@ -70,27 +81,28 @@ type OrgConfig struct {
 
 // Config holds configuration for the multi-org Slack bot.
 type Config struct {
-	SlackAppToken string
-	Orgs          []OrgConfig
+	Orgs []OrgConfig
 }
 
-// New creates a new multi-org Slack bot. Performs auth test for each org
-// to resolve the Slack workspace team_id, then connects to MCP for each.
-// teamIDStored, if non-nil, is called after each org's team_id is resolved.
+// New creates a new multi-org Slack bot manager. Orgs are grouped by app token,
+// with one Socket Mode connection per distinct app token. Performs an auth test
+// for each org to resolve the Slack workspace team_id. teamIDStored, if non-nil,
+// is called after each org's team_id is resolved.
 func New(cfg *Config, teamIDStored func(orgID int64, teamID string) error) (*Bot, error) {
-	if cfg.SlackAppToken == "" {
-		return nil, fmt.Errorf("SlackAppToken is required")
-	}
 	if len(cfg.Orgs) == 0 {
 		return nil, fmt.Errorf("at least one org config is required")
 	}
 
-	orgs := make(map[string]*orgHandler, len(cfg.Orgs))
-
+	// Group orgs by app token, preserving first-seen order.
+	appGroups := make(map[string][]*OrgConfig)
+	var appOrder []string
 	for i := range cfg.Orgs {
 		oc := &cfg.Orgs[i]
 		if oc.SlackBotToken == "" {
 			return nil, fmt.Errorf("org %d: SlackBotToken is required", oc.OrgID)
+		}
+		if oc.SlackAppToken == "" {
+			return nil, fmt.Errorf("org %d: SlackAppToken is required", oc.OrgID)
 		}
 		if oc.MCPServerURL == "" {
 			return nil, fmt.Errorf("org %d: MCPServerURL is required", oc.OrgID)
@@ -108,121 +120,105 @@ func New(cfg *Config, teamIDStored func(orgID int64, teamID string) error) (*Bot
 			}
 		}
 
-		// Create per-org Slack client
-		slackClient := slack.New(oc.SlackBotToken, slack.OptionAppLevelToken(cfg.SlackAppToken))
-
-		// Auth test to resolve team_id
-		authResp, err := slackClient.AuthTestContext(context.Background())
-		if err != nil {
-			log.Printf("[SlackBot] Org %d: auth test failed: %v — skipping", oc.OrgID, err)
-			continue
+		if _, ok := appGroups[oc.SlackAppToken]; !ok {
+			appOrder = append(appOrder, oc.SlackAppToken)
 		}
-		log.Printf("[SlackBot] Org %d: authenticated as %s (%s), team=%s", oc.OrgID, authResp.User, authResp.UserID, authResp.TeamID)
-
-		// Persist team_id if callback provided
-		if teamIDStored != nil {
-			if err := teamIDStored(oc.OrgID, authResp.TeamID); err != nil {
-				log.Printf("[SlackBot] Org %d: failed to store team_id: %v", oc.OrgID, err)
-			}
-		}
-
-		orgs[authResp.TeamID] = &orgHandler{
-			orgID:         oc.OrgID,
-			orgName:       oc.OrgName,
-			teamID:        authResp.TeamID,
-			botUserID:     authResp.UserID,
-			slackClient:   slackClient,
-			conversations: make(map[string]*conversation),
-			mcpServerURL:  oc.MCPServerURL,
-			mcpHeaders:    oc.MCPHeaders,
-			connector:     oc.Connector,
-			maxAgentSteps: oc.MaxAgentSteps,
-		}
+		appGroups[oc.SlackAppToken] = append(appGroups[oc.SlackAppToken], oc)
 	}
 
-	if len(orgs) == 0 {
+	bot := &Bot{teamIDStored: teamIDStored}
+
+	for _, appToken := range appOrder {
+		runner := &socketRunner{bot: bot, appToken: appToken, orgs: make(map[string]*orgHandler)}
+		var firstClient *slack.Client
+		for _, oc := range appGroups[appToken] {
+			handler, err := runner.addOrg(oc, teamIDStored)
+			if err != nil {
+				log.Printf("[SlackBot] Org %d: skipping: %v", oc.OrgID, err)
+				continue
+			}
+			if firstClient == nil {
+				firstClient = handler.slackClient
+			}
+		}
+		if len(runner.orgs) == 0 {
+			log.Printf("[SlackBot] App token %s: no orgs could be initialized — skipping runner", maskAppToken(appToken))
+			continue
+		}
+		runner.socketClient = socketmode.New(firstClient)
+		bot.runners = append(bot.runners, runner)
+	}
+
+	if len(bot.runners) == 0 {
 		return nil, fmt.Errorf("no orgs could be initialized (all auth tests failed)")
 	}
 
-	// Use the first org's slack client for the socket connection
-	// (any will do — they all share the same app token)
-	var firstClient *slack.Client
-	for _, oh := range orgs {
-		firstClient = oh.slackClient
-		break
-	}
-	socketClient := socketmode.New(firstClient)
-
-	return &Bot{
-		socketClient: socketClient,
-		orgs:         orgs,
-		appToken:     cfg.SlackAppToken,
-		teamIDStored: teamIDStored,
-	}, nil
+	return bot, nil
 }
 
-// Start starts the Socket Mode event loop and blocks until ctx is cancelled or an error occurs.
+// Start starts the Socket Mode event loop for every runner and blocks until ctx
+// is cancelled or all runners exit.
 func (b *Bot) Start(ctx context.Context) error {
-	b.ctx, b.cancel = context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	b.mu.Lock()
+	b.ctx = ctx
+	b.cancel = cancel
+	runners := make([]*socketRunner, len(b.runners))
+	copy(runners, b.runners)
+	b.mu.Unlock()
 
-	handler := socketmode.NewSocketmodeHandler(b.socketClient)
-	handler.Handle(socketmode.EventTypeEventsAPI, b.handleEvent)
+	if len(runners) == 0 {
+		return nil
+	}
 
-	log.Printf("[SlackBot] Starting Socket Mode listener (%d orgs)", len(b.orgs))
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(runners))
+	for _, r := range runners {
+		wg.Add(1)
+		go func(r *socketRunner) {
+			defer wg.Done()
+			if err := r.start(ctx); err != nil {
+				errCh <- err
+			}
+		}(r)
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *socketRunner) start(ctx context.Context) error {
+	handler := socketmode.NewSocketmodeHandler(r.socketClient)
+	handler.Handle(socketmode.EventTypeEventsAPI, r.handleEvent)
+	log.Printf("[SlackBot] Starting Socket Mode listener (%d orgs, app token %s)", len(r.orgs), maskAppToken(r.appToken))
 	return handler.RunEventLoopContext(ctx)
 }
 
-// UpdateBotToken immediately swaps the Slack API client for an org to a new token.
-// This is safe to call before the full connector/agent setup completes, preventing
-// a window where a re-installed bot's old (invalidated) token is still in use.
-func (b *Bot) UpdateBotToken(orgID int64, newToken string) {
-	slackClient := slack.New(newToken, slack.OptionAppLevelToken(b.appToken))
+// addOrg resolves an org's team_id and registers it on this runner. The returned
+// handler's slackClient can be used to derive the runner's socket client.
+func (r *socketRunner) addOrg(oc *OrgConfig, teamIDStored func(orgID int64, teamID string) error) (*orgHandler, error) {
+	slackClient := slack.New(oc.SlackBotToken, slack.OptionAppLevelToken(oc.SlackAppToken))
 
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	for _, oh := range b.orgs {
-		if oh.orgID == orgID {
-			oh.slackClient = slackClient
-			log.Printf("[SlackBot] Org %d: bot token updated immediately", orgID)
-			return
-		}
-	}
-	log.Printf("[SlackBot] Org %d: not found for immediate token update, will be set during AddOrg", orgID)
-}
-
-// AddOrg dynamically registers a new org on a running bot.
-func (b *Bot) AddOrg(oc OrgConfig) error {
-	if oc.SlackBotToken == "" {
-		return fmt.Errorf("org %d: SlackBotToken is required", oc.OrgID)
-	}
-	if oc.MCPServerURL == "" {
-		return fmt.Errorf("org %d: MCPServerURL is required", oc.OrgID)
-	}
-	if oc.Connector == nil {
-		return fmt.Errorf("org %d: Connector is required", oc.OrgID)
-	}
-	if oc.MaxAgentSteps <= 0 {
-		oc.MaxAgentSteps = 8
-	}
-
-	slackClient := slack.New(oc.SlackBotToken, slack.OptionAppLevelToken(b.appToken))
-
+	// Auth test to resolve team_id
 	authResp, err := slackClient.AuthTestContext(context.Background())
 	if err != nil {
-		return fmt.Errorf("org %d: auth test failed: %w", oc.OrgID, err)
+		return nil, err
 	}
+	log.Printf("[SlackBot] Org %d: authenticated as %s (%s), team=%s", oc.OrgID, authResp.User, authResp.UserID, authResp.TeamID)
 
-	if b.teamIDStored != nil {
-		if err := b.teamIDStored(oc.OrgID, authResp.TeamID); err != nil {
+	// Persist team_id if callback provided
+	if teamIDStored != nil {
+		if err := teamIDStored(oc.OrgID, authResp.TeamID); err != nil {
 			log.Printf("[SlackBot] Org %d: failed to store team_id: %v", oc.OrgID, err)
 		}
 	}
 
-	b.mu.Lock()
-	if _, exists := b.orgs[authResp.TeamID]; exists {
-		log.Printf("[SlackBot] Org %d: replacing existing handler for team %s", oc.OrgID, authResp.TeamID)
-	}
-	b.orgs[authResp.TeamID] = &orgHandler{
+	handler := &orgHandler{
 		orgID:         oc.OrgID,
 		orgName:       oc.OrgName,
 		teamID:        authResp.TeamID,
@@ -234,13 +230,139 @@ func (b *Bot) AddOrg(oc OrgConfig) error {
 		connector:     oc.Connector,
 		maxAgentSteps: oc.MaxAgentSteps,
 	}
+
+	r.mu.Lock()
+	if _, exists := r.orgs[authResp.TeamID]; exists {
+		log.Printf("[SlackBot] Org %d: replacing existing handler for team %s", oc.OrgID, authResp.TeamID)
+	}
+	r.orgs[authResp.TeamID] = handler
+	r.mu.Unlock()
+
+	return handler, nil
+}
+
+// UpdateBotToken immediately swaps the Slack API client for an org to a new token.
+// The app token is used to keep the org attached to the correct socket runner.
+func (b *Bot) UpdateBotToken(orgID int64, newToken, appToken string) {
+	if newToken == "" {
+		log.Printf("[SlackBot] Org %d: bot token empty, cannot update token", orgID)
+		return
+	}
+	if appToken == "" {
+		log.Printf("[SlackBot] Org %d: app token empty, cannot update token", orgID)
+		return
+	}
+	slackClient := slack.New(newToken, slack.OptionAppLevelToken(appToken))
+
+	b.mu.RLock()
+	for _, r := range b.runners {
+		r.mu.Lock()
+		for _, oh := range r.orgs {
+			if oh.orgID == orgID {
+				if r.appToken != appToken {
+					log.Printf("[SlackBot] Org %d: app token changed (%s -> %s), will be re-registered via AddOrg", orgID, maskAppToken(r.appToken), maskAppToken(appToken))
+					r.mu.Unlock()
+					b.mu.RUnlock()
+					b.removeOrg(orgID)
+					return
+				}
+				oh.slackClient = slackClient
+				log.Printf("[SlackBot] Org %d: bot token updated immediately", orgID)
+				r.mu.Unlock()
+				b.mu.RUnlock()
+				return
+			}
+		}
+		r.mu.Unlock()
+	}
+	b.mu.RUnlock()
+	log.Printf("[SlackBot] Org %d: not found for immediate token update, will be set during AddOrg", orgID)
+}
+
+func (b *Bot) removeOrg(orgID int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i := 0; i < len(b.runners); {
+		r := b.runners[i]
+		r.mu.Lock()
+		for teamID, oh := range r.orgs {
+			if oh.orgID == orgID {
+				delete(r.orgs, teamID)
+			}
+		}
+		empty := len(r.orgs) == 0
+		r.mu.Unlock()
+		if empty {
+			b.runners = append(b.runners[:i], b.runners[i+1:]...)
+		} else {
+			i++
+		}
+	}
+}
+
+// AddOrg dynamically registers a new org on a running (or not-yet-started) bot.
+func (b *Bot) AddOrg(oc OrgConfig) error {
+	if oc.SlackBotToken == "" {
+		return fmt.Errorf("org %d: SlackBotToken is required", oc.OrgID)
+	}
+	if oc.SlackAppToken == "" {
+		return fmt.Errorf("org %d: SlackAppToken is required", oc.OrgID)
+	}
+	if oc.MCPServerURL == "" {
+		return fmt.Errorf("org %d: MCPServerURL is required", oc.OrgID)
+	}
+	if oc.Connector == nil {
+		return fmt.Errorf("org %d: Connector is required", oc.OrgID)
+	}
+	if oc.MaxAgentSteps <= 0 {
+		oc.MaxAgentSteps = 8
+	}
+
+	b.mu.RLock()
+	var runner *socketRunner
+	for _, r := range b.runners {
+		if r.appToken == oc.SlackAppToken {
+			runner = r
+			break
+		}
+	}
+	b.mu.RUnlock()
+
+	if runner != nil {
+		handler, err := runner.addOrg(&oc, b.teamIDStored)
+		if err != nil {
+			return err
+		}
+		log.Printf("[SlackBot] Org %d: added dynamically, team=%s", oc.OrgID, handler.teamID)
+		return nil
+	}
+
+	// New app token — spin up a fresh runner.
+	runner = &socketRunner{bot: b, appToken: oc.SlackAppToken, orgs: make(map[string]*orgHandler)}
+	handler, err := runner.addOrg(&oc, b.teamIDStored)
+	if err != nil {
+		return err
+	}
+	runner.socketClient = socketmode.New(handler.slackClient)
+
+	b.mu.Lock()
+	b.runners = append(b.runners, runner)
+	ctx := b.ctx
 	b.mu.Unlock()
 
-	log.Printf("[SlackBot] Org %d: added dynamically, team=%s", oc.OrgID, authResp.TeamID)
+	if ctx != nil {
+		go func() {
+			if err := runner.start(ctx); err != nil {
+				log.Printf("[SlackBot] Org %d: dynamically-started runner exited: %v", oc.OrgID, err)
+			}
+		}()
+	}
+
+	log.Printf("[SlackBot] Org %d: added dynamically on new app token, team=%s", oc.OrgID, handler.teamID)
 	return nil
 }
 
-func (b *Bot) handleEvent(evt *socketmode.Event, client *socketmode.Client) {
+func (r *socketRunner) handleEvent(evt *socketmode.Event, client *socketmode.Client) {
 	eventsAPIEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
 	if !ok {
 		return
@@ -252,16 +374,24 @@ func (b *Bot) handleEvent(evt *socketmode.Event, client *socketmode.Client) {
 
 	switch eventsAPIEvent.InnerEvent.Type {
 	case "app_mention":
-		b.handleAppMention(eventsAPIEvent.InnerEvent.Data, teamID)
+		r.bot.handleAppMention(eventsAPIEvent.InnerEvent.Data, teamID)
 	case "message":
-		b.handleMessage(eventsAPIEvent.InnerEvent.Data, teamID)
+		r.bot.handleMessage(eventsAPIEvent.InnerEvent.Data, teamID)
 	}
 }
 
 func (b *Bot) resolveTeam(teamID string) *orgHandler {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	return b.orgs[teamID]
+	for _, r := range b.runners {
+		r.mu.RLock()
+		oh := r.orgs[teamID]
+		r.mu.RUnlock()
+		if oh != nil {
+			return oh
+		}
+	}
+	return nil
 }
 
 func (b *Bot) handleAppMention(data any, teamID string) {
@@ -330,6 +460,8 @@ func (oh *orgHandler) ensureAgent() error {
 }
 
 func (oh *orgHandler) processMessage(channel, ts, threadTS, text string) {
+	log.Printf("[SlackBot] Org %d: message received channel=%s ts=%s thread=%q text=%q", oh.orgID, channel, ts, threadTS, truncate(text, 80))
+
 	key := channel + ":" + ts
 	if threadTS != "" {
 		key = channel + ":" + threadTS
@@ -362,7 +494,9 @@ func (oh *orgHandler) processMessage(channel, ts, threadTS, text string) {
 	ctx, cancel := context.WithTimeout(context.Background(), agentTimeout)
 	defer cancel()
 
-	finalText, updatedHistory, err := oh.agent.RunTurn(ctx, history, text)
+	log.Printf("[SlackBot] Org %d: RunTurn starting (timeout %s)", oh.orgID, agentTimeout)
+	finalText, updatedHistory, err := oh.agent.RunTurn(ctx, history, text, key, "slack")
+	log.Printf("[SlackBot] Org %d: RunTurn returned err=%v len=%d", oh.orgID, err, len(finalText))
 	if err != nil {
 		log.Printf("[SlackBot] RunTurn error: %s", err)
 		blocks := []slack.Block{
@@ -398,6 +532,16 @@ func (oh *orgHandler) processMessage(channel, ts, threadTS, text string) {
 		defer vlCancel()
 		if reports, ok := parseAndRenderVegaLiteReports(vlCtx, finalText); ok {
 			oh.uploadReportsToSlack(channel, "", reports)
+			return
+		}
+		// A single value/bar isn't worth a chart — reply with the description text.
+		if desc, query, ok := vlrender.TrivialDescription(finalText); ok && desc != "" {
+			if query != "" {
+				desc += "\n\nQuery used: " + query
+			}
+			if _, _, err := oh.slackClient.PostMessage(channel, slack.MsgOptionText(desc, false)); err != nil {
+				log.Printf("[SlackBot] Failed to post response: %s", err)
+			}
 			return
 		}
 		log.Printf("[SlackBot] Vega-Lite render failed after retries, sending friendly error")
@@ -436,6 +580,15 @@ func pruneConversationsLocked(conversations map[string]*conversation) {
 	}
 }
 
+// maskAppToken shortens an app-level token for safe logging, keeping the prefix
+// readable while hiding the secret portion.
+func maskAppToken(token string) string {
+	if len(token) <= 12 {
+		return "***"
+	}
+	return token[:6] + "..."
+}
+
 func isSensitiveHeader(key, value string) bool {
 	if len(value) < 10 {
 		return false
@@ -459,4 +612,11 @@ func toolNames(tools []mcpagent.MCPToolDef) []string {
 		names[i] = t.Name
 	}
 	return names
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }

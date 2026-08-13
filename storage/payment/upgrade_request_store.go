@@ -901,6 +901,15 @@ func (s *UpgradeRequestStore) updateUpgradeRequestStatus(ctx context.Context, in
 		return UpgradeRequest{}, ErrUpgradeRequestTransitionRejected
 	}
 
+	// SetClauses/SetValues always come from small literal slices built by
+	// this package's own callers (see the Mark*/CreateUpgradeRequest
+	// functions above), never from external input, but this bound makes
+	// that assumption explicit rather than allocating len(...)+2 unchecked.
+	const maxUpgradeRequestSetClauses = 32
+	if len(input.SetClauses) > maxUpgradeRequestSetClauses || len(input.SetValues) > maxUpgradeRequestSetClauses {
+		return UpgradeRequest{}, fmt.Errorf("too many set clauses for upgrade request status update")
+	}
+
 	setParts := make([]string, 0, len(input.SetClauses)+2)
 	values := make([]interface{}, 0, len(input.SetValues)+2)
 	values = append(values, input.UpgradeRequestID)

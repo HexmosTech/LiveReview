@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Button, Alert } from '../../components/UIPrimitives';
+import { Button, Alert, Icons } from '../../components/UIPrimitives';
 import apiClient from '../../api/apiClient';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { isCloudMode } from '../../utils/deploymentMode';
@@ -14,7 +14,6 @@ interface SlackConfig {
     created_at?: string;
     updated_at?: string;
 }
-
 interface TeamsConfig {
     configured: boolean;
     bot_app_id?: string;
@@ -24,6 +23,7 @@ interface TeamsConfig {
 interface DiscordConfig {
     configured: boolean;
     guild_id?: string;
+    application_id?: string;
 }
 
 const IntegrationsTab: React.FC = () => {
@@ -65,11 +65,52 @@ const IntegrationsTab: React.FC = () => {
 const SlackIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
     const [config, setConfig] = useState<SlackConfig | null>(null);
     const [loading, setLoading] = useState(true);
-    const [connecting, setConnecting] = useState(false);
+    const [saving, setSaving] = useState(false);
     const [disconnecting, setDisconnecting] = useState(false);
     const [showDisconnectModal, setShowDisconnectModal] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
+    const [editMode, setEditMode] = useState(false);
+    const [botToken, setBotToken] = useState('');
+    const [appToken, setAppToken] = useState('');
+    const [manifestCopied, setManifestCopied] = useState(false);
+
+    const slackManifest = `display_information:
+  name: Livi
+  description: LiveReview Bot
+  background_color: "#001c5e"
+features:
+  bot_user:
+    display_name: Livi
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - channels:read
+      - app_mentions:read
+      - channels:history
+      - chat:write
+      - files:write
+      - groups:history
+      - im:history
+      - im:read
+      - im:write
+      - users:read
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - message.im
+  interactivity:
+    is_enabled: true
+  socket_mode_enabled: true
+  token_rotation_enabled: false`;
+
+    const copyManifest = () => {
+        navigator.clipboard.writeText(slackManifest);
+        setManifestCopied(true);
+        setTimeout(() => setManifestCopied(false), 2000);
+    };
 
     const loadConfig = useCallback(async () => {
         if (!currentOrg) return;
@@ -89,17 +130,33 @@ const SlackIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
         loadConfig();
     }, [loadConfig]);
 
-    const handleConnect = async () => {
+    const handleSave = async () => {
         if (!currentOrg) return;
-        setConnecting(true);
+        if (!botToken) {
+            setError('Bot token is required');
+            return;
+        }
+        if (!appToken) {
+            setError('App-level token is required');
+            return;
+        }
+        setSaving(true);
         setError(null);
+        setSuccess(null);
         try {
-            const redirectTo = encodeURIComponent(window.location.origin + '/#/settings#integrations');
-            const response = await apiClient.get<{ url: string }>(`/auth/slack/install?org_id=${currentOrg.id}&redirect_to=${redirectTo}`);
-            window.location.href = response.url;
-        } catch (err: unknown) {
-            setError(err instanceof Error ? err.message : 'Failed to initiate Slack connection');
-            setConnecting(false);
+            const response = await apiClient.put<SlackConfig>(
+                `/orgs/${currentOrg.id}/slack-config`,
+                { bot_token: botToken, app_token: appToken }
+            );
+            setConfig(response);
+            setEditMode(false);
+            setBotToken('');
+            setAppToken('');
+            setSuccess('Slack bot configured successfully.');
+        } catch (err: any) {
+            setError(err.message || 'Failed to save Slack configuration');
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -117,6 +174,7 @@ const SlackIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
             await apiClient.delete(`/orgs/${currentOrg.id}/slack-config`);
             setSuccess('Slack bot disconnected successfully.');
             setConfig({ configured: false });
+            setEditMode(false);
             setShowDisconnectModal(false);
         } catch (err: any) {
             setError(err.message || 'Failed to disconnect Slack bot');
@@ -175,28 +233,111 @@ const SlackIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                             <div className="mt-3">
                                 <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                             </div>
-                        ) : config?.configured ? (
-                            <div className="mt-3 flex items-center space-x-3">
-                                {config.team_id && (
-                                    <span className="text-xs text-slate-500">
-                                        Workspace: <code className="bg-slate-700 px-1 rounded">{config.team_id}</code>
-                                    </span>
-                                )}
-                                <Button size="sm" variant="ghost" className="text-red-400 hover:text-red-300" onClick={handleDisconnect}>
-                                    Disconnect
-                                </Button>
+                        ) : config?.configured && !editMode ? (
+                            <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
+                                <div className="flex items-center space-x-3 flex-wrap gap-y-2">
+                                    {config.team_id && (
+                                        <span className="text-xs text-slate-500">
+                                            Workspace: <code className="px-1.5 py-0.5 bg-slate-900/60 border border-slate-600 text-slate-100 rounded">{config.team_id}</code>
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="flex items-center space-x-3">
+                                    <Button size="sm" variant="outline" className="!px-2 !py-1 border-blue-500/60 text-blue-300 hover:border-blue-400 hover:bg-blue-500/10 hover:text-blue-200" onClick={() => setEditMode(true)}>
+                                        Edit
+                                    </Button>
+                                    <Button size="sm" variant="outline" className="!px-2 !py-1 border-red-500/60 text-red-300 hover:border-red-400 hover:bg-red-500/10 hover:text-red-200" onClick={handleDisconnect}>
+                                        Disconnect
+                                    </Button>
+                                </div>
                             </div>
                         ) : (
-                            <div className="mt-3">
-                                <Button
-                                    size="sm"
-                                    variant="primary"
-                                    onClick={handleConnect}
-                                    disabled={connecting}
-                                    isLoading={connecting}
-                                >
-                                    Connect
-                                </Button>
+                            <div className="mt-3 space-y-3">
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-400 mb-1">App-Level Token</label>
+                                    <input
+                                        type="password"
+                                        value={appToken}
+                                        onChange={(e) => setAppToken(e.target.value)}
+                                        placeholder="xapp-1-xxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                                        className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-400 mb-1">Bot Token</label>
+                                    <input
+                                        type="password"
+                                        value={botToken}
+                                        onChange={(e) => setBotToken(e.target.value)}
+                                        placeholder="xoxb-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx"
+                                        className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    />
+                                </div>
+                                <div className="text-xs text-slate-400 space-y-3">
+                                    <ol className="list-decimal list-inside space-y-1.5">
+                                        <li>
+                                            In{' '}
+                                            <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">
+                                                Slack API Apps
+                                            </a>
+                                            , click <strong className="text-slate-200">Create New App</strong>, choose <strong className="text-slate-200">From manifest</strong>.
+                                        </li>
+                                        <li>
+                                            Paste the manifest below and choose your workspace
+                                        </li>
+
+                                    </ol>
+                                    <div className="relative">
+                                        <pre className="bg-slate-900 rounded p-3 text-xs text-slate-200 font-mono overflow-x-auto whitespace-pre">{slackManifest}</pre>
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="absolute top-2 right-2"
+                                            onClick={copyManifest}
+                                            icon={<Icons.Copy />}
+                                        >
+                                            {manifestCopied ? 'Copied!' : 'Copy'}
+                                        </Button>
+                                    </div>
+                                    <ol className="list-decimal list-inside space-y-1.5" start={3}>
+                                        <li>
+                                            Click <strong className="text-slate-200">"Next" &gt; "Create and Install"</strong>.
+                                        </li>
+                                        <li>
+                                            When prompted <strong className="text-slate-200">Allow the "Livi" app to access Slack</strong>, click <strong className="text-slate-200">Allow</strong>.
+                                        </li>
+                                        <li>
+                                            The app has been created. Expand <strong className="text-slate-200">"Your app credentials"</strong>, and copy the <strong className="text-slate-200">App token</strong>, and the <strong className="text-slate-200">Bot token</strong> and paste it in the fields above.
+                                        </li>
+                                        <li>
+                                            Click <strong className="text-slate-200">Save</strong>.
+                                        </li>
+                                    </ol>
+                                </div>
+                                <div className="flex items-center space-x-3">
+                                    <Button
+                                        size="sm"
+                                        variant="primary"
+                                        onClick={handleSave}
+                                        disabled={saving || !botToken || !appToken}
+                                        isLoading={saving}
+                                    >
+                                        Save
+                                    </Button>
+                                    {editMode && (
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={() => {
+                                                setEditMode(false);
+                                                setBotToken('');
+                                                setAppToken('');
+                                            }}
+                                        >
+                                            Cancel
+                                        </Button>
+                                    )}
+                                </div>
                             </div>
                         )}
                     </div>
@@ -389,18 +530,22 @@ const TeamsIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                 <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                             </div>
                         ) : config?.configured && !editMode ? (
-                            <div className="mt-3 flex items-center space-x-3">
-                                {config.bot_app_id && (
-                                    <span className="text-xs text-slate-500">
-                                        App ID: <code className="bg-slate-700 px-1 rounded">{config.bot_app_id}</code>
-                                    </span>
-                                )}
-                                <Button size="sm" variant="ghost" className="text-blue-400 hover:text-blue-300" onClick={() => setEditMode(true)}>
-                                    Edit
-                                </Button>
-                                <Button size="sm" variant="ghost" className="text-red-400 hover:text-red-300" onClick={handleDisconnect}>
-                                    Disconnect
-                                </Button>
+                            <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
+                                <div className="flex items-center space-x-3 flex-wrap gap-y-2">
+                                    {config.bot_app_id && (
+                                        <span className="text-xs text-slate-500">
+                                            App ID: <code className="px-1.5 py-0.5 bg-slate-900/60 border border-slate-600 text-slate-100 rounded">{config.bot_app_id}</code>
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="flex items-center space-x-3">
+                                    <Button size="sm" variant="outline" className="!px-2 !py-1 border-blue-500/60 text-blue-300 hover:border-blue-400 hover:bg-blue-500/10 hover:text-blue-200" onClick={() => setEditMode(true)}>
+                                        Edit
+                                    </Button>
+                                    <Button size="sm" variant="outline" className="!px-2 !py-1 border-red-500/60 text-red-300 hover:border-red-400 hover:bg-red-500/10 hover:text-red-200" onClick={handleDisconnect}>
+                                        Disconnect
+                                    </Button>
+                                </div>
                             </div>
                         ) : (
                             <div className="mt-3 space-y-3">
@@ -426,7 +571,7 @@ const TeamsIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                 </div>
                                 <p className="text-xs text-slate-500">
                                     Create an Azure Bot in the Azure Portal, then paste the App ID and Client Secret here.
-                                    Set the messaging endpoint to <code className="bg-slate-700 px-1 rounded">{window.location.origin}/api/messages</code>
+                                    Set the messaging endpoint to <code className="px-1.5 py-0.5 bg-slate-900/60 border border-slate-600 text-slate-100 rounded">{window.location.origin}/api/messages</code>
                                 </p>
                                 <div className="flex items-center space-x-3">
                                     <Button
@@ -516,6 +661,27 @@ const TeamsIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
     );
 };
 
+// Discord bot permission integer (OAuth2 permissions bitfield). This is the
+// bitwise OR of the Discord permission bitflags LiveReview needs, so it can be
+// recalculated if the bot's permissions ever change:
+//
+//	VIEW_CHANNEL            = 1024
+//	SEND_MESSAGES           = 2048
+//	EMBED_LINKS             = 16384
+//	ATTACH_FILES            = 32768
+//	READ_MESSAGE_HISTORY    = 65536
+//	SEND_MESSAGES_IN_THREADS= 274877906944
+//
+//	1024 | 2048 | 16384 | 32768 | 65536 | 274877906944 = 274878024704
+//
+// Used in the generated OAuth2 invite URL (permissions=<integer>).
+const DISCORD_BOT_PERMISSIONS = 274878024704;
+
+// Base URL template for the OAuth2 bot invite link. {client_id} is replaced
+// with the user's Discord Application ID.
+const DISCORD_INVITE_URL = (clientId: string) =>
+    `https://discord.com/oauth2/authorize?client_id=${clientId}&scope=bot+applications.commands&permissions=${DISCORD_BOT_PERMISSIONS}`;
+
 const DiscordIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
     const [config, setConfig] = useState<DiscordConfig | null>(null);
     const [loading, setLoading] = useState(true);
@@ -526,6 +692,7 @@ const DiscordIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
     const [success, setSuccess] = useState<string | null>(null);
     const [editMode, setEditMode] = useState(false);
     const [botToken, setBotToken] = useState('');
+    const [appId, setAppId] = useState('');
 
     const loadConfig = useCallback(async () => {
         if (!currentOrg) return;
@@ -560,11 +727,12 @@ const DiscordIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
         try {
             const response = await apiClient.put<DiscordConfig>(
                 `/orgs/${currentOrg.id}/discord-config`,
-                { bot_token: botToken }
+                { bot_token: botToken, application_id: appId }
             );
             setConfig(response);
             setEditMode(false);
             setBotToken('');
+            setAppId('');
             setSuccess('Discord bot configured successfully.');
         } catch (err: any) {
             setError(err.message || 'Failed to save Discord configuration');
@@ -647,18 +815,40 @@ const DiscordIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                 <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                             </div>
                         ) : config?.configured && !editMode ? (
-                            <div className="mt-3 flex items-center space-x-3">
-                                {config.guild_id && (
-                                    <span className="text-xs text-slate-500">
-                                        Server ID: <code className="bg-slate-700 px-1 rounded">{config.guild_id}</code>
-                                    </span>
+                            <div className="mt-3 space-y-3">
+                                <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
+                                    <div className="flex items-center space-x-3 flex-wrap gap-y-2">
+                                        {config.application_id && (
+                                            <span className="text-xs text-slate-500">
+                                                Application ID: <code className="px-1.5 py-0.5 bg-slate-900/60 border border-slate-600 text-slate-100 rounded">{config.application_id}</code>
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center space-x-3">
+                                        <Button size="sm" variant="outline" className="!px-2 !py-1 border-blue-500/60 text-blue-300 hover:border-blue-400 hover:bg-blue-500/10 hover:text-blue-200" onClick={() => {
+                                            setEditMode(true);
+                                            setAppId(config.application_id || '');
+                                            setBotToken('');
+                                        }}>
+                                            Edit
+                                        </Button>
+                                        <Button size="sm" variant="outline" className="!px-2 !py-1 border-red-500/60 text-red-300 hover:border-red-400 hover:bg-red-500/10 hover:text-red-200" onClick={handleDisconnect}>
+                                            Disconnect
+                                        </Button>
+                                    </div>
+                                </div>
+                                {config.application_id && (
+                                    <div className="space-y-2">
+                                        <a
+                                            href={DISCORD_INVITE_URL(config.application_id)}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors"
+                                        >
+                                            Invite bot to your server
+                                        </a>
+                                    </div>
                                 )}
-                                <Button size="sm" variant="ghost" className="text-blue-400 hover:text-blue-300" onClick={() => setEditMode(true)}>
-                                    Edit
-                                </Button>
-                                <Button size="sm" variant="ghost" className="text-red-400 hover:text-red-300" onClick={handleDisconnect}>
-                                    Disconnect
-                                </Button>
                             </div>
                         ) : (
                             <div className="mt-3 space-y-3">
@@ -672,6 +862,19 @@ const DiscordIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                         className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     />
                                 </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-400 mb-1">Application ID</label>
+                                    <input
+                                        type="text"
+                                        value={appId}
+                                        onChange={(e) => setAppId(e.target.value)}
+                                        placeholder="e.g. 123456789012345678"
+                                        className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        Found on the app's <strong className="text-slate-300">General Information</strong> tab in the Discord Developer Portal.
+                                    </p>
+                                </div>
                                 <div className="text-xs text-slate-400 space-y-2">
                                     <p className="font-medium text-slate-300">Step-by-step setup:</p>
                                     <ol className="list-decimal list-inside space-y-1.5">
@@ -680,45 +883,29 @@ const DiscordIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                             <a href="https://discord.com/developers/applications" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">
                                                 Discord Developer Portal
                                             </a>
-                                            {' '}and click <strong className="text-slate-200">New Application</strong>.
+                                            {' '}and click <strong className="text-slate-200">New Application</strong>, Name it <strong className="text-slate-200">Livi</strong>, then click Create.
                                         </li>
                                         <li>
-                                            Under <strong className="text-slate-200">Bot</strong> on the left sidebar, click <strong className="text-slate-200">Add Bot</strong> and confirm.
+                                            Click <strong className="text-slate-200">Bot</strong> on the left sidebar.
                                         </li>
                                         <li>
-                                            Under the <strong className="text-slate-200">Privileged Gateway Intents</strong> section, enable all three:
+                                            Under the <strong className="text-slate-200">Privileged Gateway Intents</strong> section, enable the below and press save changes:
                                             <ul className="list-disc list-inside ml-4 mt-1 space-y-0.5 text-slate-500">
-                                                <li><code className="bg-slate-700 px-1 rounded">MESSAGE CONTENT INTENT</code> — required to read message content</li>
-                                                <li><code className="bg-slate-700 px-1 rounded">SERVER MEMBERS INTENT</code> — required to see guild members</li>
-                                                <li><code className="bg-slate-700 px-1 rounded">GUILD INTENTS</code> (usually enabled by default)</li>
+                                                <li><code className="px-1.5 py-0.5 bg-slate-900/60 border border-slate-600 text-slate-100 rounded">MESSAGE CONTENT INTENT</code> — required to read message content</li>
+                                                <li><code className="px-1.5 py-0.5 bg-slate-900/60 border border-slate-600 text-slate-100 rounded">SERVER MEMBERS INTENT</code> — required to see guild members</li>
                                             </ul>
                                         </li>
                                         <li>
-                                            Click <strong className="text-slate-200">Reset Token</strong> (or copy the existing one), then paste the bot token below and click <strong className="text-slate-200">Save</strong>.
+                                            Click <strong className="text-slate-200">Reset Token</strong>, then paste the bot token above and click <strong className="text-slate-200">Save</strong>.
                                         </li>
                                         <li>
-                                            Go to <strong className="text-slate-200">OAuth2 &gt; URL Generator</strong> on the left sidebar. Under <strong className="text-slate-200">Scopes</strong>, select:
-                                            <ul className="list-disc list-inside ml-4 mt-1 space-y-0.5 text-slate-500">
-                                                <li><code className="bg-slate-700 px-1 rounded">bot</code></li>
-                                                <li><code className="bg-slate-700 px-1 rounded">applications.commands</code></li>
-                                            </ul>
+                                            Copy your <strong className="text-slate-200">Application ID</strong> from the <strong className="text-slate-200">General Information</strong> tab and paste it above.
                                         </li>
                                         <li>
-                                            Under <strong className="text-slate-200">Bot Permissions</strong>, select:
-                                            <ul className="list-disc list-inside ml-4 mt-1 space-y-0.5 text-slate-500">
-                                                <li><code className="bg-slate-700 px-1 rounded">Send Messages</code></li>
-                                                <li><code className="bg-slate-700 px-1 rounded">Send Messages in Threads</code></li>
-                                                <li><code className="bg-slate-700 px-1 rounded">Read Message History</code></li>
-                                                <li><code className="bg-slate-700 px-1 rounded">Read Messages / View Channels</code></li>
-                                                <li><code className="bg-slate-700 px-1 rounded">Attach Files</code> — for chart images</li>
-                                                <li><code className="bg-slate-700 px-1 rounded">Embed Links</code></li>
-                                            </ul>
+                                            After saving, click <strong className="text-slate-200">Invite bot to your server</strong>, choose your server, and authorize.
                                         </li>
                                         <li>
-                                            Use the generated URL at the bottom to invite the bot to your server.
-                                        </li>
-                                        <li>
-                                            DM the bot or mention it with <code className="bg-slate-700 px-1 rounded">@YourBotName your question</code> in a channel to start.
+                                            DM the bot or mention it with <code className="px-1.5 py-0.5 bg-slate-900/60 border border-slate-600 text-slate-100 rounded">@YourBotName your question</code> in a channel to start.
                                         </li>
                                     </ol>
                                 </div>
@@ -739,6 +926,7 @@ const DiscordIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                             onClick={() => {
                                                 setEditMode(false);
                                                 setBotToken('');
+                                                setAppId('');
                                             }}
                                         >
                                             Cancel

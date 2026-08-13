@@ -21,6 +21,10 @@
                 "reveal": "always",
                 "panel": "dedicated"
             },
+            "icon": {
+                "id": "server-process",
+                "color": "terminal.ansiGreen"
+            },
             "problemMatcher": []
         },
         {
@@ -34,31 +38,43 @@
                 "reveal": "always",
                 "panel": "dedicated"
             },
+            "icon": {
+                "id": "browser",
+                "color": "terminal.ansiBlue"
+            },
             "problemMatcher": []
         },
         {
             "label": "livereview: worker",
             "type": "shell",
-            "command": "bash -lc 'api_ready=/tmp/livereview-api-ready; until [ -f \"$api_ready\" ] && (echo >/dev/tcp/127.0.0.1/8888) >/dev/null 2>&1; do echo \"Waiting for LiveReview API startup\"; sleep 1; done; pkill -9 -f \"tmp/lrworker worker\" || true; go build -o ./tmp/lrworker . && exec ./tmp/lrworker worker --env-file .env'",
+            "command": "bash -lc 'api_ready=/tmp/livereview-api-ready; until [ -f \"$api_ready\" ] && (echo >/dev/tcp/127.0.0.1/8888) >/dev/null 2>&1; do echo \"Waiting for LiveReview API startup\"; sleep 1; done; pkill -9 -f \"^./tmp/lrworker worker\" || true; go build -o ./tmp/lrworker . && exec ./tmp/lrworker worker --env-file .env'",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
+            },
+            "icon": {
+                "id": "gear",
+                "color": "terminal.ansiYellow"
             },
             "problemMatcher": []
         },
         {
-            "label": "livereview: niceurl2",
+            "label": "livereview: niceurlX",
             "type": "shell",
-            "command": "bash -lc 'ui_ready=/tmp/livereview-ui-ready; until [ -f \"$ui_ready\" ] && (echo >/dev/tcp/127.0.0.1/8081) >/dev/null 2>&1; do echo \"Waiting for LiveReview UI startup\"; sleep 1; done; echo \"LiveReview UI port 8081 is available\"; exec make niceurl2'",
+            "command": "bash -lc 'printf \"\\033]0;niceurl: ${input:niceurlTarget}\\007\"; echo \"### Selected tunnel: ${input:niceurlTarget} ###\"; ui_ready=/tmp/livereview-ui-ready; until [ -f \"$ui_ready\" ] && (echo >/dev/tcp/127.0.0.1/8081) >/dev/null 2>&1; do echo \"Waiting for LiveReview UI startup\"; sleep 1; done; echo \"LiveReview UI port 8081 is available\"; exec make ${input:niceurlTarget}'",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
+            },
+            "icon": {
+                "id": "link",
+                "color": "terminal.ansiMagenta"
             },
             "problemMatcher": []
         },
@@ -68,10 +84,19 @@
                 "livereview: api",
                 "livereview: ui",
                 "livereview: worker",
-                "livereview: niceurl2"
+                "livereview: niceurlX"
             ],
             "dependsOrder": "parallel",
             "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "niceurlTarget",
+            "type": "pickString",
+            "description": "Which niceurl tunnel to start?",
+            "options": ["niceurl2", "niceurl", "niceurl3"],
+            "default": "niceurl2"
         }
     ]
 }

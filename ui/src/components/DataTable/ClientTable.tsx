@@ -91,7 +91,7 @@ export function ClientTable<TData>({
   if (isEmpty) {
     return (
       <div className="text-center py-16">
-        <Icons.EmptyState />
+        {!empty.hideIcon && <Icons.EmptyState />}
         <h3 className="text-xl font-medium text-slate-300 mt-4">{empty.title}</h3>
         {empty.description && <p className="text-slate-400 mt-2 mb-6">{empty.description}</p>}
         {empty.action}
@@ -113,7 +113,8 @@ export function ClientTable<TData>({
 
   return (
     <div className="bg-[#1F2836] rounded-lg border border-slate-700">
-      <table className="w-full table-fixed text-sm">
+      <div className="overflow-x-auto">
+      <table className="w-full table-fixed text-sm min-w-[900px]">
         <colgroup>
           {columnWidths.map((width, i) => (
             <col key={i} style={{ width }} />
@@ -170,6 +171,7 @@ export function ClientTable<TData>({
           </AnimatePresence>
         </tbody>
       </table>
+      </div>
 
       {totalPages > 1 && (
         <DataTablePaginationControls

@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+// maxUsagePageSize is the hard ceiling this package's list-with-pagination
+// methods clamp their caller-supplied limit to.
+const maxUsagePageSize = 200
+
 type AdminBillingPortfolioStore struct {
 	db *sql.DB
 }
@@ -89,8 +93,8 @@ func (s *AdminBillingPortfolioStore) ListOrganizations(ctx context.Context, limi
 	if limit <= 0 {
 		limit = 25
 	}
-	if limit > 200 {
-		limit = 200
+	if limit > maxUsagePageSize {
+		limit = maxUsagePageSize
 	}
 	if offset < 0 {
 		offset = 0
@@ -143,7 +147,10 @@ func (s *AdminBillingPortfolioStore) ListOrganizations(ctx context.Context, limi
 	}
 	defer rows.Close()
 
-	items := make([]AdminBillingPortfolioOrg, 0, limit)
+	// limit is clamped to <= 200 above (a few lines up); pre-allocate at
+	// that same literal ceiling instead of the clamped variable so this
+	// allocation size is a constant, not data-dependent.
+	items := make([]AdminBillingPortfolioOrg, 0, maxUsagePageSize)
 	for rows.Next() {
 		var item AdminBillingPortfolioOrg
 		if err := rows.Scan(

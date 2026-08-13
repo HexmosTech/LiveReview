@@ -195,6 +195,12 @@ const repositoryColumns = `id, org_id, connector_id, provider, provider_repo_id,
 	web_url, default_branch, is_private, description, last_synced_at, last_sync_status,
 	last_sync_error, created_at, updated_at`
 
+// repositoryColumnsQualified is repositoryColumns qualified for ListRepositories' optional join against scheduled_review_configs (sort=schedule), which has its own id/created_at/updated_at.
+const repositoryColumnsQualified = `repositories.id, repositories.org_id, repositories.connector_id, repositories.provider,
+	repositories.provider_repo_id, repositories.full_name, repositories.name, repositories.web_url,
+	repositories.default_branch, repositories.is_private, repositories.description, repositories.last_synced_at,
+	repositories.last_sync_status, repositories.last_sync_error, repositories.created_at, repositories.updated_at`
+
 // ListRepositories handles GET /api/v1/repositories.
 func (s *Server) ListRepositories(c echo.Context) error {
 	orgID, ok := c.Get("org_id").(int64)
@@ -203,10 +209,20 @@ func (s *Server) ListRepositories(c echo.Context) error {
 	}
 
 	page, perPage := parsePageParams(c)
-	query := `SELECT ` + repositoryColumns + `,
+
+	// sort=schedule needs a join against scheduled_review_configs; added conditionally so other sort keys don't pay for it.
+	scheduleJoin := c.QueryParam("sort") == "schedule"
+	fromClause := "FROM repositories"
+	selectColumns := repositoryColumns
+	if scheduleJoin {
+		fromClause += " LEFT JOIN scheduled_review_configs sched ON sched.repository_id = repositories.id"
+		selectColumns = repositoryColumnsQualified
+	}
+
+	query := `SELECT ` + selectColumns + `,
 		(SELECT count(*) FROM pull_requests pr WHERE pr.repository_id = repositories.id AND pr.state = 'open') AS open_pr_count,
 		(SELECT max(pr.provider_updated_at) FROM pull_requests pr WHERE pr.repository_id = repositories.id) AS last_pr_activity_at
-		FROM repositories WHERE org_id = $1`
+		` + fromClause + ` WHERE repositories.org_id = $1`
 	countQuery := `SELECT count(*) FROM repositories WHERE org_id = $1`
 	args := []interface{}{orgID}
 	argIdx := 2
@@ -255,21 +271,26 @@ func (s *Server) ListRepositories(c echo.Context) error {
 		"last_activity":  "last_pr_activity_at",
 	}
 	sortKey := c.QueryParam("sort")
-	sortColumn, ok := sortColumns[sortKey]
-	if !ok {
-		sortKey = "last_activity"
-		sortColumn = sortColumns[sortKey]
+	if scheduleJoin {
+		// Fixed compound order (enabled first, latest run first); "order" param is intentionally ignored here.
+		query += " ORDER BY COALESCE(sched.enabled, false) DESC, sched.last_run_at DESC NULLS LAST, repositories.full_name ASC"
+	} else {
+		sortColumn, ok := sortColumns[sortKey]
+		if !ok {
+			sortKey = "last_activity"
+			sortColumn = sortColumns[sortKey]
+		}
+		requestedOrder := strings.ToLower(c.QueryParam("order"))
+		descByDefault := sortKey == "open_pr_count" || sortKey == "last_activity"
+		// Resolve to one of two hardcoded literals rather than passing the
+		// (validated) request value through, so the SQL builder never touches
+		// user-controlled input even indirectly.
+		orderClause := "ASC"
+		if requestedOrder == "desc" || (requestedOrder != "asc" && descByDefault) {
+			orderClause = "DESC"
+		}
+		query += fmt.Sprintf(" ORDER BY %s %s NULLS LAST, full_name ASC", sortColumn, orderClause)
 	}
-	requestedOrder := strings.ToLower(c.QueryParam("order"))
-	descByDefault := sortKey == "open_pr_count" || sortKey == "last_activity"
-	// Resolve to one of two hardcoded literals rather than passing the
-	// (validated) request value through, so the SQL builder never touches
-	// user-controlled input even indirectly.
-	orderClause := "ASC"
-	if requestedOrder == "desc" || (requestedOrder != "asc" && descByDefault) {
-		orderClause = "DESC"
-	}
-	query += fmt.Sprintf(" ORDER BY %s %s NULLS LAST, full_name ASC", sortColumn, orderClause)
 	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	args = append(args, perPage, (page-1)*perPage)
 
@@ -587,8 +608,8 @@ func (s *Server) ListPullRequests(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to count pull requests")
 	}
 
-	// nosemgrep: go.lang.security.audit.database.string-formatted-query -- SQL string is built only from parameter placeholders ($n); all user values are passed via args.
-	query := `SELECT ` + pullRequestColumnsQualified + `, r.full_name, r.web_url ` + fromAndFilters
+	// SQL string is built only from parameter placeholders ($n); all user values are passed via args.
+	query := `SELECT ` + pullRequestColumnsQualified + `, r.full_name, r.web_url ` + fromAndFilters // nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query
 	query += " ORDER BY pr.provider_updated_at DESC NULLS LAST, pr.id DESC"
 	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	args = append(args, perPage, (page-1)*perPage)

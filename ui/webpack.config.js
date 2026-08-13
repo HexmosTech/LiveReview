@@ -21,6 +21,7 @@ module.exports =  (env, options)=> {
     // Explicit build mode control to prevent mistakes:
     // - LIVEREVIEW_BUILD_MODE=local     -> Use .env (local testing, user-controlled is_cloud)
     // - LIVEREVIEW_BUILD_MODE=prod      -> Use .env.prod (production deploy, is_cloud=true)
+    // - LIVEREVIEW_BUILD_MODE=staging   -> Use .env.staging (staging deploy, mock AI)
     // - LIVEREVIEW_BUILD_MODE=selfhosted -> Use .env.selfhosted (Docker build, is_cloud=false)
     // - No mode set                     -> Use .env (default for local development)
     const dotenv = require('dotenv');
@@ -35,6 +36,9 @@ module.exports =  (env, options)=> {
     } else if (buildMode === 'prod') {
         envPath = path.resolve(__dirname, '..', '.env.prod');
         envName = '.env.prod';
+    } else if (buildMode === 'staging') {
+        envPath = path.resolve(__dirname, '..', '.env.staging');
+        envName = '.env.staging';
     } else {
         envPath = path.resolve(__dirname, '..', '.env');
         envName = '.env';

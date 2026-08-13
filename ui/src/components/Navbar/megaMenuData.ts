@@ -124,7 +124,7 @@ const buildAiProviderLinks = (role: 'leader' | 'helper'): MegaMenuLinkNode[] => 
     link('DeepSeek', React.createElement(Icons.DeepSeek), `/ai/deepseek?role=${role}`),
     link('OpenRouter', React.createElement(Icons.OpenRouter), `/ai/openrouter?role=${role}`),
     link('Ollama', React.createElement(Icons.Ollama), `/ai/ollama?role=${role}`),
-    link('Atlas Cloud', React.createElement(Icons.AI), `/ai/atlas?role=${role}`),
+    link('Atlas Cloud', React.createElement(Icons.AtlasCloud), `/ai/atlas?role=${role}`),
 ];
 
 export const buildMegaMenuSections = (): MegaMenuSection[] => [
@@ -142,6 +142,10 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
         items: [
             link('List Reviews', React.createElement(Icons.List), '/reviews'),
             link('Create Review', React.createElement(Icons.Add), '/reviews/new'),
+            link('Create via Chatbot', React.createElement(Icons.Chat), '/chat?prefill=' + encodeURIComponent('Trigger a review for <paste PR link here>')),
+            link('Create via CLI', React.createElement(Icons.Download), '/reviews/create-cli'),
+            link('Create via MCP', React.createElement(Icons.AI), '/reviews/create-mcp'),
+            link('Schedule Review', React.createElement(Icons.Clock), '/reviews/scheduled'),
         ],
     },
     {
@@ -211,7 +215,8 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
         items: [
             group('Manage Team', [
                 link('View Users', React.createElement(Icons.List), '/settings#users', (ctx) => ctx.isSuperAdmin || ctx.hasOrg),
-                link('Invite User', React.createElement(Icons.Add), '/settings/users/add', (ctx) => ctx.isSuperAdmin || ctx.hasOrg),
+                link('Invite User', React.createElement(Icons.UserAdd), '/settings/users/add', (ctx) => ctx.isSuperAdmin || ctx.orgRole === 'owner'),
+                link('Invite Multiple Users', React.createElement(Icons.GroupAdd), '/settings/users/add/bulk', (ctx) => ctx.isSuperAdmin || ctx.orgRole === 'owner'),
             ], React.createElement(Icons.User)),
             group('Customize AI', [
                 link('Edit Prompts', React.createElement(Icons.Settings), '/settings#prompts', (ctx) => ctx.isSuperAdmin || (ctx.hasOrg && ['owner', 'member'].includes(ctx.orgRole || ''))),
@@ -231,6 +236,9 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
                 link('View License', React.createElement(Icons.Info), '/settings#license', (ctx) => (isCloudMode() ? ctx.isSuperAdmin : ctx.isSuperAdmin || ctx.orgRole === 'owner')),
                 link('View Usage', React.createElement(Icons.List), '/settings-subscriptions-overview', (ctx) => isCloudMode() && (ctx.isSuperAdmin || ctx.hasOrg)),
             ], React.createElement(Icons.Reports)),
+            group('Manage System', [
+                link('Storage', React.createElement(Icons.Folder), '/settings#storage', (ctx) => ctx.isSuperAdmin),
+            ], React.createElement(Icons.Settings)),
         ],
     },
     {

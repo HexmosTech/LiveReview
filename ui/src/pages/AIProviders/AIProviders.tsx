@@ -99,7 +99,7 @@ const providerUIMetadata: AIProvider[] = [
         name: 'Atlas Cloud',
         url: 'https://atlascloud.ai/',
         description: 'OpenAI-compatible AI cloud engine. Choose from a selection of models including DeepSeek.',
-        icon: <Icons.AI />,
+        icon: <Icons.AtlasCloud />,
         apiKeyPlaceholder: 'ac_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
         baseURLPlaceholder: 'https://api.atlascloud.ai/v1'
     },
@@ -112,12 +112,30 @@ const providerUIMetadata: AIProvider[] = [
         apiKeyPlaceholder: 'sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
     },
     {
+        id: 'anthropic-compatible',
+        name: 'Anthropic Compatible',
+        url: 'https://www.anthropic.com/',
+        description: 'Connect any Claude-API-shaped endpoint (proxy, gateway, or self-hosted) with a custom base URL.',
+        icon: <Icons.AnthropicCompatible />,
+        apiKeyPlaceholder: 'sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        baseURLPlaceholder: 'https://your-anthropic-compatible-endpoint/v1',
+        requiresBaseURL: true
+    },
+    {
         id: 'bedrock',
         name: 'AWS Bedrock',
         url: 'https://aws.amazon.com/bedrock/',
         description: 'Claude, Nova, Llama, and other foundation models via your own AWS account.',
         icon: <Icons.Aws />,
         apiKeyPlaceholder: 'AWS Secret Access Key'
+    },
+    {
+        id: 'cohere',
+        name: 'Cohere',
+        url: 'https://cohere.com/',
+        description: 'Cohere’s Command models, tuned for enterprise search and RAG workloads.',
+        icon: <Icons.Cohere />,
+        apiKeyPlaceholder: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
     },
 ];
 

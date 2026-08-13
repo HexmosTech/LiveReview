@@ -26,7 +26,7 @@ export interface Repository {
   updated_at: string;
 }
 
-export type RepositoriesSort = 'last_activity' | 'open_pr_count' | 'repository' | 'provider' | 'default_branch' | 'sync_status';
+export type RepositoriesSort = 'last_activity' | 'open_pr_count' | 'repository' | 'provider' | 'default_branch' | 'sync_status' | 'schedule';
 
 export interface RepositoriesListResponse {
   repositories: Repository[];

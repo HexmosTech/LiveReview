@@ -32,27 +32,52 @@ type debugTransport struct {
 	transport http.RoundTripper
 }
 
+// maskSecretValue keeps this debug tool's output safe to paste into a
+// ticket or chat by masking any header that carries a credential.
+func maskSecretValue(name, value string) string {
+	lower := strings.ToLower(name)
+	if lower == "authorization" || lower == "x-api-key" || strings.Contains(lower, "token") || strings.Contains(lower, "secret") {
+		if len(value) <= 12 {
+			return "[HIDDEN]"
+		}
+		return value[:8] + "...[HIDDEN]"
+	}
+	return value
+}
+
 func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	fmt.Println("=== LANGCHAIN HTTP REQUEST ===")
 	fmt.Printf("Method: %s\n", req.Method)
 	fmt.Printf("URL: %s\n", req.URL.String())
 	fmt.Println("Headers:")
 	for name, values := range req.Header {
-		fmt.Printf("  %s: %v\n", name, values)
+		masked := make([]string, len(values))
+		for i, v := range values {
+			masked[i] = maskSecretValue(name, v)
+		}
+		fmt.Printf("  %s: %v\n", name, masked)
 	}
 
 	// Check specifically for Authorization header
 	if auth := req.Header.Get("Authorization"); auth != "" {
-		fmt.Printf("✓ Authorization header present: %s\n", auth[:20]+"...")
+		fmt.Printf("✓ Authorization header present: %s\n", maskSecretValue("Authorization", auth))
 	} else {
 		fmt.Printf("❌ Authorization header MISSING\n")
 	}
 
-	// Dump the full request
+	// Dump the full request, then mask any credential-bearing header line in
+	// the raw dump too (httputil.DumpRequest doesn't go through our masking above).
 	if req.Body != nil {
 		dump, err := httputil.DumpRequest(req, true)
 		if err == nil {
-			fmt.Printf("Full request dump:\n%s\n", string(dump))
+			text := string(dump)
+			lines := strings.Split(text, "\r\n")
+			for i, line := range lines {
+				if idx := strings.Index(line, ": "); idx > 0 {
+					lines[i] = line[:idx] + ": " + maskSecretValue(line[:idx], line[idx+2:])
+				}
+			}
+			fmt.Printf("Full request dump:\n%s\n", strings.Join(lines, "\r\n"))
 		}
 	}
 	fmt.Println("================================") // Make the actual request

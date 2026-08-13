@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"log"
 
@@ -295,6 +296,12 @@ func (p *GitHubProvider) GetMergeRequestDetails(ctx context.Context, mrURL strin
 		RepositoryURL: fmt.Sprintf("https://github.com/%s/%s", owner, repo),
 	}
 
+	if commits, commitsErr := p.fetchPullRequestCommits(ctx, owner, repo, number); commitsErr != nil {
+		log.Printf("[WARN] GitHubProvider: failed to fetch PR commits for %s/%s#%s: %v", owner, repo, number, commitsErr)
+	} else {
+		details.Commits = commits
+	}
+
 	if capture.Enabled() {
 		payload := map[string]interface{}{
 			"owner":   owner,
@@ -307,6 +314,44 @@ func (p *GitHubProvider) GetMergeRequestDetails(ctx context.Context, mrURL strin
 	}
 
 	return details, nil
+}
+
+// fetchPullRequestCommits returns every commit SHA on a PR, oldest first; paginates at 100/page, capped at 250 commits (GitHub's own limit for this endpoint regardless of pagination).
+func (p *GitHubProvider) fetchPullRequestCommits(ctx context.Context, owner, repo, number string) ([]string, error) {
+	var shas []string
+	const perPage = 100
+	for page := 1; page <= 3; page++ {
+		apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s/commits?per_page=%d&page=%d", owner, repo, number, perPage, page)
+		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "token "+p.PAT)
+		req.Header.Set("Accept", "application/vnd.github.v3+json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		var commits []struct {
+			SHA string `json:"sha"`
+		}
+		decodeErr := json.NewDecoder(resp.Body).Decode(&commits)
+		statusCode := resp.StatusCode
+		resp.Body.Close()
+		if statusCode != 200 {
+			return nil, fmt.Errorf("GitHub PR commits failed: status %d", statusCode)
+		}
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		for _, c := range commits {
+			shas = append(shas, c.SHA)
+		}
+		if len(commits) < perPage {
+			break
+		}
+	}
+	return shas, nil
 }
 
 func (p *GitHubProvider) GetMergeRequestChanges(ctx context.Context, mrID string) ([]*models.CodeDiff, error) {
@@ -395,6 +440,171 @@ func (p *GitHubProvider) GetMergeRequestChanges(ctx context.Context, mrID string
 	}
 
 	return diffs, nil
+}
+
+// GetCompareChanges fetches the diff between two refs via GitHub's compare-two-commits API, plus the SHAs of every commit in that range (oldest first, as GitHub returns them); used for scheduled reviews (no PR to diff against).
+func (p *GitHubProvider) GetCompareChanges(ctx context.Context, owner, repo, base, head string) ([]*models.CodeDiff, []string, error) {
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/compare/%s...%s", owner, repo, base, head)
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("Authorization", "token "+p.PAT)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, nil, fmt.Errorf("GitHub compare failed: %s: %s", resp.Status, string(body))
+	}
+
+	var compare struct {
+		Commits []struct {
+			SHA string `json:"sha"`
+		} `json:"commits"`
+		Files []struct {
+			Filename  string `json:"filename"`
+			Status    string `json:"status"`
+			Additions int    `json:"additions"`
+			Deletions int    `json:"deletions"`
+			Changes   int    `json:"changes"`
+			Patch     string `json:"patch"`
+			SHA       string `json:"sha"`
+		} `json:"files"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&compare); err != nil {
+		return nil, nil, err
+	}
+
+	var diffs []*models.CodeDiff
+	for _, f := range compare.Files {
+		hunks := p.parsePatchIntoHunks(f.Patch)
+		diffs = append(diffs, &models.CodeDiff{
+			FilePath:  f.Filename,
+			CommitID:  f.SHA,
+			FileType:  p.getFileType(f.Filename),
+			IsNew:     f.Status == "added",
+			IsDeleted: f.Status == "removed",
+			IsRenamed: f.Status == "renamed",
+			Hunks:     hunks,
+		})
+	}
+
+	commitSHAs := make([]string, 0, len(compare.Commits))
+	for _, c := range compare.Commits {
+		commitSHAs = append(commitSHAs, c.SHA)
+	}
+
+	if capture.Enabled() {
+		capture.WriteJSON("github-compare-diffs", map[string]interface{}{
+			"owner": owner,
+			"repo":  repo,
+			"base":  base,
+			"head":  head,
+			"diffs": diffs,
+		})
+	}
+
+	return diffs, commitSHAs, nil
+}
+
+// GetDefaultBranch returns the repository's default branch name (e.g. "main").
+func (p *GitHubProvider) GetDefaultBranch(ctx context.Context, owner, repo string) (string, error) {
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s", owner, repo)
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "token "+p.PAT)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("GitHub get repo failed: %s: %s", resp.Status, string(body))
+	}
+
+	var repoInfo struct {
+		DefaultBranch string `json:"default_branch"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&repoInfo); err != nil {
+		return "", err
+	}
+	if repoInfo.DefaultBranch == "" {
+		return "", fmt.Errorf("GitHub repo %s/%s has no default branch", owner, repo)
+	}
+	return repoInfo.DefaultBranch, nil
+}
+
+// GetBranchHeadSHA returns the current HEAD commit SHA of a branch.
+func (p *GitHubProvider) GetBranchHeadSHA(ctx context.Context, owner, repo, branch string) (string, error) {
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/%s", owner, repo, url.PathEscape(branch))
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "token "+p.PAT)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("GitHub get branch head failed: %s: %s", resp.Status, string(body))
+	}
+
+	var commit struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&commit); err != nil {
+		return "", err
+	}
+	if commit.SHA == "" {
+		return "", fmt.Errorf("GitHub branch %s/%s@%s has no commits", owner, repo, branch)
+	}
+	return commit.SHA, nil
+}
+
+// GetCommitBefore returns the SHA of the most recent commit at or before the given time (empty string, no error, if none).
+func (p *GitHubProvider) GetCommitBefore(ctx context.Context, owner, repo, branch string, before time.Time) (string, error) {
+	apiURL := fmt.Sprintf(
+		"https://api.github.com/repos/%s/%s/commits?sha=%s&until=%s&per_page=1",
+		owner, repo, url.QueryEscape(branch), url.QueryEscape(before.UTC().Format(time.RFC3339)),
+	)
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "token "+p.PAT)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("GitHub list commits failed: %s: %s", resp.Status, string(body))
+	}
+
+	var commits []struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&commits); err != nil {
+		return "", err
+	}
+	if len(commits) == 0 {
+		return "", nil
+	}
+	return commits[0].SHA, nil
 }
 
 // parsePatchIntoHunks parses a GitHub patch string into DiffHunk objects

@@ -177,6 +177,31 @@ type WebhookRemovalWorker struct {
 	httpClient *networkjobqueue.WebhookHTTPClient
 }
 
+// maskSensitiveHeaders returns a copy of headers with credential-bearing
+// values (PRIVATE-TOKEN, Authorization, etc - this worker sets both a
+// GitLab PAT and a GitHub PAT into request headers depending on provider)
+// masked, safe to pass to a debug log.
+func maskSensitiveHeaders(headers http.Header) http.Header {
+	masked := make(http.Header, len(headers))
+	for name, values := range headers {
+		lower := strings.ToLower(name)
+		if lower != "authorization" && lower != "private-token" && !strings.Contains(lower, "token") && !strings.Contains(lower, "secret") {
+			masked[name] = values
+			continue
+		}
+		maskedValues := make([]string, len(values))
+		for i, v := range values {
+			if len(v) <= 12 {
+				maskedValues[i] = "[HIDDEN]"
+			} else {
+				maskedValues[i] = v[:8] + "...[HIDDEN]"
+			}
+		}
+		masked[name] = maskedValues
+	}
+	return masked
+}
+
 // getWebhookEndpointForProvider returns the correct webhook endpoint based on the provider
 func (w *WebhookInstallWorker) getWebhookEndpointForProvider(provider string) string {
 	baseURL := w.config.WebhookConfig.PublicEndpoint
@@ -293,7 +318,7 @@ func (w *WebhookInstallWorker) makeGitLabRequest(ctx context.Context, method, en
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	log.Printf("DEBUG: Request headers: %v", req.Header)
+	log.Printf("DEBUG: Request headers: %v", maskSensitiveHeaders(req.Header))
 
 	resp, err := w.httpClient.Do(req)
 	if err != nil {
@@ -700,7 +725,7 @@ func (w *WebhookInstallWorker) makeGitHubRequest(ctx context.Context, method, en
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	log.Printf("DEBUG: Request headers: %v", req.Header)
+	log.Printf("DEBUG: Request headers: %v", maskSensitiveHeaders(req.Header))
 
 	resp, err := w.httpClient.Do(req)
 	if err != nil {
@@ -2383,11 +2408,13 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	repoPRSyncWorker := &RepoPRSyncWorker{db: db, store: prStore}
 	prStateSyncWorker := &PRStateSyncWorker{db: db, store: prStore}
 	reconciliationWorker := &ReconciliationSweepWorker{db: db, pool: pool, stalenessThreshold: config.RepoSyncConfig.StalenessThreshold}
+	scheduledReviewWorker := &ScheduledReviewWorker{db: db}
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, diffWorker)
 	river.AddWorker(workers, webhookWorker)
 	river.AddWorker(workers, manualWorker)
+	river.AddWorker(workers, scheduledReviewWorker)
 	river.AddWorker(workers, &UpdateOrgUsageWorker{db: db, pool: pool})
 	river.AddWorker(workers, repoPRSyncWorker)
 	river.AddWorker(workers, prStateSyncWorker)
@@ -2434,6 +2461,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	manualWorker.jq = jq
 	diffWorker.jq = jq
 	reconciliationWorker.jq = jq
+	scheduledReviewWorker.jq = jq
 
 	return jq, nil
 }
@@ -2525,6 +2553,17 @@ func (jq *JobQueue) QueueManualReviewJob(ctx context.Context, orgID int64, planC
 	if err != nil {
 		log.Printf("[ERROR] Failed to queue manual review job: %v", err)
 		return fmt.Errorf("failed to queue manual review job: %w", err)
+	}
+	return nil
+}
+
+// QueueScheduledReviewJob enqueues a scheduled-review run for a single config.
+func (jq *JobQueue) QueueScheduledReviewJob(ctx context.Context, configID int64) error {
+	args := ScheduledReviewJobArgs{ConfigID: configID}
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review", MaxAttempts: 3})
+	if err != nil {
+		log.Printf("[ERROR] Failed to queue scheduled review job: %v", err)
+		return fmt.Errorf("failed to queue scheduled review job: %w", err)
 	}
 	return nil
 }

@@ -80,7 +80,7 @@ type BitbucketProvider struct {
 
 // NewBitbucketProvider creates a new Bitbucket provider
 func NewBitbucketProvider(token, email, repoURL string) (*BitbucketProvider, error) {
-	log.Printf("[DEBUG] NewBitbucketProvider called with token length: %d, email: %s", len(token), email)
+	log.Printf("[DEBUG] NewBitbucketProvider called with token length: %d, email set: %v", len(token), email != "")
 
 	workspace, repoSlug, _, err := ParseBitbucketURL(repoURL)
 	if err != nil {
@@ -698,6 +698,12 @@ func (p *BitbucketProvider) Configure(config map[string]interface{}) error {
 	// In this new design, the configuration (repoURL) is passed during initialization.
 	// This function can be used for any additional, dynamic configuration if needed.
 	// For now, it can remain empty or log the configuration attempt.
-	log.Printf("[DEBUG] BitbucketProvider.Configure called with config: %v", config)
+	// config can carry credentials (pat_token, password for other providers
+	// sharing this same map shape), so only log which keys were set.
+	keys := make([]string, 0, len(config))
+	for k := range config {
+		keys = append(keys, k)
+	}
+	log.Printf("[DEBUG] BitbucketProvider.Configure called with keys: %v", keys)
 	return nil
 }

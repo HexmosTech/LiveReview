@@ -7,12 +7,14 @@ package vlrender
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 const (
@@ -41,6 +43,132 @@ type Report struct {
 	Description string
 	Query       string
 	PNGPath     string
+}
+
+// ErrTrivialSpec is returned when a Vega-Lite payload resolves to only a single
+// value/bar, which is not worth charting. Callers should present the
+// human-readable description as text instead of rendering a chart or reporting
+// an error.
+var ErrTrivialSpec = errors.New("chart is trivial: only a single value to show")
+
+// SpecIsTrivial reports whether a Vega-Lite spec encodes only a single data
+// point (one value, e.g. a lone bar). Rendering such a spec adds no insight
+// over stating the number in text, so callers skip chart generation for it.
+func SpecIsTrivial(spec []byte) bool {
+	var m map[string]any
+	if err := json.Unmarshal(spec, &m); err != nil {
+		return false
+	}
+	count, known := countDataValues(m)
+	// Only treat a spec as trivial when the row count is actually known and
+	// there is at most one value. If the data source isn't inline `values`
+	// (e.g. data.url / data.source / transforms), the count is unknown, so we
+	// must NOT guess — render it as usual.
+	return known && count <= 1
+}
+
+// countDataValues recursively tallies the number of rows across all `data.values`
+// arrays embedded in a spec (including layered/concat compositions). known is
+// false when any data source is not an inline `values` array, in which case the
+// total cannot be trusted and callers should not treat the spec as trivial.
+func countDataValues(m map[string]any) (total int, known bool) {
+	known = true
+	for _, key := range []string{"layer", "concat", "hconcat", "vconcat"} {
+		if arr, ok := m[key].([]any); ok {
+			for _, item := range arr {
+				if child, ok := item.(map[string]any); ok {
+					t, k := countDataValues(child)
+					total += t
+					if !k {
+						known = false
+					}
+				}
+			}
+		}
+	}
+	if child, ok := m["spec"].(map[string]any); ok {
+		t, k := countDataValues(child)
+		total += t
+		if !k {
+			known = false
+		}
+	}
+	if data, ok := m["data"].(map[string]any); ok {
+		if values, ok := data["values"].([]any); ok {
+			total += len(values)
+		} else {
+			// data.url, data.source, data.sequence, datasets, etc. — we cannot
+			// count these, so the result is not known to be trivial.
+			known = false
+		}
+	}
+	return total, known
+}
+
+// TrivialDescription returns the human-readable description and the query used
+// to show in place of a chart when the payload's spec(s) resolve to only a
+// single value/bar, plus true if that is the case. Callers render the returned
+// text instead of a chart and may append the query with their own phrasing.
+func TrivialDescription(raw string) (desc string, query string, ok bool) {
+	body := ExtractJSONBlock(raw)
+
+	var multi struct {
+		Reports []VegaLiteReport `json:"reports"`
+	}
+	if err := json.Unmarshal([]byte(body), &multi); err == nil && len(multi.Reports) > 0 {
+		trivial := true
+		var parts []string
+		var queries []string
+		for _, r := range multi.Reports {
+			spec, err := NormalizeVegaLiteSpec(r.Spec)
+			if err != nil {
+				trivial = false
+				continue
+			}
+			if !SpecIsTrivial(spec) {
+				trivial = false
+			}
+			if strings.TrimSpace(r.Description) != "" {
+				parts = append(parts, r.Description)
+			}
+			if strings.TrimSpace(r.Query) != "" {
+				queries = append(queries, r.Query)
+			}
+		}
+		if !trivial {
+			return "", "", false
+		}
+		return strings.Join(parts, "\n\n"), strings.Join(queries, "\n\n"), true
+	}
+
+	var wrapped VegaLiteReport
+	if err := json.Unmarshal([]byte(body), &wrapped); err == nil && len(wrapped.Spec) > 0 {
+		spec, err := NormalizeVegaLiteSpec(wrapped.Spec)
+		if err != nil {
+			return "", "", false
+		}
+		if !SpecIsTrivial(spec) {
+			return "", "", false
+		}
+		return wrapped.Description, wrapped.Query, true
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal([]byte(body), &m); err != nil {
+		return "", "", false
+	}
+	spec, err := NormalizeVegaLiteSpec([]byte(body))
+	if err != nil {
+		return "", "", false
+	}
+	if !SpecIsTrivial(spec) {
+		return "", "", false
+	}
+	q, _ := m["query"].(string)
+	if d, ok := m["description"].(string); ok {
+		return d, q, true
+	}
+	return "", q, true
 }
 
 // CleanupReports removes the temp directories backing the given reports.
@@ -77,6 +205,10 @@ func RenderVegaLiteReportsWithRetry(ctx context.Context, raw string, scale strin
 		if err == nil && len(reports) > 0 {
 			return reports, nil
 		}
+		if errors.Is(err, ErrTrivialSpec) {
+			// Trivial specs are not transient failures — don't retry them.
+			return nil, ErrTrivialSpec
+		}
 		if err != nil {
 			lastErr = err
 		} else {
@@ -109,6 +241,9 @@ func renderVegaLiteReports(ctx context.Context, raw string, scale string) ([]Rep
 		if err != nil {
 			return nil, err
 		}
+		if SpecIsTrivial(spec) {
+			return nil, ErrTrivialSpec
+		}
 		png, pngPath, err := ConvertVegaLiteToPNG(ctx, spec, scale)
 		if err != nil {
 			return nil, err
@@ -133,6 +268,9 @@ func renderVegaLiteReports(ctx context.Context, raw string, scale string) ([]Rep
 	if err != nil {
 		return nil, err
 	}
+	if SpecIsTrivial(spec) {
+		return nil, ErrTrivialSpec
+	}
 	png, pngPath, err := ConvertVegaLiteToPNG(ctx, spec, scale)
 	if err != nil {
 		return nil, err
@@ -142,12 +280,19 @@ func renderVegaLiteReports(ctx context.Context, raw string, scale string) ([]Rep
 
 func renderReports(ctx context.Context, reports []VegaLiteReport, scale string) ([]Report, error) {
 	var out []Report
+	trivialOnly := true
 	for _, r := range reports {
 		spec, err := NormalizeVegaLiteSpec(r.Spec)
 		if err != nil {
+			trivialOnly = false
 			log.Printf("[VegaRender] Skipping report %q: failed to normalize spec: %s", r.Title, err)
 			continue
 		}
+		if SpecIsTrivial(spec) {
+			log.Printf("[VegaRender] Skipping trivial chart %q (single value, showing text instead)", r.Title)
+			continue
+		}
+		trivialOnly = false
 		png, pngPath, err := ConvertVegaLiteToPNG(ctx, spec, scale)
 		if err != nil {
 			log.Printf("[VegaRender] Skipping report %q: failed to render chart: %s", r.Title, err)
@@ -162,6 +307,9 @@ func renderReports(ctx context.Context, reports []VegaLiteReport, scale string) 
 		})
 	}
 	if len(out) == 0 {
+		if trivialOnly {
+			return nil, ErrTrivialSpec
+		}
 		return nil, fmt.Errorf("no reports could be rendered")
 	}
 	return out, nil
@@ -175,11 +323,66 @@ func NormalizeVegaLiteSpec(spec []byte) ([]byte, error) {
 	}
 	sanitizeAxisFormats(m)
 	injectAxisAngle(m)
+	injectSafeFonts(m)
+	injectFriendlyTitles(m)
 	b, err := json.Marshal(m)
 	if err != nil {
 		return nil, err
 	}
 	return b, nil
+}
+
+// safeFontStack is a font family every environment has, with fallbacks.
+const safeFontStack = "Helvetica, Arial, sans-serif"
+
+// injectSafeFonts works around a rendering bug in the vl-convert theme (see
+// vlThemeDefault): the "powerbi" theme's config.font is a bare "Segoe UI",
+// with no fallback family. Axis TITLES still render, because their font
+// setting is a full CSS-style stack ("wf_standard-font, helvetica, arial,
+// sans-serif") that resolves to an installed font - but axis tick labels,
+// legend labels, and header labels inherit the bare top-level "font" and have
+// no fallback, so vl-convert's SVG renderer draws them with zero-width glyphs
+// on any server without Segoe UI installed (i.e. every non-Windows server).
+// The chart LOOKS complete - correct colors, correct bar heights, axis
+// titles all present - but every number and category name is silently
+// missing. This has affected every chart rendered by this package, not only
+// the SQL analytics path.
+//
+// Fix: force a font family with real fallbacks. This is layered on top of
+// whatever theme is active (spec-level config merges with the theme rather
+// than replacing it), so bar/line colors and other theme styling are
+// untouched - only the font resolves differently. config is spec-level
+// (top-level), so unlike sanitizeAxisFormats/injectAxisAngle this needs no
+// recursion into layer/concat/facet children.
+func injectSafeFonts(m map[string]any) {
+	if m == nil {
+		return
+	}
+	config, _ := m["config"].(map[string]any)
+	if config == nil {
+		config = map[string]any{}
+		m["config"] = config
+	}
+	setIfAbsent(config, "font", safeFontStack)
+	ensureNestedFont(config, "axis", "labelFont")
+	ensureNestedFont(config, "legend", "labelFont")
+	ensureNestedFont(config, "header", "labelFont")
+	ensureNestedFont(config, "text", "font")
+}
+
+func ensureNestedFont(config map[string]any, section, key string) {
+	sub, _ := config[section].(map[string]any)
+	if sub == nil {
+		sub = map[string]any{}
+		config[section] = sub
+	}
+	setIfAbsent(sub, key, safeFontStack)
+}
+
+func setIfAbsent(m map[string]any, key string, value any) {
+	if _, exists := m[key]; !exists {
+		m[key] = value
+	}
 }
 
 // temporalTypes are Vega-Lite field types that use time-based axis formatting.
@@ -290,6 +493,117 @@ func injectAxisAngle(m map[string]any) {
 	}
 }
 
+// titleableChannels are the Vega-Lite encoding channels that render a visible
+// title (axis title, legend title, or header title) and therefore benefit
+// from a human-readable fallback. Channels like "tooltip", "order", and
+// "detail" never render a title on their own, so they are left alone.
+var titleableChannels = map[string]bool{
+	"x": true, "y": true, "x2": true, "y2": true,
+	"xOffset": true, "yOffset": true,
+	"theta": true, "radius": true,
+	"color": true, "fill": true, "stroke": true,
+	"size": true, "opacity": true, "shape": true,
+	"column": true, "row": true, "facet": true,
+	"text": true,
+}
+
+// axisTitleAcronyms are words humanizeFieldName should upper-case wholesale
+// instead of simply capitalizing the first letter.
+var axisTitleAcronyms = map[string]string{
+	"id": "ID", "sql": "SQL", "url": "URL", "ai": "AI",
+	"pr": "PR", "mr": "MR", "loc": "LOC", "api": "API",
+}
+
+// injectFriendlyTitles walks a Vega-Lite spec and gives every titleable
+// encoding channel that lacks an explicit "title" a human-readable one
+// derived from its "field" (e.g. "total_billing_usage" -> "Total Billing
+// Usage"). This runs regardless of what the model produced, so it is a
+// backstop rather than the primary fix - the finalize prompt is expected to
+// set good titles itself, but SQL column aliases (the model's `data_sql`
+// output) otherwise flow straight through `encoding.<channel>.field` into
+// the rendered axis title unless something rewrites them.
+func injectFriendlyTitles(m map[string]any) {
+	if m == nil {
+		return
+	}
+	for _, key := range []string{"layer", "concat", "hconcat", "vconcat"} {
+		if arr, ok := m[key].([]any); ok {
+			for _, item := range arr {
+				if child, ok := item.(map[string]any); ok {
+					injectFriendlyTitles(child)
+				}
+			}
+		}
+	}
+	if child, ok := m["spec"].(map[string]any); ok {
+		injectFriendlyTitles(child)
+	}
+	if faceted, ok := m["facet"].(map[string]any); ok {
+		injectFriendlyTitles(faceted)
+	}
+	encoding, ok := m["encoding"].(map[string]any)
+	if !ok {
+		return
+	}
+	for channel, v := range encoding {
+		if !titleableChannels[channel] {
+			continue
+		}
+		if channelMap, ok := v.(map[string]any); ok {
+			applyFriendlyTitle(channelMap)
+		}
+	}
+}
+
+func applyFriendlyTitle(channelMap map[string]any) {
+	if _, exists := channelMap["title"]; exists {
+		return
+	}
+	field, _ := channelMap["field"].(string)
+	friendly := humanizeFieldName(field)
+	if friendly == "" {
+		return
+	}
+	channelMap["title"] = friendly
+}
+
+// humanizeFieldName turns a SQL column alias into a human-readable label:
+// "total_billing_usage" -> "Total Billing Usage", "reviewCount" -> "Review
+// Count". Also setting an explicit title on a temporal channel suppresses
+// Vega-Lite's own auto-generated "field (year-month)" suffix for a
+// timeUnit-bucketed field, which is the other half of why raw field names
+// were leaking into chart axes.
+func humanizeFieldName(field string) string {
+	if field == "" || field == "*" {
+		return ""
+	}
+	if idx := strings.LastIndex(field, "."); idx >= 0 {
+		field = field[idx+1:]
+	}
+	field = strings.NewReplacer("_", " ", "-", " ").Replace(field)
+	var withSpaces strings.Builder
+	runes := []rune(field)
+	for i, r := range runes {
+		if i > 0 && unicode.IsUpper(r) && !unicode.IsUpper(runes[i-1]) {
+			withSpaces.WriteByte(' ')
+		}
+		withSpaces.WriteRune(r)
+	}
+	words := strings.Fields(withSpaces.String())
+	if len(words) == 0 {
+		return ""
+	}
+	for i, w := range words {
+		if upper, ok := axisTitleAcronyms[strings.ToLower(w)]; ok {
+			words[i] = upper
+			continue
+		}
+		lower := strings.ToLower(w)
+		words[i] = strings.ToUpper(lower[:1]) + lower[1:]
+	}
+	return strings.Join(words, " ")
+}
+
 // FriendlyTitle combines a chart title and subtitle for display.
 func FriendlyTitle(title, subtitle string) string {
 	title = strings.TrimSpace(title)
@@ -355,8 +669,8 @@ func ConvertVegaLiteToPNG(ctx context.Context, spec []byte, scale string) ([]byt
 		theme = vlThemeDefault
 	}
 
-	// nosemgrep: go.lang.security.audit.dangerous-exec-command -- exec.Command with arg slice (no shell); binary/theme come from server env vars, spec is written to a temp file, not argv.
-	cmd := exec.CommandContext(ctx, binary, "vl2png",
+	// exec.Command with arg slice (no shell); binary/theme come from server env vars, spec is written to a temp file, not argv.
+	cmd := exec.CommandContext(ctx, binary, "vl2png", // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
 		"-i", inputPath,
 		"-o", outputPath,
 		"-v", vlVersion,

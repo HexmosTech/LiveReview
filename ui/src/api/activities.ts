@@ -46,14 +46,13 @@ export function formatActivity(activity: ActivityEntry): {
       // Use stored provider first, fallback to detection from repository name
       const provider = event_data.provider || getProviderFromRepository(repository);
       const branch = event_data.branch;
-      const triggerType = event_data.trigger_type || 'manual';
       const originalUrl = event_data.original_url;
-      
+
       // Put the specific repository in the title (main emphasis)
       const title = repository;
-      
-      // Action and context in description
-      let description = `${capitalizeProvider(provider)} review ${triggerType === 'manual' ? 'triggered' : 'auto-triggered'}`;
+
+      // Action and context in description — every trigger type today (manual/api/mcp/cli_diff) is a deliberate, explicit trigger, none are auto-triggered.
+      let description = `${capitalizeProvider(provider)} review triggered`;
       
       // Add branch info if meaningful and available
       if (branch && branch.trim() !== '' && branch !== 'unknown' && branch !== 'latest') {

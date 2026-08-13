@@ -16,7 +16,7 @@ import (
 
 // NewDB creates a new database connection
 func NewDB() (*sql.DB, error) {
-	dbURL, err := loadDatabaseURL()
+	dbURL, err := LoadDatabaseURL()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database URL: %w", err)
 	}
@@ -36,7 +36,11 @@ func NewDB() (*sql.DB, error) {
 	return db, nil
 }
 
-func loadDatabaseURL() (string, error) {
+// LoadDatabaseURL resolves the Postgres connection string the same way
+// NewDB does (DATABASE_URL env var, falling back to the nearest .env file),
+// for callers that need the raw DSN rather than an open connection - e.g.
+// dbctx.Build, which takes a DSN string.
+func LoadDatabaseURL() (string, error) {
 	if direct := strings.TrimSpace(os.Getenv("DATABASE_URL")); direct != "" {
 		return direct, nil
 	}

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -41,6 +42,18 @@ type reviewSetupContext struct {
 	reviewService *reviewpkg.Service
 	request       *reviewpkg.ReviewRequest
 	requestURL    string
+	triggerType   string
+}
+
+// triggerTypeForRequest classifies how a review-trigger request arrived: MCP tool call, direct API-key call, or a real user session (UI click).
+func triggerTypeForRequest(c echo.Context) string {
+	if isMCPRequest(c) {
+		return "mcp"
+	}
+	if authMethod, _ := c.Get(authMethodContextKey).(string); authMethod == authMethodAPIKey {
+		return "api"
+	}
+	return "manual"
 }
 
 // NewReviewService creates a new review service
@@ -67,7 +80,7 @@ func NewReviewService(cfg *config.Config) *ReviewService {
 func (s *Server) TriggerReviewV2(c echo.Context) error {
 	log.Printf("[DEBUG] TriggerReviewV2: Starting review request handling")
 
-    // LOC Quota preflight — always run so the org's billing period rolls
+	// LOC Quota preflight — always run so the org's billing period rolls
 	// forward (crucial for MCP/chat-triggered reviews; without it org_billing_state
 	// goes stale and current-period usage reports come back empty). Blocking is
 	// only enforced in Cloud Mode; self-hosted deployments are intentionally unlimited.
@@ -266,15 +279,31 @@ func (s *Server) setupReviewContext(c echo.Context, req TriggerReviewRequest) (*
 	ctx.requestURL = req.URL
 	log.Printf("[DEBUG] ✓ Request parsed successfully - MR/PR URL: %s", req.URL)
 
+	ctx.triggerType = triggerTypeForRequest(c)
+
+	// If the caller already knows the internal pull_requests.id (e.g. createReview), use it
+	// directly. Otherwise, best-effort resolve it from the URL — a raw-URL trigger for a PR/MR
+	// LiveReview has already synced will still get linked; a miss just leaves it unset, not an error.
+	pullRequestID := req.PullRequestID
+	if pullRequestID == nil && req.URL != "" {
+		var id int64
+		lookupErr := s.db.QueryRow(`SELECT id FROM pull_requests WHERE org_id = $1 AND web_url = $2 LIMIT 1`, orgID, req.URL).Scan(&id)
+		if lookupErr == nil {
+			pullRequestID = &id
+		} else if lookupErr != sql.ErrNoRows {
+			log.Printf("[WARN] pull_request_id lookup by url failed org_id=%d err=%v", orgID, lookupErr)
+		}
+	}
+
 	// Create database record first to get proper numeric ID
 	log.Printf("[DEBUG] DATABASE RECORD CREATION: Creating review record...")
 	reviewManager := NewReviewManager(s.db)
 	review, err := reviewManager.CreateReviewWithOrg(
-		req.URL,  // repository (using URL as repository for now)
-		"",       // branch (will be populated during processing)
-		"",       // commit_hash (will be populated during processing)
-		req.URL,  // pr_mr_url
-		"manual", // trigger_type
+		req.URL,         // repository (using URL as repository for now)
+		"",              // branch (will be populated during processing)
+		"",              // commit_hash (will be populated during processing)
+		req.URL,         // pr_mr_url
+		ctx.triggerType, // trigger_type
 		ctx.actorEmail,
 		"unknown", // provider (will be determined during processing)
 		nil,       // connector_id
@@ -285,6 +314,7 @@ func (s *Server) setupReviewContext(c echo.Context, req TriggerReviewRequest) (*
 		"", // friendlyName (only for CLI reviews)
 		"", // authorName (only for CLI reviews)
 		"", // authorUsername (only for CLI reviews)
+		pullRequestID,
 	)
 	if err != nil {
 		log.Printf("[ERROR] Failed to create database record: %v", err)
@@ -348,6 +378,13 @@ func (s *Server) prepareAuthentication(ctx *reviewSetupContext) error {
 	ctx.token = token
 	if ctx.logger != nil {
 		ctx.logger.Log("✓ Integration token found - Provider: %s", token.Provider)
+	}
+
+	// setupReviewContext creates the review row before the connector is known - backfill it now, best-effort.
+	if ctx.review != nil {
+		if err := NewReviewManager(s.db).UpdateReviewConnector(ctx.review.ID, token.ID); err != nil {
+			log.Printf("[WARN] Failed to backfill connector_id for review %d: %v", ctx.review.ID, err)
+		}
 	}
 
 	// Validate that the provider is supported
@@ -444,9 +481,15 @@ func (s *Server) enrichMetadata(ctx *reviewSetupContext) {
 	providerFactory := reviewpkg.NewStandardProviderFactory()
 	providerInstance, providerErr := providerFactory.CreateProvider(metadataCtx, ctx.request.Provider)
 	if providerErr != nil {
-		log.Printf("[WARN] TriggerReviewV2: Failed to create provider for metadata prefetch: %v", providerErr)
+		// This is a best-effort metadata prefetch (the function just returns
+		// on failure without affecting the review itself), so it's not worth
+		// forwarding the raw provider-creation error - which was built from
+		// ctx.request.Provider.Config and, for some providers, that config
+		// carries a credential (e.g. gitea's basic-auth password) - into
+		// logs. Note the provider type instead.
+		log.Printf("[WARN] TriggerReviewV2: Failed to create provider (type=%s) for metadata prefetch", ctx.request.Provider.Type)
 		if ctx.logger != nil {
-			ctx.logger.Log("⚠ Unable to create provider for metadata prefetch: %v", providerErr)
+			ctx.logger.Log("⚠ Unable to create provider (type=%s) for metadata prefetch", ctx.request.Provider.Type)
 		}
 		return
 	}
@@ -514,6 +557,29 @@ func (s *Server) enrichMetadata(ctx *reviewSetupContext) {
 	}
 
 	rm := NewReviewManager(s.db)
+
+	// Persist the PR/MR's commit SHAs so a later review-coverage lookup can find this review
+	// by commit. Providers that return the full commit list (GitHub so far) get every commit
+	// recorded; the rest fall back to just the head/base pair from DiffRefs.
+	var commitRefs []CommitRef
+	if len(details.Commits) > 0 {
+		for _, sha := range details.Commits {
+			if sha = strings.TrimSpace(sha); sha != "" {
+				commitRefs = append(commitRefs, CommitRef{Ref: sha, Type: "commit"})
+			}
+		}
+	} else {
+		if sha := strings.TrimSpace(details.DiffRefs.HeadSHA); sha != "" {
+			commitRefs = append(commitRefs, CommitRef{Ref: sha, Type: "commit"})
+		}
+		if sha := strings.TrimSpace(details.DiffRefs.BaseSHA); sha != "" && sha != details.DiffRefs.HeadSHA {
+			commitRefs = append(commitRefs, CommitRef{Ref: sha, Type: "commit"})
+		}
+	}
+	if err := s.insertReviewCommits(metadataCtx, ctx.review.ID, ctx.orgID, commitRefs); err != nil {
+		log.Printf("[WARN] TriggerReviewV2: Failed to persist review_commits: %v", err)
+	}
+
 	if err := rm.UpdateReviewMetadata(ctx.review.ID, update); err != nil {
 		log.Printf("[WARN] TriggerReviewV2: Failed to update review metadata: %v", err)
 		if ctx.logger != nil {
@@ -544,7 +610,7 @@ func (s *Server) trackActivity(ctx *reviewSetupContext) {
 			"repository":   repository,
 			"branch":       branch,
 			"commit_hash":  commitHash,
-			"trigger_type": "manual",
+			"trigger_type": ctx.triggerType,
 			"provider":     ctx.token.Provider,
 			"user_email":   "admin",
 			"original_url": ctx.requestURL,

@@ -64,6 +64,11 @@ type GitLabMergeRequest struct {
 		Name      string `json:"name"`
 		AvatarURL string `json:"avatar_url"`
 	} `json:"author"`
+	DiffRefs struct {
+		BaseSHA  string `json:"base_sha"`
+		HeadSHA  string `json:"head_sha"`
+		StartSHA string `json:"start_sha"`
+	} `json:"diff_refs"`
 }
 
 // GitLabMergeRequestChanges represents the changes in a GitLab merge request
@@ -185,6 +190,14 @@ func (c *GitLabHTTPClient) GetMergeRequest(projectID string, mrIID int) (*GitLab
 	// Print all request headers for debugging
 	fmt.Println("GetMergeRequest: Request headers:")
 	for key, values := range req.Header {
+		if strings.EqualFold(key, "PRIVATE-TOKEN") || strings.EqualFold(key, "Authorization") {
+			masked := make([]string, len(values))
+			for i := range values {
+				masked[i] = maskToken(values[i])
+			}
+			fmt.Printf("  %s: %s\n", key, masked)
+			continue
+		}
 		fmt.Printf("  %s: %s\n", key, values)
 	}
 
@@ -796,6 +809,11 @@ func ConvertToMergeRequestDetails(mr *GitLabMergeRequest, projectID string) *pro
 		ProviderType:   "gitlab",
 		MergeStatus:    "unknown", // Not available in this API response
 		RepositoryURL:  repoURL,
+		DiffRefs: providers.DiffRefs{
+			BaseSHA:  mr.DiffRefs.BaseSHA,
+			HeadSHA:  mr.DiffRefs.HeadSHA,
+			StartSHA: mr.DiffRefs.StartSHA,
+		},
 	}
 }
 

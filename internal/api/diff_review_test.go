@@ -791,3 +791,43 @@ func TestDiffReviewPartialExclusionExposesExcludedFiles(t *testing.T) {
 
 	t.Logf("✓ partially-excluded diff drops main.go from files but records it in excluded_files")
 }
+
+// TestDiffReviewArtifactAllowlistKnowsBlastRadius guards the artifact sync
+// channel's allowlist (see AGENTS.md "Porting from git-lrc" — Put/GetDiffReviewArtifact
+// only accept artifact_type values present here) against silent typos: the
+// git-lrc CLI and this map must agree on the "blast-radius" string exactly.
+func TestDiffReviewArtifactAllowlistKnowsBlastRadius(t *testing.T) {
+	if !diffReviewArtifactTypes["blast-radius"] {
+		t.Fatalf("expected \"blast-radius\" to be an allowed artifact_type")
+	}
+	if diffReviewArtifactTypes["unknown-artifact"] {
+		t.Fatalf("expected unknown artifact_type to be rejected")
+	}
+}
+
+// TestDiffReviewArtifactBlobKeyIsScopedPerOrgAndReview guards the blob key
+// scheme Put/GetDiffReviewArtifact use against the blob store (see
+// internal/blobstore and AGENTS.md "Porting from git-lrc") against
+// collisions across orgs, reviews, or artifact types. The actual
+// write/read round trip against a bucket is covered by
+// internal/blobstore's own tests; the real HTTP handlers still require a
+// live Postgres connection to exercise end-to-end (system_settings lookup +
+// GetReviewForOrg), same limitation as before this change.
+func TestDiffReviewArtifactBlobKeyIsScopedPerOrgAndReview(t *testing.T) {
+	cases := []struct {
+		orgID, reviewID int64
+		artifactType    string
+	}{
+		{1, 42, "blast-radius"},
+		{2, 42, "blast-radius"}, // different org, same review id
+		{1, 43, "blast-radius"}, // different review, same org
+	}
+	seen := map[string]bool{}
+	for _, tc := range cases {
+		key := diffReviewArtifactBlobKey(tc.orgID, tc.reviewID, tc.artifactType)
+		if seen[key] {
+			t.Fatalf("blob key collision for org=%d review=%d type=%s: %q", tc.orgID, tc.reviewID, tc.artifactType, key)
+		}
+		seen[key] = true
+	}
+}

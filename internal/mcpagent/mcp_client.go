@@ -19,7 +19,62 @@ const defaultMCPTimeout = 60 * time.Second
 
 var mcpReqID atomic.Int64
 
-var mcpHTTPClient = &http.Client{Timeout: defaultMCPTimeout}
+var mcpHTTPClient = &http.Client{
+	Timeout:   defaultMCPTimeout,
+	Transport: &http.Transport{DialContext: dialValidatedMCPHost},
+}
+
+// dialValidatedMCPHost resolves addr's host, rejects it if any resolved IP
+// is loopback/private/link-local, and dials that same validated IP.
+// Resolving and dialing the same address (rather than validating a hostname
+// up front in validateMCPHost and letting the transport re-resolve DNS
+// independently when it connects) closes a DNS-rebinding TOCTOU window: an
+// attacker-controlled DNS server could otherwise answer the pre-flight
+// lookup with a public IP and the connection lookup with a private one.
+func dialValidatedMCPHost(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address %q: %w", addr, err)
+	}
+
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+
+	if ip := net.ParseIP(host); ip != nil {
+		if isDisallowedMCPTargetIP(ip) {
+			return nil, fmt.Errorf("mcp server address %q must not be a loopback, private, or link-local address", host)
+		}
+		return dialer.DialContext(ctx, network, addr)
+	}
+
+	resolveCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	ips, err := net.DefaultResolver.LookupIP(resolveCtx, "ip", host)
+	if err != nil {
+		return nil, fmt.Errorf("mcp server host %q cannot be resolved: %w", host, err)
+	}
+
+	var lastErr error
+	for _, ip := range ips {
+		if isDisallowedMCPTargetIP(ip) {
+			lastErr = fmt.Errorf("mcp server host %q resolved to a private or link-local address (%s)", host, ip)
+			continue
+		}
+		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("mcp server host %q did not resolve to any address", host)
+	}
+	return nil, lastErr
+}
+
+func isDisallowedMCPTargetIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+}
 
 // jsonrpcMessage is a JSON-RPC 2.0 request/response.
 type jsonrpcMessage struct {
@@ -228,7 +283,7 @@ func validateMCPHost(ctx context.Context, hostport string) error {
 	}
 
 	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		if isDisallowedMCPTargetIP(ip) {
 			return fmt.Errorf("mcp server url must not point to a loopback, private, or link-local address")
 		}
 		return nil
@@ -241,10 +296,8 @@ func validateMCPHost(ctx context.Context, hostport string) error {
 		return fmt.Errorf("mcp server url host %q cannot be resolved: %w", host, err)
 	}
 	for _, addr := range addrs {
-		if ip := net.ParseIP(addr); ip != nil {
-			if ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-				return fmt.Errorf("mcp server url host %q resolved to a private or link-local address (%s)", host, addr)
-			}
+		if ip := net.ParseIP(addr); ip != nil && isDisallowedMCPTargetIP(ip) {
+			return fmt.Errorf("mcp server url host %q resolved to a private or link-local address (%s)", host, addr)
 		}
 	}
 	return nil

@@ -1,0 +1,110 @@
+flowchart TD
+    subgraph SCHEMASG["Schema source (server startup + per-call narrow+render)"]
+        DBCTX[("In-memory dbctx index<br/>(against real public schema —<br/>confirmed: dbctx cannot see VIEWs,<br/>relkind filter is tables-only):<br/>columns, types, FKs, is-enum-shaped flag.<br/>Every call below queries this same<br/>in-memory index directly — no rebuild,<br/>no per-call DB round trip")] --> ORGCOLS["mcpagent.orgScopedColumns():<br/>walks the live index, returns<br/>table -> column names for every<br/>table with a direct org_id column<br/>(36 of 56 tables in prod).<br/>nil if the index isn't ready"]
+        ORGCOLS --> CAT["livisql.CatalogFor(role, orgScopedColumns):<br/>AutoOrgScopedShadow per table — every<br/>column EXCEPT secretColumns (an exact-name<br/>denylist: password_hash, api_key, access_token,<br/>client_secret, webhook_secret, key_hash, ... —<br/>checked against the real schema; EXACT names,<br/>not substrings, since input_tokens/<br/>context_tokens_batch are legit analytics<br/>columns containing 'token') —<br/>PLUS 2 hand-written specials that can't be<br/>templated: orgs (keyed by id), users (joined<br/>through user_roles, no org_id column at all).<br/>role no longer restricts visibility — member/<br/>owner/unrecognized role all see the same ~38<br/>tables (explicit decision, dropped the old<br/>owner-only gate on billing/quota/license)"]
+        CAT --> NARROW["narrowTables(idx, CAT.Tables(), queryText):<br/>idx.Query(queryText) — dbctx's own full-text/<br/>fuzzy-name/value/FK-expansion search —<br/>restricts to .All() (matched + FK-expanded).<br/>Falls back to the FULL CAT.Tables() set if<br/>queryText is empty, idx.Query errors, or<br/>nothing matches (never render an empty schema).<br/>queryText = raw user message for call #2,<br/>entry.Question (the specific report) for call #3"]
+        NARROW --> FILTER["renderTable() per narrowed table:<br/>EVERY column dbctx reports — NO column-level<br/>filter (explicitly removed; a secret-looking<br/>column NAME like api_key can now appear in the<br/>LLM-facing schema text, even though CAT's<br/>secretColumns still stops the SQL guard from<br/>ever projecting its VALUE — two independent,<br/>now-asymmetric boundaries, not one).<br/>Still never renders ColumnInfo.Values /<br/>JSONBPaths samples (confirmed unscoped by<br/>org_id — would leak cross-tenant repo names,<br/>usernames, PR file paths, costs).<br/>idx.Query's own Selection.Text() is<br/>NEVER used — it includes those same<br/>unsafe sampled values verbatim"]
+        FILTER --> TXT["Generated ### Tables section,<br/>narrowed to this call's query.<br/>Actual enum VALUES (status, vote_type, ...)<br/>stay hand-written in<br/>analytics_schema_intro.md — fixed by<br/>app code, not learned from tenant data"]
+    end
+
+    CAT -.->|"same auto-generated catalog<br/>(orgs/users specials +<br/>36 auto org-scoped shadows,<br/>secretColumns applied at<br/>SQL projection time)"| V
+    CAT -.->|"same auto-generated catalog"| V2
+
+    U[User message] --> W[Livi / WebChat handler]
+    W --> BOUND
+
+    subgraph DISPATCH["Per-turn dispatch (runs BEFORE the main session history is touched)"]
+        BOUND["Build call #0's OWN bounded input:<br/>last ~2-3 exchanges + new message<br/>+ tool NAMES only — NEVER the full,<br/>growing session history (would defeat<br/>the point of keeping call #0 cheap)"] --> P0IN
+
+        subgraph P0SG["LLM call #0 — classify (small, cheap; NO schema, NO tool param schemas)"]
+            P0IN["candidate for a smaller/cheaper model"] --> P0OUT{"shape?"}
+        end
+
+        P0OUT --> SWAP["3 (prompt, tools) pairs precomputed ONCE<br/>at Agent construction — action / count_query / chat.<br/>Overwrite session history[0] with the resolved<br/>branch's pair (insert if absent) — NOT append-once.<br/>Rest of session history (real turns) untouched,<br/>so branch can legitimately change turn-to-turn."]
+    end
+
+    SWAP -.->|"chat_debug_logs/chat_debug.log:<br/>every AI Request/Response and<br/>DBCtx Request/Response line is<br/>tagged call=0/1/2/3 matching<br/>THIS diagram's call numbers"| LOGNOTE["(logging only — no control flow)"]
+
+    SWAP -->|"action"| P1IN
+    SWAP -->|"count_query"| P2IN
+    SWAP -->|"chat"| CHATOUT["Plain-text call, no schema no tools"]
+    CHATOUT --> UI
+
+    TXT -.->|"call #2: narrowed to userText"| P2IN
+    TXT -.->|"call #3: narrowed to entry.Question<br/>(re-queried per report — a fresh<br/>dbctx narrow+render, not reused from call #2)"| P3
+
+    subgraph P1SG["LLM call #1 — action ONLY (dedicated prompt, never sees schema/SQL rules)"]
+        P1IN["Input: tool list + question<br/>NO schema, NO SQL rules,<br/>NO analytics_plan shape at all"] --> P1A["Emits the tool call directly<br/>(trigger review, create learning,<br/>add connector, etc.)"]
+    end
+
+    subgraph P2SG["LLM call #2 — count-query proposal ONLY (dedicated prompt, no general tool list)"]
+        P2IN["Input: DB structure (dbctx, narrowed to<br/>userText) + hand-written enum values/SQL<br/>rules/examples + question<br/>NO general tool-calling instructions"] --> P1Q["Proposes an ARRAY of report requests —<br/>one per sub-question the user's ask implies<br/>(e.g. 'reviews by month' + 'top reviewers'<br/>both come from one user message).<br/>Each entry is its own SELECT count(*) query —<br/>counts how many rows that entry's answer<br/>would be, based on schema, before fetching<br/>any real data. Each count is what LLM call #3<br/>uses to propose chart or csv for THAT entry"]
+    end
+
+    P1A --> ACTION["Existing MCP tool-calling path<br/>(unchanged) — confirm intent + inputs,<br/>call the specific REST-backed tool"]
+    ACTION --> UI
+
+    P1Q --> FANOUT["Fan out: run the pipeline below<br/>ONCE PER report entry in the array<br/>(independently, own count/query/render)"]
+
+    subgraph PERREPORT["Per-report pipeline (repeated per array entry)"]
+        FANOUT --> V["SQL Validator / Wrapper<br/>(reject if: not SELECT,<br/>no org_id filter,<br/>malformed / fails to parse)"]
+        V -->|"reject"| ERR["Reject / ask LLM to<br/>rewrite this report's count query"]
+        V -->|"add query timeout (DB safety net only)"| RO1[("Read-only Postgres<br/>connection — runs COUNT query")]
+
+        RO1 -->|"row count"| P3["LLM call #3<br/>(fresh 3-message conversation, sees row count,<br/>PLUS DB structure narrowed to entry.Question —<br/>writes data_sql from scratch, not a reuse of the<br/>count SQL, so it needs its own schema grounding)<br/>-> finalizes: response_type (chart | csv | no_data),<br/>mark/layer + encoding if chart (intent-based<br/>decision table, not a bar default), title,<br/>description, and the FINAL data-fetching SQL<br/>(may pick coarser grain if count too high)"]
+        RO1 -->|"execution error"| P1Q
+        P3 -->|"unparseable/truncated JSON<br/>(e.g. reasoning ate the output budget)"| P3RETRY["One repair attempt —<br/>same budget the SQL phases get.<br/>Exhausted after 1 retry -> give up<br/>this report, others still render"]
+        P3RETRY --> P3
+
+        P3 --> ZEROCHK{"count == 0?"}
+        ZEROCHK -->|"yes"| NODATA["response_type = no_data<br/>LLM writes a clean 'no data' text reply<br/>(e.g. 'No reviews were completed today')<br/>NO final query run, NO chart/csv attempted"]
+
+        ZEROCHK -->|"no"| V2["SQL Validator / Wrapper<br/>(reject if: not SELECT,<br/>no org_id filter,<br/>malformed / fails to parse)"]
+        V2 -->|"reject"| ERR2["Reject / ask LLM to retry"]
+        V2 -->|"add query timeout (DB safety net only)"| RO2[("Read-only Postgres<br/>connection — runs FINAL query")]
+
+        RO2 --> ROWS["Scan rows dynamically<br/>(rows.Columns + []any, no fixed struct)<br/>-> []map[string]any"]
+
+        ROWS --> TYPE{"response_type<br/>from LLM call #3"}
+
+        TYPE -->|"csv"| TBL["Go formats rows directly<br/>(CSV file, headers = SQL columns)<br/>NO further LLM call"]
+
+        TYPE -->|"chart"| CHK["Go validates: mark + encoding<br/>fields (from LLM call #3) exist in<br/>SQL result columns?"]
+        CHK -->|"no"| ERR3["Reject / ask LLM to retry"]
+        CHK -->|"yes"| MERGE["Go merges spec programmatically:<br/>data.values = ROWS (verbatim, full set)<br/>encoding/mark/title/description = from LLM call #3"]
+
+        MERGE --> VL["vl-convert<br/>(Vega-Lite -> PNG)"]
+    end
+
+    TBL --> ASSEMBLE
+    VL --> ASSEMBLE["Go assembles final message:<br/>one block per report entry, each with its<br/>own title + description + chart/csv/no_data —<br/>matches today's multi-report UI<br/>('Click to expand' per report)"]
+    NODATA --> ASSEMBLE
+    ASSEMBLE --> UI
+
+    style P3 fill:#1f3a5a,stroke:#3d8,color:#fff
+    style ACTION fill:#1f3a5a,stroke:#3d8,color:#fff
+    style FANOUT fill:#1f3a5a,stroke:#3d8,color:#fff
+    style V fill:#1f3a5a,stroke:#3d8,color:#fff
+    style V2 fill:#1f3a5a,stroke:#3d8,color:#fff
+    style RO1 fill:#1f3a5a,stroke:#3d8,color:#fff
+    style RO2 fill:#1f3a5a,stroke:#3d8,color:#fff
+    style ROWS fill:#1f3a5a,stroke:#3d8,color:#fff
+    style TYPE fill:#1f3a5a,stroke:#3d8,color:#fff
+    style TBL fill:#1f3a5a,stroke:#3d8,color:#fff
+    style CHK fill:#1f3a5a,stroke:#3d8,color:#fff
+    style MERGE fill:#1f3a5a,stroke:#3d8,color:#fff
+    style ASSEMBLE fill:#1f3a5a,stroke:#3d8,color:#fff
+    style ZEROCHK fill:#1f3a5a,stroke:#3d8,color:#fff
+    style NODATA fill:#1f3a5a,stroke:#3d8,color:#fff
+    style CAT fill:#4a1f5a,stroke:#a3d,color:#fff
+    style ORGCOLS fill:#4a1f5a,stroke:#a3d,color:#fff
+    style DBCTX fill:#4a1f5a,stroke:#a3d,color:#fff
+    style NARROW fill:#4a1f5a,stroke:#a3d,color:#fff
+    style FILTER fill:#4a1f5a,stroke:#a3d,color:#fff
+    style TXT fill:#4a1f5a,stroke:#a3d,color:#fff
+    style P0OUT fill:#5a3a1f,stroke:#d83,color:#fff
+    style CHATOUT fill:#5a3a1f,stroke:#d83,color:#fff
+    style BOUND fill:#5a3a1f,stroke:#d83,color:#fff
+    style SWAP fill:#5a3a1f,stroke:#d83,color:#fff
+    style LOGNOTE fill:#333,stroke:#888,color:#ccc
+    style P3RETRY fill:#1f3a5a,stroke:#3d8,color:#fff

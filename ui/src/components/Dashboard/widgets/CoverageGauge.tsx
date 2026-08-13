@@ -3,13 +3,32 @@ import ReactECharts from 'echarts-for-react';
 import { useNavigate } from 'react-router-dom';
 import { LIVEREVIEW_ECHARTS_THEME, ECHARTS_ANIMATION_DEFAULTS } from './echartsTheme';
 import { useChartResize } from './useChartResize';
-import { MOCK_SYSTEM_KPIS } from './mockData';
 import { useDashboardPeriod } from './DashboardPeriod';
+import { useSystemOverview } from './SystemOverviewData';
+import { EmptyState, Icons } from '../../UIPrimitives';
+import { ChartSkeleton } from './ChartSkeleton';
 
 export const CoverageGauge: React.FC = () => {
     const { containerRef, chartRef } = useChartResize();
     const navigate = useNavigate();
-    const { label } = useDashboardPeriod();
+    const { period, label } = useDashboardPeriod();
+    const { systemOverview, loading } = useSystemOverview();
+
+    if (loading) {
+        return <ChartSkeleton />;
+    }
+
+    if (!systemOverview || systemOverview.total_prs.all === 0) {
+        return (
+            <EmptyState
+                icon={<Icons.EmptyState />}
+                title="No PR data yet"
+                description="Review coverage will appear here once PRs/MRs are tracked."
+            />
+        );
+    }
+
+    const coveragePct = Math.round(systemOverview.coverage_pct[period]);
 
     const option = {
         ...ECHARTS_ANIMATION_DEFAULTS,
@@ -41,7 +60,7 @@ export const CoverageGauge: React.FC = () => {
                 fontWeight: 700,
                 offsetCenter: [0, '25%'],
             },
-            data: [{ value: MOCK_SYSTEM_KPIS.coverageScorePct, name: `Coverage — ${label}` }],
+            data: [{ value: coveragePct, name: `Coverage — ${label}` }],
         }],
     };
 

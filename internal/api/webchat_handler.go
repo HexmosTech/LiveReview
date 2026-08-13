@@ -5,98 +5,67 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/livisql"
 	"github.com/livereview/internal/mcpagent"
 	"github.com/livereview/internal/vlrender"
+	storageanalytics "github.com/livereview/storage/analytics"
 	"github.com/rs/zerolog/log"
 )
 
-var (
-	chartFiles   = map[string]*chartFileEntry{}
-	chartFilesMu sync.RWMutex
-	lastCleanup  = time.Now()
-)
-
-const (
-	chartTTL        = 10 * time.Minute
-	cleanupInterval = 1 * time.Minute
-)
-
-type chartFileEntry struct {
-	PNGPath   string
-	TmpDir    string
-	CreatedAt time.Time
-}
-
-func registerChartFile(id, tmpDir, pngPath string) {
-	chartFilesMu.Lock()
-	// Replace any prior entry for this id (id collision) so its temp dir is cleaned up.
-	if old, ok := chartFiles[id]; ok {
-		os.RemoveAll(old.TmpDir)
-	}
-	chartFiles[id] = &chartFileEntry{PNGPath: pngPath, TmpDir: tmpDir, CreatedAt: time.Now()}
-	chartFilesMu.Unlock()
-	cleanupExpiredCharts()
-}
-
-func lookupChartFile(id string) (string, bool) {
-	cleanupExpiredCharts()
-	chartFilesMu.RLock()
-	defer chartFilesMu.RUnlock()
-	e, ok := chartFiles[id]
-	if !ok {
-		return "", false
-	}
-	return e.PNGPath, true
-}
-
-func cleanupExpiredCharts() {
-	chartFilesMu.Lock()
-	defer chartFilesMu.Unlock()
-	// Throttle the full-map scan: it runs on every register/lookup, so only
-	// re-scan at most once per cleanupInterval to avoid an O(n) walk under
-	// high-frequency image serving. Expired entries are still removed within
-	// TTL + cleanupInterval.
-	if time.Since(lastCleanup) < cleanupInterval {
-		return
-	}
-	lastCleanup = time.Now()
-	now := time.Now()
-	for id, e := range chartFiles {
-		if now.Sub(e.CreatedAt) > chartTTL {
-			os.RemoveAll(e.TmpDir)
-			delete(chartFiles, id)
-		}
-	}
-}
-
 type WebChatRequest struct {
-	Message string                  `json:"message"`
-	History []mcpagent.HistoryEntry `json:"history,omitempty"`
+	Message   string                  `json:"message"`
+	History   []mcpagent.HistoryEntry `json:"history,omitempty"`
+	SessionID string                  `json:"sessionId,omitempty"`
 }
 
-type WebChatImage struct {
-	URL         string `json:"url"`
-	Title       string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
-	Query       string `json:"query,omitempty"`
+// WebChatChart is a chart report the frontend renders itself with
+// react-vega/vega-embed: unlike the old PNG path, Spec is the normalized
+// Vega-Lite spec verbatim, so the browser gets full interactivity (tooltips,
+// hover, legend filtering) instead of a flat image.
+type WebChatChart struct {
+	Title       string          `json:"title,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Query       string          `json:"query,omitempty"`
+	Spec        json.RawMessage `json:"spec"`
 }
 
 type WebChatResponse struct {
-	Response string                  `json:"response"`
-	History  []mcpagent.HistoryEntry `json:"history"`
-	Images   []WebChatImage          `json:"images,omitempty"`
+	Response  string                  `json:"response"`
+	History   []mcpagent.HistoryEntry `json:"history"`
+	Charts    []WebChatChart          `json:"charts,omitempty"`
+	Files     []WebChatFile           `json:"files,omitempty"`
+	SessionID string                  `json:"sessionId,omitempty"`
+}
+
+// analyticsRoleFor maps permissions onto the SQL catalog's roles. Super admins
+// and owners see billing tables; everyone else sees only review data.
+func analyticsRoleFor(pc *auth.PermissionContext) string {
+	switch {
+	case pc.IsSuperAdmin:
+		return string(livisql.RoleSuperAdmin)
+	case pc.IsOwner:
+		return string(livisql.RoleOwner)
+	default:
+		return string(livisql.RoleMember)
+	}
+}
+
+// newChatSessionID mints a random session id for correlating debug log
+// lines across one chat conversation's turns (see internal/logging.ChatTurnLogger).
+func newChatSessionID() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 func (s *Server) HandleWebChat(c echo.Context) error {
@@ -120,16 +89,8 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		return c.JSON(http.StatusBadGateway, map[string]string{"error": err.Error()})
 	}
 
-	mcpURL := os.Getenv("SLACK_MCP_SERVER_URL")
-	if mcpURL == "" {
-		mcpURL = fmt.Sprintf("http://localhost:%d/api/mcp", s.deploymentConfig.BackendPort)
-	}
+	mcpURL := resolveMCPBaseURL(s.db)
 	maxSteps := 20
-	if s := os.Getenv("SLACK_MAX_AGENT_STEPS"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			maxSteps = n
-		}
-	}
 
 	authHeader := c.Request().Header.Get("Authorization")
 	mcpHeaders := map[string]string{}
@@ -152,131 +113,141 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	if pc.User != nil {
 		mcpSession.UserName = pc.User.FullName()
 	}
+	// Scope for generated SQL. Derived from the permission booleans rather than
+	// pc.Role, which is a free-form label; getting this wrong would let a member
+	// read billing data that the REST tools gate behind ownership.
+	mcpSession.OrgID = orgID
+	mcpSession.UserRole = analyticsRoleFor(pc)
 
 	provider := mcpagent.NewProvider(connector)
-	agent := mcpagent.NewAgent(provider, mcpSession, maxSteps)
+	agent := mcpagent.NewAgent(provider, mcpSession, maxSteps).
+		WithAnalytics(storageanalytics.NewAdHocStore(s.db))
 
-	responseText, updatedHistory, err := agent.RunTurn(ctx, req.History, req.Message)
+	sessionID := req.SessionID
+	if sessionID == "" {
+		sessionID = newChatSessionID()
+	}
+
+	responseText, updatedHistory, artifacts, err := agent.RunTurnWithArtifacts(ctx, req.History, req.Message, sessionID, "livi")
 	if err != nil {
 		log.Error().Err(err).Msg("WebChat: agent loop failed")
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Agent loop failed: %s", err.Error())})
 	}
 
 	resp := WebChatResponse{
-		Response: responseText,
-		History:  updatedHistory,
+		Response:  responseText,
+		History:   updatedHistory,
+		SessionID: sessionID,
+		Files:     registerChatExports(artifacts, orgID),
 	}
 
 	if vlrender.HasVegaLiteSpec(responseText) {
-		images, cleanText := s.renderImagesFromVega(ctx, responseText)
-		if len(images) > 0 {
-			resp.Images = images
+		charts, cleanText, err := extractChartsFromVega(responseText)
+		if err == nil && len(charts) > 0 {
+			resp.Charts = charts
 			// The Vega-Lite JSON must never surface in the chat. If stripping
 			// removes everything, keep only the surrounding text (or empty).
+			cleanText = strings.TrimSpace(cleanText)
 			resp.Response = cleanText
+		} else if errors.Is(err, vlrender.ErrTrivialSpec) {
+			// A single value/bar is not worth a chart — show the description
+			// (and query) as plain text instead.
+			desc, query, ok := vlrender.TrivialDescription(responseText)
+			text := desc
+			if query != "" {
+				if text != "" {
+					text += "\n\n"
+				}
+				text += "Query used: " + query
+			}
+			if !ok || text == "" {
+				text = strings.TrimSpace(cleanText)
+			}
+			resp.Response = text
 		} else {
-			// Rendering failed even after retries: never show the raw JSON.
+			// Extraction failed: never show the raw JSON.
 			resp.Response = "Having an issue generating the data, please try again."
 		}
+	} else if looksLikeTruncatedVegaSpec(responseText) {
+		resp.Response = extractDescriptionFromVegaSpec(responseText)
 	}
 
 	return c.JSON(http.StatusOK, resp)
 }
 
-func (s *Server) renderImagesFromVega(ctx context.Context, text string) ([]WebChatImage, string) {
+// extractChartsFromVega pulls the normalized Vega-Lite spec(s) out of the raw
+// agent text, for the frontend to render directly (see WebChatChart). This is
+// the same shape-detection this package used to hand off to vl-convert for
+// PNG rendering, minus the rendering: the browser does that now.
+func extractChartsFromVega(text string) ([]WebChatChart, string, error) {
 	body := vlrender.ExtractJSONBlock(text)
 
 	var multi struct {
 		Reports []vlrender.VegaLiteReport `json:"reports"`
 	}
 	if err := json.Unmarshal([]byte(body), &multi); err == nil && len(multi.Reports) > 0 {
-		return renderReportsToImages(ctx, multi.Reports)
+		charts, err := reportsToCharts(multi.Reports)
+		// stripVegaBlocks' brace-scanning heuristic expects prose before the
+		// JSON payload and can mismatch on a nested object when the response
+		// IS the JSON (no leading prose, as here). We already know the exact
+		// substring that parsed as the reports payload, so remove that
+		// directly instead of re-scanning for it.
+		return charts, strings.TrimSpace(strings.Replace(text, body, "", 1)), err
 	}
 
 	var wrapped vlrender.VegaLiteReport
 	if err := json.Unmarshal([]byte(body), &wrapped); err == nil && len(wrapped.Spec) > 0 {
-		images, err := renderSpecToImages(ctx, wrapped)
+		charts, err := reportsToCharts([]vlrender.VegaLiteReport{wrapped})
 		if err != nil {
-			return nil, text
+			return nil, text, err
 		}
-		return images, stripVegaBlocks(text)
+		return charts, stripVegaBlocks(text), nil
 	}
 
 	var rawMap map[string]any
 	if err := json.Unmarshal([]byte(body), &rawMap); err != nil {
-		return nil, text
+		return nil, text, nil
 	}
 	if _, ok := rawMap["$schema"]; !ok && rawMap["mark"] == nil && rawMap["layer"] == nil && rawMap["vconcat"] == nil && rawMap["hconcat"] == nil {
-		return nil, text
+		return nil, text, nil
 	}
 	spec, err := vlrender.NormalizeVegaLiteSpec([]byte(body))
 	if err != nil {
-		return nil, text
+		return nil, text, nil
 	}
-	images, err := renderRawSpecToImages(ctx, spec)
-	if err != nil {
-		return nil, text
+	if vlrender.SpecIsTrivial(spec) {
+		return nil, text, vlrender.ErrTrivialSpec
 	}
-	return images, stripVegaBlocks(text)
+	return []WebChatChart{{Title: "LiveReview Chart", Spec: json.RawMessage(spec)}}, stripVegaBlocks(text), nil
 }
 
-func renderReportsToImages(ctx context.Context, reports []vlrender.VegaLiteReport) ([]WebChatImage, string) {
-	var images []WebChatImage
+func reportsToCharts(reports []vlrender.VegaLiteReport) ([]WebChatChart, error) {
+	var charts []WebChatChart
+	trivialOnly := true
 	for _, r := range reports {
 		spec, err := vlrender.NormalizeVegaLiteSpec(r.Spec)
 		if err != nil {
+			trivialOnly = false
 			continue
 		}
-		img, err := convertSpecToImage(ctx, spec)
-		if err != nil {
+		if vlrender.SpecIsTrivial(spec) {
 			continue
 		}
-		img.Title = vlrender.FriendlyTitle(r.Title, r.Subtitle)
-		img.Description = r.Description
-		img.Query = r.Query
-		images = append(images, img)
+		trivialOnly = false
+		charts = append(charts, WebChatChart{
+			Title:       vlrender.FriendlyTitle(r.Title, r.Subtitle),
+			Description: r.Description,
+			Query:       r.Query,
+			Spec:        json.RawMessage(spec),
+		})
 	}
-	return images, ""
-}
-
-func renderSpecToImages(ctx context.Context, r vlrender.VegaLiteReport) ([]WebChatImage, error) {
-	spec, err := vlrender.NormalizeVegaLiteSpec(r.Spec)
-	if err != nil {
-		return nil, err
+	if len(charts) == 0 {
+		if trivialOnly {
+			return nil, vlrender.ErrTrivialSpec
+		}
+		return nil, errors.New("no charts could be extracted")
 	}
-	img, err := convertSpecToImage(ctx, spec)
-	if err != nil {
-		return nil, err
-	}
-	img.Title = vlrender.FriendlyTitle(r.Title, r.Subtitle)
-	img.Description = r.Description
-	img.Query = r.Query
-	return []WebChatImage{img}, nil
-}
-
-func renderRawSpecToImages(ctx context.Context, spec []byte) ([]WebChatImage, error) {
-	img, err := convertSpecToImage(ctx, spec)
-	if err != nil {
-		return nil, err
-	}
-	img.Title = "LiveReview Chart"
-	return []WebChatImage{img}, nil
-}
-
-func convertSpecToImage(ctx context.Context, spec []byte) (WebChatImage, error) {
-	_, tmpDir, err := vlrender.ConvertVegaLiteToPNG(ctx, spec, "2.0")
-	if err != nil {
-		return WebChatImage{}, err
-	}
-	outputPath := filepath.Join(tmpDir, "report.png")
-
-	chartID := make([]byte, 8)
-	rand.Read(chartID)
-	id := hex.EncodeToString(chartID)
-	registerChartFile(id, tmpDir, outputPath)
-	imgURL := fmt.Sprintf("/api/v1/chat/charts/%s", id)
-
-	return WebChatImage{URL: imgURL}, nil
+	return charts, nil
 }
 
 // stripVegaBlocks recursively removes leading Vega-Lite JSON objects and any
@@ -350,6 +321,96 @@ func removeEmptyCodeFences(raw string) string {
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
+// looksLikeTruncatedVegaSpec returns true if text looks like a Vega-Lite
+// report wrapper that was cut off before the "spec" field was emitted.
+func looksLikeTruncatedVegaSpec(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" || trimmed[0] != '{' || trimmed[len(trimmed)-1] == '}' {
+		return false
+	}
+	return strings.Contains(text, `"title"`) && strings.Contains(text, `"description"`) && !strings.Contains(text, `"spec"`)
+}
+
+// extractDescriptionFromVegaSpec tries to pull the "description" value out of
+// a truncated Vega-Lite JSON string using a simple scan (json.Unmarshal cannot
+// parse incomplete JSON). Returns a user-friendly fallback on failure.
+func extractDescriptionFromVegaSpec(text string) string {
+	idx := strings.Index(text, `"description"`)
+	if idx < 0 {
+		return ""
+	}
+	rest := text[idx+len(`"description"`):]
+	// skip optional whitespace + colon
+	rest = strings.TrimSpace(rest)
+	if len(rest) == 0 || rest[0] != ':' {
+		return ""
+	}
+	rest = strings.TrimSpace(rest[1:])
+	if len(rest) == 0 || rest[0] != '"' {
+		return ""
+	}
+	// scan to matching unescaped closing quote
+	var desc strings.Builder
+	inEscape := false
+	for i := 1; i < len(rest); i++ {
+		ch := rest[i]
+		if inEscape {
+			switch ch {
+			case 'n':
+				desc.WriteByte('\n')
+			case 't':
+				desc.WriteByte('\t')
+			case 'r':
+				desc.WriteByte('\r')
+			case 'b':
+				desc.WriteByte('\b')
+			case 'f':
+				desc.WriteByte('\f')
+			case '/':
+				desc.WriteByte('/')
+			case '\\':
+				desc.WriteByte('\\')
+			case '"':
+				desc.WriteByte('"')
+			case 'u':
+				// Decode \uXXXX unicode escapes.
+				if i+4 < len(rest) {
+					// Bound-check r (still uint64) against utf8.MaxRune before
+					// converting to rune, so the conversion itself is never
+					// reached with an out-of-range value.
+					r, err := strconv.ParseUint(rest[i+1:i+5], 16, 32)
+					if err == nil && r <= utf8.MaxRune && utf8.ValidRune(rune(r)) {
+						desc.WriteRune(rune(r))
+						i += 4
+					} else {
+						desc.WriteString(`\u`)
+					}
+				} else {
+					desc.WriteString(`\u`)
+				}
+			default:
+				desc.WriteByte('\\')
+				desc.WriteByte(ch)
+			}
+			inEscape = false
+			continue
+		}
+		if ch == '\\' {
+			inEscape = true
+			continue
+		}
+		if ch == '"' {
+			break
+		}
+		desc.WriteByte(ch)
+	}
+	result := strings.TrimSpace(desc.String())
+	if result == "" {
+		return ""
+	}
+	return result
+}
+
 func (s *Server) resolveOrgConnector(ctx context.Context, orgID int64) (*aiconnectors.Connector, error) {
 	storage := aiconnectors.NewStorage(s.db)
 	connectors, err := storage.GetAllConnectors(ctx, orgID)
@@ -368,16 +429,4 @@ func (s *Server) resolveOrgConnector(ctx context.Context, orgID int64) (*aiconne
 		return c, nil
 	}
 	return nil, fmt.Errorf("all AI connectors failed to initialize")
-}
-
-func (s *Server) ServeChartPNG(c echo.Context) error {
-	id := c.Param("id")
-	if id == "" {
-		return c.NoContent(http.StatusBadRequest)
-	}
-	path, ok := lookupChartFile(id)
-	if !ok {
-		return c.NoContent(http.StatusNotFound)
-	}
-	return c.File(path)
 }

@@ -264,29 +264,39 @@ const (
 	// must follow, one question per type, in this order.
 	QuizRequirements = `After the markdown summary above, generate exactly 5 multiple-choice questions that test whether a reviewer actually understood this change — grounded in the real file summaries and changes above, never generic filler. Each question needs exactly 4 options with exactly one correct answer.
 
+WRITING STYLE — write every question, option, and explanation in Simplified Technical English (ASD-STE100 style), so a reviewer can read the whole quiz in a hurry:
+- One short sentence per question. Target under 15 words; never exceed 20.
+- Options: 3-8 words each. No option should be a full sentence.
+- Explanations: one short sentence, under 15 words.
+- Use active voice and simple, common, everyday words. Avoid jargon, buzzwords, and formal/Latinate phrasing (e.g. use "use" not "utilize", "start" not "initiate", "show" not "demonstrate").
+- Avoid noun stacks (3+ nouns strung together). Break them apart instead.
+- Avoid vague hedge words ("likely", "generally", "primarily", "based on") — state things plainly.
+- One idea per sentence. Do not join clauses with "which", "that", or semicolons — split into separate short sentences or trim.
+- Use consistent terms for the same thing throughout the quiz — do not switch between synonyms.
+
 Generate exactly these 5 questions, in this order:
 
-1. CORE OBJECTIVE (tests accuracy): "Based on the changes, what is the primary user-facing behavior change?" Make 3 of the 4 options plausible but subtly wrong (e.g. describing a UI-only change, an API-response-only change, or framing it as just a refactor) — this catches a reviewer who only skimmed the PR title.
+1. CORE OBJECTIVE (tests accuracy): Ask what the primary user-facing behavior change is. Make 3 of the 4 options plausible but subtly wrong (e.g. describing a UI-only change, an API-response-only change, or framing it as just a refactor) — this catches a reviewer who only skimmed the PR title. Write the final question/options/explanation per the WRITING STYLE rules above, but reason about the distractors with as much nuance as the diff warrants.
 
-2. BLAST RADIUS (tests operational risk): "Which of these existing features is most likely to break if this is merged?" Distractors must be plausible related features/files drawn from the actual codebase context above, not invented ones — this forces the reviewer to think about dependencies before merging.
+2. BLAST RADIUS (tests operational risk): Ask which existing feature is most likely to break if this is merged. Distractors must be plausible related features/files drawn from the actual codebase context above, not invented ones — this forces the reviewer to think about dependencies before merging.
 
-3. TRADE-OFF (tests maintainability/design judgment): "The author chose this approach for the problem being solved. What was the likely primary trade-off they accepted?" E.g. "Improved latency at the cost of increased memory usage" vs. "Simpler code at the cost of a new dependency" — options should reflect trade-offs actually visible in the diff, not generic ones. This is the question that forces understanding of WHY, not just WHAT.
+3. TRADE-OFF (tests maintainability/design judgment): Ask what trade-off the author likely accepted by choosing this approach over the alternatives (e.g. improved latency at the cost of increased memory usage, or simpler code at the cost of a new dependency) — base options on trade-offs actually visible in the diff, not generic ones. This is the question that forces understanding of WHY, not just WHAT.
 
 4. EDGE CASE (tests correctness): Ask what happens given a specific edge case actually present in the new logic (e.g. a null/empty value, an error branch, a boundary condition) — grounded in error-handling actually visible in the changes. This catches a reviewer who didn't look at the error-handling branches.
 
-5. REVIEWER CONFIDENCE (metacognition): "Based on your understanding, what level of testing is required before deployment?" Options should range from light to heavy (e.g. "Just run existing unit tests", "Manual smoke test on staging", "Requires heavy load testing") — this makes the reviewer commit to a deployment risk level.
+5. REVIEWER CONFIDENCE (metacognition): Ask what level of testing is required before deployment. Options should range from light to heavy (e.g. running existing unit tests, a manual smoke test on staging, or heavy load testing) — this makes the reviewer commit to a deployment risk level.
 
-If the diff is too trivial or narrow for one of these 5 question types to be meaningful (e.g. no risk of breaking anything, or no edge case exists), still produce your best-effort question for that type rather than omitting it — always emit exactly 5.`
+If the diff is too trivial or narrow for one of these 5 question types to be meaningful (e.g. no risk of breaking anything, or no edge case exists), still produce your best-effort question for that type rather than omitting it — always emit exactly 5. Whatever the underlying reasoning, the text you actually write for "question", each item in "options", and "explanation" must comply with the WRITING STYLE rules above — that reasoning richness must be compressed down into plain, short, scannable text.`
 
 	// QuizJSONStructureExample is the literal JSON shape the model must emit.
 	QuizJSONStructureExample = `QUIZ JSON STRUCTURE (produce exactly this shape, exactly 5 items, in this order):
 [
   {
     "type": "core_objective",
-    "question": "Based on the changes, what is the primary user-facing behavior change?",
+    "question": "What does this change do for the user?",
     "options": ["Correct answer", "Plausible but wrong option", "Plausible but wrong option", "Plausible but wrong option"],
     "correctIndex": 0,
-    "explanation": "One sentence on why this is correct."
+    "explanation": "Short reason this is correct."
   },
   {"type": "blast_radius", "question": "...", "options": ["...", "...", "...", "..."], "correctIndex": 0, "explanation": "..."},
   {"type": "trade_off", "question": "...", "options": ["...", "...", "...", "..."], "correctIndex": 0, "explanation": "..."},

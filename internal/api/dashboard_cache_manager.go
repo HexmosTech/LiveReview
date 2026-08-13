@@ -24,17 +24,25 @@ var reviewLayerTaxonomyCategories = []string{
 var reviewLayerLabels = map[string]string{
 	"precommit": "Pre-commit",
 	"mr-pr":     "MR / PR",
+	"api-mcp":   "API / MCP",
+	"scheduled": "Scheduled",
 }
 
-// reviewLayerOrder is only precommit/mr-pr for now — api/mcp/scheduled come once the write path tags those trigger types for real.
-var reviewLayerOrder = []string{"precommit", "mr-pr"}
+// reviewLayerOrder is precommit/mr-pr/api-mcp/scheduled.
+var reviewLayerOrder = []string{"precommit", "mr-pr", "api-mcp", "scheduled"}
 
 // reviewLayersSourceQuery is the validated batched shape (~50x faster than looping per org, see cmd/dashboard-perf-test); trigger_type is mapped at read time since the column still holds the old raw values.
 const reviewLayersSourceQuery = `
 SELECT
   r.org_id,
   r.id AS review_id,
-  CASE r.trigger_type WHEN 'cli_diff' THEN 'precommit' WHEN 'manual' THEN 'mr-pr' END AS trigger_type,
+  CASE r.trigger_type
+    WHEN 'cli_diff' THEN 'precommit'
+    WHEN 'manual' THEN 'mr-pr'
+    WHEN 'api' THEN 'api-mcp'
+    WHEN 'mcp' THEN 'api-mcp'
+    WHEN 'scheduled' THEN 'scheduled'
+  END AS trigger_type,
   COALESCE(NULLIF(c.comment->>'category',''), NULLIF(c.comment->>'Category','')) AS category
 FROM reviews r
 LEFT JOIN LATERAL jsonb_array_elements(
@@ -45,7 +53,7 @@ LEFT JOIN LATERAL jsonb_array_elements(
   END
 ) AS c(comment) ON true
 WHERE r.org_id = ANY($1)
-  AND r.trigger_type IN ('cli_diff', 'manual')
+  AND r.trigger_type IN ('cli_diff', 'manual', 'api', 'mcp', 'scheduled')
   AND r.created_at >= $2
   AND r.created_at <  $2::date + INTERVAL '1 day'
 `
@@ -113,6 +121,94 @@ func (dm *DashboardManager) refreshAllReviewLayers(ctx context.Context, orgIDs [
 	}
 
 	log.Printf("[dashboard_cache] refreshed review_layers for %d/%d orgs duration_ms=%d", len(rows), len(orgIDs), time.Since(start).Milliseconds())
+	return nil
+}
+
+// activeOrgIDsSince returns every org with at least one review since the given day (inclusive) — used to skip orgs with nothing to backfill.
+func (dm *DashboardManager) activeOrgIDsSince(ctx context.Context, sinceDay string) ([]int64, error) {
+	rows, err := dm.db.QueryContext(ctx, `SELECT DISTINCT org_id FROM reviews WHERE created_at >= $1`, sinceDay)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var orgIDs []int64
+	for rows.Next() {
+		var orgID int64
+		if err := rows.Scan(&orgID); err != nil {
+			return nil, err
+		}
+		orgIDs = append(orgIDs, orgID)
+	}
+	return orgIDs, rows.Err()
+}
+
+// BackfillReviewLayers is a one-off operational backfill (not part of the regular 5-minute
+// tick) that populates dashboard_cache with `days` days of history for every org active in
+// that window. It reuses fetchReviewLayersToday/buildCacheRow exactly as the real tick does,
+// one day at a time oldest-to-newest, so each day's merge builds on the previous day's row —
+// identical logic to refreshAllReviewLayers, just replayed across a date range instead of "today".
+func (dm *DashboardManager) BackfillReviewLayers(ctx context.Context, days int) error {
+	if dm.cacheStore == nil {
+		return fmt.Errorf("cacheStore not configured")
+	}
+	if days <= 0 {
+		return fmt.Errorf("days must be positive, got %d", days)
+	}
+
+	queryCtx, cancel := context.WithTimeout(ctx, time.Duration(days)*dashboardDBQueryTimeout)
+	defer cancel()
+
+	today := time.Now().UTC()
+	sinceDay := today.AddDate(0, 0, -days+1).Format("2006-01-02")
+
+	orgIDs, err := dm.activeOrgIDsSince(queryCtx, sinceDay)
+	if err != nil {
+		return fmt.Errorf("list active orgs: %w", err)
+	}
+	if len(orgIDs) == 0 {
+		log.Printf("[dashboard_cache] backfill: no active orgs since %s", sinceDay)
+		return nil
+	}
+	log.Printf("[dashboard_cache] backfill: %d day(s) for %d active org(s)", days, len(orgIDs))
+
+	existing, err := dm.cacheStore.GetBatch(queryCtx, orgIDs)
+	if err != nil {
+		return fmt.Errorf("get existing cache batch: %w", err)
+	}
+
+	rowsByOrg := make(map[int64]dashboard.CacheRow, len(orgIDs))
+	for _, orgID := range orgIDs {
+		rowsByOrg[orgID] = existing[orgID]
+	}
+
+	for i := days - 1; i >= 0; i-- {
+		day := today.AddDate(0, 0, -i).Format("2006-01-02")
+		dayData, err := dm.fetchReviewLayersToday(queryCtx, orgIDs, day)
+		if err != nil {
+			return fmt.Errorf("fetch day %s: %w", day, err)
+		}
+		now := time.Now()
+		for _, orgID := range orgIDs {
+			row, err := dm.buildCacheRow(orgID, rowsByOrg[orgID], dayData[orgID], day, now)
+			if err != nil {
+				log.Printf("[dashboard_cache] backfill: failed to build row org_id=%d day=%s err=%v — skipping this org/day", orgID, day, err)
+				continue
+			}
+			rowsByOrg[orgID] = row
+		}
+		log.Printf("[dashboard_cache] backfill: merged day=%s", day)
+	}
+
+	finalRows := make([]dashboard.CacheRow, 0, len(rowsByOrg))
+	for _, row := range rowsByOrg {
+		finalRows = append(finalRows, row)
+	}
+	if err := dm.cacheStore.UpsertBatch(queryCtx, finalRows); err != nil {
+		return fmt.Errorf("upsert batch: %w", err)
+	}
+
+	log.Printf("[dashboard_cache] backfill: wrote dashboard_cache for %d org(s)", len(finalRows))
 	return nil
 }
 

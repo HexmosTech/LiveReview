@@ -13,6 +13,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/mcpagent"
+	"github.com/livereview/internal/vlrender"
 )
 
 const (
@@ -170,9 +171,9 @@ func (b *Bot) Start(ctx context.Context) error {
 			oh.session.AddHandler(b.makeReadyHandler())
 			if err := oh.session.Open(); err != nil {
 				errCh <- fmt.Errorf("org %d: failed to open session: %w", oh.orgID, err)
-				return
+				return // nosemgrep: trailofbits.go.missing-runlock-on-rwmutex.missing-runlock-on-rwmutex -- this return exits the goroutine closure, not Start(); b.mu is RLocked/RUnlocked in Start's own scope (lines above/below this loop) and is never held here.
 			}
-			log.Printf("[DiscordBot] Org %d: connected to gateway", oh.orgID)
+			log.Printf("[DiscordBot] Org %d: connected to gateway", oh.orgID) // nosemgrep: trailofbits.go.missing-runlock-on-rwmutex.missing-runlock-on-rwmutex -- same false positive: this line is inside the goroutine closure, not Start()'s lock scope.
 		}()
 	}
 	b.mu.RUnlock()
@@ -292,7 +293,7 @@ func (b *Bot) makeHandler() func(*discordgo.Session, *discordgo.MessageCreate) {
 
 		isDM := m.GuildID == ""
 
-	// nosemgrep: trailofbits.go.missing-runlock-on-rwmutex -- RLock/RUnlock are correctly paired around the goroutine-spawn loop below; the flagged returns are inside goroutines running after RUnlock.
+	// nosemgrep: trailofbits.go.missing-runlock-on-rwmutex.missing-runlock-on-rwmutex -- RLock/RUnlock are correctly paired around the goroutine-spawn loop below; the flagged returns are inside goroutines running after RUnlock.
 	b.mu.RLock()
 		defer b.mu.RUnlock()
 
@@ -393,7 +394,7 @@ func (oh *orgHandler) processMessage(channelID, messageID, threadID, text string
 
 	oh.session.ChannelTyping(channelID)
 
-	finalText, updatedHistory, err := oh.agent.RunTurn(ctx, history, text)
+	finalText, updatedHistory, err := oh.agent.RunTurn(ctx, history, text, key, "discord")
 	if err != nil {
 		log.Printf("[DiscordBot] RunTurn error: %s", err)
 		oh.session.ChannelMessageSend(channelID, "⚠️ Sorry, I ran into an error processing your request.")
@@ -417,6 +418,16 @@ func (oh *orgHandler) processMessage(channelID, messageID, threadID, text string
 		defer vlCancel()
 		if reports, ok := parseAndRenderVegaLiteReports(vlCtx, finalText); ok {
 			oh.uploadReportsToDiscord(channelID, reports, finalText)
+			return
+		}
+		// A single value/bar isn't worth a chart — reply with the description text.
+		if desc, query, ok := vlrender.TrivialDescription(finalText); ok && desc != "" {
+			if query != "" {
+				desc += "\n\nQuery used: " + query
+			}
+			if _, err := oh.session.ChannelMessageSend(channelID, desc); err != nil {
+				log.Printf("[DiscordBot] Failed to send message: %s", err)
+			}
 			return
 		}
 		log.Printf("[DiscordBot] Vega-Lite render failed after retries, sending friendly error")

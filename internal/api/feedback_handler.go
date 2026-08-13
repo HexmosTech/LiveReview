@@ -6,8 +6,27 @@ import (
 	"strconv"
 
 	"github.com/labstack/echo/v4"
+	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/pkg/models"
 	feedbackstorage "github.com/livereview/storage/feedback"
 )
+
+// resolveFeedbackUserID mirrors AGENTS.md's dual-auth pattern: the git-lrc
+// CLI's API-key middleware sets "user_id" directly, but the web UI's Bearer
+// session (RequireAuthOrAPIKey's JWT branch) only sets auth.UserContextKey —
+// fall back to that so PR-level/comment vote feedback works from the
+// review-details page too.
+func resolveFeedbackUserID(c echo.Context) (int64, bool) {
+	if userID, ok := c.Get("user_id").(int64); ok && userID != 0 {
+		return userID, true
+	}
+	if userInterface := c.Get(string(auth.UserContextKey)); userInterface != nil {
+		if user, ok := userInterface.(*models.User); ok && user != nil {
+			return user.ID, true
+		}
+	}
+	return 0, false
+}
 
 type FeedbackHandler struct {
 	db    *sql.DB
@@ -36,7 +55,7 @@ func (h *FeedbackHandler) SubmitFeedback(c echo.Context) error {
 	if !ok {
 		orgID = 1
 	}
-	userID, ok := c.Get("user_id").(int64)
+	userID, ok := resolveFeedbackUserID(c)
 	if !ok || userID == 0 {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 	}
@@ -121,7 +140,7 @@ func (h *FeedbackHandler) RetractFeedback(c echo.Context) error {
 	if !ok {
 		orgID = 1
 	}
-	userID, ok := c.Get("user_id").(int64)
+	userID, ok := resolveFeedbackUserID(c)
 	if !ok || userID == 0 {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 	}

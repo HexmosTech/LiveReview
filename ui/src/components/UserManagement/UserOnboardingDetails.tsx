@@ -56,7 +56,8 @@ export const UserOnboardingDetails: React.FC<UserOnboardingDetailsProps> = ({ us
           </div>
           <h1 className="text-3xl font-bold text-emerald-400">User Invited Successfully!</h1>
           <p className="text-gray-400 mt-2">
-            An invitation email has been sent to <strong>{user.email}</strong>.
+            An invitation email has been sent to <strong>{user.email}</strong>. Optionally, download the{' '}
+            Onboarding Command below and share it with them.
           </p>
         </div>
 

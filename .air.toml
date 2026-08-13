@@ -10,13 +10,13 @@ tmp_dir = "tmp"
 # Build with debug symbols enabled for delve debugger.
 # OpenAPI spec generation is opt-in via SKIP_TYPED_GEN: "0" regenerates
 # docs/openapi.yaml on each rebuild; "1" or unset skips it (default off).
-cmd = "if [ \"${SKIP_TYPED_GEN}\" = \"0\" ]; then make generate-openapi; fi && CGO_ENABLED=0 env -u GOROOT go build -gcflags='all=-N -l' -o ./tmp/livereview ."
+cmd = "if [ \"${SKIP_TYPED_GEN}\" = \"0\" ]; then make generate-openapi; fi && CGO_ENABLED=1 env -u GOROOT go build -gcflags='all=-N -l' -o ./tmp/livereview ."
 # Binary file yields from `cmd`.
 bin = "tmp/livereview"
 # Customize binary - run through delve for debugging
 full_bin = "dlv exec ./tmp/livereview --listen=127.0.0.1:2345 --headless=true --api-version=2 --accept-multiclient --continue --log -- api"
 # Watch these filename extensions.
-include_ext = ["go", "tpl", "tmpl", "html", "yaml"]
+include_ext = ["go", "tpl", "tmpl", "html", "yaml", "md"]
 # Ignore these filename extensions or directories.
 exclude_dir = ["assets", "tmp", "vendor", "ui/node_modules", "livereview_pgdata", "lrdata","docs", "internal/api/mcp/generated", "internal/api/docs/spec.go"]
 # Watch these directories if you specified.

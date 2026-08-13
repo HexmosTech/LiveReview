@@ -173,3 +173,8 @@ Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB
 | tools.UpsertOrgTool | added | [UpsertOrgTool](tools/tools_store.go#L89) |
 | tools.GetEnabledToolsForOrg | added | [GetEnabledToolsForOrg](tools/tools_store.go#L124) |
 | tools.InsertToolResultEvent | added | [InsertToolResultEvent](tools/tools_store.go#L167) |
+| analytics.NewAdHocStore | added | [NewAdHocStore](analytics/adhoc_store.go#L50) |
+| analytics.WithStatementTimeout | added | [WithStatementTimeout](analytics/adhoc_store.go#L55) |
+| analytics.Count | added | [Count](analytics/adhoc_store.go#L67) |
+| analytics.Query | added | [Query](analytics/adhoc_store.go#L89) |
+| analytics.Ping | added | [Ping](analytics/adhoc_store.go#L186) |

@@ -69,6 +69,17 @@ func ProcessManualReview(
 			log.Printf("[WARN] failed to persist AI stage metadata for review %d: %v", reviewID, err)
 		}
 
+		// Same review_result shape the CLI path writes (summary + comments, no diff content) — this is what the dashboard and taxonomy reports both read.
+		if err := rm.MergeReviewMetadata(reviewID, map[string]interface{}{
+			"review_result": map[string]interface{}{
+				"summary":  result.Summary,
+				"comments": result.Comments,
+				"quiz":     result.Quiz,
+			},
+		}); err != nil {
+			log.Printf("[WARN] failed to persist review_result for review %d: %v", reviewID, err)
+		}
+
 		if result.BillableLOC > 0 && onSuccess != nil {
 			extraMeta := buildQueuedReviewAIMetadata(&request, result)
 			batchInput := license.QuotaBatchInput{
