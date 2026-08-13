@@ -10,7 +10,7 @@ import {
   useReactTable,
   getCoreRowModel,
 } from '@tanstack/react-table';
-import toast from 'react-hot-toast';
+import { notify } from '../../utils/notify';
 import { LuSearch } from 'react-icons/lu';
 import { SiGitlab } from 'react-icons/si';
 import { PageHeader, Button, Icons, Toggle, Input, MultiSelectPanel, parseMultiFilterValue } from '../../components/UIPrimitives';
@@ -248,7 +248,7 @@ const ScheduledReviews: React.FC = () => {
         },
       }));
     } catch {
-      toast.error(`Failed to update schedule for ${repo.full_name}`);
+      notify.error(`Failed to update schedule for ${repo.full_name}`);
       setScheduleByRepoId((prev) => ({
         ...prev,
         [repo.id]: { ...(prev[repo.id] || defaultScheduleState), toggleBusy: false },
@@ -273,7 +273,7 @@ const ScheduledReviews: React.FC = () => {
     setBulkBusy(false);
     setRowSelection({});
     if (failed === 0) {
-      toast.success(`Scheduled review ${enabled ? 'enabled' : 'disabled'} for ${selectedRepos.length} repo(s).`);
+      notify.success(`Scheduled review ${enabled ? 'enabled' : 'disabled'} for ${selectedRepos.length} repo(s).`);
     }
   };
 
@@ -304,13 +304,13 @@ const ScheduledReviews: React.FC = () => {
     setEditingRepos(null);
     if (editingRepos.length > 1) setRowSelection({});
     if (failed === 0) {
-      toast.success(
+      notify.success(
         editingRepos.length === 1
           ? `Schedule saved for ${editingRepos[0].full_name}`
           : `Schedule saved for ${editingRepos.length} repositories`
       );
     } else {
-      toast.error(`Failed to save schedule for ${failed} of ${editingRepos.length} repositor${editingRepos.length === 1 ? 'y' : 'ies'}`);
+      notify.error(`Failed to save schedule for ${failed} of ${editingRepos.length} repositor${editingRepos.length === 1 ? 'y' : 'ies'}`);
     }
   };
 

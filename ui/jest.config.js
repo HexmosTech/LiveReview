@@ -32,6 +32,8 @@ module.exports = {
     // Indicates whether each individual test should be reported during the run
     verbose: true,
 
+    setupFiles: ['<rootDir>/jest.setup.js'],
+
     moduleNameMapper: {
         "^@components(.*)$": "<rootDir>/src/components$1",
         "^@constants(.*)$": "<rootDir>/src/constants$1",

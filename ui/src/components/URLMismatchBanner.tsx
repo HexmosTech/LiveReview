@@ -1,6 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import apiClient from '../api/apiClient';
-import { Icons } from './UIPrimitives';
+import { useAppDispatch } from '../store/configureStore';
+import { add, dismiss } from '../store/Notifications/slice';
+import { registerNotificationAction } from '../store/Notifications/actionRegistry';
+import { notify } from '../utils/notify';
 
 interface SystemInfo {
   deployment_mode: 'demo' | 'production';
@@ -19,25 +22,22 @@ interface ProductionURLResponse {
   message: string;
 }
 
-// Simple X close icon component
-const CloseIcon: React.FC<{ className?: string }> = ({ className = "w-4 h-4" }) => (
-  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-  </svg>
-);
+const URL_MISMATCH_ID = 'url-mismatch';
 
+// Headless watcher (renders nothing) — detects a production-URL/hostname
+// mismatch and surfaces it as a notification (tray + one toast) instead of
+// its own inline banner, so it's discoverable/dismissible like everything
+// else in the notification system.
 export const URLMismatchBanner: React.FC = () => {
+  const dispatch = useAppDispatch();
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [productionUrl, setProductionUrl] = useState<string>('');
-  const [isDismissed, setIsDismissed] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isFixing, setIsFixing] = useState(false);
 
   const getCurrentBrowserUrl = () => {
     const protocol = window.location.protocol;
     const hostname = window.location.hostname;
     const port = window.location.port;
-    
+
     // Don't include port for standard ports (80, 443) or localhost
     if (port && port !== '80' && port !== '443' && hostname !== 'localhost') {
       return `${protocol}//${hostname}:${port}`;
@@ -45,126 +45,94 @@ export const URLMismatchBanner: React.FC = () => {
     return `${protocol}//${hostname}`;
   };
 
-  const shouldShowMismatchWarning = (): boolean => {
-    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    
-    // Don't show warning for localhost
-    if (isLocalhost) return false;
-    
-    // Don't show if no production URL is set
-    if (!productionUrl) return false;
-    
-    // Show warning if production URL doesn't match current hostname
-    try {
-      const storedURL = new URL(productionUrl);
-      const currentHostname = window.location.hostname;
-      return storedURL.hostname !== currentHostname;
-    } catch (error) {
-      return false;
-    }
-  };
-
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Fetch both system info and production URL
         const [systemInfoResponse, productionUrlResponse] = await Promise.all([
           apiClient.get<SystemInfo>('/system/info'),
           apiClient.get<ProductionURLResponse>('/production-url')
         ]);
-        
+
         setSystemInfo(systemInfoResponse);
         if (productionUrlResponse && productionUrlResponse.url) {
           setProductionUrl(productionUrlResponse.url);
         }
       } catch (error) {
         console.warn('Failed to fetch data for URL mismatch banner:', error);
-      } finally {
-        setIsLoading(false);
       }
     };
 
     fetchData();
   }, []);
 
-  // Don't render anything while loading
-  if (isLoading) {
-    return null;
-  }
-
-  // Don't render if dismissed or no mismatch
-  if (isDismissed || !shouldShowMismatchWarning()) {
-    return null;
-  }
-
-  const handleDismiss = () => {
-    setIsDismissed(true);
-  };
-
-  const handleFixURL = async () => {
-    setIsFixing(true);
+  const handleFixURL = useCallback(async () => {
     try {
       const currentUrl = getCurrentBrowserUrl();
       await apiClient.put('/production-url', { url: currentUrl });
       setProductionUrl(currentUrl);
-      setIsDismissed(true); // Hide banner after fixing
+      dispatch(dismiss(URL_MISMATCH_ID));
     } catch (error) {
       console.error('Failed to update production URL:', error);
-    } finally {
-      setIsFixing(false);
+      notify.error('Failed to update production URL.');
     }
-  };
+  }, [dispatch]);
 
-  const handleOpenSettings = () => {
+  const handleOpenSettings = useCallback(() => {
     window.location.href = '/#/settings#instance';
-  };
+  }, []);
 
-  const storedHostname = productionUrl ? new URL(productionUrl).hostname : '';
-  const currentHostname = window.location.hostname;
-  const isInProductionMode = systemInfo?.deployment_mode === 'production';
+  useEffect(() => {
+    const unregisterFix = registerNotificationAction(`${URL_MISMATCH_ID}:fix`, handleFixURL);
+    const unregisterSettings = registerNotificationAction(`${URL_MISMATCH_ID}:settings`, handleOpenSettings);
+    return () => {
+      unregisterFix();
+      unregisterSettings();
+    };
+  }, [handleFixURL, handleOpenSettings]);
 
-  return (
-    <div className="bg-orange-600 border-b border-orange-700 px-4 py-3 text-white">
-      <div className="flex items-center justify-between max-w-7xl mx-auto">
-        <div className="flex items-center space-x-3">
-          <div className="text-orange-100 flex-shrink-0">
-            <Icons.Warning />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-medium">
-              URL Mismatch Warning
-            </p>
-            <p className="text-xs text-orange-100 mt-1">
-              Your production URL ({storedHostname}) doesn't match your current domain ({currentHostname}). 
-              {isInProductionMode 
-                ? ' This may cause OAuth redirects to fail.' 
-                : ' You should update this when switching to production mode.'}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center space-x-2 ml-4">
-          <button
-            onClick={handleFixURL}
-            disabled={isFixing}
-            className="text-xs bg-orange-700 hover:bg-orange-800 disabled:bg-orange-800 text-white px-3 py-1 rounded font-medium transition-colors duration-200"
-          >
-            {isFixing ? 'Updating...' : 'Fix URL'}
-          </button>
-          <button
-            onClick={handleOpenSettings}
-            className="text-xs bg-transparent hover:bg-orange-700 text-orange-100 hover:text-white border border-orange-400 px-3 py-1 rounded font-medium transition-colors duration-200"
-          >
-            Settings
-          </button>
-          <button
-            onClick={handleDismiss}
-            className="text-orange-100 hover:text-white transition-colors duration-200"
-            aria-label="Dismiss banner"
-          >
-            <CloseIcon />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  useEffect(() => {
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (isLocalhost || !productionUrl) {
+      return;
+    }
+
+    let storedHostname = '';
+    let mismatched = false;
+    try {
+      const storedURL = new URL(productionUrl);
+      storedHostname = storedURL.hostname;
+      mismatched = storedHostname !== window.location.hostname;
+    } catch {
+      return;
+    }
+
+    if (!mismatched) {
+      dispatch(dismiss(URL_MISMATCH_ID));
+      return;
+    }
+
+    const isInProductionMode = systemInfo?.deployment_mode === 'production';
+    const message = `Your production URL (${storedHostname}) doesn't match your current domain (${window.location.hostname}). ${isInProductionMode
+      ? 'This may cause OAuth redirects to fail.'
+      : 'You should update this when switching to production mode.'
+      }`;
+
+    dispatch(
+      add({
+        dedupeKey: URL_MISMATCH_ID,
+        severity: 'warning',
+        title: 'URL Mismatch Warning',
+        message,
+        source: 'url-mismatch',
+        toast: true,
+        persistDismiss: false,
+        actions: [
+          { label: 'Fix URL', actionId: `${URL_MISMATCH_ID}:fix` },
+          { label: 'Settings', actionId: `${URL_MISMATCH_ID}:settings` },
+        ],
+      })
+    );
+  }, [dispatch, productionUrl, systemInfo]);
+
+  return null;
 };

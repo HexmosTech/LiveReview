@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
+import { notify } from '../../utils/notify';
 import { useAppSelector, useAppDispatch } from '../../store/configureStore';
 import { triggerLicenseRefresh, triggerLicenseRevalidation, triggerLicenseDelete, openModal as openLicenseModal, openDeleteConfirm, closeDeleteConfirm } from '../../store/License/slice';
 import { logout } from '../../store/Auth/reducer';
@@ -130,14 +130,14 @@ const LicenseOverviewTab: React.FC = () => {
       const message = statusMessages[result.status] || 'License validation completed.';
       
       if (result.status === 'active') {
-        toast.success(message);
+        notify.success(message);
       } else if (result.status === 'warning' || result.status === 'grace') {
-        toast(message, { icon: '⚠️' });
+        notify.warning(message);
       } else {
-        toast.error(message);
+        notify.error(message);
       }
     } catch (error: any) {
-      toast.error(`Validation failed: ${error.message || 'Unknown error occurred'}`);
+      notify.error(`Validation failed: ${error.message || 'Unknown error occurred'}`);
     }
   };
 
@@ -148,7 +148,7 @@ const LicenseOverviewTab: React.FC = () => {
   const handleDeleteConfirm = async () => {
     try {
       await dispatch(triggerLicenseDelete()).unwrap();
-      toast.success('License deleted successfully. Logging out...');
+      notify.success('License deleted successfully. Logging out...');
       // Wait a moment for the user to see the message, then logout and reload
       setTimeout(async () => {
         await dispatch(logout());
@@ -156,7 +156,7 @@ const LicenseOverviewTab: React.FC = () => {
         window.location.href = '/';
       }, 1500);
     } catch (error: any) {
-      toast.error(`Failed to delete license: ${error.message || 'Unknown error occurred'}`);
+      notify.error(`Failed to delete license: ${error.message || 'Unknown error occurred'}`);
     }
   };
 

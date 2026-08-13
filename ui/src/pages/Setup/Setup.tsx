@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { setupAdmin } from '../../store/Auth/reducer';
-import toast from 'react-hot-toast';
+import { notify } from '../../utils/notify';
 
 const Setup: React.FC = () => {
   const dispatch = useAppDispatch();
@@ -13,20 +13,20 @@ const Setup: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password || !orgName) {
-      toast.error('Please fill in all fields.');
+      notify.error('Please fill in all fields.');
       return;
     }
     if (password.length < 8) {
-      toast.error('Password must be at least 8 characters long.');
+      notify.error('Password must be at least 8 characters long.');
       return;
     }
 
     try {
       await dispatch(setupAdmin({ email, password, orgName })).unwrap();
-      toast.success('Setup complete! You are now logged in.');
+      notify.success('Setup complete! You are now logged in.');
     } catch (err) {
       const errorMessage = (err as Error).message || 'An unknown error occurred.';
-      toast.error(`Setup failed: ${errorMessage}`);
+      notify.error(`Setup failed: ${errorMessage}`);
       console.error('Setup error:', err);
     }
   };

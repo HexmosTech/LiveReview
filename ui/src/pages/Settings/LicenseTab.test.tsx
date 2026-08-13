@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { Provider } from 'react-redux';
+import { MemoryRouter } from 'react-router-dom';
 import configureStore from 'redux-mock-store';
 import LicenseTab from './LicenseTab';
 
@@ -16,7 +17,9 @@ function setup(orgRole: string) {
   });
   render(
     <Provider store={store}>
-      <LicenseTab />
+      <MemoryRouter>
+        <LicenseTab />
+      </MemoryRouter>
     </Provider>
   );
   return store;

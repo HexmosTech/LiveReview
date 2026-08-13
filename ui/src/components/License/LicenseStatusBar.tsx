@@ -5,6 +5,19 @@ import { getSystemInfo } from '../../api/system';
 import { Tooltip } from '../UIPrimitives';
 import { isCloudMode } from '../../utils/deploymentMode';
 import LicenseUpgradeDialog from './LicenseUpgradeDialog';
+import { add as addNotification, dismiss as dismissNotification } from '../../store/Notifications/slice';
+import { registerNotificationAction } from '../../store/Notifications/actionRegistry';
+
+const LICENSE_EXPIRY_NOTIFICATION_ID = 'license-expiry';
+const LICENSE_RENEWAL_URL = 'https://hexmos.com/livereview/selfhosted-access/';
+
+// Midnight tonight (start of tomorrow) — a dismissed expiry notification
+// resurfaces once this passes, so the warning reappears once per day.
+const nextCalendarDayTimestamp = (): number => {
+  const d = new Date();
+  d.setHours(24, 0, 0, 0);
+  return d.getTime();
+};
 
 export interface LicenseStatusBarProps {
   onOpenModal?: () => void;
@@ -87,6 +100,32 @@ const LicenseStatusBar: React.FC<LicenseStatusBarProps> = ({ onOpenModal }) => {
     return () => { mounted = false; };
   }, []);
 
+  // Surface expiry as a tray/toast notification instead of an always-on inline
+  // banner — persistDismiss + expiresAt means a dismissal survives reload but
+  // resurfaces once/day rather than never (old behavior: no dismiss at all).
+  useEffect(() => {
+    if (showExpiryWarning && daysRemaining !== null) {
+      const unregister = registerNotificationAction(`${LICENSE_EXPIRY_NOTIFICATION_ID}:renew`, () => {
+        window.open(LICENSE_RENEWAL_URL, '_blank', 'noopener,noreferrer');
+      });
+      dispatch(
+        addNotification({
+          dedupeKey: LICENSE_EXPIRY_NOTIFICATION_ID,
+          severity: 'warning',
+          title: 'License Expiring Soon',
+          message: getExpiryWarningMessage(daysRemaining),
+          source: 'license',
+          toast: true,
+          persistDismiss: true,
+          expiresAt: nextCalendarDayTimestamp(),
+          actions: [{ label: 'Renew License', actionId: `${LICENSE_EXPIRY_NOTIFICATION_ID}:renew` }],
+        })
+      );
+      return unregister;
+    }
+    dispatch(dismissNotification(LICENSE_EXPIRY_NOTIFICATION_ID));
+  }, [showExpiryWarning, daysRemaining, dispatch]);
+
   // Loading state: avoid showing 'Missing' before the first real status arrives
   if (isLoading) {
     return (
@@ -104,31 +143,6 @@ const LicenseStatusBar: React.FC<LicenseStatusBarProps> = ({ onOpenModal }) => {
 
   return (
     <>
-      {/* Expiry Warning Banner - Shown when license expires in ≤15 days */}
-      {showExpiryWarning && daysRemaining !== null && (
-        <div className="w-full bg-amber-900/60 border-b border-amber-700" data-testid="license-expiry-warning">
-          <div className="container mx-auto px-4 py-2 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <svg className="w-5 h-5 text-amber-300 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                <span className="text-amber-100 font-medium text-sm">License Expiring Soon</span>
-                <span className="text-amber-200 text-xs sm:text-sm">{getExpiryWarningMessage(daysRemaining)}</span>
-              </div>
-            </div>
-            <a
-              href="https://hexmos.com/livereview/selfhosted-access/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex-shrink-0 px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white text-sm font-medium rounded transition-colors"
-            >
-              Renew License
-            </a>
-          </div>
-        </div>
-      )}
-
       <div className={`w-full border-b border-slate-800 ${style.bg}`} data-testid="license-status-bar">
         <div className="container mx-auto px-4 text-xs py-1 flex items-center justify-between">
           {/* Left: All license-related info and actions */}

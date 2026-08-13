@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ColumnDef, useReactTable, getCoreRowModel, getFilteredRowModel, getSortedRowModel, getPaginationRowModel } from '@tanstack/react-table';
-import toast from 'react-hot-toast';
+import { notify } from '../../utils/notify';
 import { LuSearch } from 'react-icons/lu';
 import { SiGitlab } from 'react-icons/si';
 import { Button, Icons, Tooltip, Input, MultiSelectPanel } from '../../components/UIPrimitives';
@@ -151,10 +151,10 @@ const MergeRequests: React.FC = () => {
     try {
       const response = await triggerReviewForPullRequest(pr.id);
       setTriggeredReviewIds((prev) => ({ ...prev, [pr.id]: response.reviewId }));
-      toast.success(`Review triggered for #${pr.number}`);
+      notify.success(`Review triggered for #${pr.number}`);
     } catch (err) {
       console.error('Failed to trigger review:', err);
-      toast.error(err instanceof Error ? err.message : 'Failed to trigger review');
+      notify.error(err instanceof Error ? err.message : 'Failed to trigger review');
     } finally {
       setTriggeringId(null);
     }
