@@ -6,6 +6,33 @@ This feature is **cloud-only** and **owner-gated**. It is delivered in three seq
 
 ---
 
+## Current Status (feat/tool-integration-v2)
+
+**Only UI iterations are done. Backend architecture is not started.**
+
+What exists today:
+
+- The **Tool Analysis card** (`ui/src/components/reviews/ToolAnalysisCard.tsx`) renders on `ReviewDetail`.
+- Three test review pages simulate the card across stages:
+  - `/#/reviews/test1` — all tools queued/pending.
+  - `/#/reviews/test2` — mixed running/completed/queued with animated spinners.
+  - `/#/reviews/test3` — all 15 tools completed with findings and failures.
+- The mock data for these stages lives in `ui/src/pages/Reviews/ReviewDetail.tsx` (`fetchReviewDetails`, test IDs only). The card consumes the mock `toolBreakdown`, not a real API.
+- The card is collapsed by default. Its toggle button shows live state (running count, findings count) so users know what to expect before expanding.
+
+What does **not** exist yet:
+
+- Database migrations (`available_tools`, `org_tools`).
+- Settings UI tab and its API endpoints.
+- River `tool_invocation` job and Lambda fan-out.
+- `tool_result` events written to `review_events`.
+- `lrc` CLI rendering of tool findings.
+- Any backend integration or cost billing.
+
+The sections below document the **planned** backend architecture. Treat them as the design target, not as a description of the current code.
+
+---
+
 ## Table of Contents
 
 1. [Cost Model](#cost-model)
@@ -381,15 +408,21 @@ File: `ui/src/pages/Reviews/BetaToolReviewPage.tsx`
 - Otherwise renders a layout matching the existing AI review page (`NewReview.tsx`) with the trigger form at the top and a live event stream below.
 - `tool_result` events in the stream are rendered with a coloured badge showing the tool name (e.g. `[ruff]`), followed by the findings list.
 
-### Tool result badges in ReviewDetail
+### Tool Analysis & Credits Panel in ReviewDetail
 
 File: `ui/src/pages/Reviews/ReviewDetail.tsx`
 
-When the event stream contains events with `event_type === 'tool_result'`:
+When a review includes third-party static analysis tool invocations (`event_type === 'tool_result'`):
 
-- A **tool result section** is rendered below AI findings.
-- Each tool result has a badge styled distinctly from AI badges (different colour, labelled with `data.tool_name`).
-- If no `tool_result` events exist for the review, the section is hidden entirely.
+- A dedicated **Tool Analysis & Credits** card is rendered directly below the main Review Info header.
+- **Top 3 KPI Summary Boxes**:
+  - `Total Tool Credits`: Sum of credits consumed by tool executions on this review (e.g. `2.0 Credits`).
+  - `Tools Executed`: Count of static analysis tools run (e.g. `2 Tools`).
+  - `Total Comments Generated`: Total comments/findings posted by tools (e.g. `14 Comments`).
+- **Tool Summary Cards Grid**:
+  - Displays a grid of individual tool cards (`ruff`, `bandit`, `gitleaks`, `eslint`, etc.).
+  - Each card shows: **Tool Name**, **Credits Used** (e.g. `1.0 Credits`), **Comments Generated** (e.g. `14 Comments`), and **Status Badge** (e.g. Green `Clean` badge vs Amber `14 Comments` badge).
+- If no `tool_result` events exist for the review, the Tool Analysis panel is hidden.
 
 ### `lrc` CLI output
 

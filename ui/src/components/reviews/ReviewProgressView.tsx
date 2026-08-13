@@ -613,6 +613,13 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
       }
     });
 
+    const finalStage = stageMap.get('finalization');
+    if (finalStage && finalStage.status === 'completed') {
+      stageMap.forEach(s => {
+        s.status = 'completed';
+      });
+    }
+
     return STAGE_DEFINITIONS.map(def => stageMap.get(def.key)!);
   };
 
