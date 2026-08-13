@@ -57,6 +57,9 @@ tests/mcp/.env
 !.env.selfhosted.example
 !.env.test.example
 
+# Prod DB export dumps (make prod-data-export) - real customer data, never commit
+db/prod-exports/
+
 # TOML configuration files - may contain local/sensitive settings
 livereview.toml
 !livereview.toml.example

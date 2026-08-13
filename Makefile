@@ -469,6 +469,55 @@ compressed-schema:
 	@set -a && . ./.env.prod && set +a && python3 scripts/llm-schema.py db/schema-compressed.txt
 	@echo "✅ Wrote db/schema-compressed.txt"
 
+# Export a full snapshot of the prod DB (schema + data) using .env.prod's
+# DATABASE_URL, for restoring into a separate, non-prod Postgres instance to
+# test against locally without pointing a dev server at prod itself. pg_dump
+# is read-only against its source by construction - it only ever issues SELECT-
+# shaped queries - so this cannot write to or modify the prod database.
+.PHONY: prod-data-export
+prod-data-export:
+	@if [ ! -f .env.prod ]; then \
+		echo "❌ ERROR: .env.prod not found"; \
+		exit 1; \
+	fi
+	@command -v pg_dump >/dev/null 2>&1 || { echo "❌ ERROR: pg_dump not found - install postgresql-client"; exit 1; }
+	@mkdir -p db/prod-exports
+	@set -a && . ./.env.prod && set +a && \
+	OUT="db/prod-exports/prod-$$(date +%Y%m%d-%H%M%S).dump" && \
+	echo "Exporting prod data (read-only pg_dump) to $$OUT ..." && \
+	pg_dump "$$DATABASE_URL" --format=custom --no-owner --no-privileges --verbose \
+	  --exclude-table=review_events \
+	  --exclude-table=upgrade_request_events \
+	  --exclude-table=river_job \
+	  --file="$$OUT" && \
+	echo "✅ Wrote $$OUT" && \
+	echo "Now run: make prod-data-import"
+
+# Restores the most recent db/prod-exports/*.dump into your LOCAL Postgres
+# server (via `sudo -u postgres`, i.e. the local Unix socket - it never
+# connects to prod). Target database/user come from THIS repo's local .env
+# DATABASE_URL. Interactive: asks for sudo's password if needed, asks before
+# dropping an existing local database, and asks before creating a new local
+# role (showing the username/password it's about to create). See
+# scripts/prod-data-import.sh for the exact sequence.
+.PHONY: prod-data-import
+prod-data-import:
+	@if [ ! -f .env ]; then \
+		echo "❌ ERROR: .env not found"; \
+		exit 1; \
+	fi
+	@command -v pg_restore >/dev/null 2>&1 || { echo "❌ ERROR: pg_restore not found - install postgresql-client"; exit 1; }
+	@bash scripts/prod-data-import.sh
+
+# Export then import in one go. Two separate $(MAKE) calls, not a
+# multi-prerequisite target, so they run strictly in order even under `make
+# -j` - import must never start before export has actually finished writing
+# the dump file.
+.PHONY: prod-data-sync
+prod-data-sync:
+	@$(MAKE) prod-data-export
+	@$(MAKE) prod-data-import
+
 # Multi-architecture Docker build targets
 docker-multiarch:
 	@python scripts/lrops.py build --docker --multiarch $(ARGS)
