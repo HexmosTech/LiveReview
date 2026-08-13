@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import { LuTerminal } from 'react-icons/lu';
+import { SiGitlab } from 'react-icons/si';
 import { Button, Icons } from '../../components/UIPrimitives';
 import { ReviewEventsPage } from '../../components/reviews';
+import { ToolAnalysisCard, ToolAccountingData } from '../../components/reviews/ToolAnalysisCard';
 import { 
   getReview, 
   getReviewEvents, 
@@ -20,6 +23,65 @@ import {
   ReviewEventLevel,
   ReviewEventType 
 } from '../../types/reviews';
+
+const normalizeSource = (provider?: string, prMrUrl?: string): string => {
+  if (provider) {
+    const normalized = provider.toLowerCase();
+    if (normalized === 'cli') return 'cli';
+    if (normalized.startsWith('github')) return 'github';
+    if (normalized.startsWith('gitlab')) return 'gitlab';
+    if (normalized.startsWith('bitbucket')) return 'bitbucket';
+    if (normalized.startsWith('gitea')) return 'gitea';
+    if (normalized.startsWith('azuredevops')) return 'azuredevops';
+  }
+  if (prMrUrl) {
+    const url = prMrUrl.toLowerCase();
+    if (url.includes('github.com')) return 'github';
+    if (url.includes('gitlab')) return 'gitlab';
+    if (url.includes('bitbucket')) return 'bitbucket';
+    if (url.includes('gitea')) return 'gitea';
+    if (url.includes('azure')) return 'azuredevops';
+  }
+  return (provider || '').toLowerCase();
+};
+
+const getProviderActionLabel = (provider?: string, prMrUrl?: string): string => {
+  const source = normalizeSource(provider, prMrUrl);
+  if (source === 'gitlab') return 'View MR';
+  if (source === 'cli') return 'CLI';
+  return 'View PR';
+};
+
+const extractMRInfo = (url?: string): string => {
+  if (!url) return 'View PR/MR';
+  try {
+    const pathParts = new URL(url).pathname.split('/').filter(Boolean);
+    if (pathParts.includes('pull') && pathParts.length >= 4) {
+      return `PR #${pathParts[pathParts.indexOf('pull') + 1]}`;
+    }
+    if (pathParts.includes('merge_requests') && pathParts.length >= 4) {
+      return `MR !${pathParts[pathParts.indexOf('merge_requests') + 1]}`;
+    }
+    if (pathParts.includes('pull-requests') && pathParts.length >= 4) {
+      return `PR #${pathParts[pathParts.indexOf('pull-requests') + 1]}`;
+    }
+    return 'View PR/MR';
+  } catch {
+    return 'View PR/MR';
+  }
+};
+
+const SourceIcon: React.FC<{ provider?: string; prMrUrl?: string }> = ({ provider, prMrUrl }) => {
+  switch (normalizeSource(provider, prMrUrl)) {
+    case 'cli': return <LuTerminal size={14} className="shrink-0 text-slate-300" />;
+    case 'github': return <span className="shrink-0 inline-flex items-center text-white"><Icons.GitHub /></span>;
+    case 'gitlab': return <SiGitlab className="w-4 h-4 shrink-0" style={{ color: '#FC6D26' }} />;
+    case 'bitbucket': return <span className="shrink-0 inline-flex items-center text-blue-400"><Icons.Bitbucket /></span>;
+    case 'gitea': return <span className="shrink-0 inline-flex items-center text-emerald-400"><Icons.Gitea /></span>;
+    case 'azuredevops': return <span className="shrink-0 inline-flex items-center text-blue-500"><Icons.AzureDevOps /></span>;
+    default: return null;
+  }
+};
 
 const ACCOUNTING_REFRESH_INTERVAL_MS = 15000;
 
@@ -134,6 +196,9 @@ const ReviewDetail: React.FC = () => {
         }
     }, []);
 
+    const [toolAccounting, setToolAccounting] = useState<ToolAccountingData | null>(null);
+    const [toolExpanded, setToolExpanded] = useState(false);
+
     // Fetch review details
     const fetchReviewDetails = useCallback(async () => {
         if (!id) return;
@@ -142,6 +207,231 @@ const ReviewDetail: React.FC = () => {
             setError(null);
             setAccountingError(null);
             setAccountingRouteUnavailable(false);
+
+            if (id === 'test' || id === 'test1' || id === 'test2' || id === 'test3') {
+                const stage = id === 'test1' ? 1 : id === 'test2' ? 2 : 3;
+
+                const testPrMrUrl = id === 'test1' 
+                    ? 'https://github.com/HexmosTech/git-lrc/pull/131'
+                    : id === 'test3'
+                    ? 'https://git.apps.hexmos.com/hexmos/livereview/-/merge_requests/2'
+                    : undefined;
+
+                const testProvider = id === 'test1' ? 'github'
+                    : id === 'test3' ? 'gitlab'
+                    : 'cli';
+
+                const testRepo = id === 'test3' ? 'livereview' : id === 'test2' ? 'repo-b' : 'git-lrc';
+                const testBranch = id === 'test3' ? 'feat/rag-query' : id === 'test2' ? 'main' : 'feat/tools-integration-beta';
+
+                setReview({
+                    id: 999,
+                    orgId: 1,
+                    repository: testRepo,
+                    branch: testBranch,
+                    prMrUrl: testPrMrUrl,
+                    triggerType: testProvider,
+                    userEmail: 'ganeshkumar6120@gmail.com',
+                    provider: testProvider,
+                    status: stage === 3 ? 'completed' : 'in_progress',
+                    createdAt: new Date().toISOString(),
+                    completedAt: stage === 3 ? new Date().toISOString() : undefined,
+                });
+
+                setSummary({
+                    reviewId: 999,
+                    currentStatus: stage === 3 ? 'completed' : 'in_progress',
+                    lastActivity: new Date().toISOString(),
+                    batchCount: 0,
+                    eventCounts: { tool_result: stage === 1 ? 0 : stage === 2 ? 5 : 15 },
+                });
+
+                if (stage === 1) {
+                    // Test Stage 1: All tools Queued/Pending
+                    setToolAccounting({
+                        totalToolCredits: 0,
+                        toolsExecuted: 0,
+                        totalCommentsGenerated: 0,
+                        toolBreakdown: [
+                            { toolName: 'ruff', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'bandit', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'gitleaks', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'eslint', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'hadolint', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'actionlint', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'shellcheck', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'semgrep', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'trufflehog', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'trivy', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'spectral', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'brakeman', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'kubescape', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'zizmor', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'openapi', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                        ],
+                    });
+                } else if (stage === 2) {
+                    // Test Stage 2: 5 Completed, 5 Running with Animated Spinners, 5 Queued
+                    setToolAccounting({
+                        totalToolCredits: 4.0,
+                        toolsExecuted: 5,
+                        totalCommentsGenerated: 14,
+                        toolBreakdown: [
+                            { toolName: 'ruff', creditsUsed: 1.0, commentsGenerated: 0, status: 'clean' },
+                            { toolName: 'bandit', creditsUsed: 1.0, commentsGenerated: 14, status: 'completed' },
+                            { toolName: 'gitleaks', creditsUsed: 1.0, commentsGenerated: 0, status: 'clean' },
+                            { toolName: 'hadolint', creditsUsed: 0.5, commentsGenerated: 0, status: 'clean' },
+                            { toolName: 'shellcheck', creditsUsed: 0.5, commentsGenerated: 0, status: 'clean' },
+                            { toolName: 'eslint', creditsUsed: 2.0, commentsGenerated: 0, status: 'running' },
+                            { toolName: 'semgrep', creditsUsed: 3.0, commentsGenerated: 0, status: 'running' },
+                            { toolName: 'trufflehog', creditsUsed: 2.0, commentsGenerated: 0, status: 'running' },
+                            { toolName: 'trivy', creditsUsed: 2.5, commentsGenerated: 0, status: 'running' },
+                            { toolName: 'actionlint', creditsUsed: 0.5, commentsGenerated: 0, status: 'running' },
+                            { toolName: 'spectral', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'brakeman', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'kubescape', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'zizmor', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                            { toolName: 'openapi', creditsUsed: 0, commentsGenerated: 0, status: 'pending' },
+                        ],
+                    });
+                } else {
+                    // Test Stage 3: All 15 Tools Completed with Findings & Failures
+                    setToolAccounting({
+                        totalToolCredits: 21.0,
+                        toolsExecuted: 15,
+                        totalCommentsGenerated: 35,
+                        toolBreakdown: [
+                            { toolName: 'ruff', creditsUsed: 1.0, commentsGenerated: 0, status: 'clean' },
+                            { toolName: 'bandit', creditsUsed: 1.0, commentsGenerated: 14, status: 'completed' },
+                            { toolName: 'gitleaks', creditsUsed: 1.0, commentsGenerated: 0, status: 'clean' },
+                            { toolName: 'eslint', creditsUsed: 2.0, commentsGenerated: 5, status: 'completed' },
+                            { toolName: 'hadolint', creditsUsed: 0.5, commentsGenerated: 0, status: 'clean' },
+                            { toolName: 'actionlint', creditsUsed: 0.5, commentsGenerated: 2, status: 'completed' },
+                            { toolName: 'shellcheck', creditsUsed: 0.5, commentsGenerated: 0, status: 'clean' },
+                            { toolName: 'semgrep', creditsUsed: 3.0, commentsGenerated: 8, status: 'completed' },
+                            { toolName: 'trufflehog', creditsUsed: 2.0, commentsGenerated: 0, status: 'clean' },
+                            { toolName: 'trivy', creditsUsed: 2.5, commentsGenerated: 3, status: 'completed' },
+                            { toolName: 'spectral', creditsUsed: 1.0, commentsGenerated: 0, status: 'clean' },
+                            { toolName: 'brakeman', creditsUsed: 1.5, commentsGenerated: 1, status: 'completed' },
+                            { toolName: 'kubescape', creditsUsed: 2.0, commentsGenerated: 0, status: 'clean' },
+                            { toolName: 'zizmor', creditsUsed: 1.0, commentsGenerated: 2, status: 'completed' },
+                            { toolName: 'openapi', creditsUsed: 0.5, commentsGenerated: 0, status: 'failed' },
+                        ],
+                    });
+                }
+                setEvents([
+                    {
+                        id: 1,
+                        reviewId: 999,
+                        orgId: 1,
+                        time: new Date().toISOString(),
+                        type: 'status',
+                        level: 'info',
+                        data: { message: 'Stage started: preparation' }
+                    },
+                    {
+                        id: 2,
+                        reviewId: 999,
+                        orgId: 1,
+                        time: new Date().toISOString(),
+                        type: 'status',
+                        level: 'info',
+                        data: { message: 'Stage completed: preparation' }
+                    },
+                    {
+                        id: 3,
+                        reviewId: 999,
+                        orgId: 1,
+                        time: new Date().toISOString(),
+                        type: 'status',
+                        level: 'info',
+                        data: { message: 'Stage started: analysis' }
+                    },
+                    {
+                        id: 4,
+                        reviewId: 999,
+                        orgId: 1,
+                        time: new Date().toISOString(),
+                        type: 'status',
+                        level: 'info',
+                        data: { message: 'Stage completed: analysis' }
+                    },
+                    {
+                        id: 5,
+                        reviewId: 999,
+                        orgId: 1,
+                        time: new Date().toISOString(),
+                        type: 'status',
+                        level: 'info',
+                        data: { message: 'Stage started: review' }
+                    },
+                    {
+                        id: 6,
+                        reviewId: 999,
+                        orgId: 1,
+                        time: new Date().toISOString(),
+                        type: 'log',
+                        level: 'info',
+                        data: { message: 'ruff: Clean (0 findings)' }
+                    },
+                    {
+                        id: 7,
+                        reviewId: 999,
+                        orgId: 1,
+                        time: new Date().toISOString(),
+                        type: 'log',
+                        level: 'warn',
+                        data: { message: 'bandit: 14 comments generated' }
+                    },
+                    {
+                        id: 8,
+                        reviewId: 999,
+                        orgId: 1,
+                        time: new Date().toISOString(),
+                        type: 'status',
+                        level: 'info',
+                        data: { message: 'Stage completed: review' }
+                    },
+                    {
+                        id: 9,
+                        reviewId: 999,
+                        orgId: 1,
+                        time: new Date().toISOString(),
+                        type: 'status',
+                        level: 'info',
+                        data: { message: 'Stage started: artifact generation' }
+                    },
+                    {
+                        id: 10,
+                        reviewId: 999,
+                        orgId: 1,
+                        time: new Date().toISOString(),
+                        type: 'artifact',
+                        level: 'info',
+                        data: { message: 'Posted 14 comments to merge request' }
+                    },
+                    {
+                        id: 11,
+                        reviewId: 999,
+                        orgId: 1,
+                        time: new Date().toISOString(),
+                        type: 'status',
+                        level: 'info',
+                        data: { message: 'Stage completed: artifact generation' }
+                    },
+                    {
+                        id: 12,
+                        reviewId: 999,
+                        orgId: 1,
+                        time: new Date().toISOString(),
+                        type: 'completion',
+                        level: 'info',
+                        data: { resultSummary: 'Review process completed', message: 'finalization complete' }
+                    }
+                ]);
+                setLoading(false);
+                return;
+            }
             
             const reviewId = parseInt(id, 10);
             if (isNaN(reviewId)) {
@@ -349,104 +639,170 @@ const ReviewDetail: React.FC = () => {
 
     return (
         <div className="container mx-auto px-4 py-8">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-8">
-                <div className="flex items-center">
+            {/* Header Card */}
+            <div className="mb-6 bg-slate-800/80 p-3.5 rounded-xl border border-slate-700/70 flex flex-col gap-1.5">
+                {/* LEVEL 1: Back Button, Repository Title, and Sub-heading (Branch + View PR/MR) */}
+                <div className="flex items-start gap-4">
                     <Button
                         as={Link}
                         to="/reviews"
                         variant="ghost"
-                        className="mr-4"
+                        className="mt-0.5 shrink-0"
                     >
                         ← Back
                     </Button>
                     <div>
-                        <h1 className="text-3xl font-bold text-white">
+                        <h1 className="text-2xl font-bold text-white tracking-tight">
                             {review.repository.split('/').pop() || review.repository}
                         </h1>
-                        <p className="text-slate-300">
-                            {review.branch && `${review.branch}`}
-                            {review.prMrUrl && (
-                                <span className="ml-2">
-                                    <a 
-                                        href={review.prMrUrl} 
-                                        target="_blank" 
-                                        rel="noopener noreferrer"
-                                        className="text-blue-400 hover:text-blue-300"
-                                    >
-                                        View PR/MR
-                                    </a>
-                                </span>
+                        <div className="flex items-center gap-3 mt-0.5">
+                            {review.branch && (
+                                <span className="text-sm text-slate-300 font-mono font-medium no-underline">{review.branch}</span>
                             )}
-                        </p>
+                            {normalizeSource(review.provider, review.prMrUrl) !== 'cli' && review.prMrUrl ? (
+                                <a 
+                                    href={review.prMrUrl} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md border border-slate-700/80 bg-slate-800/90 text-slate-200 hover:bg-slate-700 hover:text-white text-xs font-medium transition-colors shadow-sm cursor-pointer no-underline"
+                                    title="Open Pull/Merge Request"
+                                >
+                                    <SourceIcon provider={review.provider} prMrUrl={review.prMrUrl} />
+                                    <span className="no-underline">{getProviderActionLabel(review.provider, review.prMrUrl)}</span>
+                                </a>
+                            ) : (
+                                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md border border-slate-700/60 bg-slate-800/50 text-slate-300 text-xs font-medium">
+                                    <SourceIcon provider={review.provider} prMrUrl={review.prMrUrl} />
+                                    <span className="uppercase font-mono text-[11px] text-slate-300">CLI</span>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
-                <div className="flex items-center space-x-4">
-                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-white ${getStatusColor(review.status)}`}>
-                        {review.status.replace('_', ' ').toUpperCase()}
-                    </span>
-                    {/* Polling control moved to ReviewEventsPage for consistency */}
-                </div>
-            </div>
 
-            {/* Review Info Panel - Compact */}
-            <div className="bg-slate-800 rounded-lg p-3 border border-slate-700 mb-6">
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-                    <div className="flex items-center gap-2">
-                        <span className="text-slate-400">Repository:</span>
-                        <span className="text-white font-mono text-xs break-all">{review.repository}</span>
-                    </div>
-                    {review.provider && (
-                        <div className="flex items-center gap-2">
-                            <span className="text-slate-400">Provider:</span>
-                            <span className="text-white capitalize">{review.provider}</span>
+                {/* LEVEL 2: Single Unbroken Line */}
+                <div className="flex flex-nowrap items-center justify-between gap-3 text-xs whitespace-nowrap overflow-x-auto scrollbar-none pt-1">
+                    {/* Left: Remaining Review Info + Progress Badge (No Provider repetition) */}
+                    <div className="flex items-center gap-x-3 text-xs shrink-0">
+                        {review.userEmail && (
+                            <div className="flex items-center gap-1">
+                                <span className="text-slate-400">User:</span>
+                                <span className="text-white text-xs">{review.userEmail}</span>
+                            </div>
+                        )}
+                        <div className="flex items-center gap-1">
+                            <span className="text-slate-400">Created:</span>
+                            <span className="text-white text-xs">{new Date(review.createdAt).toLocaleDateString()} {new Date(review.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         </div>
-                    )}
-                    {review.userEmail && (
-                        <div className="flex items-center gap-2">
-                            <span className="text-slate-400">User:</span>
-                            <span className="text-white">{review.userEmail}</span>
-                        </div>
-                    )}
-                    {review.commitHash && (
-                        <div className="flex items-center gap-2">
-                            <span className="text-slate-400">Commit:</span>
-                            <span className="text-white font-mono text-xs">{review.commitHash.substring(0, 8)}</span>
-                        </div>
-                    )}
-                    <div className="flex items-center gap-2">
-                        <span className="text-slate-400">Created:</span>
-                        <span className="text-white text-xs">{new Date(review.createdAt).toLocaleString()}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-slate-400">Last Activity:</span>
-                        <span className="text-white text-xs">{new Date(review.completedAt || review.startedAt || review.createdAt).toLocaleString()}</span>
-                    </div>
-                    {summary && (
-                        <>
-                            <div className="flex items-center gap-2">
+                        {summary?.lastActivity && (
+                            <div className="flex items-center gap-1">
+                                <span className="text-slate-400">Last Activity:</span>
+                                <span className="text-white text-xs">{new Date(summary.lastActivity).toLocaleDateString()} {new Date(summary.lastActivity).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            </div>
+                        )}
+                        {summary && (
+                            <div className="flex items-center gap-1">
                                 <span className="text-slate-400">Events:</span>
                                 <span className="text-white text-xs">{Object.values(summary.eventCounts || {}).reduce((a: number, b: number) => a + b, 0)}</span>
                             </div>
-                            <div className="flex items-center gap-2">
+                        )}
+                        {summary && (
+                            <div className="flex items-center gap-1">
                                 <span className="text-slate-400">Batches:</span>
                                 <span className="text-white text-xs">{summary.batchCount}</span>
                             </div>
-                        </>
-                    )}
+                        )}
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-wide text-white uppercase shadow-sm shrink-0 ${getStatusColor(review.status)}`}>
+                            {review.status.replace('_', ' ')}
+                        </span>
+                    </div>
+
+                    {/* Right: Static Numbers (Tools:15 Findings:14 Credits:4 cr) & Expand Button */}
+                    <div className="shrink-0 flex items-center gap-3">
+                        {toolAccounting && (() => {
+                            const totalTools = toolAccounting.toolBreakdown.length || toolAccounting.toolsExecuted;
+                            const totalFindings = toolAccounting.totalCommentsGenerated;
+                            const totalCredits = toolAccounting.totalToolCredits;
+                            const hasFindings = totalFindings > 0;
+                            return (
+                                <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-2.5 text-xs">
+                                        <div className="flex items-center gap-1">
+                                            <span className="text-slate-400">Tools:</span>
+                                            <span className="text-white font-mono text-xs">{totalTools}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            <span className="text-slate-400">Findings:</span>
+                                            <span className={`font-mono text-xs ${hasFindings ? 'text-amber-400 font-bold' : 'text-white'}`}>{totalFindings}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            <span className="text-slate-400">Credits:</span>
+                                            <span className="text-white font-mono text-xs">{totalCredits % 1 === 0 ? totalCredits.toFixed(0) : totalCredits.toFixed(1)} cr</span>
+                                        </div>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setToolExpanded(!toolExpanded)}
+                                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs font-medium transition-colors shrink-0 bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700 hover:text-white"
+                                    >
+                                        {toolExpanded ? (
+                                            /* Collapse icon - arrows pointing inward */
+                                            <svg className="w-3.5 h-3.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9L4 4m0 0h5m-5 0v5M15 9l5-5m0 0h-5m5 0v5M9 15l-5 5m0 0h5m-5 0v-5M15 15l5 5m0 0h-5m5 0v-5" />
+                                            </svg>
+                                        ) : (
+                                            /* Expand icon - arrows pointing outward */
+                                            <svg className="w-3.5 h-3.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5h-4m4 0v-4m0 4l-5-5" />
+                                            </svg>
+                                        )}
+                                        <span>Static Analysis Tools</span>
+                                    </button>
+                                </div>
+                            );
+                        })()}
+                    </div>
                 </div>
+
+                {/* Expanded Breakdown Panel below */}
+                {toolAccounting && toolExpanded && (
+                    <div className="w-full mt-1.5">
+                        <ToolAnalysisCard data={toolAccounting} embedded isExpanded={toolExpanded} hideSummary />
+                    </div>
+                )}
             </div>
 
-            {/* Accounting Panel */}
-            <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 mb-6">
-                <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold text-white">Accounting</h2>
+            {/* Priority #1: Events Timeline & Review Findings (Dominates the screen) */}
+            <div className="mb-8">
+                <ReviewEventsPage
+                    reviewId={reviewId}
+                    initialEvents={events.map(event => ({
+                        id: event.id.toString(),
+                        timestamp: event.time,
+                        eventType: mapEventType(event.type) as 'log' | 'status' | 'batch' | 'artifact' | 'completion' | 'retry' | 'json_repair' | 'timeout' | 'started' | 'progress' | 'batch_complete' | 'error' | 'completed',
+                        message: formatEventData(event),
+                        details: {
+                            batchId: event.batchId,
+                            ...event.data
+                        },
+                        severity: mapEventLevel(event.level) as 'info' | 'success' | 'warning' | 'warn' | 'error' | 'debug'
+                    }))}
+                    isLive={review?.status === 'in_progress'}
+                />
+            </div>
+
+            {/* Tertiary Utility: AI Accounting Panel */}
+            {(!toolAccounting || (accounting && hasAccountingDetails(accounting))) && (
+            <div className="bg-slate-800/80 rounded-lg p-4 border border-slate-700/70 text-xs">
+                <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-sm font-semibold text-slate-300">AI Model Accounting</h2>
                     {accounting?.lastAccountedAt ? (
-                        <span className="text-xs text-slate-400">
+                        <span className="text-slate-500">
                             Last accounted {formatRelativeTime(accounting.lastAccountedAt)}
                         </span>
                     ) : (
-                        <span className="text-xs text-slate-400">Auto-refresh every 15s</span>
+                        <span className="text-slate-500">Auto-refresh every 15s</span>
                     )}
                 </div>
                 {accountingError && (
@@ -454,98 +810,76 @@ const ReviewDetail: React.FC = () => {
                         {accountingError}
                     </div>
                 )}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm mb-4">
-                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
-                        <p className="text-slate-400">Total LOC</p>
-                        <p className="text-white font-semibold text-base">{(accounting?.totalBillableLoc || 0).toLocaleString()}</p>
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-xs mb-3">
+                    <div className="bg-slate-900/80 rounded p-2.5 border border-slate-800">
+                        <p className="text-slate-500">Total LOC</p>
+                        <p className="text-white font-semibold text-sm mt-0.5">{(accounting?.totalBillableLoc || 0).toLocaleString()}</p>
                     </div>
-                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
-                        <p className="text-slate-400">Input Tokens</p>
-                        <p className="text-white font-semibold text-base">{formatInt(accounting?.totalInputTokens)}</p>
+                    <div className="bg-slate-900/80 rounded p-2.5 border border-slate-800">
+                        <p className="text-slate-500">Input Tokens</p>
+                        <p className="text-white font-semibold text-sm mt-0.5">{formatInt(accounting?.totalInputTokens)}</p>
                     </div>
-                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
-                        <p className="text-slate-400">Output Tokens</p>
-                        <p className="text-white font-semibold text-base">{formatInt(accounting?.totalOutputTokens)}</p>
+                    <div className="bg-slate-900/80 rounded p-2.5 border border-slate-800">
+                        <p className="text-slate-500">Output Tokens</p>
+                        <p className="text-white font-semibold text-sm mt-0.5">{formatInt(accounting?.totalOutputTokens)}</p>
                     </div>
-                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
-                        <p className="text-slate-400">Total Cost (USD)</p>
-                        <p className="text-white font-semibold text-base">{formatCurrency(accounting?.totalCostUsd)}</p>
+                    <div className="bg-slate-900/80 rounded p-2.5 border border-slate-800">
+                        <p className="text-slate-500">Total Cost (USD)</p>
+                        <p className="text-white font-semibold text-sm mt-0.5">{formatCurrency(accounting?.totalCostUsd)}</p>
                     </div>
-                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
-                        <p className="text-slate-400">Accounted Operations</p>
-                        <p className="text-white font-semibold text-base">{(accounting?.accountedOperations || 0).toLocaleString()}</p>
+                    <div className="bg-slate-900/80 rounded p-2.5 border border-slate-800">
+                        <p className="text-slate-500">Accounted Ops</p>
+                        <p className="text-white font-semibold text-sm mt-0.5">{(accounting?.accountedOperations || 0).toLocaleString()}</p>
                     </div>
-                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700">
-                        <p className="text-slate-400">Token-tracked Operations</p>
-                        <p className="text-white font-semibold text-base">{(accounting?.tokenTrackedOperations || 0).toLocaleString()}</p>
+                    <div className="bg-slate-900/80 rounded p-2.5 border border-slate-800">
+                        <p className="text-slate-500">Token-tracked Ops</p>
+                        <p className="text-white font-semibold text-sm mt-0.5">{(accounting?.tokenTrackedOperations || 0).toLocaleString()}</p>
                     </div>
                 </div>
-                <div className="mb-4 flex flex-wrap gap-2 text-xs">
-                    <span className="rounded-full border border-slate-600 bg-slate-900 px-3 py-1 text-slate-200">
-                        Helper {helperEnabled ? 'enabled' : 'disabled'}
-                    </span>
-                    {helperEnabled && helperMode && (
-                        <span className="rounded-full border border-sky-700 bg-sky-900/30 px-3 py-1 text-sky-200">
-                            Mode: {helperMode}
-                        </span>
-                    )}
-                    {!!stageBreakdown.length && (
-                        <span className="rounded-full border border-emerald-700 bg-emerald-900/30 px-3 py-1 text-emerald-200">
-                            Stages tracked: {stageBreakdown.length}
-                        </span>
-                    )}
-                </div>
+
                 {!!stageBreakdown.length && (
-                    <div className="mb-4">
+                    <div className="mt-3 pt-3 border-t border-slate-700/60">
                         <div className="mb-2 flex items-center justify-between">
-                            <h3 className="text-sm font-medium text-white">Model Breakdown</h3>
-                            <span className="text-xs text-slate-400">
-                                {helperEnabled ? 'Leader and Helper stages' : 'Single-stage review'}
+                            <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Model Breakdown</h3>
+                            <span className="text-[11px] text-slate-500">
+                                {helperEnabled ? 'Leader & Helper stages' : 'Single-stage review'}
                             </span>
                         </div>
-                        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                        <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
                             {stageBreakdown.map((stage) => {
                                 const routeText = getStageRouteText(stage);
                                 const executionText = getStageExecutionText(stage);
                                 return (
                                     <div
                                         key={`${stage.stage}-${stage.provider || 'unknown'}-${stage.model || 'unknown'}`}
-                                        className="rounded-md border border-slate-700 bg-slate-900 p-3"
+                                        className="rounded border border-slate-800 bg-slate-900/90 p-2.5"
                                     >
                                         <div className="mb-2 flex items-start justify-between gap-3">
                                             <div>
-                                                <p className="text-sm font-semibold text-white">{formatStageLabel(stage.stage)}</p>
-                                                <p className="text-xs text-slate-400">
+                                                <p className="text-xs font-semibold text-white">{formatStageLabel(stage.stage)}</p>
+                                                <p className="text-[11px] text-slate-400">
                                                     {(stage.provider || 'unknown provider')} / {(stage.model || 'unknown model')}
                                                 </p>
                                             </div>
                                             {stage.pricingVersion && (
-                                                <span className="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] text-slate-300">
+                                                <span className="rounded border border-slate-700 px-2 py-0.5 text-[10px] text-slate-400">
                                                     {stage.pricingVersion}
                                                 </span>
                                             )}
                                         </div>
-                                        <div className="grid grid-cols-3 gap-2 text-xs mb-3">
-                                            <div className="rounded border border-slate-700 bg-slate-950 p-2">
-                                                <p className="text-slate-500">Input</p>
-                                                <p className="mt-1 text-sm font-medium text-white">{formatInt(stage.inputTokens)}</p>
+                                        <div className="grid grid-cols-3 gap-2 text-xs">
+                                            <div className="rounded border border-slate-800 bg-slate-950 p-1.5">
+                                                <p className="text-[10px] text-slate-500">Input</p>
+                                                <p className="text-xs font-medium text-white">{formatInt(stage.inputTokens)}</p>
                                             </div>
-                                            <div className="rounded border border-slate-700 bg-slate-950 p-2">
-                                                <p className="text-slate-500">Output</p>
-                                                <p className="mt-1 text-sm font-medium text-white">{formatInt(stage.outputTokens)}</p>
+                                            <div className="rounded border border-slate-800 bg-slate-950 p-1.5">
+                                                <p className="text-[10px] text-slate-500">Output</p>
+                                                <p className="text-xs font-medium text-white">{formatInt(stage.outputTokens)}</p>
                                             </div>
-                                            <div className="rounded border border-slate-700 bg-slate-950 p-2">
-                                                <p className="text-slate-500">Cost</p>
-                                                <p className="mt-1 text-sm font-medium text-white">{formatCurrency(stage.costUsd)}</p>
+                                            <div className="rounded border border-slate-800 bg-slate-950 p-1.5">
+                                                <p className="text-[10px] text-slate-500">Cost</p>
+                                                <p className="text-xs font-medium text-white">{formatCurrency(stage.costUsd)}</p>
                                             </div>
-                                        </div>
-                                        <div className="space-y-1 text-xs text-slate-300">
-                                            {executionText && (
-                                                <p><span className="text-slate-500">Execution:</span> {executionText}</p>
-                                            )}
-                                            {routeText && (
-                                                <p><span className="text-slate-500">Route:</span> {routeText}</p>
-                                            )}
                                         </div>
                                     </div>
                                 );
@@ -553,50 +887,8 @@ const ReviewDetail: React.FC = () => {
                         </div>
                     </div>
                 )}
-                {accounting?.latestOperation && (
-                    <div className="bg-slate-900 rounded-md p-3 border border-slate-700 text-xs">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-y-2 gap-x-4">
-                            <p className="text-slate-300"><span className="text-slate-500">Latest operation:</span> {accounting.latestOperation.operationType}</p>
-                            <p className="text-slate-300"><span className="text-slate-500">Trigger:</span> {accounting.latestOperation.triggerSource}</p>
-                            <p className="text-slate-300"><span className="text-slate-500">Provider/Model:</span> {(accounting.latestOperation.provider || 'unknown')} / {(accounting.latestOperation.model || 'unknown')}</p>
-                            <p className="text-slate-300"><span className="text-slate-500">Pricing version:</span> {accounting.latestOperation.pricingVersion || 'unknown'}</p>
-                            <p className="text-slate-300"><span className="text-slate-500">Operation ID:</span> {accounting.latestOperation.operationId}</p>
-                            <p className="text-slate-300"><span className="text-slate-500">Idempotency key:</span> {accounting.latestOperation.idempotencyKey}</p>
-                            {(leaderAIExecutionMode || leaderAIExecutionSource) && (
-                                <p className="text-slate-300"><span className="text-slate-500">Leader execution:</span> {(leaderAIExecutionMode || 'unknown')} via {(leaderAIExecutionSource || 'unknown')}</p>
-                            )}
-                            {(leaderAIExecutionProvider || leaderAIExecutionConnector) && (
-                                <p className="text-slate-300"><span className="text-slate-500">Leader route:</span> {(leaderAIExecutionProvider || 'unknown')} / {(leaderAIExecutionConnector || 'unknown')}</p>
-                            )}
-                            {helperEnabled && (helperAIExecutionMode || helperAIExecutionSource) && (
-                                <p className="text-slate-300"><span className="text-slate-500">Helper execution:</span> {(helperAIExecutionMode || 'unknown')} via {(helperAIExecutionSource || 'unknown')}</p>
-                            )}
-                            {helperEnabled && (helperAIExecutionProvider || helperAIExecutionConnector) && (
-                                <p className="text-slate-300"><span className="text-slate-500">Helper route:</span> {(helperAIExecutionProvider || 'unknown')} / {(helperAIExecutionConnector || 'unknown')}</p>
-                            )}
-                        </div>
-                    </div>
-                )}
             </div>
-
-            {/* Events Timeline - Full Width */}
-            <div>
-                    <ReviewEventsPage
-                        reviewId={reviewId}
-                        initialEvents={events.map(event => ({
-                            id: event.id.toString(),
-                            timestamp: event.time,
-                            eventType: mapEventType(event.type) as 'log' | 'status' | 'batch' | 'artifact' | 'completion' | 'retry' | 'json_repair' | 'timeout' | 'started' | 'progress' | 'batch_complete' | 'error' | 'completed',
-                            message: formatEventData(event),
-                            details: {
-                                batchId: event.batchId,
-                                ...event.data
-                            },
-                            severity: mapEventLevel(event.level) as 'info' | 'success' | 'warning' | 'warn' | 'error' | 'debug'
-                        }))}
-                        isLive={review?.status === 'in_progress'}
-                    />
-            </div>
+            )}
         </div>
     );
 };

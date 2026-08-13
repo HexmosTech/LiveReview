@@ -30,11 +30,12 @@ export const SystemKpiRow: React.FC = () => {
     const navigate = useNavigate();
 
     return (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 h-full">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 h-full">
             <KpiTile title="Git Hosts" value={MOCK_SYSTEM_KPIS.gitHosts} icon={<Icons.Git />} onClick={() => navigate('/git')} />
             <KpiTile title="AI Connectors" value={MOCK_SYSTEM_KPIS.aiConnectors} icon={<Icons.AI />} onClick={() => navigate('/ai')} />
             <KpiTile title="Repositories" value={MOCK_SYSTEM_KPIS.totalRepos} icon={<Icons.Folder />} onClick={() => navigate('/explore/repositories')} />
             <KpiTile title="PRs / MRs Tracked" value={MOCK_SYSTEM_KPIS.totalPRs} icon={<Icons.Layers />} onClick={() => navigate('/explore/merge-requests')} />
+            <KpiTile title="Third-Party Tools" value={15} icon={<Icons.Settings />} onClick={() => navigate('/settings#third-party-tools')} />
         </div>
     );
 };
