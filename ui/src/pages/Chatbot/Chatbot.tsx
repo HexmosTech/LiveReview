@@ -295,7 +295,7 @@ const Chatbot: React.FC = () => {
       <div className="flex-none px-4 py-2">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img src="/assets/lrbot/lrbot.png" alt="Bot" className="w-5 h-5 rounded-full opacity-80" />
+            <img src="/assets/lrbot/lrbot.png" alt="Bot" width={20} height={20} decoding="async" className="w-5 h-5 rounded-full opacity-80" />
             <h1 className="text-sm font-medium text-slate-400">Chat with Livi</h1>
           </div>
           <button
@@ -372,7 +372,7 @@ const Chatbot: React.FC = () => {
                 ) : (
                   <div key={msg.id} className="relative flex items-start">
                     <div className="absolute -left-16 bottom-0 w-16 flex justify-end pr-2">
-                      <img src="/assets/lrbot/lrbot.png" alt="Bot" className="w-8 h-8 rounded-full" />
+                      <img src="/assets/lrbot/lrbot.png" alt="Bot" width={32} height={32} decoding="async" className="w-8 h-8 rounded-full" />
                     </div>
                     <div className="min-w-0 flex-1">
                       {msg.charts && msg.charts.length > 0 && (
@@ -478,7 +478,7 @@ const Chatbot: React.FC = () => {
           {isLoading && (
             <div className="relative flex items-start mt-4">
               <div className="absolute -left-16 top-1/2 -translate-y-1/2 w-16 flex justify-end pr-2">
-                <img src="/assets/lrbot/lrbot.png" alt="Bot" className="w-8 h-8 rounded-full" />
+                <img src="/assets/lrbot/lrbot.png" alt="Bot" width={32} height={32} decoding="async" className="w-8 h-8 rounded-full" />
               </div>
               <ThinkingIndicator />
             </div>
