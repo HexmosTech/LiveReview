@@ -3489,19 +3489,19 @@ ALTER TABLE ONLY public.roles
 
 
 --
--- Name: scheduled_review_configs scheduled_review_configs_repository_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.scheduled_review_configs
-    ADD CONSTRAINT scheduled_review_configs_repository_id_key UNIQUE (repository_id);
-
-
---
 -- Name: scheduled_review_configs scheduled_review_configs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.scheduled_review_configs
     ADD CONSTRAINT scheduled_review_configs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: scheduled_review_configs scheduled_review_configs_repository_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scheduled_review_configs
+    ADD CONSTRAINT scheduled_review_configs_repository_id_key UNIQUE (repository_id);
 
 
 --
@@ -5566,19 +5566,19 @@ ALTER TABLE ONLY public.river_client_queue
 
 
 --
--- Name: scheduled_review_configs scheduled_review_configs_repository_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.scheduled_review_configs
-    ADD CONSTRAINT scheduled_review_configs_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES public.repositories(id) ON DELETE CASCADE;
-
-
---
 -- Name: scheduled_review_configs scheduled_review_configs_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.scheduled_review_configs
     ADD CONSTRAINT scheduled_review_configs_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: scheduled_review_configs scheduled_review_configs_repository_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scheduled_review_configs
+    ADD CONSTRAINT scheduled_review_configs_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES public.repositories(id) ON DELETE CASCADE;
 
 
 --
@@ -5970,5 +5970,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260808120000'),
     ('20260809120000'),
     ('20260809150000'),
-    ('20260811120000');
-    ('20260809120000');
+    ('20260811120000'),
+    ('20260813000000');
