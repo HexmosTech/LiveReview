@@ -1,4 +1,5 @@
 import React, { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, ElementType, ComponentPropsWithRef, useState, useRef, useLayoutEffect, useEffect, useMemo } from 'react';
+import { formatDistanceToNow, format } from 'date-fns';
 import { createPortal } from 'react-dom';
 import classNames from 'classnames';
 import {
@@ -1551,5 +1552,29 @@ export const Tabs: React.FC<TabsProps> = ({ tabs, activeTab, onChange, className
         );
       })}
     </div>
+  );
+};
+
+/**
+ * RelativeTime — shows a human-readable relative timestamp ("3 minutes ago")
+ * powered by date-fns, with a native title tooltip showing the exact date.
+ *
+ * Usage: <RelativeTime timestamp={review.createdAt} />
+ */
+export const RelativeTime: React.FC<{
+  timestamp: string;
+  className?: string;
+}> = ({ timestamp, className }) => {
+  let relative = timestamp;
+  let exact = timestamp;
+  try {
+    const d = new Date(timestamp);
+    relative = formatDistanceToNow(d, { addSuffix: true });
+    exact = format(d, 'PPpp'); // e.g. "Aug 16, 2026, 11:15:18 AM"
+  } catch { /* leave as-is */ }
+  return (
+    <span title={exact} className={className} style={{ cursor: 'default' }}>
+      {relative}
+    </span>
   );
 };
