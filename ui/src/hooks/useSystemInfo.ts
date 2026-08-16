@@ -6,7 +6,10 @@ interface SystemInfo {
   version: any;
 }
 
-const SYSTEM_INFO_QUERY_KEY = ['system-info'] as const;
+// Exported so other components fetching the same /system/info endpoint (e.g.
+// URLMismatchBanner, which needs fields beyond dev_mode/version) can share this cache
+// entry via the same queryKey instead of firing their own duplicate request.
+export const SYSTEM_INFO_QUERY_KEY = ['system-info'] as const;
 
 /**
  * Hook to fetch and track system information including dev mode status. Backed by react-query

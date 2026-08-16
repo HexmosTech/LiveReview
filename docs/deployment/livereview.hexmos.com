@@ -49,5 +49,26 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        # The livereview-ui process now pre-gzips its static assets at startup and sends
+        # Content-Encoding: gzip itself (cmd/ui.go, buildCompressedAssets) - nginx re-compressing
+        # an already-gzipped response on every single request was the confirmed root cause of
+        # multi-second stalls across entire request bursts (static files AND unrelated API calls
+        # queuing behind the same CPU-bound compression work). nginx already skips gzip on a
+        # response that has Content-Encoding set, but this makes the intent explicit rather than
+        # relying on that. See docs/perf-improvement.md "Finding A".
+        gzip off;
+    }
+}
+
+server {
+    listen 80;
+    server_name livereview.hexmos.com;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
     }
 }

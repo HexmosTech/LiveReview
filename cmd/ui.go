@@ -1,14 +1,18 @@
 package cmd
 
 import (
+	"bytes"
+	"compress/gzip"
 	"embed"
 	"fmt"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +26,112 @@ var (
 	cachedIndexHTML string
 	cacheOnce       sync.Once
 )
+
+// compressedAsset holds a build-time-computed gzip payload for one static file, so
+// compression never has to happen on the request hot path (see docs/perf-improvement.md,
+// "Finding A" - nginx doing on-the-fly gzip per request was serializing entire request
+// bursts, static files and tiny API JSON responses alike, behind its CPU cost).
+type compressedAsset struct {
+	data        []byte
+	contentType string
+}
+
+// compressibleExt lists extensions worth pre-gzipping. Already-compressed formats
+// (png/jpg/woff2/...) are skipped - gzip wouldn't shrink them and would just add CPU cost.
+var compressibleExt = map[string]bool{
+	".js":   true,
+	".css":  true,
+	".svg":  true,
+	".json": true,
+}
+
+// hashedAssetPattern matches webpack's content-hashed output filenames (main.<hash>.js,
+// vendor-framework.<hash>.js, numbered chunk files like 2559.<hash>.js, etc.) - these are
+// safe to cache forever since any content change produces a new filename. Everything else
+// (unhashed /public assets, index.html) must NOT get long-lived caching since their content
+// can change without the filename changing.
+var hashedAssetPattern = regexp.MustCompile(`\.[0-9a-f]{8,20}\.(js|css)$`)
+
+// buildCompressedAssets walks the embedded dist filesystem once at startup and gzip-compresses
+// every compressible top-level file (skipping index.html, which is regenerated per-request with
+// injected runtime config, and the public/ subtree, which is low-volume and not part of the
+// measured bottleneck). Doing this once at boot instead of per-request is the actual fix -
+// see docs/perf-improvement.md.
+func buildCompressedAssets(distFS fs.FS) map[string]compressedAsset {
+	assets := make(map[string]compressedAsset)
+	_ = fs.WalkDir(distFS, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if path == "index.html" || strings.HasPrefix(path, "public/") {
+			return nil
+		}
+		ext := strings.ToLower(fileExt(path))
+		if !compressibleExt[ext] {
+			return nil
+		}
+		raw, readErr := fs.ReadFile(distFS, path)
+		if readErr != nil {
+			return nil
+		}
+		var buf bytes.Buffer
+		gz, gzErr := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+		if gzErr != nil {
+			return nil
+		}
+		if _, writeErr := gz.Write(raw); writeErr != nil {
+			gz.Close()
+			return nil
+		}
+		if closeErr := gz.Close(); closeErr != nil {
+			return nil
+		}
+		contentType := mime.TypeByExtension(ext)
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		assets["/"+path] = compressedAsset{data: buf.Bytes(), contentType: contentType}
+		return nil
+	})
+	return assets
+}
+
+// fileExt returns the lowercase extension (including the leading dot) of path.
+func fileExt(path string) string {
+	if idx := strings.LastIndexByte(path, '.'); idx != -1 {
+		return strings.ToLower(path[idx:])
+	}
+	return ""
+}
+
+// setCacheHeaders applies immutable long-lived caching to content-hashed assets and a safe
+// no-cache default to everything else (see hashedAssetPattern).
+func setCacheHeaders(w http.ResponseWriter, urlPath string) {
+	if hashedAssetPattern.MatchString(urlPath) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
+}
+
+// serveCompressedAsset writes a pre-compressed asset directly, skipping per-request gzip work.
+// Returns false (does nothing) if the client doesn't advertise gzip support, so the caller can
+// fall back to the uncompressed file-server path.
+func serveCompressedAsset(w http.ResponseWriter, r *http.Request, urlPath string, asset compressedAsset) bool {
+	if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		return false
+	}
+	setCacheHeaders(w, urlPath)
+	w.Header().Set("Content-Type", asset.contentType)
+	w.Header().Set("Content-Encoding", "gzip")
+	w.Header().Set("Vary", "Accept-Encoding")
+	w.Header().Set("Content-Length", strconv.Itoa(len(asset.data)))
+	w.WriteHeader(http.StatusOK)
+	if r.Method != http.MethodHead {
+		_, _ = w.Write(asset.data)
+	}
+	return true
+}
 
 // UICommand returns the CLI command for starting the UI server
 func UICommand(uiAssets embed.FS) *cli.Command {
@@ -112,6 +222,11 @@ func UICommand(uiAssets embed.FS) *cli.Command {
 			// Create file server for static assets
 			fileServer := http.FileServer(http.FS(distFS))
 
+			// Pre-gzip compressible static assets once at boot instead of per-request (see
+			// buildCompressedAssets doc comment / docs/perf-improvement.md "Finding A").
+			compressedAssets := buildCompressedAssets(distFS)
+			fmt.Printf("Pre-compressed %d static assets for gzip serving\n", len(compressedAssets))
+
 			// Proxy API requests to the backend server
 			var apiProxy http.Handler
 			if apiURL != "" {
@@ -132,20 +247,29 @@ func UICommand(uiAssets embed.FS) *cli.Command {
 					apiProxy.ServeHTTP(w, r)
 					return
 				}
-			// Try to serve the requested file
-			if r.URL.Path != "/" {
-				// Check if file exists in embedded filesystem
-				if _, err := fs.Stat(distFS, r.URL.Path[1:]); err == nil {
-					fileServer.ServeHTTP(w, r)
-					return
+				// Try to serve the requested file
+				if r.URL.Path != "/" {
+					// Serve pre-compressed bytes directly when available - skips per-request gzip
+					// CPU cost and sets the Cache-Control headers that were previously missing
+					// entirely (see docs/perf-improvement.md "Finding A"/"Finding B").
+					if asset, ok := compressedAssets[r.URL.Path]; ok {
+						if serveCompressedAsset(w, r, r.URL.Path, asset) {
+							return
+						}
+					}
+					// Check if file exists in embedded filesystem
+					if _, err := fs.Stat(distFS, r.URL.Path[1:]); err == nil {
+						setCacheHeaders(w, r.URL.Path)
+						fileServer.ServeHTTP(w, r)
+						return
+					}
+					// Fallback: some files (e.g. slack-logo.png) are in public/ subdir of dist
+					if _, err := fs.Stat(distFS, "public"+r.URL.Path); err == nil {
+						r.URL.Path = "/public" + r.URL.Path
+						fileServer.ServeHTTP(w, r)
+						return
+					}
 				}
-				// Fallback: some files (e.g. slack-logo.png) are in public/ subdir of dist
-				if _, err := fs.Stat(distFS, "public"+r.URL.Path); err == nil {
-					r.URL.Path = "/public" + r.URL.Path
-					fileServer.ServeHTTP(w, r)
-					return
-				}
-			}
 
 				// If file doesn't exist or root path, serve modified index.html for SPA routing
 				w.Header().Set("Content-Type", "text/html")

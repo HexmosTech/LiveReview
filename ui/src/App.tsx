@@ -88,14 +88,20 @@ const Footer = () => (
     </footer>
 );
 
-const RouteFallback = () => (
+// Single shared full-screen loading visual - reused for both the auth-state gate (isLoading
+// below) and the route-chunk Suspense fallback, so consecutive loading states read as one
+// continuous screen instead of two differently-styled spinners swapping in sequence (see
+// docs/perf-improvement.md "Finding D").
+const FullScreenLoader: React.FC<{ text: string }> = ({ text }) => (
     <div className="min-h-screen flex items-center justify-center bg-slate-900 text-slate-100">
         <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" aria-hidden />
-            <span>Loading…</span>
+            <span>{text}</span>
         </div>
     </div>
 );
+
+const RouteFallback = () => <FullScreenLoader text="Loading…" />;
 
 // Main application content with routing
 const AppContent: React.FC = () => {
@@ -263,17 +269,7 @@ const AppContent: React.FC = () => {
     // Decide what to render based on auth/setup states AFTER all hooks declared (avoid hook order issues)
     let body: React.ReactNode;
     if (isLoading) {
-        body = (
-            <div className="min-h-screen flex items-center justify-center">
-                <div className="text-center">
-                    <svg className="w-12 h-12 mx-auto mb-4 text-blue-500 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <h2 className="text-xl font-medium text-white">Loading LiveReview...</h2>
-                </div>
-            </div>
-        );
+        body = <FullScreenLoader text="Loading LiveReview…" />;
     } else if (isSetupRequired) {
         body = <Setup />;
     } else if (!isAuthenticated) {
