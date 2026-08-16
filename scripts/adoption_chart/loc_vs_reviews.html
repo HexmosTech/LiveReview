@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LOC vs Reviews — hexmos-internal</title>
+<script src="https://cdn.jsdelivr.net/npm/vega@5.33.1" integrity="sha384-NMXhl2TbCXxcN7o4ROC56Funm78m4AylL8gMg/7Kn4YU+wrm23K9l7cY8lDRXQ9d" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5.23.0" integrity="sha384-D9LYH0esGjcxQJsBuxOuXtCDJGXRWW1+KhluzWPqi0rLJmiR/ygPChefaD+rFFDQ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6.29.0" integrity="sha384-M+Ax7e/WFJpxSOF09HzI+Sj4wg9ottVd/uxmV2ItGGh02fLH28t2FAOJx3TJBap5" crossorigin="anonymous"></script>
+<style>
+  body { background:#0b0e17; color:#e6ebf5; font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:32px; }
+  .stats { margin-top:20px; font-size:14px; line-height:1.6; color:#c9d1e0; max-width:900px; }
+  .stats b { color:#fff; }
+  #view { max-width: 840px; overflow-x:auto; }
+  details { margin-top:20px; max-width:900px; }
+  summary { cursor:pointer; color:#aab4c8; font-size:13px; }
+  pre.sql { margin-top:10px; padding:12px 14px; background:#0b0e17; border:1px solid #232a3d; border-radius:8px;
+             font-family: "SF Mono", Menlo, Consolas, monospace; font-size:12px; line-height:1.5; color:#a3b3cc;
+             white-space:pre-wrap; overflow-x:auto; }
+</style>
+</head>
+<body>
+  <div id="view"></div>
+  <div class="stats">Average <b>810.0 LOC</b> per review across <b>440</b> reviews / <b>356394</b> LOC total.</div>
+  <details>
+    <summary>Query used</summary>
+    <pre class="sql">WITH days AS (
+      SELECT generate_series((CURRENT_DATE - INTERVAL &#x27;90 days&#x27;)::date, CURRENT_DATE::date, &#x27;1 day&#x27;)::date AS day
+    ),
+    reviews_d AS (
+      SELECT date_trunc(&#x27;day&#x27;, COALESCE(completed_at, created_at))::date AS day, count(*) AS n
+      FROM reviews WHERE org_id = 151
+        AND COALESCE(completed_at, created_at) &gt;= CURRENT_DATE - INTERVAL &#x27;90 days&#x27;
+      GROUP BY 1
+    ),
+    loc_d AS (
+      SELECT accounted_at::date AS day, sum(billable_loc) AS loc
+      FROM loc_usage_ledger WHERE org_id = 151 AND status = &#x27;accounted&#x27;
+        AND accounted_at &gt;= CURRENT_DATE - INTERVAL &#x27;90 days&#x27;
+      GROUP BY 1
+    )
+    SELECT d.day, COALESCE(reviews_d.n, 0) AS reviews, COALESCE(loc_d.loc, 0) AS loc
+    FROM days d
+    LEFT JOIN reviews_d ON reviews_d.day = d.day
+    LEFT JOIN loc_d ON loc_d.day = d.day
+    ORDER BY d.day;</pre>
+  </details>
+  <script>
+    vegaEmbed('#view', {"$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "LOC vs review count \u2014 hexmos-internal, last 90 days", "width": 800, "height": 340, "data": {"values": [{"day": "2026-05-18", "reviews": 1, "loc": 363}, {"day": "2026-05-19", "reviews": 0, "loc": 0}, {"day": "2026-05-20", "reviews": 0, "loc": 0}, {"day": "2026-05-21", "reviews": 0, "loc": 0}, {"day": "2026-05-22", "reviews": 0, "loc": 0}, {"day": "2026-05-23", "reviews": 0, "loc": 0}, {"day": "2026-05-24", "reviews": 0, "loc": 0}, {"day": "2026-05-25", "reviews": 0, "loc": 0}, {"day": "2026-05-26", "reviews": 3, "loc": 64}, {"day": "2026-05-27", "reviews": 17, "loc": 74}, {"day": "2026-05-28", "reviews": 9, "loc": 2297}, {"day": "2026-05-29", "reviews": 10, "loc": 1783}, {"day": "2026-05-30", "reviews": 12, "loc": 8095}, {"day": "2026-05-31", "reviews": 0, "loc": 0}, {"day": "2026-06-01", "reviews": 5, "loc": 995}, {"day": "2026-06-02", "reviews": 1, "loc": 25}, {"day": "2026-06-03", "reviews": 2, "loc": 1447}, {"day": "2026-06-04", "reviews": 2, "loc": 40}, {"day": "2026-06-05", "reviews": 1, "loc": 52}, {"day": "2026-06-06", "reviews": 0, "loc": 0}, {"day": "2026-06-07", "reviews": 0, "loc": 0}, {"day": "2026-06-08", "reviews": 0, "loc": 0}, {"day": "2026-06-09", "reviews": 4, "loc": 819}, {"day": "2026-06-10", "reviews": 0, "loc": 0}, {"day": "2026-06-11", "reviews": 0, "loc": 0}, {"day": "2026-06-12", "reviews": 2, "loc": 60}, {"day": "2026-06-13", "reviews": 6, "loc": 1764}, {"day": "2026-06-14", "reviews": 12, "loc": 5433}, {"day": "2026-06-15", "reviews": 10, "loc": 5629}, {"day": "2026-06-16", "reviews": 1, "loc": 392}, {"day": "2026-06-17", "reviews": 0, "loc": 0}, {"day": "2026-06-18", "reviews": 2, "loc": 69}, {"day": "2026-06-19", "reviews": 10, "loc": 3057}, {"day": "2026-06-20", "reviews": 0, "loc": 0}, {"day": "2026-06-21", "reviews": 11, "loc": 1675}, {"day": "2026-06-22", "reviews": 3, "loc": 10}, {"day": "2026-06-23", "reviews": 10, "loc": 7747}, {"day": "2026-06-24", "reviews": 7, "loc": 1575}, {"day": "2026-06-25", "reviews": 2, "loc": 50}, {"day": "2026-06-26", "reviews": 4, "loc": 1407}, {"day": "2026-06-27", "reviews": 9, "loc": 3689}, {"day": "2026-06-28", "reviews": 0, "loc": 0}, {"day": "2026-06-29", "reviews": 0, "loc": 0}, {"day": "2026-06-30", "reviews": 2, "loc": 1904}, {"day": "2026-07-01", "reviews": 0, "loc": 0}, {"day": "2026-07-02", "reviews": 7, "loc": 6794}, {"day": "2026-07-03", "reviews": 4, "loc": 14}, {"day": "2026-07-04", "reviews": 1, "loc": 435}, {"day": "2026-07-05", "reviews": 1, "loc": 4160}, {"day": "2026-07-06", "reviews": 2, "loc": 84}, {"day": "2026-07-07", "reviews": 2, "loc": 8}, {"day": "2026-07-08", "reviews": 5, "loc": 1890}, {"day": "2026-07-09", "reviews": 0, "loc": 0}, {"day": "2026-07-10", "reviews": 4, "loc": 10241}, {"day": "2026-07-11", "reviews": 2, "loc": 271}, {"day": "2026-07-12", "reviews": 2, "loc": 129}, {"day": "2026-07-13", "reviews": 3, "loc": 1663}, {"day": "2026-07-14", "reviews": 0, "loc": 0}, {"day": "2026-07-15", "reviews": 0, "loc": 0}, {"day": "2026-07-16", "reviews": 2, "loc": 2371}, {"day": "2026-07-17", "reviews": 6, "loc": 15027}, {"day": "2026-07-18", "reviews": 6, "loc": 8274}, {"day": "2026-07-19", "reviews": 2, "loc": 175}, {"day": "2026-07-20", "reviews": 5, "loc": 2533}, {"day": "2026-07-21", "reviews": 5, "loc": 2526}, {"day": "2026-07-22", "reviews": 2, "loc": 629}, {"day": "2026-07-23", "reviews": 2, "loc": 8689}, {"day": "2026-07-24", "reviews": 8, "loc": 11627}, {"day": "2026-07-25", "reviews": 1, "loc": 462}, {"day": "2026-07-26", "reviews": 8, "loc": 1757}, {"day": "2026-07-27", "reviews": 8, "loc": 14186}, {"day": "2026-07-28", "reviews": 0, "loc": 0}, {"day": "2026-07-29", "reviews": 4, "loc": 788}, {"day": "2026-07-30", "reviews": 3, "loc": 160}, {"day": "2026-07-31", "reviews": 42, "loc": 12709}, {"day": "2026-08-01", "reviews": 43, "loc": 29505}, {"day": "2026-08-02", "reviews": 14, "loc": 15679}, {"day": "2026-08-03", "reviews": 8, "loc": 4100}, {"day": "2026-08-04", "reviews": 8, "loc": 6697}, {"day": "2026-08-05", "reviews": 6, "loc": 1219}, {"day": "2026-08-06", "reviews": 5, "loc": 24681}, {"day": "2026-08-07", "reviews": 7, "loc": 386}, {"day": "2026-08-08", "reviews": 18, "loc": 3195}, {"day": "2026-08-09", "reviews": 7, "loc": 4736}, {"day": "2026-08-10", "reviews": 5, "loc": 4867}, {"day": "2026-08-11", "reviews": 7, "loc": 12208}, {"day": "2026-08-12", "reviews": 15, "loc": 75864}, {"day": "2026-08-13", "reviews": 2, "loc": 15140}, {"day": "2026-08-14", "reviews": 0, "loc": 0}, {"day": "2026-08-15", "reviews": 0, "loc": 0}, {"day": "2026-08-16", "reviews": 0, "loc": 0}]}, "layer": [{"mark": {"type": "line", "color": "#ffb454", "strokeWidth": 2}, "encoding": {"x": {"field": "day", "type": "temporal", "title": "Day"}, "y": {"field": "loc", "type": "quantitative", "title": "LOC reviewed", "axis": {"titleColor": "#ffb454"}}, "tooltip": [{"field": "day", "type": "temporal"}, {"field": "loc", "type": "quantitative", "title": "LOC"}]}}, {"mark": {"type": "line", "color": "#7c9cff", "strokeWidth": 2}, "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "reviews", "type": "quantitative", "title": "Reviews", "axis": {"titleColor": "#7c9cff", "orient": "right"}}, "tooltip": [{"field": "day", "type": "temporal"}, {"field": "reviews", "type": "quantitative"}]}}], "resolve": {"scale": {"y": "independent"}}, "config": {"background": "#0f1420", "axis": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5", "gridColor": "#232a3d", "domainColor": "#3a4358"}, "title": {"color": "#e6ebf5", "fontSize": 16}, "view": {"stroke": "transparent"}}}, {actions: false});
+  </script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Repo Activity — hexmos-internal</title>
+<script src="https://cdn.jsdelivr.net/npm/vega@5.33.1" integrity="sha384-NMXhl2TbCXxcN7o4ROC56Funm78m4AylL8gMg/7Kn4YU+wrm23K9l7cY8lDRXQ9d" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5.23.0" integrity="sha384-D9LYH0esGjcxQJsBuxOuXtCDJGXRWW1+KhluzWPqi0rLJmiR/ygPChefaD+rFFDQ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6.29.0" integrity="sha384-M+Ax7e/WFJpxSOF09HzI+Sj4wg9ottVd/uxmV2ItGGh02fLH28t2FAOJx3TJBap5" crossorigin="anonymous"></script>
+<style>
+  body { background:#0b0e17; color:#e6ebf5; font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:32px; }
+  .stats { margin-top:20px; font-size:14px; line-height:1.6; color:#c9d1e0; max-width:900px; }
+  .stats b { color:#fff; }
+  #view { max-width: 640px; overflow-x:auto; }
+  details { margin-top:20px; max-width:900px; }
+  summary { cursor:pointer; color:#aab4c8; font-size:13px; }
+  pre.sql { margin-top:10px; padding:12px 14px; background:#0b0e17; border:1px solid #232a3d; border-radius:8px;
+             font-family: "SF Mono", Menlo, Consolas, monospace; font-size:12px; line-height:1.5; color:#a3b3cc;
+             white-space:pre-wrap; overflow-x:auto; }
+</style>
+</head>
+<body>
+  <div id="view"></div>
+  <div class="stats"><b>50</b> repositories active. Largest by LOC: <b>LiveReview</b> (138275 LOC, 171 reviews).</div>
+  <details>
+    <summary>Query used</summary>
+    <pre class="sql">SELECT r.repository,
+           count(*) AS reviews,
+           count(DISTINCT r.author_username) AS engineers,
+           coalesce(sum(l.billable_loc), 0) AS loc
+    FROM reviews r
+    LEFT JOIN loc_usage_ledger l ON l.review_id = r.id AND l.status = &#x27;accounted&#x27;
+    WHERE r.org_id = 151
+      AND COALESCE(r.completed_at, r.created_at) &gt;= CURRENT_DATE - INTERVAL &#x27;90 days&#x27;
+    GROUP BY 1
+    ORDER BY reviews DESC;</pre>
+  </details>
+  <script>
+    vegaEmbed('#view', {"$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "Repository activity \u2014 hexmos-internal, last 90 days", "width": 600, "height": 380, "data": {"values": [{"repository": "LiveReview", "reviews": 171, "engineers": 4, "loc": 138275}, {"repository": "git-lrc", "reviews": 73, "engineers": 3, "loc": 27101}, {"repository": "lr-tools", "reviews": 16, "engineers": 1, "loc": 1407}, {"repository": "claude-world", "reviews": 14, "engineers": 1, "loc": 14}, {"repository": "HexmosTech/git-lrc", "reviews": 13, "engineers": 1, "loc": 4125}, {"repository": "ExpenseSync", "reviews": 13, "engineers": 1, "loc": 13901}, {"repository": "HexmosTech/LiveReview", "reviews": 12, "engineers": 2, "loc": 78062}, {"repository": "hexmoshomepage", "reviews": 12, "engineers": 1, "loc": 6951}, {"repository": "https://github.com/test/test-repo", "reviews": 10, "engineers": 1, "loc": 0}, {"repository": "hex-ansible", "reviews": 10, "engineers": 1, "loc": 2022}, {"repository": "https://github.com/HexmosTech/LiveReview", "reviews": 8, "engineers": 3, "loc": 10223}, {"repository": "octocat/Hello-World", "reviews": 7, "engineers": 1, "loc": 27}, {"repository": "https://github.com/LinceMathew/ragfolio", "reviews": 6, "engineers": 1, "loc": 79}, {"repository": "https://github.com/RijulTP/MCP-Test", "reviews": 6, "engineers": 1, "loc": 200}, {"repository": "sadmann7/tablecn", "reviews": 5, "engineers": 1, "loc": 79}, {"repository": "fw-parse", "reviews": 5, "engineers": 2, "loc": 149}, {"repository": "momeeto", "reviews": 4, "engineers": 1, "loc": 10104}, {"repository": "ragfolio", "reviews": 4, "engineers": 2, "loc": 79}, {"repository": "{{TEST_REPO_URL}}", "reviews": 4, "engineers": 1, "loc": 0}, {"repository": "repo", "reviews": 3, "engineers": 1, "loc": 3}, {"repository": "https://github.com/livereview/live-review", "reviews": 3, "engineers": 1, "loc": 0}, {"repository": "claude-lrc", "reviews": 3, "engineers": 1, "loc": 1195}, {"repository": "ai-industrial-safety", "reviews": 3, "engineers": 1, "loc": 1386}, {"repository": "Elevate-me", "reviews": 2, "engineers": 1, "loc": 17055}, {"repository": "akissinger/dodo", "reviews": 2, "engineers": 1, "loc": 84}, {"repository": "chhoto-url", "reviews": 2, "engineers": 1, "loc": 83}, {"repository": "getnao/nao", "reviews": 2, "engineers": 1, "loc": 29641}, {"repository": "https://github.com/HexmosTech/git-lrc", "reviews": 2, "engineers": 1, "loc": 1987}, {"repository": "initHex", "reviews": 2, "engineers": 1, "loc": 3979}, {"repository": "main", "reviews": 2, "engineers": 1, "loc": 2}, {"repository": "makesense", "reviews": 2, "engineers": 1, "loc": 383}, {"repository": "infini-scroll/infini", "reviews": 1, "engineers": 1, "loc": 4209}, {"repository": "seed", "reviews": 1, "engineers": 1, "loc": 313}, {"repository": "https://github.com", "reviews": 1, "engineers": 1, "loc": 0}, {"repository": "lrc-scratch", "reviews": 1, "engineers": 1, "loc": 35}, {"repository": "lrc-test-repo.iqUxZZ", "reviews": 1, "engineers": 1, "loc": 1}, {"repository": "https://example.com/test-repo", "reviews": 1, "engineers": 1, "loc": 0}, {"repository": "dbctx", "reviews": 1, "engineers": 1, "loc": 2032}, {"repository": "wailsapp/wails", "reviews": 1, "engineers": 1, "loc": 154}, {"repository": "hexmostech/git-lrc", "reviews": 1, "engineers": 1, "loc": 559}, {"repository": "hexmosjournal", "reviews": 1, "engineers": 1, "loc": 4}, {"repository": "ops", "reviews": 1, "engineers": 1, "loc": 1}, {"repository": "quiz-feature-verify", "reviews": 1, "engineers": 1, "loc": 13}, {"repository": "quiz-feature-verify-2", "reviews": 1, "engineers": 1, "loc": 13}, {"repository": "hexmails", "reviews": 1, "engineers": 1, "loc": 170}, {"repository": "gogs/gogs", "reviews": 1, "engineers": 1, "loc": 262}, {"repository": "gatus", "reviews": 1, "engineers": 1, "loc": 14}, {"repository": "https://github.com/RijulTP/workspace-api", "reviews": 1, "engineers": 1, "loc": 18}, {"repository": "https://github.com/test-repo", "reviews": 1, "engineers": 1, "loc": 0}, {"repository": "https://github.com/livereview/test-repo", "reviews": 1, "engineers": 1, "loc": 0}]}, "mark": {"type": "circle", "opacity": 0.85}, "encoding": {"x": {"field": "loc", "type": "quantitative", "title": "LOC reviewed"}, "y": {"field": "reviews", "type": "quantitative", "title": "Reviews"}, "size": {"field": "engineers", "type": "quantitative", "title": "Active engineers", "scale": {"range": [80, 1200]}}, "color": {"field": "repository", "type": "nominal", "legend": null}, "tooltip": [{"field": "repository", "type": "nominal"}, {"field": "loc", "type": "quantitative", "title": "LOC"}, {"field": "reviews", "type": "quantitative"}, {"field": "engineers", "type": "quantitative", "title": "Engineers"}]}, "config": {"background": "#0f1420", "axis": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5", "gridColor": "#232a3d", "domainColor": "#3a4358"}, "title": {"color": "#e6ebf5", "fontSize": 16}, "view": {"stroke": "transparent"}}}, {actions: false});
+  </script>
+</body>
+</html>

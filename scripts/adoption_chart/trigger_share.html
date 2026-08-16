@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Trigger Share — hexmos-internal</title>
+<script src="https://cdn.jsdelivr.net/npm/vega@5.33.1" integrity="sha384-NMXhl2TbCXxcN7o4ROC56Funm78m4AylL8gMg/7Kn4YU+wrm23K9l7cY8lDRXQ9d" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5.23.0" integrity="sha384-D9LYH0esGjcxQJsBuxOuXtCDJGXRWW1+KhluzWPqi0rLJmiR/ygPChefaD+rFFDQ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6.29.0" integrity="sha384-M+Ax7e/WFJpxSOF09HzI+Sj4wg9ottVd/uxmV2ItGGh02fLH28t2FAOJx3TJBap5" crossorigin="anonymous"></script>
+<style>
+  body { background:#0b0e17; color:#e6ebf5; font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:32px; }
+  .stats { margin-top:20px; font-size:14px; line-height:1.6; color:#c9d1e0; max-width:900px; }
+  .stats b { color:#fff; }
+  #view { max-width: 740px; overflow-x:auto; }
+  details { margin-top:20px; max-width:900px; }
+  summary { cursor:pointer; color:#aab4c8; font-size:13px; }
+  pre.sql { margin-top:10px; padding:12px 14px; background:#0b0e17; border:1px solid #232a3d; border-radius:8px;
+             font-family: "SF Mono", Menlo, Consolas, monospace; font-size:12px; line-height:1.5; color:#a3b3cc;
+             white-space:pre-wrap; overflow-x:auto; }
+</style>
+</head>
+<body>
+  <div id="view"></div>
+  <div class="stats"><b>cli_diff</b> (pre-commit) accounts for <b>88%</b> of all 440 reviews in this window.</div>
+  <details>
+    <summary>Query used</summary>
+    <pre class="sql">SELECT date_trunc(&#x27;week&#x27;, COALESCE(completed_at, created_at))::date AS week,
+           trigger_type, count(*) AS n
+    FROM reviews
+    WHERE org_id = 151
+      AND COALESCE(completed_at, created_at) &gt;= CURRENT_DATE - INTERVAL &#x27;90 days&#x27;
+    GROUP BY 1, 2
+    ORDER BY 1;</pre>
+  </details>
+  <script>
+    vegaEmbed('#view', {"$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "Where reviews are triggered \u2014 hexmos-internal, last 90 days", "width": 700, "height": 340, "data": {"values": [{"week": "2026-05-18", "trigger_type": "cli_diff", "n": 1}, {"week": "2026-05-25", "trigger_type": "cli_diff", "n": 45}, {"week": "2026-05-25", "trigger_type": "manual", "n": 6}, {"week": "2026-06-01", "trigger_type": "cli_diff", "n": 8}, {"week": "2026-06-01", "trigger_type": "manual", "n": 3}, {"week": "2026-06-08", "trigger_type": "cli_diff", "n": 19}, {"week": "2026-06-08", "trigger_type": "manual", "n": 5}, {"week": "2026-06-15", "trigger_type": "cli_diff", "n": 30}, {"week": "2026-06-15", "trigger_type": "manual", "n": 4}, {"week": "2026-06-22", "trigger_type": "cli_diff", "n": 29}, {"week": "2026-06-22", "trigger_type": "manual", "n": 6}, {"week": "2026-06-29", "trigger_type": "cli_diff", "n": 9}, {"week": "2026-06-29", "trigger_type": "manual", "n": 6}, {"week": "2026-07-06", "trigger_type": "cli_diff", "n": 16}, {"week": "2026-07-06", "trigger_type": "manual", "n": 1}, {"week": "2026-07-13", "trigger_type": "cli_diff", "n": 19}, {"week": "2026-07-20", "trigger_type": "cli_diff", "n": 31}, {"week": "2026-07-27", "trigger_type": "cli_diff", "n": 113}, {"week": "2026-07-27", "trigger_type": "manual", "n": 1}, {"week": "2026-08-03", "trigger_type": "cli_diff", "n": 48}, {"week": "2026-08-03", "trigger_type": "manual", "n": 10}, {"week": "2026-08-03", "trigger_type": "mcp", "n": 1}, {"week": "2026-08-10", "trigger_type": "cli_diff", "n": 18}, {"week": "2026-08-10", "trigger_type": "manual", "n": 1}, {"week": "2026-08-10", "trigger_type": "scheduled", "n": 10}]}, "mark": {"type": "bar"}, "encoding": {"x": {"field": "week", "type": "temporal", "title": "Week"}, "y": {"field": "n", "type": "quantitative", "title": "% of reviews", "stack": "normalize", "axis": {"format": "%"}}, "color": {"field": "trigger_type", "type": "nominal", "title": "Trigger", "legend": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5"}}, "tooltip": [{"field": "week", "type": "temporal", "title": "Week"}, {"field": "trigger_type", "type": "nominal"}, {"field": "n", "type": "quantitative", "title": "Reviews"}]}, "config": {"background": "#0f1420", "axis": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5", "gridColor": "#232a3d", "domainColor": "#3a4358"}, "title": {"color": "#e6ebf5", "fontSize": 16}, "view": {"stroke": "transparent"}}}, {actions: false});
+  </script>
+</body>
+</html>

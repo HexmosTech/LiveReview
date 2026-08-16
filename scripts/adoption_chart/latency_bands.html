@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Review Latency — hexmos-internal</title>
+<script src="https://cdn.jsdelivr.net/npm/vega@5.33.1" integrity="sha384-NMXhl2TbCXxcN7o4ROC56Funm78m4AylL8gMg/7Kn4YU+wrm23K9l7cY8lDRXQ9d" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5.23.0" integrity="sha384-D9LYH0esGjcxQJsBuxOuXtCDJGXRWW1+KhluzWPqi0rLJmiR/ygPChefaD+rFFDQ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6.29.0" integrity="sha384-M+Ax7e/WFJpxSOF09HzI+Sj4wg9ottVd/uxmV2ItGGh02fLH28t2FAOJx3TJBap5" crossorigin="anonymous"></script>
+<style>
+  body { background:#0b0e17; color:#e6ebf5; font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:32px; }
+  .stats { margin-top:20px; font-size:14px; line-height:1.6; color:#c9d1e0; max-width:900px; }
+  .stats b { color:#fff; }
+  #view { max-width: 740px; overflow-x:auto; }
+  details { margin-top:20px; max-width:900px; }
+  summary { cursor:pointer; color:#aab4c8; font-size:13px; }
+  pre.sql { margin-top:10px; padding:12px 14px; background:#0b0e17; border:1px solid #232a3d; border-radius:8px;
+             font-family: "SF Mono", Menlo, Consolas, monospace; font-size:12px; line-height:1.5; color:#a3b3cc;
+             white-space:pre-wrap; overflow-x:auto; }
+</style>
+</head>
+<body>
+  <div id="view"></div>
+  <div class="stats">Median review duration went from <b>1.1 min</b> to <b>3.2 min</b> across the window.</div>
+  <details>
+    <summary>Query used</summary>
+    <pre class="sql">SELECT date_trunc(&#x27;week&#x27;, completed_at)::date AS week,
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM completed_at - created_at) / 60) AS p50,
+           percentile_cont(0.1) WITHIN GROUP (ORDER BY extract(epoch FROM completed_at - created_at) / 60) AS p10,
+           percentile_cont(0.9) WITHIN GROUP (ORDER BY extract(epoch FROM completed_at - created_at) / 60) AS p90
+    FROM reviews
+    WHERE org_id = 151 AND status = &#x27;completed&#x27; AND completed_at IS NOT NULL
+      AND completed_at &gt;= CURRENT_DATE - INTERVAL &#x27;90 days&#x27;
+    GROUP BY 1
+    ORDER BY 1;</pre>
+  </details>
+  <script>
+    vegaEmbed('#view', {"$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "Review duration \u2014 hexmos-internal, last 90 days (p10-p90 band, p50 line)", "width": 700, "height": 340, "data": {"values": [{"week": "2026-05-18", "p50": 1.1, "p10": 1.1, "p90": 1.1}, {"week": "2026-05-25", "p50": 0.2, "p10": 0.0, "p90": 1.0}, {"week": "2026-06-01", "p50": 0.7, "p10": 0.3, "p90": 3.0}, {"week": "2026-06-08", "p50": 0.6, "p10": 0.2, "p90": 2.4}, {"week": "2026-06-15", "p50": 0.4, "p10": 0.2, "p90": 0.8}, {"week": "2026-06-22", "p50": 0.6, "p10": 0.4, "p90": 1.6}, {"week": "2026-06-29", "p50": 0.5, "p10": 0.3, "p90": 2.8}, {"week": "2026-07-06", "p50": 0.4, "p10": 0.3, "p90": 1.5}, {"week": "2026-07-13", "p50": 1.5, "p10": 0.3, "p90": 3.0}, {"week": "2026-07-20", "p50": 0.6, "p10": 0.3, "p90": 1.4}, {"week": "2026-07-27", "p50": 0.6, "p10": 0.3, "p90": 1.7}, {"week": "2026-08-03", "p50": 1.3, "p10": 0.6, "p90": 4.1}, {"week": "2026-08-10", "p50": 3.2, "p10": 0.9, "p90": 8.8}]}, "layer": [{"mark": {"type": "errorband", "color": "#7c9cff", "opacity": 0.25}, "encoding": {"x": {"field": "week", "type": "temporal", "title": "Week"}, "y": {"field": "p10", "type": "quantitative", "title": "Review duration (min)"}, "y2": {"field": "p90"}}}, {"mark": {"type": "line", "color": "#ffb454", "strokeWidth": 2.5, "point": true}, "encoding": {"x": {"field": "week", "type": "temporal"}, "y": {"field": "p50", "type": "quantitative"}, "tooltip": [{"field": "week", "type": "temporal"}, {"field": "p50", "type": "quantitative", "title": "Median (min)"}, {"field": "p10", "type": "quantitative", "title": "p10"}, {"field": "p90", "type": "quantitative", "title": "p90"}]}}], "config": {"background": "#0f1420", "axis": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5", "gridColor": "#232a3d", "domainColor": "#3a4358"}, "title": {"color": "#e6ebf5", "fontSize": 16}, "view": {"stroke": "transparent"}}}, {actions: false});
+  </script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LiveReview Adoption Growth — hexmos-internal</title>
+<script src="https://cdn.jsdelivr.net/npm/vega@5.33.1" integrity="sha384-NMXhl2TbCXxcN7o4ROC56Funm78m4AylL8gMg/7Kn4YU+wrm23K9l7cY8lDRXQ9d" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5.23.0" integrity="sha384-D9LYH0esGjcxQJsBuxOuXtCDJGXRWW1+KhluzWPqi0rLJmiR/ygPChefaD+rFFDQ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6.29.0" integrity="sha384-M+Ax7e/WFJpxSOF09HzI+Sj4wg9ottVd/uxmV2ItGGh02fLH28t2FAOJx3TJBap5" crossorigin="anonymous"></script>
+<style>
+  body { background:#0b0e17; color:#e6ebf5; font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:32px; }
+  .stats { margin-top:20px; font-size:14px; line-height:1.6; color:#c9d1e0; max-width:900px; }
+  .stats b { color:#fff; }
+  #view { max-width: 840px; }
+  details { margin-top:20px; max-width:900px; }
+  summary { cursor:pointer; color:#aab4c8; font-size:13px; }
+  pre.sql { margin-top:10px; padding:12px 14px; background:#0b0e17; border:1px solid #232a3d; border-radius:8px;
+             font-family: "SF Mono", Menlo, Consolas, monospace; font-size:12px; line-height:1.5; color:#a3b3cc;
+             white-space:pre-wrap; overflow-x:auto; }
+</style>
+</head>
+<body>
+  <div id="view"></div>
+  <div class="stats">
+    Total active engineers/week went from <b>1</b> to <b>5</b>.<br>
+    Heavy users (20+ reviews/week) went from <b>0</b> to <b>0</b>.
+  </div>
+  <details>
+    <summary>Query used</summary>
+    <pre class="sql">SELECT date_trunc(&#x27;week&#x27;, COALESCE(completed_at, created_at))::date AS week,
+           author_username, count(*) AS n
+    FROM reviews
+    WHERE org_id = 151
+      AND author_username IS NOT NULL
+      AND COALESCE(completed_at, created_at) &gt;= CURRENT_DATE - INTERVAL &#x27;180 days&#x27;
+    GROUP BY 1, 2
+    ORDER BY 1;</pre>
+  </details>
+  <script>
+    vegaEmbed('#view', {"$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "Adoption growth \u2014 hexmos-internal, last 180 days", "width": 800, "height": 380, "data": {"values": [{"week": "2026-02-16", "band": "5-19 (regular)", "engineers": 1}, {"week": "2026-02-23", "band": "20+ (heavy)", "engineers": 1}, {"week": "2026-03-02", "band": "20+ (heavy)", "engineers": 1}, {"week": "2026-03-09", "band": "5-19 (regular)", "engineers": 1}, {"week": "2026-03-16", "band": "20+ (heavy)", "engineers": 1}, {"week": "2026-03-23", "band": "1-4 (light)", "engineers": 1}, {"week": "2026-03-30", "band": "5-19 (regular)", "engineers": 1}, {"week": "2026-04-06", "band": "5-19 (regular)", "engineers": 1}, {"week": "2026-04-13", "band": "5-19 (regular)", "engineers": 1}, {"week": "2026-04-27", "band": "5-19 (regular)", "engineers": 1}, {"week": "2026-05-04", "band": "20+ (heavy)", "engineers": 1}, {"week": "2026-05-18", "band": "1-4 (light)", "engineers": 1}, {"week": "2026-05-25", "band": "5-19 (regular)", "engineers": 2}, {"week": "2026-05-25", "band": "20+ (heavy)", "engineers": 1}, {"week": "2026-06-01", "band": "1-4 (light)", "engineers": 2}, {"week": "2026-06-01", "band": "5-19 (regular)", "engineers": 1}, {"week": "2026-06-08", "band": "1-4 (light)", "engineers": 1}, {"week": "2026-06-08", "band": "5-19 (regular)", "engineers": 2}, {"week": "2026-06-15", "band": "1-4 (light)", "engineers": 4}, {"week": "2026-06-15", "band": "20+ (heavy)", "engineers": 1}, {"week": "2026-06-22", "band": "5-19 (regular)", "engineers": 4}, {"week": "2026-06-22", "band": "1-4 (light)", "engineers": 1}, {"week": "2026-06-29", "band": "1-4 (light)", "engineers": 4}, {"week": "2026-06-29", "band": "5-19 (regular)", "engineers": 1}, {"week": "2026-07-06", "band": "1-4 (light)", "engineers": 2}, {"week": "2026-07-06", "band": "5-19 (regular)", "engineers": 1}, {"week": "2026-07-13", "band": "5-19 (regular)", "engineers": 1}, {"week": "2026-07-13", "band": "1-4 (light)", "engineers": 1}, {"week": "2026-07-20", "band": "20+ (heavy)", "engineers": 1}, {"week": "2026-07-20", "band": "5-19 (regular)", "engineers": 1}, {"week": "2026-07-20", "band": "1-4 (light)", "engineers": 1}, {"week": "2026-07-27", "band": "20+ (heavy)", "engineers": 2}, {"week": "2026-07-27", "band": "5-19 (regular)", "engineers": 1}, {"week": "2026-07-27", "band": "1-4 (light)", "engineers": 1}, {"week": "2026-08-03", "band": "1-4 (light)", "engineers": 3}, {"week": "2026-08-03", "band": "5-19 (regular)", "engineers": 2}, {"week": "2026-08-03", "band": "20+ (heavy)", "engineers": 1}, {"week": "2026-08-10", "band": "5-19 (regular)", "engineers": 2}, {"week": "2026-08-10", "band": "1-4 (light)", "engineers": 3}]}, "mark": {"type": "area", "interpolate": "monotone", "line": {"strokeWidth": 1.5}}, "encoding": {"x": {"field": "week", "type": "temporal", "title": "Week"}, "y": {"field": "engineers", "type": "quantitative", "title": "Active engineers", "stack": true}, "color": {"field": "band", "type": "nominal", "title": "Tier", "sort": ["1-4 (light)", "5-19 (regular)", "20+ (heavy)"], "scale": {"domain": ["1-4 (light)", "5-19 (regular)", "20+ (heavy)"], "range": ["#7c9cff", "#ffb454", "#39d353"]}, "legend": {"orient": "top", "titleColor": "#e6ebf5", "labelColor": "#c9d1e0"}}, "order": {"field": "band", "sort": "ascending"}, "tooltip": [{"field": "week", "type": "temporal", "title": "Week"}, {"field": "band", "type": "nominal", "title": "Tier"}, {"field": "engineers", "type": "quantitative", "title": "Engineers"}]}, "config": {"background": "#0f1420", "axis": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5", "gridColor": "#232a3d", "domainColor": "#3a4358"}, "title": {"color": "#e6ebf5", "fontSize": 16}, "view": {"stroke": "transparent"}}}, {actions: false});
+  </script>
+</body>
+</html>

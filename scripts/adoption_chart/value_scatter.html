@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Value Scatter — hexmos-internal</title>
+<script src="https://cdn.jsdelivr.net/npm/vega@5.33.1" integrity="sha384-NMXhl2TbCXxcN7o4ROC56Funm78m4AylL8gMg/7Kn4YU+wrm23K9l7cY8lDRXQ9d" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5.23.0" integrity="sha384-D9LYH0esGjcxQJsBuxOuXtCDJGXRWW1+KhluzWPqi0rLJmiR/ygPChefaD+rFFDQ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6.29.0" integrity="sha384-M+Ax7e/WFJpxSOF09HzI+Sj4wg9ottVd/uxmV2ItGGh02fLH28t2FAOJx3TJBap5" crossorigin="anonymous"></script>
+<style>
+  body { background:#0b0e17; color:#e6ebf5; font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:32px; }
+  .stats { margin-top:20px; font-size:14px; line-height:1.6; color:#c9d1e0; max-width:900px; }
+  .stats b { color:#fff; }
+  #view { max-width: 640px; overflow-x:auto; }
+  details { margin-top:20px; max-width:900px; }
+  summary { cursor:pointer; color:#aab4c8; font-size:13px; }
+  pre.sql { margin-top:10px; padding:12px 14px; background:#0b0e17; border:1px solid #232a3d; border-radius:8px;
+             font-family: "SF Mono", Menlo, Consolas, monospace; font-size:12px; line-height:1.5; color:#a3b3cc;
+             white-space:pre-wrap; overflow-x:auto; }
+</style>
+</head>
+<body>
+  <div id="view"></div>
+  <div class="stats"><b>3</b> of <b>8</b> engineers have received explicit feedback so far. <i>"Useful findings" here is a proxy (review_feedback up-votes) - ai_comments has no findings data yet in this dev DB, so a direct findings count isn't available.</i></div>
+  <details>
+    <summary>Query used</summary>
+    <pre class="sql">SELECT r.author_username AS engineer,
+           count(DISTINCT r.id) AS reviews,
+           coalesce(sum(l.billable_loc), 0) AS loc,
+           count(*) FILTER (WHERE f.vote_type = &#x27;up&#x27;) AS up_votes,
+           count(*) FILTER (WHERE f.vote_type = &#x27;down&#x27;) AS down_votes
+    FROM reviews r
+    LEFT JOIN loc_usage_ledger l ON l.review_id = r.id AND l.status = &#x27;accounted&#x27;
+    LEFT JOIN review_feedback f ON f.review_id = r.id AND f.org_id = 151 AND f.retracted_at IS NULL
+    WHERE r.org_id = 151 AND r.author_username IS NOT NULL
+      AND COALESCE(r.completed_at, r.created_at) &gt;= CURRENT_DATE - INTERVAL &#x27;180 days&#x27;
+    GROUP BY 1;</pre>
+  </details>
+  <script>
+    vegaEmbed('#view', {"$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "Value from LiveReview per engineer \u2014 hexmos-internal, last 180 days", "width": 600, "height": 380, "data": {"values": [{"engineer": "", "reviews": 31, "loc": 77922, "useful_findings": 0, "acceptance": 0}, {"engineer": "ganeshkumar6120", "reviews": 121, "loc": 125727, "useful_findings": 1, "acceptance": 100.0}, {"engineer": "joe", "reviews": 15, "loc": 2561, "useful_findings": 0, "acceptance": 0}, {"engineer": "lince", "reviews": 356, "loc": 81129, "useful_findings": 2, "acceptance": 20.0}, {"engineer": "LinceMathew", "reviews": 7, "loc": 1965, "useful_findings": 0, "acceptance": 0}, {"engineer": "lovestaco", "reviews": 3, "loc": 7422, "useful_findings": 0, "acceptance": 0}, {"engineer": "RijulTP", "reviews": 13, "loc": 3120, "useful_findings": 0, "acceptance": 0}, {"engineer": "shrijith", "reviews": 136, "loc": 82801, "useful_findings": 3, "acceptance": 100.0}]}, "mark": {"type": "circle", "opacity": 0.85}, "encoding": {"x": {"field": "reviews", "type": "quantitative", "title": "Reviews"}, "y": {"field": "useful_findings", "type": "quantitative", "title": "Up-voted feedback (proxy for useful findings)"}, "size": {"field": "loc", "type": "quantitative", "title": "LOC reviewed", "scale": {"range": [60, 900]}}, "color": {"field": "acceptance", "type": "quantitative", "title": "Acceptance %", "scale": {"scheme": "greens"}}, "tooltip": [{"field": "engineer", "type": "nominal"}, {"field": "reviews", "type": "quantitative"}, {"field": "useful_findings", "type": "quantitative", "title": "Up-votes"}, {"field": "loc", "type": "quantitative", "title": "LOC"}]}, "config": {"background": "#0f1420", "axis": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5", "gridColor": "#232a3d", "domainColor": "#3a4358"}, "title": {"color": "#e6ebf5", "fontSize": 16}, "legend": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5"}, "view": {"stroke": "transparent"}}}, {actions: false});
+  </script>
+</body>
+</html>

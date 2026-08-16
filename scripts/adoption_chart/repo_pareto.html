@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Velocity Concentration — hexmos-internal</title>
+<script src="https://cdn.jsdelivr.net/npm/vega@5.33.1" integrity="sha384-NMXhl2TbCXxcN7o4ROC56Funm78m4AylL8gMg/7Kn4YU+wrm23K9l7cY8lDRXQ9d" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5.23.0" integrity="sha384-D9LYH0esGjcxQJsBuxOuXtCDJGXRWW1+KhluzWPqi0rLJmiR/ygPChefaD+rFFDQ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6.29.0" integrity="sha384-M+Ax7e/WFJpxSOF09HzI+Sj4wg9ottVd/uxmV2ItGGh02fLH28t2FAOJx3TJBap5" crossorigin="anonymous"></script>
+<style>
+  body { background:#0b0e17; color:#e6ebf5; font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:32px; }
+  .stats { margin-top:20px; font-size:14px; line-height:1.6; color:#c9d1e0; max-width:900px; }
+  .stats b { color:#fff; }
+  #view { max-width: 640px; overflow-x:auto; }
+  details { margin-top:20px; max-width:900px; }
+  summary { cursor:pointer; color:#aab4c8; font-size:13px; }
+  pre.sql { margin-top:10px; padding:12px 14px; background:#0b0e17; border:1px solid #232a3d; border-radius:8px;
+             font-family: "SF Mono", Menlo, Consolas, monospace; font-size:12px; line-height:1.5; color:#a3b3cc;
+             white-space:pre-wrap; overflow-x:auto; }
+</style>
+</head>
+<body>
+  <div id="view"></div>
+  <div class="stats">Top 3 repositories account for <b>69%</b> of all LOC reviewed (<b>43</b> repos total).</div>
+  <details>
+    <summary>Query used</summary>
+    <pre class="sql">SELECT r.repository, sum(l.billable_loc) AS loc
+    FROM loc_usage_ledger l
+    JOIN reviews r ON r.id = l.review_id
+    WHERE l.org_id = 151 AND l.status = &#x27;accounted&#x27;
+      AND l.accounted_at &gt;= CURRENT_DATE - INTERVAL &#x27;90 days&#x27;
+    GROUP BY 1
+    ORDER BY 2 DESC;</pre>
+  </details>
+  <script>
+    vegaEmbed('#view', {"$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "Where velocity concentrates \u2014 hexmos-internal, last 90 days", "width": 600, "height": 360, "data": {"values": [{"repository": "LiveReview", "loc": 138275, "cum_pct": 38.8}, {"repository": "HexmosTech/LiveReview", "loc": 78062, "cum_pct": 60.7}, {"repository": "getnao/nao", "loc": 29641, "cum_pct": 69.0}, {"repository": "git-lrc", "loc": 27101, "cum_pct": 76.6}, {"repository": "Elevate-me", "loc": 17055, "cum_pct": 81.4}, {"repository": "ExpenseSync", "loc": 13901, "cum_pct": 85.3}, {"repository": "https://github.com/HexmosTech/LiveReview", "loc": 10223, "cum_pct": 88.2}, {"repository": "momeeto", "loc": 10104, "cum_pct": 91.0}, {"repository": "hexmoshomepage", "loc": 6951, "cum_pct": 93.0}, {"repository": "infini-scroll/infini", "loc": 4209, "cum_pct": 94.1}, {"repository": "HexmosTech/git-lrc", "loc": 4125, "cum_pct": 95.3}, {"repository": "initHex", "loc": 3979, "cum_pct": 96.4}, {"repository": "dbctx", "loc": 2032, "cum_pct": 97.0}, {"repository": "hex-ansible", "loc": 2022, "cum_pct": 97.6}, {"repository": "https://github.com/HexmosTech/git-lrc", "loc": 1987, "cum_pct": 98.1}, {"repository": "lr-tools", "loc": 1407, "cum_pct": 98.5}, {"repository": "ai-industrial-safety", "loc": 1386, "cum_pct": 98.9}, {"repository": "claude-lrc", "loc": 1195, "cum_pct": 99.2}, {"repository": "hexmostech/git-lrc", "loc": 559, "cum_pct": 99.4}, {"repository": "makesense", "loc": 383, "cum_pct": 99.5}, {"repository": "seed", "loc": 313, "cum_pct": 99.6}, {"repository": "gogs/gogs", "loc": 262, "cum_pct": 99.7}, {"repository": "https://github.com/RijulTP/MCP-Test", "loc": 200, "cum_pct": 99.7}, {"repository": "hexmails", "loc": 170, "cum_pct": 99.8}, {"repository": "wailsapp/wails", "loc": 154, "cum_pct": 99.8}, {"repository": "fw-parse", "loc": 149, "cum_pct": 99.8}, {"repository": "akissinger/dodo", "loc": 84, "cum_pct": 99.9}, {"repository": "chhoto-url", "loc": 83, "cum_pct": 99.9}, {"repository": "ragfolio", "loc": 79, "cum_pct": 99.9}, {"repository": "sadmann7/tablecn", "loc": 79, "cum_pct": 99.9}, {"repository": "https://github.com/LinceMathew/ragfolio", "loc": 79, "cum_pct": 100.0}, {"repository": "lrc-scratch", "loc": 35, "cum_pct": 100.0}, {"repository": "octocat/Hello-World", "loc": 27, "cum_pct": 100.0}, {"repository": "https://github.com/RijulTP/workspace-api", "loc": 18, "cum_pct": 100.0}, {"repository": "claude-world", "loc": 14, "cum_pct": 100.0}, {"repository": "gatus", "loc": 14, "cum_pct": 100.0}, {"repository": "quiz-feature-verify-2", "loc": 13, "cum_pct": 100.0}, {"repository": "quiz-feature-verify", "loc": 13, "cum_pct": 100.0}, {"repository": "hexmosjournal", "loc": 4, "cum_pct": 100.0}, {"repository": "repo", "loc": 3, "cum_pct": 100.0}, {"repository": "main", "loc": 2, "cum_pct": 100.0}, {"repository": "ops", "loc": 1, "cum_pct": 100.0}, {"repository": "lrc-test-repo.iqUxZZ", "loc": 1, "cum_pct": 100.0}]}, "layer": [{"mark": {"type": "bar", "color": "#7c9cff"}, "encoding": {"x": {"field": "repository", "type": "nominal", "sort": "-y", "title": "Repository"}, "y": {"field": "loc", "type": "quantitative", "title": "LOC reviewed"}, "tooltip": [{"field": "repository", "type": "nominal"}, {"field": "loc", "type": "quantitative"}]}}, {"mark": {"type": "line", "point": true, "color": "#ff5c7c", "strokeWidth": 2}, "encoding": {"x": {"field": "repository", "type": "nominal", "sort": "-y"}, "y": {"field": "cum_pct", "type": "quantitative", "title": "Cumulative %", "axis": {"orient": "right"}}, "tooltip": [{"field": "repository", "type": "nominal"}, {"field": "cum_pct", "type": "quantitative", "title": "Cumulative %"}]}}], "resolve": {"scale": {"y": "independent"}}, "config": {"background": "#0f1420", "axis": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5", "gridColor": "#232a3d", "domainColor": "#3a4358", "labelAngle": -30}, "title": {"color": "#e6ebf5", "fontSize": 16}, "view": {"stroke": "transparent"}}}, {actions: false});
+  </script>
+</body>
+</html>
