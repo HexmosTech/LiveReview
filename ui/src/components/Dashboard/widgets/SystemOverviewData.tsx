@@ -1,4 +1,4 @@
-import React, { createContext, useContext } from 'react';
+import React, { createContext, useContext, useMemo } from 'react';
 import { useDashboardQuery, SystemOverview } from '../../../api/dashboard';
 
 // An org with nothing connected yet has every count at 0 regardless of period — checking "all" (the broadest window) is enough to know the whole widget set is empty.
@@ -22,12 +22,15 @@ const SystemOverviewContext = createContext<SystemOverviewContextValue | null>(n
 export const SystemOverviewProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { data, isLoading, error, refetch } = useDashboardQuery();
 
-    const value: SystemOverviewContextValue = {
-        systemOverview: data?.system_overview ?? null,
+    // Memoized - see ReviewLayersData.tsx for why (avoids cascading spurious re-renders into
+    // every echarts widget, which was replaying the chart entrance animation a second time).
+    const systemOverview = data?.system_overview ?? null;
+    const value: SystemOverviewContextValue = useMemo(() => ({
+        systemOverview,
         loading: isLoading,
         error: error ? (error instanceof Error ? error.message : 'Failed to load system overview') : null,
         refetch: () => { void refetch(); },
-    };
+    }), [systemOverview, isLoading, error, refetch]);
 
     return (
         <SystemOverviewContext.Provider value={value}>

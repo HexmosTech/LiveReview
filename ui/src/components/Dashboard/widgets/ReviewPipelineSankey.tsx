@@ -40,7 +40,12 @@ export const ReviewPipelineSankey: React.FC = () => {
             .map((c) => ({ source: layer.label, target: c.category, value: c.count }))
     ), [activeLayers]);
 
-    const option = {
+    // Memoized so echarts only replays its entrance animation when nodes/links actually change,
+    // not on every unrelated re-render (e.g. DashboardGrid's ResizeObserver-driven gridWidth
+    // updates) - an unstable option reference plus `notMerge` below meant the chart was
+    // redrawing (and re-animating) itself a second time shortly after its real first render.
+    // See docs/perf-improvement.md ("chart animation plays twice").
+    const option = useMemo(() => ({
         ...ECHARTS_ANIMATION_DEFAULTS,
         tooltip: {
             trigger: 'item',
@@ -67,7 +72,7 @@ export const ReviewPipelineSankey: React.FC = () => {
             label: { color: '#CBD5E1', fontSize: 12 },
             lineStyle: { color: 'gradient', curveness: 0.5, opacity: 0.4 },
         }],
-    };
+    }), [nodes, links]);
 
     const onEvents = {
         click: (params: { dataType: string; name: string }) => {

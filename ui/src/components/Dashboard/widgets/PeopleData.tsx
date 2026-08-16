@@ -1,4 +1,4 @@
-import React, { createContext, useContext } from 'react';
+import React, { createContext, useContext, useMemo } from 'react';
 import { useDashboardQuery, People } from '../../../api/dashboard';
 
 // Backend only sends email/name/counts — color and initials are derived client-side, same as the old mock data did.
@@ -32,12 +32,15 @@ const PeopleContext = createContext<PeopleContextValue | null>(null);
 export const PeopleProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { data, isLoading, error, refetch } = useDashboardQuery();
 
-    const value: PeopleContextValue = {
-        people: data?.people ?? null,
+    // Memoized - see ReviewLayersData.tsx for why (avoids cascading spurious re-renders into
+    // every echarts widget, which was replaying the chart entrance animation a second time).
+    const people = data?.people ?? null;
+    const value: PeopleContextValue = useMemo(() => ({
+        people,
         loading: isLoading,
         error: error ? (error instanceof Error ? error.message : 'Failed to load people data') : null,
         refetch: () => { void refetch(); },
-    };
+    }), [people, isLoading, error, refetch]);
 
     return (
         <PeopleContext.Provider value={value}>
