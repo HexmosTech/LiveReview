@@ -1,5 +1,6 @@
 Team instuction: fill 3 inputs before giving the prompt to llm for each query rca.
 
+0. Clear the chat_debug.log file before running the query in Livi.
 1. RCA doc:'s name
 2. RCA doc:'s section number
 3. Expected: the detailed graph.html path
@@ -23,7 +24,7 @@ Context files:
     `title`, `description`, `time_range`, `granularity`, `query`, and the
     full `data.values`. This is what "### Query:" / "### Result from
     livi:" and the fact-check both quote from — not the raw per-step `AI
-    Response` lines (there can be several, including retries).
+Response` lines (there can be several, including retries).
     If the log doesn't contain this request (rotated/cleared since), say so
     and stop — don't reconstruct from memory or guess.
 - Query catalogue: scripts/adoption_chart/cto_chart_ideas.html — find the
