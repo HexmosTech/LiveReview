@@ -1,16 +1,24 @@
 import React from 'react';
-import { ReviewPipelineSankey } from './ReviewPipelineSankey';
 import { LayerStageCards } from './LayerStageCards';
-import { IssueCategoryRadar } from './IssueCategoryRadar';
-import { ReviewVolumeBar } from './ReviewVolumeBar';
 import { SystemKpiRow } from './SystemKpiRow';
-import { RepoHierarchySunburst } from './RepoHierarchySunburst';
 import { ConnectedProviders } from './ConnectedProviders';
-import { CoverageGauge } from './CoverageGauge';
 import { AverageReviewsStat } from './AverageReviewsStat';
 import { TopReviewersLeaderboard } from './TopReviewersLeaderboard';
-import { ContributionCalendarHeatmap } from './ContributionCalendarHeatmap';
-import { UsageShareDonut } from './UsageShareDonut';
+
+// The 7 echarts-based widgets are lazy-loaded (not statically imported like the ones above):
+// registry.ts is itself statically imported by DashboardGrid.tsx, which Dashboard.tsx statically
+// imports - so without this, echarts (600KB+) had to finish downloading before ANY widget (or
+// Dashboard's own data-fetching, which lives in the same React.lazy() boundary) could even start,
+// even though Dashboard's data queries have zero dependency on echarts. Each of these now
+// resolves independently once its own chunk arrives, behind the per-widget Suspense boundary in
+// DashboardGrid.tsx - see docs/perf-improvement.md.
+const ReviewPipelineSankey = React.lazy(() => import('./ReviewPipelineSankey').then((m) => ({ default: m.ReviewPipelineSankey })));
+const IssueCategoryRadar = React.lazy(() => import('./IssueCategoryRadar').then((m) => ({ default: m.IssueCategoryRadar })));
+const ReviewVolumeBar = React.lazy(() => import('./ReviewVolumeBar').then((m) => ({ default: m.ReviewVolumeBar })));
+const RepoHierarchySunburst = React.lazy(() => import('./RepoHierarchySunburst').then((m) => ({ default: m.RepoHierarchySunburst })));
+const CoverageGauge = React.lazy(() => import('./CoverageGauge').then((m) => ({ default: m.CoverageGauge })));
+const UsageShareDonut = React.lazy(() => import('./UsageShareDonut').then((m) => ({ default: m.UsageShareDonut })));
+const ContributionCalendarHeatmap = React.lazy(() => import('./ContributionCalendarHeatmap').then((m) => ({ default: m.ContributionCalendarHeatmap })));
 
 export type WidgetCategory = 'layers' | 'system' | 'people';
 

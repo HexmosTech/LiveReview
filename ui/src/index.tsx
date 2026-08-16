@@ -83,8 +83,16 @@ const appTree = (
 
 root.render(appTree);
 
+// Wait a frame so the initial paint has actually happened before hiding the static boot
+// screen - calling this synchronously right after render() only means React has scheduled
+// the commit, not that anything is on screen yet, which could show a blank flash instead of a
+// smooth handoff. This is now the app's only boot overlay (the old duplicate React
+// `BootScreen` in App.tsx was removed - it rendered the identical logo+spinner on top of this
+// one for up to 1200ms more, one loading screen doing the job of two).
 if (typeof window !== 'undefined' && typeof (window as any).__lr_hide_boot === 'function') {
-    (window as any).__lr_hide_boot();
+    requestAnimationFrame(() => {
+        (window as any).__lr_hide_boot();
+    });
 }
 
 void (async () => {

@@ -191,27 +191,24 @@ export const refreshDashboardData = async (): Promise<RefreshDashboardResponse> 
 
 export const DASHBOARD_QUERY_KEY = ['dashboard'] as const;
 
-// Mirrors the original Dashboard.tsx load sequence: force the server cache to recompute, then
-// read the result. Kept as the shared queryFn below so every consumer (Dashboard.tsx and the
-// three widget-layer providers) triggers this at most once per cache window instead of each
-// firing its own refresh+get pair - see docs/perf-improvement.md ("Fix 2").
-const loadDashboardDataWithRefresh = async (): Promise<DashboardData> => {
-    try {
-        await refreshDashboardData();
-    } catch {
-        // best-effort - fall through to reading whatever the cache already has
-    }
-    return getDashboardData();
-};
-
 // Shared dashboard-data query. Every component that needs dashboard data (Dashboard.tsx, the
 // ReviewLayers/SystemOverview/People widget providers, CreateReviewCLI) should use this instead
-// of calling getDashboardData()/refreshDashboardData() directly, so they share one cached
-// in-flight request/result rather than each firing an independent round trip.
+// of calling getDashboardData() directly, so they share one cached in-flight request/result
+// rather than each firing an independent round trip - see docs/perf-improvement.md ("Fix 2").
+//
+// Deliberately just a plain GET, not a refresh+get pair: `dashboard_cache` is already kept
+// fresh by a server-side background job that runs every 5 minutes for every org
+// (DashboardManager.Start, internal/api/dashboard.go), independent of any frontend request.
+// Calling refreshDashboardData() here on every mount/refetch would force an expensive ~25-30
+// sequential-query recompute (internal/api/dashboard.go's RefreshOrgDashboard/ReviewLayers/
+// SystemOverview/People, several scanning unbounded org history) purely redundant with that
+// background job - it was adding 1-2+ seconds to every dashboard load for no freshness benefit.
+// refreshDashboardData() is still exported below for an explicit user-triggered "Refresh now"
+// action (see DashboardGrid.tsx's RefreshWidgetsButton).
 export function useDashboardQuery() {
     return useQuery<DashboardData>({
         queryKey: DASHBOARD_QUERY_KEY,
-        queryFn: loadDashboardDataWithRefresh,
+        queryFn: getDashboardData,
         refetchInterval: 5 * 60_000,
     });
 }

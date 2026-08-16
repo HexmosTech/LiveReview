@@ -97,18 +97,6 @@ const RouteFallback = () => (
     </div>
 );
 
-const BootScreen: React.FC<{ visible: boolean }> = ({ visible }) => (
-    <div
-        className={`fixed inset-0 z-40 flex items-center justify-center bg-slate-950 transition-opacity duration-200 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
-        aria-busy={visible}
-    >
-        <div className="flex flex-col items-center gap-4">
-            <img src="/assets/logo-horizontal.svg" alt="LiveReview" className="h-12 w-auto" width="240" height="64" loading="eager" />
-            <div className="h-10 w-10 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" aria-hidden />
-        </div>
-    </div>
-);
-
 // Main application content with routing
 const AppContent: React.FC = () => {
     const dispatch = useAppDispatch();
@@ -123,7 +111,6 @@ const AppContent: React.FC = () => {
     const commentNavOccupying = (blockers & 2) !== 0;
     // Subtle fade-in for main content to make initial paint feel smoother
     const [uiReady, setUiReady] = useState(false);
-    const [bootVisible, setBootVisible] = useState(true);
     useEffect(() => {
         console.info('[LiveReview][AppContent] mounted');
         const id = requestAnimationFrame(() => setUiReady(true));
@@ -132,16 +119,6 @@ const AppContent: React.FC = () => {
             console.info('[LiveReview][AppContent] unmounted');
         };
     }, []);
-
-    // Hide boot overlay once we have auth state resolved or after a short timeout
-    useEffect(() => {
-        if (!bootVisible) return;
-        const timeout = setTimeout(() => setBootVisible(false), isLoading ? 1200 : 150);
-        if (!isLoading) {
-            setBootVisible(false);
-        }
-        return () => clearTimeout(timeout);
-    }, [bootVisible, isLoading]);
 
     // CRITICAL: Capture the intended destination URL immediately on mount, before any navigation occurs
     // This runs once when the component mounts to preserve the user's originally requested URL
@@ -380,12 +357,7 @@ const AppContent: React.FC = () => {
         );
     }
 
-    return (
-        <>
-            <BootScreen visible={bootVisible} />
-            {body}
-        </>
-    );
+    return body;
 };
 
 // Main App component with Router
