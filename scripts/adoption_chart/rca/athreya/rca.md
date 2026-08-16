@@ -171,6 +171,48 @@ The rendered description is also inconsistent with its own `data.values` (line 9
 
 # 6.
 
+### Query: Which repositories are gaining or losing engineering velocity?
+
+### Result from livi:
+
+Engineering Velocity by Repository
+
+[](Engineering Velocity by Repository**LiveReview**160826.png)
+
+This chart tracks the monthly number of completed reviews for each repository within hexmos-internal.
+
+Repositories with rising review counts show increasing velocity, while those with declining counts indicate a slowdown.
+
+Overall, the organization completed 81 distinct repository-month activity records over the tracked period.
+
+Time range: Last 6 months (Feb 2025 – Jul 2025)
+
+Granularity: Monthly
+
+Query: monthly engineering velocity (completed reviews) per repository
+
+### What is missing from the demo:
+
+**Symptom** — For "Which repositories are gaining or losing engineering velocity?", Livi planned and rendered one report (chat_debug.log, request 31d956505f3ff5c0, call #2 plan at line 809):
+
+```
+{"analytics_plan": [
+  {"id": "velocity_trend",
+   "question": "Engineering velocity (completed reviews) per repository by month",
+   "count_sql": "SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS month, repository FROM reviews WHERE status = 'completed' AND org_id = 151 GROUP BY 1, 2) t"}
+]}
+```
+
+`Engineering Velocity by Repository` — a **faceted small-multiples** spec (`"facet": {"field": "repository", "columns": 3}`, single-panel `spec` = `bar` mark, x = month (`yearmonth`), y = review_count), 81 rows, data_sql `date_trunc('month', completed_at)` × `repository` × `count(*)` (line 829/831/832). This is one bar-chart panel per repository (dozens of panels — the data spans 43+ distinct repository names, including several that are clearly the same repo under different labels, e.g. `LiveReview`, `HexmosTech/LiveReview`, `https://github.com/HexmosTech/LiveReview` all appear as separate facet panels), each showing raw monthly review *count*, not LOC. There is no gain/loss comparison anywhere: no two-period split, no color encoding for trend direction, nothing that answers "gaining or losing" directly — a viewer has to visually eyeball dozens of small bar panels and infer direction themselves. Most panels also only have 1-2 months of data at all (many repos appear in exactly one month), so "rising vs declining" isn't even computable for most of the facets shown.
+
+**Expected** (see repo_slope.html) — a slope graph: one line per repository between two periods, colored by direction:
+
+- SQL: `SELECT r.repository, CASE WHEN l.accounted_at >= CURRENT_DATE - INTERVAL '45 days' THEN 'Current' ELSE 'Previous' END AS period, sum(l.billable_loc) AS loc FROM loc_usage_ledger l JOIN reviews r ON r.id = l.review_id WHERE l.org_id = 151 AND l.status = 'accounted' AND l.accounted_at >= CURRENT_DATE - INTERVAL '90 days' GROUP BY 1, 2` — LOC reviewed (not review count), collapsed into exactly two periods (a 45/45-day split of a 90-day window), not 6 months of monthly buckets.
+- Chart: `line` mark with `point: true`, x = period (`Previous`/`Current`, nominal, fixed order), y = LOC, one line per repository (`detail` channel), color = trend (`gain`/`flat`/`loss` → green/gray/red).
+- Stats: "30 repos gained velocity, 13 lost velocity, out of 43 tracked."
+
+**Root cause** — the wrong decision is made in the planning call (call #2), not in chart rendering. `internal/mcpagent/prompts/analytics_plan.md` has no rule for a period-over-period *comparison* question at all — its only relevant guidance is the generic "Default to a grouped answer... Write count_sql as if the answer will be grouped by time (or by whatever dimension makes the comparison)." The planner satisfied "grouped by time" literally by bucketing into 6 monthly buckets crossed with repository, but "gaining or losing" is a two-point comparison question (this period vs. the last), not a multi-month trend question — the plan never collapses the window into a Previous/Current split, so finalize (call #3) never has the two-period shape it would need to compute a gain/loss color. Instead finalize falls back to `analytics_finalize.md`'s "the same mini chart repeated once per category" trellis/facet pattern for "per repository" data, which is the correct rule for *that* shape but the wrong shape for a comparison question — nothing in `analytics_plan.md` routes a "gaining or losing X" phrasing toward a two-period `CASE WHEN ... period` split the way `repo_slope.html` computes it.
+
 # 7.
 
 # 8.
