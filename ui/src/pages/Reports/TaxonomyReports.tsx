@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
-import { Area, AreaChart, Brush, CartesianGrid, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import apiClient from '../../api/apiClient';
 import { useAppSelector } from '../../store/configureStore';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { Spinner } from '../../components/UIPrimitives';
 import { generateImpactReportPdf } from './pdfExport';
+import { TrendAreaChart } from './TrendAreaChart';
 
 type MultiOption = { value: string; label: string };
 
@@ -1083,50 +1083,6 @@ const TaxonomyReports: React.FC = () => {
       <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
     </svg>
   );
-
-  const TrendAreaChart = ({
-    rows,
-    height = 120,
-    showBrush = true,
-    showLegend = true,
-  }: {
-    rows: FilledTrendRow[];
-    height?: number;
-    showBrush?: boolean;
-    showLegend?: boolean;
-  }) => {
-    if (rows.length === 0) {
-      return <p className="text-slate-400 text-xs">No trend data in the selected range.</p>;
-    }
-    const tooltipStyle = {
-      background: '#0f172a',
-      border: '1px solid #334155',
-      borderRadius: 8,
-      color: '#e2e8f0',
-      fontSize: 12,
-    } as const;
-
-    return (
-      <div className="space-y-2">
-        <div className="w-full rounded bg-slate-900/50 border border-slate-700 p-2" style={{ height }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: showBrush ? 26 : 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="bucket" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickLine={{ stroke: '#475569' }} />
-              <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickLine={{ stroke: '#475569' }} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#cbd5e1', fontSize: 11 }} />
-              {showLegend && <Legend wrapperStyle={{ color: '#cbd5e1', fontSize: 11 }} />}
-              <Area name="Findings" type="monotone" dataKey="count" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} strokeWidth={2} />
-              <Line name="Reviews" type="monotone" dataKey="review_count" stroke="#22c55e" strokeWidth={2} dot={false} />
-              {showBrush && (
-                <Brush dataKey="bucket" height={14} stroke="#334155" fill="#0f172a" travellerWidth={6} />
-              )}
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-    );
-  };
 
   // ---- main render ---------------------------------------------------------
 

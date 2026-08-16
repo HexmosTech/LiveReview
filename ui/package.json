@@ -116,7 +116,6 @@
     "react-router": "^7.18.0",
     "react-router-dom": "^7.18.0",
     "react-vega": "^8.0.0",
-    "recharts": "^3.8.1",
     "redux": "^5.0.1",
     "redux-thunk": "^3.1.0",
     "shell-quote": "^1.9.0",

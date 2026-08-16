@@ -12,6 +12,27 @@ const webpack = require('webpack');
 const fs = require('fs');
 const metaConfig = require('./meta.config.js');
 
+// Package name of a node_modules module (e.g. 'echarts', '@tanstack/react-table'), used by the
+// per-usage-context splitChunks naming functions below.
+function packageNameOf(module) {
+    const resource = module.resource || module.identifier() || '';
+    const match = resource.match(/node_modules[\\/](?:(@[^\\/]+)[\\/])?([^\\/]+)/);
+    if (!match) return 'lib';
+    return (match[1] ? `${match[1]}-${match[2]}` : match[2]).replace(/^@/, '');
+}
+
+// Chunk-name suffix that groups by (package, consuming-chunk-set) rather than by
+// consuming-chunk-set alone. Naming purely off `chunks.map(c => c.name || c.id)` can produce
+// the same degenerate key (e.g. empty ids/names not yet assigned at this point in the build)
+// for two genuinely different libraries within one cache group's `test` regex - hit in
+// practice as "Cache group conflicts with existing chunk" for two different `heavy` module
+// sets both computing "vendor-heavy-~~". Including the package name disambiguates libraries
+// that would otherwise collide, without over-fragmenting modules *within* the same library.
+function usageGroupName(prefix, module, chunks) {
+    const chunkKey = chunks.map((c) => c.name || c.id || '').join('~');
+    return `${prefix}-${packageNameOf(module)}${chunkKey ? `-${chunkKey}` : ''}`;
+}
+
 module.exports =  (env, options)=> {
 
     const devMode = options.mode === 'development' ? true : false;
@@ -239,9 +260,15 @@ module.exports =  (env, options)=> {
         optimization: {
             splitChunks: {
                 chunks: 'all',
-                // Cap chunk size so a single cache group can't balloon back into one huge
-                // file as dependencies are added (helps HTTP/2 parallel fetch + browser caching).
-                maxSize: 300000,
+                // No maxSize here deliberately - it was tried and reverted. Dashboard is the
+                // first route rendered after login, and its widgets pull in the *entire*
+                // vendor-charts/vendor-heavy/vendor-misc dependency graph in one shot (React.lazy
+                // resolves the whole import() graph before rendering, so Suspense can't show
+                // anything until every chunk it depends on has arrived). A maxSize cap fragmented
+                // that graph into ~80 small files that all fire at once and queue behind the
+                // browser's per-origin connection limit - HAR-confirmed durations climbing
+                // linearly from 2s to 28.5s. Fewer, larger files here beat many small ones
+                // because they're all needed together, not deferred.
                 cacheGroups: {
                     // Core framework deps: needed on every route including login, so these load
                     // eagerly - keep this group small and stable so it caches well across deploys.
@@ -255,21 +282,36 @@ module.exports =  (env, options)=> {
                     // (Dashboard widgets, Reports, Chatbot). chunks: 'async' keeps them out of
                     // the eagerly-loaded initial bundle - they're only fetched when that route
                     // actually mounts, instead of blocking every page load (including login).
+                    //
+                    // No static `name` here (same reasoning as the `vendor` fallback group below):
+                    // echarts (Dashboard-only) and vega (Chatbot-only route, never touched by
+                    // Dashboard) both match this test regex, so a static name would force them into
+                    // one physical file regardless of which route actually needs which - Dashboard
+                    // would download vega's weight for a library it never imports. The naming
+                    // function splits by the actual set of consuming chunks instead, so Dashboard's
+                    // echarts and Chatbot's vega land in separate files.
                     charts: {
                         test: /[\\/]node_modules[\\/](echarts|echarts-for-react|recharts|vega|vega-lite|vega-embed|react-vega|d3-[^\\/]*)[\\/]/,
-                        name: 'vendor-charts',
                         chunks: 'async',
-                        priority: 15
+                        priority: 15,
+                        name(module, chunks) {
+                            return usageGroupName('vendor-charts', module, chunks);
+                        }
                     },
                     // Grid layout / animation / pdf export / table / timezone-data libs: same
                     // story, only used from lazy routes (Dashboard, Reports, Explore, Reviews,
-                    // UserManagement, Settings, Licenses). moment-timezone in particular ships a
-                    // ~700KB packed locale-data file that has no business loading before login.
+                    // UserManagement, Settings, Licenses) - and same static-name over-merging bug
+                    // as `charts` above: react-grid-layout/framer-motion are Dashboard's, but
+                    // moment-timezone (Settings/Licenses only), jspdf (Reports only), and
+                    // @tanstack/react-table (DataTable-consumer routes, not Dashboard) don't belong
+                    // in Dashboard's download at all. Naming function splits by actual consumer.
                     heavy: {
                         test: /[\\/]node_modules[\\/](react-grid-layout|framer-motion|jspdf|jspdf-autotable|@tanstack[\\/]react-table|moment-timezone)[\\/]/,
-                        name: 'vendor-heavy',
                         chunks: 'async',
-                        priority: 15
+                        priority: 15,
+                        name(module, chunks) {
+                            return usageGroupName('vendor-heavy', module, chunks);
+                        }
                     },
                     // Everything else third-party. Deliberately no static `name` string here:
                     // forcing every remaining node_modules module into one named chunk would
@@ -280,12 +322,21 @@ module.exports =  (env, options)=> {
                     // webpack's actual usage-graph (so lazy-only vendor code stays out of the
                     // initial load) while keeping every resulting file prefixed `vendor-` so the
                     // WebpackObfuscator excludes glob above still matches all of them.
+                    //
+                    // Uses the same package-disambiguated naming as `charts`/`heavy` above (not
+                    // just chunks.map(...).join('~')) - without it, this group was silently
+                    // dumping unrelated per-route libraries into one shared ~1.9MB async file:
+                    // vega (Chatbot-only), moment (Settings/Licenses-only, transitive via
+                    // moment-timezone), html2canvas/canvg/dompurify (Reports-only, jspdf's
+                    // rendering deps) all merged with zrender (echarts' own rendering engine,
+                    // genuinely needed by Dashboard) purely because their consuming-chunk
+                    // signature collapsed to the same value at name-computation time.
                     vendor: {
                         test: /[\\/]node_modules[\\/]/,
                         chunks: 'all',
                         priority: -10,
                         name(module, chunks) {
-                            return `vendor-misc-${chunks.map((c) => c.name || c.id).join('~')}`;
+                            return usageGroupName('vendor-misc', module, chunks);
                         }
                     }
                 }

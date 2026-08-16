@@ -1,7 +1,7 @@
 import React from 'react';
-import ReactECharts from 'echarts-for-react';
+import ReactECharts from 'echarts-for-react/lib/core';
 import { useNavigate } from 'react-router-dom';
-import { LIVEREVIEW_ECHARTS_THEME, ECHARTS_ANIMATION_DEFAULTS } from './echartsTheme';
+import { LIVEREVIEW_ECHARTS_THEME, ECHARTS_ANIMATION_DEFAULTS, LR_ECHARTS_CORE } from './echartsTheme';
 import { useChartResize } from './useChartResize';
 import { usePeople } from './PeopleData';
 import { EmptyState, Icons } from '../../UIPrimitives';
@@ -80,6 +80,7 @@ export const ContributionCalendarHeatmap: React.FC = () => {
         <div ref={containerRef} className="w-full h-full">
             <ReactECharts
                 ref={chartRef}
+                echarts={LR_ECHARTS_CORE}
                 option={option}
                 theme={LIVEREVIEW_ECHARTS_THEME}
                 style={{ height: '100%', width: '100%' }}

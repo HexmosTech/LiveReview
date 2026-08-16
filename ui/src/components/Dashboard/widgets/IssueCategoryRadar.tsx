@@ -1,6 +1,6 @@
 import React from 'react';
-import ReactECharts from 'echarts-for-react';
-import { LIVEREVIEW_ECHARTS_THEME, ECHARTS_ANIMATION_DEFAULTS } from './echartsTheme';
+import ReactECharts from 'echarts-for-react/lib/core';
+import { LIVEREVIEW_ECHARTS_THEME, ECHARTS_ANIMATION_DEFAULTS, LR_ECHARTS_CORE } from './echartsTheme';
 import { useChartResize } from './useChartResize';
 import { ISSUE_CATEGORIES } from './mockData';
 import { useDashboardPeriod } from './DashboardPeriod';
@@ -77,6 +77,7 @@ export const IssueCategoryRadar: React.FC = () => {
         <div ref={containerRef} className="w-full h-full">
             <ReactECharts
                 ref={chartRef}
+                echarts={LR_ECHARTS_CORE}
                 option={option}
                 theme={LIVEREVIEW_ECHARTS_THEME}
                 style={{ height: '100%', width: '100%' }}
