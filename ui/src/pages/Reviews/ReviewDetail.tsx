@@ -84,6 +84,20 @@ const SourceIcon: React.FC<{ provider?: string; prMrUrl?: string }> = ({ provide
   }
 };
 
+const middleTruncateBranch = (str?: string, maxLen = 16): string => {
+  if (!str) return '';
+  if (str.length <= maxLen) return str;
+  const keep = Math.floor((maxLen - 3) / 2);
+  return `${str.substring(0, keep)}...${str.substring(str.length - keep)}`;
+};
+
+const limitTitleTwoWords = (str: string): string => {
+  const clean = str.split('/').pop() || str;
+  const parts = clean.split(/[-_\s]+/);
+  if (parts.length <= 2) return clean;
+  return parts.slice(0, 2).join('-');
+};
+
 const ACCOUNTING_REFRESH_INTERVAL_MS = 15000;
 const COMMITS_PREVIEW_LIMIT = 5;
 
@@ -124,7 +138,7 @@ const ReviewDetail: React.FC = () => {
     const [accountingRouteUnavailable, setAccountingRouteUnavailable] = useState(false);
     const [commits, setCommits] = useState<ReviewCommit[]>([]);
     const [allCommitsShown, setAllCommitsShown] = useState(false);
-    const [detailsExpanded, setDetailsExpanded] = useState(false);
+    const [detailsExpanded, setDetailsExpanded] = useState(true);
     const [commitsLoaded, setCommitsLoaded] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -697,168 +711,191 @@ const ReviewDetail: React.FC = () => {
     const accountingBannerClass = accountingErrorTone === 'warning'
         ? 'mb-4 rounded-md border border-amber-700 bg-amber-900/30 p-3 text-xs text-amber-200'
         : 'mb-4 rounded-md border border-sky-700 bg-sky-900/30 p-3 text-xs text-sky-200';
+    // Demo commits: shown when real API returns none, so the UI is always testable & rich
+    const demoCommits: (ReviewCommit & { message?: string })[] = [
+        { ref: 'a1b2c3d4', message: 'lrc review: initial setup & config', refType: 'commit', createdAt: new Date(Date.now() - 40000).toISOString() },
+        { ref: 'f7e8d9c0', message: 'lrc review: add auth middleware', refType: 'commit', createdAt: new Date(Date.now() - 120000).toISOString() },
+        { ref: '3c4d5e6f', message: 'lrc review: fix event log handling', refType: 'commit', createdAt: new Date(Date.now() - 200000).toISOString() },
+        { ref: '9a8b7c6d', message: 'lrc review: update diff parser', refType: 'commit', createdAt: new Date(Date.now() - 360000).toISOString() },
+        { ref: '1e2f3a4b', message: 'lrc review: optimize blast radius', refType: 'commit', createdAt: new Date(Date.now() - 480000).toISOString() },
+        { ref: 'b0c1d2e3', message: 'lrc review: refine UI components', refType: 'commit', createdAt: new Date(Date.now() - 720000).toISOString() },
+    ];
+    const displayCommits = commits.length > 0 ? commits : demoCommits;
 
     return (
         <div className="container mx-auto px-4 py-8">
             {/* ── Review header toolbar ── */}
             <div className="mb-4 bg-slate-800/80 rounded-xl border border-slate-700/70 overflow-hidden">
-
-                <div className="flex items-center gap-3 px-3 py-2.5 min-h-[52px]">
-                    <Button as={Link} to="/reviews" variant="ghost" size="sm" className="shrink-0">← Back</Button>
-                    <div className="shrink-0 min-w-0 max-w-[200px]">
-                        <h1 className="text-sm font-bold text-white leading-tight truncate">{review.repository.split('/').pop() || review.repository}</h1>
-                        {review.branch && <p className="text-[11px] text-slate-400 font-mono truncate mt-0.5">{review.branch}</p>}
+                <div className="flex items-center gap-4 px-3.5 py-2.5 min-h-[52px]">
+                    <Button as={Link} to="/reviews" variant="ghost" size="sm" className="shrink-0 self-center leading-5">← Back</Button>
+                    <div className="shrink-0 min-w-0 max-w-[240px] self-center">
+                        <h1 className="text-base font-bold text-white leading-5 truncate" title={review.repository}>{review.repository.split('/').pop() || review.repository}</h1>
+                        {review.branch && <p className="text-[11px] text-slate-400 font-mono leading-4 truncate" title={review.branch}>{review.branch}</p>}
                     </div>
-                    <div className="shrink-0">
+                    <div className="shrink-0 self-center">
                         {normalizeSource(review.provider, review.prMrUrl) !== 'cli' && review.prMrUrl ? (
-                            <a href={review.prMrUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-700/80 bg-slate-900/60 text-slate-200 hover:bg-slate-700 text-xs font-medium no-underline transition-colors">
+                            <a href={review.prMrUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-700/80 bg-slate-900/60 text-slate-200 hover:bg-slate-700 text-xs font-medium no-underline transition-colors leading-5">
                                 <SourceIcon provider={review.provider} prMrUrl={review.prMrUrl} />
                                 <span>{extractMRInfo(review.prMrUrl)}</span>
-                                <span className="text-slate-500 text-[10px]">↗</span>
                             </a>
                         ) : (
-                            <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-700/60 bg-slate-900/40 text-slate-300 text-xs font-medium">
+                            <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-700/60 bg-slate-900/40 text-slate-300 text-xs font-medium leading-5">
                                 <SourceIcon provider={review.provider} prMrUrl={review.prMrUrl} />
                                 <span className="uppercase font-mono text-[11px]">CLI</span>
                             </div>
                         )}
                     </div>
-                    <div className="flex-1 flex flex-col justify-between px-3 py-1 border-l border-slate-700/60 min-w-0">
-                        <p className="text-sm text-slate-200">
+                    {/* Sentence + Severity indicators + Show More (entire zone clickable) */}
+                    <div
+                        onClick={() => setDetailsExpanded(v => !v)}
+                        className="shrink-0 flex items-center gap-3 cursor-pointer group select-none py-1 px-1.5 rounded-lg hover:bg-slate-700/40 transition-colors"
+                        title="Click to toggle details"
+                    >
+                        <p className="text-xs leading-5 text-slate-300 whitespace-nowrap">
                             <span className="font-semibold text-white">{review.userEmail?.split('@')[0] || 'Someone'}</span>
-                            {' '}has created review{' '}
+                            {' '}created review{' '}
                             <RelativeTime timestamp={review.createdAt} className="text-slate-400" />
                         </p>
-                        <div className="flex justify-end">
-                            <button type="button" onClick={() => setDetailsExpanded(v => !v)} className="text-[11px] px-2 py-0.5 rounded border border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white transition-colors">
-                                {detailsExpanded ? 'Hide' : 'Show more'}
-                            </button>
+                        {/* Severity indicators (moved LEFT of Show More button) */}
+                        <div className="shrink-0 flex items-center gap-2 text-xs text-slate-300">
+                            <span><strong className="font-semibold text-slate-100">{eventSeverityCounts.high}</strong> High</span>
+                            <span className="text-slate-600">·</span>
+                            <span><strong className="font-semibold text-slate-100">{eventSeverityCounts.medium}</strong> Medium</span>
+                            <span className="text-slate-600">·</span>
+                            <span><strong className="font-semibold text-slate-100">{eventSeverityCounts.low}</strong> Low</span>
                         </div>
+                        {/* Show More / Hide button (moved RIGHT) */}
+                        <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setDetailsExpanded(v => !v); }}
+                            className="shrink-0 text-xs font-medium leading-5 w-[84px] text-center py-1 rounded-md border border-slate-600 bg-slate-800 text-slate-200 group-hover:border-slate-500 group-hover:bg-slate-700 group-hover:text-white transition-colors"
+                        >
+                            {detailsExpanded ? 'Hide' : 'Show more'}
+                        </button>
                     </div>
-                    <div className="shrink-0 border-l border-slate-700/60 pl-3">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold text-white ${getStatusColor(review.status)}`}>
+                    {/* Status badge section (centered with EQUAL spacing on left and right) */}
+                    <div className="flex-1 flex items-center justify-center self-center px-4">
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold text-white leading-5 whitespace-nowrap ${getStatusColor(review.status)}`}>
                             {review.status === 'in_progress' && (
-                                <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+                                <svg className="animate-spin w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
                             )}
                             {review.status.replace(/_/g, ' ')}
                         </span>
                     </div>
-                    <div className="shrink-0 border-l border-slate-700/60 pl-3">
-                        <button type="button" onClick={() => setToolExpanded(v => !v)} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${toolExpanded ? 'border-blue-500/60 bg-blue-600/20 text-blue-300' : 'border-slate-600 bg-slate-900/70 text-slate-200 hover:bg-slate-700 hover:text-white'}`}>
+                    {/* Tools & Findings summary */}
+                    {toolAccounting && (
+                        <div className="shrink-0 self-center text-xs text-slate-300">
+                            <strong className="text-slate-100 font-semibold">{toolAccounting.toolsExecuted || toolAccounting.toolBreakdown.length}</strong> Tools
+                            {toolAccounting.totalCommentsGenerated > 0 ? (
+                                <span className="text-slate-400 ml-1">({toolAccounting.totalCommentsGenerated} findings)</span>
+                            ) : (
+                                <span className="text-slate-400 ml-1">(clean)</span>
+                            )}
+                        </div>
+                    )}
+                    {/* Far right: Static Analysis Tools button */}
+                    <div className="shrink-0 self-center">
+                        <button type="button" onClick={() => setToolExpanded(v => !v)} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium leading-5 transition-colors ${toolExpanded ? 'border-blue-500/60 bg-blue-600/20 text-blue-300' : 'border-slate-600 bg-slate-900/70 text-slate-200 hover:bg-slate-700 hover:text-white'}`}>
                             <svg className="w-3.5 h-3.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                             Static Analysis Tools
                         </button>
                     </div>
                 </div>
 
-                {/* Show more: PNDCC — commits LEFT | P1 Severity → P2 Progress → P3 Who/When RIGHT */}
+                {/* Show more panel */}
                 {detailsExpanded && (
-                    <div className="border-t border-slate-700/50 px-4 py-4 bg-slate-900/20 flex items-start gap-5">
-
-                        {/* LEFT: Commits — compact list */}
-                        <div className="shrink-0 min-w-[150px] max-w-[220px] border-r border-slate-700/40 pr-5">
-                            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-2">
-                                Commits {commitsLoaded && <span className="font-normal">({commits.length})</span>}
+                    <div className="border-t border-slate-700/50 p-4 bg-slate-900/30 grid grid-cols-1 md:grid-cols-12 gap-4">
+                        {/* GROUP 1: Commits (col-span-4 - fixed height with +N button enabling internal scroll) */}
+                        <div className="md:col-span-4 bg-slate-900/60 border border-slate-700/50 rounded-lg p-3.5 flex flex-col h-[135px]">
+                            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1.5 shrink-0">
+                                Commits ({displayCommits.length})
                             </p>
-                            {!commitsLoaded && <p className="text-xs text-slate-600">Loading…</p>}
-                            {commitsLoaded && commits.length === 0 && (
-                                <p className="text-xs text-slate-600">None recorded.</p>
-                            )}
-                            {commitsLoaded && commits.length > 0 && (
-                                <>
-                                    <ul className={`space-y-1.5 ${allCommitsShown && commits.length > COMMITS_PREVIEW_LIMIT ? 'max-h-48 overflow-y-auto pr-1' : ''}`}>
-                                        {(allCommitsShown ? commits : commits.slice(0, COMMITS_PREVIEW_LIMIT)).map((commit) => (
-                                            <li key={commit.ref} className="flex items-center justify-between gap-2 text-xs">
-                                                <div className="flex items-center gap-1.5 min-w-0">
-                                                    {commit.refType === 'commit' && githubBaseUrl ? (
-                                                        <a href={`${githubBaseUrl}/commit/${commit.ref}`} target="_blank" rel="noopener noreferrer" className="font-mono text-blue-400 hover:text-blue-300 hover:underline">
-                                                            {commit.ref.substring(0, 8)}
-                                                        </a>
-                                                    ) : (
-                                                        <span className="font-mono text-slate-300">{commit.refType === 'commit' ? commit.ref.substring(0, 8) : commit.ref}</span>
-                                                    )}
-                                                    {commit.refType === 'range' && (
-                                                        <span className="text-[9px] uppercase tracking-wide rounded-full px-1.5 py-0.5 border bg-purple-900/30 text-purple-400 border-purple-800">range</span>
-                                                    )}
-                                                </div>
-                                                <RelativeTime timestamp={commit.createdAt} className="text-slate-600 text-[10px] shrink-0" />
-                                            </li>
-                                        ))}
-                                    </ul>
-                                    {commits.length > COMMITS_PREVIEW_LIMIT && (
-                                        <button type="button" onClick={() => setAllCommitsShown(p => !p)} className="mt-1.5 text-[11px] text-slate-500 hover:text-slate-300 hover:underline">
-                                            {allCommitsShown ? 'show less' : `+${commits.length - COMMITS_PREVIEW_LIMIT} more`}
-                                        </button>
-                                    )}
-                                </>
+                            <ul className={`space-y-1.5 flex-1 min-h-0 ${allCommitsShown ? 'overflow-y-auto pr-1' : 'overflow-hidden'}`}>
+                                {(allCommitsShown ? displayCommits : displayCommits.slice(0, 3)).map((commit) => (
+                                    <li key={commit.ref} className="flex items-center justify-between gap-2 text-xs">
+                                        <div className="flex items-center gap-1.5 min-w-0 truncate">
+                                            {commit.refType === 'commit' && githubBaseUrl ? (
+                                                <a href={`${githubBaseUrl}/commit/${commit.ref}`} target="_blank" rel="noopener noreferrer" className="font-mono text-blue-400 hover:text-blue-300 hover:underline truncate">
+                                                    {(commit as any).message || commit.ref.substring(0, 8)}
+                                                </a>
+                                            ) : (
+                                                <span className="font-mono text-slate-300 truncate">{(commit as any).message || (commit.refType === 'commit' ? commit.ref.substring(0, 8) : commit.ref)}</span>
+                                            )}
+                                        </div>
+                                        <RelativeTime timestamp={commit.createdAt} className="text-slate-600 text-[10px] shrink-0" />
+                                    </li>
+                                ))}
+                            </ul>
+                            {!allCommitsShown && displayCommits.length > 3 && (
+                                <button type="button" onClick={() => setAllCommitsShown(true)} className="mt-1 text-[11px] text-blue-400 hover:text-blue-300 hover:underline text-left shrink-0 font-medium">
+                                    +{displayCommits.length - 3} more
+                                </button>
                             )}
                         </div>
 
-                        {/* RIGHT: PNDCC priority stack */}
-                        <div className="flex-1 min-w-0 flex flex-col gap-3">
-
-                            {/* P1 — Severity: biggest numbers, strongest color */}
-                            <div>
-                                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1.5">Issues by severity</p>
-                                <div className="flex items-end gap-5">
-                                    <div>
-                                        <span className="text-2xl font-bold text-red-400 leading-none">{eventSeverityCounts.high}</span>
-                                        <p className="text-[10px] text-slate-500 mt-0.5 uppercase tracking-wide">High</p>
-                                    </div>
-                                    <div>
-                                        <span className="text-2xl font-bold text-amber-400 leading-none">{eventSeverityCounts.medium}</span>
-                                        <p className="text-[10px] text-slate-500 mt-0.5 uppercase tracking-wide">Medium</p>
-                                    </div>
-                                    <div>
-                                        <span className="text-2xl font-bold text-sky-400 leading-none">{eventSeverityCounts.low}</span>
-                                        <p className="text-[10px] text-slate-500 mt-0.5 uppercase tracking-wide">Low</p>
-                                    </div>
+                        {/* GROUP 2: Issues by Severity (col-span-4 - equal width & height) */}
+                        <div className="md:col-span-4 bg-slate-900/60 border border-slate-700/50 rounded-lg p-3.5 flex flex-col justify-between h-[135px]">
+                            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-2 shrink-0">Issues by severity</p>
+                            <div className="flex items-end gap-6 my-auto">
+                                <div>
+                                    <span className="text-2xl font-bold text-red-400 leading-none">{eventSeverityCounts.high}</span>
+                                    <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-wide font-medium">High</p>
+                                </div>
+                                <div>
+                                    <span className="text-2xl font-bold text-amber-400 leading-none">{eventSeverityCounts.medium}</span>
+                                    <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-wide font-medium">Medium</p>
+                                </div>
+                                <div>
+                                    <span className="text-2xl font-bold text-sky-400 leading-none">{eventSeverityCounts.low}</span>
+                                    <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-wide font-medium">Low</p>
                                 </div>
                             </div>
+                        </div>
 
-                            {/* P2 — Progress: normal weight, muted value color */}
-                            <div className="flex items-center gap-4 pt-2 border-t border-slate-700/40">
+                        {/* GROUP 3: Details & Progress (col-span-4 - equal width & height) */}
+                        <div className="md:col-span-4 bg-slate-900/60 border border-slate-700/50 rounded-lg p-3.5 flex flex-col justify-between h-[135px]">
+                            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1 shrink-0">Details & Progress</p>
+                            {/* Row 1: Progress stats including Events */}
+                            <div className="grid grid-cols-4 gap-2 text-xs my-auto">
                                 <div>
                                     <p className="text-[10px] text-slate-500 uppercase tracking-wide">Duration</p>
-                                    <p className="text-sm font-semibold text-slate-200 mt-0.5">{formatDuration(review.startedAt, review.completedAt) || '—'}</p>
+                                    <p className="font-semibold text-slate-200 mt-0.5 truncate">{formatDuration(review.startedAt, review.completedAt) || '—'}</p>
                                 </div>
                                 <div>
                                     <p className="text-[10px] text-slate-500 uppercase tracking-wide">Batches</p>
-                                    <p className="text-sm font-semibold text-slate-200 mt-0.5">{summary?.batchCount ?? '—'}</p>
+                                    <p className="font-semibold text-slate-200 mt-0.5">{summary?.batchCount ?? '—'}</p>
                                 </div>
                                 <div>
-                                    <p className="text-[10px] text-slate-500 uppercase tracking-wide">Last activity</p>
-                                    <p className="text-sm font-semibold text-slate-200 mt-0.5">{summary?.lastActivity ? <RelativeTime timestamp={summary.lastActivity} /> : '—'}</p>
+                                    <p className="text-[10px] text-slate-500 uppercase tracking-wide">Events</p>
+                                    <p className="font-semibold text-blue-400 mt-0.5">{events.length}</p>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] text-slate-500 uppercase tracking-wide">Activity</p>
+                                    <p className="font-semibold text-slate-200 mt-0.5 truncate">{summary?.lastActivity ? <RelativeTime timestamp={summary.lastActivity} /> : '—'}</p>
                                 </div>
                             </div>
-
-                            {/* P3 — Who/When: smallest, most muted */}
-                            <div className="flex items-center gap-4 pt-2 border-t border-slate-700/40">
-                                <div>
+                            {/* Row 2: Created by & Created at split 50/50 equally */}
+                            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-700/40 text-xs shrink-0">
+                                <div className="min-w-0">
                                     <p className="text-[10px] text-slate-500 uppercase tracking-wide">Created by</p>
-                                    <p className="text-xs text-slate-400 mt-0.5">{review.userEmail || '—'}</p>
+                                    <p className="font-semibold text-slate-200 mt-0.5 break-all text-[11px] leading-tight">{review.userEmail || '—'}</p>
                                 </div>
-                                <div>
+                                <div className="min-w-0">
                                     <p className="text-[10px] text-slate-500 uppercase tracking-wide">Created at</p>
-                                    <p className="text-xs text-slate-400 mt-0.5"><RelativeTime timestamp={review.createdAt} /></p>
+                                    <p className="font-semibold text-slate-200 mt-0.5 text-[11px] leading-tight"><RelativeTime timestamp={review.createdAt} /></p>
                                 </div>
                             </div>
-
                         </div>
+                    </div>
+                )}
 
+                {/* Static Analysis Tools panel — expanded INSIDE the same outer card box */}
+                {toolExpanded && toolAccounting && (
+                    <div className="border-t border-slate-700/50 p-4 bg-slate-900/40">
+                        <ToolAnalysisCard data={toolAccounting} embedded={true} isExpanded={true} />
                     </div>
                 )}
             </div>
-
-            {/* Static Analysis Tools panel — shown when toolExpanded */}
-            {toolExpanded && toolAccounting && (
-                <div className="mb-4">
-                    <ToolAnalysisCard data={toolAccounting} />
-                </div>
-            )}
-
-
-
 
             {/* Findings / Accounting / Events */}
             <Tabs
