@@ -422,10 +422,23 @@ const Chatbot: React.FC = () => {
                               {chart.description && (
                                 <p className="text-sm text-slate-300 whitespace-pre-line">{chart.description}</p>
                               )}
-                              {chart.query && (
-                                <p className="text-xs text-slate-400 italic whitespace-pre-line">
-                                  Query used: {chart.query}
-                                </p>
+                              {(chart.query || chart.time_range || chart.granularity) && (
+                                <details className="group mt-1">
+                                  <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
+                                    Data details
+                                  </summary>
+                                  <div className="mt-1.5 space-y-1 text-xs text-slate-400 italic">
+                                    {chart.time_range && (
+                                      <p><span className="not-italic font-medium text-slate-400">Time range:</span> {chart.time_range}</p>
+                                    )}
+                                    {chart.granularity && (
+                                      <p><span className="not-italic font-medium text-slate-400">Granularity:</span> {chart.granularity}</p>
+                                    )}
+                                    {chart.query && (
+                                      <p><span className="not-italic font-medium text-slate-400">Query:</span> {chart.query}</p>
+                                    )}
+                                  </div>
+                                </details>
                               )}
                             </div>
                           );})}
@@ -454,10 +467,23 @@ const Chatbot: React.FC = () => {
                               {file.description && (
                                 <p className="text-sm text-slate-300 whitespace-pre-line">{file.description}</p>
                               )}
-                              {file.query && (
-                                <p className="text-xs text-slate-400 italic whitespace-pre-line">
-                                  Query used: {file.query}
-                                </p>
+                              {(file.query || file.time_range || file.granularity) && (
+                                <details className="group mt-1">
+                                  <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
+                                    Data details
+                                  </summary>
+                                  <div className="mt-1.5 space-y-1 text-xs text-slate-400 italic">
+                                    {file.time_range && (
+                                      <p><span className="not-italic font-medium text-slate-400">Time range:</span> {file.time_range}</p>
+                                    )}
+                                    {file.granularity && (
+                                      <p><span className="not-italic font-medium text-slate-400">Granularity:</span> {file.granularity}</p>
+                                    )}
+                                    {file.query && (
+                                      <p><span className="not-italic font-medium text-slate-400">Query:</span> {file.query}</p>
+                                    )}
+                                  </div>
+                                </details>
                               )}
                             </div>
                           ))}

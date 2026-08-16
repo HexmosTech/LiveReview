@@ -535,9 +535,16 @@ func (oh *orgHandler) processMessage(channel, ts, threadTS, text string) {
 			return
 		}
 		// A single value/bar isn't worth a chart — reply with the description text.
-		if desc, query, ok := vlrender.TrivialDescription(finalText); ok && desc != "" {
-			if query != "" {
-				desc += "\n\nQuery used: " + query
+		if desc, query, timeRange, granularity, ok := vlrender.TrivialDescription(finalText); ok && desc != "" {
+			if query != "" || timeRange != "" || granularity != "" {
+				detail := "\n\nQuery: " + query
+				if timeRange != "" {
+					detail += "\nTime range: " + timeRange
+				}
+				if granularity != "" {
+					detail += "\nGranularity: " + granularity
+				}
+				desc += detail
 			}
 			if _, _, err := oh.slackClient.PostMessage(channel, slack.MsgOptionText(desc, false)); err != nil {
 				log.Printf("[SlackBot] Failed to post response: %s", err)

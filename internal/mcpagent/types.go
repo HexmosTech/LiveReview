@@ -46,6 +46,8 @@ type Artifact struct {
 	Title       string
 	Description string
 	Query       string
+	TimeRange   string
+	Granularity string
 	Data        []byte
 	Rows        int
 }

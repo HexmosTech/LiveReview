@@ -67,6 +67,8 @@ type WebChatFile struct {
 	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
 	Query       string `json:"query,omitempty"`
+	TimeRange   string `json:"time_range,omitempty"`
+	Granularity string `json:"granularity,omitempty"`
 	Rows        int    `json:"rows,omitempty"`
 }
 
@@ -118,6 +120,8 @@ func registerChatExports(artifacts []mcpagent.Artifact, orgID int64) []WebChatFi
 			Title:       art.Title,
 			Description: art.Description,
 			Query:       art.Query,
+			TimeRange:   art.TimeRange,
+			Granularity: art.Granularity,
 			Rows:        art.Rows,
 		})
 	}

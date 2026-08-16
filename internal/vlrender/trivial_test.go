@@ -60,7 +60,7 @@ func TestSpecIsTrivialUnknownSource(t *testing.T) {
 }
 
 func TestTrivialDescription(t *testing.T) {
-	desc, query, ok := TrivialDescription(multi(values(`{"a":"x","b":5}`)))
+	desc, query, _, _, ok := TrivialDescription(multi(values(`{"a":"x","b":5}`)))
 	if !ok {
 		t.Fatalf("expected trivial single-value wrapped report")
 	}
@@ -71,7 +71,7 @@ func TestTrivialDescription(t *testing.T) {
 		t.Errorf("expected query preserved, got %q", query)
 	}
 
-	if _, _, ok := TrivialDescription(multi(values(`{"a":"x","b":5}`, `{"a":"y","b":9}`))); ok {
+	if _, _, _, _, ok := TrivialDescription(multi(values(`{"a":"x","b":5}`, `{"a":"y","b":9}`))); ok {
 		t.Errorf("multi-value report should not be trivial")
 	}
 }

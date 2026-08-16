@@ -29,6 +29,8 @@ type VegaLiteReport struct {
 	Subtitle    string          `json:"subtitle,omitempty"`
 	Description string          `json:"description,omitempty"`
 	Query       string          `json:"query,omitempty"`
+	TimeRange   string          `json:"time_range,omitempty"`
+	Granularity string          `json:"granularity,omitempty"`
 	Spec        json.RawMessage `json:"spec"`
 }
 
@@ -42,6 +44,8 @@ type Report struct {
 	Title       string
 	Description string
 	Query       string
+	TimeRange   string
+	Granularity string
 	PNGPath     string
 }
 
@@ -105,11 +109,11 @@ func countDataValues(m map[string]any) (total int, known bool) {
 	return total, known
 }
 
-// TrivialDescription returns the human-readable description and the query used
-// to show in place of a chart when the payload's spec(s) resolve to only a
-// single value/bar, plus true if that is the case. Callers render the returned
-// text instead of a chart and may append the query with their own phrasing.
-func TrivialDescription(raw string) (desc string, query string, ok bool) {
+// TrivialDescription returns the human-readable description, query, time range,
+// and granularity to show in place of a chart when the payload's spec(s) resolve
+// to only a single value/bar, plus true if that is the case. Callers render the
+// returned text instead of a chart and may append the query with their own phrasing.
+func TrivialDescription(raw string) (desc string, query string, timeRange string, granularity string, ok bool) {
 	body := ExtractJSONBlock(raw)
 
 	var multi struct {
@@ -119,6 +123,8 @@ func TrivialDescription(raw string) (desc string, query string, ok bool) {
 		trivial := true
 		var parts []string
 		var queries []string
+		var timeRanges []string
+		var granularities []string
 		for _, r := range multi.Reports {
 			spec, err := NormalizeVegaLiteSpec(r.Spec)
 			if err != nil {
@@ -134,41 +140,50 @@ func TrivialDescription(raw string) (desc string, query string, ok bool) {
 			if strings.TrimSpace(r.Query) != "" {
 				queries = append(queries, r.Query)
 			}
+			if strings.TrimSpace(r.TimeRange) != "" {
+				timeRanges = append(timeRanges, r.TimeRange)
+			}
+			if strings.TrimSpace(r.Granularity) != "" {
+				granularities = append(granularities, r.Granularity)
+			}
 		}
 		if !trivial {
-			return "", "", false
+			return "", "", "", "", false
 		}
-		return strings.Join(parts, "\n\n"), strings.Join(queries, "\n\n"), true
+		return strings.Join(parts, "\n\n"), strings.Join(queries, "\n\n"),
+			strings.Join(timeRanges, "\n\n"), strings.Join(granularities, "\n\n"), true
 	}
 
 	var wrapped VegaLiteReport
 	if err := json.Unmarshal([]byte(body), &wrapped); err == nil && len(wrapped.Spec) > 0 {
 		spec, err := NormalizeVegaLiteSpec(wrapped.Spec)
 		if err != nil {
-			return "", "", false
+			return "", "", "", "", false
 		}
 		if !SpecIsTrivial(spec) {
-			return "", "", false
+			return "", "", "", "", false
 		}
-		return wrapped.Description, wrapped.Query, true
+		return wrapped.Description, wrapped.Query, wrapped.TimeRange, wrapped.Granularity, true
 	}
 
 	var m map[string]any
 	if err := json.Unmarshal([]byte(body), &m); err != nil {
-		return "", "", false
+		return "", "", "", "", false
 	}
 	spec, err := NormalizeVegaLiteSpec([]byte(body))
 	if err != nil {
-		return "", "", false
+		return "", "", "", "", false
 	}
 	if !SpecIsTrivial(spec) {
-		return "", "", false
+		return "", "", "", "", false
 	}
 	q, _ := m["query"].(string)
+	tr, _ := m["time_range"].(string)
+	g, _ := m["granularity"].(string)
 	if d, ok := m["description"].(string); ok {
-		return d, q, true
+		return d, q, tr, g, true
 	}
-	return "", q, true
+	return "", q, tr, g, true
 }
 
 // CleanupReports removes the temp directories backing the given reports.

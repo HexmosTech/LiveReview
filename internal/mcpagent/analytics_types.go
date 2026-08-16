@@ -51,6 +51,8 @@ type FinalizePlan struct {
 	Title        string          `json:"title"`
 	Description  string          `json:"description"`
 	Query        string          `json:"query"`
+	TimeRange    string          `json:"time_range,omitempty"`
+	Granularity  string          `json:"granularity,omitempty"`
 	DataSQL      string          `json:"data_sql"`
 	Mark         string          `json:"mark"`
 	Encoding     json.RawMessage `json:"encoding"`

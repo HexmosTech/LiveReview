@@ -254,9 +254,16 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 			return nil
 		}
 		// A single value/bar isn't worth a chart — reply with the description text.
-		if desc, query, ok := vlrender.TrivialDescription(response); ok && desc != "" {
-			if query != "" {
-				desc += "\n\nQuery used: " + query
+		if desc, query, timeRange, granularity, ok := vlrender.TrivialDescription(response); ok && desc != "" {
+			if query != "" || timeRange != "" || granularity != "" {
+				detail := "\n\nQuery: " + query
+				if timeRange != "" {
+					detail += "\nTime range: " + timeRange
+				}
+				if granularity != "" {
+					detail += "\nGranularity: " + granularity
+				}
+				desc += detail
 			}
 			return b.postReply(ctx, activity, b.buildReply(desc, activity, nil))
 		}

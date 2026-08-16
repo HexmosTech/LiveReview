@@ -18,6 +18,8 @@ export interface ChatChart {
   title?: string;
   description?: string;
   query?: string;
+  time_range?: string;
+  granularity?: string;
   spec: Record<string, unknown>;
 }
 
@@ -30,6 +32,8 @@ export interface ChatFile {
   title?: string;
   description?: string;
   query?: string;
+  time_range?: string;
+  granularity?: string;
   rows?: number;
 }
 

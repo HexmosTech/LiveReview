@@ -10,6 +10,8 @@ For a chart:
  "title": "Reviews Completed by Month",
  "description": "Short lines with the specific numbers.",
  "query": "review completions across the organization, by month",
+ "time_range": "Last 6 months (Jan 2026 – Jun 2026)",
+ "granularity": "Monthly",
  "data_sql": "SELECT date_trunc('month', completed_at) AS month, count(*) AS review_count FROM reviews WHERE status = 'completed' AND org_id = 42 GROUP BY 1 ORDER BY 1",
  "mark": "bar",
  "encoding": {"x": {"field": "month", "type": "temporal", "timeUnit": "yearmonth", "title": "Month"},
@@ -24,6 +26,8 @@ target line, a cumulative curve):
  "title": "Review Turnaround, Daily and 7-Day Average",
  "description": "...",
  "query": "daily review turnaround with a 7-day rolling average",
+ "time_range": "Last 30 days (Jul 18 – Aug 16, 2026)",
+ "granularity": "Daily",
  "data_sql": "SELECT day, avg_hours, avg(avg_hours) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS rolling_avg_hours FROM (...) t ORDER BY day",
  "layer": [
    {"mark": "line", "encoding": {"x": {"field": "day", "type": "temporal", "title": "Day"}, "y": {"field": "avg_hours", "type": "quantitative", "title": "Avg Turnaround (Hours)"}, "opacity": {"value": 0.4}}},
@@ -39,6 +43,8 @@ category - one panel per contributor, per repository, ...):
  "title": "Reviews by Repository, per Contributor",
  "description": "...",
  "query": "reviews per repository, broken out by contributor",
+ "time_range": "Last 6 months (Jan 2026 – Jun 2026)",
+ "granularity": "Per repository",
  "data_sql": "SELECT author_username, repository, count(*) AS review_count FROM reviews WHERE status = 'completed' AND org_id = 42 GROUP BY 1, 2",
  "facet": {"field": "author_username", "type": "nominal", "columns": 4, "title": "Contributor"},
  "spec": {"mark": "bar",
@@ -53,6 +59,8 @@ For a downloadable file:
  "title": "All reviews in May",
  "description": "...",
  "query": "...",
+ "time_range": "May 2026",
+ "granularity": "Per review",
  "data_sql": "SELECT ...",
  "csv_filename": "reviews-may.csv"}
 ```
@@ -146,6 +154,12 @@ Rules:
   or when the row count is too large to read as a chart. Otherwise choose
   `chart`.
 - `data_sql` must return the same shape your count described.
+- Always include `time_range` and `granularity` fields. `time_range` states the
+  exact calendar window the data covers (e.g. "Last 6 months (Jan 2026 – Jun
+  2026)" or "Last 90 days"). `granularity` states the bucket size (e.g. "Daily",
+  "Weekly", "Monthly", "Quarterly", "Per repository", "Per contributor"). These
+  fields give the reader immediate clarity about what period and resolution they
+  are looking at.
 
 Writing `description`:
 

@@ -19,6 +19,8 @@ type renderedReport struct {
 	Title       string
 	Description string
 	Query       string
+	TimeRange   string
+	Granularity string
 }
 
 // renderVegaLiteReports parses the LLM response and renders 1+ charts at 2x
@@ -35,6 +37,8 @@ func renderVegaLiteReports(ctx context.Context, raw string) ([]renderedReport, e
 			Title:       r.Title,
 			Description: r.Description,
 			Query:       r.Query,
+			TimeRange:   r.TimeRange,
+			Granularity: r.Granularity,
 		}
 		if os.Getenv("VL_CONVERT_DEBUG_DIR") != "" && r.PNGPath != "" {
 			log.Printf("[SlackBot] Vega-Lite debug files kept in: %s", r.PNGPath)
@@ -54,11 +58,18 @@ func (oh *orgHandler) uploadReportsToSlack(channel, threadTS string, reports []r
 			filename = fmt.Sprintf("report_%d.png", i+1)
 		}
 		initialComment := r.Description
-		if r.Query != "" {
+		if r.Query != "" || r.TimeRange != "" || r.Granularity != "" {
 			if initialComment != "" {
 				initialComment += "\n\n"
 			}
-			initialComment += "Query used: " + r.Query
+			detail := "Query: " + r.Query
+			if r.TimeRange != "" {
+				detail += "\nTime range: " + r.TimeRange
+			}
+			if r.Granularity != "" {
+				detail += "\nGranularity: " + r.Granularity
+			}
+			initialComment += detail
 		}
 		params := slack.UploadFileParameters{
 			Channel:         channel,

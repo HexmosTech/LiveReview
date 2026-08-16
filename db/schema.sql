@@ -15,6 +15,13 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
+-- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON SCHEMA public IS '';
+
+
+--
 -- Name: learning_scope; Type: TYPE; Schema: public; Owner: -
 --
 
@@ -88,6 +95,27 @@ CREATE FUNCTION public.license_state_set_updated_at() RETURNS trigger
 BEGIN
     NEW.updated_at = now();
     RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: log_org_billing_state_change(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.log_org_billing_state_change() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF NEW.current_plan_code IS DISTINCT FROM OLD.current_plan_code THEN
+    INSERT INTO org_billing_state_audit
+      (org_id, old_plan_code, new_plan_code, client_addr, application_name, db_user, backend_pid)
+    VALUES
+      (NEW.org_id, OLD.current_plan_code, NEW.current_plan_code,
+       inet_client_addr(), current_setting('application_name', true),
+       current_user, pg_backend_pid());
+  END IF;
+  RETURN NEW;
 END;
 $$;
 
@@ -202,17 +230,6 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
--- Name: _seed_backup; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public._seed_backup (
-    org_id bigint NOT NULL,
-    key text NOT NULL,
-    value jsonb
-);
-
-
---
 -- Name: ai_comments; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -225,7 +242,7 @@ CREATE TABLE public.ai_comments (
     line_number integer,
     created_at timestamp with time zone DEFAULT now(),
     org_id bigint DEFAULT 1 NOT NULL,
-    CONSTRAINT ai_comments_type_check CHECK (((comment_type)::text = ANY ((ARRAY['summary'::character varying, 'line_comment'::character varying, 'suggestion'::character varying, 'general'::character varying, 'file_comment'::character varying])::text[])))
+    CONSTRAINT ai_comments_type_check CHECK (((comment_type)::text = ANY (ARRAY[('summary'::character varying)::text, ('line_comment'::character varying)::text, ('suggestion'::character varying)::text, ('general'::character varying)::text, ('file_comment'::character varying)::text])))
 );
 
 
@@ -268,7 +285,7 @@ CREATE TABLE public.ai_connectors (
     role character varying(32) DEFAULT 'leader'::character varying NOT NULL,
     aws_access_key_id text,
     aws_region text,
-    CONSTRAINT ai_connectors_role_check CHECK (((role)::text = ANY ((ARRAY['leader'::character varying, 'helper'::character varying])::text[])))
+    CONSTRAINT ai_connectors_role_check CHECK (((role)::text = ANY (ARRAY[('leader'::character varying)::text, ('helper'::character varying)::text])))
 );
 
 
@@ -437,7 +454,7 @@ CREATE TABLE public.auth_tokens (
     requests_this_hour integer DEFAULT 0,
     revoked_at timestamp with time zone,
     is_active boolean DEFAULT true NOT NULL,
-    CONSTRAINT auth_tokens_token_type_check CHECK (((token_type)::text = ANY ((ARRAY['session'::character varying, 'refresh'::character varying, 'api_key'::character varying])::text[])))
+    CONSTRAINT auth_tokens_token_type_check CHECK (((token_type)::text = ANY (ARRAY[('session'::character varying)::text, ('refresh'::character varying)::text, ('api_key'::character varying)::text])))
 );
 
 
@@ -480,8 +497,8 @@ CREATE TABLE public.billing_notification_outbox (
     sent_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT chk_billing_notification_outbox_channel CHECK (((channel)::text = ANY ((ARRAY['in_app'::character varying, 'email'::character varying])::text[]))),
-    CONSTRAINT chk_billing_notification_outbox_status CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'processing'::character varying, 'sent'::character varying, 'failed'::character varying, 'cancelled'::character varying])::text[])))
+    CONSTRAINT chk_billing_notification_outbox_channel CHECK (((channel)::text = ANY (ARRAY[('in_app'::character varying)::text, ('email'::character varying)::text]))),
+    CONSTRAINT chk_billing_notification_outbox_status CHECK (((status)::text = ANY (ARRAY[('pending'::character varying)::text, ('processing'::character varying)::text, ('sent'::character varying)::text, ('failed'::character varying)::text, ('cancelled'::character varying)::text])))
 );
 
 
@@ -823,13 +840,13 @@ CREATE TABLE public.loc_usage_ledger (
     llm_cost_usd double precision,
     actor_kind character varying(16),
     actor_email_snapshot character varying(320),
-    CONSTRAINT chk_loc_usage_ledger_actor_kind CHECK (((actor_kind IS NULL) OR ((actor_kind)::text = ANY ((ARRAY['member'::character varying, 'system'::character varying, 'unknown'::character varying])::text[])))),
+    CONSTRAINT chk_loc_usage_ledger_actor_kind CHECK (((actor_kind IS NULL) OR ((actor_kind)::text = ANY (ARRAY[('member'::character varying)::text, ('system'::character varying)::text, ('unknown'::character varying)::text])))),
     CONSTRAINT chk_loc_usage_ledger_billable_positive CHECK ((billable_loc > 0)),
     CONSTRAINT chk_loc_usage_ledger_cost_non_negative CHECK (((llm_cost_usd IS NULL) OR (llm_cost_usd >= (0)::double precision))),
     CONSTRAINT chk_loc_usage_ledger_input_tokens_non_negative CHECK (((input_tokens IS NULL) OR (input_tokens >= 0))),
     CONSTRAINT chk_loc_usage_ledger_output_tokens_non_negative CHECK (((output_tokens IS NULL) OR (output_tokens >= 0))),
     CONSTRAINT chk_loc_usage_ledger_period_valid CHECK ((billing_period_end > billing_period_start)),
-    CONSTRAINT chk_loc_usage_ledger_status_valid CHECK (((status)::text = ANY ((ARRAY['accounted'::character varying, 'ignored'::character varying])::text[])))
+    CONSTRAINT chk_loc_usage_ledger_status_valid CHECK (((status)::text = ANY (ARRAY[('accounted'::character varying)::text, ('ignored'::character varying)::text])))
 );
 
 
@@ -850,19 +867,6 @@ CREATE SEQUENCE public.loc_usage_ledger_id_seq
 --
 
 ALTER SEQUENCE public.loc_usage_ledger_id_seq OWNED BY public.loc_usage_ledger.id;
-
-
---
--- Name: mcp_authorizations; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.mcp_authorizations (
-    request_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    status character varying(20) DEFAULT 'pending'::character varying NOT NULL,
-    token_pair jsonb,
-    expires_at timestamp with time zone DEFAULT (now() + '00:10:00'::interval) NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
-);
 
 
 --
@@ -893,6 +897,42 @@ CREATE TABLE public.org_billing_state (
     CONSTRAINT chk_org_billing_trial_window_valid CHECK (((trial_ends_at IS NULL) OR (trial_started_at IS NULL) OR (trial_ends_at > trial_started_at))),
     CONSTRAINT chk_org_billing_upgrade_loc_grant_non_negative CHECK ((upgrade_loc_grant_current_cycle >= 0))
 );
+
+
+--
+-- Name: org_billing_state_audit; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.org_billing_state_audit (
+    id bigint NOT NULL,
+    org_id bigint,
+    old_plan_code text,
+    new_plan_code text,
+    changed_at timestamp with time zone DEFAULT now(),
+    client_addr inet,
+    application_name text,
+    db_user text,
+    backend_pid integer
+);
+
+
+--
+-- Name: org_billing_state_audit_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.org_billing_state_audit_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: org_billing_state_audit_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.org_billing_state_audit_id_seq OWNED BY public.org_billing_state_audit.id;
 
 
 --
@@ -988,7 +1028,7 @@ CREATE TABLE public.org_review_ai_settings (
     helper_mode character varying(32) DEFAULT 'concise_then_expand'::character varying NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT org_review_ai_settings_helper_mode_check CHECK (((helper_mode)::text = ANY ((ARRAY['concise_then_expand'::character varying, 'polish_only'::character varying])::text[])))
+    CONSTRAINT org_review_ai_settings_helper_mode_check CHECK (((helper_mode)::text = ANY (ARRAY[('concise_then_expand'::character varying)::text, ('polish_only'::character varying)::text])))
 );
 
 
@@ -1682,22 +1722,6 @@ ALTER SEQUENCE public.review_commits_id_seq OWNED BY public.review_commits.id;
 
 
 --
--- Name: review_events; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.review_events (
-    id bigint NOT NULL,
-    review_id bigint NOT NULL,
-    org_id bigint NOT NULL,
-    ts timestamp with time zone DEFAULT now() NOT NULL,
-    event_type text NOT NULL,
-    level text,
-    batch_id text,
-    data jsonb NOT NULL
-);
-
-
---
 -- Name: review_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -1707,13 +1731,6 @@ CREATE SEQUENCE public.review_events_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
-
-
---
--- Name: review_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.review_events_id_seq OWNED BY public.review_events.id;
 
 
 --
@@ -1736,8 +1753,8 @@ CREATE TABLE public.review_feedback (
     lrc_version character varying(50),
     created_at timestamp with time zone DEFAULT now(),
     retracted_at timestamp with time zone,
-    CONSTRAINT review_feedback_source_check CHECK (((source_type)::text = ANY ((ARRAY['comment'::character varying, 'pr_level'::character varying, 'slideshow'::character varying, 'general'::character varying])::text[]))),
-    CONSTRAINT review_feedback_vote_check CHECK (((vote_type)::text = ANY ((ARRAY['up'::character varying, 'down'::character varying])::text[])))
+    CONSTRAINT review_feedback_source_check CHECK (((source_type)::text = ANY (ARRAY[('comment'::character varying)::text, ('pr_level'::character varying)::text, ('slideshow'::character varying)::text, ('general'::character varying)::text]))),
+    CONSTRAINT review_feedback_vote_check CHECK (((vote_type)::text = ANY (ARRAY[('up'::character varying)::text, ('down'::character varying)::text])))
 );
 
 
@@ -1785,7 +1802,7 @@ CREATE TABLE public.reviews (
     author_username text,
     friendly_name text,
     pull_request_id bigint,
-    CONSTRAINT reviews_status_check CHECK (((status)::text = ANY ((ARRAY['created'::character varying, 'in_progress'::character varying, 'completed'::character varying, 'failed'::character varying])::text[])))
+    CONSTRAINT reviews_status_check CHECK (((status)::text = ANY (ARRAY[('created'::character varying)::text, ('in_progress'::character varying)::text, ('completed'::character varying)::text, ('failed'::character varying)::text])))
 );
 
 
@@ -1794,6 +1811,17 @@ CREATE TABLE public.reviews (
 --
 
 COMMENT ON COLUMN public.reviews.pull_request_id IS 'Canonical pull_requests row this review run belongs to, if known. Nullable for reviews triggered by raw URL or predating this column.';
+
+
+--
+-- Name: reviews_backup_20260806; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.reviews_backup_20260806 (
+    id bigint,
+    user_email character varying(255),
+    org_id bigint
+);
 
 
 --
@@ -1849,37 +1877,6 @@ CREATE UNLOGGED TABLE public.river_client_queue (
 
 
 --
--- Name: river_job; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.river_job (
-    id bigint NOT NULL,
-    state public.river_job_state DEFAULT 'available'::public.river_job_state NOT NULL,
-    attempt smallint DEFAULT 0 NOT NULL,
-    max_attempts smallint NOT NULL,
-    attempted_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    finalized_at timestamp with time zone,
-    scheduled_at timestamp with time zone DEFAULT now() NOT NULL,
-    priority smallint DEFAULT 1 NOT NULL,
-    args jsonb NOT NULL,
-    attempted_by text[],
-    errors jsonb[],
-    kind text NOT NULL,
-    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    queue text DEFAULT 'default'::text NOT NULL,
-    tags character varying(255)[] DEFAULT '{}'::character varying[] NOT NULL,
-    unique_key bytea,
-    unique_states bit(8),
-    CONSTRAINT finalized_or_finalized_at_null CHECK ((((finalized_at IS NULL) AND (state <> ALL (ARRAY['cancelled'::public.river_job_state, 'completed'::public.river_job_state, 'discarded'::public.river_job_state]))) OR ((finalized_at IS NOT NULL) AND (state = ANY (ARRAY['cancelled'::public.river_job_state, 'completed'::public.river_job_state, 'discarded'::public.river_job_state]))))),
-    CONSTRAINT kind_length CHECK (((char_length(kind) > 0) AND (char_length(kind) < 128))),
-    CONSTRAINT max_attempts_is_positive CHECK ((max_attempts > 0)),
-    CONSTRAINT priority_in_range CHECK (((priority >= 1) AND (priority <= 4))),
-    CONSTRAINT queue_length CHECK (((char_length(queue) > 0) AND (char_length(queue) < 128)))
-);
-
-
---
 -- Name: river_job_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -1889,13 +1886,6 @@ CREATE SEQUENCE public.river_job_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
-
-
---
--- Name: river_job_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.river_job_id_seq OWNED BY public.river_job.id;
 
 
 --
@@ -2384,7 +2374,7 @@ CREATE TABLE public.upgrade_payment_attempts (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     upgrade_request_id character varying(36),
     CONSTRAINT chk_upgrade_payment_attempts_amount_non_negative CHECK ((amount_cents >= 0)),
-    CONSTRAINT chk_upgrade_payment_attempts_status CHECK (((status)::text = ANY ((ARRAY['prepared'::character varying, 'payment_failed'::character varying, 'payment_captured'::character varying, 'execute_applied'::character varying])::text[])))
+    CONSTRAINT chk_upgrade_payment_attempts_status CHECK (((status)::text = ANY (ARRAY[('prepared'::character varying)::text, ('payment_failed'::character varying)::text, ('payment_captured'::character varying)::text, ('execute_applied'::character varying)::text])))
 );
 
 
@@ -2434,7 +2424,7 @@ CREATE TABLE public.upgrade_replacement_cutovers (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT chk_upgrade_replacement_cutovers_retry_non_negative CHECK ((retry_count >= 0)),
-    CONSTRAINT chk_upgrade_replacement_cutovers_status CHECK (((status)::text = ANY ((ARRAY['pending_provisioning'::character varying, 'replacement_created'::character varying, 'old_cancellation_scheduled'::character varying, 'retry_pending'::character varying, 'manual_review_required'::character varying, 'completed'::character varying])::text[]))),
+    CONSTRAINT chk_upgrade_replacement_cutovers_status CHECK (((status)::text = ANY (ARRAY[('pending_provisioning'::character varying)::text, ('replacement_created'::character varying)::text, ('old_cancellation_scheduled'::character varying)::text, ('retry_pending'::character varying)::text, ('manual_review_required'::character varying)::text, ('completed'::character varying)::text]))),
     CONSTRAINT chk_upgrade_replacement_cutovers_target_quantity_positive CHECK ((target_quantity > 0))
 );
 
@@ -2459,24 +2449,6 @@ ALTER SEQUENCE public.upgrade_replacement_cutovers_id_seq OWNED BY public.upgrad
 
 
 --
--- Name: upgrade_request_events; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.upgrade_request_events (
-    id bigint NOT NULL,
-    upgrade_request_id character varying(36) NOT NULL,
-    org_id bigint NOT NULL,
-    event_source character varying(64) NOT NULL,
-    event_type character varying(64) NOT NULL,
-    from_status character varying(64),
-    to_status character varying(64),
-    event_payload jsonb,
-    event_time timestamp with time zone DEFAULT now() NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
 -- Name: upgrade_request_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -2486,13 +2458,6 @@ CREATE SEQUENCE public.upgrade_request_events_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
-
-
---
--- Name: upgrade_request_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.upgrade_request_events_id_seq OWNED BY public.upgrade_request_events.id;
 
 
 --
@@ -2530,8 +2495,8 @@ CREATE TABLE public.upgrade_requests (
     action_needed_at timestamp with time zone,
     last_customer_state_change_at timestamp with time zone,
     CONSTRAINT chk_upgrade_requests_amount_non_negative CHECK ((expected_amount_cents >= 0)),
-    CONSTRAINT chk_upgrade_requests_customer_state CHECK (((customer_state IS NULL) OR ((customer_state)::text = ANY ((ARRAY['processing'::character varying, 'action_needed'::character varying, 'resolved'::character varying, 'failed'::character varying])::text[])))),
-    CONSTRAINT chk_upgrade_requests_status CHECK (((current_status)::text = ANY ((ARRAY['created'::character varying, 'payment_order_created'::character varying, 'waiting_for_capture'::character varying, 'payment_capture_confirmed'::character varying, 'subscription_update_requested'::character varying, 'waiting_for_subscription_confirm'::character varying, 'subscription_change_confirmed'::character varying, 'reconciliation_retrying'::character varying, 'manual_review_required'::character varying, 'resolved'::character varying, 'failed'::character varying])::text[])))
+    CONSTRAINT chk_upgrade_requests_customer_state CHECK (((customer_state IS NULL) OR ((customer_state)::text = ANY (ARRAY[('processing'::character varying)::text, ('action_needed'::character varying)::text, ('resolved'::character varying)::text, ('failed'::character varying)::text])))),
+    CONSTRAINT chk_upgrade_requests_status CHECK (((current_status)::text = ANY (ARRAY[('created'::character varying)::text, ('payment_order_created'::character varying)::text, ('waiting_for_capture'::character varying)::text, ('payment_capture_confirmed'::character varying)::text, ('subscription_update_requested'::character varying)::text, ('waiting_for_subscription_confirm'::character varying)::text, ('subscription_change_confirmed'::character varying)::text, ('reconciliation_retrying'::character varying)::text, ('manual_review_required'::character varying)::text, ('resolved'::character varying)::text, ('failed'::character varying)::text])))
 );
 
 
@@ -2818,6 +2783,13 @@ ALTER TABLE ONLY public.org_billing_state ALTER COLUMN id SET DEFAULT nextval('p
 
 
 --
+-- Name: org_billing_state_audit id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_billing_state_audit ALTER COLUMN id SET DEFAULT nextval('public.org_billing_state_audit_id_seq'::regclass);
+
+
+--
 -- Name: org_discord_configs id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2916,13 +2888,6 @@ ALTER TABLE ONLY public.review_commits ALTER COLUMN id SET DEFAULT nextval('publ
 
 
 --
--- Name: review_events id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.review_events ALTER COLUMN id SET DEFAULT nextval('public.review_events_id_seq'::regclass);
-
-
---
 -- Name: review_feedback id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2934,13 +2899,6 @@ ALTER TABLE ONLY public.review_feedback ALTER COLUMN id SET DEFAULT nextval('pub
 --
 
 ALTER TABLE ONLY public.reviews ALTER COLUMN id SET DEFAULT nextval('public.reviews_id_seq'::regclass);
-
-
---
--- Name: river_job id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.river_job ALTER COLUMN id SET DEFAULT nextval('public.river_job_id_seq'::regclass);
 
 
 --
@@ -3007,13 +2965,6 @@ ALTER TABLE ONLY public.upgrade_replacement_cutovers ALTER COLUMN id SET DEFAULT
 
 
 --
--- Name: upgrade_request_events id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.upgrade_request_events ALTER COLUMN id SET DEFAULT nextval('public.upgrade_request_events_id_seq'::regclass);
-
-
---
 -- Name: upgrade_requests id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3046,14 +2997,6 @@ ALTER TABLE ONLY public.users ALTER COLUMN id SET DEFAULT nextval('public.users_
 --
 
 ALTER TABLE ONLY public.webhook_registry ALTER COLUMN id SET DEFAULT nextval('public.webhook_registry_id_seq'::regclass);
-
-
---
--- Name: _seed_backup _seed_backup_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public._seed_backup
-    ADD CONSTRAINT _seed_backup_pkey PRIMARY KEY (org_id, key);
 
 
 --
@@ -3217,11 +3160,11 @@ ALTER TABLE ONLY public.loc_usage_ledger
 
 
 --
--- Name: mcp_authorizations mcp_authorizations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: org_billing_state_audit org_billing_state_audit_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.mcp_authorizations
-    ADD CONSTRAINT mcp_authorizations_pkey PRIMARY KEY (request_id);
+ALTER TABLE ONLY public.org_billing_state_audit
+    ADD CONSTRAINT org_billing_state_audit_pkey PRIMARY KEY (id);
 
 
 --
@@ -3401,14 +3344,6 @@ ALTER TABLE ONLY public.review_commits
 
 
 --
--- Name: review_events review_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.review_events
-    ADD CONSTRAINT review_events_pkey PRIMARY KEY (id);
-
-
---
 -- Name: review_feedback review_feedback_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3438,14 +3373,6 @@ ALTER TABLE ONLY public.river_client
 
 ALTER TABLE ONLY public.river_client_queue
     ADD CONSTRAINT river_client_queue_pkey PRIMARY KEY (river_client_id, name);
-
-
---
--- Name: river_job river_job_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.river_job
-    ADD CONSTRAINT river_job_pkey PRIMARY KEY (id);
 
 
 --
@@ -3622,14 +3549,6 @@ ALTER TABLE ONLY public.upgrade_replacement_cutovers
 
 ALTER TABLE ONLY public.upgrade_replacement_cutovers
     ADD CONSTRAINT upgrade_replacement_cutovers_upgrade_request_id_key UNIQUE (upgrade_request_id);
-
-
---
--- Name: upgrade_request_events upgrade_request_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.upgrade_request_events
-    ADD CONSTRAINT upgrade_request_events_pkey PRIMARY KEY (id);
 
 
 --
@@ -3968,7 +3887,7 @@ CREATE INDEX idx_billing_notification_outbox_org_created ON public.billing_notif
 -- Name: idx_billing_notification_outbox_pending; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_billing_notification_outbox_pending ON public.billing_notification_outbox USING btree (status, send_after, created_at) WHERE ((status)::text = ANY ((ARRAY['pending'::character varying, 'failed'::character varying])::text[]));
+CREATE INDEX idx_billing_notification_outbox_pending ON public.billing_notification_outbox USING btree (status, send_after, created_at) WHERE ((status)::text = ANY (ARRAY[('pending'::character varying)::text, ('failed'::character varying)::text]));
 
 
 --
@@ -4186,13 +4105,6 @@ CREATE INDEX idx_loc_usage_ledger_org_time ON public.loc_usage_ledger USING btre
 --
 
 CREATE INDEX idx_loc_usage_ledger_org_user ON public.loc_usage_ledger USING btree (org_id, user_id) WHERE (user_id IS NOT NULL);
-
-
---
--- Name: idx_mcp_authorizations_status_expiry; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_mcp_authorizations_status_expiry ON public.mcp_authorizations USING btree (status, expires_at);
 
 
 --
@@ -4452,27 +4364,6 @@ CREATE INDEX idx_review_commits_org_ref ON public.review_commits USING btree (or
 --
 
 CREATE INDEX idx_review_commits_review_id ON public.review_commits USING btree (review_id);
-
-
---
--- Name: idx_review_events_org_ts; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_review_events_org_ts ON public.review_events USING btree (org_id, ts);
-
-
---
--- Name: idx_review_events_review_ts; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_review_events_review_ts ON public.review_events USING btree (review_id, ts);
-
-
---
--- Name: idx_review_events_type; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_review_events_type ON public.review_events USING btree (review_id, event_type, ts DESC);
 
 
 --
@@ -4756,20 +4647,6 @@ CREATE INDEX idx_upgrade_replacement_cutovers_org_status ON public.upgrade_repla
 
 
 --
--- Name: idx_upgrade_request_events_org_time; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_upgrade_request_events_org_time ON public.upgrade_request_events USING btree (org_id, event_time DESC);
-
-
---
--- Name: idx_upgrade_request_events_request_time; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_upgrade_request_events_request_time ON public.upgrade_request_events USING btree (upgrade_request_id, event_time DESC);
-
-
---
 -- Name: idx_upgrade_requests_customer_state; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4959,48 +4836,6 @@ CREATE INDEX idx_webhook_registry_provider_project ON public.webhook_registry US
 
 
 --
--- Name: river_job_args_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX river_job_args_index ON public.river_job USING gin (args);
-
-
---
--- Name: river_job_kind; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX river_job_kind ON public.river_job USING btree (kind);
-
-
---
--- Name: river_job_metadata_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX river_job_metadata_index ON public.river_job USING gin (metadata);
-
-
---
--- Name: river_job_prioritized_fetching_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX river_job_prioritized_fetching_index ON public.river_job USING btree (state, queue, priority, scheduled_at, id);
-
-
---
--- Name: river_job_state_and_finalized_at_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX river_job_state_and_finalized_at_index ON public.river_job USING btree (state, finalized_at) WHERE (finalized_at IS NOT NULL);
-
-
---
--- Name: river_job_unique_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX river_job_unique_idx ON public.river_job USING btree (unique_key) WHERE ((unique_key IS NOT NULL) AND (unique_states IS NOT NULL) AND public.river_job_state_in_bitmask(unique_states, state));
-
-
---
 -- Name: uq_pull_requests_repo_number; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5033,6 +4868,13 @@ CREATE TRIGGER trg_license_seat_assignments_updated_at BEFORE UPDATE ON public.l
 --
 
 CREATE TRIGGER trg_license_state_updated_at BEFORE UPDATE ON public.license_state FOR EACH ROW EXECUTE FUNCTION public.license_state_set_updated_at();
+
+
+--
+-- Name: org_billing_state trg_org_billing_state_audit; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_org_billing_state_audit AFTER UPDATE ON public.org_billing_state FOR EACH ROW EXECUTE FUNCTION public.log_org_billing_state_change();
 
 
 --
@@ -5510,14 +5352,6 @@ ALTER TABLE ONLY public.review_commits
 
 
 --
--- Name: review_events review_events_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.review_events
-    ADD CONSTRAINT review_events_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id) ON DELETE CASCADE;
-
-
---
 -- Name: review_feedback review_feedback_ai_comment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5699,22 +5533,6 @@ ALTER TABLE ONLY public.upgrade_replacement_cutovers
 
 ALTER TABLE ONLY public.upgrade_replacement_cutovers
     ADD CONSTRAINT upgrade_replacement_cutovers_upgrade_request_id_fkey FOREIGN KEY (upgrade_request_id) REFERENCES public.upgrade_requests(upgrade_request_id) ON DELETE CASCADE;
-
-
---
--- Name: upgrade_request_events upgrade_request_events_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.upgrade_request_events
-    ADD CONSTRAINT upgrade_request_events_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
-
-
---
--- Name: upgrade_request_events upgrade_request_events_upgrade_request_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.upgrade_request_events
-    ADD CONSTRAINT upgrade_request_events_upgrade_request_id_fkey FOREIGN KEY (upgrade_request_id) REFERENCES public.upgrade_requests(upgrade_request_id) ON DELETE CASCADE;
 
 
 --
@@ -5944,7 +5762,6 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260411170000'),
     ('20260419193000'),
     ('20260420140334'),
-    ('20260509195524'),
     ('20260521120000'),
     ('20260521140000'),
     ('20260522120000'),
@@ -5962,6 +5779,7 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260704150001'),
     ('20260706205257'),
     ('20260707220001'),
+    ('20260709120000'),
     ('20260727120000'),
     ('20260727120001'),
     ('20260729150001'),

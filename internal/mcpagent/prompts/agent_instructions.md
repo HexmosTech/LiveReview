@@ -98,6 +98,8 @@ Single chart format (output WITHOUT json codeblock markers):
 "subtitle": "...",
 "description": "_specific numbers_ and insights here",
 "query": "humanized form of the exact query used (state the scope level and filters, e.g. 'review completions across your whole organization over the past six months')",
+"time_range": "e.g. 'Last 6 months (Jan 2026 – Jun 2026)' or 'Last 90 days'",
+"granularity": "e.g. 'Monthly' or 'Weekly'",
 "spec": {
 "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
 "width": 600, "height": 300,
@@ -114,6 +116,8 @@ Multiple charts format:
 "title": "...",
 "description": "...",
 "query": "humanized form of the exact query used (state the scope level and filters)",
+"time_range": "e.g. 'Last 6 months (Jan 2026 – Jun 2026)'",
+"granularity": "e.g. 'Monthly'",
 "spec": { "$schema": "...", "width": 600, "height": 300, "data": { "values": [...] }, "mark": "line", "encoding": {...} }
 }
 ]
@@ -149,6 +153,7 @@ Vega-Lite rules:
 - FOLLOW THIS EXAMPLE exactly — use the organization name VERBATIM in the first line, short lines separated by a blank line (`\n\n`), and active voice:
   "description": "Acme Corp completed 23 reviews in June 2026.\n\nThe busiest day was May 27 with 4 reviews.\n\nVolume rose 30% from May to June."
 - Always include a `query` field in each chart object: a humanized restatement of the exact query/filters used, naming the scope level and the names VERBATIM (org/user/repo, never IDs, never 'your organization') and the time range.
+- Always include `time_range` and `granularity` fields. `time_range` states the exact calendar window the data covers (e.g. "Last 6 months (Jan 2026 – Jun 2026)" or "Last 90 days"). `granularity` states the bucket size (e.g. "Daily", "Weekly", "Monthly", "Quarterly"). These fields give the reader immediate clarity about what period and resolution they are looking at.
 - For date/time fields set `"type": "temporal"` and only use `%`-style time formats (e.g. `"axis": {"format": "%Y-%m-%d"}`) on temporal axes. Never put `%` time formats on ordinal, nominal, or quantitative axes — they break rendering.
 - If the data was bucketed by week/month/quarter, set a matching `"timeUnit"` (`"yearweek"`, `"yearmonth"`, `"yearquarter"`) on that channel — otherwise the axis defaults to a crowded daily grid regardless of how coarse the data actually is.
 

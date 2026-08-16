@@ -36,6 +36,8 @@ type WebChatChart struct {
 	Title       string          `json:"title,omitempty"`
 	Description string          `json:"description,omitempty"`
 	Query       string          `json:"query,omitempty"`
+	TimeRange   string          `json:"time_range,omitempty"`
+	Granularity string          `json:"granularity,omitempty"`
 	Spec        json.RawMessage `json:"spec"`
 }
 
@@ -152,13 +154,20 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		} else if errors.Is(err, vlrender.ErrTrivialSpec) {
 			// A single value/bar is not worth a chart — show the description
 			// (and query) as plain text instead.
-			desc, query, ok := vlrender.TrivialDescription(responseText)
+			desc, query, timeRange, granularity, ok := vlrender.TrivialDescription(responseText)
 			text := desc
-			if query != "" {
+			if query != "" || timeRange != "" || granularity != "" {
 				if text != "" {
 					text += "\n\n"
 				}
-				text += "Query used: " + query
+				detail := "Query: " + query
+				if timeRange != "" {
+					detail += "\nTime range: " + timeRange
+				}
+				if granularity != "" {
+					detail += "\nGranularity: " + granularity
+				}
+				text += detail
 			}
 			if !ok || text == "" {
 				text = strings.TrimSpace(cleanText)
@@ -238,6 +247,8 @@ func reportsToCharts(reports []vlrender.VegaLiteReport) ([]WebChatChart, error) 
 			Title:       vlrender.FriendlyTitle(r.Title, r.Subtitle),
 			Description: r.Description,
 			Query:       r.Query,
+			TimeRange:   r.TimeRange,
+			Granularity: r.Granularity,
 			Spec:        json.RawMessage(spec),
 		})
 	}

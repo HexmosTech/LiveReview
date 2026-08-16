@@ -56,8 +56,15 @@ func buildAttachmentsFromVegaLite(ctx context.Context, baseURL string, text stri
 		if r.Description != "" {
 			descriptions = append(descriptions, r.Description)
 		}
-		if r.Query != "" {
-			descriptions = append(descriptions, "Query used: "+r.Query)
+		if r.Query != "" || r.TimeRange != "" || r.Granularity != "" {
+			detail := "Query: " + r.Query
+			if r.TimeRange != "" {
+				detail += "\nTime range: " + r.TimeRange
+			}
+			if r.Granularity != "" {
+				detail += "\nGranularity: " + r.Granularity
+			}
+			descriptions = append(descriptions, detail)
 		}
 
 		card := map[string]any{

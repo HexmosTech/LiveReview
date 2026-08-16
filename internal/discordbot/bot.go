@@ -421,9 +421,16 @@ func (oh *orgHandler) processMessage(channelID, messageID, threadID, text string
 			return
 		}
 		// A single value/bar isn't worth a chart — reply with the description text.
-		if desc, query, ok := vlrender.TrivialDescription(finalText); ok && desc != "" {
-			if query != "" {
-				desc += "\n\nQuery used: " + query
+		if desc, query, timeRange, granularity, ok := vlrender.TrivialDescription(finalText); ok && desc != "" {
+			if query != "" || timeRange != "" || granularity != "" {
+				detail := "\n\nQuery: " + query
+				if timeRange != "" {
+					detail += "\nTime range: " + timeRange
+				}
+				if granularity != "" {
+					detail += "\nGranularity: " + granularity
+				}
+				desc += detail
 			}
 			if _, err := oh.session.ChannelMessageSend(channelID, desc); err != nil {
 				log.Printf("[DiscordBot] Failed to send message: %s", err)
@@ -462,11 +469,18 @@ func (oh *orgHandler) uploadReportsToDiscord(channelID string, reports []rendere
 		if msg == "" {
 			msg = r.Title
 		}
-		if r.Query != "" {
+		if r.Query != "" || r.TimeRange != "" || r.Granularity != "" {
 			if msg != "" {
 				msg += "\n\n"
 			}
-			msg += fmt.Sprintf("Query used: %s", r.Query)
+			detail := fmt.Sprintf("Query: %s", r.Query)
+			if r.TimeRange != "" {
+				detail += fmt.Sprintf("\nTime range: %s", r.TimeRange)
+			}
+			if r.Granularity != "" {
+				detail += fmt.Sprintf("\nGranularity: %s", r.Granularity)
+			}
+			msg += detail
 		}
 		reader := bytes.NewReader(r.PNGData)
 		name := "report.png"

@@ -462,6 +462,8 @@ func (a *Agent) buildChartReport(
 		Title:       plan.Title,
 		Description: plan.Description,
 		Query:       plan.Query,
+		TimeRange:   plan.TimeRange,
+		Granularity: plan.Granularity,
 		Spec:        normalized,
 	}}
 }
@@ -722,6 +724,8 @@ func (a *Agent) buildCSVReport(
 		Title:       plan.Title,
 		Description: description,
 		Query:       plan.Query,
+		TimeRange:   plan.TimeRange,
+		Granularity: plan.Granularity,
 		Data:        []byte(buf.String()),
 		Rows:        len(rs.Rows),
 	}}
