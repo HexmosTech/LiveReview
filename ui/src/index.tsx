@@ -5,6 +5,7 @@ import './styles/darkmode.css';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { Provider as ReduxProvider } from 'react-redux';
+import { QueryClientProvider } from '@tanstack/react-query';
 // import { PostHogProvider } from 'posthog-js/react';
 // import posthog from 'posthog-js';
 // import 'posthog-js/dist/posthog-recorder';
@@ -12,6 +13,7 @@ import { Provider as ReduxProvider } from 'react-redux';
 import configureAppStore, { getPreloadedState } from './store/configureStore';
 import AppContextProvider from './contexts/AppContextProvider';
 import App from './App';
+import { queryClient } from './api/queryClient';
 import { injectStore } from './api/apiClient';
 import { injectStore as injectNotifyStore } from './utils/notify';
 
@@ -70,9 +72,11 @@ const root = createRoot(rootElement);
 const appTree = (
     <React.StrictMode>
         <ReduxProvider store={store}>
-            <AppContextProvider>
-                <App />
-            </AppContextProvider>
+            <QueryClientProvider client={queryClient}>
+                <AppContextProvider>
+                    <App />
+                </AppContextProvider>
+            </QueryClientProvider>
         </ReduxProvider>
     </React.StrictMode>
 );

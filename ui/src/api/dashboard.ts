@@ -1,4 +1,5 @@
 // API functions for dashboard data
+import { useQuery } from '@tanstack/react-query';
 import apiClient from './apiClient';
 
 export interface ActivityItem {
@@ -187,3 +188,30 @@ export interface RefreshDashboardResponse {
 export const refreshDashboardData = async (): Promise<RefreshDashboardResponse> => {
     return apiClient.post<RefreshDashboardResponse>('/api/v1/dashboard/refresh', {});
 };
+
+export const DASHBOARD_QUERY_KEY = ['dashboard'] as const;
+
+// Mirrors the original Dashboard.tsx load sequence: force the server cache to recompute, then
+// read the result. Kept as the shared queryFn below so every consumer (Dashboard.tsx and the
+// three widget-layer providers) triggers this at most once per cache window instead of each
+// firing its own refresh+get pair - see docs/perf-improvement.md ("Fix 2").
+const loadDashboardDataWithRefresh = async (): Promise<DashboardData> => {
+    try {
+        await refreshDashboardData();
+    } catch {
+        // best-effort - fall through to reading whatever the cache already has
+    }
+    return getDashboardData();
+};
+
+// Shared dashboard-data query. Every component that needs dashboard data (Dashboard.tsx, the
+// ReviewLayers/SystemOverview/People widget providers, CreateReviewCLI) should use this instead
+// of calling getDashboardData()/refreshDashboardData() directly, so they share one cached
+// in-flight request/result rather than each firing an independent round trip.
+export function useDashboardQuery() {
+    return useQuery<DashboardData>({
+        queryKey: DASHBOARD_QUERY_KEY,
+        queryFn: loadDashboardDataWithRefresh,
+        refetchInterval: 5 * 60_000,
+    });
+}

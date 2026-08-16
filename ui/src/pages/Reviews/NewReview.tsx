@@ -15,7 +15,7 @@ import { getConnectors, ConnectorResponse } from '../../api/connectors';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { UpgradePromptModal } from '../../components/Subscriptions';
 import { SafetyBanner } from '../../components/SafetyBanner/SafetyBanner';
-import apiClient from '../../api/apiClient';
+import { useQuotaStatusQuery, useBillingStatusQuery } from '../../api/billing';
 import { QuotaExhaustedBanner } from '../../components/Dashboard/QuotaExhaustedBanner';
 import { QuotaWarningBanner } from '../../components/Dashboard/QuotaWarningBanner';
 import { useOrgContext } from '../../hooks/useOrgContext';
@@ -82,8 +82,9 @@ const NewReview: React.FC = () => {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState<'DAILY_LIMIT' | 'NOT_ORG_CREATOR'>('DAILY_LIMIT');
   const [limitInfo, setLimitInfo] = useState<{ used: number; limit: number }>({ used: 3, limit: 3 });
-  const [quotaStatus, setQuotaStatus] = useState<QuotaStatusResponse | null>(null);
-  const [trialBilling, setTrialBilling] = useState<TrialBillingStatusResponse | null>(null);
+  // Shared with Navbar/Dashboard/TeamCheckout/SubscriptionTab via react-query's cache.
+  const { data: quotaStatus = null } = useQuotaStatusQuery<QuotaStatusResponse>();
+  const { data: trialBilling = null } = useBillingStatusQuery<TrialBillingStatusResponse>();
   const [showPlanUpgradeDialog, setShowPlanUpgradeDialog] = useState(false);
 
   // Load connectors when component mounts
@@ -103,15 +104,6 @@ const NewReview: React.FC = () => {
     fetchConnectors();
   }, []);
 
-  useEffect(() => {
-    Promise.all([
-      apiClient.get<QuotaStatusResponse>('/quota/status').catch((): null => null),
-      apiClient.get<TrialBillingStatusResponse>('/billing/status').catch((): null => null),
-    ]).then(([quota, billing]) => {
-      setQuotaStatus(quota);
-      setTrialBilling(billing);
-    });
-  }, []);
 
   const effectiveTrialEndsAt = String(trialBilling?.billing?.trial_ends_at || quotaStatus?.envelope?.trial_ends_at || '').trim();
   const activeTrialDaysLeft = trialDaysRemaining(effectiveTrialEndsAt);

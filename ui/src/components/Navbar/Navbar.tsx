@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import classNames from 'classnames';
 import { Button, Icons } from '../UIPrimitives';
@@ -6,7 +6,13 @@ import { OrganizationSelector } from '../OrganizationSelector';
 import { useSystemInfo } from '../../hooks/useSystemInfo';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { isCloudMode } from '../../utils/deploymentMode';
-import apiClient from '../../api/apiClient';
+import {
+    useBillingStatusQuery,
+    useQuotaStatusQuery,
+    useBillingUpgradeStatusQuery,
+    useBillingUsageMeQuery,
+    useBillingUsageMembersQuery,
+} from '../../api/billing';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { buildMegaMenuSections, filterMegaMenuSection, MegaMenuContext } from './megaMenuData';
 import { NavMegaMenu } from './NavMegaMenu';
@@ -135,192 +141,159 @@ const formatTrialEndsAt = (value?: string | null): string => {
     }).format(date);
 };
 
+type BillingChipState = {
+    planCode: string;
+    usagePct: number;
+    customerState: string;
+    blocked: boolean;
+    locUsed: number;
+    locLimit: number;
+    resetAt: string;
+    myUsageLoc: number;
+    myOperationCount: number;
+    mySharePct: number;
+    topMembers: Array<{ label: string; loc: number; share: number; kind: string }>;
+    canViewTeamBreakdown: boolean;
+    trialActive: boolean;
+    trialEndsAt: string;
+    trialDaysLeft: number | null;
+    trialCanCancel: boolean;
+    trialEligibleForFirstPaidPurchase: boolean;
+    trialEligibilityStatus: string;
+    trialPolicyDays: number;
+    isFreePlan: boolean;
+};
+
 const BillingChip: React.FC = () => {
     const navigate = useNavigate();
     const dispatch = useAppDispatch();
     const { currentOrg, isSuperAdmin } = useOrgContext();
     const license = useAppSelector((state) => state.License);
-    const [loading, setLoading] = useState(false);
     const [isOpen, setIsOpen] = useState(false);
     const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const [chip, setChip] = useState<{
-        planCode: string;
-        usagePct: number;
-        customerState: string;
-        blocked: boolean;
-        locUsed: number;
-        locLimit: number;
-        resetAt: string;
-        myUsageLoc: number;
-        myOperationCount: number;
-        mySharePct: number;
-        topMembers: Array<{ label: string; loc: number; share: number; kind: string }>;
-        canViewTeamBreakdown: boolean;
-        trialActive: boolean;
-        trialEndsAt: string;
-        trialDaysLeft: number | null;
-        trialCanCancel: boolean;
-        trialEligibleForFirstPaidPurchase: boolean;
-        trialEligibilityStatus: string;
-        trialPolicyDays: number;
-        isFreePlan: boolean;
-    } | null>(null);
+
+    const cloudMode = isCloudMode();
+    const selfHostedLicensed = !cloudMode && license.loadedOnce && isLicensedSelfHostedStatus(license.status);
+    // Mirrors the original effect's early-exit: no org, or a licensed self-hosted install,
+    // means there's nothing to show and no billing/quota data is needed at all.
+    const queriesEnabled = Boolean(currentOrg?.id) && !selfHostedLicensed;
+    const canViewTeamBreakdown = isSuperAdmin || ['owner', 'admin', 'super_admin'].includes(String(currentOrg?.role || '').toLowerCase());
+
+    // These queries are shared (by queryKey) with Dashboard.tsx, NewReview.tsx, TeamCheckout.tsx
+    // and SubscriptionTab.tsx via react-query's cache - whichever of those mounts first fires the
+    // request, the rest just read the cached result instead of each firing their own.
+    const { data: quota, isFetching: quotaFetching } = useQuotaStatusQuery<NavbarQuotaStatusResponse>({ enabled: queriesEnabled });
+    const { data: myUsage, isFetching: usageFetching } = useBillingUsageMeQuery<NavbarMyUsageResponse>({ enabled: queriesEnabled });
+    const { data: billing, isFetching: billingFetching } = useBillingStatusQuery<NavbarBillingStatusResponse>({ enabled: queriesEnabled && cloudMode });
+    const { data: upgrade } = useBillingUpgradeStatusQuery<NavbarUpgradeStatusResponse>({ enabled: queriesEnabled && cloudMode });
+    const { data: teamUsage } = useBillingUsageMembersQuery<NavbarUsageMembersResponse>(3, 0, {
+        enabled: queriesEnabled && cloudMode && canViewTeamBreakdown,
+    });
+
+    const loading = queriesEnabled && (cloudMode ? billingFetching : quotaFetching || usageFetching);
+
+    const chip = useMemo<BillingChipState | null>(() => {
+        if (!queriesEnabled) return null;
+
+        if (!cloudMode) {
+            if (!quota?.envelope) return null;
+
+            const planCode = license.loadedOnce && ['missing', 'invalid', 'expired'].includes(license.status)
+                ? 'free_30k'
+                : quota.envelope.plan_code || quota.plan_type || currentOrg?.plan_type || '';
+            const locLimit = quota.envelope.loc_limit_month ?? 30000;
+
+            if (!isFreeLOCPlan(planCode) && locLimit !== 30000) return null;
+
+            const locUsed = quota.envelope.loc_used_month ?? 0;
+            const usagePct = locLimit > 0 ? Math.min(100, Math.round((locUsed * 100) / locLimit)) : 0;
+            return {
+                planCode: 'free_30k',
+                usagePct,
+                customerState: 'none',
+                blocked: Boolean(quota.envelope.blocked),
+                locUsed,
+                locLimit,
+                resetAt: quota.envelope.billing_period_end ?? quota.envelope.reset_at ?? '',
+                myUsageLoc: Number(myUsage?.member?.total_billable_loc || 0),
+                myOperationCount: Number(myUsage?.member?.operation_count || 0),
+                mySharePct: Number(myUsage?.member?.usage_share_percent || 0),
+                topMembers: [],
+                canViewTeamBreakdown: false,
+                trialActive: false,
+                trialEndsAt: '',
+                trialDaysLeft: null,
+                trialCanCancel: false,
+                trialEligibleForFirstPaidPurchase: false,
+                trialEligibilityStatus: 'unknown',
+                trialPolicyDays: 7,
+                isFreePlan: true,
+            };
+        }
+
+        if (!billing?.billing) return null;
+
+        const planCode = billing.billing.current_plan_code || 'free_30k';
+        const availablePlans: NavbarBillingStatusResponse['available_plans'] = billing.available_plans || [];
+        const plan = availablePlans.find((item) => item.plan_code === planCode);
+        const locUsed = Number(billing.billing.loc_used_month || quota?.envelope?.loc_used_month || 0);
+        const locLimit = Number(plan?.monthly_loc_limit || quota?.envelope?.loc_limit_month || 0);
+
+        const fallbackPct = plan && plan.monthly_loc_limit > 0
+            ? Math.min(100, Math.round((locUsed * 100) / Number(plan.monthly_loc_limit || 1)))
+            : 0;
+
+        const topMembers = (teamUsage?.members || [])
+            .slice(0, 3)
+            .map((member: NonNullable<NavbarUsageMembersResponse['members']>[number]) => ({
+                label: String(member.actor_email || (member.actor_kind === 'system' ? 'System' : 'Unknown')).trim(),
+                loc: Number(member.total_billable_loc || 0),
+                share: Number(member.usage_share_percent || 0),
+                kind: String(member.actor_kind || 'unknown').trim(),
+            }));
+        const trialPolicyDays = availablePlans.reduce((max: number, item) => {
+            const trialDays = Number(item.trial_days || 0);
+            if (trialDays <= 0) {
+                return max;
+            }
+            return Math.max(max, trialDays);
+        }, 0);
+        const trialEligibilityStatus = String(billing.billing.trial_eligibility?.status || 'unknown').trim().toLowerCase();
+        const trialEligibleForFirstPaidPurchase = Boolean(billing.billing.trial_eligibility?.eligible);
+        const isFreePlan = String(planCode).trim().toLowerCase() === 'free_30k' || String(planCode).trim().toLowerCase() === 'free';
+
+        return {
+            planCode,
+            usagePct: Math.max(0, Math.round(quota?.envelope?.usage_pct ?? fallbackPct)),
+            customerState: String(upgrade?.request?.customer_state || 'none').trim().toLowerCase(),
+            blocked: Boolean(quota?.envelope?.blocked),
+            locUsed,
+            locLimit,
+            resetAt: String(billing.billing.billing_period_end || '').trim(),
+            myUsageLoc: Number(myUsage?.member?.total_billable_loc || 0),
+            myOperationCount: Number(myUsage?.member?.operation_count || 0),
+            mySharePct: Number(myUsage?.member?.usage_share_percent || 0),
+            topMembers,
+            canViewTeamBreakdown,
+            trialActive: Boolean(billing.billing.trial_active),
+            trialEndsAt: String(billing.billing.trial_ends_at || '').trim(),
+            trialDaysLeft: trialDaysRemaining(billing.billing.trial_ends_at),
+            trialCanCancel: Boolean(billing.billing.trial_can_cancel),
+            trialEligibleForFirstPaidPurchase,
+            trialEligibilityStatus,
+            trialPolicyDays: trialPolicyDays > 0 ? trialPolicyDays : 7,
+            isFreePlan,
+        };
+    }, [queriesEnabled, cloudMode, quota, myUsage, billing, upgrade, teamUsage, canViewTeamBreakdown, license.loadedOnce, license.status, currentOrg?.plan_type]);
 
     useEffect(() => {
-        if (!currentOrg?.id) {
-            setChip(null);
-            return;
-        }
-        if (!isCloudMode() && license.loadedOnce && isLicensedSelfHostedStatus(license.status)) {
-            setChip(null);
-            return;
-        }
-
-        let cancelled = false;
-        const load = async () => {
-            setLoading(true);
-            try {
-                const canViewTeamBreakdown = isSuperAdmin || ['owner', 'admin', 'super_admin'].includes(String(currentOrg?.role || '').toLowerCase());
-
-                if (!isCloudMode()) {
-                    if (license.loadedOnce && isLicensedSelfHostedStatus(license.status)) {
-                        setChip(null);
-                        return;
-                    }
-
-                    const [quota, myUsage] = await Promise.all([
-                        apiClient.get<NavbarQuotaStatusResponse>('/quota/status').catch((): null => null),
-                        apiClient.get<NavbarMyUsageResponse>('/billing/usage/me').catch((): null => null),
-                    ]);
-
-                    if (cancelled) return;
-
-                    if (!quota?.envelope) {
-                        setChip(null);
-                        return;
-                    }
-
-                    const planCode = license.loadedOnce && ['missing', 'invalid', 'expired'].includes(license.status)
-                        ? 'free_30k'
-                        : quota.envelope.plan_code || quota.plan_type || currentOrg?.plan_type || '';
-                    const locLimit = quota.envelope.loc_limit_month ?? 30000;
-
-                    if (!isFreeLOCPlan(planCode) && locLimit !== 30000) {
-                        setChip(null);
-                        return;
-                    }
-
-                    const locUsed = quota.envelope.loc_used_month ?? 0;
-                    const usagePct = locLimit > 0 ? Math.min(100, Math.round((locUsed * 100) / locLimit)) : 0;
-                    setChip({
-                        planCode: 'free_30k',
-                        usagePct,
-                        customerState: 'none',
-                        blocked: Boolean(quota.envelope.blocked),
-                        locUsed,
-                        locLimit,
-                        resetAt: quota.envelope.billing_period_end ?? quota.envelope.reset_at ?? '',
-                        myUsageLoc: Number(myUsage?.member?.total_billable_loc || 0),
-                        myOperationCount: Number(myUsage?.member?.operation_count || 0),
-                        mySharePct: Number(myUsage?.member?.usage_share_percent || 0),
-                        topMembers: [],
-                        canViewTeamBreakdown: false,
-                        trialActive: false,
-                        trialEndsAt: '',
-                        trialDaysLeft: null,
-                        trialCanCancel: false,
-                        trialEligibleForFirstPaidPurchase: false,
-                        trialEligibilityStatus: 'unknown',
-                        trialPolicyDays: 7,
-                        isFreePlan: true,
-                    });
-                    return;
-                }
-
-                const [billing, quota, upgrade, myUsage, teamUsage] = await Promise.all([
-                    apiClient.get<NavbarBillingStatusResponse>('/billing/status'),
-                    apiClient.get<NavbarQuotaStatusResponse>('/quota/status').catch((): null => null),
-                    apiClient.get<NavbarUpgradeStatusResponse>('/billing/upgrade/request-status').catch((): null => null),
-                    apiClient.get<NavbarMyUsageResponse>('/billing/usage/me').catch((): null => null),
-                    canViewTeamBreakdown
-                        ? apiClient.get<NavbarUsageMembersResponse>('/billing/usage/members?limit=3&offset=0').catch((): null => null)
-                        : Promise.resolve(null),
-                ]);
-
-                if (cancelled) return;
-
-                if (!billing?.billing) {
-                    setChip(null);
-                    return;
-                }
-
-                const planCode = billing.billing.current_plan_code || 'free_30k';
-                const availablePlans: NavbarBillingStatusResponse['available_plans'] = billing.available_plans || [];
-                const plan = availablePlans.find((item) => item.plan_code === planCode);
-                const locUsed = Number(billing.billing.loc_used_month || quota?.envelope?.loc_used_month || 0);
-                const locLimit = Number(plan?.monthly_loc_limit || quota?.envelope?.loc_limit_month || 0);
-
-                const fallbackPct = plan && plan.monthly_loc_limit > 0
-                    ? Math.min(100, Math.round((locUsed * 100) / Number(plan.monthly_loc_limit || 1)))
-                    : 0;
-
-                const topMembers = (teamUsage?.members || [])
-                    .slice(0, 3)
-                    .map((member: NonNullable<NavbarUsageMembersResponse['members']>[number]) => ({
-                        label: String(member.actor_email || (member.actor_kind === 'system' ? 'System' : 'Unknown')).trim(),
-                        loc: Number(member.total_billable_loc || 0),
-                        share: Number(member.usage_share_percent || 0),
-                        kind: String(member.actor_kind || 'unknown').trim(),
-                    }));
-                const trialPolicyDays = availablePlans.reduce((max: number, item) => {
-                    const trialDays = Number(item.trial_days || 0);
-                    if (trialDays <= 0) {
-                        return max;
-                    }
-                    return Math.max(max, trialDays);
-                }, 0);
-                const trialEligibilityStatus = String(billing.billing.trial_eligibility?.status || 'unknown').trim().toLowerCase();
-                const trialEligibleForFirstPaidPurchase = Boolean(billing.billing.trial_eligibility?.eligible);
-                const isFreePlan = String(planCode).trim().toLowerCase() === 'free_30k' || String(planCode).trim().toLowerCase() === 'free';
-
-                setChip({
-                    planCode,
-                    usagePct: Math.max(0, Math.round(quota?.envelope?.usage_pct ?? fallbackPct)),
-                    customerState: String(upgrade?.request?.customer_state || 'none').trim().toLowerCase(),
-                    blocked: Boolean(quota?.envelope?.blocked),
-                    locUsed,
-                    locLimit,
-                    resetAt: String(billing.billing.billing_period_end || '').trim(),
-                    myUsageLoc: Number(myUsage?.member?.total_billable_loc || 0),
-                    myOperationCount: Number(myUsage?.member?.operation_count || 0),
-                    mySharePct: Number(myUsage?.member?.usage_share_percent || 0),
-                    topMembers,
-                    canViewTeamBreakdown,
-                    trialActive: Boolean(billing.billing.trial_active),
-                    trialEndsAt: String(billing.billing.trial_ends_at || '').trim(),
-                    trialDaysLeft: trialDaysRemaining(billing.billing.trial_ends_at),
-                    trialCanCancel: Boolean(billing.billing.trial_can_cancel),
-                    trialEligibleForFirstPaidPurchase,
-                    trialEligibilityStatus,
-                    trialPolicyDays: trialPolicyDays > 0 ? trialPolicyDays : 7,
-                    isFreePlan,
-                });
-            } catch {
-                if (!cancelled) setChip(null);
-            } finally {
-                if (!cancelled) setLoading(false);
-            }
-        };
-
-        load();
         return () => {
-            cancelled = true;
             if (closeTimerRef.current) {
                 clearTimeout(closeTimerRef.current);
                 closeTimerRef.current = null;
             }
         };
-    }, [currentOrg?.id, currentOrg?.plan_type, license.loadedOnce, license.status]);
+    }, []);
 
     // Mirror the quota state into the global notification tray/toast — the
     // chip itself only surfaces this on hover, so this gives users a proactive

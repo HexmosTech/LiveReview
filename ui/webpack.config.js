@@ -211,6 +211,12 @@ module.exports =  (env, options)=> {
             // !devMode ? new CleanWebpackPlugin() : false,
             !devMode && process.env.ANALYZE_BUNDLE && !process.env.CI ? new BundleAnalyzerPlugin() : false,
             // Optional JavaScript obfuscation for production builds (enable with OBFUSCATE=true)
+            // NOTE: WebpackObfuscator does not read an `exclude` key from its options object
+            // (that's not part of its API - see node_modules/webpack-obfuscator/README.md).
+            // File exclusion must go through the second constructor argument (a multimatch glob
+            // list matched against the *compiled* bundle name). Obfuscating third-party vendor
+            // code adds real parse/execute overhead for zero benefit (nothing proprietary in it),
+            // so vendor chunks are excluded here; only first-party app code gets obfuscated.
             !devMode && process.env.OBFUSCATE ? new WebpackObfuscator({
                 compact: true,
                 controlFlowFlattening: false,
@@ -228,19 +234,59 @@ module.exports =  (env, options)=> {
                 stringArrayThreshold: 0.75,
                 transformObjectKeys: false,
                 unicodeEscapeSequence: false,
-                // Exclude libraries from obfuscation to prevent breaking them
-                exclude: /node_modules/
-            }) : false
+            }, ['runtime.*.js', 'vendor-*.js']) : false
         ].filter(Boolean),
         optimization: {
             splitChunks: {
                 chunks: 'all',
+                // Cap chunk size so a single cache group can't balloon back into one huge
+                // file as dependencies are added (helps HTTP/2 parallel fetch + browser caching).
+                maxSize: 300000,
                 cacheGroups: {
+                    // Core framework deps: needed on every route including login, so these load
+                    // eagerly - keep this group small and stable so it caches well across deploys.
+                    framework: {
+                        test: /[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|redux|react-redux|@reduxjs)[\\/]/,
+                        name: 'vendor-framework',
+                        chunks: 'all',
+                        priority: 20
+                    },
+                    // Charting/visualization libs: only ever imported from lazy-loaded routes
+                    // (Dashboard widgets, Reports, Chatbot). chunks: 'async' keeps them out of
+                    // the eagerly-loaded initial bundle - they're only fetched when that route
+                    // actually mounts, instead of blocking every page load (including login).
+                    charts: {
+                        test: /[\\/]node_modules[\\/](echarts|echarts-for-react|recharts|vega|vega-lite|vega-embed|react-vega|d3-[^\\/]*)[\\/]/,
+                        name: 'vendor-charts',
+                        chunks: 'async',
+                        priority: 15
+                    },
+                    // Grid layout / animation / pdf export / table / timezone-data libs: same
+                    // story, only used from lazy routes (Dashboard, Reports, Explore, Reviews,
+                    // UserManagement, Settings, Licenses). moment-timezone in particular ships a
+                    // ~700KB packed locale-data file that has no business loading before login.
+                    heavy: {
+                        test: /[\\/]node_modules[\\/](react-grid-layout|framer-motion|jspdf|jspdf-autotable|@tanstack[\\/]react-table|moment-timezone)[\\/]/,
+                        name: 'vendor-heavy',
+                        chunks: 'async',
+                        priority: 15
+                    },
+                    // Everything else third-party. Deliberately no static `name` string here:
+                    // forcing every remaining node_modules module into one named chunk would
+                    // merge sync-needed deps (e.g. used eagerly from the app shell) with deps
+                    // only ever reached from lazy routes into the same physical file - and since
+                    // a chunk is an atomic download, that drags the lazy-only code into the eager
+                    // initial payload too. The name *function* below still splits purely by
+                    // webpack's actual usage-graph (so lazy-only vendor code stays out of the
+                    // initial load) while keeping every resulting file prefixed `vendor-` so the
+                    // WebpackObfuscator excludes glob above still matches all of them.
                     vendor: {
                         test: /[\\/]node_modules[\\/]/,
-                        name: 'vendors',
                         chunks: 'all',
-                        priority: -10
+                        priority: -10,
+                        name(module, chunks) {
+                            return `vendor-misc-${chunks.map((c) => c.name || c.id).join('~')}`;
+                        }
                     }
                 }
             },

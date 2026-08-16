@@ -1,5 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { getDashboardData, refreshDashboardData, SystemOverview } from '../../../api/dashboard';
+import React, { createContext, useContext } from 'react';
+import { useDashboardQuery, SystemOverview } from '../../../api/dashboard';
 
 // An org with nothing connected yet has every count at 0 regardless of period — checking "all" (the broadest window) is enough to know the whole widget set is empty.
 export function hasNoSystemOverviewData(overview: SystemOverview | null): boolean {
@@ -17,55 +17,20 @@ interface SystemOverviewContextValue {
 
 const SystemOverviewContext = createContext<SystemOverviewContextValue | null>(null);
 
+// Reads system_overview off the shared dashboard query (see useDashboardQuery) instead of
+// fetching it independently - the whole widget grid shares one cached request/result.
 export const SystemOverviewProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [systemOverview, setSystemOverview] = useState<SystemOverview | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const { data, isLoading, error, refetch } = useDashboardQuery();
 
-    // Passive load: reads whatever dashboard_cache already has — cheap, no live query.
-    useEffect(() => {
-        let cancelled = false;
-        getDashboardData()
-            .then((data) => {
-                if (cancelled) return;
-                setSystemOverview(data.system_overview ?? null);
-            })
-            .catch((err) => {
-                if (cancelled) return;
-                setError(err instanceof Error ? err.message : 'Failed to load system overview');
-            })
-            .finally(() => {
-                if (!cancelled) setLoading(false);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, []);
-
-    // Explicit refresh: recomputes and stores this org's system_overview on demand, then returns the fresh result.
-    const refetch = useCallback(() => {
-        let cancelled = false;
-        setLoading(true);
-        refreshDashboardData()
-            .then((data) => {
-                if (cancelled) return;
-                setSystemOverview(data.system_overview ?? null);
-                setError(null);
-            })
-            .catch((err) => {
-                if (cancelled) return;
-                setError(err instanceof Error ? err.message : 'Failed to refresh system overview');
-            })
-            .finally(() => {
-                if (!cancelled) setLoading(false);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+    const value: SystemOverviewContextValue = {
+        systemOverview: data?.system_overview ?? null,
+        loading: isLoading,
+        error: error ? (error instanceof Error ? error.message : 'Failed to load system overview') : null,
+        refetch: () => { void refetch(); },
+    };
 
     return (
-        <SystemOverviewContext.Provider value={{ systemOverview, loading, error, refetch }}>
+        <SystemOverviewContext.Provider value={value}>
             {children}
         </SystemOverviewContext.Provider>
     );
