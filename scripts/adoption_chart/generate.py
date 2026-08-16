@@ -16,6 +16,7 @@ Usage:
 """
 import argparse
 import csv
+import html
 import io
 import json
 import os
@@ -156,7 +157,7 @@ def main():
         },
     }
 
-    html = f"""<!doctype html>
+    page_html = f"""<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -171,6 +172,11 @@ def main():
   .stats {{ margin-top:20px; font-size:14px; line-height:1.6; color:#c9d1e0; max-width:900px; }}
   .stats b {{ color:#fff; }}
   #view {{ max-width: 940px; }}
+  details {{ margin-top:20px; max-width:900px; }}
+  summary {{ cursor:pointer; color:#aab4c8; font-size:13px; }}
+  pre.sql {{ margin-top:10px; padding:12px 14px; background:#0b0e17; border:1px solid #232a3d; border-radius:8px;
+             font-family: "SF Mono", Menlo, Consolas, monospace; font-size:12px; line-height:1.5; color:#a3b3cc;
+             white-space:pre-wrap; overflow-x:auto; }}
 </style>
 </head>
 <body>
@@ -186,6 +192,10 @@ def main():
     (<b>{pct_change:+.0f}%</b>)<br>
     Period average (dashed rule): <b>{period_avg:.1f}</b> reviews/day
   </div>
+  <details>
+    <summary>Query used</summary>
+    <pre class="sql">{html.escape(sql.strip())}</pre>
+  </details>
   <script>
     vegaEmbed('#view', {json.dumps(spec)}, {{actions: false}});
   </script>
@@ -193,7 +203,7 @@ def main():
 </html>
 """
     out_path = Path(args.out)
-    out_path.write_text(html)
+    out_path.write_text(page_html)
     print(f"wrote {out_path}")
     print(f"total_reviews={total_reviews} first_half_avg={first_half_avg:.2f} second_half_avg={second_half_avg:.2f} pct_change={pct_change:+.1f}% period_avg={period_avg:.2f}")
 

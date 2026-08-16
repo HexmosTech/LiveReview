@@ -439,9 +439,15 @@ func (a *Agent) buildChartReport(
 		if strings.TrimSpace(mark) == "" {
 			mark = "bar"
 		}
-		if layer, ok := maybeAddRollingAverageLayer(mark, plan.Encoding, len(rs.Rows)); ok {
-			spec["layer"] = layer
-		} else {
+		isRhythmQuestion := looksLikeRhythmQuestion(entry.Question, plan.Title, plan.Query, plan.Description)
+		rollingLayer, hasRollingLayer := maybeAddRollingAverageLayer(mark, plan.Encoding, len(rs.Rows))
+		switch {
+		case isRhythmQuestion && maybeCalendarHeatmap(plan.Encoding, len(rs.Rows), spec):
+			// maybeCalendarHeatmap already wrote mark/encoding/width/height
+			// directly into spec when it returns true - see its doc comment.
+		case hasRollingLayer:
+			spec["layer"] = rollingLayer
+		default:
 			spec["mark"] = mark
 			spec["encoding"] = json.RawMessage(plan.Encoding)
 		}
@@ -466,6 +472,278 @@ func (a *Agent) buildChartReport(
 		Granularity: plan.Granularity,
 		Spec:        normalized,
 	}}
+}
+
+// rhythmQuestionKeywords are hardcoded, case-insensitive substrings that mark
+// a question as asking about usage *rhythm* - a daily-habit/consistency
+// question ("are engineers actually incorporating reviews into their daily
+// workflow", "is this a habit yet") - not just a plain trend. Matched
+// against the report's own question plus everything the model itself wrote
+// about the chart (title/query/description), since the exact phrasing that
+// triggered this pattern can show up in either.
+var rhythmQuestionKeywords = []string{
+	"daily workflow", "rhythm", "habit", "consisten", // consistency/consistently
+	"calendar heatmap", "day of week", "day-of-week", "weekday pattern",
+	"incorporat", // incorporate/incorporating
+}
+
+func looksLikeRhythmQuestion(texts ...string) bool {
+	for _, t := range texts {
+		lower := strings.ToLower(t)
+		for _, kw := range rhythmQuestionKeywords {
+			if strings.Contains(lower, kw) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// calendarHeatmapMinRows is the floor on how many dated rows the model's own
+// query must have returned before this is worth treating as calendar data at
+// all - not a floor on how much of the grid ends up populated (that's always
+// calendarHeatmapDays regardless, since the grid is zero-filled to a full
+// year - see maybeCalendarHeatmap). This just guards against misfiring on a
+// degenerate 1-2-row result that happened to pass the shape checks above.
+const calendarHeatmapMinRows = 3
+
+// calendarHeatmapDays is always a full year (365 days, matching GitHub's own
+// contribution graph), ending today - regardless of what window the model's
+// data_sql actually queried. See maybeCalendarHeatmap's doc comment for why
+// the grid's date range is no longer trusted to the model.
+const calendarHeatmapDays = 365
+
+// isDayGranularity reports whether a Vega-Lite timeUnit is day-level or
+// finer (or absent, which SQL almost always means date_trunc('day', ...)).
+// Duplicated from rollingWindowFor's day-branch check rather than shared: it
+// tests a different, narrower question (day-or-finer only, no week/month
+// acceptance) and the two callers' meaning of "close enough" would drift out
+// of sync if forced through one function.
+func isDayGranularity(timeUnit string) bool {
+	tu := strings.ToLower(timeUnit)
+	if tu == "" {
+		return true
+	}
+	for _, fine := range []string{"date", "day", "hours", "minutes", "seconds"} {
+		if strings.Contains(tu, fine) {
+			return true
+		}
+	}
+	return false
+}
+
+// maybeCalendarHeatmap replaces spec's mark/width/height and writes a
+// top-level "encoding" with a GitHub-contribution-graph-style calendar grid,
+// when the chart is a single-series daily count/sum over a long enough
+// window - see analytics_finalize.md's calendar-heatmap chart-shape row and
+// looksLikeRhythmQuestion's doc comment for why this is triggered by
+// keyword-matching the question rather than asked of the model directly:
+// getting an LLM to hand-write a correct band-scale Vega-Lite calendar
+// heatmap (ordinal, not temporal, x/y scales; paddingInner for the gap
+// between cells; a threshold color scale; deduped month-only-once axis
+// labels) proved unreliable across several iterations building this exact
+// chart by hand in scripts/adoption_chart/generate_heatmap.py - so instead
+// the model only has to supply daily-granularity data (x/y field names),
+// and Go builds the entire presentation deterministically, the same
+// division of labor as maybeAddRollingAverageLayer.
+//
+// Colors are GitHub's own *light*-mode green scale (not the dark-mode
+// palette generate_heatmap.py uses for its standalone dark HTML) because
+// buildChartReport always renders against a forced white background (see
+// its "background": "#ffffff" comment) - vl-convert produces a PNG embedded
+// in the chat UI, not a themeable page, so there is no dark background here
+// to design against.
+//
+// Mutates spec in place (rather than returning a value the caller
+// assembles) because a calendar heatmap needs band-scale width/height
+// ({"step": N}, not the plain-number 600x340 buildChartReport sets
+// unconditionally before this runs) in addition to mark/encoding - three
+// keys to overwrite together is more naturally a mutation than a 3-tuple
+// return.
+// parseCalendarRow extracts a "YYYY-MM-DD" date key and a float value from
+// one result row, for maybeCalendarHeatmap's zero-fill pass. dateField's
+// value is whatever coerce() in storage/analytics/coerce.go produced for a
+// timestamp column - an RFC3339 string, formatted in the value's own zone
+// rather than UTC (see that function's doc comment on why: converting to
+// UTC can shift date_trunc('day', ...) buckets to the wrong calendar date).
+// Parsing with the same RFC3339 layout and then formatting the date portion
+// preserves that same wall-clock date here.
+func parseCalendarRow(row map[string]any, dateField, valueField string) (string, float64, bool) {
+	dateRaw, ok := row[dateField]
+	if !ok {
+		return "", 0, false
+	}
+	dateStr, ok := dateRaw.(string)
+	if !ok {
+		return "", 0, false
+	}
+	t, err := time.Parse(time.RFC3339, dateStr)
+	if err != nil {
+		// Some data_sql aliases already produce a bare date (no time
+		// component) rather than a timestamp - accept that shape too.
+		t, err = time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			return "", 0, false
+		}
+	}
+
+	var val float64
+	switch v := row[valueField].(type) {
+	case int64:
+		val = float64(v)
+	case float64:
+		val = v
+	case nil:
+		val = 0
+	default:
+		return "", 0, false
+	}
+	return t.Format("2006-01-02"), val, true
+}
+
+func maybeCalendarHeatmap(encoding json.RawMessage, rowCount int, spec map[string]any) bool {
+	var channels map[string]json.RawMessage
+	if err := json.Unmarshal(encoding, &channels); err != nil {
+		return false
+	}
+	for _, extra := range []string{"color", "detail", "size", "column", "row"} {
+		if _, ok := channels[extra]; ok {
+			return false
+		}
+	}
+
+	type channelSpec struct {
+		Field    string `json:"field"`
+		Type     string `json:"type"`
+		TimeUnit string `json:"timeUnit"`
+		Title    string `json:"title"`
+	}
+	var x, y channelSpec
+	xRaw, ok := channels["x"]
+	if !ok || json.Unmarshal(xRaw, &x) != nil {
+		return false
+	}
+	yRaw, ok := channels["y"]
+	if !ok || json.Unmarshal(yRaw, &y) != nil {
+		return false
+	}
+	if x.Type != "temporal" || y.Type != "quantitative" || x.Field == "" || y.Field == "" {
+		return false
+	}
+	if !isDayGranularity(x.TimeUnit) || rowCount < calendarHeatmapMinRows {
+		return false
+	}
+
+	// The model's data_sql picks whatever WHERE-clause window and grouping
+	// it wants - it has already proven unreliable at both remembering to
+	// span a full year and remembering to zero-fill missing days via
+	// generate_series (see the "shows only 90 days" and "empty boxes
+	// missing" bugs this replaced). Rather than keep asking the model to
+	// get a SQL detail right that a prompt tweak has already failed to fix
+	// twice, Go now completely rebuilds data.values itself: read whatever
+	// dated values the query DID return, keyed by calendar date, and re-emit
+	// exactly calendarHeatmapDays consecutive days ending today, filling
+	// anything the model's rows didn't cover with 0. This makes the grid's
+	// shape (a full year, gaps included) independent of what the model's
+	// SQL actually queried - the same "Go controls the parts an LLM has
+	// proven unreliable at" split as maybeAddRollingAverageLayer.
+	byDate := map[string]float64{}
+	if data, ok := spec["data"].(map[string]any); ok {
+		if values, ok := data["values"].([]map[string]any); ok {
+			for _, row := range values {
+				dateStr, val, ok := parseCalendarRow(row, x.Field, y.Field)
+				if !ok {
+					continue
+				}
+				byDate[dateStr] += val
+			}
+		}
+	}
+	today := time.Now()
+	filled := make([]map[string]any, 0, calendarHeatmapDays+1)
+	for i := calendarHeatmapDays; i >= 0; i-- {
+		d := today.AddDate(0, 0, -i).Format("2006-01-02")
+		filled = append(filled, map[string]any{x.Field: d, y.Field: byDate[d]})
+	}
+	spec["data"] = map[string]any{"values": filled}
+
+	valueLabel := firstNonEmpty(strings.TrimSpace(y.Title), "Value")
+
+	// buildChartReport forces a white background/light-theme colors for
+	// every OTHER chart type (see its own "background": "#ffffff" comment -
+	// that default exists so an unpredictable embed context never leaves
+	// gray-on-gray text), but a GitHub-style contribution graph specifically
+	// needs the opposite: it's only recognizable, and its "empty" cells only
+	// read as *empty* rather than as stray white boxes, against a dark card
+	// with GitHub's actual dark-mode green ramp - confirmed against
+	// github.com's own graph and this repo's generate_heatmap.py, which
+	// already renders this exact chart correctly with these exact colors.
+	// So this is the one chart type that overrides those chat-wide defaults
+	// rather than inheriting them.
+	spec["background"] = "#0d1117"
+	spec["config"] = map[string]any{
+		"axis":   map[string]any{"labelColor": "#8b949e", "titleColor": "#e6ebf5", "labelFontSize": 10},
+		"title":  map[string]any{"color": "#e6ebf5", "fontSize": 16, "anchor": "start"},
+		"legend": map[string]any{"labelColor": "#8b949e", "titleColor": "#e6ebf5"},
+		"view":   map[string]any{"stroke": "transparent"},
+	}
+	// GitHub's own dark-mode contribution-graph greens (empty -> darkest).
+	githubGreensDark := []string{"#161b22", "#0e4429", "#006d32", "#26a641", "#39d353"}
+
+	// Plain numbers, not {"step": N} - the chat frontend
+	// (ui/src/pages/Chatbot/InteractiveChart.tsx) resizes every chart to
+	// fill its container client-side, but it only derives the aspect ratio
+	// to resize by (specAspectRatio = spec.width / spec.height) when both
+	// are plain numbers; a step/band sizing object made it silently skip
+	// that entirely, so the grid just rendered at its own small intrinsic
+	// size and left the rest of the card empty - exactly the "empty space
+	// on the right and bottom" bug. These numbers only need to set a
+	// believable aspect ratio (~53 weeks wide by 7 days tall) - the actual
+	// on-screen pixel size is whatever the frontend stretches it to.
+	spec["width"] = 900
+	spec["height"] = 130
+	spec["mark"] = map[string]any{"type": "rect", "cornerRadius": 2}
+	spec["encoding"] = map[string]any{
+		// type "ordinal", not "temporal": a temporal x/y here puts week/day
+		// columns on a continuous scale, whose band-width math for a rect
+		// mark collapses/overlaps adjacent cells into each other instead of
+		// giving each one a fixed-width cell - confirmed the hard way
+		// building generate_heatmap.py's standalone version of this exact
+		// chart, see that script's comment on the same bug.
+		"x": map[string]any{
+			"field": x.Field, "type": "ordinal", "timeUnit": "yearweek", "title": nil,
+			"scale": map[string]any{"paddingInner": 0.15},
+			"axis": map[string]any{
+				"format": "%b",
+				// Only label a week column if it's the first week whose
+				// start falls in a new month - otherwise every ~4-5 weeks
+				// in a month would repeat that month's label.
+				"labelExpr":  "date(datum.value) <= 7 ? timeFormat(datum.value, '%b') : ''",
+				"labelAngle": 0, "ticks": false, "domain": false, "grid": false,
+			},
+		},
+		"y": map[string]any{
+			"field": x.Field, "type": "ordinal", "timeUnit": "day", "title": nil,
+			"sort":  []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"},
+			"scale": map[string]any{"paddingInner": 0.15},
+			// GitHub only labels every other row (Mon/Wed/Fri) to keep the
+			// axis readable at this cell size.
+			"axis": map[string]any{"values": []string{"Mon", "Wed", "Fri"}, "ticks": false, "domain": false, "grid": false},
+		},
+		"color": map[string]any{
+			"field": y.Field, "type": "quantitative", "title": nil,
+			"scale": map[string]any{"type": "threshold", "domain": []int{1, 3, 6, 10}, "range": githubGreensDark},
+			// No legend at all - the grid + hover tooltip is enough; every
+			// legend placement/orientation tried here left leftover chrome
+			// the grid didn't need.
+			"legend": nil,
+		},
+		"tooltip": []any{
+			map[string]any{"field": x.Field, "type": "temporal", "title": "Date", "format": "%A, %b %d, %Y"},
+			map[string]any{"field": y.Field, "type": "quantitative", "title": valueLabel},
+		},
+	}
+	return true
 }
 
 // rollingWindow describes the smoothing window to use for one x-axis bucket
