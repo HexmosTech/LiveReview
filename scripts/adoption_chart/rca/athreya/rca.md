@@ -326,3 +326,45 @@ The description is also inconsistent with its own `data.values` (line 885): it c
 # 9.
 
 # 10.
+
+### Query: What happened to LiveReview repository's velocity?
+
+### Result from livi:
+
+Review Velocity in LiveReview Repository
+
+[](<screenshot-filename>)
+
+The LiveReview repository completed a total of 152 reviews over the last six months.
+
+Monthly activity peaked in April 2026 with 34 completions, showing a steady output compared to the 22 completions recorded in January 2026.
+
+Time range: Last 6 months (Jan 2026 – Jun 2026)
+
+Granularity: Monthly
+
+Query: monthly review completions for the LiveReview repository
+
+### What is missing from the demo:
+
+**Symptom** — For "What happened to LiveReview repository's velocity?", Livi planned and rendered one report (chat_debug.log, request 91e9b112523b0eac, call #2 plan at line 816):
+
+```
+{"analytics_plan": [
+  {"id": "velocity_trend",
+   "question": "Velocity of reviews in the LiveReview repository over the last 6 months",
+   "count_sql": "SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS month FROM reviews WHERE repository = 'LiveReview' AND status = 'completed' AND org_id = 151 GROUP BY 1) t"}
+]}
+```
+
+`Review Velocity in LiveReview Repository` — 2-layer spec (`bar` mark for monthly review count + a dashed `rule` baseline layer for the period average), data_sql `date_trunc('month', completed_at)` × `count(*)`, 6 rows (line 835/837/838). This measures monthly review *count*, not LOC, and has no rolling-average line (only 6 monthly rows, below the granularity/row-count floor for a rolling window) and no highlighted-interval rectangle marking a specific recent period — none of the three things the query pattern calls for (daily LOC line, rolling average, highlighted interval) are present.
+
+The rendered description is also badly inconsistent with its own `data.values` (line 839): it claims "a total of 152 reviews," but summing the actual 6 monthly values (13+2+9+56+57+48) gives 185, not 152. It claims the peak was "April 2026 with 34 completions," but April's actual value is 2 (the *lowest* month in the series) and no month reaches 34 at all — the true peak is July at 57. It also cites "22 completions recorded in January 2026," but the data starts in March 2026; there is no January row in the result set at all.
+
+**Expected** (see repo_velocity.html) — a layered daily-LOC line with a 7-day rolling average and a highlighted recent interval:
+
+- SQL: daily LOC for the repository over the last 90 days, zero-filled via `generate_series`, then windowed: `SELECT day, loc, round(avg(loc) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 1) AS rolling_avg FROM filled ORDER BY day` (joins `loc_usage_ledger` to `reviews` filtered to `repository = 'LiveReview'`).
+- Chart: 3-layer spec — a semi-transparent `rect` layer (`opacity: 0.12`) marking the last 14 days, a thin raw-`line` layer (daily LOC), and a heavier orange `line` layer (7-day rolling average).
+- Stats: "Highlighted: last 14 days, avg 1329.2 LOC/day vs prior 14 days' 3738.9 LOC/day."
+
+**Root cause** — the wrong decision is made in the planning call (call #2), not in chart rendering. The plan's `count_sql` groups by `date_trunc('month', ...)` and counts reviews, which locks the report into monthly review-count granularity before finalize (call #3) ever runs — at 6 rows, finalize's own rolling-average logic (`analytics_finalize.md`'s chart-shape table: "a value changing over time → line, add a second line layer for a rolling average if the trend is noisy") has no daily data to smooth and no basis to highlight a "last 14 days" interval, since the plan discarded day-level granularity entirely. `internal/mcpagent/prompts/analytics_plan.md` has a rule steering rhythm/habit questions toward day-level grouping ("group count_sql... by day... over a long window (90+ days), not by author_username"), but no equivalent rule for a "what happened to X's velocity" / "what changed" question about a single named entity — faced with "velocity... over the last 6 months," the planner defaulted to the coarser monthly bucket that the phrase "last 6 months" suggested, rather than the daily-granularity, shorter (90-day) window `repo_velocity.html` uses specifically so a rolling average and a recent-interval highlight are both computable.
