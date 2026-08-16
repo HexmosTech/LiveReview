@@ -215,6 +215,68 @@ Query: monthly engineering velocity (completed reviews) per repository
 
 # 7.
 
+### Query: Where is organizational velocity concentrated?
+
+### Result from livi:
+
+Review Concentration by Repository
+
+[](Review Concentration by Repository**LiveReview**160826.png)
+
+The organization completed reviews across 50 repositories.
+
+Activity is concentrated in the top repositories, with the most active one accounting for the largest share of the total review volume.
+
+This distribution highlights where the development effort is focused.
+
+Time range: All-time
+
+Granularity: Per repository
+
+Query: review completions grouped by repository
+
+---
+
+Review Velocity by Author
+
+[](Review Velocity by Author**LiveReview**160826.png)
+
+This chart shows the distribution of completed reviews across the top 8 contributors in the organization.
+
+Author activity reflects individual contributions to the review process, with the most active contributor having completed the highest number of reviews.
+
+Time range: All time
+
+Granularity: Per contributor
+
+Query: review completions by author, showing the top 8 contributors
+
+### What is missing from the demo:
+
+**Symptom** — For "Where is organizational velocity concentrated?", Livi planned and rendered two reports (chat_debug.log, request 10c3a36c8600fa3d, call #2 plan at line 937):
+
+```
+{"analytics_plan": [
+  {"id": "velocity_by_repo", "question": "Concentration of reviews by repository",
+   "count_sql": "SELECT count(*) AS n FROM (SELECT repository, count(*) AS review_count FROM reviews WHERE status = 'completed' AND org_id = 151 GROUP BY repository) t"},
+  {"id": "velocity_by_author", "question": "Concentration of reviews by author",
+   "count_sql": "SELECT count(*) AS n FROM (SELECT author_username, count(*) AS review_count FROM reviews WHERE status = 'completed' AND org_id = 151 GROUP BY author_username) t"}
+]}
+```
+
+- `Review Concentration by Repository` — plain `bar` mark, review count per repository, sorted `-y`, 50 rows (line 959/961/962).
+- `Review Velocity by Author` — plain `bar` mark, review count per author, top 8 only (`LIMIT 8` in data_sql), sorted `-y` (line 977/979/980).
+
+Confirmed: **no Pareto/cumulative line appears in either chart** (line 981) — both are single-layer `mark: "bar"` specs with no `"layer"` key, no cumulative-percent field in `data.values`, and no second axis. This is despite `analytics_finalize.md`'s own chart-shape table having a row for exactly this pattern ("concentration - who accounts for most of a total → Pareto: sorted bar + a second line layer of cumulative percent"), which neither report used. The by-author report is also a scope drift the query didn't ask for: the user asked where velocity concentrates by repository; the plan added a second, unrequested by-author breakdown, and additionally silently truncated it to `LIMIT 8` with no mention of that cutoff in the description.
+
+**Expected** (see repo_pareto.html) — ONE sorted bar + cumulative-percent line, by repository, by LOC:
+
+- SQL: `SELECT r.repository, sum(l.billable_loc) AS loc FROM loc_usage_ledger l JOIN reviews r ON r.id = l.review_id WHERE l.org_id = 151 AND l.status = 'accounted' AND l.accounted_at >= CURRENT_DATE - INTERVAL '90 days' GROUP BY 1 ORDER BY 2 DESC` — LOC reviewed (not review count), scoped to the last 90 days.
+- Chart: two-layer spec — `bar` mark (x = repository, y = LOC) + `line` mark with `point: true` (y = cumulative %, on an independent right-hand scale, `resolve.scale.y: "independent"`).
+- Stats: "Top 3 repositories account for 69% of all LOC reviewed (43 repos total)."
+
+**Root cause** — the wrong decision is split across two stages. The primary one is _finalize_ (call #3): `internal/mcpagent/prompts/analytics_finalize.md`'s chart-shape table already documents the exact pattern needed ("concentration - who accounts for most of a total → Pareto ... sorted bar + a second line layer of cumulative percent"), but the model defaulted to a plain sorted `bar` instead of reaching for that row, even though the report's own question ("Concentration of reviews by repository") uses the word "concentration" that the table row is keyed on. A secondary, plan-stage (call #2) issue: `internal/mcpagent/prompts/analytics_plan.md`'s instruction to add "one entry per distinct thing the user asked for" caused the planner to add an unrequested `velocity_by_author` entry the single-subject "where is organizational velocity concentrated" question never asked for, diluting the response with a second, differently-scoped chart instead of one correct Pareto chart for the thing that was actually asked.
+
 # 8.
 
 # 9.
