@@ -77,6 +77,7 @@
   .why { max-width: 320px; color: #c9d1e0; }
   .suggested { max-width: 220px; color: var(--accent); font-style: italic; }
   .empty { color: #3a4358; }
+  .value { color: var(--text-dim); white-space: nowrap; line-height: 1.6; }
   .built {
     display: inline-block;
     margin-left: 6px;
@@ -130,68 +131,68 @@
   <script>
     const tier1 = [
       { built: true, q: "Is LiveReview adoption increasing?", graph: "Layered line + area + target rule", x: "Day", y: "Reviews/day", enc: "Area = reviews; line = 7-day rolling avg; rule = target", why: "More informative than a plain line. The rolling average shows whether adoption is genuinely increasing rather than being driven by noisy days.", suggested: "Is LiveReview adoption increasing since my team started using it?",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/adoption_chart.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/adoption_chart.html", value: "1.\n2." },
       { built: true, q: "Are engineers actually incorporating reviews into their daily workflow?", graph: "Calendar heatmap", x: "Day", y: "Day-of-week", enc: "Color = reviews or reviewed LOC", why: "Gives a very immediate “usage rhythm.” Weekday gaps, isolated users, and sudden changes become visually obvious. Particularly good for a 14–30 day trial.", suggested: "Are engineers actually incorporating reviews into their daily workflow since my team started using it?",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/adoption_heatmap.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/adoption_heatmap.html", value: "1.\n2." },
       { q: "How broadly has the organization adopted LiveReview?", graph: "Histogram / distribution + KPI overlay", x: "Reviews per engineer", y: "Engineer count", enc: "Color by adoption band", why: "Shows whether usage is broad or concentrated. “500 reviews” means something very different if one engineer generated 450.", suggested: "",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/adoption_breadth.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/adoption_breadth.html", value: "1.\n2." },
       { q: "Who has adopted LiveReview—and who hasn't?", graph: "Sorted horizontal bar / dot plot", x: "Reviews or LOC", y: "Engineer", enc: "Color = adoption tier", why: "Rank engineers from highest to lowest. Add a vertical target rule, e.g. 5 reviews/day. This is directly actionable for engineering leaders.", suggested: "",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/adoption_leaderboard.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/adoption_leaderboard.html", value: "1.\n2." },
       { q: "Is adoption becoming broader over time?", graph: "Stacked area chart", x: "Week", y: "Active engineers", enc: "Color = 0 reviews / 1–4 / 5+ / heavy users", why: "This is much more interesting than total users. It answers whether the organization is moving from “a few enthusiasts” toward habitual adoption.", suggested: "",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/adoption_growth.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/adoption_growth.html", value: "1.\n2." },
       { q: "Which repositories are gaining or losing engineering velocity?", graph: "Slope graph", x: "Period (Previous, Current)", y: "LOC reviewed", enc: "One line per repository; color = gain/loss", why: "Probably one of your strongest CTO charts. It makes period-over-period movement immediately visible. Label only the biggest movers.", suggested: "",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/repo_slope.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/repo_slope.html", value: "1.\n2." },
       { q: "Where is organizational velocity concentrated?", graph: "Pareto / cumulative distribution", x: "Repositories ranked by LOC", y: "LOC reviewed", enc: "Layer cumulative % line", why: "Answers “are our top 3 repos responsible for 80% of activity?” This reveals concentration and organizational risk.", suggested: "",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/repo_pareto.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/repo_pareto.html", value: "1.\n2." },
       { q: "Which repositories are unusually active or inactive?", graph: "Scatterplot", x: "LOC reviewed", y: "Reviews", enc: "Size = active engineers; color = repository", why: "Separates high-volume/high-frequency repos from large-diff/low-frequency repos. Add quadrant rules. Very useful for identifying anomalous teams.", suggested: "",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/repo_scatter.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/repo_scatter.html", value: "1.\n2." },
       { q: "What does engineering activity look like across repositories and days?", graph: "Repository × day heatmap", x: "Day", y: "Repository", enc: "Color = LOC reviewed", why: "This is excellent for finding bursts, sustained inactivity, and velocity dips. Add text only for unusually high/low cells.", suggested: "",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/repo_day_heatmap.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/repo_day_heatmap.html", value: "1.\n2." },
       { q: "What happened to a repository's velocity?", graph: "Layered line + rolling average + highlighted interval", x: "Day", y: "LOC reviewed", enc: "Line = daily LOC; second line = rolling avg; rectangle = selected period", why: "Directly implements your 6.1 idea while using Vega-Lite's layering/annotation capabilities.", suggested: "",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/repo_velocity.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/repo_velocity.html", value: "1.\n2." },
       { q: "Why did this repository's velocity change?", graph: "Small-multiple contribution chart", x: "Contributor", y: "Change in LOC", enc: "Positive/negative color", why: "Compare previous vs current period per engineer. It turns “velocity dropped 30%” into “Alice -40%, Bob -20%, Carol +5%.”", suggested: "",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/contributor_change.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/contributor_change.html", value: "1.\n2." },
       { q: "Which engineers are carrying the repository?", graph: "Beeswarm / dot plot", x: "LOC reviewed", y: "—", enc: "X = LOC; Y = contributor; point size = reviews", why: "Better than bars when you want to show the distribution and outliers. Particularly useful when there are many engineers.", suggested: "",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/contributor_beeswarm.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/contributor_beeswarm.html", value: "1.\n2." },
       { q: "What does each engineer actually spend their review activity on?", graph: "Trellis stacked bars", x: "Engineer", y: "Reviews", enc: "Color = repository", why: "Small multiples let a CTO see whether an engineer is concentrated on one repo or spreading across many. Vega-Lite supports trellis/faceted views.", suggested: "",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/engineer_trellis.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/engineer_trellis.html", value: "1.\n2." },
       { q: "Where are reviews happening?", graph: "Normalized stacked bar", x: "Time period", y: "% of reviews", enc: "Color = trigger: PR/MR, pre-commit, MCP, API, manual", why: "More useful than a pie chart because you can compare periods. The key question is whether activity is migrating toward earlier review stages.", suggested: "",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/trigger_share.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/trigger_share.html", value: "1.\n2." },
       { q: "Are we moving review earlier in the development lifecycle?", graph: "100% stacked area", x: "Day/week", y: "% of reviews", enc: "Color = trigger source", why: "Shows the transition between workflows. This is strategically more interesting than simply showing source distribution.", suggested: "",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/trigger_shift.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/trigger_shift.html", value: "1.\n2." },
       { q: "Are serious issues being caught before PR/MR?", graph: "Severity × trigger heatmap", x: "Trigger source", y: "Severity", enc: "Color = finding count / rate", why: "Rows = pre-commit, PR/MR, MCP, API; columns = critical/high/medium/low. A leader can immediately see whether serious findings are disproportionately arriving late.", suggested: "",
-        nodata: "ai_comments has 0 rows in this dev DB - no findings to group by severity/trigger yet." },
+        nodata: "ai_comments has 0 rows in this dev DB - no findings to group by severity/trigger yet.", value: "1.\n2." },
       { q: "What kinds of engineering problems is LiveReview finding?", graph: "Treemap", x: "—", y: "—", enc: "Rectangle area = finding count; color = severity", why: "Excellent for “what is LR actually discovering?” Use hierarchy category → subcategory. Requires reliably extracting category/severity from ai_comments.content, since the schema stores the comment payload as JSON rather than a normalized issue-category column.", suggested: "",
-        nodata: "ai_comments has 0 rows in this dev DB - no category/severity data to build a treemap from." },
+        nodata: "ai_comments has 0 rows in this dev DB - no category/severity data to build a treemap from.", value: "1.\n2." },
       { q: "Where are the issues concentrated?", graph: "File/repository heatmap", x: "Repository", y: "File/path", enc: "Color = findings; size/text = severity", why: "The ai_comments.file_path field makes file-level concentration directly possible. Show only top files per repo.", suggested: "",
-        nodata: "ai_comments has 0 rows in this dev DB - no file_path data to build this from." },
+        nodata: "ai_comments has 0 rows in this dev DB - no file_path data to build this from.", value: "1.\n2." },
       { q: "What is the blast radius of issues being caught?", graph: "Bubble scatterplot", x: "Findings per review", y: "Files affected", enc: "Bubble size = severity/LOC; color = category", why: "Each bubble = review or issue cluster. Large/high-severity bubbles in the upper-right are the reviews where LR prevented potentially large problems. File-level blast radius is supported by ai_comments.file_path; dependency-level blast radius would require additional metadata.", suggested: "",
-        nodata: "ai_comments has 0 rows in this dev DB - no findings to bubble-plot yet." },
+        nodata: "ai_comments has 0 rows in this dev DB - no findings to bubble-plot yet.", value: "1.\n2." },
       { q: "How much does LiveReview save versus alternatives?", graph: "Waterfall chart", x: "Cost components", y: "USD", enc: "Positive = avoided cost; negative = LR cost", why: "Start with hypothetical alternative cost, subtract LR LLM cost + subscription, arrive at net savings. Vega-Lite explicitly has a waterfall example.", suggested: "",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/cost_waterfall.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/cost_waterfall.html", value: "1.\n2." },
     ];
 
     const tier2 = [
       { q: "How much code has LR reviewed?", graph: "Horizon graph", x: "Day", y: "LOC", enc: "Layer intensity", why: "Extremely compact long-term view. Useful when the dashboard needs to show 30–90 days without consuming much space. Vega-Lite has a native horizon-graph pattern.",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/loc_horizon.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/loc_horizon.html", value: "1.\n2." },
       { q: "Are reviews getting faster?", graph: "Line + percentile bands", x: "Day", y: "Review duration", enc: "Median line; p50/p90/p95 bands", why: "A CTO cares less about average latency than whether the tail is becoming problematic. Layered/error-band techniques are well supported.",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/latency_bands.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/latency_bands.html", value: "1.\n2." },
       { q: "How much engineering work is being covered by LR?", graph: "Dual layered line", x: "Day", y: "LOC reviewed", enc: "Line 1 = LOC; line 2 = reviews", why: "Add a derived LOC/review tooltip. This distinguishes more reviews from genuinely more code being inspected.",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/loc_vs_reviews.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/loc_vs_reviews.html", value: "1.\n2." },
       { q: "Are reviews becoming more iterative?", graph: "Histogram / violin / box plot", x: "Reviews per commit", y: "Count of commits", enc: "Color = trigger", why: "Distribution is more revealing than an average. A long right tail means some commits are being reviewed repeatedly.",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/reviews_per_commit.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/reviews_per_commit.html", value: "1.\n2." },
       { q: "Which engineers are getting the most value from LR?", graph: "2D scatterplot", x: "Reviews/engineer", y: "Useful findings/engineer", enc: "Size = LOC; color = feedback acceptance", why: "Separates “heavy users” from “productive users.” If feedback is sufficiently populated, this can become one of the most interesting charts.",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/value_scatter.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/value_scatter.html", value: "1.\n2." },
       { q: "Are people trusting the reviews?", graph: "Diverging stacked bar", x: "Engineer/team", y: "Feedback count", enc: "Up vs down", why: "review_feedback explicitly records up/down votes and severity, so this is grounded in the schema.",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/feedback_trust.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/feedback_trust.html", value: "1.\n2." },
       { q: "Which repositories have the highest review coverage?", graph: "Bubble chart", x: "Reviews / PRs", y: "LOC reviewed / LOC changed", enc: "Size = engineers; color = coverage", why: "Useful if you can establish total changed LOC/PRs from the Git-host data. This distinguishes high LR usage from genuinely broad coverage.",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/repo_coverage.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/repo_coverage.html", value: "1.\n2." },
       { q: "What does a healthy engineering-review workflow look like?", graph: "Connected scatterplot", x: "Review stage / latency", y: "Finding severity or review iteration", enc: "Point = period; connected chronologically", why: "Plot successive weekly states and connect them. The trajectory itself becomes meaningful: more pre-commit reviews + lower latency + fewer late critical findings. Connected scatterplots are explicitly supported by Vega-Lite.",
-        nodata: "review_feedback.severity has only 15 rows total across ~10 weeks - too sparse to plot a meaningful weekly trajectory." },
+        nodata: "review_feedback.severity has only 15 rows total across ~10 weeks - too sparse to plot a meaningful weekly trajectory.", value: "1.\n2." },
       { q: "How much of the organization's activity is covered by the top users?", graph: "Cumulative area / Pareto", x: "Engineers ranked by activity", y: "Cumulative % of reviews", enc: "Line + bars", why: "Makes “adoption is broad” vs “three people are doing everything” immediately apparent.",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/engineer_pareto.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/engineer_pareto.html", value: "1.\n2." },
       { q: "What changed between week 1 and week 2?", graph: "Two-dimensional change matrix", x: "Metric", y: "Metric", enc: "Color = delta", why: "Rows = reviews, LOC, active engineers, repos, pre-commit %, critical findings, etc. Columns = W1/W2/delta. This can become a compact “14-day verdict.”",
-        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/change_matrix.html" },
+        demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/change_matrix.html", value: "1.\n2." },
     ];
 
     function esc(s) {
@@ -203,6 +204,7 @@
     function renderTable(id, rows, hasSuggested) {
       const cols = ["#", "CTO query", "Vega-Lite graph", "X axis", "Y axis", "Color / size / encoding", "Why this works / action"];
       if (hasSuggested) cols.push("Suggested CTO query");
+      cols.push("Value");
       let html = "<thead><tr>" + cols.map(c => `<th>${esc(c)}</th>`).join("") + "</tr></thead><tbody>";
       rows.forEach((r, i) => {
         html += "<tr>";
@@ -225,6 +227,7 @@
             ? `<td class="suggested">${esc(r.suggested)}</td>`
             : `<td class="empty">—</td>`;
         }
+        html += `<td class="value">${esc(r.value).replace(/\n/g, "<br>")}</td>`;
         html += "</tr>";
       });
       html += "</tbody>";
