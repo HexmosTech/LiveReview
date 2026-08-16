@@ -122,9 +122,52 @@ Both charts' Vega-Lite encoding hardcodes `"sort": "-x"` on the y-field (line 84
 - Chart: two-layer spec — `bar` mark (y = engineer sorted `-x`, x = value, color = band) + a dashed `rule` layer at x = 5 (the target).
 - KPI text: "1 of 8 engineers are below the target of 5 reviews."
 
-**Root cause** — the wrong decision is made in the planning call (call #2), not in chart rendering. `internal/mcpagent/prompts/analytics_plan.md` instructs the model: *"One entry per distinct thing the user asked for. 'Show me reviews per month and my top reviewers' is **two** entries."* That rule is correct for genuinely independent asks, but the planner over-applies it here: "most and least" is one ranking question with two ends, not two independent sub-questions, yet the plan produced two mirrored `PlanEntry` objects (`most_active_reviewers` / `least_active_reviewers`) with near-identical `count_sql`. Because finalize (call #3) is "contractually bound to the planned sub-question" per report (same mechanism noted in section 3's root cause), each finalize call only ever sees one half of the ranking and has no opportunity to produce the single banded-and-targeted chart `analytics_finalize.md`'s own chart-shape table already documents for this pattern ("comparing named categories against each other → sorted bar ... add a rule layer for a fixed target threshold") — that row exists but nothing in `analytics_plan.md` routes a compound most/least question to it as one report instead of two.
+**Root cause** — the wrong decision is made in the planning call (call #2), not in chart rendering. `internal/mcpagent/prompts/analytics_plan.md` instructs the model: _"One entry per distinct thing the user asked for. 'Show me reviews per month and my top reviewers' is **two** entries."_ That rule is correct for genuinely independent asks, but the planner over-applies it here: "most and least" is one ranking question with two ends, not two independent sub-questions, yet the plan produced two mirrored `PlanEntry` objects (`most_active_reviewers` / `least_active_reviewers`) with near-identical `count_sql`. Because finalize (call #3) is "contractually bound to the planned sub-question" per report (same mechanism noted in section 3's root cause), each finalize call only ever sees one half of the ranking and has no opportunity to produce the single banded-and-targeted chart `analytics_finalize.md`'s own chart-shape table already documents for this pattern ("comparing named categories against each other → sorted bar ... add a rule layer for a fixed target threshold") — that row exists but nothing in `analytics_plan.md` routes a compound most/least question to it as one report instead of two.
 
 # 5.
+
+### Query: Is adoption becoming broader over time?
+
+### Result from livi:
+
+Weekly Unique Reviewers
+
+[](Weekly Unique Reviewers**LiveReview**160826.png)
+
+The number of unique users performing reviews has grown from 2 in early 2026 to 12 in the most recent week.
+
+Activity across the organization shows a consistent upward trend in participation over the last 6 months.
+
+Time range: Last 6 months (Jan 2026 – Jun 2026)
+
+Granularity: Weekly
+
+Query: unique users performing reviews per week
+
+### What is missing from the demo:
+
+**Symptom** — For "Is adoption becoming broader over time?", Livi planned and rendered one report (chat_debug.log, request 864afedfb14e75b0, call #2 plan at line 947):
+
+```
+{"analytics_plan": [
+  {"id": "adoption_trend",
+   "question": "Number of unique users performing reviews per week over the last 6 months",
+   "count_sql": "SELECT count(*) FROM (SELECT date_trunc('week', created_at) AS week FROM reviews WHERE org_id = 151 AND status = 'completed' GROUP BY 1) t"}
+]}
+```
+
+`Weekly Unique Reviewers` — 3-layer `line` chart (raw count + 4-week rolling average + period-average baseline, the standard auto-injected rolling-average pattern for weekly data), data_sql `count(DISTINCT user_email)` grouped by `date_trunc('week', created_at)`, 26 rows (line 966/968/969). This measures **headcount** — how many distinct people touched a review each week — not **breadth of usage across activity tiers**, so it cannot show whether growth is many people doing a little or the same few people doing more. It also doesn't answer "broader" in the sense of light/regular/heavy segmentation at all: there is no tier field anywhere in this report.
+
+The rendered description is also inconsistent with its own `data.values` (line 970): it claims growth "from 2 in early 2026 to 12 in the most recent week," but the actual series starts at `unique_users: 1` (2026-02-02) and the last point is `unique_users: 5` (2026-08-10) — the true max across all 26 weeks is 5, not 12, and never reaches 2 until the week of 2026-05-25.
+
+**Expected** (see adoption_growth.html) — a stacked area chart of active-engineer counts broken out by usage tier, so growth in headcount and growth in engagement depth are visually separable:
+
+- SQL: `SELECT date_trunc('week', COALESCE(completed_at, created_at))::date AS week, author_username, count(*) AS n FROM reviews WHERE org_id = 151 AND author_username IS NOT NULL AND COALESCE(completed_at, created_at) >= CURRENT_DATE - INTERVAL '180 days'` — per-engineer weekly counts, then bucketed into tiers in a second pass (not a single flat GROUP BY).
+- Bands: `1-4 (light)` (#7c9cff), `5-19 (regular)` (#ffb454), `20+ (heavy)` (#39d353).
+- Chart: `area` mark (`interpolate: monotone`), x = week, y = engineer count (`stack: true`), color = tier.
+- Stats: "Total active engineers/week went from 1 to 5. Heavy users (20+ reviews/week) went from 0 to 0."
+
+**Root cause** — the wrong decision is made in the planning call (call #2), not in chart rendering. `internal/mcpagent/prompts/analytics_plan.md` has a rule for rhythm/habit questions ("group by day, not by author") but no equivalent rule distinguishing a _breadth_ question ("is adoption spreading across more people at more depth") from a plain headcount trend. The only applicable rule here is the generic "Default to a grouped answer... Write count_sql as if the answer will be grouped by time (or by whatever dimension makes the comparison)" — the planner picked time (week) as the sole grouping dimension and `count(DISTINCT user_email)` as the metric, which satisfies "grouped by time" literally but drops the per-engineer tier dimension entirely. Because finalize (call #3) only ever sees this report's own question ("Number of unique users performing reviews per week"), it has no basis to introduce tiers that were never in the plan — it just applies the standard time-trend chart-shape rule (line + rolling average) from `analytics_finalize.md`, which is the correct rule for the plan it was given, not for the question that was actually asked.
 
 # 6.
 
