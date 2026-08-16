@@ -574,22 +574,37 @@ func maybeAddRollingAverageLayer(mark string, encoding json.RawMessage, rowCount
 		return nil, false
 	}
 
-	win, ok := rollingWindowFor(x.TimeUnit)
-	if !ok || rowCount < win.rows*2 {
-		return nil, false
-	}
+	// The baseline (period average) rule is a flat mean of whatever rows
+	// exist - meaningful regardless of how many there are or how they're
+	// bucketed, so it's added whenever the basic single-series time-trend
+	// shape checks above pass. The rolling-average line is different: it
+	// only means what its label says (win.rows *rows*, e.g. "6-month") when
+	// there are enough rows for that window to be more signal than noise
+	// (rollingWindowFor's !ok / rowCount check below) - so it's the only
+	// one gated on granularity/row count, added on top of the baseline
+	// when that gate passes.
+	win, winOK := rollingWindowFor(x.TimeUnit)
+	includeRolling := winOK && rowCount >= win.rows*2
 
 	// A named, identical color scale (same domain/range) on every layer's
 	// "datum" color channel is what makes Vega-Lite draw one shared legend
-	// for three layers that otherwise have no data-driven color channel at
-	// all (a plain bar + two synthetic lines): each layer's color is a
-	// literal constant, not a field lookup, but literal-vs-literal still
+	// for layers that otherwise have no data-driven color channel at all (a
+	// plain bar + synthetic line(s)): each layer's color is a literal
+	// constant, not a field lookup, but literal-vs-literal still
 	// participates in a legend the same way a real categorical field would.
 	baseLabel := firstNonEmpty(strings.TrimSpace(y.Title), "Value")
-	rollingLabel := win.label + " rolling average"
 	baselineLabel := "Period average (baseline)"
-	domain := []string{baseLabel, rollingLabel, baselineLabel}
-	colorRange := []string{"#7c9cff", "#ffb454", "#ff5c7c"}
+	domain := []string{baseLabel, baselineLabel}
+	colorRange := []string{"#7c9cff", "#ff5c7c"}
+	var rollingLabel string
+	if includeRolling {
+		rollingLabel = win.label + " rolling average"
+		// Insert rolling before baseline so bar/line/rule keep their
+		// established color order (blue/orange/pink) regardless of which
+		// optional layers are present.
+		domain = []string{baseLabel, rollingLabel, baselineLabel}
+		colorRange = []string{"#7c9cff", "#ffb454", "#ff5c7c"}
+	}
 	colorFor := func(label string) map[string]any {
 		return map[string]any{
 			"datum":  label,
@@ -602,7 +617,7 @@ func maybeAddRollingAverageLayer(mark string, encoding json.RawMessage, rowCount
 	// Every layer's y channel gets the exact same explicit title
 	// (baseLabel), instead of each layer defaulting to a title derived from
 	// its own field name ("Reviews Completed" vs "rolling_avg" vs
-	// "period_avg"). All three layers share one y-axis/scale (Vega-Lite's
+	// "period_avg"). All layers share one y-axis/scale (Vega-Lite's
 	// default resolve), and when layers sharing an axis carry different
 	// titles, Vega-Lite concatenates them into one garbled label instead of
 	// picking one - identical titles on every layer sidesteps that instead
@@ -619,7 +634,10 @@ func maybeAddRollingAverageLayer(mark string, encoding json.RawMessage, rowCount
 
 	layer := []any{
 		map[string]any{"mark": firstNonEmpty(mark, "bar"), "encoding": json.RawMessage(baseEncoding)},
-		map[string]any{
+	}
+
+	if includeRolling {
+		layer = append(layer, map[string]any{
 			"transform": []any{map[string]any{
 				"window": []any{map[string]any{"op": "mean", "field": y.Field, "as": "rolling_avg"}},
 				"frame":  []any{-(win.rows - 1), 0},
@@ -638,26 +656,28 @@ func maybeAddRollingAverageLayer(mark string, encoding json.RawMessage, rowCount
 					map[string]any{"field": "rolling_avg", "type": "quantitative", "title": rollingLabel, "format": ".2f"},
 				},
 			},
-		},
-		// The baseline rule needs no Go-side computation of the actual
-		// average: an "aggregate" transform collapses the same data.values
-		// every other layer sees into a single {period_avg} row, entirely
-		// client-side in the browser, the same way the rolling-average
-		// layer's "window" transform above needs no precomputed numbers.
-		map[string]any{
-			"transform": []any{map[string]any{
-				"aggregate": []any{map[string]any{"op": "mean", "field": y.Field, "as": "period_avg"}},
-			}},
-			"mark": map[string]any{"type": "rule", "strokeDash": []any{6, 4}, "strokeWidth": 1.5},
-			"encoding": map[string]any{
-				"y":     map[string]any{"field": "period_avg", "type": "quantitative", "title": baseLabel},
-				"color": colorFor(baselineLabel),
-				"tooltip": []any{
-					map[string]any{"field": "period_avg", "type": "quantitative", "title": baselineLabel, "format": ".2f"},
-				},
+		})
+	}
+
+	// The baseline rule needs no Go-side computation of the actual
+	// average: an "aggregate" transform collapses the same data.values
+	// every other layer sees into a single {period_avg} row, entirely
+	// client-side in the browser, the same way the rolling-average
+	// layer's "window" transform above needs no precomputed numbers.
+	layer = append(layer, map[string]any{
+		"transform": []any{map[string]any{
+			"aggregate": []any{map[string]any{"op": "mean", "field": y.Field, "as": "period_avg"}},
+		}},
+		"mark": map[string]any{"type": "rule", "strokeDash": []any{6, 4}, "strokeWidth": 1.5},
+		"encoding": map[string]any{
+			"y":     map[string]any{"field": "period_avg", "type": "quantitative", "title": baseLabel},
+			"color": colorFor(baselineLabel),
+			"tooltip": []any{
+				map[string]any{"field": "period_avg", "type": "quantitative", "title": baselineLabel, "format": ".2f"},
 			},
 		},
-	}
+	})
+
 	b, err := json.Marshal(layer)
 	if err != nil {
 		return nil, false
