@@ -279,6 +279,50 @@ Confirmed: **no Pareto/cumulative line appears in either chart** (line 981) — 
 
 # 8.
 
+### Query: Which repositories are unusually active or inactive?
+
+### Result from livi:
+
+Review Activity by Repository
+
+[](Review Activity by Repository**LiveReview**160826.png)
+
+This chart shows the total number of reviews completed per repository in hexmos-internal.
+
+The most active repository has 258 reviews, while several others have seen minimal activity.
+
+Repositories are sorted by review volume to highlight those with high vs low engagement.
+
+Time range: All time
+
+Granularity: Per repository
+
+Query: review counts per repository in hexmos-internal
+
+### What is missing from the demo:
+
+**Symptom** — For "Which repositories are unusually active or inactive?", Livi planned and rendered one report (chat_debug.log, request c28dbf04c907d555, call #2 plan at line 862):
+
+```
+{"analytics_plan": [
+  {"id": "repository_activity",
+   "question": "Repository activity levels based on review counts",
+   "count_sql": "SELECT count(*) AS n FROM (SELECT repository FROM reviews WHERE org_id = 151 GROUP BY repository) t"}
+]}
+```
+
+`Review Activity by Repository` — plain `bar` mark, x = repository (sorted `-y`), y = `review_count` only, 58 rows (line 881/883/884). This is a single-dimension ranking (review count alone) — it has no LOC axis, no engineer-count encoding, and no `circle`/scatter mark at all, so it cannot show the two-dimensional "high-volume vs high-frequency" split the query's "unusually active or inactive" framing calls for (a repo with many small reviews looks identical here to one with few large ones).
+
+The description is also inconsistent with its own `data.values` (line 885): it claims "the most active repository has 258 reviews," but the actual top row is `LiveReview: 198` — no repository in the 58-row result reaches 258.
+
+**Expected** (see repo_scatter.html) — a scatterplot with three independent dimensions:
+
+- SQL: `SELECT r.repository, count(*) AS reviews, count(DISTINCT r.author_username) AS engineers, coalesce(sum(l.billable_loc), 0) AS loc FROM reviews r LEFT JOIN loc_usage_ledger l ON l.review_id = r.id AND l.status = 'accounted' WHERE r.org_id = 151 AND COALESCE(r.completed_at, r.created_at) >= CURRENT_DATE - INTERVAL '90 days' GROUP BY 1` — scoped to the last 90 days, joined against `loc_usage_ledger` for LOC.
+- Chart: `circle` mark, x = LOC reviewed, y = reviews, size = active engineers (`scale.range: [80, 1200]`), color = repository.
+- Stats: "50 repositories active. Largest by LOC: LiveReview (138275 LOC, 171 reviews)."
+
+**Root cause** — the wrong decision is made in the planning call (call #2), not in chart rendering. The plan's `count_sql` only ever counts and groups `repository` from the `reviews` table — it never brings in `loc_usage_ledger` or a distinct-engineer count, so the single-metric shape is already locked in before finalize (call #3) ever runs; finalize has no LOC or engineer field available to plot even if it wanted to. `internal/mcpagent/prompts/analytics_plan.md` has no rule steering a two-axis "activity" question (volume AND frequency, i.e. LOC AND review count) toward a multi-column `count_sql`/`data_sql` the way it has an explicit rule for rhythm questions ("group by day, not by author") — faced with "unusually active or inactive," the planner defaulted to the single obvious metric (review count) instead of recognizing the question implies comparing two independent measures against each other, which `analytics_finalize.md`'s own chart-shape table documents as the scatter/bubble pattern ("relationship between two numeric measures → scatter/bubble, with size for a third measure") but which the plan's single-column SQL never gives finalize the data to use.
+
 # 9.
 
 # 10.
