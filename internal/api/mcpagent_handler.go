@@ -29,6 +29,12 @@ type MCPAgentChatResponse struct {
 }
 
 // HandleMCPAgentChat processes a chat message through the agent loop.
+//
+// TODO(chat-persistence): this is a second, stateless-history entry point
+// into the same agent loop as HandleWebChat (webchat_handler.go), which now
+// persists conversations. This one is untouched and still round-trips
+// history from the caller. Worth unifying once a consumer of this endpoint
+// needs persisted history too.
 func (s *Server) HandleMCPAgentChat(c echo.Context) error {
 	var req MCPAgentChatRequest
 	if err := c.Bind(&req); err != nil {

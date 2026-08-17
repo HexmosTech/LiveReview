@@ -5,16 +5,13 @@ export interface ChatMessage {
   text: string;
 }
 
-export interface ChatHistoryEntry {
-  role: string;
-  content?: string;
-  text?: string;
-}
-
 // A chart report the backend hands back as a raw Vega-Lite spec rather than a
 // rendered image, so the frontend can render it interactively (tooltips,
-// hover, legend filtering) instead of a flat PNG.
+// hover, legend filtering) instead of a flat PNG. `id` is only present once
+// the chart has been persisted (loaded via getConversation) - a chart fresh
+// off a live turn doesn't have one yet.
 export interface ChatChart {
+  id?: number;
   title?: string;
   description?: string;
   query?: string;
@@ -39,22 +36,22 @@ export interface ChatFile {
 
 export interface ChatResponse {
   response: string;
-  history: ChatHistoryEntry[];
   charts?: ChatChart[];
   files?: ChatFile[];
   sessionId?: string;
+  conversationId: number;
 }
 
+// The backend now owns conversation history: it loads prior turns by
+// conversationId and persists this one, so the client only ever sends the
+// new message plus which conversation it belongs to (omitted to start a new
+// one).
 export async function sendChatMessage(
   message: string,
-  history: ChatHistoryEntry[],
-  sessionId?: string,
+  conversationId?: number,
 ): Promise<ChatResponse> {
   return apiClient.post<ChatResponse>('/api/v1/chat/send', {
     message,
-    history: history.length > 0 ? history : undefined,
-    // Echoing the session id back lets every turn of one conversation share a
-    // correlation id in the server-side debug log.
-    sessionId: sessionId || undefined,
+    conversationId: conversationId ?? undefined,
   });
 }

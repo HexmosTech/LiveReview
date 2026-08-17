@@ -22,6 +22,20 @@ COMMENT ON SCHEMA public IS '';
 
 
 --
+-- Name: pg_trgm; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
+
+
+--
+-- Name: EXTENSION pg_trgm; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON EXTENSION pg_trgm IS 'text similarity measurement and index searching based on trigrams';
+
+
+--
 -- Name: learning_scope; Type: TYPE; Schema: public; Owner: -
 --
 
@@ -68,6 +82,34 @@ BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
+$$;
+
+
+--
+-- Name: chat_conversations_search_trigger(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.chat_conversations_search_trigger() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  NEW.search_vector := to_tsvector('english', COALESCE(NEW.title, ''));
+  RETURN NEW;
+END
+$$;
+
+
+--
+-- Name: chat_messages_search_trigger(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.chat_messages_search_trigger() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  NEW.search_vector := to_tsvector('english', COALESCE(NEW.content, ''));
+  RETURN NEW;
+END
 $$;
 
 
@@ -519,6 +561,116 @@ CREATE SEQUENCE public.billing_notification_outbox_id_seq
 --
 
 ALTER SEQUENCE public.billing_notification_outbox_id_seq OWNED BY public.billing_notification_outbox.id;
+
+
+--
+-- Name: chat_charts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.chat_charts (
+    id bigint NOT NULL,
+    message_id bigint NOT NULL,
+    title character varying(300),
+    description text,
+    query text,
+    time_range character varying(100),
+    granularity character varying(50),
+    triggering_user_message text NOT NULL,
+    vega_spec jsonb NOT NULL,
+    raw_llm_output text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: chat_charts_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.chat_charts_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: chat_charts_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.chat_charts_id_seq OWNED BY public.chat_charts.id;
+
+
+--
+-- Name: chat_conversations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.chat_conversations (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    title character varying(200) DEFAULT 'New conversation'::character varying NOT NULL,
+    session_id character varying(64),
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone,
+    search_vector tsvector
+);
+
+
+--
+-- Name: chat_conversations_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.chat_conversations_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: chat_conversations_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.chat_conversations_id_seq OWNED BY public.chat_conversations.id;
+
+
+--
+-- Name: chat_messages; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.chat_messages (
+    id bigint NOT NULL,
+    conversation_id bigint NOT NULL,
+    role character varying(20) NOT NULL,
+    content text NOT NULL,
+    raw_history_entry jsonb NOT NULL,
+    turn_seq integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    search_vector tsvector,
+    CONSTRAINT chat_messages_role_check CHECK (((role)::text = ANY ((ARRAY['user'::character varying, 'assistant'::character varying])::text[])))
+);
+
+
+--
+-- Name: chat_messages_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.chat_messages_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: chat_messages_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.chat_messages_id_seq OWNED BY public.chat_messages.id;
 
 
 --
@@ -2734,6 +2886,27 @@ ALTER TABLE ONLY public.billing_notification_outbox ALTER COLUMN id SET DEFAULT 
 
 
 --
+-- Name: chat_charts id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.chat_charts ALTER COLUMN id SET DEFAULT nextval('public.chat_charts_id_seq'::regclass);
+
+
+--
+-- Name: chat_conversations id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.chat_conversations ALTER COLUMN id SET DEFAULT nextval('public.chat_conversations_id_seq'::regclass);
+
+
+--
+-- Name: chat_messages id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.chat_messages ALTER COLUMN id SET DEFAULT nextval('public.chat_messages_id_seq'::regclass);
+
+
+--
 -- Name: instance_details id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3061,6 +3234,38 @@ ALTER TABLE ONLY public.auth_tokens
 
 ALTER TABLE ONLY public.billing_notification_outbox
     ADD CONSTRAINT billing_notification_outbox_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: chat_charts chat_charts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.chat_charts
+    ADD CONSTRAINT chat_charts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: chat_conversations chat_conversations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.chat_conversations
+    ADD CONSTRAINT chat_conversations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: chat_messages chat_messages_conversation_id_turn_seq_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.chat_messages
+    ADD CONSTRAINT chat_messages_conversation_id_turn_seq_key UNIQUE (conversation_id, turn_seq);
+
+
+--
+-- Name: chat_messages chat_messages_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.chat_messages
+    ADD CONSTRAINT chat_messages_pkey PRIMARY KEY (id);
 
 
 --
@@ -3888,6 +4093,48 @@ CREATE INDEX idx_billing_notification_outbox_org_created ON public.billing_notif
 --
 
 CREATE INDEX idx_billing_notification_outbox_pending ON public.billing_notification_outbox USING btree (status, send_after, created_at) WHERE ((status)::text = ANY (ARRAY[('pending'::character varying)::text, ('failed'::character varying)::text]));
+
+
+--
+-- Name: idx_chat_charts_message; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_chat_charts_message ON public.chat_charts USING btree (message_id);
+
+
+--
+-- Name: idx_chat_conversations_search; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_chat_conversations_search ON public.chat_conversations USING gin (search_vector);
+
+
+--
+-- Name: idx_chat_conversations_title_trgm; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_chat_conversations_title_trgm ON public.chat_conversations USING gin (title public.gin_trgm_ops);
+
+
+--
+-- Name: idx_chat_conversations_user_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_chat_conversations_user_active ON public.chat_conversations USING btree (user_id, org_id, updated_at DESC) WHERE (deleted_at IS NULL);
+
+
+--
+-- Name: idx_chat_messages_conversation; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_chat_messages_conversation ON public.chat_messages USING btree (conversation_id, turn_seq);
+
+
+--
+-- Name: idx_chat_messages_search; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_chat_messages_search ON public.chat_messages USING gin (search_vector);
 
 
 --
@@ -4850,6 +5097,20 @@ CREATE UNIQUE INDEX ux_license_state_singleton ON public.license_state USING btr
 
 
 --
+-- Name: chat_conversations chat_conversations_search_update; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER chat_conversations_search_update BEFORE INSERT OR UPDATE OF title ON public.chat_conversations FOR EACH ROW EXECUTE FUNCTION public.chat_conversations_search_trigger();
+
+
+--
+-- Name: chat_messages chat_messages_search_update; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER chat_messages_search_update BEFORE INSERT OR UPDATE OF content ON public.chat_messages FOR EACH ROW EXECUTE FUNCTION public.chat_messages_search_trigger();
+
+
+--
 -- Name: ai_models trg_ai_models_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -4981,6 +5242,38 @@ ALTER TABLE ONLY public.billing_notification_outbox
 
 ALTER TABLE ONLY public.billing_notification_outbox
     ADD CONSTRAINT billing_notification_outbox_recipient_user_id_fkey FOREIGN KEY (recipient_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: chat_charts chat_charts_message_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.chat_charts
+    ADD CONSTRAINT chat_charts_message_id_fkey FOREIGN KEY (message_id) REFERENCES public.chat_messages(id) ON DELETE CASCADE;
+
+
+--
+-- Name: chat_conversations chat_conversations_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.chat_conversations
+    ADD CONSTRAINT chat_conversations_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: chat_conversations chat_conversations_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.chat_conversations
+    ADD CONSTRAINT chat_conversations_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: chat_messages chat_messages_conversation_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.chat_messages
+    ADD CONSTRAINT chat_messages_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.chat_conversations(id) ON DELETE CASCADE;
 
 
 --
@@ -5789,4 +6082,6 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260809120000'),
     ('20260809150000'),
     ('20260811120000'),
-    ('20260813000000');
+    ('20260813000000'),
+    ('20260817120000'),
+    ('20260817130000');

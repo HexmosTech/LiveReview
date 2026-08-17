@@ -1,11 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { View } from 'vega';
-import { sendChatMessage, ChatHistoryEntry, ChatFile, ChatChart } from '../../api/chatbot';
+import { sendChatMessage, ChatFile, ChatChart } from '../../api/chatbot';
+import { createConversation, getConversation } from '../../api/chatConversations';
 import { BASE_URL } from '../../api/apiClient';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppSelector } from '../../store/configureStore';
 import { InteractiveChart, downloadChartView } from './InteractiveChart';
 import { ThinkingIndicator } from './ThinkingIndicator';
+import { CONVERSATIONS_QUERY_KEY } from './ConversationSidebar';
 
 interface ChatEntry {
   id: string;
@@ -159,7 +162,15 @@ function findNextSpecial(line: string, from: number): number {
 
 const Chatbot: React.FC = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
+  const { conversationId: conversationIdParam } = useParams<{ conversationId?: string }>();
+  const conversationId = conversationIdParam ? Number(conversationIdParam) : undefined;
+  const { data: conversationDetail } = useQuery({
+    queryKey: ['chat', 'conversation', conversationId],
+    queryFn: () => getConversation(conversationId as number),
+    enabled: conversationId !== undefined,
+  });
   const user = useAppSelector((state) => state.Auth.user);
   // CSV exports come from an authenticated, org-scoped endpoint, so the
   // download has to carry the same headers apiClient sends. Charts don't need
@@ -198,14 +209,12 @@ const Chatbot: React.FC = () => {
   const [messages, setMessages] = useState<ChatEntry[]>([]);
   const [input, setInput] = useState(() => searchParams.get('prefill') || '');
   const [isLoading, setIsLoading] = useState(false);
-  const [history, setHistory] = useState<ChatHistoryEntry[]>([]);
   const [preview, setPreview] = useState<ChatChart | null>(null);
   const previewViewRef = useRef<View | null>(null);
   // Inline charts render their own View independent of the modal's, so a
   // chart can be downloaded straight from the chat without first expanding
   // it. Keyed per chart instance since one message can carry several charts.
   const chartViewsRef = useRef<Map<string, View>>(new Map());
-  const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [showAISetup, setShowAISetup] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -217,6 +226,32 @@ const Chatbot: React.FC = () => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
+  // Seed local message state once the persisted conversation loads. The
+  // server is the source of truth for history now; this component only
+  // mounts fresh per conversation (see the `key` on the route in
+  // ChatbotRoutes.tsx), so this only needs to run when the fetched detail
+  // itself changes, not on every render.
+  useEffect(() => {
+    if (!conversationDetail) return;
+    setMessages(
+      conversationDetail.messages.map((m) => ({
+        id: String(m.id),
+        role: m.role,
+        text: m.content,
+        charts: m.charts && m.charts.length > 0 ? m.charts : undefined,
+        files: m.files && m.files.length > 0 ? m.files : undefined,
+      })),
+    );
+  }, [conversationDetail]);
+
+  // Tracks a conversation created for THIS "new chat" send before the URL
+  // catches up - see handleSend. Cleared whenever the route's conversationId
+  // changes (a genuine switch, not our own pending creation).
+  const pendingConversationIdRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    pendingConversationIdRef.current = undefined;
+  }, [conversationId]);
+
   const handleSend = async () => {
     const text = input.trim();
     if (!text || isLoading) return;
@@ -227,9 +262,18 @@ const Chatbot: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const result = await sendChatMessage(text, history, sessionId);
-      setHistory(result.history);
-      if (result.sessionId) setSessionId(result.sessionId);
+      let activeConversationId = conversationId ?? pendingConversationIdRef.current;
+      if (activeConversationId === undefined) {
+        // Create the conversation (and surface it in the sidebar) right
+        // away, before waiting on the agent's answer - otherwise a new
+        // chat wouldn't appear in the sidebar until the first reply lands.
+        const created = await createConversation(text);
+        activeConversationId = created.id;
+        pendingConversationIdRef.current = created.id;
+        queryClient.invalidateQueries({ queryKey: CONVERSATIONS_QUERY_KEY });
+      }
+
+      const result = await sendChatMessage(text, activeConversationId);
 
       const assistantEntry: ChatEntry = {
         id: generateId(),
@@ -239,6 +283,16 @@ const Chatbot: React.FC = () => {
         files: result.files && result.files.length > 0 ? result.files : undefined,
       };
       setMessages((prev) => [...prev, assistantEntry]);
+      queryClient.invalidateQueries({ queryKey: CONVERSATIONS_QUERY_KEY });
+      // First message of a new conversation: move to its URL so it's
+      // bookmarkable/shareable and the sidebar highlights it. The Chatbot
+      // route is keyed by conversationId (see ChatbotRoutes.tsx), so this
+      // remounts and re-hydrates from the now-persisted turn - simpler and
+      // more correct than reconciling local optimistic state by hand, and
+      // safe to do only now since the turn is already fully persisted.
+      if (conversationId === undefined && activeConversationId !== undefined) {
+        navigate(`/chat/${activeConversationId}`, { replace: true });
+      }
     } catch (err: any) {
       const errMsg = err?.response?.data?.error || err?.message || 'Request failed';
       if (errMsg.toLowerCase().includes('ai connector')) {
@@ -291,7 +345,7 @@ const Chatbot: React.FC = () => {
   }, []);
 
   return (
-    <div className="h-[calc(100vh-4rem)] flex flex-col bg-slate-900">
+    <div className="h-full flex flex-col bg-slate-900">
       <div className="flex-none px-4 py-2">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -299,9 +353,9 @@ const Chatbot: React.FC = () => {
             <h1 className="text-sm font-medium text-slate-400">Chat with Livi</h1>
           </div>
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => navigate('/dashboard')}
             className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
-            title="Close"
+            title="Back to dashboard"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

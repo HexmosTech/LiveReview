@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import classNames from 'classnames';
 import { Button, Icons } from '../UIPrimitives';
 import { OrganizationSelector } from '../OrganizationSelector';
+import { useChatSidebarReservedWidth, useChatSidebarResizing } from '../../store/chatSidebar';
 import { useSystemInfo } from '../../hooks/useSystemInfo';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { isCloudMode } from '../../utils/deploymentMode';
@@ -606,6 +607,13 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
     const megaMenuPanelRef = useRef<HTMLDivElement>(null);
     const wasMegaMenuOpenRef = useRef(false);
     const { isDevMode } = useSystemInfo();
+    // On the chat page the sidebar is a fixed rail sitting in front of the
+    // navbar's own left edge - inset the navbar's content by the sidebar's
+    // current width so the logo is never physically covered by it, instead
+    // of trying to out-stack it with z-index (which broke the instant the
+    // sidebar was wider than the navbar's own centered-container gutter).
+    const chatSidebarWidth = useChatSidebarReservedWidth();
+    const chatSidebarResizing = useChatSidebarResizing();
     const { isSuperAdmin, currentOrg } = useOrgContext();
 
     // Check if user can manage current org (owner or super admin)
@@ -757,7 +765,17 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
 
     return (
         <nav
-            className="relative bg-slate-900/95 backdrop-blur-sm shadow-lg border-b border-slate-700/60 sticky top-0 z-50"
+            className={classNames(
+                'relative bg-slate-900/95 backdrop-blur-sm shadow-lg border-b border-slate-700/60 sticky top-0 z-50',
+                !chatSidebarResizing && 'transition-[margin-left] duration-200 ease-in-out',
+            )}
+            // margin-left, not padding-left: padding would only push the nav's
+            // *content* right while its own background box still spanned the
+            // full width - since that box sits at z-50, above the sidebar's
+            // z-30, it painted over (and hid) the sidebar's toggle button
+            // even though nothing visually "collided". margin-left moves the
+            // whole element, so there's no overlap for z-index to resolve.
+            style={activePage === 'chat' ? { marginLeft: chatSidebarWidth } : undefined}
         >
             <div className="container mx-auto px-4 py-3 flex justify-between items-center">
                 <div ref={logoRef} className="flex items-center">

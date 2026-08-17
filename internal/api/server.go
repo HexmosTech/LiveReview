@@ -23,8 +23,8 @@ import (
 	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/api/organizations"
 	"github.com/livereview/internal/api/users"
-	"github.com/livereview/internal/discordbot"
 	"github.com/livereview/internal/database"
+	"github.com/livereview/internal/discordbot"
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/license"
@@ -1344,6 +1344,14 @@ func (s *Server) setupRoutes() {
 	// CSV exports are bulk org data, so unlike the chart PNGs below they are
 	// served from the authenticated group and checked against the caller's org.
 	chatGroup.GET("/files/:id", s.ServeChatCSV)
+	// Persisted conversation history: list/search the sidebar, open a thread,
+	// rename/delete it, and re-render one of its charts on demand.
+	chatGroup.POST("", s.CreateConversation)
+	chatGroup.GET("", s.ListConversations)
+	chatGroup.GET("/:id", s.GetConversation)
+	chatGroup.PATCH("/:id", s.RenameConversation)
+	chatGroup.DELETE("/:id", s.DeleteConversation)
+	chatGroup.GET("/charts/:chartId/render", s.RenderChart)
 
 	// Dashboard endpoints (organization scoped)
 	dashboardGroup := v1.Group("/dashboard")

@@ -33,7 +33,7 @@ const LicenseAssignment = React.lazy(() => import('./pages/Licenses/LicenseAssig
 const UserForm = React.lazy(() => import('./components/UserManagement/UserForm'));
 const BillingPortfolio = React.lazy(() => import('./pages/Admin/BillingPortfolio'));
 const TaxonomyReports = React.lazy(() => import('./pages/Reports/TaxonomyReports'));
-const Chatbot = React.lazy(() => import('./pages/Chatbot/Chatbot'));
+const ChatbotRoutes = React.lazy(() => import('./pages/Chatbot/ChatbotRoutes'));
 // import { usePostHog } from '@posthog/react'
 
 const Footer = () => (
@@ -290,7 +290,7 @@ const AppContent: React.FC = () => {
                     onLogout={handleLogout}
                 />
                 <URLMismatchBanner />
-                {!isCloudMode() && location.pathname !== '/chat' && <LicenseStatusBar onOpenModal={() => dispatch(openLicenseModal())} />}
+                {!isCloudMode() && !location.pathname.startsWith('/chat') && <LicenseStatusBar onOpenModal={() => dispatch(openLicenseModal())} />}
                 <div className="flex-grow">
                     <SubscriptionGuard>
                         <Suspense fallback={<RouteFallback />}>
@@ -318,7 +318,7 @@ const AppContent: React.FC = () => {
                                 <Route path="/settings/users/edit/:userId" element={<UserForm />} />
                                 <Route path="/admin/billing-portfolio" element={<BillingPortfolio />} />
                                 <Route path="/reports/*" element={<TaxonomyReports />} />
-                                <Route path="/chat" element={<Chatbot />} />
+                                <Route path="/chat/*" element={<ChatbotRoutes />} />
                                 <Route path="/test-middleware" element={<MiddlewareTestPage />} />
                                 <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
                                 <Route path="*" element={<Navigate to="/" replace />} />
@@ -326,9 +326,9 @@ const AppContent: React.FC = () => {
                         </Suspense>
                     </SubscriptionGuard>
                 </div>
-                {location.pathname !== '/chat' && <Footer />}
+                {!location.pathname.startsWith('/chat') && <Footer />}
                 {!isCloudMode() && <LicenseModal open={licenseOpen} onClose={() => dispatch(closeLicenseModal())} />}
-                {location.pathname !== '/chat' && (
+                {!location.pathname.startsWith('/chat') && (
                 <div className={`fixed right-6 z-50 flex items-center gap-3 transition-all duration-300 ${nudgeOccupying ? 'bottom-20' : 'bottom-6'}`}>
                     {!commentNavOccupying && (
                     <span className="hidden lg:flex items-center gap-2 text-sm font-semibold text-slate-100 px-4 py-2 rounded-full bg-slate-800/90 border border-slate-600 shadow-lg pointer-events-none">
