@@ -24,17 +24,23 @@ What is missing from the demo:
 
 ### Issue-1: Repository name handling is inconsistent
 
+**One-liner**: Livi can't verify a repository's real name against actual data, so it randomly asks, guesses right, or guesses with the wrong casing on identical queries.
+
 Finding: Across repeated runs of the same query, Livi treats the named repository differently every time — sometimes it asks for the repository name despite it already being in the query, sometimes it substitutes a different real repository (one run's chart was captioned for "hexmos-internal" instead of "LiveReview"), and sometimes it picks up the right name but mismatches its exact spelling/casing.
 
 RCA: `internal/mcpagent/schema_render.go` (dbctx) only shows the model table/column structure, never the actual values stored in those columns — this is a deliberate choice, documented in `internal/mcpagent/prompts/analytics_schema_examples.md`. So the model has no way to confirm what the real repository name string is, and has to guess or ask each time. Which one it does is decided by the model's sampling temperature (0.7), so identical queries get different behavior on different runs.
 
 #### Issue-2: Wrong chart shape (missing contributor attribution)
 
+**One-liner**: Grouped by time instead of by contributor — no prompt rule tells it "why did velocity change" means "break the change down per engineer."
+
 Finding: The expected chart is a per-contributor LOC-change breakdown. Livi instead returns a weekly trend chart (reviews or LOC over time), which never shows who is driving the change.
 
 RCA: The grouping is decided at the very first step of the pipeline (the counting query), and the chart-building step afterward is required to keep that same grouping. `internal/mcpagent/prompts/analytics_plan.md` has a worked rule steering one specific type of ambiguous question ("rhythm/habit" questions) to group by calendar day, but no equivalent rule steering a "why did X change" question to group by contributor. `internal/mcpagent/prompts/analytics_finalize.md`'s chart-shape table also has no row for "who's driving a change." Without that steering, the model falls back to its most generic default: group by time.
 
 #### Issue-3: False "no data" answer
+
+**One-liner**: A case-mismatched repository filter silently returned zero rows, and Livi reported that as a confident, false "no data" answer instead of questioning it.
 
 Finding: One run replied "There were no reviews completed for the Livereview repository this week," even though the repository has substantial review activity.
 
@@ -63,6 +69,8 @@ Granularity: Per contributor
 Query: engineers with the highest number of completed reviews
 
 ### What is missing from the demo:
+
+**One-liner**: Answered "who has the most reviews org-wide" instead of "who's carrying this repo in LOC," and stated a headline number ("48 reviews") it hadn't actually seen yet.
 
 **Symptom** — For "Which engineers are carrying the repository?", Livi planned and rendered one report (chat_debug.log, request 0587c10bc1022dde, call #2 plan at line 758):
 
@@ -111,6 +119,8 @@ Query: review count per engineer grouped by repository
 
 ### What is missing from the demo:
 
+**One-liner**: Split the chart into one panel per engineer instead of one chart stacked by repository, because the prompt's own worked example literally says "facet per contributor."
+
 **Symptom** — For "What does each engineer actually spend their review activity on?", Livi planned and rendered one report (chat_debug.log, request e97175429f3a0ea3, call #2 plan at line 2094):
 
 ```
@@ -157,6 +167,8 @@ Query: Which repositories are receiving the most reviews?
 
 ### What is missing from the demo:
 
+**One-liner**: Grouped by repository instead of by trigger stage, answering "which repo" instead of "where in the review lifecycle," and named a repository that doesn't exist in its own data.
+
 **Symptom** — For "Where are reviews happening?", Livi planned and rendered one report (chat_debug.log, request 6907ca291b974f32, call #2 plan at line 2765):
 
 ```
@@ -200,6 +212,8 @@ Granularity: Monthly
 Query: monthly count of reviews by trigger type over the last 6 months
 
 ### What is missing from the demo:
+
+**One-liner**: Got the right grouping (trigger type) but showed raw counts instead of % share, so it can't actually show a shift — plus a stated date range over a year off from the real data.
 
 **Symptom** — For "Are we moving review earlier in the development lifecycle?", Livi planned and rendered one report (chat_debug.log, request a94931af22b2fbb3, call #2 plan at line 4697), with `data_sql` (line 4717): `SELECT date_trunc('month', created_at) AS month, trigger_type, count(*) AS review_count FROM reviews WHERE org_id = 151 AND created_at >= now() - interval '6 months' GROUP BY 1, 2 ORDER BY 1, 2`, 13 rows (line 4720). This is a real improvement over section 14 — it correctly grouped by `trigger_type` this time, the right column for a "where/how are reviews triggered" question. But it rendered as a plain `bar` mark with `y = review_count` (raw counts), not `stack: "normalize"` — so it shows absolute review volume per month, not the % share of activity by trigger, which is what "are we **moving** earlier" (a share/proportion question) actually needs. Absolute counts can grow for cli_diff every month even while its _share_ is shrinking, so this chart can't actually answer the question either way.
 
