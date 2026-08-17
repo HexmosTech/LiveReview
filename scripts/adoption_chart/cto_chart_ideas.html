@@ -116,20 +116,14 @@
   <h1>CTO Analytics Chart Ideas</h1>
   <p class="sub">Reference catalogue for Livi's analytics chart shapes — LiveReview usage/adoption/quality reporting. Rows marked <span class="built">built</span> already exist in the pipeline (<code>internal/mcpagent/analytics.go</code> / <code>scripts/adoption_chart/</code>).</p>
 
-  <h2><span class="dot" style="background:var(--tier1)"></span>Tier 1 — Core CTO Queries</h2>
-  <p class="tier-sub">20 charts</p>
+  <h2><span class="dot" style="background:var(--tier1)"></span>CTO Queries</h2>
+  <p class="tier-sub">30 charts</p>
   <div class="table-wrap">
-    <table id="tier1"></table>
-  </div>
-
-  <h2><span class="dot" style="background:var(--tier2)"></span>Tier 2 — Extended / Depth Queries</h2>
-  <p class="tier-sub">10 charts</p>
-  <div class="table-wrap">
-    <table id="tier2"></table>
+    <table id="all"></table>
   </div>
 
   <script>
-    const tier1 = [
+    const queries = [
       { built: true, q: "Is LiveReview adoption increasing?", graph: "Layered line + area + target rule", x: "Day", y: "Reviews/day", enc: "Area = reviews; line = 7-day rolling avg; rule = target", why: "More informative than a plain line. The rolling average shows whether adoption is genuinely increasing rather than being driven by noisy days.", suggested: "Is LiveReview adoption increasing since my team started using it?",
         demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/adoption_chart.html", value: "1.\n2." },
       { built: true, q: "Are engineers actually incorporating reviews into their daily workflow?", graph: "Calendar heatmap", x: "Day", y: "Day-of-week", enc: "Color = reviews or reviewed LOC", why: "Gives a very immediate “usage rhythm.” Weekday gaps, isolated users, and sudden changes become visually obvious. Particularly good for a 14–30 day trial.", suggested: "Are engineers actually incorporating reviews into their daily workflow since my team started using it?",
@@ -170,10 +164,7 @@
         nodata: "ai_comments has 0 rows in this dev DB - no findings to bubble-plot yet.", value: "1.\n2." },
       { q: "How much does LiveReview save versus alternatives?", graph: "Waterfall chart", x: "Cost components", y: "USD", enc: "Positive = avoided cost; negative = LR cost", why: "Start with hypothetical alternative cost, subtract LR LLM cost + subscription, arrive at net savings. Vega-Lite explicitly has a waterfall example.", suggested: "",
         demo: "file:///home/lince/hexmos/LiveReview/scripts/adoption_chart/cost_waterfall.html", value: "1.\n2." },
-    ];
-
-    const tier2 = [
-      { q: "How much code has LR reviewed?", graph: "Horizon graph", x: "Day", y: "LOC", enc: "Layer intensity", why: "Extremely compact long-term view. Useful when the dashboard needs to show 30–90 days without consuming much space. Vega-Lite has a native horizon-graph pattern.",
+      { q: "How much code has LR reviewed?", graph: "Horizon graph", x: "Day", y: "LOC", enc: "Layer intensity", why: "Extremely compact long-term view. Useful when the dashboard needs to show 30–90 days without consuming much space. Vega-Lite has a native horizon-graph pattern.", suggested: "",
         demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/loc_horizon.html", value: "1.\n2." },
       { q: "Are reviews getting faster?", graph: "Line + percentile bands", x: "Day", y: "Review duration", enc: "Median line; p50/p90/p95 bands", why: "A CTO cares less about average latency than whether the tail is becoming problematic. Layered/error-band techniques are well supported.",
         demo: "file:///home/lovestaco/hex/lr/LiveReview/scripts/adoption_chart/latency_bands.html", value: "1.\n2." },
@@ -234,8 +225,7 @@
       document.getElementById(id).innerHTML = html;
     }
 
-    renderTable("tier1", tier1, true);
-    renderTable("tier2", tier2, false);
+    renderTable("all", queries, true);
   </script>
 </body>
 </html>
