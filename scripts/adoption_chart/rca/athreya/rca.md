@@ -61,6 +61,10 @@ Both charts answer "how much / how many over time". Neither answers "how broadly
 
 **Root cause** — the wrong decision is made in the _planning_ call (call #2), not in chart rendering. `internal/mcpagent/prompts/analytics_plan.md` has a special routing rule for rhythm/habit/consistency questions ("group by day") but no rule for breadth/distribution/concentration questions. Faced with "how broadly adopted", the planner fell back to its default group-by-time bias and emitted two time-series reports. The finalize call (#3) does know the histogram shape ("distributed across many rows, as an aggregate shape → bar over SQL-computed bins" in `internal/mcpagent/prompts/analytics_finalize.md`), but it is contractually bound to the planned sub-question ("This report answers: ..."), so it never gets to choose a distribution.
 
+### One-line summary
+
+Asked "how broadly," Livi answered "how much over time" — it plotted two time-series charts because the planner has no rule for breadth/distribution questions, only for time-trend ones.
+
 # 4.
 
 ### Query: Who has adopted LiveReview—and who hasn't?
@@ -124,6 +128,10 @@ Both charts' Vega-Lite encoding hardcodes `"sort": "-x"` on the y-field (line 84
 
 **Root cause** — the wrong decision is made in the planning call (call #2), not in chart rendering. `internal/mcpagent/prompts/analytics_plan.md` instructs the model: _"One entry per distinct thing the user asked for. 'Show me reviews per month and my top reviewers' is **two** entries."_ That rule is correct for genuinely independent asks, but the planner over-applies it here: "most and least" is one ranking question with two ends, not two independent sub-questions, yet the plan produced two mirrored `PlanEntry` objects (`most_active_reviewers` / `least_active_reviewers`) with near-identical `count_sql`. Because finalize (call #3) is "contractually bound to the planned sub-question" per report (same mechanism noted in section 3's root cause), each finalize call only ever sees one half of the ranking and has no opportunity to produce the single banded-and-targeted chart `analytics_finalize.md`'s own chart-shape table already documents for this pattern ("comparing named categories against each other → sorted bar ... add a rule layer for a fixed target threshold") — that row exists but nothing in `analytics_plan.md` routes a compound most/least question to it as one report instead of two.
 
+### One-line summary
+
+"Most and least" got split into two mirrored, identically-sorted bar charts instead of one ranked leaderboard — and neither included engineers with zero reviews, so "who hasn't" was never actually answered.
+
 # 5.
 
 ### Query: Is adoption becoming broader over time?
@@ -169,6 +177,10 @@ The rendered description is also inconsistent with its own `data.values` (line 9
 
 **Root cause** — the wrong decision is made in the planning call (call #2), not in chart rendering. `internal/mcpagent/prompts/analytics_plan.md` has a rule for rhythm/habit questions ("group by day, not by author") but no equivalent rule distinguishing a _breadth_ question ("is adoption spreading across more people at more depth") from a plain headcount trend. The only applicable rule here is the generic "Default to a grouped answer... Write count_sql as if the answer will be grouped by time (or by whatever dimension makes the comparison)" — the planner picked time (week) as the sole grouping dimension and `count(DISTINCT user_email)` as the metric, which satisfies "grouped by time" literally but drops the per-engineer tier dimension entirely. Because finalize (call #3) only ever sees this report's own question ("Number of unique users performing reviews per week"), it has no basis to introduce tiers that were never in the plan — it just applies the standard time-trend chart-shape rule (line + rolling average) from `analytics_finalize.md`, which is the correct rule for the plan it was given, not for the question that was actually asked.
 
+### One-line summary
+
+"Broader" got reduced to a plain weekly-headcount line with no usage-tier breakdown at all — and its description numbers (2→12) don't even match its own data (1→5).
+
 # 6.
 
 ### Query: Which repositories are gaining or losing engineering velocity?
@@ -212,6 +224,10 @@ Query: monthly engineering velocity (completed reviews) per repository
 - Stats: "30 repos gained velocity, 13 lost velocity, out of 43 tracked."
 
 **Root cause** — the wrong decision is made in the planning call (call #2), not in chart rendering. `internal/mcpagent/prompts/analytics_plan.md` has no rule for a period-over-period _comparison_ question at all — its only relevant guidance is the generic "Default to a grouped answer... Write count_sql as if the answer will be grouped by time (or by whatever dimension makes the comparison)." The planner satisfied "grouped by time" literally by bucketing into 6 monthly buckets crossed with repository, but "gaining or losing" is a two-point comparison question (this period vs. the last), not a multi-month trend question — the plan never collapses the window into a Previous/Current split, so finalize (call #3) never has the two-period shape it would need to compute a gain/loss color. Instead finalize falls back to `analytics_finalize.md`'s "the same mini chart repeated once per category" trellis/facet pattern for "per repository" data, which is the correct rule for _that_ shape but the wrong shape for a comparison question — nothing in `analytics_plan.md` routes a "gaining or losing X" phrasing toward a two-period `CASE WHEN ... period` split the way `repo_slope.html` computes it.
+
+### One-line summary
+
+"Gaining or losing" needed a two-period comparison, but the plan built a dozens-of-panels monthly facet grid instead — there's no rule that collapses a trend window into a before/after split.
 
 # 7.
 
@@ -277,6 +293,10 @@ Confirmed: **no Pareto/cumulative line appears in either chart** (line 981) — 
 
 **Root cause** — the wrong decision is split across two stages. The primary one is _finalize_ (call #3): `internal/mcpagent/prompts/analytics_finalize.md`'s chart-shape table already documents the exact pattern needed ("concentration - who accounts for most of a total → Pareto ... sorted bar + a second line layer of cumulative percent"), but the model defaulted to a plain sorted `bar` instead of reaching for that row, even though the report's own question ("Concentration of reviews by repository") uses the word "concentration" that the table row is keyed on. A secondary, plan-stage (call #2) issue: `internal/mcpagent/prompts/analytics_plan.md`'s instruction to add "one entry per distinct thing the user asked for" caused the planner to add an unrequested `velocity_by_author` entry the single-subject "where is organizational velocity concentrated" question never asked for, diluting the response with a second, differently-scoped chart instead of one correct Pareto chart for the thing that was actually asked.
 
+### One-line summary
+
+"Concentrated" should have triggered the Pareto chart pattern already documented in the finalize prompt, but Livi rendered two plain sorted bar charts instead — one of them for an author breakdown nobody asked for.
+
 # 8.
 
 ### Query: Which repositories are unusually active or inactive?
@@ -323,6 +343,10 @@ The description is also inconsistent with its own `data.values` (line 885): it c
 
 **Root cause** — the wrong decision is made in the planning call (call #2), not in chart rendering. The plan's `count_sql` only ever counts and groups `repository` from the `reviews` table — it never brings in `loc_usage_ledger` or a distinct-engineer count, so the single-metric shape is already locked in before finalize (call #3) ever runs; finalize has no LOC or engineer field available to plot even if it wanted to. `internal/mcpagent/prompts/analytics_plan.md` has no rule steering a two-axis "activity" question (volume AND frequency, i.e. LOC AND review count) toward a multi-column `count_sql`/`data_sql` the way it has an explicit rule for rhythm questions ("group by day, not by author") — faced with "unusually active or inactive," the planner defaulted to the single obvious metric (review count) instead of recognizing the question implies comparing two independent measures against each other, which `analytics_finalize.md`'s own chart-shape table documents as the scatter/bubble pattern ("relationship between two numeric measures → scatter/bubble, with size for a third measure") but which the plan's single-column SQL never gives finalize the data to use.
 
+### One-line summary
+
+"Unusually active or inactive" is a two-axis question (volume vs. frequency), but the plan only ever fetched one metric (review count), so no scatter/bubble chart was possible — and the description's "258 reviews" claim doesn't match any row in the data.
+
 # 9.
 
 # 10.
@@ -368,3 +392,7 @@ The rendered description is also badly inconsistent with its own `data.values` (
 - Stats: "Highlighted: last 14 days, avg 1329.2 LOC/day vs prior 14 days' 3738.9 LOC/day."
 
 **Root cause** — the wrong decision is made in the planning call (call #2), not in chart rendering. The plan's `count_sql` groups by `date_trunc('month', ...)` and counts reviews, which locks the report into monthly review-count granularity before finalize (call #3) ever runs — at 6 rows, finalize's own rolling-average logic (`analytics_finalize.md`'s chart-shape table: "a value changing over time → line, add a second line layer for a rolling average if the trend is noisy") has no daily data to smooth and no basis to highlight a "last 14 days" interval, since the plan discarded day-level granularity entirely. `internal/mcpagent/prompts/analytics_plan.md` has a rule steering rhythm/habit questions toward day-level grouping ("group count_sql... by day... over a long window (90+ days), not by author_username"), but no equivalent rule for a "what happened to X's velocity" / "what changed" question about a single named entity — faced with "velocity... over the last 6 months," the planner defaulted to the coarser monthly bucket that the phrase "last 6 months" suggested, rather than the daily-granularity, shorter (90-day) window `repo_velocity.html` uses specifically so a rolling average and a recent-interval highlight are both computable.
+
+### One-line summary
+
+"What happened to velocity" needed daily LOC with a rolling average and a highlighted recent interval, but the plan collapsed everything to 6 monthly review-count buckets — and the description's numbers (152 total, April peak of 34) don't match the actual 6 rows at all.
