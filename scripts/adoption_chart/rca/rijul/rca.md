@@ -22,6 +22,9 @@ What is missing from the demo:
 
 **Root cause**: the **plan** stage (`internal/mcpagent/prompts/analytics_plan.md`) chose the wrong granularity/chart. The classifier correctly sent this to `count_query`, but the plan prompt has no rule for a volume-over-time question ("how much code has LR reviewed") that would force a daily 90-day grouping → horizon. Its only day-grouping rule (lines 38–48) is scoped to **rhythm/habit/consistency** questions ("are engineers actually incorporating reviews into their daily workflow"), which routes to a calendar heatmap — not this query. With no matching rule, plan defaulted to `date_trunc('month', ...)` grouping, yielding 5 monthly rows → a bar chart. The finalize description then also quoted KPI totals inconsistent with the chart's own `data.values`. 
 
+
+### One line RCA
+The plan prompt sets granularity only for rhythm questions and gives generic volume-trend questions no default, and the finalize step is forced to match the plan's count shape, so it fell back to a coarse monthly grouping.
 # 22.
 
 ### Query: Are reviews getting faster?
@@ -48,6 +51,9 @@ What is missing from the demo:
 
 **Root cause**: the **plan** stage (`internal/mcpagent/prompts/analytics_plan.md`) chose the wrong metric and granularity. The classifier correctly sent this to `count_query`, but the plan prompt has no rule for a **latency/tail** question ("are reviews getting faster" — a CTO cares about the tail, not the mean): its only day-grouping rule (lines 38–48) is scoped to rhythm/habit/consistency questions, and there is no rule anywhere steering toward percentiles/median or error bands. With no matching rule, plan defaulted to grouping by month and took the **average** (`count_sql` groups `date_trunc('month', completed_at)`), yielding a monthly-mean line chart; the finalize description also emitted a `time_range` inconsistent with the rendered months.
 
+
+### One line RCA
+Neither prompt instructs speed questions to use weekly p50/p10/p90; the plan framed it as a plain trend and finalize was bound to that shape, producing a monthly average and missing tail latency.
 # 23.
 
 ### Query: How much engineering work is being covered by LR?
@@ -73,6 +79,10 @@ What is missing from the demo:
 **Expected**: the spec in `LiveReview/scripts/adoption_chart/loc_vs_reviews.html` — a **dual layered line over the last 90 days showing BOTH daily review count AND daily LOC**, not a weekly LOC-only bar. Its SQL joins a per-day `reviews_d` (`count(*)` grouped by `date_trunc('day', COALESCE(completed_at, created_at))` from `reviews WHERE org_id=151`) with a per-day `loc_d` (`sum(billable_loc)` from `loc_usage_ledger WHERE org_id=151 AND status='accounted'`), zero-filled via `generate_series` of days LEFT JOINs and `COALESCE`, one `reviews` and one `loc` value per day. Title "LOC vs review count — hexmos-internal, last 90 days". KPI on that page: **Average 810.0 LOC per review across 440 reviews / 356394 LOC total**. The point is to distinguish "more reviews" from "genuinely more code inspected" — two independent lines.
 
 **Root cause**: the **plan** stage (`internal/mcpagent/prompts/analytics_plan.md`) chose the wrong scope. The classifier correctly sent this to `count_query`, but the plan prompt has no rule for a **dual-dimension coverage** question ("how much engineering work is covered" — needs both LOC *and* review count so the two can be compared). Nothing in the prompt steers toward two parallel time series (line 1 = LOC, line 2 = reviews), so plan produced a single entry counting only `loc_usage_ledger` rows grouped weekly, which forced the finalize stage into a LOC-only weekly bar. The finalize description then also quoted peak/steady-state numbers inconsistent with the chart's own `data.values`.
+
+
+### One line RCA
+No coverage rule requires comparing engineering volume with review activity, and the plan's count already fixed a single metric, so the plan reduced the question to one weekly LOC series instead of planning LOC + review count together.
 
 # 24.
 
@@ -101,6 +111,8 @@ What is missing from the demo:
 **Root cause**: the **plan** stage (`internal/mcpagent/prompts/analytics_plan.md`) chose the wrong chart shape. The classifier correctly sent this to `count_query`, but the plan prompt has no rule for a **distribution/dimensionality** question ("are reviews becoming more iterative" — answer is a histogram/violin/box of reviews-per-commit, not an average trend). Its only day-grouping rule (lines 38–48) is scoped to rhythm/habit/consistency questions, and nothing steers toward a histogram of a per-key count. With no matching rule, plan defaulted to a time-bucketed aggregation (`date_trunc('day', created_at)`), yielding an avg-commits-per-day line whose values are almost all zero and do not reveal iteration depth.
 
 
+### One line RCA
+The plan's rhythm rule (daily / 90-day) misfired on "iterative," locking a daily commits-per-review trend in count_sql before finalize could correct it — the shape was committed upstream, not mis-detected in finalize.
 # 25.
 
 ### Query: Which engineers are getting the most value from LR?
@@ -122,6 +134,11 @@ What is missing from the demo:
 **Expected**: the spec in `LiveReview/scripts/adoption_chart/value_scatter.html` — a **2D scatterplot of engineers** (x = reviews, y = useful findings, size = LOC reviewed, color = feedback acceptance %), not a conversational reply. Its SQL groups `reviews` by `author_username` over the last **180 days**, LEFT JOINing `loc_usage_ledger` (accounted LOC) and `review_feedback` (up/down `vote_type`, `retracted_at IS NULL`), computing per-engineer `reviews`, `loc`, `up_votes`, `down_votes`. Mark = `circle`, x = `reviews`, y = `up_votes` (proxy for useful findings), size = `loc`, color = `acceptance`. Title "Value from LiveReview per engineer — hexmos-internal, last 180 days". KPI on that page: **3 of 8 engineers have received explicit feedback so far**.
 
 **Root cause**: the **classify** stage (`internal/mcpagent/prompts/analytics_classify.md`) — specifically its **failure/timeout fallback**, not the prompt's routing rules. This question ("which engineers ... most value") squarely matches the `count_query` rule in `analytics_classify.md` (lines 15–22: counting/grouping/ranking across many records; the prompt even says a number without a chart is not acceptable, lines 37–43). The problem is the classifier call itself timed out at the network layer and the pipeline defaulted to `chat` (`Branch Selected: shape=chat`) instead of retrying `classify` or defaulting to `count_query` when the classifier is unavailable. The `chat` branch then has no tools/DB, so it can only produce a greeting. Because classify is the gate, its timeout silently dropped the request out of the analytics pipeline.
+
+### One line RCA
+
+ The classifier timed out and agent.go:122-129 deliberately degraded to the chat branch with no retry, so the query never reached planning/SQL — the fix is code (retry or default to the analytics path), not a prompt rule.
+
 
 
 # 26.
@@ -150,6 +167,10 @@ What is missing from the demo:
 
 **Root cause**: the **plan** stage (`internal/mcpagent/prompts/analytics_plan.md`) chose the wrong scope/granularity. The classifier correctly branched to `count_query`, but the plan prompt has no rule for a **trust/divergence** question that should break feedback down **per engineer** (and across the up/down split) rather than collapsing to a single vote-type count. Its only grouping guidance (lines 38–48) is scoped to rhythm/habit questions. With no matching rule, plan produced a single entry grouping `review_feedback` by `vote_type` only (no engineer, no `retracted_at IS NULL` filter, no 365-day window), yielding a 2-row aggregate that both loses the per-engineer trust signal and — because it lacks the retracted/negative treatment — cannot render a diverging chart. The finalize description ("up votes account for the vast majority") also contradicts the rendered data (up 7 vs down 8).
 
+### One line RCA
+The plan prompt maps no trust/feedback question to an engineer-level up/down breakdown, so its count aggregated votes globally; the finalize diverging-bar/small-multiples guidance exists but can't recover a per-engineer signal the plan never counted.
+
+
 # 27.
 
 ### Query: Which repositories have the highest review coverage?
@@ -173,6 +194,10 @@ What is missing from the demo:
 **Expected**: the spec in `LiveReview/scripts/adoption_chart/repo_coverage.html` — a **bubble chart of reviews-per-PR coverage** (x = reviews/PRs, y = LOC reviewed, size = engineers, color = coverage), not a volume bar. Its SQL joins `repositories rp` with `pull_requests pr` (count DISTINCT prs) and `reviews r` (count DISTINCT reviews, engineers) plus `loc_usage_ledger` (accounted LOC), grouped per repo over the last **90 days** with `HAVING count(DISTINCT r.id) > 0`, computing `coverage = reviews / prs`. Mark = `circle`, x = `coverage`, y = `loc`, size = `engineers`, color = `coverage`. Title "Repository review coverage — hexmos-internal, last 90 days". KPI on that page: **Average coverage 2.92 reviews per PR across 2 repos with PR data** (LiveReview 3.56, git-lrc 2.28).
 
 **Root cause**: the **plan** stage (`internal/mcpagent/prompts/analytics_plan.md`) chose the wrong metric. The classifier correctly branched to `count_query`, but the plan prompt has no rule for a **coverage/ratio** question that must join PRs and reviews to compute reviews-per-PR (and normalize by a time window), rather than counting reviews alone. With no matching rule, plan produced a single entry counting `reviews` grouped by `repository` only (`Top repositories by review count`), which reads the question as pure volume instead of coverage and yields a 58-row bar chart with no denominator, no PR join, and no 90-day window. The finalize description also misstates the top count (58) vs the rendered data (LiveReview 200). 
+
+### One line RCA
+No plan or finalize guidance covers ratio questions (eg: reviews ÷ PRs), so the plan planned no ratio and finalize was bound to that single-metric count shape.
+
 
 # 28.
 
@@ -201,6 +226,11 @@ What is missing from the demo:
 **Root cause**: the **plan** stage (`internal/mcpagent/prompts/analytics_plan.md`) chose the wrong chart shape. The classifier correctly branched to `count_query`, but the plan prompt has no rule for a **concentration/Pareto** question (how much activity the top users cover — needs a cumulative line over ranked engineers, plus a 90-day window), so it answered as a plain per-user share instead. With no matching rule, plan produced a single entry grouping reviews by `author_username` and expressing each as a percentage of the total, yielding an all-time bar chart with no cumulative curve and no time window. The finalize description also misquoted the top-user share (45%) vs the rendered data (lince 53.6%).
 How much of the organization's activity is covered by the top users?
 
+### One line RCA
+
+The plan prompt lacks a concentration rule, so it never counted per-engineer rows; the finalize Pareto (cumulative-percent) row exists but is unreachable because the plan locked the count shape before finalize runs.
+
+
 # 30.
 
 ### Query: What changed between week 1 and week 2?
@@ -227,3 +257,6 @@ What is missing from the demo:
 What changed between week 1 and week 2?
 
 
+### One line RCA
+
+The plan prompt lacks a period-over-period rule, so its count never covered two fixed periods; the finalize slope-graph / change-matrix rows exist but can't help once the plan fixed the shape upstream.
