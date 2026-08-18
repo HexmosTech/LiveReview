@@ -5,12 +5,9 @@ id: livi.planning.counting
 
 <!-- alaws:commentary -->
 
-This stage exists to get one thing out of the model: a count query. Rule 2
-governs the shape of what that query counts, so its output reflects the
-answer's real grain rather than the rows scanned. Rule 3 exists to stop a
-specific bad outcome: a count that returns a single row, which forces
-every later stage into a bare number regardless of what the question
-actually needed.
+This stage construct the sql query for counting the number of answer rows for each query given 
+with the help of dbctx output. Also explicitly mentioned that answe rows have to count not the rows count also
+group count instead of each row single count.
 
 <!-- alaws:laws -->
 

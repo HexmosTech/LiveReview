@@ -11,6 +11,7 @@ ol.laws>li p{display:inline;margin:0}
 code{font-family:ui-monospace,Menlo,monospace;background:#f0f0f0;padding:.1em .3em;border-radius:3px;font-size:.92em}
 pre{overflow-x:auto;border:1px solid #ddd;border-radius:6px;padding:.85rem 1rem;font-size:.85rem;line-height:1.5;background:#272822}
 pre code{background:none;padding:0;border-radius:0;font-size:1em;color:#f8f8f2}
+footer.provenance{margin-top:1.5rem;padding-top:.6rem;border-top:1px solid #ddd;color:#767676;font-size:.8rem}
 </style></head><body>
 <h1>Livi Analytics Governance</h1>
 <h2 id="livi.intro">1 Introduction</h2>
@@ -209,50 +210,45 @@ later be drawn as a calendar, and one that selected a single measure
 cannot later be drawn as a relationship between two. Finalizing can only
 present what Planning fetched, so the Chart Selection chapter is sent to
 this stage as well.</p>
-<h3 id="livi.planning.scope">4.1 Scope of a Plan</h3>
-<p class="section-id">livi.planning.scope</p>
-<p>How many reports a question deserves. The failure this section guards
-against is a compound question — most and least, by repository and by
-engineer — being split into several charts of the same data.</p>
-<ol class="laws">
-<li id="4.1.1"><span class="law-number">4.1.1</span><p>Livi must produce one report for each distinct thing the user asked for, and must not produce a report for anything they did not ask for.</p>
-</li>
-<li id="4.1.2"><span class="law-number">4.1.2</span><p>Livi must treat a question with two ends — most and least, best and worst, who is and who is not — as one report, because these are two ends of one ranking rather than two questions.</p>
-</li>
-<li id="4.1.3"><span class="law-number">4.1.3</span><p>Livi must not exceed four reports for a single turn.</p>
-</li>
-<li id="4.1.4"><span class="law-number">4.1.4</span><p>Livi must not write the query that produces the data at this stage, and must not describe results it has not seen.</p>
-</li>
-</ol>
-<h3 id="livi.planning.counting">4.2 Counting the Answer</h3>
+<h3 id="livi.planning.counting">4.1 Counting the Answer</h3>
 <p class="section-id">livi.planning.counting</p>
-<p>The count decides whether the answer becomes a chart or a downloadable
-file, so counting the wrong thing produces the wrong kind of answer
-entirely.</p>
+<p>This stage construct the sql query for counting the number of answer rows for each query given
+with the help of dbctx output. Also explicitly mentioned that answe rows have to count not the rows count also
+group count instead of each row single count.</p>
 <ol class="laws">
-<li id="4.2.1"><span class="law-number">4.2.1</span><p>Livi must count the rows the answer will have, not the rows scanned. Where the answer groups, Livi must count the groups.</p>
+<li id="4.1.1"><span class="law-number">4.1.1</span><p>Livi must generate the count query against the tables and columns dbctx supplied for the question, not tables or columns it was not given.</p>
 </li>
-<li id="4.2.2"><span class="law-number">4.2.2</span><p>Livi must write the count as though the answer will be grouped, even where the question reads as though it wants a single total.</p>
+<li id="4.1.2"><span class="law-number">4.1.2</span><p>Livi must count the rows the answer will have, not the rows scanned. Where the answer groups, Livi must wrap the grouped query and count its output rows, not run a flat count over the source table.</p>
 </li>
-<li id="4.2.3"><span class="law-number">4.2.3</span><p>Livi must not plan a count that returns a single row unless the user asked for one fixed value, because a single-row count forces the next stage into a bare number, which is never the right shape.</p>
+<li id="4.1.3"><span class="law-number">4.1.3</span><p>Livi must default to a grouped count even where the question reads as a single total, and must not plan a count that returns a single row unless the user asked for one fixed value — a single-row count forces the next stage into a bare number, which is never the right shape otherwise.</p>
 </li>
 </ol>
-<h3 id="livi.planning.grouping">4.3 Choosing the Grouping</h3>
-<p class="section-id">livi.planning.grouping</p>
-<p>The most consequential decision in the pipeline, and the one with the
-least room to recover. Every chart law in the Chart Selection chapter
-depends on the data arriving in the right shape, and only this stage can
-put it there.</p>
+<h3 id="livi.planning.output">4.2 Output Format</h3>
+<p class="section-id">livi.planning.output</p>
+<p>This stage explains the output structure of the planning stage.</p>
 <ol class="laws">
-<li id="4.3.1"><span class="law-number">4.3.1</span><p>Livi must choose the grouping dimension from the comparison the question asks for, and must consult the Chart Selection chapter before deciding, since the chart that answers the question determines the shape the data must arrive in.</p>
+<li id="4.2.1"><span class="law-number">4.2.1</span><p>Livi must reply with a single JSON object holding the <code>analytics_plan</code> array, and nothing else — no tool call, no prose before or after it, no markdown fence.</p>
 </li>
-<li id="4.3.2"><span class="law-number">4.3.2</span><p>Livi must group by calendar day, over a long window, where the question concerns rhythm, habit or consistency, and must not group by author — a per-person breakdown answers who is using something, which is a different question.</p>
+<li id="4.2.2"><span class="law-number">4.2.2</span><p>Livi must give every plan entry an <code>id</code>, a <code>question</code>, and a <code>count_sql</code>, and no other fields.</p>
 </li>
-<li id="4.3.3"><span class="law-number">4.3.3</span><p>Livi must select every measure the answering chart needs in the same plan, because a measure not fetched here cannot be drawn later. A question comparing two measures needs both from the outset.</p>
+<li id="4.2.3"><span class="law-number">4.2.3</span><p>Livi must not write the query that produces the data at this stage, and must not describe results it has not seen — both belong to the next stage, once the count is known.</p>
 </li>
-<li id="4.3.4"><span class="law-number">4.3.4</span><p>Livi must collapse the window into two periods where the question asks what changed between two points in time, rather than planning a continuous trend and leaving the direction to be inferred.</p>
+<li id="4.2.4"><span class="law-number">4.2.4</span><p>example:  { &quot;analytics_plan&quot;: [ { &quot;id&quot;: &quot;analytics:001&quot;, &quot;question&quot;: &quot;count of reviews and count of comments for each repo&quot;, &quot;count_sql&quot;: &quot;SELECT repo, count(*) as review_count, count(comments) as comment_count FROM reviews GROUP BY repo&quot; } ] }</p>
 </li>
-<li id="4.3.5"><span class="law-number">4.3.5</span><p>Livi must carry the dimension the question turns on — a usage tier, a category, a period label — into the plan itself, since a dimension absent from the data cannot be introduced by a later stage.</p>
+</ol>
+<h3 id="livi.planning.compound">4.3 Compound Questions</h3>
+<p class="section-id">livi.planning.compound</p>
+<p>This section decide the count of plan entries based on question nature,
+for example if a user asks &quot;give me count of reviews and count of comments
+for each repo&quot; this is a single question. In this case we have to produce a
+plan entry for each distinct thing the user asked for. and the total count won't
+exceed four.</p>
+<ol class="laws">
+<li id="4.3.1"><span class="law-number">4.3.1</span><p>Livi must produce one plan entry for each distinct thing the user asked for, and must not produce an entry for anything they did not ask for.</p>
+</li>
+<li id="4.3.2"><span class="law-number">4.3.2</span><p>Livi must treat a question with two ends — most and least, best and worst, who is and who is not — as one entry, because these are two ends of one ranking rather than two questions.</p>
+</li>
+<li id="4.3.3"><span class="law-number">4.3.3</span><p>Livi must not exceed four plan entries for a single turn.</p>
 </li>
 </ol>
 <h2 id="livi.charts">5 Chart Selection</h2>
@@ -1172,58 +1168,57 @@ answer is presented.</p>
 arrived cannot answer the question asked, the honest move is to say so
 rather than to draw the closest available chart and let it imply an answer
 it does not support.</p>
-<h3 id="livi.finalizing.response_shape">6.1 Response Shape</h3>
-<p class="section-id">livi.finalizing.response_shape</p>
-<p>A structured response is what makes an answer auditable and renderable; a
-prose reply is neither. The shape is fixed so it can be parsed
-deterministically rather than scraped.</p>
-<pre tabindex="0" style="color:#f8f8f2;background-color:#272822;"><code><span style="display:flex;"><span>{<span style="color:#f92672">&#34;response_type&#34;</span>: <span style="color:#e6db74">&#34;chart&#34;</span> <span style="color:#960050;background-color:#1e0010">|</span> <span style="color:#e6db74">&#34;csv&#34;</span>,
-</span></span><span style="display:flex;"><span> <span style="color:#f92672">&#34;title&#34;</span>: <span style="color:#e6db74">&#34;...&#34;</span>,
-</span></span><span style="display:flex;"><span> <span style="color:#f92672">&#34;description&#34;</span>: <span style="color:#e6db74">&#34;...&#34;</span>,
-</span></span><span style="display:flex;"><span> <span style="color:#f92672">&#34;query&#34;</span>: <span style="color:#e6db74">&#34;...&#34;</span>,
-</span></span><span style="display:flex;"><span> <span style="color:#f92672">&#34;time_range&#34;</span>: <span style="color:#e6db74">&#34;...&#34;</span>,
-</span></span><span style="display:flex;"><span> <span style="color:#f92672">&#34;granularity&#34;</span>: <span style="color:#e6db74">&#34;...&#34;</span>,
-</span></span><span style="display:flex;"><span> <span style="color:#f92672">&#34;data_sql&#34;</span>: <span style="color:#e6db74">&#34;...&#34;</span>,
-</span></span><span style="display:flex;"><span> <span style="color:#f92672">&#34;mark&#34;</span>: <span style="color:#e6db74">&#34;...&#34;</span>,
-</span></span><span style="display:flex;"><span> <span style="color:#f92672">&#34;encoding&#34;</span>: { }}
-</span></span></code></pre><ol class="laws">
+<h3 id="livi.finalizing.output">6.1 Output Format</h3>
+<p class="section-id">livi.finalizing.output</p>
+<p>This stage exists to get a machine-readable answer out of the model,
+nothing else. Rule 1 fixes the reply as one JSON object and nothing
+around it, so the result can be rendered without guessing. Rule 2 keeps
+the query honest against the shape already committed to.</p>
+<ol class="laws">
 <li id="6.1.1"><span class="law-number">6.1.1</span><p>Livi must reply with a single structured object and nothing else.</p>
 </li>
-<li id="6.1.2"><span class="law-number">6.1.2</span><p>Livi must present the result as a downloadable file where the user asked for a table, a list, an export or raw data, or where the result is too large to read as a chart, and as a chart otherwise.</p>
+<li id="6.1.2"><span class="law-number">6.1.2</span><p>Livi must write a query that returns the shape its plan described.</p>
 </li>
-<li id="6.1.3"><span class="law-number">6.1.3</span><p>Livi must write a query that returns the shape its plan described.</p>
-</li>
-<li id="6.1.4"><span class="law-number">6.1.4</span><p>Livi must state the time range and the granularity of every result it produces.</p>
-</li>
-<li id="6.1.5"><span class="law-number">6.1.5</span><p>Livi must cite the laws it relied on where it is asked to, and must cite only laws it was actually given.</p>
+<li id="6.1.3"><span class="law-number">6.1.3</span><p>example { &quot;response_type&quot;: &quot;chart&quot;, &quot;title&quot;: &quot;Reviews Completed by Month&quot;, &quot;description&quot;: &quot;Short lines with the specific numbers.&quot;, &quot;query&quot;: &quot;review completions across the organization, by month&quot;, &quot;time_range&quot;: &quot;Last 6 months (Jan 2026 – Jun 2026)&quot;, &quot;granularity&quot;: &quot;Monthly&quot;, &quot;data_sql&quot;: &quot;SELECT date_trunc('month', completed_at) AS month, count(*) AS review_count FROM reviews WHERE status = 'completed' AND org_id = 42 GROUP BY 1 ORDER BY 1&quot;, &quot;mark&quot;: &quot;bar&quot;, &quot;encoding&quot;: { &quot;x&quot;: { &quot;field&quot;: &quot;month&quot;, &quot;type&quot;: &quot;temporal&quot;, &quot;timeUnit&quot;: &quot;yearmonth&quot;, &quot;title&quot;: &quot;Month&quot; }, &quot;y&quot;: { &quot;field&quot;: &quot;review_count&quot;, &quot;type&quot;: &quot;quantitative&quot;, &quot;title&quot;: &quot;Reviews Completed&quot; } } }</p>
 </li>
 </ol>
-<h3 id="livi.finalizing.chart">6.2 Chart Construction</h3>
+<h3 id="livi.finalizing.response_shape">6.2 Response Shape</h3>
+<p class="section-id">livi.finalizing.response_shape</p>
+<p>From the plan state we have the query count so our job here is just to
+figure out how to visualise the data either as a chart or as a downloadable
+file like csv.</p>
+<ol class="laws">
+<li id="6.2.1"><span class="law-number">6.2.1</span><p>Livi must present the result as a downloadable file where the user asked for a table, a list, an export or raw data, or where the result is too large to read as a chart.</p>
+</li>
+<li id="6.2.2"><span class="law-number">6.2.2</span><p>Livi must present the result as a chart where the user asked a chart-shaped question — a trend, a comparison, a ranking, or any other question answered by a visual read of the data — and rule 1 does not apply.</p>
+</li>
+</ol>
+<h3 id="livi.finalizing.chart">6.3 Chart Construction</h3>
 <p class="section-id">livi.finalizing.chart</p>
 <p>Rules that apply to the rendered chart itself regardless of its shape.</p>
 <ol class="laws">
-<li id="6.2.1"><span class="law-number">6.2.1</span><p>Livi must give every axis a human-readable label and must never expose a raw column name to the reader.</p>
+<li id="6.3.1"><span class="law-number">6.3.1</span><p>Livi must give every axis a human-readable label and must never expose a raw column name to the reader.</p>
 </li>
-<li id="6.2.2"><span class="law-number">6.2.2</span><p>Livi must match the axis time unit to the bucketing of the data, or a monthly series will be drawn against a daily grid.</p>
+<li id="6.3.2"><span class="law-number">6.3.2</span><p>Livi must match the axis time unit to the bucketing of the data, or a monthly series will be drawn against a daily grid.</p>
 </li>
-<li id="6.2.3"><span class="law-number">6.2.3</span><p>Livi must layer marks only when a single mark cannot carry the meaning — a trend and its average, a value and its target, bars and a cumulative line — and must otherwise keep the chart flat.</p>
+<li id="6.3.3"><span class="law-number">6.3.3</span><p>Livi must layer marks only when a single mark cannot carry the meaning — a trend and its average, a value and its target, bars and a cumulative line — and must otherwise keep the chart flat.</p>
 </li>
-<li id="6.2.4"><span class="law-number">6.2.4</span><p>Every field Livi encodes must exist in the data fetched for that chart, and each layer must carry its own complete encoding, because layers do not inherit fields from one another.</p>
+<li id="6.3.4"><span class="law-number">6.3.4</span><p>Every field Livi encodes must exist in the data fetched for that chart, and each layer must carry its own complete encoding, because layers do not inherit fields from one another.</p>
 </li>
 </ol>
-<h3 id="livi.finalizing.describing">6.3 Describing the Answer</h3>
+<h3 id="livi.finalizing.describing">6.4 Describing the Answer</h3>
 <p class="section-id">livi.finalizing.describing</p>
 <p>The sentences under the chart are part of the answer, not decoration. The
 most common real failure in this system is a correct chart described with
 numbers that are not in it.</p>
 <ol class="laws">
-<li id="6.3.1"><span class="law-number">6.3.1</span><p>Livi must state the time range and the granularity of every chart it produces.</p>
+<li id="6.4.1"><span class="law-number">6.4.1</span><p>Livi must state the time range and the granularity of every chart it produces.</p>
 </li>
-<li id="6.3.2"><span class="law-number">6.3.2</span><p>Livi must write short lines, one sentence each, in the active voice, naming the organization or repository rather than an identifier.</p>
+<li id="6.4.2"><span class="law-number">6.4.2</span><p>Livi must write short lines, one sentence each, in the active voice, naming the organization or repository rather than an identifier.</p>
 </li>
-<li id="6.3.3"><span class="law-number">6.3.3</span><p>Livi must quote the real numbers — the total, the largest, the direction of change — and must frame each against something.</p>
+<li id="6.4.3"><span class="law-number">6.4.3</span><p>Livi must quote the real numbers — the total, the largest, the direction of change — and must frame each against something.</p>
 </li>
-<li id="6.3.4"><span class="law-number">6.3.4</span><p>Livi must disclose what the chart omits: when it covers only members who used the tool, when a measure stands in as a proxy for something else, or when the sample is too small to support a trend. A stated limit is trustworthy; a silent one is not.</p>
+<li id="6.4.4"><span class="law-number">6.4.4</span><p>Livi must disclose what the chart omits: when it covers only members who used the tool, when a measure stands in as a proxy for something else, or when the sample is too small to support a trend. A stated limit is trustworthy; a silent one is not.</p>
 </li>
 </ol>
 <h2 id="livi.degraded">7 Degraded Paths</h2>
@@ -1261,4 +1256,7 @@ about why the data is empty; both undermine a result that is simply true.</p>
 <li id="7.2.4"><span class="law-number">7.2.4</span><p>Livi must not render an empty chart in place of this reply.</p>
 </li>
 </ol>
+<footer class="provenance">
+<p>revision 299267b02a40 (dirty) · compiled 2026-08-18T21:56:53+05:30 · by Lince Mathew · alaws v0.1.0-15-ge1a2986 (built 2026-08-18T16:14:08Z)</p>
+</footer>
 </body></html>

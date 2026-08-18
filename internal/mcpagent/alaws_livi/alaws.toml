@@ -63,6 +63,7 @@ ordering = [
   "chart-selection/oneoff/opposing-quantities.md",
   "chart-selection/oneoff/trajectory.md",
   "finalizing.md",
+  "finalizing/output.md",
   "finalizing/response-shape.md",
   "finalizing/chart-construction.md",
   "finalizing/describing.md",
