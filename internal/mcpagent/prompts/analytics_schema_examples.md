@@ -1,0 +1,97 @@
+### What the schema reference above will not tell you
+
+Representative values aren't shown in the table reference above, on purpose
+(see dbctx_schema_plan.md if you're curious why) — the fixed, safe ones are
+spelled out here instead:
+
+- `reviews.status` is one of `created`, `in_progress`, `completed`, `failed`.
+  A question about work that actually finished means `status = 'completed'`.
+- `pull_requests.state` is one of `open`, `closed`, `merged`.
+- `review_feedback.vote_type` is one of `up`, `down`.
+- `loc_usage_ledger.operation_type` is `diff_review` - the only value this
+  column ever takes today. Never filter it to `'review'`; that value does
+  not exist and silently produces zero rows.
+- `loc_usage_ledger.status` is one of `accounted`, `ignored` (a database
+  constraint, not just observed data). `actor_kind` is one of `member`,
+  `system`, `unknown`.
+- `author_username` / `author_name` (on `reviews` and `pull_requests`) identify
+  the person the review or PR belongs to. "Top reviewers", "reviews per
+  engineer" and "who reviewed most" all group by `author_username`.
+- Use `completed_at` for when work finished, `created_at` for when it started.
+  `COALESCE(completed_at, started_at, created_at)` is the general "activity
+  time" if the question does not distinguish.
+- `users` has no foreign key to `reviews` in the schema — join them yourself
+  on `users.email = reviews.user_email`.
+- **Do not join `reviews` to `repositories` through `pull_requests`** -
+  `reviews.pull_request_id` is unpopulated for most reviews (many are
+  triggered outside a PR/MR flow), so that join silently drops rows. Group or
+  filter by repository using `reviews.repository` (a plain name column)
+  directly - it needs no join at all.
+- There is no single "how was this review triggered" column. `reviews.trigger_type`
+  (`webhook` = PR/MR, `cli_diff` = pre-commit, `mcp` = MCP) and
+  `loc_usage_ledger.trigger_source` (`api`, ...) are two different columns on
+  two different tables, and neither one alone is the full taxonomy - check
+  which table the rest of the question's metric actually lives on before
+  picking which trigger column to group by.
+
+### Rules
+
+- **Alias every selected expression with a unique name.** `count(*) AS n`, not
+  bare `count(*)`. Duplicate or unnamed columns are rejected.
+- Timestamps are `timestamptz`. Bucket with
+  `date_trunc('day' | 'week' | 'month' | 'quarter', created_at)`.
+- Available functions: `count sum avg min max stddev variance percentile_cont
+  bool_or bool_and rank dense_rank row_number lag lead first_value last_value
+  ntile round abs ceil floor trunc mod power sqrt coalesce nullif greatest least
+  date_trunc date_part extract to_char to_date to_timestamp age now date_bin
+  lower upper initcap trim btrim ltrim rtrim concat concat_ws substring length
+  split_part replace left right lpad rpad jsonb_array_length jsonb_typeof
+  generate_series unnest`. Nothing else is available.
+- One `SELECT` statement. No `INSERT`, `UPDATE`, `DELETE`, `WITH RECURSIVE`,
+  `FOR UPDATE`, `SELECT *`, or bind parameters like `$1`.
+- **Every query must filter by `org_id`** using the exact organization id
+  given earlier in this conversation (`WHERE org_id = <that number>`; join
+  other org_id-having tables the same way). A query without it is rejected.
+- List the columns you need by name - never `SELECT *` or `table.*`.
+- Do not name a CTE after one of the tables above.
+- Compute period-over-period change **in SQL** with `lag()`, never by
+  subtracting two numbers yourself.
+
+### Worked examples
+
+Reviews completed per month:
+
+```sql
+SELECT date_trunc('month', completed_at) AS month, count(*) AS review_count
+FROM reviews
+WHERE status = 'completed' AND org_id = 42
+GROUP BY 1
+ORDER BY 1
+```
+
+Top reviewers:
+
+```sql
+SELECT author_username, count(*) AS review_count
+FROM reviews
+WHERE status = 'completed' AND org_id = 42
+GROUP BY 1
+ORDER BY review_count DESC
+LIMIT 10
+```
+
+Month-over-month percentage change — note the arithmetic is the database's job:
+
+```sql
+WITH monthly AS (
+  SELECT date_trunc('month', completed_at) AS month, count(*) AS review_count
+  FROM reviews WHERE status = 'completed' AND org_id = 42 GROUP BY 1
+)
+SELECT month,
+       review_count,
+       lag(review_count) OVER (ORDER BY month) AS previous_count,
+       round(100.0 * (review_count - lag(review_count) OVER (ORDER BY month))
+             / NULLIF(lag(review_count) OVER (ORDER BY month), 0), 1) AS pct_change
+FROM monthly
+ORDER BY month
+```
