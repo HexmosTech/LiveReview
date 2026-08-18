@@ -21,28 +21,21 @@ an explicit exception for (its rhythm/habit/consistency rule) — see
 
 - Axes: x = week (ordinal, not temporal — see note in spec), y = day-of-week (Mon/Wed/Fri labeled only), color = review count, GitHub-green threshold scale, no legend.
 
-SQL:
-```sql
-WITH days AS (
-  SELECT generate_series(
-    (CURRENT_DATE - INTERVAL '{days} days')::date,
-    CURRENT_DATE::date,
-    '1 day'
-  )::date AS day
-),
-daily AS (
-  -- one row per calendar day, count of reviews that day
-  SELECT date_trunc('day', COALESCE(completed_at, created_at))::date AS day, count(*) AS value
-  FROM reviews
-  WHERE org_id = {org_id}
-    AND COALESCE(completed_at, created_at) >= CURRENT_DATE - INTERVAL '{days} days'
-  GROUP BY 1
-)
-SELECT d.day, COALESCE(daily.value, 0) AS value
-FROM days d
-LEFT JOIN daily ON daily.day = d.day
-ORDER BY d.day;
-```
+Where the data lives:
+
+- **Table:** `reviews`, counted per calendar day (or summed LOC via
+  `loc_usage_ledger` if the question is about volume rather than
+  frequency).
+- **Zero-fill is not optional here — it is the whole chart.** This
+  visualization exists to show *gaps*: the weekends, the abandoned
+  fortnight, the day someone stopped. A missing row draws nothing at all,
+  so an empty day would render as blank paper instead of a dark cell, and
+  the one signal the reader came for disappears. Generate the full date
+  series and left-join onto it.
+- **Window:** long enough to see a rhythm — 90 days or more. A two-week
+  window cannot show a habit.
+- **Grouping:** by day, never by author. "Is this a habit" is a question
+  about the calendar; who did it is a different question (see §4).
 
 Vega-Lite spec:
 ```json
@@ -77,16 +70,19 @@ for both x and y in this pattern.
   because this chart is not trying to show a Mon–Sun weekly rhythm, it's
   comparing repos against each other over a continuous window.
 
-SQL:
-```sql
-SELECT r.repository, l.accounted_at::date AS day, sum(l.billable_loc) AS loc
-FROM loc_usage_ledger l
-JOIN reviews r ON r.id = l.review_id
-WHERE l.org_id = {org_id} AND l.status = 'accounted'
-  AND l.accounted_at >= CURRENT_DATE - INTERVAL '{days} days'
-GROUP BY 1, 2
-ORDER BY 1, 2;
-```
+Where the data lives:
+
+- **Tables:** `loc_usage_ledger` joined to `reviews` for the repository
+  name; settled ledger rows only.
+- **Grouping:** two keys — repository and day — giving one row per cell of
+  the grid.
+- **Sort the repositories by their total**, so the busiest sit together
+  rather than scattering alphabetically. Let the chart do this from the
+  data rather than hardcoding a repository list, which goes stale the
+  moment a new repo appears.
+- Zero-fill matters less here than in §2.1: with dozens of repositories
+  the grid is mostly empty by nature, and filling every repo × day pair
+  would balloon the result for little gain.
 
 Vega-Lite spec:
 ```json

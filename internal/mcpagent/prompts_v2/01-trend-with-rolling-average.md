@@ -17,32 +17,23 @@ that has actually been asked.
 
 ## §1.1 Specific rule — "Is LiveReview adoption increasing since my team started using it?" (query #1)
 
-SQL:
-```sql
-WITH days AS (
-  SELECT generate_series(
-    (CURRENT_DATE - INTERVAL '{days} days')::date,
-    CURRENT_DATE::date,
-    '1 day'
-  )::date AS day
-),
-daily AS (
-  SELECT date_trunc('day', COALESCE(completed_at, created_at))::date AS day, count(*) AS n
-  FROM reviews
-  WHERE org_id = {org_id}
-    AND COALESCE(completed_at, created_at) >= CURRENT_DATE - INTERVAL '{days} days'
-  GROUP BY 1
-),
-filled AS (
-  SELECT d.day, COALESCE(daily.n, 0) AS reviews
-  FROM days d LEFT JOIN daily ON daily.day = d.day
-)
-SELECT day, reviews,
-       round(avg(reviews) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 2) AS rolling_avg_7d,
-       round(avg(reviews) OVER (), 2) AS period_avg
-FROM filled
-ORDER BY day;
-```
+Where the data lives:
+
+- **Table:** `reviews` — one row per review.
+- **Date column:** use whichever of `completed_at` / `created_at` is
+  populated (fall back from the first to the second), since not every
+  review has completed.
+- **Count:** number of review rows per calendar day.
+- **Window:** a trailing stretch long enough for a 7-day average to mean
+  something — 90 days is the usual choice.
+- **Zero-fill the calendar.** Days with no reviews must appear as 0, not
+  go missing. Generate the date series and left-join the counts onto it,
+  otherwise a quiet week silently closes up and the trend looks better
+  than it was.
+- **The smoothing and the baseline are the query's job, not the chart's.**
+  Compute the 7-day rolling average and the period average as window
+  functions alongside the daily count, so the chart just plots columns
+  that already exist.
 
 Vega-Lite spec (3 layers — area of raw daily reviews, 7-day rolling
 average line, dashed period-average rule):
@@ -68,24 +59,21 @@ average line, dashed period-average rule):
   named repository** (not org-wide review count), plus a highlighted
   recent-interval rectangle layer §1.1 does not have.
 
-SQL:
-```sql
-WITH days AS (
-  SELECT generate_series((CURRENT_DATE - INTERVAL '{days} days')::date, CURRENT_DATE::date, '1 day')::date AS day
-),
-daily AS (
-  SELECT l.accounted_at::date AS day, sum(l.billable_loc) AS loc
-  FROM loc_usage_ledger l JOIN reviews r ON r.id = l.review_id
-  WHERE l.org_id = {org_id} AND l.status = 'accounted' AND r.repository = '{repo}'
-    AND l.accounted_at >= CURRENT_DATE - INTERVAL '{days} days'
-  GROUP BY 1
-),
-filled AS (
-  SELECT d.day, COALESCE(daily.loc, 0) AS loc FROM days d LEFT JOIN daily ON daily.day = d.day
-)
-SELECT day, loc, round(avg(loc) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 1) AS rolling_avg
-FROM filled ORDER BY day;
-```
+Where the data lives:
+
+- **Tables:** `loc_usage_ledger` joined to `reviews` — the ledger carries
+  the lines-of-code figure, `reviews` carries the repository name you
+  filter on.
+- **Measure:** billable LOC summed per day, not a review count. "Velocity"
+  is about how much code moved, and one large review is not the same
+  event as one trivial one.
+- **Ledger rows only count when they are settled** — filter to accounted
+  status, or you will mix provisional numbers into the history.
+- **Window and zero-fill:** same as §1.1 — daily granularity, trailing ~90
+  days, gaps filled with 0.
+- **Rolling average:** 7-day window function in the query.
+- The highlighted interval (the last two weeks) is a chart-side band you
+  supply as two dates; it does not come from this query.
 
 Vega-Lite spec (3 layers — highlight rect, thin raw line, heavier rolling
 average line):
@@ -112,29 +100,17 @@ average line):
   and review count plotted together to show whether "more reviews" means
   "more code inspected" or just "more, smaller reviews."
 
-SQL:
-```sql
-WITH days AS (
-  SELECT generate_series((CURRENT_DATE - INTERVAL '{days} days')::date, CURRENT_DATE::date, '1 day')::date AS day
-),
-reviews_d AS (
-  SELECT date_trunc('day', COALESCE(completed_at, created_at))::date AS day, count(*) AS n
-  FROM reviews WHERE org_id = {org_id}
-    AND COALESCE(completed_at, created_at) >= CURRENT_DATE - INTERVAL '{days} days'
-  GROUP BY 1
-),
-loc_d AS (
-  SELECT accounted_at::date AS day, sum(billable_loc) AS loc
-  FROM loc_usage_ledger WHERE org_id = {org_id} AND status = 'accounted'
-    AND accounted_at >= CURRENT_DATE - INTERVAL '{days} days'
-  GROUP BY 1
-)
-SELECT d.day, COALESCE(reviews_d.n, 0) AS reviews, COALESCE(loc_d.loc, 0) AS loc
-FROM days d
-LEFT JOIN reviews_d ON reviews_d.day = d.day
-LEFT JOIN loc_d ON loc_d.day = d.day
-ORDER BY d.day;
-```
+Where the data lives:
+
+- **Two separate daily aggregates**, joined onto one shared date series:
+  review count from `reviews`, and summed billable LOC from
+  `loc_usage_ledger` (settled rows only).
+- Aggregate each one **before** joining them together. Counting rows after
+  a join between the two would multiply reviews by their ledger entries
+  and inflate both numbers.
+- Same daily granularity, trailing window and zero-fill as §1.1.
+- No rolling average here — the second line *is* the comparison, so
+  smoothing is not what makes the chart readable.
 
 Vega-Lite spec (2 line layers, independent y-scales, one axis left/one right):
 ```json
@@ -159,18 +135,20 @@ Vega-Lite spec (2 line layers, independent y-scales, one axis left/one right):
   exactly the signal this question needs, so the correct layer is an
   `errorband` (p10–p90) plus a median line, not a rolling-average line.
 
-SQL:
-```sql
-SELECT date_trunc('week', completed_at)::date AS week,
-       percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM completed_at - created_at) / 60) AS p50,
-       percentile_cont(0.1) WITHIN GROUP (ORDER BY extract(epoch FROM completed_at - created_at) / 60) AS p10,
-       percentile_cont(0.9) WITHIN GROUP (ORDER BY extract(epoch FROM completed_at - created_at) / 60) AS p90
-FROM reviews
-WHERE org_id = {org_id} AND status = 'completed' AND completed_at IS NOT NULL
-  AND completed_at >= CURRENT_DATE - INTERVAL '{days} days'
-GROUP BY 1
-ORDER BY 1;
-```
+Where the data lives:
+
+- **Table:** `reviews`, restricted to reviews that actually finished —
+  both a completed status and a non-null completion timestamp, since an
+  unfinished review has no duration.
+- **Measure:** duration is the gap between creation and completion. Derive
+  it per review, then convert to a unit a person reads easily (minutes or
+  hours, not raw seconds).
+- **Three numbers per bucket, not one:** the median plus a low and high
+  percentile. Postgres computes these with an ordered-set aggregate over
+  the per-review duration.
+- **Bucket weekly, not daily.** Percentiles need enough reviews inside a
+  bucket to be stable; a daily p90 over three reviews is noise wearing a
+  statistic's clothing.
 
 Vega-Lite spec (errorband + median line):
 ```json

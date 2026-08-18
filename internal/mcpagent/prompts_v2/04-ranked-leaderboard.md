@@ -22,28 +22,24 @@ regular / heavy) adds more than a plain sort does.
   `band_for()` tiering as §3.1 so a "tier" means the same thing across
   both charts.
 
-SQL (`--metric reviews`, the default):
-```sql
-SELECT author_username, count(*) AS value
-FROM reviews
-WHERE org_id = {org_id}
-  AND author_username IS NOT NULL
-  AND COALESCE(completed_at, created_at) >= CURRENT_DATE - INTERVAL '{days} days'
-GROUP BY 1
-ORDER BY 2 DESC;
-```
+Where the data lives:
 
-SQL (`--metric loc`):
-```sql
-SELECT r.author_username, sum(l.billable_loc) AS value
-FROM loc_usage_ledger l
-JOIN reviews r ON r.id = l.review_id
-WHERE l.org_id = {org_id} AND l.status = 'accounted'
-  AND r.author_username IS NOT NULL
-  AND l.accounted_at >= CURRENT_DATE - INTERVAL '{days} days'
-GROUP BY 1
-ORDER BY 2 DESC;
-```
+- **Ranking by review count:** `reviews` grouped by author. **Ranking by
+  LOC:** `loc_usage_ledger` joined to `reviews` for the author name,
+  settled rows only. Either is defensible — count answers "who is using
+  it", LOC answers "who is putting real work through it".
+- **Drop rows with no author** for the same reason as §3.1.
+- **Trailing 90 days**, not all time.
+- **The "who hasn't" half of the question is the hard half.** Grouping the
+  reviews table alone can only ever list people who *did* review — anyone
+  at zero is absent from the result and therefore absent from the chart,
+  which is precisely the person the question was asked about. To answer it
+  honestly you need the org's member roster as the left side of the join,
+  with review counts filled in as zero where there is no match. If no
+  roster is reachable, say plainly in the description that the chart shows
+  only engineers with at least one review, rather than letting silence
+  imply everyone is on it.
+- **The target line is a constant you supply**, not a queried value.
 
 Vega-Lite spec (2 layers — sorted bar colored by tier, + dashed target rule):
 ```json

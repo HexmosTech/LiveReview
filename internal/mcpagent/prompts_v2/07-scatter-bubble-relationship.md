@@ -22,19 +22,19 @@ axis.
   high-volume/high-frequency repos from large-diff/low-frequency ones.
   `size` = active engineers.
 
-SQL:
-```sql
-SELECT r.repository,
-       count(*) AS reviews,
-       count(DISTINCT r.author_username) AS engineers,
-       coalesce(sum(l.billable_loc), 0) AS loc
-FROM reviews r
-LEFT JOIN loc_usage_ledger l ON l.review_id = r.id AND l.status = 'accounted'
-WHERE r.org_id = {org_id}
-  AND COALESCE(r.completed_at, r.created_at) >= CURRENT_DATE - INTERVAL '{days} days'
-GROUP BY 1
-ORDER BY reviews DESC;
-```
+Where the data lives:
+
+- **Tables:** `reviews` as the base, with `loc_usage_ledger` **left**
+  joined onto it. Left, not inner: a repository with reviews but no
+  settled ledger rows still belongs on the chart at zero LOC, and an inner
+  join would silently delete exactly the "unusually inactive" repos the
+  question asks about.
+- **Three measures per repository**, all from the same grouped query:
+  review count, distinct author count, and summed LOC (treat a null sum as
+  zero).
+- Distinct-counting the authors is what makes the bubble size meaningful —
+  it separates "one person's private repo" from "the whole team's".
+- Trailing 90 days.
 
 Vega-Lite spec:
 ```json
@@ -56,20 +56,21 @@ Vega-Lite spec:
   findings (y). `size` = LOC, `color` = acceptance %. Separates "heavy
   users" from "productive users" — the two are not the same thing.
 
-SQL:
-```sql
-SELECT r.author_username AS engineer,
-       count(DISTINCT r.id) AS reviews,
-       coalesce(sum(l.billable_loc), 0) AS loc,
-       count(*) FILTER (WHERE f.vote_type = 'up') AS up_votes,
-       count(*) FILTER (WHERE f.vote_type = 'down') AS down_votes
-FROM reviews r
-LEFT JOIN loc_usage_ledger l ON l.review_id = r.id AND l.status = 'accounted'
-LEFT JOIN review_feedback f ON f.review_id = r.id AND f.org_id = {org_id} AND f.retracted_at IS NULL
-WHERE r.org_id = {org_id} AND r.author_username IS NOT NULL
-  AND COALESCE(r.completed_at, r.created_at) >= CURRENT_DATE - INTERVAL '{days} days'
-GROUP BY 1;
-```
+Where the data lives:
+
+- **Tables:** `reviews` grouped by author, left joined to both
+  `loc_usage_ledger` (settled rows) and `review_feedback`.
+- **Ignore retracted feedback** — someone who took their vote back did not
+  vote.
+- **Count up-votes and down-votes as separate filtered aggregates** in one
+  pass, rather than running two queries and stitching them together.
+- **Watch the double-join.** Joining two one-to-many tables onto `reviews`
+  in the same query multiplies rows: each review appears once per ledger
+  row *per* feedback row. Count reviews distinctly, and know that the LOC
+  sum inflates the same way. If in doubt, aggregate each measure on its
+  own and join those results together.
+- Up-votes here are a **proxy** for "useful findings", not a measurement
+  of it. Say so in the description rather than presenting it as fact.
 
 Vega-Lite spec:
 ```json
@@ -93,24 +94,24 @@ Vega-Lite spec:
   engineers." The distinguishing value here is the `coverage` ratio
   itself, joined against `pull_requests`, which §7.1 does not compute.
 
-SQL:
-```sql
-SELECT rp.name AS repository,
-       count(DISTINCT pr.id) AS prs,
-       count(DISTINCT r.id) AS reviews,
-       count(DISTINCT r.author_username) AS engineers,
-       coalesce(sum(l.billable_loc), 0) AS loc
-FROM repositories rp
-LEFT JOIN pull_requests pr ON pr.repository_id = rp.id
-  AND pr.provider_created_at >= CURRENT_DATE - INTERVAL '{days} days'
-LEFT JOIN reviews r ON r.repository = rp.name AND r.org_id = {org_id}
-  AND COALESCE(r.completed_at, r.created_at) >= CURRENT_DATE - INTERVAL '{days} days'
-LEFT JOIN loc_usage_ledger l ON l.review_id = r.id AND l.status = 'accounted'
-WHERE rp.org_id = {org_id}
-GROUP BY 1
-HAVING count(DISTINCT r.id) > 0
-ORDER BY 3 DESC;
-```
+Where the data lives:
+
+- **Start from `repositories`, not from `reviews`.** Coverage is a ratio
+  against everything that *could* have been reviewed, so the denominator
+  has to come from the repository and pull-request side of the schema.
+- **Tables:** `repositories` left joined to `pull_requests` (the
+  denominator), to `reviews` (the numerator), and through those to
+  `loc_usage_ledger`.
+- **Note the join key mismatch:** reviews reference a repository by
+  **name**, while pull requests reference it by **id**. Join each on its
+  own key rather than assuming one identifier works for both.
+- **Count everything distinctly.** Three left joins fan out badly, and a
+  plain count here will report numbers several times too large.
+- **Apply the date filters inside the joins, not in a trailing WHERE.**
+  Filtering a left-joined table afterwards quietly turns it into an inner
+  join and drops the zero rows you went to the trouble of preserving.
+- The coverage ratio itself (reviews ÷ PRs) is a derived column — compute
+  it once and encode it, rather than making the chart divide.
 
 Vega-Lite spec:
 ```json

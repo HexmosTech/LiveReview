@@ -20,16 +20,20 @@ is small enough to show individually (roughly under ~30 points).**
   shared with §4/§1's leaderboard/growth charts), not in SQL — bands are
   `1-4 (light)` / `5-19 (regular)` / `20+ (heavy)`.
 
-SQL (raw per-engineer counts; binning happens after, in application code):
-```sql
-SELECT author_username, count(*) AS reviews
-FROM reviews
-WHERE org_id = {org_id}
-  AND author_username IS NOT NULL
-  AND COALESCE(completed_at, created_at) >= CURRENT_DATE - INTERVAL '{days} days'
-GROUP BY 1
-ORDER BY 2 DESC;
-```
+Where the data lives:
+
+- **Table:** `reviews`, grouped by author to get one row per engineer with
+  their review count.
+- **Skip rows with no author.** Automated and system-triggered reviews
+  have no person attached, and counting them as an anonymous "engineer"
+  invents a teammate who does not exist.
+- **Window:** a trailing 90 days. Adoption questions are about the current
+  state of the team, and all-time totals let someone who left last year
+  keep looking active.
+- **Bucketing into light / regular / heavy can happen in the query or
+  after it** — either is fine, but the band thresholds must be the same
+  ones §4 uses, or "heavy user" quietly means two different things on two
+  charts in the same conversation.
 
 Vega-Lite spec:
 ```json
@@ -52,19 +56,17 @@ Vega-Lite spec:
   chart mechanism, which is identical (`bar`, ordinal x = bucket, y =
   count).
 
-SQL:
-```sql
-SELECT reviews_per_commit, count(*) AS commits
-FROM (
-  SELECT commit_hash, count(*) AS reviews_per_commit
-  FROM reviews
-  WHERE org_id = {org_id} AND commit_hash IS NOT NULL
-    AND COALESCE(completed_at, created_at) >= CURRENT_DATE - INTERVAL '{days} days'
-  GROUP BY 1
-) t
-GROUP BY 1
-ORDER BY 1;
-```
+Where the data lives:
+
+- **Table:** `reviews`, keyed on the commit identifier.
+- **This is a count of counts — two aggregation passes.** First: how many
+  reviews each commit received. Then: how many commits received each of
+  those numbers. Skipping the second pass gives you a list of commits,
+  which is data, not a distribution.
+- **Exclude rows with no commit recorded**, otherwise they collapse into
+  one fake mega-commit.
+- The x-axis values here are small integers (1, 2, 3 reviews), so they are
+  already their own buckets — no band thresholds needed.
 
 Vega-Lite spec:
 ```json
@@ -87,16 +89,17 @@ Vega-Lite spec:
   `random()` calculate transform) so no individual gets flattened into a
   bucket average.
 
-SQL:
-```sql
-SELECT r.author_username, count(*) AS reviews, sum(l.billable_loc) AS loc
-FROM loc_usage_ledger l JOIN reviews r ON r.id = l.review_id
-WHERE l.org_id = {org_id} AND l.status = 'accounted' AND r.repository = '{repo}'
-  AND r.author_username IS NOT NULL
-  AND l.accounted_at >= CURRENT_DATE - INTERVAL '{days} days'
-GROUP BY 1
-ORDER BY 3 DESC;
-```
+Where the data lives:
+
+- **Tables:** `loc_usage_ledger` joined to `reviews`, filtered to one
+  repository and to authored (non-null) reviews.
+- **Two measures per engineer:** LOC reviewed and review count. LOC drives
+  the position on the axis; the count drives the dot size, so a person who
+  did a lot of small reviews reads differently from one who did a few
+  enormous ones.
+- **No bucketing.** One row per engineer is the point — see the exception
+  note above.
+- Sort by the larger measure so the heaviest contributors are adjacent.
 
 Vega-Lite spec:
 ```json

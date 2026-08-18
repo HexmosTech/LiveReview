@@ -20,16 +20,16 @@ is what these questions are actually asking about.
 - Mark: `bar`, weekly buckets — more useful than a single pie chart because
   periods can be compared side by side.
 
-SQL:
-```sql
-SELECT date_trunc('week', COALESCE(completed_at, created_at))::date AS week,
-       trigger_type, count(*) AS n
-FROM reviews
-WHERE org_id = {org_id}
-  AND COALESCE(completed_at, created_at) >= CURRENT_DATE - INTERVAL '{days} days'
-GROUP BY 1, 2
-ORDER BY 1;
-```
+Where the data lives:
+
+- **Table:** `reviews`, grouped by two keys: the week bucket and the
+  trigger-type column that records how the review was started.
+- **Return raw counts, not percentages.** The chart normalises to 100%
+  itself; if you also divide in the query you will normalise twice and get
+  a flat line at 100%.
+- **Weekly buckets.** Daily is too jittery to read a mix shift from, and
+  monthly hides the transition you are trying to show.
+- Trailing 90 days or so.
 
 Vega-Lite spec:
 ```json
@@ -51,7 +51,8 @@ Vega-Lite spec:
   about a continuous transition/trend in the mix, not a period-by-period
   comparison. Same `"stack": "normalize"` mechanism.
 
-SQL: identical to §8.1.
+Where the data lives: identical to §8.1 — same table, same two grouping
+keys, same raw counts. Only the mark changes.
 
 Vega-Lite spec:
 ```json

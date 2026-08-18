@@ -22,18 +22,21 @@ comparison ("where do we stand now vs. before"). This is the general rule
 - Shape: slope graph — one line per repository between exactly two x
   points (`Previous`, `Current`), colored by direction.
 
-SQL:
-```sql
-SELECT r.repository,
-       CASE WHEN l.accounted_at >= CURRENT_DATE - INTERVAL '{half} days' THEN 'Current' ELSE 'Previous' END AS period,
-       sum(l.billable_loc) AS loc
-FROM loc_usage_ledger l
-JOIN reviews r ON r.id = l.review_id
-WHERE l.org_id = {org_id} AND l.status = 'accounted'
-  AND l.accounted_at >= CURRENT_DATE - INTERVAL '{days} days'
-GROUP BY 1, 2
-ORDER BY 1, 2;
-```
+Where the data lives:
+
+- **Tables:** `loc_usage_ledger` joined to `reviews`; settled rows only.
+- **The key move is labelling each row Previous or Current** with a
+  conditional expression on its date, then grouping by repository *and*
+  that label. Take a window — 90 days is comfortable — and split it down
+  the middle, so both halves are the same length and the comparison is
+  fair.
+- **Exactly two buckets.** Not six months of monthly points: the question
+  is "where do we stand now versus before", and a multi-bucket trend
+  forces the reader to eyeball a direction that the chart should be
+  stating outright.
+- **Derive the gain/loss label per repository** by comparing its two
+  values, and encode that as the line colour. That label is what turns a
+  tangle of lines into an answer.
 
 Vega-Lite spec:
 ```json
@@ -56,6 +59,20 @@ Vega-Lite spec:
   engineers, repos, ...), not one metric for many entities like §6.1 — a
   `rect`+`color` heatmap (metric × period, color = delta) with a `text`
   layer overlaying the actual numbers, instead of a slope line per entity.
+
+Where the data lives:
+
+- **Several small queries, not one big one.** Each row of the matrix is a
+  different metric from a different place — review counts from `reviews`,
+  LOC from `loc_usage_ledger`, active engineers as a distinct author
+  count, repositories touched, trigger-type share. There is no single
+  join that produces all of them sensibly.
+- **Run each metric for both halves of the window**, then assemble the
+  results into one small table of metric / period / value rows.
+- **The delta is a third "period" column**, computed once you have the
+  two values — that is what the colour scale reads.
+- Keep the metric list short and stable. This chart is a verdict, and a
+  verdict with fifteen rows is a spreadsheet.
 
 Vega-Lite spec (2 layers — delta-colored rect, text overlay):
 ```json
@@ -88,17 +105,17 @@ Vega-Lite spec (2 layers — delta-colored rect, text overlay):
   engineer, colored up/down) is used instead of a slope line or a
   metric×period matrix.
 
-SQL:
-```sql
-SELECT r.author_username,
-       CASE WHEN l.accounted_at >= CURRENT_DATE - INTERVAL '{half} days' THEN 'current' ELSE 'previous' END AS period,
-       sum(l.billable_loc) AS loc
-FROM loc_usage_ledger l JOIN reviews r ON r.id = l.review_id
-WHERE l.org_id = {org_id} AND l.status = 'accounted' AND r.repository = '{repo}'
-  AND r.author_username IS NOT NULL
-  AND l.accounted_at >= CURRENT_DATE - INTERVAL '{days} days'
-GROUP BY 1, 2;
-```
+Where the data lives:
+
+- Same two-period split as §6.1 and the same tables, but grouped by
+  **author** and filtered to **one repository** — the question is about
+  what happened inside a single repo.
+- **Then subtract:** one row per engineer carrying the change between
+  their two periods, plus the direction of that change for the colour. The
+  chart plots the delta, not the two raw values, so the arithmetic belongs
+  in the query.
+- Sort by the delta so the biggest movers sit at the ends, which is where
+  the eye goes first.
 
 Vega-Lite spec:
 ```json

@@ -24,17 +24,19 @@ failure.
   depth" (absolute headcount by tier), not "what fraction of total volume"
   — so it stays unnormalized.
 
-SQL:
-```sql
-SELECT date_trunc('week', COALESCE(completed_at, created_at))::date AS week,
-       author_username, count(*) AS n
-FROM reviews
-WHERE org_id = {org_id}
-  AND author_username IS NOT NULL
-  AND COALESCE(completed_at, created_at) >= CURRENT_DATE - INTERVAL '{days} days'
-GROUP BY 1, 2
-ORDER BY 1;
-```
+Where the data lives:
+
+- **Table:** `reviews`, grouped by **week and author together** — you need
+  each person's activity level within each week before you can say which
+  tier they were in that week.
+- **Then bucket, then count people.** Two steps: assign each
+  engineer-week to a tier using the same thresholds as §3.1 and §4.1, then
+  count how many engineers fall in each tier per week. The chart plots
+  people, not reviews.
+- Skipping the per-author grouping and going straight to distinct-user
+  counts per week is the failure this rule exists to prevent: it produces
+  a headcount line that cannot show depth at all.
+- Trailing ~180 days, since this is a question about a slow-moving shift.
 
 Vega-Lite spec:
 ```json
@@ -56,15 +58,14 @@ Vega-Lite spec:
 - Shape: stacked `bar`, x = engineer, color = repository — shows whether
   an engineer concentrates on one repo or spreads across many.
 
-SQL:
-```sql
-SELECT author_username, repository, count(*) AS reviews
-FROM reviews
-WHERE org_id = {org_id} AND author_username IS NOT NULL
-  AND COALESCE(completed_at, created_at) >= CURRENT_DATE - INTERVAL '{days} days'
-GROUP BY 1, 2
-ORDER BY 1, 3 DESC;
-```
+Where the data lives:
+
+- **Table:** `reviews`, grouped by author and repository together — one
+  row per person per repo they touched.
+- Authored reviews only; trailing 90 days.
+- **Watch the repository count.** An org with dozens of repos produces an
+  unreadable stack of colours. Keep the top few per engineer and roll the
+  rest into an "other" bucket rather than emitting every one.
 
 Vega-Lite spec:
 ```json
@@ -84,13 +85,21 @@ Vega-Lite spec:
 - Shape: waterfall — stacked `bar` with a computed invisible base (`y`)
   and visible delta (`y2`) per step, color = positive/negative.
 
-SQL:
-```sql
-SELECT count(*) AS reviews, coalesce(sum(llm_cost_usd), 0) AS llm_cost
-FROM loc_usage_ledger
-WHERE org_id = {org_id} AND status = 'accounted'
-  AND accounted_at >= CURRENT_DATE - INTERVAL '{days} days';
-```
+Where the data lives:
+
+- **Table:** `loc_usage_ledger` — it carries both the review volume and
+  the actual LLM cost per settled row. Two totals for the window is all
+  the database needs to give you.
+- **Everything else on this chart is an assumption, not data.** The
+  "alternative cost" you are comparing against comes from a stated
+  assumption (engineer-hours saved × a rate), and the subscription cost is
+  a known constant. Neither is in the schema.
+- **Because of that, state your assumptions in the description.** A
+  savings figure whose inputs are invisible is not persuasive to the
+  person who has to defend it — quote the rate and the hours you assumed
+  so they can argue with the number rather than distrust it.
+- The invisible base segment that positions each waterfall bar is
+  arithmetic on those totals, done before the chart.
 
 Vega-Lite spec:
 ```json
@@ -115,22 +124,16 @@ Vega-Lite spec:
   the span is long (30-90+ points) and vertical space is scarce — §1's
   plain line+rolling-average is the default for shorter spans.
 
-SQL:
-```sql
-WITH days AS (
-  SELECT generate_series((CURRENT_DATE - INTERVAL '{days} days')::date, CURRENT_DATE::date, '1 day')::date AS day
-),
-daily AS (
-  SELECT accounted_at::date AS day, sum(billable_loc) AS loc
-  FROM loc_usage_ledger
-  WHERE org_id = {org_id} AND status = 'accounted'
-    AND accounted_at >= CURRENT_DATE - INTERVAL '{days} days'
-  GROUP BY 1
-)
-SELECT d.day, COALESCE(daily.loc, 0) AS loc
-FROM days d LEFT JOIN daily ON daily.day = d.day
-ORDER BY d.day;
-```
+Where the data lives:
+
+- **Table:** `loc_usage_ledger` alone — no join needed, since the org
+  filter and the LOC figure both live on it.
+- Daily sums, settled rows only, zero-filled across the full date series
+  exactly as in §1.1.
+- **The band-splitting is arithmetic on top of the daily value**, done
+  after the query: pick a band height, then derive one column per band
+  holding that band's share of the day's value. Three columns, three area
+  layers. The query itself stays a plain daily series.
 
 Vega-Lite spec (3 area layers, same field, rising opacity, band-clamped y-domain):
 ```json
@@ -154,16 +157,21 @@ Vega-Lite spec (3 area layers, same field, rising opacity, band-clamped y-domain
   one categorical (engineer) axis and a zero line. Grounded directly in
   `review_feedback`'s `vote_type` column.
 
-SQL:
-```sql
-SELECT r.author_username AS engineer, f.vote_type, count(*) AS n
-FROM review_feedback f
-JOIN reviews r ON r.id = f.review_id
-WHERE f.org_id = {org_id} AND r.author_username IS NOT NULL
-  AND f.retracted_at IS NULL
-  AND f.created_at >= CURRENT_DATE - INTERVAL '{days} days'
-GROUP BY 1, 2;
-```
+Where the data lives:
+
+- **Table:** `review_feedback` joined to `reviews` for the author name.
+- **Start from the feedback table, not from reviews** — every row you want
+  is a vote, and reviews with no feedback have nothing to contribute to
+  this chart.
+- **Exclude retracted votes**, and filter on the feedback's own timestamp
+  rather than the review's; a vote cast this week on an old review is
+  this week's signal.
+- **Group by author and vote type**, returning both as positive counts.
+  The negation that puts down-votes below the zero line is a presentation
+  step applied afterwards, not something the query should bake in.
+- Feedback is sparse in most orgs. If the totals are tiny, say the actual
+  counts in the description — "4 up, 1 down" is honest where a chart alone
+  implies a trend that five data points cannot support.
 
 Vega-Lite spec:
 ```json

@@ -18,16 +18,20 @@ concentration.
 
 ## §5.1 Specific rule — "Where is organizational velocity concentrated?" (by repository) (query #7)
 
-SQL:
-```sql
-SELECT r.repository, sum(l.billable_loc) AS loc
-FROM loc_usage_ledger l
-JOIN reviews r ON r.id = l.review_id
-WHERE l.org_id = {org_id} AND l.status = 'accounted'
-  AND l.accounted_at >= CURRENT_DATE - INTERVAL '{days} days'
-GROUP BY 1
-ORDER BY 2 DESC;
-```
+Where the data lives:
+
+- **Tables:** `loc_usage_ledger` joined to `reviews` for the repository
+  name; settled rows only; trailing 90 days.
+- **Measure:** summed LOC per repository, sorted descending. The sort is
+  not cosmetic — a Pareto curve is meaningless unless the bars are in
+  descending order, because the cumulative line assumes it.
+- **The cumulative percentage is a query column, not a chart feature.**
+  Compute a running total over the sorted rows and divide by the grand
+  total. Two window functions over the same ordering.
+- Expect a long tail of near-zero repositories. That tail is part of the
+  message ("most of these are dormant"), so do not filter it away — but do
+  quote the top-N share in the description, because that is the number
+  someone will repeat in a meeting.
 
 Vega-Lite spec (bar + cumulative-% line, independent y-scales):
 ```json
@@ -51,15 +55,10 @@ Vega-Lite spec (bar + cumulative-% line, independent y-scales):
   near-duplicate flagged in the chart-idea grouping review: same shape,
   same two-layer spec, only the entity being ranked differs.
 
-SQL:
-```sql
-SELECT author_username, count(*) AS reviews
-FROM reviews
-WHERE org_id = {org_id} AND author_username IS NOT NULL
-  AND COALESCE(completed_at, created_at) >= CURRENT_DATE - INTERVAL '{days} days'
-GROUP BY 1
-ORDER BY 2 DESC;
-```
+Where the data lives: identical in shape to §5.1 — same descending sort,
+same running-total-over-grand-total for the cumulative line — but grouped
+on the author column of `reviews` instead of the repository, and counting
+reviews rather than summing LOC.
 
 Vega-Lite spec: identical structure to §5.1, `x.field` = `engineer`,
 `y.field` (bar layer) = `reviews`.
