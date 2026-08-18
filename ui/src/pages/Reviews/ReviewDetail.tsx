@@ -766,78 +766,85 @@ const ReviewDetail: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* CLICKABLE DETAILS ZONE: Sentence + Severity + Show More + In Progress Badge */}
+                    {/* ── Details tab ── sentence | severity ▼ */}
                     <div
-                        onClick={() => setDetailsExpanded(v => !v)}
-                        className="shrink-0 flex items-center gap-3 px-3.5 self-stretch cursor-pointer group select-none hover:bg-slate-700/30 transition-colors"
-                        title="Click to toggle details"
+                        onClick={() => { setDetailsExpanded(v => !v); setToolExpanded(false); }}
+                        className="shrink-0 flex items-center gap-2.5 px-3.5 self-stretch cursor-pointer group select-none hover:bg-slate-700/30 transition-colors"
+                        title="Toggle review details"
                     >
-                        {/* Sentence */}
-                        <p className="text-xs leading-5 text-slate-300 whitespace-nowrap">
+                        {/* Sentence — RelativeTime wrapped in fixed min-width to prevent layout shift */}
+                        <p className="text-xs text-slate-300 whitespace-nowrap">
                             <span className="font-semibold text-white">{review.userEmail?.split('@')[0] || 'Someone'}</span>
-                            {' '}created review{' '}
-                            <RelativeTime timestamp={review.createdAt} className="text-slate-400" />
+                            {' '}created{' '}
+                            <span className="text-slate-400 inline-block min-w-[6rem]">
+                                <RelativeTime timestamp={review.createdAt} />
+                            </span>
                         </p>
 
+                        {/* Pipe separator */}
+                        <span className="text-slate-600 select-none">|</span>
+
                         {/* Severity indicators */}
-                        <div className="shrink-0 flex items-center gap-2 text-xs text-slate-300">
-                            <span><strong className="font-semibold text-slate-100">{eventSeverityCounts.high}</strong> High</span>
-                            <span className="text-slate-600">·</span>
-                            <span><strong className="font-semibold text-slate-100">{eventSeverityCounts.medium}</strong> Medium</span>
-                            <span className="text-slate-600">·</span>
-                            <span><strong className="font-semibold text-slate-100">{eventSeverityCounts.low}</strong> Low</span>
+                        <div className="shrink-0 flex items-center gap-2 text-xs text-slate-400">
+                            <span><strong className="font-medium text-slate-200">{eventSeverityCounts.high}</strong> High</span>
+                            <span className="text-slate-700">·</span>
+                            <span><strong className="font-medium text-slate-200">{eventSeverityCounts.medium}</strong> Med</span>
+                            <span className="text-slate-700">·</span>
+                            <span><strong className="font-medium text-slate-200">{eventSeverityCounts.low}</strong> Low</span>
                         </div>
 
-                        {/* Show More / Hide button */}
-                        <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); setDetailsExpanded(v => !v); }}
-                            className="shrink-0 text-xs font-medium leading-5 w-[84px] text-center py-1 rounded-md border border-slate-600 bg-slate-800 text-slate-200 group-hover:border-slate-500 group-hover:bg-slate-700 group-hover:text-white transition-colors"
+                        {/* Chevron indicator */}
+                        <svg
+                            className={`w-3.5 h-3.5 text-slate-400 group-hover:text-slate-200 transition-all duration-200 ${detailsExpanded ? 'rotate-180' : 'rotate-0'}`}
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24"
                         >
-                            {detailsExpanded ? 'Hide' : 'Show more'}
-                        </button>
-
-                        {/* Status badge section (Included inside details hover zone) */}
-                        <div className="shrink-0 flex items-center ml-1">
-                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold text-white leading-5 whitespace-nowrap ${getStatusColor(review.status)}`}>
-                                {review.status === 'in_progress' && (
-                                    <svg className="animate-spin w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
-                                )}
-                                {review.status.replace(/_/g, ' ')}
-                            </span>
-                        </div>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
                     </div>
 
-                    {/* CLICKABLE STATIC TOOLS ZONE: Tightly constrained with ml-auto */}
+                    {/* ── Static Analysis tab ── tools summary ▼ */}
                     <div
-                        onClick={() => setToolExpanded(v => !v)}
-                        className="ml-auto shrink-0 flex items-center gap-3 px-3.5 self-stretch cursor-pointer group select-none hover:bg-slate-700/30 transition-colors"
-                        title="Click to toggle Static Analysis Tools"
+                        onClick={() => { setToolExpanded(v => !v); setDetailsExpanded(false); }}
+                        className="ml-auto shrink-0 flex items-center gap-2.5 px-3.5 self-stretch cursor-pointer group select-none hover:bg-slate-700/30 transition-colors"
+                        title="Toggle static analysis tools"
                     >
-                        {toolAccounting && (
-                            <div className="shrink-0 text-xs text-slate-300">
-                                <strong className="text-slate-100 font-semibold">{toolAccounting.toolsExecuted || toolAccounting.toolBreakdown.length}</strong> Tools
+                        {toolAccounting ? (
+                            <p className="text-xs text-slate-300 whitespace-nowrap">
+                                <strong className="font-semibold text-slate-100">{toolAccounting.toolsExecuted || toolAccounting.toolBreakdown.length}</strong> Tools
                                 {toolAccounting.totalCommentsGenerated > 0 ? (
-                                    <span className="text-slate-400 ml-1">({toolAccounting.totalCommentsGenerated} findings)</span>
+                                    <span className="text-slate-500 ml-1">· {toolAccounting.totalCommentsGenerated} findings</span>
                                 ) : (
-                                    <span className="text-slate-400 ml-1">(clean)</span>
+                                    <span className="text-slate-500 ml-1">· clean</span>
                                 )}
-                            </div>
+                            </p>
+                        ) : (
+                            <p className="text-xs text-slate-400 whitespace-nowrap">Static Analysis</p>
                         )}
-                        <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); setToolExpanded(v => !v); }}
-                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium leading-5 transition-colors shrink-0 ${toolExpanded ? 'border-blue-500/60 bg-blue-600/20 text-blue-300' : 'border-slate-600 bg-slate-900/70 text-slate-200 group-hover:bg-slate-700 group-hover:text-white'}`}
+
+                        {/* Chevron indicator */}
+                        <svg
+                            className={`w-3.5 h-3.5 text-slate-400 group-hover:text-slate-200 transition-all duration-200 ${toolExpanded ? 'rotate-180' : 'rotate-0'}`}
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24"
                         >
-                            <svg className="w-3.5 h-3.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                            Static Analysis Tools
-                        </button>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+
+                    {/* ── Status badge (far right) ── */}
+                    <div className="shrink-0 flex items-center px-3.5 self-stretch">
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold text-white leading-5 whitespace-nowrap ${getStatusColor(review.status)}`}>
+                            {review.status === 'in_progress' && (
+                                <svg className="animate-spin w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+                            )}
+                            {review.status.replace(/_/g, ' ')}
+                        </span>
                     </div>
                 </div>
 
                 {/* Show more panel */}
                 {detailsExpanded && (
-                    <div className="border-t border-slate-700/50 p-4 bg-slate-900/30 grid grid-cols-1 md:grid-cols-12 gap-4">
+                    <div className="border-t border-slate-700/50 bg-slate-900/30">
+                        <div className="h-[185px] overflow-y-auto p-4 grid grid-cols-1 md:grid-cols-12 gap-4 [&::-webkit-scrollbar]:w-0">
                         {/* GROUP 1: Commits (col-span-4 - fixed height with +N button enabling internal scroll) */}
                         <div className="md:col-span-4 bg-slate-900/60 border border-slate-700/50 rounded-lg p-3.5 flex flex-col h-[135px]">
                             <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1.5 shrink-0">
@@ -915,17 +922,25 @@ const ReviewDetail: React.FC = () => {
                                 </div>
                                 <div className="min-w-0">
                                     <p className="text-[10px] text-slate-500 uppercase tracking-wide">Created at</p>
-                                    <p className="font-semibold text-slate-200 mt-0.5 text-[11px] leading-tight"><RelativeTime timestamp={review.createdAt} /></p>
+                                    <p className="font-semibold text-slate-200 mt-0.5 text-[11px] leading-tight">
+                                        {new Date(review.createdAt).toLocaleString([], {
+                                            year: 'numeric', month: 'short', day: 'numeric',
+                                            hour: '2-digit', minute: '2-digit'
+                                        })}
+                                    </p>
                                 </div>
                             </div>
+                        </div>
                         </div>
                     </div>
                 )}
 
                 {/* Static Analysis Tools panel — expanded INSIDE the same outer card box */}
                 {toolExpanded && toolAccounting && (
-                    <div className="border-t border-slate-700/50 p-4 bg-slate-900/40">
-                        <ToolAnalysisCard data={toolAccounting} embedded={true} isExpanded={true} />
+                    <div className="border-t border-slate-700/50 bg-slate-900/40">
+                        <div className="p-4">
+                            <ToolAnalysisCard data={toolAccounting} embedded={true} isExpanded={true} hideSummary={true} />
+                        </div>
                     </div>
                 )}
             </div>

@@ -34,6 +34,8 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({ data, embedd
     data.totalCommentsGenerated > 0 ? 'findings' : 'all'
   );
   const [filterOpen, setFilterOpen] = useState(false);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 8;
 
   const totalTools = data.toolBreakdown.length || data.toolsExecuted;
   const activeRunningTools = data.toolBreakdown.filter((t) => t.status === 'running');
@@ -80,6 +82,10 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({ data, embedd
     };
     return getPriority(a) - getPriority(b);
   });
+
+  const totalPages = Math.ceil(sortedTools.length / PAGE_SIZE);
+  const safePage = Math.min(page, Math.max(0, totalPages - 1));
+  const pagedTools = sortedTools.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
   return (
     <div className={`w-full ${embedded
@@ -334,8 +340,9 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({ data, embedd
               }
 
               return (
+                <>
                 <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
-                  {sortedTools.map((item) => {
+                  {pagedTools.map((item) => {
                     const isProblem = item.commentsGenerated > 0 || item.status === 'failed';
                     const isClean = item.commentsGenerated === 0 && item.status !== 'failed' && item.status !== 'running' && item.status !== 'pending';
                     const isToolRunning = item.status === 'running';
@@ -392,6 +399,35 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({ data, embedd
                     );
                   })}
                 </motion.div>
+
+                {/* Pagination controls */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-700/40">
+                    <button
+                      type="button"
+                      onClick={() => setPage(p => Math.max(0, p - 1))}
+                      disabled={safePage === 0}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium border border-slate-700 bg-slate-800/60 text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                      Prev
+                    </button>
+                    <span className="text-[11px] text-slate-500 font-mono">
+                      {safePage + 1} / {totalPages}
+                      <span className="text-slate-700 ml-1">({sortedTools.length} tools)</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                      disabled={safePage >= totalPages - 1}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium border border-slate-700 bg-slate-800/60 text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Next
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                    </button>
+                  </div>
+                )}
+                </>
               );
             })()}
           </motion.div>
