@@ -1,39 +1,21 @@
----
-id: chart.distribution
-number: 3
-title: Distribution Across a Population
----
-
 # §3 — Distribution across a population
+
+> §0 applies in full. Only deviations from it are stated here.
 
 ## §3.0 General rule
 
-**When the question asks how spread out a metric is across many rows —
-not the total, not the ranking, but the shape of the spread — bucket the
-metric and render a histogram (`bar` over SQL-computed bins), or keep
-every point visible with a jittered strip/beeswarm plot if the population
-is small enough to show individually (roughly under ~30 points).**
+**When the question asks how spread out a metric is across many rows — not
+the total, not the ranking, but the shape of the spread — bucket it and
+render a histogram.** If the population is small enough to show everyone
+individually and the outliers are the point, show every point instead of
+bucketing.
 
-## §3.1 Specific rule — "How broadly has the organization adopted LiveReview?" (query #3)
+## §3.1 "How broadly has the organization adopted LiveReview?" (query #3)
 
-- Bucketing happens in Python (`band_for()` in `generate_breadth.py`,
-  shared with §4/§1's leaderboard/growth charts), not in SQL — bands are
-  `1-4 (light)` / `5-19 (regular)` / `20+ (heavy)`.
-
-Where the data lives:
-
-- **Table:** `reviews`, grouped by author to get one row per engineer with
-  their review count.
-- **Skip rows with no author.** Automated and system-triggered reviews
-  have no person attached, and counting them as an anonymous "engineer"
-  invents a teammate who does not exist.
-- **Window:** a trailing 90 days. Adoption questions are about the current
-  state of the team, and all-time totals let someone who left last year
-  keep looking active.
-- **Bucketing into light / regular / heavy can happen in the query or
-  after it** — either is fine, but the band thresholds must be the same
-  ones §4 uses, or "heavy user" quietly means two different things on two
-  charts in the same conversation.
+Data: `reviews` grouped by author, one row per engineer. Bucket into
+light / regular / heavy — in the query or after it, either is fine, but
+the thresholds must match §4's, or "heavy user" quietly means two
+different things on two charts in the same conversation.
 
 Vega-Lite spec:
 ```json
@@ -49,24 +31,16 @@ Vega-Lite spec:
 }
 ```
 
-## §3.2 Specific rule — "Are reviews becoming more iterative?" (query #24)
+## §3.2 "Are reviews becoming more iterative?" (query #24)
 
-- Binning happens in SQL this time (nested `GROUP BY`), not in application
-  code — the distinction from §3.1 is where the bucketing lives, not the
-  chart mechanism, which is identical (`bar`, ordinal x = bucket, y =
-  count).
+Data: `reviews` keyed on the commit identifier. **This is a count of
+counts — two aggregation passes.** First how many reviews each commit
+received, then how many commits received each of those numbers. Skipping
+the second pass gives a list of commits, which is data, not a
+distribution. Exclude rows with no commit, or they collapse into one fake
+mega-commit.
 
-Where the data lives:
-
-- **Table:** `reviews`, keyed on the commit identifier.
-- **This is a count of counts — two aggregation passes.** First: how many
-  reviews each commit received. Then: how many commits received each of
-  those numbers. Skipping the second pass gives you a list of commits,
-  which is data, not a distribution.
-- **Exclude rows with no commit recorded**, otherwise they collapse into
-  one fake mega-commit.
-- The x-axis values here are small integers (1, 2, 3 reviews), so they are
-  already their own buckets — no band thresholds needed.
+The x values are small integers, so they are already their own buckets.
 
 Vega-Lite spec:
 ```json
@@ -80,26 +54,17 @@ Vega-Lite spec:
 }
 ```
 
-## §3.3 Exception — "Which engineers are carrying the repository?" (keep every point visible) (query #12)
+## §3.3 Exception — "Which engineers are carrying the repository?" (query #12)
 
-- **Exception to §3.0's binning default**: when the population is small
-  (one repository's contributor list, not the whole org) and outliers
-  themselves are the point of the question, do not bin at all — render
-  every engineer as a jittered point (`circle` + `yOffset` on a
-  `random()` calculate transform) so no individual gets flattened into a
-  bucket average.
+**Exception to §3.0's bucketing default.** The population is one repo's
+contributor list and the outliers are the point of the question, so do not
+bin — show every engineer as a jittered point, and nobody gets flattened
+into a bucket average.
 
-Where the data lives:
-
-- **Tables:** `loc_usage_ledger` joined to `reviews`, filtered to one
-  repository and to authored (non-null) reviews.
-- **Two measures per engineer:** LOC reviewed and review count. LOC drives
-  the position on the axis; the count drives the dot size, so a person who
-  did a lot of small reviews reads differently from one who did a few
-  enormous ones.
-- **No bucketing.** One row per engineer is the point — see the exception
-  note above.
-- Sort by the larger measure so the heaviest contributors are adjacent.
+Data: `loc_usage_ledger` joined to `reviews`, filtered to one repository.
+Two measures per engineer: LOC drives position, review count drives dot
+size — so a person who did many small reviews reads differently from one
+who did a few enormous ones.
 
 Vega-Lite spec:
 ```json

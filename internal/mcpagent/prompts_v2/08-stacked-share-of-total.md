@@ -1,35 +1,26 @@
----
-id: chart.share
-number: 8
-title: Stacked Share-of-Total Over Time
----
+# §8 — Share of total over time
 
-# §8 — Stacked share-of-total over time
+> §0 applies in full. Only deviations from it are stated here.
 
 ## §8.0 General rule
 
-**When the question asks how the composition of a total is shifting over
-time (which category's share is growing/shrinking), render a 100%-stacked
-mark (`"stack": "normalize"`) with color = category, not a plain count per
-category.** A raw stacked count chart conflates "this category grew" with
-"overall volume grew" — normalizing to 100% isolates the mix shift, which
-is what these questions are actually asking about.
+**When the question asks how the mix is shifting — which category's share
+is growing — stack it and normalise to 100%.** A raw stacked count
+conflates "this category grew" with "everything grew"; normalising
+isolates the shift, which is what is being asked about.
 
-## §8.1 Specific rule — "Where are reviews happening?" (trigger-source mix, discrete) (query #14)
+Return raw counts from the query. The chart normalises; dividing in the
+query as well normalises twice and flattens everything to 100%.
 
-- Mark: `bar`, weekly buckets — more useful than a single pie chart because
-  periods can be compared side by side.
+Bucket weekly: daily is too jittery to read a mix shift from, monthly
+hides the transition.
 
-Where the data lives:
+## §8.1 "Where are reviews happening?" (query #14)
 
-- **Table:** `reviews`, grouped by two keys: the week bucket and the
-  trigger-type column that records how the review was started.
-- **Return raw counts, not percentages.** The chart normalises to 100%
-  itself; if you also divide in the query you will normalise twice and get
-  a flat line at 100%.
-- **Weekly buckets.** Daily is too jittery to read a mix shift from, and
-  monthly hides the transition you are trying to show.
-- Trailing 90 days or so.
+Discrete periods compared side by side — more useful than a pie chart,
+which can only show one moment.
+
+Data: `reviews` grouped by week and by the trigger-type column.
 
 Vega-Lite spec:
 ```json
@@ -44,15 +35,11 @@ Vega-Lite spec:
 }
 ```
 
-## §8.2 Specific rule — "Are we moving review earlier in the development lifecycle?" (trigger-source mix, continuous) (query #15)
+## §8.2 "Are we moving review earlier in the development lifecycle?" (query #15)
 
-- Refines §8.1: **identical SQL**, only the mark changes — `area`
-  (`interpolate: monotone`) instead of `bar`, because this question is
-  about a continuous transition/trend in the mix, not a period-by-period
-  comparison. Same `"stack": "normalize"` mechanism.
-
-Where the data lives: identical to §8.1 — same table, same two grouping
-keys, same raw counts. Only the mark changes.
+Same data as §8.1; only the mark changes to `area`, because this question
+is about a continuous transition rather than a period-by-period
+comparison.
 
 Vega-Lite spec:
 ```json
@@ -66,8 +53,3 @@ Vega-Lite spec:
   }
 }
 ```
-
-**Consolidation note:** §8.1 and §8.2 share one SQL query and differ only
-in `mark.type` (`bar` vs `area`) — a strong candidate for a single rule
-with a "discrete comparison vs. continuous trend" mark parameter, the same
-pattern flagged for §5.1/§5.2.
