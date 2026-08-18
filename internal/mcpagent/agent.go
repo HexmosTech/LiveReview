@@ -51,18 +51,25 @@ type Agent struct {
 	actionPrompt   string       // call #1: identical in shape to the plain tool-only prompt
 	actionTools    []llms.Tool  // call #1's tools (raw-row tools withheld, same as before the split)
 	chatPrompt     string       // persona/org header only, no tools, no schema
-	countQueryHead string       // header + analyticsSchemaIntro, precomputed
-	countQueryTail string       // examples + plan instructions, precomputed
+	countQueryHead string       // header, precomputed from lawbook
+	countQueryTail string       // plan laws, precomputed from lawbook
 	// countQueryHead/Tail bracket dbctxTableText's output, which can only be
 	// resolved per turn (schema_index.go's index may not have been ready
 	// when WithAnalytics ran) - see (*Agent).countQueryPrompt.
-	finalizeHead string // header + analyticsSchemaIntro, precomputed
-	finalizeTail string // examples + finalize/chart instructions, precomputed
+	finalizeHead string // header, precomputed from lawbook
+	finalizeTail string // finalize + chart-selection laws, precomputed from lawbook
 	// finalizeHead/Tail bracket dbctxTableText's output the same way
 	// countQueryHead/Tail do - call #3 writes its own data_sql from scratch
 	// (it is not handed the count call's SQL to extend) and needs the same
 	// column-name grounding, or it silently guesses wrong column names for
 	// anything the count query didn't already select. See (*Agent).finalizePrompt.
+
+	// repairPrompt and noDataPrompt are the full system prompts for the
+	// degraded paths (rejected query retry and zero-row result). Populated
+	// from the lawbook when available, falling back to the old embedded
+	// prompts if the lawbook fails to load.
+	repairPrompt string
+	noDataPrompt string
 }
 
 func NewAgent(provider *Provider, mcpSession *MCPSession, maxSteps int) *Agent {
@@ -395,27 +402,7 @@ func orgIDFilterInstruction(orgID int64) string {
 		"use this exact number, not a placeholder or a guess. A query without it will be rejected.\n\n", orgID)
 }
 
-// buildCountQueryPromptHalves precomputes the static parts of call #2's
-// system prompt. They bracket dbctxTableText's output, which is resolved
-// fresh per turn by (*Agent).countQueryPrompt rather than here, because the
-// dbctx index's readiness can change over the process's life in a way none
-// of the other precomputed prompts depend on.
-func buildCountQueryPromptHalves(orgName, userName string, orgID int64) (head, tail string) {
-	var h strings.Builder
-	h.WriteString(buildPromptHeader(orgName, userName))
-	h.WriteString(orgIDFilterInstruction(orgID))
-	h.WriteString(analyticsSchemaIntro) // imported from prompts/analytics_schema_intro.md
-	head = h.String()
 
-	var t strings.Builder
-	t.WriteString("\n\n")
-	t.WriteString(analyticsSchemaExamples) // imported from prompts/analytics_schema_examples.md
-	t.WriteString("\n\n")
-	t.WriteString(analyticsPlanInstructions) // imported from prompts/analytics_plan.md
-	tail = t.String()
-
-	return head, tail
-}
 
 // countQueryPrompt assembles call #2's full system prompt for this turn,
 // splicing the live dbctx table text between the precomputed head and tail.
@@ -436,29 +423,6 @@ func (a *Agent) countQueryPrompt(clog *logging.ChatTurnLogger, userText string) 
 		clog.SchemaSourceDegraded(err.Error())
 	}
 	return a.countQueryHead + "\n\n" + tableText + a.countQueryTail, tableText
-}
-
-// buildFinalizePromptHalves precomputes the static parts of call #3's system
-// prompt, mirroring buildCountQueryPromptHalves. Call #3 writes a brand new
-// data_sql (not a reuse of the count call's SQL, and not part of the same
-// conversation - completeOnce is a fresh two-message exchange), so it needs
-// the same table/column reference the count call gets, not just the chart-
-// format rules in analytics_finalize.md.
-func buildFinalizePromptHalves(orgName, userName string, orgID int64) (head, tail string) {
-	var h strings.Builder
-	h.WriteString(buildPromptHeader(orgName, userName))
-	h.WriteString(orgIDFilterInstruction(orgID))
-	h.WriteString(analyticsSchemaIntro) // imported from prompts/analytics_schema_intro.md
-	head = h.String()
-
-	var t strings.Builder
-	t.WriteString("\n\n")
-	t.WriteString(analyticsSchemaExamples) // imported from prompts/analytics_schema_examples.md
-	t.WriteString("\n\n")
-	t.WriteString(analyticsFinalizeInstructions) // imported from prompts/analytics_finalize.md
-	tail = t.String()
-
-	return head, tail
 }
 
 // finalizePrompt assembles call #3's full system prompt for this turn.

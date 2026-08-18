@@ -30,21 +30,6 @@ const (
 // don't map 1:1 to conversational turns.
 const classifyBoundHistory = 6
 
-// buildClassifyPrompt is call #0's system prompt: the shape instructions
-// plus tool NAMES only - never parameter schemas, which are only needed by
-// whichever call actually acts on the chosen branch.
-func buildClassifyPrompt(tools []MCPToolDef) string {
-	var b strings.Builder
-	b.WriteString(classifyInstructions) // imported from prompts/analytics_classify.md
-	if len(tools) > 0 {
-		b.WriteString("\n\nAvailable tool names (arguments are not shown here):\n")
-		for _, t := range tools {
-			b.WriteString(fmt.Sprintf("- %s\n", t.Name))
-		}
-	}
-	return b.String()
-}
-
 // classify runs call #0. It never touches the growing session `history`
 // directly - only a bounded, independently-built copy - and never sees the
 // SQL schema or full tool definitions, which is the entire point of
