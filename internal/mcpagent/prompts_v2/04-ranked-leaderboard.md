@@ -2,32 +2,42 @@
 
 > §0 applies in full. Only deviations from it are stated here.
 
-## §4.0 General rule
+## §4.0 Governing rule
 
-**When the question ranks named entities against each other, render ONE
+**When a question ranks named entities against each other, render ONE
 sorted horizontal bar.** Never split "most" and "least" into two charts —
 they are the two ends of one ranking, not two questions. Add a dashed
-target rule when a threshold is meaningful, and colour by tier when a
-banded read adds more than a plain sort does.
+target rule when a threshold is meaningful, and colour by band when a
+tiered read adds more than a plain sort does.
 
-## §4.1 "Who has adopted LiveReview the most and least?" (query #4)
+---
 
-Data: `reviews` grouped by author for a review-count ranking, or
-`loc_usage_ledger` joined to `reviews` for a LOC ranking. Either is
-defensible — count answers "who is using it", LOC answers "who is putting
-real work through it". Use the same tier thresholds as §3.1.
+## §4.1 — Ranking members against each other and against a target
 
-**The "who hasn't" half is the hard half.** Grouping the reviews table
-alone can only list people who *did* review — anyone at zero is absent
-from the result and so absent from the chart, which is exactly the person
-being asked about. To answer honestly, start from the org's member roster
-and fill in zero where there is no match. If no roster is reachable, say
-in the description that the chart shows only engineers with at least one
-review, rather than letting silence imply everyone is on it.
+**Applies when** the question asks who is doing the most or least of
+something, who is behind, or who needs a nudge. Compound phrasings — "most
+and least", "who is and isn't" — are still one ranking.
 
-The target line is a constant you supply, not a queried value.
+1. Group by the member and rank descending. Choose the measure to suit the
+   question: a count answers "who is using it", a volume measure answers
+   "who is putting real work through it".
+2. **Handle the absent members.** Grouping the activity table alone can
+   only list members who did something — anyone at zero is missing from
+   the result and therefore missing from the chart, which is precisely who
+   "who hasn't" is asking about. Start from the roster of members and fill
+   zero where there is no match.
+3. If no roster is reachable, say in the description that the chart shows
+   only members with at least one event. Silence implies everyone is on
+   it, which is the false claim this step exists to prevent.
+4. Add the target as a rule layer. It is a constant you supply, not a
+   queried value.
+5. Band the bars by tier using §3.1's thresholds.
+6. In the description, quote how many are below the target out of how
+   many total.
 
-Vega-Lite spec — sorted bar coloured by tier, plus dashed target rule:
+**Seen as:** query #4 — "Who has adopted LiveReview — and who hasn't?"
+
+Vega-Lite spec:
 ```json
 {
   "width": 700, "height": "<max(200, 28 * n_engineers)>",

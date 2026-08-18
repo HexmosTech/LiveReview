@@ -2,20 +2,35 @@
 
 > §0 applies in full. Only deviations from it are stated here.
 
-## §3.0 General rule
+## §3.0 Governing rule
 
-**When the question asks how spread out a metric is across many rows — not
-the total, not the ranking, but the shape of the spread — bucket it and
-render a histogram.** If the population is small enough to show everyone
-individually and the outliers are the point, show every point instead of
-bucketing.
+**When a question asks how spread out a measure is across many members of
+a population — not the total, not the ranking, but the shape of the
+spread — bucket it and show the shape.** If the population is small enough
+to show everyone individually and the outliers are the point, show every
+member instead of bucketing.
 
-## §3.1 "How broadly has the organization adopted LiveReview?" (query #3)
+---
 
-Data: `reviews` grouped by author, one row per engineer. Bucket into
-light / regular / heavy — in the query or after it, either is fine, but
-the thresholds must match §4's, or "heavy user" quietly means two
-different things on two charts in the same conversation.
+## §3.1 — Spread of a measure across a population
+
+**Applies when** the question asks how widely or evenly something is
+distributed across a group — whether use is broad or concentrated in a
+few, how many are light versus heavy users.
+
+1. Group by the member to get one row each, then bucket those rows into
+   bands.
+2. Use the **same band thresholds everywhere in the conversation** (§4.1
+   uses them too). If "heavy user" means one thing on this chart and
+   another on the next, both charts become untrustworthy.
+3. Plot band on the x-axis in fixed order, member count on the y-axis, and
+   colour by band. Do not sort by height — the bands have a natural order
+   and reordering them destroys the shape being asked about.
+4. In the description, quote how many fall in each band and name the
+   headline: broad, or concentrated in a few.
+
+**Seen as:** query #3 — "How broadly has the organization adopted
+LiveReview?"
 
 Vega-Lite spec:
 ```json
@@ -31,16 +46,25 @@ Vega-Lite spec:
 }
 ```
 
-## §3.2 "Are reviews becoming more iterative?" (query #24)
+---
 
-Data: `reviews` keyed on the commit identifier. **This is a count of
-counts — two aggregation passes.** First how many reviews each commit
-received, then how many commits received each of those numbers. Skipping
-the second pass gives a list of commits, which is data, not a
-distribution. Exclude rows with no commit, or they collapse into one fake
-mega-commit.
+## §3.2 — Distribution of a per-item count
 
-The x values are small integers, so they are already their own buckets.
+**Applies when** the question asks how often something happens *per
+item* — reviews per commit, comments per review, retries per job — and
+whether that number is growing.
+
+1. **Two aggregation passes.** First count the events per item, then count
+   how many items had each count. Stopping after the first pass gives a
+   list of items, which is data, not a distribution.
+2. Exclude items with no identifier, or they collapse into one fake
+   mega-item that dominates the chart.
+3. Treat the resulting counts as ordinal buckets — they are small integers
+   and already their own bands, so no thresholds are needed.
+4. In the description, say what the tail means. A long right tail is the
+   finding: some items are being worked repeatedly.
+
+**Seen as:** query #24 — "Are reviews becoming more iterative?"
 
 Vega-Lite spec:
 ```json
@@ -54,17 +78,28 @@ Vega-Lite spec:
 }
 ```
 
-## §3.3 Exception — "Which engineers are carrying the repository?" (query #12)
+---
 
-**Exception to §3.0's bucketing default.** The population is one repo's
-contributor list and the outliers are the point of the question, so do not
-bin — show every engineer as a jittered point, and nobody gets flattened
-into a bucket average.
+## §3.3 — Exception: when individuals matter more than the shape
 
-Data: `loc_usage_ledger` joined to `reviews`, filtered to one repository.
-Two measures per engineer: LOC drives position, review count drives dot
-size — so a person who did many small reviews reads differently from one
-who did a few enormous ones.
+**Applies when** the population is small — one repository's contributors,
+one team — and the question is about *who* stands out rather than what the
+overall spread looks like.
+
+**This overrides §3.0's bucketing.** Bucketing averages people away, and
+here the outliers are the answer.
+
+1. Return one row per individual; do not bin.
+2. Encode two measures: one drives position along the axis, the other
+   drives dot size. A person who did many small pieces of work then reads
+   differently from one who did a few large ones.
+3. Jitter the points so overlapping individuals stay visible.
+4. Sort by the positional measure so the heaviest contributors sit
+   together.
+5. Name the standouts in the description. "Three people account for most
+   of it" is the answer; the dots are the evidence.
+
+**Seen as:** query #12 — "Which engineers are carrying the repository?"
 
 Vega-Lite spec:
 ```json

@@ -19,8 +19,8 @@ question.
 
 The reader should be able to **decide something**: roll out to another
 team, talk to an engineer who has gone quiet, look into a repo that
-stalled. Before answering ask: *if this chart is right, what do they do
-tomorrow?* If the answer is "nothing", you have answered something
+stalled. Before answering ask: _if this chart is right, what do they do
+tomorrow?_ If the answer is "nothing", you have answered something
 narrower than what they wanted.
 
 ## §0.2 Two things that are always true
@@ -141,20 +141,60 @@ waterfalls, diverging bars, compact long-span views.
 
 ## §0.6 What is in each file
 
-| File | Covers | Questions about |
-|---|---|---|
-| §1 | Trend over time | adoption rising/falling, a repo's velocity over time, LOC vs review count, whether reviews are getting faster |
-| §2 | Calendar grid | daily habit, workflow rhythm, activity across repos and days |
-| §3 | Distribution | how broad adoption is, reviews per commit, who carries a repo |
-| §4 | Ranking | who uses it most and least |
-| §5 | Concentration | whether a few repos or people account for most of the total |
-| §6 | Two-period comparison | gaining or losing velocity, what changed between two weeks, why velocity moved |
-| §7 | Scatter | unusually active/inactive repos, who gets the most value, review coverage |
-| §8 | Share of total | where reviews are triggered, whether review is shifting earlier |
-| §9 | Crossed categories | severity vs trigger, issues by repo and file — both currently unanswerable |
-| §10 | Everything else | adoption breadth over time, what engineers work on, cost savings, long-span LOC, feedback trust, issue categories, workflow health |
+| File | Covers                | Questions about                                                                                                                    |
+| ---- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| §1   | Trend over time       | adoption rising/falling, a repo's velocity over time, LOC vs review count, whether reviews are getting faster                      |
+| §2   | Calendar grid         | daily habit, workflow rhythm, activity across repos and days                                                                       |
+| §3   | Distribution          | how broad adoption is, reviews per commit, who carries a repo                                                                      |
+| §4   | Ranking               | who uses it most and least                                                                                                         |
+| §5   | Concentration         | whether a few repos or people account for most of the total                                                                        |
+| §6   | Two-period comparison | gaining or losing velocity, what changed between two weeks, why velocity moved                                                     |
+| §7   | Scatter               | unusually active/inactive repos, who gets the most value, review coverage                                                          |
+| §8   | Share of total        | where reviews are triggered, whether review is shifting earlier                                                                    |
+| §9   | Crossed categories    | severity vs trigger, issues by repo and file — both currently unanswerable                                                         |
+| §10  | Everything else       | adoption breadth over time, what engineers work on, cost savings, long-span LOC, feedback trust, issue categories, workflow health |
 
-## §0.7 Precedence
+## §0.7 Worked examples
+
+Real questions that have been asked, and the law that governs each. These
+are illustrations, not a menu — a question that resembles one of these is
+governed by the same law even if the wording is nothing alike, and a
+question resembling none of them is still answerable under §0.4.
+
+| #   | Question                                                                | Law                   |
+| --- | ----------------------------------------------------------------------- | --------------------- |
+| 1   | Is LiveReview adoption increasing?                                      | §1.1                  |
+| 2   | Are engineers actually incorporating reviews into their daily workflow? | §2.1                  |
+| 3   | How broadly has the organization adopted LiveReview?                    | §3.1                  |
+| 4   | Who has adopted LiveReview — and who hasn't?                            | §4.1                  |
+| 5   | Is adoption becoming broader over time?                                 | §10.1                 |
+| 6   | Which repositories are gaining or losing engineering velocity?          | §6.1                  |
+| 7   | Where is organizational velocity concentrated?                          | §5.1                  |
+| 8   | Which repositories are unusually active or inactive?                    | §7.1                  |
+| 9   | What does engineering activity look like across repositories and days?  | §2.2                  |
+| 10  | What happened to a repository's velocity?                               | §1.2                  |
+| 11  | Why did this repository's velocity change?                              | §6.3                  |
+| 12  | Which engineers are carrying the repository?                            | §3.3                  |
+| 13  | What does each engineer actually spend their review activity on?        | §10.2                 |
+| 14  | Where are reviews happening?                                            | §8.1                  |
+| 15  | Are we moving review earlier in the development lifecycle?              | §8.2                  |
+| 16  | Are serious issues being caught before PR/MR?                           | §9.1 — blocked, §0.8  |
+| 17  | What kinds of engineering problems is LiveReview finding?               | §10.6 — blocked, §0.8 |
+| 18  | Where are the issues concentrated?                                      | §9.2 — blocked, §0.8  |
+| 19  | What is the blast radius of issues being caught?                        | §7.4 — blocked, §0.8  |
+| 20  | How much does LiveReview save versus alternatives?                      | §10.3                 |
+| 21  | How much code has LR reviewed?                                          | §10.4                 |
+| 22  | Are reviews getting faster?                                             | §1.4                  |
+| 23  | How much engineering work is being covered by LR?                       | §1.3                  |
+| 24  | Are reviews becoming more iterative?                                    | §3.2                  |
+| 25  | Which engineers are getting the most value from LR?                     | §7.2                  |
+| 26  | Are people trusting the reviews?                                        | §10.5                 |
+| 27  | Which repositories have the highest review coverage?                    | §7.3                  |
+| 28  | What does a healthy engineering-review workflow look like?              | §10.7 — blocked, §0.8 |
+| 29  | How much of the organization's activity is covered by the top users?    | §5.2                  |
+| 30  | What changed between week 1 and week 2?                                 | §6.2                  |
+
+## §0.8 Precedence
 
 1. **§0 always applies.** Nothing in §1–§10 overrides §0.2 or §0.5.
 2. **A matching specific rule wins** on shape and data over §0.4.
@@ -166,7 +206,7 @@ waterfalls, diverging bars, compact long-span views.
    "Velocity" appears in §1, §6 and §7 — what separates them is whether
    the reader wants a trend, a before-and-after, or a relationship.
 
-## §0.8 When the data is not there
+## §0.9 When the data is not there
 
 Issue severity and category sit inside a JSON payload rather than proper
 columns, and feedback is sparse in most orgs. When a question needs those,

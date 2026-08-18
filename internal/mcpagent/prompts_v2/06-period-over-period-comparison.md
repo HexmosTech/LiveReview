@@ -2,26 +2,39 @@
 
 > §0 applies in full. Only deviations from it are stated here.
 
-## §6.0 General rule
+## §6.0 Governing rule
 
-**When the question asks whether something is gaining or losing, went up
-or down, or changed between two points in time — collapse the window into
+**When a question asks whether something is gaining or losing, went up or
+down, or changed between two points in time — collapse the window into
 exactly two buckets and compare them directly.** A multi-month trend
-answers a different question ("how has this moved continuously") and
-forces the reader to eyeball a direction the chart should be stating
-outright.
+answers a different question and forces the reader to eyeball a direction
+the chart should state outright.
 
 Label each row Previous or Current with a conditional on its date, then
-group by that label alongside the entity. Split the window down the
-middle so both halves are the same length and the comparison is fair.
+group by that label alongside whatever is being compared. Split the window
+down the middle so both halves are the same length and the comparison is
+fair.
 
-## §6.1 "Which repositories are gaining or losing engineering velocity?" (query #6)
+---
 
-Data: `loc_usage_ledger` joined to `reviews`, grouped by repository and
-period. Derive a gain/loss/flat label per repository by comparing its two
-values — that label is what turns a tangle of lines into an answer.
+## §6.1 — Direction of change across many entities
 
-Vega-Lite spec — one line per repository between two x points, coloured by direction:
+**Applies when** the question asks which entities are rising or falling —
+which repos are speeding up, which teams are slowing down.
+
+1. Apply §6.0's two-bucket split, grouped by entity and period.
+2. **Derive a direction label per entity** — gain, loss, or flat — by
+   comparing its two values. This is the step that turns a tangle of lines
+   into an answer.
+3. Draw one line per entity between the two x points, coloured by that
+   direction.
+4. In the description, count them: how many gained, how many lost, out of
+   how many tracked. Name the biggest movers.
+
+**Seen as:** query #6 — "Which repositories are gaining or losing
+engineering velocity?"
+
+Vega-Lite spec:
 ```json
 {
   "width": 500, "height": 380,
@@ -36,19 +49,29 @@ Vega-Lite spec — one line per repository between two x points, coloured by dir
 }
 ```
 
-## §6.2 "What changed between week 1 and week 2?" (query #30)
+---
 
-Several metrics at once rather than one metric across many entities.
+## §6.2 — Change across several metrics at once
 
-Data: **several small queries, not one big one.** Review counts from
-`reviews`, LOC from `loc_usage_ledger`, active engineers as a distinct
-author count, repositories touched — there is no single join that produces
-all of them sensibly. Run each for both halves, then assemble one small
-table of metric / period / value rows, with the delta as a third period
-column. Keep the metric list short: a verdict with fifteen rows is a
-spreadsheet.
+**Applies when** the question asks for an overall verdict on a period —
+what changed, how did the fortnight go — rather than about one metric
+across many entities.
 
-Vega-Lite spec — delta-coloured cells with the numbers overlaid:
+1. **Run several small queries, not one.** Each metric comes from a
+   different place, and there is no single join that produces all of them
+   sensibly.
+2. Run each metric for both halves of the window, then assemble one small
+   table of metric, period and value rows.
+3. Add the delta as a third period column. That is what the colour scale
+   reads.
+4. Overlay the actual numbers as text. A colour alone tells the reader the
+   direction but not the size.
+5. Keep the metric list short and stable. A verdict with fifteen rows is a
+   spreadsheet.
+
+**Seen as:** query #30 — "What changed between week 1 and week 2?"
+
+Vega-Lite spec:
 ```json
 {
   "width": 300, "height": 220,
@@ -71,15 +94,27 @@ Vega-Lite spec — delta-coloured cells with the numbers overlaid:
 }
 ```
 
-## §6.3 Exception — "Why did this repository's velocity change?" (query #11)
+---
 
-**Exception to §6.1.** "Why" is not answered by showing *that* velocity
-changed — §6.1 already does that. It needs the change decomposed per
-contributor.
+## §6.3 — Exception: explaining a change rather than showing it
 
-Data: same two-period split, but grouped by author and filtered to one
-repository, then subtracted — one row per engineer carrying their delta
-and its direction. Sort by delta so the biggest movers sit at the ends.
+**Applies when** the question asks *why* something changed, not whether it
+did.
+
+**This overrides §6.1.** Showing that velocity moved does not explain it —
+§6.1 already established the movement. The answer is the change broken
+down by whoever caused it.
+
+1. Apply §6.0's two-bucket split, but grouped by contributor and filtered
+   to the single entity in question.
+2. **Subtract**: one row per contributor carrying their delta and its
+   direction. The chart plots the change, not the two raw values.
+3. Sort by the delta so the biggest movers sit at the ends, where the eye
+   goes first.
+4. In the description, turn the aggregate into attribution — "the drop is
+   almost entirely one person" is the answer the question wanted.
+
+**Seen as:** query #11 — "Why did this repository's velocity change?"
 
 Vega-Lite spec:
 ```json
