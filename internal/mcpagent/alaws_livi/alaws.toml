@@ -50,6 +50,7 @@ ordering = [
   "chart-selection/composition.md",
   "chart-selection/composition/general.md",
   "chart-selection/composition/shift.md",
+  "chart-selection/composition/single-moment.md",
   "chart-selection/crosstab.md",
   "chart-selection/crosstab/general.md",
   "chart-selection/crosstab/quality-process.md",
