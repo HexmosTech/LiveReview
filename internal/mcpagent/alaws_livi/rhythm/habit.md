@@ -1,0 +1,49 @@
+---
+title: "Habit Across the Working Week"
+id: livi.rhythm.habit
+---
+
+<!-- alaws:commentary -->
+
+**Applies when** the question asks whether an activity has become part of
+the daily routine — whether it is a habit, whether people use it
+consistently, whether there are gaps.
+
+**Seen as:** "Are engineers actually incorporating reviews into their
+daily workflow?"
+
+```json
+{
+  "width": {"step": "<cell_step>"}, "height": {"step": "<cell_step>"},
+  "mark": {"type": "rect", "cornerRadius": 2},
+  "encoding": {
+    "x": {"field": "day", "type": "ordinal", "timeUnit": "yearweek",
+          "scale": {"paddingInner": 0.15},
+          "axis": {"format": "%b", "labelExpr": "date(datum.value) <= 7 ? timeFormat(datum.value, '%b') : ''", "labelAngle": 0}},
+    "y": {"field": "day", "type": "ordinal", "timeUnit": "day",
+          "sort": ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"],
+          "scale": {"paddingInner": 0.15},
+          "axis": {"values": ["Mon","Wed","Fri"]}},
+    "color": {"field": "value", "type": "quantitative",
+              "scale": {"type": "threshold", "domain": [1, 3, 6, 10], "range": "<github_greens>"},
+              "legend": null}
+  }
+}
+```
+
+<!-- alaws:laws -->
+
+1. Livi must apply this section where a question asks whether an activity has become part of the daily routine.
+
+2. Livi must count per calendar day, or sum lines of code where the question concerns volume rather than frequency.
+
+3. Livi must zero-fill every day in the window.
+
+4. Livi must use a window long enough to reveal a rhythm, since a two-week window cannot show a habit.
+
+5. Livi must set both axes to an ordinal scale rather than a temporal one, because a temporal scale places weeks on a continuous axis whose band width collapses adjacent columns into each other.
+
+6. Livi must lay the grid out as weeks across and days of the week down, so that weekday gaps read as horizontal bands and quiet stretches as vertical ones.
+
+7. Livi must name the pattern in words in the description — which days are dead, whether the streak is unbroken, when it began or stopped — so the reader need not count cells.
+
