@@ -495,3 +495,123 @@ If no `tool_result` events are present, the tool section is skipped entirely (no
 | `enabled` | boolean | Default `false` |
 | `config_json` | jsonb | Per-org tool config, default `{}` |
 | `updated_at` | timestamptz | |
+
+---
+
+## ReviewDetail Header – Data Requirements & API Design
+
+### Problem: Current page makes 5 serial/parallel API calls on load
+
+```
+Promise.all([
+  GET /api/v1/reviews/:id           → Review row
+  GET /api/v1/reviews/:id/events    → up to 1000 events (huge payload, used only for severity counts + events tab)
+  GET /api/v1/reviews/:id/summary   → batchCount, lastActivity
+])
++ sequential:
+  GET /api/v1/reviews/:id/accounting  → cost, tokens (used only for Accounting tab + tool summary)
+  GET /api/v1/reviews/:id/commits     → commit SHAs
+```
+
+Severity counts (High/Medium/Low) are computed client-side by scanning 1000 events — a payload fetched solely to count three numbers. The accounting call is a round trip just to show `$0.04` in the header.
+
+---
+
+### What the header needs to display
+
+| UI element | Data field | Current source |
+|---|---|---|
+| Repo name | `review.repository` | `GET /reviews/:id` |
+| Branch | `review.branch` | `GET /reviews/:id` |
+| Provider icon | `review.provider` | `GET /reviews/:id` |
+| PR/MR link | `review.prMrUrl` | `GET /reviews/:id` |
+| MR Title | `review.mrTitle` | `GET /reviews/:id` (field exists, not displayed) |
+| Status badge | `review.status` | `GET /reviews/:id` |
+| Created by | `review.userEmail` | `GET /reviews/:id` |
+| Created at | `review.createdAt` | `GET /reviews/:id` |
+| Author name | `review.authorName` | `GET /reviews/:id` (field exists, not displayed) |
+| Trigger type | `review.triggerType` | `GET /reviews/:id` (field exists, not displayed) |
+| Severity: High | computed from events | `GET /reviews/:id/events` (1000 items) ← **expensive** |
+| Severity: Medium | computed from events | same |
+| Severity: Low | computed from events | same |
+| Tools executed | accounting-derived | `GET /reviews/:id/accounting` ← **separate call** |
+| Total findings | accounting-derived | same |
+| Total cost (USD) | `accounting.totalCostUsd` | same |
+| Batch count | `summary.batchCount` | `GET /reviews/:id/summary` |
+| Last activity | `summary.lastActivity` | `GET /reviews/:id/summary` |
+| Duration | `review.startedAt` + `review.completedAt` | `GET /reviews/:id` |
+| Commits list | `commits[]` | `GET /reviews/:id/commits` |
+| Tool breakdown | accounting-derived | `GET /reviews/:id/accounting` |
+
+---
+
+### Proposed: 2-call design
+
+#### Call 1 — Eager, on page load
+
+**Enrich `GET /api/v1/reviews/:id/summary`** to be the single source of truth for the header. The backend computes severity counts and pulls tool/cost aggregates from existing tables in one query, rather than making the client do 3 round trips.
+
+**Proposed enriched response shape:**
+
+```json
+{
+  "reviewId": 123,
+  "currentStatus": "completed",
+  "lastActivity": "2026-08-17T16:10:00Z",
+  "batchCount": 4,
+  "eventCounts": { "log": 45, "batch": 4, "tool_result": 15 },
+
+  "severityCounts": {
+    "high":   0,
+    "medium": 1,
+    "low":    11
+  },
+
+  "toolSummary": {
+    "toolsExecuted":          15,
+    "totalCommentsGenerated": 11,
+    "totalCostUsd":           0.042,
+    "toolBreakdown": [
+      { "toolName": "ruff",     "creditsUsed": 1.0, "commentsGenerated": 3,  "status": "completed" },
+      { "toolName": "bandit",   "creditsUsed": 1.0, "commentsGenerated": 0,  "status": "clean"     },
+      { "toolName": "gitleaks", "creditsUsed": 1.0, "commentsGenerated": 8,  "status": "completed" }
+    ]
+  }
+}
+```
+
+**Backend implementation notes:**
+
+- `severityCounts` — computed with a single `SELECT level, COUNT(*) FROM review_events WHERE review_id = $1 AND org_id = $2 AND event_type = 'tool_result' GROUP BY level` (or equivalent severity field on the data JSONB). If severity is embedded in `data->>'level'`, use a `jsonb` extraction in the GROUP BY.
+- `toolSummary` — aggregated from `review_events` rows where `event_type = 'tool_result'`, pulling `data->>'tool_name'`, `data->>'exit_code'`, and `jsonb_array_length(data->'findings')` per row. No join to `accounting` needed for the header.
+- `totalCostUsd` — pulled from `review_accounting` (existing table) if present; `null` if not yet recorded.
+
+#### Call 2 — Lazy, only when Events tab is opened
+
+```
+GET /api/v1/reviews/:id/events?limit=1000
+```
+
+Events are **not** needed until the user opens the Events tab or Findings tab. Defer this call entirely. No severity pre-computation needed on the client.
+
+#### Commits — unchanged (best-effort, non-blocking)
+
+```
+GET /api/v1/reviews/:id/commits
+```
+
+Already fire-and-forget. Keep as is.
+
+---
+
+### Summary of calls after redesign
+
+| Call | When | Purpose |
+|---|---|---|
+| `GET /reviews/:id` | eager | Review identity, status, PR info |
+| `GET /reviews/:id/summary` (enriched) | eager | All header aggregates: severity, tools, cost, batches |
+| `GET /reviews/:id/commits` | eager, non-blocking | Commit list in Details panel |
+| `GET /reviews/:id/events` | lazy (Events tab) | Full event stream |
+| `GET /reviews/:id/accounting` | lazy (Accounting tab only) | Detailed token/LOC breakdown |
+
+**Result:** header renders completely from 2 parallel calls instead of 5. The 1000-event payload is deferred until actually needed.
