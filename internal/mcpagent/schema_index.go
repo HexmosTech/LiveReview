@@ -173,6 +173,16 @@ func schemaIndex() *dbctx.Index {
 	return schemaIdx
 }
 
+// schemaIndexReady reports whether the live schema index is available for
+// this turn. A turn that needs the schema cannot produce a correct answer
+// without it - the model would write SQL against tables and columns it was
+// never shown - so callers use this to refuse the turn up front rather than
+// spend tokens on calls that can only fail or, worse, succeed against
+// guessed column names.
+func schemaIndexReady() bool {
+	return schemaIndex() != nil
+}
+
 // allTableNames returns every table name dbctx knows about, feeding
 // livisql.CatalogFor (which then subtracts deniedTables). Returns nil if the
 // index isn't ready, in which case CatalogFor returns an empty catalog.

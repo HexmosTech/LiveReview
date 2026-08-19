@@ -108,6 +108,18 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 	clog.Context(a.mcpSession.OrgName, a.mcpSession.UserName, a.provider.Describe())
 	clog.UserInput(userText)
 
+	// The schema index is a precondition, not a nicety. Without it the
+	// model is never shown the real tables and columns, so every call this
+	// turn would make is either wasted or - worse - answered against
+	// guessed column names. Refusing up front costs nothing; proceeding
+	// costs a full turn of tokens to produce something untrustworthy.
+	if a.analyticsEnabled() && !schemaIndexReady() {
+		const msg = "Livi is in preparing mode, please come back after 60s."
+		log.Warn().Msg("schema index not ready; refusing the turn before any LLM call")
+		clog.FinalResponse(msg)
+		return msg, history, nil, nil
+	}
+
 	systemPrompt := a.systemPrompt
 	tools := a.providerTools
 	// callNumber is livi_analytics_plan.md's "Call #0" diagram number for
@@ -146,7 +158,14 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			tools = a.actionTools
 			callNumber = 1
 		case shapeCountQuery:
-			systemPrompt, schemaTableText = a.countQueryPrompt(clog, userText)
+			var schemaErr error
+			systemPrompt, schemaTableText, schemaErr = a.countQueryPrompt(clog, userText)
+			if schemaErr != nil {
+				const msg = "Livi is in preparing mode, please come back after 60s."
+				log.Warn().Err(schemaErr).Msg("schema unavailable for count_query turn; refusing rather than guessing")
+				clog.FinalResponse(msg)
+				return msg, history, nil, nil
+			}
 			tools = nil
 			callNumber = 2
 		default:
@@ -439,15 +458,19 @@ func orgIDFilterInstruction(orgID int64) string {
 // schema in its prompt (today: finalizePrompt, once per report) reuses this
 // same rendered text instead of re-querying dbctx - see finalizePrompt's
 // doc comment for why a second, differently-narrowed fetch isn't needed.
-func (a *Agent) countQueryPrompt(clog *logging.ChatTurnLogger, userText string) (systemPrompt, tableText string) {
+func (a *Agent) countQueryPrompt(clog *logging.ChatTurnLogger, userText string) (systemPrompt, tableText string, err error) {
 	clog.DBCtxRequest(2, string(a.analyticsRole()), userText)
 	start := time.Now()
-	tableText, err := dbctxTableText(userText)
+	tableText, err = dbctxTableText(userText)
 	clog.DBCtxResponse(2, time.Since(start), tableText, err)
 	if err != nil {
+		// No fallback schema. A prompt without the real table listing
+		// invites SQL written against invented columns, which fails late
+		// and confusingly - after the tokens are spent - instead of here.
 		clog.SchemaSourceDegraded(err.Error())
+		return "", "", err
 	}
-	return a.countQueryHead + "\n\n" + tableText + a.countQueryTail, tableText
+	return a.countQueryHead + "\n\n" + tableText + a.countQueryTail, tableText, nil
 }
 
 // finalizePrompt assembles call #3's full system prompt for this turn.
