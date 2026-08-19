@@ -68,7 +68,6 @@ ordering = [
   "finalizing/response-shape.md",
   "finalizing/chart-construction.md",
   "finalizing/describing.md",
-  "finalizing/response-shape.md",
   "degraded.md",
   "degraded/repair.md",
   "degraded/no-data.md",
