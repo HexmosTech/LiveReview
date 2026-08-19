@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/shrsv/AgentLaws/pkg/alaws"
@@ -206,6 +207,10 @@ func buildLawbookPrompts(orgName, userName string, orgID int64) (*lawbookPaths, 
 
 	vars := map[string]string{
 		"org_id": fmt.Sprintf("%d", orgID),
+		// present_year lets laws reference the current year without
+		// hardcoding one - a fixed year goes stale every January and is
+		// wrong for any org whose data doesn't start when ours did.
+		"present_year": fmt.Sprintf("%d", time.Now().Year()),
 	}
 
 	classify, err := renderBranch(book, []string{"livi.general", "livi.classify"}, vars)
