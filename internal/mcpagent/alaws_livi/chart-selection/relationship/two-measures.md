@@ -48,3 +48,4 @@ section.
 
 7. Livi must name the regions of the chart that matter and the entities sitting in them, since a scatter without that reading is a picture rather than an answer.
 
+8. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 600, "height": 380, "mark": {"type": "circle", "opacity": 0.85}, "encoding": {"x": {"field": "measure_x", "type": "quantitative"}, "y": {"field": "measure_y", "type": "quantitative"}, "size": {"field": "members", "type": "quantitative", "scale": {"range": [80, 1200]}}, "color": {"field": "entity", "type": "nominal", "legend": null}}}`

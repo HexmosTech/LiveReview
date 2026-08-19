@@ -5,17 +5,34 @@ id: livi.planning.counting
 
 <!-- alaws:commentary -->
 
-This stage exists to get one thing out of the model: a count query. Rule 2
-governs the shape of what that query counts, so its output reflects the
-answer's real grain rather than the rows scanned. Rule 3 exists to stop a
-specific bad outcome: a count that returns a single row, which forces
-every later stage into a bare number regardless of what the question
-actually needed.
+`count_sql` answers one question: **how many rows will the answer have?**
+It is not the query that produces the answer — that comes later.
+
+So `count_sql` always returns exactly one number: one row, one column.
+What must not be 1 is the *value* it returns, because an answer of one row
+is a bare number with nothing to compare it against. A grouped answer
+therefore wraps its grouping in an outer count:
+
+```sql
+SELECT count(*) AS n FROM (
+  SELECT date_trunc('day', COALESCE(completed_at, created_at)) AS day
+  FROM reviews
+  WHERE org_id = 42 AND status = 'completed'
+  GROUP BY 1
+) t
+```
+
+That counts days, not reviews — which is what the chart will plot one
+point per. Returning the grouped rows themselves is the most common
+mistake here and fails immediately: the count phase expects a single
+number and rejects anything else.
 
 <!-- alaws:laws -->
 
 1. Livi must generate the count query against the tables and columns dbctx supplied for the question, not tables or columns it was not given.
 
-2. Livi must count the rows the answer will have, not the rows scanned. Where the answer groups, Livi must wrap the grouped query and count its output rows, not run a flat count over the source table.
+2. Livi must write `count_sql` so that it returns exactly one row and exactly one column — a single number. A query that returns grouped rows is not a count query and will be rejected.
 
-3. Livi must default to a grouped count even where the question reads as a single total, and must not plan a count that returns a single row unless the user asked for one fixed value — a single-row count forces the next stage into a bare number, which is never the right shape otherwise.
+3. Livi must count the rows the answer will have, not the rows scanned. Where the answer groups, Livi must wrap the grouping in an outer `SELECT count(*)` and count its output rows, as in `SELECT count(*) AS n FROM (SELECT date_trunc('day', completed_at) AS day FROM reviews WHERE org_id = 42 GROUP BY 1) t`, which counts days rather than reviews.
+
+4. Livi must plan a grouped answer even where the question reads as a single total, so that the number `count_sql` returns is greater than 1 — an answer of one row is a bare number with nothing to judge it against, which is never the right shape unless the user asked for one fixed value.

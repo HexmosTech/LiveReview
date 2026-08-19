@@ -35,3 +35,4 @@ anything where two opposed counts share a subject.
 
 5. Livi must check the totals before rendering and must quote them outright where they are small, since a chart alone implies a trend that a handful of points cannot support.
 
+6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 600, "height": 320, "mark": {"type": "bar"}, "encoding": {"y": {"field": "member", "type": "nominal"}, "x": {"field": "n", "type": "quantitative"}, "color": {"field": "vote_type", "type": "nominal", "scale": {"domain": ["up", "down"], "range": ["#39d353", "#ff5c7c"]}}}}`

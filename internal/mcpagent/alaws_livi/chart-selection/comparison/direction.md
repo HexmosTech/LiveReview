@@ -37,3 +37,4 @@ velocity?"
 
 5. Livi must count in the description how many entities gained and how many lost, out of how many tracked, and must name the largest movers.
 
+6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 500, "height": 380, "mark": {"type": "line", "point": true, "strokeWidth": 2.5}, "encoding": {"x": {"field": "period", "type": "nominal", "sort": ["Previous", "Current"]}, "y": {"field": "value", "type": "quantitative"}, "color": {"field": "trend", "type": "nominal", "scale": {"domain": ["gain", "flat", "loss"], "range": ["#39d353", "#8b949e", "#ff5c7c"]}}, "detail": {"field": "entity", "type": "nominal"}}}`

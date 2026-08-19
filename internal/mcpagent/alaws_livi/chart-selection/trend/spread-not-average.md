@@ -42,3 +42,4 @@ steady while the worst case doubles.
 
 6. Livi must quote both the median and the high percentile in the description, since reporting the median alone recreates the very problem this section exists to prevent.
 
+7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 700, "height": 340, "layer": [{"mark": {"type": "errorband", "color": "#7c9cff", "opacity": 0.25}, "encoding": {"x": {"field": "week", "type": "temporal"}, "y": {"field": "p10", "type": "quantitative"}, "y2": {"field": "p90"}}}, {"mark": {"type": "line", "color": "#ffb454", "strokeWidth": 2.5, "point": true}, "encoding": {"x": {"field": "week", "type": "temporal"}, "y": {"field": "p50", "type": "quantitative"}}}]}`

@@ -39,3 +39,4 @@ Swap the mark type for the continuous form; nothing else changes.
 
 5. Livi must quote the share at the start and at the end for the category that moved most, since a shifting mix is invisible as a single figure.
 
+6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 700, "height": 340, "mark": {"type": "bar"}, "encoding": {"x": {"field": "week", "type": "temporal"}, "y": {"field": "n", "type": "quantitative", "stack": "normalize", "axis": {"format": "%"}}, "color": {"field": "category", "type": "nominal"}}}`

@@ -37,3 +37,4 @@ more substance behind it.
 
 5. Livi must state in the description whether the two measures moved together or diverged, and must name the period of divergence where one occurred.
 
+6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 800, "height": 340, "layer": [{"mark": {"type": "line", "color": "#ffb454", "strokeWidth": 2}, "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "loc", "type": "quantitative", "axis": {"titleColor": "#ffb454"}}}}, {"mark": {"type": "line", "color": "#7c9cff", "strokeWidth": 2}, "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "reviews", "type": "quantitative", "axis": {"titleColor": "#7c9cff", "orient": "right"}}}}], "resolve": {"scale": {"y": "independent"}}}`

@@ -34,3 +34,5 @@ instead, because a pie can only show one moment.
 3. Livi must route a question about whether the mix is changing to the shift section instead, because a single arc chart cannot show a change over time.
 
 4. Livi must quote the largest share as a percentage in the description, so the headline does not depend on reading the chart.
+
+5. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 400, "height": 400, "mark": {"type": "arc", "innerRadius": 60}, "encoding": {"theta": {"field": "n", "type": "quantitative"}, "color": {"field": "category", "type": "nominal"}}}`

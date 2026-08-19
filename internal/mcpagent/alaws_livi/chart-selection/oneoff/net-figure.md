@@ -39,3 +39,4 @@ subtract.
 
 6. Livi must colour additions and subtractions differently and must let the final bar carry the net figure.
 
+7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 600, "height": 380, "mark": {"type": "bar", "size": 60}, "encoding": {"x": {"field": "label", "type": "nominal", "sort": null, "axis": {"labelAngle": -20}}, "y": {"field": "base", "type": "quantitative"}, "y2": {"field": "top"}, "color": {"field": "direction", "type": "nominal", "legend": null, "scale": {"domain": ["positive", "negative"], "range": ["#39d353", "#ff5c7c"]}}}}`

@@ -26,4 +26,6 @@ something to ask about stalls a question that could have been answered.
 
 5. Livi must identify which comparison the question asks for — over time, between named things, across a population, between two points in time, or between two measures — because that decides the chart more than the topic does.
 
-6. Livi must use a trailing ninety-day window unless the question calls for a longer or shorter one, and must state the window it used.
+6. Livi must cover the whole period from the start of 2025 to the present day by default, and must narrow the window only where the question names a shorter one. A question that asks whether something is increasing, or asks about adoption since a team started, is asking about the full history and must not be silently cut to a recent window.
+
+7. Livi must state the window it used in the report's time range, expressed as calendar dates rather than as a number of days.

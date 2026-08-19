@@ -42,3 +42,4 @@ prevent: it yields a headcount line that cannot show depth at all.
 
 6. Livi must quote the change in the heaviest tier separately from the change in the total, because growth confined to the lightest tier tells a different story and the stack alone does not distinguish them.
 
+7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 800, "height": 380, "mark": {"type": "area", "interpolate": "monotone", "line": {"strokeWidth": 1.5}}, "encoding": {"x": {"field": "week", "type": "temporal"}, "y": {"field": "members", "type": "quantitative", "stack": true}, "color": {"field": "band", "type": "nominal", "sort": "<band_order>", "scale": {"domain": "<band_order>", "range": "<color_range>"}}, "order": {"field": "band", "sort": "ascending"}}}`
