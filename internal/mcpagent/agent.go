@@ -51,18 +51,25 @@ type Agent struct {
 	actionPrompt   string       // call #1: identical in shape to the plain tool-only prompt
 	actionTools    []llms.Tool  // call #1's tools (raw-row tools withheld, same as before the split)
 	chatPrompt     string       // persona/org header only, no tools, no schema
-	countQueryHead string       // header + analyticsSchemaIntro, precomputed
-	countQueryTail string       // examples + plan instructions, precomputed
+	countQueryHead string       // header, precomputed from lawbook
+	countQueryTail string       // plan laws, precomputed from lawbook
 	// countQueryHead/Tail bracket dbctxTableText's output, which can only be
 	// resolved per turn (schema_index.go's index may not have been ready
 	// when WithAnalytics ran) - see (*Agent).countQueryPrompt.
-	finalizeHead string // header + analyticsSchemaIntro, precomputed
-	finalizeTail string // examples + finalize/chart instructions, precomputed
+	finalizeHead string // header, precomputed from lawbook
+	finalizeTail string // finalize + chart-selection laws, precomputed from lawbook
 	// finalizeHead/Tail bracket dbctxTableText's output the same way
 	// countQueryHead/Tail do - call #3 writes its own data_sql from scratch
 	// (it is not handed the count call's SQL to extend) and needs the same
 	// column-name grounding, or it silently guesses wrong column names for
 	// anything the count query didn't already select. See (*Agent).finalizePrompt.
+
+	// repairPrompt and noDataPrompt are the full system prompts for the
+	// degraded paths (rejected query retry and zero-row result). Populated
+	// from the lawbook when available, falling back to the old embedded
+	// prompts if the lawbook fails to load.
+	repairPrompt string
+	noDataPrompt string
 }
 
 func NewAgent(provider *Provider, mcpSession *MCPSession, maxSteps int) *Agent {
@@ -101,6 +108,18 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 	clog.Context(a.mcpSession.OrgName, a.mcpSession.UserName, a.provider.Describe())
 	clog.UserInput(userText)
 
+	// The schema index is a precondition, not a nicety. Without it the
+	// model is never shown the real tables and columns, so every call this
+	// turn would make is either wasted or - worse - answered against
+	// guessed column names. Refusing up front costs nothing; proceeding
+	// costs a full turn of tokens to produce something untrustworthy.
+	if a.analyticsEnabled() && !schemaIndexReady() {
+		const msg = "Livi is in preparing mode, please come back after 60s."
+		log.Warn().Msg("schema index not ready; refusing the turn before any LLM call")
+		clog.FinalResponse(msg)
+		return msg, history, nil, nil
+	}
+
 	systemPrompt := a.systemPrompt
 	tools := a.providerTools
 	// callNumber is livi_analytics_plan.md's "Call #0" diagram number for
@@ -108,6 +127,10 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 	// 2=count-query proposal). 0 means "not a numbered diagram call" - the
 	// chat branch, or a plain tool-only agent with analytics disabled.
 	callNumber := 0
+	// planRetried bounds the count_query prose retry below to one attempt,
+	// so a model that will not produce a plan fails fast instead of
+	// burning the whole step budget on the same nudge.
+	planRetried := false
 	// schemaTableText is the schema block dbctx rendered for call #2 (the
 	// count-query/plan branch). It is the turn's one and only dbctx fetch -
 	// runAnalyticsPlan threads it through to every report's finalize call
@@ -135,7 +158,14 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			tools = a.actionTools
 			callNumber = 1
 		case shapeCountQuery:
-			systemPrompt, schemaTableText = a.countQueryPrompt(clog, userText)
+			var schemaErr error
+			systemPrompt, schemaTableText, schemaErr = a.countQueryPrompt(clog, userText)
+			if schemaErr != nil {
+				const msg = "Livi is in preparing mode, please come back after 60s."
+				log.Warn().Err(schemaErr).Msg("schema unavailable for count_query turn; refusing rather than guessing")
+				clog.FinalResponse(msg)
+				return msg, history, nil, nil
+			}
 			tools = nil
 			callNumber = 2
 		default:
@@ -230,6 +260,27 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 				// {"chart": ..., "learning": ...} object nothing parses).
 				// One retry asking for prose is cheap and much better than
 				// that.
+				// The count_query branch was routed here because call #0
+				// judged the question answerable from data, so prose here
+				// is the model declining to plan - usually a clarifying
+				// question about something the prompt already supplies,
+				// like which organization "my team" means. Returning it
+				// verbatim strands the user with a question instead of a
+				// chart, so force one retry that restates the contract.
+				if callNumber == 2 && !planRetried {
+					planRetried = true
+					log.Warn().Int("step", step).Str("response_preview", truncateContent(response, 200)).
+						Msg("count_query branch returned prose instead of an analytics plan, forcing retry")
+					history = append(history, HistoryEntry{
+						"role": "user",
+						"content": "That reply was not an analytics plan, and this turn cannot ask the user anything. " +
+							"The organization is already given to you above - first-person phrasing like \"my team\" means that organization, " +
+							"so never ask which team or organization is meant. Choose the most reasonable reading of the question, " +
+							"state that reading in the entry's \"question\" field, and reply with the analytics_plan JSON object alone: " +
+							"start with { and end with }, with no text before or after.",
+					})
+					continue
+				}
 				if looksLikeUnrecognizedJSON(response) {
 					log.Warn().Int("step", step).Str("response_preview", truncateContent(response, 200)).
 						Msg("AI produced an unrecognized JSON object on a no-tools branch, forcing retry")
@@ -395,27 +446,7 @@ func orgIDFilterInstruction(orgID int64) string {
 		"use this exact number, not a placeholder or a guess. A query without it will be rejected.\n\n", orgID)
 }
 
-// buildCountQueryPromptHalves precomputes the static parts of call #2's
-// system prompt. They bracket dbctxTableText's output, which is resolved
-// fresh per turn by (*Agent).countQueryPrompt rather than here, because the
-// dbctx index's readiness can change over the process's life in a way none
-// of the other precomputed prompts depend on.
-func buildCountQueryPromptHalves(orgName, userName string, orgID int64) (head, tail string) {
-	var h strings.Builder
-	h.WriteString(buildPromptHeader(orgName, userName))
-	h.WriteString(orgIDFilterInstruction(orgID))
-	h.WriteString(analyticsSchemaIntro) // imported from prompts/analytics_schema_intro.md
-	head = h.String()
 
-	var t strings.Builder
-	t.WriteString("\n\n")
-	t.WriteString(analyticsSchemaExamples) // imported from prompts/analytics_schema_examples.md
-	t.WriteString("\n\n")
-	t.WriteString(analyticsPlanInstructions) // imported from prompts/analytics_plan.md
-	tail = t.String()
-
-	return head, tail
-}
 
 // countQueryPrompt assembles call #2's full system prompt for this turn,
 // splicing the live dbctx table text between the precomputed head and tail.
@@ -427,38 +458,19 @@ func buildCountQueryPromptHalves(orgName, userName string, orgID int64) (head, t
 // schema in its prompt (today: finalizePrompt, once per report) reuses this
 // same rendered text instead of re-querying dbctx - see finalizePrompt's
 // doc comment for why a second, differently-narrowed fetch isn't needed.
-func (a *Agent) countQueryPrompt(clog *logging.ChatTurnLogger, userText string) (systemPrompt, tableText string) {
+func (a *Agent) countQueryPrompt(clog *logging.ChatTurnLogger, userText string) (systemPrompt, tableText string, err error) {
 	clog.DBCtxRequest(2, string(a.analyticsRole()), userText)
 	start := time.Now()
-	tableText, err := dbctxTableText(userText)
+	tableText, err = dbctxTableText(userText)
 	clog.DBCtxResponse(2, time.Since(start), tableText, err)
 	if err != nil {
+		// No fallback schema. A prompt without the real table listing
+		// invites SQL written against invented columns, which fails late
+		// and confusingly - after the tokens are spent - instead of here.
 		clog.SchemaSourceDegraded(err.Error())
+		return "", "", err
 	}
-	return a.countQueryHead + "\n\n" + tableText + a.countQueryTail, tableText
-}
-
-// buildFinalizePromptHalves precomputes the static parts of call #3's system
-// prompt, mirroring buildCountQueryPromptHalves. Call #3 writes a brand new
-// data_sql (not a reuse of the count call's SQL, and not part of the same
-// conversation - completeOnce is a fresh two-message exchange), so it needs
-// the same table/column reference the count call gets, not just the chart-
-// format rules in analytics_finalize.md.
-func buildFinalizePromptHalves(orgName, userName string, orgID int64) (head, tail string) {
-	var h strings.Builder
-	h.WriteString(buildPromptHeader(orgName, userName))
-	h.WriteString(orgIDFilterInstruction(orgID))
-	h.WriteString(analyticsSchemaIntro) // imported from prompts/analytics_schema_intro.md
-	head = h.String()
-
-	var t strings.Builder
-	t.WriteString("\n\n")
-	t.WriteString(analyticsSchemaExamples) // imported from prompts/analytics_schema_examples.md
-	t.WriteString("\n\n")
-	t.WriteString(analyticsFinalizeInstructions) // imported from prompts/analytics_finalize.md
-	tail = t.String()
-
-	return head, tail
+	return a.countQueryHead + "\n\n" + tableText + a.countQueryTail, tableText, nil
 }
 
 // finalizePrompt assembles call #3's full system prompt for this turn.

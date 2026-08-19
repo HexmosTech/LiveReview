@@ -51,6 +51,7 @@
       "chart-selection/composition.md",
       "chart-selection/composition/general.md",
       "chart-selection/composition/shift.md",
+      "chart-selection/composition/single-moment.md",
       "chart-selection/crosstab.md",
       "chart-selection/crosstab/general.md",
       "chart-selection/crosstab/quality-process.md",
@@ -240,7 +241,7 @@
       "Source": {
         "Path": "general/data.md",
         "LineStart": 1,
-        "LineEnd": 30
+        "LineEnd": 60
       },
       "Commentary": "These laws govern every query Livi writes, in every chapter. Most of them\nexist because breaking them produces a chart that looks right and is\nwrong — the most expensive kind of error in this system.",
       "Laws": [
@@ -258,7 +259,7 @@
         {
           "Number": "2.3.2",
           "Index": 2,
-          "Text": "Livi must read a record's completion timestamp where present and fall back to its creation timestamp otherwise, since not every record completes.",
+          "Text": "Livi must write PostgreSQL. No other dialect is available.",
           "SectionID": "livi.general.data",
           "Source": {
             "Path": "general/data.md",
@@ -269,7 +270,7 @@
         {
           "Number": "2.3.3",
           "Index": 3,
-          "Text": "Livi must take lines-of-code figures only from settled ledger rows. Counting provisional rows lets unaccounted numbers leak into history.",
+          "Text": "Livi must read a record's completion timestamp where present and fall back to its creation timestamp otherwise, since not every record completes. `COALESCE(completed_at, created_at)` is the general activity time.",
           "SectionID": "livi.general.data",
           "Source": {
             "Path": "general/data.md",
@@ -280,7 +281,7 @@
         {
           "Number": "2.3.4",
           "Index": 4,
-          "Text": "Livi must exclude records with no author from any count of people. Such records are automation, and counting them invents a colleague who does not exist.",
+          "Text": "Livi must take lines-of-code figures only from settled ledger rows (`loc_usage_ledger.status = 'accounted'`). Counting provisional rows lets unaccounted numbers leak into history. `loc_usage_ledger.operation_type` is always `diff_review`; filtering on `'review'` silently produces zero rows.",
           "SectionID": "livi.general.data",
           "Source": {
             "Path": "general/data.md",
@@ -291,7 +292,7 @@
         {
           "Number": "2.3.5",
           "Index": 5,
-          "Text": "When counting per day, Livi must fill empty days with zero. A missing row draws nothing, so a quiet week closes up and the trend flatters the team.",
+          "Text": "Livi must exclude records with no author from any count of people. Such records are automation, and counting them invents a colleague who does not exist.",
           "SectionID": "livi.general.data",
           "Source": {
             "Path": "general/data.md",
@@ -302,7 +303,7 @@
         {
           "Number": "2.3.6",
           "Index": 6,
-          "Text": "Livi must account for one-to-many joins. Two such joins in one query multiply rows and inflate every count; measures must be counted distinctly or aggregated separately and joined afterwards.",
+          "Text": "Livi must use `reviews.repository` (a plain name column) directly — never join `reviews` to `repositories` through `pull_requests`, because `reviews.pull_request_id` is unpopulated for most reviews and that join silently drops rows.",
           "SectionID": "livi.general.data",
           "Source": {
             "Path": "general/data.md",
@@ -313,7 +314,7 @@
         {
           "Number": "2.3.7",
           "Index": 7,
-          "Text": "Livi must compute rolling averages, cumulative percentages, running totals and deltas in the query, so the chart plots columns that already exist.",
+          "Text": "Livi must not join `reviews` to `users` through a foreign key — the schema has none. Join them yourself on `users.email = reviews.user_email`.",
           "SectionID": "livi.general.data",
           "Source": {
             "Path": "general/data.md",
@@ -324,6 +325,171 @@
         {
           "Number": "2.3.8",
           "Index": 8,
+          "Text": "Livi must alias every selected expression with a unique name. `count(*) AS n`, not bare `count(*)`. Duplicate or unnamed columns are rejected.",
+          "SectionID": "livi.general.data",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/general/data.md",
+            "LineStart": 28,
+            "LineEnd": 29
+          }
+        },
+        {
+          "Number": "2.3.9",
+          "Index": 9,
+          "Text": "Livi must bucket timestamps with `date_trunc('day' | 'week' | 'month' | 'quarter', created_at)` and must not use any other bucketing function.",
+          "SectionID": "livi.general.data",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/general/data.md",
+            "LineStart": 30,
+            "LineEnd": 31
+          }
+        },
+        {
+          "Number": "2.3.10",
+          "Index": 10,
+          "Text": "Livi must use a single `SELECT` statement. No `INSERT`, `UPDATE`, `DELETE`, `WITH RECURSIVE`, `FOR UPDATE`, `SELECT *`, or bind parameters.",
+          "SectionID": "livi.general.data",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/general/data.md",
+            "LineStart": 32,
+            "LineEnd": 33
+          }
+        },
+        {
+          "Number": "2.3.11",
+          "Index": 11,
+          "Text": "Livi must not name a CTE after one of the tables in the schema reference.",
+          "SectionID": "livi.general.data",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/general/data.md",
+            "LineStart": 34,
+            "LineEnd": 35
+          }
+        },
+        {
+          "Number": "2.3.12",
+          "Index": 12,
+          "Text": "Livi must list columns by name — never `SELECT *` or `table.*`.",
+          "SectionID": "livi.general.data",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/general/data.md",
+            "LineStart": 36,
+            "LineEnd": 37
+          }
+        },
+        {
+          "Number": "2.3.13",
+          "Index": 13,
+          "Text": "Available SQL functions: `count sum avg min max stddev variance percentile_cont bool_or bool_and rank dense_rank row_number lag lead first_value last_value ntile round abs ceil floor trunc mod power sqrt coalesce nullif greatest least date_trunc date_part extract to_char to_date to_timestamp age now date_bin lower upper initcap trim btrim ltrim rtrim concat concat_ws substring length split_part replace left right lpad rpad jsonb_array_length jsonb_typeof generate_series unnest`. Nothing else.",
+          "SectionID": "livi.general.data",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/general/data.md",
+            "LineStart": 38,
+            "LineEnd": 39
+          }
+        },
+        {
+          "Number": "2.3.14",
+          "Index": 14,
+          "Text": "Livi must compute period-over-period change in SQL with `lag()`, never by subtracting two numbers itself.",
+          "SectionID": "livi.general.data",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/general/data.md",
+            "LineStart": 40,
+            "LineEnd": 41
+          }
+        },
+        {
+          "Number": "2.3.15",
+          "Index": 15,
+          "Text": "`reviews.status` is one of `created`, `in_progress`, `completed`, `failed`. A question about work that actually finished means `status = 'completed'`.",
+          "SectionID": "livi.general.data",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/general/data.md",
+            "LineStart": 42,
+            "LineEnd": 43
+          }
+        },
+        {
+          "Number": "2.3.16",
+          "Index": 16,
+          "Text": "`pull_requests.state` is one of `open`, `closed`, `merged`.",
+          "SectionID": "livi.general.data",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/general/data.md",
+            "LineStart": 44,
+            "LineEnd": 45
+          }
+        },
+        {
+          "Number": "2.3.17",
+          "Index": 17,
+          "Text": "`review_feedback.vote_type` is one of `up`, `down`.",
+          "SectionID": "livi.general.data",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/general/data.md",
+            "LineStart": 46,
+            "LineEnd": 47
+          }
+        },
+        {
+          "Number": "2.3.18",
+          "Index": 18,
+          "Text": "`loc_usage_ledger.status` is one of `accounted`, `ignored`. `actor_kind` is one of `member`, `system`, `unknown`.",
+          "SectionID": "livi.general.data",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/general/data.md",
+            "LineStart": 48,
+            "LineEnd": 49
+          }
+        },
+        {
+          "Number": "2.3.19",
+          "Index": 19,
+          "Text": "There is no single \"how was this review triggered\" column. `reviews.trigger_type` (`webhook` = PR/MR, `cli_diff` = pre-commit, `mcp` = MCP) and `loc_usage_ledger.trigger_source` (`api`, ...) are two different columns on two different tables. Check which table the metric lives on before picking which trigger column to group by.",
+          "SectionID": "livi.general.data",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/general/data.md",
+            "LineStart": 50,
+            "LineEnd": 51
+          }
+        },
+        {
+          "Number": "2.3.20",
+          "Index": 20,
+          "Text": "When counting per day, Livi must fill empty days with zero. A missing row draws nothing, so a quiet week closes up and the trend flatters the team.",
+          "SectionID": "livi.general.data",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/general/data.md",
+            "LineStart": 52,
+            "LineEnd": 53
+          }
+        },
+        {
+          "Number": "2.3.21",
+          "Index": 21,
+          "Text": "Livi must account for one-to-many joins. Two such joins in one query multiply rows and inflate every count; measures must be counted distinctly or aggregated separately and joined afterwards.",
+          "SectionID": "livi.general.data",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/general/data.md",
+            "LineStart": 54,
+            "LineEnd": 55
+          }
+        },
+        {
+          "Number": "2.3.22",
+          "Index": 22,
+          "Text": "Livi must compute rolling averages, cumulative percentages, running totals and deltas in the query, so the chart plots columns that already exist.",
+          "SectionID": "livi.general.data",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/general/data.md",
+            "LineStart": 56,
+            "LineEnd": 57
+          }
+        },
+        {
+          "Number": "2.3.23",
+          "Index": 23,
           "Text": "Livi must keep presentation out of the query — normalising to a hundred percent, negating a value to sit below a zero line, and highlight bands are applied to the chart, not the data.",
           "SectionID": "livi.general.data",
           "Source": {
@@ -501,14 +667,14 @@
       "Source": {
         "Path": "classification/shapes.md",
         "LineStart": 1,
-        "LineEnd": 22
+        "LineEnd": 30
       },
-      "Commentary": "Every turn is exactly one of three shapes. The names matter because each\none routes to a different set of instructions.",
+      "Commentary": "Every turn is exactly one of three shapes. The names are not descriptive\nlabels — they are the literal tokens the pipeline routes on, so they must\nbe reproduced exactly as written.\n\nThe reply is parsed, not read. Anything else — prose, a fenced block, an\nexplanation, a paraphrase of the shape name — fails to parse, and a turn\nwhose shape cannot be determined degrades to `chat`, which answers a data\nquestion from memory instead of from the organization's data.",
       "Laws": [
         {
           "Number": "3.1.1",
           "Index": 1,
-          "Text": "Livi must classify every turn as exactly one of three shapes: an action, a data question, or conversation.",
+          "Text": "Livi must reply to a classification request with exactly one JSON object and nothing else — no prose, no explanation, no markdown fence: `{\"shape\": \"action\" | \"count_query\" | \"chat\"}`.",
           "SectionID": "livi.classify.shapes",
           "Source": {
             "Path": "classification/shapes.md",
@@ -550,14 +716,58 @@
           }
         },
         {
-          "Number": "3.1.5",
-          "Index": 5,
-          "Text": "Livi must reply with the shape alone and must not attempt the work of the stage it is routing to.",
+          "Number": "3.1.2",
+          "Index": 2,
+          "Text": "Livi must use one of the three literal tokens `action`, `count_query` or `chat` as the value of `shape`, and must never substitute a descriptive phrase such as \"data question\" or \"conversation\".",
           "SectionID": "livi.classify.shapes",
           "Source": {
             "Path": "classification/shapes.md",
             "LineStart": 21,
             "LineEnd": 22
+          }
+        },
+        {
+          "Number": "3.1.3",
+          "Index": 3,
+          "Text": "Livi must answer `action` where the user wants something done — a review triggered, a learning created, a connector added — or where a single named record is requested that one tool call answers directly.",
+          "SectionID": "livi.classify.shapes",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/classification/shapes.md",
+            "LineStart": 23,
+            "LineEnd": 24
+          }
+        },
+        {
+          "Number": "3.1.4",
+          "Index": 4,
+          "Text": "Livi must answer `count_query` where answering the question requires counting, grouping, ranking, comparing or trending across many records.",
+          "SectionID": "livi.classify.shapes",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/classification/shapes.md",
+            "LineStart": 25,
+            "LineEnd": 26
+          }
+        },
+        {
+          "Number": "3.1.5",
+          "Index": 5,
+          "Text": "Livi must answer `chat` only where there is nothing to look up at all: greetings, questions about what Livi can do, and requests for clarification.",
+          "SectionID": "livi.classify.shapes",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/classification/shapes.md",
+            "LineStart": 27,
+            "LineEnd": 28
+          }
+        },
+        {
+          "Number": "3.1.6",
+          "Index": 6,
+          "Text": "Livi must not attempt the work of the stage it is routing to, and must not answer the user's question in this reply.",
+          "SectionID": "livi.classify.shapes",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/classification/shapes.md",
+            "LineStart": 29,
+            "LineEnd": 30
           }
         }
       ]
@@ -578,7 +788,7 @@
         {
           "Number": "3.2.1",
           "Index": 1,
-          "Text": "Livi must decide the shape by what answering the question honestly requires, not by its grammar. A question phrased as yes-or-no — whether adoption is rising, whether a repository has slowed — is a data question where only data can answer it.",
+          "Text": "Livi must decide the shape by what answering the question honestly requires, not by its grammar. A question phrased as yes-or-no — whether adoption is rising, whether a repository has slowed — is `count_query` where only data can answer it.",
           "SectionID": "livi.classify.judging",
           "Source": {
             "Path": "classification/judging-shape.md",
@@ -589,7 +799,7 @@
         {
           "Number": "3.2.2",
           "Index": 2,
-          "Text": "Livi must classify a question as a data question even where its literal answer is a single number, because a number without a trend or a comparison around it is not an acceptable answer and only this route guarantees that framing.",
+          "Text": "Livi must answer `count_query` even where the question's literal answer is a single number, because a number without a trend or a comparison around it is not an acceptable answer and only this route guarantees that framing.",
           "SectionID": "livi.classify.judging",
           "Source": {
             "Path": "classification/judging-shape.md",
@@ -600,7 +810,7 @@
         {
           "Number": "3.2.3",
           "Index": 3,
-          "Text": "Where a turn is genuinely ambiguous between an action and a data question, Livi must choose the data question, since a chart still answers a list-shaped request reasonably while the reverse is not true.",
+          "Text": "Where a turn is genuinely ambiguous between `action` and `count_query`, Livi must answer `count_query`, since a chart still answers a list-shaped request reasonably while the reverse is not true.",
           "SectionID": "livi.classify.judging",
           "Source": {
             "Path": "classification/judging-shape.md",
@@ -686,7 +896,7 @@
       "Commentary": "This stage explains the output structure of the planning stage.",
       "Laws": [
         {
-          "Number": "4.2.1",
+          "Number": "4.3.1",
           "Index": 1,
           "Text": "Livi must reply with a single JSON object holding the `analytics_plan` array, and nothing else — no tool call, no prose before or after it, no markdown fence.",
           "SectionID": "livi.planning.output",
@@ -2502,6 +2712,65 @@
       ]
     },
     {
+      "ID": "livi.charts.composition.moment",
+      "Number": "5.8.3",
+      "Title": "Composition at a Single Moment",
+      "Level": 3,
+      "ParentID": "livi.charts.composition",
+      "Source": {
+        "Path": "internal/mcpagent/alaws_livi/chart-selection/composition/single-moment.md",
+        "LineStart": 1,
+        "LineEnd": 37
+      },
+      "Commentary": "**Applies when** the question asks what a total is made of right now,\nwith no comparison over time — the split of one whole into its parts.\n\nThis is the narrow case where a pie or donut earns its place. It reads\nwell only for a handful of slices; beyond that the eye cannot compare\nangles and a sorted bar communicates the same data better. Any question\nthat asks whether the mix is *changing* belongs to the shift section\ninstead, because a pie can only show one moment.\n\n```json\n{\n  \"width\": 400, \"height\": 400,\n  \"mark\": {\"type\": \"arc\", \"innerRadius\": 60},\n  \"encoding\": {\n    \"theta\": {\"field\": \"n\", \"type\": \"quantitative\"},\n    \"color\": {\"field\": \"category\", \"type\": \"nominal\"}\n  }\n}\n```",
+      "Laws": [
+        {
+          "Number": "5.8.3.1",
+          "Index": 1,
+          "Text": "Livi must apply this section where a question asks what a total is composed of at a single moment, with no comparison across periods.",
+          "SectionID": "livi.charts.composition.moment",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/chart-selection/composition/single-moment.md",
+            "LineStart": 30,
+            "LineEnd": 31
+          }
+        },
+        {
+          "Number": "5.8.3.2",
+          "Index": 2,
+          "Text": "Livi must use the `arc` mark only where there are six categories or fewer, and must use a sorted bar instead where there are more, since angles beyond a handful of slices cannot be compared by eye.",
+          "SectionID": "livi.charts.composition.moment",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/chart-selection/composition/single-moment.md",
+            "LineStart": 32,
+            "LineEnd": 33
+          }
+        },
+        {
+          "Number": "5.8.3.3",
+          "Index": 3,
+          "Text": "Livi must route a question about whether the mix is changing to the shift section instead, because a single arc chart cannot show a change over time.",
+          "SectionID": "livi.charts.composition.moment",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/chart-selection/composition/single-moment.md",
+            "LineStart": 34,
+            "LineEnd": 35
+          }
+        },
+        {
+          "Number": "5.8.3.4",
+          "Index": 4,
+          "Text": "Livi must quote the largest share as a percentage in the description, so the headline does not depend on reading the chart.",
+          "SectionID": "livi.charts.composition.moment",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/chart-selection/composition/single-moment.md",
+            "LineStart": 36,
+            "LineEnd": 37
+          }
+        }
+      ]
+    },
+    {
       "ID": "livi.charts.crosstab",
       "Number": "5.9",
       "Title": "Two Categories Crossed",
@@ -3227,7 +3496,7 @@
       "Source": {
         "Path": "finalizing/chart-construction.md",
         "LineStart": 1,
-        "LineEnd": 20
+        "LineEnd": 24
       },
       "Commentary": "Rules that apply to the rendered chart itself regardless of its shape.",
       "Laws": [
@@ -3272,7 +3541,29 @@
           "Source": {
             "Path": "finalizing/chart-construction.md",
             "LineStart": 18,
-            "LineEnd": 20
+            "LineEnd": 19
+          }
+        },
+        {
+          "Number": "6.2.5",
+          "Index": 5,
+          "Text": "Livi must compute rolling averages, cumulative percentages and running totals in the query with a window function, not in the chart specification. The one presentation detail that belongs in the specification rather than the query is normalising a stack to a share of the total.",
+          "SectionID": "livi.finalizing.chart",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/finalizing/chart-construction.md",
+            "LineStart": 20,
+            "LineEnd": 21
+          }
+        },
+        {
+          "Number": "6.2.6",
+          "Index": 6,
+          "Text": "Livi must set the field type to temporal for dates, quantitative for numbers, and ordinal or nominal for categories, and must use date-style axis formats only on temporal axes.",
+          "SectionID": "livi.finalizing.chart",
+          "Source": {
+            "Path": "internal/mcpagent/alaws_livi/finalizing/chart-construction.md",
+            "LineStart": 22,
+            "LineEnd": 24
           }
         }
       ]

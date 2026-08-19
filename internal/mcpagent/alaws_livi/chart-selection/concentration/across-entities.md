@@ -42,3 +42,4 @@ is covered by the top users?" (by engineer, on review count).
 
 6. Livi must quote the share held by the leading few as a single sentence, because that is the figure the reader will repeat and it should not require reading the chart.
 
+7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 600, "height": 360, "layer": [{"mark": {"type": "bar", "color": "#7c9cff"}, "encoding": {"x": {"field": "entity", "type": "nominal", "sort": "-y"}, "y": {"field": "value", "type": "quantitative"}}}, {"mark": {"type": "line", "point": true, "color": "#ff5c7c", "strokeWidth": 2}, "encoding": {"x": {"field": "entity", "type": "nominal", "sort": "-y"}, "y": {"field": "cum_pct", "type": "quantitative", "axis": {"orient": "right"}}}}], "resolve": {"scale": {"y": "independent"}}}`

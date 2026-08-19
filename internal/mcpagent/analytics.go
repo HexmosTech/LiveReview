@@ -70,9 +70,34 @@ func (a *Agent) WithAnalytics(engine AnalyticsEngine) *Agent {
 	a.actionTools = a.provider.FormatTools(tools)
 	a.actionPrompt = buildSystemPrompt(tools, orgName, userName)
 	a.chatPrompt = buildPromptHeader(orgName, userName) + "\n\n" + chatOnlyInstructions
-	a.classifyPrompt = buildClassifyPrompt(tools)
-	a.countQueryHead, a.countQueryTail = buildCountQueryPromptHalves(orgName, userName, a.mcpSession.OrgID)
-	a.finalizeHead, a.finalizeTail = buildFinalizePromptHalves(orgName, userName, a.mcpSession.OrgID)
+
+	// Load the alaws lawbook and render the analytics-specific prompts
+	// from it. Each pipeline branch sees only the law sections relevant
+	// to its stage.
+	lb, err := buildLawbookPrompts(orgName, userName, a.mcpSession.OrgID)
+	if err != nil {
+		log.Fatal().Err(err).Msg("alaws lawbook failed to load")
+	}
+	a.classifyPrompt = lb.classify
+	// Append tool names so the model can distinguish action (has tools)
+	// from count_query/chat (no tools). The lawbook's classify chapter
+	// governs the routing decision itself, but the model still needs to
+	// see which tools exist to know when an action is possible.
+	if len(tools) > 0 {
+		var b strings.Builder
+		b.WriteString(a.classifyPrompt)
+		b.WriteString("\n\nAvailable tool names (arguments are not shown here):\n")
+		for _, t := range tools {
+			b.WriteString(fmt.Sprintf("- %s\n", t.Name))
+		}
+		a.classifyPrompt = b.String()
+	}
+	a.countQueryHead = lb.planHead
+	a.countQueryTail = lb.planTail
+	a.finalizeHead = lb.finalizeHead
+	a.finalizeTail = lb.finalizeTail
+	a.repairPrompt = lb.repair
+	a.noDataPrompt = lb.noData
 
 	// Kept in sync for any caller still reading systemPrompt/providerTools
 	// directly (there is none in this codebase today, but they remain
@@ -1032,7 +1057,7 @@ func (a *Agent) buildCSVReport(
 // noDataText asks the model for one clean sentence. If that call fails the
 // fallback is still a sentence, never an empty chart or a generic error.
 func (a *Agent) noDataText(ctx context.Context, entry PlanEntry, userText string, clog *logging.ChatTurnLogger) string {
-	raw, err := a.completeOnce(ctx, clog, 3, "no_data", entry.ID, 1, analyticsNoDataInstructions,
+	raw, err := a.completeOnce(ctx, clog, 3, "no_data", entry.ID, 1, a.noDataPrompt,
 		fmt.Sprintf("Original question: %s\n\nThis report answers: %s\n\nThere are zero matching rows.", userText, entry.Question))
 	if err == nil {
 		if plan, perr := parseFinalizePlan(raw); perr == nil && strings.TrimSpace(plan.Text) != "" {
@@ -1057,7 +1082,7 @@ func (a *Agent) repairSQL(ctx context.Context, call int, reportID string, failed
 	// org_id value has to be repeated here too, or a missing-org-filter
 	// rejection could never actually be fixed.
 	raw, err := a.completeOnce(ctx, clog, call, "repair", reportID, failedAttempt,
-		analyticsRepairInstructions+orgIDFilterInstruction(a.mcpSession.OrgID),
+		a.repairPrompt,
 		fmt.Sprintf("Question: %s\n\nThis query was rejected:\n%s\n\nReason: %s\n\nReturn only the corrected SQL.", question, badSQL, hint))
 	if err != nil {
 		return "", err

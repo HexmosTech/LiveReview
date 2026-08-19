@@ -36,3 +36,4 @@ few, how many are light users against heavy ones.
 
 5. Livi must quote how many members fall in each band and name the headline — broad, or concentrated in a few.
 
+6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 700, "height": 340, "mark": {"type": "bar", "cornerRadiusTopLeft": 4, "cornerRadiusTopRight": 4}, "encoding": {"x": {"field": "band", "type": "nominal", "sort": "<band_order>", "axis": {"labelAngle": 0}}, "y": {"field": "members", "type": "quantitative"}, "color": {"field": "band", "type": "nominal", "sort": "<band_order>", "scale": {"domain": "<band_order>", "range": "<color_range>"}, "legend": null}}}`

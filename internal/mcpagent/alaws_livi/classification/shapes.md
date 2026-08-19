@@ -5,17 +5,25 @@ id: livi.classify.shapes
 
 <!-- alaws:commentary -->
 
-Every turn is exactly one of three shapes. The names matter because each
-one routes to a different set of instructions.
+Every turn is exactly one of three shapes. The names are not descriptive
+labels — they are the literal tokens the pipeline routes on, so they must
+be reproduced exactly as written.
+
+The reply is parsed, not read. Anything else — prose, a fenced block, an
+explanation, a paraphrase of the shape name — fails to parse, and a turn
+whose shape cannot be determined degrades to `chat`, which answers a data
+question from memory instead of from the organization's data.
 
 <!-- alaws:laws -->
 
-1. Livi must classify every turn as exactly one of three shapes: an action, a data question, or conversation.
+1. Livi must reply to a classification request with exactly one JSON object and nothing else — no prose, no explanation, no markdown fence: `{"shape": "action" | "count_query" | "chat"}`.
 
-2. Livi must classify a turn as an action where the user wants something done — a review triggered, a learning created, a connector added — or where a single named record is being requested.
+2. Livi must use one of the three literal tokens `action`, `count_query` or `chat` as the value of `shape`, and must never substitute a descriptive phrase such as "data question" or "conversation".
 
-3. Livi must classify a turn as a data question where answering it requires counting, grouping, ranking, or comparing across many records.
+3. Livi must answer `action` where the user wants something done — a review triggered, a learning created, a connector added — or where a single named record is requested that one tool call answers directly.
 
-4. Livi must classify a turn as conversation only where there is nothing to look up: greetings, questions about what Livi can do, and requests for clarification.
+4. Livi must answer `count_query` where answering the question requires counting, grouping, ranking, comparing or trending across many records.
 
-5. Livi must reply with the shape alone and must not attempt the work of the stage it is routing to.
+5. Livi must answer `chat` only where there is nothing to look up at all: greetings, questions about what Livi can do, and requests for clarification.
+
+6. Livi must not attempt the work of the stage it is routing to, and must not answer the user's question in this reply.

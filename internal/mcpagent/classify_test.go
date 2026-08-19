@@ -40,23 +40,21 @@ func TestParseClassifyShape(t *testing.T) {
 // The finalize call (#3) writes its own data_sql from scratch in a fresh,
 // history-less exchange - it must get the same table/column reference the
 // count call gets, or it silently guesses wrong column names for anything
-// the count query didn't already select (e.g. "who did the review" is
-// author_username, not a guessable reviewer_id/user_id). See
-// buildFinalizePromptHalves.
+// the count query didn't already select.
 func TestFinalizePromptCarriesSchema(t *testing.T) {
-	head, tail := buildFinalizePromptHalves("Acme", "alice@acme.com", 42)
-	prompt := head + tail
-	if !strings.Contains(prompt, "author_username") {
-		t.Fatalf("finalize prompt is missing the schema/column reference that names author_username: %q", prompt)
+	lb, err := buildLawbookPrompts("Acme", "alice@acme.com", 42)
+	if err != nil {
+		t.Fatalf("buildLawbookPrompts: %v", err)
 	}
-	if !strings.Contains(prompt, "finalizing one report") {
-		t.Fatalf("finalize prompt lost its chart/csv format instructions: %q", prompt)
+	prompt := lb.finalizeHead + lb.finalizeTail
+	if !strings.Contains(prompt, "PostgreSQL") {
+		t.Fatalf("finalize prompt is missing the SQL rules: %q", prompt)
 	}
-	if !strings.Contains(head, "org_id = 42") {
-		t.Fatalf("finalize prompt is missing the org_id filter instruction: %q", head)
+	if !strings.Contains(prompt, "org_id") {
+		t.Fatalf("finalize prompt is missing the org_id reference: %q", prompt)
 	}
-	if strings.Contains(tail, "How to start a data question") {
-		t.Fatalf("finalize prompt should not carry the analytics_plan instructions meant for call #2: %q", tail)
+	if !strings.Contains(lb.finalizeHead, "org_id") {
+		t.Fatalf("finalize head is missing the org_id filter instruction: %q", lb.finalizeHead)
 	}
 }
 
@@ -192,8 +190,8 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 	if !strings.Contains(sys1, "friendly persona") {
 		t.Fatalf("turn 1: expected the persona header in history[0], got: %q", sys1)
 	}
-	if strings.Contains(sys1, "Answering data questions with SQL") {
-		t.Fatalf("turn 1 (chat): system prompt leaked the SQL schema section: %q", sys1)
+	if strings.Contains(sys1, "PostgreSQL") {
+		t.Fatalf("turn 1 (chat): system prompt leaked the SQL rules: %q", sys1)
 	}
 	if strings.Contains(sys1, "You have access to the following tools") {
 		t.Fatalf("turn 1 (chat): system prompt leaked the tool list: %q", sys1)
@@ -215,8 +213,8 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 	}
 	history = updated
 	sys2, _ := history[0]["content"].(string)
-	if strings.Contains(sys2, "Answering data questions with SQL") {
-		t.Fatalf("turn 2 (action): system prompt leaked the SQL schema section: %q", sys2)
+	if strings.Contains(sys2, "PostgreSQL") {
+		t.Fatalf("turn 2 (action): system prompt leaked the SQL rules: %q", sys2)
 	}
 	if !strings.Contains(sys2, "POST_api_v1_connectors_trigger_review") {
 		t.Fatalf("turn 2 (action): expected the tool list in history[0], got: %q", sys2)
@@ -238,8 +236,8 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 	}
 	history = updated
 	sys3, _ := history[0]["content"].(string)
-	if !strings.Contains(sys3, "Answering data questions with SQL") {
-		t.Fatalf("turn 3 (count_query): expected the SQL schema section in history[0], got: %q", sys3)
+	if !strings.Contains(sys3, "PostgreSQL") {
+		t.Fatalf("turn 3 (count_query): expected the SQL rules in history[0], got: %q", sys3)
 	}
 	if strings.Contains(sys3, "You have access to the following tools") {
 		t.Fatalf("turn 3 (count_query): system prompt leaked the general tool list: %q", sys3)

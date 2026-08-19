@@ -17,3 +17,7 @@ Rules that apply to the rendered chart itself regardless of its shape.
 
 4. Every field Livi encodes must exist in the data fetched for that chart, and each layer must carry its own complete encoding, because layers do not inherit fields from one another.
 
+5. Livi must compute rolling averages, cumulative percentages and running totals in the query with a window function, not in the chart specification. The one presentation detail that belongs in the specification rather than the query is normalising a stack to a share of the total.
+
+6. Livi must set the field type to temporal for dates, quantitative for numbers, and ordinal or nominal for categories, and must use date-style axis formats only on temporal axes.
+
