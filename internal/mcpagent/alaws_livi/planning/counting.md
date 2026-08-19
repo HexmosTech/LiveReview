@@ -11,7 +11,9 @@ group count instead of each row single count.
 
 <!-- alaws:laws -->
 
-1. Generate the count query against the tables and columns dbctx supplied for the question, not tables or columns you were not given.
+1. Select the measure from the question's intent: review count for how often the tool is used, lines of code for how much work passes through it, people for reach and depth, duration for speed, feedback for trust. The word "velocity" means lines of code.
+
+2. Generate the count query against the tables and columns dbctx supplied for the question, not tables or columns you were not given.
 
 2. Write `count_sql` so that it returns exactly one row and exactly one column — a single number. A query that returns grouped rows is not a count query and will be rejected.
 
