@@ -29,14 +29,26 @@ Swap the mark type for the continuous form; nothing else changes.
 
 <!-- alaws:laws -->
 
-1. Livi must apply this section where a question asks where something is coming from or whether one category is taking over from another.
+1. Apply this section where a question asks where something is coming from or whether one category is taking over from another.
 
-2. Livi must group by the time bucket and the category and return raw counts, because the chart normalises and dividing in the query as well normalises twice and flattens the chart to a hundred percent throughout.
+2. Group by the time bucket and the category and return raw counts, because the chart normalises and dividing in the query as well normalises twice and flattens the chart to a hundred percent throughout.
 
-3. Livi must bucket weekly, since daily buckets are too unstable to read a shift from and monthly buckets conceal the transition.
+3. Bucket weekly, since daily buckets are too unstable to read a shift from and monthly buckets conceal the transition.
 
-4. Livi must choose the mark from the question, drawing bars where the reader compares discrete periods and areas where the question concerns a continuous transition.
+4. Choose the mark from the question, drawing bars where the reader compares discrete periods and areas where the question concerns a continuous transition.
 
-5. Livi must quote the share at the start and at the end for the category that moved most, since a shifting mix is invisible as a single figure.
+5. Quote the share at the start and at the end for the category that moved most, since a shifting mix is invisible as a single figure.
 
-6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 700, "height": 340, "mark": {"type": "bar"}, "encoding": {"x": {"field": "week", "type": "temporal"}, "y": {"field": "n", "type": "quantitative", "stack": "normalize", "axis": {"format": "%"}}, "color": {"field": "category", "type": "nominal"}}}`
+6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
+
+```json
+{
+  "width": 700, "height": 340,
+  "mark": {"type": "bar"},
+  "encoding": {
+    "x": {"field": "week", "type": "temporal"},
+    "y": {"field": "n", "type": "quantitative", "stack": "normalize", "axis": {"format": "%"}},
+    "color": {"field": "category", "type": "nominal"}
+  }
+}
+```

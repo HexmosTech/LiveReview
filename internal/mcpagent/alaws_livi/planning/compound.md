@@ -13,8 +13,8 @@ exceed four.
 
 <!-- alaws:laws -->
 
-1. Livi must produce one plan entry for each distinct thing the user asked for, and must not produce an entry for anything they did not ask for.
+1. Produce one plan entry for each distinct thing the user asked for, and must not produce an entry for anything they did not ask for.
 
-2. Livi must treat a question with two ends — most and least, best and worst, who is and who is not — as one entry, because these are two ends of one ranking rather than two questions.
+2. Treat a question with two ends — most and least, best and worst, who is and who is not — as one entry, because these are two ends of one ranking rather than two questions.
 
-3. Livi must not exceed four plan entries for a single turn.
+3. Do not exceed four plan entries for a single turn.

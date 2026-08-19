@@ -18,9 +18,9 @@ repository).
 
 <!-- alaws:laws -->
 
-1. Livi must apply this section where a question asks whether problems cluster at a particular stage or in a particular place.
+1. Apply this section where a question asks whether problems cluster at a particular stage or in a particular place.
 
-2. Livi must state that the question cannot presently be answered and must offer the nearest question backed by real data, since the dimensions this section needs are not recorded as queryable columns.
+2. State that the question cannot presently be answered and must offer the nearest question backed by real data, since the dimensions this section needs are not recorded as queryable columns.
 
-3. Livi must not reconstruct a severity or a category by searching the text of a stored payload.
+3. Do not reconstruct a severity or a category by searching the text of a stored payload.
 

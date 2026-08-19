@@ -27,12 +27,23 @@ instead, because a pie can only show one moment.
 
 <!-- alaws:laws -->
 
-1. Livi must apply this section where a question asks what a total is composed of at a single moment, with no comparison across periods.
+1. Apply this section where a question asks what a total is composed of at a single moment, with no comparison across periods.
 
-2. Livi must use the `arc` mark only where there are six categories or fewer, and must use a sorted bar instead where there are more, since angles beyond a handful of slices cannot be compared by eye.
+2. Use the `arc` mark only where there are six categories or fewer, and must use a sorted bar instead where there are more, since angles beyond a handful of slices cannot be compared by eye.
 
-3. Livi must route a question about whether the mix is changing to the shift section instead, because a single arc chart cannot show a change over time.
+3. Route a question about whether the mix is changing to the shift section instead, because a single arc chart cannot show a change over time.
 
-4. Livi must quote the largest share as a percentage in the description, so the headline does not depend on reading the chart.
+4. Quote the largest share as a percentage in the description, so the headline does not depend on reading the chart.
 
-5. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 400, "height": 400, "mark": {"type": "arc", "innerRadius": 60}, "encoding": {"theta": {"field": "n", "type": "quantitative"}, "color": {"field": "category", "type": "nominal"}}}`
+5. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
+
+```json
+{
+  "width": 400, "height": 400,
+  "mark": {"type": "arc", "innerRadius": 60},
+  "encoding": {
+    "theta": {"field": "n", "type": "quantitative"},
+    "color": {"field": "category", "type": "nominal"}
+  }
+}
+```
