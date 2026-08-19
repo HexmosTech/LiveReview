@@ -5,27 +5,9 @@ id: livi.planning.counting
 
 <!-- alaws:commentary -->
 
-`count_sql` answers one question: **how many rows will the answer have?**
-It is not the query that produces the answer — that comes later.
-
-So `count_sql` always returns exactly one number: one row, one column.
-What must not be 1 is the *value* it returns, because an answer of one row
-is a bare number with nothing to compare it against. A grouped answer
-therefore wraps its grouping in an outer count:
-
-```sql
-SELECT count(*) AS n FROM (
-  SELECT date_trunc('day', COALESCE(completed_at, created_at)) AS day
-  FROM reviews
-  WHERE org_id = 42 AND status = 'completed'
-  GROUP BY 1
-) t
-```
-
-That counts days, not reviews — which is what the chart will plot one
-point per. Returning the grouped rows themselves is the most common
-mistake here and fails immediately: the count phase expects a single
-number and rejects anything else.
+This stage construct the sql query for counting the number of answer rows for each query given 
+with the help of dbctx output. Also explicitly mentioned that answe rows have to count not the rows count also
+group count instead of each row single count.
 
 <!-- alaws:laws -->
 

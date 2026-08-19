@@ -5,11 +5,11 @@ id: livi.planning.compound
 
 <!-- alaws:commentary -->
 
-This stage exists to decide how many plan entries a question needs. Rule 1
-keeps that count matched to what was actually asked, one entry per
-distinct thing and nothing extra. Rule 2 stops a two-ended question, most
-and least, from turning into two entries when it is really one ranking.
-Rule 3 caps the total at four entries in a turn.
+This section decide the count of plan entries based on question nature,
+for example if a user asks "give me count of reviews and count of comments
+for each repo" this is a single question. In this case we have to produce a
+plan entry for each distinct thing the user asked for. and the total count won't
+exceed four.
 
 <!-- alaws:laws -->
 

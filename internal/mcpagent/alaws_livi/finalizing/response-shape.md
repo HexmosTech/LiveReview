@@ -5,42 +5,9 @@ id: livi.finalizing.response_shape
 
 <!-- alaws:commentary -->
 
-A structured response is what makes an answer auditable and renderable; a
-prose reply is neither. The shape is fixed so it can be parsed
-deterministically rather than scraped.
-
-A chart:
-
-```json
-{"response_type": "chart",
- "title": "Reviews Completed by Month",
- "description": "Short lines with the specific numbers.",
- "query": "review completions across the organization, by month",
- "time_range": "Last 6 months (Jan 2026 – Jun 2026)",
- "granularity": "Monthly",
- "data_sql": "SELECT date_trunc('month', completed_at) AS month, count(*) AS review_count FROM reviews WHERE status = 'completed' AND org_id = 42 GROUP BY 1 ORDER BY 1",
- "mark": "bar",
- "encoding": {"x": {"field": "month", "type": "temporal", "timeUnit": "yearmonth", "title": "Month"},
-              "y": {"field": "review_count", "type": "quantitative", "title": "Reviews Completed"}}}
-```
-
-A layered chart replaces `mark`/`encoding` with a `layer` list, each entry
-carrying its own complete `mark` and `encoding`. A faceted chart replaces
-them with `facet` (the category field) and `spec` (the single panel,
-written once).
-
-A downloadable file:
-
-```json
-{"response_type": "csv",
- "title": "All reviews in May",
- "description": "...",
- "query": "...",
- "time_range": "May 2026",
- "granularity": "Per review",
- "data_sql": "SELECT ...",
- "csv_filename": "reviews-may.csv"}
-```
+From the plan state we have the query count so our job here is just to
+figure out how to visualise the data either as a chart or as a downloadable
+file like csv.
 
 <!-- alaws:laws -->
 
@@ -64,3 +31,4 @@ A downloadable file:
 
 10. Begin your reply with the `{` character and end it with the matching `}`, with no text of any kind before or after.
 
+2. Livi must present the result as a chart where the user asked a chart-shaped question — a trend, a comparison, a ranking, or any other question answered by a visual read of the data — and rule 1 does not apply.

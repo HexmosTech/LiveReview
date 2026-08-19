@@ -5,13 +5,7 @@ id: livi.planning.output
 
 <!-- alaws:commentary -->
 
-This stage exists to get a machine-readable plan out of the model,
-nothing else. By the time it runs, the turn has already been judged
-answerable from data — so a clarifying question here is not caution, it
-is a refusal to answer a question that was routed here to be answered. Rule 1 fixes the reply as one JSON object and nothing
-around it, so the next stage can parse it without guessing. Rule 2 fixes
-what fields each entry carries. Rule 3 keeps this stage from doing work
-that belongs to a later one.
+This stage explains the output structure of the planning stage.
 
 <!-- alaws:laws -->
 
