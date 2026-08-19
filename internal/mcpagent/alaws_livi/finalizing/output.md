@@ -17,6 +17,8 @@ the query honest against the shape already committed to.
 2. Livi must write a query that returns the shape its plan described.
 
 3. example
+
+```json
 {
   "response_type": "chart",
   "title": "Reviews Completed by Month",
@@ -40,3 +42,4 @@ the query honest against the shape already committed to.
     }
   }
 }
+```
