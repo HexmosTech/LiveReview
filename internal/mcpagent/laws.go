@@ -211,7 +211,20 @@ func buildLawbookPrompts(orgName, userName string, orgID int64) (*lawbookPaths, 
 		"present_year": fmt.Sprintf("%d", time.Now().Year()),
 	}
 
-	classify, err := renderBranch(book, []string{"livi.general", "livi.classify"}, vars)
+	// Classify never writes a query, so it skips livi.general.data - that
+	// section is 23 rules of pure SQL dialect (real table/column names, join
+	// gotchas, the allowed function list) that classify has no use for and
+	// that were observed drowning out the much smaller classify-specific
+	// instructions behind them, causing the model to write SQL instead of
+	// picking a shape.
+	classify, err := renderBranch(book, []string{
+		"livi.general.principles",
+		"livi.general.reading",
+		"livi.general.precedence",
+		"livi.general.unavailable",
+		"livi.general.citation",
+		"livi.classify",
+	}, vars)
 	if err != nil {
 		return nil, fmt.Errorf("classify branch: %w", err)
 	}

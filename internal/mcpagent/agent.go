@@ -23,7 +23,7 @@ const (
 // interface lets the analytics orchestration be driven by a scripted fake in
 // tests, so the SQL path can be verified end to end without a live model.
 type llmProvider interface {
-	Complete(ctx context.Context, history []HistoryEntry, tools []llms.Tool) (string, TokenUsage, error)
+	Complete(ctx context.Context, history []HistoryEntry, tools []llms.Tool, extraOpts ...llms.CallOption) (string, TokenUsage, error)
 	Describe() string
 	FormatTools(tools []MCPToolDef) []llms.Tool
 }
@@ -127,6 +127,11 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 	// 2=count-query proposal). 0 means "not a numbered diagram call" - the
 	// chat branch, or a plain tool-only agent with analytics disabled.
 	callNumber := 0
+	// jsonMode forces the count_query branch's replies to be pure JSON at
+	// the API level, same mechanism as classify - see classify.go. Not set
+	// for action (real tool calls, not a JSON envelope) or chat
+	// (deliberately plain prose).
+	jsonMode := false
 	// planRetried bounds the count_query prose retry below to one attempt,
 	// so a model that will not produce a plan fails fast instead of
 	// burning the whole step budget on the same nudge.
@@ -168,6 +173,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			}
 			tools = nil
 			callNumber = 2
+			jsonMode = true
 		default:
 			systemPrompt = a.chatPrompt
 			tools = nil
@@ -204,7 +210,11 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			}
 		}
 		aiStart := time.Now()
-		response, usage, err := a.provider.Complete(ctx, history, tools)
+		var completeOpts []llms.CallOption
+		if jsonMode {
+			completeOpts = append(completeOpts, llms.WithJSONMode())
+		}
+		response, usage, err := a.provider.Complete(ctx, history, tools, completeOpts...)
 		aiElapsed := time.Since(aiStart)
 		if err != nil {
 			log.Error().Err(err).Int("step", step).Msg("LLM completion failed")

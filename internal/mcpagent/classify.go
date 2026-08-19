@@ -9,6 +9,7 @@ import (
 
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/vlrender"
+	"github.com/tmc/langchaingo/llms"
 )
 
 // classifyShape is call #0's three-way routing decision. See
@@ -49,7 +50,7 @@ func (a *Agent) classify(ctx context.Context, history []HistoryEntry, userText s
 	clog.LLMCallRequest(0, "classify", "", 1, payload)
 
 	start := time.Now()
-	response, usage, err := a.provider.Complete(ctx, classifyHistory, nil)
+	response, usage, err := a.provider.Complete(ctx, classifyHistory, nil, llms.WithJSONMode())
 	elapsed := time.Since(start)
 	if err != nil {
 		clog.LLMCallError(0, "classify", "", 1, elapsed, err)
@@ -82,8 +83,13 @@ func boundedRecentHistory(history []HistoryEntry, n int) []HistoryEntry {
 	return recent
 }
 
+// classifyEnvelope is call #0's response shape. AppliedLaws is not
+// validated or acted on by this code - it exists purely so the raw
+// response text logged by LLMCallResponse shows which numbered laws the
+// model believed it followed, for debugging (see chat_debug.log).
 type classifyEnvelope struct {
-	Shape string `json:"shape"`
+	Response    string   `json:"response"`
+	AppliedLaws []string `json:"applied_laws"`
 }
 
 // parseClassifyShape decodes call #0's response, tolerating a fenced or
@@ -98,7 +104,7 @@ func parseClassifyShape(text string) (classifyShape, bool) {
 	if err := json.Unmarshal([]byte(body), &env); err != nil {
 		return "", false
 	}
-	switch classifyShape(strings.ToLower(strings.TrimSpace(env.Shape))) {
+	switch classifyShape(strings.ToLower(strings.TrimSpace(env.Response))) {
 	case shapeAction:
 		return shapeAction, true
 	case shapeCountQuery:

@@ -16,10 +16,14 @@ separate conversation with its own instructions, assembled from a
 different combination of chapters:
 
 **[Classification](#/books/internal%2Fmcpagent%2Falaws_livi/livi.classify)** — is this a data question, an action, or conversation?
-*Sent: [General](#/books/internal%2Fmcpagent%2Falaws_livi/livi.general) + [Classification](#/books/internal%2Fmcpagent%2Falaws_livi/livi.classify).*
+*Sent: [General](#/books/internal%2Fmcpagent%2Falaws_livi/livi.general) minus Data Handling + [Classification](#/books/internal%2Fmcpagent%2Falaws_livi/livi.classify).*
 Cheap on purpose: it never sees the chart laws or the database schema,
 because paying for those before knowing whether the turn even needs them
-is waste.
+is waste. Data Handling is excluded here specifically — its 23 SQL-dialect
+rules (real table/column names, join gotchas, the allowed function list)
+are dead weight for a call that never writes a query, and were observed
+outweighing the much smaller classification instructions behind them,
+pulling the model toward writing SQL instead of picking a shape.
 
 **[Planning](#/books/internal%2Fmcpagent%2Falaws_livi/livi.planning)** — what to count, and along which dimension.
 *Sent: [General](#/books/internal%2Fmcpagent%2Falaws_livi/livi.general) + [Planning](#/books/internal%2Fmcpagent%2Falaws_livi/livi.planning) + [Chart Selection](#/books/internal%2Fmcpagent%2Falaws_livi/livi.charts) (laws only — the Vega-Lite
@@ -45,6 +49,10 @@ asked — never state a figure you cannot point at, scope every query to
 the organization, ask when the subject is ambiguous. There is no call
 these don't apply to, so excluding General from any of them would let a
 turn slip through ungoverned rather than trim anything meaningful.
+
+The one exception is Data Handling within General, which is skipped for
+Classification alone — see the note above. Every call that can actually
+produce or repair a query still receives it in full.
 
 ## Why [Chart Selection](#/books/internal%2Fmcpagent%2Falaws_livi/livi.charts) is sent twice
 

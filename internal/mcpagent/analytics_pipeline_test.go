@@ -24,7 +24,7 @@ type scriptedProvider struct {
 	prompts []string
 }
 
-func (p *scriptedProvider) Complete(_ context.Context, history []HistoryEntry, _ []llms.Tool) (string, TokenUsage, error) {
+func (p *scriptedProvider) Complete(_ context.Context, history []HistoryEntry, _ []llms.Tool, _ ...llms.CallOption) (string, TokenUsage, error) {
 	if len(history) > 0 {
 		if content, ok := history[len(history)-1]["content"].(string); ok {
 			p.prompts = append(p.prompts, content)
