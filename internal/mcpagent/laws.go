@@ -111,33 +111,55 @@ func ensureLawbook() (*alaws.Book, error) {
 // any of the given prefixes (e.g. "livi.general" matches "livi.general",
 // "livi.general.principles", "livi.general.data", etc.).
 func renderBranch(book *alaws.Book, prefixes []string, vars map[string]string) (string, error) {
-	sectionIDs := collectSectionIDs(book, prefixes)
-	if len(sectionIDs) == 0 {
-		return "", fmt.Errorf("no sections matched prefixes %v", prefixes)
+	// Rendered one prefix group at a time and joined in prefix order.
+	// alaws.Book.Laws always returns laws in book order no matter what
+	// order the Selector's SectionIDs are given in, so a single call
+	// cannot put a chosen chapter last. Each branch needs its
+	// output-format contract at the end of the prompt, where a small
+	// model weights it most heavily, so the caller controls that by the
+	// order it lists prefixes here.
+	var parts []string
+	for _, prefix := range prefixes {
+		ids := collectSectionIDs(book, []string{prefix})
+		if len(ids) == 0 {
+			return "", fmt.Errorf("no sections matched prefix %q", prefix)
+		}
+		laws, err := book.Laws(alaws.Selector{SectionIDs: ids})
+		if err != nil {
+			return "", fmt.Errorf("select laws %q: %w", prefix, err)
+		}
+		rendered, err := laws.Render(alaws.RenderOptions{
+			Vars:      vars,
+			OnMissing: alaws.MissingKeepPlaceholder,
+		})
+		if err != nil {
+			return "", fmt.Errorf("render laws %q: %w", prefix, err)
+		}
+		parts = append(parts, strings.TrimSpace(rendered))
 	}
-	laws, err := book.Laws(alaws.Selector{SectionIDs: sectionIDs})
-	if err != nil {
-		return "", fmt.Errorf("select laws %v: %w", prefixes, err)
-	}
-	rendered, err := laws.Render(alaws.RenderOptions{
-		Vars:      vars,
-		OnMissing: alaws.MissingKeepPlaceholder,
-	})
-	if err != nil {
-		return "", fmt.Errorf("render laws %v: %w", prefixes, err)
-	}
-	return rendered, nil
+	return strings.Join(parts, "\n\n"), nil
 }
 
-// collectSectionIDs returns all section IDs from the book whose ID starts
-// with any of the given prefixes, preserving book order.
+// collectSectionIDs returns all section IDs from the book matching the
+// given prefixes, ordered by the PREFIX list rather than by book order.
+//
+// The order matters: a small model weights the end of a long prompt most
+// heavily, and each branch's output-format contract is the one instruction
+// it cannot afford to miss. Ordering by prefix lets a caller put the
+// chapter carrying that contract last, without reordering the book itself
+// (the book is ordered for a human reading it end to end). Within a
+// prefix, book order is preserved.
 func collectSectionIDs(book *alaws.Book, prefixes []string) []string {
 	var ids []string
-	for _, s := range book.Lawbook().Sections {
-		for _, prefix := range prefixes {
+	seen := map[string]bool{}
+	for _, prefix := range prefixes {
+		for _, s := range book.Lawbook().Sections {
+			if seen[s.ID] {
+				continue
+			}
 			if s.ID == prefix || strings.HasPrefix(s.ID, prefix+".") {
 				ids = append(ids, s.ID)
-				break
+				seen[s.ID] = true
 			}
 		}
 	}
@@ -169,7 +191,7 @@ func buildLawbookPrompts(orgName, userName string, orgID int64) (*lawbookPaths, 
 		return nil, fmt.Errorf("classify branch: %w", err)
 	}
 
-	planLaws, err := renderBranch(book, []string{"livi.general", "livi.planning", "livi.charts"}, vars)
+	planLaws, err := renderBranch(book, []string{"livi.general", "livi.charts", "livi.planning"}, vars)
 	if err != nil {
 		return nil, fmt.Errorf("plan branch: %w", err)
 	}

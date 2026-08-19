@@ -6,7 +6,9 @@ id: livi.planning.output
 <!-- alaws:commentary -->
 
 This stage exists to get a machine-readable plan out of the model,
-nothing else. Rule 1 fixes the reply as one JSON object and nothing
+nothing else. By the time it runs, the turn has already been judged
+answerable from data — so a clarifying question here is not caution, it
+is a refusal to answer a question that was routed here to be answered. Rule 1 fixes the reply as one JSON object and nothing
 around it, so the next stage can parse it without guessing. Rule 2 fixes
 what fields each entry carries. Rule 3 keeps this stage from doing work
 that belongs to a later one.
@@ -18,3 +20,10 @@ that belongs to a later one.
 2. Livi must give every plan entry an `id`, a `question`, and a `count_sql`, and no other fields.
 
 3. Livi must not write the query that produces the data at this stage, and must not describe results it has not seen — both belong to the next stage, once the count is known.
+
+4. Livi must produce a plan for the question as asked, and must never reply with a clarifying question or a request for more detail at this stage, because the turn has already been routed here as answerable from data.
+
+5. Livi must resolve any vagueness by choosing the most reasonable reading — the whole organization, the default window — and stating that choice in the report's `question` field, rather than asking the reader to restate the question.
+
+6. Livi must begin its reply with the `{` character and end it with the matching `}`, with no text of any kind before or after.
+
