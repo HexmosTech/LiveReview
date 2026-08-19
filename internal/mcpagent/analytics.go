@@ -325,10 +325,15 @@ func (a *Agent) runFinalizePhase(
 		}
 		plan, perr := parseFinalizePlan(raw)
 		if perr == nil {
-			// The model does not get to decide that "too much data for a chart" is fine.
-			if plan.ResponseType == ResponseTypeChart && count > maxChartRows {
-				plan.ResponseType = ResponseTypeCSV
-			}
+			// Deliberately NOT downgrading chart->csv here based on `count`.
+			// `count` is a prediction from a separate, earlier LLM call
+			// (the count phase) and is not reliable - it can undercount
+			// (grouping wrong) or wildly overcount (an ungrouped total)
+			// independently of how many rows the real answer has. Forcing
+			// the decision here, before the actual data query has even
+			// run, downgrades good charts to CSV based on bad guesses.
+			// materializeReport makes this call for real, off the actual
+			// fetched row count.
 			return plan
 		}
 		clog.SQLRejected(entry.ID, "finalize", attempt, perr.Error())
@@ -351,10 +356,12 @@ func (a *Agent) materializeReport(
 		return finishedReport{text: strings.TrimSpace(plan.Text)}
 	}
 
+	// Always fetch with the generous CSV ceiling. The chart/CSV decision
+	// happens below, after the real row count is known - not here, based
+	// on a limit chosen from the (unreliable) count-phase prediction. A
+	// chart-shaped answer that's actually small must not get truncated
+	// down to maxChartRows before we've even seen it.
 	maxRows := maxCSVRows
-	if plan.ResponseType == ResponseTypeChart {
-		maxRows = maxChartRows
-	}
 
 	sqlText := plan.DataSQL
 	for attempt := 1; attempt <= maxSQLAttempts; attempt++ {
@@ -393,6 +400,14 @@ func (a *Agent) materializeReport(
 			return finishedReport{text: fmt.Sprintf("I found no data for %q.", entry.Question)}
 		}
 
+		// The model does not get to decide that "too much data for a
+		// chart" is fine, but the decision is made off the real,
+		// just-fetched row count - not the count phase's prediction,
+		// which can be wrong in either direction (see the comment in
+		// runFinalizePhase).
+		if plan.ResponseType == ResponseTypeChart && len(rs.Rows) > maxChartRows {
+			plan.ResponseType = ResponseTypeCSV
+		}
 		if plan.ResponseType == ResponseTypeCSV || rs.Truncated {
 			return a.buildCSVReport(entry, plan, rs, clog)
 		}
