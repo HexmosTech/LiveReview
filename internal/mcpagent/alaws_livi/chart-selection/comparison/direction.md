@@ -35,7 +35,7 @@ velocity?"
 
 4. Draw one line per entity between the two points and colour it by that direction.
 
-5. Count in the description how many entities gained and how many lost, out of how many tracked, and must name the largest movers.
+5. Count in the description how many entities gained and how many lost, out of how many tracked, and name the largest movers.
 
 6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
 

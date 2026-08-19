@@ -14,6 +14,6 @@ about why the data is empty; both undermine a result that is simply true.
 
 2. Name the organization and the period the user asked about.
 
-3. Do not apologize, must not speculate about why the result is empty, and must not imply that something went wrong, because zero is a legitimate answer.
+3. Do not apologize, must not speculate about why the result is empty, and do not imply that something went wrong, because zero is a legitimate answer.
 
 4. Do not render an empty chart in place of this reply.

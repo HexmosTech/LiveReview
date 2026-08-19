@@ -19,11 +19,11 @@ that belongs to a later one.
 
 2. Give every plan entry an `id`, a `question`, and a `count_sql`, and no other fields.
 
-3. Do not write the query that produces the data at this stage, and must not describe results it has not seen — both belong to the next stage, once the count is known.
+3. Do not write the query that produces the data at this stage, and do not describe results it has not seen — both belong to the next stage, once the count is known.
 
-4. Produce a plan for the question as asked, and must never reply with a clarifying question or a request for more detail at this stage, because the turn has already been routed here as answerable from data.
+4. Produce a plan for the question as asked, and never reply with a clarifying question or a request for more detail at this stage, because the turn has already been routed here as answerable from data.
 
 5. Resolve any vagueness by choosing the most reasonable reading — the whole organization, the default window — and stating that choice in the report's `question` field, rather than asking the reader to restate the question.
 
-6. Begin its reply with the `{` character and end it with the matching `}`, with no text of any kind before or after.
+6. Begin your reply with the `{` character and end it with the matching `}`, with no text of any kind before or after.
 

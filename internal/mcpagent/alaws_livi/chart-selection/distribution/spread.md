@@ -32,7 +32,7 @@ few, how many are light users against heavy ones.
 
 3. Use the same band thresholds throughout a conversation, because a tier that means one thing on this chart and another on the next renders both untrustworthy.
 
-4. Plot the bands in their natural order and must not sort them by height, since reordering destroys the shape the question asks about.
+4. Plot the bands in their natural order and do not sort them by height, since reordering destroys the shape the question asks about.
 
 5. Quote how many members fall in each band and name the headline — broad, or concentrated in a few.
 

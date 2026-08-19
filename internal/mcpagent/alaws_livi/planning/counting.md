@@ -29,7 +29,7 @@ number and rejects anything else.
 
 <!-- alaws:laws -->
 
-1. Generate the count query against the tables and columns dbctx supplied for the question, not tables or columns it was not given.
+1. Generate the count query against the tables and columns dbctx supplied for the question, not tables or columns you were not given.
 
 2. Write `count_sql` so that it returns exactly one row and exactly one column — a single number. A query that returns grouped rows is not a count query and will be rejected.
 

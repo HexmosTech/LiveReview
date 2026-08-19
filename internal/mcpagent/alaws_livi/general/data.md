@@ -27,7 +27,7 @@ wrong — the most expensive kind of error in this system.
 
 8. Alias every selected expression with a unique name. `count(*) AS n`, not bare `count(*)`. Duplicate or unnamed columns are rejected.
 
-9. Bucket timestamps with `date_trunc('day' | 'week' | 'month' | 'quarter', created_at)` and must not use any other bucketing function.
+9. Bucket timestamps with `date_trunc('day' | 'week' | 'month' | 'quarter', created_at)` and do not use any other bucketing function.
 
 10. Use a single `SELECT` statement. No `INSERT`, `UPDATE`, `DELETE`, `WITH RECURSIVE`, `FOR UPDATE`, `SELECT *`, or bind parameters.
 

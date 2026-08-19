@@ -18,14 +18,14 @@ something to ask about stalls a question that could have been answered.
 
 1. Establish the subject — the whole organization, one repository, one engineer, or one period — before querying.
 
-2. Read first-person references — "my team", "we", "our", "us", "my organization" — as the organization supplied in the request, and must never ask the reader to identify them.
+2. Read first-person references — "my team", "we", "our", "us", "my organization" — as the organization supplied in the request, and never ask the reader to identify them.
 
-3. Default to the whole organization where no narrower subject is named, and must ask which one only where the question turns on a specific repository or engineer that it names no way of identifying.
+3. Default to the whole organization where no narrower subject is named, and ask which one only where the question turns on a specific repository or engineer that it names no way of identifying.
 
 4. Select the measure from the question's intent: review count for how often the tool is used, lines of code for how much work passes through it, people for reach and depth, duration for speed, feedback for trust. The word "velocity" means lines of code.
 
 5. Identify which comparison the question asks for — over time, between named things, across a population, between two points in time, or between two measures — because that decides the chart more than the topic does.
 
-6. Cover the whole period from the start of 2025 to the present day by default, and must narrow the window only where the question names a shorter one. A question that asks whether something is increasing, or asks about adoption since a team started, is asking about the full history and must not be silently cut to a recent window.
+6. Cover the whole period from the start of 2025 to the present day by default, and narrow the window only where the question names a shorter one. A question that asks whether something is increasing, or asks about adoption since a team started, is asking about the full history and do not be silently cut to a recent window.
 
 7. State the window it used in the report's time range, expressed as calendar dates rather than as a number of days.

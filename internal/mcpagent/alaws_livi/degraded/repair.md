@@ -17,4 +17,4 @@ incorrect organization filter.
 
 3. Ensure the repaired query filters by the organization given to it, since a missing or incorrect organization filter is the most common cause of rejection.
 
-4. Use only the documented tables and functions, must not qualify table names with a schema, and must give every selected expression a unique alias.
+4. Use only the documented tables and functions, must not qualify table names with a schema, and give every selected expression a unique alias.

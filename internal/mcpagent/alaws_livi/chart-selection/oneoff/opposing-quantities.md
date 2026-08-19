@@ -29,11 +29,11 @@ anything where two opposed counts share a subject.
 
 2. Begin the query from the table holding the opposed events and join outwards for the subject's name, since subjects with no events contribute nothing to this chart.
 
-3. Exclude retracted or withdrawn events, and must filter on the event's own timestamp rather than the subject's, because a vote cast this week on an older item is this week's signal.
+3. Exclude retracted or withdrawn events, and filter on the event's own timestamp rather than the subject's, because a vote cast this week on an older item is this week's signal.
 
-4. Return both sides as positive counts and must treat the negation that places one side below the zero line as presentation.
+4. Return both sides as positive counts and treat the negation that places one side below the zero line as presentation.
 
-5. Check the totals before rendering and must quote them outright where they are small, since a chart alone implies a trend that a handful of points cannot support.
+5. Check the totals before rendering and quote them outright where they are small, since a chart alone implies a trend that a handful of points cannot support.
 
 6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
 

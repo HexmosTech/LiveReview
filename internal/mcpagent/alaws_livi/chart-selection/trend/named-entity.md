@@ -34,7 +34,7 @@ raw line, a heavier rolling-average line:
 
 1. Apply this section where a question asks what happened to a single named repository, engineer or team over time.
 
-2. Confirm which entity is meant before querying, and must ask where the question implies one without naming it.
+2. Confirm which entity is meant before querying, and ask where the question implies one without naming it.
 
 3. Measure lines of code summed per day for that entity rather than a record count, because velocity concerns how much code moved and one large review is not the same event as one trivial one.
 

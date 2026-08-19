@@ -54,7 +54,7 @@ more substance behind it.
 
 4. Do not add a rolling average here, because the second line already supplies the comparison and further lines make the chart unreadable.
 
-5. State in the description whether the two measures moved together or diverged, and must name the period of divergence where one occurred.
+5. State in the description whether the two measures moved together or diverged, and name the period of divergence where one occurred.
 
 6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
 

@@ -29,7 +29,7 @@ instead, because a pie can only show one moment.
 
 1. Apply this section where a question asks what a total is composed of at a single moment, with no comparison across periods.
 
-2. Use the `arc` mark only where there are six categories or fewer, and must use a sorted bar instead where there are more, since angles beyond a handful of slices cannot be compared by eye.
+2. Use the `arc` mark only where there are six categories or fewer, and use a sorted bar instead where there are more, since angles beyond a handful of slices cannot be compared by eye.
 
 3. Route a question about whether the mix is changing to the shift section instead, because a single arc chart cannot show a change over time.
 

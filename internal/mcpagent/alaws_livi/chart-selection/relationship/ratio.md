@@ -42,7 +42,7 @@ badly covered, and only this framing shows it.
 
 5. Place date filters inside the join conditions rather than in a trailing filter, since filtering an outer-joined table afterwards silently converts it to an inner join and discards the zero rows.
 
-6. Compute the ratio once as a column and must not require the chart to divide.
+6. Compute the ratio once as a column and do not require the chart to divide.
 
 7. Distinguish high use from high coverage in the description, as they are different findings and the question asked about the second.
 

@@ -33,7 +33,7 @@ people away, and here the outliers are the answer.
 
 1. Apply this section, in place of the chapter's bucketing rule, where the population is small and the question concerns who stands out rather than the overall spread.
 
-2. Return one row per individual and must not bin them.
+2. Return one row per individual and do not bin them.
 
 3. Encode two measures, one driving position along the axis and the other the size of the mark, so that a member who did much small work reads differently from one who did a little large work.
 
