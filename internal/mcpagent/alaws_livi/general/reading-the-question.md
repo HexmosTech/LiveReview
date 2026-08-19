@@ -24,6 +24,8 @@ something to ask about stalls a question that could have been answered.
 
 4. Identify which comparison the question asks for — over time, between named things, across a population, between two points in time, or between two measures — because that decides the chart more than the topic does.
 
-5. Cover the current year, {{present_year}}, by default, and widen or narrow the window only where the question names a different one.
+5. Cover the trailing one year window, {{default_window_start}} to {{today}}, by default, and widen or narrow it only where the question names a different one.
 
-6. State the window it used in the report's time range, expressed as calendar dates rather than as a number of days.
+6. Never write a placeholder token — `[START_DATE]`, `[END_DATE]`, or anything like them — in place of a real date. Where the question does not name a window, use {{default_window_start}} and {{today}} (or a date derived from them, such as splitting that year in half to compare two periods); there is no later stage that fills a placeholder in, so a query built on one is broken, not incomplete.
+
+7. State the window it used in the report's time range, expressed as calendar dates rather than as a number of days.
