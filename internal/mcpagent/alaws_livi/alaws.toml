@@ -18,6 +18,7 @@ ordering = [
   "planning/compound.md",
   "planning/output.md",
   "chart-selection.md",
+  "chart-selection/basics.md",
   "chart-selection/trend.md",
   "chart-selection/trend/general.md",
   "chart-selection/trend/counted-event.md",

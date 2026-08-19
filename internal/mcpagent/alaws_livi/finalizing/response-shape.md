@@ -9,6 +9,10 @@ From the plan state we have the query count so our job here is just to
 figure out how to visualise the data either as a chart or as a downloadable
 file like csv.
 
+The allowed marks and the flat/layered/faceted shapes a spec can take are
+`livi.charts.basics` (Chart Grammar), not restated here — this section is
+the response envelope those pieces sit inside, not the vocabulary itself.
+
 <!-- alaws:laws -->
 
 1. Reply to a finalizing request with exactly one JSON object and nothing else — no prose, no explanation, no markdown fence.
@@ -17,17 +21,13 @@ file like csv.
 
 3. Include `title`, `description`, `query`, `time_range` and `granularity` on every response.
 
-4. Describe a chart with either `mark` and `encoding` together, or `layer` for several marks in one panel, or `facet` and `spec` for the same mark repeated once per category — and never combine `layer` with `facet`, because layers overlay in a single panel while facets split across panels.
+4. Answer with `csv` and a `csv_filename` where the user asked for a table, a list, an export or raw data, or where the result is too large to read as a chart, and with `chart` otherwise.
 
-5. Choose `mark` from `bar`, `line`, `point`, `circle`, `area`, `arc`, `rect`, `errorband` or `text`.
+5. Write a query that returns the shape the plan described.
 
-6. Answer with `csv` and a `csv_filename` where the user asked for a table, a list, an export or raw data, or where the result is too large to read as a chart, and with `chart` otherwise.
+6. Cite the laws you relied on where asked, and cite only laws you were actually given.
 
-7. Write a query that returns the shape the plan described.
-
-8. Cite the laws you relied on where asked, and cite only laws you were actually given.
-
-9. Follow this worked example exactly in shape, substituting your own values — note that `data_sql` and the chart fields sit side by side in one flat object, and that there is no prose before it and no markdown fence around it:
+7. Follow this worked example exactly in shape, substituting your own values — note that `data_sql` and the chart fields sit side by side in one flat object, and that there is no prose before it and no markdown fence around it:
 
 ```json
 {
@@ -55,6 +55,6 @@ file like csv.
 }
 ```
 
-10. Begin your reply with the `{` character and end it with the matching `}`, with no text of any kind before or after.
+8. Begin your reply with the `{` character and end it with the matching `}`, with no text of any kind before or after.
 
-11. Present the result as a chart where the question is chart-shaped — a trend, a comparison, a ranking, or anything else answered by a visual read of the data. A predicted row count above the chart limit is the only reason to export such a question to a file instead, and where that count looks wrong for the grain of the answer, treat the question's shape as the stronger signal.
+9. Present the result as a chart where the question is chart-shaped — a trend, a comparison, a ranking, or anything else answered by a visual read of the data. A predicted row count above the chart limit is the only reason to export such a question to a file instead, and where that count looks wrong for the grain of the answer, treat the question's shape as the stronger signal.

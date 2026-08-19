@@ -6,6 +6,10 @@ id: livi.finalizing.chart
 <!-- alaws:commentary -->
 
 Rules that apply to the rendered chart itself regardless of its shape.
+Field-type assignment (`temporal`/`quantitative`/`ordinal`/`nominal`) and
+the allowed marks live in `livi.charts.basics` (Chart Grammar), not here —
+this section covers what to do with a field once its type is already
+fixed.
 
 <!-- alaws:laws -->
 
@@ -19,6 +23,6 @@ Rules that apply to the rendered chart itself regardless of its shape.
 
 5. Every field you encode must exist in the data fetched for that chart, and each layer must carry its own complete encoding, because layers do not inherit fields from one another.
 
-6. Compute rolling averages, cumulative percentages and running totals in the query with a window function, not in the chart specification. The one presentation detail that belongs in the specification rather than the query is normalising a stack to a share of the total.
+6. Compute rolling averages, cumulative percentages and running totals in the query with a SQL window function, not with Vega-Lite's own window transform in the chart specification. The one presentation detail that belongs in the specification rather than the query is normalising a stack to a share of the total — the same rule `composition/shift.md` relies on for its `"stack": "normalize"` encoding.
 
-7. Set the field type to temporal for dates, quantitative for numbers, and ordinal or nominal for categories, and use date-style axis formats only on temporal axes.
+7. Use date-style axis formats only on temporal axes.
