@@ -13,18 +13,17 @@ few, how many are light users against heavy ones.
 
 <!-- alaws:laws -->
 
-1. Apply this section where a question asks how widely or evenly something is distributed across a group.
+1. Apply this section where a question asks how widely or evenly something is distributed across a group. {#apply-this-section-where-question}
 
-2. Group by the member to obtain one row each, then bucket those rows into bands.
+2. Group by the member to obtain one row each, then bucket those rows into bands. {#group-by-the-member-to}
 
-3. Use the same band thresholds throughout a conversation, because a tier that means one thing on this chart and another on the next renders both untrustworthy.
+3. Use the same band thresholds throughout a conversation, because a tier that means one thing on this chart and another on the next renders both untrustworthy. {#use-the-same-band-thresholds}
 
-4. Plot the bands in their natural order and do not sort them by height, since reordering destroys the shape the question asks about.
+4. Plot the bands in their natural order and do not sort them by height, since reordering destroys the shape the question asks about. {#plot-the-bands-in-their}
 
-5. Quote how many members fall in each band and name the headline — broad, or concentrated in a few.
+5. Quote how many members fall in each band and name the headline — broad, or concentrated in a few. {#quote-how-many-members-fall}
 
 6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
-
 ```json
 {
   "width": 700, "height": 340,
@@ -37,3 +36,4 @@ few, how many are light users against heavy ones.
   }
 }
 ```
+{#the-specification-below-is-an}

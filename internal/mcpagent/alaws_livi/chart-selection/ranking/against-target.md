@@ -12,22 +12,21 @@ something, who is behind, or who needs a nudge.
 
 <!-- alaws:laws -->
 
-1. Apply this section where a question asks who is doing the most or least of something, including where the question names both ends at once.
+1. Apply this section where a question asks who is doing the most or least of something, including where the question names both ends at once. {#apply-this-section-where-question}
 
-2. Group by the member and rank descending, choosing a count where the question asks who is using the tool and a volume measure where it asks who is putting real work through it.
+2. Group by the member and rank descending, choosing a count where the question asks who is using the tool and a volume measure where it asks who is putting real work through it. {#group-by-the-member-and}
 
-3. Account for members with no activity by starting from the roster of members and filling zero where there is no match, because grouping the activity table alone can only list members who did something and omits precisely those the question asks about.
+3. Account for members with no activity by starting from the roster of members and filling zero where there is no match, because grouping the activity table alone can only list members who did something and omits precisely those the question asks about. {#account-for-members-with-no}
 
-4. Where no roster is reachable, state in the description that the chart shows only members with at least one event, since silence implies that everyone appears.
+4. Where no roster is reachable, state in the description that the chart shows only members with at least one event, since silence implies that everyone appears. {#where-no-roster-is-reachable}
 
-5. Draw the target as a separate rule layer from a value it supplies, not from the query.
+5. Draw the target as a separate rule layer from a value it supplies, not from the query. {#draw-the-target-as-separate}
 
-6. Band the bars by tier using the same thresholds as the Distribution chapter.
+6. Band the bars by tier using the same thresholds as the Distribution chapter. {#band-the-bars-by-tier}
 
-7. Quote how many members fall below the target, out of how many in total.
+7. Quote how many members fall below the target, out of how many in total. {#quote-how-many-members-fall}
 
 8. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
-
 ```json
 {
   "width": 700, "height": "<max(200, 28 * n_members)>",
@@ -46,3 +45,4 @@ something, who is behind, or who needs a nudge.
   "resolve": {"scale": {"y": "shared"}}
 }
 ```
+{#the-specification-below-is-an}

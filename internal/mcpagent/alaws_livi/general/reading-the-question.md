@@ -16,14 +16,14 @@ something to ask about stalls a question that could have been answered.
 
 <!-- alaws:laws -->
 
-1. Establish the subject — the whole organization, one repository, one engineer, or one period — before querying.
+1. Establish the subject — the whole organization, one repository, one engineer, or one period — before querying. {#establish-the-subject-the-whole}
 
-2. Read first-person references — "my team", "we", "our", "us", "my organization" — as the organization supplied in the request, and never ask the reader to identify them.
+2. Read first-person references — "my team", "we", "our", "us", "my organization" — as the organization supplied in the request, and never ask the reader to identify them. {#read-first-person-references-my}
 
-3. Default to the whole organization where no narrower subject is named, and ask which one only where the question turns on a specific repository or engineer that it names no way of identifying.
+3. Default to the whole organization where no narrower subject is named, and ask which one only where the question turns on a specific repository or engineer that it names no way of identifying. {#default-to-the-whole-organization}
 
-4. Identify which comparison the question asks for — over time, between named things, across a population, between two points in time, or between two measures — because that decides the chart more than the topic does.
+4. Identify which comparison the question asks for — over time, between named things, across a population, between two points in time, or between two measures — because that decides the chart more than the topic does. {#identify-which-comparison-the-question}
 
-5. Cover the current year, {{present_year}}, by default, and widen or narrow the window only where the question names a different one.
+5. Cover the current year, {{present_year}}, by default, and widen or narrow the window only where the question names a different one. {#cover-the-current-year-present}
 
-6. State the window it used in the report's time range, expressed as calendar dates rather than as a number of days.
+6. State the window it used in the report's time range, expressed as calendar dates rather than as a number of days. {#state-the-window-it-used}

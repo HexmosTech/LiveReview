@@ -14,20 +14,19 @@ and days?"
 
 <!-- alaws:laws -->
 
-1. Apply this section where a question asks how activity is distributed across a set of entities and across time at once.
+1. Apply this section where a question asks how activity is distributed across a set of entities and across time at once. {#apply-this-section-where-question}
 
-2. Group by the entity and the day together, producing one row per cell of the grid.
+2. Group by the entity and the day together, producing one row per cell of the grid. {#group-by-the-entity-and}
 
-3. Keep the horizontal axis a plain temporal day axis in this section rather than the ordinal weekly banding used for habit questions, because this chart compares entities over a continuous window rather than showing a weekly rhythm.
+3. Keep the horizontal axis a plain temporal day axis in this section rather than the ordinal weekly banding used for habit questions, because this chart compares entities over a continuous window rather than showing a weekly rhythm. {#keep-the-horizontal-axis-plain}
 
-4. Sort entities by their total so the busiest sit together, and let the chart sort from the data rather than from a fixed list that goes stale when a new entity appears.
+4. Sort entities by their total so the busiest sit together, and let the chart sort from the data rather than from a fixed list that goes stale when a new entity appears. {#sort-entities-by-their-total}
 
-5. You may leave gaps unfilled in this section, because with many entities the grid is mostly empty by nature and filling every pair inflates the result for little gain.
+5. You may leave gaps unfilled in this section, because with many entities the grid is mostly empty by nature and filling every pair inflates the result for little gain. {#you-may-leave-gaps-unfilled}
 
-6. Call out the specific bursts and the entities that went quiet in the description, since a dense grid without them is a picture rather than an answer.
+6. Call out the specific bursts and the entities that went quiet in the description, since a dense grid without them is a picture rather than an answer. {#call-out-the-specific-bursts}
 
 7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
-
 ```json
 {
   "width": {"step": 14}, "height": {"step": 26},
@@ -39,3 +38,4 @@ and days?"
   }
 }
 ```
+{#the-specification-below-is-an}

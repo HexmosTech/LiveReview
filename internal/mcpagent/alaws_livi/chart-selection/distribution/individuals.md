@@ -16,20 +16,19 @@ people away, and here the outliers are the answer.
 
 <!-- alaws:laws -->
 
-1. Apply this section, in place of the chapter's bucketing rule, where the population is small and the question concerns who stands out rather than the overall spread.
+1. Apply this section, in place of the chapter's bucketing rule, where the population is small and the question concerns who stands out rather than the overall spread. {#apply-this-section-in-place}
 
-2. Return one row per individual and do not bin them.
+2. Return one row per individual and do not bin them. {#return-one-row-per-individual}
 
-3. Encode two measures, one driving position along the axis and the other the size of the mark, so that a member who did much small work reads differently from one who did a little large work.
+3. Encode two measures, one driving position along the axis and the other the size of the mark, so that a member who did much small work reads differently from one who did a little large work. {#encode-two-measures-one-driving}
 
-4. Jitter the marks so that overlapping individuals remain visible.
+4. Jitter the marks so that overlapping individuals remain visible. {#jitter-the-marks-so-that}
 
-5. Sort by the positional measure so the heaviest contributors sit together.
+5. Sort by the positional measure so the heaviest contributors sit together. {#sort-by-the-positional-measure}
 
-6. Name the individuals who stand out in the description, since the marks are evidence and the naming is the answer.
+6. Name the individuals who stand out in the description, since the marks are evidence and the naming is the answer. {#name-the-individuals-who-stand}
 
 7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
-
 ```json
 {
   "width": 600, "height": "<32 * n_members, min 200>",
@@ -44,3 +43,4 @@ people away, and here the outliers are the answer.
   }
 }
 ```
+{#the-specification-below-is-an}

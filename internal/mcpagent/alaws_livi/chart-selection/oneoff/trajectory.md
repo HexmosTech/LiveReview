@@ -16,11 +16,10 @@ sparse to plot a weekly path.
 
 <!-- alaws:laws -->
 
-1. Apply this section where a question asks whether an overall picture is improving across several indicators at once.
+1. Apply this section where a question asks whether an overall picture is improving across several indicators at once. {#apply-this-section-where-question}
 
-2. Plot successive periods as marks joined in chronological order, so that the path itself carries the meaning.
+2. Plot successive periods as marks joined in chronological order, so that the path itself carries the meaning. {#plot-successive-periods-as-marks}
 
-3. Order the marks with an explicit ordering channel rather than relying on the order of rows.
+3. Order the marks with an explicit ordering channel rather than relying on the order of rows. {#order-the-marks-with-an}
 
-4. State that the question cannot presently be answered where the indicators it needs are too sparse to support a path.
-
+4. State that the question cannot presently be answered where the indicators it needs are too sparse to support a path. {#state-that-the-question-cannot}

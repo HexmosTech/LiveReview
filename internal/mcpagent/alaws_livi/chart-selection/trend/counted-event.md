@@ -14,18 +14,17 @@ using it?"
 
 <!-- alaws:laws -->
 
-1. Apply this section where a question asks whether a countable activity is rising or falling across the whole organization, without an entity filter and without a second measure.
+1. Apply this section where a question asks whether a countable activity is rising or falling across the whole organization, without an entity filter and without a second measure. {#apply-this-section-where-question}
 
-2. Count the events per day over the window.
+2. Count the events per day over the window. {#count-the-events-per-day}
 
-3. Compute the rolling average and the period average as window functions in the query rather than in the chart.
+3. Compute the rolling average and the period average as window functions in the query rather than in the chart. {#compute-the-rolling-average-and}
 
-4. Layer three marks: the raw series, the rolling average, and the period average as a rule.
+4. Layer three marks: the raw series, the rolling average, and the period average as a rule. {#layer-three-marks-the-raw}
 
-5. State the direction of travel in the description and quote the first and last values of the smoothed line.
+5. State the direction of travel in the description and quote the first and last values of the smoothed line. {#state-the-direction-of-travel}
 
 6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
-
 ```json
 {
   "width": 900, "height": 420,
@@ -41,3 +40,4 @@ using it?"
   "resolve": {"scale": {"y": "shared"}}
 }
 ```
+{#the-specification-below-is-an}

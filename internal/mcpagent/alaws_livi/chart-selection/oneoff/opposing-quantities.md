@@ -12,18 +12,17 @@ anything where two opposed counts share a subject.
 
 <!-- alaws:laws -->
 
-1. Apply this section where a question asks about sentiment, agreement or trust between two opposed counts.
+1. Apply this section where a question asks about sentiment, agreement or trust between two opposed counts. {#apply-this-section-where-question}
 
-2. Begin the query from the table holding the opposed events and join outwards for the subject's name, since subjects with no events contribute nothing to this chart.
+2. Begin the query from the table holding the opposed events and join outwards for the subject's name, since subjects with no events contribute nothing to this chart. {#begin-the-query-from-the}
 
-3. Exclude retracted or withdrawn events, and filter on the event's own timestamp rather than the subject's, because a vote cast this week on an older item is this week's signal.
+3. Exclude retracted or withdrawn events, and filter on the event's own timestamp rather than the subject's, because a vote cast this week on an older item is this week's signal. {#exclude-retracted-or-withdrawn-events}
 
-4. Return both sides as positive counts and treat the negation that places one side below the zero line as presentation.
+4. Return both sides as positive counts and treat the negation that places one side below the zero line as presentation. {#return-both-sides-as-positive}
 
-5. Check the totals before rendering and quote them outright where they are small, since a chart alone implies a trend that a handful of points cannot support.
+5. Check the totals before rendering and quote them outright where they are small, since a chart alone implies a trend that a handful of points cannot support. {#check-the-totals-before-rendering}
 
 6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
-
 ```json
 {
   "width": 600, "height": 320,
@@ -36,3 +35,4 @@ anything where two opposed counts share a subject.
   }
 }
 ```
+{#the-specification-below-is-an}

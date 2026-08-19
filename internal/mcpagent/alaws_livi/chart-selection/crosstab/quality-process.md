@@ -18,9 +18,8 @@ repository).
 
 <!-- alaws:laws -->
 
-1. Apply this section where a question asks whether problems cluster at a particular stage or in a particular place.
+1. Apply this section where a question asks whether problems cluster at a particular stage or in a particular place. {#apply-this-section-where-question}
 
-2. State that the question cannot presently be answered and offer the nearest question backed by real data, since the dimensions this section needs are not recorded as queryable columns.
+2. State that the question cannot presently be answered and offer the nearest question backed by real data, since the dimensions this section needs are not recorded as queryable columns. {#state-that-the-question-cannot}
 
-3. Do not reconstruct a severity or a category by searching the text of a stored payload.
-
+3. Do not reconstruct a severity or a category by searching the text of a stored payload. {#do-not-reconstruct-severity-or}
