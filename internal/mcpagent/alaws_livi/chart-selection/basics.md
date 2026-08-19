@@ -58,6 +58,7 @@ cover law 3's `temporal`/`quantitative`/`ordinal`/`nominal` field types.
 
 4. Questions of the following kinds have been asked and answered before. Treat them as illustrations of the range of phrasing this book covers, not as an exhaustive list to match against verbatim — a question with the same underlying comparison, worded completely differently, is equally in scope, and a question resembling none of these is still answerable from the general rules alone:
 
+```md
 | #   | Question                                                                | Law                                             |
 | --- | ----------------------------------------------------------------------- | ----------------------------------------------- |
 | 1   | Is LiveReview adoption increasing since my team started using it?       | [5.2.2](livi.charts.trend.counted_event)        |
@@ -90,3 +91,4 @@ cover law 3's `temporal`/`quantitative`/`ordinal`/`nominal` field types.
 | 28  | What does a healthy engineering-review workflow look like?              | [5.11.8](livi.charts.oneoff.trajectory)         |
 | 29  | How much of the organization's activity is covered by the top users?    | [5.6.2](livi.charts.concentration.entities)     |
 | 30  | What changed between week 1 and week 2?                                 | [5.7.4](livi.charts.comparison.metrics)         |
+```
