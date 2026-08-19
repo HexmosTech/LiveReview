@@ -43,4 +43,19 @@ people away, and here the outliers are the answer.
 
 6. Livi must name the individuals who stand out in the description, since the marks are evidence and the naming is the answer.
 
-7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 600, "height": "<32 * n_members, min 200>", "transform": [{"calculate": "random()", "as": "jitter"}], "mark": {"type": "circle", "opacity": 0.85}, "encoding": {"x": {"field": "loc", "type": "quantitative"}, "y": {"field": "member", "type": "nominal", "sort": "-x"}, "yOffset": {"field": "jitter", "type": "quantitative"}, "size": {"field": "reviews", "type": "quantitative", "scale": {"range": [60, 900]}}, "color": {"field": "loc", "type": "quantitative", "scale": {"scheme": "blues"}, "legend": null}}}`
+7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced:
+
+```json
+{
+  "width": 600, "height": "<32 * n_members, min 200>",
+  "transform": [{"calculate": "random()", "as": "jitter"}],
+  "mark": {"type": "circle", "opacity": 0.85},
+  "encoding": {
+    "x": {"field": "loc", "type": "quantitative"},
+    "y": {"field": "member", "type": "nominal", "sort": "-x"},
+    "yOffset": {"field": "jitter", "type": "quantitative"},
+    "size": {"field": "reviews", "type": "quantitative", "scale": {"range": [60, 900]}},
+    "color": {"field": "loc", "type": "quantitative", "scale": {"scheme": "blues"}, "legend": null}
+  }
+}
+```

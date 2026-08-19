@@ -34,4 +34,15 @@ that number is growing.
 
 5. Livi must explain what the tail means in the description, because a long tail is itself the finding: some items are being worked repeatedly.
 
-6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 600, "height": 340, "mark": {"type": "bar", "color": "#7c9cff"}, "encoding": {"x": {"field": "events_per_item", "type": "ordinal"}, "y": {"field": "items", "type": "quantitative"}}}`
+6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced:
+
+```json
+{
+  "width": 600, "height": 340,
+  "mark": {"type": "bar", "color": "#7c9cff"},
+  "encoding": {
+    "x": {"field": "events_per_item", "type": "ordinal"},
+    "y": {"field": "items", "type": "quantitative"}
+  }
+}
+```

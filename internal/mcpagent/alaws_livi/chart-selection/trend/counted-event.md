@@ -43,4 +43,20 @@ rolling average, a dashed rule for the period average:
 
 5. Livi must state the direction of travel in the description and quote the first and last values of the smoothed line.
 
-6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 900, "height": 420, "layer": [{"mark": {"type": "area", "opacity": 0.25, "color": "#7c9cff", "interpolate": "monotone"}, "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "reviews", "type": "quantitative"}}}, {"mark": {"type": "line", "color": "#ffb454", "strokeWidth": 2.5, "interpolate": "monotone"}, "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "rolling_avg_7d", "type": "quantitative"}}}, {"mark": {"type": "rule", "color": "#ff5c7c", "strokeDash": [6, 4], "strokeWidth": 1.5}, "data": {"values": [{"period_avg": "<period_avg>"}]}, "encoding": {"y": {"field": "period_avg", "type": "quantitative"}}}], "resolve": {"scale": {"y": "shared"}}}`
+6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced:
+
+```json
+{
+  "width": 900, "height": 420,
+  "layer": [
+    {"mark": {"type": "area", "opacity": 0.25, "color": "#7c9cff", "interpolate": "monotone"},
+     "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "reviews", "type": "quantitative"}}},
+    {"mark": {"type": "line", "color": "#ffb454", "strokeWidth": 2.5, "interpolate": "monotone"},
+     "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "rolling_avg_7d", "type": "quantitative"}}},
+    {"mark": {"type": "rule", "color": "#ff5c7c", "strokeDash": [6, 4], "strokeWidth": 1.5},
+     "data": {"values": [{"period_avg": "<period_avg>"}]},
+     "encoding": {"y": {"field": "period_avg", "type": "quantitative"}}}
+  ],
+  "resolve": {"scale": {"y": "shared"}}
+}
+```

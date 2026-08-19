@@ -44,4 +44,20 @@ raw line, a heavier rolling-average line:
 
 6. Livi must compare the highlighted interval against the interval preceding it in the description, because the line alone shows only that something happened and not what.
 
-7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 800, "height": 340, "layer": [{"data": {"values": [{"start": "<highlight_start>", "end": "<highlight_end>"}]}, "mark": {"type": "rect", "color": "#7c9cff", "opacity": 0.12}, "encoding": {"x": {"field": "start", "type": "temporal"}, "x2": {"field": "end"}}}, {"mark": {"type": "line", "color": "#3a4358", "strokeWidth": 1}, "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "loc", "type": "quantitative"}}}, {"mark": {"type": "line", "color": "#ffb454", "strokeWidth": 2.5}, "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "rolling_avg", "type": "quantitative"}}}], "resolve": {"scale": {"y": "shared"}}}`
+7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced:
+
+```json
+{
+  "width": 800, "height": 340,
+  "layer": [
+    {"data": {"values": [{"start": "<highlight_start>", "end": "<highlight_end>"}]},
+     "mark": {"type": "rect", "color": "#7c9cff", "opacity": 0.12},
+     "encoding": {"x": {"field": "start", "type": "temporal"}, "x2": {"field": "end"}}},
+    {"mark": {"type": "line", "color": "#3a4358", "strokeWidth": 1},
+     "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "loc", "type": "quantitative"}}},
+    {"mark": {"type": "line", "color": "#ffb454", "strokeWidth": 2.5},
+     "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "rolling_avg", "type": "quantitative"}}}
+  ],
+  "resolve": {"scale": {"y": "shared"}}
+}
+```

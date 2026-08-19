@@ -39,4 +39,17 @@ established. The answer is the change broken down by whoever caused it.
 
 5. Livi must turn the aggregate into attribution in the description, because naming who accounts for the movement is what the question asked for.
 
-6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 600, "height": "<max(200, 30 * n_members)>", "mark": {"type": "bar"}, "encoding": {"y": {"field": "member", "type": "nominal", "sort": "x"}, "x": {"field": "delta", "type": "quantitative"}, "color": {"field": "direction", "type": "nominal", "legend": null, "scale": {"domain": ["up", "down"], "range": ["#39d353", "#ff5c7c"]}}}}`
+6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced:
+
+```json
+{
+  "width": 600, "height": "<max(200, 30 * n_members)>",
+  "mark": {"type": "bar"},
+  "encoding": {
+    "y": {"field": "member", "type": "nominal", "sort": "x"},
+    "x": {"field": "delta", "type": "quantitative"},
+    "color": {"field": "direction", "type": "nominal", "legend": null,
+              "scale": {"domain": ["up", "down"], "range": ["#39d353", "#ff5c7c"]}}
+  }
+}
+```

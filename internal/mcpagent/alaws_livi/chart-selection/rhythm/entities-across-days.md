@@ -38,4 +38,16 @@ and days?"
 
 6. Livi must call out the specific bursts and the entities that went quiet in the description, since a dense grid without them is a picture rather than an answer.
 
-7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": {"step": 14}, "height": {"step": 26}, "mark": {"type": "rect"}, "encoding": {"x": {"field": "day", "type": "temporal", "axis": {"format": "%b %d", "labelAngle": -40}}, "y": {"field": "repository", "type": "nominal", "sort": "<repos-by-total-desc>"}, "color": {"field": "loc", "type": "quantitative", "scale": {"scheme": "blues"}}}}`
+7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced:
+
+```json
+{
+  "width": {"step": 14}, "height": {"step": 26},
+  "mark": {"type": "rect"},
+  "encoding": {
+    "x": {"field": "day", "type": "temporal", "axis": {"format": "%b %d", "labelAngle": -40}},
+    "y": {"field": "repository", "type": "nominal", "sort": "<repos-by-total-desc>"},
+    "color": {"field": "loc", "type": "quantitative", "scale": {"scheme": "blues"}}
+  }
+}
+```

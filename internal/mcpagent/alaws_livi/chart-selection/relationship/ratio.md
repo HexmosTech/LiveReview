@@ -46,4 +46,17 @@ badly covered, and only this framing shows it.
 
 7. Livi must distinguish high use from high coverage in the description, as they are different findings and the question asked about the second.
 
-8. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 600, "height": 380, "mark": {"type": "circle", "opacity": 0.85}, "encoding": {"x": {"field": "coverage", "type": "quantitative"}, "y": {"field": "loc", "type": "quantitative"}, "size": {"field": "members", "type": "quantitative", "scale": {"range": [60, 900]}}, "color": {"field": "coverage", "type": "quantitative", "scale": {"scheme": "blues"}}}}`
+8. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced:
+
+```json
+{
+  "width": 600, "height": 380,
+  "mark": {"type": "circle", "opacity": 0.85},
+  "encoding": {
+    "x": {"field": "coverage", "type": "quantitative"},
+    "y": {"field": "loc", "type": "quantitative"},
+    "size": {"field": "members", "type": "quantitative", "scale": {"range": [60, 900]}},
+    "color": {"field": "coverage", "type": "quantitative", "scale": {"scheme": "blues"}}
+  }
+}
+```

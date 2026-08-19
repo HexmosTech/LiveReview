@@ -33,4 +33,16 @@ on?"
 
 4. Livi must contrast the focused members with the dispersed ones in the description, as that contrast is the finding.
 
-5. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 700, "height": 340, "mark": {"type": "bar"}, "encoding": {"x": {"field": "member", "type": "nominal", "sort": "-y"}, "y": {"field": "events", "type": "quantitative", "stack": true}, "color": {"field": "category", "type": "nominal"}}}`
+5. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced:
+
+```json
+{
+  "width": 700, "height": 340,
+  "mark": {"type": "bar"},
+  "encoding": {
+    "x": {"field": "member", "type": "nominal", "sort": "-y"},
+    "y": {"field": "events", "type": "quantitative", "stack": true},
+    "color": {"field": "category", "type": "nominal"}
+  }
+}
+```

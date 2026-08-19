@@ -47,4 +47,23 @@ daily workflow?"
 
 7. Livi must name the pattern in words in the description — which days are dead, whether the streak is unbroken, when it began or stopped — so the reader need not count cells.
 
-8. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": {"step": "<cell_step>"}, "height": {"step": "<cell_step>"}, "mark": {"type": "rect", "cornerRadius": 2}, "encoding": {"x": {"field": "day", "type": "ordinal", "timeUnit": "yearweek", "scale": {"paddingInner": 0.15}, "axis": {"format": "%b", "labelExpr": "date(datum.value) <= 7 ? timeFormat(datum.value, '%b') : ''", "labelAngle": 0}}, "y": {"field": "day", "type": "ordinal", "timeUnit": "day", "sort": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], "scale": {"paddingInner": 0.15}, "axis": {"values": ["Mon", "Wed", "Fri"]}}, "color": {"field": "value", "type": "quantitative", "scale": {"type": "threshold", "domain": [1, 3, 6, 10], "range": "<github_greens>"}, "legend": null}}}`
+8. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced:
+
+```json
+{
+  "width": {"step": "<cell_step>"}, "height": {"step": "<cell_step>"},
+  "mark": {"type": "rect", "cornerRadius": 2},
+  "encoding": {
+    "x": {"field": "day", "type": "ordinal", "timeUnit": "yearweek",
+          "scale": {"paddingInner": 0.15},
+          "axis": {"format": "%b", "labelExpr": "date(datum.value) <= 7 ? timeFormat(datum.value, '%b') : ''", "labelAngle": 0}},
+    "y": {"field": "day", "type": "ordinal", "timeUnit": "day",
+          "sort": ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"],
+          "scale": {"paddingInner": 0.15},
+          "axis": {"values": ["Mon","Wed","Fri"]}},
+    "color": {"field": "value", "type": "quantitative",
+              "scale": {"type": "threshold", "domain": [1, 3, 6, 10], "range": "<github_greens>"},
+              "legend": null}
+  }
+}
+```

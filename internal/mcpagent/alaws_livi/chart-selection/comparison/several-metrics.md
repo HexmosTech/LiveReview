@@ -47,4 +47,26 @@ many entities.
 
 6. Livi must keep the list of metrics short and stable, since a verdict of fifteen rows is a spreadsheet.
 
-7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced: `{"width": 300, "height": 220, "layer": [{"mark": {"type": "rect"}, "encoding": {"x": {"field": "period", "type": "nominal", "sort": ["W1", "W2", "Delta"]}, "y": {"field": "metric", "type": "nominal", "sort": "<metric_order>"}, "color": {"condition": {"test": "datum.is_delta", "field": "value", "type": "quantitative", "scale": {"domainMid": 0, "range": ["#ff5c7c", "#232a3d", "#39d353"]}}, "value": "#161b22"}}}, {"mark": {"type": "text", "color": "#e6ebf5", "fontSize": 12}, "encoding": {"x": {"field": "period", "type": "nominal", "sort": ["W1", "W2", "Delta"]}, "y": {"field": "metric", "type": "nominal", "sort": "<metric_order>"}, "text": {"field": "value", "type": "quantitative", "format": ".1f"}}}]}`
+7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced:
+
+```json
+{
+  "width": 300, "height": 220,
+  "layer": [
+    {"mark": {"type": "rect"},
+     "encoding": {
+       "x": {"field": "period", "type": "nominal", "sort": ["W1", "W2", "Delta"]},
+       "y": {"field": "metric", "type": "nominal", "sort": "<metric_order>"},
+       "color": {"condition": {"test": "datum.is_delta", "field": "value", "type": "quantitative",
+                                "scale": {"domainMid": 0, "range": ["#ff5c7c", "#232a3d", "#39d353"]}},
+                 "value": "#161b22"}
+     }},
+    {"mark": {"type": "text", "color": "#e6ebf5", "fontSize": 12},
+     "encoding": {
+       "x": {"field": "period", "type": "nominal", "sort": ["W1", "W2", "Delta"]},
+       "y": {"field": "metric", "type": "nominal", "sort": "<metric_order>"},
+       "text": {"field": "value", "type": "quantitative", "format": ".1f"}
+     }}
+  ]
+}
+```
