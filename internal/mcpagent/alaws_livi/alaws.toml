@@ -2,6 +2,7 @@ title = "Livi Analytics Governance"
 
 ordering = [
   "introduction.md",
+  "introduction/assembly.md",
   "general.md",
   "general/principles.md",
   "general/reading-the-question.md",

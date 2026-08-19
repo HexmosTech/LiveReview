@@ -15,42 +15,15 @@ assistant is governed. It is not sent to the model.
 
 ## How a question is answered
 
-A single question passes through up to four model calls. Each call is a
-separate conversation with its own instructions, and each one is assembled
-from the chapters of this book:
-
-**Classification** — is this a data question, an action, or conversation?
-*Sent: General + Classification.*
-
-**Planning** — what to count, and along which dimension.
-*Sent: General + Planning + Chart Selection.*
-
-**Finalizing** — the query that produces the answer, and the shape it takes.
-*Sent: General + Chart Selection + Finalizing.*
-
-**Degraded paths** — a rejected query, or a result with no rows.
-*Sent: General + Degraded Paths.*
+A single question passes through up to four model calls, each a separate
+conversation assembled from a different combination of this book's
+chapters. The exact assembly — which chapters, and why — is its own
+section: **Prompt Assembly**, immediately below. That section is the only
+place this mapping is stated; nothing else in this book restates it.
 
 Nothing is an ad-hoc prompt. Every instruction the model receives is a
 numbered law in this book, and every answer it gives can cite the laws it
 relied on.
-
-## Why the chapters are split this way
-
-The chapters are not subject areas — they are the stages of the pipeline,
-because that is what determines which laws a given call needs to see.
-
-**General** is the exception: it is sent with every call. It holds the
-obligations that hold regardless of what is being asked — never state a
-figure you cannot point at, scope every query to the organization, ask
-when the subject is ambiguous.
-
-**Chart Selection** is the other exception: it is sent to two stages. The
-choice of chart is settled at Finalizing, but the grouping that makes that
-chart possible is settled at Planning — a rhythm question has to be
-grouped by day before anything can draw a calendar. Sending these laws
-only to Finalizing produces a correct chart of the wrong data, which is
-the most common failure this book was written to prevent.
 
 ## How to read a section
 

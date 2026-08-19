@@ -192,13 +192,11 @@ func collectSectionIDs(book *alaws.Book, prefixes []string) []string {
 // buildLawbookPrompts renders the four analytics pipeline branches from the
 // compiled lawbook. Called by WithAnalytics after the lawbook is loaded.
 //
-// The mapping from lawbook chapters to pipeline stages follows the
-// introduction.md's "How a question is answered" section:
-//
-//	Classify:  General + Classification
-//	Plan:      General + Planning + Chart Selection
-//	Finalize:  General + Chart Selection + Finalizing
-//	Degraded:  General + Degraded Paths
+// The chapter-to-call mapping below has exactly one source of truth:
+// alaws_livi/introduction/assembly.md ("Prompt Assembly", id
+// livi.intro.assembly). Do not restate the reasoning here or anywhere
+// else - update that section, and this comment (and the calls it
+// documents) will already match it because it's the same four lines.
 func buildLawbookPrompts(orgName, userName string, orgID int64) (*lawbookPaths, error) {
 	book, err := ensureLawbook()
 	if err != nil {
