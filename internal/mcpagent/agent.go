@@ -115,6 +115,10 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 	// 2=count-query proposal). 0 means "not a numbered diagram call" - the
 	// chat branch, or a plain tool-only agent with analytics disabled.
 	callNumber := 0
+	// planRetried bounds the count_query prose retry below to one attempt,
+	// so a model that will not produce a plan fails fast instead of
+	// burning the whole step budget on the same nudge.
+	planRetried := false
 	// schemaTableText is the schema block dbctx rendered for call #2 (the
 	// count-query/plan branch). It is the turn's one and only dbctx fetch -
 	// runAnalyticsPlan threads it through to every report's finalize call
@@ -237,6 +241,27 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 				// {"chart": ..., "learning": ...} object nothing parses).
 				// One retry asking for prose is cheap and much better than
 				// that.
+				// The count_query branch was routed here because call #0
+				// judged the question answerable from data, so prose here
+				// is the model declining to plan - usually a clarifying
+				// question about something the prompt already supplies,
+				// like which organization "my team" means. Returning it
+				// verbatim strands the user with a question instead of a
+				// chart, so force one retry that restates the contract.
+				if callNumber == 2 && !planRetried {
+					planRetried = true
+					log.Warn().Int("step", step).Str("response_preview", truncateContent(response, 200)).
+						Msg("count_query branch returned prose instead of an analytics plan, forcing retry")
+					history = append(history, HistoryEntry{
+						"role": "user",
+						"content": "That reply was not an analytics plan, and this turn cannot ask the user anything. " +
+							"The organization is already given to you above - first-person phrasing like \"my team\" means that organization, " +
+							"so never ask which team or organization is meant. Choose the most reasonable reading of the question, " +
+							"state that reading in the entry's \"question\" field, and reply with the analytics_plan JSON object alone: " +
+							"start with { and end with }, with no text before or after.",
+					})
+					continue
+				}
 				if looksLikeUnrecognizedJSON(response) {
 					log.Warn().Int("step", step).Str("response_preview", truncateContent(response, 200)).
 						Msg("AI produced an unrecognized JSON object on a no-tools branch, forcing retry")

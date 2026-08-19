@@ -110,7 +110,20 @@ func ensureLawbook() (*alaws.Book, error) {
 // single prompt-ready string. It collects all sections whose ID starts with
 // any of the given prefixes (e.g. "livi.general" matches "livi.general",
 // "livi.general.principles", "livi.general.data", etc.).
+// specExampleMarker identifies the illustrative Vega-Lite specification
+// carried by most chart-selection sections. Those examples exist for the
+// finalizing stage, which draws the chart; the planning stage only needs
+// to know what to group by, so it renders without them. Left in, they are
+// roughly two thirds of the planning prompt and push the instructions
+// that stage actually depends on far enough from the end that a small
+// model stops following them.
+const specExampleMarker = "The specification below is an example"
+
 func renderBranch(book *alaws.Book, prefixes []string, vars map[string]string) (string, error) {
+	return renderBranchFiltered(book, prefixes, vars, false)
+}
+
+func renderBranchFiltered(book *alaws.Book, prefixes []string, vars map[string]string, dropSpecs bool) (string, error) {
 	// Rendered one prefix group at a time and joined in prefix order.
 	// alaws.Book.Laws always returns laws in book order no matter what
 	// order the Selector's SectionIDs are given in, so a single call
@@ -127,6 +140,15 @@ func renderBranch(book *alaws.Book, prefixes []string, vars map[string]string) (
 		laws, err := book.Laws(alaws.Selector{SectionIDs: ids})
 		if err != nil {
 			return "", fmt.Errorf("select laws %q: %w", prefix, err)
+		}
+		if dropSpecs {
+			kept := laws.Laws[:0]
+			for _, l := range laws.Laws {
+				if !strings.Contains(l.Text, specExampleMarker) {
+					kept = append(kept, l)
+				}
+			}
+			laws.Laws = kept
 		}
 		rendered, err := laws.Render(alaws.RenderOptions{
 			Vars:      vars,
@@ -191,7 +213,7 @@ func buildLawbookPrompts(orgName, userName string, orgID int64) (*lawbookPaths, 
 		return nil, fmt.Errorf("classify branch: %w", err)
 	}
 
-	planLaws, err := renderBranch(book, []string{"livi.general", "livi.charts", "livi.planning"}, vars)
+	planLaws, err := renderBranchFiltered(book, []string{"livi.general", "livi.charts", "livi.planning"}, vars, true)
 	if err != nil {
 		return nil, fmt.Errorf("plan branch: %w", err)
 	}
