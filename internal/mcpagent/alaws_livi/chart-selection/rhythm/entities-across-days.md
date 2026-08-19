@@ -12,18 +12,6 @@ where the bursts and the dead stretches are.
 **Seen as:** "What does engineering activity look like across repositories
 and days?"
 
-```json
-{
-  "width": {"step": 14}, "height": {"step": 26},
-  "mark": {"type": "rect"},
-  "encoding": {
-    "x": {"field": "day", "type": "temporal", "axis": {"format": "%b %d", "labelAngle": -40}},
-    "y": {"field": "repository", "type": "nominal", "sort": "<repos-by-total-desc>"},
-    "color": {"field": "loc", "type": "quantitative", "scale": {"scheme": "blues"}}
-  }
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section where a question asks how activity is distributed across a set of entities and across time at once.

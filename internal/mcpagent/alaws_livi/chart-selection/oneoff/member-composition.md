@@ -11,18 +11,6 @@ whether someone is focused on one area or spread across many.
 **Seen as:** "What does each engineer actually spend their review activity
 on?"
 
-```json
-{
-  "width": 700, "height": 340,
-  "mark": {"type": "bar"},
-  "encoding": {
-    "x": {"field": "member", "type": "nominal", "sort": "-y"},
-    "y": {"field": "events", "type": "quantitative", "stack": true},
-    "color": {"field": "category", "type": "nominal"}
-  }
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section where a question asks what individuals spend their effort on.

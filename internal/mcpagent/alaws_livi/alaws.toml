@@ -3,6 +3,7 @@ title = "Livi Analytics Governance"
 ordering = [
   "introduction.md",
   "introduction/assembly.md",
+  "introduction/index.md",
   "general.md",
   "general/principles.md",
   "general/reading-the-question.md",
@@ -19,6 +20,7 @@ ordering = [
   "planning/compound.md",
   "planning/output.md",
   "chart-selection.md",
+  "chart-selection/basics.md",
   "chart-selection/trend.md",
   "chart-selection/trend/general.md",
   "chart-selection/trend/counted-event.md",

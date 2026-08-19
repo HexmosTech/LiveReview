@@ -13,21 +13,6 @@ precision for density.
 
 **Seen as:** "How much code has LiveReview reviewed?"
 
-```json
-{
-  "width": 800, "height": 90,
-  "layer": [
-    {"mark": {"type": "area", "color": "#7c9cff", "opacity": 0.35, "interpolate": "monotone"},
-     "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "b1", "type": "quantitative", "scale": {"domain": [0, "<band>"]}}}},
-    {"mark": {"type": "area", "color": "#7c9cff", "opacity": 0.6, "interpolate": "monotone"},
-     "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "b2", "type": "quantitative", "scale": {"domain": [0, "<band>"]}}}},
-    {"mark": {"type": "area", "color": "#7c9cff", "opacity": 1.0, "interpolate": "monotone"},
-     "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "b3", "type": "quantitative", "scale": {"domain": [0, "<band>"]}}}}
-  ],
-  "resolve": {"scale": {"y": "shared"}}
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section only where a question covers a long stretch and the answer must remain compact, since a plain trend line with a rolling average is otherwise the default.

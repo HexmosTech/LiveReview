@@ -14,20 +14,6 @@ a repository, an engineer or a team — the section governs all of them.
 repository, on lines of code) and "How much of the organization's activity
 is covered by the top users?" (by engineer, on review count).
 
-```json
-{
-  "width": 600, "height": 360,
-  "layer": [
-    {"mark": {"type": "bar", "color": "#7c9cff"},
-     "encoding": {"x": {"field": "entity", "type": "nominal", "sort": "-y"}, "y": {"field": "value", "type": "quantitative"}}},
-    {"mark": {"type": "line", "point": true, "color": "#ff5c7c", "strokeWidth": 2},
-     "encoding": {"x": {"field": "entity", "type": "nominal", "sort": "-y"},
-                  "y": {"field": "cum_pct", "type": "quantitative", "axis": {"orient": "right"}}}}
-  ],
-  "resolve": {"scale": {"y": "independent"}}
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section where a question asks where something is concentrated or whether a few contributors account for most of a total, whatever the entity.

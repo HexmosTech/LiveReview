@@ -15,18 +15,6 @@ bars) and "Are we moving review earlier in the development lifecycle?"
 
 Swap the mark type for the continuous form; nothing else changes.
 
-```json
-{
-  "width": 700, "height": 340,
-  "mark": {"type": "bar"},
-  "encoding": {
-    "x": {"field": "week", "type": "temporal"},
-    "y": {"field": "n", "type": "quantitative", "stack": "normalize", "axis": {"format": "%"}},
-    "color": {"field": "category", "type": "nominal"}
-  }
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section where a question asks where something is coming from or whether one category is taking over from another.

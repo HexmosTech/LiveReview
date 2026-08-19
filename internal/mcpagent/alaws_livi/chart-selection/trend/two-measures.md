@@ -12,38 +12,6 @@ more substance behind it.
 **Seen as:** "How much engineering work is being covered by LiveReview?"
 (lines of code against review count)
 
-```json
-{
-  "width": 800,
-  "height": 340,
-  "layer": [
-    {
-      "mark": { "type": "line", "color": "#ffb454", "strokeWidth": 2 },
-      "encoding": {
-        "x": { "field": "day", "type": "temporal" },
-        "y": {
-          "field": "loc",
-          "type": "quantitative",
-          "axis": { "titleColor": "#ffb454" }
-        }
-      }
-    },
-    {
-      "mark": { "type": "line", "color": "#7c9cff", "strokeWidth": 2 },
-      "encoding": {
-        "x": { "field": "day", "type": "temporal" },
-        "y": {
-          "field": "reviews",
-          "type": "quantitative",
-          "axis": { "titleColor": "#7c9cff", "orient": "right" }
-        }
-      }
-    }
-  ],
-  "resolve": { "scale": { "y": "independent" } }
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section where a question asks whether two measures are moving together over time.

@@ -10,25 +10,6 @@ something, who is behind, or who needs a nudge.
 
 **Seen as:** "Who has adopted LiveReview — and who hasn't?"
 
-```json
-{
-  "width": 700, "height": "<max(200, 28 * n_members)>",
-  "layer": [
-    {"mark": {"type": "bar", "cornerRadiusTopRight": 3, "cornerRadiusBottomRight": 3},
-     "encoding": {
-       "y": {"field": "member", "type": "nominal", "sort": "-x"},
-       "x": {"field": "value", "type": "quantitative"},
-       "color": {"field": "band", "type": "nominal",
-                 "scale": {"domain": "<band_order>", "range": "<color_range>"}, "legend": null}
-     }},
-    {"data": {"values": [{"target": "<target>"}]},
-     "mark": {"type": "rule", "color": "#ff5c7c", "strokeDash": [6, 4], "strokeWidth": 1.5},
-     "encoding": {"x": {"field": "target", "type": "quantitative"}}}
-  ],
-  "resolve": {"scale": {"y": "shared"}}
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section where a question asks who is doing the most or least of something, including where the question names both ends at once.

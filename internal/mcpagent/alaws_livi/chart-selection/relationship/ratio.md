@@ -17,19 +17,6 @@ badly covered, and only this framing shows it.
 
 **Seen as:** "Which repositories have the highest review coverage?"
 
-```json
-{
-  "width": 600, "height": 380,
-  "mark": {"type": "circle", "opacity": 0.85},
-  "encoding": {
-    "x": {"field": "coverage", "type": "quantitative"},
-    "y": {"field": "loc", "type": "quantitative"},
-    "size": {"field": "members", "type": "quantitative", "scale": {"range": [60, 900]}},
-    "color": {"field": "coverage", "type": "quantitative", "scale": {"scheme": "blues"}}
-  }
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section where a question asks about coverage, penetration or the share of what was possible.
