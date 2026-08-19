@@ -1150,7 +1150,10 @@ func assembleAnalyticsResponse(reports []vlrender.VegaLiteReport, notes []string
 	if len(reports) == 0 {
 		if len(notes) == 0 {
 			if hasArtifacts {
-				return ""
+				// A file-only turn still needs words. Returning "" renders
+				// as an empty bubble next to a download the user has no
+				// context for.
+				return "I've put the results in a file you can download."
 			}
 			return "I could not find anything to answer that."
 		}
