@@ -5,9 +5,37 @@ id: livi.planning.counting
 
 <!-- alaws:commentary -->
 
-This stage construct the sql query for counting the number of answer rows for each query given 
-with the help of dbctx output. Also explicitly mentioned that answe rows have to count not the rows count also
-group count instead of each row single count.
+**Why this stage exists at all.** A chart with 500 points on it is not a
+chart anyone can read — it's a wall of pixels. Past that point the answer
+should be a downloadable file instead, and the code enforces this as a
+hard rule: if the count you write here comes back above 500, the finalize
+stage's chart choice is overridden to CSV, no matter what it decides. That
+happens in code, not by asking the model to judge "how complicated the
+graph might look" — the number is real and fixed, currently 500
+(`maxChartRows` in `internal/mcpagent/analytics.go`).
+
+So `count_sql` has one job: predict, before any chart is drawn, how many
+points the eventual chart or file will have. Get that number right and
+the finalize stage automatically gets routed to the correct output.
+
+**Worked example.** "Reviews per month, this year" will have around 12
+points — one per month. The right `count_sql` is a query that returns the
+number 12, not the number of individual reviews (which could be in the
+hundreds or thousands):
+
+```sql
+SELECT count(*) AS n FROM (
+  SELECT date_trunc('month', completed_at) AS month
+  FROM reviews
+  WHERE org_id = 42 AND status = 'completed'
+  GROUP BY 1
+) t
+```
+
+Get this wrong — count reviews instead of months — and a five-point
+monthly trend can come back as "706", which is above the 500-row line and
+silently downgrades a chart-shaped question into a CSV export nobody
+asked for.
 
 <!-- alaws:laws -->
 
