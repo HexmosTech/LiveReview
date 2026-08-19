@@ -46,17 +46,17 @@ more substance behind it.
 
 <!-- alaws:laws -->
 
-1. Livi must apply this section where a question asks whether two measures are moving together over time.
+1. Apply this section where a question asks whether two measures are moving together over time.
 
-2. Livi must aggregate each measure separately per day and then join both onto one shared date series, because aggregating after joining them multiplies rows and inflates both figures.
+2. Aggregate each measure separately per day and then join both onto one shared date series, because aggregating after joining them multiplies rows and inflates both figures.
 
-3. Livi must place the two measures on independent scales with one axis on each side, since they carry different units and a shared scale flattens the smaller one.
+3. Place the two measures on independent scales with one axis on each side, since they carry different units and a shared scale flattens the smaller one.
 
-4. Livi must not add a rolling average here, because the second line already supplies the comparison and further lines make the chart unreadable.
+4. Do not add a rolling average here, because the second line already supplies the comparison and further lines make the chart unreadable.
 
-5. Livi must state in the description whether the two measures moved together or diverged, and must name the period of divergence where one occurred.
+5. State in the description whether the two measures moved together or diverged, and must name the period of divergence where one occurred.
 
-6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced:
+6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
 
 ```json
 {

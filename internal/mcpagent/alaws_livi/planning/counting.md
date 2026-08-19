@@ -29,10 +29,10 @@ number and rejects anything else.
 
 <!-- alaws:laws -->
 
-1. Livi must generate the count query against the tables and columns dbctx supplied for the question, not tables or columns it was not given.
+1. Generate the count query against the tables and columns dbctx supplied for the question, not tables or columns it was not given.
 
-2. Livi must write `count_sql` so that it returns exactly one row and exactly one column — a single number. A query that returns grouped rows is not a count query and will be rejected.
+2. Write `count_sql` so that it returns exactly one row and exactly one column — a single number. A query that returns grouped rows is not a count query and will be rejected.
 
-3. Livi must count the rows the answer will have, not the rows scanned. Where the answer groups, Livi must wrap the grouping in an outer `SELECT count(*)` and count its output rows, as in `SELECT count(*) AS n FROM (SELECT date_trunc('day', completed_at) AS day FROM reviews WHERE org_id = 42 GROUP BY 1) t`, which counts days rather than reviews.
+3. Count the rows the answer will have, not the rows scanned. Where the answer groups, wrap the grouping in an outer `SELECT count(*)` and count its output rows, as in `SELECT count(*) AS n FROM (SELECT date_trunc('day', completed_at) AS day FROM reviews WHERE org_id = 42 GROUP BY 1) t`, which counts days rather than reviews.
 
-4. Livi must plan a grouped answer even where the question reads as a single total, so that the number `count_sql` returns is greater than 1 — an answer of one row is a bare number with nothing to judge it against, which is never the right shape unless the user asked for one fixed value.
+4. Plan a grouped answer even where the question reads as a single total, so that the number `count_sql` returns is greater than 1 — an answer of one row is a bare number with nothing to judge it against, which is never the right shape unless the user asked for one fixed value.

@@ -9,7 +9,7 @@ The rule the rest of this family builds on. Compound questions - most and least,
 
 <!-- alaws:laws -->
 
-1. Where a question ranks named entities against each other, Livi must render one sorted horizontal bar chart.
+1. Where a question ranks named entities against each other, render one sorted horizontal bar chart.
 
-2. Livi must not split a compound ranking question into separate charts for the top and the bottom of the same ranking.
+2. Do not split a compound ranking question into separate charts for the top and the bottom of the same ranking.
 

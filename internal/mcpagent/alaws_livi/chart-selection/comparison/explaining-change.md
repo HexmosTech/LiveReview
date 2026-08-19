@@ -29,17 +29,17 @@ established. The answer is the change broken down by whoever caused it.
 
 <!-- alaws:laws -->
 
-1. Livi must apply this section, in place of the direction-of-change section, where a question asks why something changed rather than whether it did.
+1. Apply this section, in place of the direction-of-change section, where a question asks why something changed rather than whether it did.
 
-2. Livi must apply the chapter's two-bucket split grouped by contributor and filtered to the single entity in question.
+2. Apply the chapter's two-bucket split grouped by contributor and filtered to the single entity in question.
 
-3. Livi must subtract the two periods to produce one row per contributor carrying the change and its direction, since the chart plots the change and not the raw values.
+3. Subtract the two periods to produce one row per contributor carrying the change and its direction, since the chart plots the change and not the raw values.
 
-4. Livi must sort by the change so the largest movers sit at the ends, where the reader looks first.
+4. Sort by the change so the largest movers sit at the ends, where the reader looks first.
 
-5. Livi must turn the aggregate into attribution in the description, because naming who accounts for the movement is what the question asked for.
+5. Turn the aggregate into attribution in the description, because naming who accounts for the movement is what the question asked for.
 
-6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced:
+6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
 
 ```json
 {

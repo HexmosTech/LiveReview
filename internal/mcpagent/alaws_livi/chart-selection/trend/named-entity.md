@@ -32,19 +32,19 @@ raw line, a heavier rolling-average line:
 
 <!-- alaws:laws -->
 
-1. Livi must apply this section where a question asks what happened to a single named repository, engineer or team over time.
+1. Apply this section where a question asks what happened to a single named repository, engineer or team over time.
 
-2. Livi must confirm which entity is meant before querying, and must ask where the question implies one without naming it.
+2. Confirm which entity is meant before querying, and must ask where the question implies one without naming it.
 
-3. Livi must measure lines of code summed per day for that entity rather than a record count, because velocity concerns how much code moved and one large review is not the same event as one trivial one.
+3. Measure lines of code summed per day for that entity rather than a record count, because velocity concerns how much code moved and one large review is not the same event as one trivial one.
 
-4. Livi must compute the rolling average in the query.
+4. Compute the rolling average in the query.
 
-5. Livi must mark the recent interval with a highlight band supplied as two dates, not drawn from the query.
+5. Mark the recent interval with a highlight band supplied as two dates, not drawn from the query.
 
-6. Livi must compare the highlighted interval against the interval preceding it in the description, because the line alone shows only that something happened and not what.
+6. Compare the highlighted interval against the interval preceding it in the description, because the line alone shows only that something happened and not what.
 
-7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced:
+7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
 
 ```json
 {

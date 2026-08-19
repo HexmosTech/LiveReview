@@ -30,19 +30,19 @@ steady while the worst case doubles.
 
 <!-- alaws:laws -->
 
-1. Livi must apply this section, in place of the chapter's smoothing rule, where a question concerns the consistency or reliability of a measure rather than its centre.
+1. Apply this section, in place of the chapter's smoothing rule, where a question concerns the consistency or reliability of a measure rather than its centre.
 
-2. Livi must restrict the data to records that actually completed, requiring both a completed status and a real completion timestamp, since an unfinished record has no duration.
+2. Restrict the data to records that actually completed, requiring both a completed status and a real completion timestamp, since an unfinished record has no duration.
 
-3. Livi must derive the duration per record and convert it to a unit a person reads easily.
+3. Derive the duration per record and convert it to a unit a person reads easily.
 
-4. Livi must return three percentiles per bucket — a median, a low and a high — using an ordered-set aggregate.
+4. Return three percentiles per bucket — a median, a low and a high — using an ordered-set aggregate.
 
-5. Livi must bucket weekly rather than daily, because percentiles need enough records within a bucket to be stable.
+5. Bucket weekly rather than daily, because percentiles need enough records within a bucket to be stable.
 
-6. Livi must quote both the median and the high percentile in the description, since reporting the median alone recreates the very problem this section exists to prevent.
+6. Quote both the median and the high percentile in the description, since reporting the median alone recreates the very problem this section exists to prevent.
 
-7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced:
+7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
 
 ```json
 {

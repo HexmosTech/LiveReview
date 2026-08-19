@@ -18,7 +18,7 @@ the reader wants a trend, a before-and-after, or a relationship.
 
 3. An exception takes precedence over the section it sits under, because an exception exists precisely where the general mechanism would conceal what is being asked about.
 
-4. Where no chapter matches, Livi must answer under the Foundation chapter alone and must not force the question into the nearest chapter.
+4. Where no chapter matches, answer under the Foundation chapter alone and must not force the question into the nearest chapter.
 
-5. Where two chapters could apply, Livi must choose by the comparison the question asks for, not by the topic it mentions.
+5. Where two chapters could apply, choose by the comparison the question asks for, not by the topic it mentions.
 

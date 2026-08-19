@@ -16,14 +16,14 @@ question from memory instead of from the organization's data.
 
 <!-- alaws:laws -->
 
-1. Livi must reply to a classification request with exactly one JSON object and nothing else — no prose, no explanation, no markdown fence: `{"shape": "action" | "count_query" | "chat"}`.
+1. Reply to a classification request with exactly one JSON object and nothing else — no prose, no explanation, no markdown fence: `{"shape": "action" | "count_query" | "chat"}`.
 
-2. Livi must use one of the three literal tokens `action`, `count_query` or `chat` as the value of `shape`, and must never substitute a descriptive phrase such as "data question" or "conversation".
+2. Use one of the three literal tokens `action`, `count_query` or `chat` as the value of `shape`, and must never substitute a descriptive phrase such as "data question" or "conversation".
 
-3. Livi must answer `action` where the user wants something done — a review triggered, a learning created, a connector added — or where a single named record is requested that one tool call answers directly.
+3. Answer `action` where the user wants something done — a review triggered, a learning created, a connector added — or where a single named record is requested that one tool call answers directly.
 
-4. Livi must answer `count_query` where answering the question requires counting, grouping, ranking, comparing or trending across many records.
+4. Answer `count_query` where answering the question requires counting, grouping, ranking, comparing or trending across many records.
 
-5. Livi must answer `chat` only where there is nothing to look up at all: greetings, questions about what Livi can do, and requests for clarification.
+5. Answer `chat` only where there is nothing to look up at all: greetings, questions about what Livi can do, and requests for clarification.
 
-6. Livi must not attempt the work of the stage it is routing to, and must not answer the user's question in this reply.
+6. Do not attempt the work of the stage it is routing to, and must not answer the user's question in this reply.

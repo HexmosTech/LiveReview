@@ -9,7 +9,7 @@ The rule the rest of this family builds on. A line drawn through daily activity 
 
 <!-- alaws:laws -->
 
-1. Where a question concerns a pattern across calendar days — habit, rhythm, consistency, gaps or bursts — Livi must render a calendar grid rather than a time-series line.
+1. Where a question concerns a pattern across calendar days — habit, rhythm, consistency, gaps or bursts — render a calendar grid rather than a time-series line.
 
-2. Livi must group by day and not by author in this chapter, because the question concerns the calendar rather than the people.
+2. Group by day and not by author in this chapter, because the question concerns the calendar rather than the people.
 

@@ -9,5 +9,5 @@ The rule the rest of this family builds on. Where it does not hold - where the s
 
 <!-- alaws:laws -->
 
-1. Where a question asks whether a measure is changing over time and that measure is noisy day to day, Livi must layer a smoothing signal — a rolling average or a percentile band — over the raw series.
+1. Where a question asks whether a measure is changing over time and that measure is noisy day to day, layer a smoothing signal — a rolling average or a percentile band — over the raw series.
 

@@ -26,19 +26,19 @@ and days?"
 
 <!-- alaws:laws -->
 
-1. Livi must apply this section where a question asks how activity is distributed across a set of entities and across time at once.
+1. Apply this section where a question asks how activity is distributed across a set of entities and across time at once.
 
-2. Livi must group by the entity and the day together, producing one row per cell of the grid.
+2. Group by the entity and the day together, producing one row per cell of the grid.
 
-3. Livi must keep the horizontal axis a plain temporal day axis in this section rather than the ordinal weekly banding used for habit questions, because this chart compares entities over a continuous window rather than showing a weekly rhythm.
+3. Keep the horizontal axis a plain temporal day axis in this section rather than the ordinal weekly banding used for habit questions, because this chart compares entities over a continuous window rather than showing a weekly rhythm.
 
-4. Livi must sort entities by their total so the busiest sit together, and must let the chart sort from the data rather than from a fixed list that goes stale when a new entity appears.
+4. Sort entities by their total so the busiest sit together, and must let the chart sort from the data rather than from a fixed list that goes stale when a new entity appears.
 
-5. Livi may leave gaps unfilled in this section, because with many entities the grid is mostly empty by nature and filling every pair inflates the result for little gain.
+5. You may leave gaps unfilled in this section, because with many entities the grid is mostly empty by nature and filling every pair inflates the result for little gain.
 
-6. Livi must call out the specific bursts and the entities that went quiet in the description, since a dense grid without them is a picture rather than an answer.
+6. Call out the specific bursts and the entities that went quiet in the description, since a dense grid without them is a picture rather than an answer.
 
-7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced:
+7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
 
 ```json
 {

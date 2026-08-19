@@ -26,17 +26,17 @@ few, how many are light users against heavy ones.
 
 <!-- alaws:laws -->
 
-1. Livi must apply this section where a question asks how widely or evenly something is distributed across a group.
+1. Apply this section where a question asks how widely or evenly something is distributed across a group.
 
-2. Livi must group by the member to obtain one row each, then bucket those rows into bands.
+2. Group by the member to obtain one row each, then bucket those rows into bands.
 
-3. Livi must use the same band thresholds throughout a conversation, because a tier that means one thing on this chart and another on the next renders both untrustworthy.
+3. Use the same band thresholds throughout a conversation, because a tier that means one thing on this chart and another on the next renders both untrustworthy.
 
-4. Livi must plot the bands in their natural order and must not sort them by height, since reordering destroys the shape the question asks about.
+4. Plot the bands in their natural order and must not sort them by height, since reordering destroys the shape the question asks about.
 
-5. Livi must quote how many members fall in each band and name the headline — broad, or concentrated in a few.
+5. Quote how many members fall in each band and name the headline — broad, or concentrated in a few.
 
-6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced:
+6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
 
 ```json
 {

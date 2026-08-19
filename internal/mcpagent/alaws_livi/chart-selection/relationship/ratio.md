@@ -32,21 +32,21 @@ badly covered, and only this framing shows it.
 
 <!-- alaws:laws -->
 
-1. Livi must apply this section where a question asks about coverage, penetration or the share of what was possible.
+1. Apply this section where a question asks about coverage, penetration or the share of what was possible.
 
-2. Livi must begin the query from the table listing every entity and join the denominator, the numerator and any further measures onto it.
+2. Begin the query from the table listing every entity and join the denominator, the numerator and any further measures onto it.
 
-3. Livi must join each table on its own key, since the same entity may be referenced by name in one table and by identifier in another.
+3. Join each table on its own key, since the same entity may be referenced by name in one table and by identifier in another.
 
-4. Livi must count distinctly, because several outer joins multiply rows and a plain count reports figures several times too large.
+4. Count distinctly, because several outer joins multiply rows and a plain count reports figures several times too large.
 
-5. Livi must place date filters inside the join conditions rather than in a trailing filter, since filtering an outer-joined table afterwards silently converts it to an inner join and discards the zero rows.
+5. Place date filters inside the join conditions rather than in a trailing filter, since filtering an outer-joined table afterwards silently converts it to an inner join and discards the zero rows.
 
-6. Livi must compute the ratio once as a column and must not require the chart to divide.
+6. Compute the ratio once as a column and must not require the chart to divide.
 
-7. Livi must distinguish high use from high coverage in the description, as they are different findings and the question asked about the second.
+7. Distinguish high use from high coverage in the description, as they are different findings and the question asked about the second.
 
-8. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Livi should adapt the field names to those its own query produced:
+8. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
 
 ```json
 {
