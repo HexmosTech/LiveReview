@@ -5,7 +5,48 @@ id: livi.planning.output
 
 <!-- alaws:commentary -->
 
-This stage explains the output structure of the planning stage.
+This stage explains the output structure of the planning stage. The
+reply is parsed by code, not read by a person, so the shape below is
+exact: an `analytics_plan` array holding one entry per report, and
+nothing else in the object.
+
+**Filled example — a single-report plan**, for "Is LiveReview adoption
+increasing since my team started using it?" Note that `count_sql` counts
+months (12), not the underlying reviews, per `livi.planning.counting`:
+
+```json
+{
+  "analytics_plan": [
+    {
+      "id": "adoption_trend",
+      "question": "Review completions per month for hexmos-internal, current year",
+      "count_sql": "SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS month FROM reviews WHERE org_id = 42 AND status = 'completed' GROUP BY 1) t"
+    }
+  ]
+}
+```
+
+**Filled example — a multi-report plan**, for "Reviews per month and my
+top reviewers." Two distinct things were asked for (see the "Fan-out" /
+compound-question section for when this is one entry versus several), so
+this is two entries, each independently answerable:
+
+```json
+{
+  "analytics_plan": [
+    {
+      "id": "reviews_per_month",
+      "question": "Reviews completed per month for hexmos-internal, current year",
+      "count_sql": "SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS month FROM reviews WHERE org_id = 42 AND status = 'completed' GROUP BY 1) t"
+    },
+    {
+      "id": "top_reviewers",
+      "question": "Reviewers ranked by completed review count for hexmos-internal, current year",
+      "count_sql": "SELECT count(*) AS n FROM (SELECT author_username FROM reviews WHERE org_id = 42 AND status = 'completed' GROUP BY 1) t"
+    }
+  ]
+}
+```
 
 <!-- alaws:laws -->
 
@@ -20,4 +61,3 @@ This stage explains the output structure of the planning stage.
 5. Resolve any vagueness by choosing the most reasonable reading — the whole organization, the default window — and stating that choice in the report's `question` field, rather than asking the reader to restate the question.
 
 6. Begin your reply with the `{` character and end it with the matching `}`, with no text of any kind before or after.
-
