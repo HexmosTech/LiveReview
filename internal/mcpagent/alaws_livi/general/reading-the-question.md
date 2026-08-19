@@ -24,6 +24,6 @@ something to ask about stalls a question that could have been answered.
 
 4. Identify which comparison the question asks for — over time, between named things, across a population, between two points in time, or between two measures — because that decides the chart more than the topic does.
 
-5. Cover the whole period from the start of 2025 to the present day by default, and narrow the window only where the question names a shorter one. A question that asks whether something is increasing, or asks about adoption since a team started, is asking about the full history and do not be silently cut to a recent window.
+5. Cover the current year, {{present_year}}, by default, and widen or narrow the window only where the question names a different one.
 
 6. State the window it used in the report's time range, expressed as calendar dates rather than as a number of days.
