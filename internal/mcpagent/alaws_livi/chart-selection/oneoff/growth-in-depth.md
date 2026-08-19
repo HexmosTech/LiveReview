@@ -14,20 +14,6 @@ prevent: it yields a headcount line that cannot show depth at all.
 
 **Seen as:** "Is adoption becoming broader over time?"
 
-```json
-{
-  "width": 800, "height": 380,
-  "mark": {"type": "area", "interpolate": "monotone", "line": {"strokeWidth": 1.5}},
-  "encoding": {
-    "x": {"field": "week", "type": "temporal"},
-    "y": {"field": "members", "type": "quantitative", "stack": true},
-    "color": {"field": "band", "type": "nominal", "sort": "<band_order>",
-              "scale": {"domain": "<band_order>", "range": "<color_range>"}},
-    "order": {"field": "band", "sort": "ascending"}
-  }
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section where a question asks whether something is becoming broader or deeper over time rather than merely larger.

@@ -10,19 +10,6 @@ anything where two opposed counts share a subject.
 
 **Seen as:** "Are people trusting the reviews?"
 
-```json
-{
-  "width": 600, "height": 320,
-  "mark": {"type": "bar"},
-  "encoding": {
-    "y": {"field": "member", "type": "nominal"},
-    "x": {"field": "n", "type": "quantitative"},
-    "color": {"field": "vote_type", "type": "nominal",
-              "scale": {"domain": ["up", "down"], "range": ["#39d353", "#ff5c7c"]}}
-  }
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section where a question asks about sentiment, agreement or trust between two opposed counts.

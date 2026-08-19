@@ -16,18 +16,6 @@ steady while the worst case doubles.
 
 **Seen as:** "Are reviews getting faster?"
 
-```json
-{
-  "width": 700, "height": 340,
-  "layer": [
-    {"mark": {"type": "errorband", "color": "#7c9cff", "opacity": 0.25},
-     "encoding": {"x": {"field": "week", "type": "temporal"}, "y": {"field": "p10", "type": "quantitative"}, "y2": {"field": "p90"}}},
-    {"mark": {"type": "line", "color": "#ffb454", "strokeWidth": 2.5, "point": true},
-     "encoding": {"x": {"field": "week", "type": "temporal"}, "y": {"field": "p50", "type": "quantitative"}}}
-  ]
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section, in place of the chapter's smoothing rule, where a question concerns the consistency or reliability of a measure rather than its centre.

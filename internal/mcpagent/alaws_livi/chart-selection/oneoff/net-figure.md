@@ -11,20 +11,6 @@ subtract.
 
 **Seen as:** "How much does LiveReview save versus alternatives?"
 
-```json
-{
-  "width": 600, "height": 380,
-  "mark": {"type": "bar", "size": 60},
-  "encoding": {
-    "x": {"field": "label", "type": "nominal", "sort": null, "axis": {"labelAngle": -20}},
-    "y": {"field": "base", "type": "quantitative"},
-    "y2": {"field": "top"},
-    "color": {"field": "direction", "type": "nominal", "legend": null,
-              "scale": {"domain": ["positive", "negative"], "range": ["#39d353", "#ff5c7c"]}}
-  }
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section where a question asks what something is worth, saved or cost overall.

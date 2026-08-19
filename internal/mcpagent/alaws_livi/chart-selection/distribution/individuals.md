@@ -14,21 +14,6 @@ people away, and here the outliers are the answer.
 
 **Seen as:** "Which engineers are carrying the repository?"
 
-```json
-{
-  "width": 600, "height": "<32 * n_members, min 200>",
-  "transform": [{"calculate": "random()", "as": "jitter"}],
-  "mark": {"type": "circle", "opacity": 0.85},
-  "encoding": {
-    "x": {"field": "loc", "type": "quantitative"},
-    "y": {"field": "member", "type": "nominal", "sort": "-x"},
-    "yOffset": {"field": "jitter", "type": "quantitative"},
-    "size": {"field": "reviews", "type": "quantitative", "scale": {"range": [60, 900]}},
-    "color": {"field": "loc", "type": "quantitative", "scale": {"scheme": "blues"}, "legend": null}
-  }
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section, in place of the chapter's bucketing rule, where the population is small and the question concerns who stands out rather than the overall spread.

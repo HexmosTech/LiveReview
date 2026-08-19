@@ -14,17 +14,6 @@ angles and a sorted bar communicates the same data better. Any question
 that asks whether the mix is *changing* belongs to the shift section
 instead, because a pie can only show one moment.
 
-```json
-{
-  "width": 400, "height": 400,
-  "mark": {"type": "arc", "innerRadius": 60},
-  "encoding": {
-    "theta": {"field": "n", "type": "quantitative"},
-    "color": {"field": "category", "type": "nominal"}
-  }
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section where a question asks what a total is composed of at a single moment, with no comparison across periods.

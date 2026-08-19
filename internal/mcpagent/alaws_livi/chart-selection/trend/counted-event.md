@@ -12,25 +12,6 @@ no second measure.
 **Seen as:** "Is LiveReview adoption increasing since my team started
 using it?"
 
-Vega-Lite shape — a faint area for the raw series, a strong line for the
-rolling average, a dashed rule for the period average:
-
-```json
-{
-  "width": 900, "height": 420,
-  "layer": [
-    {"mark": {"type": "area", "opacity": 0.25, "color": "#7c9cff", "interpolate": "monotone"},
-     "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "reviews", "type": "quantitative"}}},
-    {"mark": {"type": "line", "color": "#ffb454", "strokeWidth": 2.5, "interpolate": "monotone"},
-     "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "rolling_avg_7d", "type": "quantitative"}}},
-    {"mark": {"type": "rule", "color": "#ff5c7c", "strokeDash": [6, 4], "strokeWidth": 1.5},
-     "data": {"values": [{"period_avg": "<period_avg>"}]},
-     "encoding": {"y": {"field": "period_avg", "type": "quantitative"}}}
-  ],
-  "resolve": {"scale": {"y": "shared"}}
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section where a question asks whether a countable activity is rising or falling across the whole organization, without an entity filter and without a second measure.

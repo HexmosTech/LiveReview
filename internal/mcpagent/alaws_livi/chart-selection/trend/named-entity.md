@@ -12,23 +12,6 @@ rather than a whole-organization trend.
 **Seen as:** "What happened to a repository's velocity?"
 
 Vega-Lite shape — a highlight rectangle over the recent interval, a thin
-raw line, a heavier rolling-average line:
-
-```json
-{
-  "width": 800, "height": 340,
-  "layer": [
-    {"data": {"values": [{"start": "<highlight_start>", "end": "<highlight_end>"}]},
-     "mark": {"type": "rect", "color": "#7c9cff", "opacity": 0.12},
-     "encoding": {"x": {"field": "start", "type": "temporal"}, "x2": {"field": "end"}}},
-    {"mark": {"type": "line", "color": "#3a4358", "strokeWidth": 1},
-     "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "loc", "type": "quantitative"}}},
-    {"mark": {"type": "line", "color": "#ffb454", "strokeWidth": 2.5},
-     "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "rolling_avg", "type": "quantitative"}}}
-  ],
-  "resolve": {"scale": {"y": "shared"}}
-}
-```
 
 <!-- alaws:laws -->
 

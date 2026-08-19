@@ -12,25 +12,6 @@ consistently, whether there are gaps.
 **Seen as:** "Are engineers actually incorporating reviews into their
 daily workflow?"
 
-```json
-{
-  "width": {"step": "<cell_step>"}, "height": {"step": "<cell_step>"},
-  "mark": {"type": "rect", "cornerRadius": 2},
-  "encoding": {
-    "x": {"field": "day", "type": "ordinal", "timeUnit": "yearweek",
-          "scale": {"paddingInner": 0.15},
-          "axis": {"format": "%b", "labelExpr": "date(datum.value) <= 7 ? timeFormat(datum.value, '%b') : ''", "labelAngle": 0}},
-    "y": {"field": "day", "type": "ordinal", "timeUnit": "day",
-          "sort": ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"],
-          "scale": {"paddingInner": 0.15},
-          "axis": {"values": ["Mon","Wed","Fri"]}},
-    "color": {"field": "value", "type": "quantitative",
-              "scale": {"type": "threshold", "domain": [1, 3, 6, 10], "range": "<github_greens>"},
-              "legend": null}
-  }
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section where a question asks whether an activity has become part of the daily routine.

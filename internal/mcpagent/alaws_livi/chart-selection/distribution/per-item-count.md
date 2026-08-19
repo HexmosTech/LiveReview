@@ -11,17 +11,6 @@ that number is growing.
 
 **Seen as:** "Are reviews becoming more iterative?"
 
-```json
-{
-  "width": 600, "height": 340,
-  "mark": {"type": "bar", "color": "#7c9cff"},
-  "encoding": {
-    "x": {"field": "events_per_item", "type": "ordinal"},
-    "y": {"field": "items", "type": "quantitative"}
-  }
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section where a question asks how often something happens per item and whether that number is growing.

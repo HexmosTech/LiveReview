@@ -14,19 +14,6 @@ established. The answer is the change broken down by whoever caused it.
 
 **Seen as:** "Why did this repository's velocity change?"
 
-```json
-{
-  "width": 600, "height": "<max(200, 30 * n_members)>",
-  "mark": {"type": "bar"},
-  "encoding": {
-    "y": {"field": "member", "type": "nominal", "sort": "x"},
-    "x": {"field": "delta", "type": "quantitative"},
-    "color": {"field": "direction", "type": "nominal", "legend": null,
-              "scale": {"domain": ["up", "down"], "range": ["#39d353", "#ff5c7c"]}}
-  }
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section, in place of the direction-of-change section, where a question asks why something changed rather than whether it did.

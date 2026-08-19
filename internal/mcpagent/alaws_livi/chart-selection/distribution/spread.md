@@ -11,19 +11,6 @@ few, how many are light users against heavy ones.
 
 **Seen as:** "How broadly has the organization adopted LiveReview?"
 
-```json
-{
-  "width": 700, "height": 340,
-  "mark": {"type": "bar", "cornerRadiusTopLeft": 4, "cornerRadiusTopRight": 4},
-  "encoding": {
-    "x": {"field": "band", "type": "nominal", "sort": "<band_order>", "axis": {"labelAngle": 0}},
-    "y": {"field": "members", "type": "quantitative"},
-    "color": {"field": "band", "type": "nominal", "sort": "<band_order>",
-              "scale": {"domain": "<band_order>", "range": "<color_range>"}, "legend": null}
-  }
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section where a question asks how widely or evenly something is distributed across a group.

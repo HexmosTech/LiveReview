@@ -11,20 +11,6 @@ which repositories are speeding up, which teams are slowing down.
 **Seen as:** "Which repositories are gaining or losing engineering
 velocity?"
 
-```json
-{
-  "width": 500, "height": 380,
-  "mark": {"type": "line", "point": true, "strokeWidth": 2.5},
-  "encoding": {
-    "x": {"field": "period", "type": "nominal", "sort": ["Previous", "Current"]},
-    "y": {"field": "value", "type": "quantitative"},
-    "color": {"field": "trend", "type": "nominal",
-              "scale": {"domain": ["gain", "flat", "loss"], "range": ["#39d353", "#8b949e", "#ff5c7c"]}},
-    "detail": {"field": "entity", "type": "nominal"}
-  }
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section where a question asks which entities are rising or falling.

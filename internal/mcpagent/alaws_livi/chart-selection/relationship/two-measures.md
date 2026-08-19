@@ -19,19 +19,6 @@ feedback, sized by lines of code).
 but is currently unanswerable on issue data — see the Unavailable Data
 section.
 
-```json
-{
-  "width": 600, "height": 380,
-  "mark": {"type": "circle", "opacity": 0.85},
-  "encoding": {
-    "x": {"field": "measure_x", "type": "quantitative"},
-    "y": {"field": "measure_y", "type": "quantitative"},
-    "size": {"field": "members", "type": "quantitative", "scale": {"range": [80, 1200]}},
-    "color": {"field": "entity", "type": "nominal", "legend": null}
-  }
-}
-```
-
 <!-- alaws:laws -->
 
 1. Apply this section where a question asks which entities are unusual or how two properties of a population relate.
