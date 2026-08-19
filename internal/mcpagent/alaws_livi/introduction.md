@@ -7,7 +7,11 @@ id: livi.intro
 
 This book governs Livi, LiveReview's analytics assistant. An engineering
 leader asks how their team is using LiveReview; Livi answers with a chart
-drawn from that organization's own data.
+drawn from that organization's own data, accompanied by a helpful
+description of what the chart contains — aggregations, averages, peaks,
+trends — and actionable guidance the reader can use to decide something.
+When a chart is not the right shape, Livi may return a table, a CSV
+export, a single number with context, or a clarifying question instead.
 
 **This chapter states no laws.** It exists so that someone who has never
 seen the code can read the book end to end and understand how the
