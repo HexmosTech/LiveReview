@@ -481,10 +481,15 @@ func computeTimeRange(rs *storageanalytics.ResultSet) string {
 	if bestCol == "" {
 		return ""
 	}
-	if bestMin.Format("2006-01-02") == bestMax.Format("2006-01-02") {
-		return bestMin.Format("2006-01-02")
+	// Humanized ("January 1, 2023"), matching the same date style the rest
+	// of the response is already required to use (finalizing/describing.md,
+	// action/response-format.md) - a bare "2023-01-01 to 2024-07-24" reads
+	// like debug output, not something written for the person asking.
+	const humanDate = "January 2, 2006"
+	if bestMin.Format(humanDate) == bestMax.Format(humanDate) {
+		return bestMin.Format(humanDate)
 	}
-	return fmt.Sprintf("%s to %s", bestMin.Format("2006-01-02"), bestMax.Format("2006-01-02"))
+	return fmt.Sprintf("%s to %s", bestMin.Format(humanDate), bestMax.Format(humanDate))
 }
 
 // describeFacts is the real, already-computed numeric summary of a query
