@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { LuSearch, LuPlus, LuTrash2, LuMessageSquare, LuPin, LuPinOff } from 'react-icons/lu';
+import { LuSearch, LuPlus, LuTrash2, LuMessageSquare, LuPin, LuPinOff, LuPencil, LuCheck } from 'react-icons/lu';
 import { EmptyState, Tooltip } from '../../components/UIPrimitives';
-import { deleteConversation, listConversations, type Conversation } from '../../api/chatConversations';
+import { deleteConversation, listConversations, renameConversation, type Conversation } from '../../api/chatConversations';
 import {
   SIDEBAR_COLLAPSED_WIDTH,
   setChatSidebarHoverExpanded,
@@ -109,6 +109,12 @@ interface SidebarBodyProps {
   activeId: number | undefined;
   onSelect: (id: number) => void;
   onDelete: (id: number) => void;
+  editingId: number | null;
+  editValue: string;
+  onStartRename: (conv: Conversation) => void;
+  onEditValueChange: (v: string) => void;
+  onSaveRename: (id: number) => void;
+  onCancelRename: () => void;
 }
 
 // Shared between the pinned (persistent) state and the hover-peek (while
@@ -125,6 +131,12 @@ const SidebarBody: React.FC<SidebarBodyProps> = ({
   activeId,
   onSelect,
   onDelete,
+  editingId,
+  editValue,
+  onStartRename,
+  onEditValueChange,
+  onSaveRename,
+  onCancelRename,
 }) => (
   <div className="h-full flex flex-col relative" style={{ width }}>
     <div className="flex-none flex items-center h-16 px-2.5 border-b border-slate-800/60">
@@ -162,33 +174,87 @@ const SidebarBody: React.FC<SidebarBodyProps> = ({
       )}
       {conversations.map((conv) => {
         const isActive = conv.id === activeId;
+        const isEditing = conv.id === editingId;
         return (
           <div
             key={conv.id}
-            className={`group relative rounded-md ${isActive ? 'bg-slate-800/80' : 'hover:bg-slate-800/50'}`}
+            className={`group relative rounded-md px-2.5 py-2 ${isActive ? 'bg-slate-800/80' : 'hover:bg-slate-800/50'}`}
           >
-            <button onClick={() => onSelect(conv.id)} className="w-full text-left px-2.5 py-2 pr-8 rounded-md">
-              <div className={`text-sm truncate ${isActive ? 'text-slate-100 font-medium' : 'text-slate-300'}`}>
-                {conv.title || 'New conversation'}
-              </div>
-              {conv.snippet ? (
-                <div className="text-xs text-slate-500 truncate mt-0.5">{conv.snippet}</div>
-              ) : (
-                <div className="text-xs text-slate-500 mt-0.5">{formatUpdatedAt(conv.updatedAt)}</div>
-              )}
-            </button>
-            <Tooltip content="Delete conversation">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (window.confirm('Delete this conversation?')) onDelete(conv.id);
+            {isEditing ? (
+              <input
+                autoFocus
+                type="text"
+                value={editValue}
+                onChange={(e) => onEditValueChange(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    onSaveRename(conv.id);
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    onCancelRename();
+                  }
                 }}
-                className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-slate-500 hover:text-red-400 hover:bg-slate-700 opacity-0 group-hover:opacity-100 transition-opacity"
-                aria-label="Delete conversation"
-              >
-                <LuTrash2 className="w-3.5 h-3.5" />
+                className="w-full bg-slate-900 text-slate-100 text-sm rounded border border-slate-600 px-1.5 py-1 outline-none focus:border-blue-500"
+              />
+            ) : (
+              <button onClick={() => onSelect(conv.id)} className="w-full text-left">
+                <div className={`text-sm truncate ${isActive ? 'text-slate-100 font-medium' : 'text-slate-300'}`}>
+                  {conv.title || 'New conversation'}
+                </div>
+                {conv.snippet ? (
+                  <div className="text-xs text-slate-500 truncate mt-0.5">{conv.snippet}</div>
+                ) : (
+                  <div className="text-xs text-slate-500 mt-0.5">{formatUpdatedAt(conv.updatedAt)}</div>
+                )}
               </button>
-            </Tooltip>
+            )}
+            {/* Overlaid on hover only, never reserving layout space from the
+                title/snippet text above - a background pill keeps the icons
+                legible over whatever text ends up underneath them, aligned
+                to the timestamp line rather than the title line. */}
+            {isEditing ? (
+              <Tooltip content="Save">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSaveRename(conv.id);
+                  }}
+                  className="absolute right-1.5 bottom-1.5 p-1 rounded bg-slate-800 text-slate-500 hover:text-emerald-400 hover:bg-slate-700 transition-colors"
+                  aria-label="Save name"
+                >
+                  <LuCheck className="w-3.5 h-3.5" />
+                </button>
+              </Tooltip>
+            ) : (
+              <div className="absolute right-1.5 bottom-1.5 flex items-center gap-0.5 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
+                <Tooltip content="Rename conversation">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onStartRename(conv);
+                    }}
+                    className="p-1 rounded bg-slate-800 text-slate-500 hover:text-slate-200 hover:bg-slate-700"
+                    aria-label="Rename conversation"
+                  >
+                    <LuPencil className="w-3.5 h-3.5" />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Delete conversation">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm('Delete this conversation?')) onDelete(conv.id);
+                    }}
+                    className="p-1 rounded bg-slate-800 text-slate-500 hover:text-red-400 hover:bg-slate-700"
+                    aria-label="Delete conversation"
+                  >
+                    <LuTrash2 className="w-3.5 h-3.5" />
+                  </button>
+                </Tooltip>
+              </div>
+            )}
           </div>
         );
       })}
@@ -233,6 +299,34 @@ export const ConversationSidebar: React.FC = () => {
       if (String(id) === conversationId) navigate('/chat');
     },
   });
+
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editValue, setEditValue] = useState('');
+
+  const renameMutation = useMutation({
+    mutationFn: ({ id, title }: { id: number; title: string }) => renameConversation(id, title),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: CONVERSATIONS_QUERY_KEY });
+    },
+  });
+
+  const startRename = (conv: Conversation) => {
+    setEditingId(conv.id);
+    setEditValue(conv.title || '');
+  };
+  const cancelRename = () => {
+    setEditingId(null);
+    setEditValue('');
+  };
+  const saveRename = (id: number) => {
+    const trimmed = editValue.trim();
+    if (!trimmed) {
+      cancelRename();
+      return;
+    }
+    renameMutation.mutate({ id, title: trimmed });
+    setEditingId(null);
+  };
 
   const activeId = conversationId ? Number(conversationId) : undefined;
   const select = (id: number) => navigate(id ? `/chat/${id}` : '/chat');
@@ -302,6 +396,12 @@ export const ConversationSidebar: React.FC = () => {
         activeId={activeId}
         onSelect={select}
         onDelete={(id) => deleteMutation.mutate(id)}
+        editingId={editingId}
+        editValue={editValue}
+        onStartRename={startRename}
+        onEditValueChange={setEditValue}
+        onSaveRename={saveRename}
+        onCancelRename={cancelRename}
       />
     </div>
   );
