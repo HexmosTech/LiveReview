@@ -26,6 +26,6 @@ something to ask about stalls a question that could have been answered.
 
 5. Identify which comparison the question asks for — over time, between named things, across a population, between two points in time, or between two measures — because that decides the chart more than the topic does. {#identify-which-comparison-the-question}
 
-6. Cover the current year, {{present_year}}, by default, and widen or narrow the window only where the question names a different one. {#cover-the-current-year-present}
+6. Where the question names no window of its own, filter every query to exactly `{{default_window_start}}` through `{{today}}` — the trailing year ending today, as literal dates in the `WHERE` clause, never the word "recent", never a bare year number, and never a window you invent yourself. This applies to every report in a multi-report turn, not just the first or the last — check each one's date literals against `{{default_window_start}}`/`{{today}}` individually, since getting the window right on one report and wrong on another is still wrong. Never write `2023-01-01`, `2024-01-01`, or any other year that is not `{{default_window_start}}`'s actual year — those are not this org's default window under any phrasing of this question. Widen or narrow only where the question names a different one. {#cover-the-current-year-present}
 
 7. State the window it used in the report's time range, expressed as calendar dates rather than as a number of days. {#state-the-window-it-used}
