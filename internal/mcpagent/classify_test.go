@@ -99,7 +99,7 @@ type recordingProvider struct {
 	toolsPerCall [][]llms.Tool
 }
 
-func (p *recordingProvider) Complete(_ context.Context, history []HistoryEntry, tools []llms.Tool) (string, TokenUsage, error) {
+func (p *recordingProvider) Complete(_ context.Context, history []HistoryEntry, tools []llms.Tool, _ ...llms.CallOption) (string, TokenUsage, error) {
 	p.histories = append(p.histories, append([]HistoryEntry(nil), history...))
 	p.toolsPerCall = append(p.toolsPerCall, tools)
 	if p.calls >= len(p.replies) {

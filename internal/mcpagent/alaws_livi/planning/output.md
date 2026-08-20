@@ -7,8 +7,15 @@ id: livi.planning.output
 
 This stage explains the output structure of the planning stage. The
 reply is parsed by code, not read by a person, so the shape below is
-exact: an `analytics_plan` array holding one entry per report, and
-nothing else in the object.
+exact: an `output_text` string, an `applied_laws` array (see
+`livi.general.citation`), an `analytics_plan` array holding one entry
+per report, and nothing else in the object. `output_text` exists because
+a lead-in sentence before the object is a parsing failure, not a
+stylistic quirk — this field gives that impulse a legal home instead of
+leaving it outside the object where it breaks the reply. It is never
+shown to the reader; only `analytics_plan` is acted on. The worked
+examples below show every field the reply must carry — an example
+missing a field is as misleading as a law that doesn't mention it.
 
 **Filled example — a single-report plan**, for "Is LiveReview adoption
 increasing since my team started using it?" Note that `count_sql` counts
@@ -16,6 +23,8 @@ months (12), not the underlying reviews, per `livi.planning.counting`:
 
 ```json
 {
+  "output_text": "Comparing review completions month over month for the current year.",
+  "applied_laws": ["2.2.3", "2.2.5", "4.1.5"],
   "analytics_plan": [
     {
       "id": "adoption_trend",
@@ -33,6 +42,8 @@ this is two entries, each independently answerable:
 
 ```json
 {
+  "output_text": "",
+  "applied_laws": ["2.2.3", "2.2.5", "4.1.5"],
   "analytics_plan": [
     {
       "id": "reviews_per_month",
@@ -50,7 +61,7 @@ this is two entries, each independently answerable:
 
 <!-- alaws:laws -->
 
-1. Reply with a single JSON object holding the `analytics_plan` array, and nothing else — no tool call, no prose before or after it, no markdown fence. {#reply-with-single-json-object}
+1. Reply with a single JSON object holding `output_text`, `applied_laws`, and the `analytics_plan` array, and nothing else — no tool call, no markdown fence. {#reply-with-single-json-object}
 
 2. Give every plan entry an `id`, a `question`, and a `count_sql`, and no other fields. {#give-every-plan-entry-an}
 

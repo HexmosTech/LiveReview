@@ -23,6 +23,12 @@ rather than silently emit an unresolved placeholder:
   to "this year" without hardcoding a year that goes stale every January
   and is wrong for any organization whose data doesn't start when ours
   did.
+* `today` — today's date (`time.Now()`, formatted `YYYY-MM-DD`).
+* `default_window_start` — today minus one year, same format. Together
+  with `today` these give a real, computed rolling window to default an
+  unspecified date range to, so a law never has to leave a placeholder
+  token (`[START_DATE]`, `[END_DATE]`) for the model to invent a
+  substitute for — there is always a real date on hand instead.
 
 <!-- alaws:laws -->
 

@@ -19,7 +19,11 @@ different combination of chapters:
 *Sent: [General](alaws:livi.general) + [Classification](alaws:livi.classify).*
 Cheap on purpose: it never sees the chart laws or the database schema,
 because paying for those before knowing whether the turn even needs them
-is waste.
+is waste. Data Handling is excluded here specifically — its 23 SQL-dialect
+rules (real table/column names, join gotchas, the allowed function list)
+are dead weight for a call that never writes a query, and were observed
+outweighing the much smaller classification instructions behind them,
+pulling the model toward writing SQL instead of picking a shape.
 
 **[Planning](alaws:livi.planning)** — what to count, and along which dimension.
 *Sent: [General](alaws:livi.general) + [Planning](alaws:livi.planning) + [Chart Selection](alaws:livi.charts) (laws only — the Vega-Lite

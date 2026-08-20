@@ -16,13 +16,14 @@ question from memory instead of from the organization's data.
 
 <!-- alaws:laws -->
 
-1. Reply to a classification request with exactly one JSON object and nothing else — no prose, no explanation, no markdown fence:
+1. Reply to a classification request with exactly one JSON object and nothing else — no prose, no explanation, no markdown fence: 
+
 ```json
-{"shape": "action" | "count_query" | "chat"}
+{"response": "action" | "count_query" | "chat", "applied_laws": ["<law numbers used>"]}
 ```
 {#reply-to-classification-request-with}
 
-2. Use one of the three literal tokens `action`, `count_query` or `chat` as the value of `shape`, and never substitute a descriptive phrase such as "data question" or "conversation". {#use-one-of-the-three}
+2. Use one of the three literal tokens `action`, `count_query` or `chat` as the value of `response`, and never substitute a descriptive phrase such as "data question" or "conversation". {#use-one-of-the-three}
 
 3. Answer `action` where the user wants something done — a review triggered, a learning created, a connector added — or where a single named record is requested that one tool call answers directly. {#answer-action-where-the-user}
 

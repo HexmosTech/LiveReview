@@ -97,13 +97,16 @@ func (p *Provider) FormatTools(tools []MCPToolDef) []llms.Tool {
 // plus the token usage the provider reported for this call.
 // Tool calls from the LLM (via WithTools) are converted to ReAct JSON blocks
 // embedded in the returned text so the agent can parse them.
-func (p *Provider) Complete(ctx context.Context, history []HistoryEntry, tools []llms.Tool) (string, TokenUsage, error) {
+// extraOpts lets a specific caller (e.g. classify's WithJSONMode) add call
+// options without changing every other caller's behavior.
+func (p *Provider) Complete(ctx context.Context, history []HistoryEntry, tools []llms.Tool, extraOpts ...llms.CallOption) (string, TokenUsage, error) {
 	messages := p.historyToMessages(history)
 
 	var opts []llms.CallOption
 	if len(tools) > 0 {
 		opts = append(opts, llms.WithTools(tools))
 	}
+	opts = append(opts, extraOpts...)
 
 	resp, err := p.connector.GenerateContent(ctx, messages, opts...)
 	if err != nil {

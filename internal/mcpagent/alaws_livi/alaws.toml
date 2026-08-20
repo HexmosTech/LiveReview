@@ -11,6 +11,7 @@ ordering = [
   "general/precedence.md",
   "general/unavailable.md",
   "general/variables.md",
+  "general/citation.md",
   "classification.md",
   "classification/shapes.md",
   "classification/judging-shape.md",

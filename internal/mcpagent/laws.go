@@ -203,15 +203,38 @@ func buildLawbookPrompts(orgName, userName string, orgID int64) (*lawbookPaths, 
 		return nil, err
 	}
 
+	now := time.Now()
 	vars := map[string]string{
 		"org_id": fmt.Sprintf("%d", orgID),
 		// present_year lets laws reference the current year without
 		// hardcoding one - a fixed year goes stale every January and is
 		// wrong for any org whose data doesn't start when ours did.
-		"present_year": fmt.Sprintf("%d", time.Now().Year()),
+		"present_year": fmt.Sprintf("%d", now.Year()),
+		// today and default_window_start give laws a real, computed date to
+		// default an unspecified window to - a rolling trailing year ending
+		// today, rather than the calendar-year default (present_year) that
+		// resets abruptly every January and loses "last year" the moment it
+		// does. Real dates, not placeholders: a law that uses these never
+		// has to invent a token like "[START_DATE]" for the model to fill
+		// in later, because nothing downstream of the model ever will.
+		"today":                now.Format("2006-01-02"),
+		"default_window_start": now.AddDate(-1, 0, 0).Format("2006-01-02"),
 	}
 
-	classify, err := renderBranch(book, []string{"livi.general", "livi.classify"}, vars)
+	// Classify never writes a query, so it skips livi.general.data - that
+	// section is 23 rules of pure SQL dialect (real table/column names, join
+	// gotchas, the allowed function list) that classify has no use for and
+	// that were observed drowning out the much smaller classify-specific
+	// instructions behind them, causing the model to write SQL instead of
+	// picking a shape.
+	classify, err := renderBranch(book, []string{
+		"livi.general.principles",
+		"livi.general.reading",
+		"livi.general.precedence",
+		"livi.general.unavailable",
+		"livi.general.citation",
+		"livi.classify",
+	}, vars)
 	if err != nil {
 		return nil, fmt.Errorf("classify branch: %w", err)
 	}
