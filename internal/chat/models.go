@@ -34,6 +34,25 @@ type Message struct {
 	TurnSeq           int
 	CreatedAt         time.Time
 	Charts            []Chart
+	Files             []File
+}
+
+// File is a downloadable export (CSV today) captured from an assistant turn.
+// The payload is stored in full so the download survives reloads and restarts
+// rather than being tied to a transient in-memory entry.
+type File struct {
+	ID          int64
+	MessageID   int64
+	Kind        string
+	Filename    string
+	Title       string
+	Description string
+	Query       string
+	TimeRange   string
+	Granularity string
+	Rows        int
+	Data        []byte
+	CreatedAt   time.Time
 }
 
 // Chart is a Vega-Lite chart artifact captured from an assistant turn: the

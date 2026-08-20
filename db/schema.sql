@@ -1,11 +1,12 @@
 \restrict dbmate
 
--- Dumped from database version 15.17 (Debian 15.17-1.pgdg13+1)
--- Dumped by pg_dump version 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
+-- Dumped from database version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
+-- Dumped by pg_dump version 17.10 (Ubuntu 17.10-1.pgdg22.04+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
 SELECT pg_catalog.set_config('search_path', '', false);
@@ -13,6 +14,13 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
+
+--
+-- Name: public; Type: SCHEMA; Schema: -; Owner: -
+--
+
+-- *not* creating schema, since initdb creates it
+
 
 --
 -- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: -
@@ -635,6 +643,45 @@ CREATE SEQUENCE public.chat_conversations_id_seq
 --
 
 ALTER SEQUENCE public.chat_conversations_id_seq OWNED BY public.chat_conversations.id;
+
+
+--
+-- Name: chat_files; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.chat_files (
+    id bigint NOT NULL,
+    message_id bigint NOT NULL,
+    kind character varying(20) DEFAULT 'csv'::character varying NOT NULL,
+    filename text NOT NULL,
+    title text,
+    description text,
+    query text,
+    time_range character varying(100),
+    granularity character varying(50),
+    rows integer,
+    data bytea NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: chat_files_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.chat_files_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: chat_files_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.chat_files_id_seq OWNED BY public.chat_files.id;
 
 
 --
@@ -2900,6 +2947,13 @@ ALTER TABLE ONLY public.chat_conversations ALTER COLUMN id SET DEFAULT nextval('
 
 
 --
+-- Name: chat_files id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.chat_files ALTER COLUMN id SET DEFAULT nextval('public.chat_files_id_seq'::regclass);
+
+
+--
 -- Name: chat_messages id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3250,6 +3304,14 @@ ALTER TABLE ONLY public.chat_charts
 
 ALTER TABLE ONLY public.chat_conversations
     ADD CONSTRAINT chat_conversations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: chat_files chat_files_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.chat_files
+    ADD CONSTRAINT chat_files_pkey PRIMARY KEY (id);
 
 
 --
@@ -4121,6 +4183,13 @@ CREATE INDEX idx_chat_conversations_title_trgm ON public.chat_conversations USIN
 --
 
 CREATE INDEX idx_chat_conversations_user_active ON public.chat_conversations USING btree (user_id, org_id, updated_at DESC) WHERE (deleted_at IS NULL);
+
+
+--
+-- Name: idx_chat_files_message; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_chat_files_message ON public.chat_files USING btree (message_id);
 
 
 --
@@ -5269,6 +5338,14 @@ ALTER TABLE ONLY public.chat_conversations
 
 
 --
+-- Name: chat_files chat_files_message_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.chat_files
+    ADD CONSTRAINT chat_files_message_id_fkey FOREIGN KEY (message_id) REFERENCES public.chat_messages(id) ON DELETE CASCADE;
+
+
+--
 -- Name: chat_messages chat_messages_conversation_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6084,4 +6161,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260811120000'),
     ('20260813000000'),
     ('20260817120000'),
-    ('20260817130000');
+    ('20260817130000'),
+    ('20260820141616');
