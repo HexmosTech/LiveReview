@@ -23,36 +23,38 @@ wrong — the most expensive kind of error in this system.
 
 6. Use `reviews.repository` (a plain name column) directly — never join `reviews` to `repositories` through `pull_requests`, because `reviews.pull_request_id` is unpopulated for most reviews and that join silently drops rows. {#use-reviews-repository-plain-name}
 
-7. Do not join `reviews` to `users` through a foreign key — the schema has none. Join them yourself on `users.email = reviews.user_email`. {#do-not-join-reviews-to}
+7. Filter to a named repository by its own identifying column, exactly — `reviews.repository = '<name>'`, or `pull_requests.repository_id` joined to `repositories.id`/`full_name`, never a text search on an unrelated column such as `pull_requests.title` as a stand-in for a repository filter. Match with `=`, not `ILIKE '%<name>%'` — a fuzzy substring match returns rows from other repositories whose name happens to contain the same text, and a title search returns rows about the repository rather than rows from it. {#filter-to-a-named-repository}
 
-8. Alias every selected expression with a unique name. `count(*) AS n`, not bare `count(*)`. Duplicate or unnamed columns are rejected. {#alias-every-selected-expression-with}
+8. Do not join `reviews` to `users` through a foreign key — the schema has none. Join them yourself on `users.email = reviews.user_email`. {#do-not-join-reviews-to}
 
-9. Bucket timestamps with `date_trunc('day' | 'week' | 'month' | 'quarter', created_at)` and do not use any other bucketing function. {#bucket-timestamps-with-date-trunc}
+9. Alias every selected expression with a unique name. `count(*) AS n`, not bare `count(*)`. Duplicate or unnamed columns are rejected. {#alias-every-selected-expression-with}
 
-10. Use a single `SELECT` statement. No `INSERT`, `UPDATE`, `DELETE`, `WITH RECURSIVE`, `FOR UPDATE`, `SELECT *`, or bind parameters. {#use-single-select-statement-no}
+10. Bucket timestamps with `date_trunc('day' | 'week' | 'month' | 'quarter', created_at)` and do not use any other bucketing function. {#bucket-timestamps-with-date-trunc}
 
-11. Do not name a CTE after one of the tables in the schema reference. {#do-not-name-cte-after}
+11. Use a single `SELECT` statement. No `INSERT`, `UPDATE`, `DELETE`, `WITH RECURSIVE`, `FOR UPDATE`, `SELECT *`, or bind parameters. {#use-single-select-statement-no}
 
-12. List columns by name — never `SELECT *` or `table.*`. {#list-columns-by-name-never}
+12. Do not name a CTE after one of the tables in the schema reference. {#do-not-name-cte-after}
 
-13. Available SQL functions: `count sum avg min max stddev variance percentile_cont bool_or bool_and rank dense_rank row_number lag lead first_value last_value ntile round abs ceil floor trunc mod power sqrt coalesce nullif greatest least date_trunc date_part extract to_char to_date to_timestamp age now date_bin lower upper initcap trim btrim ltrim rtrim concat concat_ws substring length split_part replace left right lpad rpad jsonb_array_length jsonb_typeof generate_series unnest`. Nothing else. {#available-sql-functions-count-sum}
+13. List columns by name — never `SELECT *` or `table.*`. {#list-columns-by-name-never}
 
-14. Compute period-over-period change in SQL with `lag()`, never by subtracting two numbers itself. {#compute-period-over-period-change}
+14. Available SQL functions: `count sum avg min max stddev variance percentile_cont bool_or bool_and rank dense_rank row_number lag lead first_value last_value ntile round abs ceil floor trunc mod power sqrt coalesce nullif greatest least date_trunc date_part extract to_char to_date to_timestamp age now date_bin lower upper initcap trim btrim ltrim rtrim concat concat_ws substring length split_part replace left right lpad rpad jsonb_array_length jsonb_typeof generate_series unnest`. Nothing else. {#available-sql-functions-count-sum}
 
-15. `reviews.status` is one of `created`, `in_progress`, `completed`, `failed`. A question about work that actually finished means `status = 'completed'`. {#reviews-status-is-one-of}
+15. Compute period-over-period change in SQL with `lag()`, never by subtracting two numbers itself. {#compute-period-over-period-change}
 
-16. `pull_requests.state` is one of `open`, `closed`, `merged`. {#pull-requests-state-is-one}
+16. `reviews.status` is one of `created`, `in_progress`, `completed`, `failed`. A question about work that actually finished means `status = 'completed'`. {#reviews-status-is-one-of}
 
-17. `review_feedback.vote_type` is one of `up`, `down`. {#review-feedback-vote-type-is}
+17. `pull_requests.state` is one of `open`, `closed`, `merged`. {#pull-requests-state-is-one}
 
-18. `loc_usage_ledger.status` is one of `accounted`, `ignored`. `actor_kind` is one of `member`, `system`, `unknown`. {#loc-usage-ledger-status-is}
+18. `review_feedback.vote_type` is one of `up`, `down`. {#review-feedback-vote-type-is}
 
-19. There is no single "how was this review triggered" column. `reviews.trigger_type` (`webhook` = PR/MR, `cli_diff` = pre-commit, `mcp` = MCP) and `loc_usage_ledger.trigger_source` (`api`, ...) are two different columns on two different tables. Check which table the metric lives on before picking which trigger column to group by. {#there-is-no-single-how}
+19. `loc_usage_ledger.status` is one of `accounted`, `ignored`. `actor_kind` is one of `member`, `system`, `unknown`. {#loc-usage-ledger-status-is}
 
-20. When counting per day, fill empty days with zero. A missing row draws nothing, so a quiet week closes up and the trend flatters the team. {#when-counting-per-day-fill}
+20. There is no single "how was this review triggered" column. `reviews.trigger_type` (`webhook` = PR/MR, `cli_diff` = pre-commit, `mcp` = MCP) and `loc_usage_ledger.trigger_source` (`api`, ...) are two different columns on two different tables. Check which table the metric lives on before picking which trigger column to group by. {#there-is-no-single-how}
 
-21. Account for one-to-many joins. Two such joins in one query multiply rows and inflate every count; measures must be counted distinctly or aggregated separately and joined afterwards. {#account-for-one-to-many}
+21. When counting per day, fill empty days with zero. A missing row draws nothing, so a quiet week closes up and the trend flatters the team. {#when-counting-per-day-fill}
 
-22. Compute rolling averages, cumulative percentages, running totals and deltas in the query, so the chart plots columns that already exist. Round every such derived figure to two decimal places with `round()` — an unrounded float repeating to fifteen digits is noise in a tooltip and in the description. {#compute-rolling-averages-cumulative-percentages}
+22. Account for one-to-many joins. Two such joins in one query multiply rows and inflate every count; measures must be counted distinctly or aggregated separately and joined afterwards. {#account-for-one-to-many}
 
-23. Keep presentation out of the query — normalising to a hundred percent, negating a value to sit below a zero line, and highlight bands are applied to the chart, not the data. {#keep-presentation-out-of-the}
+23. Compute rolling averages, cumulative percentages, running totals and deltas in the query, so the chart plots columns that already exist. Round every such derived figure to two decimal places with `round()` — an unrounded float repeating to fifteen digits is noise in a tooltip and in the description. {#compute-rolling-averages-cumulative-percentages}
+
+24. Keep presentation out of the query — normalising to a hundred percent, negating a value to sit below a zero line, and highlight bands are applied to the chart, not the data. {#keep-presentation-out-of-the}
