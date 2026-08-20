@@ -249,12 +249,15 @@ func buildLawbookPrompts(orgName, userName string, orgID int64) (*lawbookPaths, 
 		return nil, fmt.Errorf("finalize branch: %w", err)
 	}
 
-	repairLaws, err := renderBranch(book, []string{"livi.general", "livi.degraded"}, vars)
+	// Each degraded sub-branch gets only its own section, not the whole
+	// "livi.degraded" chapter - a repair call has no use for the no-data
+	// laws ("tell the user there is nothing to show") and vice versa.
+	repairLaws, err := renderBranch(book, []string{"livi.general", "livi.degraded.repair"}, vars)
 	if err != nil {
 		return nil, fmt.Errorf("degraded branch: %w", err)
 	}
 
-	noDataLaws, err := renderBranch(book, []string{"livi.general", "livi.degraded"}, vars)
+	noDataLaws, err := renderBranch(book, []string{"livi.general", "livi.degraded.nodata"}, vars)
 	if err != nil {
 		return nil, fmt.Errorf("nodata branch: %w", err)
 	}
