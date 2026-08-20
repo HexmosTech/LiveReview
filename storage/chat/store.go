@@ -52,6 +52,20 @@ type ChartInput struct {
 	RawLLMOutput          string
 }
 
+// FileInput is a downloadable export to persist alongside the assistant
+// message of a turn.
+type FileInput struct {
+	Kind        string
+	Filename    string
+	Title       string
+	Description string
+	Query       string
+	TimeRange   string
+	Granularity string
+	Rows        int
+	Data        []byte
+}
+
 // CreateConversation inserts a new conversation, defaulting its title when
 // empty, and returns its id.
 func (s *Store) CreateConversation(ctx context.Context, orgID, userID int64, title, sessionID string) (int64, error) {
@@ -205,13 +219,15 @@ func (s *Store) SoftDeleteConversation(ctx context.Context, orgID, userID, convI
 	return checkRowsAffected(res)
 }
 
-// AppendTurn persists one user+assistant turn (and any charts the assistant
-// message produced) in a single transaction, and bumps the conversation's
-// updated_at so it resurfaces at the top of the list.
-func (s *Store) AppendTurn(ctx context.Context, convID int64, userMsg, assistantMsg MessageInput, charts []ChartInput) (userMsgID, assistantMsgID int64, err error) {
+// AppendTurn persists one user+assistant turn (and any charts and file
+// exports the assistant message produced) in a single transaction, and bumps
+// the conversation's updated_at so it resurfaces at the top of the list.
+// fileIDs mirrors the order of files, one id per entry, for the caller to
+// build stable download URLs.
+func (s *Store) AppendTurn(ctx context.Context, convID int64, userMsg, assistantMsg MessageInput, charts []ChartInput, files []FileInput) (userMsgID, assistantMsgID int64, fileIDs []int64, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, 0, fmt.Errorf("begin tx: %w", err)
+		return 0, 0, nil, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -219,16 +235,16 @@ func (s *Store) AppendTurn(ctx context.Context, convID int64, userMsg, assistant
 	if err := tx.QueryRowContext(ctx, `
 		SELECT COALESCE(MAX(turn_seq) + 1, 0) FROM chat_messages WHERE conversation_id = $1
 	`, convID).Scan(&nextSeq); err != nil {
-		return 0, 0, fmt.Errorf("next turn_seq: %w", err)
+		return 0, 0, nil, fmt.Errorf("next turn_seq: %w", err)
 	}
 
 	userMsgID, err = insertMessage(ctx, tx, convID, nextSeq, userMsg)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 	assistantMsgID, err = insertMessage(ctx, tx, convID, nextSeq+1, assistantMsg)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 
 	for _, ch := range charts {
@@ -236,18 +252,40 @@ func (s *Store) AppendTurn(ctx context.Context, convID int64, userMsg, assistant
 			INSERT INTO chat_charts (message_id, title, description, query, time_range, granularity, triggering_user_message, vega_spec, raw_llm_output)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		`, assistantMsgID, ch.Title, ch.Description, ch.Query, ch.TimeRange, ch.Granularity, ch.TriggeringUserMessage, []byte(ch.VegaSpec), ch.RawLLMOutput); err != nil {
-			return 0, 0, fmt.Errorf("insert chat_charts: %w", err)
+			return 0, 0, nil, fmt.Errorf("insert chat_charts: %w", err)
 		}
 	}
 
+	fileIDs = make([]int64, 0, len(files))
+	for _, f := range files {
+		var fileID int64
+		if err := tx.QueryRowContext(ctx, `
+			INSERT INTO chat_files (message_id, kind, filename, title, description, query, time_range, granularity, rows, data)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			RETURNING id
+		`, assistantMsgID, f.Kind, f.Filename, nullable(f.Title), nullable(f.Description), nullable(f.Query), nullable(f.TimeRange), nullable(f.Granularity), f.Rows, f.Data).Scan(&fileID); err != nil {
+			return 0, 0, nil, fmt.Errorf("insert chat_files: %w", err)
+		}
+		fileIDs = append(fileIDs, fileID)
+	}
+
 	if _, err := tx.ExecContext(ctx, `UPDATE chat_conversations SET updated_at = NOW() WHERE id = $1`, convID); err != nil {
-		return 0, 0, fmt.Errorf("bump chat_conversations.updated_at: %w", err)
+		return 0, 0, nil, fmt.Errorf("bump chat_conversations.updated_at: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return 0, 0, fmt.Errorf("commit turn: %w", err)
+		return 0, 0, nil, fmt.Errorf("commit turn: %w", err)
 	}
-	return userMsgID, assistantMsgID, nil
+	return userMsgID, assistantMsgID, fileIDs, nil
+}
+
+// nullable returns a pointer so empty strings persist as SQL NULL rather than
+// empty text, matching how chat_charts stores its optional metadata columns.
+func nullable(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func insertMessage(ctx context.Context, tx *sql.Tx, convID int64, seq int, m MessageInput) (int64, error) {
@@ -335,7 +373,54 @@ func (s *Store) ListMessages(ctx context.Context, orgID, userID, convID int64) (
 			messages[idx].Charts = append(messages[idx].Charts, ch)
 		}
 	}
-	return messages, chartRows.Err()
+
+	fileRows, err := s.db.QueryContext(ctx, `
+		SELECT id, message_id, COALESCE(kind, 'csv'), filename,
+			COALESCE(title, ''), COALESCE(description, ''), COALESCE(query, ''),
+			COALESCE(time_range, ''), COALESCE(granularity, ''), COALESCE(rows, 0), data, created_at
+		FROM chat_files
+		WHERE message_id = ANY($1)
+		ORDER BY id ASC
+	`, pq.Array(ids))
+	if err != nil {
+		return nil, fmt.Errorf("list chat_files: %w", err)
+	}
+	defer fileRows.Close()
+	for fileRows.Next() {
+		var f domainchat.File
+		if err := fileRows.Scan(&f.ID, &f.MessageID, &f.Kind, &f.Filename, &f.Title, &f.Description, &f.Query,
+			&f.TimeRange, &f.Granularity, &f.Rows, &f.Data, &f.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan chat_files: %w", err)
+		}
+		if idx, ok := msgIdx[f.MessageID]; ok {
+			messages[idx].Files = append(messages[idx].Files, f)
+		}
+	}
+	return messages, fileRows.Err()
+}
+
+// GetFile returns one file export, ownership-checked via a join back through
+// its message to the owning conversation.
+func (s *Store) GetFile(ctx context.Context, orgID, userID, fileID int64) (*domainchat.File, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT f.id, f.message_id, COALESCE(f.kind, 'csv'), f.filename,
+			COALESCE(f.title, ''), COALESCE(f.description, ''), COALESCE(f.query, ''),
+			COALESCE(f.time_range, ''), COALESCE(f.granularity, ''), COALESCE(f.rows, 0), f.data, f.created_at
+		FROM chat_files f
+		JOIN chat_messages m ON m.id = f.message_id
+		JOIN chat_conversations c ON c.id = m.conversation_id
+		WHERE f.id = $1 AND c.org_id = $2 AND c.user_id = $3 AND c.deleted_at IS NULL
+	`, fileID, orgID, userID)
+
+	var f domainchat.File
+	if err := row.Scan(&f.ID, &f.MessageID, &f.Kind, &f.Filename, &f.Title, &f.Description, &f.Query,
+		&f.TimeRange, &f.Granularity, &f.Rows, &f.Data, &f.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("select chat_files: %w", err)
+	}
+	return &f, nil
 }
 
 // GetChart returns one chart, ownership-checked via a join back through its

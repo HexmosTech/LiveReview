@@ -179,7 +179,6 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		Response:       responseText,
 		SessionID:      sessionID,
 		ConversationID: convID,
-		Files:          registerChatExports(artifacts, orgID),
 	}
 
 	if vlrender.HasVegaLiteSpec(responseText) {
@@ -220,10 +219,25 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		resp.Response = extractDescriptionFromVegaSpec(responseText)
 	}
 
-	// A persistence failure must not fail the turn the user is looking at -
-	// log and move on, same philosophy as registerChatExports above.
-	if err := persistTurn(ctx, chatStore, convID, req.Message, resp.Response, turnEntries, resp.Charts, responseText); err != nil {
+	// Persist the turn (messages + charts + file exports) FIRST so the file
+	// exports get durable DB ids we can build stable download URLs from.
+	// Charts and exports are surfaced on the response regardless, since the
+	// files field is driven by the persisted ids below.
+	fileIDs, err := persistTurn(ctx, chatStore, convID, req.Message, resp.Response, turnEntries, resp.Charts, artifacts, responseText)
+	if err != nil {
 		log.Error().Err(err).Int64("conversation_id", convID).Msg("WebChat: failed to persist turn")
+	}
+
+	// File downloads are served from the DB, so only files that were actually
+	// persisted (got a real id back) are offered. A persistence failure loses
+	// the download rather than advertising a link that 404s - the message text
+	// stays honest because it is stored alongside, so the two can never drift.
+	resp.Files = make([]WebChatFile, 0, len(artifacts))
+	for i, art := range artifacts {
+		if i >= len(fileIDs) {
+			break
+		}
+		resp.Files = append(resp.Files, chatFileFromArtifact(art, fileIDs[i]))
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -243,13 +257,15 @@ func titleFromFirstMessage(message string) string {
 }
 
 // persistTurn splits this turn's newly appended history entries into the
-// user-visible message pair and stores them (plus any chart artifacts) via
-// AppendTurn. The system-prompt entry mcpagent/agent.go may have prepended
-// ahead of the user entry is intentionally dropped: RunTurnWithArtifacts
-// idempotently re-derives/swaps it on every call (agent.go:148-166), so
-// replaying persisted history without it is safe, and simpler than tracking
-// which prompt variant was live on a given turn.
-func persistTurn(ctx context.Context, chatStore *storagechat.Store, convID int64, userText, assistantText string, turnEntries []mcpagent.HistoryEntry, charts []WebChatChart, rawLLMOutput string) error {
+// user-visible message pair and stores them (plus any chart and file-export
+// artifacts) via AppendTurn. It returns the persisted file ids, one per
+// artifact entry, so the caller can build stable download URLs - or nil if a
+// file was not persisted. The system-prompt entry mcpagent/agent.go may have
+// prepended ahead of the user entry is intentionally dropped:
+// RunTurnWithArtifacts idempotently re-derives/swaps it on every call
+// (agent.go:148-166), so replaying persisted history without it is safe, and
+// simpler than tracking which prompt variant was live on a given turn.
+func persistTurn(ctx context.Context, chatStore *storagechat.Store, convID int64, userText, assistantText string, turnEntries []mcpagent.HistoryEntry, charts []WebChatChart, artifacts []mcpagent.Artifact, rawLLMOutput string) ([]int64, error) {
 	userIdx := -1
 	for i, e := range turnEntries {
 		if role, _ := e["role"].(string); role == "user" {
@@ -258,7 +274,7 @@ func persistTurn(ctx context.Context, chatStore *storagechat.Store, convID int64
 		}
 	}
 	if userIdx < 0 {
-		return fmt.Errorf("no user entry found in turn history")
+		return nil, fmt.Errorf("no user entry found in turn history")
 	}
 
 	chartInputs := make([]storagechat.ChartInput, 0, len(charts))
@@ -275,7 +291,12 @@ func persistTurn(ctx context.Context, chatStore *storagechat.Store, convID int64
 		})
 	}
 
-	_, _, err := chatStore.AppendTurn(ctx, convID,
+	fileInputs := make([]storagechat.FileInput, 0, len(artifacts))
+	for _, art := range artifacts {
+		fileInputs = append(fileInputs, toFileInput(art))
+	}
+
+	_, _, fileIDs, err := chatStore.AppendTurn(ctx, convID,
 		storagechat.MessageInput{
 			Role:              "user",
 			Content:           userText,
@@ -287,8 +308,9 @@ func persistTurn(ctx context.Context, chatStore *storagechat.Store, convID int64
 			RawHistoryEntries: turnEntries[userIdx+1:],
 		},
 		chartInputs,
+		fileInputs,
 	)
-	return err
+	return fileIDs, err
 }
 
 // extractChartsFromVega pulls the normalized Vega-Lite spec(s) out of the raw
