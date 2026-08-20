@@ -152,7 +152,7 @@ go get github.com/d1vbyz3r0/typed@latest
 From the project root directory:
 
 ```bash
-make run
+make run-debug
 ```
 
 This starts the LiveReview backend server.
