@@ -125,8 +125,40 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		history = append(history, m.RawHistoryEntries...)
 	}
 
+	// Persist the user's question the moment it reaches this handler -
+	// before the connector, MCP session, or agent loop get a chance to
+	// fail, and before a slow turn gives the client a chance to disconnect.
+	// A turn can take 20-40s end to end; without this, a client that gives
+	// up (or a downstream failure) before the reply was ready lost the
+	// question too, since the old path only persisted user+assistant
+	// together in one transaction at the very end. Best-effort: a failure
+	// here is logged but does not block the turn, since the reply is still
+	// worth attempting even if this write had trouble.
+	if _, _, err := chatStore.AppendUserMessage(ctx, convID, storagechat.MessageInput{
+		Role:              "user",
+		Content:           req.Message,
+		RawHistoryEntries: []mcpagent.HistoryEntry{{"role": "user", "content": req.Message}},
+	}); err != nil {
+		log.Error().Err(err).Int64("conversation_id", convID).Msg("WebChat: failed to persist user message")
+	}
+
+	// persistReply saves the assistant's side of this turn - success or
+	// error text alike - so reopening the conversation later always shows
+	// what happened, never a question with no visible outcome. Best-effort
+	// past this point: a persistence failure is logged, never surfaced to
+	// the user as a turn failure, since the reply already computed (or the
+	// error already known) is the thing that matters to return now.
+	persistReply := func(assistantText string, charts []WebChatChart, artifacts []mcpagent.Artifact, turnEntries []mcpagent.HistoryEntry, rawLLMOutput string) []int64 {
+		fileIDs, err := persistAssistantMessage(ctx, chatStore, convID, req.Message, assistantText, turnEntries, charts, artifacts, rawLLMOutput)
+		if err != nil {
+			log.Error().Err(err).Int64("conversation_id", convID).Msg("WebChat: failed to persist assistant message")
+		}
+		return fileIDs
+	}
+
 	connector, err := s.resolveOrgConnector(ctx, orgID)
 	if err != nil {
+		persistReply(err.Error(), nil, nil, nil, "")
 		return c.JSON(http.StatusBadGateway, map[string]string{"error": err.Error()})
 	}
 
@@ -145,7 +177,9 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	mcpSession, err := mcpagent.ConnectMCP(ctx, mcpURL, mcpHeaders)
 	if err != nil {
 		log.Error().Err(err).Str("url", mcpURL).Msg("WebChat: failed to connect to MCP server")
-		return c.JSON(http.StatusBadGateway, map[string]string{"error": fmt.Sprintf("Failed to connect: %s", err.Error())})
+		errText := fmt.Sprintf("Failed to connect: %s", err.Error())
+		persistReply(errText, nil, nil, nil, "")
+		return c.JSON(http.StatusBadGateway, map[string]string{"error": errText})
 	}
 
 	if pc.CurrentOrg != nil && pc.CurrentOrg.Name != "" {
@@ -167,12 +201,16 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	responseText, updatedHistory, artifacts, err := agent.RunTurnWithArtifacts(ctx, history, req.Message, sessionID, "livi")
 	if err != nil {
 		log.Error().Err(err).Msg("WebChat: agent loop failed")
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Agent loop failed: %s", err.Error())})
+		errText := fmt.Sprintf("Agent loop failed: %s", err.Error())
+		persistReply(errText, nil, nil, nil, "")
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": errText})
 	}
 	// Whatever RunTurnWithArtifacts appended on top of the history we fed it
 	// (possibly including a freshly swapped-in system prompt entry - see
 	// mcpagent/agent.go's per-turn prompt selection) is this turn's new
-	// content, to persist below.
+	// content. The user entry within it was already persisted above by
+	// AppendUserMessage before the call; only the assistant entries get
+	// saved below.
 	turnEntries := updatedHistory[len(history):]
 
 	resp := WebChatResponse{
@@ -219,14 +257,12 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		resp.Response = extractDescriptionFromVegaSpec(responseText)
 	}
 
-	// Persist the turn (messages + charts + file exports) FIRST so the file
+	// Persist the reply (messages + charts + file exports) so the file
 	// exports get durable DB ids we can build stable download URLs from.
 	// Charts and exports are surfaced on the response regardless, since the
-	// files field is driven by the persisted ids below.
-	fileIDs, err := persistTurn(ctx, chatStore, convID, req.Message, resp.Response, turnEntries, resp.Charts, artifacts, responseText)
-	if err != nil {
-		log.Error().Err(err).Int64("conversation_id", convID).Msg("WebChat: failed to persist turn")
-	}
+	// files field is driven by the persisted ids below. The user message
+	// was already saved by AppendUserMessage before the agent ran.
+	fileIDs := persistReply(resp.Response, resp.Charts, artifacts, turnEntries, responseText)
 
 	// File downloads are served from the DB, so only files that were actually
 	// persisted (got a real id back) are offered. A persistence failure loses
@@ -256,25 +292,28 @@ func titleFromFirstMessage(message string) string {
 	return strings.TrimSpace(string(runes[:maxRunes])) + "…"
 }
 
-// persistTurn splits this turn's newly appended history entries into the
-// user-visible message pair and stores them (plus any chart and file-export
-// artifacts) via AppendTurn. It returns the persisted file ids, one per
-// artifact entry, so the caller can build stable download URLs - or nil if a
-// file was not persisted. The system-prompt entry mcpagent/agent.go may have
-// prepended ahead of the user entry is intentionally dropped:
+// persistAssistantMessage saves the reply half of a turn (plus any chart and
+// file-export artifacts) via AppendAssistantMessage - the user half was
+// already saved by AppendUserMessage before the agent ran. It returns the
+// persisted file ids, one per artifact entry, so the caller can build stable
+// download URLs - or nil if a file was not persisted.
+//
+// turnEntries is nil on an early-failure path (connector/MCP/agent-loop
+// error, before any LLM history exists) - in that case a single synthetic
+// assistant entry is stored so the conversation still replays as valid
+// history, matching what a real assistant turn's shape would have been. The
+// system-prompt entry mcpagent/agent.go may have prepended ahead of the user
+// entry, when turnEntries is populated, is intentionally dropped:
 // RunTurnWithArtifacts idempotently re-derives/swaps it on every call
 // (agent.go:148-166), so replaying persisted history without it is safe, and
 // simpler than tracking which prompt variant was live on a given turn.
-func persistTurn(ctx context.Context, chatStore *storagechat.Store, convID int64, userText, assistantText string, turnEntries []mcpagent.HistoryEntry, charts []WebChatChart, artifacts []mcpagent.Artifact, rawLLMOutput string) ([]int64, error) {
-	userIdx := -1
+func persistAssistantMessage(ctx context.Context, chatStore *storagechat.Store, convID int64, userText, assistantText string, turnEntries []mcpagent.HistoryEntry, charts []WebChatChart, artifacts []mcpagent.Artifact, rawLLMOutput string) ([]int64, error) {
+	assistantEntries := []mcpagent.HistoryEntry{{"role": "assistant", "content": assistantText}}
 	for i, e := range turnEntries {
 		if role, _ := e["role"].(string); role == "user" {
-			userIdx = i
+			assistantEntries = turnEntries[i+1:]
 			break
 		}
-	}
-	if userIdx < 0 {
-		return nil, fmt.Errorf("no user entry found in turn history")
 	}
 
 	chartInputs := make([]storagechat.ChartInput, 0, len(charts))
@@ -296,16 +335,11 @@ func persistTurn(ctx context.Context, chatStore *storagechat.Store, convID int64
 		fileInputs = append(fileInputs, toFileInput(art))
 	}
 
-	_, _, fileIDs, err := chatStore.AppendTurn(ctx, convID,
-		storagechat.MessageInput{
-			Role:              "user",
-			Content:           userText,
-			RawHistoryEntries: []mcpagent.HistoryEntry{turnEntries[userIdx]},
-		},
+	_, fileIDs, err := chatStore.AppendAssistantMessage(ctx, convID,
 		storagechat.MessageInput{
 			Role:              "assistant",
 			Content:           assistantText,
-			RawHistoryEntries: turnEntries[userIdx+1:],
+			RawHistoryEntries: assistantEntries,
 		},
 		chartInputs,
 		fileInputs,

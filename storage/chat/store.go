@@ -32,7 +32,7 @@ func NewStore(db *sql.DB) *Store {
 }
 
 // MessageInput is one side of a turn (user prompt or assistant reply) to
-// persist via AppendTurn.
+// persist via AppendUserMessage or AppendAssistantMessage.
 type MessageInput struct {
 	Role              string
 	Content           string
@@ -219,40 +219,72 @@ func (s *Store) SoftDeleteConversation(ctx context.Context, orgID, userID, convI
 	return checkRowsAffected(res)
 }
 
-// AppendTurn persists one user+assistant turn (and any charts and file
-// exports the assistant message produced) in a single transaction, and bumps
-// the conversation's updated_at so it resurfaces at the top of the list.
-// fileIDs mirrors the order of files, one id per entry, for the caller to
-// build stable download URLs.
-func (s *Store) AppendTurn(ctx context.Context, convID int64, userMsg, assistantMsg MessageInput, charts []ChartInput, files []FileInput) (userMsgID, assistantMsgID int64, fileIDs []int64, err error) {
+// AppendUserMessage persists just the user side of a turn and bumps the
+// conversation's updated_at, so the question survives (and the conversation
+// resurfaces in the sidebar) even if everything after this call - the AI
+// connector, the MCP session, the agent loop itself - fails or the client
+// disconnects before a reply exists. Call this the moment a turn reaches the
+// handler, before any of that; see AppendAssistantMessage for the reply half.
+func (s *Store) AppendUserMessage(ctx context.Context, convID int64, userMsg MessageInput) (msgID int64, seq int, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, 0, nil, fmt.Errorf("begin tx: %w", err)
+		return 0, 0, fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var nextSeq int
 	if err := tx.QueryRowContext(ctx, `
 		SELECT COALESCE(MAX(turn_seq) + 1, 0) FROM chat_messages WHERE conversation_id = $1
-	`, convID).Scan(&nextSeq); err != nil {
-		return 0, 0, nil, fmt.Errorf("next turn_seq: %w", err)
+	`, convID).Scan(&seq); err != nil {
+		return 0, 0, fmt.Errorf("next turn_seq: %w", err)
 	}
 
-	userMsgID, err = insertMessage(ctx, tx, convID, nextSeq, userMsg)
+	msgID, err = insertMessage(ctx, tx, convID, seq, userMsg)
 	if err != nil {
-		return 0, 0, nil, err
+		return 0, 0, err
 	}
-	assistantMsgID, err = insertMessage(ctx, tx, convID, nextSeq+1, assistantMsg)
+
+	if _, err := tx.ExecContext(ctx, `UPDATE chat_conversations SET updated_at = NOW() WHERE id = $1`, convID); err != nil {
+		return 0, 0, fmt.Errorf("bump chat_conversations.updated_at: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, 0, fmt.Errorf("commit user message: %w", err)
+	}
+	return msgID, seq, nil
+}
+
+// AppendAssistantMessage persists the reply half of a turn (plus any charts
+// and file exports) at the next available turn_seq - always after the
+// user message AppendUserMessage already saved, since that call already
+// consumed the seq the reply would otherwise have raced for. Safe to call
+// even when the reply is an error message: a turn that ends in "Error: ..."
+// is still worth keeping, so the user can see what happened on reopening
+// the conversation rather than finding a question with no visible outcome.
+func (s *Store) AppendAssistantMessage(ctx context.Context, convID int64, assistantMsg MessageInput, charts []ChartInput, files []FileInput) (msgID int64, fileIDs []int64, err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, 0, nil, err
+		return 0, nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var seq int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(turn_seq) + 1, 0) FROM chat_messages WHERE conversation_id = $1
+	`, convID).Scan(&seq); err != nil {
+		return 0, nil, fmt.Errorf("next turn_seq: %w", err)
+	}
+
+	msgID, err = insertMessage(ctx, tx, convID, seq, assistantMsg)
+	if err != nil {
+		return 0, nil, err
 	}
 
 	for _, ch := range charts {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO chat_charts (message_id, title, description, query, time_range, granularity, triggering_user_message, vega_spec, raw_llm_output)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		`, assistantMsgID, ch.Title, ch.Description, ch.Query, ch.TimeRange, ch.Granularity, ch.TriggeringUserMessage, []byte(ch.VegaSpec), ch.RawLLMOutput); err != nil {
-			return 0, 0, nil, fmt.Errorf("insert chat_charts: %w", err)
+		`, msgID, ch.Title, ch.Description, ch.Query, ch.TimeRange, ch.Granularity, ch.TriggeringUserMessage, []byte(ch.VegaSpec), ch.RawLLMOutput); err != nil {
+			return 0, nil, fmt.Errorf("insert chat_charts: %w", err)
 		}
 	}
 
@@ -263,20 +295,20 @@ func (s *Store) AppendTurn(ctx context.Context, convID int64, userMsg, assistant
 			INSERT INTO chat_files (message_id, kind, filename, title, description, query, time_range, granularity, rows, data)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			RETURNING id
-		`, assistantMsgID, f.Kind, f.Filename, nullable(f.Title), nullable(f.Description), nullable(f.Query), nullable(f.TimeRange), nullable(f.Granularity), f.Rows, f.Data).Scan(&fileID); err != nil {
-			return 0, 0, nil, fmt.Errorf("insert chat_files: %w", err)
+		`, msgID, f.Kind, f.Filename, nullable(f.Title), nullable(f.Description), nullable(f.Query), nullable(f.TimeRange), nullable(f.Granularity), f.Rows, f.Data).Scan(&fileID); err != nil {
+			return 0, nil, fmt.Errorf("insert chat_files: %w", err)
 		}
 		fileIDs = append(fileIDs, fileID)
 	}
 
 	if _, err := tx.ExecContext(ctx, `UPDATE chat_conversations SET updated_at = NOW() WHERE id = $1`, convID); err != nil {
-		return 0, 0, nil, fmt.Errorf("bump chat_conversations.updated_at: %w", err)
+		return 0, nil, fmt.Errorf("bump chat_conversations.updated_at: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return 0, 0, nil, fmt.Errorf("commit turn: %w", err)
+		return 0, nil, fmt.Errorf("commit assistant message: %w", err)
 	}
-	return userMsgID, assistantMsgID, fileIDs, nil
+	return msgID, fileIDs, nil
 }
 
 // nullable returns a pointer so empty strings persist as SQL NULL rather than

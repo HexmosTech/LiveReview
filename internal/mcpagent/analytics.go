@@ -584,6 +584,18 @@ func (a *Agent) regenerateDescription(ctx context.Context, entry PlanEntry, plan
 		return plan.Description
 	}
 	user := fmt.Sprintf("Original question: %s\n\nChart title: %s\n\nReal numbers from the query result:\n%s", entry.Question, plan.Title, facts)
+
+	// No timeout of its own: this call shares the parent turn's ctx and
+	// analyticsTurnTimeout (90s) bounds it same as every other call in the
+	// pipeline. A short timeout here (previously 6s) was added when a slow
+	// describe call could make the whole turn vanish - the client would
+	// disconnect before persistTurn ever ran, losing the user's question
+	// too. That's fixed now: AppendUserMessage (webchat_handler.go) saves
+	// the question the moment it arrives, before the agent even runs, so a
+	// slow describe call only delays the reply, it can't lose the turn.
+	// Observed latency on this call has been 17-20s on some AI connectors -
+	// a short timeout meant it almost never actually succeeded, defeating
+	// the point of adding it.
 	raw, err := a.completeOnce(ctx, clog, 4, "describe", entry.ID, 1, a.describePrompt, user)
 	if err != nil {
 		return plan.Description
