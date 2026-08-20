@@ -14,18 +14,17 @@ using it?"
 
 <!-- alaws:laws -->
 
-1. Apply this section where a question asks whether a countable activity is rising or falling across the whole organization, without an entity filter and without a second measure.
+1. Apply this section where a question asks whether a countable activity is rising or falling across the whole organization, without an entity filter and without a second measure. {#apply-this-section-where-question}
 
-2. Count the events per day over the window.
+2. Count the events per day over the window. {#count-the-events-per-day}
 
-3. Compute the rolling average and the period average as window functions in the query rather than in the chart.
+3. Compute the rolling average and the period average as window functions in the query rather than in the chart, each rounded to two decimal places, and include the period average as a column on every row of the same result set — do not fetch it separately. {#compute-the-rolling-average-and}
 
-4. Layer three marks: the raw series, the rolling average, and the period average as a rule.
+4. Layer three marks: the raw series, the rolling average, and the period average as a rule. Draw the rule's value directly off the inherited dataset with `"aggregate": "mean"`, not from a second `data` block — since the period average is already a constant column on every row, aggregating it is exact and needs no value to be filled in by hand. {#layer-three-marks-the-raw}
 
-5. State the direction of travel in the description and quote the first and last values of the smoothed line.
+5. State the direction of travel in the description and quote the first and last values of the smoothed line. {#state-the-direction-of-travel}
 
 6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
-
 ```json
 {
   "width": 900, "height": 420,
@@ -35,9 +34,9 @@ using it?"
     {"mark": {"type": "line", "color": "#ffb454", "strokeWidth": 2.5, "interpolate": "monotone"},
      "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "rolling_avg_7d", "type": "quantitative"}}},
     {"mark": {"type": "rule", "color": "#ff5c7c", "strokeDash": [6, 4], "strokeWidth": 1.5},
-     "data": {"values": [{"period_avg": "<period_avg>"}]},
-     "encoding": {"y": {"field": "period_avg", "type": "quantitative"}}}
+     "encoding": {"y": {"field": "period_avg", "type": "quantitative", "aggregate": "mean"}}}
   ],
   "resolve": {"scale": {"y": "shared"}}
 }
 ```
+{#the-specification-below-is-an}

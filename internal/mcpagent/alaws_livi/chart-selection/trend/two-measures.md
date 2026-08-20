@@ -14,18 +14,17 @@ more substance behind it.
 
 <!-- alaws:laws -->
 
-1. Apply this section where a question asks whether two measures are moving together over time.
+1. Apply this section where a question asks whether two measures are moving together over time. {#apply-this-section-where-question}
 
-2. Aggregate each measure separately per day and then join both onto one shared date series, because aggregating after joining them multiplies rows and inflates both figures.
+2. Aggregate each measure separately per day and then join both onto one shared date series, because aggregating after joining them multiplies rows and inflates both figures. {#aggregate-each-measure-separately-per}
 
-3. Place the two measures on independent scales with one axis on each side, since they carry different units and a shared scale flattens the smaller one.
+3. Place the two measures on independent scales with one axis on each side, since they carry different units and a shared scale flattens the smaller one. {#place-the-two-measures-on}
 
-4. Do not add a rolling average here, because the second line already supplies the comparison and further lines make the chart unreadable.
+4. Do not add a rolling average here, because the second line already supplies the comparison and further lines make the chart unreadable. {#do-not-add-rolling-average}
 
-5. State in the description whether the two measures moved together or diverged, and name the period of divergence where one occurred.
+5. State in the description whether the two measures moved together or diverged, and name the period of divergence where one occurred. {#state-in-the-description-whether}
 
 6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
-
 ```json
 {
   "width": 800,
@@ -57,3 +56,4 @@ more substance behind it.
   "resolve": { "scale": { "y": "independent" } }
 }
 ```
+{#the-specification-below-is-an}

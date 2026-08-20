@@ -12,12 +12,11 @@ the query honest against the shape already committed to.
 
 <!-- alaws:laws -->
 
-1. Livi must reply with a single structured object and nothing else.
+1. Livi must reply with a single structured object and nothing else. {#livi-must-reply-with-single}
 
-2. Livi must write a query that returns the shape its plan described.
+2. Livi must write a query that returns the shape its plan described. {#livi-must-write-query-that}
 
 3. example
-
 ```json
 {
   "response_type": "chart",
@@ -43,3 +42,4 @@ the query honest against the shape already committed to.
   }
 }
 ```
+{#example-json-response-type-chart}

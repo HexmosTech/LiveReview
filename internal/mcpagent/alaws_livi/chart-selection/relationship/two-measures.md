@@ -21,22 +21,21 @@ section.
 
 <!-- alaws:laws -->
 
-1. Apply this section where a question asks which entities are unusual or how two properties of a population relate.
+1. Apply this section where a question asks which entities are unusual or how two properties of a population relate. {#apply-this-section-where-question}
 
-2. Group by the entity and return both measures, together with a third for the size channel, in a single pass.
+2. Group by the entity and return both measures, together with a third for the size channel, in a single pass. {#group-by-the-entity-and}
 
-3. Join secondary measures with an outer join rather than an inner one, because an entity with activity but no rows in the secondary table still belongs on the chart at zero and an inner join deletes precisely the inactive entities the question asks about.
+3. Join secondary measures with an outer join rather than an inner one, because an entity with activity but no rows in the secondary table still belongs on the chart at zero and an inner join deletes precisely the inactive entities the question asks about. {#join-secondary-measures-with-an}
 
-4. Count contributors distinctly for the size channel, since that is what separates one person's private corner from the whole team's.
+4. Count contributors distinctly for the size channel, since that is what separates one person's private corner from the whole team's. {#count-contributors-distinctly-for-the}
 
-5. Disregard retracted feedback when feedback is one of the measures, because a member who withdrew a vote did not vote.
+5. Disregard retracted feedback when feedback is one of the measures, because a member who withdrew a vote did not vote. {#disregard-retracted-feedback-when-feedback}
 
-6. Name a measure as a proxy in the description where it stands in for something it does not directly record.
+6. Name a measure as a proxy in the description where it stands in for something it does not directly record. {#name-measure-as-proxy-in}
 
-7. Name the regions of the chart that matter and the entities sitting in them, since a scatter without that reading is a picture rather than an answer.
+7. Name the regions of the chart that matter and the entities sitting in them, since a scatter without that reading is a picture rather than an answer. {#name-the-regions-of-the}
 
 8. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
-
 ```json
 {
   "width": 600, "height": 380,
@@ -49,3 +48,4 @@ section.
   }
 }
 ```
+{#the-specification-below-is-an}

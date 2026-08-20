@@ -15,20 +15,19 @@ the response envelope those pieces sit inside, not the vocabulary itself.
 
 <!-- alaws:laws -->
 
-1. Reply to a finalizing request with exactly one JSON object and nothing else — no prose, no explanation, no markdown fence.
+1. Reply to a finalizing request with exactly one JSON object and nothing else — no prose, no explanation, no markdown fence. {#reply-to-finalizing-request-with}
 
-2. Set `response_type` to either `chart` or `csv`, and include `data_sql`, the query that produces the answer's rows.
+2. Set `response_type` to either `chart` or `csv`, and include `data_sql`, the query that produces the answer's rows. {#set-response-type-to-either}
 
-3. Include `title`, `description`, `query`, `time_range` and `granularity` on every response.
+3. Include `title`, `description`, `query`, `time_range` and `granularity` on every response. {#include-title-description-query-time}
 
-4. Answer with `csv` and a `csv_filename` where the user asked for a table, a list, an export or raw data, or where the result is too large to read as a chart, and with `chart` otherwise.
+4. Answer with `csv` and a `csv_filename` where the user asked for a table, a list, an export or raw data, or where the result is too large to read as a chart, and with `chart` otherwise. {#answer-with-csv-and-csv}
 
-5. Write a query that returns the shape the plan described.
+5. Write a query that returns the shape the plan described. {#write-query-that-returns-the}
 
-6. Cite the laws you relied on where asked, and cite only laws you were actually given.
+6. Cite the laws you relied on where asked, and cite only laws you were actually given. {#cite-the-laws-you-relied}
 
 7. Follow this worked example exactly in shape, substituting your own values — note that `data_sql` and the chart fields sit side by side in one flat object, and that there is no prose before it and no markdown fence around it:
-
 ```json
 {
   "response_type": "chart",
@@ -54,7 +53,8 @@ the response envelope those pieces sit inside, not the vocabulary itself.
   }
 }
 ```
+{#follow-this-worked-example-exactly}
 
-8. Begin your reply with the `{` character and end it with the matching `}`, with no text of any kind before or after.
+8. Begin your reply with the `{` character and end it with the matching `}`, with no text of any kind before or after. {#begin-your-reply-with-the}
 
-9. Present the result as a chart where the question is chart-shaped — a trend, a comparison, a ranking, or anything else answered by a visual read of the data. A predicted row count above the chart limit is the only reason to export such a question to a file instead, and where that count looks wrong for the grain of the answer, treat the question's shape as the stronger signal.
+9. Present the result as a chart where the question is chart-shaped — a trend, a comparison, a ranking, or anything else answered by a visual read of the data. A predicted row count above the chart limit is the only reason to export such a question to a file instead, and where that count looks wrong for the grain of the answer, treat the question's shape as the stronger signal. {#present-the-result-as-chart}

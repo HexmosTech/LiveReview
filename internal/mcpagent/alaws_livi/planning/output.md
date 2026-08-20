@@ -61,14 +61,14 @@ this is two entries, each independently answerable:
 
 <!-- alaws:laws -->
 
-1. Reply with a single JSON object holding `output_text`, `applied_laws`, and the `analytics_plan` array, and nothing else — no tool call, no markdown fence, no text of any kind outside the object. Any lead-in sentence goes in `output_text`, never before the object.
+1. Reply with a single JSON object holding `output_text`, `applied_laws`, and the `analytics_plan` array, and nothing else — no tool call, no markdown fence. {#reply-with-single-json-object}
 
-2. Give every plan entry an `id`, a `question`, and a `count_sql`, and no other fields.
+2. Give every plan entry an `id`, a `question`, and a `count_sql`, and no other fields. {#give-every-plan-entry-an}
 
-3. Do not write the query that produces the data at this stage, and do not describe results it has not seen — both belong to the next stage, once the count is known.
+3. Do not write the query that produces the data at this stage, and do not describe results it has not seen — both belong to the next stage, once the count is known. {#do-not-write-the-query}
 
-4. Produce a plan for the question as asked, and never reply with a clarifying question or a request for more detail at this stage, because the turn has already been routed here as answerable from data.
+4. Produce a plan for the question as asked, and never reply with a clarifying question or a request for more detail at this stage, because the turn has already been routed here as answerable from data. {#produce-plan-for-the-question}
 
-5. Resolve any vagueness by choosing the most reasonable reading — the whole organization, the default window — and stating that choice in the report's `question` field, rather than asking the reader to restate the question.
+5. Resolve any vagueness by choosing the most reasonable reading — the whole organization, the default window — and stating that choice in the report's `question` field, rather than asking the reader to restate the question. {#resolve-any-vagueness-by-choosing}
 
-6. Begin your reply with the `{` character and end it with the matching `}`, with no text of any kind before or after.
+6. Begin your reply with the `{` character and end it with the matching `}`, with no text of any kind before or after. {#begin-your-reply-with-the}

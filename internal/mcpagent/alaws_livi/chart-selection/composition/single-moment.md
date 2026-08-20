@@ -16,16 +16,15 @@ instead, because a pie can only show one moment.
 
 <!-- alaws:laws -->
 
-1. Apply this section where a question asks what a total is composed of at a single moment, with no comparison across periods.
+1. Apply this section where a question asks what a total is composed of at a single moment, with no comparison across periods. {#apply-this-section-where-question}
 
-2. Use the `arc` mark only where there are six categories or fewer, and use a sorted bar instead where there are more, since angles beyond a handful of slices cannot be compared by eye.
+2. Use the `arc` mark only where there are six categories or fewer, and use a sorted bar instead where there are more, since angles beyond a handful of slices cannot be compared by eye. {#use-the-arc-mark-only}
 
-3. Route a question about whether the mix is changing to the shift section instead, because a single arc chart cannot show a change over time.
+3. Route a question about whether the mix is changing to the shift section instead, because a single arc chart cannot show a change over time. {#route-question-about-whether-the}
 
-4. Quote the largest share as a percentage in the description, so the headline does not depend on reading the chart.
+4. Quote the largest share as a percentage in the description, so the headline does not depend on reading the chart. {#quote-the-largest-share-as}
 
 5. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
-
 ```json
 {
   "width": 400, "height": 400,
@@ -36,3 +35,4 @@ instead, because a pie can only show one moment.
   }
 }
 ```
+{#the-specification-below-is-an}

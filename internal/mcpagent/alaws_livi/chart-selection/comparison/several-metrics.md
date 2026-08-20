@@ -13,20 +13,19 @@ many entities.
 
 <!-- alaws:laws -->
 
-1. Apply this section where a question asks for an overall verdict on a period rather than about a single metric.
+1. Apply this section where a question asks for an overall verdict on a period rather than about a single metric. {#apply-this-section-where-question}
 
-2. Run a separate query per metric, since each comes from a different place and no single join produces them all sensibly.
+2. Run a separate query per metric, since each comes from a different place and no single join produces them all sensibly. {#run-separate-query-per-metric}
 
-3. Run each metric for both halves of the window and assemble one small table of metric, period and value.
+3. Run each metric for both halves of the window and assemble one small table of metric, period and value. {#run-each-metric-for-both}
 
-4. Add the change as a third column, as that is what the colour scale reads.
+4. Add the change as a third column, as that is what the colour scale reads. {#add-the-change-as-third}
 
-5. Overlay the actual figures as text, because colour alone conveys direction but not magnitude.
+5. Overlay the actual figures as text, because colour alone conveys direction but not magnitude. {#overlay-the-actual-figures-as}
 
-6. Keep the list of metrics short and stable, since a verdict of fifteen rows is a spreadsheet.
+6. Keep the list of metrics short and stable, since a verdict of fifteen rows is a spreadsheet. {#keep-the-list-of-metrics}
 
 7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
-
 ```json
 {
   "width": 300, "height": 220,
@@ -48,3 +47,4 @@ many entities.
   ]
 }
 ```
+{#the-specification-below-is-an}
