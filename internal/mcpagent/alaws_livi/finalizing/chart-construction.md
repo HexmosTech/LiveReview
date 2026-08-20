@@ -26,3 +26,5 @@ fixed.
 6. Compute rolling averages, cumulative percentages and running totals in the query with a SQL window function, not with Vega-Lite's own window transform in the chart specification. The one presentation detail that belongs in the specification rather than the query is normalising a stack to a share of the total — the same rule `composition/shift.md` relies on for its `"stack": "normalize"` encoding. {#compute-rolling-averages-cumulative-percentages}
 
 7. Use date-style axis formats only on temporal axes. {#use-date-style-axis-formats}
+
+8. Where a baseline or target line's value is already a column in the data being plotted — a period average, a fixed threshold repeated on every row — encode it with an `"aggregate"` (`mean`, `min`, `max`) directly against that same dataset, and never introduce a second `data` block holding one literal value for the layer to reference. A second data block requires that value to be filled in by hand at the moment the spec is written, and a placeholder left unfilled or copied literally renders as nothing — the line silently fails to draw instead of erroring. {#where-baseline-target-lines-value}

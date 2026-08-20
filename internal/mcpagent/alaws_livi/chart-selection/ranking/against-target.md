@@ -20,7 +20,7 @@ something, who is behind, or who needs a nudge.
 
 4. Where no roster is reachable, state in the description that the chart shows only members with at least one event, since silence implies that everyone appears. {#where-no-roster-is-reachable}
 
-5. Draw the target as a separate rule layer from a value it supplies, not from the query. {#draw-the-target-as-separate}
+5. Draw the target as a separate rule layer from an actual number it chooses — never the literal word "target" or any other placeholder text — since this value does not come from the query. {#draw-the-target-as-separate}
 
 6. Band the bars by tier using the same thresholds as the Distribution chapter. {#band-the-bars-by-tier}
 
