@@ -23,7 +23,7 @@ the query honest against the shape already committed to.
   "title": "Reviews Completed by Month",
   "description": "Short lines with the specific numbers.",
   "query": "review completions across the organization, by month",
-  "time_range": "Last 6 months (Jan 2026 – Jun 2026)",
+  "time_range": "<the real calendar window your data_sql actually covers, e.g. 2026-02-08 to 2026-08-13 - never copy this placeholder>",
   "granularity": "Monthly",
   "data_sql": "SELECT date_trunc('month', completed_at) AS month, count(*) AS review_count FROM reviews WHERE status = 'completed' AND org_id = 42 GROUP BY 1 ORDER BY 1",
   "mark": "bar",

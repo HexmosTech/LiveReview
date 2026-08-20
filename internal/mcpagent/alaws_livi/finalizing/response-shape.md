@@ -32,9 +32,9 @@ the response envelope those pieces sit inside, not the vocabulary itself.
 {
   "response_type": "chart",
   "title": "Reviews Completed by Month",
-  "description": "Hexmos completed 412 reviews. June was the busiest month with 96.",
+  "description": "<state the real total and the real busiest period, read from the rows you fetched - never copy these placeholder numbers>",
   "query": "review completions by month",
-  "time_range": "Last 6 months (Jan 2026 - Jun 2026)",
+  "time_range": "<the real calendar window your data_sql actually covers, e.g. 2026-02-08 to 2026-08-13 - never copy this placeholder>",
   "granularity": "Monthly",
   "data_sql": "SELECT date_trunc('month', completed_at) AS month, count(*) AS review_count FROM reviews WHERE status = 'completed' AND org_id = 42 GROUP BY 1 ORDER BY 1",
   "mark": "bar",
@@ -56,5 +56,7 @@ the response envelope those pieces sit inside, not the vocabulary itself.
 {#follow-this-worked-example-exactly}
 
 8. Begin your reply with the `{` character and end it with the matching `}`, with no text of any kind before or after. {#begin-your-reply-with-the}
+
+9. Compute `time_range` from the actual `min`/`max` of the rows `data_sql` returns, never from the calendar window named in the question or from the worked example above — a question phrased "last 6 months" can be answered by data spanning a different window than that phrase names, and the reply must report the window it actually got. {#compute-time-range-from-actual}
 
 9. Present the result as a chart where the question is chart-shaped — a trend, a comparison, a ranking, or anything else answered by a visual read of the data. A predicted row count above the chart limit is the only reason to export such a question to a file instead, and where that count looks wrong for the grain of the answer, treat the question's shape as the stronger signal. {#present-the-result-as-chart}

@@ -22,9 +22,11 @@ using it?"
 
 4. Layer three marks: the raw series, the rolling average, and the period average as a rule. Draw the rule's value directly off the inherited dataset with `"aggregate": "mean"`, not from a second `data` block — since the period average is already a constant column on every row, aggregating it is exact and needs no value to be filled in by hand. {#layer-three-marks-the-raw}
 
-5. State the direction of travel in the description and quote the first and last values of the smoothed line. {#state-the-direction-of-travel}
+5. Quote the `rolling_avg_7d` value of the first row and the `rolling_avg_7d` value of the last row, taken verbatim from the query result — never the raw per-day count, and never a placeholder or estimate. Base "increasing" or "decreasing" on those two smoothed values, not on impression. Never write a calendar date in the description — the `time_range` field already states the window exactly, and a date typed into prose is a value the model is inventing rather than reading, since nothing forces it back against the rows the way `time_range` is. {#state-the-direction-of-travel}
 
-6. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
+6. Where the smoothed line peaked and has since fallen back — the last value is below the highest value seen anywhere in the series — say so explicitly instead of calling the trend "increasing": quote the peak's value alongside the last value, since a reader comparing only endpoints would otherwise miss a recent decline. {#where-smoothed-line-peaked}
+
+7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
 ```json
 {
   "width": 900, "height": 420,
