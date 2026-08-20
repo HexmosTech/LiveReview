@@ -193,6 +193,40 @@ func collectSectionIDs(book *alaws.Book, prefixes []string) []string {
 	return ids
 }
 
+// actionInstructionsOnce/actionInstructionsText cache the rendered
+// livi.action chapter - the tool-calling/domain/response-format laws for
+// call #1's action branch, formerly the flat embedded
+// prompts/agent_instructions.md this replaces. Cached separately from
+// lawbookPaths (buildLawbookPrompts) because buildSystemPrompt is called
+// from NewAgent for the plain tool-only agent too, which never goes through
+// WithAnalytics/buildLawbookPrompts at all - this must work standalone.
+var (
+	actionInstructionsOnce sync.Once
+	actionInstructionsText string
+)
+
+// actionInstructions returns the rendered livi.action chapter, or "" if the
+// lawbook fails to load. Deliberately non-fatal: the plain tool-only agent
+// used to depend on nothing but a compiled-in string and must keep working
+// (minus these instructions) even if the lawbook has a problem, rather than
+// crash a code path that previously could not fail this way.
+func actionInstructions() string {
+	actionInstructionsOnce.Do(func() {
+		book, err := ensureLawbook()
+		if err != nil {
+			log.Error().Err(err).Msg("action instructions: lawbook failed to load")
+			return
+		}
+		text, err := renderBranch(book, []string{"livi.action"}, nil)
+		if err != nil {
+			log.Error().Err(err).Msg("action instructions: render failed")
+			return
+		}
+		actionInstructionsText = text
+	})
+	return actionInstructionsText
+}
+
 // buildLawbookPrompts renders the four analytics pipeline branches from the
 // compiled lawbook. Called by WithAnalytics after the lawbook is loaded.
 //

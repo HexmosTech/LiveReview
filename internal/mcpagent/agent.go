@@ -442,7 +442,7 @@ func buildSystemPrompt(tools []MCPToolDef, orgName, userName string) string {
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString(agentInstructions) // imported from prompts/agent_instructions.md
+	b.WriteString(actionInstructions()) // rendered from alaws_livi/action*.md
 
 	return b.String()
 }
