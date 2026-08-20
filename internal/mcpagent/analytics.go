@@ -14,6 +14,7 @@ import (
 	"github.com/livereview/internal/vlrender"
 	storageanalytics "github.com/livereview/storage/analytics"
 	"github.com/rs/zerolog/log"
+	"github.com/tmc/langchaingo/llms"
 )
 
 // Bounds on one analytics turn. Every one of these exists because the
@@ -1129,11 +1130,19 @@ func (a *Agent) completeOnce(ctx context.Context, clog *logging.ChatTurnLogger, 
 		}
 	}
 
+	// finalize and no_data expect a JSON object; repair expects bare SQL
+	// (extractSQL pulls it straight from the text, no JSON wrapper) - forcing
+	// JSON mode there would fight the format it's actually asked to return.
+	var opts []llms.CallOption
+	if kind != "repair" {
+		opts = append(opts, llms.WithJSONMode())
+	}
+
 	start := time.Now()
 	text, usage, err := a.provider.Complete(ctx, []HistoryEntry{
 		{"role": "system", "content": system},
 		{"role": "user", "content": user},
-	}, nil)
+	}, nil, opts...)
 	elapsed := time.Since(start)
 	if err != nil {
 		clog.LLMCallError(call, kind, reportID, attempt, elapsed, err)
