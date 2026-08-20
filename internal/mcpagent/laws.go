@@ -45,6 +45,10 @@ type lawbookPaths struct {
 	repair string
 	// noData is the system prompt for a zero-row result.
 	noData string
+	// describe is the system prompt for the post-data description call -
+	// see alaws_livi/describe.md for why this is a separate call from
+	// finalize rather than folded into finalizeTail.
+	describe string
 }
 
 // loadLawbook compiles the embedded alaws_livi lawbook and returns the
@@ -262,6 +266,15 @@ func buildLawbookPrompts(orgName, userName string, orgID int64) (*lawbookPaths, 
 		return nil, fmt.Errorf("nodata branch: %w", err)
 	}
 
+	// Scoped to livi.describe only - not swept up by the "livi.finalizing"
+	// prefix above, and deliberately without livi.general: this call never
+	// writes SQL or needs org/schema context, only the real numbers it's
+	// handed directly in the user message.
+	describeLaws, err := renderBranch(book, []string{"livi.describe"}, vars)
+	if err != nil {
+		return nil, fmt.Errorf("describe branch: %w", err)
+	}
+
 	// Build the header that appears before the law text in each branch.
 	// This includes the persona, org/user context, and the org_id filter
 	// instruction — things that are session-specific, not lawbook content.
@@ -288,13 +301,14 @@ func buildLawbookPrompts(orgName, userName string, orgID int64) (*lawbookPaths, 
 		// (which include data rules) go AFTER the schema, which is
 		// actually correct — the model sees the table listing first,
 		// then the rules for how to use it.
-		planHead:   header + "\n\n" + orgFilter,
-		planTail:   "\n\n" + planLaws,
+		planHead:     header + "\n\n" + orgFilter,
+		planTail:     "\n\n" + planLaws,
 		finalizeHead: header + "\n\n" + orgFilter,
 		finalizeTail: "\n\n" + finalizeLaws,
 		// Repair/nodata: full prompt, no schema splice needed.
-		repair: header + "\n\n" + orgFilter + "\n\n" + repairLaws,
-		noData: header + "\n\n" + orgFilter + "\n\n" + noDataLaws,
+		repair:   header + "\n\n" + orgFilter + "\n\n" + repairLaws,
+		noData:   header + "\n\n" + orgFilter + "\n\n" + noDataLaws,
+		describe: describeLaws,
 	}, nil
 }
 

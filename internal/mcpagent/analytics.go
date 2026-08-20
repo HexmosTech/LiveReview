@@ -99,6 +99,7 @@ func (a *Agent) WithAnalytics(engine AnalyticsEngine) *Agent {
 	a.finalizeTail = lb.finalizeTail
 	a.repairPrompt = lb.repair
 	a.noDataPrompt = lb.noData
+	a.describePrompt = lb.describe
 
 	// Kept in sync for any caller still reading systemPrompt/providerTools
 	// directly (there is none in this codebase today, but they remain
@@ -313,7 +314,7 @@ func (a *Agent) runFinalizePhase(
 	schemaTableText string,
 	clog *logging.ChatTurnLogger,
 ) *FinalizePlan {
-	base := fmt.Sprintf("Original question: %s\n\nThis report answers: %s\n\nThe result will contain %d rows.\n\nThe counting query used was:\n%s",
+	base := fmt.Sprintf("Original question: %s\n\nThis report answers: %s\n\nA separate, earlier estimate query predicted roughly %d rows - this number is stale the moment your data_sql differs from the counting query below in any way (an added filter, a different grouping), and it is a row count, not a metric of anything. Never state it, or any number derived from it, in the description; only the rows your own data_sql actually returns are real.\n\nThe counting query used was:\n%s",
 		userText, entry.Question, count, entry.CountSQL)
 	user := base
 	system := a.finalizePrompt(schemaTableText)
@@ -410,12 +411,192 @@ func (a *Agent) materializeReport(
 			plan.ResponseType = ResponseTypeCSV
 		}
 		if plan.ResponseType == ResponseTypeCSV || rs.Truncated {
-			return a.buildCSVReport(entry, plan, rs, clog)
+			return a.buildCSVReport(ctx, entry, plan, rs, clog)
 		}
 		return a.buildChartReport(ctx, entry, plan, rs, clog)
 	}
 
 	return finishedReport{text: fmt.Sprintf("I could not fetch the data for %q.", entry.Question)}
+}
+
+// computeTimeRange derives the calendar window a result set actually covers,
+// straight from the rows themselves, rather than trusting the model's own
+// `time_range` text. The model has repeatedly copied a worked example's
+// placeholder date range verbatim instead of stating the real one (see
+// finalizing/response-shape.md and finalizing/output.md) - this makes that
+// class of error structurally impossible for any report with a temporal
+// column, by computing the answer instead of asking for it.
+//
+// coerce (storage/analytics/coerce.go) already turns every timestamp column
+// into an RFC3339 string, so detection is just: find the column where every
+// non-nil value across every row parses as RFC3339, preferring whichever
+// such column has the most non-nil values (the real time axis, as opposed to
+// an incidental text column that happens to parse). Returns "" if no column
+// qualifies, in which case the caller falls back to the model's own text -
+// some charts (e.g. a ranking with no date axis) have no time column at all.
+func computeTimeRange(rs *storageanalytics.ResultSet) string {
+	if rs == nil || len(rs.Rows) == 0 {
+		return ""
+	}
+
+	bestCol := ""
+	bestCount := 0
+	var bestMin, bestMax time.Time
+
+	for _, col := range rs.Columns {
+		var colMin, colMax time.Time
+		count := 0
+		ok := true
+		for _, row := range rs.Rows {
+			v := row[col]
+			if v == nil {
+				continue
+			}
+			s, isStr := v.(string)
+			if !isStr {
+				ok = false
+				break
+			}
+			t, err := time.Parse(time.RFC3339, s)
+			if err != nil {
+				ok = false
+				break
+			}
+			if count == 0 || t.Before(colMin) {
+				colMin = t
+			}
+			if count == 0 || t.After(colMax) {
+				colMax = t
+			}
+			count++
+		}
+		if !ok || count == 0 {
+			continue
+		}
+		if count > bestCount {
+			bestCol, bestCount, bestMin, bestMax = col, count, colMin, colMax
+		}
+	}
+
+	if bestCol == "" {
+		return ""
+	}
+	if bestMin.Format("2006-01-02") == bestMax.Format("2006-01-02") {
+		return bestMin.Format("2006-01-02")
+	}
+	return fmt.Sprintf("%s to %s", bestMin.Format("2006-01-02"), bestMax.Format("2006-01-02"))
+}
+
+// describeFacts is the real, already-computed numeric summary of a query
+// result, handed to the post-data description call so it has nothing left
+// to guess. Never built from anything the model wrote - only from rs itself.
+type describeFacts struct {
+	Description string `json:"description"`
+}
+
+// columnStats is one numeric column's first/last/min/max across the actual
+// rows fetched. "First"/"last" follow row order, which is already the
+// chart's own ORDER BY - meaningful as "earliest"/"most recent" without
+// needing to know which column is the time axis.
+type columnStats struct {
+	First, Last, Min, Max float64
+}
+
+// computeNumericFacts extracts every numeric column's first/last/min/max
+// from the real result set, formatted as text for the describe prompt. Skips
+// columns whose values are all identical (a constant like period_avg still
+// gets through since first==last==min==max there, which is exactly the
+// correct thing to state about a period average). Returns "" if the result
+// has no numeric columns at all (e.g. every column is text/temporal).
+func computeNumericFacts(rs *storageanalytics.ResultSet) string {
+	if rs == nil || len(rs.Rows) == 0 {
+		return ""
+	}
+	var lines []string
+	for _, col := range rs.Columns {
+		var stats columnStats
+		count := 0
+		ok := true
+		for _, row := range rs.Rows {
+			v := row[col]
+			if v == nil {
+				continue
+			}
+			// coerce (storage/analytics/coerce.go) hands back different Go
+			// types depending on the Postgres type: count(*)/bigint columns
+			// arrive as int64 (its default case), while avg()/NUMERIC
+			// columns arrive as float64 (NUMERIC goes through coerceBytes,
+			// which parses to float64). A version of this that only handled
+			// float64 silently dropped every raw count column from the
+			// facts block, leaving the description call with rolling
+			// averages but not the counts they're averaging.
+			var f float64
+			switch n := v.(type) {
+			case float64:
+				f = n
+			case int64:
+				f = float64(n)
+			case int32:
+				f = float64(n)
+			case int:
+				f = float64(n)
+			default:
+				ok = false
+			}
+			if !ok {
+				break
+			}
+			if count == 0 {
+				stats.First = f
+			}
+			stats.Last = f
+			if count == 0 || f < stats.Min {
+				stats.Min = f
+			}
+			if count == 0 || f > stats.Max {
+				stats.Max = f
+			}
+			count++
+		}
+		if !ok || count == 0 {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s: first=%.2f, last=%.2f, min=%.2f, max=%.2f", col, stats.First, stats.Last, stats.Min, stats.Max))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("Rows returned: %d\n%s", len(rs.Rows), strings.Join(lines, "\n"))
+}
+
+// regenerateDescription rewrites plan.Description from the real query
+// result. runFinalizePhase's description is written before materializeReport
+// ever runs plan.DataSQL - the model was stating numbers for a query it had
+// not yet seen the result of, which is forecasting, not reading, no matter
+// how the lawbook's wording is tightened. This call runs after the real rows
+// are in hand and is given nothing but those rows' own first/last/min/max,
+// so there is nothing left for it to invent. Falls back to the original
+// (unreliable) description on any failure - a stale-but-present description
+// beats no description.
+func (a *Agent) regenerateDescription(ctx context.Context, entry PlanEntry, plan *FinalizePlan, rs *storageanalytics.ResultSet, clog *logging.ChatTurnLogger) string {
+	facts := computeNumericFacts(rs)
+	if facts == "" {
+		return plan.Description
+	}
+	user := fmt.Sprintf("Original question: %s\n\nChart title: %s\n\nReal numbers from the query result:\n%s", entry.Question, plan.Title, facts)
+	raw, err := a.completeOnce(ctx, clog, 4, "describe", entry.ID, 1, a.describePrompt, user)
+	if err != nil {
+		return plan.Description
+	}
+	var out describeFacts
+	if err := json.Unmarshal([]byte(vlrender.ExtractJSONBlock(raw)), &out); err != nil {
+		return plan.Description
+	}
+	desc := strings.TrimSpace(out.Description)
+	if desc == "" {
+		return plan.Description
+	}
+	return desc
 }
 
 // buildChartReport assembles the Vega-Lite spec in Go. The model supplies only
@@ -445,7 +626,7 @@ func (a *Agent) buildChartReport(
 			fmt.Sprintf("encoding references missing columns %v; available %v", missing, rs.Columns))
 		// The data is sound even though the presentation is not, so fall back
 		// to CSV rather than discarding a correct result.
-		return a.buildCSVReport(entry, plan, rs, clog)
+		return a.buildCSVReport(ctx, entry, plan, rs, clog)
 	}
 
 	spec := map[string]any{
@@ -496,7 +677,7 @@ func (a *Agent) buildChartReport(
 	specJSON, err := json.Marshal(spec)
 	if err != nil {
 		log.Error().Err(err).Str("report", entry.ID).Msg("failed to marshal chart spec")
-		return a.buildCSVReport(entry, plan, rs, clog)
+		return a.buildCSVReport(ctx, entry, plan, rs, clog)
 	}
 	normalized, err := vlrender.NormalizeVegaLiteSpec(specJSON)
 	if err != nil {
@@ -504,12 +685,18 @@ func (a *Agent) buildChartReport(
 		normalized = specJSON
 	}
 
+	timeRange := plan.TimeRange
+	if computed := computeTimeRange(rs); computed != "" {
+		timeRange = computed
+	}
+	description := a.regenerateDescription(ctx, entry, plan, rs, clog)
+
 	clog.ReportFinalized(entry.ID, ResponseTypeChart, plan.Title, len(rs.Rows))
 	return finishedReport{report: &vlrender.VegaLiteReport{
 		Title:       plan.Title,
-		Description: plan.Description,
+		Description: description,
 		Query:       plan.Query,
-		TimeRange:   plan.TimeRange,
+		TimeRange:   timeRange,
 		Granularity: plan.Granularity,
 		Spec:        normalized,
 	}}
@@ -1020,6 +1207,7 @@ func mustMarshalJSON(v any) json.RawMessage {
 // buildCSVReport writes the result set to CSV. Column order comes from the
 // result set rather than from map iteration, so the header matches the data.
 func (a *Agent) buildCSVReport(
+	ctx context.Context,
 	entry PlanEntry,
 	plan *FinalizePlan,
 	rs *storageanalytics.ResultSet,
@@ -1051,9 +1239,14 @@ func (a *Agent) buildCSVReport(
 		return finishedReport{text: fmt.Sprintf("I could not export %q.", entry.Question)}
 	}
 
-	description := plan.Description
+	description := a.regenerateDescription(ctx, entry, plan, rs, clog)
 	if rs.Truncated {
 		description = strings.TrimSpace(description + fmt.Sprintf("\n\nThis export stops at %d rows. Narrow the question for a complete set.", len(rs.Rows)))
+	}
+
+	timeRange := plan.TimeRange
+	if computed := computeTimeRange(rs); computed != "" {
+		timeRange = computed
 	}
 
 	clog.ReportFinalized(entry.ID, ResponseTypeCSV, plan.Title, len(rs.Rows))
@@ -1063,7 +1256,7 @@ func (a *Agent) buildCSVReport(
 		Title:       plan.Title,
 		Description: description,
 		Query:       plan.Query,
-		TimeRange:   plan.TimeRange,
+		TimeRange:   timeRange,
 		Granularity: plan.Granularity,
 		Data:        []byte(buf.String()),
 		Rows:        len(rs.Rows),

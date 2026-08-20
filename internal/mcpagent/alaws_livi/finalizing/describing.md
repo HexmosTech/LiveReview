@@ -15,6 +15,6 @@ numbers that are not in it.
 
 2. Write short lines, one sentence each, in the active voice, naming the organization or repository rather than an identifier. {#write-short-lines-one-sentence}
 
-3. Quote the real numbers — the total, the largest, the direction of change — and frame each against something. {#quote-the-real-numbers-the}
+3. Quote the real numbers — the total, the largest, the direction of change — and frame each against something. Never write a calendar date inside the description text itself: the `time_range` field already states the exact window, computed straight from the data, and a date typed into prose has no such check behind it and is exactly the kind of number this law exists to keep out. {#quote-the-real-numbers-the}
 
 4. Disclose what the chart omits: when it covers only members who used the tool, when a measure stands in as a proxy for something else, or when the sample is too small to support a trend. A stated limit is trustworthy; a silent one is not. {#disclose-what-the-chart-omits}

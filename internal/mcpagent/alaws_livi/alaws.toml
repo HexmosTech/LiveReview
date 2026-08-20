@@ -75,6 +75,8 @@ ordering = [
   "degraded.md",
   "degraded/repair.md",
   "degraded/no-data.md",
+  "describe.md",
+  "describe/call.md",
 ]
 
 promptTemplates = [

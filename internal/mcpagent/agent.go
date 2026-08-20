@@ -47,12 +47,12 @@ type Agent struct {
 	// branch's call gets ONLY the prompt content it needs - the action
 	// branch never sees the SQL schema, and the count_query/chat branches
 	// never see the general tool list.
-	classifyPrompt string       // call #0's system prompt: shape instructions + tool NAMES only
-	actionPrompt   string       // call #1: identical in shape to the plain tool-only prompt
-	actionTools    []llms.Tool  // call #1's tools (raw-row tools withheld, same as before the split)
-	chatPrompt     string       // persona/org header only, no tools, no schema
-	countQueryHead string       // header, precomputed from lawbook
-	countQueryTail string       // plan laws, precomputed from lawbook
+	classifyPrompt string      // call #0's system prompt: shape instructions + tool NAMES only
+	actionPrompt   string      // call #1: identical in shape to the plain tool-only prompt
+	actionTools    []llms.Tool // call #1's tools (raw-row tools withheld, same as before the split)
+	chatPrompt     string      // persona/org header only, no tools, no schema
+	countQueryHead string      // header, precomputed from lawbook
+	countQueryTail string      // plan laws, precomputed from lawbook
 	// countQueryHead/Tail bracket dbctxTableText's output, which can only be
 	// resolved per turn (schema_index.go's index may not have been ready
 	// when WithAnalytics ran) - see (*Agent).countQueryPrompt.
@@ -70,6 +70,9 @@ type Agent struct {
 	// prompts if the lawbook fails to load.
 	repairPrompt string
 	noDataPrompt string
+	// describePrompt is the system prompt for the post-data description
+	// call - see alaws_livi/describe.md and (*Agent).regenerateDescription.
+	describePrompt string
 }
 
 func NewAgent(provider *Provider, mcpSession *MCPSession, maxSteps int) *Agent {
@@ -455,8 +458,6 @@ func orgIDFilterInstruction(orgID int64) string {
 		"(join other tables' own org_id the same way). This is the organization's actual id - "+
 		"use this exact number, not a placeholder or a guess. A query without it will be rejected.\n\n", orgID)
 }
-
-
 
 // countQueryPrompt assembles call #2's full system prompt for this turn,
 // splicing the live dbctx table text between the precomputed head and tail.
