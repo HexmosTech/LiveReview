@@ -13,7 +13,7 @@
         {
             "label": "livereview: api",
             "type": "shell",
-            "command": "bash -lc 'api_ready=/tmp/livereview-api-ready; ui_ready=/tmp/livereview-ui-ready; rm -f \"$api_ready\" \"$ui_ready\"; for port in 8888 2345; do pids=$(lsof -ti TCP:$port -sTCP:LISTEN 2>/dev/null || true); if [ -n \"$pids\" ]; then echo \"Killing existing listeners on port $port: $pids\"; kill -9 $pids || true; fi; done; make run-debug & pid=$!; until (echo >/dev/tcp/127.0.0.1/8888) >/dev/null 2>&1; do echo \"Waiting for LiveReview API port 8888\"; sleep 1; done; echo \"LiveReview API port 8888 is available\"; touch \"$api_ready\"; wait $pid'",
+            "command": "bash -lc 'api_ready=/tmp/livereview-api-ready; ui_ready=/tmp/livereview-ui-ready; rm -f \"$api_ready\" \"$ui_ready\"; for port in 8888 2345; do pids=$(lsof -ti TCP:$port -sTCP:LISTEN 2>/dev/null || true); if [ -n \"$pids\" ]; then echo \"Killing existing listeners on port $port: $pids\"; kill -9 $pids || true; fi; done; make run-fast & pid=$!; until (echo >/dev/tcp/127.0.0.1/8888) >/dev/null 2>&1; do echo \"Waiting for LiveReview API port 8888\"; sleep 1; done; echo \"LiveReview API port 8888 is available\"; touch \"$api_ready\"; wait $pid'",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
