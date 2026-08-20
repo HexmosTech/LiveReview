@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -78,6 +79,12 @@ func InitSchemaIndex(dsn string) {
 			return
 		}
 
+		noSemantic := false
+		if enabled := strings.TrimSpace(os.Getenv("DBCTX_SCHEMA_INDEX_ENABLED")); enabled != "" && strings.EqualFold(enabled, "false") {
+			log.Warn().Msg("dbctx semantic index disabled via DBCTX_SCHEMA_INDEX_ENABLED=false (schema + terminology still load)")
+			noSemantic = true
+		}
+
 		// out mirrors every boot-status print to dbctx_debug.log alongside
 		// stdout, so the whole build lifecycle - this function's own status
 		// lines plus dbctx's internal "N/N Building ... index" progress fed
@@ -94,7 +101,7 @@ func InitSchemaIndex(dsn string) {
 		// index...") to os.Stderr by default - invisible outside the
 		// terminal and not correlated with anything else. Routing it into
 		// dbctx_debug.log puts the whole build lifecycle in one place.
-		idx, ready, err := dbctx.BuildAsync(context.Background(), dsn, &dbctx.Options{Logger: logging.DBCtxDebugWriter()})
+		idx, ready, err := dbctx.BuildAsync(context.Background(), dsn, &dbctx.Options{Logger: logging.DBCtxDebugWriter(), NoSemantic: noSemantic})
 		if err != nil {
 			fmt.Fprintf(out, "[dbctx] schema index: build failed to start: %v\n", err)
 			log.Error().Err(err).Msg("dbctx schema index: build failed to start")
