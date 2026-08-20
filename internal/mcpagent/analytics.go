@@ -41,6 +41,15 @@ const (
 	// analyticsTurnTimeout bounds the whole fan-out regardless of per-query
 	// timeouts, so a slow model cannot hold a request open indefinitely.
 	analyticsTurnTimeout = 90 * time.Second
+
+	// describeCallTimeout bounds regenerateDescription's extra LLM call.
+	// This call has been observed taking 17-20s in production despite a
+	// tiny ~30 token reply - slower than the 500-token finalize call - so
+	// it is not safe to let it share the parent turn's full budget. Falling
+	// back to the finalize call's own (less reliable but present)
+	// description on timeout keeps the turn's total latency close to what
+	// it was before this call existed.
+	describeCallTimeout = 6 * time.Second
 )
 
 // AnalyticsEngine executes guard-rewritten SQL. Declared here rather than
@@ -584,7 +593,21 @@ func (a *Agent) regenerateDescription(ctx context.Context, entry PlanEntry, plan
 		return plan.Description
 	}
 	user := fmt.Sprintf("Original question: %s\n\nChart title: %s\n\nReal numbers from the query result:\n%s", entry.Question, plan.Title, facts)
-	raw, err := a.completeOnce(ctx, clog, 4, "describe", entry.ID, 1, a.describePrompt, user)
+
+	// Bounded independently of the parent turn's own budget: this call has
+	// been observed taking 17-20s for a ~30 token reply - slower than the
+	// 500-token finalize call - which pushed a turn already close to
+	// whatever timeout sits between the browser and this server (proxy,
+	// gateway, or the client itself) over the edge. The user's own message
+	// is now persisted separately, before the agent even runs (see
+	// webchat_handler.go's AppendUserMessage call), so that part survives
+	// regardless - but the reply itself still only gets saved once this
+	// whole turn returns, so an unbounded call here would still cost the
+	// user their answer even though their question is now safe. A stale
+	// description beats a turn that silently vanishes.
+	describeCtx, cancel := context.WithTimeout(ctx, describeCallTimeout)
+	defer cancel()
+	raw, err := a.completeOnce(describeCtx, clog, 4, "describe", entry.ID, 1, a.describePrompt, user)
 	if err != nil {
 		return plan.Description
 	}

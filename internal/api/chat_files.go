@@ -15,7 +15,7 @@ import (
 // renders directly and never touches the backend again, an export is bulk
 // organization data, so it is served only to an authenticated caller in the
 // org that produced it. Exports are persisted in the chat_files table (see
-// webchat_handler.go's persistTurn) and served by stable database id - the id
+// webchat_handler.go's persistAssistantMessage) and served by stable database id - the id
 // alone is not treated as sufficient authorization.
 
 // WebChatFile is a downloadable artifact offered alongside a chat answer.
