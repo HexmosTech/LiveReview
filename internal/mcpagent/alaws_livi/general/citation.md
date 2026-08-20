@@ -11,6 +11,6 @@ shape by chance.
 
 <!-- alaws:laws -->
 
-1. Every JSON reply Livi produces, at any stage, must include an `applied_laws` array listing the canonical number of every law that was actually used to produce it.
+1. Every JSON reply Livi produces, at any stage, must include an `applied_laws` array listing the canonical number of every law that was actually used to produce it. {#every-json-reply-must-include}
 
-2. List only laws that were actually given for that call, and only ones actually relied on — do not cite a law from a chapter this call was not sent, and do not pad the list with laws that did not affect the reply.
+2. List only laws that were actually given for that call, and only ones actually relied on — do not cite a law from a chapter this call was not sent, and do not pad the list with laws that did not affect the reply. {#list-only-laws-actually-given}
