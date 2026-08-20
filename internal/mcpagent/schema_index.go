@@ -4,9 +4,12 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"io"
+	"os"
 	"sync"
 	"time"
 
+	"github.com/livereview/internal/logging"
 	"github.com/rs/zerolog/log"
 	"github.com/shrsv/dbctx"
 )
@@ -75,13 +78,25 @@ func InitSchemaIndex(dsn string) {
 			return
 		}
 
+		// out mirrors every boot-status print to dbctx_debug.log alongside
+		// stdout, so the whole build lifecycle - this function's own status
+		// lines plus dbctx's internal "N/N Building ... index" progress fed
+		// through Options.Logger below - lands in one correlated file
+		// instead of only being visible in the terminal.
+		out := io.MultiWriter(os.Stdout, logging.DBCtxDebugWriter())
+
 		start := time.Now()
-		fmt.Println("[dbctx] schema index: build starting...")
+		fmt.Fprintln(out, "[dbctx] schema index: build starting...")
 		log.Info().Msg("dbctx schema index: build starting")
 
-		idx, ready, err := dbctx.BuildAsync(context.Background(), dsn, nil)
+		// Logger: without it, dbctx writes its own boot-time progress
+		// ("4/4 Building search index...", "5/5 Building semantic
+		// index...") to os.Stderr by default - invisible outside the
+		// terminal and not correlated with anything else. Routing it into
+		// dbctx_debug.log puts the whole build lifecycle in one place.
+		idx, ready, err := dbctx.BuildAsync(context.Background(), dsn, &dbctx.Options{Logger: logging.DBCtxDebugWriter()})
 		if err != nil {
-			fmt.Printf("[dbctx] schema index: build failed to start: %v\n", err)
+			fmt.Fprintf(out, "[dbctx] schema index: build failed to start: %v\n", err)
 			log.Error().Err(err).Msg("dbctx schema index: build failed to start")
 			return
 		}
@@ -94,18 +109,18 @@ func InitSchemaIndex(dsn string) {
 			<-ready
 			elapsed := time.Since(start)
 			if err := idx.Err(); err != nil {
-				fmt.Printf("[dbctx] schema index: build failed after %s: %v (analytics prompts will use the static fallback schema)\n", elapsed.Round(time.Millisecond), err)
+				fmt.Fprintf(out, "[dbctx] schema index: build failed after %s: %v (analytics prompts will use the static fallback schema)\n", elapsed.Round(time.Millisecond), err)
 				log.Error().Err(err).Dur("elapsed", elapsed).
 					Msg("dbctx schema index: build failed; analytics prompts will use the static fallback schema")
 				return
 			}
 			stats, err := idx.Stats()
 			if err != nil {
-				fmt.Printf("[dbctx] schema index: ready after %s, but Stats() failed: %v\n", elapsed.Round(time.Millisecond), err)
+				fmt.Fprintf(out, "[dbctx] schema index: ready after %s, but Stats() failed: %v\n", elapsed.Round(time.Millisecond), err)
 				log.Error().Err(err).Dur("elapsed", elapsed).Msg("dbctx schema index: ready, but Stats() failed")
 				return
 			}
-			fmt.Printf("[dbctx] schema index: ready in %s (%d tables, %d columns, %d foreign keys, %d state fields)\n",
+			fmt.Fprintf(out, "[dbctx] schema index: ready in %s (%d tables, %d columns, %d foreign keys, %d state fields)\n",
 				elapsed.Round(time.Millisecond), stats.Tables, stats.Columns, stats.ForeignKeys, stats.StateFields)
 			log.Info().Dur("elapsed", elapsed).
 				Int("tables", stats.Tables).Int("columns", stats.Columns).
@@ -114,13 +129,13 @@ func InitSchemaIndex(dsn string) {
 
 			termResult, err := idx.ImportTerminology(terminologyJSON)
 			if err != nil {
-				fmt.Printf("[dbctx] terminology import failed: %v\n", err)
+				fmt.Fprintf(out, "[dbctx] terminology import failed: %v\n", err)
 				log.Error().Err(err).Msg("dbctx terminology import failed")
 				return
 			}
-			fmt.Printf("[dbctx] terminology imported: %d accepted, %d rejected\n", termResult.Accepted, len(termResult.Rejected))
+			fmt.Fprintf(out, "[dbctx] terminology imported: %d accepted, %d rejected\n", termResult.Accepted, len(termResult.Rejected))
 			for _, r := range termResult.Rejected {
-				fmt.Printf("[dbctx] terminology entry rejected: %+v\n", r)
+				fmt.Fprintf(out, "[dbctx] terminology entry rejected: %+v\n", r)
 			}
 			log.Info().Int("accepted", termResult.Accepted).Int("rejected", len(termResult.Rejected)).
 				Msg("dbctx terminology imported")
@@ -133,10 +148,10 @@ func InitSchemaIndex(dsn string) {
 			// special in any way; the result is discarded.
 			warmStart := time.Now()
 			if _, err := idx.Query("Is LiveReview adoption increasing since my team started using it?"); err != nil {
-				fmt.Printf("[dbctx] warm-up query failed: %v\n", err)
+				fmt.Fprintf(out, "[dbctx] warm-up query failed: %v\n", err)
 				log.Warn().Err(err).Msg("dbctx warm-up query failed")
 			} else {
-				fmt.Printf("[dbctx] warm-up query done in %s\n", time.Since(warmStart).Round(time.Millisecond))
+				fmt.Fprintf(out, "[dbctx] warm-up query done in %s\n", time.Since(warmStart).Round(time.Millisecond))
 				log.Info().Dur("elapsed", time.Since(warmStart)).Msg("dbctx warm-up query done")
 			}
 		}()
