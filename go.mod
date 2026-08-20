@@ -47,7 +47,7 @@ require (
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.32.0
 	github.com/rs/zerolog v1.34.0
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
-	github.com/shrsv/AgentLaws v0.2.0
+	github.com/shrsv/AgentLaws v0.2.1
 	github.com/shrsv/dbctx v0.1.2
 	github.com/slack-go/slack v0.27.0
 	github.com/stretchr/testify v1.11.1

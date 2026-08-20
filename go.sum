@@ -497,8 +497,8 @@ github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 h1:KRzFb2m7YtdldCEkzs6KqmJw4nqEV
 github.com/santhosh-tekuri/jsonschema/v6 v6.0.2/go.mod h1:JXeL+ps8p7/KNMjDQk3TCwPpBy0wYklyWTfbkIzdIFU=
 github.com/shopspring/decimal v1.4.0 h1:bxl37RwXBklmTi0C79JfXCEBD1cqqHt0bbgBAGFp81k=
 github.com/shopspring/decimal v1.4.0/go.mod h1:gawqmDU56v4yIKSwfBSFip1HdCCXN8/+DMd9qYNcwME=
-github.com/shrsv/AgentLaws v0.2.0 h1:aeH7wPyFrO0YVMrlxlubbi2qWkYNMLtv3xvNY2IKaQE=
-github.com/shrsv/AgentLaws v0.2.0/go.mod h1:5glIUac1gN6JUtd1Rg7OgkmbXfKDMkHE1Yxh7mrLdSo=
+github.com/shrsv/AgentLaws v0.2.1 h1:00pN3dEhsFFtz+qrcqBwVy8ieLzaivHbpyyuAk3+Lsk=
+github.com/shrsv/AgentLaws v0.2.1/go.mod h1:5glIUac1gN6JUtd1Rg7OgkmbXfKDMkHE1Yxh7mrLdSo=
 github.com/shrsv/dbctx v0.1.2 h1:CgQc7po3gmAO4qBlo0fc3fzwK2Zl8Re/hF58Nbp+qHE=
 github.com/shrsv/dbctx v0.1.2/go.mod h1:gy2NOT62xzf23hZYMyq38euxcjnsLacUHLW0URIBpXI=
 github.com/sirupsen/logrus v1.9.4 h1:TsZE7l11zFCLZnZ+teH4Umoq5BhEIfIzfRDZ1Uzql2w=
