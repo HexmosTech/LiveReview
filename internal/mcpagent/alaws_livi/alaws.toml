@@ -77,6 +77,11 @@ ordering = [
   "degraded/no-data.md",
   "describe.md",
   "describe/call.md",
+  "action.md",
+  "action/tool-calling.md",
+  "action/confirmation.md",
+  "action/domain.md",
+  "action/response-format.md",
 ]
 
 promptTemplates = [
