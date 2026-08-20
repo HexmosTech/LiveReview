@@ -75,3 +75,11 @@ ordering = [
   "degraded/repair.md",
   "degraded/no-data.md",
 ]
+
+promptTemplates = [
+  "prompts/classify.md",
+  "prompts/plan.md",
+  "prompts/finalize.md",
+  "prompts/repair.md",
+  "prompts/nodata.md",
+]
