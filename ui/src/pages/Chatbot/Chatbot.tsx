@@ -217,6 +217,7 @@ const Chatbot: React.FC = () => {
   const chartViewsRef = useRef<Map<string, View>>(new Map());
   const [showAISetup, setShowAISetup] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -225,6 +226,16 @@ const Chatbot: React.FC = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (!isLoading) {
+      inputRef.current?.focus();
+    }
+  }, [isLoading]);
 
   // Seed local message state once the persisted conversation loads. The
   // server is the source of truth for history now; this component only
@@ -571,6 +582,7 @@ const Chatbot: React.FC = () => {
         <div className="max-w-4xl mx-auto">
           <div className="relative flex items-center">
             <input
+              ref={inputRef}
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
