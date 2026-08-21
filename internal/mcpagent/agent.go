@@ -73,12 +73,12 @@ type Agent struct {
 	// describePrompt is the system prompt for the post-data description
 	// call - see alaws_livi/describe.md and (*Agent).regenerateDescription.
 	describePrompt string
-	// interpretHead/interpretTail bracket dbctxTableText's output for the
-	// multi-interpret pipeline (runMultiInterpret). Replaces the old
-	// countQueryHead/Tail + finalizeHead/Tail two-step with a single call
-	// that returns SQL + chart spec together.
-	interpretHead string
-	interpretTail string
+	// interpretSystem is the fully rendered multi-interpret system prompt
+	// (self-contained, no schema splice — schema goes in the user message).
+	interpretSystem string
+	// chartTypes is the embedded chart_types.json content, passed in the
+	// user message alongside the dbctx schema context.
+	chartTypes string
 }
 
 func NewAgent(provider *Provider, mcpSession *MCPSession, maxSteps int) *Agent {
@@ -140,18 +140,11 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 		}
 
 		if shape == shapeCountQuery {
-			// Multi-interpret pipeline: skip the step loop entirely.
-			// The interpret prompt includes schema context + data rules +
-			// chart reference in one call. No planning → finalize two-step.
-			_, schemaTableText, schemaErr := a.interpretPrompt(clog, userText)
-			if schemaErr != nil {
-				const msg = "Livi is in preparing mode, please come back after 60s."
-				log.Warn().Err(schemaErr).Msg("schema unavailable for count_query turn; refusing rather than guessing")
-				clog.FinalResponse(msg)
-				return msg, history, nil, nil, nil
-			}
+			// Multi-interpret pipeline (ported from prelivi Python script):
+			// single LLM call returns SQL + chart specs for up to 5
+			// interpretations. No plan→finalize two-step.
 			clog.BranchSelected("count_query", 0, 0)
-			text, artifacts, debugArt, err := a.runMultiInterpret(ctx, userText, schemaTableText, clog)
+			text, artifacts, debugArt, err := a.runMultiInterpret(ctx, userText, clog, a.mcpSession.OrgID, a.mcpSession.OrgName)
 			if err != nil {
 				return text, history, artifacts, debugArt, err
 			}
@@ -475,20 +468,40 @@ func (a *Agent) finalizePrompt(tableText string) string {
 	return a.finalizeHead + "\n\n" + tableText + a.finalizeTail
 }
 
-// interpretPrompt assembles the multi-interpret pipeline's full system
-// prompt, splicing the live dbctx table text between the precomputed head
-// and tail. This replaces the old countQueryPrompt + finalizePrompt two-
-// step with a single prompt that asks for SQL + chart spec together.
-func (a *Agent) interpretPrompt(clog *logging.ChatTurnLogger, userText string) (systemPrompt, tableText string, err error) {
+// interpretPrompt returns the self-contained multi-interpret system prompt
+// (rendered from the PromptBook template with org_id/org_name variables).
+// The system prompt includes all rules inline — no schema splice needed.
+// Schema context and chart types are added to the user message instead
+// (matching the Python script's approach in scripts/prelivi/interpretation.py).
+func (a *Agent) interpretPrompt() string {
+	return a.interpretSystem
+}
+
+// interpretUserMessage builds the user message for the multi-interpret
+// pipeline, matching the Python script format:
+//
+//	User query: {query}
+//	Org context: org_id = {ORG_ID} ({ORG_NAME})
+//
+//	--- dbctx schema context ---
+//	{dbctx_context}
+//
+//	--- available chart types ---
+//	{chart_types}
+func (a *Agent) interpretUserMessage(clog *logging.ChatTurnLogger, userText string, orgID int64, orgName string) (string, error) {
 	clog.DBCtxRequest(2, string(a.analyticsRole()), userText)
 	start := time.Now()
-	tableText, err = dbctxTableText(userText)
+	tableText, err := dbctxTableText(userText)
 	clog.DBCtxResponse(2, time.Since(start), tableText, err)
 	if err != nil {
 		clog.SchemaSourceDegraded(err.Error())
-		return "", "", err
+		return "", err
 	}
-	return a.interpretHead + "\n\n" + tableText + a.interpretTail, tableText, nil
+	msg := fmt.Sprintf(
+		"User query: %s\nOrg context: org_id = %d (%s)\n\n--- dbctx schema context ---\n%s\n\n--- available chart types ---\n%s",
+		userText, orgID, orgName, tableText, a.chartTypes,
+	)
+	return msg, nil
 }
 
 // isAuthError reports whether a tool result signals an expired/invalid

@@ -71,11 +71,13 @@ type HistoryEntry map[string]any
 // The model returns up to 5 of these in a single call, each with its own
 // SQL, chart type, and encoding — like prelivi's interpretation.py.
 type Interpretation struct {
-	SQL         string         `json:"sql"`
-	ChartType   string         `json:"chart_type"`
-	Title       string         `json:"title"`
-	Description string         `json:"description"`
-	Encoding    map[string]any `json:"encoding,omitempty"`
+	SQL          string         `json:"sql"`
+	ChartType    string         `json:"chart_type"`
+	Title        string         `json:"title"`
+	Description  string         `json:"description"`
+	VegaLiteSpec map[string]any `json:"vega_lite_spec,omitempty"`
+	Encoding     map[string]any `json:"encoding,omitempty"`
+	Name         string         `json:"name,omitempty"`
 }
 
 // InterpretationResult pairs an interpretation with its executed outcome.

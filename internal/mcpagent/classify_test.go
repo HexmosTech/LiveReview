@@ -17,12 +17,12 @@ func TestParseClassifyShape(t *testing.T) {
 		want classifyShape
 		ok   bool
 	}{
-		{"bare", `{"shape":"action"}`, shapeAction, true},
-		{"fenced", "```json\n{\"shape\": \"count_query\"}\n```", shapeCountQuery, true},
-		{"chat", `{"shape":"chat"}`, shapeChat, true},
-		{"case insensitive", `{"shape":"ACTION"}`, shapeAction, true},
-		{"whitespace", `  {"shape":"chat"}  `, shapeChat, true},
-		{"unknown shape", `{"shape":"delete_everything"}`, "", false},
+		{"bare", `{"response":"action"}`, shapeAction, true},
+		{"fenced", "```json\n{\"response\": \"count_query\"}\n```", shapeCountQuery, true},
+		{"chat", `{"response":"chat"}`, shapeChat, true},
+		{"case insensitive", `{"response":"ACTION"}`, shapeAction, true},
+		{"whitespace", `  {"response":"chat"}  `, shapeChat, true},
+		{"unknown shape", `{"response":"delete_everything"}`, "", false},
 		{"not json", `sure, I can help with that`, "", false},
 		{"empty", ``, "", false},
 		{"missing field", `{}`, "", false},
@@ -160,16 +160,16 @@ func dispatchTestAgent(prov *recordingProvider) *Agent {
 func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 	prov := &recordingProvider{replies: []string{
 		// Turn 1: chat
-		`{"shape":"chat"}`,
+		`{"response":"chat"}`,
 		"Hi! I'm Livi, how can I help you?",
 		// Turn 2: action (no tool call in the reply - just confirms the
 		// prompt/tools selection, not the tool-calling loop itself, which
 		// is unchanged and already covered elsewhere)
-		`{"shape":"action"}`,
+		`{"response":"action"}`,
 		"Which repository would you like me to review?",
 		// Turn 3: count_query - a table outside the catalog so the guard
 		// rejects it deterministically, without touching a database.
-		`{"shape":"count_query"}`,
+		`{"response":"count_query"}`,
 		`{"analytics_plan":[{"id":"r1","question":"bad","count_sql":"SELECT count(*) FROM secret_table"}]}`,
 		"SELECT count(*) AS n FROM public.reviews", // repair attempt, also rejected
 	}}
@@ -288,7 +288,7 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 // UI would just render raw JSON. See looksLikeUnrecognizedJSON.
 func TestChatBranchRejectsFabricatedJSON(t *testing.T) {
 	prov := &recordingProvider{replies: []string{
-		`{"shape":"chat"}`,
+		`{"response":"chat"}`,
 		// The model invents its own ad hoc chart shape instead of answering
 		// in prose - none of parseToolCalls/parseAnalyticsPlan recognize it.
 		`{"chart": {"title": "x"}, "learning": {"title": "y"}}`,
@@ -317,7 +317,7 @@ func TestChatBranchRejectsFabricatedJSON(t *testing.T) {
 // (correctly rejects invalid JSON) and the safety net.
 func TestCountQueryBranchRejectsTruncatedJSON(t *testing.T) {
 	prov := &recordingProvider{replies: []string{
-		`{"shape":"count_query"}`,
+		`{"response":"count_query"}`,
 		// Truncated mid-object: no closing quote, no closing brackets.
 		`{"analytics_plan": [{"id": "r1", "question": "q", "count_sql": "SELECT count(*) FROM reviews`,
 		"I could not work out a full query for that - try rephrasing it.",
@@ -338,7 +338,7 @@ func TestCountQueryBranchRejectsTruncatedJSON(t *testing.T) {
 
 func TestDispatchClassifyFailureDegradesToChat(t *testing.T) {
 	prov := &recordingProvider{replies: []string{
-		"I'm not sure what you mean, could you clarify?", // classify call: not the {"shape": ...} JSON it was told to return
+		"I'm not sure what you mean, could you clarify?", // classify call: not the {"response": ...} JSON it was told to return
 		"Sure, I'm happy to help with that.",              // the degraded chat-branch call
 	}}
 	agent := dispatchTestAgent(prov)

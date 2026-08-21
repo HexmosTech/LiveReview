@@ -101,8 +101,8 @@ func (a *Agent) WithAnalytics(engine AnalyticsEngine) *Agent {
 	a.repairPrompt = lb.repair
 	a.noDataPrompt = lb.noData
 	a.describePrompt = lb.describe
-	a.interpretHead = lb.interpretHead
-	a.interpretTail = lb.interpretTail
+	a.interpretSystem = lb.interpretSystem
+	a.chartTypes = lb.chartTypes
 
 	// Kept in sync for any caller still reading systemPrompt/providerTools
 	// directly (there is none in this codebase today, but they remain
@@ -1492,8 +1492,12 @@ func normalizeInterpretations(in []Interpretation) ([]Interpretation, bool) {
 		if strings.TrimSpace(interp.ChartType) == "" {
 			interp.ChartType = "bar"
 		}
+		// Use Name as fallback title if Title is empty.
 		if strings.TrimSpace(interp.Title) == "" {
-			interp.Title = "Query Result"
+			interp.Title = interp.Name
+		}
+		if strings.TrimSpace(interp.Title) == "" {
+			interp.Title = interp.ChartType + " chart"
 		}
 		out = append(out, interp)
 		if len(out) >= maxInterpretations {
@@ -1513,26 +1517,31 @@ func normalizeInterpretations(in []Interpretation) ([]Interpretation, bool) {
 func (a *Agent) runMultiInterpret(
 	ctx context.Context,
 	userText string,
-	schemaTableText string,
 	clog *logging.ChatTurnLogger,
+	orgID int64,
+	orgName string,
 ) (string, []Artifact, *DebugArtifacts, error) {
 	ctx, cancel := context.WithTimeout(ctx, analyticsTurnTimeout)
 	defer cancel()
 
 	debug := &DebugArtifacts{
-		Query:         userText,
-		SchemaContext: truncateContent(schemaTableText, 5000),
+		Query: userText,
 	}
 
-	// Build the interpret prompt and call the LLM once.
-	system, _, err := a.interpretPrompt(clog, userText)
+	// System prompt: self-contained from PromptBook template (includes
+	// all rules inline, no schema splice).
+	system := a.interpretPrompt()
+	debug.SystemPrompt = truncateContent(system, 5000)
+
+	// User message: query + org context + dbctx schema + chart types
+	// (matching the Python script's format in interpretation.py).
+	userMsg, err := a.interpretUserMessage(clog, userText, orgID, orgName)
 	if err != nil {
 		return "Livi is in preparing mode, please come back after 60s.", nil, debug, nil
 	}
-	debug.SystemPrompt = truncateContent(system, 5000)
+	debug.SchemaContext = truncateContent(userMsg, 5000)
 
-	raw, err := a.completeOnce(ctx, clog, 2, "interpret", "multi", 1, system,
-		"User question: "+userText)
+	raw, err := a.completeOnce(ctx, clog, 2, "interpret", "multi", 1, system, userMsg)
 	if err != nil {
 		log.Error().Err(err).Msg("multi-interpret LLM call failed")
 		return "I had trouble understanding that question. Please try rephrasing.", nil, debug, err
@@ -1661,9 +1670,11 @@ func (a *Agent) executeInterpretation(
 	}
 }
 
-// buildChartFromInterp builds a Vega-Lite chart from an Interpretation
-// (not a FinalizePlan). Maps chart_type to mark+encoding, injects data,
-// and normalizes the spec.
+// buildChartFromInterp builds a Vega-Lite chart from an Interpretation.
+// If the LLM provided a vega_lite_spec with DATA_PLACEHOLDER, replaces
+// the placeholder with actual data (matching the Python script's approach
+// in scripts/prelivi/interpretation.py). Otherwise falls back to building
+// a minimal spec from chart_type + encoding.
 func (a *Agent) buildChartFromInterp(
 	ctx context.Context,
 	interp Interpretation,
@@ -1673,50 +1684,56 @@ func (a *Agent) buildChartFromInterp(
 	clog *logging.ChatTurnLogger,
 ) (*vlrender.VegaLiteReport, *Artifact) {
 	if len(rs.Rows) > maxChartRows {
-		// Too many rows for a chart — downgrade to CSV.
 		return nil, a.buildCSVFromRS(interp.Title, interp.Description, interp.SQL, rs)
 	}
 
-	mark, defaultEncoding := chartTypeToMark(interp.ChartType, timeUnit)
+	var specJSON []byte
 
-	// Use model-provided encoding if available, otherwise use default.
-	encodingJSON := defaultEncoding
-	if len(interp.Encoding) > 0 {
-		if e, err := json.Marshal(interp.Encoding); err == nil {
-			encodingJSON = json.RawMessage(e)
+	// If the LLM provided a complete vega_lite_spec, use it with
+	// DATA_PLACEHOLDER replacement (Python script pattern).
+	if len(interp.VegaLiteSpec) > 0 {
+		specBytes, err := json.Marshal(interp.VegaLiteSpec)
+		if err == nil {
+			specStr := string(specBytes)
+			if strings.Contains(specStr, "DATA_PLACEHOLDER") {
+				dataJSON, err := json.Marshal(rs.Rows)
+				if err == nil {
+					specStr = strings.Replace(specStr, `"DATA_PLACEHOLDER"`, string(dataJSON), 1)
+				}
+			}
+			specJSON = []byte(specStr)
 		}
 	}
 
-	// Verify encoding fields exist in result columns.
-	available := make(map[string]bool, len(rs.Columns))
-	for _, c := range rs.Columns {
-		available[c] = true
-	}
-
-	spec := map[string]any{
-		"$schema":   "https://vega.github.io/schema/vega-lite/v5.json",
-		"width":     600,
-		"height":    340,
-		"background": "#ffffff",
-		"data":      map[string]any{"values": rs.Rows},
-	}
-
-	if interp.ChartType == "trellis_bar" {
-		// Trellis needs facet + spec, not top-level mark.
-		spec["facet"] = json.RawMessage(defaultEncoding)
-		spec["spec"] = map[string]any{
-			"mark": "bar",
-			"encoding": encodingJSON,
+	// Fallback: build a minimal spec from chart_type + encoding.
+	if specJSON == nil {
+		mark, defaultEncoding := chartTypeToMark(interp.ChartType, timeUnit)
+		encodingJSON := defaultEncoding
+		if len(interp.Encoding) > 0 {
+			if e, err := json.Marshal(interp.Encoding); err == nil {
+				encodingJSON = json.RawMessage(e)
+			}
 		}
-	} else {
-		spec["mark"] = mark
-		spec["encoding"] = encodingJSON
-	}
-
-	specJSON, err := json.Marshal(spec)
-	if err != nil {
-		log.Error().Err(err).Str("interp", interp.Title).Msg("failed to marshal chart spec")
-		return nil, a.buildCSVFromRS(interp.Title, interp.Description, interp.SQL, rs)
+		spec := map[string]any{
+			"$schema":    "https://vega.github.io/schema/vega-lite/v5.json",
+			"width":      600,
+			"height":     340,
+			"background": "#ffffff",
+			"data":       map[string]any{"values": rs.Rows},
+		}
+		if interp.ChartType == "trellis_bar" {
+			spec["facet"] = json.RawMessage(defaultEncoding)
+			spec["spec"] = map[string]any{"mark": "bar", "encoding": encodingJSON}
+		} else {
+			spec["mark"] = mark
+			spec["encoding"] = encodingJSON
+		}
+		var err error
+		specJSON, err = json.Marshal(spec)
+		if err != nil {
+			log.Error().Err(err).Str("interp", interp.Title).Msg("failed to marshal chart spec")
+			return nil, a.buildCSVFromRS(interp.Title, interp.Description, interp.SQL, rs)
+		}
 	}
 
 	normalized, err := vlrender.NormalizeVegaLiteSpec(specJSON)
@@ -1727,9 +1744,18 @@ func (a *Agent) buildChartFromInterp(
 
 	timeRange := computeTimeRange(rs)
 
-	clog.ReportFinalized(interp.Title, ResponseTypeChart, interp.Title, len(rs.Rows))
+	// Use Name as title if Title is generic/missing.
+	title := interp.Title
+	if title == "" || title == "Query Result" {
+		title = interp.Name
+	}
+	if title == "" {
+		title = interp.ChartType + " chart"
+	}
+
+	clog.ReportFinalized(title, ResponseTypeChart, title, len(rs.Rows))
 	return &vlrender.VegaLiteReport{
-		Title:       interp.Title,
+		Title:       title,
 		Description: interp.Description,
 		Query:       interp.SQL,
 		TimeRange:   timeRange,

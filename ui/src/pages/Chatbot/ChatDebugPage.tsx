@@ -288,7 +288,7 @@ const ChatDebugPage: React.FC = () => {
         text: m.content,
         charts: m.charts && m.charts.length > 0 ? m.charts : undefined,
         files: m.files && m.files.length > 0 ? m.files : undefined,
-        debugArtifacts: (m as Record<string, unknown>).debug_artifacts as DebugArtifacts | undefined,
+        debugArtifacts: (m as unknown as Record<string, unknown>).debug_artifacts as DebugArtifacts | undefined,
       })),
     );
   }, [conversationDetail]);
@@ -374,7 +374,7 @@ const ChatDebugPage: React.FC = () => {
                   {msg.charts.map((chart, i) => (
                     <div key={i} className="bg-slate-700 rounded-lg p-3">
                       {chart.title && <div className="text-sm font-medium mb-1">{chart.title}</div>}
-                      <InteractiveChart spec={chart.spec} onReady={(view) => chartViewsRef.current.set(`${msg.id}-${i}`, view)} />
+                      <InteractiveChart spec={chart.spec} onViewReady={(view) => chartViewsRef.current.set(`${msg.id}-${i}`, view)} />
                     </div>
                   ))}
                 </div>
@@ -389,7 +389,7 @@ const ChatDebugPage: React.FC = () => {
                       onClick={() => downloadFile(file)}
                       className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 text-sm"
                     >
-                      <span>\u{1F4C4}</span>
+                      <span>{"\u{1F4C4}"}</span>
                       <span>{file.title || file.filename}</span>
                       <span className="text-xs text-slate-500">{formatRowCount(file.rows)}</span>
                     </button>
@@ -439,7 +439,7 @@ const ChatDebugPage: React.FC = () => {
       {preview && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setPreview(null)}>
           <div className="bg-slate-800 rounded-xl p-4 max-w-4xl max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-            <InteractiveChart spec={preview.spec} onReady={(view) => { previewViewRef.current = view; }} />
+            <InteractiveChart spec={preview.spec} onViewReady={(view) => { previewViewRef.current = view; }} />
           </div>
         </div>
       )}

@@ -49,12 +49,12 @@ type lawbookPaths struct {
 	// see alaws_livi/describe.md for why this is a separate call from
 	// finalize rather than folded into finalizeTail.
 	describe string
-	// interpretHead is the static header for the multi-interpret pipeline
-	// (before the live schema). Replaces planHead+finalizeHead.
-	interpretHead string
-	// interpretTail is the static footer for the multi-interpret pipeline
-	// (after the live schema). Replaces planTail+finalizeTail.
-	interpretTail string
+	// interpretSystem is the fully rendered multi-interpret system prompt
+	// (self-contained, no schema splice — schema goes in the user message).
+	interpretSystem string
+	// chartTypes is the embedded chart_types.json content, passed in the
+	// user message alongside the dbctx schema context.
+	chartTypes string
 }
 
 // loadLawbook compiles the embedded alaws_livi lawbook and returns the
@@ -315,12 +315,29 @@ func buildLawbookPrompts(orgName, userName string, orgID int64) (*lawbookPaths, 
 		return nil, fmt.Errorf("describe branch: %w", err)
 	}
 
-	// Multi-interpret branch: replaces planning+finalizing with a single
-	// call that returns SQL + chart spec together. Includes general data
-	// rules, chart reference, and interpreting-specific laws.
-	interpretLaws, err := renderBranchFiltered(book, []string{"livi.general", "livi.charts", "livi.interpreting"}, vars, true)
+	// Multi-interpret branch: self-contained PromptBook template with
+	// {{org_id}} and {{org_name}} variables. Schema context and chart types
+	// go in the user message (matching the Python script approach).
+	interpretPromptTemplate, err := book.Prompt("livi.prompts.interpret")
 	if err != nil {
-		return nil, fmt.Errorf("interpret branch: %w", err)
+		return nil, fmt.Errorf("interpret prompt template: %w", err)
+	}
+	interpretSystem, err := interpretPromptTemplate.Render(alaws.PromptRenderOptions{
+		Vars: map[string]string{
+			"org_id":   fmt.Sprintf("%d", orgID),
+			"org_name": orgName,
+		},
+		OnMissing: alaws.MissingKeepPlaceholder,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("interpret prompt render: %w", err)
+	}
+
+	// Load chart_types.json from the embedded FS — passed in the user
+	// message alongside the dbctx schema context (Python script pattern).
+	chartTypesBytes, err := fs.ReadFile(lawbookFS, "alaws_livi/chart_types.json")
+	if err != nil {
+		return nil, fmt.Errorf("chart_types.json: %w", err)
 	}
 
 	// Build the header that appears before the law text in each branch.
@@ -357,10 +374,11 @@ func buildLawbookPrompts(orgName, userName string, orgID int64) (*lawbookPaths, 
 		repair:   header + "\n\n" + orgFilter + "\n\n" + repairLaws,
 		noData:   header + "\n\n" + orgFilter + "\n\n" + noDataLaws,
 		describe: describeLaws,
-		// Interpret: header + org filter, then live schema spliced in,
-		// then interpretTail has the data rules + chart ref + output format.
-		interpretHead: header + "\n\n" + orgFilter,
-		interpretTail: "\n\n" + interpretLaws,
+		// Interpret: self-contained system prompt (no schema splice).
+		// Schema context and chart types go in the user message, matching
+		// the Python script's approach.
+		interpretSystem: interpretSystem,
+		chartTypes:      string(chartTypesBytes),
 	}, nil
 }
 

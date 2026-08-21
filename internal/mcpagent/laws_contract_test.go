@@ -36,7 +36,7 @@ func TestLawbookCarriesMachineContracts(t *testing.T) {
 		text string
 		want []string
 	}{
-		{"classify", p.classify, []string{`{"shape"`, "count_query", "`action`", "`chat`"}},
+		{"classify", p.classify, []string{`{"response"`, "count_query", "`action`", "`chat`"}},
 		{"plan", p.planTail, []string{"analytics_plan", "count_sql", "`id`"}},
 		{"finalize", p.finalizeTail, []string{"response_type", "data_sql", "encoding", "csv"}},
 	} {

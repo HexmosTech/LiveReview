@@ -79,6 +79,11 @@ ordering = [
   "describe/call.md",
   "interpreting.md",
   "interpreting/rules.md",
+  "interpreting/rules-schema.md",
+  "interpreting/rules-sql.md",
+  "interpreting/rules-data.md",
+  "interpreting/rules-charts.md",
+  "interpreting/rules-count.md",
   "interpreting/output.md",
   "interpreting/chartref.md",
   "action.md",
@@ -94,4 +99,5 @@ promptTemplates = [
   "prompts/finalize.md",
   "prompts/repair.md",
   "prompts/nodata.md",
+  "prompts/interpret.md",
 ]
