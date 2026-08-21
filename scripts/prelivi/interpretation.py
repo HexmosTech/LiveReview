@@ -80,6 +80,7 @@ You are a database-aware analytics interpreter for LiveReview, an AI-powered cod
         "description": "<what this shows>",
         "chart_type": "<chart type ID>",
         "sql": "<PostgreSQL query>",
+        "aggregation": {{ "<sql_column_alias>": "max|sum", ... }},
         "vega_lite_spec": {{ <Vega-Lite spec with DATA_PLACEHOLDER in data.values> }}
       }}
     ]
@@ -99,7 +100,7 @@ You are a database-aware analytics interpreter for LiveReview, an AI-powered cod
 ## Rules — data quality (CRITICAL)
 8. NEVER return single-number results. Every query must return multiple rows with a dimension (time, category, name) for comparison. A query returning 1 row is a failure.
 9. For time series: always fetch at DAY granularity — `DATE_TRUNC('day', created_at) AS day`. The pipeline will re-aggregate to the right level based on data density. Do NOT aggregate by month or week yourself.
-10. Summing unique counts is prohibited — it inflates numbers. For COUNT(DISTINCT ...) metrics, use MONTH or WEEK granularity directly in SQL.
+10. Always use DAY granularity (rule 9), even for COUNT(DISTINCT ...) metrics. Mark distinct/unique fields in the interpretation JSON with "aggregation": "max" so the client-side logic uses MAX (not SUM) when re-aggregating. Summing unique counts inflates numbers — MAX preserves the correct peak value per period.
 11. For small result sets (under 10 items), return the actual items (names, labels, details) not just counts. Example: instead of `COUNT(repositories) = 2`, return each repository's `name, provider, created_at`.
 12. Prefer queries that reveal patterns: rankings, trends, distributions, comparisons. Avoid flat counts.
 
@@ -268,13 +269,19 @@ def rows_to_csv(rows: list[dict]) -> str:
 # Helpers — post-processing
 # ---------------------------------------------------------------------------
 
-def smart_aggregate_time(rows: list[dict], time_field: str, value_fields: list[str], group_fields: list[str] = None) -> tuple[list[dict], str]:
-    """Re-aggregate day-level time series data to the right granularity."""
+def smart_aggregate_time(rows: list[dict], time_field: str, value_fields: list[str], group_fields: list[str] = None, max_fields: list[str] = None) -> tuple[list[dict], str]:
+    """Re-aggregate day-level time series data to the right granularity.
+
+    max_fields: subset of value_fields that should use MAX instead of SUM
+    (for COUNT(DISTINCT ...) metrics where summing inflates numbers).
+    """
     if not rows or time_field not in rows[0]:
         return rows, "yearmonthdate"
 
     if group_fields is None:
         group_fields = []
+    if max_fields is None:
+        max_fields = []
 
     dates = []
     for r in rows:
@@ -333,7 +340,10 @@ def smart_aggregate_time(rows: list[dict], time_field: str, value_fields: list[s
             val = r.get(vf, 0)
             if isinstance(val, Decimal):
                 val = float(val)
-            grouped[key][vf] += val if val else 0
+            if vf in max_fields:
+                grouped[key][vf] = max(grouped[key][vf], val if val else 0)
+            else:
+                grouped[key][vf] += val if val else 0
 
     result = sorted(grouped.values(), key=lambda r: r[time_field])
     return result, agg_unit
@@ -889,8 +899,11 @@ def main():
                     group_fields.append(enc.get("field"))
 
             if time_field and value_fields:
-                rows, time_unit = smart_aggregate_time(rows, time_field, value_fields, group_fields)
-                print(f"      Aggregated to {time_unit}, {len(rows)} points", file=sys.stderr)
+                # Determine which fields use MAX (for distinct/unique metrics)
+                agg_map = interp.get("aggregation", {})
+                max_fields = [k for k, v in agg_map.items() if v == "max" and k in value_fields]
+                rows, time_unit = smart_aggregate_time(rows, time_field, value_fields, group_fields, max_fields)
+                print(f"      Aggregated to {time_unit}, {len(rows)} points" + (f" (max: {max_fields})" if max_fields else ""), file=sys.stderr)
                 # Save aggregated CSV
                 agg_csv = rows_to_csv(rows)
                 agg_csv_path = f"{prefix}_agg.csv"
