@@ -225,14 +225,17 @@ def json_default(obj):
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 
-def smart_aggregate_time(rows: list[dict], time_field: str, value_fields: list[str]) -> tuple[list[dict], str]:
+def smart_aggregate_time(rows: list[dict], time_field: str, value_fields: list[str], group_fields: list[str] = None) -> tuple[list[dict], str]:
     """Re-aggregate day-level time series data to the right granularity.
 
-    Returns (aggregated_rows, time_unit) where time_unit is one of
-    'yearmonth', 'yearweek', 'yearmonthdate'.
+    group_fields: additional fields to group by (e.g. trigger_type for multi-series).
+    Returns (aggregated_rows, time_unit).
     """
     if not rows or time_field not in rows[0]:
         return rows, "yearmonthdate"
+
+    if group_fields is None:
+        group_fields = []
 
     # Parse dates and find span
     dates = []
@@ -258,7 +261,7 @@ def smart_aggregate_time(rows: list[dict], time_field: str, value_fields: list[s
     else:
         agg_unit = "yearmonth"
 
-    # Re-aggregate
+    # Re-aggregate — group by (time_bucket, group_fields)
     grouped = {}
     for r in rows:
         d = r[time_field]
@@ -268,24 +271,29 @@ def smart_aggregate_time(rows: list[dict], time_field: str, value_fields: list[s
             d = d.date()
 
         if agg_unit == "yearweek":
-            key = d - timedelta(days=d.weekday())  # Monday of that week
+            time_key = d - timedelta(days=d.weekday())
         else:
-            key = d.replace(day=1)                   # first of month
+            time_key = d.replace(day=1)
+
+        # Build composite key: (time, group1, group2, ...)
+        group_vals = tuple(r.get(gf) for gf in group_fields)
+        key = (time_key,) + group_vals
 
         if key not in grouped:
-            grouped[key] = {vf: 0 for vf in value_fields}
+            base = {time_field: time_key.isoformat()}
+            for gf in group_fields:
+                base[gf] = r.get(gf)
+            for vf in value_fields:
+                base[vf] = 0
+            grouped[key] = base
+
         for vf in value_fields:
             val = r.get(vf, 0)
             if isinstance(val, Decimal):
                 val = float(val)
             grouped[key][vf] += val if val else 0
 
-    result = []
-    for d in sorted(grouped.keys()):
-        row = {time_field: d.isoformat()}
-        row.update(grouped[d])
-        result.append(row)
-
+    result = sorted(grouped.values(), key=lambda r: r[time_field])
     return result, agg_unit
 
 
@@ -365,6 +373,232 @@ def render_chart(spec: dict, data: list[dict], output_path: Path):
 
 
 # ---------------------------------------------------------------------------
+# Helpers — data stats
+# ---------------------------------------------------------------------------
+
+def _fmt_date(v):
+    """Format a date/datetime value for display."""
+    if isinstance(v, datetime):
+        return v.strftime("%Y-%m-%d")
+    if isinstance(v, date):
+        return v.isoformat()
+    if isinstance(v, str):
+        # Strip timezone and time portion if midnight
+        v = v.replace("+00:00", "").replace("T00:00:00", "")
+        if len(v) > 10:
+            v = v[:10]
+        return v
+    return str(v)
+
+
+def _to_num(v):
+    """Coerce a value to float for stats computation."""
+    if v is None:
+        return None
+    if isinstance(v, Decimal):
+        return float(v)
+    if isinstance(v, (int, float)):
+        return float(v)
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return None
+
+
+def compute_stats(rows: list[dict], interp: dict) -> list[str]:
+    """Generate human-readable stat lines from the data rows."""
+    if not rows:
+        return ["No data returned."]
+
+    lines = []
+    keys = list(rows[0].keys())
+
+    # Identify column roles
+    time_field = None
+    category_field = None
+    numeric_fields = []
+
+    encoding = interp.get("vega_lite_spec", {}).get("encoding", {})
+    for _, enc in encoding.items():
+        if not isinstance(enc, dict):
+            continue
+        f = enc.get("field")
+        t = enc.get("type")
+        if t == "temporal" and f in keys:
+            time_field = f
+        elif t == "nominal" and f in keys:
+            category_field = f
+        elif t == "quantitative" and f in keys:
+            numeric_fields.append(f)
+
+    # Fallback: guess from data
+    if not numeric_fields:
+        for k in keys:
+            if all(_to_num(r.get(k)) is not None for r in rows[:3]):
+                numeric_fields.append(k)
+                break
+
+    nf = numeric_fields[0] if numeric_fields else None
+
+    # --- Time series stats ---
+    if time_field and nf:
+        vals = [(r.get(time_field), _to_num(r.get(nf))) for r in rows]
+        vals = [(t, v) for t, v in vals if v is not None]
+        if vals:
+            total = sum(v for _, v in vals)
+            avg = total / len(vals)
+            max_row = max(vals, key=lambda x: x[1])
+            min_row = min(vals, key=lambda x: x[1])
+
+            lines.append(f"Total: {total:,.0f}")
+            lines.append(f"Avg per period: {avg:,.1f}")
+            lines.append(f"Peak: {max_row[1]:,.0f} ({_fmt_date(max_row[0])})")
+            lines.append(f"Low: {min_row[1]:,.0f} ({_fmt_date(min_row[0])})")
+
+            if len(vals) >= 2:
+                first_v = vals[0][1]
+                last_v = vals[-1][1]
+                if first_v > 0:
+                    change_pct = ((last_v - first_v) / first_v) * 100
+                    direction = "up" if change_pct > 0 else "down" if change_pct < 0 else "flat"
+                    lines.append(f"Trend: {direction} {abs(change_pct):.0f}% ({_fmt_date(vals[0][0])} → {_fmt_date(vals[-1][0])})")
+            lines.append(f"Data points: {len(vals)}")
+
+    # --- Category / ranking stats ---
+    elif category_field and nf:
+        vals = [(r.get(category_field), _to_num(r.get(nf))) for r in rows]
+        vals = [(c, v) for c, v in vals if v is not None]
+        if vals:
+            total = sum(v for _, v in vals)
+            avg = total / len(vals)
+            top = max(vals, key=lambda x: x[1])
+            bottom = min(vals, key=lambda x: x[1])
+
+            lines.append(f"Total: {total:,.0f}")
+            lines.append(f"Across {len(vals)} categories")
+            lines.append(f"Avg per category: {avg:,.1f}")
+            lines.append(f"Highest: {top[0]} ({top[1]:,.0f})")
+            lines.append(f"Lowest: {bottom[0]} ({bottom[1]:,.0f})")
+
+            if len(vals) >= 3:
+                sorted_vals = sorted(vals, key=lambda x: x[1], reverse=True)
+                top3 = ", ".join(f"{c} ({v:,.0f})" for c, v in sorted_vals[:3])
+                lines.append(f"Top 3: {top3}")
+
+    # --- Generic fallback ---
+    else:
+        lines.append(f"{len(rows)} rows returned")
+        # Show first few rows as a preview
+        for r in rows[:5]:
+            parts = [f"{k}={v}" for k, v in r.items() if v is not None]
+            lines.append("  " + ", ".join(parts[:4]))
+
+    return lines
+
+
+# ---------------------------------------------------------------------------
+# Helpers — HTML generation
+# ---------------------------------------------------------------------------
+
+def generate_html(slides: list[dict], query: str, run_dir: Path):
+    """Generate a single-page HTML with a slider and stats under each chart.
+
+    Each slide dict has: name, description, image_filename, stats (list of str).
+    """
+    html = f"""\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{query}</title>
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+         background: #0f172a; color: #e2e8f0; min-height: 100vh; }}
+  .header {{ text-align: center; padding: 2rem 1rem 1rem; }}
+  .header h1 {{ font-size: 1.5rem; font-weight: 600; color: #f8fafc; }}
+  .header .sub {{ color: #94a3b8; font-size: 0.9rem; margin-top: 0.5rem; }}
+  .carousel {{ position: relative; max-width: 900px; margin: 1.5rem auto; }}
+  .slide {{ display: none; text-align: center; }}
+  .slide.active {{ display: block; }}
+  .slide img {{ max-width: 100%; max-height: 500px; border-radius: 8px;
+                border: 1px solid #334155; background: #1e293b; }}
+  .slide h2 {{ margin: 1rem 0 0.3rem; font-size: 1.2rem; color: #f1f5f9; }}
+  .slide .desc {{ color: #94a3b8; font-size: 0.85rem; margin-bottom: 1rem; }}
+  .stats {{ display: flex; flex-wrap: wrap; justify-content: center; gap: 0.6rem;
+            max-width: 800px; margin: 0 auto 1.5rem; padding: 0 1rem; }}
+  .stat {{ background: #1e293b; border: 1px solid #334155; border-radius: 6px;
+           padding: 0.5rem 1rem; font-size: 0.85rem; color: #cbd5e1; }}
+  .nav {{ display: flex; justify-content: center; align-items: center; gap: 1rem;
+          padding: 1rem; }}
+  .nav button {{ background: #334155; color: #e2e8f0; border: none; border-radius: 6px;
+                 padding: 0.6rem 1.2rem; cursor: pointer; font-size: 1rem; }}
+  .nav button:hover {{ background: #475569; }}
+  .nav .counter {{ color: #94a3b8; font-size: 0.9rem; }}
+  .dots {{ display: flex; justify-content: center; gap: 0.5rem; padding: 0.5rem; }}
+  .dot {{ width: 10px; height: 10px; border-radius: 50%; background: #334155;
+          cursor: pointer; transition: background 0.2s; }}
+  .dot.active {{ background: #60a5fa; }}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>{query}</h1>
+  <div class="sub">{ORG_NAME} &middot; {len(slides)} charts</div>
+</div>
+<div class="carousel">
+"""
+    for i, s in enumerate(slides):
+        active = "active" if i == 0 else ""
+        stats_html = "".join(f'<div class="stat">{st}</div>' for st in s["stats"])
+        html += f"""\
+  <div class="slide {active}">
+    <img src="{s['image']}" alt="{s['name']}">
+    <h2>{s['name']}</h2>
+    <div class="desc">{s['description']}</div>
+    <div class="stats">{stats_html}</div>
+  </div>
+"""
+
+    html += """\
+</div>
+<div class="dots">
+"""
+    for i in range(len(slides)):
+        active = "active" if i == 0 else ""
+        html += f'  <div class="dot {active}" onclick="go({i})"></div>\n'
+
+    html += f"""\
+</div>
+<div class="nav">
+  <button onclick="go(current-1)">&larr; Prev</button>
+  <span class="counter"><span id="cur">1</span> / {len(slides)}</span>
+  <button onclick="go(current+1)">Next &rarr;</button>
+</div>
+<script>
+let current = 0;
+const total = {len(slides)};
+function go(n) {{
+  document.querySelectorAll('.slide')[current].classList.remove('active');
+  document.querySelectorAll('.dot')[current].classList.remove('active');
+  current = ((n % total) + total) % total;
+  document.querySelectorAll('.slide')[current].classList.add('active');
+  document.querySelectorAll('.dot')[current].classList.add('active');
+  document.getElementById('cur').textContent = current + 1;
+}}
+document.addEventListener('keydown', e => {{
+  if (e.key === 'ArrowLeft') go(current - 1);
+  if (e.key === 'ArrowRight') go(current + 1);
+}});
+</script>
+</body>
+</html>
+"""
+    (run_dir / "index.html").write_text(html)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -403,10 +637,11 @@ def main():
     (run_dir / "gemini_output.json").write_text(json.dumps(result, indent=2, default=json_default))
 
     conn = get_db_connection()
-    kept = []
+    slides = []
 
     for i, interp in enumerate(interpretations):
         name = interp.get("name", f"chart_{i}")
+        description = interp.get("description", "")
         sql = interp.get("sql")
         spec = interp.get("vega_lite_spec")
 
@@ -429,6 +664,7 @@ def main():
             # Smart time aggregation if this is a time series
             time_field = None
             value_fields = []
+            group_fields = []
             encoding = spec.get("encoding", {})
             for field_name, enc in encoding.items():
                 if not isinstance(enc, dict):
@@ -437,26 +673,42 @@ def main():
                     time_field = enc.get("field")
                 elif enc.get("type") == "quantitative":
                     value_fields.append(enc.get("field"))
+                elif enc.get("type") == "nominal" and field_name == "color":
+                    group_fields.append(enc.get("field"))
 
             if time_field and value_fields:
-                rows, time_unit = smart_aggregate_time(rows, time_field, value_fields)
+                rows, time_unit = smart_aggregate_time(rows, time_field, value_fields, group_fields)
                 print(f"      Aggregated to {time_unit}, {len(rows)} points", file=sys.stderr)
 
-            # Render
+            # Render chart
             output_path = run_dir / f"{safe_name}.png"
             render_chart(spec, rows, output_path)
             print(f"      → {output_path.name}", file=sys.stderr)
-            kept.append(name)
+
+            # Compute stats
+            stats = compute_stats(rows, interp)
+
+            slides.append({
+                "name": name,
+                "description": description,
+                "image": f"{safe_name}.png",
+                "stats": stats,
+            })
 
         except Exception as e:
             print(f"      Error: {e}", file=sys.stderr)
 
     conn.close()
 
+    # Generate HTML slider
+    if slides:
+        generate_html(slides, query, run_dir)
+        print(f"\nHTML: {run_dir / 'index.html'}", file=sys.stderr)
+
     # Print summary
-    print(f"\nKept {len(kept)} charts in {run_dir}/", file=sys.stderr)
-    for name in kept:
-        print(f"  - {name}", file=sys.stderr)
+    print(f"Kept {len(slides)} charts in {run_dir}/", file=sys.stderr)
+    for s in slides:
+        print(f"  - {s['name']}", file=sys.stderr)
 
     # Print JSON to stdout too
     print(json.dumps(result, indent=2, default=json_default))
