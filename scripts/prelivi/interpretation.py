@@ -39,11 +39,41 @@ PROJECT_ROOT = SCRIPT_DIR.parent.parent
 DTX_PATH = PROJECT_ROOT / "livereviewctx.dtx"
 CHART_TYPES_PATH = SCRIPT_DIR / "chart_types.json"
 
+
+def load_dotenv(env_path: Path) -> None:
+    """Populate os.environ from a simple KEY=VALUE .env file. Real
+    environment variables (already set before this runs) always win -
+    matches standard dotenv precedence. Blank lines and '#' comments are
+    skipped; keys/values are whitespace-trimmed.
+    """
+    if not env_path.exists():
+        return
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_dotenv(SCRIPT_DIR / ".env")
+
 GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_ENDPOINT = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     f"{GEMINI_MODEL}:generateContent"
 )
+
+# Atlas Cloud is OpenAI-compatible (see internal/aiconnectors/connector.go's
+# createAtlasModel and models_sync.go's default model for the Go side of
+# this same provider).
+ATLAS_MODEL = "google/gemini-2.5-flash"
+ATLAS_ENDPOINT = "https://api.atlascloud.ai/v1/chat/completions"
+
+PROVIDER = os.environ.get("PROVIDER", "gemini").strip().lower() or "gemini"
 
 DEFAULT_QUERY = "How broadly has the organization adopted LiveReview?"
 
@@ -129,6 +159,14 @@ def load_api_keys() -> list[str]:
     sys.exit(1)
 
 
+def load_atlas_api_key() -> str:
+    api_key = os.environ.get("ATLAS_API_KEY", "").strip()
+    if not api_key:
+        print("Error: ATLAS_API_KEY not set (required when PROVIDER=atlas)", file=sys.stderr)
+        sys.exit(1)
+    return api_key
+
+
 def load_chart_types() -> str:
     return CHART_TYPES_PATH.read_text()
 
@@ -201,6 +239,68 @@ def call_gemini(api_keys: list[str], user_message: str) -> tuple[dict, dict]:
             return parsed, body
 
     print(f"All {len(api_keys)} keys exhausted. Last error: {last_error}", file=sys.stderr)
+    sys.exit(1)
+
+
+def call_atlas(api_key: str, user_message: str) -> tuple[dict, dict]:
+    """Call Atlas Cloud (OpenAI-compatible chat completions) and return
+    (parsed_json, raw_response_body). Retries on 503, same as call_gemini.
+    """
+    import time
+
+    payload = {
+        "model": ATLAS_MODEL,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_message},
+        ],
+        "temperature": 0.2,
+        "max_tokens": 8192,
+        "response_format": {"type": "json_object"},
+    }
+
+    data = json.dumps(payload).encode("utf-8")
+    last_error = None
+    for attempt in range(3):
+        req = urllib.request.Request(
+            ATLAS_ENDPOINT,
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) livereview-prelivi/1.0",
+                "Accept": "application/json",
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace")
+            if e.code == 503 and attempt < 2:
+                print(f"  Atlas Cloud got 503, retrying in 2s...", file=sys.stderr)
+                last_error = err_body
+                time.sleep(2)
+                continue
+            print(f"Atlas Cloud API error {e.code}: {err_body}", file=sys.stderr)
+            sys.exit(1)
+
+        text = body["choices"][0]["message"]["content"]
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            cleaned = text.strip()
+            if cleaned.startswith("```"):
+                cleaned = "\n".join(cleaned.split("\n")[1:])
+            if cleaned.endswith("```"):
+                cleaned = cleaned.rsplit("```", 1)[0]
+            parsed = json.loads(cleaned.strip())
+
+        return parsed, body
+
+    print(f"Atlas Cloud request failed after retries: {last_error}", file=sys.stderr)
     sys.exit(1)
 
 
@@ -775,13 +875,20 @@ def main():
     query = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_QUERY
     no_render = "--no-render" in sys.argv
 
-    api_keys = load_api_keys()
+    if PROVIDER == "atlas":
+        atlas_api_key = load_atlas_api_key()
+    else:
+        api_keys = load_api_keys()
     chart_types = load_chart_types()
 
-    print(f"Query: {query}", file=sys.stderr)
-    print(f"Org:   {ORG_NAME} (id={ORG_ID})", file=sys.stderr)
-    print(f"Model: {GEMINI_MODEL}", file=sys.stderr)
-    print(f"Keys:  {len(api_keys)} configured", file=sys.stderr)
+    print(f"Query:    {query}", file=sys.stderr)
+    print(f"Org:      {ORG_NAME} (id={ORG_ID})", file=sys.stderr)
+    print(f"Provider: {PROVIDER}", file=sys.stderr)
+    if PROVIDER == "atlas":
+        print(f"Model:    {ATLAS_MODEL}", file=sys.stderr)
+    else:
+        print(f"Model:    {GEMINI_MODEL}", file=sys.stderr)
+        print(f"Keys:     {len(api_keys)} configured", file=sys.stderr)
 
     # Step 1: dbctx context
     print("Querying dbctx...", file=sys.stderr)
@@ -796,12 +903,16 @@ def main():
         f"--- available chart types ---\n{chart_types}"
     )
 
-    # Step 3: Call Gemini
-    print("Calling Gemini...", file=sys.stderr)
-    result, raw_body = call_gemini(api_keys, user_message)
+    # Step 3: Call the LLM
+    if PROVIDER == "atlas":
+        print("Calling Atlas Cloud...", file=sys.stderr)
+        result, raw_body = call_atlas(atlas_api_key, user_message)
+    else:
+        print("Calling Gemini...", file=sys.stderr)
+        result, raw_body = call_gemini(api_keys, user_message)
 
     interpretations = result.get("interpretations", [])
-    print(f"Gemini returned {len(interpretations)} interpretations", file=sys.stderr)
+    print(f"{PROVIDER} returned {len(interpretations)} interpretations", file=sys.stderr)
 
     if no_render:
         print(json.dumps(result, indent=2, default=json_default))
