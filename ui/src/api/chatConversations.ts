@@ -14,6 +14,7 @@ export interface ConversationMessage {
   content: string;
   charts?: ChatChart[];
   files?: ChatFile[];
+  debug_artifacts?: unknown;
 }
 
 export interface ConversationDetail {

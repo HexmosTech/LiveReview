@@ -288,7 +288,7 @@ const ChatDebugPage: React.FC = () => {
         text: m.content,
         charts: m.charts && m.charts.length > 0 ? m.charts : undefined,
         files: m.files && m.files.length > 0 ? m.files : undefined,
-        debugArtifacts: (m as unknown as Record<string, unknown>).debug_artifacts as DebugArtifacts | undefined,
+        debugArtifacts: m.debug_artifacts as DebugArtifacts | undefined,
       })),
     );
   }, [conversationDetail]);
@@ -389,7 +389,7 @@ const ChatDebugPage: React.FC = () => {
                       onClick={() => downloadFile(file)}
                       className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 text-sm"
                     >
-                      <span>{"\u{1F4C4}"}</span>
+                      <span>📄</span>
                       <span>{file.title || file.filename}</span>
                       <span className="text-xs text-slate-500">{formatRowCount(file.rows)}</span>
                     </button>
