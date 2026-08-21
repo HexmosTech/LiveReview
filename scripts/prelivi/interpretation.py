@@ -5,8 +5,8 @@ interpretation.py — dbctx + Gemini → SQL + Vega-Lite charts.
 Pipeline:
   1. User query → dbctx query → schema context
   2. Schema context + chart types + query → Gemini → JSON with SQL + chart specs
-  3. Execute SQL against production DB → data rows
-  4. Plug data into Vega-Lite templates → render PNG via vl-convert
+  3. Post-process: skip weak charts, smart-aggregate time series, enforce diversity
+  4. Execute SQL → plug data → render PNG via vl-convert
 
 Usage:
     python3 interpretation.py                          # default query
@@ -20,27 +20,22 @@ import subprocess
 import sys
 import urllib.request
 import urllib.error
-from datetime import date, datetime
+from collections import Counter
+from datetime import date, datetime, timedelta
 from decimal import Decimal
-
 from pathlib import Path
 
 import psycopg2
 import vl_convert as vlc
 
 # ---------------------------------------------------------------------------
-# Paths
+# Config
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
 DTX_PATH = PROJECT_ROOT / "livereviewctx.dtx"
 CHART_TYPES_PATH = SCRIPT_DIR / "chart_types.json"
-OUTPUT_DIR = SCRIPT_DIR / "output"
-
-# ---------------------------------------------------------------------------
-# Gemini config
-# ---------------------------------------------------------------------------
 
 GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_ENDPOINT = (
@@ -54,18 +49,20 @@ DEFAULT_QUERY = "How broadly has the organization adopted LiveReview?"
 ORG_ID = 677
 ORG_NAME = "Ostrelle Systems"
 
+# ---------------------------------------------------------------------------
+# System prompt — no hardcoded table names, dbctx provides schema
+# ---------------------------------------------------------------------------
+
 SYSTEM_PROMPT = f"""\
 You are a database-aware analytics interpreter for LiveReview, an AI-powered code review SaaS.
 
 ## Task
-1. You receive a user's natural-language question followed by dbctx schema context (tables, columns, foreign keys, field stats, sample values).
+1. You receive a user query + dbctx schema context (tables, columns, foreign keys, field stats, sample values).
 2. You produce a JSON object with interpretations, each containing a SQL query and a Vega-Lite chart spec.
 
 ## Org context
-- All queries run within a single organization: org_id = {ORG_ID} ("{ORG_NAME}").
-- Every SQL query MUST include a `WHERE org_id = {ORG_ID}` filter (or join through a table that has org_id).
-- Tables with direct org_id: reviews, repositories, user_roles, api_keys, loc_usage_ledger, scheduled_review_configs, review_events, review_feedback, recent_activity, webhook_registry, org_slack_configs, org_discord_configs, chat_conversations, ai_connectors, org_review_ai_settings, org_billing_state.
-- Tables without org_id (join through related table): users (join via user_roles), subscriptions (has org_id), pull_requests (has org_id).
+- All queries run within org_id = {ORG_ID} ("{ORG_NAME}").
+- Every SQL MUST include `WHERE org_id = {ORG_ID}` or join through a table that has org_id.
 - Never run a global query without org filtering.
 
 ## Output format
@@ -78,50 +75,49 @@ You are a database-aware analytics interpreter for LiveReview, an AI-powered cod
       {{
         "name": "<short name>",
         "description": "<what this shows>",
-        "chart_type": "<one of the available chart type IDs>",
-        "sql": "<PostgreSQL query that returns columns matching the chart template>",
-        "vega_lite_spec": {{ <complete Vega-Lite spec with DATA_PLACEHOLDER in data.values> }}
+        "chart_type": "<chart type ID>",
+        "sql": "<PostgreSQL query>",
+        "vega_lite_spec": {{ <Vega-Lite spec with DATA_PLACEHOLDER in data.values> }}
       }}
     ]
   }}
 
-## Metric validity rules
-1. Use ONLY tables and fields present in the dbctx context — never invent columns.
-2. Every field must be qualified with its table name (e.g. `reviews.status`).
-3. Include filters where relevant (e.g. `status='completed'`, `is_active=true`).
-4. Be specific about aggregation (COUNT DISTINCT, SUM, DATE_TRUNC, etc.).
+## Rules — schema
+1. Use ONLY tables and fields from the dbctx context. Never invent columns.
+2. Every field must be table-qualified (e.g. `reviews.status`).
+3. Include filters where relevant (e.g. `status = 'completed'`).
 
-## SQL rules
-5. The SQL must be valid PostgreSQL.
-6. Column aliases in the SQL must match the field names used in the Vega-Lite spec's encoding.
-7. Use meaningful aliases (e.g. `COUNT(*) AS review_count`, not `count`).
-8. For time series, use `DATE_TRUNC('month', created_at) AS month` and sort by it.
-9. Limit results to a reasonable number (e.g. TOP 20 for rankings).
+## Rules — SQL
+4. Valid PostgreSQL only.
+5. Column aliases must match the Vega-Lite encoding field names exactly.
+6. Use meaningful aliases (e.g. `COUNT(*) AS review_count`).
+7. Limit results reasonably (TOP 20 for rankings).
 
-## Chart selection rules
-10. Pick the chart type whose `use_when` best matches the data shape.
-11. Available chart types and their templates are provided below.
-12. The `vega_lite_spec` must be a complete valid Vega-Lite spec.
-13. Use `DATA_PLACEHOLDER` as the value of `data.values` — the pipeline will replace it with actual rows.
-14. Field names in the spec's encoding must match the SQL column aliases exactly.
+## Rules — data quality (CRITICAL)
+8. NEVER return single-number results. Every query must return multiple rows with a dimension (time, category, name) for comparison. A query returning 1 row is a failure.
+9. For time series: always fetch at DAY granularity — `DATE_TRUNC('day', created_at) AS day`. The pipeline will re-aggregate to the right level based on data density. Do NOT aggregate by month or week yourself.
+10. For small result sets (under 10 items), return the actual items (names, labels, details) not just counts. Example: instead of `COUNT(repositories) = 2`, return each repository's `name, provider, created_at`.
+11. Prefer queries that reveal patterns: rankings, trends, distributions, comparisons. Avoid flat counts.
 
-## How many interpretations to generate
-15. Match the user's intent, not a fixed count.
-16. If the query is specific and unambiguous → 1-2 interpretations.
-17. If the query is broad or ambiguous → 3-5 interpretations covering different angles.
-18. Never exceed 5 interpretations.
+## Rules — chart selection
+12. Pick the chart type whose `use_when` best matches the data shape.
+13. Vary chart types across interpretations — never use the same chart type twice in one response.
+14. The `vega_lite_spec` must be a complete valid Vega-Lite spec.
+15. Use `DATA_PLACEHOLDER` as the value of `data.values`.
+16. Field names in encoding must match SQL column aliases exactly.
+
+## Rules — how many interpretations
+17. Specific query → 1-2 interpretations.
+18. Broad query → 3-5 interpretations covering different angles.
+19. Never exceed 5.
 """
 
-
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers — config loading
 # ---------------------------------------------------------------------------
 
 def load_api_key() -> str:
     env_path = SCRIPT_DIR / ".env"
-    if not env_path.exists():
-        print(f"Error: {env_path} not found", file=sys.stderr)
-        sys.exit(1)
     for line in env_path.read_text().splitlines():
         line = line.strip()
         if line.startswith("GEMINI_API_KEY="):
@@ -131,16 +127,10 @@ def load_api_key() -> str:
 
 
 def load_chart_types() -> str:
-    if not CHART_TYPES_PATH.exists():
-        print(f"Error: {CHART_TYPES_PATH} not found", file=sys.stderr)
-        sys.exit(1)
     return CHART_TYPES_PATH.read_text()
 
 
 def query_dbctx(query: str) -> str:
-    if not DTX_PATH.exists():
-        print(f"Error: dbctx index not found at {DTX_PATH}", file=sys.stderr)
-        sys.exit(1)
     result = subprocess.run(
         ["dbctx", "query", str(DTX_PATH), query],
         capture_output=True, text=True, timeout=30,
@@ -150,6 +140,10 @@ def query_dbctx(query: str) -> str:
         sys.exit(1)
     return result.stdout
 
+
+# ---------------------------------------------------------------------------
+# Helpers — Gemini
+# ---------------------------------------------------------------------------
 
 def call_gemini(api_key: str, user_query: str, dbctx_context: str, chart_types: str) -> dict:
     user_message = (
@@ -180,16 +174,8 @@ def call_gemini(api_key: str, user_query: str, dbctx_context: str, chart_types: 
         err_body = e.read().decode("utf-8", errors="replace")
         print(f"Gemini API error {e.code}: {err_body}", file=sys.stderr)
         sys.exit(1)
-    except Exception as e:
-        print(f"Request failed: {e}", file=sys.stderr)
-        sys.exit(1)
 
-    try:
-        text = body["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError) as e:
-        print(f"Unexpected Gemini response: {e}", file=sys.stderr)
-        sys.exit(1)
-
+    text = body["candidates"][0]["content"]["parts"][0]["text"]
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -201,19 +187,19 @@ def call_gemini(api_key: str, user_query: str, dbctx_context: str, chart_types: 
         return json.loads(cleaned.strip())
 
 
+# ---------------------------------------------------------------------------
+# Helpers — DB
+# ---------------------------------------------------------------------------
+
 def get_db_connection():
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
-        # Try loading from .env.prod
         env_path = PROJECT_ROOT / ".env.prod"
         if env_path.exists():
             for line in env_path.read_text().splitlines():
                 if line.startswith("DATABASE_URL="):
                     dsn = line.split("=", 1)[1].strip()
                     break
-    if not dsn:
-        print("Error: DATABASE_URL not found", file=sys.stderr)
-        sys.exit(1)
     return psycopg2.connect(dsn)
 
 
@@ -225,23 +211,157 @@ def execute_sql(conn, sql: str) -> list[dict]:
         return [dict(zip(columns, row)) for row in rows]
 
 
-def render_chart(spec: dict, data: list[dict], output_path: Path):
-    # Replace DATA_PLACEHOLDER with actual data
-    spec_str = json.dumps(spec)
-    spec_str = spec_str.replace('"DATA_PLACEHOLDER"', json.dumps(data, default=_json_default))
-    spec = json.loads(spec_str)
+# ---------------------------------------------------------------------------
+# Helpers — post-processing
+# ---------------------------------------------------------------------------
 
-    # Render to PNG via vl-convert
-    png_bytes = vlc.vegalite_to_png(json.dumps(spec))
-    output_path.write_bytes(png_bytes)
-
-
-def _json_default(obj):
+def json_default(obj):
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
     if isinstance(obj, Decimal):
         return float(obj)
+    if isinstance(obj, timedelta):
+        return obj.total_seconds()
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+
+def smart_aggregate_time(rows: list[dict], time_field: str, value_fields: list[str]) -> tuple[list[dict], str]:
+    """Re-aggregate day-level time series data to the right granularity.
+
+    Returns (aggregated_rows, time_unit) where time_unit is one of
+    'yearmonth', 'yearweek', 'yearmonthdate'.
+    """
+    if not rows or time_field not in rows[0]:
+        return rows, "yearmonthdate"
+
+    # Parse dates and find span
+    dates = []
+    for r in rows:
+        d = r[time_field]
+        if isinstance(d, str):
+            d = datetime.fromisoformat(d).date()
+        elif isinstance(d, datetime):
+            d = d.date()
+        dates.append(d)
+
+    if not dates:
+        return rows, "yearmonthdate"
+
+    span_days = (max(dates) - min(dates)).days + 1
+    unique_days = len(set(dates))
+
+    # Pick granularity based on data density
+    if span_days <= 14 or unique_days <= 7:
+        return rows, "yearmonthdate"       # day level — fine as-is
+    elif span_days <= 90:
+        agg_unit = "yearweek"
+    else:
+        agg_unit = "yearmonth"
+
+    # Re-aggregate
+    grouped = {}
+    for r in rows:
+        d = r[time_field]
+        if isinstance(d, str):
+            d = datetime.fromisoformat(d).date()
+        elif isinstance(d, datetime):
+            d = d.date()
+
+        if agg_unit == "yearweek":
+            key = d - timedelta(days=d.weekday())  # Monday of that week
+        else:
+            key = d.replace(day=1)                   # first of month
+
+        if key not in grouped:
+            grouped[key] = {vf: 0 for vf in value_fields}
+        for vf in value_fields:
+            val = r.get(vf, 0)
+            if isinstance(val, Decimal):
+                val = float(val)
+            grouped[key][vf] += val if val else 0
+
+    result = []
+    for d in sorted(grouped.keys()):
+        row = {time_field: d.isoformat()}
+        row.update(grouped[d])
+        result.append(row)
+
+    return result, agg_unit
+
+
+def is_weak_result(rows: list[dict], interp: dict) -> bool:
+    """Check if a result is too weak to chart."""
+    if not rows:
+        return True
+    # Single row = single number, useless as chart
+    if len(rows) == 1:
+        return True
+    return False
+
+
+def ensure_diversity(interpretations: list[dict]) -> list[dict]:
+    """If chart types repeat, try to swap one to a different type."""
+    type_counts = Counter(i["chart_type"] for i in interpretations)
+    if len(type_counts) == len(interpretations):
+        return interpretations  # all unique, fine
+
+    # Find duplicates and try to diversify
+    seen = set()
+    diversified = []
+    for interp in interpretations:
+        ct = interp["chart_type"]
+        if ct in seen and type_counts[ct] > 1:
+            # Try to swap to a complementary type
+            swap_map = {
+                "line": "bar",
+                "bar": "horizontal_bar",
+                "horizontal_bar": "bar",
+                "pie": "bar",
+                "area": "line",
+                "stacked_bar": "bar",
+                "scatter": "bar",
+                "heatmap": "bar",
+            }
+            new_ct = swap_map.get(ct, "bar")
+            interp["chart_type"] = new_ct
+            # Update spec mark
+            if "mark" in interp.get("vega_lite_spec", {}):
+                mark = interp["vega_lite_spec"]["mark"]
+                if isinstance(mark, str):
+                    interp["vega_lite_spec"]["mark"] = new_ct.replace("_", " ").replace("horizontal bar", "bar")
+                elif isinstance(mark, dict):
+                    if new_ct == "horizontal_bar":
+                        mark["type"] = "bar"
+                    elif new_ct in ("bar", "line", "area"):
+                        mark["type"] = new_ct
+        seen.add(interp["chart_type"])
+        diversified.append(interp)
+
+    return diversified
+
+
+def patch_spec_timeunit(spec: dict, time_field: str, time_unit: str) -> dict:
+    """Update the Vega-Lite spec's timeUnit for the time field encoding."""
+    spec_str = json.dumps(spec)
+    # Replace any existing timeUnit for the time field
+    # This is a simple string replacement approach
+    if '"yearmonth"' in spec_str and time_unit != "yearmonth":
+        spec_str = spec_str.replace('"yearmonth"', f'"{time_unit}"')
+    elif '"yearweek"' in spec_str and time_unit != "yearweek":
+        spec_str = spec_str.replace('"yearweek"', f'"{time_unit}"')
+    return json.loads(spec_str)
+
+
+# ---------------------------------------------------------------------------
+# Helpers — rendering
+# ---------------------------------------------------------------------------
+
+def render_chart(spec: dict, data: list[dict], output_path: Path):
+    spec_str = json.dumps(spec)
+    spec_str = spec_str.replace('"DATA_PLACEHOLDER"', json.dumps(data, default=json_default))
+    spec = json.loads(spec_str)
+    png_bytes = vlc.vegalite_to_png(json.dumps(spec))
+    output_path.write_bytes(png_bytes)
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +376,7 @@ def main():
     chart_types = load_chart_types()
 
     print(f"Query: {query}", file=sys.stderr)
+    print(f"Org:   {ORG_NAME} (id={ORG_ID})", file=sys.stderr)
     print(f"Model: {GEMINI_MODEL}", file=sys.stderr)
 
     # Step 1: dbctx context
@@ -267,46 +388,78 @@ def main():
     print("Calling Gemini...", file=sys.stderr)
     result = call_gemini(api_key, query, dbctx_context, chart_types)
 
-    # Print the raw JSON to stdout
-    print(json.dumps(result, indent=2))
+    interpretations = result.get("interpretations", [])
+    print(f"Gemini returned {len(interpretations)} interpretations", file=sys.stderr)
 
     if no_render:
+        print(json.dumps(result, indent=2, default=json_default))
         return
 
-    # Step 3: Execute SQL and render charts
-    OUTPUT_DIR.mkdir(exist_ok=True)
-    conn = get_db_connection()
+    # Step 3: Execute SQL, post-process, render
+    run_dir = SCRIPT_DIR / "output" / datetime.now().strftime("run_%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=True)
 
-    for i, interp in enumerate(result.get("interpretations", [])):
+    # Save the raw Gemini output
+    (run_dir / "gemini_output.json").write_text(json.dumps(result, indent=2, default=json_default))
+
+    conn = get_db_connection()
+    kept = []
+
+    for i, interp in enumerate(interpretations):
         name = interp.get("name", f"chart_{i}")
         sql = interp.get("sql")
         spec = interp.get("vega_lite_spec")
 
         if not sql or not spec:
-            print(f"  Skipping '{name}': missing sql or vega_lite_spec", file=sys.stderr)
+            print(f"  [{i+1}] SKIP {name}: missing sql or spec", file=sys.stderr)
             continue
 
         safe_name = name.lower().replace(" ", "_").replace("/", "_")[:40]
-        output_path = OUTPUT_DIR / f"{safe_name}.png"
-
         print(f"  [{i+1}] {name}", file=sys.stderr)
-        print(f"      SQL: {sql[:100]}...", file=sys.stderr)
 
         try:
             rows = execute_sql(conn, sql)
-            print(f"      → {len(rows)} rows", file=sys.stderr)
+            print(f"      SQL → {len(rows)} rows", file=sys.stderr)
 
-            if not rows:
-                print(f"      Skipping: no data", file=sys.stderr)
+            # Check if weak result
+            if is_weak_result(rows, interp):
+                print(f"      SKIP: single-number / weak result", file=sys.stderr)
                 continue
 
+            # Smart time aggregation if this is a time series
+            time_field = None
+            value_fields = []
+            encoding = spec.get("encoding", {})
+            for field_name, enc in encoding.items():
+                if not isinstance(enc, dict):
+                    continue  # skip lists (e.g. tooltip)
+                if enc.get("type") == "temporal":
+                    time_field = enc.get("field")
+                elif enc.get("type") == "quantitative":
+                    value_fields.append(enc.get("field"))
+
+            if time_field and value_fields:
+                rows, time_unit = smart_aggregate_time(rows, time_field, value_fields)
+                print(f"      Aggregated to {time_unit}, {len(rows)} points", file=sys.stderr)
+
+            # Render
+            output_path = run_dir / f"{safe_name}.png"
             render_chart(spec, rows, output_path)
-            print(f"      → {output_path}", file=sys.stderr)
+            print(f"      → {output_path.name}", file=sys.stderr)
+            kept.append(name)
+
         except Exception as e:
             print(f"      Error: {e}", file=sys.stderr)
 
     conn.close()
-    print(f"\nDone. Charts in {OUTPUT_DIR}/", file=sys.stderr)
+
+    # Print summary
+    print(f"\nKept {len(kept)} charts in {run_dir}/", file=sys.stderr)
+    for name in kept:
+        print(f"  - {name}", file=sys.stderr)
+
+    # Print JSON to stdout too
+    print(json.dumps(result, indent=2, default=json_default))
 
 
 if __name__ == "__main__":
