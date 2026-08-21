@@ -64,6 +64,10 @@ tests/mcp/.env
 # Prod DB export dumps (make prod-data-export) - real customer data, never commit
 db/prod-exports/
 
+# dbctx context index (generated from production DB)
+livereviewctx.dtx*
+dbctx.dtx*
+
 # TOML configuration files - may contain local/sensitive settings
 livereview.toml
 !livereview.toml.example
