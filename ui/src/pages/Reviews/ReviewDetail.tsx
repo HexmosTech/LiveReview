@@ -4,7 +4,7 @@ import { LuTerminal } from 'react-icons/lu';
 import { SiGitlab } from 'react-icons/si';
 import { Button, Icons, Tabs, RelativeTime } from '../../components/UIPrimitives';
 import { ReviewEventsPage, DiffViewerPanel } from '../../components/reviews';
-import { ToolAnalysisCard, ToolAccountingData } from '../../components/reviews/ToolAnalysisCard';
+import { ToolAnalysisCard, ToolAccountingData, ToolBreakdownItem } from '../../components/reviews/ToolAnalysisCard';
 import {
   getReview,
   getReviewEvents,
@@ -226,6 +226,80 @@ const ReviewDetail: React.FC = () => {
 
     const [toolAccounting, setToolAccounting] = useState<ToolAccountingData | null>(null);
     const [toolExpanded, setToolExpanded] = useState(false);
+
+    const effectiveToolAccounting = useMemo<ToolAccountingData | null>(() => {
+        if (toolAccounting) return toolAccounting;
+        const toolEvents = events ? events.filter(e => (e.type as string) === 'tool_dispatch' || (e.type as string) === 'tool_result') : [];
+        if (toolEvents.length === 0) {
+            return null;
+        }
+
+        const dispatchedMap = new Map<string, string>();
+        const resultsMap = new Map<string, { exitCode: number; findingsCount: number }>();
+        const order: string[] = [];
+
+        toolEvents.forEach(e => {
+            try {
+                const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+                if (!data) return;
+                const toolName = data.tool_name || data.toolName;
+                if (!toolName) return;
+
+                if ((e.type as string) === 'tool_dispatch') {
+                    if (!dispatchedMap.has(toolName)) {
+                        dispatchedMap.set(toolName, data.status || 'pending');
+                        order.push(toolName);
+                    }
+                } else if ((e.type as string) === 'tool_result') {
+                    if (!dispatchedMap.has(toolName)) {
+                        dispatchedMap.set(toolName, 'completed');
+                        order.push(toolName);
+                    }
+                    const findings = Array.isArray(data.findings) ? data.findings : [];
+                    resultsMap.set(toolName, {
+                        exitCode: typeof data.exit_code === 'number' ? data.exit_code : 0,
+                        findingsCount: findings.length,
+                    });
+                }
+            } catch (err) {
+                console.warn('Error parsing tool event data:', err);
+            }
+        });
+
+        if (order.length === 0) return null;
+
+        let totalComments = 0;
+        let toolsExecuted = 0;
+        const toolBreakdown: ToolBreakdownItem[] = order.map(toolName => {
+            const res = resultsMap.get(toolName);
+            if (res) {
+                toolsExecuted++;
+                totalComments += res.findingsCount;
+                let status = 'clean';
+                if (res.exitCode !== 0) status = 'failed';
+                else if (res.findingsCount > 0) status = 'completed';
+                return {
+                    toolName,
+                    creditsUsed: 1.0,
+                    commentsGenerated: res.findingsCount,
+                    status,
+                };
+            }
+            return {
+                toolName,
+                creditsUsed: 0,
+                commentsGenerated: 0,
+                status: dispatchedMap.get(toolName) || 'pending',
+            };
+        });
+
+        return {
+            totalToolCredits: toolsExecuted * 1.0,
+            toolsExecuted: toolsExecuted || toolBreakdown.length,
+            totalCommentsGenerated: totalComments,
+            toolBreakdown,
+        };
+    }, [toolAccounting, events]);
 
     // Fetch review details
     const fetchReviewDetails = useCallback(async () => {
@@ -475,6 +549,14 @@ const ReviewDetail: React.FC = () => {
 
             setReview(reviewData);
             setSummary(summaryData);
+            if (summaryData?.toolSummary) {
+                setToolAccounting({
+                    totalToolCredits: summaryData.toolSummary.totalCostUsd ?? 0,
+                    toolsExecuted: summaryData.toolSummary.toolsExecuted,
+                    totalCommentsGenerated: summaryData.toolSummary.totalCommentsGenerated,
+                    toolBreakdown: summaryData.toolSummary.toolBreakdown,
+                });
+            }
             await fetchAccountingDetails(reviewId, reviewData.status);
 
             // Relevant commits are best-effort/informational -- never block
@@ -536,9 +618,12 @@ const ReviewDetail: React.FC = () => {
         return s;
     }, [events]);
 
-    // Events by severity, derived from the already-loaded events list --
-    // error=High, warn=Medium, info/debug=Low.
+    // Events by severity, preferring server-provided summary.severityCounts
+    // or falling back to calculating from the loaded events list.
     const eventSeverityCounts = useMemo(() => {
+        if (summary?.severityCounts) {
+            return summary.severityCounts;
+        }
         let high = 0, medium = 0, low = 0;
         events.forEach(e => {
             if (e.level === 'error') high++;
@@ -546,7 +631,7 @@ const ReviewDetail: React.FC = () => {
             else low++;
         });
         return { high, medium, low };
-    }, [events]);
+    }, [summary?.severityCounts, events]);
 
     // Initial load
     useEffect(() => {
@@ -808,11 +893,11 @@ const ReviewDetail: React.FC = () => {
                         className="ml-auto shrink-0 flex items-center gap-2.5 px-3.5 self-stretch cursor-pointer group select-none hover:bg-slate-700/30 transition-colors"
                         title="Toggle static analysis tools"
                     >
-                        {toolAccounting ? (
+                        {effectiveToolAccounting ? (
                             <p className="text-xs text-slate-300 whitespace-nowrap">
-                                <strong className="font-semibold text-slate-100">{toolAccounting.toolsExecuted || toolAccounting.toolBreakdown.length}</strong> Tools
-                                {toolAccounting.totalCommentsGenerated > 0 ? (
-                                    <span className="text-slate-500 ml-1">· {toolAccounting.totalCommentsGenerated} findings</span>
+                                <strong className="font-semibold text-slate-100">{effectiveToolAccounting.toolsExecuted || effectiveToolAccounting.toolBreakdown.length}</strong> Tools
+                                {effectiveToolAccounting.totalCommentsGenerated > 0 ? (
+                                    <span className="text-slate-500 ml-1">· {effectiveToolAccounting.totalCommentsGenerated} findings</span>
                                 ) : (
                                     <span className="text-slate-500 ml-1">· clean</span>
                                 )}
@@ -936,10 +1021,21 @@ const ReviewDetail: React.FC = () => {
                 )}
 
                 {/* Static Analysis Tools panel — expanded INSIDE the same outer card box */}
-                {toolExpanded && toolAccounting && (
+                {toolExpanded && (
                     <div className="border-t border-slate-700/50 bg-slate-900/40">
                         <div className="p-4">
-                            <ToolAnalysisCard data={toolAccounting} embedded={true} isExpanded={true} hideSummary={true} />
+                            {effectiveToolAccounting && effectiveToolAccounting.toolBreakdown.length > 0 ? (
+                                <ToolAnalysisCard data={effectiveToolAccounting} embedded={true} isExpanded={true} hideSummary={true} />
+                            ) : (
+                                <div className="text-center py-6 text-slate-400 text-xs select-none">
+                                    <svg className="w-5 h-5 mx-auto mb-2 opacity-40 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    </svg>
+                                    <p className="font-medium text-slate-300">No static analysis tools recorded</p>
+                                    <p className="text-[11px] text-slate-500 mt-1">Tool execution details will appear here as static analysis tools run.</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

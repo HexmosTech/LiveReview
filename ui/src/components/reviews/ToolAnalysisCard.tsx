@@ -30,9 +30,7 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({ data, embedd
   const expanded = isExpanded !== undefined ? isExpanded : internalExpanded;
   const setExpanded = onToggle !== undefined ? () => onToggle() : setInternalExpanded;
   const [sortBy, setSortBy] = useState<'status' | 'name' | 'credits'>('status');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'findings' | 'clean' | 'running' | 'queued' | 'failed'>(
-    data.totalCommentsGenerated > 0 ? 'findings' : 'all'
-  );
+  const [statusFilter, setStatusFilter] = useState<'all' | 'findings' | 'clean' | 'running' | 'queued' | 'failed'>('all');
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 8;

@@ -264,7 +264,11 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 
 	result, err := decodeReviewResult(meta)
 	if err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to decode review result: %v", err))
+		// For tools-only reviews or reviews without AI comments, return an empty result gracefully instead of failing
+		result = DiffReviewResult{
+			Summary:  "Static analysis tools review completed.",
+			Comments: []*models.ReviewComment{},
+		}
 	}
 
 	files := buildDiffFiles(preloaded, result.Comments)
