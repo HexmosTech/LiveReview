@@ -150,8 +150,10 @@ def query_dbctx(query: str) -> str:
 
 def call_gemini(api_keys: list[str], user_message: str) -> tuple[dict, dict]:
     """Call Gemini and return (parsed_json, raw_response_body).
-    Tries each key in order; skips on 429 quota error.
+    Tries each key in order; skips on 429 quota error; retries on 503.
     """
+    import time
+
     payload = {
         "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
         "contents": [{"role": "user", "parts": [{"text": user_message}]}],
@@ -164,34 +166,39 @@ def call_gemini(api_keys: list[str], user_message: str) -> tuple[dict, dict]:
 
     last_error = None
     for i, api_key in enumerate(api_keys):
-        url = f"{GEMINI_ENDPOINT}?key={api_key}"
-        data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+        for attempt in range(3):  # up to 3 attempts per key
+            url = f"{GEMINI_ENDPOINT}?key={api_key}"
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
 
-        try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                body = json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode("utf-8", errors="replace")
-            if e.code == 429 and i < len(api_keys) - 1:
-                print(f"  Key {i+1}/{len(api_keys)} quota exhausted, trying next...", file=sys.stderr)
-                last_error = err_body
-                continue
-            print(f"Gemini API error {e.code}: {err_body}", file=sys.stderr)
-            sys.exit(1)
+            try:
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    body = json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                err_body = e.read().decode("utf-8", errors="replace")
+                if e.code == 429:
+                    print(f"  Key {i+1}/{len(api_keys)} quota exhausted, trying next...", file=sys.stderr)
+                    last_error = err_body
+                    break  # try next key
+                if e.code == 503 and attempt < 2:
+                    print(f"  Key {i+1}/{len(api_keys)} got 503, retrying in 2s...", file=sys.stderr)
+                    time.sleep(2)
+                    continue
+                print(f"Gemini API error {e.code}: {err_body}", file=sys.stderr)
+                sys.exit(1)
 
-        text = body["candidates"][0]["content"]["parts"][0]["text"]
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError:
-            cleaned = text.strip()
-            if cleaned.startswith("```"):
-                cleaned = "\n".join(cleaned.split("\n")[1:])
-            if cleaned.endswith("```"):
-                cleaned = cleaned.rsplit("```", 1)[0]
-            parsed = json.loads(cleaned.strip())
+            text = body["candidates"][0]["content"]["parts"][0]["text"]
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                cleaned = text.strip()
+                if cleaned.startswith("```"):
+                    cleaned = "\n".join(cleaned.split("\n")[1:])
+                if cleaned.endswith("```"):
+                    cleaned = cleaned.rsplit("```", 1)[0]
+                parsed = json.loads(cleaned.strip())
 
-        return parsed, body
+            return parsed, body
 
     print(f"All {len(api_keys)} keys exhausted. Last error: {last_error}", file=sys.stderr)
     sys.exit(1)
@@ -522,8 +529,8 @@ def generate_html(query: str, dbctx_context: str, user_message: str,
 
         sql_block = f'<pre class="code">{_esc(step["sql"])}</pre>' if step.get("sql") else ""
 
-        raw_link = f'<a class="file-link" href="{step["raw_csv_path"]}">raw data CSV</a>' if step.get("raw_csv_path") else ""
-        agg_link = f'<a class="file-link" href="{step["agg_csv_path"]}">aggregated CSV</a>' if step.get("agg_csv_path") else ""
+        raw_link = f'<a class="file-link" onclick="showCSV(\'{step["raw_csv_path"]}\')">{step["raw_csv_path"]}</a>' if step.get("raw_csv_path") else ""
+        agg_link = f'<a class="file-link" onclick="showCSV(\'{step["agg_csv_path"]}\')">{step["agg_csv_path"]}</a>' if step.get("agg_csv_path") else ""
         img_tag = f'<img src="{step["image_path"]}" class="chart-img">' if step.get("image_path") else ""
 
         stats_html = ""
@@ -603,13 +610,38 @@ def generate_html(query: str, dbctx_context: str, user_message: str,
   .step-desc {{ color: #94a3b8; font-size: 0.85rem; margin: 0.5rem 0; }}
   .file-links {{ display: flex; gap: 0.8rem; margin: 0.5rem 0; }}
   .file-link {{ color: #60a5fa; text-decoration: none; font-size: 0.8rem;
-                border: 1px solid #334155; padding: 0.2rem 0.6rem; border-radius: 4px; }}
+                border: 1px solid #334155; padding: 0.2rem 0.6rem; border-radius: 4px;
+                cursor: pointer; }}
   .file-link:hover {{ background: #334155; }}
   .chart-img {{ max-width: 100%; border-radius: 6px; margin: 0.8rem 0;
                 border: 1px solid #334155; }}
   .stats {{ display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.8rem; }}
   .stat {{ background: #0f172a; border: 1px solid #334155; border-radius: 4px;
            padding: 0.4rem 0.8rem; font-size: 0.8rem; color: #cbd5e1; }}
+
+  /* CSV modal */
+  .modal-overlay {{ display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                    background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center;
+                    align-items: center; }}
+  .modal-overlay.open {{ display: flex; }}
+  .modal {{ background: #1e293b; border: 1px solid #334155; border-radius: 10px;
+            max-width: 90vw; max-height: 85vh; display: flex; flex-direction: column; }}
+  .modal-header {{ display: flex; justify-content: space-between; align-items: center;
+                   padding: 0.8rem 1rem; border-bottom: 1px solid #334155; }}
+  .modal-header h3 {{ font-size: 0.95rem; color: #f1f5f9; }}
+  .modal-close {{ background: #334155; border: none; color: #e2e8f0; border-radius: 4px;
+                  padding: 0.3rem 0.6rem; cursor: pointer; font-size: 0.85rem; }}
+  .modal-close:hover {{ background: #475569; }}
+  .modal-body {{ overflow: auto; padding: 0.8rem; }}
+  .csv-table {{ border-collapse: collapse; font-size: 0.78rem; width: 100%; }}
+  .csv-table th {{ background: #334155; color: #e2e8f0; padding: 0.4rem 0.6rem;
+                   text-align: left; position: sticky; top: 0; white-space: nowrap; }}
+  .csv-table td {{ padding: 0.35rem 0.6rem; border-bottom: 1px solid #1e293b;
+                   color: #cbd5e1; white-space: nowrap; }}
+  .csv-table tr:nth-child(even) td {{ background: rgba(255,255,255,0.02); }}
+  .csv-table tr:hover td {{ background: rgba(96,165,250,0.08); }}
+  .csv-meta {{ color: #64748b; font-size: 0.75rem; padding: 0.4rem 0.8rem;
+               border-top: 1px solid #334155; text-align: right; }}
 </style>
 </head>
 <body>
@@ -659,6 +691,76 @@ def generate_html(query: str, dbctx_context: str, user_message: str,
 {steps_html}
 
 </div>
+
+<!-- CSV Modal -->
+<div class="modal-overlay" id="csvModal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">CSV</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="csv-meta" id="modalMeta"></div>
+  </div>
+</div>
+
+<script>
+function showCSV(path) {{
+  fetch(path)
+    .then(r => r.text())
+    .then(text => {{
+      document.getElementById('modalTitle').textContent = path;
+      const lines = text.trim().split('\\n');
+      if (lines.length === 0) return;
+      const headers = parseCSVLine(lines[0]);
+      let html = '<table class="csv-table"><thead><tr>';
+      headers.forEach(h => html += '<th>' + escHTML(h) + '</th>');
+      html += '</tr></thead><tbody>';
+      for (let i = 1; i < lines.length; i++) {{
+        const cells = parseCSVLine(lines[i]);
+        html += '<tr>';
+        cells.forEach(c => html += '<td>' + escHTML(c) + '</td>');
+        html += '</tr>';
+      }}
+      html += '</tbody></table>';
+      document.getElementById('modalBody').innerHTML = html;
+      document.getElementById('modalMeta').textContent = (lines.length - 1) + ' rows, ' + headers.length + ' columns';
+      document.getElementById('csvModal').classList.add('open');
+    }});
+}}
+function closeModal() {{ document.getElementById('csvModal').classList.remove('open'); }}
+document.addEventListener('keydown', e => {{ if (e.key === 'Escape') closeModal(); }});
+function escHTML(s) {{ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }}
+function parseCSVLine(line) {{
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {{
+    const c = line[i];
+    if (c === '"') {{ inQuotes = !inQuotes; }}
+    else if (c === ',' && !inQuotes) {{ result.push(current); current = ''; }}
+    else {{ current += c; }}
+  }}
+  result.push(current);
+  return result;
+}}
+
+// Carousel
+let current = 0;
+const total = {len(pipeline_steps)};
+function go(n) {{
+  document.querySelectorAll('.slide')[current].classList.remove('active');
+  document.querySelectorAll('.dot')[current].classList.remove('active');
+  current = ((n % total) + total) % total;
+  document.querySelectorAll('.slide')[current].classList.add('active');
+  document.querySelectorAll('.dot')[current].classList.add('active');
+  document.getElementById('cur').textContent = current + 1;
+}}
+document.addEventListener('keydown', e => {{
+  if (e.key === 'ArrowLeft') go(current - 1);
+  if (e.key === 'ArrowRight') go(current + 1);
+}});
+</script>
 </body>
 </html>
 """
