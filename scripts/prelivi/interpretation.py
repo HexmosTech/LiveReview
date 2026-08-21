@@ -14,6 +14,8 @@ Usage:
     python3 interpretation.py --no-render              # skip chart rendering
 """
 
+import csv
+import io
 import json
 import os
 import subprocess
@@ -116,12 +118,13 @@ You are a database-aware analytics interpreter for LiveReview, an AI-powered cod
 # Helpers — config loading
 # ---------------------------------------------------------------------------
 
-def load_api_key() -> str:
+def load_api_keys() -> list[str]:
     env_path = SCRIPT_DIR / ".env"
     for line in env_path.read_text().splitlines():
         line = line.strip()
         if line.startswith("GEMINI_API_KEY="):
-            return line.split("=", 1)[1].strip()
+            raw = line.split("=", 1)[1].strip()
+            return [k.strip() for k in raw.split(",") if k.strip()]
     print("Error: GEMINI_API_KEY not found in .env", file=sys.stderr)
     sys.exit(1)
 
@@ -145,14 +148,10 @@ def query_dbctx(query: str) -> str:
 # Helpers — Gemini
 # ---------------------------------------------------------------------------
 
-def call_gemini(api_key: str, user_query: str, dbctx_context: str, chart_types: str) -> dict:
-    user_message = (
-        f"User query: {user_query}\n"
-        f"Org context: org_id = {ORG_ID} ({ORG_NAME})\n\n"
-        f"--- dbctx schema context ---\n{dbctx_context}\n\n"
-        f"--- available chart types ---\n{chart_types}"
-    )
-
+def call_gemini(api_keys: list[str], user_message: str) -> tuple[dict, dict]:
+    """Call Gemini and return (parsed_json, raw_response_body).
+    Tries each key in order; skips on 429 quota error.
+    """
     payload = {
         "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
         "contents": [{"role": "user", "parts": [{"text": user_message}]}],
@@ -163,28 +162,39 @@ def call_gemini(api_key: str, user_query: str, dbctx_context: str, chart_types: 
         }
     }
 
-    url = f"{GEMINI_ENDPOINT}?key={api_key}"
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+    last_error = None
+    for i, api_key in enumerate(api_keys):
+        url = f"{GEMINI_ENDPOINT}?key={api_key}"
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
 
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode("utf-8", errors="replace")
-        print(f"Gemini API error {e.code}: {err_body}", file=sys.stderr)
-        sys.exit(1)
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace")
+            if e.code == 429 and i < len(api_keys) - 1:
+                print(f"  Key {i+1}/{len(api_keys)} quota exhausted, trying next...", file=sys.stderr)
+                last_error = err_body
+                continue
+            print(f"Gemini API error {e.code}: {err_body}", file=sys.stderr)
+            sys.exit(1)
 
-    text = body["candidates"][0]["content"]["parts"][0]["text"]
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        cleaned = text.strip()
-        if cleaned.startswith("```"):
-            cleaned = "\n".join(cleaned.split("\n")[1:])
-        if cleaned.endswith("```"):
-            cleaned = cleaned.rsplit("```", 1)[0]
-        return json.loads(cleaned.strip())
+        text = body["candidates"][0]["content"]["parts"][0]["text"]
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            cleaned = text.strip()
+            if cleaned.startswith("```"):
+                cleaned = "\n".join(cleaned.split("\n")[1:])
+            if cleaned.endswith("```"):
+                cleaned = cleaned.rsplit("```", 1)[0]
+            parsed = json.loads(cleaned.strip())
+
+        return parsed, body
+
+    print(f"All {len(api_keys)} keys exhausted. Last error: {last_error}", file=sys.stderr)
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +222,7 @@ def execute_sql(conn, sql: str) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Helpers — post-processing
+# Helpers — serialization
 # ---------------------------------------------------------------------------
 
 def json_default(obj):
@@ -225,19 +235,38 @@ def json_default(obj):
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 
-def smart_aggregate_time(rows: list[dict], time_field: str, value_fields: list[str], group_fields: list[str] = None) -> tuple[list[dict], str]:
-    """Re-aggregate day-level time series data to the right granularity.
+def rows_to_csv(rows: list[dict]) -> str:
+    """Convert list of dicts to CSV string."""
+    if not rows:
+        return ""
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
+    writer.writeheader()
+    for r in rows:
+        clean = {}
+        for k, v in r.items():
+            if isinstance(v, Decimal):
+                clean[k] = float(v)
+            elif isinstance(v, (datetime, date)):
+                clean[k] = v.isoformat()
+            else:
+                clean[k] = v
+        writer.writerow(clean)
+    return buf.getvalue()
 
-    group_fields: additional fields to group by (e.g. trigger_type for multi-series).
-    Returns (aggregated_rows, time_unit).
-    """
+
+# ---------------------------------------------------------------------------
+# Helpers — post-processing
+# ---------------------------------------------------------------------------
+
+def smart_aggregate_time(rows: list[dict], time_field: str, value_fields: list[str], group_fields: list[str] = None) -> tuple[list[dict], str]:
+    """Re-aggregate day-level time series data to the right granularity."""
     if not rows or time_field not in rows[0]:
         return rows, "yearmonthdate"
 
     if group_fields is None:
         group_fields = []
 
-    # Parse dates and find span
     dates = []
     for r in rows:
         d = r[time_field]
@@ -253,15 +282,20 @@ def smart_aggregate_time(rows: list[dict], time_field: str, value_fields: list[s
     span_days = (max(dates) - min(dates)).days + 1
     unique_days = len(set(dates))
 
-    # Pick granularity based on data density
     if span_days <= 14 or unique_days <= 7:
-        return rows, "yearmonthdate"       # day level — fine as-is
+        # Day level — strip timezone for Vega compatibility
+        for r in rows:
+            v = r.get(time_field)
+            if isinstance(v, str):
+                r[time_field] = v.replace("+00:00", "")
+            elif isinstance(v, datetime):
+                r[time_field] = v.strftime("%Y-%m-%dT%H:%M:%S")
+        return rows, "yearmonthdate"
     elif span_days <= 90:
         agg_unit = "yearweek"
     else:
         agg_unit = "yearmonth"
 
-    # Re-aggregate — group by (time_bucket, group_fields)
     grouped = {}
     for r in rows:
         d = r[time_field]
@@ -275,7 +309,6 @@ def smart_aggregate_time(rows: list[dict], time_field: str, value_fields: list[s
         else:
             time_key = d.replace(day=1)
 
-        # Build composite key: (time, group1, group2, ...)
         group_vals = tuple(r.get(gf) for gf in group_fields)
         key = (time_key,) + group_vals
 
@@ -298,41 +331,30 @@ def smart_aggregate_time(rows: list[dict], time_field: str, value_fields: list[s
 
 
 def is_weak_result(rows: list[dict], interp: dict) -> bool:
-    """Check if a result is too weak to chart."""
     if not rows:
         return True
-    # Single row = single number, useless as chart
     if len(rows) == 1:
         return True
     return False
 
 
 def ensure_diversity(interpretations: list[dict]) -> list[dict]:
-    """If chart types repeat, try to swap one to a different type."""
     type_counts = Counter(i["chart_type"] for i in interpretations)
     if len(type_counts) == len(interpretations):
-        return interpretations  # all unique, fine
+        return interpretations
 
-    # Find duplicates and try to diversify
     seen = set()
     diversified = []
     for interp in interpretations:
         ct = interp["chart_type"]
         if ct in seen and type_counts[ct] > 1:
-            # Try to swap to a complementary type
             swap_map = {
-                "line": "bar",
-                "bar": "horizontal_bar",
-                "horizontal_bar": "bar",
-                "pie": "bar",
-                "area": "line",
-                "stacked_bar": "bar",
-                "scatter": "bar",
-                "heatmap": "bar",
+                "line": "bar", "bar": "horizontal_bar", "horizontal_bar": "bar",
+                "pie": "bar", "area": "line", "stacked_bar": "bar",
+                "scatter": "bar", "heatmap": "bar",
             }
             new_ct = swap_map.get(ct, "bar")
             interp["chart_type"] = new_ct
-            # Update spec mark
             if "mark" in interp.get("vega_lite_spec", {}):
                 mark = interp["vega_lite_spec"]["mark"]
                 if isinstance(mark, str):
@@ -344,20 +366,7 @@ def ensure_diversity(interpretations: list[dict]) -> list[dict]:
                         mark["type"] = new_ct
         seen.add(interp["chart_type"])
         diversified.append(interp)
-
     return diversified
-
-
-def patch_spec_timeunit(spec: dict, time_field: str, time_unit: str) -> dict:
-    """Update the Vega-Lite spec's timeUnit for the time field encoding."""
-    spec_str = json.dumps(spec)
-    # Replace any existing timeUnit for the time field
-    # This is a simple string replacement approach
-    if '"yearmonth"' in spec_str and time_unit != "yearmonth":
-        spec_str = spec_str.replace('"yearmonth"', f'"{time_unit}"')
-    elif '"yearweek"' in spec_str and time_unit != "yearweek":
-        spec_str = spec_str.replace('"yearweek"', f'"{time_unit}"')
-    return json.loads(spec_str)
 
 
 # ---------------------------------------------------------------------------
@@ -377,13 +386,11 @@ def render_chart(spec: dict, data: list[dict], output_path: Path):
 # ---------------------------------------------------------------------------
 
 def _fmt_date(v):
-    """Format a date/datetime value for display."""
     if isinstance(v, datetime):
         return v.strftime("%Y-%m-%d")
     if isinstance(v, date):
         return v.isoformat()
     if isinstance(v, str):
-        # Strip timezone and time portion if midnight
         v = v.replace("+00:00", "").replace("T00:00:00", "")
         if len(v) > 10:
             v = v[:10]
@@ -392,7 +399,6 @@ def _fmt_date(v):
 
 
 def _to_num(v):
-    """Coerce a value to float for stats computation."""
     if v is None:
         return None
     if isinstance(v, Decimal):
@@ -406,14 +412,12 @@ def _to_num(v):
 
 
 def compute_stats(rows: list[dict], interp: dict) -> list[str]:
-    """Generate human-readable stat lines from the data rows."""
     if not rows:
         return ["No data returned."]
 
     lines = []
     keys = list(rows[0].keys())
 
-    # Identify column roles
     time_field = None
     category_field = None
     numeric_fields = []
@@ -431,7 +435,6 @@ def compute_stats(rows: list[dict], interp: dict) -> list[str]:
         elif t == "quantitative" and f in keys:
             numeric_fields.append(f)
 
-    # Fallback: guess from data
     if not numeric_fields:
         for k in keys:
             if all(_to_num(r.get(k)) is not None for r in rows[:3]):
@@ -440,7 +443,6 @@ def compute_stats(rows: list[dict], interp: dict) -> list[str]:
 
     nf = numeric_fields[0] if numeric_fields else None
 
-    # --- Time series stats ---
     if time_field and nf:
         vals = [(r.get(time_field), _to_num(r.get(nf))) for r in rows]
         vals = [(t, v) for t, v in vals if v is not None]
@@ -449,12 +451,10 @@ def compute_stats(rows: list[dict], interp: dict) -> list[str]:
             avg = total / len(vals)
             max_row = max(vals, key=lambda x: x[1])
             min_row = min(vals, key=lambda x: x[1])
-
             lines.append(f"Total: {total:,.0f}")
             lines.append(f"Avg per period: {avg:,.1f}")
             lines.append(f"Peak: {max_row[1]:,.0f} ({_fmt_date(max_row[0])})")
             lines.append(f"Low: {min_row[1]:,.0f} ({_fmt_date(min_row[0])})")
-
             if len(vals) >= 2:
                 first_v = vals[0][1]
                 last_v = vals[-1][1]
@@ -464,7 +464,6 @@ def compute_stats(rows: list[dict], interp: dict) -> list[str]:
                     lines.append(f"Trend: {direction} {abs(change_pct):.0f}% ({_fmt_date(vals[0][0])} → {_fmt_date(vals[-1][0])})")
             lines.append(f"Data points: {len(vals)}")
 
-    # --- Category / ranking stats ---
     elif category_field and nf:
         vals = [(r.get(category_field), _to_num(r.get(nf))) for r in rows]
         vals = [(c, v) for c, v in vals if v is not None]
@@ -473,22 +472,18 @@ def compute_stats(rows: list[dict], interp: dict) -> list[str]:
             avg = total / len(vals)
             top = max(vals, key=lambda x: x[1])
             bottom = min(vals, key=lambda x: x[1])
-
             lines.append(f"Total: {total:,.0f}")
             lines.append(f"Across {len(vals)} categories")
             lines.append(f"Avg per category: {avg:,.1f}")
             lines.append(f"Highest: {top[0]} ({top[1]:,.0f})")
             lines.append(f"Lowest: {bottom[0]} ({bottom[1]:,.0f})")
-
             if len(vals) >= 3:
                 sorted_vals = sorted(vals, key=lambda x: x[1], reverse=True)
                 top3 = ", ".join(f"{c} ({v:,.0f})" for c, v in sorted_vals[:3])
                 lines.append(f"Top 3: {top3}")
 
-    # --- Generic fallback ---
     else:
         lines.append(f"{len(rows)} rows returned")
-        # Show first few rows as a preview
         for r in rows[:5]:
             parts = [f"{k}={v}" for k, v in r.items() if v is not None]
             lines.append("  " + ", ".join(parts[:4]))
@@ -497,101 +492,173 @@ def compute_stats(rows: list[dict], interp: dict) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Helpers — HTML generation
+# HTML generation — full pipeline view
 # ---------------------------------------------------------------------------
 
-def generate_html(slides: list[dict], query: str, run_dir: Path):
-    """Generate a single-page HTML with a slider and stats under each chart.
+def _esc(s: str) -> str:
+    """HTML-escape a string."""
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
-    Each slide dict has: name, description, image_filename, stats (list of str).
+
+def generate_html(query: str, dbctx_context: str, user_message: str,
+                  system_prompt: str, gemini_response: dict,
+                  pipeline_steps: list[dict], run_dir: Path):
+    """Generate full pipeline HTML.
+
+    pipeline_steps: list of dicts with keys:
+      name, description, chart_type, sql, raw_csv_path, agg_csv_path,
+      stats, image_path, status, skip_reason
     """
+    n_charts = sum(1 for s in pipeline_steps if s["status"] == "rendered")
+    n_skipped = sum(1 for s in pipeline_steps if s["status"] == "skipped")
+
+    # Build pipeline sections
+    steps_html = ""
+    for i, step in enumerate(pipeline_steps):
+        status_badge = (
+            f'<span class="badge ok">rendered</span>' if step["status"] == "rendered"
+            else f'<span class="badge skip">skipped: {_esc(step.get("skip_reason", ""))}</span>'
+        )
+
+        sql_block = f'<pre class="code">{_esc(step["sql"])}</pre>' if step.get("sql") else ""
+
+        raw_link = f'<a class="file-link" href="{step["raw_csv_path"]}">raw data CSV</a>' if step.get("raw_csv_path") else ""
+        agg_link = f'<a class="file-link" href="{step["agg_csv_path"]}">aggregated CSV</a>' if step.get("agg_csv_path") else ""
+        img_tag = f'<img src="{step["image_path"]}" class="chart-img">' if step.get("image_path") else ""
+
+        stats_html = ""
+        if step.get("stats"):
+            stats_html = '<div class="stats">' + "".join(f'<div class="stat">{_esc(s)}</div>' for s in step["stats"]) + '</div>'
+
+        steps_html += f"""
+<div class="step">
+  <div class="step-header">
+    <span class="step-num">{i+1}</span>
+    <h3>{_esc(step["name"])}</h3>
+    {status_badge}
+    <span class="chart-type">{_esc(step.get("chart_type", ""))}</span>
+  </div>
+  <p class="step-desc">{_esc(step.get("description", ""))}</p>
+  {sql_block}
+  <div class="file-links">{raw_link} {agg_link}</div>
+  {img_tag}
+  {stats_html}
+</div>
+"""
+
     html = f"""\
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{query}</title>
+<title>{_esc(query)}</title>
 <style>
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
   body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-         background: #0f172a; color: #e2e8f0; min-height: 100vh; }}
-  .header {{ text-align: center; padding: 2rem 1rem 1rem; }}
-  .header h1 {{ font-size: 1.5rem; font-weight: 600; color: #f8fafc; }}
-  .header .sub {{ color: #94a3b8; font-size: 0.9rem; margin-top: 0.5rem; }}
-  .carousel {{ position: relative; max-width: 900px; margin: 1.5rem auto; }}
-  .slide {{ display: none; text-align: center; }}
-  .slide.active {{ display: block; }}
-  .slide img {{ max-width: 100%; max-height: 500px; border-radius: 8px;
-                border: 1px solid #334155; background: #1e293b; }}
-  .slide h2 {{ margin: 1rem 0 0.3rem; font-size: 1.2rem; color: #f1f5f9; }}
-  .slide .desc {{ color: #94a3b8; font-size: 0.85rem; margin-bottom: 1rem; }}
-  .stats {{ display: flex; flex-wrap: wrap; justify-content: center; gap: 0.6rem;
-            max-width: 800px; margin: 0 auto 1.5rem; padding: 0 1rem; }}
-  .stat {{ background: #1e293b; border: 1px solid #334155; border-radius: 6px;
-           padding: 0.5rem 1rem; font-size: 0.85rem; color: #cbd5e1; }}
-  .nav {{ display: flex; justify-content: center; align-items: center; gap: 1rem;
-          padding: 1rem; }}
-  .nav button {{ background: #334155; color: #e2e8f0; border: none; border-radius: 6px;
-                 padding: 0.6rem 1.2rem; cursor: pointer; font-size: 1rem; }}
-  .nav button:hover {{ background: #475569; }}
-  .nav .counter {{ color: #94a3b8; font-size: 0.9rem; }}
-  .dots {{ display: flex; justify-content: center; gap: 0.5rem; padding: 0.5rem; }}
-  .dot {{ width: 10px; height: 10px; border-radius: 50%; background: #334155;
-          cursor: pointer; transition: background 0.2s; }}
-  .dot.active {{ background: #60a5fa; }}
+         background: #0f172a; color: #e2e8f0; }}
+  .container {{ max-width: 960px; margin: 0 auto; padding: 1.5rem; }}
+
+  /* Pipeline header */
+  .pipeline-header {{ text-align: center; padding: 2rem 0 1rem; }}
+  .pipeline-header h1 {{ font-size: 1.6rem; color: #f8fafc; }}
+  .pipeline-header .meta {{ color: #94a3b8; font-size: 0.85rem; margin-top: 0.5rem; }}
+
+  /* Pipeline flow */
+  .flow {{ display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center;
+           margin: 1.5rem 0; }}
+  .flow a {{ background: #1e293b; border: 1px solid #334155; border-radius: 6px;
+             padding: 0.4rem 0.8rem; color: #60a5fa; text-decoration: none;
+             font-size: 0.8rem; }}
+  .flow a:hover {{ background: #334155; }}
+  .flow .arrow {{ color: #475569; padding: 0.4rem 0; }}
+
+  /* Collapsible sections */
+  details {{ margin: 1rem 0; }}
+  details summary {{ cursor: pointer; color: #94a3b8; font-size: 0.85rem;
+                     padding: 0.5rem; background: #1e293b; border-radius: 6px;
+                     border: 1px solid #334155; }}
+  details summary:hover {{ background: #334155; }}
+  details[open] summary {{ border-radius: 6px 6px 0 0; }}
+  details .content {{ background: #1e293b; border: 1px solid #334155; border-top: none;
+                      border-radius: 0 0 6px 6px; padding: 1rem; }}
+  pre.code {{ background: #0f172a; border: 1px solid #334155; border-radius: 4px;
+              padding: 0.8rem; font-size: 0.78rem; overflow-x: auto; color: #cbd5e1;
+              white-space: pre-wrap; word-break: break-all; }}
+  pre.code.large {{ max-height: 300px; overflow-y: auto; }}
+
+  /* Steps */
+  .step {{ background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+           padding: 1.2rem; margin: 1rem 0; }}
+  .step-header {{ display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; }}
+  .step-num {{ background: #334155; color: #60a5fa; border-radius: 50%;
+               width: 28px; height: 28px; display: flex; align-items: center;
+               justify-content: center; font-size: 0.8rem; font-weight: 600; }}
+  .step-header h3 {{ font-size: 1.05rem; color: #f1f5f9; flex: 1; }}
+  .badge {{ font-size: 0.7rem; padding: 0.2rem 0.5rem; border-radius: 4px; }}
+  .badge.ok {{ background: #064e3b; color: #6ee7b7; }}
+  .badge.skip {{ background: #451a03; color: #fbbf24; }}
+  .chart-type {{ font-size: 0.7rem; color: #64748b; background: #0f172a;
+                 padding: 0.2rem 0.5rem; border-radius: 4px; }}
+  .step-desc {{ color: #94a3b8; font-size: 0.85rem; margin: 0.5rem 0; }}
+  .file-links {{ display: flex; gap: 0.8rem; margin: 0.5rem 0; }}
+  .file-link {{ color: #60a5fa; text-decoration: none; font-size: 0.8rem;
+                border: 1px solid #334155; padding: 0.2rem 0.6rem; border-radius: 4px; }}
+  .file-link:hover {{ background: #334155; }}
+  .chart-img {{ max-width: 100%; border-radius: 6px; margin: 0.8rem 0;
+                border: 1px solid #334155; }}
+  .stats {{ display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.8rem; }}
+  .stat {{ background: #0f172a; border: 1px solid #334155; border-radius: 4px;
+           padding: 0.4rem 0.8rem; font-size: 0.8rem; color: #cbd5e1; }}
 </style>
 </head>
 <body>
-<div class="header">
-  <h1>{query}</h1>
-  <div class="sub">{ORG_NAME} &middot; {len(slides)} charts</div>
+<div class="container">
+
+<div class="pipeline-header">
+  <h1>{_esc(query)}</h1>
+  <div class="meta">{_esc(ORG_NAME)} (org_id={ORG_ID}) &middot; {n_charts} charts rendered, {n_skipped} skipped</div>
 </div>
-<div class="carousel">
-"""
-    for i, s in enumerate(slides):
-        active = "active" if i == 0 else ""
-        stats_html = "".join(f'<div class="stat">{st}</div>' for st in s["stats"])
-        html += f"""\
-  <div class="slide {active}">
-    <img src="{s['image']}" alt="{s['name']}">
-    <h2>{s['name']}</h2>
-    <div class="desc">{s['description']}</div>
-    <div class="stats">{stats_html}</div>
+
+<div class="flow">
+  <a href="01_query.txt">01 query</a><span class="arrow">&rarr;</span>
+  <a href="02_dbctx_context.txt">02 dbctx</a><span class="arrow">&rarr;</span>
+  <a href="03_prompt.txt">03 prompt</a><span class="arrow">&rarr;</span>
+  <a href="04_gemini_response.json">04 gemini</a><span class="arrow">&rarr;</span>
+  <span style="color:#94a3b8;font-size:0.8rem;padding:0.4rem">SQL &rarr; data &rarr; chart</span>
+</div>
+
+<details>
+  <summary>01 &mdash; User query</summary>
+  <div class="content"><pre class="code">{_esc(query)}</pre></div>
+</details>
+
+<details>
+  <summary>02 &mdash; dbctx schema context ({len(dbctx_context):,} chars)</summary>
+  <div class="content"><pre class="code large">{_esc(dbctx_context[:5000])}{"..." if len(dbctx_context) > 5000 else ""}</pre>
+  <a class="file-link" href="02_dbctx_context.txt">full file</a></div>
+</details>
+
+<details>
+  <summary>03 &mdash; Full prompt sent to Gemini ({len(system_prompt) + len(user_message):,} chars)</summary>
+  <div class="content">
+    <h4 style="color:#94a3b8;font-size:0.8rem;margin-bottom:0.5rem">System prompt</h4>
+    <pre class="code large">{_esc(system_prompt)}</pre>
+    <h4 style="color:#94a3b8;font-size:0.8rem;margin:1rem 0 0.5rem">User message</h4>
+    <pre class="code large">{_esc(user_message[:3000])}{"..." if len(user_message) > 3000 else ""}</pre>
   </div>
-"""
+</details>
 
-    html += """\
-</div>
-<div class="dots">
-"""
-    for i in range(len(slides)):
-        active = "active" if i == 0 else ""
-        html += f'  <div class="dot {active}" onclick="go({i})"></div>\n'
+<details>
+  <summary>04 &mdash; Gemini response JSON</summary>
+  <div class="content"><pre class="code large">{_esc(json.dumps(gemini_response, indent=2, default=json_default))}</pre></div>
+</details>
 
-    html += f"""\
+<h2 style="color:#f1f5f9;font-size:1.2rem;margin:2rem 0 1rem">Interpretations</h2>
+
+{steps_html}
+
 </div>
-<div class="nav">
-  <button onclick="go(current-1)">&larr; Prev</button>
-  <span class="counter"><span id="cur">1</span> / {len(slides)}</span>
-  <button onclick="go(current+1)">Next &rarr;</button>
-</div>
-<script>
-let current = 0;
-const total = {len(slides)};
-function go(n) {{
-  document.querySelectorAll('.slide')[current].classList.remove('active');
-  document.querySelectorAll('.dot')[current].classList.remove('active');
-  current = ((n % total) + total) % total;
-  document.querySelectorAll('.slide')[current].classList.add('active');
-  document.querySelectorAll('.dot')[current].classList.add('active');
-  document.getElementById('cur').textContent = current + 1;
-}}
-document.addEventListener('keydown', e => {{
-  if (e.key === 'ArrowLeft') go(current - 1);
-  if (e.key === 'ArrowRight') go(current + 1);
-}});
-</script>
 </body>
 </html>
 """
@@ -606,21 +673,30 @@ def main():
     query = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_QUERY
     no_render = "--no-render" in sys.argv
 
-    api_key = load_api_key()
+    api_keys = load_api_keys()
     chart_types = load_chart_types()
 
     print(f"Query: {query}", file=sys.stderr)
     print(f"Org:   {ORG_NAME} (id={ORG_ID})", file=sys.stderr)
     print(f"Model: {GEMINI_MODEL}", file=sys.stderr)
+    print(f"Keys:  {len(api_keys)} configured", file=sys.stderr)
 
     # Step 1: dbctx context
     print("Querying dbctx...", file=sys.stderr)
     dbctx_context = query_dbctx(query)
     print(f"dbctx returned {len(dbctx_context)} chars", file=sys.stderr)
 
-    # Step 2: Gemini
+    # Step 2: Build prompt
+    user_message = (
+        f"User query: {query}\n"
+        f"Org context: org_id = {ORG_ID} ({ORG_NAME})\n\n"
+        f"--- dbctx schema context ---\n{dbctx_context}\n\n"
+        f"--- available chart types ---\n{chart_types}"
+    )
+
+    # Step 3: Call Gemini
     print("Calling Gemini...", file=sys.stderr)
-    result = call_gemini(api_key, query, dbctx_context, chart_types)
+    result, raw_body = call_gemini(api_keys, user_message)
 
     interpretations = result.get("interpretations", [])
     print(f"Gemini returned {len(interpretations)} interpretations", file=sys.stderr)
@@ -629,35 +705,67 @@ def main():
         print(json.dumps(result, indent=2, default=json_default))
         return
 
-    # Step 3: Execute SQL, post-process, render
+    # Step 4: Create run directory and save artifacts
     run_dir = SCRIPT_DIR / "output" / datetime.now().strftime("run_%Y%m%d_%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save the raw Gemini output
-    (run_dir / "gemini_output.json").write_text(json.dumps(result, indent=2, default=json_default))
+    (run_dir / "01_query.txt").write_text(query)
+    (run_dir / "02_dbctx_context.txt").write_text(dbctx_context)
+    (run_dir / "03_prompt.txt").write_text(f"=== SYSTEM PROMPT ===\n{SYSTEM_PROMPT}\n\n=== USER MESSAGE ===\n{user_message}")
+    (run_dir / "04_gemini_response.json").write_text(json.dumps(result, indent=2, default=json_default))
 
+    # Step 5: Execute SQL, post-process, render
     conn = get_db_connection()
-    slides = []
+    pipeline_steps = []
 
     for i, interp in enumerate(interpretations):
         name = interp.get("name", f"chart_{i}")
         description = interp.get("description", "")
-        sql = interp.get("sql")
-        spec = interp.get("vega_lite_spec")
+        chart_type = interp.get("chart_type", "")
+        sql = interp.get("sql", "")
+        spec = interp.get("vega_lite_spec", {})
+        safe_name = name.lower().replace(" ", "_").replace("/", "_")[:40]
+        prefix = f"05_{i+1:03d}_{safe_name}"
+
+        step = {
+            "name": name,
+            "description": description,
+            "chart_type": chart_type,
+            "sql": sql,
+            "raw_csv_path": None,
+            "agg_csv_path": None,
+            "stats": None,
+            "image_path": None,
+            "status": "skipped",
+            "skip_reason": "",
+        }
+
+        # Save SQL
+        if sql:
+            (run_dir / f"{prefix}.sql").write_text(sql)
 
         if not sql or not spec:
+            step["skip_reason"] = "missing sql or spec"
+            pipeline_steps.append(step)
             print(f"  [{i+1}] SKIP {name}: missing sql or spec", file=sys.stderr)
             continue
 
-        safe_name = name.lower().replace(" ", "_").replace("/", "_")[:40]
         print(f"  [{i+1}] {name}", file=sys.stderr)
 
         try:
             rows = execute_sql(conn, sql)
             print(f"      SQL → {len(rows)} rows", file=sys.stderr)
 
+            # Save raw CSV
+            raw_csv = rows_to_csv(rows)
+            raw_csv_path = f"{prefix}_raw.csv"
+            (run_dir / raw_csv_path).write_text(raw_csv)
+            step["raw_csv_path"] = raw_csv_path
+
             # Check if weak result
             if is_weak_result(rows, interp):
+                step["skip_reason"] = f"single-row result ({len(rows)} rows)"
+                pipeline_steps.append(step)
                 print(f"      SKIP: single-number / weak result", file=sys.stderr)
                 continue
 
@@ -668,7 +776,7 @@ def main():
             encoding = spec.get("encoding", {})
             for field_name, enc in encoding.items():
                 if not isinstance(enc, dict):
-                    continue  # skip lists (e.g. tooltip)
+                    continue
                 if enc.get("type") == "temporal":
                     time_field = enc.get("field")
                 elif enc.get("type") == "quantitative":
@@ -679,38 +787,37 @@ def main():
             if time_field and value_fields:
                 rows, time_unit = smart_aggregate_time(rows, time_field, value_fields, group_fields)
                 print(f"      Aggregated to {time_unit}, {len(rows)} points", file=sys.stderr)
+                # Save aggregated CSV
+                agg_csv = rows_to_csv(rows)
+                agg_csv_path = f"{prefix}_agg.csv"
+                (run_dir / agg_csv_path).write_text(agg_csv)
+                step["agg_csv_path"] = agg_csv_path
 
             # Render chart
-            output_path = run_dir / f"{safe_name}.png"
-            render_chart(spec, rows, output_path)
-            print(f"      → {output_path.name}", file=sys.stderr)
+            png_path = f"{prefix}.png"
+            render_chart(spec, rows, run_dir / png_path)
+            step["image_path"] = png_path
+            print(f"      → {png_path}", file=sys.stderr)
 
             # Compute stats
-            stats = compute_stats(rows, interp)
-
-            slides.append({
-                "name": name,
-                "description": description,
-                "image": f"{safe_name}.png",
-                "stats": stats,
-            })
+            step["stats"] = compute_stats(rows, interp)
+            step["status"] = "rendered"
 
         except Exception as e:
+            step["skip_reason"] = str(e)[:100]
             print(f"      Error: {e}", file=sys.stderr)
+
+        pipeline_steps.append(step)
 
     conn.close()
 
-    # Generate HTML slider
-    if slides:
-        generate_html(slides, query, run_dir)
-        print(f"\nHTML: {run_dir / 'index.html'}", file=sys.stderr)
+    # Step 6: Generate HTML
+    generate_html(query, dbctx_context, user_message, SYSTEM_PROMPT, result, pipeline_steps, run_dir)
+    print(f"\nHTML: {run_dir / 'index.html'}", file=sys.stderr)
 
-    # Print summary
-    print(f"Kept {len(slides)} charts in {run_dir}/", file=sys.stderr)
-    for s in slides:
-        print(f"  - {s['name']}", file=sys.stderr)
+    n_charts = sum(1 for s in pipeline_steps if s["status"] == "rendered")
+    print(f"Kept {n_charts} charts in {run_dir}/", file=sys.stderr)
 
-    # Print JSON to stdout too
     print(json.dumps(result, indent=2, default=json_default))
 
 
