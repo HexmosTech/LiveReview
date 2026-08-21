@@ -105,17 +105,17 @@ You are a database-aware analytics interpreter for LiveReview, an AI-powered cod
 12. Prefer queries that reveal patterns: rankings, trends, distributions, comparisons. Avoid flat counts.
 
 ## Rules — chart selection
-12. Pick the chart type whose `use_when` best matches the data shape.
-13. Vary chart types across interpretations — never use the same chart type twice in one response.
-14. The `vega_lite_spec` must be a complete valid Vega-Lite spec.
-15. Use `DATA_PLACEHOLDER` as the value of `data.values`.
-16. Field names in encoding must match SQL column aliases exactly.
-17. For temporal fields, valid composite `timeUnit`s are: `yearmonthdate`, `yearmonth`, `yearweek`, `yearquarter`, `year`.
+13. Pick the chart type whose `use_when` best matches the data shape.
+14. Vary chart types across interpretations — never use the same chart type twice in one response.
+15. The `vega_lite_spec` must be a complete valid Vega-Lite spec.
+16. Use `DATA_PLACEHOLDER` as the value of `data.values`.
+17. Field names in encoding must match SQL column aliases exactly.
+18. For temporal fields, valid composite `timeUnit`s are: `yearmonthdate`, `yearmonth`, `yearweek`, `yearquarter`, `year`.
 
 ## Rules — how many interpretations
-18. Specific query → 1-2 interpretations.
-19. Broad query → 3-5 interpretations covering different angles.
-20. Never exceed 5.
+19. Specific query → 1-2 interpretations.
+20. Broad query → 3-5 interpretations covering different angles.
+21. Never exceed 5.
 """
 
 # ---------------------------------------------------------------------------
