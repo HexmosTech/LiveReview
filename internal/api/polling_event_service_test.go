@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"os"
 	"testing"
 	"time"
 
@@ -17,13 +18,25 @@ func TestPollingEventService(t *testing.T) {
 		t.Skip("Skipping database integration test")
 	}
 
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		dbURL = os.Getenv("DATABASE_URL")
+	}
+	if dbURL == "" {
+		dbURL = "postgres://livereview:livereview_password_123@localhost:5432/livereview?sslmode=disable"
+	}
+
 	// Connect to test database
-	db, err := sql.Open("postgres", "postgres://livereview:livereview_password_123@localhost:5432/livereview?sslmode=disable")
+	db, err := sql.Open("postgres", dbURL)
 	require.NoError(t, err)
 	defer db.Close()
 
-	service := NewPollingEventService(db)
 	ctx := context.Background()
+	if err := db.PingContext(ctx); err != nil {
+		t.Skip("Skipping database integration test: database not accessible")
+	}
+
+	service := NewPollingEventService(db)
 	orgID := int64(1)
 
 	// Create a test review record first
@@ -103,6 +116,20 @@ func TestPollingEventService(t *testing.T) {
 	})
 
 	t.Run("GetReviewSummary", func(t *testing.T) {
+		// Emit tool_dispatch and tool_result events for testing enriched summary
+		_ = service.EmitEvent(ctx, &ReviewEvent{
+			ReviewID:  reviewID,
+			OrgID:     orgID,
+			EventType: "tool_dispatch",
+			Data:      []byte(`{"tool_id": 1, "tool_name": "ruff", "status": "pending"}`),
+		})
+		_ = service.EmitEvent(ctx, &ReviewEvent{
+			ReviewID:  reviewID,
+			OrgID:     orgID,
+			EventType: "tool_result",
+			Data:      []byte(`{"tool_id": 1, "tool_name": "ruff", "exit_code": 0, "findings": [{"file": "main.py", "line": 10, "message": "Line too long"}]}`),
+		})
+
 		summary, err := service.GetReviewSummary(ctx, reviewID, orgID)
 		require.NoError(t, err)
 		require.NotNil(t, summary)
@@ -114,17 +141,26 @@ func TestPollingEventService(t *testing.T) {
 		assert.Contains(t, summary.EventCounts, "batch")
 		assert.Contains(t, summary.EventCounts, "completion")
 		assert.Equal(t, 1, summary.BatchCount)
+		assert.NotNil(t, summary.SeverityCounts)
+		assert.NotNil(t, summary.ToolSummary)
+		assert.Equal(t, 1, summary.ToolSummary.ToolsExecuted)
+		assert.Equal(t, 1, summary.ToolSummary.TotalCommentsGenerated)
+		assert.Len(t, summary.ToolSummary.ToolBreakdown, 1)
+		assert.Equal(t, "ruff", summary.ToolSummary.ToolBreakdown[0].ToolName)
+		assert.Equal(t, "completed", summary.ToolSummary.ToolBreakdown[0].Status)
 	})
 
 	t.Run("GetEventCounts", func(t *testing.T) {
 		counts, err := service.GetEventCounts(ctx, reviewID, orgID)
 		require.NoError(t, err)
 
-		// We should have created: 1 status, 1 log, 1 batch, 1 completion
+		// We should have created: 1 status, 1 log, 1 batch, 1 completion, 1 tool_dispatch, 1 tool_result
 		assert.Equal(t, 1, counts["status"])
 		assert.Equal(t, 1, counts["log"])
 		assert.Equal(t, 1, counts["batch"])
 		assert.Equal(t, 1, counts["completion"])
+		assert.Equal(t, 1, counts["tool_dispatch"])
+		assert.Equal(t, 1, counts["tool_result"])
 	})
 
 	// Clean up test data

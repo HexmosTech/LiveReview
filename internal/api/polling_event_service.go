@@ -236,11 +236,24 @@ func (s *PollingEventService) GetReviewSummary(ctx context.Context, reviewID, or
 	if err != nil {
 		return nil, fmt.Errorf("failed to count batch IDs: %w", err)
 	}
+
+	sevCounts, err := s.repo.GetSeverityCounts(ctx, reviewID, orgID)
+	if err != nil {
+		sevCounts = SeverityCounts{}
+	}
+
+	toolSum, err := s.repo.GetToolSummary(ctx, reviewID, orgID)
+	if err != nil {
+		toolSum = nil
+	}
+
 	summary := &ReviewSummary{
-		ReviewID:     reviewID,
-		LastActivity: time.Now(), // Will be updated with actual latest event
-		EventCounts:  counts,
-		BatchCount:   batchCount,
+		ReviewID:       reviewID,
+		LastActivity:   time.Now(),
+		EventCounts:    counts,
+		BatchCount:     batchCount,
+		SeverityCounts: sevCounts,
+		ToolSummary:    toolSum,
 	}
 
 	// Parse latest status if available
@@ -257,9 +270,11 @@ func (s *PollingEventService) GetReviewSummary(ctx context.Context, reviewID, or
 
 // ReviewSummary provides a quick overview of review progress
 type ReviewSummary struct {
-	ReviewID      int64          `json:"reviewId"`
-	CurrentStatus string         `json:"currentStatus"`
-	LastActivity  time.Time      `json:"lastActivity"`
-	EventCounts   map[string]int `json:"eventCounts"`
-	BatchCount    int            `json:"batchCount"`
+	ReviewID       int64          `json:"reviewId"`
+	CurrentStatus  string         `json:"currentStatus"`
+	LastActivity   time.Time      `json:"lastActivity"`
+	EventCounts    map[string]int `json:"eventCounts"`
+	BatchCount     int            `json:"batchCount"`
+	SeverityCounts SeverityCounts `json:"severityCounts"`
+	ToolSummary    *ToolSummary   `json:"toolSummary,omitempty"`
 }
