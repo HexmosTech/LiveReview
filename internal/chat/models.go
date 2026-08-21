@@ -4,6 +4,7 @@
 package chat
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/livereview/internal/mcpagent"
@@ -25,6 +26,7 @@ type Conversation struct {
 // conversation. RawHistoryEntries is the exact slice of mcpagent.HistoryEntry
 // this turn contributed to the agent's history - stored verbatim so a
 // conversation can be replayed into RunTurnWithArtifacts without loss.
+// DebugArtifacts is a temporary JSONB field for the /chat-debug page.
 type Message struct {
 	ID                int64
 	ConversationID    int64
@@ -35,6 +37,7 @@ type Message struct {
 	CreatedAt         time.Time
 	Charts            []Chart
 	Files             []File
+	DebugArtifacts    json.RawMessage // nil when not a count_query turn
 }
 
 // File is a downloadable export (CSV today) captured from an assistant turn.

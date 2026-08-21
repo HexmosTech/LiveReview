@@ -49,6 +49,12 @@ type lawbookPaths struct {
 	// see alaws_livi/describe.md for why this is a separate call from
 	// finalize rather than folded into finalizeTail.
 	describe string
+	// interpretHead is the static header for the multi-interpret pipeline
+	// (before the live schema). Replaces planHead+finalizeHead.
+	interpretHead string
+	// interpretTail is the static footer for the multi-interpret pipeline
+	// (after the live schema). Replaces planTail+finalizeTail.
+	interpretTail string
 }
 
 // loadLawbook compiles the embedded alaws_livi lawbook and returns the
@@ -309,6 +315,14 @@ func buildLawbookPrompts(orgName, userName string, orgID int64) (*lawbookPaths, 
 		return nil, fmt.Errorf("describe branch: %w", err)
 	}
 
+	// Multi-interpret branch: replaces planning+finalizing with a single
+	// call that returns SQL + chart spec together. Includes general data
+	// rules, chart reference, and interpreting-specific laws.
+	interpretLaws, err := renderBranchFiltered(book, []string{"livi.general", "livi.charts", "livi.interpreting"}, vars, true)
+	if err != nil {
+		return nil, fmt.Errorf("interpret branch: %w", err)
+	}
+
 	// Build the header that appears before the law text in each branch.
 	// This includes the persona, org/user context, and the org_id filter
 	// instruction — things that are session-specific, not lawbook content.
@@ -343,6 +357,10 @@ func buildLawbookPrompts(orgName, userName string, orgID int64) (*lawbookPaths, 
 		repair:   header + "\n\n" + orgFilter + "\n\n" + repairLaws,
 		noData:   header + "\n\n" + orgFilter + "\n\n" + noDataLaws,
 		describe: describeLaws,
+		// Interpret: header + org filter, then live schema spliced in,
+		// then interpretTail has the data rules + chart ref + output format.
+		interpretHead: header + "\n\n" + orgFilter,
+		interpretTail: "\n\n" + interpretLaws,
 	}, nil
 }
 

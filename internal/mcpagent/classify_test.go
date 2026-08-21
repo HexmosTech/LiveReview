@@ -178,7 +178,7 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 	var history []HistoryEntry
 
 	// --- Turn 1: chat ---
-	text, updated, _, err := agent.RunTurnWithArtifacts(context.Background(), history, "hello", "s1", "test")
+	text, updated, _, _, err := agent.RunTurnWithArtifacts(context.Background(), history, "hello", "s1", "test")
 	if err != nil {
 		t.Fatalf("turn 1: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 	}
 
 	// --- Turn 2: action ---
-	text, updated, _, err = agent.RunTurnWithArtifacts(context.Background(), history, "trigger a review", "s1", "test")
+	text, updated, _, _, err = agent.RunTurnWithArtifacts(context.Background(), history, "trigger a review", "s1", "test")
 	if err != nil {
 		t.Fatalf("turn 2: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 	}
 
 	// --- Turn 3: count_query ---
-	text, updated, _, err = agent.RunTurnWithArtifacts(context.Background(), history, "reviews per month?", "s1", "test")
+	text, updated, _, _, err = agent.RunTurnWithArtifacts(context.Background(), history, "reviews per month?", "s1", "test")
 	if err != nil {
 		t.Fatalf("turn 3: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestChatBranchRejectsFabricatedJSON(t *testing.T) {
 	}}
 	agent := dispatchTestAgent(prov)
 
-	text, _, _, err := agent.RunTurnWithArtifacts(context.Background(), nil, "are engineers using this daily?", "s1", "test")
+	text, _, _, _, err := agent.RunTurnWithArtifacts(context.Background(), nil, "are engineers using this daily?", "s1", "test")
 	if err != nil {
 		t.Fatalf("expected the turn to recover, not error: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestCountQueryBranchRejectsTruncatedJSON(t *testing.T) {
 	}}
 	agent := dispatchTestAgent(prov)
 
-	text, _, _, err := agent.RunTurnWithArtifacts(context.Background(), nil, "what's our billing status?", "s1", "test")
+	text, _, _, _, err := agent.RunTurnWithArtifacts(context.Background(), nil, "what's our billing status?", "s1", "test")
 	if err != nil {
 		t.Fatalf("expected the turn to recover, not error: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestDispatchClassifyFailureDegradesToChat(t *testing.T) {
 	}}
 	agent := dispatchTestAgent(prov)
 
-	text, history, _, err := agent.RunTurnWithArtifacts(context.Background(), nil, "hello", "s1", "test")
+	text, history, _, _, err := agent.RunTurnWithArtifacts(context.Background(), nil, "hello", "s1", "test")
 	if err != nil {
 		t.Fatalf("expected the turn to degrade gracefully, not error: %v", err)
 	}

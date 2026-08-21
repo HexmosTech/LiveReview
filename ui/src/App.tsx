@@ -34,6 +34,7 @@ const UserForm = React.lazy(() => import('./components/UserManagement/UserForm')
 const BillingPortfolio = React.lazy(() => import('./pages/Admin/BillingPortfolio'));
 const TaxonomyReports = React.lazy(() => import('./pages/Reports/TaxonomyReports'));
 const ChatbotRoutes = React.lazy(() => import('./pages/Chatbot/ChatbotRoutes'));
+const ChatDebugRoutes = React.lazy(() => import('./pages/Chatbot/ChatDebugRoutes'));
 // import { usePostHog } from '@posthog/react'
 
 const Footer = () => (
@@ -319,6 +320,7 @@ const AppContent: React.FC = () => {
                                 <Route path="/admin/billing-portfolio" element={<BillingPortfolio />} />
                                 <Route path="/reports/*" element={<TaxonomyReports />} />
                                 <Route path="/chat/*" element={<ChatbotRoutes />} />
+                                <Route path="/chat-debug/*" element={<ChatDebugRoutes />} />
                                 <Route path="/test-middleware" element={<MiddlewareTestPage />} />
                                 <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
                                 <Route path="*" element={<Navigate to="/" replace />} />

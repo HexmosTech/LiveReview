@@ -26,11 +26,12 @@ type ChatConversationSummary struct {
 // ChatMessageOut is one persisted message, with any charts and file exports
 // it produced.
 type ChatMessageOut struct {
-	ID      int64          `json:"id"`
-	Role    string         `json:"role"`
-	Content string         `json:"content"`
-	Charts  []WebChatChart `json:"charts,omitempty"`
-	Files   []WebChatFile  `json:"files,omitempty"`
+	ID             int64           `json:"id"`
+	Role           string          `json:"role"`
+	Content        string          `json:"content"`
+	Charts         []WebChatChart  `json:"charts,omitempty"`
+	Files          []WebChatFile   `json:"files,omitempty"`
+	DebugArtifacts json.RawMessage `json:"debug_artifacts,omitempty"`
 }
 
 // ChatConversationDetail is a full conversation with its message history, for
@@ -183,11 +184,12 @@ func (s *Server) GetConversation(c echo.Context) error {
 			})
 		}
 		out.Messages = append(out.Messages, ChatMessageOut{
-			ID:      m.ID,
-			Role:    m.Role,
-			Content: m.Content,
-			Charts:  charts,
-			Files:   files,
+			ID:             m.ID,
+			Role:           m.Role,
+			Content:        m.Content,
+			Charts:         charts,
+			Files:          files,
+			DebugArtifacts: m.DebugArtifacts,
 		})
 	}
 	return c.JSON(http.StatusOK, out)

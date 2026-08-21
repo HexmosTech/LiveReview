@@ -37,6 +37,7 @@ type MessageInput struct {
 	Role              string
 	Content           string
 	RawHistoryEntries []mcpagent.HistoryEntry
+	DebugArtifacts    json.RawMessage // nil for user messages and non-debug turns
 }
 
 // ChartInput is a chart artifact to persist alongside the assistant message
@@ -327,10 +328,10 @@ func insertMessage(ctx context.Context, tx *sql.Tx, convID int64, seq int, m Mes
 	}
 	var id int64
 	err = tx.QueryRowContext(ctx, `
-		INSERT INTO chat_messages (conversation_id, role, content, raw_history_entry, turn_seq)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO chat_messages (conversation_id, role, content, raw_history_entry, turn_seq, debug_artifacts)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id
-	`, convID, m.Role, m.Content, rawJSON, seq).Scan(&id)
+	`, convID, m.Role, m.Content, rawJSON, seq, m.DebugArtifacts).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("insert chat_messages: %w", err)
 	}
@@ -347,7 +348,7 @@ func (s *Store) ListMessages(ctx context.Context, orgID, userID, convID int64) (
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, conversation_id, role, content, raw_history_entry, turn_seq, created_at
+		SELECT id, conversation_id, role, content, raw_history_entry, turn_seq, created_at, debug_artifacts
 		FROM chat_messages
 		WHERE conversation_id = $1
 		ORDER BY turn_seq ASC
@@ -362,11 +363,15 @@ func (s *Store) ListMessages(ctx context.Context, orgID, userID, convID int64) (
 	for rows.Next() {
 		var m domainchat.Message
 		var rawJSON []byte
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &rawJSON, &m.TurnSeq, &m.CreatedAt); err != nil {
+		var debugJSON []byte
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &rawJSON, &m.TurnSeq, &m.CreatedAt, &debugJSON); err != nil {
 			return nil, fmt.Errorf("scan chat_messages: %w", err)
 		}
 		if err := json.Unmarshal(rawJSON, &m.RawHistoryEntries); err != nil {
 			return nil, fmt.Errorf("unmarshal raw_history_entry: %w", err)
+		}
+		if len(debugJSON) > 0 {
+			m.DebugArtifacts = json.RawMessage(debugJSON)
 		}
 		msgIdx[m.ID] = len(messages)
 		messages = append(messages, m)

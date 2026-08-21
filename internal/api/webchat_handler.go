@@ -148,8 +148,12 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	// past this point: a persistence failure is logged, never surfaced to
 	// the user as a turn failure, since the reply already computed (or the
 	// error already known) is the thing that matters to return now.
-	persistReply := func(assistantText string, charts []WebChatChart, artifacts []mcpagent.Artifact, turnEntries []mcpagent.HistoryEntry, rawLLMOutput string) []int64 {
-		fileIDs, err := persistAssistantMessage(ctx, chatStore, convID, req.Message, assistantText, turnEntries, charts, artifacts, rawLLMOutput)
+	persistReply := func(assistantText string, charts []WebChatChart, artifacts []mcpagent.Artifact, turnEntries []mcpagent.HistoryEntry, rawLLMOutput string, debugArt *mcpagent.DebugArtifacts) []int64 {
+		var debugJSON json.RawMessage
+		if debugArt != nil {
+			debugJSON, _ = json.Marshal(debugArt)
+		}
+		fileIDs, err := persistAssistantMessage(ctx, chatStore, convID, req.Message, assistantText, turnEntries, charts, artifacts, rawLLMOutput, debugJSON)
 		if err != nil {
 			log.Error().Err(err).Int64("conversation_id", convID).Msg("WebChat: failed to persist assistant message")
 		}
@@ -158,7 +162,7 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 
 	connector, err := s.resolveOrgConnector(ctx, orgID)
 	if err != nil {
-		persistReply(err.Error(), nil, nil, nil, "")
+		persistReply(err.Error(), nil, nil, nil, "", nil)
 		return c.JSON(http.StatusBadGateway, map[string]string{"error": err.Error()})
 	}
 
@@ -178,7 +182,7 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	if err != nil {
 		log.Error().Err(err).Str("url", mcpURL).Msg("WebChat: failed to connect to MCP server")
 		errText := fmt.Sprintf("Failed to connect: %s", err.Error())
-		persistReply(errText, nil, nil, nil, "")
+		persistReply(errText, nil, nil, nil, "", nil)
 		return c.JSON(http.StatusBadGateway, map[string]string{"error": errText})
 	}
 
@@ -198,11 +202,11 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	agent := mcpagent.NewAgent(provider, mcpSession, maxSteps).
 		WithAnalytics(storageanalytics.NewAdHocStore(s.db))
 
-	responseText, updatedHistory, artifacts, err := agent.RunTurnWithArtifacts(ctx, history, req.Message, sessionID, "livi")
+	responseText, updatedHistory, artifacts, debugArt, err := agent.RunTurnWithArtifacts(ctx, history, req.Message, sessionID, "livi")
 	if err != nil {
 		log.Error().Err(err).Msg("WebChat: agent loop failed")
 		errText := fmt.Sprintf("Agent loop failed: %s", err.Error())
-		persistReply(errText, nil, nil, nil, "")
+		persistReply(errText, nil, nil, nil, "", nil)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": errText})
 	}
 	// Whatever RunTurnWithArtifacts appended on top of the history we fed it
@@ -262,7 +266,7 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	// Charts and exports are surfaced on the response regardless, since the
 	// files field is driven by the persisted ids below. The user message
 	// was already saved by AppendUserMessage before the agent ran.
-	fileIDs := persistReply(resp.Response, resp.Charts, artifacts, turnEntries, responseText)
+	fileIDs := persistReply(resp.Response, resp.Charts, artifacts, turnEntries, responseText, debugArt)
 
 	// File downloads are served from the DB, so only files that were actually
 	// persisted (got a real id back) are offered. A persistence failure loses
@@ -307,7 +311,7 @@ func titleFromFirstMessage(message string) string {
 // RunTurnWithArtifacts idempotently re-derives/swaps it on every call
 // (agent.go:148-166), so replaying persisted history without it is safe, and
 // simpler than tracking which prompt variant was live on a given turn.
-func persistAssistantMessage(ctx context.Context, chatStore *storagechat.Store, convID int64, userText, assistantText string, turnEntries []mcpagent.HistoryEntry, charts []WebChatChart, artifacts []mcpagent.Artifact, rawLLMOutput string) ([]int64, error) {
+func persistAssistantMessage(ctx context.Context, chatStore *storagechat.Store, convID int64, userText, assistantText string, turnEntries []mcpagent.HistoryEntry, charts []WebChatChart, artifacts []mcpagent.Artifact, rawLLMOutput string, debugArtifacts json.RawMessage) ([]int64, error) {
 	assistantEntries := []mcpagent.HistoryEntry{{"role": "assistant", "content": assistantText}}
 	for i, e := range turnEntries {
 		if role, _ := e["role"].(string); role == "user" {
@@ -340,6 +344,7 @@ func persistAssistantMessage(ctx context.Context, chatStore *storagechat.Store, 
 			Role:              "assistant",
 			Content:           assistantText,
 			RawHistoryEntries: assistantEntries,
+			DebugArtifacts:    debugArtifacts,
 		},
 		chartInputs,
 		fileInputs,

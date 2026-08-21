@@ -73,6 +73,12 @@ type Agent struct {
 	// describePrompt is the system prompt for the post-data description
 	// call - see alaws_livi/describe.md and (*Agent).regenerateDescription.
 	describePrompt string
+	// interpretHead/interpretTail bracket dbctxTableText's output for the
+	// multi-interpret pipeline (runMultiInterpret). Replaces the old
+	// countQueryHead/Tail + finalizeHead/Tail two-step with a single call
+	// that returns SQL + chart spec together.
+	interpretHead string
+	interpretTail string
 }
 
 func NewAgent(provider *Provider, mcpSession *MCPSession, maxSteps int) *Agent {
@@ -97,14 +103,14 @@ func NewAgent(provider *Provider, mcpSession *MCPSession, maxSteps int) *Agent {
 // Agent instance itself is reused across many sessions by the bots, so the
 // session identity has to be passed in per call rather than baked into Agent.
 func (a *Agent) RunTurn(ctx context.Context, history []HistoryEntry, userText string, sessionID, source string) (string, []HistoryEntry, error) {
-	text, updated, _, err := a.RunTurnWithArtifacts(ctx, history, userText, sessionID, source)
+	text, updated, _, _, err := a.RunTurnWithArtifacts(ctx, history, userText, sessionID, source)
 	return text, updated, err
 }
 
 // RunTurnWithArtifacts is RunTurn plus any files the turn produced (CSV
 // exports). Callers that cannot deliver a file - the bots today - can keep
 // using RunTurn and lose nothing but the attachment.
-func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry, userText string, sessionID, source string) (string, []HistoryEntry, []Artifact, error) {
+func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry, userText string, sessionID, source string) (string, []HistoryEntry, []Artifact, *DebugArtifacts, error) {
 	log.Debug().Int("history_entries", len(history)).Int("user_text_len", len(userText)).Msg("Agent RunTurn starting")
 
 	clog := logging.NewChatTurnLogger(sessionID, source)
@@ -120,31 +126,8 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 		const msg = "Livi is in preparing mode, please come back after 60s."
 		log.Warn().Msg("schema index not ready; refusing the turn before any LLM call")
 		clog.FinalResponse(msg)
-		return msg, history, nil, nil
+		return msg, history, nil, nil, nil
 	}
-
-	systemPrompt := a.systemPrompt
-	tools := a.providerTools
-	// callNumber is livi_analytics_plan.md's "Call #0" diagram number for
-	// whichever call the main step loop below ends up making (1=action,
-	// 2=count-query proposal). 0 means "not a numbered diagram call" - the
-	// chat branch, or a plain tool-only agent with analytics disabled.
-	callNumber := 0
-	// jsonMode forces the count_query branch's replies to be pure JSON at
-	// the API level, same mechanism as classify - see classify.go. Not set
-	// for action (real tool calls, not a JSON envelope) or chat
-	// (deliberately plain prose).
-	jsonMode := false
-	// planRetried bounds the count_query prose retry below to one attempt,
-	// so a model that will not produce a plan fails fast instead of
-	// burning the whole step budget on the same nudge.
-	planRetried := false
-	// schemaTableText is the schema block dbctx rendered for call #2 (the
-	// count-query/plan branch). It is the turn's one and only dbctx fetch -
-	// runAnalyticsPlan threads it through to every report's finalize call
-	// instead of each one re-querying dbctx for its own narrower slice. See
-	// finalizePrompt's doc comment.
-	var schemaTableText string
 
 	// Call #0: classify before paying for schema/tool-schema tokens. Only
 	// runs when analytics is enabled - a plain tool-only agent keeps its
@@ -152,38 +135,70 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 	if a.analyticsEnabled() {
 		shape, err := a.classify(ctx, history, userText, clog)
 		if err != nil {
-			// No retry here: a second classify call would double the very
-			// cost this split exists to avoid. Degrade to the safest
-			// branch - no schema, no tool side effects triggered blindly -
-			// and let the user re-ask if that guess was wrong.
 			log.Warn().Err(err).Msg("call #0 classify failed; degrading to chat-only response for this turn")
 			shape = shapeChat
 		}
+
+		if shape == shapeCountQuery {
+			// Multi-interpret pipeline: skip the step loop entirely.
+			// The interpret prompt includes schema context + data rules +
+			// chart reference in one call. No planning → finalize two-step.
+			_, schemaTableText, schemaErr := a.interpretPrompt(clog, userText)
+			if schemaErr != nil {
+				const msg = "Livi is in preparing mode, please come back after 60s."
+				log.Warn().Err(schemaErr).Msg("schema unavailable for count_query turn; refusing rather than guessing")
+				clog.FinalResponse(msg)
+				return msg, history, nil, nil, nil
+			}
+			clog.BranchSelected("count_query", 0, 0)
+			text, artifacts, debugArt, err := a.runMultiInterpret(ctx, userText, schemaTableText, clog)
+			if err != nil {
+				return text, history, artifacts, debugArt, err
+			}
+			history = append(history, HistoryEntry{"role": "assistant", "text": text})
+			return text, history, artifacts, debugArt, nil
+		}
+
+		// Action and chat branches use the existing step loop.
+		systemPrompt := a.systemPrompt
+		tools := a.providerTools
+		callNumber := 0
+		jsonMode := false
+		planRetried := false
 
 		switch shape {
 		case shapeAction:
 			systemPrompt = a.actionPrompt
 			tools = a.actionTools
 			callNumber = 1
-		case shapeCountQuery:
-			var schemaErr error
-			systemPrompt, schemaTableText, schemaErr = a.countQueryPrompt(clog, userText)
-			if schemaErr != nil {
-				const msg = "Livi is in preparing mode, please come back after 60s."
-				log.Warn().Err(schemaErr).Msg("schema unavailable for count_query turn; refusing rather than guessing")
-				clog.FinalResponse(msg)
-				return msg, history, nil, nil
-			}
-			tools = nil
-			callNumber = 2
-			jsonMode = true
 		default:
 			systemPrompt = a.chatPrompt
 			tools = nil
 		}
 		clog.BranchSelected(string(shape), len(systemPrompt), len(tools))
+
+		return a.runStepLoop(ctx, history, userText, systemPrompt, tools, callNumber, jsonMode, planRetried, "", clog)
 	}
 
+	// Non-analytics path (plain tool-only agent).
+	return a.runStepLoop(ctx, history, userText, a.systemPrompt, a.providerTools, 0, false, false, "", clog)
+}
+
+// runStepLoop is the ReAct tool-calling loop. Extracted from RunTurnWithArtifacts
+// so the count_query branch can skip it entirely (using runMultiInterpret instead)
+// while action and chat branches continue through the step loop as before.
+func (a *Agent) runStepLoop(
+	ctx context.Context,
+	history []HistoryEntry,
+	userText string,
+	systemPrompt string,
+	tools []llms.Tool,
+	callNumber int,
+	jsonMode bool,
+	planRetried bool,
+	schemaTableText string,
+	clog *logging.ChatTurnLogger,
+) (string, []HistoryEntry, []Artifact, *DebugArtifacts, error) {
 	// Swapped every turn, not appended once: which prompt a turn needs is
 	// decided fresh above, so a session that changes shape turn-to-turn
 	// (a data question, then "trigger a review for that repo", then
@@ -222,7 +237,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 		if err != nil {
 			log.Error().Err(err).Int("step", step).Msg("LLM completion failed")
 			clog.AIError(callNumber, step, aiElapsed, err)
-			return "", history, nil, fmt.Errorf("llm completion step %d: %w", step, err)
+			return "", history, nil, nil, fmt.Errorf("llm completion step %d: %w", step, err)
 		}
 		log.Debug().Int("step", step).Int("response_len", len(response)).Msg("LLM call succeeded")
 		clog.AIResponse(callNumber, step, aiElapsed, usage.InputTokens, usage.OutputTokens, response)
@@ -238,17 +253,8 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			if a.analyticsEnabled() {
 				if plan, ok := parseAnalyticsPlan(response); ok {
 					clog.SQLPlan(step, response)
-					// history's last entry is the raw analytics_plan JSON just
-					// appended above (line 181) - runAnalyticsPlan appends its
-					// own final user-facing text in its place. Without
-					// dropping it here, both entries would persist: the raw
-					// plan JSON AND the real answer, as two separate
-					// "assistant" turns. That raw JSON then leaks into every
-					// later call's conversation history (classify included),
-					// and the model starts imitating its own prior "reply
-					// with a JSON blob" turn instead of following whatever
-					// that later call actually asked for.
-					return a.runAnalyticsPlan(ctx, plan, history[:len(history)-1], userText, schemaTableText, clog)
+					text, hist, arts, err := a.runAnalyticsPlan(ctx, plan, history[:len(history)-1], userText, schemaTableText, clog)
+					return text, hist, arts, nil, err
 				}
 			}
 			// The "you MUST call a tool" nudges below only make sense when
@@ -265,35 +271,6 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 					})
 					continue
 				}
-				// A whole-message JSON object that got this far matched
-				// neither a tool call nor a valid analytics plan, so it is
-				// not a shape anything downstream understands - showing it
-				// verbatim just dumps raw JSON into the chat UI (observed:
-				// a misclassified turn on the chat branch fabricated a
-				// {"chart": ..., "learning": ...} object nothing parses).
-				// One retry asking for prose is cheap and much better than
-				// that.
-				// The count_query branch was routed here because call #0
-				// judged the question answerable from data, so prose here
-				// is the model declining to plan - usually a clarifying
-				// question about something the prompt already supplies,
-				// like which organization "my team" means. Returning it
-				// verbatim strands the user with a question instead of a
-				// chart, so force one retry that restates the contract.
-				if callNumber == 2 && !planRetried {
-					planRetried = true
-					log.Warn().Int("step", step).Str("response_preview", truncateContent(response, 200)).
-						Msg("count_query branch returned prose instead of an analytics plan, forcing retry")
-					history = append(history, HistoryEntry{
-						"role": "user",
-						"content": "That reply was not an analytics plan, and this turn cannot ask the user anything. " +
-							"The organization is already given to you above - first-person phrasing like \"my team\" means that organization, " +
-							"so never ask which team or organization is meant. Choose the most reasonable reading of the question, " +
-							"state that reading in the entry's \"question\" field, and reply with the analytics_plan JSON object alone: " +
-							"start with { and end with }, with no text before or after.",
-					})
-					continue
-				}
 				if looksLikeUnrecognizedJSON(response) {
 					log.Warn().Int("step", step).Str("response_preview", truncateContent(response, 200)).
 						Msg("AI produced an unrecognized JSON object on a no-tools branch, forcing retry")
@@ -304,7 +281,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 					continue
 				}
 				clog.FinalResponse(response)
-				return response, history, nil, nil
+				return response, history, nil, nil, nil
 			}
 			if strings.TrimSpace(response) == "" {
 				log.Warn().Int("step", step).Msg("AI returned an empty response, forcing retry")
@@ -323,7 +300,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 				continue
 			}
 			clog.FinalResponse(response)
-			return response, history, nil, nil
+			return response, history, nil, nil, nil
 		}
 
 		for _, tc := range toolCalls {
@@ -352,16 +329,11 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			log.Debug().Str("tool", tc.Name).Int("result_len", displayLen).Msg("MCP tool result received")
 			log.Debug().Str("tool", tc.Name).Str("result_preview", content[:min(len(content), toolResultPreviewLen)]).Msg("MCP tool result (truncated for LLM)")
 
-			// An expired/invalid session token can't be fixed by trying a
-			// different tool - every tool call will fail identically. Without
-			// this, the model (per its "never give up, try another tool"
-			// instructions) burns a full LLM call per tool it tries, cycling
-			// through most of the tool list before giving up.
 			if isAuthError(content) {
 				const authErrorResponse = "Your session has expired. Please refresh the page and sign in again."
 				log.Warn().Str("tool", tc.Name).Msg("Auth error from tool call, stopping agent loop instead of retrying")
 				clog.FinalResponse(authErrorResponse + " (stopped after auth error from " + tc.Name + ")")
-				return authErrorResponse, history, nil, nil
+				return authErrorResponse, history, nil, nil, nil
 			}
 
 			history = append(history, HistoryEntry{
@@ -375,7 +347,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 
 	log.Warn().Int("max_steps", a.maxSteps).Msg("Agent hit step limit")
 	clog.StepLimitHit(a.maxSteps)
-	return "I hit my step limit trying to finish that — try breaking the request down.", history, nil, nil
+	return "I hit my step limit trying to finish that — try breaking the request down.", history, nil, nil, nil
 }
 
 // personaIntro is the one sentence every branch's prompt opens with -
@@ -501,6 +473,22 @@ func (a *Agent) countQueryPrompt(clog *logging.ChatTurnLogger, userText string) 
 // the same way it catches any other rejected query.
 func (a *Agent) finalizePrompt(tableText string) string {
 	return a.finalizeHead + "\n\n" + tableText + a.finalizeTail
+}
+
+// interpretPrompt assembles the multi-interpret pipeline's full system
+// prompt, splicing the live dbctx table text between the precomputed head
+// and tail. This replaces the old countQueryPrompt + finalizePrompt two-
+// step with a single prompt that asks for SQL + chart spec together.
+func (a *Agent) interpretPrompt(clog *logging.ChatTurnLogger, userText string) (systemPrompt, tableText string, err error) {
+	clog.DBCtxRequest(2, string(a.analyticsRole()), userText)
+	start := time.Now()
+	tableText, err = dbctxTableText(userText)
+	clog.DBCtxResponse(2, time.Since(start), tableText, err)
+	if err != nil {
+		clog.SchemaSourceDegraded(err.Error())
+		return "", "", err
+	}
+	return a.interpretHead + "\n\n" + tableText + a.interpretTail, tableText, nil
 }
 
 // isAuthError reports whether a tool result signals an expired/invalid

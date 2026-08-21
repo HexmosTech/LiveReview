@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -100,6 +101,8 @@ func (a *Agent) WithAnalytics(engine AnalyticsEngine) *Agent {
 	a.repairPrompt = lb.repair
 	a.noDataPrompt = lb.noData
 	a.describePrompt = lb.describe
+	a.interpretHead = lb.interpretHead
+	a.interpretTail = lb.interpretTail
 
 	// Kept in sync for any caller still reading systemPrompt/providerTools
 	// directly (there is none in this codebase today, but they remain
@@ -1440,4 +1443,687 @@ func extractSQL(raw string) string {
 		}
 	}
 	return trimmed
+}
+
+// ---------------------------------------------------------------------------
+// Multi-interpret pipeline (replaces plan+finalize for count_query)
+// ---------------------------------------------------------------------------
+
+const maxInterpretations = 5
+
+// interpretEnvelope is the JSON shape the interpreting prompt asks for.
+type interpretEnvelope struct {
+	Query         string           `json:"query"`
+	Interpretation string          `json:"interpretation"`
+	Interpretations []Interpretation `json:"interpretations"`
+}
+
+// parseInterpretations extracts up to maxInterpretations entries from the
+// LLM's JSON response. Accepts both wrapped {"interpretations":[...]} and
+// bare [...] shapes.
+func parseInterpretations(text string) ([]Interpretation, bool) {
+	body := strings.TrimSpace(vlrender.ExtractJSONBlock(text))
+	if body == "" {
+		return nil, false
+	}
+
+	var env interpretEnvelope
+	if err := json.Unmarshal([]byte(body), &env); err == nil && len(env.Interpretations) > 0 {
+		return normalizeInterpretations(env.Interpretations)
+	}
+
+	// Bare array fallback.
+	if strings.HasPrefix(body, "[") {
+		var interps []Interpretation
+		if err := json.Unmarshal([]byte(body), &interps); err == nil && len(interps) > 0 {
+			return normalizeInterpretations(interps)
+		}
+	}
+
+	return nil, false
+}
+
+func normalizeInterpretations(in []Interpretation) ([]Interpretation, bool) {
+	out := make([]Interpretation, 0, len(in))
+	for _, interp := range in {
+		if strings.TrimSpace(interp.SQL) == "" {
+			continue
+		}
+		if strings.TrimSpace(interp.ChartType) == "" {
+			interp.ChartType = "bar"
+		}
+		if strings.TrimSpace(interp.Title) == "" {
+			interp.Title = "Query Result"
+		}
+		out = append(out, interp)
+		if len(out) >= maxInterpretations {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
+	return out, true
+}
+
+// runMultiInterpret executes the multi-interpret analytics pipeline. It
+// makes a single LLM call to get up to 5 SQL+chart interpretations, then
+// executes each through the SQL guard, builds charts, and assembles the
+// response. Returns (responseText, artifacts, debugArtifacts, error).
+func (a *Agent) runMultiInterpret(
+	ctx context.Context,
+	userText string,
+	schemaTableText string,
+	clog *logging.ChatTurnLogger,
+) (string, []Artifact, *DebugArtifacts, error) {
+	ctx, cancel := context.WithTimeout(ctx, analyticsTurnTimeout)
+	defer cancel()
+
+	debug := &DebugArtifacts{
+		Query:         userText,
+		SchemaContext: truncateContent(schemaTableText, 5000),
+	}
+
+	// Build the interpret prompt and call the LLM once.
+	system, _, err := a.interpretPrompt(clog, userText)
+	if err != nil {
+		return "Livi is in preparing mode, please come back after 60s.", nil, debug, nil
+	}
+	debug.SystemPrompt = truncateContent(system, 5000)
+
+	raw, err := a.completeOnce(ctx, clog, 2, "interpret", "multi", 1, system,
+		"User question: "+userText)
+	if err != nil {
+		log.Error().Err(err).Msg("multi-interpret LLM call failed")
+		return "I had trouble understanding that question. Please try rephrasing.", nil, debug, err
+	}
+	debug.LLMRawResponse = raw
+
+	interps, ok := parseInterpretations(raw)
+	if !ok {
+		log.Warn().Str("raw_preview", truncateContent(raw, 200)).Msg("could not parse interpretations from LLM response")
+		return "I could not produce a valid analysis plan. Please try rephrasing.", nil, debug, nil
+	}
+	debug.Interpretations = interps
+
+	var (
+		reports   []vlrender.VegaLiteReport
+		artifacts []Artifact
+		notes     []string
+	)
+
+	for i, interp := range interps {
+		entry := DebugResultEntry{
+			Index:     i,
+			Title:     interp.Title,
+			ChartType: interp.ChartType,
+			SQL:       interp.SQL,
+		}
+
+		result := a.executeInterpretation(ctx, interp, userText, clog)
+		entry.Status = result.Status
+		entry.SkipReason = result.SkipReason
+		entry.RowCount = result.RowCount
+		entry.Stats = result.Stats
+		debug.Results = append(debug.Results, entry)
+
+		switch {
+		case result.Chart != nil:
+			reports = append(reports, *result.Chart)
+		case result.Artifact != nil:
+			artifacts = append(artifacts, *result.Artifact)
+		case result.SkipReason != "":
+			notes = append(notes, fmt.Sprintf("Skipped %q: %s", interp.Title, result.SkipReason))
+		}
+	}
+
+	responseText := assembleAnalyticsResponse(reports, notes, len(artifacts) > 0)
+	clog.FinalResponse(responseText)
+	return responseText, artifacts, debug, nil
+}
+
+// executeInterpretation runs one interpretation through the SQL guard,
+// executes it, and builds a chart or CSV from the results.
+func (a *Agent) executeInterpretation(
+	ctx context.Context,
+	interp Interpretation,
+	userText string,
+	clog *logging.ChatTurnLogger,
+) InterpretationResult {
+	sqlText := interp.SQL
+
+	// Validate with the guard.
+	rewritten, err := a.guard().Rewrite(sqlText)
+	if err != nil {
+		clog.SQLRejected(interp.Title, "data", 1, err.Error())
+		// Try repairing once.
+		fixed, rerr := a.repairSQL(ctx, 2, interp.Title, 1, userText, sqlText, hintFor(err), clog)
+		if rerr != nil {
+			return InterpretationResult{Status: "failed", SkipReason: "SQL rejected: " + err.Error()}
+		}
+		sqlText = fixed
+		rewritten, err = a.guard().Rewrite(sqlText)
+		if err != nil {
+			return InterpretationResult{Status: "failed", SkipReason: "SQL still rejected after repair: " + err.Error()}
+		}
+	}
+	clog.SQLRewritten(interp.Title, "data", 1, rewritten)
+
+	// Execute.
+	start := time.Now()
+	rs, err := a.analytics.Query(ctx, rewritten, maxCSVRows)
+	if err != nil {
+		clog.SQLError(interp.Title, "data", 1, time.Since(start), err)
+		return InterpretationResult{Status: "failed", SkipReason: "Query failed: " + err.Error()}
+	}
+	clog.SQLResult(interp.Title, "data", 1, time.Since(start), len(rs.Rows), rs.Truncated)
+
+	// Weak result filter.
+	if len(rs.Rows) <= 1 {
+		return InterpretationResult{
+			Status:     "skipped",
+			SkipReason: "single-row result (weak)",
+			RowCount:   len(rs.Rows),
+		}
+	}
+
+	// Smart time aggregation for day-level time series.
+	aggregated, timeUnit, groupFields := smartAggregateTime(rs)
+	if aggregated != nil {
+		rs = aggregated
+	}
+
+	// Build chart.
+	chart, art := a.buildChartFromInterp(ctx, interp, rs, timeUnit, groupFields, clog)
+
+	stats := computeStats(rs.Rows, interp.Encoding)
+
+	if chart != nil {
+		return InterpretationResult{
+			Status:   "rendered",
+			Chart:    chart,
+			RowCount: len(rs.Rows),
+			Stats:    stats,
+		}
+	}
+	if art != nil {
+		return InterpretationResult{
+			Status:   "rendered",
+			Artifact: art,
+			RowCount: len(rs.Rows),
+			Stats:    stats,
+		}
+	}
+	return InterpretationResult{
+		Status:   "skipped",
+		SkipReason: "could not build chart",
+		RowCount: len(rs.Rows),
+	}
+}
+
+// buildChartFromInterp builds a Vega-Lite chart from an Interpretation
+// (not a FinalizePlan). Maps chart_type to mark+encoding, injects data,
+// and normalizes the spec.
+func (a *Agent) buildChartFromInterp(
+	ctx context.Context,
+	interp Interpretation,
+	rs *storageanalytics.ResultSet,
+	timeUnit string,
+	groupFields []string,
+	clog *logging.ChatTurnLogger,
+) (*vlrender.VegaLiteReport, *Artifact) {
+	if len(rs.Rows) > maxChartRows {
+		// Too many rows for a chart — downgrade to CSV.
+		return nil, a.buildCSVFromRS(interp.Title, interp.Description, interp.SQL, rs)
+	}
+
+	mark, defaultEncoding := chartTypeToMark(interp.ChartType, timeUnit)
+
+	// Use model-provided encoding if available, otherwise use default.
+	encodingJSON := defaultEncoding
+	if len(interp.Encoding) > 0 {
+		if e, err := json.Marshal(interp.Encoding); err == nil {
+			encodingJSON = json.RawMessage(e)
+		}
+	}
+
+	// Verify encoding fields exist in result columns.
+	available := make(map[string]bool, len(rs.Columns))
+	for _, c := range rs.Columns {
+		available[c] = true
+	}
+
+	spec := map[string]any{
+		"$schema":   "https://vega.github.io/schema/vega-lite/v5.json",
+		"width":     600,
+		"height":    340,
+		"background": "#ffffff",
+		"data":      map[string]any{"values": rs.Rows},
+	}
+
+	if interp.ChartType == "trellis_bar" {
+		// Trellis needs facet + spec, not top-level mark.
+		spec["facet"] = json.RawMessage(defaultEncoding)
+		spec["spec"] = map[string]any{
+			"mark": "bar",
+			"encoding": encodingJSON,
+		}
+	} else {
+		spec["mark"] = mark
+		spec["encoding"] = encodingJSON
+	}
+
+	specJSON, err := json.Marshal(spec)
+	if err != nil {
+		log.Error().Err(err).Str("interp", interp.Title).Msg("failed to marshal chart spec")
+		return nil, a.buildCSVFromRS(interp.Title, interp.Description, interp.SQL, rs)
+	}
+
+	normalized, err := vlrender.NormalizeVegaLiteSpec(specJSON)
+	if err != nil {
+		log.Warn().Err(err).Str("interp", interp.Title).Msg("spec normalization failed, using raw")
+		normalized = specJSON
+	}
+
+	timeRange := computeTimeRange(rs)
+
+	clog.ReportFinalized(interp.Title, ResponseTypeChart, interp.Title, len(rs.Rows))
+	return &vlrender.VegaLiteReport{
+		Title:       interp.Title,
+		Description: interp.Description,
+		Query:       interp.SQL,
+		TimeRange:   timeRange,
+		Granularity: timeUnit,
+		Spec:        normalized,
+	}, nil
+}
+
+// buildCSVFromRS creates a CSV artifact from a result set.
+func (a *Agent) buildCSVFromRS(title, description, query string, rs *storageanalytics.ResultSet) *Artifact {
+	var buf strings.Builder
+	w := csv.NewWriter(&buf)
+	w.Write(rs.Columns)
+	for _, row := range rs.Rows {
+		vals := make([]string, len(rs.Columns))
+		for i, col := range rs.Columns {
+			vals[i] = fmt.Sprintf("%v", row[col])
+		}
+		w.Write(vals)
+	}
+	w.Flush()
+	return &Artifact{
+		Kind:        "csv",
+		Filename:    safeCSVFilename(title),
+		Title:       title,
+		Description: description,
+		Query:       query,
+		Data:        []byte(buf.String()),
+		Rows:        len(rs.Rows),
+	}
+}
+
+// chartTypeToMark maps a chart_type string to a Vega-Lite mark and default
+// encoding. Returns (mark, encodingJSON).
+func chartTypeToMark(chartType, timeUnit string) (string, json.RawMessage) {
+	switch chartType {
+	case "bar":
+		return `"bar"`, json.RawMessage(`{"x":{"type":"nominal","sort":"-y"},"y":{"type":"quantitative"}}`)
+	case "grouped_bar":
+		return `"bar"`, json.RawMessage(`{"x":{"type":"nominal"},"y":{"type":"quantitative"},"color":{"type":"nominal"},"xOffset":{"type":"nominal"}}`)
+	case "stacked_bar":
+		return `"bar"`, json.RawMessage(`{"x":{"type":"nominal"},"y":{"type":"quantitative"},"color":{"type":"nominal"}}`)
+	case "line":
+		return `{"type":"line","point":true}`, json.RawMessage(`{"x":{"type":"temporal","timeUnit":"` + timeUnit + `"},"y":{"type":"quantitative"}}`)
+	case "multi_line":
+		return `{"type":"line","point":true}`, json.RawMessage(`{"x":{"type":"temporal","timeUnit":"` + timeUnit + `"},"y":{"type":"quantitative"},"color":{"type":"nominal"}}`)
+	case "area":
+		return `"area"`, json.RawMessage(`{"x":{"type":"temporal","timeUnit":"` + timeUnit + `"},"y":{"type":"quantitative"}}`)
+	case "stacked_area":
+		return `"area"`, json.RawMessage(`{"x":{"type":"temporal","timeUnit":"` + timeUnit + `"},"y":{"type":"quantitative"},"color":{"type":"nominal"}}`)
+	case "scatter":
+		return `"point"`, json.RawMessage(`{"x":{"type":"quantitative"},"y":{"type":"quantitative"}}`)
+	case "pie":
+		return `{"type":"arc","innerRadius":50}`, json.RawMessage(`{"theta":{"type":"quantitative"},"color":{"type":"nominal"}}`)
+	case "heatmap":
+		return `"rect"`, json.RawMessage(`{"x":{"type":"ordinal"},"y":{"type":"ordinal"},"color":{"type":"quantitative","scale":{"scheme":"blues"}}}`)
+	case "horizontal_bar":
+		return `"bar"`, json.RawMessage(`{"y":{"type":"nominal","sort":"-x"},"x":{"type":"quantitative"}}`)
+	case "boxplot":
+		return `{"type":"boxplot","extent":1.5}`, json.RawMessage(`{"x":{"type":"nominal"},"y":{"type":"quantitative"}}`)
+	case "trellis_bar":
+		// For trellis, the "encoding" is actually the facet channel.
+		return `"bar"`, json.RawMessage(`{"field":"group","type":"nominal","columns":3}`)
+	default:
+		return `"bar"`, json.RawMessage(`{"x":{"type":"nominal","sort":"-y"},"y":{"type":"quantitative"}}`)
+	}
+}
+
+// smartAggregateTime detects day-level time series and re-aggregates to
+// week (≤90 day span) or month (>90 day span). Returns nil if no
+// aggregation was needed. Also strips timezone suffixes for Vega
+// compatibility. Returns (aggregatedRS, timeUnit, groupFields).
+func smartAggregateTime(rs *storageanalytics.ResultSet) (*storageanalytics.ResultSet, string, []string) {
+	if len(rs.Rows) == 0 {
+		return nil, "", nil
+	}
+
+	// Find temporal and group fields from the data shape.
+	var timeField string
+	var valueFields []string
+	var groupFields []string
+
+	for _, col := range rs.Columns {
+		// Check if this column looks temporal (contains dates).
+		sample := rs.Rows[0][col]
+		if sample == nil {
+			continue
+		}
+		s := fmt.Sprintf("%v", sample)
+		if len(s) >= 10 && (s[4] == '-' || strings.Contains(s, "T")) {
+			// Looks like a date/datetime.
+			if timeField == "" {
+				timeField = col
+				continue
+			}
+		}
+		// Check if numeric.
+		switch sample.(type) {
+		case int, int32, int64, float32, float64:
+			valueFields = append(valueFields, col)
+		default:
+			// Try parsing as number.
+			if _, err := fmt.Sscanf(s, "%f", new(float64)); err == nil {
+				valueFields = append(valueFields, col)
+			} else if col != timeField {
+				groupFields = append(groupFields, col)
+			}
+		}
+	}
+
+	if timeField == "" || len(valueFields) == 0 {
+		// No time series — just strip timezones.
+		stripTimezones(rs)
+		return nil, "yearmonthdate", nil
+	}
+
+	// Parse dates and compute span.
+	type datedRow struct {
+		date time.Time
+		row  map[string]any
+	}
+	var dated []datedRow
+	for _, row := range rs.Rows {
+		raw := row[timeField]
+		if raw == nil {
+			continue
+		}
+		s := fmt.Sprintf("%v", raw)
+		s = strings.Replace(s, "+00:00", "", 1)
+		s = strings.Replace(s, "Z", "", 1)
+		var t time.Time
+		for _, layout := range []string{
+			"2006-01-02T15:04:05",
+			"2006-01-02T15:04:05.000",
+			"2006-01-02T15:04:05.000000",
+			"2006-01-02",
+		} {
+			var err error
+			t, err = time.Parse(layout, s)
+			if err == nil {
+				break
+			}
+		}
+		if t.IsZero() {
+			continue
+		}
+		dated = append(dated, datedRow{date: t, row: row})
+	}
+
+	if len(dated) <= 7 {
+		// Too few points to aggregate — just strip timezones.
+		stripTimezones(rs)
+		return nil, "yearmonthdate", nil
+	}
+
+	span := dated[len(dated)-1].date.Sub(dated[0].date).Hours() / 24
+	if span <= 14 {
+		// Short span — day level is fine.
+		stripTimezones(rs)
+		return nil, "yearmonthdate", nil
+	}
+
+	var aggUnit string
+	var keyFunc func(time.Time) time.Time
+	if span <= 90 {
+		aggUnit = "yearweek"
+		keyFunc = func(t time.Time) time.Time {
+			// Start of ISO week.
+			wd := int(t.Weekday())
+			if wd == 0 {
+				wd = 7
+			}
+			return t.AddDate(0, 0, -(wd - 1))
+		}
+	} else {
+		aggUnit = "yearmonth"
+		keyFunc = func(t time.Time) time.Time {
+			return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, t.Location())
+		}
+	}
+
+	// Aggregate.
+	type aggKey struct {
+		timeKey string
+		group   string // concatenated group field values
+	}
+	grouped := map[aggKey]map[string]any{}
+	for _, dr := range dated {
+		tk := keyFunc(dr.date)
+		gv := ""
+		for _, gf := range groupFields {
+			gv += fmt.Sprintf("%v|", dr.row[gf])
+		}
+		key := aggKey{timeKey: tk.Format("2006-01-02"), group: gv}
+		if _, ok := grouped[key]; !ok {
+		 newRow := map[string]any{timeField: tk.Format("2006-01-02")}
+			for _, gf := range groupFields {
+				newRow[gf] = dr.row[gf]
+			}
+			for _, vf := range valueFields {
+				newRow[vf] = 0.0
+			}
+			grouped[key] = newRow
+		}
+		for _, vf := range valueFields {
+			val := toFloat(dr.row[vf])
+			grouped[key][vf] = grouped[key][vf].(float64) + val
+		}
+	}
+
+	// Build result.
+	out := make([]map[string]any, 0, len(grouped))
+	for _, row := range grouped {
+		out = append(out, row)
+	}
+	// Sort by time.
+	sort.Slice(out, func(i, j int) bool {
+		return fmt.Sprintf("%v", out[i][timeField]) < fmt.Sprintf("%v", out[j][timeField])
+	})
+
+	return &storageanalytics.ResultSet{
+		Columns: rs.Columns,
+		Rows:    out,
+	}, aggUnit, groupFields
+}
+
+// stripTimezones removes +00:00 suffixes from temporal column values so
+// Vega-Lite doesn't choke on "Incompatible time units".
+func stripTimezones(rs *storageanalytics.ResultSet) {
+	for _, row := range rs.Rows {
+		for k, v := range row {
+			if s, ok := v.(string); ok {
+				if strings.Contains(s, "+00:00") {
+					row[k] = strings.Replace(s, "+00:00", "", 1)
+				}
+			}
+		}
+	}
+}
+
+// toFloat converts a value to float64, returning 0 on failure.
+func toFloat(v any) float64 {
+	if v == nil {
+		return 0
+	}
+	switch n := v.(type) {
+	case float64:
+		return n
+	case float32:
+		return float64(n)
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	case int32:
+		return float64(n)
+	default:
+		var f float64
+		fmt.Sscanf(fmt.Sprintf("%v", v), "%f", &f)
+		return f
+	}
+}
+
+// computeStats produces human-readable summary statistics for a result
+// set, similar to prelivi's compute_stats.
+func computeStats(rows []map[string]any, encoding map[string]any) []string {
+	if len(rows) == 0 {
+		return []string{"No data returned."}
+	}
+
+	var lines []string
+	keys := make([]string, 0, len(rows[0]))
+	for k := range rows[0] {
+		keys = append(keys, k)
+	}
+
+	// Try to identify time, category, and numeric fields from encoding.
+	var timeField, categoryField string
+	var numericFields []string
+
+	if encoding != nil {
+		for _, enc := range encoding {
+			if m, ok := enc.(map[string]any); ok {
+				f, _ := m["field"].(string)
+				t, _ := m["type"].(string)
+				switch t {
+				case "temporal":
+					timeField = f
+				case "nominal", "ordinal":
+					categoryField = f
+				case "quantitative":
+					numericFields = append(numericFields, f)
+				}
+			}
+		}
+	}
+
+	// Fallback: detect from data.
+	if len(numericFields) == 0 {
+		for _, k := range keys {
+			if toFloat(rows[0][k]) != 0 {
+				numericFields = append(numericFields, k)
+				break
+			}
+		}
+	}
+
+	nf := ""
+	if len(numericFields) > 0 {
+		nf = numericFields[0]
+	}
+
+	if timeField != "" && nf != "" {
+		// Time series stats.
+		type tv struct {
+			t string
+			v float64
+		}
+		var vals []tv
+		for _, r := range rows {
+			v := toFloat(r[nf])
+			t := fmt.Sprintf("%v", r[timeField])
+			vals = append(vals, tv{t: t, v: v})
+		}
+		if len(vals) > 0 {
+			total := 0.0
+			maxV, minV := vals[0], vals[0]
+			for _, x := range vals {
+				total += x.v
+				if x.v > maxV.v {
+					maxV = x
+				}
+				if x.v < minV.v {
+					minV = x
+				}
+			}
+			avg := total / float64(len(vals))
+			lines = append(lines, fmt.Sprintf("Total: %.0f", total))
+			lines = append(lines, fmt.Sprintf("Avg per period: %.1f", avg))
+			lines = append(lines, fmt.Sprintf("Peak: %.0f (%s)", maxV.v, maxV.t))
+			lines = append(lines, fmt.Sprintf("Low: %.0f (%s)", minV.v, minV.t))
+			if len(vals) >= 2 && vals[0].v > 0 {
+				changePct := ((vals[len(vals)-1].v - vals[0].v) / vals[0].v) * 100
+				direction := "up"
+				if changePct < 0 {
+					direction = "down"
+				} else if changePct == 0 {
+					direction = "flat"
+				}
+				lines = append(lines, fmt.Sprintf("Trend: %s %.0f%% (%s -> %s)", direction, abs(changePct), vals[0].t, vals[len(vals)-1].t))
+			}
+			lines = append(lines, fmt.Sprintf("Data points: %d", len(vals)))
+		}
+	} else if categoryField != "" && nf != "" {
+		// Category stats.
+		type cv struct {
+			c string
+			v float64
+		}
+		var vals []cv
+		for _, r := range rows {
+			v := toFloat(r[nf])
+			c := fmt.Sprintf("%v", r[categoryField])
+			vals = append(vals, cv{c: c, v: v})
+		}
+		if len(vals) > 0 {
+			total := 0.0
+			maxV, minV := vals[0], vals[0]
+			for _, x := range vals {
+				total += x.v
+				if x.v > maxV.v {
+					maxV = x
+				}
+				if x.v < minV.v {
+					minV = x
+				}
+			}
+			avg := total / float64(len(vals))
+			lines = append(lines, fmt.Sprintf("Total: %.0f", total))
+			lines = append(lines, fmt.Sprintf("Across %d categories", len(vals)))
+			lines = append(lines, fmt.Sprintf("Avg per category: %.1f", avg))
+			lines = append(lines, fmt.Sprintf("Highest: %s (%.0f)", maxV.c, maxV.v))
+			lines = append(lines, fmt.Sprintf("Lowest: %s (%.0f)", minV.c, minV.v))
+		}
+	} else {
+		lines = append(lines, fmt.Sprintf("%d rows returned", len(rows)))
+	}
+
+	return lines
+}
+
+func abs(x float64) float64 {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
