@@ -614,4 +614,225 @@ Already fire-and-forget. Keep as is.
 | `GET /reviews/:id/events` | lazy (Events tab) | Full event stream |
 | `GET /reviews/:id/accounting` | lazy (Accounting tab only) | Detailed token/LOC breakdown |
 
+
 **Result:** header renders completely from 2 parallel calls instead of 5. The 1000-event payload is deferred until actually needed.
+
+---
+
+## Tool Status Lifecycle – How Each Tool's Status is Tracked
+
+### The core problem
+
+A `tool_result` event is only written **when a Lambda returns**. There is no event for "this tool was dispatched" or "this tool is currently running". Without a record of what tools were dispatched, the UI has no way to distinguish between:
+
+- A tool that hasn't started yet (`pending`)
+- A tool that is actively running (`running`)
+- A review that never had that tool enabled at all
+
+This section defines the two-event approach that solves this without a new table.
+
+---
+
+### Two event types for tools
+
+#### 1. `tool_dispatch` — written at fan-out time
+
+When `WebhookOrchestratorV2` inserts River jobs for the enabled tools, it **also** writes one `tool_dispatch` event per tool into `review_events` immediately:
+
+```sql
+INSERT INTO public.review_events (review_id, org_id, event_type, data)
+VALUES (
+  $1,
+  $2,
+  'tool_dispatch',
+  '{"tool_id": 1, "tool_name": "ruff", "status": "pending"}'
+);
+```
+
+This gives the UI a complete, authoritative list of **every tool that was launched for this review**, even before any results come back.
+
+Go insert (inside the fan-out loop, same transaction as the River job inserts):
+
+```go
+for _, tool := range enabledTools {
+    _, err = riverClient.Insert(ctx, ToolInvocationJobArgs{...}, nil)
+    // immediately record the dispatch
+    _, err = store.InsertReviewEvent(ctx, InsertReviewEventParams{
+        ReviewID:  reviewID,
+        OrgID:     orgID,
+        EventType: "tool_dispatch",
+        Data:      json.RawMessage(fmt.Sprintf(
+            `{"tool_id":%d,"tool_name":%q,"status":"pending"}`,
+            tool.ID, tool.Name,
+        )),
+    })
+}
+```
+
+#### 2. `tool_result` — written when Lambda returns
+
+When the River worker receives the Lambda response, it writes a `tool_result` event (already defined in Phase 3):
+
+```json
+{
+  "tool_id":   1,
+  "tool_name": "ruff",
+  "exit_code": 0,
+  "findings":  [...],
+  "lines_of_code": 312,
+  "stderr": ""
+}
+```
+
+---
+
+### Status derivation rules
+
+The frontend (and the enriched summary endpoint) derives per-tool status by **joining dispatch events with result events** for the same `tool_name`:
+
+| Condition | Derived status |
+|---|---|
+| `tool_dispatch` exists, no `tool_result` yet | `pending` |
+| `tool_dispatch` exists, River job is running (no result yet, time elapsed) | `running` (approximated by age — see note below) |
+| `tool_result` exists, `exit_code = 0`, `findings = []` | `clean` |
+| `tool_result` exists, `exit_code = 0`, `findings.length > 0` | `completed` |
+| `tool_result` exists, `exit_code != 0` | `failed` |
+| River job exhausted retries → worker writes a synthetic `tool_result` with `exit_code: -1` | `failed` |
+
+> **Running approximation:** The exact `running` status requires querying River's internal `river_jobs` table, which is brittle. Instead: if a `tool_dispatch` event is older than N seconds and no `tool_result` has appeared, the summary endpoint classifies it as `running`. A reasonable threshold is 10 seconds (most Lambda cold starts complete within 5s). This is an approximation — the UI already handles the ambiguity gracefully by showing a spinner for both `pending` and `running`.
+
+---
+
+### SQL for the enriched summary endpoint
+
+The `GetReviewSummary` handler builds `toolSummary` with two queries:
+
+**Query 1 — dispatched tools (complete list):**
+
+```sql
+SELECT
+    data->>'tool_name'   AS tool_name,
+    data->>'tool_id'     AS tool_id,
+    created_at
+FROM review_events
+WHERE review_id = $1
+  AND org_id    = $2
+  AND event_type = 'tool_dispatch'
+ORDER BY created_at ASC;
+```
+
+**Query 2 — completed results:**
+
+```sql
+SELECT
+    data->>'tool_name'                        AS tool_name,
+    (data->>'exit_code')::int                 AS exit_code,
+    jsonb_array_length(data->'findings')      AS finding_count,
+    data->>'stderr'                           AS stderr
+FROM review_events
+WHERE review_id = $1
+  AND org_id    = $2
+  AND event_type = 'tool_result'
+ORDER BY created_at ASC;
+```
+
+The handler merges the two result sets in Go:
+
+```go
+// resultMap: tool_name → tool_result row
+resultMap := map[string]ToolResultRow{}
+for _, r := range results {
+    resultMap[r.ToolName] = r
+}
+
+breakdown := []ToolBreakdownItem{}
+for _, d := range dispatched {
+    r, done := resultMap[d.ToolName]
+    item := ToolBreakdownItem{ToolName: d.ToolName}
+
+    if !done {
+        age := time.Since(d.CreatedAt)
+        if age > 10*time.Second {
+            item.Status = "running"
+        } else {
+            item.Status = "pending"
+        }
+    } else if r.ExitCode != 0 {
+        item.Status = "failed"
+    } else if r.FindingCount > 0 {
+        item.Status = "completed"
+        item.CommentsGenerated = r.FindingCount
+    } else {
+        item.Status = "clean"
+    }
+
+    breakdown = append(breakdown, item)
+}
+```
+
+**Credits** per tool come from `available_tools.multiplier` joined by `tool_id` from the dispatch events — no Lambda call needed.
+
+---
+
+### What happens when River exhausts retries (error path)
+
+If the Lambda call fails after all River retries, the worker writes a synthetic failure event before returning:
+
+```go
+// In ToolInvocationWorker.Work(), after final retry failure:
+store.InsertReviewEvent(ctx, InsertReviewEventParams{
+    ReviewID:  args.ReviewID,
+    OrgID:     orgID,  // always from review row, never job args
+    EventType: "tool_result",
+    Data: json.RawMessage(fmt.Sprintf(
+        `{"tool_id":%d,"tool_name":%q,"exit_code":-1,"findings":[],"stderr":"Lambda invocation failed after retries"}`,
+        args.ToolID, args.ToolName,
+    )),
+})
+```
+
+This ensures the UI never shows a tool stuck in `pending` forever — it will transition to `failed` once River gives up.
+
+---
+
+### Frontend: building `ToolAccountingData` from real API data
+
+Once the enriched summary endpoint is live, the frontend replaces the mock `setToolAccounting(...)` calls with a direct mapping from `summary.toolSummary`:
+
+```typescript
+// In fetchReviewDetails, after getReviewSummary():
+if (summaryData.toolSummary) {
+    setToolAccounting({
+        totalToolCredits:        summaryData.toolSummary.totalCostUsd ?? 0,
+        toolsExecuted:           summaryData.toolSummary.toolsExecuted,
+        totalCommentsGenerated:  summaryData.toolSummary.totalCommentsGenerated,
+        toolBreakdown:           summaryData.toolSummary.toolBreakdown,
+    });
+} else {
+    setToolAccounting(null); // hides the tools tab if no tools ran
+}
+```
+
+The `status` field on each `ToolBreakdownItem` comes directly from the backend merge logic above — the frontend does not re-derive it.
+
+---
+
+### Summary: full status lifecycle
+
+```
+Fan-out trigger
+  │
+  ├─ INSERT tool_dispatch (status: "pending")  ← UI sees: pending
+  └─ riverClient.Insert(ToolInvocationJobArgs)
+        │
+        ├─ [job starts running]               ← UI sees: running (age > 10s)
+        │
+        ├─ Lambda returns 200
+        │     └─ INSERT tool_result (exit_code, findings)
+        │           ├─ findings > 0           ← UI sees: completed
+        │           └─ findings = 0           ← UI sees: clean
+        │
+        └─ Lambda fails / retries exhausted
+              └─ INSERT tool_result (exit_code: -1)
+                                              ← UI sees: failed
+```
