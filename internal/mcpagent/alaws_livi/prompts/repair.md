@@ -12,8 +12,13 @@ this call corrects one statement, it does not replan.
 <!-- alaws:promptTemplate -->
 
 {{ref:livi.general.principles}}
+
 {{ref:livi.general.reading}}
+
 {{ref:livi.general.data}}
+
 {{ref:livi.general.precedence}}
+
 {{ref:livi.general.unavailable}}
+
 {{ref:livi.degraded.repair}}
