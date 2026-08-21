@@ -1,0 +1,228 @@
+{
+  "chart_types": [
+    {
+      "id": "bar",
+      "name": "Bar Chart",
+      "use_when": "Comparing categories, showing counts or aggregates per group",
+      "data_shape": "categorical x, numeric y",
+      "examples": ["reviews per trigger_type", "users per org", "top repositories by review count"],
+      "vega_lite_template": {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "data": {"values": "DATA_PLACEHOLDER"},
+        "mark": "bar",
+        "encoding": {
+          "x": {"field": "CATEGORY_FIELD", "type": "nominal", "sort": "-y"},
+          "y": {"field": "NUMERIC_FIELD", "type": "quantitative"},
+          "tooltip": [{"field": "CATEGORY_FIELD"}, {"field": "NUMERIC_FIELD"}]
+        }
+      }
+    },
+    {
+      "id": "grouped_bar",
+      "name": "Grouped Bar Chart",
+      "use_when": "Comparing categories across two grouping dimensions",
+      "data_shape": "category x, group color, numeric y",
+      "examples": ["reviews per trigger_type split by month", "plan types per org"],
+      "vega_lite_template": {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "data": {"values": "DATA_PLACEHOLDER"},
+        "mark": "bar",
+        "encoding": {
+          "x": {"field": "CATEGORY_FIELD", "type": "nominal"},
+          "y": {"field": "NUMERIC_FIELD", "type": "quantitative"},
+          "color": {"field": "GROUP_FIELD", "type": "nominal"},
+          "xOffset": {"field": "GROUP_FIELD"}
+        }
+      }
+    },
+    {
+      "id": "stacked_bar",
+      "name": "Stacked Bar Chart",
+      "use_when": "Showing composition of categories, parts of a whole",
+      "data_shape": "category x, subcategory color, numeric y",
+      "examples": ["review status breakdown per month", "trigger type composition per org"],
+      "vega_lite_template": {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "data": {"values": "DATA_PLACEHOLDER"},
+        "mark": "bar",
+        "encoding": {
+          "x": {"field": "CATEGORY_FIELD", "type": "nominal"},
+          "y": {"field": "NUMERIC_FIELD", "type": "quantitative", "stack": "normalize"},
+          "color": {"field": "SUBCATEGORY_FIELD", "type": "nominal"}
+        }
+      }
+    },
+    {
+      "id": "line",
+      "name": "Line Chart",
+      "use_when": "Showing trends over time, continuous change",
+      "data_shape": "temporal x, numeric y",
+      "examples": ["reviews per month", "LOC consumed per billing period", "active users over time"],
+      "vega_lite_template": {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "data": {"values": "DATA_PLACEHOLDER"},
+        "mark": {"type": "line", "point": true},
+        "encoding": {
+          "x": {"field": "TIME_FIELD", "type": "temporal", "timeUnit": "yearmonth"},
+          "y": {"field": "NUMERIC_FIELD", "type": "quantitative"},
+          "tooltip": [{"field": "TIME_FIELD", "type": "temporal"}, {"field": "NUMERIC_FIELD"}]
+        }
+      }
+    },
+    {
+      "id": "multi_line",
+      "name": "Multi-Series Line Chart",
+      "use_when": "Comparing trends over time across groups",
+      "data_shape": "temporal x, numeric y, group color",
+      "examples": ["reviews per month per trigger_type", "LOC per billing period per provider"],
+      "vega_lite_template": {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "data": {"values": "DATA_PLACEHOLDER"},
+        "mark": {"type": "line", "point": true},
+        "encoding": {
+          "x": {"field": "TIME_FIELD", "type": "temporal", "timeUnit": "yearmonth"},
+          "y": {"field": "NUMERIC_FIELD", "type": "quantitative"},
+          "color": {"field": "GROUP_FIELD", "type": "nominal"},
+          "tooltip": [{"field": "TIME_FIELD"}, {"field": "NUMERIC_FIELD"}, {"field": "GROUP_FIELD"}]
+        }
+      }
+    },
+    {
+      "id": "area",
+      "name": "Area Chart",
+      "use_when": "Showing volume/magnitude over time, cumulative trends",
+      "data_shape": "temporal x, numeric y",
+      "examples": ["cumulative reviews over time", "total LOC consumed trend"],
+      "vega_lite_template": {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "data": {"values": "DATA_PLACEHOLDER"},
+        "mark": "area",
+        "encoding": {
+          "x": {"field": "TIME_FIELD", "type": "temporal", "timeUnit": "yearmonth"},
+          "y": {"field": "NUMERIC_FIELD", "type": "quantitative"}
+        }
+      }
+    },
+    {
+      "id": "stacked_area",
+      "name": "Stacked Area Chart",
+      "use_when": "Showing composition over time, how parts contribute to whole",
+      "data_shape": "temporal x, numeric y, group color",
+      "examples": ["review trigger type mix over time", "plan distribution over months"],
+      "vega_lite_template": {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "data": {"values": "DATA_PLACEHOLDER"},
+        "mark": "area",
+        "encoding": {
+          "x": {"field": "TIME_FIELD", "type": "temporal", "timeUnit": "yearmonth"},
+          "y": {"field": "NUMERIC_FIELD", "type": "quantitative", "stack": "normalize"},
+          "color": {"field": "GROUP_FIELD", "type": "nominal"}
+        }
+      }
+    },
+    {
+      "id": "scatter",
+      "name": "Scatter Plot",
+      "use_when": "Showing relationship/correlation between two numeric variables",
+      "data_shape": "numeric x, numeric y, optional size/color",
+      "examples": ["reviews vs LOC consumed per org", "users vs repositories per org"],
+      "vega_lite_template": {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "data": {"values": "DATA_PLACEHOLDER"},
+        "mark": "point",
+        "encoding": {
+          "x": {"field": "X_FIELD", "type": "quantitative"},
+          "y": {"field": "Y_FIELD", "type": "quantitative"},
+          "tooltip": [{"field": "X_FIELD"}, {"field": "Y_FIELD"}]
+        }
+      }
+    },
+    {
+      "id": "pie",
+      "name": "Pie / Donut Chart",
+      "use_when": "Showing proportional composition of a whole (few categories)",
+      "data_shape": "category, numeric value",
+      "examples": ["plan type distribution", "trigger type share", "provider market share"],
+      "vega_lite_template": {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "data": {"values": "DATA_PLACEHOLDER"},
+        "mark": {"type": "arc", "innerRadius": 50},
+        "encoding": {
+          "theta": {"field": "NUMERIC_FIELD", "type": "quantitative"},
+          "color": {"field": "CATEGORY_FIELD", "type": "nominal"},
+          "tooltip": [{"field": "CATEGORY_FIELD"}, {"field": "NUMERIC_FIELD"}]
+        }
+      }
+    },
+    {
+      "id": "heatmap",
+      "name": "Heatmap",
+      "use_when": "Showing density or intensity across two categorical/temporal dimensions",
+      "data_shape": "category/temporal x, category/temporal y, numeric color",
+      "examples": ["review activity by day-of-week and hour", "org activity by month"],
+      "vega_lite_template": {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "data": {"values": "DATA_PLACEHOLDER"},
+        "mark": "rect",
+        "encoding": {
+          "x": {"field": "X_FIELD", "type": "ordinal"},
+          "y": {"field": "Y_FIELD", "type": "ordinal"},
+          "color": {"field": "NUMERIC_FIELD", "type": "quantitative", "scale": {"scheme": "blues"}},
+          "tooltip": [{"field": "X_FIELD"}, {"field": "Y_FIELD"}, {"field": "NUMERIC_FIELD"}]
+        }
+      }
+    },
+    {
+      "id": "horizontal_bar",
+      "name": "Horizontal Bar Chart",
+      "use_when": "Long category names, ranking items, leaderboard",
+      "data_shape": "category y, numeric x",
+      "examples": ["top reviewers", "top repositories", "orgs by review count"],
+      "vega_lite_template": {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "data": {"values": "DATA_PLACEHOLDER"},
+        "mark": "bar",
+        "encoding": {
+          "y": {"field": "CATEGORY_FIELD", "type": "nominal", "sort": "-x"},
+          "x": {"field": "NUMERIC_FIELD", "type": "quantitative"},
+          "tooltip": [{"field": "CATEGORY_FIELD"}, {"field": "NUMERIC_FIELD"}]
+        }
+      }
+    },
+    {
+      "id": "boxplot",
+      "name": "Box Plot",
+      "use_when": "Showing distribution spread, median, outliers across categories",
+      "data_shape": "category x, numeric y",
+      "examples": ["LOC distribution per trigger_type", "review duration spread per provider"],
+      "vega_lite_template": {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "data": {"values": "DATA_PLACEHOLDER"},
+        "mark": {"type": "boxplot", "extent": 1.5},
+        "encoding": {
+          "x": {"field": "CATEGORY_FIELD", "type": "nominal"},
+          "y": {"field": "NUMERIC_FIELD", "type": "quantitative"}
+        }
+      }
+    },
+    {
+      "id": "trellis_bar",
+      "name": "Trellis / Faceted Bar Chart",
+      "use_when": "Comparing the same chart across many groups (small multiples)",
+      "data_shape": "category x, numeric y, facet group",
+      "examples": ["reviews per trigger_type per org", "monthly trend per provider"],
+      "vega_lite_template": {
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "data": {"values": "DATA_PLACEHOLDER"},
+        "facet": {"field": "FACET_FIELD", "type": "nominal", "columns": 3},
+        "spec": {
+          "mark": "bar",
+          "encoding": {
+            "x": {"field": "CATEGORY_FIELD", "type": "nominal"},
+            "y": {"field": "NUMERIC_FIELD", "type": "quantitative"}
+          }
+        }
+      }
+    }
+  ]
+}
