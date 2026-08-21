@@ -18,6 +18,7 @@ import csv
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.request
@@ -45,11 +46,11 @@ GEMINI_ENDPOINT = (
     f"{GEMINI_MODEL}:generateContent"
 )
 
-DEFAULT_QUERY = "How broadly has the organization adopted LiveReview?"
+DEFAULT_QUERY = ""
 
 # All queries run within this org context
-ORG_ID = 677
-ORG_NAME = "Ostrelle Systems"
+ORG_ID = 151
+ORG_NAME = "hexmos-internal"
 
 # ---------------------------------------------------------------------------
 # System prompt — no hardcoded table names, dbctx provides schema
@@ -98,20 +99,21 @@ You are a database-aware analytics interpreter for LiveReview, an AI-powered cod
 ## Rules — data quality (CRITICAL)
 8. NEVER return single-number results. Every query must return multiple rows with a dimension (time, category, name) for comparison. A query returning 1 row is a failure.
 9. For time series: always fetch at DAY granularity — `DATE_TRUNC('day', created_at) AS day`. The pipeline will re-aggregate to the right level based on data density. Do NOT aggregate by month or week yourself.
-10. For small result sets (under 10 items), return the actual items (names, labels, details) not just counts. Example: instead of `COUNT(repositories) = 2`, return each repository's `name, provider, created_at`.
-11. Prefer queries that reveal patterns: rankings, trends, distributions, comparisons. Avoid flat counts.
+10. EXCEPTION to rule 9: For COUNT(DISTINCT ...) metrics (unique users, unique repos, etc.), use MONTH or WEEK granularity directly in the SQL. Client-side aggregation cannot re-derive distinct counts — summing them produces inflated numbers.
+11. For small result sets (under 10 items), return the actual items (names, labels, details) not just counts. Example: instead of `COUNT(repositories) = 2`, return each repository's `name, provider, created_at`.
+12. Prefer queries that reveal patterns: rankings, trends, distributions, comparisons. Avoid flat counts.
 
 ## Rules — chart selection
-12. Pick the chart type whose `use_when` best matches the data shape.
-13. Vary chart types across interpretations — never use the same chart type twice in one response.
-14. The `vega_lite_spec` must be a complete valid Vega-Lite spec.
-15. Use `DATA_PLACEHOLDER` as the value of `data.values`.
-16. Field names in encoding must match SQL column aliases exactly.
+13. Pick the chart type whose `use_when` best matches the data shape.
+14. Vary chart types across interpretations — never use the same chart type twice in one response.
+15. The `vega_lite_spec` must be a complete valid Vega-Lite spec.
+16. Use `DATA_PLACEHOLDER` as the value of `data.values`.
+17. Field names in encoding must match SQL column aliases exactly.
 
 ## Rules — how many interpretations
-17. Specific query → 1-2 interpretations.
-18. Broad query → 3-5 interpretations covering different angles.
-19. Never exceed 5.
+18. Specific query → 1-2 interpretations.
+19. Broad query → 3-5 interpretations covering different angles.
+20. Never exceed 5.
 """
 
 # ---------------------------------------------------------------------------
