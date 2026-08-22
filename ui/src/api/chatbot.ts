@@ -38,6 +38,7 @@ export interface ChatResponse {
   response: string;
   charts?: ChatChart[];
   files?: ChatFile[];
+  debug_artifacts?: unknown;
   sessionId?: string;
   conversationId: number;
 }

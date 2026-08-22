@@ -45,11 +45,12 @@ type WebChatChart struct {
 }
 
 type WebChatResponse struct {
-	Response       string         `json:"response"`
-	Charts         []WebChatChart `json:"charts,omitempty"`
-	Files          []WebChatFile  `json:"files,omitempty"`
-	SessionID      string         `json:"sessionId,omitempty"`
-	ConversationID int64          `json:"conversationId"`
+	Response       string          `json:"response"`
+	Charts         []WebChatChart  `json:"charts,omitempty"`
+	Files          []WebChatFile   `json:"files,omitempty"`
+	DebugArtifacts json.RawMessage `json:"debug_artifacts,omitempty"`
+	SessionID      string          `json:"sessionId,omitempty"`
+	ConversationID int64           `json:"conversationId"`
 }
 
 // analyticsRoleFor maps permissions onto the SQL catalog's roles. Super admins
@@ -259,6 +260,11 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		}
 	} else if looksLikeTruncatedVegaSpec(responseText) {
 		resp.Response = extractDescriptionFromVegaSpec(responseText)
+	}
+
+	// Include debug artifacts in the live response for /chat-debug.
+	if debugArt != nil {
+		resp.DebugArtifacts, _ = json.Marshal(debugArt)
 	}
 
 	// Persist the reply (messages + charts + file exports) so the file
