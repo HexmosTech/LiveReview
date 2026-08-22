@@ -89,6 +89,7 @@ type InterpretationResult struct {
 	Artifact       *Artifact               // nil if chart
 	Status         string                  // "rendered", "skipped", "failed"
 	SkipReason     string
+	Rows           []map[string]any // actual row data for debug preview
 }
 
 // DebugArtifacts captures every intermediate representation of a multi-
@@ -113,4 +114,5 @@ type DebugResultEntry struct {
 	SkipReason string   `json:"skip_reason,omitempty"`
 	RowCount   int      `json:"row_count"`
 	Stats      []string `json:"stats,omitempty"`
+	CSVData    string   `json:"csv_data,omitempty"` // first N rows for preview
 }

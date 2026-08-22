@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -1412,6 +1413,82 @@ func assembleAnalyticsResponse(reports []vlrender.VegaLiteReport, notes []string
 	return out
 }
 
+// rowsToPreviewCSV converts rows to a CSV string for debug preview.
+// Truncates at ~2KB, always at a row boundary to keep CSV parseable.
+func rowsToPreviewCSV(rows []map[string]any) string {
+	if len(rows) == 0 {
+		return ""
+	}
+
+	// Collect all unique column names across all rows.
+	colSet := make(map[string]struct{})
+	for _, row := range rows {
+		for k := range row {
+			colSet[k] = struct{}{}
+		}
+	}
+	cols := make([]string, 0, len(colSet))
+	for k := range colSet {
+		cols = append(cols, k)
+	}
+	sort.Strings(cols)
+
+	// Use byte slice so we can truncate at row boundaries.
+	var buf []byte
+	// Header.
+	for i, c := range cols {
+		if i > 0 {
+			buf = append(buf, ',')
+		}
+		buf = append(buf, c...)
+	}
+	buf = append(buf, '\n')
+
+	// Rows — truncate at row boundary to keep CSV parseable.
+	const maxPreview = 2048
+	for _, row := range rows {
+		rowStart := len(buf)
+		for i, c := range cols {
+			if i > 0 {
+				buf = append(buf, ',')
+			}
+			v := row[c]
+			var s string
+			switch val := v.(type) {
+			case nil:
+				s = ""
+			case string:
+				s = val
+			case float64:
+				s = fmt.Sprintf("%g", val)
+			case int64:
+				s = fmt.Sprintf("%d", val)
+			case bool:
+				if val {
+					s = "true"
+				} else {
+					s = "false"
+				}
+			default:
+				s = fmt.Sprintf("%v", val)
+			}
+			// Quote fields containing comma, newline, carriage return, or double quote.
+			if strings.ContainsAny(s, ",\n\r\"") {
+				s = `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+			}
+			buf = append(buf, s...)
+		}
+		buf = append(buf, '\n')
+		if len(buf) > maxPreview {
+			// Roll back incomplete row to keep CSV valid.
+			buf = buf[:rowStart]
+			buf = append(buf, "... (truncated)\n"...)
+			break
+		}
+	}
+	return string(buf)
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if strings.TrimSpace(v) != "" {
@@ -1533,7 +1610,7 @@ func (a *Agent) runMultiInterpret(
 	// System prompt: self-contained from PromptBook template (includes
 	// all rules inline, no schema splice).
 	system := a.interpretPrompt()
-	debug.SystemPrompt = truncateContent(system, 5000)
+	debug.SystemPrompt = system
 
 	// User message: query + org context + dbctx schema + chart types
 	// (matching the Python script's format in interpretation.py).
@@ -1541,7 +1618,7 @@ func (a *Agent) runMultiInterpret(
 	if err != nil {
 		return "Livi is in preparing mode, please come back after 60s.", nil, debug, nil
 	}
-	debug.SchemaContext = truncateContent(userMsg, 5000)
+	debug.SchemaContext = userMsg
 
 	raw, err := a.completeOnce(ctx, clog, 2, "interpret", "multi", 1, system, userMsg)
 	if err != nil {
@@ -1576,16 +1653,27 @@ func (a *Agent) runMultiInterpret(
 		entry.SkipReason = result.SkipReason
 		entry.RowCount = result.RowCount
 		entry.Stats = result.Stats
-		debug.Results = append(debug.Results, entry)
+
+		// Include row data as CSV for debug preview (from any outcome).
+		if len(result.Rows) > 0 {
+			entry.CSVData = rowsToPreviewCSV(result.Rows)
+		}
 
 		switch {
 		case result.Chart != nil:
 			reports = append(reports, *result.Chart)
 		case result.Artifact != nil:
 			artifacts = append(artifacts, *result.Artifact)
+			// For rendered CSV artifacts, include data if not already set
+			// and the data looks like CSV (starts with a header row).
+			if entry.CSVData == "" && result.Artifact.Kind == "csv" && len(result.Artifact.Data) > 0 {
+				entry.CSVData = string(result.Artifact.Data)
+			}
 		case result.SkipReason != "":
 			notes = append(notes, fmt.Sprintf("Skipped %q: %s", interp.Title, result.SkipReason))
 		}
+
+		debug.Results = append(debug.Results, entry)
 	}
 
 	responseText := assembleAnalyticsResponse(reports, notes, len(artifacts) > 0)
@@ -1646,6 +1734,7 @@ func (a *Agent) executeInterpretation(
 			Status:     "skipped",
 			SkipReason: reason,
 			RowCount:   len(rs.Rows),
+			Rows:       rs.Rows, // preserve for debug preview
 		}
 	}
 
@@ -1666,6 +1755,7 @@ func (a *Agent) executeInterpretation(
 			Chart:    chart,
 			RowCount: len(rs.Rows),
 			Stats:    stats,
+			Rows:     rs.Rows,
 		}
 	}
 	if art != nil {
@@ -1674,6 +1764,7 @@ func (a *Agent) executeInterpretation(
 			Artifact: art,
 			RowCount: len(rs.Rows),
 			Stats:    stats,
+			Rows:     rs.Rows,
 		}
 	}
 	return InterpretationResult{

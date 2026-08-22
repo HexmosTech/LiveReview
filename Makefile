@@ -1,4 +1,4 @@
-.PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run-debug run-fast logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker
+.PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run-debug run-fast logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker prep-dbctx
 .PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging
@@ -468,6 +468,20 @@ db-flip:
 	@echo "New DATABASE_URL in .env:"
 	@grep "DATABASE_URL=" .env
 
+# Build dbctx index from local .env DATABASE_URL and import terminology
+prep-dbctx:
+	@if [ -z "$(DATABASE_URL)" ]; then \
+		echo "❌ ERROR: DATABASE_URL not set. Check your .env file."; \
+		exit 1; \
+	fi
+	-rm -f $(HOME)/livereview.dtx $(HOME)/livereview.dtx-wal $(HOME)/livereview.dtx-shm $(HOME)/livereview.dtx-journal
+	@DBURL=$$(echo '$(DATABASE_URL)' | sed 's/?sslmode=.*//'); \
+	echo "🔨 Building dbctx index from $$(echo "$$DBURL" | sed -E 's#(://[^:]+:)[^@]+(@)#\1***\2#')..."; \
+	dbctx build "$$DBURL" --output $(HOME)/livereview.dtx
+	@echo "📦 Importing terminology..."
+	dbctx terminology import $(HOME)/livereview.dtx ./internal/mcpagent/terminology.json
+	@echo "✅ dbctx index ready at $(HOME)/livereview.dtx"
+
 # Generate a token-compact schema dump of the prod DB (public schema) for LLM context.
 .PHONY: compressed-schema
 compressed-schema:
@@ -496,9 +510,9 @@ prod-data-export:
 	OUT="db/prod-exports/prod-$$(date +%Y%m%d-%H%M%S).dump" && \
 	echo "Exporting prod data (read-only pg_dump) to $$OUT ..." && \
 	pg_dump "$$DATABASE_URL" --format=custom --no-owner --no-privileges --verbose \
-	  --exclude-table=review_events \
-	  --exclude-table=upgrade_request_events \
-	  --exclude-table=river_job \
+	  --exclude-table-data=review_events \
+	  --exclude-table-data=upgrade_request_events \
+	  --exclude-table-data=river_job \
 	  --file="$$OUT" && \
 	echo "✅ Wrote $$OUT" && \
 	echo "Now run: make prod-data-import"
