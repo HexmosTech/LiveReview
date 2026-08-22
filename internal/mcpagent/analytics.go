@@ -1610,7 +1610,7 @@ func (a *Agent) runMultiInterpret(
 	// System prompt: self-contained from PromptBook template (includes
 	// all rules inline, no schema splice).
 	system := a.interpretPrompt()
-	debug.SystemPrompt = truncateContent(system, 5000)
+	debug.SystemPrompt = system
 
 	// User message: query + org context + dbctx schema + chart types
 	// (matching the Python script's format in interpretation.py).
@@ -1618,7 +1618,7 @@ func (a *Agent) runMultiInterpret(
 	if err != nil {
 		return "Livi is in preparing mode, please come back after 60s.", nil, debug, nil
 	}
-	debug.SchemaContext = truncateContent(userMsg, 5000)
+	debug.SchemaContext = userMsg
 
 	raw, err := a.completeOnce(ctx, clog, 2, "interpret", "multi", 1, system, userMsg)
 	if err != nil {
