@@ -59,7 +59,18 @@ func sanitizeChartSpec(specJSON []byte) []byte {
 	if err := json.Unmarshal(specJSON, &spec); err != nil {
 		return specJSON
 	}
-	if !sanitizeCalendarHeatmap(spec) {
+	changed := sanitizeCalendarHeatmap(spec)
+	if !changed {
+		// The calendar heatmap already sets its own width/height/legend -
+		// these generic fixups only apply when it didn't.
+		if ensureChartDimensions(spec) {
+			changed = true
+		}
+		if suppressRedundantColorLegend(spec) {
+			changed = true
+		}
+	}
+	if !changed {
 		return specJSON
 	}
 	out, err := json.Marshal(spec)
@@ -67,6 +78,67 @@ func sanitizeChartSpec(specJSON []byte) []byte {
 		return specJSON
 	}
 	return out
+}
+
+// ensureChartDimensions sets a default width/height on a spec that has
+// neither. InteractiveChart.tsx (the chat frontend) only derives an aspect
+// ratio to resize a chart by when spec.width and spec.height are BOTH plain
+// numbers - a spec missing either falls back to Vega-Lite's own intrinsic
+// sizing, which for a bar/point mark over a handful of ordinal categories
+// comes out as a narrow column with a large blank area next to it (the
+// worked examples in the lawbook all set an explicit width/height, e.g.
+// 600-900 wide, but a model deviating from the example - observed in
+// practice - can leave both unset entirely). Skips a spec that already sets
+// either (including a {"step": N} object, which sizes differently) or that
+// facets, since facets size per-panel via "spec" instead.
+func ensureChartDimensions(spec map[string]any) bool {
+	if _, ok := spec["facet"]; ok {
+		return false
+	}
+	_, hasW := spec["width"]
+	_, hasH := spec["height"]
+	if hasW || hasH {
+		return false
+	}
+	spec["width"] = 600
+	spec["height"] = 340
+	return true
+}
+
+// suppressRedundantColorLegend nils out a color legend when the color
+// channel encodes the exact same field already shown on x or y (a
+// distribution-band chart coloring each bar by its own band name is the
+// common case - see livi.charts.distribution.spread's worked example, which
+// sets "legend": null for exactly this reason). Vega-Lite reserves real
+// horizontal space for a legend regardless of whether it repeats
+// information already on the axis, squeezing the actual plot into a narrow
+// column next to a wide blank strip. Only acts when the model didn't
+// already set an explicit legend value.
+func suppressRedundantColorLegend(spec map[string]any) bool {
+	enc, ok := spec["encoding"].(map[string]any)
+	if !ok {
+		return false
+	}
+	color, ok := enc["color"].(map[string]any)
+	if !ok {
+		return false
+	}
+	if _, hasLegend := color["legend"]; hasLegend {
+		return false
+	}
+	colorField, _ := color["field"].(string)
+	if colorField == "" {
+		return false
+	}
+	x, _ := enc["x"].(map[string]any)
+	y, _ := enc["y"].(map[string]any)
+	xField, _ := x["field"].(string)
+	yField, _ := y["field"].(string)
+	if colorField != xField && colorField != yField {
+		return false
+	}
+	color["legend"] = nil
+	return true
 }
 
 type heatmapChannel struct {
