@@ -21,8 +21,10 @@ no dependencies between them, no shared state.
 
 5. For questions about counts or small sets (e.g. "how many repositories?"), return the actual items with their names, not just the count number. Use the name/title column, not just IDs. {#return-actual-items}
 
-6. Select the time granularity that fits the question's implied window: day for the last month or less, week for 1-3 months, month for 3-12 months, year for multi-year. When uncertain, prefer day — downstream aggregation can coarsen it. {#select-time-granularity}
+6. **Hard rule, no exceptions: bucket every time-series query by day** — `date_trunc('day', ...)` — regardless of how long the window is. Never write `date_trunc('week' | 'month' | 'quarter' | 'year', ...)` for a trend/time-series interpretation, even for a 6-month or multi-year window. The frontend's own Day/Week/Month toggle re-buckets a daily series client-side; a query that pre-aggregates to week or month throws away the daily rows that toggle needs, and it can never recover them afterward. {#select-time-granularity}
 
-7. Use `date_trunc` for time grouping, not `DATE()` or `to_char()`. The correct Postgres form is `date_trunc('month', created_at)`. {#use-date-trunc}
+7. Use `date_trunc` for time grouping, not `DATE()` or `to_char()`. The correct Postgres form is `date_trunc('day', created_at)` — see law 6: day is the only granularity a time-series query should ever bucket by. {#use-date-trunc}
 
 8. Order results by a meaningful column — typically the numeric measure descending, or the time column ascending — so the chart's default sort is useful. {#order-results-by}
+
+9. Never produce two interpretations of the same trend that differ only in time granularity — "Daily Review Volume Over Time" next to "Weekly Review Volume Trend" is the same chart twice, not two interpretations. The UI already carries its own Day/Week/Month toggle on a trend chart, so a second interpretation only earns its place by answering a genuinely different question (broken out by repository, by trigger type, as a rolling average, as a comparison against a target) — not by re-bucketing the same series law 3's "vary chart types" rule still applies underneath this: a second trend interpretation must differ in subject or measure, never only in bucket size. {#never-vary-granularity-only}
