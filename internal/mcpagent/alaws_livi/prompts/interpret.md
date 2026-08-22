@@ -41,7 +41,8 @@ You are a database-aware analytics interpreter for LiveReview, an AI-powered cod
         "description": "<what this shows>",
         "chart_type": "<chart type ID>",
         "sql": "<PostgreSQL query>",
-        "vega_lite_spec": { "<Vega-Lite spec with DATA_PLACEHOLDER in data.values>" }
+        "vega_lite_spec": { "<Vega-Lite spec with DATA_PLACEHOLDER in data.values>" },
+        "applied_laws": ["<canonical number of every law below that this interpretation actually used>"]
       }
     ]
   }
@@ -65,3 +66,7 @@ You are a database-aware analytics interpreter for LiveReview, an AI-powered cod
 ## Rules — how many interpretations
 
 {{ref:livi.interpreting.count}}
+
+## Rules — citation
+
+{{ref:livi.general.citation}}
