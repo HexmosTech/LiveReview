@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -79,12 +80,6 @@ func InitSchemaIndex(dsn string) {
 			return
 		}
 
-		noSemantic := false
-		if enabled := strings.TrimSpace(os.Getenv("DBCTX_SCHEMA_INDEX_ENABLED")); enabled != "" && strings.EqualFold(enabled, "false") {
-			log.Warn().Msg("dbctx semantic index disabled via DBCTX_SCHEMA_INDEX_ENABLED=false (schema + terminology still load)")
-			noSemantic = true
-		}
-
 		// out mirrors every boot-status print to dbctx_debug.log alongside
 		// stdout, so the whole build lifecycle - this function's own status
 		// lines plus dbctx's internal "N/N Building ... index" progress fed
@@ -92,6 +87,54 @@ func InitSchemaIndex(dsn string) {
 		// instead of only being visible in the terminal.
 		out := io.MultiWriter(os.Stdout, logging.DBCtxDebugWriter())
 
+		// Check if we should use a pre-built .dtx file instead of building
+		if enabled := strings.TrimSpace(os.Getenv("DBCTX_SCHEMA_INDEX_ENABLED")); enabled != "" && strings.EqualFold(enabled, "false") {
+			log.Warn().Msg("dbctx semantic index disabled via DBCTX_SCHEMA_INDEX_ENABLED=false")
+
+			// Try to open existing .dtx file
+			homeDir, _ := os.UserHomeDir()
+			dtxPath := filepath.Join(homeDir, "livereview.dtx")
+
+			start := time.Now()
+			fmt.Fprintf(out, "[dbctx] schema index: opening pre-built .dtx file from %s...\n", dtxPath)
+			log.Info().Str("path", dtxPath).Msg("dbctx schema index: opening pre-built .dtx file")
+
+			idx, err := dbctx.Open(dtxPath)
+			if err != nil {
+				fmt.Fprintf(out, "[dbctx] schema index: failed to open .dtx file: %v\n", err)
+				log.Error().Err(err).Str("path", dtxPath).Msg("dbctx schema index: failed to open .dtx file")
+				return
+			}
+			schemaIdx = idx
+
+			// Log stats and import terminology immediately (no async needed)
+			elapsed := time.Since(start)
+			stats, err := idx.Stats()
+			if err != nil {
+				fmt.Fprintf(out, "[dbctx] schema index: opened .dtx but Stats() failed: %v\n", err)
+				log.Error().Err(err).Dur("elapsed", elapsed).Msg("dbctx schema index: opened .dtx but Stats() failed")
+				return
+			}
+			fmt.Fprintf(out, "[dbctx] schema index: ready in %s (%d tables, %d columns, %d foreign keys, %d state fields)\n",
+				elapsed.Round(time.Millisecond), stats.Tables, stats.Columns, stats.ForeignKeys, stats.StateFields)
+			log.Info().Dur("elapsed", elapsed).
+				Int("tables", stats.Tables).Int("columns", stats.Columns).
+				Int("foreign_keys", stats.ForeignKeys).Int("state_fields", stats.StateFields).
+				Msg("dbctx schema index: ready")
+
+			// Warm-up query
+			warmStart := time.Now()
+			if _, err := idx.Query("Is LiveReview adoption increasing since my team started using it?"); err != nil {
+				fmt.Fprintf(out, "[dbctx] warm-up query failed: %v\n", err)
+				log.Warn().Err(err).Msg("dbctx warm-up query failed")
+			} else {
+				fmt.Fprintf(out, "[dbctx] warm-up query done in %s\n", time.Since(warmStart).Round(time.Millisecond))
+				log.Info().Dur("elapsed", time.Since(warmStart)).Msg("dbctx warm-up query done")
+			}
+			return
+		}
+
+		// Default behavior: build in-memory index
 		start := time.Now()
 		fmt.Fprintln(out, "[dbctx] schema index: build starting...")
 		log.Info().Msg("dbctx schema index: build starting")
@@ -101,7 +144,7 @@ func InitSchemaIndex(dsn string) {
 		// index...") to os.Stderr by default - invisible outside the
 		// terminal and not correlated with anything else. Routing it into
 		// dbctx_debug.log puts the whole build lifecycle in one place.
-		idx, ready, err := dbctx.BuildAsync(context.Background(), dsn, &dbctx.Options{Logger: logging.DBCtxDebugWriter(), NoSemantic: noSemantic})
+		idx, ready, err := dbctx.BuildAsync(context.Background(), dsn, &dbctx.Options{Logger: logging.DBCtxDebugWriter()})
 		if err != nil {
 			fmt.Fprintf(out, "[dbctx] schema index: build failed to start: %v\n", err)
 			log.Error().Err(err).Msg("dbctx schema index: build failed to start")
