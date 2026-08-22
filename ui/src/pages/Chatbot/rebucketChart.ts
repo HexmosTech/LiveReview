@@ -272,14 +272,64 @@ function getCategoryEncoding(spec: Record<string, unknown>): CategoryEncodingPar
 
 // Only the simple single-mark bar/dot shape (one category axis, one
 // quantitative axis, no facet/layer) gets a stats summary - a stacked or
-// grouped chart's per-category total isn't a single unambiguous number.
+// grouped chart's per-category total isn't a single unambiguous number. A
+// color channel is still fine as long as it just tints each category by
+// itself (the distribution-band case, color.field === the category field)
+// rather than encoding an actual second grouping dimension.
 export function isCategoricalChart(spec: Record<string, unknown>): boolean {
   if (!spec || 'layer' in spec || 'facet' in spec || 'hconcat' in spec || 'vconcat' in spec) return false;
   const enc = getEncoding(spec);
-  if (enc && 'color' in enc) return false;
-  if (!getCategoryEncoding(spec)) return false;
+  const parts = getCategoryEncoding(spec);
+  if (!parts) return false;
+  const colorField = (enc?.color as { field?: string } | undefined)?.field;
+  if (colorField && colorField !== parts.catField) return false;
   const values = (spec as any).data?.values;
   return Array.isArray(values) && values.length > 0;
+}
+
+// Detects a distribution/adoption-band bar chart - same heuristic the
+// backend's injectDistributionBandColor uses (see
+// internal/mcpagent/interpretation_sanitization.go): the category field's
+// name looks like a band/level/tier.
+export function isBandChart(spec: Record<string, unknown>): boolean {
+  if (!isCategoricalChart(spec)) return false;
+  const parts = getCategoryEncoding(spec)!;
+  const field = parts.catField.toLowerCase();
+  return field.includes('band') || field.includes('level') || field.includes('tier');
+}
+
+export interface BandStats {
+  totalActive: number;
+  largest: { label: string; value: number };
+  largestSharePct: number;
+}
+
+// KPI tiles for a band chart, in the spirit of
+// scripts/adoption_chart/generate_breadth.py's "Engineers active / Median
+// reviews per engineer / Top contributor's share" row - but only what's
+// honestly derivable from the chart's own already-bucketed data. The
+// per-engineer raw counts behind each band aren't available client-side
+// (the SQL already aggregated them into bands before the chart spec was
+// built), so this reports total active + which band is largest and its
+// share, rather than fabricating a median or a top-contributor figure this
+// chart's data can't actually support.
+export function computeBandStats(spec: Record<string, unknown>): BandStats | null {
+  const stats = computeCategoryStats(spec);
+  if (!stats) return null;
+  const values = (spec as any).data.values as Array<Record<string, unknown>>;
+  const parts = getCategoryEncoding(spec)!;
+  let totalActive = 0;
+  for (const row of values) {
+    const label = String(row[parts.catField]);
+    if (/^\s*0\b/.test(label) || /\bnone\b/i.test(label)) continue;
+    totalActive += Number(row[parts.valField]) || 0;
+  }
+  if (totalActive === 0) return null;
+  return {
+    totalActive,
+    largest: stats.highest,
+    largestSharePct: Math.round((stats.highest.value / totalActive) * 100),
+  };
 }
 
 export interface CategoryStat {

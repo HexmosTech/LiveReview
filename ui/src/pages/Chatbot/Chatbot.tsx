@@ -16,6 +16,8 @@ import {
   formatAxisDate,
   isCategoricalChart,
   computeCategoryStats,
+  isBandChart,
+  computeBandStats,
   Granularity,
 } from './rebucketChart';
 
@@ -495,7 +497,9 @@ const Chatbot: React.FC = () => {
                             const granularity = chartGranularity[chartKey] ?? 'day';
                             const displaySpec = trendChart ? buildTrendSpec(chart.spec, granularity) : chart.spec;
                             const trendStats = trendChart ? computeTrendStats(chart.spec, granularity) : null;
-                            const categoryStats = !trendChart && isCategoricalChart(chart.spec) ? computeCategoryStats(chart.spec) : null;
+                            const bandChart = !trendChart && isBandChart(chart.spec);
+                            const categoryStats = !trendChart && !bandChart && isCategoricalChart(chart.spec) ? computeCategoryStats(chart.spec) : null;
+                            const bandStats = bandChart ? computeBandStats(chart.spec) : null;
                             return (
                             <div key={chart.title || i} className="space-y-3">
                               <div className="space-y-3 !mt-2 !mb-8">
@@ -550,6 +554,16 @@ const Chatbot: React.FC = () => {
                               </div>
                               {chart.description && (
                                 <p className="text-sm text-slate-300 whitespace-pre-line">{chart.description}</p>
+                              )}
+                              {bandStats && (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                  <StatChip label="Active users" value={bandStats.totalActive.toLocaleString()} />
+                                  <StatChip
+                                    label="Largest band"
+                                    value={`${bandStats.largest.label} (${bandStats.largest.value})`}
+                                  />
+                                  <StatChip label="Largest band's share" value={`${bandStats.largestSharePct}%`} />
+                                </div>
                               )}
                               {trendStats && (
                                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
