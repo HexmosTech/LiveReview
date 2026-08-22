@@ -272,3 +272,4 @@ require (
 )
 
 replace github.com/BrunoKrugel/echo-mcp => github.com/RijulTP/echo-mcp v0.0.0-20260521161450-0737ad06cc38
+

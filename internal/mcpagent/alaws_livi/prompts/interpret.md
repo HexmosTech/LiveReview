@@ -55,6 +55,10 @@ You are a database-aware analytics interpreter for LiveReview, an AI-powered cod
 
 {{ref:livi.interpreting.sql}}
 
+## Rules — data handling (CRITICAL)
+
+{{ref:livi.general.data}}
+
 ## Rules — data quality (CRITICAL)
 
 {{ref:livi.interpreting.data-quality}}

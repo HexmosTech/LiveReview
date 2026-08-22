@@ -344,6 +344,7 @@ const ChatDebugPage: React.FC = () => {
         text: result.response,
         charts: result.charts && result.charts.length > 0 ? result.charts : undefined,
         files: result.files && result.files.length > 0 ? result.files : undefined,
+        debugArtifacts: result.debug_artifacts as DebugArtifacts | undefined,
       };
       setMessages((prev) => [...prev, assistantEntry]);
       queryClient.invalidateQueries({ queryKey: CONVERSATIONS_QUERY_KEY });
