@@ -510,9 +510,9 @@ prod-data-export:
 	OUT="db/prod-exports/prod-$$(date +%Y%m%d-%H%M%S).dump" && \
 	echo "Exporting prod data (read-only pg_dump) to $$OUT ..." && \
 	pg_dump "$$DATABASE_URL" --format=custom --no-owner --no-privileges --verbose \
-	  --exclude-table=review_events \
-	  --exclude-table=upgrade_request_events \
-	  --exclude-table=river_job \
+	  --exclude-table-data=review_events \
+	  --exclude-table-data=upgrade_request_events \
+	  --exclude-table-data=river_job \
 	  --file="$$OUT" && \
 	echo "✅ Wrote $$OUT" && \
 	echo "Now run: make prod-data-import"
