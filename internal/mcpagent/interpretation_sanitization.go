@@ -66,6 +66,9 @@ func sanitizeChartSpec(specJSON []byte) []byte {
 		if ensureChartDimensions(spec) {
 			changed = true
 		}
+		if injectDistributionBandColor(spec) {
+			changed = true
+		}
 		if suppressRedundantColorLegend(spec) {
 			changed = true
 		}
@@ -138,6 +141,80 @@ func suppressRedundantColorLegend(spec map[string]any) bool {
 		return false
 	}
 	color["legend"] = nil
+	return true
+}
+
+// bandColorFor maps an adoption/distribution band's label to the fixed
+// color scripts/adoption_chart/generate_breadth.py uses for that tier -
+// gray for none/zero, blue for light, amber for regular, green for heavy -
+// so a band always reads the same color everywhere it appears, matching
+// livi.charts.distribution.spread law 3 ("use the same band thresholds
+// throughout a conversation").
+func bandColorFor(label string) string {
+	l := strings.ToLower(label)
+	switch {
+	case strings.Contains(l, "heavy") || strings.Contains(l, "power"):
+		return "#39d353"
+	case strings.Contains(l, "regular") || strings.Contains(l, "moderate"):
+		return "#ffb454"
+	case strings.Contains(l, "light"):
+		return "#7c9cff"
+	default: // "0 reviews", "none", "inactive", or any other catch-all tier
+		return "#3a4358"
+	}
+}
+
+// injectDistributionBandColor adds the missing color-by-band encoding to a
+// distribution/adoption-band bar chart. livi.charts.distribution.spread's
+// own worked example colors each bar by its band, but the model keeps
+// dropping that channel in practice and shipping every bar the same flat
+// color - this reconstructs it deterministically from the x channel's own
+// "sort" order (the band order the model already committed to) whenever
+// the x field itself is clearly a band/level/tier, rather than guessing at
+// an unrelated categorical chart's intended colors.
+func injectDistributionBandColor(spec map[string]any) bool {
+	enc, ok := spec["encoding"].(map[string]any)
+	if !ok {
+		return false
+	}
+	if _, hasColor := enc["color"]; hasColor {
+		return false
+	}
+	x, ok := enc["x"].(map[string]any)
+	if !ok {
+		return false
+	}
+	xField, _ := x["field"].(string)
+	xType, _ := x["type"].(string)
+	if xField == "" || (xType != "nominal" && xType != "ordinal") {
+		return false
+	}
+	lowerField := strings.ToLower(xField)
+	if !strings.Contains(lowerField, "band") && !strings.Contains(lowerField, "level") && !strings.Contains(lowerField, "tier") {
+		return false
+	}
+	sortRaw, ok := x["sort"].([]any)
+	if !ok || len(sortRaw) == 0 {
+		return false
+	}
+	domain := make([]any, 0, len(sortRaw))
+	colorRange := make([]any, 0, len(sortRaw))
+	for _, v := range sortRaw {
+		label, ok := v.(string)
+		if !ok {
+			continue
+		}
+		domain = append(domain, label)
+		colorRange = append(colorRange, bandColorFor(label))
+	}
+	if len(domain) == 0 {
+		return false
+	}
+	enc["color"] = map[string]any{
+		"field": xField, "type": "nominal", "sort": sortRaw,
+		"scale":  map[string]any{"domain": domain, "range": colorRange},
+		"legend": nil,
+	}
 	return true
 }
 

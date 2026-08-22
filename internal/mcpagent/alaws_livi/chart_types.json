@@ -274,7 +274,8 @@
         "encoding": {
           "y": {"field": "CATEGORY_FIELD", "type": "nominal", "sort": "x"},
           "x": {"field": "NUMERIC_FIELD", "type": "quantitative"},
-          "color": {"field": "DIRECTION_FIELD", "type": "nominal", "legend": {"title": "Direction"}},
+          "color": {"field": "DIRECTION_FIELD", "type": "nominal", "legend": {"title": "Direction"},
+                    "scale": {"domain": ["up", "down"], "range": ["#39d353", "#ff5c7c"]}},
           "tooltip": [{"field": "CATEGORY_FIELD"}, {"field": "NUMERIC_FIELD"}, {"field": "DIRECTION_FIELD"}]
         }
       }
@@ -293,7 +294,8 @@
           "x": {"field": "CATEGORY_FIELD", "type": "nominal", "sort": null, "title": null},
           "y": {"field": "BASE_FIELD", "type": "quantitative", "title": "Value"},
           "y2": {"field": "TOP_FIELD"},
-          "color": {"field": "DIRECTION_FIELD", "type": "nominal", "legend": null},
+          "color": {"field": "DIRECTION_FIELD", "type": "nominal", "legend": null,
+                    "scale": {"domain": ["positive", "negative"], "range": ["#39d353", "#ff5c7c"]}},
           "tooltip": [{"field": "CATEGORY_FIELD"}, {"field": "TOP_FIELD"}]
         }
       }
@@ -424,7 +426,8 @@
         "encoding": {
           "x": {"field": "PERIOD_FIELD", "type": "nominal", "sort": ["Previous", "Current"], "title": null},
           "y": {"field": "NUMERIC_FIELD", "type": "quantitative"},
-          "color": {"field": "GROUP_FIELD", "type": "nominal"},
+          "color": {"field": "GROUP_FIELD", "type": "nominal",
+                    "scale": {"domain": ["gain", "flat", "loss"], "range": ["#39d353", "#8b949e", "#ff5c7c"]}},
           "detail": {"field": "ENTITY_FIELD", "type": "nominal"},
           "tooltip": [{"field": "ENTITY_FIELD"}, {"field": "PERIOD_FIELD"}, {"field": "NUMERIC_FIELD"}]
         }
