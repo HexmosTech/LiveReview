@@ -18,3 +18,5 @@ user to see patterns, trends, or comparisons.
 3. For small result sets (under 10 items), return the actual items (names, labels, details) not just counts. Example: instead of `COUNT(repositories) = 2`, return each repository's `name, provider, created_at`. {#for-small-result-sets}
 
 4. Prefer queries that reveal patterns: rankings, trends, distributions, comparisons. Avoid flat counts. {#prefer-queries-that}
+
+5. A question that only asks to list or enumerate entities ("what repositories exist", "list our users") has no quantitative measure to chart at all. Pick a real measure that makes the list comparable instead of listing entities bare - e.g. "repositories in the org" becomes reviews (or LOC) per repository, "our users" becomes reviews per user. Never encode the same field as both `x` and `y` to force a name-only list into a bar chart - a chart with `y: {field: "repository_name", type: "quantitative"}` over a text column is nonsense, not a chart, since that field holds no number to plot. {#listing-question-has-no-measure}
