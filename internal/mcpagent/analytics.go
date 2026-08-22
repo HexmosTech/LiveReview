@@ -1633,9 +1633,18 @@ func (a *Agent) executeInterpretation(
 
 	// Weak result filter.
 	if len(rs.Rows) <= 1 {
+		reason := "single-row result (weak)"
+		if len(rs.Rows) == 0 {
+			// Distinct from "weak" - zero rows usually means a filter
+			// eliminated everything (often a hallucinated enum value the
+			// WHERE clause matched literally, silently, e.g. status =
+			// 'processed' instead of 'accounted'), not that the shape was
+			// merely thin.
+			reason = "query returned no rows - check for an invalid filter or enum value"
+		}
 		return InterpretationResult{
 			Status:     "skipped",
-			SkipReason: "single-row result (weak)",
+			SkipReason: reason,
 			RowCount:   len(rs.Rows),
 		}
 	}
