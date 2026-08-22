@@ -40,6 +40,7 @@ interface DebugArtifacts {
     skip_reason?: string;
     row_count: number;
     stats?: string[];
+    csv_data?: string;
   }>;
 }
 
@@ -188,6 +189,21 @@ const DebugPanel: React.FC<{ artifacts: DebugArtifacts }> = ({ artifacts }) => {
                     )}
                     {result?.skip_reason && (
                       <div className="mt-1 text-yellow-400/80 text-xs">Skipped: {result.skip_reason}</div>
+                    )}
+                    {result?.csv_data && (
+                      <div className="mt-2">
+                        <button
+                          onClick={() => setActiveSection(activeSection === `csv-${i}` ? null : `csv-${i}`)}
+                          className="text-cyan-400 hover:text-cyan-300 text-xs"
+                        >
+                          {activeSection === `csv-${i}` ? 'Hide CSV Preview' : 'Show CSV Preview'}
+                        </button>
+                        {activeSection === `csv-${i}` && (
+                          <pre className="mt-1 bg-slate-900 rounded p-2 text-xs text-green-300 max-h-48 overflow-auto whitespace-pre-wrap">
+                            {result.csv_data}
+                          </pre>
+                        )}
+                      </div>
                     )}
                   </div>
                 );
