@@ -9,7 +9,15 @@ import { useAppSelector } from '../../store/configureStore';
 import { InteractiveChart, downloadChartView } from './InteractiveChart';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { CONVERSATIONS_QUERY_KEY } from './ConversationSidebar';
-import { isDailyTrendChart, buildTrendSpec, Granularity } from './rebucketChart';
+import {
+  isDailyTrendChart,
+  buildTrendSpec,
+  computeTrendStats,
+  formatAxisDate,
+  isCategoricalChart,
+  computeCategoryStats,
+  Granularity,
+} from './rebucketChart';
 
 const GRANULARITY_OPTIONS: { value: Granularity; label: string }[] = [
   { value: 'day', label: 'Day' },
@@ -35,6 +43,13 @@ const GranularityToggle: React.FC<{ value: Granularity; onChange: (g: Granularit
         {opt.label}
       </button>
     ))}
+  </div>
+);
+
+const StatChip: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div className="rounded-md border border-slate-700 bg-slate-800/60 px-2.5 py-1.5 min-w-0">
+    <div className="text-[11px] text-slate-500">{label}</div>
+    <div className="text-xs text-slate-300 font-medium break-words">{value}</div>
   </div>
 );
 
@@ -479,6 +494,8 @@ const Chatbot: React.FC = () => {
                             const trendChart = isDailyTrendChart(chart.spec);
                             const granularity = chartGranularity[chartKey] ?? 'day';
                             const displaySpec = trendChart ? buildTrendSpec(chart.spec, granularity) : chart.spec;
+                            const trendStats = trendChart ? computeTrendStats(chart.spec, granularity) : null;
+                            const categoryStats = !trendChart && isCategoricalChart(chart.spec) ? computeCategoryStats(chart.spec) : null;
                             return (
                             <div key={chart.title || i} className="space-y-3">
                               <div className="space-y-3 !mt-2 !mb-8">
@@ -533,6 +550,48 @@ const Chatbot: React.FC = () => {
                               </div>
                               {chart.description && (
                                 <p className="text-sm text-slate-300 whitespace-pre-line">{chart.description}</p>
+                              )}
+                              {trendStats && (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                  <StatChip label="Total" value={trendStats.total.toLocaleString()} />
+                                  <StatChip label="Avg per period" value={trendStats.avgPerPeriod.toLocaleString()} />
+                                  <StatChip
+                                    label="Peak"
+                                    value={`${trendStats.peak.value.toLocaleString()} (${formatAxisDate(trendStats.peak.date)})`}
+                                  />
+                                  <StatChip
+                                    label="Low"
+                                    value={`${trendStats.low.value.toLocaleString()} (${formatAxisDate(trendStats.low.date)})`}
+                                  />
+                                  <StatChip
+                                    label="Trend"
+                                    value={
+                                      trendStats.trendPct === null
+                                        ? 'n/a'
+                                        : `${trendStats.trendPct >= 0 ? 'up' : 'down'} ${Math.abs(trendStats.trendPct)}% (${formatAxisDate(trendStats.firstDate)} → ${formatAxisDate(trendStats.lastDate)})`
+                                    }
+                                  />
+                                </div>
+                              )}
+                              {categoryStats && (
+                                <div className="grid grid-cols-2 gap-2">
+                                  <StatChip
+                                    label="Highest"
+                                    value={`${categoryStats.highest.label} (${categoryStats.highest.value.toLocaleString()})`}
+                                  />
+                                  <StatChip
+                                    label="Lowest"
+                                    value={`${categoryStats.lowest.label} (${categoryStats.lowest.value.toLocaleString()})`}
+                                  />
+                                  <StatChip
+                                    label="Top 3"
+                                    value={categoryStats.top3.map((s) => `${s.label} (${s.value.toLocaleString()})`).join(', ')}
+                                  />
+                                  <StatChip
+                                    label="Bottom 3"
+                                    value={categoryStats.bottom3.map((s) => `${s.label} (${s.value.toLocaleString()})`).join(', ')}
+                                  />
+                                </div>
                               )}
                               {(chart.query || chart.time_range || chart.granularity) && (
                                 <details className="group mt-1">

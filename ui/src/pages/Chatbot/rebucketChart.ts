@@ -190,3 +190,131 @@ export function buildTrendSpec(spec: Record<string, unknown>, granularity: Granu
 
   return { ...rest, layer: layers, resolve: { scale: { y: 'shared' } } };
 }
+
+// Formats a bucket's date the same way the x-axis reads it (e.g. "Aug 01,
+// 2026"), so the summary stats below the chart never disagree with the
+// axis's own labels.
+export function formatAxisDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric', timeZone: 'UTC' });
+}
+
+export interface TrendStats {
+  total: number;
+  avgPerPeriod: number;
+  peak: { value: number; date: string };
+  low: { value: number; date: string };
+  trendPct: number | null;
+  firstDate: string;
+  lastDate: string;
+}
+
+// Summary stats for the currently selected granularity - recomputed on
+// every toggle change since "total"/"avg per period"/peak all shift with
+// the bucket size. Only defined for single-series trend charts; a
+// multi-series chart has no single "total" that reads honestly.
+export function computeTrendStats(spec: Record<string, unknown>, granularity: Granularity): TrendStats | null {
+  const enc = getEncoding(spec);
+  if (!enc) return null;
+  const x = enc.x as TemporalEncoding;
+  const y = enc.y as QuantEncoding;
+  const seriesField = (enc.color as { field?: string } | undefined)?.field;
+  if (seriesField) return null;
+  const values = (spec as any).data?.values as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(values) || values.length === 0) return null;
+
+  const rows = bucketRows(values, x.field, y.field, undefined, granularity);
+  if (rows.length === 0) return null;
+
+  let total = 0;
+  let peak = rows[0];
+  let low = rows[0];
+  for (const row of rows) {
+    const v = Number(row[y.field]) || 0;
+    total += v;
+    if (v > (Number(peak[y.field]) || 0)) peak = row;
+    if (v < (Number(low[y.field]) || 0)) low = row;
+  }
+  const first = Number(rows[0][y.field]) || 0;
+  const last = Number(rows[rows.length - 1][y.field]) || 0;
+  const trendPct = first === 0 ? null : Math.round(((last - first) / first) * 100);
+
+  return {
+    total: Math.round(total * 100) / 100,
+    avgPerPeriod: Math.round((total / rows.length) * 100) / 100,
+    peak: { value: Number(peak[y.field]) || 0, date: String(peak[x.field]) },
+    low: { value: Number(low[y.field]) || 0, date: String(low[x.field]) },
+    trendPct,
+    firstDate: String(rows[0][x.field]),
+    lastDate: String(rows[rows.length - 1][x.field]),
+  };
+}
+
+interface CategoryEncodingParts {
+  catField: string;
+  valField: string;
+}
+
+function getCategoryEncoding(spec: Record<string, unknown>): CategoryEncodingParts | null {
+  const enc = getEncoding(spec);
+  if (!enc) return null;
+  const x = enc.x as { field?: string; type?: string } | undefined;
+  const y = enc.y as { field?: string; type?: string } | undefined;
+  if (x?.type === 'quantitative' && x.field && (y?.type === 'nominal' || y?.type === 'ordinal') && y.field) {
+    return { catField: y.field, valField: x.field };
+  }
+  if (y?.type === 'quantitative' && y.field && (x?.type === 'nominal' || x?.type === 'ordinal') && x.field) {
+    return { catField: x.field, valField: y.field };
+  }
+  return null;
+}
+
+// Only the simple single-mark bar/dot shape (one category axis, one
+// quantitative axis, no facet/layer) gets a stats summary - a stacked or
+// grouped chart's per-category total isn't a single unambiguous number.
+export function isCategoricalChart(spec: Record<string, unknown>): boolean {
+  if (!spec || 'layer' in spec || 'facet' in spec || 'hconcat' in spec || 'vconcat' in spec) return false;
+  const enc = getEncoding(spec);
+  if (enc && 'color' in enc) return false;
+  if (!getCategoryEncoding(spec)) return false;
+  const values = (spec as any).data?.values;
+  return Array.isArray(values) && values.length > 0;
+}
+
+export interface CategoryStat {
+  label: string;
+  value: number;
+}
+
+export interface CategoryStats {
+  highest: CategoryStat;
+  lowest: CategoryStat;
+  top3: CategoryStat[];
+  bottom3: CategoryStat[];
+}
+
+export function computeCategoryStats(spec: Record<string, unknown>): CategoryStats | null {
+  const parts = getCategoryEncoding(spec);
+  if (!parts) return null;
+  const values = (spec as any).data?.values as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(values) || values.length === 0) return null;
+
+  const grouped = new Map<string, number>();
+  for (const row of values) {
+    const label = String(row[parts.catField]);
+    const val = Number(row[parts.valField]) || 0;
+    grouped.set(label, (grouped.get(label) ?? 0) + val);
+  }
+  const sorted = Array.from(grouped.entries())
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
+  if (sorted.length === 0) return null;
+
+  return {
+    highest: sorted[0],
+    lowest: sorted[sorted.length - 1],
+    top3: sorted.slice(0, 3),
+    bottom3: sorted.slice(-3).reverse(),
+  };
+}
