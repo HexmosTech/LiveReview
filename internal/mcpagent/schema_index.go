@@ -122,6 +122,24 @@ func InitSchemaIndex(dsn string) {
 				Int("foreign_keys", stats.ForeignKeys).Int("state_fields", stats.StateFields).
 				Msg("dbctx schema index: ready")
 
+			// A pre-built .dtx already has its terminology imported ahead of
+			// time (see `make prep-dbctx`'s `dbctx terminology import` step) -
+			// this path never calls ImportTerminology itself, so without this
+			// check the log gives no signal either way on whether that import
+			// actually stuck across a rebuild of the .dtx file.
+			if terms, err := idx.Terminology(); err != nil {
+				fmt.Fprintf(out, "[dbctx] terminology: failed to read imported entries: %v\n", err)
+				log.Warn().Err(err).Msg("dbctx terminology: failed to read imported entries")
+			} else {
+				distinct := make(map[string]struct{}, len(terms))
+				for _, t := range terms {
+					distinct[t.Term] = struct{}{}
+				}
+				fmt.Fprintf(out, "[dbctx] terminology: %d entries loaded from .dtx (%d distinct terms)\n", len(terms), len(distinct))
+				log.Info().Int("entries", len(terms)).Int("distinct_terms", len(distinct)).
+					Msg("dbctx terminology: loaded from pre-built .dtx")
+			}
+
 			// Warm-up query
 			warmStart := time.Now()
 			if _, err := idx.Query("Is LiveReview adoption increasing since my team started using it?"); err != nil {
