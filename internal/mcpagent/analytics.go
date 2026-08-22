@@ -405,6 +405,8 @@ func (a *Agent) materializeReport(
 			return finishedReport{text: fmt.Sprintf("I found no data for %q.", entry.Question)}
 		}
 
+		relabelTriggerTypeValues(rs.Rows)
+
 		// The model does not get to decide that "too much data for a
 		// chart" is fine, but the decision is made off the real,
 		// just-fetched row count - not the count phase's prediction,
@@ -1626,6 +1628,8 @@ func (a *Agent) executeInterpretation(
 		return InterpretationResult{Status: "failed", SkipReason: "Query failed: " + err.Error()}
 	}
 	clog.SQLResult(interp.Title, "data", 1, time.Since(start), len(rs.Rows), rs.Truncated)
+
+	relabelTriggerTypeValues(rs.Rows)
 
 	// Weak result filter.
 	if len(rs.Rows) <= 1 {
