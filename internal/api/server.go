@@ -1090,6 +1090,9 @@ func (s *Server) setupRoutes() {
 	adminGroup.GET("/settings/smtp", s.GetSMTPSettings)
 	adminGroup.PUT("/settings/smtp", s.UpdateSMTPSettings)
 	adminGroup.POST("/settings/smtp/test", s.TestSMTPSettings)
+	// Super admin tools catalog endpoints (called by lr-tools deployer after Lambda deployment)
+	adminGroup.POST("/tools", s.UpsertAvailableTool)
+	adminGroup.GET("/tools", s.ListAvailableTools)
 
 	// Super admin blob-storage settings endpoints (see internal/blobstore)
 	adminGroup.GET("/settings/storage", s.GetStorageSettings)
@@ -1138,6 +1141,10 @@ func (s *Server) setupRoutes() {
 	orgGroup.GET("/api-keys", s.ListAPIKeysHandler)
 	orgGroup.POST("/api-keys/:id/revoke", s.RevokeAPIKeyHandler)
 	orgGroup.DELETE("/api-keys/:id", s.DeleteAPIKeyHandler)
+
+	// Third-party tools endpoints within org context
+	orgGroup.GET("/tools", s.ListOrgTools)
+	orgGroup.PUT("/tools/:tool_id", s.UpdateOrgTool)
 
 	// Organization creation - available to all authenticated users
 	protectedOrgsGroup.POST("/organizations", s.orgHandlers.CreateOrganization)
