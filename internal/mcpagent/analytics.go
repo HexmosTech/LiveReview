@@ -1390,9 +1390,6 @@ func assembleAnalyticsResponse(reports []vlrender.VegaLiteReport, notes []string
 	if len(reports) == 0 {
 		if len(notes) == 0 {
 			if hasArtifacts {
-				// A file-only turn still needs words. Returning "" renders
-				// as an empty bubble next to a download the user has no
-				// context for.
 				return "I've put the results in a file you can download."
 			}
 			return "I could not find anything to answer that."
@@ -1404,13 +1401,8 @@ func assembleAnalyticsResponse(reports []vlrender.VegaLiteReport, notes []string
 		log.Error().Err(err).Msg("failed to marshal analytics reports")
 		return strings.Join(notes, "\n\n")
 	}
-	out := string(payload)
-	if len(notes) > 0 {
-		// Notes precede the JSON: the render path strips the JSON block and
-		// keeps surrounding prose as the message text.
-		out = strings.Join(notes, "\n\n") + "\n" + out
-	}
-	return out
+	// Notes (skip reasons) are only in debug artifacts, not in chat response.
+	return string(payload)
 }
 
 // rowsToPreviewCSV converts rows to a CSV string for debug preview.
