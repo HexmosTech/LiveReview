@@ -108,6 +108,34 @@ func DBCtxDebugWriter() io.Writer {
 	return dbctxFileWriter{}
 }
 
+// chatFileWriter adapts chatLogFile to io.Writer, sharing chatLogMu with
+// ChatTurnLogger.write so a boot-time line (no session yet to attach a
+// ChatTurnLogger to) never interleaves mid-line with a concurrent per-turn
+// one.
+type chatFileWriter struct{}
+
+func (chatFileWriter) Write(p []byte) (int, error) {
+	chatLogMu.Lock()
+	defer chatLogMu.Unlock()
+	if chatLogFile == nil {
+		return len(p), nil
+	}
+	n, err := chatLogFile.Write(p)
+	chatLogFile.Sync()
+	return n, err
+}
+
+// ChatDebugWriter returns the writer for chatDebugLogPath itself (the
+// "normal" chat log, as opposed to dbctxDebugLogPath's dbctx-only detail) -
+// for boot-time status lines that happen before any chat session/turn
+// exists to own a ChatTurnLogger, such as the schema index's own
+// ready/failed outcome. Safe to use even when LIVI_DEBUG_LOG is off or
+// InitChatDebugLog hasn't run yet: writes are silently discarded until the
+// log file exists.
+func ChatDebugWriter() io.Writer {
+	return chatFileWriter{}
+}
+
 // ChatTurnLogger writes correlated debug lines for one chat session. Agents
 // are reused across many sessions/conversations (cached per org by the
 // bots), so the logger - not the agent - carries the session identity.

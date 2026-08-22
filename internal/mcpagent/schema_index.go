@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/livereview/internal/logging"
@@ -55,6 +56,14 @@ var terminologyJSON []byte
 var (
 	schemaIdx     *dbctx.Index
 	schemaIdxOnce sync.Once
+
+	// schemaIdxHardFailed is true only when the schema index can never
+	// become ready this process - e.g. DBCTX_SCHEMA_INDEX_ENABLED=false
+	// pointed at a pre-built .dtx file that doesn't exist or opened empty.
+	// Distinct from "still building": that resolves on its own within
+	// schemaIndexWaitTimeout; this never will, no matter how long a caller
+	// waits, so it needs its own message instead of "come back in 60s".
+	schemaIdxHardFailed atomic.Bool
 )
 
 // InitSchemaIndex starts building the dbctx index in the background and
@@ -87,6 +96,13 @@ func InitSchemaIndex(dsn string) {
 		// instead of only being visible in the terminal.
 		out := io.MultiWriter(os.Stdout, logging.DBCtxDebugWriter())
 
+		// hardFailOut additionally mirrors into chat_debug.log (the "normal"
+		// log everything else in a chat turn lands in) - a hard failure here
+		// means every subsequent turn gets refused, so it needs to be
+		// visible wherever anyone is actually looking for why turns are
+		// failing, not only in dbctx_debug.log's dbctx-specific detail.
+		hardFailOut := io.MultiWriter(out, logging.ChatDebugWriter())
+
 		// Check if we should use a pre-built .dtx file instead of building
 		if enabled := strings.TrimSpace(os.Getenv("DBCTX_SCHEMA_INDEX_ENABLED")); enabled != "" && strings.EqualFold(enabled, "false") {
 			log.Warn().Msg("dbctx semantic index disabled via DBCTX_SCHEMA_INDEX_ENABLED=false")
@@ -95,26 +111,50 @@ func InitSchemaIndex(dsn string) {
 			homeDir, _ := os.UserHomeDir()
 			dtxPath := filepath.Join(homeDir, "livereview.dtx")
 
+			// Check existence explicitly rather than relying on dbctx.Open's
+			// own error behavior: Open() silently creates/opens an empty
+			// SQLite file at a missing path instead of erroring, which
+			// previously made a deleted .dtx report "ready" with 0 tables -
+			// schemaIndexReady() then returned true and the turn proceeded
+			// past its precondition gate straight into a degraded response
+			// deep in the pipeline instead of refusing up front. This can
+			// never self-heal (no missing file becomes present on its own),
+			// so it's a hard failure, not a "come back in 60s" one.
+			if _, statErr := os.Stat(dtxPath); statErr != nil {
+				fmt.Fprintf(hardFailOut, "[dbctx] schema index: pre-built .dtx file not found at %s: %v\n", dtxPath, statErr)
+				log.Error().Err(statErr).Str("path", dtxPath).Msg("dbctx schema index: pre-built .dtx file not found")
+				schemaIdxHardFailed.Store(true)
+				return
+			}
+
 			start := time.Now()
 			fmt.Fprintf(out, "[dbctx] schema index: opening pre-built .dtx file from %s...\n", dtxPath)
 			log.Info().Str("path", dtxPath).Msg("dbctx schema index: opening pre-built .dtx file")
 
 			idx, err := dbctx.Open(dtxPath)
 			if err != nil {
-				fmt.Fprintf(out, "[dbctx] schema index: failed to open .dtx file: %v\n", err)
+				fmt.Fprintf(hardFailOut, "[dbctx] schema index: failed to open .dtx file: %v\n", err)
 				log.Error().Err(err).Str("path", dtxPath).Msg("dbctx schema index: failed to open .dtx file")
+				schemaIdxHardFailed.Store(true)
 				return
 			}
-			schemaIdx = idx
 
 			// Log stats and import terminology immediately (no async needed)
 			elapsed := time.Since(start)
 			stats, err := idx.Stats()
 			if err != nil {
-				fmt.Fprintf(out, "[dbctx] schema index: opened .dtx but Stats() failed: %v\n", err)
+				fmt.Fprintf(hardFailOut, "[dbctx] schema index: opened .dtx but Stats() failed: %v\n", err)
 				log.Error().Err(err).Dur("elapsed", elapsed).Msg("dbctx schema index: opened .dtx but Stats() failed")
+				schemaIdxHardFailed.Store(true)
 				return
 			}
+			if stats.Tables == 0 {
+				fmt.Fprintf(hardFailOut, "[dbctx] schema index: opened .dtx at %s but it has 0 tables - treating as missing/corrupt\n", dtxPath)
+				log.Error().Str("path", dtxPath).Msg("dbctx schema index: opened .dtx but it has 0 tables")
+				schemaIdxHardFailed.Store(true)
+				return
+			}
+			schemaIdx = idx
 			fmt.Fprintf(out, "[dbctx] schema index: ready in %s (%d tables, %d columns, %d foreign keys, %d state fields)\n",
 				elapsed.Round(time.Millisecond), stats.Tables, stats.Columns, stats.ForeignKeys, stats.StateFields)
 			log.Info().Dur("elapsed", elapsed).
@@ -164,8 +204,9 @@ func InitSchemaIndex(dsn string) {
 		// dbctx_debug.log puts the whole build lifecycle in one place.
 		idx, ready, err := dbctx.BuildAsync(context.Background(), dsn, &dbctx.Options{Logger: logging.DBCtxDebugWriter()})
 		if err != nil {
-			fmt.Fprintf(out, "[dbctx] schema index: build failed to start: %v\n", err)
+			fmt.Fprintf(hardFailOut, "[dbctx] schema index: build failed to start: %v\n", err)
 			log.Error().Err(err).Msg("dbctx schema index: build failed to start")
+			schemaIdxHardFailed.Store(true)
 			return
 		}
 		schemaIdx = idx
@@ -264,6 +305,14 @@ func schemaIndex() *dbctx.Index {
 // guessed column names.
 func schemaIndexReady() bool {
 	return schemaIndex() != nil
+}
+
+// schemaIndexHardFailed reports whether the schema index can never become
+// ready this process (see the schemaIdxHardFailed doc comment). Callers
+// refusing a turn on !schemaIndexReady() check this first to choose between
+// a "still building, try again shortly" message and a permanent one.
+func schemaIndexHardFailed() bool {
+	return schemaIdxHardFailed.Load()
 }
 
 // allTableNames returns every table name dbctx knows about, feeding

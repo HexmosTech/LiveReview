@@ -123,8 +123,15 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 	// guessed column names. Refusing up front costs nothing; proceeding
 	// costs a full turn of tokens to produce something untrustworthy.
 	if a.analyticsEnabled() && !schemaIndexReady() {
-		const msg = "Livi is in preparing mode, please come back after 60s."
-		log.Warn().Msg("schema index not ready; refusing the turn before any LLM call")
+		msg := "Livi is in preparing mode, please come back after 60s."
+		if schemaIndexHardFailed() {
+			// Distinct from "still building": a missing/corrupt pre-built
+			// .dtx file will never resolve on its own no matter how long a
+			// caller waits, so "come back in 60s" is actively misleading
+			// here - this is a hard stop, not a transient one.
+			msg = "Livi cannot find the Database Context source, please contact Hexmos team for this."
+		}
+		log.Warn().Bool("hard_failed", schemaIndexHardFailed()).Msg("schema index not ready; refusing the turn before any LLM call")
 		clog.FinalResponse(msg)
 		return msg, history, nil, nil, nil
 	}
