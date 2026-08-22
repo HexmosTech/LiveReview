@@ -632,8 +632,13 @@ func FriendlyTitle(title, subtitle string) string {
 	return title
 }
 
-// ExtractJSONBlock pulls a JSON payload out of a markdown code fence, returning
-// the trimmed text if no fence is present.
+// ExtractJSONBlock pulls a JSON payload out of a markdown code fence, or, if
+// no fence is present, out of a leading prose note tacked onto the front of
+// it - as assembleAnalyticsResponse does for a skipped interpretation, e.g.
+// `Skipped "X": single-row result (weak)\n{"reports":[...]}`. Without this
+// fallback, that note text made every multi-interpretation turn with a
+// skipped chart fail JSON parsing entirely, hiding otherwise-successful
+// charts behind "Having an issue generating the data, please try again."
 func ExtractJSONBlock(raw string) string {
 	s := strings.TrimSpace(raw)
 	if idx := strings.Index(s, "```json"); idx >= 0 {
@@ -648,6 +653,11 @@ func ExtractJSONBlock(raw string) string {
 		end := strings.Index(s[start:], "```")
 		if end >= 0 {
 			return strings.TrimSpace(s[start : start+end])
+		}
+	}
+	if !strings.HasPrefix(s, "{") {
+		if idx := strings.Index(s, "\n{"); idx >= 0 {
+			return strings.TrimSpace(s[idx+1:])
 		}
 	}
 	return s
