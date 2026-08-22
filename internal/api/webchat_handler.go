@@ -264,7 +264,9 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 
 	// Include debug artifacts in the live response for /chat-debug.
 	if debugArt != nil {
-		resp.DebugArtifacts, _ = json.Marshal(debugArt)
+		if debugJSON, err := json.Marshal(debugArt); err == nil {
+			resp.DebugArtifacts = debugJSON
+		}
 	}
 
 	// Persist the reply (messages + charts + file exports) so the file
