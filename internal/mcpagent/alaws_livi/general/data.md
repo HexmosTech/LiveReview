@@ -58,3 +58,5 @@ wrong — the most expensive kind of error in this system.
 23. Compute rolling averages, cumulative percentages, running totals and deltas in the query, so the chart plots columns that already exist. Round every such derived figure to two decimal places with `round()` — an unrounded float repeating to fifteen digits is noise in a tooltip and in the description. {#compute-rolling-averages-cumulative-percentages}
 
 24. Keep presentation out of the query — normalising to a hundred percent, negating a value to sit below a zero line, and highlight bands are applied to the chart, not the data. {#keep-presentation-out-of-the}
+
+25. `users` has no `org_id` column and no `is_active` column — `is_active` exists on `orgs` and on `auth_tokens`, not on `users`. To scope the `users` table to one org (e.g. to list every member, including those with zero reviews, for a "who has/hasn't adopted" question), join `user_roles` instead: `JOIN user_roles ON user_roles.user_id = users.id AND user_roles.org_id = {{org_id}}`. Filtering on `users.org_id` or `users.is_active` is rejected outright — the columns do not exist. {#users-has-no-org-id}
