@@ -1353,6 +1353,10 @@ func (s *Server) setupRoutes() {
 	chatGroup.DELETE("/:id", s.DeleteConversation)
 	chatGroup.GET("/charts/:chartId/render", s.RenderChart)
 
+	// TEMPORARY test endpoint — bypasses auth for local testing.
+	// REMOVE BEFORE MERGING.
+	v1.POST("/test-chat", s.HandleTestChat)
+
 	// Dashboard endpoints (organization scoped)
 	dashboardGroup := v1.Group("/dashboard")
 	dashboardGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))

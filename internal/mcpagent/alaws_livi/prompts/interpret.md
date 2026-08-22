@@ -70,6 +70,15 @@ Before generating your response, go through EVERY numbered rule below. For each 
 
 {{ref:livi.interpreting.chart-rules}}
 
+## Chart types reference
+
+The user message includes a `chart_types` JSON array. Each entry has:
+- `id`: the chart type ID you put in `chart_type`
+- `use_when`: when to pick this type
+- `vega_lite_base`: a **starting-point** spec with placeholder field names (`CATEGORY_FIELD`, `NUMERIC_FIELD`, etc.)
+
+**You MUST adapt `vega_lite_base` to the user's query.** Replace every placeholder with the actual SQL column alias. Adjust encodings, sorts, titles, and axis assignments to match what the user asked for. If the user specifies which dimension belongs on which axis, honor that — even if it means swapping x and y from the base spec's default layout. The base spec is a starting point, not a finished product.
+
 ## Rules — how many interpretations
 
 {{ref:livi.interpreting.count}}
