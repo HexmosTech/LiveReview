@@ -9,6 +9,34 @@ import { useAppSelector } from '../../store/configureStore';
 import { InteractiveChart, downloadChartView } from './InteractiveChart';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { CONVERSATIONS_QUERY_KEY } from './ConversationSidebar';
+import { isDailyTrendChart, rebucketChart, Granularity } from './rebucketChart';
+
+const GRANULARITY_OPTIONS: { value: Granularity; label: string }[] = [
+  { value: 'day', label: 'Day' },
+  { value: 'week', label: 'Week' },
+  { value: 'month', label: 'Month' },
+];
+
+const GranularityToggle: React.FC<{ value: Granularity; onChange: (g: Granularity) => void }> = ({
+  value,
+  onChange,
+}) => (
+  <div className="inline-flex rounded-md border border-slate-700 overflow-hidden text-xs">
+    {GRANULARITY_OPTIONS.map((opt) => (
+      <button
+        key={opt.value}
+        onClick={() => onChange(opt.value)}
+        className={`px-2.5 py-1 font-medium transition-colors ${
+          value === opt.value
+            ? 'bg-indigo-600 text-white'
+            : 'bg-slate-800/90 text-slate-300 hover:text-white hover:bg-slate-700'
+        }`}
+      >
+        {opt.label}
+      </button>
+    ))}
+  </div>
+);
 
 interface ChatEntry {
   id: string;
@@ -210,6 +238,8 @@ const Chatbot: React.FC = () => {
   const [input, setInput] = useState(() => searchParams.get('prefill') || '');
   const [isLoading, setIsLoading] = useState(false);
   const [preview, setPreview] = useState<ChatChart | null>(null);
+  const [previewKey, setPreviewKey] = useState<string | null>(null);
+  const [chartGranularity, setChartGranularity] = useState<Record<string, Granularity>>({});
   const previewViewRef = useRef<View | null>(null);
   // Inline charts render their own View independent of the modal's, so a
   // chart can be downloaded straight from the chat without first expanding
@@ -340,7 +370,7 @@ const Chatbot: React.FC = () => {
 
   const [previewSize, setPreviewSize] = useState<{ width: number; height: number }>({ width: 840, height: 480 });
 
-  const openPreview = useCallback((chart: ChatChart) => {
+  const openPreview = useCallback((chart: ChatChart, chartKey: string) => {
     // Size the expanded chart off the current viewport so "expand" reads as
     // a real full-screen analysis view rather than a slightly bigger card.
     setPreviewSize({
@@ -348,10 +378,12 @@ const Chatbot: React.FC = () => {
       height: Math.round(Math.min(720, window.innerHeight * 0.7)),
     });
     setPreview(chart);
+    setPreviewKey(chartKey);
   }, []);
 
   const closePreview = useCallback(() => {
     setPreview(null);
+    setPreviewKey(null);
     previewViewRef.current = null;
   }, []);
 
@@ -444,15 +476,30 @@ const Chatbot: React.FC = () => {
                         <div className="space-y-6">
                           {msg.charts.map((chart, i) => {
                             const chartKey = `${msg.id}-${i}`;
+                            const trendChart = isDailyTrendChart(chart.spec);
+                            const granularity = chartGranularity[chartKey] ?? 'day';
+                            const displaySpec = trendChart ? rebucketChart(chart.spec, granularity) : chart.spec;
                             return (
                             <div key={chart.title || i} className="space-y-3">
                               <div className="space-y-3 !mt-2 !mb-8">
-                                {chart.title && (
-                                  <h3 className="text-sm font-semibold text-slate-300">{chart.title}</h3>
+                                {(chart.title || trendChart) && (
+                                  <div className="flex items-center justify-between gap-3">
+                                    {chart.title && (
+                                      <h3 className="text-sm font-semibold text-slate-300">{chart.title}</h3>
+                                    )}
+                                    {trendChart && (
+                                      <GranularityToggle
+                                        value={granularity}
+                                        onChange={(g) =>
+                                          setChartGranularity((prev) => ({ ...prev, [chartKey]: g }))
+                                        }
+                                      />
+                                    )}
+                                  </div>
                                 )}
                                 <div className="group relative overflow-x-auto max-w-full rounded-lg border border-slate-700">
                                   <InteractiveChart
-                                    spec={chart.spec}
+                                    spec={displaySpec}
                                     className="block"
                                     onViewReady={(view) => {
                                       chartViewsRef.current.set(chartKey, view);
@@ -472,7 +519,7 @@ const Chatbot: React.FC = () => {
                                       </svg>
                                     </button>
                                     <button
-                                      onClick={() => openPreview(chart)}
+                                      onClick={() => openPreview(chart, chartKey)}
                                       className="p-1.5 rounded-md bg-slate-800/90 text-slate-300 hover:text-white hover:bg-slate-700 shadow-lg transition-colors"
                                       title="Expand chart"
                                       aria-label="Expand chart"
@@ -497,7 +544,12 @@ const Chatbot: React.FC = () => {
                                       <p><span className="not-italic font-medium text-slate-400">Time range:</span> {chart.time_range}</p>
                                     )}
                                     {chart.granularity && (
-                                      <p><span className="not-italic font-medium text-slate-400">Granularity:</span> {chart.granularity}</p>
+                                      <p>
+                                        <span className="not-italic font-medium text-slate-400">Granularity:</span>{' '}
+                                        {trendChart
+                                          ? GRANULARITY_OPTIONS.find((o) => o.value === granularity)?.label
+                                          : chart.granularity}
+                                      </p>
                                     )}
                                     {chart.query && (
                                       <p><span className="not-italic font-medium text-slate-400">Query:</span> {chart.query}</p>
@@ -618,6 +670,14 @@ const Chatbot: React.FC = () => {
                 {preview.title || 'Chart Preview'}
               </h3>
               <div className="flex items-center gap-2">
+                {isDailyTrendChart(preview.spec) && (
+                  <GranularityToggle
+                    value={previewKey ? chartGranularity[previewKey] ?? 'day' : 'day'}
+                    onChange={(g) =>
+                      previewKey && setChartGranularity((prev) => ({ ...prev, [previewKey]: g }))
+                    }
+                  />
+                )}
                 <button
                   onClick={() => downloadChartView(previewViewRef.current, chartFileName(preview.title))}
                   className="inline-flex items-center gap-1 text-xs font-medium text-slate-100 hover:text-white px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-indigo-600 cursor-pointer transition-colors"
@@ -641,7 +701,11 @@ const Chatbot: React.FC = () => {
             </div>
             <div className="max-h-[85vh] overflow-auto bg-slate-950 flex items-center justify-center p-4">
               <InteractiveChart
-                spec={preview.spec}
+                spec={
+                  isDailyTrendChart(preview.spec)
+                    ? rebucketChart(preview.spec, previewKey ? chartGranularity[previewKey] ?? 'day' : 'day')
+                    : preview.spec
+                }
                 width={previewSize.width}
                 height={previewSize.height}
                 onViewReady={(view) => {

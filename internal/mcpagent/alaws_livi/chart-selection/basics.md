@@ -31,6 +31,18 @@ Never combine `layer` and `facet` in the same spec: layers overlay in one
 panel, facets split across panels, and mixing the two is not a shape
 Vega-Lite renders sensibly.
 
+For a **flat, single-mark** trend chart — one continuous measure plotted
+against a temporal x, with no layered rolling average or percentile band —
+bucket `data_sql` by day (`date_trunc('day', ...)`) regardless of how long
+the window is, and leave the temporal encoding at its default day-level
+grain rather than setting a coarser `timeUnit`. The UI renders its own
+Day/Week/Month toggle on top of that daily data, re-aggregating client-side,
+so there is no need to pre-aggregate to week/month in SQL. This does not
+apply to a `layer`-shaped trend spec (the counted-event, named-entity, and
+two-measures families below) — those already fix their own bucketing
+because a rolling average or percentile band cannot be re-bucketed after
+the fact.
+
 This section only covers the building blocks. The complete response
 envelope a Finalizing reply must produce — `response_type`, `data_sql`,
 `title`, `description`, and where `mark`/`encoding`/`layer`/`facet` sit
