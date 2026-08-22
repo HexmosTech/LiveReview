@@ -1433,23 +1433,24 @@ func rowsToPreviewCSV(rows []map[string]any) string {
 	}
 	sort.Strings(cols)
 
-	var sb strings.Builder
+	// Use byte slice so we can truncate at row boundaries.
+	var buf []byte
 	// Header.
 	for i, c := range cols {
 		if i > 0 {
-			sb.WriteByte(',')
+			buf = append(buf, ',')
 		}
-		sb.WriteString(c)
+		buf = append(buf, c...)
 	}
-	sb.WriteByte('\n')
+	buf = append(buf, '\n')
 
 	// Rows — truncate at row boundary to keep CSV parseable.
 	const maxPreview = 2048
 	for _, row := range rows {
-		start := sb.Len()
+		rowStart := len(buf)
 		for i, c := range cols {
 			if i > 0 {
-				sb.WriteByte(',')
+				buf = append(buf, ',')
 			}
 			v := row[c]
 			var s string
@@ -1475,17 +1476,17 @@ func rowsToPreviewCSV(rows []map[string]any) string {
 			if strings.ContainsAny(s, ",\n\r\"") {
 				s = `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 			}
-			sb.WriteString(s)
+			buf = append(buf, s...)
 		}
-		sb.WriteByte('\n')
-		if sb.Len() > maxPreview {
+		buf = append(buf, '\n')
+		if len(buf) > maxPreview {
 			// Roll back incomplete row to keep CSV valid.
-			sb.Truncate(start)
-			sb.WriteString("... (truncated)\n")
+			buf = buf[:rowStart]
+			buf = append(buf, "... (truncated)\n"...)
 			break
 		}
 	}
-	return sb.String()
+	return string(buf)
 }
 
 func firstNonEmpty(values ...string) string {
