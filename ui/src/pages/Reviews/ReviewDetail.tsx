@@ -5,6 +5,8 @@ import { SiGitlab } from 'react-icons/si';
 import { Button, Icons, Tabs, RelativeTime } from '../../components/UIPrimitives';
 import { ReviewEventsPage, DiffViewerPanel } from '../../components/reviews';
 import { ToolAnalysisCard, ToolAccountingData, ToolBreakdownItem } from '../../components/reviews/ToolAnalysisCard';
+import { useOrgContext } from '../../hooks/useOrgContext';
+import apiClient from '../../api/apiClient';
 import {
   getReview,
   getReviewEvents,
@@ -224,8 +226,47 @@ const ReviewDetail: React.FC = () => {
         }
     }, []);
 
+    const { currentOrg } = useOrgContext();
+    const [dbToolMultipliers, setDbToolMultipliers] = useState<Record<string, number>>({});
+
+    useEffect(() => {
+        if (!currentOrg?.id) return;
+        apiClient.get<{ tools?: Array<{ name: string; multiplier: number }> }>(`/orgs/${currentOrg.id}/tools`)
+            .then(res => {
+                const catalog = res.tools || [];
+                const multMap: Record<string, number> = {};
+                catalog.forEach(t => {
+                    if (t.name && typeof t.multiplier === 'number') {
+                        multMap[t.name.toLowerCase()] = t.multiplier;
+                    }
+                });
+                setDbToolMultipliers(multMap);
+            })
+            .catch(() => {
+                // Silently fallback if offline or endpoint unavailable
+            });
+    }, [currentOrg?.id]);
+
     const [toolAccounting, setToolAccounting] = useState<ToolAccountingData | null>(null);
     const [toolExpanded, setToolExpanded] = useState(false);
+
+    const DEFAULT_TOOL_MULTIPLIERS: Record<string, number> = useMemo(() => ({
+        ruff: 1.0,
+        bandit: 1.0,
+        gitleaks: 1.0,
+        eslint: 2.0,
+        semgrep: 3.0,
+        hadolint: 0.5,
+        actionlint: 0.5,
+        shellcheck: 0.5,
+        trufflehog: 2.0,
+        trivy: 2.5,
+        spectral: 1.0,
+        brakeman: 1.5,
+        kubescape: 2.0,
+        zizmor: 1.0,
+        openapi: 0.5,
+    }), []);
 
     const effectiveToolAccounting = useMemo<ToolAccountingData | null>(() => {
         if (toolAccounting) return toolAccounting;
@@ -235,7 +276,7 @@ const ReviewDetail: React.FC = () => {
         }
 
         const dispatchedMap = new Map<string, string>();
-        const resultsMap = new Map<string, { exitCode: number; findingsCount: number }>();
+        const resultsMap = new Map<string, { exitCode: number; findingsCount: number; creditsUsed?: number }>();
         const order: string[] = [];
 
         toolEvents.forEach(e => {
@@ -256,9 +297,15 @@ const ReviewDetail: React.FC = () => {
                         order.push(toolName);
                     }
                     const findings = Array.isArray(data.findings) ? data.findings : [];
+                    const creditsUsed = typeof data.credits_used === 'number' ? data.credits_used
+                        : typeof data.credits === 'number' ? data.credits
+                        : typeof data.cost === 'number' ? data.cost
+                        : typeof data.multiplier === 'number' ? data.multiplier
+                        : (dbToolMultipliers[toolName.toLowerCase()] ?? DEFAULT_TOOL_MULTIPLIERS[toolName.toLowerCase()] ?? 1.0);
                     resultsMap.set(toolName, {
                         exitCode: typeof data.exit_code === 'number' ? data.exit_code : 0,
                         findingsCount: findings.length,
+                        creditsUsed,
                     });
                 }
             } catch (err) {
@@ -270,17 +317,20 @@ const ReviewDetail: React.FC = () => {
 
         let totalComments = 0;
         let toolsExecuted = 0;
+        let totalCredits = 0;
         const toolBreakdown: ToolBreakdownItem[] = order.map(toolName => {
             const res = resultsMap.get(toolName);
             if (res) {
                 toolsExecuted++;
                 totalComments += res.findingsCount;
+                const credits = res.creditsUsed ?? dbToolMultipliers[toolName.toLowerCase()] ?? DEFAULT_TOOL_MULTIPLIERS[toolName.toLowerCase()] ?? 1.0;
+                totalCredits += credits;
                 let status = 'clean';
                 if (res.exitCode !== 0) status = 'failed';
                 else if (res.findingsCount > 0) status = 'completed';
                 return {
                     toolName,
-                    creditsUsed: 1.0,
+                    creditsUsed: credits,
                     commentsGenerated: res.findingsCount,
                     status,
                 };
@@ -294,12 +344,12 @@ const ReviewDetail: React.FC = () => {
         });
 
         return {
-            totalToolCredits: toolsExecuted * 1.0,
+            totalToolCredits: totalCredits,
             toolsExecuted: toolsExecuted || toolBreakdown.length,
             totalCommentsGenerated: totalComments,
             toolBreakdown,
         };
-    }, [toolAccounting, events]);
+    }, [toolAccounting, events, dbToolMultipliers, DEFAULT_TOOL_MULTIPLIERS]);
 
     // Fetch review details
     const fetchReviewDetails = useCallback(async () => {
@@ -550,11 +600,20 @@ const ReviewDetail: React.FC = () => {
             setReview(reviewData);
             setSummary(summaryData);
             if (summaryData?.toolSummary) {
+                const breakdown = summaryData.toolSummary.toolBreakdown.map((item: ToolBreakdownItem) => ({
+                    ...item,
+                    creditsUsed: item.creditsUsed && item.creditsUsed > 0 
+                        ? item.creditsUsed 
+                        : (dbToolMultipliers[item.toolName.toLowerCase()] ?? 1.0),
+                }));
+                const totalCredits = summaryData.toolSummary.totalCostUsd && summaryData.toolSummary.totalCostUsd > 0
+                    ? summaryData.toolSummary.totalCostUsd
+                    : breakdown.reduce((sum: number, i: ToolBreakdownItem) => sum + i.creditsUsed, 0);
                 setToolAccounting({
-                    totalToolCredits: summaryData.toolSummary.totalCostUsd ?? 0,
+                    totalToolCredits: totalCredits,
                     toolsExecuted: summaryData.toolSummary.toolsExecuted,
                     totalCommentsGenerated: summaryData.toolSummary.totalCommentsGenerated,
-                    toolBreakdown: summaryData.toolSummary.toolBreakdown,
+                    toolBreakdown: breakdown,
                 });
             }
             await fetchAccountingDetails(reviewId, reviewData.status);

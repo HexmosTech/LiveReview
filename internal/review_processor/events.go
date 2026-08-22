@@ -690,16 +690,37 @@ func (r *ReviewEventsRepo) GetToolSummary(ctx context.Context, reviewID, orgID i
 		}
 	}
 
+	// Fetch multipliers from available_tools table in database
+	multiplierMap := make(map[string]float64)
+	if tRows, tErr := r.db.QueryContext(ctx, `SELECT name, multiplier FROM public.available_tools`); tErr == nil {
+		defer tRows.Close()
+		for tRows.Next() {
+			var tName string
+			var mult float64
+			if err := tRows.Scan(&tName, &mult); err == nil {
+				multiplierMap[strings.ToLower(tName)] = mult
+			}
+		}
+	}
+
 	toolBreakdown := make([]ToolBreakdownItem, 0, len(dispatchedOrder))
 	totalComments := 0
 	toolsExecuted := 0
+	totalCostUSD := 0.0
 
 	for _, toolName := range dispatchedOrder {
 		res, hasResult := resultsMap[toolName]
 		dispatchTime := dispatchedMap[toolName]
 
+		mult, exists := multiplierMap[strings.ToLower(toolName)]
+		if !exists || mult <= 0 {
+			mult = 1.0
+		}
+		totalCostUSD += mult
+
 		item := ToolBreakdownItem{
-			ToolName: toolName,
+			ToolName:    toolName,
+			CreditsUsed: mult,
 		}
 
 		if hasResult {
@@ -728,6 +749,7 @@ func (r *ReviewEventsRepo) GetToolSummary(ctx context.Context, reviewID, orgID i
 	return &ToolSummary{
 		ToolsExecuted:          toolsExecuted,
 		TotalCommentsGenerated: totalComments,
+		TotalCostUsd:           &totalCostUSD,
 		ToolBreakdown:          toolBreakdown,
 	}, nil
 }
