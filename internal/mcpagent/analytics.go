@@ -1737,7 +1737,7 @@ func (a *Agent) executeInterpretation(
 	}
 
 	// Build chart.
-	chart, art := a.buildChartFromInterp(ctx, interp, rs, timeUnit, groupFields, userText, clog)
+	chart, art := a.buildChartFromInterp(ctx, interp, rs, timeUnit, groupFields, clog)
 
 	stats := computeStats(rs.Rows, interp.Encoding)
 
@@ -1777,7 +1777,6 @@ func (a *Agent) buildChartFromInterp(
 	rs *storageanalytics.ResultSet,
 	timeUnit string,
 	groupFields []string,
-	userText string,
 	clog *logging.ChatTurnLogger,
 ) (*vlrender.VegaLiteReport, *Artifact) {
 	if len(rs.Rows) > maxChartRows {
@@ -1834,21 +1833,6 @@ func (a *Agent) buildChartFromInterp(
 	}
 
 	specJSON = sanitizeChartSpec(specJSON)
-
-	// If the user explicitly asked for specific axis assignments (e.g.
-	// "users on x axis, reviews on y axis") and the LLM generated a
-	// horizontal bar with the axes backwards, swap them as a safety net.
-	if userText != "" {
-		var specMap map[string]any
-		if err := json.Unmarshal(specJSON, &specMap); err == nil {
-			if userWantsAxisSwap(userText, specMap) {
-				specMap = swapXY(specMap)
-				if fixed, err := json.Marshal(specMap); err == nil {
-					specJSON = fixed
-				}
-			}
-		}
-	}
 
 	normalized, err := vlrender.NormalizeVegaLiteSpec(specJSON)
 	if err != nil {
@@ -2207,97 +2191,4 @@ func abs(x float64) float64 {
 		return -x
 	}
 	return x
-}
-
-// userWantsAxisSwap detects when the user explicitly requests a specific axis
-// assignment (e.g. "x axis you have users, y axis you have reviews") and the
-// generated spec has them backwards (category on y, value on x — the
-// horizontal_bar default). Returns true when a swap is needed.
-func userWantsAxisSwap(userQuery string, spec map[string]any) bool {
-	lower := strings.ToLower(userQuery)
-
-	xAxisCategory := false
-	yAxisNumeric := false
-
-	xIdx := strings.Index(lower, "x axis")
-	if xIdx < 0 {
-		xIdx = strings.Index(lower, "x-axis")
-	}
-	if xIdx >= 0 {
-		afterX := lower[xIdx:]
-		categoryWords := []string{"user", "people", "person", "name", "email", "repository", "repo", "engineer", "author", "contributor", "member"}
-		for _, w := range categoryWords {
-			if strings.Contains(afterX, w) {
-				xAxisCategory = true
-				break
-			}
-		}
-	}
-
-	yIdx := strings.Index(lower, "y axis")
-	if yIdx < 0 {
-		yIdx = strings.Index(lower, "y-axis")
-	}
-	if yIdx >= 0 {
-		afterY := lower[yIdx:]
-		numericWords := []string{"count", "number", "review", "total", "loc", "line", "pull request", "pr ", "commit"}
-		for _, w := range numericWords {
-			if strings.Contains(afterY, w) {
-				yAxisNumeric = true
-				break
-			}
-		}
-	}
-
-	if !xAxisCategory || !yAxisNumeric {
-		return false
-	}
-
-	enc, ok := spec["encoding"].(map[string]any)
-	if !ok {
-		return false
-	}
-	xEnc, hasX := enc["x"].(map[string]any)
-	yEnc, hasY := enc["y"].(map[string]any)
-	if !hasX || !hasY {
-		return false
-	}
-
-	xType, _ := xEnc["type"].(string)
-	yType, _ := yEnc["type"].(string)
-
-	return xType == "quantitative" && (yType == "nominal" || yType == "ordinal")
-}
-
-// swapXY swaps the x and y encodings in a Vega-Lite spec and adjusts sort
-// references accordingly.
-func swapXY(spec map[string]any) map[string]any {
-	enc, ok := spec["encoding"].(map[string]any)
-	if !ok {
-		return spec
-	}
-	xEnc, hasX := enc["x"].(map[string]any)
-	yEnc, hasY := enc["y"].(map[string]any)
-	if !hasX || !hasY {
-		return spec
-	}
-
-	if sort, ok := xEnc["sort"].(string); ok {
-		if sort == "-y" {
-			xEnc["sort"] = "-x"
-		} else if sort == "-x" {
-			xEnc["sort"] = "-y"
-		}
-	}
-	if sort, ok := yEnc["sort"].(string); ok {
-		if sort == "-y" {
-			yEnc["sort"] = "-x"
-		} else if sort == "-x" {
-			yEnc["sort"] = "-y"
-		}
-	}
-
-	enc["x"], enc["y"] = yEnc, xEnc
-	spec["encoding"] = enc
-	return spec
 }
