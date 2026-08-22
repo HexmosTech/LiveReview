@@ -9,7 +9,7 @@ import { useAppSelector } from '../../store/configureStore';
 import { InteractiveChart, downloadChartView } from './InteractiveChart';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { CONVERSATIONS_QUERY_KEY } from './ConversationSidebar';
-import { isDailyTrendChart, rebucketChart, Granularity } from './rebucketChart';
+import { isDailyTrendChart, buildTrendSpec, Granularity } from './rebucketChart';
 
 const GRANULARITY_OPTIONS: { value: Granularity; label: string }[] = [
   { value: 'day', label: 'Day' },
@@ -478,7 +478,7 @@ const Chatbot: React.FC = () => {
                             const chartKey = `${msg.id}-${i}`;
                             const trendChart = isDailyTrendChart(chart.spec);
                             const granularity = chartGranularity[chartKey] ?? 'day';
-                            const displaySpec = trendChart ? rebucketChart(chart.spec, granularity) : chart.spec;
+                            const displaySpec = trendChart ? buildTrendSpec(chart.spec, granularity) : chart.spec;
                             return (
                             <div key={chart.title || i} className="space-y-3">
                               <div className="space-y-3 !mt-2 !mb-8">
@@ -703,7 +703,7 @@ const Chatbot: React.FC = () => {
               <InteractiveChart
                 spec={
                   isDailyTrendChart(preview.spec)
-                    ? rebucketChart(preview.spec, previewKey ? chartGranularity[previewKey] ?? 'day' : 'day')
+                    ? buildTrendSpec(preview.spec, previewKey ? chartGranularity[previewKey] ?? 'day' : 'day')
                     : preview.spec
                 }
                 width={previewSize.width}
