@@ -700,6 +700,7 @@ func (a *Agent) buildChartReport(
 		log.Error().Err(err).Str("report", entry.ID).Msg("failed to marshal chart spec")
 		return a.buildCSVReport(ctx, entry, plan, rs, clog)
 	}
+	specJSON = sanitizeChartSpec(specJSON)
 	normalized, err := vlrender.NormalizeVegaLiteSpec(specJSON)
 	if err != nil {
 		log.Warn().Err(err).Str("report", entry.ID).Msg("spec normalization failed, using raw spec")
@@ -1738,6 +1739,8 @@ func (a *Agent) buildChartFromInterp(
 			return nil, a.buildCSVFromRS(interp.Title, interp.Description, interp.SQL, rs)
 		}
 	}
+
+	specJSON = sanitizeChartSpec(specJSON)
 
 	normalized, err := vlrender.NormalizeVegaLiteSpec(specJSON)
 	if err != nil {
