@@ -20,3 +20,5 @@ across interpretations and never repeat the same type.
 4. Use `DATA_PLACEHOLDER` as the value of `data.values`. {#use-data-placeholder}
 
 5. Field names in encoding must match SQL column aliases exactly. {#field-names-in-encoding}
+
+6. For temporal fields, valid composite `timeUnit`s are: `yearmonthdate`, `yearmonth`, `yearweek`, `yearquarter`, `year`. {#valid-composite-time-units}
