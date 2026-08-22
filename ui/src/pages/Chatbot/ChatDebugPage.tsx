@@ -43,6 +43,31 @@ interface DebugArtifacts {
   }>;
 }
 
+// Reads a mark's "type" whether it's the bare-string form ("bar") or the
+// object form ({"type": "bar", ...}) Vega-Lite also allows.
+function markTypeLabel(mark: unknown): string {
+  if (typeof mark === 'string') return mark;
+  if (mark && typeof mark === 'object' && typeof (mark as any).type === 'string') return (mark as any).type;
+  return 'unknown';
+}
+
+// Describes a chart spec's shape for the debug view - what mark(s) it
+// actually renders as, independent of whatever chart_type name the model
+// picked (chart_type is a hint the finalize pipeline doesn't even receive,
+// and the model's own encoding can diverge from it - this reads the spec
+// Go actually built/sanitized instead of trusting that label).
+function describeChartShape(spec: Record<string, unknown>): string {
+  if (Array.isArray((spec as any).layer)) {
+    const marks = ((spec as any).layer as Array<Record<string, unknown>>).map((l) => markTypeLabel(l.mark));
+    return `layered (${marks.join(' + ')})`;
+  }
+  if ((spec as any).facet) {
+    const innerMark = (spec as any).spec?.mark;
+    return `faceted (${markTypeLabel(innerMark)})`;
+  }
+  return markTypeLabel((spec as any).mark);
+}
+
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
@@ -373,7 +398,12 @@ const ChatDebugPage: React.FC = () => {
                 <div className="mt-3 space-y-3">
                   {msg.charts.map((chart, i) => (
                     <div key={i} className="bg-slate-700 rounded-lg p-3">
-                      {chart.title && <div className="text-sm font-medium mb-1">{chart.title}</div>}
+                      <div className="flex items-center gap-2 mb-1">
+                        {chart.title && <div className="text-sm font-medium">{chart.title}</div>}
+                        <span className="text-[10px] uppercase tracking-wide font-mono text-amber-300/90 bg-amber-500/10 border border-amber-500/30 rounded px-1.5 py-0.5 ml-auto">
+                          {describeChartShape(chart.spec)}
+                        </span>
+                      </div>
                       <InteractiveChart spec={chart.spec} onViewReady={(view) => chartViewsRef.current.set(`${msg.id}-${i}`, view)} />
                     </div>
                   ))}

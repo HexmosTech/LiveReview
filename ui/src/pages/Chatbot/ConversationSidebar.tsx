@@ -35,6 +35,48 @@ function formatUpdatedAt(iso: string): string {
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
+// Truncated text that scrolls to reveal the rest on hover, instead of just
+// cutting it off with an ellipsis. Only animates when the text actually
+// overflows its box - measured via ResizeObserver so it stays correct
+// across sidebar resizes and font loads, not just on mount. The scroll
+// distance and duration both scale with how much text is hidden, so a
+// barely-clipped title doesn't get the same multi-second scroll as a long
+// one.
+const MarqueeText: React.FC<{ text: string; className?: string }> = ({ text, className }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [overflow, setOverflow] = useState(0);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const el = textRef.current;
+    if (!container || !el) return;
+    const measure = () => setOverflow(Math.max(0, el.scrollWidth - container.clientWidth));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [text]);
+
+  const durationMs = Math.min(8000, Math.max(1500, overflow * 20));
+
+  return (
+    <div ref={containerRef} className={`overflow-hidden ${className ?? ''}`}>
+      <span
+        ref={textRef}
+        className="inline-block whitespace-nowrap translate-x-0 ease-linear group-hover:translate-x-[var(--marquee-distance)]"
+        style={{
+          ['--marquee-distance' as string]: overflow > 0 ? `-${overflow}px` : '0px',
+          transitionProperty: 'transform',
+          transitionDuration: `${durationMs}ms`,
+        }}
+      >
+        {text}
+      </span>
+    </div>
+  );
+};
+
 // Drag-to-resize handle on the sidebar's right edge. Reads the starting
 // width once on mousedown and applies the delta on every mousemove, rather
 // than reading the (stale, closure-captured) width prop on each move.
@@ -200,11 +242,12 @@ const SidebarBody: React.FC<SidebarBodyProps> = ({
               />
             ) : (
               <button onClick={() => onSelect(conv.id)} className="w-full text-left">
-                <div className={`text-sm truncate ${isActive ? 'text-slate-100 font-medium' : 'text-slate-300'}`}>
-                  {conv.title || 'New conversation'}
-                </div>
+                <MarqueeText
+                  text={conv.title || 'New conversation'}
+                  className={`text-sm ${isActive ? 'text-slate-100 font-medium' : 'text-slate-300'}`}
+                />
                 {conv.snippet ? (
-                  <div className="text-xs text-slate-500 truncate mt-0.5">{conv.snippet}</div>
+                  <MarqueeText text={conv.snippet} className="text-xs text-slate-500 mt-0.5" />
                 ) : (
                   <div className="text-xs text-slate-500 mt-0.5">{formatUpdatedAt(conv.updatedAt)}</div>
                 )}

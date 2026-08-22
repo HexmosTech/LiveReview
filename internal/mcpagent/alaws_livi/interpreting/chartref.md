@@ -18,9 +18,9 @@ encoding for each interpretation.
 
 3. **stacked_bar** — Composition of categories. Category x, subcategory color, numeric y. Example: review status breakdown per month. Encoding: `x: {field: "category"}, y: {field: "count"}, color: {field: "subcategory"}`. {#stacked-bar}
 
-4. **line** — Trends over time. Temporal x, numeric y. Example: reviews per month. Encoding: `x: {field: "time", type: "temporal", timeUnit: "yearmonth"}, y: {field: "count", type: "quantitative"}`. {#line-chart}
+4. **line** — Trends over time. Temporal x, numeric y. Example: reviews per day (see `livi.interpreting.data-quality` law 2 - always day granularity, never pre-aggregated to week/month). Encoding: `x: {field: "day", type: "temporal", timeUnit: "yearmonthdate"}, y: {field: "count", type: "quantitative"}`. {#line-chart}
 
-5. **multi_line** — Comparing trends across groups. Temporal x, numeric y, group color. Example: reviews per month per trigger_type. Encoding: same as line plus `color: {field: "group"}`. {#multi-line}
+5. **multi_line** — Comparing trends across groups. Temporal x, numeric y, group color. Example: reviews per day per trigger_type. Encoding: same as line plus `color: {field: "group"}`. {#multi-line}
 
 6. **area** — Volume/magnitude over time. Temporal x, numeric y. Example: cumulative reviews. Same encoding as line but with `mark: "area"`. {#area-chart}
 

@@ -16,3 +16,5 @@ must never invent columns that aren't there.
 2. Every field must be table-qualified (e.g. `reviews.status`). {#every-field-must-be}
 
 3. Include filters where relevant (e.g. `status = 'completed'`). {#include-filters-where}
+
+4. `reviews` has no `user_id` column. Identify or join on `reviews.user_email` instead for any per-user grouping, filtering, or join. {#reviews-has-no-user-id}

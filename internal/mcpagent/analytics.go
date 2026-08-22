@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -405,6 +404,8 @@ func (a *Agent) materializeReport(
 			return finishedReport{text: fmt.Sprintf("I found no data for %q.", entry.Question)}
 		}
 
+		relabelTriggerTypeValues(rs.Rows)
+
 		// The model does not get to decide that "too much data for a
 		// chart" is fine, but the decision is made off the real,
 		// just-fetched row count - not the count phase's prediction,
@@ -699,6 +700,7 @@ func (a *Agent) buildChartReport(
 		log.Error().Err(err).Str("report", entry.ID).Msg("failed to marshal chart spec")
 		return a.buildCSVReport(ctx, entry, plan, rs, clog)
 	}
+	specJSON = sanitizeChartSpec(specJSON)
 	normalized, err := vlrender.NormalizeVegaLiteSpec(specJSON)
 	if err != nil {
 		log.Warn().Err(err).Str("report", entry.ID).Msg("spec normalization failed, using raw spec")
@@ -1627,6 +1629,8 @@ func (a *Agent) executeInterpretation(
 	}
 	clog.SQLResult(interp.Title, "data", 1, time.Since(start), len(rs.Rows), rs.Truncated)
 
+	relabelTriggerTypeValues(rs.Rows)
+
 	// Weak result filter.
 	if len(rs.Rows) <= 1 {
 		return InterpretationResult{
@@ -1735,6 +1739,8 @@ func (a *Agent) buildChartFromInterp(
 			return nil, a.buildCSVFromRS(interp.Title, interp.Description, interp.SQL, rs)
 		}
 	}
+
+	specJSON = sanitizeChartSpec(specJSON)
 
 	normalized, err := vlrender.NormalizeVegaLiteSpec(specJSON)
 	if err != nil {
@@ -1911,75 +1917,16 @@ func smartAggregateTime(rs *storageanalytics.ResultSet) (*storageanalytics.Resul
 		return nil, "yearmonthdate", nil
 	}
 
-	span := dated[len(dated)-1].date.Sub(dated[0].date).Hours() / 24
-	if span <= 14 {
-		// Short span — day level is fine.
-		stripTimezones(rs)
-		return nil, "yearmonthdate", nil
-	}
-
-	var aggUnit string
-	var keyFunc func(time.Time) time.Time
-	if span <= 90 {
-		aggUnit = "yearweek"
-		keyFunc = func(t time.Time) time.Time {
-			// Start of ISO week.
-			wd := int(t.Weekday())
-			if wd == 0 {
-				wd = 7
-			}
-			return t.AddDate(0, 0, -(wd - 1))
-		}
-	} else {
-		aggUnit = "yearmonth"
-		keyFunc = func(t time.Time) time.Time {
-			return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, t.Location())
-		}
-	}
-
-	// Aggregate.
-	type aggKey struct {
-		timeKey string
-		group   string // concatenated group field values
-	}
-	grouped := map[aggKey]map[string]any{}
-	for _, dr := range dated {
-		tk := keyFunc(dr.date)
-		gv := ""
-		for _, gf := range groupFields {
-			gv += fmt.Sprintf("%v|", dr.row[gf])
-		}
-		key := aggKey{timeKey: tk.Format("2006-01-02"), group: gv}
-		if _, ok := grouped[key]; !ok {
-		 newRow := map[string]any{timeField: tk.Format("2006-01-02")}
-			for _, gf := range groupFields {
-				newRow[gf] = dr.row[gf]
-			}
-			for _, vf := range valueFields {
-				newRow[vf] = 0.0
-			}
-			grouped[key] = newRow
-		}
-		for _, vf := range valueFields {
-			val := toFloat(dr.row[vf])
-			grouped[key][vf] = grouped[key][vf].(float64) + val
-		}
-	}
-
-	// Build result.
-	out := make([]map[string]any, 0, len(grouped))
-	for _, row := range grouped {
-		out = append(out, row)
-	}
-	// Sort by time.
-	sort.Slice(out, func(i, j int) bool {
-		return fmt.Sprintf("%v", out[i][timeField]) < fmt.Sprintf("%v", out[j][timeField])
-	})
-
-	return &storageanalytics.ResultSet{
-		Columns: rs.Columns,
-		Rows:    out,
-	}, aggUnit, groupFields
+	// This used to coarsen a long-span day-level series down to week/month
+	// buckets server-side, which silently threw away the daily rows a
+	// chart's own Day/Week/Month toggle needs - the toggle re-buckets
+	// client-side from whatever granularity reaches it, so a chart handed a
+	// pre-aggregated 7-point monthly series can never show daily points
+	// again, no matter what the toggle is set to. Always keep day-level
+	// data now and let the frontend do the coarsening.
+	_ = groupFields
+	stripTimezones(rs)
+	return nil, "yearmonthdate", nil
 }
 
 // stripTimezones removes +00:00 suffixes from temporal column values so
