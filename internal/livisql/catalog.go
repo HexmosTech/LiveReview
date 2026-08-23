@@ -140,6 +140,8 @@ var allowedFunctions = map[string]bool{
 	"split_part": true, "replace": true, "left": true, "right": true, "lpad": true, "rpad": true,
 	// jsonb (reviews.metadata is withheld, but review payloads elsewhere are jsonb)
 	"jsonb_array_length": true, "jsonb_extract_path_text": true, "jsonb_typeof": true,
+	// pg_trgm - ranking repository-name matches by closeness
+	"similarity": true,
 	// set returning
 	"generate_series": true, "unnest": true,
 	"jsonb_array_elements": true, "jsonb_array_elements_text": true,
