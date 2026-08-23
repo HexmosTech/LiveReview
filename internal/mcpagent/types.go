@@ -100,6 +100,7 @@ type DebugArtifacts struct {
 	SchemaContext   string              `json:"schema_context"`
 	SystemPrompt    string              `json:"system_prompt"`
 	LLMRawResponse  string              `json:"llm_raw_response"`
+	FullRequest     string              `json:"full_request"` // system_prompt + schema_context sent to LLM
 	Interpretations []Interpretation    `json:"interpretations"`
 	Results         []DebugResultEntry  `json:"results"`
 }
@@ -114,5 +115,6 @@ type DebugResultEntry struct {
 	SkipReason string   `json:"skip_reason,omitempty"`
 	RowCount   int      `json:"row_count"`
 	Stats      []string `json:"stats,omitempty"`
-	CSVData    string   `json:"csv_data,omitempty"` // first N rows for preview
+	CSVData    string   `json:"csv_data,omitempty"`   // first N rows for preview
+	VegaSpec   string   `json:"vega_spec,omitempty"`  // rendered chart spec JSON
 }

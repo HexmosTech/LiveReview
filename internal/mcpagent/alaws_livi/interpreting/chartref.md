@@ -37,3 +37,7 @@ encoding for each interpretation.
 12. **boxplot** — Distribution spread across categories. Category x, numeric y. Example: LOC distribution per trigger_type. Encoding: `x: {field: "category"}, y: {field: "value"}`. Mark: `{type: "boxplot", extent: 1.5}`. {#boxplot}
 
 13. **trellis_bar** — Small multiples across groups. Facet field, category x, numeric y. Example: reviews per trigger_type per provider. Encoding: `facet: {field: "group", columns: 3}, spec: {mark: "bar", encoding: {x: {field: "category"}, y: {field: "count"}}}`. {#trellis-bar}
+
+14. The user message includes a `chart_types` JSON array. Each entry has `id`, `use_when`, and `vega_lite_base`. You MUST adapt `vega_lite_base` to the user's query — replace every placeholder (`CATEGORY_FIELD`, `NUMERIC_FIELD`, etc.) with the actual SQL column alias. Adjust encodings, sorts, titles, and axis assignments to match what the user asked for. The base spec is a starting point, not a finished product. {#adapt-vega-lite-base-to-query}
+
+15. If the user specifies which dimension belongs on which axis (e.g. "x axis = users, y axis = reviews"), honor that exactly in the `vega_lite_spec` encoding — even if it means swapping x and y from the base spec's default layout. {#user-axis-specification-overrides-defaults}

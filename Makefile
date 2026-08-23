@@ -469,6 +469,7 @@ db-flip:
 	@grep "DATABASE_URL=" .env
 
 # Build dbctx index from local .env DATABASE_URL and import terminology
+prep-dbctx: export PATH := $(HOME)/go/bin:$(PATH)
 prep-dbctx:
 	@if [ -z "$(DATABASE_URL)" ]; then \
 		echo "❌ ERROR: DATABASE_URL not set. Check your .env file."; \
