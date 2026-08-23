@@ -1847,8 +1847,6 @@ func (a *Agent) buildChartFromInterp(
 		normalized = specJSON
 	}
 
-	timeRange := computeTimeRange(rs)
-
 	// Use Name as title if Title is generic/missing.
 	title := interp.Title
 	if title == "" || title == "Query Result" {
@@ -1862,9 +1860,9 @@ func (a *Agent) buildChartFromInterp(
 	return &vlrender.VegaLiteReport{
 		Title:       title,
 		Description: interp.Description,
-		Query:       interp.SQL,
-		TimeRange:   timeRange,
-		Granularity: timeUnit,
+		Query:       interp.QuerySummary,
+		TimeRange:   interp.TimeWindow,
+		Granularity: interp.Granularity,
 		Spec:        normalized,
 	}, nil
 }

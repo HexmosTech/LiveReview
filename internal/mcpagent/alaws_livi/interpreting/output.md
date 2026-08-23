@@ -11,9 +11,9 @@ exact: a `query` string, an `interpretation` summary, and an
 object.
 
 Each interpretation carries its own SQL, chart type, name, description,
-Vega-Lite spec, and applied laws list. The Go code executes the SQL,
-builds the chart from the spec, and presents all non-empty results to
-the user.
+query summary, time range, granularity, Vega-Lite spec, and applied laws
+list. The Go code executes the SQL, builds the chart from the spec, and
+presents all non-empty results to the user.
 
 <!-- alaws:laws -->
 
@@ -21,7 +21,7 @@ the user.
 
 2. Top-level schema: `query` (original user query string), `interpretation` (1-2 sentence restatement of what the overall answer covers), `interpretations` array. Nothing else in the object. {#top-level-schema-query-interpretation}
 
-3. Each interpretation must have: `name` (short label), `description` (what this shows), `chart_type` (chart type ID from the reference), `sql` (PostgreSQL query), `vega_lite_spec` (complete Vega-Lite spec), `applied_laws` (array of canonical law numbers). {#each-interpretation-must-have}
+3. Each interpretation must have: `name` (short label), `description` (what this shows), `chart_type` (chart type ID from the reference), `sql` (PostgreSQL query), `query_summary`, `time_range`, `granularity`, `vega_lite_spec` (complete Vega-Lite spec), `applied_laws` (array of canonical law numbers). {#each-interpretation-must-have}
 
 4. The `vega_lite_spec` must use `DATA_PLACEHOLDER` as the value of `data.values`. The Go code replaces it with real query results. {#vega-lite-spec-data-placeholder}
 
@@ -30,3 +30,5 @@ the user.
 6. The `sql` field must be a valid PostgreSQL SELECT statement. It must NOT contain INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, TRUNCATE, or any other DDL/DML. {#sql-must-be-select-only}
 
 7. Begin your reply with the `{` character and end it with the matching `}`, with no text of any kind before or after. {#begin-reply-with-brace}
+
+8. `query_summary` is a humanized, plain-English restatement of what `sql` does - no table names, column names, or numeric IDs; name the scope verbatim instead (the org, user, or repo name). `time_range` states the exact calendar window `sql` covers, or `"All time"` when unbounded. `granularity` states the bucket size (`"Daily"`, `"Weekly"`, `"Monthly"`, `"Quarterly"`), or `"Overall"` when `sql` isn't bucketed by time. {#query-summary-time-range-granularity}

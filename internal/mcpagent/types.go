@@ -78,6 +78,9 @@ type Interpretation struct {
 	VegaLiteSpec map[string]any `json:"vega_lite_spec,omitempty"`
 	Encoding     map[string]any `json:"encoding,omitempty"`
 	Name         string         `json:"name,omitempty"`
+	QuerySummary string         `json:"query_summary,omitempty"`
+	TimeWindow   string         `json:"time_range,omitempty"`
+	Granularity  string         `json:"granularity,omitempty"`
 }
 
 // InterpretationResult pairs an interpretation with its executed outcome.
