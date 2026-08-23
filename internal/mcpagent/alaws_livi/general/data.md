@@ -9,6 +9,8 @@ These laws govern every query Livi writes, in every chapter. Most of them
 exist because breaking them produces a chart that looks right and is
 wrong — the most expensive kind of error in this system.
 
+Rule 7 uses pg_trgm's `similarity()` alongside `ILIKE` for fuzzy repository-name matching; `0.3` is pg_trgm's own default similarity threshold.
+
 <!-- alaws:laws -->
 
 1. Every query you write must be scoped to organization {{org_id}}. {#every-query-you-write-must}
@@ -23,7 +25,7 @@ wrong — the most expensive kind of error in this system.
 
 6. Use `reviews.repository` (a plain name column) directly — never join `reviews` to `repositories` through `pull_requests`, because `reviews.pull_request_id` is unpopulated for most reviews and that join silently drops rows. {#use-reviews-repository-plain-name}
 
-7. Filter to a named repository by its own identifying column, exactly — `reviews.repository = '<name>'`, or `pull_requests.repository_id` joined to `repositories.id`/`full_name`, never a text search on an unrelated column such as `pull_requests.title` as a stand-in for a repository filter. Match with `=`, not `ILIKE '%<name>%'` — a fuzzy substring match returns rows from other repositories whose name happens to contain the same text, and a title search returns rows about the repository rather than rows from it. {#filter-to-a-named-repository}
+7. Filter a named repository with `<table>.<column> ILIKE '%<name>%' OR similarity(<table>.<column>, '<name>') > 0.3`, whichever table's repository-name column the query is already using (`reviews.repository`, `repositories.name`, `repositories.full_name`, ...), ranked by `ORDER BY similarity(<table>.<column>, '<name>') DESC` inside that same row-level step (a CTE or subquery, before any `GROUP BY`). {#filter-to-a-named-repository}
 
 8. Do not join `reviews` to `users` through a foreign key — the schema has none. Join them yourself on `users.email = reviews.user_email`. {#do-not-join-reviews-to}
 
