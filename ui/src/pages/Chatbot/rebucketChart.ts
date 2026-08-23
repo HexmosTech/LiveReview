@@ -486,3 +486,68 @@ export function computeCategoryStats(spec: Record<string, unknown>): CategorySta
     bottom3: sorted.slice(-3).reverse(),
   };
 }
+
+interface HeatmapEncodingParts {
+  dateField: string;
+  colorField: string;
+}
+
+// Detects a calendar-heatmap-shaped chart the same way the backend's
+// sanitizeCalendarHeatmap does (see internal/mcpagent/interpretation_sanitization.go):
+// both x and y are the same underlying date field, just bucketed by two
+// different timeUnits (one "week", one plain "day"), with a quantitative
+// color channel. Neither axis is a single re-bucketable temporal/quantitative
+// pair, so this chart never gets the day/week/month toggle - it gets its own
+// stats instead.
+function getHeatmapEncoding(spec: Record<string, unknown>): HeatmapEncodingParts | null {
+  if (!spec || 'layer' in spec || 'facet' in spec || 'hconcat' in spec || 'vconcat' in spec) return null;
+  const enc = getEncoding(spec);
+  if (!enc) return null;
+  const x = enc.x as TemporalEncoding | undefined;
+  const y = enc.y as TemporalEncoding | undefined;
+  const color = enc.color as QuantEncoding | undefined;
+  if (!x?.field || !y?.field || x.field !== y.field) return null;
+  if (!color?.field || color.type !== 'quantitative') return null;
+  const isWeek = (e?: TemporalEncoding) => typeof e?.timeUnit === 'string' && e.timeUnit.toLowerCase().includes('week');
+  const isDay = (e?: TemporalEncoding) => e?.timeUnit === 'day';
+  if (!((isWeek(x) && isDay(y)) || (isWeek(y) && isDay(x)))) return null;
+  return { dateField: x.field, colorField: color.field };
+}
+
+export function isCalendarHeatmap(spec: Record<string, unknown>): boolean {
+  if (!getHeatmapEncoding(spec)) return false;
+  const values = (spec as any).data?.values;
+  return Array.isArray(values) && values.length > 0;
+}
+
+export interface HeatmapStats {
+  total: number;
+  activeDays: number;
+  avgOnActiveDays: number;
+  busiest: { date: string; value: number };
+}
+
+export function computeHeatmapStats(spec: Record<string, unknown>): HeatmapStats | null {
+  const parts = getHeatmapEncoding(spec);
+  if (!parts) return null;
+  const values = (spec as any).data?.values as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(values) || values.length === 0) return null;
+
+  let total = 0;
+  let activeDays = 0;
+  let busiest = values[0];
+  for (const row of values) {
+    const v = Number(row[parts.colorField]) || 0;
+    total += v;
+    if (v > 0) activeDays++;
+    if (v > (Number(busiest[parts.colorField]) || 0)) busiest = row;
+  }
+  if (total === 0) return null;
+
+  return {
+    total: Math.round(total * 100) / 100,
+    activeDays,
+    avgOnActiveDays: activeDays > 0 ? Math.round((total / activeDays) * 100) / 100 : 0,
+    busiest: { date: String(busiest[parts.dateField]), value: Number(busiest[parts.colorField]) || 0 },
+  };
+}

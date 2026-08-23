@@ -19,6 +19,8 @@ import {
   computeCategoryStats,
   isBandChart,
   computeBandStats,
+  isCalendarHeatmap,
+  computeHeatmapStats,
   Granularity,
 } from './rebucketChart';
 
@@ -533,6 +535,8 @@ const Chatbot: React.FC = () => {
                             const bandChart = !trendChart && isBandChart(chart.spec);
                             const categoryStats = !trendChart && !bandChart && isCategoricalChart(chart.spec) ? computeCategoryStats(chart.spec) : null;
                             const bandStats = bandChart ? computeBandStats(chart.spec) : null;
+                            const heatmapChart = !trendChart && !bandChart && isCalendarHeatmap(chart.spec);
+                            const heatmapStats = heatmapChart ? computeHeatmapStats(chart.spec) : null;
                             return (
                             <div key={chart.title || i} className="space-y-3">
                               <div className="space-y-3 !mt-2 !mb-8">
@@ -617,6 +621,17 @@ const Chatbot: React.FC = () => {
                                         ? 'n/a'
                                         : `${trendStats.trendPct >= 0 ? 'up' : 'down'} ${Math.abs(trendStats.trendPct)}% (${formatAxisDate(trendStats.firstDate)} → ${formatAxisDate(trendStats.lastDate)})`
                                     }
+                                  />
+                                </div>
+                              )}
+                              {heatmapStats && (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                  <StatChip label="Total" value={heatmapStats.total.toLocaleString()} />
+                                  <StatChip label="Active days" value={String(heatmapStats.activeDays)} />
+                                  <StatChip label="Avg on active days" value={heatmapStats.avgOnActiveDays.toLocaleString()} />
+                                  <StatChip
+                                    label="Busiest day"
+                                    value={`${formatAxisDate(heatmapStats.busiest.date)} (${heatmapStats.busiest.value.toLocaleString()})`}
                                   />
                                 </div>
                               )}
