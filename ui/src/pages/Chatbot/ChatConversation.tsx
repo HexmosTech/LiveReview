@@ -1,0 +1,1147 @@
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import type { View } from 'vega';
+import { sendChatMessage, ChatFile, ChatChart } from '../../api/chatbot';
+import { basePathForSurface, createConversation, getConversation, type ChatSurface } from '../../api/chatConversations';
+import { BASE_URL } from '../../api/apiClient';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAppSelector } from '../../store/configureStore';
+import { InteractiveChart, downloadChartView } from './InteractiveChart';
+import { ThinkingIndicator } from './ThinkingIndicator';
+import { CONVERSATIONS_QUERY_KEY } from './ConversationSidebar';
+import {
+  isDailyTrendChart,
+  buildTrendSpec,
+  computeTrendStats,
+  formatAxisDate,
+  isCategoricalChart,
+  computeCategoryStats,
+  isBandChart,
+  computeBandStats,
+  Granularity,
+} from './rebucketChart';
+
+const GRANULARITY_OPTIONS: { value: Granularity; label: string }[] = [
+  { value: 'day', label: 'Day' },
+  { value: 'week', label: 'Week' },
+  { value: 'month', label: 'Month' },
+];
+
+const GranularityToggle: React.FC<{ value: Granularity; onChange: (g: Granularity) => void }> = ({
+  value,
+  onChange,
+}) => (
+  <div className="inline-flex rounded-md border border-slate-700 overflow-hidden text-xs">
+    {GRANULARITY_OPTIONS.map((opt) => (
+      <button
+        key={opt.value}
+        onClick={() => onChange(opt.value)}
+        className={`px-2.5 py-1 font-medium transition-colors ${
+          value === opt.value
+            ? 'bg-indigo-600 text-white'
+            : 'bg-slate-800/90 text-slate-300 hover:text-white hover:bg-slate-700'
+        }`}
+      >
+        {opt.label}
+      </button>
+    ))}
+  </div>
+);
+
+const StatChip: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div className="rounded-md border border-slate-700 bg-slate-800/60 px-2.5 py-1.5 min-w-0">
+    <div className="text-[11px] text-slate-500">{label}</div>
+    <div className="text-xs text-slate-300 font-medium break-words">{value}</div>
+  </div>
+);
+
+// Debug artifacts (SQL, CSV, Vega spec, schema context, system prompt, raw
+// LLM exchange) - present on every turn's response, but only surfaced in the
+// UI when `surface === 'chat_debug'` (see DebugTrigger usage below).
+interface DebugArtifacts {
+  query: string;
+  schema_context: string;
+  system_prompt: string;
+  llm_raw_response: string;
+  full_request: string;
+  interpretations: Array<{
+    sql: string;
+    chart_type: string;
+    title: string;
+    description: string;
+    encoding?: Record<string, unknown>;
+  }>;
+  results: Array<{
+    index: number;
+    title: string;
+    chart_type: string;
+    sql: string;
+    status: string;
+    skip_reason?: string;
+    row_count: number;
+    stats?: string[];
+    csv_data?: string;
+    vega_spec?: string;
+  }>;
+}
+
+interface ChatEntry {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  charts?: ChatChart[];
+  files?: ChatFile[];
+  debugArtifacts?: DebugArtifacts | null;
+}
+
+function formatRowCount(rows?: number): string {
+  if (!rows || rows < 1) return 'CSV';
+  return `CSV · ${rows.toLocaleString()} row${rows === 1 ? '' : 's'}`;
+}
+
+function generateId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function resolveImageUrl(url: string): string {
+  // Only allow relative, same-origin URLs. The backend always returns
+  // relative /api/v1/chat/files/... paths for CSV exports; rejecting absolute
+  // http(s) URLs prevents loading arbitrary external content from a
+  // model-influenced URL.
+  if (!url || !url.startsWith('/')) return '';
+  return `${BASE_URL}${url}`;
+}
+
+function chartFileName(title?: string): string {
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const yy = String(now.getFullYear()).slice(-2);
+  const base = (title || 'livereview-chart').replace(/[\/\\]+/g, '_');
+  return `${base}__LiveReview__${dd}${mm}${yy}.png`;
+}
+
+function formatText(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const lines = text.split('\n');
+  let inCodeBlock = false;
+  let codeContent = '';
+  let lineIdx = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith('```')) {
+      if (inCodeBlock) {
+        parts.push(
+          <pre key={`code-${lineIdx++}`} className="bg-slate-800 text-green-300 p-3 rounded-lg overflow-x-auto text-sm my-2">
+            {codeContent}
+          </pre>
+        );
+        codeContent = '';
+        inCodeBlock = false;
+      } else {
+        inCodeBlock = true;
+      }
+      continue;
+    }
+    if (inCodeBlock) {
+      codeContent += (codeContent ? '\n' : '') + line;
+      continue;
+    }
+
+    if (line.trim() === '') {
+      parts.push(<div key={`empty-${lineIdx++}`} className="h-2" />);
+      continue;
+    }
+
+    const formattedLine = formatLine(line);
+    parts.push(<div key={`line-${lineIdx++}`} className="mb-1">{formattedLine}</div>);
+  }
+
+  if (inCodeBlock && codeContent) {
+    parts.push(
+      <pre key={`code-${lineIdx++}`} className="bg-slate-800 text-green-300 p-3 rounded-lg overflow-x-auto text-sm my-2">
+        {codeContent}
+      </pre>
+    );
+  }
+
+  return parts;
+}
+
+function formatLine(line: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  let i = 0;
+  let partIdx = 0;
+
+  while (i < line.length) {
+    if (line[i] === '*' && i + 1 < line.length && line[i + 1] === '*') {
+      const end = line.indexOf('**', i + 2);
+      if (end >= 0) {
+        parts.push(<strong key={`b-${partIdx++}`}>{line.slice(i + 2, end)}</strong>);
+        i = end + 2;
+        continue;
+      }
+    }
+    if (line[i] === '*' && line[i + 1] !== '*') {
+      const end = line.indexOf('*', i + 1);
+      if (end >= 0) {
+        parts.push(<em key={`i-${partIdx++}`}>{line.slice(i + 1, end)}</em>);
+        i = end + 1;
+        continue;
+      }
+      // Stray single '*' with no closing pair (e.g. a leftover emphasis/bullet
+      // marker). Drop it instead of printing a literal asterisk.
+      i += 1;
+      continue;
+    }
+    if (line[i] === '`') {
+      const end = line.indexOf('`', i + 1);
+      if (end >= 0) {
+        parts.push(
+          <code key={`c-${partIdx++}`} className="bg-slate-700 text-cyan-300 px-1.5 py-0.5 rounded text-sm">
+            {line.slice(i + 1, end)}
+          </code>
+        );
+        i = end + 1;
+        continue;
+      }
+    }
+    if (line[i] === '>' && (i === 0 || line[i - 1] === ' ')) {
+      const rest = line.slice(i + 1).trim();
+      parts.push(
+        <blockquote key={`q-${partIdx++}`} className="border-l-4 border-indigo-400 pl-3 text-slate-300 italic my-1">
+          {formatLine(rest)}
+        </blockquote>
+      );
+      i = line.length;
+      continue;
+    }
+
+    let segEnd = findNextSpecial(line, i);
+    // An unmatched marker at this position (no closing pair found above) would
+    // otherwise keep i frozen forever. Treat it as literal text and advance.
+    if (segEnd === i) segEnd = i + 1;
+    parts.push(<span key={`t-${partIdx++}`}>{line.slice(i, segEnd)}</span>);
+    i = segEnd;
+  }
+
+  return <>{parts}</>;
+}
+
+function findNextSpecial(line: string, from: number): number {
+  for (let i = from; i < line.length; i++) {
+    if (line[i] === '*' || line[i] === '`' || line[i] === '>') return i;
+  }
+  return line.length;
+}
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function prettyJSON(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return raw;
+  }
+}
+
+// Collapsible section with copy button, used inside the debug modal.
+const CollapsibleSection: React.FC<{
+  id: string;
+  label: string;
+  content: string;
+  prefix?: React.ReactNode;
+  isGreen?: boolean;
+  maxH?: string;
+  activeSection: string | null;
+  toggleSection: (id: string) => void;
+  copiedId: string | null;
+  handleCopy: (id: string, text: string) => void;
+}> = ({ id, label, content, prefix, isGreen, maxH = 'max-h-48', activeSection, toggleSection, copiedId, handleCopy }) => {
+  const isOpen = activeSection === 'all' || activeSection === id;
+  return (
+    <div className="border border-slate-700/50 rounded-md overflow-hidden">
+      <button
+        onClick={() => toggleSection(id)}
+        className="flex items-center gap-2 w-full px-3 py-1.5 bg-slate-800/40 hover:bg-slate-800/60 text-xs text-slate-300 transition-colors"
+      >
+        <span className="text-slate-500 w-3">{isOpen ? '▼' : '▶'}</span>
+        <span className="font-medium">{label}</span>
+        <span className="ml-auto text-slate-600 text-[10px] font-mono">{content.length.toLocaleString()} chars</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); handleCopy(id, content); }}
+          className="ml-1 px-1.5 py-0.5 rounded bg-slate-700/50 hover:bg-slate-600/50 text-slate-400 hover:text-slate-200 text-[10px] transition-colors"
+        >
+          {copiedId === id ? 'Copied' : 'Copy'}
+        </button>
+      </button>
+      {isOpen && (
+        <>
+          {prefix}
+          <pre className={`p-3 text-[11px] leading-relaxed ${maxH} overflow-auto whitespace-pre-wrap border-t border-slate-700/30 ${
+            isGreen ? 'bg-slate-900 text-green-300' : 'bg-slate-950 text-slate-300'
+          }`}>
+            {content}
+          </pre>
+        </>
+      )}
+    </div>
+  );
+};
+
+// Compact inline button (chat_debug surface only) that opens the full debug
+// info in a dialog, so the message stays visually identical to /chat instead
+// of growing a wall of raw SQL/JSON beneath it.
+const DebugTrigger: React.FC<{ artifacts: DebugArtifacts; onOpen: () => void }> = ({ artifacts, onOpen }) => {
+  const rendered = artifacts.results?.filter((r) => r.status === 'rendered').length || 0;
+  const skipped = artifacts.results?.filter((r) => r.status === 'skipped').length || 0;
+  const failed = artifacts.results?.filter((r) => r.status === 'failed').length || 0;
+
+  return (
+    <button
+      onClick={onOpen}
+      className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10 text-left transition-colors"
+    >
+      <span className="text-amber-300 text-[11px] font-medium tracking-wide uppercase">Debug Artifacts</span>
+      <span className="flex items-center gap-2 text-[10px] font-mono">
+        {rendered > 0 && <span className="text-green-400/80">{rendered} ok</span>}
+        {skipped > 0 && <span className="text-yellow-400/80">{skipped} skip</span>}
+        {failed > 0 && <span className="text-red-400/80">{failed} fail</span>}
+      </span>
+    </button>
+  );
+};
+
+// Full debug artifacts content, shown inside DebugModal below.
+const DebugPanelBody: React.FC<{ artifacts: DebugArtifacts }> = ({ artifacts }) => {
+  const [expandAll, setExpandAll] = useState(false);
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Auto-expand on failure — only on initial mount
+  const hasFailure = artifacts.results?.some((r) => r.status === 'failed');
+  const didAutoExpand = useRef(false);
+  useEffect(() => {
+    if (hasFailure && !didAutoExpand.current) {
+      didAutoExpand.current = true;
+      setActiveSection('all');
+      setExpandAll(true);
+    }
+  }, [hasFailure]);
+
+  const toggleSection = (id: string) => {
+    setActiveSection(activeSection === id ? null : id);
+  };
+
+  const toggleExpandAll = () => {
+    if (expandAll) {
+      setActiveSection(null);
+      setExpandAll(false);
+    } else {
+      setExpandAll(true);
+      setActiveSection('all');
+    }
+  };
+
+  const handleCopy = async (id: string, text: string) => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 1500);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-slate-500 font-mono">{artifacts.interpretations?.length || 0} interpretations</span>
+        <button
+          onClick={toggleExpandAll}
+          className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
+        >
+          {expandAll ? 'Collapse All' : 'Expand All'}
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        {artifacts.interpretations?.map((interp, i) => {
+          const result = artifacts.results?.[i];
+          const statusColor = result?.status === 'rendered' ? 'bg-green-400'
+            : result?.status === 'skipped' ? 'bg-yellow-400' : 'bg-red-400';
+          const hasError = result?.status === 'failed' || !!result?.skip_reason;
+          const errorPrefix = hasError ? (
+            <div className="px-3 py-2 bg-red-500/10 border-b border-red-500/20 text-[11px]">
+              <span className="text-red-400 font-medium">Status: {result?.status}</span>
+              {result?.skip_reason && (
+                <span className="text-red-400/80 ml-2">— {result.skip_reason}</span>
+              )}
+            </div>
+          ) : undefined;
+          return (
+            <div key={i} className={`rounded-md border overflow-hidden ${
+              hasError ? 'border-red-500/30' : 'border-slate-700/40'
+            }`}>
+              <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/50">
+                <span className="text-[10px] font-mono text-slate-500 w-4">{i + 1}.</span>
+                <span className={`w-2 h-2 rounded-full ${statusColor}`} />
+                <span className="text-xs font-medium text-slate-200">{interp.title}</span>
+                <span className="text-[10px] text-slate-500 font-mono">{interp.chart_type}</span>
+                {result && <span className="text-[10px] text-slate-600 ml-auto font-mono">{result.row_count} rows</span>}
+              </div>
+              <div className="px-3 py-2 text-[11px] text-slate-400 border-b border-slate-700/30">{interp.description}</div>
+              <div className="px-3 py-2 space-y-1.5">
+                {interp.sql && (
+                  <CollapsibleSection id={`sql-${i}`} label="SQL Query" content={interp.sql} prefix={errorPrefix} isGreen
+                    activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
+                )}
+                {result?.csv_data && (
+                  <CollapsibleSection id={`csv-${i}`} label="Query Result (CSV)" content={result.csv_data} isGreen maxH="max-h-40"
+                    activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
+                )}
+                {result?.vega_spec && (
+                  <CollapsibleSection id={`vega-${i}`} label="Vega-Lite Spec" content={prettyJSON(result.vega_spec)} isGreen maxH="max-h-48"
+                    activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="border-t border-amber-500/10" />
+
+      <div className="rounded-md border border-slate-700/40 bg-slate-800/30 overflow-hidden">
+        <div className="px-3 py-2 bg-slate-800/50 text-[11px] font-medium text-slate-300 border-b border-slate-700/30">
+          Pipeline Context
+        </div>
+        <div className="px-3 py-2 space-y-1.5">
+          {artifacts.schema_context && (
+            <CollapsibleSection id="schema" label="Schema Context (sent to LLM)" content={artifacts.schema_context}
+              activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
+          )}
+          {artifacts.system_prompt && (
+            <CollapsibleSection id="prompt" label="System Prompt" content={artifacts.system_prompt}
+              activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-md border border-slate-700/40 bg-slate-800/30 overflow-hidden">
+        <div className="px-3 py-2 bg-slate-800/50 text-[11px] font-medium text-slate-300 border-b border-slate-700/30">
+          LLM Exchange
+        </div>
+        <div className="px-3 py-2 space-y-1.5">
+          <CollapsibleSection
+            id="full-request"
+            label="Full Request (system + schema + query)"
+            content={artifacts.full_request || (artifacts.system_prompt + '\n---\n' + artifacts.schema_context)}
+            activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy}
+          />
+          <CollapsibleSection
+            id="raw"
+            label="Raw Response"
+            content={artifacts.llm_raw_response} isGreen maxH="max-h-56"
+            activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Dialog wrapper — all debug artifacts for one message, opened from DebugTrigger.
+const DebugModal: React.FC<{ artifacts: DebugArtifacts; onClose: () => void }> = ({ artifacts, onClose }) => {
+  const rendered = artifacts.results?.filter((r) => r.status === 'rendered').length || 0;
+  const skipped = artifacts.results?.filter((r) => r.status === 'skipped').length || 0;
+  const failed = artifacts.results?.filter((r) => r.status === 'failed').length || 0;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="relative w-full max-w-3xl max-h-[85vh] bg-slate-900 rounded-2xl border border-slate-700 overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-3 px-4 py-3 bg-slate-800 border-b border-slate-700 flex-shrink-0">
+          <span className="text-amber-300 text-sm font-medium tracking-wide uppercase">Debug Artifacts</span>
+          <span className="flex items-center gap-2 text-[10px] font-mono">
+            {rendered > 0 && <span className="text-green-400/80">{rendered} ok</span>}
+            {skipped > 0 && <span className="text-yellow-400/80">{skipped} skip</span>}
+            {failed > 0 && <span className="text-red-400/80">{failed} fail</span>}
+          </span>
+          <button
+            onClick={onClose}
+            className="ml-auto p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+            title="Close"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="px-4 py-3 overflow-y-auto">
+          <DebugPanelBody artifacts={artifacts} />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Shared implementation behind both /chat and /chat-debug. The two routes
+// (Chatbot.tsx and ChatDebugPage.tsx) are thin wrappers around this
+// component so a single message-rendering/send/loading path can never drift
+// between the two surfaces - see the "Chat UI" rule in AGENTS.md. The only
+// surface-specific behavior gated here is the debug-artifacts button/dialog
+// (surface === 'chat_debug'); everything else renders identically.
+export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }) => {
+  const showDebug = surface === 'chat_debug';
+  const basePath = basePathForSurface(surface);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const { conversationId: conversationIdParam } = useParams<{ conversationId?: string }>();
+  const conversationId = conversationIdParam ? Number(conversationIdParam) : undefined;
+  const { data: conversationDetail } = useQuery({
+    queryKey: ['chat', 'conversation', conversationId],
+    queryFn: () => getConversation(conversationId as number),
+    enabled: conversationId !== undefined,
+  });
+  // True only when we're switching to a conversation we don't already have
+  // (from cache priming below, or a normal cache hit) - lets the loading
+  // state below distinguish "fetching a thread" from "genuinely new, empty
+  // chat", instead of flashing the empty-state screen while data is in
+  // flight.
+  const isLoadingConversation = conversationId !== undefined && conversationDetail === undefined;
+  const user = useAppSelector((state) => state.Auth.user);
+  // CSV exports come from an authenticated, org-scoped endpoint, so the
+  // download has to carry the same headers apiClient sends. Charts don't need
+  // this - they render client-side from a spec and never fetch from the
+  // backend again.
+  const accessToken = useAppSelector((state) => state.Auth.accessToken);
+  const currentOrgId = useAppSelector((state) => state.Organizations.currentOrgId);
+
+  const downloadFile = useCallback(
+    async (file: ChatFile) => {
+      const url = resolveImageUrl(file.url);
+      if (!url) return;
+      try {
+        const headers: Record<string, string> = {};
+        if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+        if (currentOrgId) headers['X-Org-Context'] = String(currentOrgId);
+
+        const res = await fetch(url, { headers, credentials: 'same-origin' });
+        if (!res.ok) throw new Error('download failed');
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        a.download = file.filename || 'livereview-export.csv';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(objectUrl);
+      } catch {
+        alert('Could not download the file. It may have expired — try asking again.');
+      }
+    },
+    [accessToken, currentOrgId],
+  );
+  const userName = user?.name || 'there';
+  const [messages, setMessages] = useState<ChatEntry[]>([]);
+  const [input, setInput] = useState(() => searchParams.get('prefill') || '');
+  const [isLoading, setIsLoading] = useState(false);
+  const [preview, setPreview] = useState<ChatChart | null>(null);
+  const [previewKey, setPreviewKey] = useState<string | null>(null);
+  const [chartGranularity, setChartGranularity] = useState<Record<string, Granularity>>({});
+  const [debugModalMsgId, setDebugModalMsgId] = useState<string | null>(null);
+  const previewViewRef = useRef<View | null>(null);
+  // Inline charts render their own View independent of the modal's, so a
+  // chart can be downloaded straight from the chat without first expanding
+  // it. Keyed per chart instance since one message can carry several charts.
+  const chartViewsRef = useRef<Map<string, View>>(new Map());
+  const [showAISetup, setShowAISetup] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (!isLoading) {
+      inputRef.current?.focus();
+    }
+  }, [isLoading]);
+
+  // Seed local message state once the persisted conversation loads. The
+  // server is the source of truth for history now; this component only
+  // mounts fresh per conversation (see the `key` on the route in
+  // ChatbotRoutes.tsx), so this only needs to run when the fetched detail
+  // itself changes, not on every render.
+  useEffect(() => {
+    if (!conversationDetail) return;
+    setMessages(
+      conversationDetail.messages.map((m) => ({
+        id: String(m.id),
+        role: m.role,
+        text: m.content,
+        charts: m.charts && m.charts.length > 0 ? m.charts : undefined,
+        files: m.files && m.files.length > 0 ? m.files : undefined,
+        debugArtifacts: m.debug_artifacts as DebugArtifacts | undefined,
+      })),
+    );
+  }, [conversationDetail]);
+
+  // Tracks a conversation created for THIS "new chat" send before the URL
+  // catches up - see handleSend. Cleared whenever the route's conversationId
+  // changes (a genuine switch, not our own pending creation).
+  const pendingConversationIdRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    pendingConversationIdRef.current = undefined;
+  }, [conversationId]);
+
+  const handleSend = async () => {
+    const text = input.trim();
+    if (!text || isLoading) return;
+    setInput('');
+
+    const userEntry: ChatEntry = { id: generateId(), role: 'user', text };
+    setMessages((prev) => [...prev, userEntry]);
+    setIsLoading(true);
+
+    try {
+      let activeConversationId = conversationId ?? pendingConversationIdRef.current;
+      if (activeConversationId === undefined) {
+        // Create the conversation (and surface it in the sidebar) right
+        // away, before waiting on the agent's answer - otherwise a new
+        // chat wouldn't appear in the sidebar until the first reply lands.
+        const created = await createConversation(text, surface);
+        activeConversationId = created.id;
+        pendingConversationIdRef.current = created.id;
+        queryClient.invalidateQueries({ queryKey: CONVERSATIONS_QUERY_KEY });
+      }
+
+      const result = await sendChatMessage(text, activeConversationId);
+
+      const assistantEntry: ChatEntry = {
+        id: generateId(),
+        role: 'assistant',
+        text: result.response,
+        charts: result.charts && result.charts.length > 0 ? result.charts : undefined,
+        files: result.files && result.files.length > 0 ? result.files : undefined,
+        debugArtifacts: result.debug_artifacts as DebugArtifacts | undefined,
+      };
+      setMessages((prev) => [...prev, assistantEntry]);
+      queryClient.invalidateQueries({ queryKey: CONVERSATIONS_QUERY_KEY });
+      // First message of a new conversation: move to its URL so it's
+      // bookmarkable/shareable and the sidebar highlights it. The route is
+      // keyed by conversationId (see ChatbotRoutes.tsx), so this remounts
+      // and re-hydrates from the now-persisted turn - simpler and more
+      // correct than reconciling local optimistic state by hand, and safe
+      // to do only now since the turn is already fully persisted.
+      //
+      // The remount would otherwise start from an empty local state and
+      // wait on a fresh GET before showing anything - a jarring flash right
+      // after the answer already appeared once. Priming the query cache
+      // with what we already have lets the remounted page render instantly;
+      // the query still revalidates in the background and reconciles once
+      // the real, server-assigned message/chart ids come back.
+      if (conversationId === undefined && activeConversationId !== undefined) {
+        queryClient.setQueryData(['chat', 'conversation', activeConversationId], {
+          id: activeConversationId,
+          title: text,
+          updatedAt: new Date().toISOString(),
+          messages: [userEntry, assistantEntry].map((entry, i) => ({
+            id: -(i + 1),
+            role: entry.role,
+            content: entry.text,
+            charts: entry.charts,
+            files: entry.files,
+            debug_artifacts: entry.debugArtifacts,
+          })),
+        });
+        navigate(`${basePath}/${activeConversationId}`, { replace: true });
+      }
+    } catch (err: any) {
+      const errMsg = err?.response?.data?.error || err?.message || 'Request failed';
+      if (errMsg.toLowerCase().includes('ai connector')) {
+        setShowAISetup(true);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: generateId(),
+            role: 'assistant',
+            text: 'No AI provider is configured for this organization yet. Add one below to start chatting.',
+          },
+        ]);
+        return;
+      }
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: generateId(),
+          role: 'assistant',
+          text: `Error: ${errMsg}`,
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const [previewSize, setPreviewSize] = useState<{ width: number; height: number }>({ width: 840, height: 480 });
+
+  const openPreview = useCallback((chart: ChatChart, chartKey: string) => {
+    // Size the expanded chart off the current viewport so "expand" reads as
+    // a real full-screen analysis view rather than a slightly bigger card.
+    setPreviewSize({
+      width: Math.round(Math.min(1200, window.innerWidth * 0.85)),
+      height: Math.round(Math.min(720, window.innerHeight * 0.7)),
+    });
+    setPreview(chart);
+    setPreviewKey(chartKey);
+  }, []);
+
+  const closePreview = useCallback(() => {
+    setPreview(null);
+    setPreviewKey(null);
+    previewViewRef.current = null;
+  }, []);
+
+  const debugModalMsg = debugModalMsgId ? messages.find((m) => m.id === debugModalMsgId) : undefined;
+
+  return (
+    <div className="h-full flex flex-col bg-slate-900">
+      <div className="flex-none px-4 py-2">
+        <div className="max-w-4xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <img src="/assets/lrbot/lrbot.png" alt="Bot" width={20} height={20} decoding="async" className="w-5 h-5 rounded-full opacity-80" />
+            <h1 className="text-sm font-medium text-slate-400">Chat with Livi</h1>
+          </div>
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+            title="Back to dashboard"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-6">
+        <div className="max-w-4xl mx-auto w-full min-h-full flex flex-col">
+          {showAISetup && (
+            <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-slate-200">No AI provider configured</p>
+                <p className="text-xs text-slate-400 mt-0.5">This chatbot needs an AI provider to work. Add one to start chatting.</p>
+              </div>
+              <button
+                onClick={() => navigate('/ai')}
+                className="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer whitespace-nowrap"
+              >
+                Add an AI provider
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+          )}
+          {isLoadingConversation ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3">
+              <div className="w-8 h-8 border-2 border-slate-600 border-t-indigo-400 rounded-full animate-spin" />
+              <p className="text-sm text-slate-500">Loading conversation…</p>
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6 px-4">
+              <p className="text-2xl font-semibold text-slate-200">Hello {userName}! How can I help you?</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl w-full">
+                <ExampleCard
+                  text="Show me how our review productivity and throughput have trended over the last few months"
+                  onClick={() => setInput('Show me how our review productivity and throughput have trended over the last few months')}
+                />
+                <ExampleCard
+                  text="What's our current billing status and total billing usage?"
+                  onClick={() => setInput('What\u0027s our current billing status and total billing usage?')}
+                />
+                <ExampleCard
+                  text="Show me review activity per month and the top reviewers"
+                  onClick={() => setInput('Show me review activity per month and the top reviewers')}
+                />
+                <ExampleCard
+                  text="Show me all members sorted by lines of code reviewed"
+                  onClick={() => setInput('Show me all members sorted by lines of code reviewed')}
+                />
+                <ExampleCard
+                  text="Trigger a full code review on my latest pull request"
+                  onClick={() => setInput('Trigger a full code review on my latest pull request')}
+                />
+                <ExampleCard
+                  text="Help me add an AI provider to Livereview"
+                  onClick={() => setInput('Help me add an AI provider to Livereview')}
+                />
+              </div>
+              <p className="text-sm text-slate-500">Try one of these, or ask your own question.</p>
+            </div>
+          ) : (
+            <div className="space-y-6 py-2">
+              {messages.map((msg) =>
+                msg.role === 'user' ? (
+                  <div key={msg.id} className="flex items-start justify-end">
+                    <div className="bg-indigo-600 text-white rounded-full rounded-br-md px-4 py-2 max-w-[75%] whitespace-pre-wrap break-words text-base">
+                      {formatText(msg.text)}
+                    </div>
+                  </div>
+                ) : (
+                  <div key={msg.id} className="relative flex items-start">
+                    <div className="absolute -left-16 bottom-0 w-16 flex justify-end pr-2">
+                      <img src="/assets/lrbot/lrbot.png" alt="Bot" width={32} height={32} decoding="async" className="w-8 h-8 rounded-full" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      {msg.charts && msg.charts.length > 0 && (
+                        <div className="space-y-6">
+                          {msg.charts.map((chart, i) => {
+                            const chartKey = `${msg.id}-${i}`;
+                            const trendChart = isDailyTrendChart(chart.spec);
+                            const granularity = chartGranularity[chartKey] ?? 'day';
+                            const displaySpec = trendChart ? buildTrendSpec(chart.spec, granularity) : chart.spec;
+                            const trendStats = trendChart ? computeTrendStats(chart.spec, granularity) : null;
+                            const bandChart = !trendChart && isBandChart(chart.spec);
+                            const categoryStats = !trendChart && !bandChart && isCategoricalChart(chart.spec) ? computeCategoryStats(chart.spec) : null;
+                            const bandStats = bandChart ? computeBandStats(chart.spec) : null;
+                            return (
+                            <div key={chart.title || i} className="space-y-3">
+                              <div className="space-y-3 !mt-2 !mb-8">
+                                {(chart.title || trendChart) && (
+                                  <div className="flex items-center justify-between gap-3">
+                                    {chart.title && (
+                                      <h3 className="text-sm font-semibold text-slate-300">{chart.title}</h3>
+                                    )}
+                                    {trendChart && (
+                                      <GranularityToggle
+                                        value={granularity}
+                                        onChange={(g) =>
+                                          setChartGranularity((prev) => ({ ...prev, [chartKey]: g }))
+                                        }
+                                      />
+                                    )}
+                                  </div>
+                                )}
+                                <div className="group relative overflow-x-auto max-w-full rounded-lg border border-slate-700">
+                                  <InteractiveChart
+                                    spec={displaySpec}
+                                    className="block"
+                                    onViewReady={(view) => {
+                                      chartViewsRef.current.set(chartKey, view);
+                                    }}
+                                  />
+                                  <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                                    <button
+                                      onClick={() =>
+                                        downloadChartView(chartViewsRef.current.get(chartKey) ?? null, chartFileName(chart.title))
+                                      }
+                                      className="p-1.5 rounded-md bg-slate-800/90 text-slate-300 hover:text-white hover:bg-slate-700 shadow-lg transition-colors"
+                                      title="Download chart"
+                                      aria-label="Download chart"
+                                    >
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 3v12m-4-4l4 4 4-4" />
+                                      </svg>
+                                    </button>
+                                    <button
+                                      onClick={() => openPreview(chart, chartKey)}
+                                      className="p-1.5 rounded-md bg-slate-800/90 text-slate-300 hover:text-white hover:bg-slate-700 shadow-lg transition-colors"
+                                      title="Expand chart"
+                                      aria-label="Expand chart"
+                                    >
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-5v4m0-4h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                              {chart.description && (
+                                <p className="text-sm text-slate-300 whitespace-pre-line">{chart.description}</p>
+                              )}
+                              {bandStats && (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                  <StatChip label="Active users" value={bandStats.totalActive.toLocaleString()} />
+                                  <StatChip
+                                    label="Largest band"
+                                    value={`${bandStats.largest.label} (${bandStats.largest.value})`}
+                                  />
+                                  <StatChip label="Largest band's share" value={`${bandStats.largestSharePct}%`} />
+                                </div>
+                              )}
+                              {trendStats && (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                  <StatChip label="Total" value={trendStats.total.toLocaleString()} />
+                                  <StatChip label="Avg per period" value={trendStats.avgPerPeriod.toLocaleString()} />
+                                  <StatChip
+                                    label="Peak"
+                                    value={`${trendStats.peak.value.toLocaleString()} (${formatAxisDate(trendStats.peak.date)})`}
+                                  />
+                                  <StatChip
+                                    label="Low"
+                                    value={`${trendStats.low.value.toLocaleString()} (${formatAxisDate(trendStats.low.date)})`}
+                                  />
+                                  <StatChip
+                                    label="Trend"
+                                    value={
+                                      trendStats.trendPct === null
+                                        ? 'n/a'
+                                        : `${trendStats.trendPct >= 0 ? 'up' : 'down'} ${Math.abs(trendStats.trendPct)}% (${formatAxisDate(trendStats.firstDate)} → ${formatAxisDate(trendStats.lastDate)})`
+                                    }
+                                  />
+                                </div>
+                              )}
+                              {categoryStats && (
+                                <div className="grid grid-cols-2 gap-2">
+                                  <StatChip
+                                    label="Highest"
+                                    value={`${categoryStats.highest.label} (${categoryStats.highest.value.toLocaleString()})`}
+                                  />
+                                  <StatChip
+                                    label="Lowest"
+                                    value={`${categoryStats.lowest.label} (${categoryStats.lowest.value.toLocaleString()})`}
+                                  />
+                                  <StatChip
+                                    label="Top 3"
+                                    value={categoryStats.top3.map((s) => `${s.label} (${s.value.toLocaleString()})`).join(', ')}
+                                  />
+                                  <StatChip
+                                    label="Bottom 3"
+                                    value={categoryStats.bottom3.map((s) => `${s.label} (${s.value.toLocaleString()})`).join(', ')}
+                                  />
+                                </div>
+                              )}
+                              {(chart.query || chart.time_range || chart.granularity) && (
+                                <details className="group mt-1">
+                                  <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
+                                    Data details
+                                  </summary>
+                                  <div className="mt-1.5 space-y-1 text-xs text-slate-400 italic">
+                                    {chart.time_range && (
+                                      <p><span className="not-italic font-medium text-slate-400">Time range:</span> {chart.time_range}</p>
+                                    )}
+                                    {chart.granularity && (
+                                      <p>
+                                        <span className="not-italic font-medium text-slate-400">Granularity:</span>{' '}
+                                        {trendChart
+                                          ? GRANULARITY_OPTIONS.find((o) => o.value === granularity)?.label
+                                          : chart.granularity}
+                                      </p>
+                                    )}
+                                    {chart.query && (
+                                      <p><span className="not-italic font-medium text-slate-400">Query:</span> {chart.query}</p>
+                                    )}
+                                  </div>
+                                </details>
+                              )}
+                            </div>
+                          );})}
+                        </div>
+                      )}
+                      {msg.files && msg.files.length > 0 && (
+                        <div className="space-y-3">
+                          {msg.files.map((file, i) => (
+                            <div key={file.url || file.filename || i} className="space-y-2">
+                              {file.title && (
+                                <h3 className="text-sm font-semibold text-slate-300">{file.title}</h3>
+                              )}
+                              <button
+                                onClick={() => downloadFile(file)}
+                                className="flex items-center gap-3 w-full max-w-md px-4 py-3 rounded-lg border border-slate-700 bg-slate-800/60 hover:bg-slate-800 hover:border-slate-600 transition-colors text-left"
+                                title={`Download ${file.filename}`}
+                              >
+                                <svg className="w-5 h-5 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-sm font-medium text-slate-200 truncate">{file.filename}</span>
+                                  <span className="block text-xs text-slate-400">{formatRowCount(file.rows)}</span>
+                                </span>
+                              </button>
+                              {file.description && (
+                                <p className="text-sm text-slate-300 whitespace-pre-line">{file.description}</p>
+                              )}
+                              {(file.query || file.time_range || file.granularity) && (
+                                <details className="group mt-1">
+                                  <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
+                                    Data details
+                                  </summary>
+                                  <div className="mt-1.5 space-y-1 text-xs text-slate-400 italic">
+                                    {file.time_range && (
+                                      <p><span className="not-italic font-medium text-slate-400">Time range:</span> {file.time_range}</p>
+                                    )}
+                                    {file.granularity && (
+                                      <p><span className="not-italic font-medium text-slate-400">Granularity:</span> {file.granularity}</p>
+                                    )}
+                                    {file.query && (
+                                      <p><span className="not-italic font-medium text-slate-400">Query:</span> {file.query}</p>
+                                    )}
+                                  </div>
+                                </details>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {msg.text && (
+                        <div className={`${(msg.charts && msg.charts.length > 0) || (msg.files && msg.files.length > 0) ? 'mt-6' : ''} text-base leading-snug whitespace-pre-wrap break-words text-slate-200`}>
+                          {formatText(msg.text)}
+                        </div>
+                      )}
+                      {/* Debug artifacts trigger - chat_debug surface only, opens a dialog instead of an inline dump. */}
+                      {showDebug && msg.debugArtifacts && (
+                        <DebugTrigger artifacts={msg.debugArtifacts} onOpen={() => setDebugModalMsgId(msg.id)} />
+                      )}
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+          )}
+
+          {isLoading && (
+            <div className="relative flex items-start mt-4">
+              <div className="absolute -left-16 top-1/2 -translate-y-1/2 w-16 flex justify-end pr-2">
+                <img src="/assets/lrbot/lrbot.png" alt="Bot" width={32} height={32} decoding="async" className="w-8 h-8 rounded-full" />
+              </div>
+              <ThinkingIndicator />
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+      </div>
+
+      <div className="flex-none px-4 pb-4">
+        <div className="max-w-4xl mx-auto">
+          <div className="relative flex items-center">
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask for insights or get things done — reviews, trends, billing, and more..."
+              disabled={isLoading}
+              className="w-full bg-slate-700 text-slate-100 placeholder-slate-400 rounded-full pl-5 pr-14 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 border border-slate-600 disabled:opacity-50"
+            />
+            <button
+              onClick={handleSend}
+              disabled={isLoading || !input.trim()}
+              className="absolute right-2 top-1/2 -translate-y-1/2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-full p-2 transition-colors disabled:opacity-50"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12Zm0 0h7.5" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {preview && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+          onClick={closePreview}
+        >
+          <div
+            className="relative w-full max-w-[95vw] max-h-[95vh] bg-slate-900 rounded-2xl border border-slate-700 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 bg-slate-800 border-b border-slate-700">
+              <h3 className="text-sm font-semibold text-slate-200 truncate pr-4">
+                {preview.title || 'Chart Preview'}
+              </h3>
+              <div className="flex items-center gap-2">
+                {isDailyTrendChart(preview.spec) && (
+                  <GranularityToggle
+                    value={previewKey ? chartGranularity[previewKey] ?? 'day' : 'day'}
+                    onChange={(g) =>
+                      previewKey && setChartGranularity((prev) => ({ ...prev, [previewKey]: g }))
+                    }
+                  />
+                )}
+                <button
+                  onClick={() => downloadChartView(previewViewRef.current, chartFileName(preview.title))}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-slate-100 hover:text-white px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-indigo-600 cursor-pointer transition-colors"
+                  title="Download"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 3v12m-4-4l4 4 4-4" />
+                  </svg>
+                  Download
+                </button>
+                <button
+                  onClick={closePreview}
+                  className="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+                  title="Close"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div className="max-h-[85vh] overflow-auto bg-slate-950 flex items-center justify-center p-4">
+              <InteractiveChart
+                spec={
+                  isDailyTrendChart(preview.spec)
+                    ? buildTrendSpec(preview.spec, previewKey ? chartGranularity[previewKey] ?? 'day' : 'day')
+                    : preview.spec
+                }
+                width={previewSize.width}
+                height={previewSize.height}
+                onViewReady={(view) => {
+                  previewViewRef.current = view;
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDebug && debugModalMsg?.debugArtifacts && (
+        <DebugModal artifacts={debugModalMsg.debugArtifacts} onClose={() => setDebugModalMsgId(null)} />
+      )}
+    </div>
+  );
+};
+
+const ExampleCard: React.FC<{ text: string; onClick: () => void }> = ({ text, onClick }) => (
+  <button
+    onClick={onClick}
+    className="text-left px-4 py-3 rounded-xl bg-slate-800 border border-slate-700 hover:border-indigo-500 hover:bg-slate-750 text-slate-300 text-sm transition-all"
+  >
+    {text}
+  </button>
+);
+
+export default ChatConversation;

@@ -195,6 +195,31 @@ If a new feature is not navigable from the mega menu (e.g. it is only reached fr
 button inside an existing page), call that out explicitly rather than silently skipping
 the entry. Keeping the mega menu complete is what makes new capabilities discoverable.
 
+## Chat UI (/chat and /chat-debug) Must Stay In Sync
+
+`/chat` (`ui/src/pages/Chatbot/Chatbot.tsx`) and `/chat-debug`
+(`ui/src/pages/Chatbot/ChatDebugPage.tsx`) are two routes over **one** shared
+component: `ui/src/pages/Chatbot/ChatConversation.tsx`. Both page files are
+thin wrappers - `<ChatConversation surface="chat" />` and
+`<ChatConversation surface="chat_debug" />` - with no rendering logic of
+their own.
+
+**The only intentional difference between the two surfaces is the
+debug-artifacts button/dialog**, gated inside `ChatConversation` by
+`surface === 'chat_debug'` (see the `showDebug` flag, `DebugTrigger`,
+`DebugModal`). Everything else - message rendering, chart cards (granularity
+toggle, stat chips, expand/download), file cards, the input box, loading
+states, empty state, header - must render identically for both surfaces
+because they share the same code path.
+
+**Rule: never duplicate chat page logic.** If you need to change how a
+message, chart, or file renders, or fix a loading/layout bug, change it in
+`ChatConversation.tsx` once - it applies to both routes automatically. Do
+not add page-specific rendering back into `Chatbot.tsx` or
+`ChatDebugPage.tsx`, and do not fork `ChatConversation.tsx` into two copies.
+A new surface-specific feature must be explicitly gated by the `surface`
+prop, not implemented by branching the component in two.
+
 ## PromptBook & LawBook Conventions
 
 The MCP agent's prompts follow a two-layer architecture:
