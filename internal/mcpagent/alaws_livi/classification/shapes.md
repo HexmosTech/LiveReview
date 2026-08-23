@@ -32,3 +32,5 @@ question from memory instead of from the organization's data.
 5. Answer `chat` only where there is nothing to look up at all: greetings, questions about what Livi can do, and requests for clarification. {#answer-chat-only-where-there}
 
 6. Do not attempt the work of the stage it is routing to, and do not answer the user's question in this reply. {#do-not-attempt-the-work}
+
+7. Answer `count_query` where the question asks about user sentiment, trust, engagement, or feedback toward reviews, or asks for an assessment of observed workflows, systems, processes, behavior, performance, or patterns. Broad, conceptual, philosophical, or strategic wording does not make a question conversational when its answer can be grounded in the organization's actual data. Classify such questions as count_query when analyzing available data can provide evidence for the answer. {#observed-state-questions-are-data}

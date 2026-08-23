@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { LuSearch, LuPlus, LuTrash2, LuMessageSquare, LuPin, LuPinOff, LuPencil, LuCheck } from 'react-icons/lu';
+import { LuSearch, LuPlus, LuTrash2, LuMessageSquare, LuPin, LuPinOff, LuPencil, LuCheck, LuLayers } from 'react-icons/lu';
 import { EmptyState, Tooltip } from '../../components/UIPrimitives';
 import { basePathForSurface, deleteConversation, listConversations, renameConversation, type ChatSurface, type Conversation } from '../../api/chatConversations';
+import { CompileExportDialog } from './CompileExportDialog';
 import {
   SIDEBAR_COLLAPSED_WIDTH,
   setChatSidebarHoverExpanded,
@@ -22,7 +23,9 @@ const SEARCH_DEBOUNCE_MS = 300;
 
 export const CONVERSATIONS_QUERY_KEY = ['chat', 'conversations'] as const;
 
-function formatUpdatedAt(iso: string): string {
+// Exported so CompileExportDialog can format timestamps identically instead
+// of duplicating this logic.
+export function formatUpdatedAt(iso: string): string {
   const date = new Date(iso);
   const now = new Date();
   const sameDay = date.toDateString() === now.toDateString();
@@ -157,6 +160,7 @@ interface SidebarBodyProps {
   onEditValueChange: (v: string) => void;
   onSaveRename: (id: number) => void;
   onCancelRename: () => void;
+  onOpenCompile: () => void;
 }
 
 // Shared between the pinned (persistent) state and the hover-peek (while
@@ -179,19 +183,31 @@ const SidebarBody: React.FC<SidebarBodyProps> = ({
   onEditValueChange,
   onSaveRename,
   onCancelRename,
+  onOpenCompile,
 }) => (
   <div className="h-full flex flex-col relative" style={{ width }}>
     <div className="flex-none flex items-center h-16 px-2.5 border-b border-slate-800/60">
       <PinButton pinned={pinned} />
     </div>
     <div className="flex-none px-2.5 pt-3 pb-2 space-y-2">
-      <button
-        onClick={() => onSelect(0)}
-        className="w-full inline-flex items-center gap-2 px-2.5 py-2 rounded-md border border-slate-700/60 bg-slate-800/60 hover:bg-slate-800 hover:border-slate-600 text-slate-200 text-sm font-medium transition-colors"
-      >
-        <LuPlus className="w-3.5 h-3.5 text-blue-400" />
-        New chat
-      </button>
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={() => onSelect(0)}
+          className="flex-1 inline-flex items-center gap-2 px-2.5 py-2 rounded-md border border-slate-700/60 bg-slate-800/60 hover:bg-slate-800 hover:border-slate-600 text-slate-200 text-sm font-medium transition-colors"
+        >
+          <LuPlus className="w-3.5 h-3.5 text-blue-400" />
+          New chat
+        </button>
+        <Tooltip content="Compile several conversations into one export">
+          <button
+            onClick={onOpenCompile}
+            className="p-2 rounded-md border border-slate-700/60 bg-slate-800/60 hover:bg-slate-800 hover:border-slate-600 text-slate-400 hover:text-slate-200 transition-colors"
+            aria-label="Compile conversations"
+          >
+            <LuLayers className="w-3.5 h-3.5" />
+          </button>
+        </Tooltip>
+      </div>
       <div className="relative">
         <LuSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
         <input
@@ -353,6 +369,7 @@ export const ConversationSidebar: React.FC = () => {
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [compileDialogOpen, setCompileDialogOpen] = useState(false);
 
   const renameMutation = useMutation({
     mutationFn: ({ id, title }: { id: number; title: string }) => renameConversation(id, title),
@@ -426,6 +443,7 @@ export const ConversationSidebar: React.FC = () => {
   // reserve SIDEBAR_COLLAPSED_WIDTH, so this visually sits on top of the
   // content, not pushing it).
   return (
+    <>
     <div
       {...hoverHandlers}
       className={
@@ -453,7 +471,10 @@ export const ConversationSidebar: React.FC = () => {
         onEditValueChange={setEditValue}
         onSaveRename={saveRename}
         onCancelRename={cancelRename}
+        onOpenCompile={() => setCompileDialogOpen(true)}
       />
     </div>
+    {compileDialogOpen && <CompileExportDialog surface={surface} onClose={() => setCompileDialogOpen(false)} />}
+    </>
   );
 };

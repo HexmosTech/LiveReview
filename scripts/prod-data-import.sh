@@ -86,7 +86,16 @@ pg_restore_exec() {
     # be an older version that doesn't support the dump format.
     PGPASSWORD="$DB_PASS" pg_restore -h localhost -U "$DB_USER" --no-owner --no-privileges --dbname="$DB_NAME" --verbose "$DUMP_FILE"
   else
-    sudo -u postgres pg_restore --no-owner --no-privileges --dbname="$DB_NAME" --verbose "$DUMP_FILE"
+    # Pipe the dump in over stdin instead of passing $DUMP_FILE as an
+    # argument: the file typically lives under the invoking user's $HOME,
+    # which is usually not world-traversable (e.g. drwxr-x---) - the
+    # `postgres` system user pg_restore runs as can't open a path it can't
+    # even stat, and fails with "Permission denied" no matter how permissive
+    # the dump file's own mode is. Redirecting stdin has this shell (running
+    # as the invoking user, which can read the file) open it before sudo
+    # execs pg_restore, so the child inherits an already-open fd instead of
+    # having to open the path itself.
+    sudo -u postgres pg_restore --no-owner --no-privileges --dbname="$DB_NAME" --verbose < "$DUMP_FILE"
   fi
 }
 

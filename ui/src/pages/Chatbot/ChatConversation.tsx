@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { View } from 'vega';
 import { sendChatMessage, ChatFile, ChatChart } from '../../api/chatbot';
 import { basePathForSurface, createConversation, getConversation, type ChatSurface } from '../../api/chatConversations';
-import { BASE_URL } from '../../api/apiClient';
+import { BASE_URL, authFetch } from '../../api/apiClient';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppSelector } from '../../store/configureStore';
@@ -13,11 +13,16 @@ import {
   isDailyTrendChart,
   buildTrendSpec,
   computeTrendStats,
+  computeMultiSeriesTrendStats,
   formatAxisDate,
   isCategoricalChart,
   computeCategoryStats,
   isBandChart,
   computeBandStats,
+  isCalendarHeatmap,
+  computeHeatmapStats,
+  isSlopeGraph,
+  computeSlopeStats,
   Granularity,
 } from './rebucketChart';
 
@@ -521,23 +526,17 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
   // flight.
   const isLoadingConversation = conversationId !== undefined && conversationDetail === undefined;
   const user = useAppSelector((state) => state.Auth.user);
-  // CSV exports come from an authenticated, org-scoped endpoint, so the
-  // download has to carry the same headers apiClient sends. Charts don't need
-  // this - they render client-side from a spec and never fetch from the
-  // backend again.
-  const accessToken = useAppSelector((state) => state.Auth.accessToken);
-  const currentOrgId = useAppSelector((state) => state.Organizations.currentOrgId);
 
   const downloadFile = useCallback(
     async (file: ChatFile) => {
       const url = resolveImageUrl(file.url);
       if (!url) return;
       try {
-        const headers: Record<string, string> = {};
-        if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-        if (currentOrgId) headers['X-Org-Context'] = String(currentOrgId);
-
-        const res = await fetch(url, { headers, credentials: 'same-origin' });
+        // authFetch carries the same auth headers apiClient sends, and
+        // transparently refreshes+retries once on a 401 - a bare fetch()
+        // has neither, so a download made right as the access token
+        // expires would otherwise fail outright instead of recovering.
+        const res = await authFetch(url);
         if (!res.ok) throw new Error('download failed');
         const blob = await res.blob();
         const objectUrl = URL.createObjectURL(blob);
@@ -552,8 +551,57 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         alert('Could not download the file. It may have expired — try asking again.');
       }
     },
-    [accessToken, currentOrgId],
+    [],
   );
+
+  // "Export As" - lives in the shared component so it's identical on both
+  // surfaces (see the Chat UI rule in AGENTS.md); only the backend decides
+  // whether debug artifacts belong in the file, from the conversation's own
+  // stored surface, not from anything sent here.
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState<'pdf' | 'html' | null>(null);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    const onClickAway = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setExportMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickAway);
+    return () => document.removeEventListener('mousedown', onClickAway);
+  }, [exportMenuOpen]);
+
+  const handleExport = useCallback(
+    async (format: 'pdf' | 'html') => {
+      if (conversationId === undefined) return;
+      setExportMenuOpen(false);
+      setExportingFormat(format);
+      try {
+        const res = await authFetch(`/api/v1/chat/${conversationId}/export?format=${format}`);
+        if (!res.ok) throw new Error('export failed');
+        const blob = await res.blob();
+        const disposition = res.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename="?([^";]+)"?/);
+        const filename = match?.[1] || `conversation.${format}`;
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(objectUrl);
+      } catch {
+        alert('Could not export this conversation. Please try again.');
+      } finally {
+        setExportingFormat(null);
+      }
+    },
+    [conversationId],
+  );
+
   const userName = user?.name || 'there';
   const [messages, setMessages] = useState<ChatEntry[]>([]);
   const [input, setInput] = useState(() => searchParams.get('prefill') || '');
@@ -741,15 +789,48 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
             <img src="/assets/lrbot/lrbot.png" alt="Bot" width={20} height={20} decoding="async" className="w-5 h-5 rounded-full opacity-80" />
             <h1 className="text-sm font-medium text-slate-400">Chat with Livi</h1>
           </div>
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
-            title="Back to dashboard"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            {conversationId !== undefined && (
+              <div className="relative" ref={exportMenuRef}>
+                <button
+                  onClick={() => setExportMenuOpen((v) => !v)}
+                  disabled={exportingFormat !== null}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors text-xs font-medium disabled:opacity-50"
+                  title="Export this conversation"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16" />
+                  </svg>
+                  {exportingFormat ? `Exporting ${exportingFormat.toUpperCase()}…` : 'Export As'}
+                </button>
+                {exportMenuOpen && (
+                  <div className="absolute right-0 mt-1 w-40 rounded-md bg-slate-800 border border-slate-700 shadow-lg py-1 z-20">
+                    <button
+                      onClick={() => handleExport('pdf')}
+                      className="w-full text-left px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-700 hover:text-slate-100"
+                    >
+                      Export as PDF
+                    </button>
+                    <button
+                      onClick={() => handleExport('html')}
+                      className="w-full text-left px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-700 hover:text-slate-100"
+                    >
+                      Export as HTML
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+              title="Back to dashboard"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -831,8 +912,17 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                             const granularity = chartGranularity[chartKey] ?? 'day';
                             const displaySpec = trendChart ? buildTrendSpec(chart.spec, granularity) : chart.spec;
                             const trendStats = trendChart ? computeTrendStats(chart.spec, granularity) : null;
+                            const multiSeriesTrendStats =
+                              trendChart && !trendStats ? computeMultiSeriesTrendStats(chart.spec, granularity) : null;
                             const bandChart = !trendChart && isBandChart(chart.spec);
-                            const categoryStats = !trendChart && !bandChart && isCategoricalChart(chart.spec) ? computeCategoryStats(chart.spec) : null;
+                            const heatmapChart = !trendChart && !bandChart && isCalendarHeatmap(chart.spec);
+                            const heatmapStats = heatmapChart ? computeHeatmapStats(chart.spec) : null;
+                            const slopeChart = !trendChart && !bandChart && !heatmapChart && isSlopeGraph(chart.spec);
+                            const slopeStats = slopeChart ? computeSlopeStats(chart.spec) : null;
+                            const categoryStats =
+                              !trendChart && !bandChart && !slopeChart && isCategoricalChart(chart.spec)
+                                ? computeCategoryStats(chart.spec)
+                                : null;
                             const bandStats = bandChart ? computeBandStats(chart.spec) : null;
                             return (
                             <div key={chart.title || i} className="space-y-3">
@@ -897,6 +987,48 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                                     value={`${bandStats.largest.label} (${bandStats.largest.value})`}
                                   />
                                   <StatChip label="Largest band's share" value={`${bandStats.largestSharePct}%`} />
+                                </div>
+                              )}
+                              {slopeStats && (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                  <StatChip label="Entities" value={String(slopeStats.entityCount)} />
+                                  <StatChip
+                                    label="Gained / Lost / Flat"
+                                    value={`${slopeStats.gained} / ${slopeStats.lost} / ${slopeStats.flat}`}
+                                  />
+                                  <StatChip
+                                    label="Biggest gain"
+                                    value={`${slopeStats.biggestGain.label} (+${slopeStats.biggestGain.delta.toLocaleString()})`}
+                                  />
+                                  <StatChip
+                                    label="Biggest loss"
+                                    value={`${slopeStats.biggestLoss.label} (${slopeStats.biggestLoss.delta.toLocaleString()})`}
+                                  />
+                                </div>
+                              )}
+                              {heatmapStats && (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                  <StatChip label="Total" value={heatmapStats.total.toLocaleString()} />
+                                  <StatChip label="Active days" value={String(heatmapStats.activeDays)} />
+                                  <StatChip label="Avg on active days" value={heatmapStats.avgOnActiveDays.toLocaleString()} />
+                                  <StatChip
+                                    label="Busiest day"
+                                    value={`${formatAxisDate(heatmapStats.busiest.date)} (${heatmapStats.busiest.value.toLocaleString()})`}
+                                  />
+                                </div>
+                              )}
+                              {multiSeriesTrendStats && (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                  <StatChip label="Total" value={multiSeriesTrendStats.total.toLocaleString()} />
+                                  <StatChip label="Series" value={String(multiSeriesTrendStats.seriesCount)} />
+                                  <StatChip
+                                    label="Top series"
+                                    value={`${multiSeriesTrendStats.topSeries.label} (${multiSeriesTrendStats.topSeries.value.toLocaleString()})`}
+                                  />
+                                  <StatChip
+                                    label="Range"
+                                    value={`${formatAxisDate(multiSeriesTrendStats.firstDate)} → ${formatAxisDate(multiSeriesTrendStats.lastDate)}`}
+                                  />
                                 </div>
                               )}
                               {trendStats && (

@@ -50,10 +50,12 @@ require (
 	github.com/shrsv/AgentLaws v0.2.1
 	github.com/shrsv/dbctx v0.1.4
 	github.com/slack-go/slack v0.27.0
+	github.com/stephenafamo/goldmark-pdf v0.4.2
 	github.com/stretchr/testify v1.11.1
 	github.com/tmc/langchaingo v0.1.14
 	github.com/wasilibs/go-pgquery v0.0.0-20260728010200-155ebad2880e
 	github.com/xuri/excelize/v2 v2.11.0
+	github.com/yuin/goldmark v1.8.5
 	github.com/zricethezav/gitleaks/v8 v8.30.1
 	gocloud.dev v0.46.0
 	golang.org/x/crypto v0.54.0
@@ -213,7 +215,6 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/spf13/viper v1.19.0 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
-	github.com/stephenafamo/goldmark-pdf v0.4.2 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/swaggo/swag v1.16.6 // indirect
 	github.com/tetratelabs/wazero v1.12.0 // indirect
@@ -233,7 +234,6 @@ require (
 	github.com/xuri/efp v0.0.1 // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
 	github.com/yalue/onnxruntime_go v1.32.1 // indirect
-	github.com/yuin/goldmark v1.8.5 // indirect
 	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.43.0 // indirect

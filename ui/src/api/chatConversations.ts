@@ -57,6 +57,22 @@ export function getConversation(id: number): Promise<ConversationDetail> {
   return apiClient.get<ConversationDetail>(`/api/v1/chat/${id}`);
 }
 
+// One conversation as shown in the compile picker - enough to select and
+// usefully reorder it without fetching its full message history. Backed by
+// a separate, richer endpoint from listConversations so the always-visible
+// sidebar list stays cheap.
+export interface ConversationSummary {
+  id: number;
+  title: string;
+  updatedAt: string;
+  turnCount: number;
+  chartTypes?: string[];
+}
+
+export function listConversationSummaries(surface: ChatSurface): Promise<ConversationSummary[]> {
+  return apiClient.get<ConversationSummary[]>(`/api/v1/chat/summaries?surface=${surface}`);
+}
+
 export function renameConversation(id: number, title: string): Promise<void> {
   return apiClient.patch<void>(`/api/v1/chat/${id}`, { title });
 }

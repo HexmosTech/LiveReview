@@ -28,6 +28,50 @@ function getEncoding(spec: Record<string, unknown>): Record<string, any> | null 
   return enc && typeof enc === 'object' ? enc : null;
 }
 
+interface AnalyzedEncoding {
+  temporal?: { channel: string; field: string; enc: TemporalEncoding };
+  categorical?: { channel: string; field: string; enc: QuantEncoding };
+  quantitative: Array<{ channel: string; field: string; enc: QuantEncoding }>;
+  color?: { field?: string };
+}
+
+// Scans every encoding channel (x, y, theta, ...) by declared `type` instead
+// of assuming the field we want is always on x or y. The model is allowed to
+// swap axes on request (livi.interpreting.chart-rules law 10) and some chart
+// types put their category/value on non-x/y channels (e.g. pie's `theta`) -
+// a fixed x/y assumption silently drops the toggle/stats for any of those.
+function analyzeEncoding(enc: Record<string, any>): AnalyzedEncoding {
+  const result: AnalyzedEncoding = { quantitative: [] };
+  for (const [channel, e] of Object.entries(enc)) {
+    if (!e || typeof e !== 'object' || typeof (e as any).field !== 'string') continue;
+    const field = (e as any).field as string;
+    const type = (e as any).type;
+    if (channel === 'color') continue; // color is read separately below, as a series/grouping key
+    if (type === 'temporal' && !result.temporal) {
+      result.temporal = { channel, field, enc: e as TemporalEncoding };
+    } else if ((type === 'nominal' || type === 'ordinal') && !result.categorical) {
+      result.categorical = { channel, field, enc: e as QuantEncoding };
+    } else if (type === 'quantitative') {
+      result.quantitative.push({ channel, field, enc: e as QuantEncoding });
+    }
+  }
+  const color = enc.color;
+  if (color && typeof color === 'object' && typeof (color as any).field === 'string') {
+    result.color = { field: (color as any).field };
+  }
+  return result;
+}
+
+function getTrendFields(
+  spec: Record<string, unknown>,
+): { x: TemporalEncoding; y: QuantEncoding; seriesField?: string } | null {
+  const enc = getEncoding(spec);
+  if (!enc) return null;
+  const found = analyzeEncoding(enc);
+  if (!found.temporal || found.quantitative.length === 0) return null;
+  return { x: found.temporal.enc, y: found.quantitative[0].enc, seriesField: found.color?.field };
+}
+
 // Only the simple single-mark shape (no facet/layer/concat) is supported -
 // that covers the plain trend-line case this toggle targets. Anything else
 // (the layered rolling-average charts some laws already build themselves)
@@ -35,12 +79,7 @@ function getEncoding(spec: Record<string, unknown>): Record<string, any> | null 
 // average or baseline would silently corrupt it.
 export function isDailyTrendChart(spec: Record<string, unknown>): boolean {
   if (!spec || 'layer' in spec || 'facet' in spec || 'hconcat' in spec || 'vconcat' in spec) return false;
-  const enc = getEncoding(spec);
-  if (!enc) return false;
-  const x = enc.x as TemporalEncoding | undefined;
-  const y = enc.y as QuantEncoding | undefined;
-  if (!x || x.type !== 'temporal' || !x.field) return false;
-  if (!y || y.type !== 'quantitative' || !y.field) return false;
+  if (!getTrendFields(spec)) return false;
   const values = (spec as any).data?.values;
   return Array.isArray(values) && values.length > 0;
 }
@@ -137,10 +176,11 @@ function markType(mark: unknown): string {
 // baseline rule - the same reading aid livi.charts.trend.counted_event
 // gives its own layered charts, applied here to any flat trend chart.
 export function buildTrendSpec(spec: Record<string, unknown>, granularity: Granularity): Record<string, unknown> {
+  const trend = getTrendFields(spec)!;
+  const x = trend.x;
+  const y = trend.y;
+  const seriesField = trend.seriesField;
   const enc = getEncoding(spec)!;
-  const x = enc.x as TemporalEncoding;
-  const y = enc.y as QuantEncoding;
-  const seriesField = (enc.color as { field?: string } | undefined)?.field;
   const values = (spec as any).data.values as Array<Record<string, unknown>>;
 
   const bucketed = bucketRows(values, x.field, y.field, seriesField, granularity);
@@ -157,7 +197,7 @@ export function buildTrendSpec(spec: Record<string, unknown>, granularity: Granu
       mark: showRolling
         ? { type: 'area', opacity: 0.45, color: '#7c9cff', interpolate: 'monotone', line: { color: '#7c9cff', strokeWidth: 1.5 }, point: { color: '#7c9cff', size: 25 } }
         : { type: markType((spec as any).mark), color: '#7c9cff', point: { color: '#7c9cff', size: 30 } },
-      encoding: { x: xEnc, y: enc.y, ...colorEnc },
+      encoding: { x: xEnc, y, ...colorEnc },
     },
   ];
 
@@ -220,11 +260,9 @@ export interface TrendStats {
 // the bucket size. Only defined for single-series trend charts; a
 // multi-series chart has no single "total" that reads honestly.
 export function computeTrendStats(spec: Record<string, unknown>, granularity: Granularity): TrendStats | null {
-  const enc = getEncoding(spec);
-  if (!enc) return null;
-  const x = enc.x as TemporalEncoding;
-  const y = enc.y as QuantEncoding;
-  const seriesField = (enc.color as { field?: string } | undefined)?.field;
+  const trend = getTrendFields(spec);
+  if (!trend) return null;
+  const { x, y, seriesField } = trend;
   if (seriesField) return null;
   const values = (spec as any).data?.values as Array<Record<string, unknown>> | undefined;
   if (!Array.isArray(values) || values.length === 0) return null;
@@ -256,38 +294,119 @@ export function computeTrendStats(spec: Record<string, unknown>, granularity: Gr
   };
 }
 
+export interface MultiSeriesTrendStats {
+  total: number;
+  seriesCount: number;
+  topSeries: { label: string; value: number };
+  firstDate: string;
+  lastDate: string;
+}
+
+// Companion to computeTrendStats for the multi-series case (a color-encoded
+// trend chart, e.g. "adoption by trigger type over time") - there's no
+// single day's "peak" that means anything across series, but a per-series
+// breakdown (total, which series dominates) is still an honest summary.
+export function computeMultiSeriesTrendStats(
+  spec: Record<string, unknown>,
+  granularity: Granularity,
+): MultiSeriesTrendStats | null {
+  const trend = getTrendFields(spec);
+  if (!trend || !trend.seriesField) return null;
+  const { x, y, seriesField } = trend;
+  const values = (spec as any).data?.values as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(values) || values.length === 0) return null;
+
+  const rows = bucketRows(values, x.field, y.field, seriesField, granularity);
+  if (rows.length === 0) return null;
+
+  const bySeries = new Map<string, number>();
+  for (const row of rows) {
+    const key = String(row[seriesField]);
+    bySeries.set(key, (bySeries.get(key) ?? 0) + (Number(row[y.field]) || 0));
+  }
+  const sorted = Array.from(bySeries.entries())
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
+  const total = sorted.reduce((sum, s) => sum + s.value, 0);
+  if (total === 0) return null;
+
+  return {
+    total: Math.round(total * 100) / 100,
+    seriesCount: sorted.length,
+    topSeries: { label: sorted[0].label, value: Math.round(sorted[0].value * 100) / 100 },
+    firstDate: String(rows[0][x.field]),
+    lastDate: String(rows[rows.length - 1][x.field]),
+  };
+}
+
 interface CategoryEncodingParts {
   catField: string;
   valField: string;
 }
 
-function getCategoryEncoding(spec: Record<string, unknown>): CategoryEncodingParts | null {
+// Falls back to a layered spec's first layer (e.g. a `pareto` chart's raw
+// `bar` layer, ahead of its cumulative-percent `line` layer) when there's no
+// top-level `encoding` - that first layer carries the same per-category raw
+// value a plain bar chart would, so it can drive the same stats chips even
+// though the chart itself isn't eligible for the day/week/month toggle.
+function getPrimaryEncoding(spec: Record<string, unknown>): Record<string, any> | null {
   const enc = getEncoding(spec);
-  if (!enc) return null;
-  const x = enc.x as { field?: string; type?: string } | undefined;
-  const y = enc.y as { field?: string; type?: string } | undefined;
-  if (x?.type === 'quantitative' && x.field && (y?.type === 'nominal' || y?.type === 'ordinal') && y.field) {
-    return { catField: y.field, valField: x.field };
-  }
-  if (y?.type === 'quantitative' && y.field && (x?.type === 'nominal' || x?.type === 'ordinal') && x.field) {
-    return { catField: x.field, valField: y.field };
+  if (enc) return enc;
+  const layer = (spec as any).layer;
+  if (Array.isArray(layer) && layer.length > 0) {
+    const first = layer[0];
+    if (first && typeof first === 'object' && first.encoding && typeof first.encoding === 'object') {
+      return first.encoding;
+    }
   }
   return null;
 }
 
-// Only the simple single-mark bar/dot shape (one category axis, one
-// quantitative axis, no facet/layer) gets a stats summary - a stacked or
-// grouped chart's per-category total isn't a single unambiguous number. A
-// color channel is still fine as long as it just tints each category by
-// itself (the distribution-band case, color.field === the category field)
-// rather than encoding an actual second grouping dimension.
+function getCategoryEncoding(spec: Record<string, unknown>): CategoryEncodingParts | null {
+  const enc = getPrimaryEncoding(spec);
+  if (!enc) return null;
+  const found = analyzeEncoding(enc);
+  if (found.categorical && found.quantitative.length > 0) {
+    return { catField: found.categorical.field, valField: found.quantitative[0].field };
+  }
+  // Histogram fallback: the livi.charts base spec types the bucket axis
+  // "ordinal", but the model sometimes leaves it "quantitative" (a numeric
+  // bucket start/label) instead - it's still a discrete bucket axis, just
+  // mistyped, and a `bar` mark is the tell (a real two-quantitative-field
+  // chart, e.g. a scatter plot, uses a point/circle mark instead).
+  const mark = markType((spec as any).mark ?? (spec as any).layer?.[0]?.mark);
+  if (mark === 'bar' && found.quantitative.length >= 2) {
+    const xField = (enc.x as { field?: string } | undefined)?.field;
+    const yField = (enc.y as { field?: string } | undefined)?.field;
+    if (typeof xField === 'string' && typeof yField === 'string' && xField !== yField) {
+      return { catField: xField, valField: yField };
+    }
+  }
+  return null;
+}
+
+// The simple single-mark bar/dot shape (one category axis, one quantitative
+// axis, no facet/concat) gets a stats summary - a stacked or grouped chart's
+// per-category total isn't a single unambiguous number. A color channel is
+// still fine as long as it just tints each category by itself (the
+// distribution-band case, color.field === the category field) rather than
+// encoding an actual second grouping dimension. A layered spec (e.g.
+// `pareto`'s bar+cumulative-line) is also allowed through - see
+// getPrimaryEncoding - since its first layer is itself a plain per-category
+// bar; the second (line) layer is ignored for stats purposes.
 export function isCategoricalChart(spec: Record<string, unknown>): boolean {
-  if (!spec || 'layer' in spec || 'facet' in spec || 'hconcat' in spec || 'vconcat' in spec) return false;
-  const enc = getEncoding(spec);
+  if (!spec || 'facet' in spec || 'hconcat' in spec || 'vconcat' in spec) return false;
+  const enc = getPrimaryEncoding(spec);
   const parts = getCategoryEncoding(spec);
   if (!parts) return false;
   const colorField = (enc?.color as { field?: string } | undefined)?.field;
-  if (colorField && colorField !== parts.catField) return false;
+  // A `diverging_bar` chart's color is a "direction" field (gain/loss, up/
+  // down) derived from the same signed value field, not an independent
+  // grouping dimension - see chart_types.json's DIRECTION_FIELD convention -
+  // so it doesn't disqualify the per-category total the way a real second
+  // dimension would.
+  const isDirectionColor = typeof colorField === 'string' && colorField.toLowerCase().includes('direction');
+  if (colorField && colorField !== parts.catField && !isDirectionColor) return false;
   const values = (spec as any).data?.values;
   return Array.isArray(values) && values.length > 0;
 }
@@ -371,5 +490,163 @@ export function computeCategoryStats(spec: Record<string, unknown>): CategorySta
     lowest: sorted[sorted.length - 1],
     top3: sorted.slice(0, 3),
     bottom3: sorted.slice(-3).reverse(),
+  };
+}
+
+interface HeatmapEncodingParts {
+  dateField: string;
+  colorField: string;
+}
+
+// Detects a calendar-heatmap-shaped chart the same way the backend's
+// sanitizeCalendarHeatmap does (see internal/mcpagent/interpretation_sanitization.go):
+// both x and y are the same underlying date field, just bucketed by two
+// different timeUnits (one "week", one plain "day"), with a quantitative
+// color channel. Neither axis is a single re-bucketable temporal/quantitative
+// pair, so this chart never gets the day/week/month toggle - it gets its own
+// stats instead.
+function getHeatmapEncoding(spec: Record<string, unknown>): HeatmapEncodingParts | null {
+  if (!spec || 'layer' in spec || 'facet' in spec || 'hconcat' in spec || 'vconcat' in spec) return null;
+  const enc = getEncoding(spec);
+  if (!enc) return null;
+  const x = enc.x as TemporalEncoding | undefined;
+  const y = enc.y as TemporalEncoding | undefined;
+  const color = enc.color as QuantEncoding | undefined;
+  if (!x?.field || !y?.field || x.field !== y.field) return null;
+  if (!color?.field || color.type !== 'quantitative') return null;
+  const isWeek = (e?: TemporalEncoding) => typeof e?.timeUnit === 'string' && e.timeUnit.toLowerCase().includes('week');
+  const isDay = (e?: TemporalEncoding) => e?.timeUnit === 'day';
+  if (!((isWeek(x) && isDay(y)) || (isWeek(y) && isDay(x)))) return null;
+  return { dateField: x.field, colorField: color.field };
+}
+
+export function isCalendarHeatmap(spec: Record<string, unknown>): boolean {
+  if (!getHeatmapEncoding(spec)) return false;
+  const values = (spec as any).data?.values;
+  return Array.isArray(values) && values.length > 0;
+}
+
+export interface HeatmapStats {
+  total: number;
+  activeDays: number;
+  avgOnActiveDays: number;
+  busiest: { date: string; value: number };
+}
+
+export function computeHeatmapStats(spec: Record<string, unknown>): HeatmapStats | null {
+  const parts = getHeatmapEncoding(spec);
+  if (!parts) return null;
+  const values = (spec as any).data?.values as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(values) || values.length === 0) return null;
+
+  let total = 0;
+  let activeDays = 0;
+  let busiest = values[0];
+  for (const row of values) {
+    const v = Number(row[parts.colorField]) || 0;
+    total += v;
+    if (v > 0) activeDays++;
+    if (v > (Number(busiest[parts.colorField]) || 0)) busiest = row;
+  }
+  if (total === 0) return null;
+
+  return {
+    total: Math.round(total * 100) / 100,
+    activeDays,
+    avgOnActiveDays: activeDays > 0 ? Math.round((total / activeDays) * 100) / 100 : 0,
+    busiest: { date: String(busiest[parts.dateField]), value: Number(busiest[parts.colorField]) || 0 },
+  };
+}
+
+interface SlopeEncodingParts {
+  periodField: string;
+  valField: string;
+  entityField: string;
+  periodOrder?: string[];
+}
+
+// Detects a `slope_graph` chart (chart_types.json): x is two nominal period
+// labels (not per-entity categories - every entity shares the same two x
+// values), the real per-entity identity lives in the `detail` channel, and
+// each entity contributes two rows (one per period) rather than one. None of
+// the other detectors' assumptions hold here (isCategoricalChart would
+// wrongly sum every entity's value together per period), so this needs its
+// own before/after comparison per entity.
+function getSlopeEncoding(spec: Record<string, unknown>): SlopeEncodingParts | null {
+  if (!spec || 'layer' in spec || 'facet' in spec || 'hconcat' in spec || 'vconcat' in spec) return null;
+  const enc = getEncoding(spec);
+  if (!enc) return null;
+  const x = enc.x as { field?: string; type?: string; sort?: unknown } | undefined;
+  const y = enc.y as { field?: string; type?: string } | undefined;
+  const detail = enc.detail as { field?: string } | undefined;
+  if (!x?.field || (x.type !== 'nominal' && x.type !== 'ordinal')) return null;
+  if (!y?.field || y.type !== 'quantitative') return null;
+  if (!detail?.field) return null;
+  const periodOrder = Array.isArray(x.sort) ? (x.sort as unknown[]).map(String) : undefined;
+  return { periodField: x.field, valField: y.field, entityField: detail.field, periodOrder };
+}
+
+export function isSlopeGraph(spec: Record<string, unknown>): boolean {
+  if (!getSlopeEncoding(spec)) return false;
+  const values = (spec as any).data?.values;
+  return Array.isArray(values) && values.length > 0;
+}
+
+export interface SlopeStats {
+  entityCount: number;
+  gained: number;
+  lost: number;
+  flat: number;
+  biggestGain: { label: string; delta: number };
+  biggestLoss: { label: string; delta: number };
+}
+
+export function computeSlopeStats(spec: Record<string, unknown>): SlopeStats | null {
+  const parts = getSlopeEncoding(spec);
+  if (!parts) return null;
+  const values = (spec as any).data?.values as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(values) || values.length === 0) return null;
+
+  const byEntity = new Map<string, Map<string, number>>();
+  const seenPeriods: string[] = [];
+  for (const row of values) {
+    const entity = String(row[parts.entityField]);
+    const period = String(row[parts.periodField]);
+    const val = Number(row[parts.valField]) || 0;
+    if (!seenPeriods.includes(period)) seenPeriods.push(period);
+    if (!byEntity.has(entity)) byEntity.set(entity, new Map());
+    byEntity.get(entity)!.set(period, val);
+  }
+  const order = parts.periodOrder && parts.periodOrder.length >= 2 ? parts.periodOrder : seenPeriods;
+  if (order.length < 2) return null;
+  const [before, after] = order;
+
+  let gained = 0;
+  let lost = 0;
+  let flat = 0;
+  let biggestGain: { label: string; delta: number } | null = null;
+  let biggestLoss: { label: string; delta: number } | null = null;
+  let entityCount = 0;
+  for (const [entity, periods] of byEntity) {
+    const beforeVal = periods.get(before);
+    const afterVal = periods.get(after);
+    if (beforeVal === undefined || afterVal === undefined) continue;
+    entityCount++;
+    const delta = afterVal - beforeVal;
+    if (delta > 0) gained++;
+    else if (delta < 0) lost++;
+    else flat++;
+    if (!biggestGain || delta > biggestGain.delta) biggestGain = { label: entity, delta };
+    if (!biggestLoss || delta < biggestLoss.delta) biggestLoss = { label: entity, delta };
+  }
+  if (entityCount === 0 || !biggestGain || !biggestLoss) return null;
+
+  return {
+    entityCount,
+    gained,
+    lost,
+    flat,
+    biggestGain: { label: biggestGain.label, delta: Math.round(biggestGain.delta * 100) / 100 },
+    biggestLoss: { label: biggestLoss.label, delta: Math.round(biggestLoss.delta * 100) / 100 },
   };
 }

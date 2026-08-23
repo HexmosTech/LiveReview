@@ -236,4 +236,18 @@ The MCP agent's prompts follow a two-layer architecture:
 4. After lawbook changes, rebuild with `make prep-dbctx` and verify with `go test ./internal/mcpagent/...` (specifically `TestLawbookCompiles`).
 5. Test the interpret pipeline end-to-end with: `curl -s -X POST localhost:8080/api/v1/test-chat -H 'Content-Type: application/json' -d '{"message":"how many reviews do we have?"}' | jq .`
 
+## UI Builds Require Explicit User Approval
+
+`npm run build` in `ui/` (or any other full UI production build) is highly
+resource-intensive and has been reported to crash the user's machine.
+
+**Rule: never run a full UI build without the user's explicit, per-instance
+approval.** A prior approval does not carry forward to later changes or
+later sessions - ask again each time a full build seems warranted.
+
+For everyday verification after frontend changes, use `npx tsc --noEmit`
+(fast, cheap, catches type errors) instead. Only reach for a full build if
+something genuinely requires it (e.g. confirming a bundler-only error or
+asset output), and only after the user says yes.
+
 

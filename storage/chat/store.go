@@ -100,20 +100,25 @@ func (s *Store) CreateConversation(ctx context.Context, orgID, userID int64, tit
 }
 
 // GetConversation returns a single conversation owned by orgID/userID.
+// Unlike ListConversations/SearchConversations (which already know the
+// surface they filtered by), this is the one read path that needs the
+// stored surface back - e.g. chatexport, which must decide whether debug
+// artifacts belong in an export from the conversation's own row rather
+// than trusting a client-supplied value.
 func (s *Store) GetConversation(ctx context.Context, orgID, userID, convID int64) (*domainchat.Conversation, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, org_id, user_id, title, COALESCE(session_id, ''), created_at, updated_at
+		SELECT id, org_id, user_id, title, COALESCE(session_id, ''), surface, created_at, updated_at
 		FROM chat_conversations
 		WHERE id = $1 AND org_id = $2 AND user_id = $3 AND deleted_at IS NULL
 	`, convID, orgID, userID)
-	c, err := scanConversation(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
+	var c domainchat.Conversation
+	if err := row.Scan(&c.ID, &c.OrgID, &c.UserID, &c.Title, &c.SessionID, &c.Surface, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
 		return nil, fmt.Errorf("select chat_conversations: %w", err)
 	}
-	return c, nil
+	return &c, nil
 }
 
 // ListConversations returns a user's conversations for the given surface
