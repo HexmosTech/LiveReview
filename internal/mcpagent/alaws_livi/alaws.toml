@@ -84,6 +84,8 @@ ordering = [
   "interpreting/rules-data.md",
   "interpreting/rules-charts.md",
   "interpreting/rules-count.md",
+  "interpreting/rules-application.md",
+  "interpreting/rules-org.md",
   "interpreting/output.md",
   "interpreting/chartref.md",
   "action.md",

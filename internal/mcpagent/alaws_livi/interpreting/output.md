@@ -10,27 +10,23 @@ exact: a `query` string, an `interpretation` summary, and an
 `interpretations` array holding up to five entries — nothing else in the
 object.
 
-Each interpretation carries its own SQL, chart type, title, description,
-and optional Vega-Lite encoding overrides. The Go code executes the SQL,
-builds the chart from the type + encoding, and presents all non-empty
-results to the user.
+Each interpretation carries its own SQL, chart type, name, description,
+Vega-Lite spec, and applied laws list. The Go code executes the SQL,
+builds the chart from the spec, and presents all non-empty results to
+the user.
 
 <!-- alaws:laws -->
 
-1. Reply with a single JSON object holding `query`, `interpretation`, and the `interpretations` array, and nothing else — no tool call, no markdown fence, no prose before or after. {#reply-with-single-json-object}
+1. Reply with ONLY valid JSON, no markdown, no code fences. {#reply-with-only-valid-json}
 
-2. Give every interpretation a `sql`, `chart_type`, `title`, and `description`. The `encoding` field is optional — omit it to use the chart type's default encoding. {#give-every-interpretation}
+2. Top-level schema: `query` (original user query string), `interpretation` (1-2 sentence restatement of what the overall answer covers), `interpretations` array. Nothing else in the object. {#top-level-schema-query-interpretation}
 
-3. The `sql` field must be a valid PostgreSQL SELECT statement. It must NOT contain INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, TRUNCATE, or any other DDL/DML. {#sql-must-be-select}
+3. Each interpretation must have: `name` (short label), `description` (what this shows), `chart_type` (chart type ID from the reference), `sql` (PostgreSQL query), `vega_lite_spec` (complete Vega-Lite spec), `applied_laws` (array of canonical law numbers). {#each-interpretation-must-have}
 
-4. The `chart_type` must be one of: bar, grouped_bar, stacked_bar, line, multi_line, area, stacked_area, scatter, pie, heatmap, horizontal_bar, boxplot, trellis_bar. {#chart-type-must-be}
+4. The `vega_lite_spec` must use `DATA_PLACEHOLDER` as the value of `data.values`. The Go code replaces it with real query results. {#vega-lite-spec-data-placeholder}
 
-5. The `title` should be a short, human-readable label for the chart (e.g. "Reviews per Month", "Top Contributors by LOC"). {#title-should-be}
+5. The `applied_laws` array lists the canonical number of every law in this chapter that this interpretation actually used. Do not pad with laws that did not affect the reply. {#applied-laws-array}
 
-6. The `description` should be 1-2 sentences explaining what the chart shows and any notable patterns. {#description-should-be}
+6. The `sql` field must be a valid PostgreSQL SELECT statement. It must NOT contain INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, TRUNCATE, or any other DDL/DML. {#sql-must-be-select-only}
 
-7. When providing `encoding`, use Vega-Lite encoding channel names: `x`, `y`, `color`, `theta`, `size`, `tooltip`, etc. Each channel should have `field` (column name from SQL) and `type` (nominal, ordinal, quantitative, temporal). {#when-providing-encoding}
-
-8. The `interpretation` field is a 1-2 sentence restatement of what the overall answer covers. It is not shown to the user. {#interpretation-field}
-
-9. Begin your reply with the `{` character and end it with the matching `}`, with no text of any kind before or after. {#begin-reply-with-brace}
+7. Begin your reply with the `{` character and end it with the matching `}`, with no text of any kind before or after. {#begin-reply-with-brace}

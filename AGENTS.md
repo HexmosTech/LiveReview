@@ -195,4 +195,20 @@ If a new feature is not navigable from the mega menu (e.g. it is only reached fr
 button inside an existing page), call that out explicitly rather than silently skipping
 the entry. Keeping the mega menu complete is what makes new capabilities discoverable.
 
+## PromptBook & LawBook Conventions
+
+The MCP agent's prompts follow a two-layer architecture:
+
+- **LawBook** (`internal/mcpagent/alaws_livi/`): Numbered, citable rules in `.md` files with alaws frontmatter. Each section has a unique `id` (e.g. `livi.interpreting.schema`). Laws are the single source of truth — if a rule exists only in a PromptBook template and not as a law, it is a bug.
+
+- **PromptBook** (`alaws_livi/prompts/`): Templates that assemble laws into system prompts for specific model calls. Templates use `{{ref:livi.section.id}}` to embed laws — they never duplicate rule text inline.
+
+### Rules
+
+1. Every instruction the model receives MUST be a numbered law in the lawbook, not inline text in a prompt template.
+2. PromptBook templates use `{{ref:}}` exclusively — no hardcoded rule text.
+3. When adding a new rule, create it as a law in the appropriate lawbook section, then `{{ref:}}` it from the prompt template.
+4. After lawbook changes, rebuild with `make prep-dbctx` and verify with `go test ./internal/mcpagent/...` (specifically `TestLawbookCompiles`).
+5. Test the interpret pipeline end-to-end with: `curl -s -X POST localhost:8080/api/v1/test-chat -H 'Content-Type: application/json' -d '{"message":"how many reviews do we have?"}' | jq .`
+
 
