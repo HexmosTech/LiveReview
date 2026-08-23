@@ -53,6 +53,7 @@ type File struct {
 	Query       string
 	TimeRange   string
 	Granularity string
+	Context     []string
 	Rows        int
 	Data        []byte
 	CreatedAt   time.Time
@@ -70,6 +71,7 @@ type Chart struct {
 	Query                 string
 	TimeRange             string
 	Granularity           string
+	Context               []string
 	TriggeringUserMessage string
 	VegaSpec              []byte // raw JSON
 	RawLLMOutput          string

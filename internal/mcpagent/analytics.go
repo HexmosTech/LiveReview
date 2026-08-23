@@ -1863,6 +1863,7 @@ func (a *Agent) buildChartFromInterp(
 		Query:       interp.QuerySummary,
 		TimeRange:   interp.TimeWindow,
 		Granularity: interp.Granularity,
+		Context:     interp.Context,
 		Spec:        normalized,
 	}, nil
 }

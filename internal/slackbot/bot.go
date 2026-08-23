@@ -535,7 +535,7 @@ func (oh *orgHandler) processMessage(channel, ts, threadTS, text string) {
 			return
 		}
 		// A single value/bar isn't worth a chart — reply with the description text.
-		if desc, query, timeRange, granularity, ok := vlrender.TrivialDescription(finalText); ok && desc != "" {
+		if desc, query, timeRange, granularity, _, ok := vlrender.TrivialDescription(finalText); ok && desc != "" {
 			if query != "" || timeRange != "" || granularity != "" {
 				detail := "\n\nQuery: " + query
 				if timeRange != "" {

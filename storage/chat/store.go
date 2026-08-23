@@ -57,6 +57,7 @@ type ChartInput struct {
 	Query                 string
 	TimeRange             string
 	Granularity           string
+	Context               []string
 	TriggeringUserMessage string
 	VegaSpec              json.RawMessage
 	RawLLMOutput          string
@@ -72,6 +73,7 @@ type FileInput struct {
 	Query       string
 	TimeRange   string
 	Granularity string
+	Context     []string
 	Rows        int
 	Data        []byte
 }
@@ -301,9 +303,9 @@ func (s *Store) AppendAssistantMessage(ctx context.Context, convID int64, assist
 
 	for _, ch := range charts {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO chat_charts (message_id, title, description, query, time_range, granularity, triggering_user_message, vega_spec, raw_llm_output)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		`, msgID, ch.Title, ch.Description, ch.Query, ch.TimeRange, ch.Granularity, ch.TriggeringUserMessage, []byte(ch.VegaSpec), ch.RawLLMOutput); err != nil {
+			INSERT INTO chat_charts (message_id, title, description, query, time_range, granularity, context, triggering_user_message, vega_spec, raw_llm_output)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`, msgID, ch.Title, ch.Description, ch.Query, ch.TimeRange, ch.Granularity, pq.Array(ch.Context), ch.TriggeringUserMessage, []byte(ch.VegaSpec), ch.RawLLMOutput); err != nil {
 			return 0, nil, fmt.Errorf("insert chat_charts: %w", err)
 		}
 	}
@@ -312,10 +314,10 @@ func (s *Store) AppendAssistantMessage(ctx context.Context, convID int64, assist
 	for _, f := range files {
 		var fileID int64
 		if err := tx.QueryRowContext(ctx, `
-			INSERT INTO chat_files (message_id, kind, filename, title, description, query, time_range, granularity, rows, data)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			INSERT INTO chat_files (message_id, kind, filename, title, description, query, time_range, granularity, context, rows, data)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 			RETURNING id
-		`, msgID, f.Kind, f.Filename, nullable(f.Title), nullable(f.Description), nullable(f.Query), nullable(f.TimeRange), nullable(f.Granularity), f.Rows, f.Data).Scan(&fileID); err != nil {
+		`, msgID, f.Kind, f.Filename, nullable(f.Title), nullable(f.Description), nullable(f.Query), nullable(f.TimeRange), nullable(f.Granularity), pq.Array(f.Context), f.Rows, f.Data).Scan(&fileID); err != nil {
 			return 0, nil, fmt.Errorf("insert chat_files: %w", err)
 		}
 		fileIDs = append(fileIDs, fileID)
@@ -409,7 +411,7 @@ func (s *Store) ListMessages(ctx context.Context, orgID, userID, convID int64) (
 
 	chartRows, err := s.db.QueryContext(ctx, `
 		SELECT id, message_id, COALESCE(title, ''), COALESCE(description, ''), COALESCE(query, ''),
-			COALESCE(time_range, ''), COALESCE(granularity, ''), triggering_user_message, vega_spec, raw_llm_output, created_at
+			COALESCE(time_range, ''), COALESCE(granularity, ''), context, triggering_user_message, vega_spec, raw_llm_output, created_at
 		FROM chat_charts
 		WHERE message_id = ANY($1)
 	`, pq.Array(ids))
@@ -421,7 +423,7 @@ func (s *Store) ListMessages(ctx context.Context, orgID, userID, convID int64) (
 		var ch domainchat.Chart
 		var specJSON []byte
 		if err := chartRows.Scan(&ch.ID, &ch.MessageID, &ch.Title, &ch.Description, &ch.Query, &ch.TimeRange,
-			&ch.Granularity, &ch.TriggeringUserMessage, &specJSON, &ch.RawLLMOutput, &ch.CreatedAt); err != nil {
+			&ch.Granularity, pq.Array(&ch.Context), &ch.TriggeringUserMessage, &specJSON, &ch.RawLLMOutput, &ch.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan chat_charts: %w", err)
 		}
 		ch.VegaSpec = specJSON
@@ -433,7 +435,7 @@ func (s *Store) ListMessages(ctx context.Context, orgID, userID, convID int64) (
 	fileRows, err := s.db.QueryContext(ctx, `
 		SELECT id, message_id, COALESCE(kind, 'csv'), filename,
 			COALESCE(title, ''), COALESCE(description, ''), COALESCE(query, ''),
-			COALESCE(time_range, ''), COALESCE(granularity, ''), COALESCE(rows, 0), data, created_at
+			COALESCE(time_range, ''), COALESCE(granularity, ''), context, COALESCE(rows, 0), data, created_at
 		FROM chat_files
 		WHERE message_id = ANY($1)
 		ORDER BY id ASC
@@ -445,7 +447,7 @@ func (s *Store) ListMessages(ctx context.Context, orgID, userID, convID int64) (
 	for fileRows.Next() {
 		var f domainchat.File
 		if err := fileRows.Scan(&f.ID, &f.MessageID, &f.Kind, &f.Filename, &f.Title, &f.Description, &f.Query,
-			&f.TimeRange, &f.Granularity, &f.Rows, &f.Data, &f.CreatedAt); err != nil {
+			&f.TimeRange, &f.Granularity, pq.Array(&f.Context), &f.Rows, &f.Data, &f.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan chat_files: %w", err)
 		}
 		if idx, ok := msgIdx[f.MessageID]; ok {
@@ -461,7 +463,7 @@ func (s *Store) GetFile(ctx context.Context, orgID, userID, fileID int64) (*doma
 	row := s.db.QueryRowContext(ctx, `
 		SELECT f.id, f.message_id, COALESCE(f.kind, 'csv'), f.filename,
 			COALESCE(f.title, ''), COALESCE(f.description, ''), COALESCE(f.query, ''),
-			COALESCE(f.time_range, ''), COALESCE(f.granularity, ''), COALESCE(f.rows, 0), f.data, f.created_at
+			COALESCE(f.time_range, ''), COALESCE(f.granularity, ''), f.context, COALESCE(f.rows, 0), f.data, f.created_at
 		FROM chat_files f
 		JOIN chat_messages m ON m.id = f.message_id
 		JOIN chat_conversations c ON c.id = m.conversation_id
@@ -470,7 +472,7 @@ func (s *Store) GetFile(ctx context.Context, orgID, userID, fileID int64) (*doma
 
 	var f domainchat.File
 	if err := row.Scan(&f.ID, &f.MessageID, &f.Kind, &f.Filename, &f.Title, &f.Description, &f.Query,
-		&f.TimeRange, &f.Granularity, &f.Rows, &f.Data, &f.CreatedAt); err != nil {
+		&f.TimeRange, &f.Granularity, pq.Array(&f.Context), &f.Rows, &f.Data, &f.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -484,7 +486,7 @@ func (s *Store) GetFile(ctx context.Context, orgID, userID, fileID int64) (*doma
 func (s *Store) GetChart(ctx context.Context, orgID, userID, chartID int64) (*domainchat.Chart, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT ch.id, ch.message_id, COALESCE(ch.title, ''), COALESCE(ch.description, ''), COALESCE(ch.query, ''),
-			COALESCE(ch.time_range, ''), COALESCE(ch.granularity, ''), ch.triggering_user_message, ch.vega_spec, ch.raw_llm_output, ch.created_at
+			COALESCE(ch.time_range, ''), COALESCE(ch.granularity, ''), ch.context, ch.triggering_user_message, ch.vega_spec, ch.raw_llm_output, ch.created_at
 		FROM chat_charts ch
 		JOIN chat_messages m ON m.id = ch.message_id
 		JOIN chat_conversations c ON c.id = m.conversation_id
@@ -494,7 +496,7 @@ func (s *Store) GetChart(ctx context.Context, orgID, userID, chartID int64) (*do
 	var ch domainchat.Chart
 	var specJSON []byte
 	err := row.Scan(&ch.ID, &ch.MessageID, &ch.Title, &ch.Description, &ch.Query, &ch.TimeRange,
-		&ch.Granularity, &ch.TriggeringUserMessage, &specJSON, &ch.RawLLMOutput, &ch.CreatedAt)
+		&ch.Granularity, pq.Array(&ch.Context), &ch.TriggeringUserMessage, &specJSON, &ch.RawLLMOutput, &ch.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}

@@ -941,12 +941,15 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                                   />
                                 </div>
                               )}
-                              {(chart.query || chart.time_range || chart.granularity) && (
+                              {(chart.query || chart.time_range || chart.granularity || (chart.context && chart.context.length > 0)) && (
                                 <details className="group mt-1">
                                   <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
                                     Data details
                                   </summary>
                                   <div className="mt-1.5 space-y-1 text-xs text-slate-400 italic">
+                                    {chart.context && chart.context.length > 0 && (
+                                      <p><span className="not-italic font-medium text-slate-400">Context:</span> {chart.context.join(', ')}</p>
+                                    )}
                                     {chart.time_range && (
                                       <p><span className="not-italic font-medium text-slate-400">Time range:</span> {chart.time_range}</p>
                                     )}
@@ -991,12 +994,15 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                               {file.description && (
                                 <p className="text-sm text-slate-300 whitespace-pre-line">{file.description}</p>
                               )}
-                              {(file.query || file.time_range || file.granularity) && (
+                              {(file.query || file.time_range || file.granularity || (file.context && file.context.length > 0)) && (
                                 <details className="group mt-1">
                                   <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
                                     Data details
                                   </summary>
                                   <div className="mt-1.5 space-y-1 text-xs text-slate-400 italic">
+                                    {file.context && file.context.length > 0 && (
+                                      <p><span className="not-italic font-medium text-slate-400">Context:</span> {file.context.join(', ')}</p>
+                                    )}
                                     {file.time_range && (
                                       <p><span className="not-italic font-medium text-slate-400">Time range:</span> {file.time_range}</p>
                                     )}

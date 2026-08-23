@@ -17,6 +17,7 @@ export interface ChatChart {
   query?: string;
   time_range?: string;
   granularity?: string;
+  context?: string[];
   spec: Record<string, unknown>;
 }
 
@@ -31,6 +32,7 @@ export interface ChatFile {
   query?: string;
   time_range?: string;
   granularity?: string;
+  context?: string[];
   rows?: number;
 }
 

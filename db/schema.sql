@@ -578,7 +578,8 @@ CREATE TABLE public.chat_charts (
     triggering_user_message text NOT NULL,
     vega_spec jsonb NOT NULL,
     raw_llm_output text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    context text[]
 );
 
 
@@ -655,7 +656,8 @@ CREATE TABLE public.chat_files (
     granularity character varying(50),
     rows integer,
     data bytea NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    context text[]
 );
 
 
@@ -6328,4 +6330,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260817130000'),
     ('20260820141616'),
     ('20260821120000'),
-    ('20260823120000');
+    ('20260823120000'),
+    ('20260823200000');

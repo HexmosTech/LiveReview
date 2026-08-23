@@ -27,7 +27,8 @@ type WebChatFile struct {
 	Query       string `json:"query,omitempty"`
 	TimeRange   string `json:"time_range,omitempty"`
 	Granularity string `json:"granularity,omitempty"`
-	Rows        int    `json:"rows,omitempty"`
+	Context     []string `json:"context,omitempty"`
+	Rows        int      `json:"rows,omitempty"`
 }
 
 // chatFileURL builds the stable, auth-scoped download URL for a persisted file.
@@ -46,6 +47,7 @@ func chatFileFromArtifact(art mcpagent.Artifact, fileID int64) WebChatFile {
 		Query:       art.Query,
 		TimeRange:   art.TimeRange,
 		Granularity: art.Granularity,
+		Context:     art.Context,
 		Rows:        art.Rows,
 	}
 }
@@ -91,6 +93,7 @@ func toFileInput(art mcpagent.Artifact) storagechat.FileInput {
 		Query:       art.Query,
 		TimeRange:   art.TimeRange,
 		Granularity: art.Granularity,
+		Context:     art.Context,
 		Rows:        art.Rows,
 		Data:        art.Data,
 	}

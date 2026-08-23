@@ -38,6 +38,7 @@ type WebChatChart struct {
 	Query       string          `json:"query,omitempty"`
 	TimeRange   string          `json:"time_range,omitempty"`
 	Granularity string          `json:"granularity,omitempty"`
+	Context     []string        `json:"context,omitempty"`
 	Spec        json.RawMessage `json:"spec"`
 	// ID is only set for a chart loaded back from persistence (GetConversation,
 	// RenderChart) - a chart freshly produced within a live turn has none yet.
@@ -235,9 +236,9 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		} else if errors.Is(err, vlrender.ErrTrivialSpec) {
 			// A single value/bar is not worth a chart — show the description
 			// (and query) as plain text instead.
-			desc, query, timeRange, granularity, ok := vlrender.TrivialDescription(responseText)
+			desc, query, timeRange, granularity, chartContext, ok := vlrender.TrivialDescription(responseText)
 			text := desc
-			if query != "" || timeRange != "" || granularity != "" {
+			if query != "" || timeRange != "" || granularity != "" || chartContext != "" {
 				if text != "" {
 					text += "\n\n"
 				}
@@ -247,6 +248,9 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 				}
 				if granularity != "" {
 					detail += "\nGranularity: " + granularity
+				}
+				if chartContext != "" {
+					detail += "\nContext: " + chartContext
 				}
 				text += detail
 			}
@@ -381,6 +385,7 @@ func persistAssistantMessage(ctx context.Context, chatStore *storagechat.Store, 
 			Query:                 ch.Query,
 			TimeRange:             ch.TimeRange,
 			Granularity:           ch.Granularity,
+			Context:               ch.Context,
 			TriggeringUserMessage: userText,
 			VegaSpec:              ch.Spec,
 			RawLLMOutput:          rawLLMOutput,
@@ -470,6 +475,7 @@ func reportsToCharts(reports []vlrender.VegaLiteReport) ([]WebChatChart, error) 
 			Query:       r.Query,
 			TimeRange:   r.TimeRange,
 			Granularity: r.Granularity,
+			Context:     r.Context,
 			Spec:        json.RawMessage(spec),
 		})
 	}

@@ -254,7 +254,7 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 			return nil
 		}
 		// A single value/bar isn't worth a chart — reply with the description text.
-		if desc, query, timeRange, granularity, ok := vlrender.TrivialDescription(response); ok && desc != "" {
+		if desc, query, timeRange, granularity, _, ok := vlrender.TrivialDescription(response); ok && desc != "" {
 			if query != "" || timeRange != "" || granularity != "" {
 				detail := "\n\nQuery: " + query
 				if timeRange != "" {

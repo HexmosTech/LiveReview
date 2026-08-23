@@ -178,6 +178,7 @@ func (s *Server) GetConversation(c echo.Context) error {
 				Query:       ch.Query,
 				TimeRange:   ch.TimeRange,
 				Granularity: ch.Granularity,
+				Context:     ch.Context,
 				Spec:        json.RawMessage(ch.VegaSpec),
 				ID:          ch.ID,
 			})
@@ -192,6 +193,7 @@ func (s *Server) GetConversation(c echo.Context) error {
 				Query:       f.Query,
 				TimeRange:   f.TimeRange,
 				Granularity: f.Granularity,
+				Context:     f.Context,
 				Rows:        f.Rows,
 			})
 		}
@@ -287,6 +289,7 @@ func (s *Server) RenderChart(c echo.Context) error {
 			Query:       chart.Query,
 			TimeRange:   chart.TimeRange,
 			Granularity: chart.Granularity,
+			Context:     chart.Context,
 			Spec:        json.RawMessage(chart.VegaSpec),
 			ID:          chart.ID,
 		})
