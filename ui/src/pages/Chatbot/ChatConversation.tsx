@@ -21,6 +21,8 @@ import {
   computeBandStats,
   isCalendarHeatmap,
   computeHeatmapStats,
+  isSlopeGraph,
+  computeSlopeStats,
   Granularity,
 } from './rebucketChart';
 
@@ -839,7 +841,12 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                             const bandChart = !trendChart && isBandChart(chart.spec);
                             const heatmapChart = !trendChart && !bandChart && isCalendarHeatmap(chart.spec);
                             const heatmapStats = heatmapChart ? computeHeatmapStats(chart.spec) : null;
-                            const categoryStats = !trendChart && !bandChart && isCategoricalChart(chart.spec) ? computeCategoryStats(chart.spec) : null;
+                            const slopeChart = !trendChart && !bandChart && !heatmapChart && isSlopeGraph(chart.spec);
+                            const slopeStats = slopeChart ? computeSlopeStats(chart.spec) : null;
+                            const categoryStats =
+                              !trendChart && !bandChart && !slopeChart && isCategoricalChart(chart.spec)
+                                ? computeCategoryStats(chart.spec)
+                                : null;
                             const bandStats = bandChart ? computeBandStats(chart.spec) : null;
                             return (
                             <div key={chart.title || i} className="space-y-3">
@@ -904,6 +911,23 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                                     value={`${bandStats.largest.label} (${bandStats.largest.value})`}
                                   />
                                   <StatChip label="Largest band's share" value={`${bandStats.largestSharePct}%`} />
+                                </div>
+                              )}
+                              {slopeStats && (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                  <StatChip label="Entities" value={String(slopeStats.entityCount)} />
+                                  <StatChip
+                                    label="Gained / Lost / Flat"
+                                    value={`${slopeStats.gained} / ${slopeStats.lost} / ${slopeStats.flat}`}
+                                  />
+                                  <StatChip
+                                    label="Biggest gain"
+                                    value={`${slopeStats.biggestGain.label} (+${slopeStats.biggestGain.delta.toLocaleString()})`}
+                                  />
+                                  <StatChip
+                                    label="Biggest loss"
+                                    value={`${slopeStats.biggestLoss.label} (${slopeStats.biggestLoss.delta.toLocaleString()})`}
+                                  />
                                 </div>
                               )}
                               {heatmapStats && (

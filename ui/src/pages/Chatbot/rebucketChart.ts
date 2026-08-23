@@ -557,3 +557,96 @@ export function computeHeatmapStats(spec: Record<string, unknown>): HeatmapStats
     busiest: { date: String(busiest[parts.dateField]), value: Number(busiest[parts.colorField]) || 0 },
   };
 }
+
+interface SlopeEncodingParts {
+  periodField: string;
+  valField: string;
+  entityField: string;
+  periodOrder?: string[];
+}
+
+// Detects a `slope_graph` chart (chart_types.json): x is two nominal period
+// labels (not per-entity categories - every entity shares the same two x
+// values), the real per-entity identity lives in the `detail` channel, and
+// each entity contributes two rows (one per period) rather than one. None of
+// the other detectors' assumptions hold here (isCategoricalChart would
+// wrongly sum every entity's value together per period), so this needs its
+// own before/after comparison per entity.
+function getSlopeEncoding(spec: Record<string, unknown>): SlopeEncodingParts | null {
+  if (!spec || 'layer' in spec || 'facet' in spec || 'hconcat' in spec || 'vconcat' in spec) return null;
+  const enc = getEncoding(spec);
+  if (!enc) return null;
+  const x = enc.x as { field?: string; type?: string; sort?: unknown } | undefined;
+  const y = enc.y as { field?: string; type?: string } | undefined;
+  const detail = enc.detail as { field?: string } | undefined;
+  if (!x?.field || (x.type !== 'nominal' && x.type !== 'ordinal')) return null;
+  if (!y?.field || y.type !== 'quantitative') return null;
+  if (!detail?.field) return null;
+  const periodOrder = Array.isArray(x.sort) ? (x.sort as unknown[]).map(String) : undefined;
+  return { periodField: x.field, valField: y.field, entityField: detail.field, periodOrder };
+}
+
+export function isSlopeGraph(spec: Record<string, unknown>): boolean {
+  if (!getSlopeEncoding(spec)) return false;
+  const values = (spec as any).data?.values;
+  return Array.isArray(values) && values.length > 0;
+}
+
+export interface SlopeStats {
+  entityCount: number;
+  gained: number;
+  lost: number;
+  flat: number;
+  biggestGain: { label: string; delta: number };
+  biggestLoss: { label: string; delta: number };
+}
+
+export function computeSlopeStats(spec: Record<string, unknown>): SlopeStats | null {
+  const parts = getSlopeEncoding(spec);
+  if (!parts) return null;
+  const values = (spec as any).data?.values as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(values) || values.length === 0) return null;
+
+  const byEntity = new Map<string, Map<string, number>>();
+  const seenPeriods: string[] = [];
+  for (const row of values) {
+    const entity = String(row[parts.entityField]);
+    const period = String(row[parts.periodField]);
+    const val = Number(row[parts.valField]) || 0;
+    if (!seenPeriods.includes(period)) seenPeriods.push(period);
+    if (!byEntity.has(entity)) byEntity.set(entity, new Map());
+    byEntity.get(entity)!.set(period, val);
+  }
+  const order = parts.periodOrder && parts.periodOrder.length >= 2 ? parts.periodOrder : seenPeriods;
+  if (order.length < 2) return null;
+  const [before, after] = order;
+
+  let gained = 0;
+  let lost = 0;
+  let flat = 0;
+  let biggestGain: { label: string; delta: number } | null = null;
+  let biggestLoss: { label: string; delta: number } | null = null;
+  let entityCount = 0;
+  for (const [entity, periods] of byEntity) {
+    const beforeVal = periods.get(before);
+    const afterVal = periods.get(after);
+    if (beforeVal === undefined || afterVal === undefined) continue;
+    entityCount++;
+    const delta = afterVal - beforeVal;
+    if (delta > 0) gained++;
+    else if (delta < 0) lost++;
+    else flat++;
+    if (!biggestGain || delta > biggestGain.delta) biggestGain = { label: entity, delta };
+    if (!biggestLoss || delta < biggestLoss.delta) biggestLoss = { label: entity, delta };
+  }
+  if (entityCount === 0 || !biggestGain || !biggestLoss) return null;
+
+  return {
+    entityCount,
+    gained,
+    lost,
+    flat,
+    biggestGain: { label: biggestGain.label, delta: Math.round(biggestGain.delta * 100) / 100 },
+    biggestLoss: { label: biggestLoss.label, delta: Math.round(biggestLoss.delta * 100) / 100 },
+  };
+}
