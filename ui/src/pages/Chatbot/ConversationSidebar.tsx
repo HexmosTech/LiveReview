@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LuSearch, LuPlus, LuTrash2, LuMessageSquare, LuPin, LuPinOff, LuPencil, LuCheck } from 'react-icons/lu';
 import { EmptyState, Tooltip } from '../../components/UIPrimitives';
-import { deleteConversation, listConversations, renameConversation, type ChatSurface, type Conversation } from '../../api/chatConversations';
+import { basePathForSurface, deleteConversation, listConversations, renameConversation, type ChatSurface, type Conversation } from '../../api/chatConversations';
 import {
   SIDEBAR_COLLAPSED_WIDTH,
   setChatSidebarHoverExpanded,
@@ -317,7 +317,7 @@ export const ConversationSidebar: React.FC = () => {
   // rather than threading a prop through ChatLayout, since both route trees
   // mount the same <ChatLayout><Outlet/></ChatLayout> shell.
   const surface: ChatSurface = location.pathname.startsWith('/chat-debug') ? 'chat_debug' : 'chat';
-  const basePath = surface === 'chat_debug' ? '/chat-debug' : '/chat';
+  const basePath = basePathForSurface(surface);
   const pinned = useChatSidebarPinned();
   const width = useChatSidebarWidth();
   const resizing = useChatSidebarResizing();

@@ -6,6 +6,12 @@ import { ChatChart, ChatFile } from './chatbot';
 // separate.
 export type ChatSurface = 'chat' | 'chat_debug';
 
+// The route each surface lives under - single source of truth so the
+// sidebar and the chat page itself can't drift on this mapping.
+export function basePathForSurface(surface: ChatSurface): string {
+  return surface === 'chat_debug' ? '/chat-debug' : '/chat';
+}
+
 export interface Conversation {
   id: number;
   title: string;
