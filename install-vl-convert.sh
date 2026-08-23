@@ -27,6 +27,8 @@ for dep in curl unzip install; do
     fi
 done
 
+LIB_DIR="${VL_CONVERT_LIB_DIR:-/usr/local/lib/vl-convert}"
+
 echo "Installing vl-convert ${VL_CONVERT_VERSION} to ${TARGET}..."
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -66,7 +68,9 @@ trap 'rm -rf "${tmpdir}"' EXIT
 echo "Downloading ${url}..."
 curl -sSL --fail -o "${tmpdir}/vl-convert.zip" "${url}"
 unzip -o "${tmpdir}/vl-convert.zip" -d "${tmpdir}/extracted" >/dev/null
-mkdir -p "${BIN_DIR}"
+mkdir -p "${BIN_DIR}" "${LIB_DIR}"
 install -m 0755 "${tmpdir}/extracted/bin/vl-convert" "${TARGET}"
+cp "${tmpdir}/extracted/bin/LICENSE" "${tmpdir}/extracted/bin/thirdparty_"* "${LIB_DIR}/" 2>/dev/null || true
 
 echo "Installed: $("${TARGET}" --version 2>&1 || true)"
+echo "Licenses copied to: ${LIB_DIR}"

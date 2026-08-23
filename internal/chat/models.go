@@ -18,6 +18,7 @@ type Conversation struct {
 	UserID    int64
 	Title     string
 	SessionID string
+	Surface   string // "chat" | "chat_debug" - see storage/chat.SurfaceChat/SurfaceChatDebug
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

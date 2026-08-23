@@ -429,7 +429,9 @@ install-vl-convert:
 	echo "Downloading $$asset..."; \
 	curl -sL --fail "$$url" -o /tmp/vl-convert.zip && \
 	unzip -o /tmp/vl-convert.zip -d /tmp/vl-convert-extracted && \
+	sudo mkdir -p /usr/local/lib/vl-convert && \
 	sudo cp /tmp/vl-convert-extracted/bin/vl-convert /usr/local/bin/ && \
+	sudo cp /tmp/vl-convert-extracted/bin/LICENSE /tmp/vl-convert-extracted/bin/thirdparty_* /usr/local/lib/vl-convert/ 2>/dev/null; \
 	rm -rf /tmp/vl-convert.zip /tmp/vl-convert-extracted && \
 	echo "Installed: $$(/usr/local/bin/vl-convert --version 2>&1 || true)"
 
