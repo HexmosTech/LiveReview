@@ -614,7 +614,9 @@ CREATE TABLE public.chat_conversations (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     deleted_at timestamp with time zone,
-    search_vector tsvector
+    search_vector tsvector,
+    surface character varying(20) DEFAULT 'chat'::character varying NOT NULL,
+    CONSTRAINT chat_conversations_surface_check CHECK (((surface)::text = ANY ((ARRAY['chat'::character varying, 'chat_debug'::character varying])::text[])))
 );
 
 
@@ -1914,6 +1916,22 @@ ALTER SEQUENCE public.review_commits_id_seq OWNED BY public.review_commits.id;
 
 
 --
+-- Name: review_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.review_events (
+    id bigint NOT NULL,
+    review_id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    ts timestamp with time zone DEFAULT now() NOT NULL,
+    event_type text NOT NULL,
+    level text,
+    batch_id text,
+    data jsonb NOT NULL
+);
+
+
+--
 -- Name: review_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -1923,6 +1941,25 @@ CREATE SEQUENCE public.review_events_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+
+--
+-- Name: review_events_id_seq1; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.review_events_id_seq1
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: review_events_id_seq1; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.review_events_id_seq1 OWNED BY public.review_events.id;
 
 
 --
@@ -2078,6 +2115,32 @@ CREATE SEQUENCE public.river_job_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+
+--
+-- Name: river_job; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.river_job (
+    id bigint DEFAULT nextval('public.river_job_id_seq'::regclass) NOT NULL,
+    args jsonb DEFAULT '{}'::jsonb NOT NULL,
+    attempt smallint DEFAULT 0 NOT NULL,
+    attempted_at timestamp with time zone,
+    attempted_by text[],
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    errors jsonb[],
+    finalized_at timestamp with time zone,
+    kind text NOT NULL,
+    max_attempts smallint DEFAULT 3 NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    priority smallint DEFAULT 1 NOT NULL,
+    queue text DEFAULT 'default'::text NOT NULL,
+    state public.river_job_state DEFAULT 'available'::public.river_job_state NOT NULL,
+    scheduled_at timestamp with time zone DEFAULT now() NOT NULL,
+    tags character varying(255)[] DEFAULT '{}'::character varying[],
+    unique_key bytea,
+    unique_states bit(8)
+);
 
 
 --
@@ -3108,6 +3171,13 @@ ALTER TABLE ONLY public.review_commits ALTER COLUMN id SET DEFAULT nextval('publ
 
 
 --
+-- Name: review_events id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_events ALTER COLUMN id SET DEFAULT nextval('public.review_events_id_seq1'::regclass);
+
+
+--
 -- Name: review_feedback id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3604,6 +3674,14 @@ ALTER TABLE ONLY public.review_commits
 
 
 --
+-- Name: review_events review_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_events
+    ADD CONSTRAINT review_events_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: review_feedback review_feedback_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3633,6 +3711,14 @@ ALTER TABLE ONLY public.river_client
 
 ALTER TABLE ONLY public.river_client_queue
     ADD CONSTRAINT river_client_queue_pkey PRIMARY KEY (river_client_id, name);
+
+
+--
+-- Name: river_job river_job_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.river_job
+    ADD CONSTRAINT river_job_pkey PRIMARY KEY (id);
 
 
 --
@@ -4179,6 +4265,13 @@ CREATE INDEX idx_chat_conversations_user_active ON public.chat_conversations USI
 
 
 --
+-- Name: idx_chat_conversations_user_active_surface; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_chat_conversations_user_active_surface ON public.chat_conversations USING btree (user_id, org_id, surface, updated_at DESC) WHERE (deleted_at IS NULL);
+
+
+--
 -- Name: idx_chat_files_message; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4676,6 +4769,27 @@ CREATE INDEX idx_review_commits_review_id ON public.review_commits USING btree (
 
 
 --
+-- Name: idx_review_events_org_ts; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_events_org_ts ON public.review_events USING btree (org_id, ts);
+
+
+--
+-- Name: idx_review_events_review_ts; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_events_review_ts ON public.review_events USING btree (review_id, ts);
+
+
+--
+-- Name: idx_review_events_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_events_type ON public.review_events USING btree (review_id, event_type, ts DESC);
+
+
+--
 -- Name: idx_review_feedback_created_at; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5142,6 +5256,55 @@ CREATE INDEX idx_webhook_registry_org_status ON public.webhook_registry USING bt
 --
 
 CREATE INDEX idx_webhook_registry_provider_project ON public.webhook_registry USING btree (provider, provider_project_id);
+
+
+--
+-- Name: river_job_args_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX river_job_args_index ON public.river_job USING gin (args jsonb_path_ops);
+
+
+--
+-- Name: river_job_kind; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX river_job_kind ON public.river_job USING btree (kind);
+
+
+--
+-- Name: river_job_kind_unique_key_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX river_job_kind_unique_key_idx ON public.river_job USING btree (kind, unique_key) WHERE (unique_key IS NOT NULL);
+
+
+--
+-- Name: river_job_prioritized_fetching_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX river_job_prioritized_fetching_index ON public.river_job USING btree (state, queue, priority, scheduled_at, id);
+
+
+--
+-- Name: river_job_scheduled_at_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX river_job_scheduled_at_index ON public.river_job USING btree (scheduled_at) WHERE (state = 'scheduled'::public.river_job_state);
+
+
+--
+-- Name: river_job_state_and_finalized_at_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX river_job_state_and_finalized_at_index ON public.river_job USING btree (state, finalized_at) WHERE (finalized_at IS NOT NULL);
+
+
+--
+-- Name: river_job_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX river_job_unique_idx ON public.river_job USING btree (kind, ((args ->> 'unique_key'::text))) WHERE ((state = 'available'::public.river_job_state) OR (state = 'scheduled'::public.river_job_state) OR (state = 'retryable'::public.river_job_state));
 
 
 --
@@ -5715,6 +5878,14 @@ ALTER TABLE ONLY public.review_commits
 
 
 --
+-- Name: review_events review_events_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_events
+    ADD CONSTRAINT review_events_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id) ON DELETE CASCADE;
+
+
+--
 -- Name: review_feedback review_feedback_ai_comment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6156,4 +6327,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260817120000'),
     ('20260817130000'),
     ('20260820141616'),
-    ('20260821120000');
+    ('20260821120000'),
+    ('20260823120000');

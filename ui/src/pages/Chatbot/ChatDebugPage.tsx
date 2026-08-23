@@ -406,6 +406,10 @@ const ChatDebugPage: React.FC = () => {
     queryFn: () => getConversation(conversationId as number),
     enabled: conversationId !== undefined,
   });
+  // True only while switching to a conversation we don't already have
+  // locally - distinguishes "fetching a thread" from a genuinely new, empty
+  // chat, so switching threads shows a spinner instead of a silent blank.
+  const isLoadingConversation = conversationId !== undefined && conversationDetail === undefined;
   const user = useAppSelector((state) => state.Auth.user);
   const accessToken = useAppSelector((state) => state.Auth.accessToken);
   const currentOrgId = useAppSelector((state) => state.Organizations.currentOrgId);
@@ -481,7 +485,7 @@ const ChatDebugPage: React.FC = () => {
     try {
       let activeConversationId = conversationId ?? pendingConversationIdRef.current;
       if (activeConversationId === undefined) {
-        const created = await createConversation(text);
+        const created = await createConversation(text, 'chat_debug');
         activeConversationId = created.id;
         pendingConversationIdRef.current = created.id;
         queryClient.invalidateQueries({ queryKey: CONVERSATIONS_QUERY_KEY });
@@ -497,7 +501,25 @@ const ChatDebugPage: React.FC = () => {
       };
       setMessages((prev) => [...prev, assistantEntry]);
       queryClient.invalidateQueries({ queryKey: CONVERSATIONS_QUERY_KEY });
+      // See Chatbot.tsx's matching branch: the route remount that follows
+      // would otherwise start empty and wait on a fresh GET, flashing blank
+      // right after the answer already appeared. Priming the cache lets the
+      // remounted page render instantly; it still revalidates in the
+      // background against the server-persisted turn.
       if (!conversationId && activeConversationId) {
+        queryClient.setQueryData(['chat', 'conversation', activeConversationId], {
+          id: activeConversationId,
+          title: text,
+          updatedAt: new Date().toISOString(),
+          messages: [userEntry, assistantEntry].map((entry, i) => ({
+            id: -(i + 1),
+            role: entry.role,
+            content: entry.text,
+            charts: entry.charts,
+            files: entry.files,
+            debug_artifacts: entry.debugArtifacts,
+          })),
+        });
         navigate(`/chat-debug/${activeConversationId}`, { replace: true });
       }
     } catch (err) {
@@ -533,7 +555,13 @@ const ChatDebugPage: React.FC = () => {
       {/* Messages */}
       <div className="flex-1 h-0 min-h-0 overflow-y-auto px-4 py-6">
         <div className="max-w-4xl mx-auto w-full space-y-6">
-          {messages.length === 0 && (
+          {isLoadingConversation && (
+            <div className="flex flex-col items-center justify-center gap-3 mt-12">
+              <div className="w-8 h-8 border-2 border-slate-600 border-t-amber-400 rounded-full animate-spin" />
+              <p className="text-sm text-slate-500">Loading conversation…</p>
+            </div>
+          )}
+          {!isLoadingConversation && messages.length === 0 && (
             <div className="text-center text-slate-400 mt-12">
               <div className="text-lg mb-2">Debug Mode</div>
               <div className="text-sm">Ask an analytics question to see intermediate pipeline artifacts.</div>
