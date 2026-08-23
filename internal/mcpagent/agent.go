@@ -123,15 +123,21 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 	// guessed column names. Refusing up front costs nothing; proceeding
 	// costs a full turn of tokens to produce something untrustworthy.
 	if a.analyticsEnabled() && !schemaIndexReady() {
+		// "Still building" (empty reason) resolves on its own within
+		// schemaIndexWaitTimeout, so "come back in 60s" is honest there.
+		// Every other reason is permanent for this process - no amount of
+		// waiting fixes it - so each gets its own message naming what's
+		// actually wrong and, where there's an obvious fix, what to run.
 		msg := "Livi is in preparing mode, please come back after 60s."
-		if schemaIndexHardFailed() {
-			// Distinct from "still building": a missing/corrupt pre-built
-			// .dtx file will never resolve on its own no matter how long a
-			// caller waits, so "come back in 60s" is actively misleading
-			// here - this is a hard stop, not a transient one.
+		switch schemaIndexFailureReason() {
+		case schemaIndexFailureMissing, schemaIndexFailureBuildFailed:
 			msg = "Livi cannot find the Database Context source, please contact Hexmos team for this."
+		case schemaIndexFailureStale:
+			msg = "Livi's Database Context is out of date — the database schema changed since it was last built. Run `make prep-dbctx` to refresh it, then restart the server."
+		case schemaIndexFailureUnverifiable:
+			msg = "Livi could not verify its Database Context is up to date (couldn't reach the database to check). Please contact Hexmos team for this."
 		}
-		log.Warn().Bool("hard_failed", schemaIndexHardFailed()).Msg("schema index not ready; refusing the turn before any LLM call")
+		log.Warn().Str("failure_reason", schemaIndexFailureReason()).Msg("schema index not ready; refusing the turn before any LLM call")
 		clog.FinalResponse(msg)
 		return msg, history, nil, nil, nil
 	}
