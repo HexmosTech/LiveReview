@@ -32,3 +32,5 @@ question from memory instead of from the organization's data.
 5. Answer `chat` only where there is nothing to look up at all: greetings, questions about what Livi can do, and requests for clarification. {#answer-chat-only-where-there}
 
 6. Do not attempt the work of the stage it is routing to, and do not answer the user's question in this reply. {#do-not-attempt-the-work}
+
+7. Answer `count_query` where the question asks about user sentiment, trust, engagement, or feedback toward reviews, even if phrased as yes/no or philosophical. Questions about whether users trust, value, or engage with reviews require data to answer honestly. {#sentiment-trust-questions-are-data}

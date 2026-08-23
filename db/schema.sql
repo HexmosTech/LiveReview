@@ -1,11 +1,12 @@
 \restrict dbmate
 
--- Dumped from database version 15.17 (Debian 15.17-1.pgdg13+1)
--- Dumped by pg_dump version 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
+-- Dumped from database version 14.23 (Ubuntu 14.23-1.pgdg22.04+1)
+-- Dumped by pg_dump version 17.10 (Ubuntu 17.10-1.pgdg22.04+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
 SELECT pg_catalog.set_config('search_path', '', false);
@@ -13,6 +14,13 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
+
+--
+-- Name: public; Type: SCHEMA; Schema: -; Owner: -
+--
+
+-- *not* creating schema, since initdb creates it
+
 
 --
 -- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: -
@@ -1944,22 +1952,10 @@ CREATE SEQUENCE public.review_events_id_seq
 
 
 --
--- Name: review_events_id_seq1; Type: SEQUENCE; Schema: public; Owner: -
+-- Name: review_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
-CREATE SEQUENCE public.review_events_id_seq1
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: review_events_id_seq1; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.review_events_id_seq1 OWNED BY public.review_events.id;
+ALTER SEQUENCE public.review_events_id_seq OWNED BY public.review_events.id;
 
 
 --
@@ -2106,6 +2102,37 @@ CREATE UNLOGGED TABLE public.river_client_queue (
 
 
 --
+-- Name: river_job; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.river_job (
+    id bigint NOT NULL,
+    state public.river_job_state DEFAULT 'available'::public.river_job_state NOT NULL,
+    attempt smallint DEFAULT 0 NOT NULL,
+    max_attempts smallint NOT NULL,
+    attempted_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    finalized_at timestamp with time zone,
+    scheduled_at timestamp with time zone DEFAULT now() NOT NULL,
+    priority smallint DEFAULT 1 NOT NULL,
+    args jsonb NOT NULL,
+    attempted_by text[],
+    errors jsonb[],
+    kind text NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    queue text DEFAULT 'default'::text NOT NULL,
+    tags character varying(255)[] DEFAULT '{}'::character varying[] NOT NULL,
+    unique_key bytea,
+    unique_states bit(8),
+    CONSTRAINT finalized_or_finalized_at_null CHECK ((((finalized_at IS NULL) AND (state <> ALL (ARRAY['cancelled'::public.river_job_state, 'completed'::public.river_job_state, 'discarded'::public.river_job_state]))) OR ((finalized_at IS NOT NULL) AND (state = ANY (ARRAY['cancelled'::public.river_job_state, 'completed'::public.river_job_state, 'discarded'::public.river_job_state]))))),
+    CONSTRAINT kind_length CHECK (((char_length(kind) > 0) AND (char_length(kind) < 128))),
+    CONSTRAINT max_attempts_is_positive CHECK ((max_attempts > 0)),
+    CONSTRAINT priority_in_range CHECK (((priority >= 1) AND (priority <= 4))),
+    CONSTRAINT queue_length CHECK (((char_length(queue) > 0) AND (char_length(queue) < 128)))
+);
+
+
+--
 -- Name: river_job_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -2118,29 +2145,10 @@ CREATE SEQUENCE public.river_job_id_seq
 
 
 --
--- Name: river_job; Type: TABLE; Schema: public; Owner: -
+-- Name: river_job_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
-CREATE TABLE public.river_job (
-    id bigint DEFAULT nextval('public.river_job_id_seq'::regclass) NOT NULL,
-    args jsonb DEFAULT '{}'::jsonb NOT NULL,
-    attempt smallint DEFAULT 0 NOT NULL,
-    attempted_at timestamp with time zone,
-    attempted_by text[],
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    errors jsonb[],
-    finalized_at timestamp with time zone,
-    kind text NOT NULL,
-    max_attempts smallint DEFAULT 3 NOT NULL,
-    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    priority smallint DEFAULT 1 NOT NULL,
-    queue text DEFAULT 'default'::text NOT NULL,
-    state public.river_job_state DEFAULT 'available'::public.river_job_state NOT NULL,
-    scheduled_at timestamp with time zone DEFAULT now() NOT NULL,
-    tags character varying(255)[] DEFAULT '{}'::character varying[],
-    unique_key bytea,
-    unique_states bit(8)
-);
+ALTER SEQUENCE public.river_job_id_seq OWNED BY public.river_job.id;
 
 
 --
@@ -2704,6 +2712,24 @@ ALTER SEQUENCE public.upgrade_replacement_cutovers_id_seq OWNED BY public.upgrad
 
 
 --
+-- Name: upgrade_request_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.upgrade_request_events (
+    id bigint NOT NULL,
+    upgrade_request_id character varying(36) NOT NULL,
+    org_id bigint NOT NULL,
+    event_source character varying(64) NOT NULL,
+    event_type character varying(64) NOT NULL,
+    from_status character varying(64),
+    to_status character varying(64),
+    event_payload jsonb,
+    event_time timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: upgrade_request_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -2713,6 +2739,13 @@ CREATE SEQUENCE public.upgrade_request_events_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
+
+
+--
+-- Name: upgrade_request_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.upgrade_request_events_id_seq OWNED BY public.upgrade_request_events.id;
 
 
 --
@@ -3174,7 +3207,7 @@ ALTER TABLE ONLY public.review_commits ALTER COLUMN id SET DEFAULT nextval('publ
 -- Name: review_events id; Type: DEFAULT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.review_events ALTER COLUMN id SET DEFAULT nextval('public.review_events_id_seq1'::regclass);
+ALTER TABLE ONLY public.review_events ALTER COLUMN id SET DEFAULT nextval('public.review_events_id_seq'::regclass);
 
 
 --
@@ -3189,6 +3222,13 @@ ALTER TABLE ONLY public.review_feedback ALTER COLUMN id SET DEFAULT nextval('pub
 --
 
 ALTER TABLE ONLY public.reviews ALTER COLUMN id SET DEFAULT nextval('public.reviews_id_seq'::regclass);
+
+
+--
+-- Name: river_job id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.river_job ALTER COLUMN id SET DEFAULT nextval('public.river_job_id_seq'::regclass);
 
 
 --
@@ -3252,6 +3292,13 @@ ALTER TABLE ONLY public.upgrade_payment_attempts ALTER COLUMN id SET DEFAULT nex
 --
 
 ALTER TABLE ONLY public.upgrade_replacement_cutovers ALTER COLUMN id SET DEFAULT nextval('public.upgrade_replacement_cutovers_id_seq'::regclass);
+
+
+--
+-- Name: upgrade_request_events id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_request_events ALTER COLUMN id SET DEFAULT nextval('public.upgrade_request_events_id_seq'::regclass);
 
 
 --
@@ -3895,6 +3942,14 @@ ALTER TABLE ONLY public.upgrade_replacement_cutovers
 
 ALTER TABLE ONLY public.upgrade_replacement_cutovers
     ADD CONSTRAINT upgrade_replacement_cutovers_upgrade_request_id_key UNIQUE (upgrade_request_id);
+
+
+--
+-- Name: upgrade_request_events upgrade_request_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_request_events
+    ADD CONSTRAINT upgrade_request_events_pkey PRIMARY KEY (id);
 
 
 --
@@ -5070,6 +5125,20 @@ CREATE INDEX idx_upgrade_replacement_cutovers_org_status ON public.upgrade_repla
 
 
 --
+-- Name: idx_upgrade_request_events_org_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_request_events_org_time ON public.upgrade_request_events USING btree (org_id, event_time DESC);
+
+
+--
+-- Name: idx_upgrade_request_events_request_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_request_events_request_time ON public.upgrade_request_events USING btree (upgrade_request_id, event_time DESC);
+
+
+--
 -- Name: idx_upgrade_requests_customer_state; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5262,7 +5331,7 @@ CREATE INDEX idx_webhook_registry_provider_project ON public.webhook_registry US
 -- Name: river_job_args_index; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX river_job_args_index ON public.river_job USING gin (args jsonb_path_ops);
+CREATE INDEX river_job_args_index ON public.river_job USING gin (args);
 
 
 --
@@ -5273,10 +5342,10 @@ CREATE INDEX river_job_kind ON public.river_job USING btree (kind);
 
 
 --
--- Name: river_job_kind_unique_key_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: river_job_metadata_index; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX river_job_kind_unique_key_idx ON public.river_job USING btree (kind, unique_key) WHERE (unique_key IS NOT NULL);
+CREATE INDEX river_job_metadata_index ON public.river_job USING gin (metadata);
 
 
 --
@@ -5284,13 +5353,6 @@ CREATE UNIQUE INDEX river_job_kind_unique_key_idx ON public.river_job USING btre
 --
 
 CREATE INDEX river_job_prioritized_fetching_index ON public.river_job USING btree (state, queue, priority, scheduled_at, id);
-
-
---
--- Name: river_job_scheduled_at_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX river_job_scheduled_at_index ON public.river_job USING btree (scheduled_at) WHERE (state = 'scheduled'::public.river_job_state);
 
 
 --
@@ -5304,7 +5366,7 @@ CREATE INDEX river_job_state_and_finalized_at_index ON public.river_job USING bt
 -- Name: river_job_unique_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX river_job_unique_idx ON public.river_job USING btree (kind, ((args ->> 'unique_key'::text))) WHERE ((state = 'available'::public.river_job_state) OR (state = 'scheduled'::public.river_job_state) OR (state = 'retryable'::public.river_job_state));
+CREATE UNIQUE INDEX river_job_unique_idx ON public.river_job USING btree (unique_key) WHERE ((unique_key IS NOT NULL) AND (unique_states IS NOT NULL) AND public.river_job_state_in_bitmask(unique_states, state));
 
 
 --
@@ -6067,6 +6129,22 @@ ALTER TABLE ONLY public.upgrade_replacement_cutovers
 
 ALTER TABLE ONLY public.upgrade_replacement_cutovers
     ADD CONSTRAINT upgrade_replacement_cutovers_upgrade_request_id_fkey FOREIGN KEY (upgrade_request_id) REFERENCES public.upgrade_requests(upgrade_request_id) ON DELETE CASCADE;
+
+
+--
+-- Name: upgrade_request_events upgrade_request_events_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_request_events
+    ADD CONSTRAINT upgrade_request_events_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: upgrade_request_events upgrade_request_events_upgrade_request_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_request_events
+    ADD CONSTRAINT upgrade_request_events_upgrade_request_id_fkey FOREIGN KEY (upgrade_request_id) REFERENCES public.upgrade_requests(upgrade_request_id) ON DELETE CASCADE;
 
 
 --
