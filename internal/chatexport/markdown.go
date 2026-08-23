@@ -80,55 +80,87 @@ func writeBookmarkSentinel(b *strings.Builder, bookmarks *[]BookmarkEntry, text 
 	fmt.Fprintf(b, "<!--export-bookmark:%d-->\n", idx)
 }
 
+// pageBreakSentinel is recognized by pdf.go's bookmarkNodeRenderer as a
+// real page break (Pdf.AddPage()), emitted between conversations in a
+// compiled export so each one starts on its own page.
+const pageBreakSentinel = "<!--export-pagebreak-->\n"
+
+// writeTurn renders one turn (heading, text, charts, files, debug
+// artifacts) into b at bookmark level, shared by both a single-conversation
+// export and each conversation's turns inside a compiled one.
+func writeTurn(b *strings.Builder, bookmarks *[]BookmarkEntry, turn ExportTurn, level int) {
+	heading := fmt.Sprintf("Turn %d — %s", turn.Seq, roleLabel(turn.Role))
+	writeBookmarkSentinel(b, bookmarks, heading, level)
+	fmt.Fprintf(b, "%s %s\n\n", strings.Repeat("#", level+1), heading)
+
+	if strings.TrimSpace(turn.Text) != "" {
+		b.WriteString(normalizeSoftWraps(turn.Text))
+		b.WriteString("\n\n")
+	}
+
+	for _, chart := range turn.Charts {
+		title := sanitizeInline(chart.Title)
+		if title != "" {
+			fmt.Fprintf(b, "**%s**\n\n", title)
+		}
+		if chart.Description != "" {
+			fmt.Fprintf(b, "*%s*\n\n", sanitizeInline(chart.Description))
+		}
+		dataURI := "data:image/png;base64," + base64.StdEncoding.EncodeToString(chart.PNG)
+		fmt.Fprintf(b, "![%s](%s)\n\n", title, dataURI)
+	}
+
+	if len(turn.Files) > 0 {
+		b.WriteString("| File | Kind | Rows |\n")
+		b.WriteString("| --- | --- | --- |\n")
+		for _, f := range turn.Files {
+			fmt.Fprintf(b, "| %s | %s | %d |\n", escapeTableCell(f.Filename), escapeTableCell(f.Kind), f.Rows)
+		}
+		b.WriteString("\n")
+	}
+
+	if len(turn.DebugArtifacts) > 0 {
+		b.WriteString("**Debug artifacts**\n\n```json\n")
+		b.Write(prettyJSON(turn.DebugArtifacts))
+		b.WriteString("\n```\n\n")
+	}
+}
+
 // ToMarkdown renders doc into a single Markdown document for RenderPDF,
-// plus the ordered bookmark entries to register alongside it.
-func ToMarkdown(doc *ExportDoc) (string, []BookmarkEntry) {
+// plus the ordered bookmark entries to register alongside it. A
+// single-conversation export is doc.Conversations[0] at level 1 (its own
+// turns at level 2); a multi-conversation compiled export gets a page
+// break between each conversation.
+func ToMarkdown(doc *CompiledDoc) (string, []BookmarkEntry) {
 	var b strings.Builder
 	var bookmarks []BookmarkEntry
 
-	writeBookmarkSentinel(&b, &bookmarks, doc.Conversation.Title, 0)
-	fmt.Fprintf(&b, "# %s\n\n", doc.Conversation.Title)
-	fmt.Fprintf(&b, "*Exported from LiveReview - created %s, updated %s, %d turns*\n\n",
-		doc.Conversation.CreatedAt.Format("2006-01-02 15:04"),
-		doc.Conversation.UpdatedAt.Format("2006-01-02 15:04"),
-		len(doc.Turns),
-	)
+	writeBookmarkSentinel(&b, &bookmarks, doc.Title, 0)
+	fmt.Fprintf(&b, "# %s\n\n", doc.Title)
+	if doc.Subtitle != "" {
+		fmt.Fprintf(&b, "## %s\n\n", doc.Subtitle)
+	}
+	fmt.Fprintf(&b, "*Exported from LiveReview - %d conversation(s)*\n\n", len(doc.Conversations))
 
-	for _, turn := range doc.Turns {
-		heading := fmt.Sprintf("Turn %d — %s", turn.Seq, roleLabel(turn.Role))
+	for i, conv := range doc.Conversations {
+		if i > 0 {
+			b.WriteString(pageBreakSentinel)
+		}
+
+		heading := conv.Conversation.Title
+		if len(doc.Conversations) > 1 {
+			heading = fmt.Sprintf("Conversation %d — %s", i+1, conv.Conversation.Title)
+		}
 		writeBookmarkSentinel(&b, &bookmarks, heading, 1)
-		fmt.Fprintf(&b, "## %s\n\n", heading)
+		fmt.Fprintf(&b, "# %s\n\n", heading)
+		fmt.Fprintf(&b, "*created %s, updated %s, %d turns*\n\n",
+			conv.Conversation.CreatedAt.Format("2006-01-02 15:04"),
+			conv.Conversation.UpdatedAt.Format("2006-01-02 15:04"),
+			len(conv.Turns),
+		)
 
-		if strings.TrimSpace(turn.Text) != "" {
-			b.WriteString(normalizeSoftWraps(turn.Text))
-			b.WriteString("\n\n")
-		}
-
-		for _, chart := range turn.Charts {
-			title := sanitizeInline(chart.Title)
-			if title != "" {
-				fmt.Fprintf(&b, "**%s**\n\n", title)
-			}
-			if chart.Description != "" {
-				fmt.Fprintf(&b, "*%s*\n\n", sanitizeInline(chart.Description))
-			}
-			dataURI := "data:image/png;base64," + base64.StdEncoding.EncodeToString(chart.PNG)
-			fmt.Fprintf(&b, "![%s](%s)\n\n", title, dataURI)
-		}
-
-		if len(turn.Files) > 0 {
-			b.WriteString("| File | Kind | Rows |\n")
-			b.WriteString("| --- | --- | --- |\n")
-			for _, f := range turn.Files {
-				fmt.Fprintf(&b, "| %s | %s | %d |\n", escapeTableCell(f.Filename), escapeTableCell(f.Kind), f.Rows)
-			}
-			b.WriteString("\n")
-		}
-
-		if len(turn.DebugArtifacts) > 0 {
-			b.WriteString("**Debug artifacts**\n\n```json\n")
-			b.Write(prettyJSON(turn.DebugArtifacts))
-			b.WriteString("\n```\n\n")
+		for _, turn := range conv.Turns {
+			writeTurn(&b, &bookmarks, turn, 2)
 		}
 	}
 

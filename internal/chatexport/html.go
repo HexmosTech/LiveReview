@@ -14,73 +14,103 @@ import (
 
 // RenderHTML writes doc as a single self-contained HTML file: charts are
 // embedded as base64 PNG data URIs (the same PNGs RenderPDF uses, built
-// once by BuildDoc) and all CSS is inlined, so the file has zero external
-// dependencies and opens correctly straight off disk.
+// once by BuildDoc/BuildCompiledDoc) and all CSS is inlined, so the file
+// has zero external dependencies and opens correctly straight off disk.
+// Each conversation gets its own <section class="conversation">, with a
+// two-level TOC (conversation, then indented turn links) when there's more
+// than one.
 //
 // Message text is converted per-turn through goldmark's *default* HTML
 // renderer (extension.GFM, no html.WithUnsafe), so any HTML-looking text
 // an assistant reply happens to contain is escaped rather than executed -
 // an export leaves the app's trust boundary, so raw HTML from LLM output
 // must never run in the reader's browser.
-func RenderHTML(doc *ExportDoc, w io.Writer) error {
+func RenderHTML(doc *CompiledDoc, w io.Writer) error {
 	md := goldmark.New(goldmark.WithExtensions(extension.GFM))
 
 	var toc strings.Builder
 	var body strings.Builder
 
-	fmt.Fprintf(&body, "<h1 id=\"top\">%s</h1>\n", html.EscapeString(doc.Conversation.Title))
-	fmt.Fprintf(&body, "<p class=\"meta\">Exported from LiveReview &middot; created %s &middot; updated %s &middot; %d turns</p>\n",
-		doc.Conversation.CreatedAt.Format("2006-01-02 15:04"),
-		doc.Conversation.UpdatedAt.Format("2006-01-02 15:04"),
-		len(doc.Turns),
-	)
+	fmt.Fprintf(&body, "<h1 id=\"top\">%s</h1>\n", html.EscapeString(doc.Title))
+	if doc.Subtitle != "" {
+		fmt.Fprintf(&body, "<p class=\"subtitle\">%s</p>\n", html.EscapeString(doc.Subtitle))
+	}
+	fmt.Fprintf(&body, "<p class=\"meta\">Exported from LiveReview &middot; %d conversation(s)</p>\n", len(doc.Conversations))
 
-	for _, turn := range doc.Turns {
-		anchor := fmt.Sprintf("turn-%d", turn.Seq)
-		heading := fmt.Sprintf("Turn %d — %s", turn.Seq, roleLabel(turn.Role))
-		fmt.Fprintf(&toc, "<a href=\"#%s\">%s</a>\n", anchor, html.EscapeString(heading))
-
-		fmt.Fprintf(&body, "<section id=\"%s\" class=\"turn turn-%s\">\n<h2>%s</h2>\n", anchor, turn.Role, html.EscapeString(heading))
-
-		if strings.TrimSpace(turn.Text) != "" {
-			var buf bytes.Buffer
-			if err := md.Convert([]byte(normalizeSoftWraps(turn.Text)), &buf); err != nil {
-				return fmt.Errorf("render turn %d text: %w", turn.Seq, err)
-			}
-			body.Write(buf.Bytes())
+	multi := len(doc.Conversations) > 1
+	for ci, conv := range doc.Conversations {
+		convAnchor := fmt.Sprintf("conversation-%d", ci+1)
+		convHeading := conv.Conversation.Title
+		if multi {
+			convHeading = fmt.Sprintf("Conversation %d — %s", ci+1, conv.Conversation.Title)
 		}
+		fmt.Fprintf(&toc, "<a href=\"#%s\" class=\"toc-conversation\">%s</a>\n", convAnchor, html.EscapeString(convHeading))
 
-		for _, chart := range turn.Charts {
-			body.WriteString("<figure class=\"chart\">\n")
-			fmt.Fprintf(&body, "<img src=\"data:image/png;base64,%s\" alt=\"%s\">\n",
-				base64.StdEncoding.EncodeToString(chart.PNG), html.EscapeString(chart.Title))
-			if chart.Title != "" || chart.Description != "" {
-				fmt.Fprintf(&body, "<figcaption><strong>%s</strong> %s</figcaption>\n",
-					html.EscapeString(chart.Title), html.EscapeString(chart.Description))
+		fmt.Fprintf(&body, "<section id=\"%s\" class=\"conversation\">\n<h2>%s</h2>\n", convAnchor, html.EscapeString(convHeading))
+		fmt.Fprintf(&body, "<p class=\"meta\">created %s &middot; updated %s &middot; %d turns</p>\n",
+			conv.Conversation.CreatedAt.Format("2006-01-02 15:04"),
+			conv.Conversation.UpdatedAt.Format("2006-01-02 15:04"),
+			len(conv.Turns),
+		)
+
+		for _, turn := range conv.Turns {
+			anchor := fmt.Sprintf("%s-turn-%d", convAnchor, turn.Seq)
+			heading := fmt.Sprintf("Turn %d — %s", turn.Seq, roleLabel(turn.Role))
+			fmt.Fprintf(&toc, "<a href=\"#%s\" class=\"toc-turn\">%s</a>\n", anchor, html.EscapeString(heading))
+
+			if err := renderTurnHTML(&body, md, anchor, heading, turn); err != nil {
+				return fmt.Errorf("conversation %d: %w", ci+1, err)
 			}
-			body.WriteString("</figure>\n")
-		}
-
-		if len(turn.Files) > 0 {
-			body.WriteString("<table class=\"files\"><thead><tr><th>File</th><th>Kind</th><th>Rows</th></tr></thead><tbody>\n")
-			for _, f := range turn.Files {
-				fmt.Fprintf(&body, "<tr><td>%s</td><td>%s</td><td>%d</td></tr>\n",
-					html.EscapeString(f.Filename), html.EscapeString(f.Kind), f.Rows)
-			}
-			body.WriteString("</tbody></table>\n")
-		}
-
-		if len(turn.DebugArtifacts) > 0 {
-			fmt.Fprintf(&body, "<details class=\"debug\"><summary>Debug artifacts</summary><pre>%s</pre></details>\n",
-				html.EscapeString(string(prettyJSON(turn.DebugArtifacts))))
 		}
 
 		body.WriteString("</section>\n")
 	}
 
-	page := fmt.Sprintf(htmlPageTemplate, html.EscapeString(doc.Conversation.Title), exportCSS, toc.String(), body.String())
+	page := fmt.Sprintf(htmlPageTemplate, html.EscapeString(doc.Title), exportCSS, toc.String(), body.String())
 	_, err := w.Write([]byte(page))
 	return err
+}
+
+// renderTurnHTML appends one turn's section (heading, text, charts, files,
+// debug artifacts) to body.
+func renderTurnHTML(body *strings.Builder, md goldmark.Markdown, anchor, heading string, turn ExportTurn) error {
+	fmt.Fprintf(body, "<section id=\"%s\" class=\"turn turn-%s\">\n<h3>%s</h3>\n", anchor, turn.Role, html.EscapeString(heading))
+
+	if strings.TrimSpace(turn.Text) != "" {
+		var buf bytes.Buffer
+		if err := md.Convert([]byte(normalizeSoftWraps(turn.Text)), &buf); err != nil {
+			return fmt.Errorf("render turn text: %w", err)
+		}
+		body.Write(buf.Bytes())
+	}
+
+	for _, chart := range turn.Charts {
+		body.WriteString("<figure class=\"chart\">\n")
+		fmt.Fprintf(body, "<img src=\"data:image/png;base64,%s\" alt=\"%s\">\n",
+			base64.StdEncoding.EncodeToString(chart.PNG), html.EscapeString(chart.Title))
+		if chart.Title != "" || chart.Description != "" {
+			fmt.Fprintf(body, "<figcaption><strong>%s</strong> %s</figcaption>\n",
+				html.EscapeString(chart.Title), html.EscapeString(chart.Description))
+		}
+		body.WriteString("</figure>\n")
+	}
+
+	if len(turn.Files) > 0 {
+		body.WriteString("<table class=\"files\"><thead><tr><th>File</th><th>Kind</th><th>Rows</th></tr></thead><tbody>\n")
+		for _, f := range turn.Files {
+			fmt.Fprintf(body, "<tr><td>%s</td><td>%s</td><td>%d</td></tr>\n",
+				html.EscapeString(f.Filename), html.EscapeString(f.Kind), f.Rows)
+		}
+		body.WriteString("</tbody></table>\n")
+	}
+
+	if len(turn.DebugArtifacts) > 0 {
+		fmt.Fprintf(body, "<details class=\"debug\"><summary>Debug artifacts</summary><pre>%s</pre></details>\n",
+			html.EscapeString(string(prettyJSON(turn.DebugArtifacts))))
+	}
+
+	body.WriteString("</section>\n")
+	return nil
 }
 
 const htmlPageTemplate = `<!doctype html>

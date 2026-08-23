@@ -1353,6 +1353,8 @@ func (s *Server) setupRoutes() {
 	chatGroup.DELETE("/:id", s.DeleteConversation)
 	chatGroup.GET("/charts/:chartId/render", s.RenderChart)
 	chatGroup.GET("/:id/export", s.ExportConversation)
+	chatGroup.GET("/summaries", s.ListConversationSummaries)
+	chatGroup.POST("/export/compile", s.CompileExport)
 
 	// TEMPORARY test endpoint — bypasses auth for local testing.
 	// REMOVE BEFORE MERGING.

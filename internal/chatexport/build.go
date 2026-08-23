@@ -72,3 +72,44 @@ func BuildDoc(ctx context.Context, store *storagechat.Store, orgID, userID, conv
 
 	return doc, nil
 }
+
+// BuildCompiledDoc loads and combines several conversations - each scoped
+// to orgID/userID like BuildDoc - into one CompiledDoc, in the given order.
+// The whole request fails if any id isn't found/owned, or if the
+// conversations don't all share the same stored surface: since
+// opts.IncludeDebugArtifacts applies uniformly to the whole compiled
+// document, mixing surfaces could otherwise let a crafted request smuggle
+// one chat_debug conversation's debug data into what looks like a plain
+// compiled export.
+func BuildCompiledDoc(ctx context.Context, store *storagechat.Store, orgID, userID int64, conversationIDs []int64, title, subtitle string, opts BuildOptions) (*CompiledDoc, error) {
+	if len(conversationIDs) == 0 {
+		return nil, fmt.Errorf("no conversations selected")
+	}
+
+	compiled := &CompiledDoc{
+		Title:         title,
+		Subtitle:      subtitle,
+		Conversations: make([]ExportDoc, 0, len(conversationIDs)),
+	}
+
+	var surface string
+	for i, id := range conversationIDs {
+		conv, err := store.GetConversation(ctx, orgID, userID, id)
+		if err != nil {
+			return nil, fmt.Errorf("conversation %d: %w", id, err)
+		}
+		if i == 0 {
+			surface = conv.Surface
+		} else if conv.Surface != surface {
+			return nil, fmt.Errorf("conversation %d has a different surface than the rest of the selection", id)
+		}
+
+		doc, err := BuildDoc(ctx, store, orgID, userID, id, opts)
+		if err != nil {
+			return nil, err
+		}
+		compiled.Conversations = append(compiled.Conversations, *doc)
+	}
+
+	return compiled, nil
+}

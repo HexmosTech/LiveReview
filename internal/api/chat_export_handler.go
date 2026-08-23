@@ -44,12 +44,19 @@ func (s *Server) ExportConversation(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "conversation not found"})
 	}
 
-	doc, err := chatexport.BuildDoc(ctx, chatStore, pc.OrgID, pc.User.ID, convID, chatexport.BuildOptions{
+	convDoc, err := chatexport.BuildDoc(ctx, chatStore, pc.OrgID, pc.User.ID, convID, chatexport.BuildOptions{
 		IncludeDebugArtifacts: conv.Surface == storagechat.SurfaceChatDebug,
 	})
 	if err != nil {
 		log.Error().Err(err).Int64("conversation_id", convID).Msg("ExportConversation: failed to build export doc")
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to build export"})
+	}
+	// RenderPDF/RenderHTML take a CompiledDoc (the general, multi-
+	// conversation shape - see CompileExport) - a single-conversation
+	// export is just a CompiledDoc with one Conversation and no Subtitle.
+	doc := &chatexport.CompiledDoc{
+		Title:         convDoc.Conversation.Title,
+		Conversations: []chatexport.ExportDoc{*convDoc},
 	}
 
 	var buf bytes.Buffer

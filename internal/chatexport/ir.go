@@ -1,15 +1,25 @@
-// Package chatexport builds a renderer-agnostic representation of a Livi
-// chat conversation (see internal/chat) and renders it to PDF or
-// self-contained HTML. Both renderers consume the same ExportDoc - built
-// once per export by BuildDoc, including every chart already rendered to
-// PNG - so the two formats can never show different data for the same
-// conversation.
+// Package chatexport builds a renderer-agnostic representation of one or
+// more Livi chat conversations (see internal/chat) and renders it to PDF or
+// self-contained HTML. Both renderers consume the same CompiledDoc - built
+// once per export by BuildDoc/BuildCompiledDoc, including every chart
+// already rendered to PNG - so the two formats can never show different
+// data for the same export.
 package chatexport
 
 import "time"
 
-// ExportDoc is the complete input to both RenderPDF and RenderHTML - the
-// storagechat.Store is not touched again once this is built.
+// CompiledDoc is the complete input to both RenderPDF and RenderHTML - the
+// storagechat.Store is not touched again once this is built. A
+// single-conversation export (see internal/api.ExportConversation) is just
+// a CompiledDoc with one Conversation and no Subtitle; a multi-conversation
+// "compile" export (internal/api.CompileExport) is the general case.
+type CompiledDoc struct {
+	Title         string
+	Subtitle      string
+	Conversations []ExportDoc
+}
+
+// ExportDoc is one conversation's contribution to a CompiledDoc.
 type ExportDoc struct {
 	Conversation ExportConversation
 	Turns        []ExportTurn
