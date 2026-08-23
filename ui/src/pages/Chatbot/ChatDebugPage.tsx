@@ -24,6 +24,7 @@ interface DebugArtifacts {
   schema_context: string;
   system_prompt: string;
   llm_raw_response: string;
+  full_request: string;
   interpretations: Array<{
     sql: string;
     chart_type: string;
@@ -41,6 +42,7 @@ interface DebugArtifacts {
     row_count: number;
     stats?: string[];
     csv_data?: string;
+    vega_spec?: string;
   }>;
 }
 
@@ -127,133 +129,228 @@ function formatText(text: string): React.ReactNode[] {
   return parts;
 }
 
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function prettyJSON(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return raw;
+  }
+}
+
+// Collapsible section with copy button
+const CollapsibleSection: React.FC<{
+  id: string;
+  label: string;
+  content: string;
+  prefix?: React.ReactNode;
+  isGreen?: boolean;
+  maxH?: string;
+  activeSection: string | null;
+  toggleSection: (id: string) => void;
+  copiedId: string | null;
+  handleCopy: (id: string, text: string) => void;
+}> = ({ id, label, content, prefix, isGreen, maxH = 'max-h-48', activeSection, toggleSection, copiedId, handleCopy }) => {
+  const isOpen = activeSection === 'all' || activeSection === id;
+  return (
+    <div className="border border-slate-700/50 rounded-md overflow-hidden">
+      <button
+        onClick={() => toggleSection(id)}
+        className="flex items-center gap-2 w-full px-3 py-1.5 bg-slate-800/40 hover:bg-slate-800/60 text-xs text-slate-300 transition-colors"
+      >
+        <span className="text-slate-500 w-3">{isOpen ? '\u25BC' : '\u25B6'}</span>
+        <span className="font-medium">{label}</span>
+        <span className="ml-auto text-slate-600 text-[10px] font-mono">{content.length.toLocaleString()} chars</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); handleCopy(id, content); }}
+          className="ml-1 px-1.5 py-0.5 rounded bg-slate-700/50 hover:bg-slate-600/50 text-slate-400 hover:text-slate-200 text-[10px] transition-colors"
+        >
+          {copiedId === id ? 'Copied' : 'Copy'}
+        </button>
+      </button>
+      {isOpen && (
+        <>
+          {prefix}
+          <pre className={`p-3 text-[11px] leading-relaxed ${maxH} overflow-auto whitespace-pre-wrap border-t border-slate-700/30 ${
+            isGreen ? 'bg-slate-900 text-green-300' : 'bg-slate-950 text-slate-300'
+          }`}>
+            {content}
+          </pre>
+        </>
+      )}
+    </div>
+  );
+};
+
 // Debug panel component
 const DebugPanel: React.FC<{ artifacts: DebugArtifacts }> = ({ artifacts }) => {
   const [expanded, setExpanded] = useState(false);
+  const [expandAll, setExpandAll] = useState(false);
   const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Auto-expand on failure — only on initial mount
+  const hasFailure = artifacts.results?.some(r => r.status === 'failed');
+  const didAutoExpand = useRef(false);
+  useEffect(() => {
+    if (hasFailure && !didAutoExpand.current) {
+      didAutoExpand.current = true;
+      setExpanded(true);
+    }
+  }, [hasFailure]);
+
+  const toggleSection = (id: string) => {
+    setActiveSection(activeSection === id ? null : id);
+  };
+
+  const toggleExpandAll = () => {
+    if (expandAll) {
+      setActiveSection(null);
+      setExpandAll(false);
+    } else {
+      setExpandAll(true);
+      setActiveSection('all');
+    }
+  };
+
+  const handleCopy = async (id: string, text: string) => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 1500);
+    }
+  };
+
+  // Status summary
+  const rendered = artifacts.results?.filter(r => r.status === 'rendered').length || 0;
+  const skipped = artifacts.results?.filter(r => r.status === 'skipped').length || 0;
+  const failed = artifacts.results?.filter(r => r.status === 'failed').length || 0;
 
   return (
-    <div className="mt-2 border border-dashed border-amber-500/40 rounded-lg bg-amber-500/5 p-3">
+    <div className="mt-2 w-full max-w-[85%] rounded-lg border border-amber-500/20 bg-amber-500/5 overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 text-amber-400 text-sm font-medium hover:text-amber-300 transition-colors w-full text-left"
+        className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-amber-500/10 transition-colors"
       >
-        <span className="text-xs">{expanded ? '\u25BC' : '\u25B6'}</span>
-        Debug Artifacts
-        <span className="text-xs text-amber-400/60 ml-auto">
-          {artifacts.interpretations?.length || 0} interpretations,{' '}
-          {artifacts.results?.filter(r => r.status === 'rendered').length || 0} rendered
+        <span className="text-amber-400 text-xs">{expanded ? '\u25BC' : '\u25B6'}</span>
+        <span className="text-amber-300 text-xs font-medium tracking-wide uppercase">Debug Artifacts</span>
+        <span className="ml-auto flex items-center gap-2 text-[10px] font-mono">
+          {rendered > 0 && <span className="text-green-400/80">{rendered} ok</span>}
+          {skipped > 0 && <span className="text-yellow-400/80">{skipped} skip</span>}
+          {failed > 0 && <span className="text-red-400/80">{failed} fail</span>}
         </span>
       </button>
 
       {expanded && (
-        <div className="mt-3 space-y-3">
-          {/* Interpretations summary */}
-          <div>
-            <h4 className="text-xs font-semibold text-amber-300 mb-2 uppercase tracking-wide">Interpretations</h4>
-            <div className="space-y-2">
-              {artifacts.interpretations?.map((interp, i) => {
-                const result = artifacts.results?.[i];
-                return (
-                  <div key={i} className="bg-slate-800/50 rounded p-2 text-xs">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={`inline-block w-2 h-2 rounded-full ${
-                        result?.status === 'rendered' ? 'bg-green-400' :
-                        result?.status === 'skipped' ? 'bg-yellow-400' :
-                        'bg-red-400'
-                      }`} />
-                      <span className="text-slate-200 font-medium">{interp.title}</span>
-                      <span className="text-slate-500">({interp.chart_type})</span>
-                      {result && (
-                        <span className="text-slate-500 ml-auto">{result.row_count} rows</span>
-                      )}
-                    </div>
-                    <div className="text-slate-400 mb-1">{interp.description}</div>
-                    <button
-                      onClick={() => setActiveSection(activeSection === `sql-${i}` ? null : `sql-${i}`)}
-                      className="text-cyan-400 hover:text-cyan-300 text-xs"
-                    >
-                      {activeSection === `sql-${i}` ? 'Hide SQL' : 'Show SQL'}
-                    </button>
-                    {activeSection === `sql-${i}` && (
-                      <pre className="mt-1 bg-slate-900 rounded p-2 text-green-300 overflow-x-auto">
-                        {interp.sql}
-                      </pre>
-                    )}
-                    {result?.stats && result.stats.length > 0 && (
-                      <div className="mt-1 text-slate-400">
-                        {result.stats.map((s, j) => (
-                          <div key={j}>{s}</div>
-                        ))}
-                      </div>
-                    )}
-                    {result?.skip_reason && (
-                      <div className="mt-1 text-yellow-400/80 text-xs">Skipped: {result.skip_reason}</div>
+        <div className="px-3 pb-3 space-y-2 border-t border-amber-500/10">
+          {/* Toolbar */}
+          <div className="flex items-center justify-between pt-2">
+            <span className="text-[10px] text-slate-500 font-mono">{artifacts.interpretations?.length || 0} interpretations</span>
+            <button
+              onClick={toggleExpandAll}
+              className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              {expandAll ? 'Collapse All' : 'Expand All'}
+            </button>
+          </div>
+
+          {/* Per-interpretation cards — numbered, with SQL + error + CSV + Vega coupled */}
+          <div className="space-y-2">
+            {artifacts.interpretations?.map((interp, i) => {
+              const result = artifacts.results?.[i];
+              const statusColor = result?.status === 'rendered' ? 'bg-green-400'
+                : result?.status === 'skipped' ? 'bg-yellow-400' : 'bg-red-400';
+              const hasError = result?.status === 'failed' || !!result?.skip_reason;
+              const errorPrefix = hasError ? (
+                <div className="px-3 py-2 bg-red-500/10 border-b border-red-500/20 text-[11px]">
+                  <span className="text-red-400 font-medium">Status: {result?.status}</span>
+                  {result?.skip_reason && (
+                    <span className="text-red-400/80 ml-2">\u2014 {result.skip_reason}</span>
+                  )}
+                </div>
+              ) : undefined;
+              return (
+                <div key={i} className={`rounded-md border overflow-hidden ${
+                  hasError ? 'border-red-500/30' : 'border-slate-700/40'
+                }`}>
+                  {/* Header */}
+                  <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/50">
+                    <span className="text-[10px] font-mono text-slate-500 w-4">{i + 1}.</span>
+                    <span className={`w-2 h-2 rounded-full ${statusColor}`} />
+                    <span className="text-xs font-medium text-slate-200">{interp.title}</span>
+                    <span className="text-[10px] text-slate-500 font-mono">{interp.chart_type}</span>
+                    {result && <span className="text-[10px] text-slate-600 ml-auto font-mono">{result.row_count} rows</span>}
+                  </div>
+                  {/* Description */}
+                  <div className="px-3 py-2 text-[11px] text-slate-400 border-b border-slate-700/30">{interp.description}</div>
+                  {/* SQL + CSV + Vega coupled in one section */}
+                  <div className="px-3 py-2 space-y-1.5">
+                    {interp.sql && (
+                      <CollapsibleSection id={`sql-${i}`} label="SQL Query" content={interp.sql} prefix={errorPrefix} isGreen
+                        activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
                     )}
                     {result?.csv_data && (
-                      <div className="mt-2">
-                        <button
-                          onClick={() => setActiveSection(activeSection === `csv-${i}` ? null : `csv-${i}`)}
-                          className="text-cyan-400 hover:text-cyan-300 text-xs"
-                        >
-                          {activeSection === `csv-${i}` ? 'Hide CSV Preview' : 'Show CSV Preview'}
-                        </button>
-                        {activeSection === `csv-${i}` && (
-                          <pre className="mt-1 bg-slate-900 rounded p-2 text-xs text-green-300 max-h-48 overflow-auto whitespace-pre-wrap">
-                            {result.csv_data}
-                          </pre>
-                        )}
-                      </div>
+                      <CollapsibleSection id={`csv-${i}`} label="Query Result (CSV)" content={result.csv_data} isGreen maxH="max-h-40"
+                        activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
+                    )}
+                    {result?.vega_spec && (
+                      <CollapsibleSection id={`vega-${i}`} label="Vega-Lite Spec" content={prettyJSON(result.vega_spec)} isGreen maxH="max-h-48"
+                        activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
                     )}
                   </div>
-                );
-              })}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Separator */}
+          <div className="border-t border-amber-500/10" />
+
+          {/* General artifacts — uniform card style */}
+          <div className="rounded-md border border-slate-700/40 bg-slate-800/30 overflow-hidden">
+            <div className="px-3 py-2 bg-slate-800/50 text-[11px] font-medium text-slate-300 border-b border-slate-700/30">
+              Pipeline Context
+            </div>
+            <div className="px-3 py-2 space-y-1.5">
+              {artifacts.schema_context && (
+                <CollapsibleSection id="schema" label="Schema Context (sent to LLM)" content={artifacts.schema_context}
+                  activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
+              )}
+              {artifacts.system_prompt && (
+                <CollapsibleSection id="prompt" label="System Prompt" content={artifacts.system_prompt}
+                  activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
+              )}
             </div>
           </div>
 
-          {/* Schema context */}
-          <div>
-            <button
-              onClick={() => setActiveSection(activeSection === 'schema' ? null : 'schema')}
-              className="text-xs text-amber-300 hover:text-amber-200"
-            >
-              {activeSection === 'schema' ? '\u25BC' : '\u25B6'} Schema Context
-            </button>
-            {activeSection === 'schema' && (
-              <pre className="mt-1 bg-slate-900 rounded p-2 text-xs text-slate-300 max-h-48 overflow-auto whitespace-pre-wrap">
-                {artifacts.schema_context}
-              </pre>
-            )}
-          </div>
-
-          {/* System prompt */}
-          <div>
-            <button
-              onClick={() => setActiveSection(activeSection === 'prompt' ? null : 'prompt')}
-              className="text-xs text-amber-300 hover:text-amber-200"
-            >
-              {activeSection === 'prompt' ? '\u25BC' : '\u25B6'} System Prompt
-            </button>
-            {activeSection === 'prompt' && (
-              <pre className="mt-1 bg-slate-900 rounded p-2 text-xs text-slate-300 max-h-48 overflow-auto whitespace-pre-wrap">
-                {artifacts.system_prompt}
-              </pre>
-            )}
-          </div>
-
-          {/* LLM raw response */}
-          <div>
-            <button
-              onClick={() => setActiveSection(activeSection === 'raw' ? null : 'raw')}
-              className="text-xs text-amber-300 hover:text-amber-200"
-            >
-              {activeSection === 'raw' ? '\u25BC' : '\u25B6'} LLM Raw Response
-            </button>
-            {activeSection === 'raw' && (
-              <pre className="mt-1 bg-slate-900 rounded p-2 text-xs text-green-300 max-h-64 overflow-auto whitespace-pre-wrap">
-                {artifacts.llm_raw_response}
-              </pre>
-            )}
+          {/* Full LLM Request + Raw Response coupled */}
+          <div className="rounded-md border border-slate-700/40 bg-slate-800/30 overflow-hidden">
+            <div className="px-3 py-2 bg-slate-800/50 text-[11px] font-medium text-slate-300 border-b border-slate-700/30">
+              LLM Exchange
+            </div>
+            <div className="px-3 py-2 space-y-1.5">
+              <CollapsibleSection
+                id="full-request"
+                label="Full Request (system + schema + query)"
+                content={artifacts.full_request || (artifacts.system_prompt + '\n---\n' + artifacts.schema_context)}
+                activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy}
+              />
+              <CollapsibleSection
+                id="raw"
+                label="Raw Response"
+                content={artifacts.llm_raw_response} isGreen maxH="max-h-56"
+                activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy}
+              />
+            </div>
           </div>
         </div>
       )}
@@ -383,7 +480,7 @@ const ChatDebugPage: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-900 text-white">
+    <div className="flex flex-col h-full bg-slate-900 text-white overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700">
         <div className="w-8 h-8 rounded-full bg-amber-600 flex items-center justify-center text-sm font-bold">D</div>
@@ -394,16 +491,17 @@ const ChatDebugPage: React.FC = () => {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 && (
-          <div className="text-center text-slate-400 mt-12">
-            <div className="text-lg mb-2">Debug Mode</div>
-            <div className="text-sm">Ask an analytics question to see intermediate pipeline artifacts.</div>
-          </div>
-        )}
-        {messages.map((msg) => (
-          <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] rounded-lg px-4 py-2 ${
+      <div className="flex-1 h-0 min-h-0 overflow-y-auto p-4">
+        <div className="max-w-4xl mx-auto w-full space-y-4">
+          {messages.length === 0 && (
+            <div className="text-center text-slate-400 mt-12">
+              <div className="text-lg mb-2">Debug Mode</div>
+              <div className="text-sm">Ask an analytics question to see intermediate pipeline artifacts.</div>
+            </div>
+          )}
+          {messages.map((msg) => (
+          <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+            <div className={`min-w-[200px] max-w-[85%] rounded-lg px-4 py-2 ${
               msg.role === 'user'
                 ? 'bg-indigo-600 text-white'
                 : 'bg-slate-800 text-slate-100'
@@ -443,10 +541,10 @@ const ChatDebugPage: React.FC = () => {
                   ))}
                 </div>
               )}
-
-              {/* Debug artifacts */}
-              {msg.debugArtifacts && <DebugPanel artifacts={msg.debugArtifacts} />}
             </div>
+
+            {/* Debug artifacts — OUTSIDE the bubble so expanding doesn't resize it */}
+            {msg.debugArtifacts && <DebugPanel artifacts={msg.debugArtifacts} />}
           </div>
         ))}
         {isLoading && (
@@ -457,10 +555,11 @@ const ChatDebugPage: React.FC = () => {
           </div>
         )}
         <div ref={messagesEndRef} />
+        </div>
       </div>
 
       {/* Input */}
-      <div className="border-t border-slate-700 p-4">
+      <div className="border-t border-slate-700 p-4 min-h-[60px] flex-shrink-0">
         <div className="flex gap-2">
           <input
             ref={inputRef}

@@ -1612,6 +1612,9 @@ func (a *Agent) runMultiInterpret(
 	}
 	debug.SchemaContext = userMsg
 
+	// Compose the full request text sent to the LLM for debug visibility.
+	debug.FullRequest = system + "\n---\n" + userMsg
+
 	raw, err := a.completeOnce(ctx, clog, 2, "interpret", "multi", 1, system, userMsg)
 	if err != nil {
 		log.Error().Err(err).Msg("multi-interpret LLM call failed")
@@ -1654,6 +1657,10 @@ func (a *Agent) runMultiInterpret(
 		switch {
 		case result.Chart != nil:
 			reports = append(reports, *result.Chart)
+			// Include Vega-Lite spec in debug for inspection.
+			if specBytes, err := json.Marshal(result.Chart.Spec); err == nil {
+				entry.VegaSpec = string(specBytes)
+			}
 		case result.Artifact != nil:
 			artifacts = append(artifacts, *result.Artifact)
 			// For rendered CSV artifacts, include data if not already set
