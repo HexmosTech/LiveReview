@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LuSearch, LuPlus, LuTrash2, LuMessageSquare, LuPin, LuPinOff, LuPencil, LuCheck } from 'react-icons/lu';
 import { EmptyState, Tooltip } from '../../components/UIPrimitives';
-import { deleteConversation, listConversations, renameConversation, type Conversation } from '../../api/chatConversations';
+import { deleteConversation, listConversations, renameConversation, type ChatSurface, type Conversation } from '../../api/chatConversations';
 import {
   SIDEBAR_COLLAPSED_WIDTH,
   setChatSidebarHoverExpanded,
@@ -308,8 +308,16 @@ const SidebarBody: React.FC<SidebarBodyProps> = ({
 
 export const ConversationSidebar: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { conversationId } = useParams<{ conversationId?: string }>();
   const queryClient = useQueryClient();
+
+  // /chat and /chat-debug share this sidebar component but must show
+  // separate conversation lists - derive which one we're in from the route
+  // rather than threading a prop through ChatLayout, since both route trees
+  // mount the same <ChatLayout><Outlet/></ChatLayout> shell.
+  const surface: ChatSurface = location.pathname.startsWith('/chat-debug') ? 'chat_debug' : 'chat';
+  const basePath = surface === 'chat_debug' ? '/chat-debug' : '/chat';
   const pinned = useChatSidebarPinned();
   const width = useChatSidebarWidth();
   const resizing = useChatSidebarResizing();
@@ -330,8 +338,8 @@ export const ConversationSidebar: React.FC = () => {
   const showFull = pinned || hoverExpanded;
 
   const { data: conversations = [], isLoading } = useQuery({
-    queryKey: [...CONVERSATIONS_QUERY_KEY, search],
-    queryFn: () => listConversations({ search: search || undefined }),
+    queryKey: [...CONVERSATIONS_QUERY_KEY, surface, search],
+    queryFn: () => listConversations({ search: search || undefined, surface }),
     enabled: showFull,
   });
 
@@ -339,7 +347,7 @@ export const ConversationSidebar: React.FC = () => {
     mutationFn: (id: number) => deleteConversation(id),
     onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: CONVERSATIONS_QUERY_KEY });
-      if (String(id) === conversationId) navigate('/chat');
+      if (String(id) === conversationId) navigate(basePath);
     },
   });
 
@@ -372,7 +380,7 @@ export const ConversationSidebar: React.FC = () => {
   };
 
   const activeId = conversationId ? Number(conversationId) : undefined;
-  const select = (id: number) => navigate(id ? `/chat/${id}` : '/chat');
+  const select = (id: number) => navigate(id ? `${basePath}/${id}` : basePath);
 
   // Hover-to-peek only makes sense while unpinned - once pinned it's
   // already fully open, and mid-drag-resize a hover-driven state flip
@@ -401,7 +409,7 @@ export const ConversationSidebar: React.FC = () => {
         <div className="pt-3">
           <Tooltip content="New chat">
             <button
-              onClick={() => navigate('/chat')}
+              onClick={() => navigate(basePath)}
               className="p-2 rounded-md border border-slate-700/60 bg-slate-800/60 hover:bg-slate-800 hover:border-slate-600 text-blue-400 transition-colors"
               aria-label="New chat"
             >

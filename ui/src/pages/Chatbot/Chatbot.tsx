@@ -216,6 +216,12 @@ const Chatbot: React.FC = () => {
     queryFn: () => getConversation(conversationId as number),
     enabled: conversationId !== undefined,
   });
+  // True only when we're switching to a conversation we don't already have
+  // (from cache priming below, or a normal cache hit) - lets the loading
+  // state below distinguish "fetching a thread" from "genuinely new, empty
+  // chat", instead of flashing the empty-state screen while data is in
+  // flight.
+  const isLoadingConversation = conversationId !== undefined && conversationDetail === undefined;
   const user = useAppSelector((state) => state.Auth.user);
   // CSV exports come from an authenticated, org-scoped endpoint, so the
   // download has to carry the same headers apiClient sends. Charts don't need
@@ -325,7 +331,7 @@ const Chatbot: React.FC = () => {
         // Create the conversation (and surface it in the sidebar) right
         // away, before waiting on the agent's answer - otherwise a new
         // chat wouldn't appear in the sidebar until the first reply lands.
-        const created = await createConversation(text);
+        const created = await createConversation(text, 'chat');
         activeConversationId = created.id;
         pendingConversationIdRef.current = created.id;
         queryClient.invalidateQueries({ queryKey: CONVERSATIONS_QUERY_KEY });
@@ -348,7 +354,26 @@ const Chatbot: React.FC = () => {
       // remounts and re-hydrates from the now-persisted turn - simpler and
       // more correct than reconciling local optimistic state by hand, and
       // safe to do only now since the turn is already fully persisted.
+      //
+      // The remount would otherwise start from an empty local state and
+      // wait on a fresh GET before showing anything - a jarring flash right
+      // after the answer already appeared once. Priming the query cache
+      // with what we already have lets the remounted page render instantly;
+      // the query still revalidates in the background and reconciles once
+      // the real, server-assigned message/chart ids come back.
       if (conversationId === undefined && activeConversationId !== undefined) {
+        queryClient.setQueryData(['chat', 'conversation', activeConversationId], {
+          id: activeConversationId,
+          title: text,
+          updatedAt: new Date().toISOString(),
+          messages: [userEntry, assistantEntry].map((entry, i) => ({
+            id: -(i + 1),
+            role: entry.role,
+            content: entry.text,
+            charts: entry.charts,
+            files: entry.files,
+          })),
+        });
         navigate(`/chat/${activeConversationId}`, { replace: true });
       }
     } catch (err: any) {
@@ -443,7 +468,12 @@ const Chatbot: React.FC = () => {
               </button>
             </div>
           )}
-          {messages.length === 0 ? (
+          {isLoadingConversation ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3">
+              <div className="w-8 h-8 border-2 border-slate-600 border-t-indigo-400 rounded-full animate-spin" />
+              <p className="text-sm text-slate-500">Loading conversation…</p>
+            </div>
+          ) : messages.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6 px-4">
               <p className="text-2xl font-semibold text-slate-200">Hello {userName}! How can I help you?</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl w-full">

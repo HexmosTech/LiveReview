@@ -23,6 +23,15 @@ import (
 // deleted, or is not owned by the given org/user.
 var ErrNotFound = errors.New("chat: not found")
 
+// Surface values partition conversations by which UI they were started
+// from, so /chat and /chat-debug show separate sidebar lists even though
+// they share the same table (both surfaces get identical debug artifacts
+// computed server-side; only which page displays them differs).
+const (
+	SurfaceChat      = "chat"
+	SurfaceChatDebug = "chat_debug"
+)
+
 type Store struct {
 	db *sql.DB
 }
@@ -69,16 +78,19 @@ type FileInput struct {
 
 // CreateConversation inserts a new conversation, defaulting its title when
 // empty, and returns its id.
-func (s *Store) CreateConversation(ctx context.Context, orgID, userID int64, title, sessionID string) (int64, error) {
+func (s *Store) CreateConversation(ctx context.Context, orgID, userID int64, title, sessionID, surface string) (int64, error) {
 	if title == "" {
 		title = "New conversation"
 	}
+	if surface == "" {
+		surface = SurfaceChat
+	}
 	var id int64
 	err := s.db.QueryRowContext(ctx, `
-		INSERT INTO chat_conversations (org_id, user_id, title, session_id)
-		VALUES ($1, $2, $3, NULLIF($4, ''))
+		INSERT INTO chat_conversations (org_id, user_id, title, session_id, surface)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5)
 		RETURNING id
-	`, orgID, userID, title, sessionID).Scan(&id)
+	`, orgID, userID, title, sessionID, surface).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("insert chat_conversations: %w", err)
 	}
@@ -102,22 +114,26 @@ func (s *Store) GetConversation(ctx context.Context, orgID, userID, convID int64
 	return c, nil
 }
 
-// ListConversations returns a user's conversations ordered by most recently
-// active, most recent first.
-func (s *Store) ListConversations(ctx context.Context, orgID, userID int64, limit, offset int) ([]domainchat.Conversation, error) {
+// ListConversations returns a user's conversations for the given surface
+// (see SurfaceChat/SurfaceChatDebug), ordered by most recently active, most
+// recent first.
+func (s *Store) ListConversations(ctx context.Context, orgID, userID int64, surface string, limit, offset int) ([]domainchat.Conversation, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 	if offset < 0 {
 		offset = 0
 	}
+	if surface == "" {
+		surface = SurfaceChat
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, org_id, user_id, title, COALESCE(session_id, ''), created_at, updated_at
 		FROM chat_conversations
-		WHERE org_id = $1 AND user_id = $2 AND deleted_at IS NULL
+		WHERE org_id = $1 AND user_id = $2 AND surface = $5 AND deleted_at IS NULL
 		ORDER BY updated_at DESC
 		LIMIT $3 OFFSET $4
-	`, orgID, userID, limit, offset)
+	`, orgID, userID, limit, offset, surface)
 	if err != nil {
 		return nil, fmt.Errorf("list chat_conversations: %w", err)
 	}
@@ -141,9 +157,12 @@ func (s *Store) ListConversations(ctx context.Context, orgID, userID int64, limi
 // to_tsquery/websearch_to_tsquery only match whole stemmed words, which is
 // too strict for an incremental search box) with a trigram-similarity
 // fallback on the title for typo tolerance.
-func (s *Store) SearchConversations(ctx context.Context, orgID, userID int64, query string, limit int) ([]domainchat.ConversationSearchResult, error) {
+func (s *Store) SearchConversations(ctx context.Context, orgID, userID int64, surface, query string, limit int) ([]domainchat.ConversationSearchResult, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
+	}
+	if surface == "" {
+		surface = SurfaceChat
 	}
 	prefixQuery := buildPrefixTSQuery(query)
 	rows, err := s.db.QueryContext(ctx, `
@@ -163,7 +182,7 @@ func (s *Store) SearchConversations(ctx context.Context, orgID, userID int64, qu
 			ORDER BY ts_rank(m.search_vector, q.tsq) DESC
 			LIMIT 1
 		) hit ON true
-		WHERE c.org_id = $1 AND c.user_id = $2 AND c.deleted_at IS NULL
+		WHERE c.org_id = $1 AND c.user_id = $2 AND c.surface = $6 AND c.deleted_at IS NULL
 			AND (
 				c.search_vector @@ q.tsq
 				OR hit.snippet IS NOT NULL
@@ -175,7 +194,7 @@ func (s *Store) SearchConversations(ctx context.Context, orgID, userID int64, qu
 			similarity(c.title, $4)
 		) DESC, c.updated_at DESC
 		LIMIT $5
-	`, orgID, userID, prefixQuery, query, limit)
+	`, orgID, userID, prefixQuery, query, limit, surface)
 	if err != nil {
 		return nil, fmt.Errorf("search chat_conversations: %w", err)
 	}

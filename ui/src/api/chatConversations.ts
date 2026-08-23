@@ -1,6 +1,11 @@
 import apiClient, { BASE_URL } from './apiClient';
 import { ChatChart, ChatFile } from './chatbot';
 
+// Which UI surface a conversation was started from — /chat and /chat-debug
+// share the same backend table, so this is what keeps their sidebar lists
+// separate.
+export type ChatSurface = 'chat' | 'chat_debug';
+
 export interface Conversation {
   id: number;
   title: string;
@@ -27,17 +32,19 @@ export interface ConversationDetail {
 // Creates an empty conversation (titled from the first message) up front, so
 // the sidebar can show it immediately - the caller sends the actual message
 // afterwards via sendChatMessage(text, conversationId).
-export function createConversation(firstMessage: string): Promise<Conversation> {
-  return apiClient.post<Conversation>('/api/v1/chat', { message: firstMessage });
+export function createConversation(firstMessage: string, surface: ChatSurface = 'chat'): Promise<Conversation> {
+  return apiClient.post<Conversation>('/api/v1/chat', { message: firstMessage, surface });
 }
 
-export function listConversations(params: { search?: string; limit?: number; offset?: number } = {}): Promise<Conversation[]> {
+export function listConversations(
+  params: { search?: string; limit?: number; offset?: number; surface?: ChatSurface } = {},
+): Promise<Conversation[]> {
   const qs = new URLSearchParams();
   if (params.search) qs.set('search', params.search);
   if (params.limit) qs.set('limit', String(params.limit));
   if (params.offset) qs.set('offset', String(params.offset));
-  const suffix = qs.toString() ? `?${qs.toString()}` : '';
-  return apiClient.get<Conversation[]>(`/api/v1/chat${suffix}`);
+  qs.set('surface', params.surface ?? 'chat');
+  return apiClient.get<Conversation[]>(`/api/v1/chat?${qs.toString()}`);
 }
 
 export function getConversation(id: number): Promise<ConversationDetail> {

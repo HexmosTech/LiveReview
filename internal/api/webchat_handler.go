@@ -106,7 +106,7 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		sessionID = conv.SessionID
 	} else {
 		sessionID = newChatSessionID()
-		convID, err = chatStore.CreateConversation(ctx, orgID, userID, titleFromFirstMessage(req.Message), sessionID)
+		convID, err = chatStore.CreateConversation(ctx, orgID, userID, titleFromFirstMessage(req.Message), sessionID, storagechat.SurfaceChat)
 		if err != nil {
 			log.Error().Err(err).Msg("WebChat: failed to create conversation")
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to start conversation"})

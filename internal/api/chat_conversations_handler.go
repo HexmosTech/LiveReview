@@ -49,6 +49,17 @@ func parseChatIDParam(c echo.Context, name string) (int64, error) {
 
 type createConversationRequest struct {
 	Message string `json:"message"`
+	Surface string `json:"surface"`
+}
+
+// normalizeSurface validates the client-supplied surface value, defaulting
+// to SurfaceChat for anything empty or unrecognized so a stale/tampered
+// client can't wedge conversations onto an invalid partition.
+func normalizeSurface(surface string) string {
+	if surface == storagechat.SurfaceChatDebug {
+		return storagechat.SurfaceChatDebug
+	}
+	return storagechat.SurfaceChat
 }
 
 // CreateConversation creates an empty conversation up front (titled from the
@@ -67,7 +78,7 @@ func (s *Server) CreateConversation(c echo.Context) error {
 	}
 
 	chatStore := storagechat.NewStore(s.db)
-	id, err := chatStore.CreateConversation(c.Request().Context(), pc.OrgID, pc.User.ID, titleFromFirstMessage(req.Message), "")
+	id, err := chatStore.CreateConversation(c.Request().Context(), pc.OrgID, pc.User.ID, titleFromFirstMessage(req.Message), "", normalizeSurface(req.Surface))
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create conversation"})
 	}
@@ -95,9 +106,10 @@ func (s *Server) ListConversations(c echo.Context) error {
 	limit, _ := strconv.Atoi(c.QueryParam("limit"))
 	offset, _ := strconv.Atoi(c.QueryParam("offset"))
 	search := strings.TrimSpace(c.QueryParam("search"))
+	surface := normalizeSurface(c.QueryParam("surface"))
 
 	if search != "" {
-		results, err := chatStore.SearchConversations(ctx, pc.OrgID, pc.User.ID, search, limit)
+		results, err := chatStore.SearchConversations(ctx, pc.OrgID, pc.User.ID, surface, search, limit)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "search failed"})
 		}
@@ -113,7 +125,7 @@ func (s *Server) ListConversations(c echo.Context) error {
 		return c.JSON(http.StatusOK, out)
 	}
 
-	conversations, err := chatStore.ListConversations(ctx, pc.OrgID, pc.User.ID, limit, offset)
+	conversations, err := chatStore.ListConversations(ctx, pc.OrgID, pc.User.ID, surface, limit, offset)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to list conversations"})
 	}
