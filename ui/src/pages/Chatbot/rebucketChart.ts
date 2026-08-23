@@ -400,7 +400,13 @@ export function isCategoricalChart(spec: Record<string, unknown>): boolean {
   const parts = getCategoryEncoding(spec);
   if (!parts) return false;
   const colorField = (enc?.color as { field?: string } | undefined)?.field;
-  if (colorField && colorField !== parts.catField) return false;
+  // A `diverging_bar` chart's color is a "direction" field (gain/loss, up/
+  // down) derived from the same signed value field, not an independent
+  // grouping dimension - see chart_types.json's DIRECTION_FIELD convention -
+  // so it doesn't disqualify the per-category total the way a real second
+  // dimension would.
+  const isDirectionColor = typeof colorField === 'string' && colorField.toLowerCase().includes('direction');
+  if (colorField && colorField !== parts.catField && !isDirectionColor) return false;
   const values = (spec as any).data?.values;
   return Array.isArray(values) && values.length > 0;
 }
