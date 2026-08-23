@@ -1,0 +1,12 @@
+Liberation Sans and Liberation Mono
+Digitized data copyright (c) 2010 Google Corporation with Reserved Font
+Arimo, Tinos and Cousine.
+Copyright (c) 2012 Red Hat, Inc. with Reserved Font Name Liberation.
+
+Licensed under the SIL Open Font License, Version 1.1.
+Full license text: http://scripts.sil.org/OFL
+
+Used here (embedded PDF export fonts, internal/chatexport) because it is
+metrically compatible with Helvetica/Arial, ships regular/bold/italic/
+bold-italic, and can be bundled directly into the binary - no Google Fonts
+network dependency at render time.

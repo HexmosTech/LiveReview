@@ -38,6 +38,7 @@ type ExportConversation struct {
 type ExportTurn struct {
 	Seq            int
 	Role           string // "user" | "assistant"
+	CreatedAt      time.Time
 	Text           string
 	Charts         []ExportChart
 	Files          []ExportFile

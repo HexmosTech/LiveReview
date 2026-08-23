@@ -38,14 +38,16 @@ func fixtureExportDoc(t *testing.T, title string, includeDebug bool) *ExportDoc 
 		},
 		Turns: []ExportTurn{
 			{
-				Seq:  1,
-				Role: "user",
-				Text: "What's our current billing status\nand total usage?",
+				Seq:       1,
+				Role:      "user",
+				CreatedAt: time.Date(2026, 1, 5, 10, 0, 0, 0, time.UTC),
+				Text:      "What's our current billing status\nand total usage?",
 			},
 			{
-				Seq:  2,
-				Role: "assistant",
-				Text: "Here is the breakdown for [Q1] usage.",
+				Seq:       2,
+				Role:      "assistant",
+				CreatedAt: time.Date(2026, 1, 5, 10, 5, 0, 0, time.UTC),
+				Text:      "Here is the breakdown for [Q1] usage.",
 				Charts: []ExportChart{
 					{Title: "Usage by [team]", Description: "Weekly totals", PNG: fixturePNG(t)},
 				},
@@ -103,9 +105,17 @@ func TestRenderPDF_CompiledMultipleConversationsPageBreakAndBookmarks(t *testing
 		t.Error("expected a /Outlines dictionary (PDF bookmarks sidebar) in the output")
 	}
 
+	// gofpdf UTF-16BE-encodes a Bookmark's /Title whenever the last-set font
+	// was added via AddUTF8FontFromBytes - true throughout this document
+	// (see registerFonts/exportStyles, which embed Liberation Sans/Mono
+	// specifically so typographic punctuation in real message text renders
+	// correctly instead of as mojibake). Unlike the page content streams
+	// (Flate compressed, not substring-searchable this way), bookmark
+	// objects are never compressed, so searching for the precomputed
+	// UTF-16BE encoding is a reliable, direct check.
 	for _, want := range []string{"Q1 Review", "Conversation A", "Conversation B", "Turn 1", "Turn 2"} {
 		if !bytes.Contains(buf.Bytes(), utf16BEText(want)) {
-			t.Errorf("expected the PDF's UTF-16BE text stream to contain %q (a bookmark title)", want)
+			t.Errorf("expected the PDF's /Outlines bookmark titles to contain %q", want)
 		}
 	}
 }

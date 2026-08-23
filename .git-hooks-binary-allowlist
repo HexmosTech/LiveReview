@@ -1,2 +1,10 @@
 ui/assets/lrbot/lrbot-original.png
 ui/assets/lrbot/lrbot.png
+
+internal/chatexport/assets/fonts/LiberationMono-Bold.ttf
+internal/chatexport/assets/fonts/LiberationMono-Regular.ttf
+internal/chatexport/assets/fonts/LiberationSans-Bold.ttf
+internal/chatexport/assets/fonts/LiberationSans-BoldItalic.ttf
+internal/chatexport/assets/fonts/LiberationSans-Italic.ttf
+internal/chatexport/assets/fonts/LiberationSans-Regular.ttf
+internal/chatexport/assets/logo-icon.png

@@ -42,9 +42,10 @@ func BuildDoc(ctx context.Context, store *storagechat.Store, orgID, userID, conv
 
 	for i, m := range messages {
 		turn := ExportTurn{
-			Seq:  i + 1,
-			Role: m.Role,
-			Text: m.Content,
+			Seq:       i + 1,
+			Role:      m.Role,
+			CreatedAt: m.CreatedAt,
+			Text:      m.Content,
 		}
 		if opts.IncludeDebugArtifacts {
 			turn.DebugArtifacts = m.DebugArtifacts

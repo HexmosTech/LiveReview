@@ -40,6 +40,7 @@ export const CompileExportDialog: React.FC<{ surface: ChatSurface; onClose: () =
   const [subtitle, setSubtitle] = useState('');
   const [format, setFormat] = useState<Format>('pdf');
   const [submitting, setSubmitting] = useState(false);
+  const [justDownloaded, setJustDownloaded] = useState(false);
 
   const { data: summaries = [], isLoading } = useQuery({
     queryKey: ['chat', 'conversationSummaries', surface],
@@ -70,6 +71,7 @@ export const CompileExportDialog: React.FC<{ surface: ChatSurface; onClose: () =
 
   const handleDownload = async () => {
     setSubmitting(true);
+    setJustDownloaded(false);
     try {
       const res = await authFetch('/api/v1/chat/export/compile', {
         method: 'POST',
@@ -89,7 +91,11 @@ export const CompileExportDialog: React.FC<{ surface: ChatSurface; onClose: () =
       a.click();
       a.remove();
       URL.revokeObjectURL(objectUrl);
-      onClose();
+      // Deliberately don't onClose() here - the user may want to download
+      // the same compiled selection again in the other format without
+      // redoing the whole wizard. Closing is left to an explicit action
+      // (Cancel/X/Done).
+      setJustDownloaded(true);
     } catch {
       alert('Could not compile this export. Please try again.');
     } finally {
@@ -215,7 +221,10 @@ export const CompileExportDialog: React.FC<{ surface: ChatSurface; onClose: () =
                 {(['pdf', 'html'] as Format[]).map((f) => (
                   <button
                     key={f}
-                    onClick={() => setFormat(f)}
+                    onClick={() => {
+                      setFormat(f);
+                      setJustDownloaded(false);
+                    }}
                     className={`flex-1 px-3 py-2 rounded-md border text-sm font-medium transition-colors ${
                       format === f
                         ? 'border-blue-500 bg-blue-500/10 text-blue-300'
@@ -263,13 +272,18 @@ export const CompileExportDialog: React.FC<{ surface: ChatSurface; onClose: () =
               Next
             </button>
           ) : (
-            <button
-              onClick={handleDownload}
-              disabled={submitting}
-              className="px-4 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-sm font-medium transition-colors"
-            >
-              {submitting ? 'Compiling…' : `Download ${format.toUpperCase()}`}
-            </button>
+            <div className="flex items-center gap-3">
+              {justDownloaded && !submitting && (
+                <span className="text-xs text-emerald-400">Downloaded &#10003;</span>
+              )}
+              <button
+                onClick={handleDownload}
+                disabled={submitting}
+                className="px-4 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-sm font-medium transition-colors"
+              >
+                {submitting ? 'Compiling…' : `Download ${format.toUpperCase()}`}
+              </button>
+            </div>
           )}
         </div>
       </div>
