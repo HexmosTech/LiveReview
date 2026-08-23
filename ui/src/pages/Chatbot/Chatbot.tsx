@@ -13,6 +13,7 @@ import {
   isDailyTrendChart,
   buildTrendSpec,
   computeTrendStats,
+  computeMultiSeriesTrendStats,
   formatAxisDate,
   isCategoricalChart,
   computeCategoryStats,
@@ -527,6 +528,8 @@ const Chatbot: React.FC = () => {
                             const granularity = chartGranularity[chartKey] ?? 'day';
                             const displaySpec = trendChart ? buildTrendSpec(chart.spec, granularity) : chart.spec;
                             const trendStats = trendChart ? computeTrendStats(chart.spec, granularity) : null;
+                            const multiSeriesTrendStats =
+                              trendChart && !trendStats ? computeMultiSeriesTrendStats(chart.spec, granularity) : null;
                             const bandChart = !trendChart && isBandChart(chart.spec);
                             const categoryStats = !trendChart && !bandChart && isCategoricalChart(chart.spec) ? computeCategoryStats(chart.spec) : null;
                             const bandStats = bandChart ? computeBandStats(chart.spec) : null;
@@ -614,6 +617,20 @@ const Chatbot: React.FC = () => {
                                         ? 'n/a'
                                         : `${trendStats.trendPct >= 0 ? 'up' : 'down'} ${Math.abs(trendStats.trendPct)}% (${formatAxisDate(trendStats.firstDate)} → ${formatAxisDate(trendStats.lastDate)})`
                                     }
+                                  />
+                                </div>
+                              )}
+                              {multiSeriesTrendStats && (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                  <StatChip label="Total" value={multiSeriesTrendStats.total.toLocaleString()} />
+                                  <StatChip label="Series" value={String(multiSeriesTrendStats.seriesCount)} />
+                                  <StatChip
+                                    label="Top series"
+                                    value={`${multiSeriesTrendStats.topSeries.label} (${multiSeriesTrendStats.topSeries.value.toLocaleString()})`}
+                                  />
+                                  <StatChip
+                                    label="Range"
+                                    value={`${formatAxisDate(multiSeriesTrendStats.firstDate)} → ${formatAxisDate(multiSeriesTrendStats.lastDate)}`}
                                   />
                                 </div>
                               )}
