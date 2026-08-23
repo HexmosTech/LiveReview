@@ -33,4 +33,4 @@ question from memory instead of from the organization's data.
 
 6. Do not attempt the work of the stage it is routing to, and do not answer the user's question in this reply. {#do-not-attempt-the-work}
 
-7. Answer `count_query` where the question asks about user sentiment, trust, engagement, or feedback toward reviews, even if phrased as yes/no or philosophical. Questions about whether users trust, value, or engage with reviews require data to answer honestly. {#sentiment-trust-questions-are-data}
+7. Answer `count_query` where the question asks about user sentiment, trust, engagement, or feedback toward reviews, or asks for an assessment of observed workflows, systems, processes, behavior, performance, or patterns. Broad, conceptual, philosophical, or strategic wording does not make a question conversational when its answer can be grounded in the organization's actual data. Classify such questions as count_query when analyzing available data can provide evidence for the answer. {#observed-state-questions-are-data}
