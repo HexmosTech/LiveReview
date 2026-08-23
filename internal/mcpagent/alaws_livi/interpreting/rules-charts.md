@@ -30,3 +30,5 @@ across interpretations and never repeat the same type.
 9. A dbctx sample showing one dominant value for a field (e.g. `Category` sampling as just `review`) doesn't mean the field is low-cardinality — it means the sample missed the rest; that field can hold dozens of real values (`Security`, `Correctness`, ...). Group by it directly instead of avoiding it or filtering on a guessed value. {#thin-sample-is-not-low-cardinality}
 
 10. When the user specifies which dimension belongs on which axis (e.g. "x axis = users, y axis = reviews"), honor that exactly in the `vega_lite_spec` encoding — even if it means swapping the template's default x/y mapping. {#user-axis-preference-overrides-defaults}
+
+11. When the user has NOT specified axis assignments, choose the orientation that maximizes readability. Put the category field on the y-axis (horizontal bars) whenever the labels are longer text — names, emails, IDs, addresses, or any string longer than ~8 characters. Short labels (month names, status codes, single words) can go on either axis. The goal: labels should be readable without angled rotation or truncation. {#readability-default-orientation}
