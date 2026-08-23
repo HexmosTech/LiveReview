@@ -145,7 +145,8 @@ export function buildTrendSpec(spec: Record<string, unknown>, granularity: Granu
 
   const bucketed = bucketRows(values, x.field, y.field, seriesField, granularity);
   const window = ROLLING_WINDOW[granularity];
-  const showRolling = bucketed.length >= MIN_BUCKETS_FOR_ROLLING[granularity];
+  const isNormalizedShare = (y as { stack?: unknown }).stack === 'normalize';
+  const showRolling = !isNormalizedShare && bucketed.length >= MIN_BUCKETS_FOR_ROLLING[granularity];
 
   const xEnc = { ...x, timeUnit: TIME_UNIT[granularity] };
   const colorEnc = seriesField ? { color: enc.color } : {};
@@ -177,11 +178,15 @@ export function buildTrendSpec(spec: Record<string, unknown>, granularity: Granu
 
   // Period-average baseline, aggregated straight off the bucketed data so
   // it always matches what's actually on screen for the current toggle.
-  layers.push({
-    data: { values: bucketed },
-    mark: { type: 'rule', strokeDash: [6, 4], color: '#ff5c7c', strokeWidth: 1.5 },
-    encoding: { y: { field: y.field, type: 'quantitative', aggregate: 'mean' } },
-  });
+  // Skipped for a normalized share chart for the same reason as the
+  // rolling average above - a mean of raw counts doesn't belong on a 0-1 axis.
+  if (!isNormalizedShare) {
+    layers.push({
+      data: { values: bucketed },
+      mark: { type: 'rule', strokeDash: [6, 4], color: '#ff5c7c', strokeWidth: 1.5 },
+      encoding: { y: { field: y.field, type: 'quantitative', aggregate: 'mean' } },
+    });
+  }
 
   const rest = { ...spec };
   delete (rest as any).encoding;

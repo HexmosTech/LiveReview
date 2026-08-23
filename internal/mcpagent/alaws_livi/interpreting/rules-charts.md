@@ -30,3 +30,5 @@ across interpretations and never repeat the same type.
 9. A dbctx sample showing one dominant value for a field (e.g. `Category` sampling as just `review`) doesn't mean the field is low-cardinality — it means the sample missed the rest; that field can hold dozens of real values (`Security`, `Correctness`, ...). Group by it directly instead of avoiding it or filtering on a guessed value. {#thin-sample-is-not-low-cardinality}
 
 10. When the user specifies which dimension belongs on which axis (e.g. "x axis = users, y axis = reviews"), honor that exactly in the `vega_lite_spec` encoding — even if it means swapping the template's default x/y mapping. {#user-axis-preference-overrides-defaults}
+
+11. While showing a share of the total in a tooltip, add a `transform` to compute it: `{"joinaggregate": [{"op": "sum", "field": "<value>", "as": "total"}]}` then `{"calculate": "datum.<value> / datum.total", "as": "pct_share"}`, and reference `pct_share` in the tooltip with `format: ".1%"`. {#compute-tooltip-share-with-transform}
