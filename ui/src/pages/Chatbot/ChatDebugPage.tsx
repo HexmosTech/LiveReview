@@ -167,7 +167,7 @@ const CollapsibleSection: React.FC<{
         onClick={() => toggleSection(id)}
         className="flex items-center gap-2 w-full px-3 py-1.5 bg-slate-800/40 hover:bg-slate-800/60 text-xs text-slate-300 transition-colors"
       >
-        <span className="text-slate-500 w-3">{isOpen ? '\u25BC' : '\u25B6'}</span>
+        <span className="text-slate-500 w-3">{isOpen ? '▼' : '▶'}</span>
         <span className="font-medium">{label}</span>
         <span className="ml-auto text-slate-600 text-[10px] font-mono">{content.length.toLocaleString()} chars</span>
         <button
@@ -191,20 +191,42 @@ const CollapsibleSection: React.FC<{
   );
 };
 
-// Debug panel component
-const DebugPanel: React.FC<{ artifacts: DebugArtifacts }> = ({ artifacts }) => {
-  const [expanded, setExpanded] = useState(false);
+// Compact inline button that opens the full debug info in a dialog, so the
+// chart card stays clean instead of growing a wall of raw SQL/JSON beneath it.
+const DebugTrigger: React.FC<{ artifacts: DebugArtifacts; onOpen: () => void }> = ({ artifacts, onOpen }) => {
+  const rendered = artifacts.results?.filter((r) => r.status === 'rendered').length || 0;
+  const skipped = artifacts.results?.filter((r) => r.status === 'skipped').length || 0;
+  const failed = artifacts.results?.filter((r) => r.status === 'failed').length || 0;
+
+  return (
+    <button
+      onClick={onOpen}
+      className="mt-1 inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10 text-left transition-colors"
+    >
+      <span className="text-amber-300 text-[11px] font-medium tracking-wide uppercase">Debug Artifacts</span>
+      <span className="flex items-center gap-2 text-[10px] font-mono">
+        {rendered > 0 && <span className="text-green-400/80">{rendered} ok</span>}
+        {skipped > 0 && <span className="text-yellow-400/80">{skipped} skip</span>}
+        {failed > 0 && <span className="text-red-400/80">{failed} fail</span>}
+      </span>
+    </button>
+  );
+};
+
+// Full debug artifacts content, shown inside a modal dialog (DebugModal below).
+const DebugPanelBody: React.FC<{ artifacts: DebugArtifacts }> = ({ artifacts }) => {
   const [expandAll, setExpandAll] = useState(false);
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Auto-expand on failure — only on initial mount
-  const hasFailure = artifacts.results?.some(r => r.status === 'failed');
+  const hasFailure = artifacts.results?.some((r) => r.status === 'failed');
   const didAutoExpand = useRef(false);
   useEffect(() => {
     if (hasFailure && !didAutoExpand.current) {
       didAutoExpand.current = true;
-      setExpanded(true);
+      setActiveSection('all');
+      setExpandAll(true);
     }
   }, [hasFailure]);
 
@@ -230,130 +252,145 @@ const DebugPanel: React.FC<{ artifacts: DebugArtifacts }> = ({ artifacts }) => {
     }
   };
 
-  // Status summary
-  const rendered = artifacts.results?.filter(r => r.status === 'rendered').length || 0;
-  const skipped = artifacts.results?.filter(r => r.status === 'skipped').length || 0;
-  const failed = artifacts.results?.filter(r => r.status === 'failed').length || 0;
+  return (
+    <div className="space-y-2">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-slate-500 font-mono">{artifacts.interpretations?.length || 0} interpretations</span>
+        <button
+          onClick={toggleExpandAll}
+          className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
+        >
+          {expandAll ? 'Collapse All' : 'Expand All'}
+        </button>
+      </div>
+
+      {/* Per-interpretation cards — numbered, with SQL + error + CSV + Vega coupled */}
+      <div className="space-y-2">
+        {artifacts.interpretations?.map((interp, i) => {
+          const result = artifacts.results?.[i];
+          const statusColor = result?.status === 'rendered' ? 'bg-green-400'
+            : result?.status === 'skipped' ? 'bg-yellow-400' : 'bg-red-400';
+          const hasError = result?.status === 'failed' || !!result?.skip_reason;
+          const errorPrefix = hasError ? (
+            <div className="px-3 py-2 bg-red-500/10 border-b border-red-500/20 text-[11px]">
+              <span className="text-red-400 font-medium">Status: {result?.status}</span>
+              {result?.skip_reason && (
+                <span className="text-red-400/80 ml-2">— {result.skip_reason}</span>
+              )}
+            </div>
+          ) : undefined;
+          return (
+            <div key={i} className={`rounded-md border overflow-hidden ${
+              hasError ? 'border-red-500/30' : 'border-slate-700/40'
+            }`}>
+              {/* Header */}
+              <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/50">
+                <span className="text-[10px] font-mono text-slate-500 w-4">{i + 1}.</span>
+                <span className={`w-2 h-2 rounded-full ${statusColor}`} />
+                <span className="text-xs font-medium text-slate-200">{interp.title}</span>
+                <span className="text-[10px] text-slate-500 font-mono">{interp.chart_type}</span>
+                {result && <span className="text-[10px] text-slate-600 ml-auto font-mono">{result.row_count} rows</span>}
+              </div>
+              {/* Description */}
+              <div className="px-3 py-2 text-[11px] text-slate-400 border-b border-slate-700/30">{interp.description}</div>
+              {/* SQL + CSV + Vega coupled in one section */}
+              <div className="px-3 py-2 space-y-1.5">
+                {interp.sql && (
+                  <CollapsibleSection id={`sql-${i}`} label="SQL Query" content={interp.sql} prefix={errorPrefix} isGreen
+                    activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
+                )}
+                {result?.csv_data && (
+                  <CollapsibleSection id={`csv-${i}`} label="Query Result (CSV)" content={result.csv_data} isGreen maxH="max-h-40"
+                    activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
+                )}
+                {result?.vega_spec && (
+                  <CollapsibleSection id={`vega-${i}`} label="Vega-Lite Spec" content={prettyJSON(result.vega_spec)} isGreen maxH="max-h-48"
+                    activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Separator */}
+      <div className="border-t border-amber-500/10" />
+
+      {/* General artifacts — uniform card style */}
+      <div className="rounded-md border border-slate-700/40 bg-slate-800/30 overflow-hidden">
+        <div className="px-3 py-2 bg-slate-800/50 text-[11px] font-medium text-slate-300 border-b border-slate-700/30">
+          Pipeline Context
+        </div>
+        <div className="px-3 py-2 space-y-1.5">
+          {artifacts.schema_context && (
+            <CollapsibleSection id="schema" label="Schema Context (sent to LLM)" content={artifacts.schema_context}
+              activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
+          )}
+          {artifacts.system_prompt && (
+            <CollapsibleSection id="prompt" label="System Prompt" content={artifacts.system_prompt}
+              activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
+          )}
+        </div>
+      </div>
+
+      {/* Full LLM Request + Raw Response coupled */}
+      <div className="rounded-md border border-slate-700/40 bg-slate-800/30 overflow-hidden">
+        <div className="px-3 py-2 bg-slate-800/50 text-[11px] font-medium text-slate-300 border-b border-slate-700/30">
+          LLM Exchange
+        </div>
+        <div className="px-3 py-2 space-y-1.5">
+          <CollapsibleSection
+            id="full-request"
+            label="Full Request (system + schema + query)"
+            content={artifacts.full_request || (artifacts.system_prompt + '\n---\n' + artifacts.schema_context)}
+            activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy}
+          />
+          <CollapsibleSection
+            id="raw"
+            label="Raw Response"
+            content={artifacts.llm_raw_response} isGreen maxH="max-h-56"
+            activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Dialog wrapper — all debug artifacts for one message, opened from DebugTrigger.
+const DebugModal: React.FC<{ artifacts: DebugArtifacts; onClose: () => void }> = ({ artifacts, onClose }) => {
+  const rendered = artifacts.results?.filter((r) => r.status === 'rendered').length || 0;
+  const skipped = artifacts.results?.filter((r) => r.status === 'skipped').length || 0;
+  const failed = artifacts.results?.filter((r) => r.status === 'failed').length || 0;
 
   return (
-    <div className="mt-2 w-full max-w-[85%] rounded-lg border border-amber-500/20 bg-amber-500/5 overflow-hidden">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-amber-500/10 transition-colors"
+    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="relative w-full max-w-3xl max-h-[85vh] bg-slate-900 rounded-2xl border border-slate-700 overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
       >
-        <span className="text-amber-400 text-xs">{expanded ? '\u25BC' : '\u25B6'}</span>
-        <span className="text-amber-300 text-xs font-medium tracking-wide uppercase">Debug Artifacts</span>
-        <span className="ml-auto flex items-center gap-2 text-[10px] font-mono">
-          {rendered > 0 && <span className="text-green-400/80">{rendered} ok</span>}
-          {skipped > 0 && <span className="text-yellow-400/80">{skipped} skip</span>}
-          {failed > 0 && <span className="text-red-400/80">{failed} fail</span>}
-        </span>
-      </button>
-
-      {expanded && (
-        <div className="px-3 pb-3 space-y-2 border-t border-amber-500/10">
-          {/* Toolbar */}
-          <div className="flex items-center justify-between pt-2">
-            <span className="text-[10px] text-slate-500 font-mono">{artifacts.interpretations?.length || 0} interpretations</span>
-            <button
-              onClick={toggleExpandAll}
-              className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
-            >
-              {expandAll ? 'Collapse All' : 'Expand All'}
-            </button>
-          </div>
-
-          {/* Per-interpretation cards — numbered, with SQL + error + CSV + Vega coupled */}
-          <div className="space-y-2">
-            {artifacts.interpretations?.map((interp, i) => {
-              const result = artifacts.results?.[i];
-              const statusColor = result?.status === 'rendered' ? 'bg-green-400'
-                : result?.status === 'skipped' ? 'bg-yellow-400' : 'bg-red-400';
-              const hasError = result?.status === 'failed' || !!result?.skip_reason;
-              const errorPrefix = hasError ? (
-                <div className="px-3 py-2 bg-red-500/10 border-b border-red-500/20 text-[11px]">
-                  <span className="text-red-400 font-medium">Status: {result?.status}</span>
-                  {result?.skip_reason && (
-                    <span className="text-red-400/80 ml-2">\u2014 {result.skip_reason}</span>
-                  )}
-                </div>
-              ) : undefined;
-              return (
-                <div key={i} className={`rounded-md border overflow-hidden ${
-                  hasError ? 'border-red-500/30' : 'border-slate-700/40'
-                }`}>
-                  {/* Header */}
-                  <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/50">
-                    <span className="text-[10px] font-mono text-slate-500 w-4">{i + 1}.</span>
-                    <span className={`w-2 h-2 rounded-full ${statusColor}`} />
-                    <span className="text-xs font-medium text-slate-200">{interp.title}</span>
-                    <span className="text-[10px] text-slate-500 font-mono">{interp.chart_type}</span>
-                    {result && <span className="text-[10px] text-slate-600 ml-auto font-mono">{result.row_count} rows</span>}
-                  </div>
-                  {/* Description */}
-                  <div className="px-3 py-2 text-[11px] text-slate-400 border-b border-slate-700/30">{interp.description}</div>
-                  {/* SQL + CSV + Vega coupled in one section */}
-                  <div className="px-3 py-2 space-y-1.5">
-                    {interp.sql && (
-                      <CollapsibleSection id={`sql-${i}`} label="SQL Query" content={interp.sql} prefix={errorPrefix} isGreen
-                        activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
-                    )}
-                    {result?.csv_data && (
-                      <CollapsibleSection id={`csv-${i}`} label="Query Result (CSV)" content={result.csv_data} isGreen maxH="max-h-40"
-                        activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
-                    )}
-                    {result?.vega_spec && (
-                      <CollapsibleSection id={`vega-${i}`} label="Vega-Lite Spec" content={prettyJSON(result.vega_spec)} isGreen maxH="max-h-48"
-                        activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Separator */}
-          <div className="border-t border-amber-500/10" />
-
-          {/* General artifacts — uniform card style */}
-          <div className="rounded-md border border-slate-700/40 bg-slate-800/30 overflow-hidden">
-            <div className="px-3 py-2 bg-slate-800/50 text-[11px] font-medium text-slate-300 border-b border-slate-700/30">
-              Pipeline Context
-            </div>
-            <div className="px-3 py-2 space-y-1.5">
-              {artifacts.schema_context && (
-                <CollapsibleSection id="schema" label="Schema Context (sent to LLM)" content={artifacts.schema_context}
-                  activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
-              )}
-              {artifacts.system_prompt && (
-                <CollapsibleSection id="prompt" label="System Prompt" content={artifacts.system_prompt}
-                  activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
-              )}
-            </div>
-          </div>
-
-          {/* Full LLM Request + Raw Response coupled */}
-          <div className="rounded-md border border-slate-700/40 bg-slate-800/30 overflow-hidden">
-            <div className="px-3 py-2 bg-slate-800/50 text-[11px] font-medium text-slate-300 border-b border-slate-700/30">
-              LLM Exchange
-            </div>
-            <div className="px-3 py-2 space-y-1.5">
-              <CollapsibleSection
-                id="full-request"
-                label="Full Request (system + schema + query)"
-                content={artifacts.full_request || (artifacts.system_prompt + '\n---\n' + artifacts.schema_context)}
-                activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy}
-              />
-              <CollapsibleSection
-                id="raw"
-                label="Raw Response"
-                content={artifacts.llm_raw_response} isGreen maxH="max-h-56"
-                activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy}
-              />
-            </div>
-          </div>
+        <div className="flex items-center gap-3 px-4 py-3 bg-slate-800 border-b border-slate-700 flex-shrink-0">
+          <span className="text-amber-300 text-sm font-medium tracking-wide uppercase">Debug Artifacts</span>
+          <span className="flex items-center gap-2 text-[10px] font-mono">
+            {rendered > 0 && <span className="text-green-400/80">{rendered} ok</span>}
+            {skipped > 0 && <span className="text-yellow-400/80">{skipped} skip</span>}
+            {failed > 0 && <span className="text-red-400/80">{failed} fail</span>}
+          </span>
+          <button
+            onClick={onClose}
+            className="ml-auto p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+            title="Close"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
-      )}
+        <div className="px-4 py-3 overflow-y-auto">
+          <DebugPanelBody artifacts={artifacts} />
+        </div>
+      </div>
     </div>
   );
 };
@@ -403,8 +440,7 @@ const ChatDebugPage: React.FC = () => {
   const [messages, setMessages] = useState<ChatEntry[]>([]);
   const [input, setInput] = useState(() => searchParams.get('prefill') || '');
   const [isLoading, setIsLoading] = useState(false);
-  const [preview, setPreview] = useState<ChatChart | null>(null);
-  const previewViewRef = useRef<View | null>(null);
+  const [debugModalMsgId, setDebugModalMsgId] = useState<string | null>(null);
   const chartViewsRef = useRef<Map<string, View>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -479,88 +515,113 @@ const ChatDebugPage: React.FC = () => {
     }
   };
 
+  const debugModalMsg = debugModalMsgId ? messages.find((m) => m.id === debugModalMsgId) : undefined;
+
   return (
-    <div className="flex flex-col h-full bg-slate-900 text-white overflow-hidden">
+    <div className="h-full flex flex-col bg-slate-900 text-white">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700">
-        <div className="w-8 h-8 rounded-full bg-amber-600 flex items-center justify-center text-sm font-bold">D</div>
-        <div>
-          <div className="font-semibold">Chat Debug</div>
-          <div className="text-xs text-slate-400">Same as /chat but with debug artifacts visible</div>
+      <div className="flex-none px-4 py-2 border-b border-slate-700">
+        <div className="max-w-4xl mx-auto flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-amber-600 flex items-center justify-center text-sm font-bold flex-shrink-0">D</div>
+          <div>
+            <div className="font-semibold text-sm">Chat Debug</div>
+            <div className="text-xs text-slate-400">Same as /chat but with debug artifacts visible</div>
+          </div>
         </div>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 h-0 min-h-0 overflow-y-auto p-4">
-        <div className="max-w-4xl mx-auto w-full space-y-4">
+      <div className="flex-1 h-0 min-h-0 overflow-y-auto px-4 py-6">
+        <div className="max-w-4xl mx-auto w-full space-y-6">
           {messages.length === 0 && (
             <div className="text-center text-slate-400 mt-12">
               <div className="text-lg mb-2">Debug Mode</div>
               <div className="text-sm">Ask an analytics question to see intermediate pipeline artifacts.</div>
             </div>
           )}
-          {messages.map((msg) => (
-          <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-            <div className={`min-w-[200px] max-w-[85%] rounded-lg px-4 py-2 ${
-              msg.role === 'user'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-slate-800 text-slate-100'
-            }`}>
-              <div>{formatText(msg.text)}</div>
-
-              {/* Charts */}
-              {msg.charts && msg.charts.length > 0 && (
-                <div className="mt-3 space-y-3">
-                  {msg.charts.map((chart, i) => (
-                    <div key={i} className="bg-slate-700 rounded-lg p-3">
-                      <div className="flex items-center gap-2 mb-1">
-                        {chart.title && <div className="text-sm font-medium">{chart.title}</div>}
-                        <span className="text-[10px] uppercase tracking-wide font-mono text-amber-300/90 bg-amber-500/10 border border-amber-500/30 rounded px-1.5 py-0.5 ml-auto">
-                          {describeChartShape(chart.spec)}
-                        </span>
-                      </div>
-                      <InteractiveChart spec={chart.spec} onViewReady={(view) => chartViewsRef.current.set(`${msg.id}-${i}`, view)} />
+          {messages.map((msg) =>
+            msg.role === 'user' ? (
+              <div key={msg.id} className="flex items-start justify-end">
+                <div className="bg-indigo-600 text-white rounded-full rounded-br-md px-4 py-2 max-w-[75%] whitespace-pre-wrap break-words text-base">
+                  {formatText(msg.text)}
+                </div>
+              </div>
+            ) : (
+              <div key={msg.id} className="relative flex items-start">
+                <div className="absolute -left-11 top-0 w-8 flex justify-end">
+                  <div className="w-8 h-8 rounded-full bg-amber-600 flex items-center justify-center text-xs font-bold">D</div>
+                </div>
+                <div className="min-w-0 flex-1 space-y-3">
+                  {/* Charts — full width of the column, aspect-ratio preserved by InteractiveChart's fill-container mode */}
+                  {msg.charts && msg.charts.length > 0 && (
+                    <div className="space-y-6">
+                      {msg.charts.map((chart, i) => (
+                        <div key={i} className="space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            {chart.title && <h3 className="text-sm font-semibold text-slate-300">{chart.title}</h3>}
+                            <span className="text-[10px] uppercase tracking-wide font-mono text-amber-300/90 bg-amber-500/10 border border-amber-500/30 rounded px-1.5 py-0.5">
+                              {describeChartShape(chart.spec)}
+                            </span>
+                          </div>
+                          <div className="overflow-x-auto max-w-full rounded-lg border border-slate-700 bg-slate-800 p-3">
+                            <InteractiveChart
+                              spec={chart.spec}
+                              className="block"
+                              onViewReady={(view) => chartViewsRef.current.set(`${msg.id}-${i}`, view)}
+                            />
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              )}
+                  )}
 
-              {/* Files */}
-              {msg.files && msg.files.length > 0 && (
-                <div className="mt-2 space-y-1">
-                  {msg.files.map((file, i) => (
-                    <button
-                      key={i}
-                      onClick={() => downloadFile(file)}
-                      className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 text-sm"
-                    >
-                      <span>📄</span>
-                      <span>{file.title || file.filename}</span>
-                      <span className="text-xs text-slate-500">{formatRowCount(file.rows)}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+                  {/* Files */}
+                  {msg.files && msg.files.length > 0 && (
+                    <div className="space-y-1">
+                      {msg.files.map((file, i) => (
+                        <button
+                          key={i}
+                          onClick={() => downloadFile(file)}
+                          className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 text-sm"
+                        >
+                          <span>📄</span>
+                          <span>{file.title || file.filename}</span>
+                          <span className="text-xs text-slate-500">{formatRowCount(file.rows)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
-            {/* Debug artifacts — OUTSIDE the bubble so expanding doesn't resize it */}
-            {msg.debugArtifacts && <DebugPanel artifacts={msg.debugArtifacts} />}
-          </div>
-        ))}
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className="bg-slate-800 rounded-lg px-4 py-2">
+                  {/* Text */}
+                  {msg.text && (
+                    <div className="text-base leading-snug whitespace-pre-wrap break-words text-slate-200">
+                      {formatText(msg.text)}
+                    </div>
+                  )}
+
+                  {/* Debug artifacts trigger — opens a dialog instead of an inline dump */}
+                  {msg.debugArtifacts && (
+                    <DebugTrigger artifacts={msg.debugArtifacts} onOpen={() => setDebugModalMsgId(msg.id)} />
+                  )}
+                </div>
+              </div>
+            )
+          )}
+          {isLoading && (
+            <div className="relative flex items-start">
+              <div className="absolute -left-11 top-0 w-8 flex justify-end">
+                <div className="w-8 h-8 rounded-full bg-amber-600 flex items-center justify-center text-xs font-bold">D</div>
+              </div>
               <ThinkingIndicator />
             </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
+          )}
+          <div ref={messagesEndRef} />
         </div>
       </div>
 
       {/* Input */}
-      <div className="border-t border-slate-700 p-4 min-h-[60px] flex-shrink-0">
-        <div className="flex gap-2">
+      <div className="flex-none border-t border-slate-700 px-4 py-4">
+        <div className="max-w-4xl mx-auto flex gap-2">
           <input
             ref={inputRef}
             type="text"
@@ -581,13 +642,9 @@ const ChatDebugPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Chart preview modal */}
-      {preview && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setPreview(null)}>
-          <div className="bg-slate-800 rounded-xl p-4 max-w-4xl max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-            <InteractiveChart spec={preview.spec} onViewReady={(view) => { previewViewRef.current = view; }} />
-          </div>
-        </div>
+      {/* Debug artifacts dialog */}
+      {debugModalMsg?.debugArtifacts && (
+        <DebugModal artifacts={debugModalMsg.debugArtifacts} onClose={() => setDebugModalMsgId(null)} />
       )}
     </div>
   );
