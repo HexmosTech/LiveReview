@@ -9,22 +9,7 @@ import { useAppSelector } from '../../store/configureStore';
 import { InteractiveChart, downloadChartView } from './InteractiveChart';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { CONVERSATIONS_QUERY_KEY } from './ConversationSidebar';
-import {
-  isDailyTrendChart,
-  buildTrendSpec,
-  computeTrendStats,
-  computeMultiSeriesTrendStats,
-  formatAxisDate,
-  isCategoricalChart,
-  computeCategoryStats,
-  isBandChart,
-  computeBandStats,
-  isCalendarHeatmap,
-  computeHeatmapStats,
-  isSlopeGraph,
-  computeSlopeStats,
-  Granularity,
-} from './rebucketChart';
+import { isDailyTrendChart, buildTrendSpec, formatAxisDate, Granularity } from './rebucketChart';
 
 const GRANULARITY_OPTIONS: { value: Granularity; label: string }[] = [
   { value: 'day', label: 'Day' },
@@ -922,22 +907,23 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                         <div className="space-y-6">
                           {msg.charts.map((chart, i) => {
                             const chartKey = `${msg.id}-${i}`;
+                            // Chart pixels (the rolling-avg/baseline re-bucketing) stay a
+                            // frontend rendering concern - isDailyTrendChart/buildTrendSpec
+                            // are unchanged. The KPI numbers themselves are precomputed
+                            // backend-side (internal/chatstats.ComputeAllStats) and arrive
+                            // as chart.stats; this just picks which precomputed object to
+                            // show, with no client-side math at all.
                             const trendChart = isDailyTrendChart(chart.spec);
                             const granularity = chartGranularity[chartKey] ?? 'day';
                             const displaySpec = trendChart ? buildTrendSpec(chart.spec, granularity) : chart.spec;
-                            const trendStats = trendChart ? computeTrendStats(chart.spec, granularity) : null;
+                            const stats = chart.stats;
+                            const trendStats = stats?.kind === 'trend' ? stats[granularity] ?? null : null;
                             const multiSeriesTrendStats =
-                              trendChart && !trendStats ? computeMultiSeriesTrendStats(chart.spec, granularity) : null;
-                            const bandChart = !trendChart && isBandChart(chart.spec);
-                            const heatmapChart = !trendChart && !bandChart && isCalendarHeatmap(chart.spec);
-                            const heatmapStats = heatmapChart ? computeHeatmapStats(chart.spec) : null;
-                            const slopeChart = !trendChart && !bandChart && !heatmapChart && isSlopeGraph(chart.spec);
-                            const slopeStats = slopeChart ? computeSlopeStats(chart.spec) : null;
-                            const categoryStats =
-                              !trendChart && !bandChart && !slopeChart && isCategoricalChart(chart.spec)
-                                ? computeCategoryStats(chart.spec)
-                                : null;
-                            const bandStats = bandChart ? computeBandStats(chart.spec) : null;
+                              stats?.kind === 'multi_series_trend' ? stats[granularity] ?? null : null;
+                            const bandStats = stats?.kind === 'band' ? stats.stats : null;
+                            const heatmapStats = stats?.kind === 'heatmap' ? stats.stats : null;
+                            const slopeStats = stats?.kind === 'slope' ? stats.stats : null;
+                            const categoryStats = stats?.kind === 'category' ? stats.stats : null;
                             return (
                             <div key={chart.title || i} className="space-y-3">
                               <div className="space-y-3 !mt-2 !mb-8">

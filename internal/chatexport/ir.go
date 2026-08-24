@@ -51,6 +51,20 @@ type ExportChart struct {
 	Title       string
 	Description string
 	PNG         []byte
+	// Stats is the chart's precomputed KPI chips (see
+	// internal/chatstats.ComputeAllStats), resolved once during BuildDoc to
+	// the day-granularity view for a trend-shaped chart (matching what a
+	// reader sees opening the chat fresh) - nil when the chart's shape has
+	// no precomputed KPIs.
+	Stats []StatLine
+}
+
+// StatLine is one label/value KPI chip, the flattened form every renderer
+// (HTML/PDF/Markdown) consumes so none of them need to understand the
+// chatstats.AllStats "kind" discriminator themselves.
+type StatLine struct {
+	Label string
+	Value string
 }
 
 // ExportFile is one file attachment, summarized - not the raw payload,

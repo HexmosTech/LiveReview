@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/chatstats"
 	"github.com/livereview/internal/livisql"
 	"github.com/livereview/internal/mcpagent"
 	"github.com/livereview/internal/vlrender"
@@ -37,9 +38,14 @@ type WebChatChart struct {
 	Description string          `json:"description,omitempty"`
 	Query       string          `json:"query,omitempty"`
 	TimeRange   string          `json:"time_range,omitempty"`
-	Granularity string          `json:"granularity,omitempty"`
+	Granularity string                `json:"granularity,omitempty"`
 	Context     vlrender.ChartContext `json:"context"`
 	Spec        json.RawMessage       `json:"spec"`
+	// Stats holds the precomputed KPI chips for this chart (Total/Avg per
+	// period/Peak/Low/Trend etc.) - see internal/chatstats.ComputeAllStats.
+	// Nil when the spec doesn't match any of the shapes chatstats knows how
+	// to summarize.
+	Stats json.RawMessage `json:"stats,omitempty"`
 	// ID is only set for a chart loaded back from persistence (GetConversation,
 	// RenderChart) - a chart freshly produced within a live turn has none yet.
 	ID int64 `json:"id,omitempty"`
@@ -343,6 +349,7 @@ func persistAssistantMessage(ctx context.Context, chatStore *storagechat.Store, 
 			Context:               ch.Context,
 			TriggeringUserMessage: userText,
 			VegaSpec:              ch.Spec,
+			Stats:                 ch.Stats,
 			RawLLMOutput:          rawLLMOutput,
 		})
 	}
@@ -408,7 +415,11 @@ func extractChartsFromVega(text string) ([]WebChatChart, string, error) {
 	if vlrender.SpecIsTrivial(spec) {
 		return nil, text, vlrender.ErrTrivialSpec
 	}
-	return []WebChatChart{{Title: "LiveReview Chart", Spec: json.RawMessage(spec)}}, stripVegaBlocks(text), nil
+	stats, statsErr := chatstats.ComputeAllStats(spec)
+	if statsErr != nil {
+		log.Warn().Err(statsErr).Msg("chart stats computation failed for text-extracted spec, continuing without stats")
+	}
+	return []WebChatChart{{Title: "LiveReview Chart", Spec: json.RawMessage(spec), Stats: stats}}, stripVegaBlocks(text), nil
 }
 
 func reportsToCharts(reports []vlrender.VegaLiteReport) ([]WebChatChart, error) {
@@ -432,6 +443,7 @@ func reportsToCharts(reports []vlrender.VegaLiteReport) ([]WebChatChart, error) 
 			Granularity: r.Granularity,
 			Context:     r.Context,
 			Spec:        json.RawMessage(spec),
+			Stats:       r.Stats,
 		})
 	}
 	if len(charts) == 0 {

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/livereview/internal/chatstats"
 	"github.com/livereview/internal/livisql"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/vlrender"
@@ -714,6 +715,11 @@ func (a *Agent) buildChartReport(
 	}
 	description := a.regenerateDescription(ctx, entry, plan, rs, clog)
 
+	stats, err := chatstats.ComputeAllStats(normalized)
+	if err != nil {
+		log.Warn().Err(err).Str("report", entry.ID).Msg("chart stats computation failed, continuing without stats")
+	}
+
 	clog.ReportFinalized(entry.ID, ResponseTypeChart, plan.Title, len(rs.Rows))
 	return finishedReport{report: &vlrender.VegaLiteReport{
 		Title:       plan.Title,
@@ -722,6 +728,7 @@ func (a *Agent) buildChartReport(
 		TimeRange:   timeRange,
 		Granularity: plan.Granularity,
 		Spec:        normalized,
+		Stats:       stats,
 	}}
 }
 
@@ -1856,6 +1863,11 @@ func (a *Agent) buildChartFromInterp(
 		title = interp.ChartType + " chart"
 	}
 
+	stats, err := chatstats.ComputeAllStats(normalized)
+	if err != nil {
+		log.Warn().Err(err).Str("interp", interp.Title).Msg("chart stats computation failed, continuing without stats")
+	}
+
 	clog.ReportFinalized(title, ResponseTypeChart, title, len(rs.Rows))
 	return &vlrender.VegaLiteReport{
 		Title:       title,
@@ -1865,6 +1877,7 @@ func (a *Agent) buildChartFromInterp(
 		Granularity: interp.Granularity,
 		Context:     interp.Context,
 		Spec:        normalized,
+		Stats:       stats,
 	}, nil
 }
 

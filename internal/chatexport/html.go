@@ -105,6 +105,14 @@ func renderTurnHTML(body *strings.Builder, md goldmark.Markdown, anchor string, 
 			fmt.Fprintf(body, "<figcaption><strong>%s</strong> %s</figcaption>\n",
 				html.EscapeString(chart.Title), html.EscapeString(chart.Description))
 		}
+		if len(chart.Stats) > 0 {
+			body.WriteString("<ul class=\"stat-list\">\n")
+			for _, stat := range chart.Stats {
+				fmt.Fprintf(body, "<li><strong>%s:</strong> %s</li>\n",
+					html.EscapeString(stat.Label), html.EscapeString(stat.Value))
+			}
+			body.WriteString("</ul>\n")
+		}
 		body.WriteString("</figure>\n")
 	}
 
@@ -175,7 +183,15 @@ p.kicker{font-size:11px;margin:0 0 10px;color:var(--muted);letter-spacing:.03em;
 section.turn img{max-width:100%;height:auto;border-radius:4px;display:block;}
 section.turn p:last-child,section.turn ul:last-child,section.turn ol:last-child{margin-bottom:0;}
 figure.chart{margin:16px 0;background:#fff;padding:14px;border-radius:8px;border:1px solid var(--border);}
-figcaption{font-size:13px;color:var(--muted);margin-top:6px;}
+/* figure.chart's background is a fixed #fff regardless of light/dark mode
+   (matching the embedded PNG's own white background - see build.go/analytics.go's
+   comment on why the chart spec forces a white background). Text inside it
+   must therefore use fixed colors too, not the theme-adaptive --fg/--muted
+   vars: in dark mode those resolve to near-white, which is nearly invisible
+   against this always-white card. */
+figcaption{font-size:13px;color:#64748b;margin-top:6px;}
+ul.stat-list{margin:10px 0 0;padding-left:20px;font-size:13px;color:#1f2937;}
+ul.stat-list li:last-child{margin-bottom:0;}
 table.files{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;}
 table.files th,table.files td{border:1px solid var(--border);padding:6px 10px;text-align:left;}
 table.files th{background:var(--table-bg);color:var(--muted);font-weight:600;}

@@ -162,6 +162,16 @@ func writeTurn(b *strings.Builder, bookmarks *[]BookmarkEntry, turn ExportTurn, 
 		if chart.Description != "" {
 			fmt.Fprintf(b, "*%s*\n\n", sanitizeInline(chart.Description))
 		}
+		if len(chart.Stats) > 0 {
+			// A bullet list, not trailing-space hard breaks: goldmark-pdf
+			// doesn't reliably honor a "  \n" hard break within a single
+			// paragraph (it rendered every stat run together on one line),
+			// while a list is its own block per item in both PDF and HTML.
+			for _, stat := range chart.Stats {
+				fmt.Fprintf(b, "- **%s:** %s\n", sanitizeInline(stat.Label), sanitizeInline(stat.Value))
+			}
+			b.WriteString("\n")
+		}
 		dataURI := "data:image/png;base64," + base64.StdEncoding.EncodeToString(chart.PNG)
 		// Alt text deliberately empty: goldmark-pdf's image node renderer
 		// doesn't skip walking its children after placing the image (it

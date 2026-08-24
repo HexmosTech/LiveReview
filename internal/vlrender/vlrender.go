@@ -33,6 +33,11 @@ type VegaLiteReport struct {
 	Granularity string          `json:"granularity,omitempty"`
 	Context     ChartContext    `json:"context"`
 	Spec        json.RawMessage `json:"spec"`
+	// Stats holds the precomputed KPI chips for this chart (Total/Avg per
+	// period/Peak/Low/Trend etc.) - see internal/chatstats.ComputeAllStats.
+	// Nil when the spec doesn't match any of the shapes chatstats knows how
+	// to summarize (e.g. a layered/faceted spec).
+	Stats json.RawMessage `json:"stats,omitempty"`
 }
 
 // ChartContext names who or what a chart/export is scoped to. Organization

@@ -76,6 +76,7 @@ type Chart struct {
 	Context               vlrender.ChartContext
 	TriggeringUserMessage string
 	VegaSpec              []byte // raw JSON
+	Stats                 []byte // raw JSON; nil when the chart's shape has no precomputed KPIs
 	RawLLMOutput          string
 	CreatedAt             time.Time
 }

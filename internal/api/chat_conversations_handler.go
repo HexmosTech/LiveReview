@@ -180,6 +180,7 @@ func (s *Server) GetConversation(c echo.Context) error {
 				Granularity: ch.Granularity,
 				Context:     ch.Context,
 				Spec:        json.RawMessage(ch.VegaSpec),
+				Stats:       json.RawMessage(ch.Stats),
 				ID:          ch.ID,
 			})
 		}
@@ -291,6 +292,7 @@ func (s *Server) RenderChart(c echo.Context) error {
 			Granularity: chart.Granularity,
 			Context:     chart.Context,
 			Spec:        json.RawMessage(chart.VegaSpec),
+			Stats:       json.RawMessage(chart.Stats),
 			ID:          chart.ID,
 		})
 	case "png":

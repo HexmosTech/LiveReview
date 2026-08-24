@@ -579,7 +579,8 @@ CREATE TABLE public.chat_charts (
     vega_spec jsonb NOT NULL,
     raw_llm_output text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    context jsonb
+    context jsonb,
+    stats jsonb
 );
 
 
@@ -6331,4 +6332,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260820141616'),
     ('20260821120000'),
     ('20260823120000'),
-    ('20260823200000');
+    ('20260823200000'),
+    ('20260824190000');

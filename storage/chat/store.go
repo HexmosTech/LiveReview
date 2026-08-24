@@ -61,6 +61,7 @@ type ChartInput struct {
 	Context               vlrender.ChartContext
 	TriggeringUserMessage string
 	VegaSpec              json.RawMessage
+	Stats                 json.RawMessage
 	RawLLMOutput          string
 }
 
@@ -313,9 +314,9 @@ func (s *Store) AppendAssistantMessage(ctx context.Context, convID int64, assist
 			return 0, nil, fmt.Errorf("marshal chart context: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO chat_charts (message_id, title, description, query, time_range, granularity, context, triggering_user_message, vega_spec, raw_llm_output)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		`, msgID, ch.Title, ch.Description, ch.Query, ch.TimeRange, ch.Granularity, ctxJSON, ch.TriggeringUserMessage, []byte(ch.VegaSpec), ch.RawLLMOutput); err != nil {
+			INSERT INTO chat_charts (message_id, title, description, query, time_range, granularity, context, triggering_user_message, vega_spec, stats, raw_llm_output)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		`, msgID, ch.Title, ch.Description, ch.Query, ch.TimeRange, ch.Granularity, ctxJSON, ch.TriggeringUserMessage, []byte(ch.VegaSpec), []byte(ch.Stats), ch.RawLLMOutput); err != nil {
 			return 0, nil, fmt.Errorf("insert chat_charts: %w", err)
 		}
 	}
@@ -425,7 +426,7 @@ func (s *Store) ListMessages(ctx context.Context, orgID, userID, convID int64) (
 
 	chartRows, err := s.db.QueryContext(ctx, `
 		SELECT id, message_id, COALESCE(title, ''), COALESCE(description, ''), COALESCE(query, ''),
-			COALESCE(time_range, ''), COALESCE(granularity, ''), context, triggering_user_message, vega_spec, raw_llm_output, created_at
+			COALESCE(time_range, ''), COALESCE(granularity, ''), context, triggering_user_message, vega_spec, stats, raw_llm_output, created_at
 		FROM chat_charts
 		WHERE message_id = ANY($1)
 	`, pq.Array(ids))
@@ -435,12 +436,13 @@ func (s *Store) ListMessages(ctx context.Context, orgID, userID, convID int64) (
 	defer chartRows.Close()
 	for chartRows.Next() {
 		var ch domainchat.Chart
-		var specJSON, ctxJSON []byte
+		var specJSON, ctxJSON, statsJSON []byte
 		if err := chartRows.Scan(&ch.ID, &ch.MessageID, &ch.Title, &ch.Description, &ch.Query, &ch.TimeRange,
-			&ch.Granularity, &ctxJSON, &ch.TriggeringUserMessage, &specJSON, &ch.RawLLMOutput, &ch.CreatedAt); err != nil {
+			&ch.Granularity, &ctxJSON, &ch.TriggeringUserMessage, &specJSON, &statsJSON, &ch.RawLLMOutput, &ch.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan chat_charts: %w", err)
 		}
 		ch.VegaSpec = specJSON
+		ch.Stats = statsJSON
 		if len(ctxJSON) > 0 {
 			if err := json.Unmarshal(ctxJSON, &ch.Context); err != nil {
 				return nil, fmt.Errorf("unmarshal chart context: %w", err)
@@ -517,7 +519,7 @@ func (s *Store) GetFile(ctx context.Context, orgID, userID, fileID int64) (*doma
 func (s *Store) GetChart(ctx context.Context, orgID, userID, chartID int64) (*domainchat.Chart, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT ch.id, ch.message_id, COALESCE(ch.title, ''), COALESCE(ch.description, ''), COALESCE(ch.query, ''),
-			COALESCE(ch.time_range, ''), COALESCE(ch.granularity, ''), ch.context, ch.triggering_user_message, ch.vega_spec, ch.raw_llm_output, ch.created_at
+			COALESCE(ch.time_range, ''), COALESCE(ch.granularity, ''), ch.context, ch.triggering_user_message, ch.vega_spec, ch.stats, ch.raw_llm_output, ch.created_at
 		FROM chat_charts ch
 		JOIN chat_messages m ON m.id = ch.message_id
 		JOIN chat_conversations c ON c.id = m.conversation_id
@@ -525,9 +527,9 @@ func (s *Store) GetChart(ctx context.Context, orgID, userID, chartID int64) (*do
 	`, chartID, orgID, userID)
 
 	var ch domainchat.Chart
-	var specJSON, ctxJSON []byte
+	var specJSON, ctxJSON, statsJSON []byte
 	err := row.Scan(&ch.ID, &ch.MessageID, &ch.Title, &ch.Description, &ch.Query, &ch.TimeRange,
-		&ch.Granularity, &ctxJSON, &ch.TriggeringUserMessage, &specJSON, &ch.RawLLMOutput, &ch.CreatedAt)
+		&ch.Granularity, &ctxJSON, &ch.TriggeringUserMessage, &specJSON, &statsJSON, &ch.RawLLMOutput, &ch.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -535,6 +537,7 @@ func (s *Store) GetChart(ctx context.Context, orgID, userID, chartID int64) (*do
 		return nil, fmt.Errorf("select chat_charts: %w", err)
 	}
 	ch.VegaSpec = specJSON
+	ch.Stats = statsJSON
 	if len(ctxJSON) > 0 {
 		if err := json.Unmarshal(ctxJSON, &ch.Context); err != nil {
 			return nil, fmt.Errorf("unmarshal chart context: %w", err)
