@@ -165,6 +165,8 @@ module.exports =  (env, options)=> {
                 'process.env.REACT_APP_API_URL': JSON.stringify(process.env.API_URL || process.env.REACT_APP_API_URL),
                 // Expose cloud/self-hosted flag from root .env to browser
                 'process.env.LIVEREVIEW_IS_CLOUD': JSON.stringify(process.env.LIVEREVIEW_IS_CLOUD || ''),
+                // Gates debug-only routes like /chat-debug (see utils/deploymentMode.ts)
+                'process.env.LIVI_DEBUG_LOG': JSON.stringify(process.env.LIVI_DEBUG_LOG || ''),
                 // Cloud-only: Analytics and notification secrets (empty = disabled)
                 'process.env.LR_CLARITY_ID': JSON.stringify(process.env.LR_CLARITY_ID || ''),
                 'process.env.LR_DISCORD_PROXY_URL': JSON.stringify(process.env.LR_DISCORD_PROXY_URL || ''),

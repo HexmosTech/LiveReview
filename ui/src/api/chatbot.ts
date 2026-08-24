@@ -5,6 +5,15 @@ export interface ChatMessage {
   text: string;
 }
 
+// Who/what a chart or export is scoped to. organization is always the real
+// org name; repository/person list the specific names the question narrows
+// to, empty when the question names none.
+export interface ChartContext {
+  organization: string;
+  repository?: string[];
+  person?: string[];
+}
+
 // A chart report the backend hands back as a raw Vega-Lite spec rather than a
 // rendered image, so the frontend can render it interactively (tooltips,
 // hover, legend filtering) instead of a flat PNG. `id` is only present once
@@ -17,7 +26,7 @@ export interface ChatChart {
   query?: string;
   time_range?: string;
   granularity?: string;
-  context?: string[];
+  context?: ChartContext;
   spec: Record<string, unknown>;
 }
 
@@ -32,7 +41,7 @@ export interface ChatFile {
   query?: string;
   time_range?: string;
   granularity?: string;
-  context?: string[];
+  context?: ChartContext;
   rows?: number;
 }
 

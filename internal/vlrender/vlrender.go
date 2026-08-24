@@ -31,8 +31,34 @@ type VegaLiteReport struct {
 	Query       string          `json:"query,omitempty"`
 	TimeRange   string          `json:"time_range,omitempty"`
 	Granularity string          `json:"granularity,omitempty"`
-	Context     []string        `json:"context,omitempty"`
+	Context     ChartContext    `json:"context"`
 	Spec        json.RawMessage `json:"spec"`
+}
+
+// ChartContext names who or what a chart/export is scoped to. Organization
+// is always the real org name - every query is org-scoped regardless of
+// whether it's also narrowed to specific repositories or people.
+type ChartContext struct {
+	Organization string   `json:"organization"`
+	Repository   []string `json:"repository,omitempty"`
+	Person       []string `json:"person,omitempty"`
+}
+
+// Format renders a ChartContext as one plain-text line, for surfaces (Slack,
+// Discord, Teams plain-text fallback) that show a single string rather than
+// the structured object the web chat UI renders as separate bullet points.
+func (c ChartContext) Format() string {
+	var parts []string
+	if c.Organization != "" {
+		parts = append(parts, "Organization: "+c.Organization)
+	}
+	if len(c.Repository) > 0 {
+		parts = append(parts, "Repository: "+strings.Join(c.Repository, ", "))
+	}
+	if len(c.Person) > 0 {
+		parts = append(parts, "Person: "+strings.Join(c.Person, ", "))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // Report is a rendered chart. PNGData holds the in-memory image; PNGPath is the
@@ -148,8 +174,8 @@ func TrivialDescription(raw string) (desc string, query string, timeRange string
 			if strings.TrimSpace(r.Granularity) != "" {
 				granularities = append(granularities, r.Granularity)
 			}
-			if joined := strings.Join(r.Context, ", "); joined != "" {
-				contexts = append(contexts, joined)
+			if formatted := r.Context.Format(); formatted != "" {
+				contexts = append(contexts, formatted)
 			}
 		}
 		if !trivial {
@@ -169,7 +195,7 @@ func TrivialDescription(raw string) (desc string, query string, timeRange string
 		if !SpecIsTrivial(spec) {
 			return "", "", "", "", "", false
 		}
-		return wrapped.Description, wrapped.Query, wrapped.TimeRange, wrapped.Granularity, strings.Join(wrapped.Context, ", "), true
+		return wrapped.Description, wrapped.Query, wrapped.TimeRange, wrapped.Granularity, wrapped.Context.Format(), true
 	}
 
 	var m map[string]any
@@ -186,15 +212,11 @@ func TrivialDescription(raw string) (desc string, query string, timeRange string
 	q, _ := m["query"].(string)
 	tr, _ := m["time_range"].(string)
 	g, _ := m["granularity"].(string)
-	var ctxParts []string
-	if arr, ok := m["context"].([]any); ok {
-		for _, v := range arr {
-			if s, ok := v.(string); ok {
-				ctxParts = append(ctxParts, s)
-			}
-		}
+	var chartCtx ChartContext
+	if raw, err := json.Marshal(m["context"]); err == nil {
+		_ = json.Unmarshal(raw, &chartCtx)
 	}
-	ctx := strings.Join(ctxParts, ", ")
+	ctx := chartCtx.Format()
 	if d, ok := m["description"].(string); ok {
 		return d, q, tr, g, ctx, true
 	}

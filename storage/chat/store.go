@@ -17,6 +17,7 @@ import (
 	"github.com/lib/pq"
 	domainchat "github.com/livereview/internal/chat"
 	"github.com/livereview/internal/mcpagent"
+	"github.com/livereview/internal/vlrender"
 )
 
 // ErrNotFound is returned when a conversation/chart doesn't exist, is soft
@@ -57,7 +58,7 @@ type ChartInput struct {
 	Query                 string
 	TimeRange             string
 	Granularity           string
-	Context               []string
+	Context               vlrender.ChartContext
 	TriggeringUserMessage string
 	VegaSpec              json.RawMessage
 	RawLLMOutput          string
@@ -73,7 +74,7 @@ type FileInput struct {
 	Query       string
 	TimeRange   string
 	Granularity string
-	Context     []string
+	Context     vlrender.ChartContext
 	Rows        int
 	Data        []byte
 }
@@ -307,10 +308,14 @@ func (s *Store) AppendAssistantMessage(ctx context.Context, convID int64, assist
 	}
 
 	for _, ch := range charts {
+		ctxJSON, err := json.Marshal(ch.Context)
+		if err != nil {
+			return 0, nil, fmt.Errorf("marshal chart context: %w", err)
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO chat_charts (message_id, title, description, query, time_range, granularity, context, triggering_user_message, vega_spec, raw_llm_output)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		`, msgID, ch.Title, ch.Description, ch.Query, ch.TimeRange, ch.Granularity, pq.Array(ch.Context), ch.TriggeringUserMessage, []byte(ch.VegaSpec), ch.RawLLMOutput); err != nil {
+		`, msgID, ch.Title, ch.Description, ch.Query, ch.TimeRange, ch.Granularity, ctxJSON, ch.TriggeringUserMessage, []byte(ch.VegaSpec), ch.RawLLMOutput); err != nil {
 			return 0, nil, fmt.Errorf("insert chat_charts: %w", err)
 		}
 	}
@@ -318,11 +323,15 @@ func (s *Store) AppendAssistantMessage(ctx context.Context, convID int64, assist
 	fileIDs = make([]int64, 0, len(files))
 	for _, f := range files {
 		var fileID int64
+		ctxJSON, err := json.Marshal(f.Context)
+		if err != nil {
+			return 0, nil, fmt.Errorf("marshal file context: %w", err)
+		}
 		if err := tx.QueryRowContext(ctx, `
 			INSERT INTO chat_files (message_id, kind, filename, title, description, query, time_range, granularity, context, rows, data)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 			RETURNING id
-		`, msgID, f.Kind, f.Filename, nullable(f.Title), nullable(f.Description), nullable(f.Query), nullable(f.TimeRange), nullable(f.Granularity), pq.Array(f.Context), f.Rows, f.Data).Scan(&fileID); err != nil {
+		`, msgID, f.Kind, f.Filename, nullable(f.Title), nullable(f.Description), nullable(f.Query), nullable(f.TimeRange), nullable(f.Granularity), ctxJSON, f.Rows, f.Data).Scan(&fileID); err != nil {
 			return 0, nil, fmt.Errorf("insert chat_files: %w", err)
 		}
 		fileIDs = append(fileIDs, fileID)
@@ -426,12 +435,17 @@ func (s *Store) ListMessages(ctx context.Context, orgID, userID, convID int64) (
 	defer chartRows.Close()
 	for chartRows.Next() {
 		var ch domainchat.Chart
-		var specJSON []byte
+		var specJSON, ctxJSON []byte
 		if err := chartRows.Scan(&ch.ID, &ch.MessageID, &ch.Title, &ch.Description, &ch.Query, &ch.TimeRange,
-			&ch.Granularity, pq.Array(&ch.Context), &ch.TriggeringUserMessage, &specJSON, &ch.RawLLMOutput, &ch.CreatedAt); err != nil {
+			&ch.Granularity, &ctxJSON, &ch.TriggeringUserMessage, &specJSON, &ch.RawLLMOutput, &ch.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan chat_charts: %w", err)
 		}
 		ch.VegaSpec = specJSON
+		if len(ctxJSON) > 0 {
+			if err := json.Unmarshal(ctxJSON, &ch.Context); err != nil {
+				return nil, fmt.Errorf("unmarshal chart context: %w", err)
+			}
+		}
 		if idx, ok := msgIdx[ch.MessageID]; ok {
 			messages[idx].Charts = append(messages[idx].Charts, ch)
 		}
@@ -451,9 +465,15 @@ func (s *Store) ListMessages(ctx context.Context, orgID, userID, convID int64) (
 	defer fileRows.Close()
 	for fileRows.Next() {
 		var f domainchat.File
+		var ctxJSON []byte
 		if err := fileRows.Scan(&f.ID, &f.MessageID, &f.Kind, &f.Filename, &f.Title, &f.Description, &f.Query,
-			&f.TimeRange, &f.Granularity, pq.Array(&f.Context), &f.Rows, &f.Data, &f.CreatedAt); err != nil {
+			&f.TimeRange, &f.Granularity, &ctxJSON, &f.Rows, &f.Data, &f.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan chat_files: %w", err)
+		}
+		if len(ctxJSON) > 0 {
+			if err := json.Unmarshal(ctxJSON, &f.Context); err != nil {
+				return nil, fmt.Errorf("unmarshal file context: %w", err)
+			}
 		}
 		if idx, ok := msgIdx[f.MessageID]; ok {
 			messages[idx].Files = append(messages[idx].Files, f)
@@ -476,12 +496,18 @@ func (s *Store) GetFile(ctx context.Context, orgID, userID, fileID int64) (*doma
 	`, fileID, orgID, userID)
 
 	var f domainchat.File
+	var ctxJSON []byte
 	if err := row.Scan(&f.ID, &f.MessageID, &f.Kind, &f.Filename, &f.Title, &f.Description, &f.Query,
-		&f.TimeRange, &f.Granularity, pq.Array(&f.Context), &f.Rows, &f.Data, &f.CreatedAt); err != nil {
+		&f.TimeRange, &f.Granularity, &ctxJSON, &f.Rows, &f.Data, &f.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("select chat_files: %w", err)
+	}
+	if len(ctxJSON) > 0 {
+		if err := json.Unmarshal(ctxJSON, &f.Context); err != nil {
+			return nil, fmt.Errorf("unmarshal file context: %w", err)
+		}
 	}
 	return &f, nil
 }
@@ -499,9 +525,9 @@ func (s *Store) GetChart(ctx context.Context, orgID, userID, chartID int64) (*do
 	`, chartID, orgID, userID)
 
 	var ch domainchat.Chart
-	var specJSON []byte
+	var specJSON, ctxJSON []byte
 	err := row.Scan(&ch.ID, &ch.MessageID, &ch.Title, &ch.Description, &ch.Query, &ch.TimeRange,
-		&ch.Granularity, pq.Array(&ch.Context), &ch.TriggeringUserMessage, &specJSON, &ch.RawLLMOutput, &ch.CreatedAt)
+		&ch.Granularity, &ctxJSON, &ch.TriggeringUserMessage, &specJSON, &ch.RawLLMOutput, &ch.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -509,6 +535,11 @@ func (s *Store) GetChart(ctx context.Context, orgID, userID, chartID int64) (*do
 		return nil, fmt.Errorf("select chat_charts: %w", err)
 	}
 	ch.VegaSpec = specJSON
+	if len(ctxJSON) > 0 {
+		if err := json.Unmarshal(ctxJSON, &ch.Context); err != nil {
+			return nil, fmt.Errorf("unmarshal chart context: %w", err)
+		}
+	}
 	return &ch, nil
 }
 

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { View } from 'vega';
-import { sendChatMessage, ChatFile, ChatChart } from '../../api/chatbot';
+import { sendChatMessage, ChatFile, ChatChart, ChartContext } from '../../api/chatbot';
 import { basePathForSurface, createConversation, getConversation, type ChatSurface } from '../../api/chatConversations';
 import { BASE_URL, authFetch } from '../../api/apiClient';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -58,6 +58,20 @@ const StatChip: React.FC<{ label: string; value: string }> = ({ label, value }) 
     <div className="text-[11px] text-slate-500">{label}</div>
     <div className="text-xs text-slate-300 font-medium break-words">{value}</div>
   </div>
+);
+
+// Who/what a chart or export is scoped to, always shown as three bullet
+// points (Organization/Repository/Person) rather than one flattened line.
+const ContextDetails: React.FC<{ context: ChartContext }> = ({ context }) => (
+  <>
+    <p><span className="not-italic font-medium text-slate-400">Organization:</span> {context.organization}</p>
+    {context.repository && context.repository.length > 0 && (
+      <p><span className="not-italic font-medium text-slate-400">Repository:</span> {context.repository.join(', ')}</p>
+    )}
+    {context.person && context.person.length > 0 && (
+      <p><span className="not-italic font-medium text-slate-400">Person:</span> {context.person.join(', ')}</p>
+    )}
+  </>
 );
 
 // Debug artifacts (SQL, CSV, Vega spec, schema context, system prompt, raw
@@ -1073,15 +1087,13 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                                   />
                                 </div>
                               )}
-                              {(chart.query || chart.time_range || chart.granularity || (chart.context && chart.context.length > 0)) && (
+                              {(chart.query || chart.time_range || chart.granularity || chart.context) && (
                                 <details className="group mt-1">
                                   <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
                                     Data details
                                   </summary>
                                   <div className="mt-1.5 space-y-1 text-xs text-slate-400 italic">
-                                    {chart.context && chart.context.length > 0 && (
-                                      <p><span className="not-italic font-medium text-slate-400">Context:</span> {chart.context.join(', ')}</p>
-                                    )}
+                                    {chart.context && <ContextDetails context={chart.context} />}
                                     {chart.time_range && (
                                       <p><span className="not-italic font-medium text-slate-400">Time range:</span> {chart.time_range}</p>
                                     )}
@@ -1126,15 +1138,13 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                               {file.description && (
                                 <p className="text-sm text-slate-300 whitespace-pre-line">{file.description}</p>
                               )}
-                              {(file.query || file.time_range || file.granularity || (file.context && file.context.length > 0)) && (
+                              {(file.query || file.time_range || file.granularity || file.context) && (
                                 <details className="group mt-1">
                                   <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
                                     Data details
                                   </summary>
                                   <div className="mt-1.5 space-y-1 text-xs text-slate-400 italic">
-                                    {file.context && file.context.length > 0 && (
-                                      <p><span className="not-italic font-medium text-slate-400">Context:</span> {file.context.join(', ')}</p>
-                                    )}
+                                    {file.context && <ContextDetails context={file.context} />}
                                     {file.time_range && (
                                       <p><span className="not-italic font-medium text-slate-400">Time range:</span> {file.time_range}</p>
                                     )}

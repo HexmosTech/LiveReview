@@ -8,6 +8,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
 	"github.com/livereview/internal/mcpagent"
+	"github.com/livereview/internal/vlrender"
 	storagechat "github.com/livereview/storage/chat"
 )
 
@@ -27,8 +28,8 @@ type WebChatFile struct {
 	Query       string `json:"query,omitempty"`
 	TimeRange   string `json:"time_range,omitempty"`
 	Granularity string `json:"granularity,omitempty"`
-	Context     []string `json:"context,omitempty"`
-	Rows        int      `json:"rows,omitempty"`
+	Context     vlrender.ChartContext `json:"context"`
+	Rows        int                   `json:"rows,omitempty"`
 }
 
 // chatFileURL builds the stable, auth-scoped download URL for a persisted file.

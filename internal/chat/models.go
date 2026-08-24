@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/livereview/internal/mcpagent"
+	"github.com/livereview/internal/vlrender"
 )
 
 // Conversation is one persisted Livi chat thread, owned by a single user
@@ -54,7 +55,7 @@ type File struct {
 	Query       string
 	TimeRange   string
 	Granularity string
-	Context     []string
+	Context     vlrender.ChartContext
 	Rows        int
 	Data        []byte
 	CreatedAt   time.Time
@@ -72,7 +73,7 @@ type Chart struct {
 	Query                 string
 	TimeRange             string
 	Granularity           string
-	Context               []string
+	Context               vlrender.ChartContext
 	TriggeringUserMessage string
 	VegaSpec              []byte // raw JSON
 	RawLLMOutput          string

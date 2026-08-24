@@ -51,7 +51,7 @@ type Artifact struct {
 	Query       string
 	TimeRange   string
 	Granularity string
-	Context     []string
+	Context     vlrender.ChartContext
 	Data        []byte
 	Rows        int
 }
@@ -82,7 +82,7 @@ type Interpretation struct {
 	QuerySummary string         `json:"query_summary,omitempty"`
 	TimeWindow   string         `json:"time_range,omitempty"`
 	Granularity  string         `json:"granularity,omitempty"`
-	Context      []string       `json:"context,omitempty"`
+	Context      vlrender.ChartContext `json:"context"`
 }
 
 // InterpretationResult pairs an interpretation with its executed outcome.

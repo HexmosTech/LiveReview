@@ -38,8 +38,8 @@ type WebChatChart struct {
 	Query       string          `json:"query,omitempty"`
 	TimeRange   string          `json:"time_range,omitempty"`
 	Granularity string          `json:"granularity,omitempty"`
-	Context     []string        `json:"context,omitempty"`
-	Spec        json.RawMessage `json:"spec"`
+	Context     vlrender.ChartContext `json:"context"`
+	Spec        json.RawMessage       `json:"spec"`
 	// ID is only set for a chart loaded back from persistence (GetConversation,
 	// RenderChart) - a chart freshly produced within a live turn has none yet.
 	ID int64 `json:"id,omitempty"`
