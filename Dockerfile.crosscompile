@@ -97,20 +97,20 @@ RUN echo "📥 Installing dbmate for ${TARGETARCH}..." && \
     echo "dbmate installed successfully for ${TARGETARCH}"
 
 # Stage 3: Create minimal runtime container for target architecture
-FROM alpine:3.18
+FROM debian:bookworm-slim
 LABEL maintainer="LiveReview Team"
 LABEL description="LiveReview - AI-powered code review tool (cross-compiled)"
 
 # Install runtime dependencies
 RUN echo "🔧 Installing runtime dependencies..." && \
-    apk add --no-cache \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     postgresql-client \
     tzdata \
     unzip \
-    gcompat \
-    && rm -rf /var/cache/apk/* && \
+    && rm -rf /var/lib/apt/lists/* && \
     echo "Runtime dependencies installed successfully"
 
 # Download vl-convert binary for target architecture
