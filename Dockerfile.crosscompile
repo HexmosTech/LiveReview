@@ -21,7 +21,7 @@ RUN echo "🔨 Building UI for SELF-HOSTED deployment (is_cloud=false)..." && \
     echo "✅ UI build completed successfully"
 
 # Stage 2: Cross-compile all binaries for all architectures in one stage
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS builder
 
 # Accept target platform args (injected by buildx)
 ARG TARGETOS
@@ -33,7 +33,9 @@ WORKDIR /app
 
 # Install build dependencies
 RUN echo "🔧 Installing Go build dependencies..." && \
-    apk add --no-cache curl git ca-certificates
+    apt-get update && \
+    apt-get install -y --no-install-recommends curl git ca-certificates gcc && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy Go module files and download dependencies
 COPY go.mod go.sum ./
@@ -54,7 +56,7 @@ ARG GIT_COMMIT=unknown
 
 # Cross-compile main Go binary for target architecture
 RUN echo "🔨 Cross-compiling LiveReview binary for ${TARGETOS}/${TARGETARCH}${TARGETVARIANT:+/${TARGETVARIANT}} with version: ${VERSION} (tags: ${GO_BUILD_TAGS})" && \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     $([ "$TARGETARCH" = "arm" ] && [ "$TARGETVARIANT" = "v7" ] && echo "GOARM=7" || echo "") \
     go build \
     -tags "${GO_BUILD_TAGS}" \
@@ -137,27 +139,29 @@ RUN echo "📥 Downloading codebase-memory-mcp binary..." && \
 # Download dbctx binary for target architecture
 RUN echo "📥 Downloading dbctx binary..." && \
     DBCTX_ARCH=$(uname -m | sed 's/x86_64/linux_amd64/' | sed 's/aarch64/linux_arm64/') && \
-    curl -sL --fail "https://github.com/shrsv/dbctx/releases/download/v0.1.0/dbctx_${DBCTX_ARCH}.tar.gz" \
+    curl -L --fail "https://github.com/shrsv/dbctx/releases/download/v0.1.0/dbctx_${DBCTX_ARCH}.tar.gz" \
         -o /tmp/dbctx.tar.gz && \
-    tar -xzf /tmp/dbctx.tar.gz -C /usr/local/bin/ && \
+    tar -xzf /tmp/dbctx.tar.gz -C /tmp/ && \
+    mv /tmp/dbctx_${DBCTX_ARCH} /usr/local/bin/dbctx && \
     chmod +x /usr/local/bin/dbctx && \
     rm -f /tmp/dbctx.tar.gz && \
-    echo "dbctx installed: $(/usr/local/bin/dbctx --version 2>&1 || true)"
+    echo "dbctx installed: $(/usr/local/bin/dbctx --help 2>&1 | head -1)"
 
 # Download AgentLaws (alaws) binary for target architecture
 RUN echo "📥 Downloading AgentLaws binary..." && \
     ALAWS_ARCH=$(uname -m | sed 's/x86_64/linux_amd64/' | sed 's/aarch64/linux_arm64/') && \
-    curl -sL --fail "https://github.com/shrsv/AgentLaws/releases/download/v0.1.0/alaws_${ALAWS_ARCH}.tar.gz" \
+    curl -L --fail "https://github.com/shrsv/AgentLaws/releases/download/v0.1.0/alaws_${ALAWS_ARCH}.tar.gz" \
         -o /tmp/alaws.tar.gz && \
-    tar -xzf /tmp/alaws.tar.gz -C /usr/local/bin/ && \
+    tar -xzf /tmp/alaws.tar.gz -C /tmp/ && \
+    mv /tmp/alaws_${ALAWS_ARCH} /usr/local/bin/alaws && \
     chmod +x /usr/local/bin/alaws && \
     rm -f /tmp/alaws.tar.gz && \
-    echo "AgentLaws installed: $(/usr/local/bin/alaws --version 2>&1 || true)"
+    echo "AgentLaws installed: $(/usr/local/bin/alaws --help 2>&1 | head -1)"
 
 # Create non-root user for security
 RUN echo "👤 Creating non-root user..." && \
-    addgroup -g 1001 -S livereview && \
-    adduser -u 1001 -S livereview -G livereview && \
+    groupadd -g 1001 livereview && \
+    useradd -u 1001 -g livereview -s /bin/sh livereview && \
     echo "User 'livereview' created successfully"
 
 # Create directories
