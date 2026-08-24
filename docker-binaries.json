@@ -1,7 +1,7 @@
 {
   "_comment": "Version config for external binaries bundled in Docker images. Update consciously.",
   "vl-convert": {
-    "version": "v1.9.0",
+    "version": "v1.5.0",
     "repo": "vega/vl-convert",
     "download_pattern": "https://github.com/{repo}/releases/download/{version}/vl-convert_{arch}.zip",
     "archs": {

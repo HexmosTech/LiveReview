@@ -116,7 +116,7 @@ RUN echo "🔧 Installing runtime dependencies..." && \
 # Download vl-convert binary for target architecture
 RUN echo "📥 Downloading vl-convert binary..." && \
     VLCONVERT_ARCH=$(uname -m | sed 's/x86_64/linux-64/' | sed 's/aarch64/linux-arm64/') && \
-    curl -sL --fail "https://github.com/vega/vl-convert/releases/download/v1.9.0/vl-convert_${VLCONVERT_ARCH}.zip" \
+    curl -sL --fail "https://github.com/vega/vl-convert/releases/download/v1.5.0/vl-convert_${VLCONVERT_ARCH}.zip" \
         -o /tmp/vl-convert.zip && \
     unzip -o /tmp/vl-convert.zip -d /tmp/vl-convert-extracted && \
     cp /tmp/vl-convert-extracted/bin/vl-convert /usr/local/bin/vl-convert && \
