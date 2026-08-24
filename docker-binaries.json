@@ -12,10 +12,10 @@
   "codebase-memory-mcp": {
     "version": "v0.10.8",
     "repo": "DeusData/codebase-memory-mcp",
-    "download_pattern": "https://github.com/{repo}/releases/download/{version}/codebase-memory-mcp-{arch}.tar.gz",
+    "download_pattern": "https://github.com/{repo}/releases/download/{version}/codebase-memory-mcp-{arch}-portable.tar.gz",
     "archs": {
-      "amd64": "x86_64-unknown-linux-gnu",
-      "arm64": "aarch64-unknown-linux-gnu"
+      "amd64": "linux-amd64",
+      "arm64": "linux-arm64"
     }
   },
   "dbctx": {
