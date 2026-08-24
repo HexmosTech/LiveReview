@@ -49,15 +49,18 @@ const StatChip: React.FC<{ label: string; value: string }> = ({ label, value }) 
 // Who/what a chart or export is scoped to, always shown as three bullet
 // points (Organization/Repository/Person) rather than one flattened line.
 const ContextDetails: React.FC<{ context: ChartContext }> = ({ context }) => (
-  <>
-    <p><span className="not-italic font-medium text-slate-400">Organization:</span> {context.organization}</p>
-    {context.repository && context.repository.length > 0 && (
-      <p><span className="not-italic font-medium text-slate-400">Repository:</span> {context.repository.join(', ')}</p>
-    )}
-    {context.person && context.person.length > 0 && (
-      <p><span className="not-italic font-medium text-slate-400">Person:</span> {context.person.join(', ')}</p>
-    )}
-  </>
+  <div>
+    <p className="not-italic font-medium text-slate-400">Context:</p>
+    <div className="pl-3 space-y-1">
+      <p><span className="not-italic font-medium text-slate-400">Organization:</span> {context.organization}</p>
+      {context.repository && context.repository.length > 0 && (
+        <p><span className="not-italic font-medium text-slate-400">Repository:</span> {context.repository.join(', ')}</p>
+      )}
+      {context.person && context.person.length > 0 && (
+        <p><span className="not-italic font-medium text-slate-400">Person:</span> {context.person.join(', ')}</p>
+      )}
+    </div>
+  </div>
 );
 
 // Debug artifacts (SQL, CSV, Vega spec, schema context, system prompt, raw
