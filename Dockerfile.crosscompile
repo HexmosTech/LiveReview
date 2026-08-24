@@ -109,6 +109,7 @@ RUN echo "🔧 Installing runtime dependencies..." && \
     postgresql-client \
     tzdata \
     unzip \
+    gcompat \
     && rm -rf /var/cache/apk/* && \
     echo "Runtime dependencies installed successfully"
 
