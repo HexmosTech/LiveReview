@@ -62,17 +62,30 @@ func BuildDoc(ctx context.Context, store *storagechat.Store, orgID, userID, conv
 				return nil, fmt.Errorf("render chart %d: %w", ch.ID, err)
 			}
 			turn.Charts = append(turn.Charts, ExportChart{
-				Title:       ch.Title,
-				Description: ch.Description,
-				PNG:         png,
-				Stats:       resolveExportStats(ch.Stats),
+				Title:        ch.Title,
+				Description:  ch.Description,
+				PNG:          png,
+				Stats:        resolveExportStats(ch.Stats),
+				VegaSpec:     ch.VegaSpec,
+				Query:        ch.Query,
+				TimeRange:    ch.TimeRange,
+				Granularity:  ch.Granularity,
+				Context:      ch.Context,
+				RawLLMOutput: ch.RawLLMOutput,
 			})
 		}
 		for _, f := range m.Files {
 			turn.Files = append(turn.Files, ExportFile{
-				Filename: f.Filename,
-				Kind:     f.Kind,
-				Rows:     f.Rows,
+				Filename:    f.Filename,
+				Kind:        f.Kind,
+				Title:       f.Title,
+				Description: f.Description,
+				Query:       f.Query,
+				TimeRange:   f.TimeRange,
+				Granularity: f.Granularity,
+				Context:     f.Context,
+				Rows:        f.Rows,
+				CSVData:     string(f.Data),
 			})
 		}
 		doc.Turns = append(doc.Turns, turn)

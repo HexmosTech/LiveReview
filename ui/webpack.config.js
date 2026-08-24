@@ -173,6 +173,8 @@ module.exports =  (env, options)=> {
                 'process.env.LR_DISCORD_WEBHOOK_URL': JSON.stringify(process.env.LR_DISCORD_WEBHOOK_URL || ''),
                 'process.env.LR_LISTMONK_URL': JSON.stringify(process.env.LR_LISTMONK_URL || ''),
                 'process.env.LR_LISTMONK_LIST_ID': JSON.stringify(process.env.LR_LISTMONK_LIST_ID || ''),
+                // Debug mode: gates /chat-debug route and debug-only export features
+                'process.env.LIVI_DEBUG_LOG': JSON.stringify(process.env.LIVI_DEBUG_LOG || ''),
             }),
             // webpack 5 no longer auto-polyfills Node globals. Some deps (e.g. react-draggable,
             // used by react-grid-layout for the customizable dashboard) reference a bare `process`

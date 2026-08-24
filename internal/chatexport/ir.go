@@ -6,7 +6,12 @@
 // data for the same export.
 package chatexport
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/livereview/internal/vlrender"
+)
 
 // CompiledDoc is the complete input to both RenderPDF and RenderHTML - the
 // storagechat.Store is not touched again once this is built. A
@@ -46,7 +51,9 @@ type ExportTurn struct {
 }
 
 // ExportChart is one chart artifact, pre-rendered to PNG once during
-// BuildDoc so both renderers embed the identical image.
+// BuildDoc so both renderers embed the identical image. The Vega spec and
+// query metadata are included for JSON exports that carry the spec instead
+// of (or alongside) the rendered image.
 type ExportChart struct {
 	Title       string
 	Description string
@@ -56,7 +63,13 @@ type ExportChart struct {
 	// the day-granularity view for a trend-shaped chart (matching what a
 	// reader sees opening the chat fresh) - nil when the chart's shape has
 	// no precomputed KPIs.
-	Stats []StatLine
+	Stats       []StatLine
+	VegaSpec    json.RawMessage
+	Query       string
+	TimeRange   string
+	Granularity string
+	Context     vlrender.ChartContext
+	RawLLMOutput string
 }
 
 // StatLine is one label/value KPI chip, the flattened form every renderer
@@ -69,9 +82,16 @@ type StatLine struct {
 
 // ExportFile is one file attachment, summarized - not the raw payload,
 // which stays a separate in-app download so exports don't balloon with
-// full CSV dumps.
+// full CSV dumps. For JSON debug exports, CSVData is populated.
 type ExportFile struct {
-	Filename string
-	Kind     string
-	Rows     int
+	Filename    string
+	Kind        string
+	Title       string
+	Description string
+	Query       string
+	TimeRange   string
+	Granularity string
+	Context     vlrender.ChartContext
+	Rows        int
+	CSVData     string // populated for JSON debug exports only
 }

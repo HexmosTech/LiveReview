@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
 	"github.com/livereview/internal/chatexport"
+	"github.com/livereview/pkg/models"
 	storagechat "github.com/livereview/storage/chat"
 	"github.com/rs/zerolog/log"
 )
@@ -32,7 +34,7 @@ func (s *Server) ExportConversation(c echo.Context) error {
 	if format == "" {
 		format = "pdf"
 	}
-	if format != "pdf" && format != "html" {
+	if format != "pdf" && format != "html" && format != "json" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "unsupported format: " + format})
 	}
 
@@ -44,8 +46,13 @@ func (s *Server) ExportConversation(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "conversation not found"})
 	}
 
+	isDebug := conv.Surface == storagechat.SurfaceChatDebug
+	if format == "json" && !isDebug {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "JSON export is only available for debug conversations"})
+	}
+
 	convDoc, err := chatexport.BuildDoc(ctx, chatStore, pc.OrgID, pc.User.ID, convID, chatexport.BuildOptions{
-		IncludeDebugArtifacts: conv.Surface == storagechat.SurfaceChatDebug,
+		IncludeDebugArtifacts: isDebug,
 	})
 	if err != nil {
 		log.Error().Err(err).Int64("conversation_id", convID).Msg("ExportConversation: failed to build export doc")
@@ -74,6 +81,25 @@ func (s *Server) ExportConversation(c echo.Context) error {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to render html"})
 		}
 		contentType, ext = "text/html; charset=utf-8", "html"
+	case "json":
+		firstName, lastName, fullName := userNames(pc.User)
+		var subPlan *string
+		if pc.CurrentOrg != nil {
+			subPlan = pc.CurrentOrg.SubscriptionPlan
+		}
+		jsonDoc := chatexport.BuildCompileJSON(
+			doc,
+			pc.User.ID, pc.User.Email, firstName, lastName, fullName,
+			pc.OrgID, orgName(pc), orgDesc(pc), orgActive(pc), subPlan,
+			pc.Role, pc.IsSuperAdmin, pc.IsOwner, pc.IsMember,
+		)
+		enc := json.NewEncoder(&buf)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(jsonDoc); err != nil {
+			log.Error().Err(err).Int64("conversation_id", convID).Msg("ExportConversation: failed to encode JSON")
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to encode json"})
+		}
+		contentType, ext = "application/json", "json"
 	}
 
 	filename := exportFilename(conv.Title, convID, ext)
@@ -111,4 +137,43 @@ func slugify(s string) string {
 		out = strings.Trim(out[:60], "-")
 	}
 	return out
+}
+
+// userNames extracts first/last/full name from a User model.
+func userNames(u *models.User) (firstName, lastName, fullName string) {
+	if u == nil {
+		return "", "", ""
+	}
+	if u.FirstName != nil {
+		firstName = *u.FirstName
+	}
+	if u.LastName != nil {
+		lastName = *u.LastName
+	}
+	fullName = u.FullName()
+	return
+}
+
+// orgName returns the org name from a PermissionContext.
+func orgName(pc *auth.PermissionContext) string {
+	if pc.CurrentOrg != nil {
+		return pc.CurrentOrg.Name
+	}
+	return ""
+}
+
+// orgDesc returns the org description from a PermissionContext.
+func orgDesc(pc *auth.PermissionContext) string {
+	if pc.CurrentOrg != nil && pc.CurrentOrg.Description != nil {
+		return *pc.CurrentOrg.Description
+	}
+	return ""
+}
+
+// orgActive returns whether the org is active.
+func orgActive(pc *auth.PermissionContext) bool {
+	if pc.CurrentOrg != nil {
+		return pc.CurrentOrg.IsActive
+	}
+	return true
 }

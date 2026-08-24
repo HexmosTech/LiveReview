@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -25,11 +26,12 @@ type compileExportRequest struct {
 }
 
 // CompileExport combines several persisted conversations - in the given
-// order - into one downloadable PDF or HTML document (see
+// order - into one downloadable PDF, HTML, or JSON document (see
 // internal/chatexport.BuildCompiledDoc). Debug artifacts are included only
 // when every selected conversation's own stored surface is chat_debug -
 // BuildCompiledDoc itself rejects a request mixing surfaces, so this can't
 // be used to smuggle chat_debug data into what looks like a plain export.
+// JSON format is only available for chat_debug conversations.
 func (s *Server) CompileExport(c echo.Context) error {
 	pc := auth.GetPermissionContext(c)
 	if pc == nil || pc.User == nil {
@@ -53,7 +55,7 @@ func (s *Server) CompileExport(c echo.Context) error {
 	if format == "" {
 		format = "pdf"
 	}
-	if format != "pdf" && format != "html" {
+	if format != "pdf" && format != "html" && format != "json" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "unsupported format: " + format})
 	}
 
@@ -65,8 +67,13 @@ func (s *Server) CompileExport(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "conversation not found"})
 	}
 
+	isDebug := firstConv.Surface == storagechat.SurfaceChatDebug
+	if format == "json" && !isDebug {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "JSON export is only available for debug conversations"})
+	}
+
 	doc, err := chatexport.BuildCompiledDoc(ctx, chatStore, pc.OrgID, pc.User.ID, req.ConversationIDs, req.Title, req.Subtitle, chatexport.BuildOptions{
-		IncludeDebugArtifacts: firstConv.Surface == storagechat.SurfaceChatDebug,
+		IncludeDebugArtifacts: isDebug,
 	})
 	if err != nil {
 		log.Error().Err(err).Ints64("conversation_ids", req.ConversationIDs).Msg("CompileExport: failed to build compiled doc")
@@ -88,6 +95,25 @@ func (s *Server) CompileExport(c echo.Context) error {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to render html"})
 		}
 		contentType, ext = "text/html; charset=utf-8", "html"
+	case "json":
+		firstName, lastName, fullName := userNames(pc.User)
+		var subPlan *string
+		if pc.CurrentOrg != nil {
+			subPlan = pc.CurrentOrg.SubscriptionPlan
+		}
+		jsonDoc := chatexport.BuildCompileJSON(
+			doc,
+			pc.User.ID, pc.User.Email, firstName, lastName, fullName,
+			pc.OrgID, orgName(pc), orgDesc(pc), orgActive(pc), subPlan,
+			pc.Role, pc.IsSuperAdmin, pc.IsOwner, pc.IsMember,
+		)
+		enc := json.NewEncoder(&buf)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(jsonDoc); err != nil {
+			log.Error().Err(err).Msg("CompileExport: failed to encode JSON")
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to encode json"})
+		}
+		contentType, ext = "application/json", "json"
 	}
 
 	slug := slugify(req.Title)

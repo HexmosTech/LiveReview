@@ -6,7 +6,7 @@ import { listConversationSummaries, type ChatSurface, type ConversationSummary }
 import { formatUpdatedAt } from './ConversationSidebar';
 
 type Step = 1 | 2 | 3;
-type Format = 'pdf' | 'html';
+type Format = 'pdf' | 'html' | 'json';
 
 // Condenses a conversation's chart-type list (one DescribeChartShape()
 // result per chart, from the backend) into a short "2 bar, 1 line" tally -
@@ -218,7 +218,7 @@ export const CompileExportDialog: React.FC<{ surface: ChatSurface; onClose: () =
           {step === 3 && (
             <div className="space-y-4">
               <div className="flex gap-2">
-                {(['pdf', 'html'] as Format[]).map((f) => (
+                {(['pdf', 'html', ...(surface === 'chat_debug' ? ['json'] : [])] as Format[]).map((f) => (
                   <button
                     key={f}
                     onClick={() => {
@@ -227,7 +227,9 @@ export const CompileExportDialog: React.FC<{ surface: ChatSurface; onClose: () =
                     }}
                     className={`flex-1 px-3 py-2 rounded-md border text-sm font-medium transition-colors ${
                       format === f
-                        ? 'border-blue-500 bg-blue-500/10 text-blue-300'
+                        ? f === 'json'
+                          ? 'border-amber-500 bg-amber-500/10 text-amber-300'
+                          : 'border-blue-500 bg-blue-500/10 text-blue-300'
                         : 'border-slate-700/60 bg-slate-800/40 text-slate-300 hover:bg-slate-800'
                     }`}
                   >

@@ -10,6 +10,7 @@ import { InteractiveChart, downloadChartView } from './InteractiveChart';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { CONVERSATIONS_QUERY_KEY } from './ConversationSidebar';
 import { isDailyTrendChart, buildTrendSpec, formatAxisDate, Granularity } from './rebucketChart';
+import { buildJsonExport, downloadJsonExport } from './jsonExport';
 
 const GRANULARITY_OPTIONS: { value: Granularity; label: string }[] = [
   { value: 'day', label: 'Day' },
@@ -525,6 +526,9 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
   // flight.
   const isLoadingConversation = conversationId !== undefined && conversationDetail === undefined;
   const user = useAppSelector((state) => state.Auth.user);
+  const organizations = useAppSelector((state) => state.Auth.organizations);
+  const currentOrgId = useAppSelector((state) => state.Organizations.currentOrgId);
+  const currentOrg = useAppSelector((state) => state.Organizations.currentOrg);
 
   const downloadFile = useCallback(
     async (file: ChatFile) => {
@@ -558,7 +562,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
   // whether debug artifacts belong in the file, from the conversation's own
   // stored surface, not from anything sent here.
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
-  const [exportingFormat, setExportingFormat] = useState<'pdf' | 'html' | null>(null);
+  const [exportingFormat, setExportingFormat] = useState<'pdf' | 'html' | 'json' | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -572,11 +576,48 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
     return () => document.removeEventListener('mousedown', onClickAway);
   }, [exportMenuOpen]);
 
+  const userName = user?.name || 'there';
+  const [messages, setMessages] = useState<ChatEntry[]>([]);
+  const [input, setInput] = useState(() => searchParams.get('prefill') || '');
+  const [isLoading, setIsLoading] = useState(false);
+  const [preview, setPreview] = useState<ChatChart | null>(null);
+  const [previewKey, setPreviewKey] = useState<string | null>(null);
+  const [chartGranularity, setChartGranularity] = useState<Record<string, Granularity>>({});
+  const [debugModalMsgId, setDebugModalMsgId] = useState<string | null>(null);
+  const previewViewRef = useRef<View | null>(null);
+  // Inline charts render their own View independent of the modal's, so a
+  // chart can be downloaded straight from the chat without first expanding
+  // it. Keyed per chart instance since one message can carry several charts.
+  const chartViewsRef = useRef<Map<string, View>>(new Map());
+  const [showAISetup, setShowAISetup] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
   const handleExport = useCallback(
-    async (format: 'pdf' | 'html') => {
+    async (format: 'pdf' | 'html' | 'json') => {
       if (conversationId === undefined) return;
       setExportMenuOpen(false);
       setExportingFormat(format);
+
+      if (format === 'json') {
+        try {
+          const exportData = buildJsonExport(
+            messages,
+            user,
+            organizations,
+            currentOrgId,
+            currentOrg,
+            conversationDetail,
+          );
+          downloadJsonExport(exportData);
+        } catch {
+          alert('Could not export this conversation. Please try again.');
+        } finally {
+          setExportingFormat(null);
+        }
+        return;
+      }
+
       try {
         const res = await authFetch(`/api/v1/chat/${conversationId}/export?format=${format}`);
         if (!res.ok) throw new Error('export failed');
@@ -598,25 +639,8 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         setExportingFormat(null);
       }
     },
-    [conversationId],
+    [conversationId, messages, user, organizations, currentOrgId, currentOrg, conversationDetail],
   );
-
-  const userName = user?.name || 'there';
-  const [messages, setMessages] = useState<ChatEntry[]>([]);
-  const [input, setInput] = useState(() => searchParams.get('prefill') || '');
-  const [isLoading, setIsLoading] = useState(false);
-  const [preview, setPreview] = useState<ChatChart | null>(null);
-  const [previewKey, setPreviewKey] = useState<string | null>(null);
-  const [chartGranularity, setChartGranularity] = useState<Record<string, Granularity>>({});
-  const [debugModalMsgId, setDebugModalMsgId] = useState<string | null>(null);
-  const previewViewRef = useRef<View | null>(null);
-  // Inline charts render their own View independent of the modal's, so a
-  // chart can be downloaded straight from the chat without first expanding
-  // it. Keyed per chart instance since one message can carry several charts.
-  const chartViewsRef = useRef<Map<string, View>>(new Map());
-  const [showAISetup, setShowAISetup] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -816,6 +840,14 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                     >
                       Export as HTML
                     </button>
+                    {showDebug && (
+                      <button
+                        onClick={() => handleExport('json')}
+                        className="w-full text-left px-3 py-1.5 text-xs text-amber-300 hover:bg-slate-700 hover:text-amber-200"
+                      >
+                        Export as JSON (debug)
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
