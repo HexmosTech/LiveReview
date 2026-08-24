@@ -73,13 +73,29 @@ export interface SlopeStats {
   biggestLoss: { label: string; delta: number };
 }
 
+// Fallback for any chart shape none of the other kinds recognize (pie/arc,
+// scatter, ...) - a crude per-row Total/Count/Highest/Lowest off whatever
+// quantitative field exists, so no chart is ever left with zero numbers.
+export interface GenericStat {
+  label: string;
+  value: number;
+}
+
+export interface GenericStats {
+  total: number;
+  count: number;
+  highest: GenericStat;
+  lowest: GenericStat;
+}
+
 export type ChartStats =
   | { kind: 'trend'; day?: TrendStats; week?: TrendStats; month?: TrendStats }
   | { kind: 'multi_series_trend'; day?: MultiSeriesTrendStats; week?: MultiSeriesTrendStats; month?: MultiSeriesTrendStats }
   | { kind: 'band'; stats: BandStats }
   | { kind: 'heatmap'; stats: HeatmapStats }
   | { kind: 'slope'; stats: SlopeStats }
-  | { kind: 'category'; stats: CategoryStats };
+  | { kind: 'category'; stats: CategoryStats }
+  | { kind: 'generic'; stats: GenericStats };
 
 // A chart report the backend hands back as a raw Vega-Lite spec rather than a
 // rendered image, so the frontend can render it interactively (tooltips,

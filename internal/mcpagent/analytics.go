@@ -1531,8 +1531,8 @@ const maxInterpretations = 5
 
 // interpretEnvelope is the JSON shape the interpreting prompt asks for.
 type interpretEnvelope struct {
-	Query         string           `json:"query"`
-	Interpretation string          `json:"interpretation"`
+	Query           string           `json:"query"`
+	Interpretation  string           `json:"interpretation"`
 	Interpretations []Interpretation `json:"interpretations"`
 }
 
@@ -1774,9 +1774,9 @@ func (a *Agent) executeInterpretation(
 		}
 	}
 	return InterpretationResult{
-		Status:   "skipped",
+		Status:     "skipped",
 		SkipReason: "could not build chart",
-		RowCount: len(rs.Rows),
+		RowCount:   len(rs.Rows),
 	}
 }
 

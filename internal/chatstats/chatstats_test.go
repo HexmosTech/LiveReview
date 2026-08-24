@@ -276,19 +276,105 @@ func TestComputeAllStats_PlainCategoryChart(t *testing.T) {
 	}
 }
 
-func TestComputeAllStats_LayeredSpecReturnsNil(t *testing.T) {
+// A layered spec whose first layer is itself a plain trend chart - the
+// maybeAddRollingAverageLayer shape (internal/mcpagent/analytics.go), where
+// the base bar/line layer carries the real data and later layers are
+// derived rolling-average/baseline overlays with no data of their own - now
+// gets real trend stats via flattenFirstLayer, not nil. This used to return
+// nil (matching the frontend's layer-excludes-the-toggle rule) before
+// ComputeAllStats grew layer/facet flattening + a generic fallback so every
+// chart shape gets *some* numbers.
+func TestComputeAllStats_LayeredTrendUsesFirstLayer(t *testing.T) {
 	spec := map[string]any{
+		"data": map[string]any{"values": []any{
+			map[string]any{"day": "2026-08-01", "reviews": 10},
+			map[string]any{"day": "2026-08-02", "reviews": 30},
+		}},
 		"layer": []any{
 			map[string]any{
-				"mark": "line",
+				"mark": "bar",
 				"encoding": map[string]any{
 					"x": map[string]any{"field": "day", "type": "temporal"},
 					"y": map[string]any{"field": "reviews", "type": "quantitative"},
 				},
 			},
+			map[string]any{
+				"mark": "line",
+				"encoding": map[string]any{
+					"x": map[string]any{"field": "day", "type": "temporal"},
+					"y": map[string]any{"field": "rolling_avg", "type": "quantitative"},
+				},
+			},
+		},
+	}
+	raw, err := ComputeAllStats(mustSpec(t, spec))
+	if err != nil {
+		t.Fatalf("ComputeAllStats: %v", err)
+	}
+	out := parseAllStats(t, raw)
+	if out.Kind != "trend" {
+		t.Fatalf("kind = %q, want trend", out.Kind)
+	}
+	var day TrendStats
+	if err := json.Unmarshal(out.Day, &day); err != nil {
+		t.Fatalf("unmarshal day: %v", err)
+	}
+	if day.Total != 40 {
+		t.Errorf("total = %v, want 40 (from the base layer's data, not the rolling-avg layer)", day.Total)
+	}
+}
+
+// A pie/arc chart (theta + color, no x/y at all) matches none of the
+// specific detectors - findGenericEncoding still finds theta as the value
+// field and color as the label, so it lands as "generic" instead of nil.
+func TestComputeAllStats_PieChartFallsBackToGeneric(t *testing.T) {
+	spec := map[string]any{
+		"mark": "arc",
+		"encoding": map[string]any{
+			"theta": map[string]any{"field": "count", "type": "quantitative"},
+			"color": map[string]any{"field": "provider", "type": "nominal"},
 		},
 		"data": map[string]any{"values": []any{
-			map[string]any{"day": "2026-08-01", "reviews": 10},
+			map[string]any{"provider": "GitHub", "count": 40},
+			map[string]any{"provider": "GitLab", "count": 30},
+			map[string]any{"provider": "Bitbucket", "count": 10},
+		}},
+	}
+	raw, err := ComputeAllStats(mustSpec(t, spec))
+	if err != nil {
+		t.Fatalf("ComputeAllStats: %v", err)
+	}
+	out := parseAllStats(t, raw)
+	if out.Kind != "generic" {
+		t.Fatalf("kind = %q, want generic", out.Kind)
+	}
+	var stats GenericStats
+	if err := json.Unmarshal(out.Stats, &stats); err != nil {
+		t.Fatalf("unmarshal stats: %v", err)
+	}
+	if stats.Total != 80 || stats.Count != 3 {
+		t.Errorf("stats = %+v, want total=80 count=3", stats)
+	}
+	if stats.Highest.Label != "GitHub" || stats.Highest.Value != 40 {
+		t.Errorf("highest = %+v, want GitHub/40", stats.Highest)
+	}
+	if stats.Lowest.Label != "Bitbucket" || stats.Lowest.Value != 10 {
+		t.Errorf("lowest = %+v, want Bitbucket/10", stats.Lowest)
+	}
+}
+
+// A truly unrecoverable spec - no quantitative field anywhere, in any
+// layer/facet - still returns nil rather than fabricating a number from
+// nothing.
+func TestComputeAllStats_NoQuantitativeFieldReturnsNil(t *testing.T) {
+	spec := map[string]any{
+		"mark": "point",
+		"encoding": map[string]any{
+			"x": map[string]any{"field": "repository", "type": "nominal"},
+			"y": map[string]any{"field": "author", "type": "nominal"},
+		},
+		"data": map[string]any{"values": []any{
+			map[string]any{"repository": "a", "author": "alice"},
 		}},
 	}
 	raw, err := ComputeAllStats(mustSpec(t, spec))
@@ -296,7 +382,7 @@ func TestComputeAllStats_LayeredSpecReturnsNil(t *testing.T) {
 		t.Fatalf("ComputeAllStats: %v", err)
 	}
 	if raw != nil {
-		t.Fatalf("expected nil stats for a layered spec, got %s", raw)
+		t.Fatalf("expected nil stats for a spec with no quantitative field anywhere, got %s", raw)
 	}
 }
 

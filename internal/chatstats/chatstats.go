@@ -31,8 +31,6 @@ const (
 	GranularityMonth Granularity = "month"
 )
 
-var allGranularities = []Granularity{GranularityDay, GranularityWeek, GranularityMonth}
-
 // ---- Output shapes (JSON field names match rebucketChart.ts's TrendStats /
 // MultiSeriesTrendStats / BandStats / CategoryStats / HeatmapStats / SlopeStats) ----
 
@@ -42,13 +40,13 @@ type pointStat struct {
 }
 
 type TrendStats struct {
-	Total        float64  `json:"total"`
-	AvgPerPeriod float64  `json:"avgPerPeriod"`
+	Total        float64   `json:"total"`
+	AvgPerPeriod float64   `json:"avgPerPeriod"`
 	Peak         pointStat `json:"peak"`
 	Low          pointStat `json:"low"`
-	TrendPct     *float64 `json:"trendPct"`
-	FirstDate    string   `json:"firstDate"`
-	LastDate     string   `json:"lastDate"`
+	TrendPct     *float64  `json:"trendPct"`
+	FirstDate    string    `json:"firstDate"`
+	LastDate     string    `json:"lastDate"`
 }
 
 type seriesStat struct {
@@ -116,15 +114,86 @@ type AllStats struct {
 
 // ComputeAllStats detects the shape of a finalized Vega-Lite spec (the exact
 // bytes the frontend receives as chart.spec) and returns the precomputed KPI
-// blob for it, or nil if the chart doesn't match any of the shapes
-// rebucketChart.ts knows how to summarize (e.g. a layered/faceted spec) -
-// matching today's frontend behavior of showing no stat chips for those.
+// blob for it. Every chart gets *something*: a layered spec (rolling-
+// average trend, pareto bar+cumulative-line, ...) is retried against its
+// first layer's mark/encoding (the "real" base reading, with later layers
+// being derived overlays), a faceted spec against its nested spec, and
+// anything still unmatched - pie/arc, scatter, or any other shape none of
+// the specific detectors below recognize - falls back to a generic per-row
+// Total/Count/Highest/Lowest summary off whatever quantitative field exists.
+// Returns nil only when there's truly no data or no quantitative field
+// anywhere to summarize.
 func ComputeAllStats(specJSON []byte) (json.RawMessage, error) {
 	var spec map[string]any
 	if err := json.Unmarshal(specJSON, &spec); err != nil {
 		return nil, err
 	}
 
+	if stats, err := computeShapeStats(spec); stats != nil || err != nil {
+		return stats, err
+	}
+	if flat, ok := flattenFirstLayer(spec); ok {
+		if stats, err := computeShapeStats(flat); stats != nil || err != nil {
+			return stats, err
+		}
+	}
+	if flat, ok := flattenFacetInner(spec); ok {
+		if stats, err := computeShapeStats(flat); stats != nil || err != nil {
+			return stats, err
+		}
+	}
+	if stats := computeGenericStats(spec); stats != nil {
+		out := AllStats{Kind: "generic"}
+		var err error
+		if out.Stats, err = json.Marshal(stats); err != nil {
+			return nil, fmt.Errorf("marshal generic stats: %w", err)
+		}
+		return json.Marshal(out)
+	}
+	return nil, nil
+}
+
+// flattenFirstLayer builds a synthetic non-layered spec from a layered
+// spec's first layer's mark/encoding plus the parent's own data (or the
+// layer's own data, if it carries one) - see maybeAddRollingAverageLayer
+// (internal/mcpagent/analytics.go), whose rolling-average/baseline layers
+// have no data of their own and inherit the parent's. Returns false if spec
+// has no non-empty layer array.
+func flattenFirstLayer(spec map[string]any) (map[string]any, bool) {
+	layer, ok := spec["layer"].([]any)
+	if !ok || len(layer) == 0 {
+		return nil, false
+	}
+	first, ok := asMap(layer[0])
+	if !ok {
+		return nil, false
+	}
+	data := spec["data"]
+	if firstData, ok := first["data"]; ok {
+		data = firstData
+	}
+	return map[string]any{"data": data, "mark": first["mark"], "encoding": first["encoding"]}, true
+}
+
+// flattenFacetInner does the same for a faceted spec's nested `spec` (the
+// per-panel spec every facet value repeats).
+func flattenFacetInner(spec map[string]any) (map[string]any, bool) {
+	inner, ok := asMap(spec["spec"])
+	if !ok {
+		return nil, false
+	}
+	data := spec["data"]
+	if innerData, ok := inner["data"]; ok {
+		data = innerData
+	}
+	return map[string]any{"data": data, "mark": inner["mark"], "encoding": inner["encoding"]}, true
+}
+
+// computeShapeStats is the original shape-specific detection switch,
+// unchanged from before generic/layer-flattening coverage was added -
+// called against the raw spec first, then retried against flattened forms
+// by ComputeAllStats above.
+func computeShapeStats(spec map[string]any) (json.RawMessage, error) {
 	switch {
 	case isDailyTrendChart(spec):
 		if day := computeTrendStats(spec, GranularityDay); day != nil {
@@ -962,6 +1031,202 @@ func computeSlopeStats(spec map[string]any) *SlopeStats {
 		Flat:        flat,
 		BiggestGain: deltaStat{Label: biggestGain.Label, Delta: round2(biggestGain.Delta)},
 		BiggestLoss: deltaStat{Label: biggestLoss.Label, Delta: round2(biggestLoss.Delta)},
+	}
+}
+
+// ---- generic fallback ------------------------------------------------------
+//
+// Every other computer above requires a specific encoding shape (a temporal
+// axis, a nominal/ordinal category, a matching x/y date pair, ...). This one
+// asks only "is there a quantitative field anywhere in the encoding, and any
+// rows to sum it over" - true for a pie/arc chart (theta), a scatter plot
+// (two quantitative fields, neither temporal/nominal), or literally any
+// shape the specific detectors don't recognize. It's deliberately crude
+// (Total/Count/Highest/Lowest, no attempt at bucketing or grouping) since it
+// has no idea what the chart actually means - the goal is "some real numbers
+// beat no numbers," not a bespoke reading for every possible chart type.
+
+type GenericStat struct {
+	Label string  `json:"label"`
+	Value float64 `json:"value"`
+}
+
+type GenericStats struct {
+	Total   float64     `json:"total"`
+	Count   int         `json:"count"`
+	Highest GenericStat `json:"highest"`
+	Lowest  GenericStat `json:"lowest"`
+}
+
+type fieldRef struct {
+	channel string
+	field   string
+	typ     string
+}
+
+// scanEncodingFields lists every channel with a field+type, in a
+// deterministic (sorted-by-channel-name) order so priority selection below
+// never depends on Go's randomized map iteration.
+func scanEncodingFields(enc map[string]any) []fieldRef {
+	channels := make([]string, 0, len(enc))
+	for k := range enc {
+		channels = append(channels, k)
+	}
+	sort.Strings(channels)
+	var out []fieldRef
+	for _, ch := range channels {
+		m, ok := asMap(enc[ch])
+		if !ok {
+			continue
+		}
+		field, _ := m["field"].(string)
+		if field == "" {
+			continue
+		}
+		typ, _ := m["type"].(string)
+		out = append(out, fieldRef{channel: ch, field: field, typ: typ})
+	}
+	return out
+}
+
+// pickByPriority returns the field from the first channel (in priority
+// order) whose type matches one of wantTypes, falling back to the first
+// matching field at all if no priority channel matched.
+func pickByPriority(fields []fieldRef, wantTypes []string, priority []string) (string, bool) {
+	var candidates []fieldRef
+	for _, f := range fields {
+		for _, t := range wantTypes {
+			if f.typ == t {
+				candidates = append(candidates, f)
+				break
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return "", false
+	}
+	for _, p := range priority {
+		for _, c := range candidates {
+			if c.channel == p {
+				return c.field, true
+			}
+		}
+	}
+	return candidates[0].field, true
+}
+
+// findGenericEncoding picks one quantitative field (the "value", preferring
+// theta/y/size/x in that order - theta first since a pie/arc chart's real
+// value lives there) and one nominal/ordinal/temporal field (the "label",
+// preferring color/x/y/detail) from the spec's own encoding, or - if the
+// spec has no top-level encoding at all - a layered spec's first layer or a
+// faceted spec's nested spec.
+func findGenericEncoding(spec map[string]any) (valField, labelField string, ok bool) {
+	enc, encOk := getEncoding(spec)
+	if !encOk {
+		if layer, lok := spec["layer"].([]any); lok {
+			for _, l := range layer {
+				if lm, mok := asMap(l); mok {
+					if e, eok := getEncoding(lm); eok {
+						enc = e
+						encOk = true
+						break
+					}
+				}
+			}
+		}
+	}
+	if !encOk {
+		if inner, iok := asMap(spec["spec"]); iok {
+			if e, eok := getEncoding(inner); eok {
+				enc = e
+				encOk = true
+			}
+		}
+	}
+	if !encOk {
+		return "", "", false
+	}
+
+	fields := scanEncodingFields(enc)
+	val, valOk := pickByPriority(fields, []string{"quantitative"}, []string{"theta", "y", "size", "x"})
+	if !valOk {
+		return "", "", false
+	}
+	label, _ := pickByPriority(fields, []string{"nominal", "ordinal", "temporal"}, []string{"color", "x", "y", "detail"})
+	if label == val {
+		label = ""
+	}
+	return val, label, true
+}
+
+// genericDataValues mirrors findGenericEncoding's layer/facet fallback for
+// the row data itself, since a layer with no encoding of its own (a
+// rolling-average overlay) also has no data of its own - the rows live on
+// the parent (dataValues(spec)) or a sibling layer/the facet's own data.
+func genericDataValues(spec map[string]any) ([]map[string]any, bool) {
+	if values, ok := dataValues(spec); ok {
+		return values, true
+	}
+	if layer, lok := spec["layer"].([]any); lok {
+		for _, l := range layer {
+			if lm, mok := asMap(l); mok {
+				if values, ok := dataValues(lm); ok {
+					return values, true
+				}
+			}
+		}
+	}
+	if inner, iok := asMap(spec["spec"]); iok {
+		if values, ok := dataValues(inner); ok {
+			return values, true
+		}
+	}
+	return nil, false
+}
+
+func computeGenericStats(spec map[string]any) *GenericStats {
+	valField, labelField, ok := findGenericEncoding(spec)
+	if !ok {
+		return nil
+	}
+	values, ok := genericDataValues(spec)
+	if !ok {
+		return nil
+	}
+
+	total := 0.0
+	count := 0
+	var highest, lowest *GenericStat
+	for i, row := range values {
+		raw, present := row[valField]
+		if !present {
+			continue
+		}
+		val := toFloat(raw)
+		count++
+		total += val
+		label := fmt.Sprintf("#%d", i+1)
+		if labelField != "" {
+			if l := toString(row[labelField]); l != "" {
+				label = l
+			}
+		}
+		if highest == nil || val > highest.Value {
+			highest = &GenericStat{Label: label, Value: val}
+		}
+		if lowest == nil || val < lowest.Value {
+			lowest = &GenericStat{Label: label, Value: val}
+		}
+	}
+	if count == 0 {
+		return nil
+	}
+	return &GenericStats{
+		Total:   round2(total),
+		Count:   count,
+		Highest: *highest,
+		Lowest:  *lowest,
 	}
 }
 

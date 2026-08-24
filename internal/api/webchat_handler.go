@@ -34,10 +34,10 @@ type WebChatRequest struct {
 // Vega-Lite spec verbatim, so the browser gets full interactivity (tooltips,
 // hover, legend filtering) instead of a flat image.
 type WebChatChart struct {
-	Title       string          `json:"title,omitempty"`
-	Description string          `json:"description,omitempty"`
-	Query       string          `json:"query,omitempty"`
-	TimeRange   string          `json:"time_range,omitempty"`
+	Title       string                `json:"title,omitempty"`
+	Description string                `json:"description,omitempty"`
+	Query       string                `json:"query,omitempty"`
+	TimeRange   string                `json:"time_range,omitempty"`
 	Granularity string                `json:"granularity,omitempty"`
 	Context     vlrender.ChartContext `json:"context"`
 	Spec        json.RawMessage       `json:"spec"`

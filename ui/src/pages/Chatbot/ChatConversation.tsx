@@ -924,6 +924,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                             const heatmapStats = stats?.kind === 'heatmap' ? stats.stats : null;
                             const slopeStats = stats?.kind === 'slope' ? stats.stats : null;
                             const categoryStats = stats?.kind === 'category' ? stats.stats : null;
+                            const genericStats = stats?.kind === 'generic' ? stats.stats : null;
                             return (
                             <div key={chart.title || i} className="space-y-3">
                               <div className="space-y-3 !mt-2 !mb-8">
@@ -1070,6 +1071,20 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                                   <StatChip
                                     label="Bottom 3"
                                     value={categoryStats.bottom3.map((s) => `${s.label} (${s.value.toLocaleString()})`).join(', ')}
+                                  />
+                                </div>
+                              )}
+                              {genericStats && (
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                  <StatChip label="Total" value={genericStats.total.toLocaleString()} />
+                                  <StatChip label="Count" value={String(genericStats.count)} />
+                                  <StatChip
+                                    label="Highest"
+                                    value={`${genericStats.highest.label} (${genericStats.highest.value.toLocaleString()})`}
+                                  />
+                                  <StatChip
+                                    label="Lowest"
+                                    value={`${genericStats.lowest.label} (${genericStats.lowest.value.toLocaleString()})`}
                                   />
                                 </div>
                               )}

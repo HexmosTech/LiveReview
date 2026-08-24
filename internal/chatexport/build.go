@@ -241,6 +241,21 @@ func resolveExportStats(statsJSON []byte) []StatLine {
 			{"Top 3", formatCategoryList(s.Top3)},
 			{"Bottom 3", formatCategoryList(s.Bottom3)},
 		}
+	case "generic":
+		var s chatstats.GenericStats
+		if len(all.Stats) == 0 {
+			return nil
+		}
+		if err := json.Unmarshal(all.Stats, &s); err != nil {
+			log.Warn().Err(err).Msg("resolveExportStats: failed to unmarshal generic stats")
+			return nil
+		}
+		return []StatLine{
+			{"Total", formatNum(s.Total)},
+			{"Count", strconv.Itoa(s.Count)},
+			{"Highest", fmt.Sprintf("%s (%s)", s.Highest.Label, formatNum(s.Highest.Value))},
+			{"Lowest", fmt.Sprintf("%s (%s)", s.Lowest.Label, formatNum(s.Lowest.Value))},
+		}
 	default:
 		return nil
 	}
