@@ -7,7 +7,7 @@ import { logout, checkSetupStatus, fetchUser } from './store/Auth/reducer';
 import { fetchLicenseStatus, openModal as openLicenseModal, closeModal as closeLicenseModal } from './store/License/slice';
 import LicenseModal from './components/License/LicenseModal';
 import LicenseStatusBar from './components/License/LicenseStatusBar';
-import { isCloudMode } from './utils/deploymentMode';
+import { isCloudMode, isDebugMode } from './utils/deploymentMode';
 import { SubscriptionGuard } from './components/SubscriptionGuard';
 import { Toaster } from 'react-hot-toast';
 import { useBottomRightBlockers } from './store/uiLayout';
@@ -320,7 +320,7 @@ const AppContent: React.FC = () => {
                                 <Route path="/admin/billing-portfolio" element={<BillingPortfolio />} />
                                 <Route path="/reports/*" element={<TaxonomyReports />} />
                                 <Route path="/chat/*" element={<ChatbotRoutes />} />
-                                <Route path="/chat-debug/*" element={<ChatDebugRoutes />} />
+                                {isDebugMode() && <Route path="/chat-debug/*" element={<ChatDebugRoutes />} />}
                                 <Route path="/test-middleware" element={<MiddlewareTestPage />} />
                                 <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
                                 <Route path="*" element={<Navigate to="/" replace />} />

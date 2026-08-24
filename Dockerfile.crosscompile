@@ -27,7 +27,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG TARGETVARIANT
-ARG GO_BUILD_TAGS=""
+ARG GO_BUILD_TAGS="production"
 
 WORKDIR /app
 
@@ -84,7 +84,7 @@ RUN echo "🌊 Cross-compiling River CLI and UI tools for ${TARGETARCH}..." && \
     echo "River tools cross-compiled successfully for ${TARGETARCH}"
 
 # Download dbmate for target architecture
-RUN echo "� Installing dbmate for ${TARGETARCH}..." && \
+RUN echo "📥 Installing dbmate for ${TARGETARCH}..." && \
     DBMATE_ARCH=$(case ${TARGETARCH} in \
         "amd64") echo "amd64" ;; \
         "arm64") echo "arm64" ;; \
@@ -95,6 +95,28 @@ RUN echo "� Installing dbmate for ${TARGETARCH}..." && \
     https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-${DBMATE_ARCH} && \
     chmod +x /out/dbmate && \
     echo "dbmate installed successfully for ${TARGETARCH}"
+
+# Cross-compile dbctx for target architecture
+RUN echo "🔨 Cross-compiling dbctx for ${TARGETARCH}..." && \
+    mkdir -p /tmp/dbctx && cd /tmp/dbctx && \
+    go mod init temp && \
+    go get github.com/shrsv/dbctx/cmd/dbctx@latest && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    $([ "$TARGETARCH" = "arm" ] && [ "$TARGETVARIANT" = "v7" ] && echo "GOARM=7" || echo "") \
+    go build -o /out/dbctx github.com/shrsv/dbctx/cmd/dbctx && \
+    cd /app && rm -rf /tmp/dbctx && \
+    echo "dbctx cross-compiled successfully for ${TARGETARCH}"
+
+# Cross-compile AgentLaws (alaws) for target architecture
+RUN echo "🔨 Cross-compiling AgentLaws for ${TARGETARCH}..." && \
+    mkdir -p /tmp/alaws && cd /tmp/alaws && \
+    go mod init temp && \
+    go get github.com/shrsv/AgentLaws/cmd/alaws@latest && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    $([ "$TARGETARCH" = "arm" ] && [ "$TARGETVARIANT" = "v7" ] && echo "GOARM=7" || echo "") \
+    go build -o /out/alaws github.com/shrsv/AgentLaws/cmd/alaws && \
+    cd /app && rm -rf /tmp/alaws && \
+    echo "AgentLaws cross-compiled successfully for ${TARGETARCH}"
 
 # Stage 3: Create minimal runtime container for target architecture
 FROM alpine:3.18
@@ -108,8 +130,30 @@ RUN echo "🔧 Installing runtime dependencies..." && \
     curl \
     postgresql-client \
     tzdata \
+    unzip \
     && rm -rf /var/cache/apk/* && \
     echo "Runtime dependencies installed successfully"
+
+# Download vl-convert binary for target architecture
+RUN echo "📥 Downloading vl-convert binary..." && \
+    VLCONVERT_ARCH=$(uname -m | sed 's/x86_64/linux-64/' | sed 's/aarch64/linux-arm64/') && \
+    curl -sL --fail "https://github.com/vega/vl-convert/releases/download/v1.9.0/vl-convert_${VLCONVERT_ARCH}.zip" \
+        -o /tmp/vl-convert.zip && \
+    unzip -o /tmp/vl-convert.zip -d /tmp/vl-convert-extracted && \
+    cp /tmp/vl-convert-extracted/bin/vl-convert /usr/local/bin/vl-convert && \
+    chmod +x /usr/local/bin/vl-convert && \
+    rm -rf /tmp/vl-convert.zip /tmp/vl-convert-extracted && \
+    echo "vl-convert installed: $(/usr/local/bin/vl-convert --version 2>&1 || true)"
+
+# Download codebase-memory-mcp binary for target architecture
+RUN echo "📥 Downloading codebase-memory-mcp binary..." && \
+    MCP_ARCH=$(uname -m | sed 's/x86_64/x86_64-unknown-linux-gnu/' | sed 's/aarch64/aarch64-unknown-linux-gnu/') && \
+    curl -sL --fail "https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.10.8/codebase-memory-mcp-${MCP_ARCH}.tar.gz" \
+        -o /tmp/mcp.tar.gz && \
+    tar -xzf /tmp/mcp.tar.gz -C /usr/local/bin/ && \
+    chmod +x /usr/local/bin/codebase-memory-mcp && \
+    rm -f /tmp/mcp.tar.gz && \
+    echo "codebase-memory-mcp installed: $(/usr/local/bin/codebase-memory-mcp --version 2>&1 || true)"
 
 # Create non-root user for security
 RUN echo "👤 Creating non-root user..." && \
@@ -127,6 +171,8 @@ RUN echo "📁 Creating application directories..." && \
 COPY --from=builder /out/dbmate /usr/local/bin/dbmate
 COPY --from=builder /out/river /usr/local/bin/river
 COPY --from=builder /out/riverui /usr/local/bin/riverui
+COPY --from=builder /out/dbctx /usr/local/bin/dbctx
+COPY --from=builder /out/alaws /usr/local/bin/alaws
 COPY --from=builder /out/livereview /app/livereview
 COPY --from=builder /app/livereview.toml /app/livereview.toml
 COPY --from=builder /app/db/migrations/ /app/db/migrations/
@@ -135,9 +181,7 @@ COPY --from=builder /app/config/ /app/config/
 # Copy the startup script
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh && \
-    chmod +x /usr/local/bin/dbmate && \
-    chmod +x /usr/local/bin/river && \
-    chmod +x /usr/local/bin/riverui && \
+    chmod +x /usr/local/bin/* && \
     chmod +x /app/livereview
 
 RUN echo "📋 Final image contents:" && \

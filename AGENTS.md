@@ -250,4 +250,48 @@ For everyday verification after frontend changes, use `npx tsc --noEmit`
 something genuinely requires it (e.g. confirming a bundler-only error or
 asset output), and only after the user says yes.
 
+## Production Safety & Feature Gating
+
+### Development-Only Features
+
+The following features are gated and MUST be disabled in production:
+
+| Feature | Gate | Default | Notes |
+|---------|------|---------|-------|
+| `/test-chat` endpoint | Build tag `production` | Included in dev | Excluded in production builds |
+| `/chat-debug` route | `LIVI_DEBUG_LOG` | `false` | Debug artifacts UI |
+
+### Build Tags
+
+| Tag | Purpose | Usage |
+|-----|---------|-------|
+| `vendor_prompts` | Encrypted prompts | Docker builds |
+| `production` | Production safety | Excludes test endpoints like `/test-chat` |
+
+### Docker Binary Versions
+
+External binaries bundled in Docker images are tracked in `docker-binaries.json`.
+Update versions consciously - this file is the source of truth for:
+- `vl-convert` - Vega-Lite chart rendering
+- `codebase-memory-mcp` - Codebase knowledge graph MCP server
+- `dbctx` - Database context tool
+- `alaws` - AgentLaws CLI
+
+### Docker Production Checklist
+
+Before releasing a new Docker image:
+
+1. [ ] Verify `LIVI_DEBUG_LOG=false` in `.env.selfhosted`
+2. [ ] Verify `/test-chat` excluded with `production` tag
+3. [ ] Verify `/chat-debug` gated by `LIVI_DEBUG_LOG`
+4. [ ] Test `make docker-multiarch-dry` output
+5. [ ] Verify all binaries present: `vl-convert`, `dbctx`, `alaws`, `codebase-memory-mcp`
+6. [ ] Check `docker-binaries.json` for version updates
+
+### Raw Deploy Safety
+
+`make raw-deploy` uses the `production` build tag to exclude dev-only endpoints.
+The `/test-chat` endpoint (unauthenticated, hardcoded org access) is automatically
+excluded in production builds.
+
 

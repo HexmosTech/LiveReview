@@ -20,6 +20,14 @@ export const isSelfHostedMode = (): boolean => {
 };
 
 /**
+ * Check if debug mode is enabled (gates debug routes like /chat-debug)
+ * @returns true if LIVI_DEBUG_LOG=true, false otherwise
+ */
+export const isDebugMode = (): boolean => {
+	return (process.env.LIVI_DEBUG_LOG || '').toString().toLowerCase() === 'true';
+};
+
+/**
  * Runtime validation: verify frontend/backend deployment mode match
  * Call this on app initialization to detect configuration mismatches
  * 

@@ -89,3 +89,4 @@ internal/api/docs/spec.go
 opencode.json
 
 scripts/prelivi/.venv/
+*.swp

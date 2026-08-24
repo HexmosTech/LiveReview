@@ -1356,9 +1356,8 @@ func (s *Server) setupRoutes() {
 	chatGroup.GET("/summaries", s.ListConversationSummaries)
 	chatGroup.POST("/export/compile", s.CompileExport)
 
-	// TEMPORARY test endpoint — bypasses auth for local testing.
-	// REMOVE BEFORE MERGING.
-	v1.POST("/test-chat", s.HandleTestChat)
+	// Register dev-only routes (excluded in production builds via build tag)
+	s.registerDevRoutes(v1)
 
 	// Dashboard endpoints (organization scoped)
 	dashboardGroup := v1.Group("/dashboard")
