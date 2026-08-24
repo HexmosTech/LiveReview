@@ -97,7 +97,7 @@ RUN echo "📥 Installing dbmate for ${TARGETARCH}..." && \
     echo "dbmate installed successfully for ${TARGETARCH}"
 
 # Stage 3: Create minimal runtime container for target architecture
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 LABEL maintainer="LiveReview Team"
 LABEL description="LiveReview - AI-powered code review tool (cross-compiled)"
 
@@ -116,7 +116,7 @@ RUN echo "🔧 Installing runtime dependencies..." && \
 # Download vl-convert binary for target architecture
 RUN echo "📥 Downloading vl-convert binary..." && \
     VLCONVERT_ARCH=$(uname -m | sed 's/x86_64/linux-64/' | sed 's/aarch64/linux-arm64/') && \
-    curl -sL --fail "https://github.com/vega/vl-convert/releases/download/v1.5.0/vl-convert_${VLCONVERT_ARCH}.zip" \
+    curl -sL --fail "https://github.com/vega/vl-convert/releases/download/v1.9.0/vl-convert_${VLCONVERT_ARCH}.zip" \
         -o /tmp/vl-convert.zip && \
     unzip -o /tmp/vl-convert.zip -d /tmp/vl-convert-extracted && \
     cp /tmp/vl-convert-extracted/bin/vl-convert /usr/local/bin/vl-convert && \
@@ -127,7 +127,7 @@ RUN echo "📥 Downloading vl-convert binary..." && \
 # Download codebase-memory-mcp binary for target architecture
 RUN echo "📥 Downloading codebase-memory-mcp binary..." && \
     MCP_ARCH=$(uname -m | sed 's/x86_64/linux-amd64/' | sed 's/aarch64/linux-arm64/') && \
-    curl -sL --fail "https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.10.8/codebase-memory-mcp-${MCP_ARCH}-portable.tar.gz" \
+    curl -sL --fail "https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.10.8/codebase-memory-mcp-${MCP_ARCH}.tar.gz" \
         -o /tmp/mcp.tar.gz && \
     tar -xzf /tmp/mcp.tar.gz -C /usr/local/bin/ && \
     chmod +x /usr/local/bin/codebase-memory-mcp && \
