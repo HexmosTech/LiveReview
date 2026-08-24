@@ -96,28 +96,6 @@ RUN echo "📥 Installing dbmate for ${TARGETARCH}..." && \
     chmod +x /out/dbmate && \
     echo "dbmate installed successfully for ${TARGETARCH}"
 
-# Cross-compile dbctx for target architecture
-RUN echo "🔨 Cross-compiling dbctx for ${TARGETARCH}..." && \
-    mkdir -p /tmp/dbctx && cd /tmp/dbctx && \
-    go mod init temp && \
-    go get github.com/shrsv/dbctx/cmd/dbctx@latest && \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    $([ "$TARGETARCH" = "arm" ] && [ "$TARGETVARIANT" = "v7" ] && echo "GOARM=7" || echo "") \
-    go build -o /out/dbctx github.com/shrsv/dbctx/cmd/dbctx && \
-    cd /app && rm -rf /tmp/dbctx && \
-    echo "dbctx cross-compiled successfully for ${TARGETARCH}"
-
-# Cross-compile AgentLaws (alaws) for target architecture
-RUN echo "🔨 Cross-compiling AgentLaws for ${TARGETARCH}..." && \
-    mkdir -p /tmp/alaws && cd /tmp/alaws && \
-    go mod init temp && \
-    go get github.com/shrsv/AgentLaws/cmd/alaws@latest && \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    $([ "$TARGETARCH" = "arm" ] && [ "$TARGETVARIANT" = "v7" ] && echo "GOARM=7" || echo "") \
-    go build -o /out/alaws github.com/shrsv/AgentLaws/cmd/alaws && \
-    cd /app && rm -rf /tmp/alaws && \
-    echo "AgentLaws cross-compiled successfully for ${TARGETARCH}"
-
 # Stage 3: Create minimal runtime container for target architecture
 FROM alpine:3.18
 LABEL maintainer="LiveReview Team"
@@ -147,13 +125,33 @@ RUN echo "📥 Downloading vl-convert binary..." && \
 
 # Download codebase-memory-mcp binary for target architecture
 RUN echo "📥 Downloading codebase-memory-mcp binary..." && \
-    MCP_ARCH=$(uname -m | sed 's/x86_64/x86_64-unknown-linux-gnu/' | sed 's/aarch64/aarch64-unknown-linux-gnu/') && \
+    MCP_ARCH=$(uname -m | sed 's/x86_64/linux-amd64/' | sed 's/aarch64/linux-arm64/') && \
     curl -sL --fail "https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.10.8/codebase-memory-mcp-${MCP_ARCH}.tar.gz" \
         -o /tmp/mcp.tar.gz && \
     tar -xzf /tmp/mcp.tar.gz -C /usr/local/bin/ && \
     chmod +x /usr/local/bin/codebase-memory-mcp && \
     rm -f /tmp/mcp.tar.gz && \
     echo "codebase-memory-mcp installed: $(/usr/local/bin/codebase-memory-mcp --version 2>&1 || true)"
+
+# Download dbctx binary for target architecture
+RUN echo "📥 Downloading dbctx binary..." && \
+    DBCTX_ARCH=$(uname -m | sed 's/x86_64/linux_amd64/' | sed 's/aarch64/linux_arm64/') && \
+    curl -sL --fail "https://github.com/shrsv/dbctx/releases/download/v0.1.0/dbctx_${DBCTX_ARCH}.tar.gz" \
+        -o /tmp/dbctx.tar.gz && \
+    tar -xzf /tmp/dbctx.tar.gz -C /usr/local/bin/ && \
+    chmod +x /usr/local/bin/dbctx && \
+    rm -f /tmp/dbctx.tar.gz && \
+    echo "dbctx installed: $(/usr/local/bin/dbctx --version 2>&1 || true)"
+
+# Download AgentLaws (alaws) binary for target architecture
+RUN echo "📥 Downloading AgentLaws binary..." && \
+    ALAWS_ARCH=$(uname -m | sed 's/x86_64/linux_amd64/' | sed 's/aarch64/linux_arm64/') && \
+    curl -sL --fail "https://github.com/shrsv/AgentLaws/releases/download/v0.1.0/alaws_${ALAWS_ARCH}.tar.gz" \
+        -o /tmp/alaws.tar.gz && \
+    tar -xzf /tmp/alaws.tar.gz -C /usr/local/bin/ && \
+    chmod +x /usr/local/bin/alaws && \
+    rm -f /tmp/alaws.tar.gz && \
+    echo "AgentLaws installed: $(/usr/local/bin/alaws --version 2>&1 || true)"
 
 # Create non-root user for security
 RUN echo "👤 Creating non-root user..." && \
@@ -171,8 +169,6 @@ RUN echo "📁 Creating application directories..." && \
 COPY --from=builder /out/dbmate /usr/local/bin/dbmate
 COPY --from=builder /out/river /usr/local/bin/river
 COPY --from=builder /out/riverui /usr/local/bin/riverui
-COPY --from=builder /out/dbctx /usr/local/bin/dbctx
-COPY --from=builder /out/alaws /usr/local/bin/alaws
 COPY --from=builder /out/livereview /app/livereview
 COPY --from=builder /app/livereview.toml /app/livereview.toml
 COPY --from=builder /app/db/migrations/ /app/db/migrations/
