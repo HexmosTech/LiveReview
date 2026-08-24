@@ -127,7 +127,7 @@ RUN echo "📥 Downloading vl-convert binary..." && \
 # Download codebase-memory-mcp binary for target architecture
 RUN echo "📥 Downloading codebase-memory-mcp binary..." && \
     MCP_ARCH=$(uname -m | sed 's/x86_64/linux-amd64/' | sed 's/aarch64/linux-arm64/') && \
-    curl -sL --fail "https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.10.8/codebase-memory-mcp-${MCP_ARCH}.tar.gz" \
+    curl -sL --fail "https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.10.8/codebase-memory-mcp-${MCP_ARCH}-portable.tar.gz" \
         -o /tmp/mcp.tar.gz && \
     tar -xzf /tmp/mcp.tar.gz -C /usr/local/bin/ && \
     chmod +x /usr/local/bin/codebase-memory-mcp && \
