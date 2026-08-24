@@ -108,7 +108,13 @@ func exportStyles() pdflib.Styles {
 	s.H5 = &pdflib.Style{Font: pdfSans, Size: 12, Spacing: 4, TextColor: colNavy, FillColor: colWhite}
 	s.H6 = &pdflib.Style{Font: pdfSans, Size: 9, Spacing: 10, TextColor: colMuted, FillColor: colWhite}
 
-	s.Normal = &pdflib.Style{Font: pdfSans, Size: 11, Spacing: 5, TextColor: colNavy, FillColor: colWhite}
+	// Spacing also sets the gap goldmark-pdf puts *between list items*
+	// (there's no separate List style in this library - list rendering
+	// reuses Normal's line height for that gap too), which was reading as
+	// far too airy for the chart stat bullets (see markdown.go's per-stat
+	// list items). 3 keeps body-text line height comfortable (14pt on an
+	// 11pt font, ~1.27x) while meaningfully tightening list spacing.
+	s.Normal = &pdflib.Style{Font: pdfSans, Size: 11, Spacing: 3, TextColor: colNavy, FillColor: colWhite}
 	s.Blockquote = &pdflib.Style{Font: pdfSans, Size: 11, Spacing: 5, TextColor: colQuoteFg, FillColor: colWhite}
 
 	s.THeader = &pdflib.Style{Font: pdfSans, Size: 9.5, Spacing: 4, TextColor: colMuted, FillColor: colTableBg}

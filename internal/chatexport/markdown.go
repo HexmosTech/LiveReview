@@ -162,6 +162,14 @@ func writeTurn(b *strings.Builder, bookmarks *[]BookmarkEntry, turn ExportTurn, 
 		if chart.Description != "" {
 			fmt.Fprintf(b, "*%s*\n\n", sanitizeInline(chart.Description))
 		}
+		dataURI := "data:image/png;base64," + base64.StdEncoding.EncodeToString(chart.PNG)
+		// Alt text deliberately empty: goldmark-pdf's image node renderer
+		// doesn't skip walking its children after placing the image (it
+		// returns ast.WalkContinue, not WalkSkipChildren), so a non-empty
+		// alt here would render a second time as plain body text right
+		// below the image - on top of the title/description already
+		// written above it.
+		fmt.Fprintf(b, "![](%s)\n\n", dataURI)
 		if len(chart.Stats) > 0 {
 			// A bullet list, not trailing-space hard breaks: goldmark-pdf
 			// doesn't reliably honor a "  \n" hard break within a single
@@ -172,14 +180,6 @@ func writeTurn(b *strings.Builder, bookmarks *[]BookmarkEntry, turn ExportTurn, 
 			}
 			b.WriteString("\n")
 		}
-		dataURI := "data:image/png;base64," + base64.StdEncoding.EncodeToString(chart.PNG)
-		// Alt text deliberately empty: goldmark-pdf's image node renderer
-		// doesn't skip walking its children after placing the image (it
-		// returns ast.WalkContinue, not WalkSkipChildren), so a non-empty
-		// alt here would render a second time as plain body text right
-		// below the image - on top of the title/description already
-		// written above it.
-		fmt.Fprintf(b, "![](%s)\n\n", dataURI)
 	}
 
 	if len(turn.Files) > 0 {
