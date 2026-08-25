@@ -1,0 +1,1125 @@
+{
+  "reviewId": 11632,
+  "orgId": 151,
+  "artifactKey": "org/151/review/11632/artifacts/blast-radius.json",
+  "project": "home-lovestaco-hex-lr-LiveReview",
+  "generatedAt": "2026-08-23T20:41:43.052303199+05:30",
+  "capturedFrom": "ui/src/components/reviews/diffviewer/BlastRadiusPanel.tsx (pre-port frontend logic)",
+  "hunks": [
+    {
+      "hunkKey": "ui/src/pages/Chatbot/ChatConversation.tsx:21:8",
+      "filePath": "ui/src/pages/Chatbot/ChatConversation.tsx",
+      "header": "@@ -21,6 +21,8 @@ import {",
+      "headerChips": {
+        "score": 0,
+        "blast": 0,
+        "priority": 0,
+        "hygiene": "Hygiene ×1.0",
+        "coupling": "Coupling +0",
+        "tier": "blast-radius-none"
+      },
+      "impactedPackages": [],
+      "summaryTab": {
+        "blastRadius": {
+          "explanation": "0.0 points here. The highest-scoring hunk in this diff scored 30.7, so this one ranks 0/100 by comparison.",
+          "signals": {
+            "active": {
+              "flat": []
+            },
+            "dormant": {
+              "flat": []
+            },
+            "dormantCount": 0,
+            "dormantToggleLabel": null
+          }
+        },
+        "reviewPriority": {
+          "explanation": "0.0 points here. The highest-scoring hunk in this diff scored 69.7, so this one ranks 0/100 by comparison.",
+          "signals": {
+            "active": {
+              "flat": []
+            },
+            "dormant": {
+              "flat": []
+            },
+            "dormantCount": 0,
+            "dormantToggleLabel": null
+          }
+        }
+      },
+      "mathModeTab": {
+        "blastRadius": {
+          "title": "Blast Radius",
+          "stepAdd": {
+            "step": 1,
+            "label": "add up each symbol's own signals",
+            "lines": [
+              "No signals fired for this dimension."
+            ]
+          },
+          "stepSum": null,
+          "stepScale": {
+            "step": 2,
+            "label": "scale against the highest-scoring hunk in this diff",
+            "line": "0.0 ÷ 30.7 × 100 = 0.0",
+            "note": "30.7 is the highest score for this dimension anywhere in this diff, from rebucketChart.ts (@@ -557,3 +557,96 @@ export function computeHeatmapStats(spec: Record<string, unknown>): HeatmapStats)."
+          }
+        },
+        "reviewPriority": {
+          "title": "Review Priority",
+          "stepAdd": {
+            "step": 3,
+            "label": "add up each symbol's own signals",
+            "lines": [
+              "No signals fired for this dimension."
+            ]
+          },
+          "stepSum": null,
+          "stepScale": {
+            "step": 4,
+            "label": "scale against the highest-scoring hunk in this diff",
+            "line": "0.0 ÷ 69.7 × 100 = 0.0",
+            "note": "69.7 is the highest score for this dimension anywhere in this diff, from rebucketChart.ts (@@ -557,3 +557,96 @@ export function computeHeatmapStats(spec: Record<string, unknown>): HeatmapStats)."
+          }
+        },
+        "combine": {
+          "stepBlend": {
+            "step": 5,
+            "label": "blend Blast Radius and Review Priority",
+            "line": "(0.60 × 0.0) + (0.40 × 0.0) = 0.0 + 0.0 = 0.0"
+          },
+          "stepHygiene": {
+            "step": 6,
+            "label": "apply the hygiene multiplier",
+            "line": "0.0 × 1 = 0.0"
+          },
+          "finalScore": {
+            "label": "Rounded to the nearest whole number",
+            "value": 0,
+            "outOf": 100
+          }
+        }
+      },
+      "symbolCarousel": [],
+      "rawValues": {
+        "BlastRadiusRaw": 0,
+        "BlastRadiusNorm": 0,
+        "MaxBlastRadiusRaw": 30.702042046643918,
+        "ReviewPriorityRaw": 0,
+        "ReviewPriorityNorm": 0,
+        "MaxReviewPriorityRaw": 69.7,
+        "Combined": 0,
+        "HygieneMultiplier": 1,
+        "Weights": {
+          "BlastRadius": 0.6,
+          "ReviewPriority": 0.4
+        },
+        "FileCouplingBonus": 0
+      }
+    },
+    {
+      "hunkKey": "ui/src/pages/Chatbot/ChatConversation.tsx:841:12",
+      "filePath": "ui/src/pages/Chatbot/ChatConversation.tsx",
+      "header": "@@ -839,7 +841,12 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }",
+      "headerChips": {
+        "score": 36,
+        "blast": 23,
+        "priority": 55,
+        "hygiene": "Hygiene ×1.0",
+        "coupling": "Coupling +0",
+        "tier": "blast-radius-medium"
+      },
+      "impactedPackages": [
+        "ui/src/pages/Chatbot/ChatDebugPage",
+        "ui/src/pages/Chatbot/ChatDebugRoutes",
+        "ui/src/pages/Chatbot/Chatbot",
+        "ui/src/pages/Chatbot/ChatbotRoutes"
+      ],
+      "summaryTab": {
+        "blastRadius": {
+          "explanation": "7.0 points here. The highest-scoring hunk in this diff scored 30.7, so this one ranks 23/100 by comparison.",
+          "signals": {
+            "active": {
+              "flat": [
+                {
+                  "points": "+2.0",
+                  "name": "Entry point",
+                  "detail": "directly reachable from outside the codebase (e.g. CLI/main)",
+                  "symbol": "ChatConversation"
+                },
+                {
+                  "points": "+1.9",
+                  "name": "Caller reach",
+                  "detail": "2 direct + 4 transitive caller(s), up to 3 hops",
+                  "symbol": "ChatConversation"
+                },
+                {
+                  "points": "+1.6",
+                  "name": "Cross-package impact",
+                  "detail": "callers span 4 packages: ui/src/pages/Chatbot/ChatDebugPage, ui/src/pages/Chatbot/ChatDebugRoutes, ui/src/pages/Chatbot/Chatbot, ui/src/pages/Chatbot/ChatbotRoutes",
+                  "symbol": "ChatConversation"
+                },
+                {
+                  "points": "+1.5",
+                  "name": "Writes persistent data",
+                  "detail": "mutates a database/persistent store directly",
+                  "symbol": "ChatConversation"
+                }
+              ]
+            },
+            "dormant": {
+              "flat": []
+            },
+            "dormantCount": 0,
+            "dormantToggleLabel": null
+          }
+        },
+        "reviewPriority": {
+          "explanation": "38.1 points here. The highest-scoring hunk in this diff scored 69.7, so this one ranks 55/100 by comparison.",
+          "signals": {
+            "active": {
+              "flat": [
+                {
+                  "points": "+15.0",
+                  "name": "Cyclomatic complexity",
+                  "detail": "complexity score 15",
+                  "symbol": "ChatConversation"
+                },
+                {
+                  "points": "+12.0",
+                  "name": "Cognitive complexity",
+                  "detail": "cognitive score 24",
+                  "symbol": "ChatConversation"
+                },
+                {
+                  "points": "+8.1",
+                  "name": "Fan-out",
+                  "detail": "calls/uses 27 other symbols",
+                  "symbol": "ChatConversation"
+                },
+                {
+                  "points": "+3.0",
+                  "name": "Test coverage",
+                  "detail": "no direct test coverage",
+                  "symbol": "ChatConversation"
+                }
+              ]
+            },
+            "dormant": {
+              "flat": []
+            },
+            "dormantCount": 0,
+            "dormantToggleLabel": null
+          }
+        }
+      },
+      "mathModeTab": {
+        "blastRadius": {
+          "title": "Blast Radius",
+          "stepAdd": {
+            "step": 1,
+            "label": "add up each symbol's own signals",
+            "lines": [
+              "ChatConversation: 1.9 + 1.6 + 2.0 + 1.5 = 7.0"
+            ]
+          },
+          "stepSum": null,
+          "stepScale": {
+            "step": 2,
+            "label": "scale against the highest-scoring hunk in this diff",
+            "line": "7.0 ÷ 30.7 × 100 = 22.7",
+            "note": "30.7 is the highest score for this dimension anywhere in this diff, from rebucketChart.ts (@@ -557,3 +557,96 @@ export function computeHeatmapStats(spec: Record<string, unknown>): HeatmapStats)."
+          }
+        },
+        "reviewPriority": {
+          "title": "Review Priority",
+          "stepAdd": {
+            "step": 3,
+            "label": "add up each symbol's own signals",
+            "lines": [
+              "ChatConversation: 15.0 + 12.0 + 8.1 + 3.0 = 38.1"
+            ]
+          },
+          "stepSum": null,
+          "stepScale": {
+            "step": 4,
+            "label": "scale against the highest-scoring hunk in this diff",
+            "line": "38.1 ÷ 69.7 × 100 = 54.7",
+            "note": "69.7 is the highest score for this dimension anywhere in this diff, from rebucketChart.ts (@@ -557,3 +557,96 @@ export function computeHeatmapStats(spec: Record<string, unknown>): HeatmapStats)."
+          }
+        },
+        "combine": {
+          "stepBlend": {
+            "step": 5,
+            "label": "blend Blast Radius and Review Priority",
+            "line": "(0.60 × 22.7) + (0.40 × 54.7) = 13.6 + 21.9 = 35.5"
+          },
+          "stepHygiene": {
+            "step": 6,
+            "label": "apply the hygiene multiplier",
+            "line": "35.5 × 1 = 35.5"
+          },
+          "finalScore": {
+            "label": "Rounded to the nearest whole number",
+            "value": 36,
+            "outOf": 100
+          }
+        }
+      },
+      "symbolCarousel": [
+        {
+          "name": "ChatConversation",
+          "label": "Function",
+          "metricChips": [
+            "entry point",
+            "complexity 15",
+            "cognitive 24",
+            "calls out 27",
+            "no tests"
+          ],
+          "callerCount": 6,
+          "impactedPackages": [
+            "ui/src/pages/Chatbot/ChatDebugPage",
+            "ui/src/pages/Chatbot/ChatDebugRoutes",
+            "ui/src/pages/Chatbot/Chatbot",
+            "ui/src/pages/Chatbot/ChatbotRoutes"
+          ]
+        }
+      ],
+      "rawValues": {
+        "BlastRadiusRaw": 6.980266605821071,
+        "BlastRadiusNorm": 22.735512495280727,
+        "MaxBlastRadiusRaw": 30.702042046643918,
+        "ReviewPriorityRaw": 38.1,
+        "ReviewPriorityNorm": 54.66284074605452,
+        "MaxReviewPriorityRaw": 69.7,
+        "Combined": 35.50644379559024,
+        "HygieneMultiplier": 1,
+        "Weights": {
+          "BlastRadius": 0.6,
+          "ReviewPriority": 0.4
+        },
+        "FileCouplingBonus": 0
+      }
+    },
+    {
+      "hunkKey": "ui/src/pages/Chatbot/ChatConversation.tsx:913:23",
+      "filePath": "ui/src/pages/Chatbot/ChatConversation.tsx",
+      "header": "@@ -906,6 +913,23 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }",
+      "headerChips": {
+        "score": 36,
+        "blast": 23,
+        "priority": 55,
+        "hygiene": "Hygiene ×1.0",
+        "coupling": "Coupling +0",
+        "tier": "blast-radius-medium"
+      },
+      "impactedPackages": [
+        "ui/src/pages/Chatbot/ChatDebugPage",
+        "ui/src/pages/Chatbot/ChatDebugRoutes",
+        "ui/src/pages/Chatbot/Chatbot",
+        "ui/src/pages/Chatbot/ChatbotRoutes"
+      ],
+      "summaryTab": {
+        "blastRadius": {
+          "explanation": "7.0 points here. The highest-scoring hunk in this diff scored 30.7, so this one ranks 23/100 by comparison.",
+          "signals": {
+            "active": {
+              "flat": [
+                {
+                  "points": "+2.0",
+                  "name": "Entry point",
+                  "detail": "directly reachable from outside the codebase (e.g. CLI/main)",
+                  "symbol": "ChatConversation"
+                },
+                {
+                  "points": "+1.9",
+                  "name": "Caller reach",
+                  "detail": "2 direct + 4 transitive caller(s), up to 3 hops",
+                  "symbol": "ChatConversation"
+                },
+                {
+                  "points": "+1.6",
+                  "name": "Cross-package impact",
+                  "detail": "callers span 4 packages: ui/src/pages/Chatbot/ChatDebugPage, ui/src/pages/Chatbot/ChatDebugRoutes, ui/src/pages/Chatbot/Chatbot, ui/src/pages/Chatbot/ChatbotRoutes",
+                  "symbol": "ChatConversation"
+                },
+                {
+                  "points": "+1.5",
+                  "name": "Writes persistent data",
+                  "detail": "mutates a database/persistent store directly",
+                  "symbol": "ChatConversation"
+                }
+              ]
+            },
+            "dormant": {
+              "flat": []
+            },
+            "dormantCount": 0,
+            "dormantToggleLabel": null
+          }
+        },
+        "reviewPriority": {
+          "explanation": "38.1 points here. The highest-scoring hunk in this diff scored 69.7, so this one ranks 55/100 by comparison.",
+          "signals": {
+            "active": {
+              "flat": [
+                {
+                  "points": "+15.0",
+                  "name": "Cyclomatic complexity",
+                  "detail": "complexity score 15",
+                  "symbol": "ChatConversation"
+                },
+                {
+                  "points": "+12.0",
+                  "name": "Cognitive complexity",
+                  "detail": "cognitive score 24",
+                  "symbol": "ChatConversation"
+                },
+                {
+                  "points": "+8.1",
+                  "name": "Fan-out",
+                  "detail": "calls/uses 27 other symbols",
+                  "symbol": "ChatConversation"
+                },
+                {
+                  "points": "+3.0",
+                  "name": "Test coverage",
+                  "detail": "no direct test coverage",
+                  "symbol": "ChatConversation"
+                }
+              ]
+            },
+            "dormant": {
+              "flat": []
+            },
+            "dormantCount": 0,
+            "dormantToggleLabel": null
+          }
+        }
+      },
+      "mathModeTab": {
+        "blastRadius": {
+          "title": "Blast Radius",
+          "stepAdd": {
+            "step": 1,
+            "label": "add up each symbol's own signals",
+            "lines": [
+              "ChatConversation: 1.9 + 1.6 + 2.0 + 1.5 = 7.0"
+            ]
+          },
+          "stepSum": null,
+          "stepScale": {
+            "step": 2,
+            "label": "scale against the highest-scoring hunk in this diff",
+            "line": "7.0 ÷ 30.7 × 100 = 22.7",
+            "note": "30.7 is the highest score for this dimension anywhere in this diff, from rebucketChart.ts (@@ -557,3 +557,96 @@ export function computeHeatmapStats(spec: Record<string, unknown>): HeatmapStats)."
+          }
+        },
+        "reviewPriority": {
+          "title": "Review Priority",
+          "stepAdd": {
+            "step": 3,
+            "label": "add up each symbol's own signals",
+            "lines": [
+              "ChatConversation: 15.0 + 12.0 + 8.1 + 3.0 = 38.1"
+            ]
+          },
+          "stepSum": null,
+          "stepScale": {
+            "step": 4,
+            "label": "scale against the highest-scoring hunk in this diff",
+            "line": "38.1 ÷ 69.7 × 100 = 54.7",
+            "note": "69.7 is the highest score for this dimension anywhere in this diff, from rebucketChart.ts (@@ -557,3 +557,96 @@ export function computeHeatmapStats(spec: Record<string, unknown>): HeatmapStats)."
+          }
+        },
+        "combine": {
+          "stepBlend": {
+            "step": 5,
+            "label": "blend Blast Radius and Review Priority",
+            "line": "(0.60 × 22.7) + (0.40 × 54.7) = 13.6 + 21.9 = 35.5"
+          },
+          "stepHygiene": {
+            "step": 6,
+            "label": "apply the hygiene multiplier",
+            "line": "35.5 × 1 = 35.5"
+          },
+          "finalScore": {
+            "label": "Rounded to the nearest whole number",
+            "value": 36,
+            "outOf": 100
+          }
+        }
+      },
+      "symbolCarousel": [
+        {
+          "name": "ChatConversation",
+          "label": "Function",
+          "metricChips": [
+            "entry point",
+            "complexity 15",
+            "cognitive 24",
+            "calls out 27",
+            "no tests"
+          ],
+          "callerCount": 6,
+          "impactedPackages": [
+            "ui/src/pages/Chatbot/ChatDebugPage",
+            "ui/src/pages/Chatbot/ChatDebugRoutes",
+            "ui/src/pages/Chatbot/Chatbot",
+            "ui/src/pages/Chatbot/ChatbotRoutes"
+          ]
+        }
+      ],
+      "rawValues": {
+        "BlastRadiusRaw": 6.980266605821071,
+        "BlastRadiusNorm": 22.735512495280727,
+        "MaxBlastRadiusRaw": 30.702042046643918,
+        "ReviewPriorityRaw": 38.1,
+        "ReviewPriorityNorm": 54.66284074605452,
+        "MaxReviewPriorityRaw": 69.7,
+        "Combined": 35.50644379559024,
+        "HygieneMultiplier": 1,
+        "Weights": {
+          "BlastRadius": 0.6,
+          "ReviewPriority": 0.4
+        },
+        "FileCouplingBonus": 0
+      }
+    },
+    {
+      "hunkKey": "ui/src/pages/Chatbot/rebucketChart.ts:557:96",
+      "filePath": "ui/src/pages/Chatbot/rebucketChart.ts",
+      "header": "@@ -557,3 +557,96 @@ export function computeHeatmapStats(spec: Record<string, unknown>): HeatmapStats",
+      "headerChips": {
+        "score": 100,
+        "blast": 100,
+        "priority": 100,
+        "hygiene": "Hygiene ×1.0",
+        "coupling": "Coupling +0.3",
+        "tier": "blast-radius-high"
+      },
+      "impactedPackages": [
+        "ui",
+        "ui/src/pages/Chatbot/ChatConversation",
+        "ui/src/pages/Chatbot/ChatDebugPage",
+        "ui/src/pages/Chatbot/ChatDebugRoutes",
+        "ui/src/pages/Chatbot/Chatbot",
+        "ui/src/pages/Chatbot/ChatbotRoutes",
+        "ui/src/pages/Chatbot/rebucketChart"
+      ],
+      "summaryTab": {
+        "blastRadius": {
+          "explanation": "30.7 points here. The highest-scoring hunk in this diff scored 30.7, so this one ranks 100/100 by comparison.",
+          "signals": {
+            "active": {
+              "ungrouped": [
+                {
+                  "points": "+0.3",
+                  "name": "File co-change coupling",
+                  "detail": "this file has historically changed alongside other files not otherwise touched here",
+                  "symbol": null
+                }
+              ],
+              "groups": [
+                {
+                  "symbol": "getSlopeEncoding",
+                  "signals": [
+                    {
+                      "points": "+3.8",
+                      "name": "Reached from 3 service entry point(s)",
+                      "detail": "ChatConversation, computeSlopeStats, isSlopeGraph",
+                      "symbol": "getSlopeEncoding"
+                    },
+                    {
+                      "points": "+1.7",
+                      "name": "Caller reach",
+                      "detail": "2 direct + 3 transitive caller(s), up to 3 hops",
+                      "symbol": "getSlopeEncoding"
+                    },
+                    {
+                      "points": "+1.6",
+                      "name": "Cross-package impact",
+                      "detail": "callers span 4 packages: ui/src/pages/Chatbot/ChatConversation, ui/src/pages/Chatbot/ChatDebugPage, ui/src/pages/Chatbot/Chatbot, ui/src/pages/Chatbot/rebucketChart",
+                      "symbol": "getSlopeEncoding"
+                    }
+                  ]
+                },
+                {
+                  "symbol": "computeHeatmapStats",
+                  "signals": [
+                    {
+                      "points": "+2.0",
+                      "name": "Entry point",
+                      "detail": "directly reachable from outside the codebase (e.g. CLI/main)",
+                      "symbol": "computeHeatmapStats"
+                    },
+                    {
+                      "points": "+1.8",
+                      "name": "Cross-package impact",
+                      "detail": "callers span 5 packages: ui/src/pages/Chatbot/ChatConversation, ui/src/pages/Chatbot/ChatDebugPage, ui/src/pages/Chatbot/ChatDebugRoutes, ui/src/pages/Chatbot/Chatbot, ui/src/pages/Chatbot/ChatbotRoutes",
+                      "symbol": "computeHeatmapStats"
+                    },
+                    {
+                      "points": "+1.6",
+                      "name": "Caller reach",
+                      "detail": "1 direct + 4 transitive caller(s), up to 3 hops",
+                      "symbol": "computeHeatmapStats"
+                    },
+                    {
+                      "points": "+1.5",
+                      "name": "Reached from 1 service entry point(s)",
+                      "detail": "ChatConversation",
+                      "symbol": "computeHeatmapStats"
+                    }
+                  ]
+                },
+                {
+                  "symbol": "computeSlopeStats",
+                  "signals": [
+                    {
+                      "points": "+2.0",
+                      "name": "Entry point",
+                      "detail": "directly reachable from outside the codebase (e.g. CLI/main)",
+                      "symbol": "computeSlopeStats"
+                    },
+                    {
+                      "points": "+1.8",
+                      "name": "Cross-package impact",
+                      "detail": "callers span 5 packages: ui/src/pages/Chatbot/ChatConversation, ui/src/pages/Chatbot/ChatDebugPage, ui/src/pages/Chatbot/ChatDebugRoutes, ui/src/pages/Chatbot/Chatbot, ui/src/pages/Chatbot/ChatbotRoutes",
+                      "symbol": "computeSlopeStats"
+                    },
+                    {
+                      "points": "+1.6",
+                      "name": "Caller reach",
+                      "detail": "1 direct + 4 transitive caller(s), up to 3 hops",
+                      "symbol": "computeSlopeStats"
+                    },
+                    {
+                      "points": "+1.5",
+                      "name": "Reached from 1 service entry point(s)",
+                      "detail": "ChatConversation",
+                      "symbol": "computeSlopeStats"
+                    }
+                  ]
+                },
+                {
+                  "symbol": "isSlopeGraph",
+                  "signals": [
+                    {
+                      "points": "+2.0",
+                      "name": "Entry point",
+                      "detail": "directly reachable from outside the codebase (e.g. CLI/main)",
+                      "symbol": "isSlopeGraph"
+                    },
+                    {
+                      "points": "+1.8",
+                      "name": "Cross-package impact",
+                      "detail": "callers span 5 packages: ui/src/pages/Chatbot/ChatConversation, ui/src/pages/Chatbot/ChatDebugPage, ui/src/pages/Chatbot/ChatDebugRoutes, ui/src/pages/Chatbot/Chatbot, ui/src/pages/Chatbot/ChatbotRoutes",
+                      "symbol": "isSlopeGraph"
+                    },
+                    {
+                      "points": "+1.6",
+                      "name": "Caller reach",
+                      "detail": "1 direct + 4 transitive caller(s), up to 3 hops",
+                      "symbol": "isSlopeGraph"
+                    },
+                    {
+                      "points": "+1.5",
+                      "name": "Reached from 1 service entry point(s)",
+                      "detail": "ChatConversation",
+                      "symbol": "isSlopeGraph"
+                    }
+                  ]
+                },
+                {
+                  "symbol": "SlopeStats",
+                  "signals": [
+                    {
+                      "points": "+1.7",
+                      "name": "Text references",
+                      "detail": "3 reference(s) to this name across the codebase",
+                      "symbol": "SlopeStats"
+                    }
+                  ]
+                },
+                {
+                  "symbol": "SlopeEncodingParts",
+                  "signals": [
+                    {
+                      "points": "+1.0",
+                      "name": "Text references",
+                      "detail": "1 reference(s) to this name across the codebase",
+                      "symbol": "SlopeEncodingParts"
+                    }
+                  ]
+                }
+              ]
+            },
+            "dormant": {
+              "ungrouped": [],
+              "groups": [
+                {
+                  "symbol": "SlopeEncodingParts",
+                  "signals": [
+                    {
+                      "points": "+0.0",
+                      "name": "Cross-package impact",
+                      "detail": "references concentrated in 1 directory(ies), no cross-package spread",
+                      "symbol": "SlopeEncodingParts"
+                    },
+                    {
+                      "points": "+0.0",
+                      "name": "Interface definition",
+                      "detail": "no known implementers",
+                      "symbol": "SlopeEncodingParts"
+                    },
+                    {
+                      "points": "+0.0",
+                      "name": "Writes persistent data",
+                      "detail": "does not mutate a database/persistent store directly",
+                      "symbol": "SlopeEncodingParts"
+                    }
+                  ]
+                },
+                {
+                  "symbol": "SlopeStats",
+                  "signals": [
+                    {
+                      "points": "+0.0",
+                      "name": "Cross-package impact",
+                      "detail": "references concentrated in 1 directory(ies), no cross-package spread",
+                      "symbol": "SlopeStats"
+                    },
+                    {
+                      "points": "+0.0",
+                      "name": "Interface definition",
+                      "detail": "no known implementers",
+                      "symbol": "SlopeStats"
+                    },
+                    {
+                      "points": "+0.0",
+                      "name": "Writes persistent data",
+                      "detail": "does not mutate a database/persistent store directly",
+                      "symbol": "SlopeStats"
+                    }
+                  ]
+                },
+                {
+                  "symbol": "computeHeatmapStats",
+                  "signals": [
+                    {
+                      "points": "+0.0",
+                      "name": "Writes persistent data",
+                      "detail": "does not mutate a database/persistent store directly",
+                      "symbol": "computeHeatmapStats"
+                    }
+                  ]
+                },
+                {
+                  "symbol": "computeSlopeStats",
+                  "signals": [
+                    {
+                      "points": "+0.0",
+                      "name": "Writes persistent data",
+                      "detail": "does not mutate a database/persistent store directly",
+                      "symbol": "computeSlopeStats"
+                    }
+                  ]
+                },
+                {
+                  "symbol": "getSlopeEncoding",
+                  "signals": [
+                    {
+                      "points": "+0.0",
+                      "name": "Entry point",
+                      "detail": "not a route handler, not flagged as an entry point",
+                      "symbol": "getSlopeEncoding"
+                    },
+                    {
+                      "points": "+0.0",
+                      "name": "Writes persistent data",
+                      "detail": "does not mutate a database/persistent store directly",
+                      "symbol": "getSlopeEncoding"
+                    }
+                  ]
+                },
+                {
+                  "symbol": "isSlopeGraph",
+                  "signals": [
+                    {
+                      "points": "+0.0",
+                      "name": "Writes persistent data",
+                      "detail": "does not mutate a database/persistent store directly",
+                      "symbol": "isSlopeGraph"
+                    }
+                  ]
+                }
+              ]
+            },
+            "dormantCount": 11,
+            "dormantToggleLabel": "11 signals checked, not contributing"
+          }
+        },
+        "reviewPriority": {
+          "explanation": "69.7 points here. The highest-scoring hunk in this diff scored 69.7, so this one ranks 100/100 by comparison.",
+          "signals": {
+            "active": {
+              "ungrouped": [],
+              "groups": [
+                {
+                  "symbol": "computeSlopeStats",
+                  "signals": [
+                    {
+                      "points": "+13.0",
+                      "name": "Cyclomatic complexity",
+                      "detail": "complexity score 13",
+                      "symbol": "computeSlopeStats"
+                    },
+                    {
+                      "points": "+10.5",
+                      "name": "Cognitive complexity",
+                      "detail": "cognitive score 21",
+                      "symbol": "computeSlopeStats"
+                    },
+                    {
+                      "points": "+3.0",
+                      "name": "Nested loops",
+                      "detail": "max loop nesting depth 1",
+                      "symbol": "computeSlopeStats"
+                    },
+                    {
+                      "points": "+3.0",
+                      "name": "Test coverage",
+                      "detail": "no direct test coverage",
+                      "symbol": "computeSlopeStats"
+                    },
+                    {
+                      "points": "+0.3",
+                      "name": "Fan-out",
+                      "detail": "calls/uses 1 other symbols",
+                      "symbol": "computeSlopeStats"
+                    }
+                  ]
+                },
+                {
+                  "symbol": "computeHeatmapStats",
+                  "signals": [
+                    {
+                      "points": "+6.0",
+                      "name": "Cyclomatic complexity",
+                      "detail": "complexity score 6",
+                      "symbol": "computeHeatmapStats"
+                    },
+                    {
+                      "points": "+4.0",
+                      "name": "Cognitive complexity",
+                      "detail": "cognitive score 8",
+                      "symbol": "computeHeatmapStats"
+                    },
+                    {
+                      "points": "+3.0",
+                      "name": "Nested loops",
+                      "detail": "max loop nesting depth 1",
+                      "symbol": "computeHeatmapStats"
+                    },
+                    {
+                      "points": "+3.0",
+                      "name": "Test coverage",
+                      "detail": "no direct test coverage",
+                      "symbol": "computeHeatmapStats"
+                    },
+                    {
+                      "points": "+0.3",
+                      "name": "Fan-out",
+                      "detail": "calls/uses 1 other symbols",
+                      "symbol": "computeHeatmapStats"
+                    }
+                  ]
+                },
+                {
+                  "symbol": "getSlopeEncoding",
+                  "signals": [
+                    {
+                      "points": "+5.0",
+                      "name": "Cyclomatic complexity",
+                      "detail": "complexity score 5",
+                      "symbol": "getSlopeEncoding"
+                    },
+                    {
+                      "points": "+3.0",
+                      "name": "Test coverage",
+                      "detail": "no direct test coverage",
+                      "symbol": "getSlopeEncoding"
+                    },
+                    {
+                      "points": "+2.5",
+                      "name": "Cognitive complexity",
+                      "detail": "cognitive score 5",
+                      "symbol": "getSlopeEncoding"
+                    },
+                    {
+                      "points": "+0.3",
+                      "name": "Fan-out",
+                      "detail": "calls/uses 1 other symbols",
+                      "symbol": "getSlopeEncoding"
+                    }
+                  ]
+                },
+                {
+                  "symbol": "isSlopeGraph",
+                  "signals": [
+                    {
+                      "points": "+3.0",
+                      "name": "Test coverage",
+                      "detail": "no direct test coverage",
+                      "symbol": "isSlopeGraph"
+                    },
+                    {
+                      "points": "+2.0",
+                      "name": "Similar implementation exists elsewhere",
+                      "detail": "100% similar to isCalendarHeatmap (same file)",
+                      "symbol": "isSlopeGraph"
+                    },
+                    {
+                      "points": "+1.0",
+                      "name": "Cyclomatic complexity",
+                      "detail": "complexity score 1",
+                      "symbol": "isSlopeGraph"
+                    },
+                    {
+                      "points": "+0.5",
+                      "name": "Cognitive complexity",
+                      "detail": "cognitive score 1",
+                      "symbol": "isSlopeGraph"
+                    },
+                    {
+                      "points": "+0.3",
+                      "name": "Fan-out",
+                      "detail": "calls/uses 1 other symbols",
+                      "symbol": "isSlopeGraph"
+                    }
+                  ]
+                },
+                {
+                  "symbol": "SlopeEncodingParts",
+                  "signals": [
+                    {
+                      "points": "+3.0",
+                      "name": "Test coverage",
+                      "detail": "no direct test coverage",
+                      "symbol": "SlopeEncodingParts"
+                    }
+                  ]
+                },
+                {
+                  "symbol": "SlopeStats",
+                  "signals": [
+                    {
+                      "points": "+3.0",
+                      "name": "Test coverage",
+                      "detail": "no direct test coverage",
+                      "symbol": "SlopeStats"
+                    }
+                  ]
+                }
+              ]
+            },
+            "dormant": {
+              "flat": []
+            },
+            "dormantCount": 0,
+            "dormantToggleLabel": null
+          }
+        }
+      },
+      "mathModeTab": {
+        "blastRadius": {
+          "title": "Blast Radius",
+          "stepAdd": {
+            "step": 1,
+            "label": "add up each symbol's own signals",
+            "lines": [
+              "SlopeEncodingParts: 1.0 + 0.0 + 0.0 + 0.0 = 1.0",
+              "SlopeStats: 1.7 + 0.0 + 0.0 + 0.0 = 1.7",
+              "computeHeatmapStats: 1.6 + 1.8 + 2.0 + 1.5 + 0.0 = 6.9",
+              "computeSlopeStats: 1.6 + 1.8 + 2.0 + 1.5 + 0.0 = 6.9",
+              "getSlopeEncoding: 1.7 + 1.6 + 0.0 + 3.8 + 0.0 = 7.1",
+              "isSlopeGraph: 1.6 + 1.8 + 2.0 + 1.5 + 0.0 = 6.9",
+              "This hunk (file-level signals): 0.3 = 0.3"
+            ]
+          },
+          "stepSum": {
+            "step": 2,
+            "label": "add every subtotal together",
+            "line": "1.0 + 1.7 + 6.9 + 6.9 + 7.1 + 6.9 + 0.3 = 30.7"
+          },
+          "stepScale": {
+            "step": 3,
+            "label": "scale against the highest-scoring hunk in this diff",
+            "line": "30.7 ÷ 30.7 × 100 = 100.0",
+            "note": "30.7 is this very hunk's own score — it's the highest for this dimension anywhere in this diff."
+          }
+        },
+        "reviewPriority": {
+          "title": "Review Priority",
+          "stepAdd": {
+            "step": 4,
+            "label": "add up each symbol's own signals",
+            "lines": [
+              "SlopeEncodingParts: 3.0 = 3.0",
+              "SlopeStats: 3.0 = 3.0",
+              "computeHeatmapStats: 6.0 + 4.0 + 3.0 + 0.3 + 3.0 = 16.3",
+              "computeSlopeStats: 13.0 + 10.5 + 3.0 + 0.3 + 3.0 = 29.8",
+              "getSlopeEncoding: 5.0 + 2.5 + 0.3 + 3.0 = 10.8",
+              "isSlopeGraph: 1.0 + 0.5 + 0.3 + 3.0 + 2.0 = 6.8"
+            ]
+          },
+          "stepSum": {
+            "step": 5,
+            "label": "add every subtotal together",
+            "line": "3.0 + 3.0 + 16.3 + 29.8 + 10.8 + 6.8 = 69.7"
+          },
+          "stepScale": {
+            "step": 6,
+            "label": "scale against the highest-scoring hunk in this diff",
+            "line": "69.7 ÷ 69.7 × 100 = 100.0",
+            "note": "69.7 is this very hunk's own score — it's the highest for this dimension anywhere in this diff."
+          }
+        },
+        "combine": {
+          "stepBlend": {
+            "step": 7,
+            "label": "blend Blast Radius and Review Priority",
+            "line": "(0.60 × 100.0) + (0.40 × 100.0) = 60.0 + 40.0 = 100.0"
+          },
+          "stepHygiene": {
+            "step": 8,
+            "label": "apply the hygiene multiplier",
+            "line": "100.0 × 1 = 100.0"
+          },
+          "finalScore": {
+            "label": "Rounded to the nearest whole number",
+            "value": 100,
+            "outOf": 100
+          }
+        }
+      },
+      "symbolCarousel": [
+        {
+          "name": "getSlopeEncoding",
+          "label": "Function",
+          "metricChips": [
+            "complexity 5",
+            "cognitive 5",
+            "calls out 1",
+            "no tests"
+          ],
+          "callerCount": 5,
+          "impactedPackages": [
+            "ui/src/pages/Chatbot/ChatConversation",
+            "ui/src/pages/Chatbot/ChatDebugPage",
+            "ui/src/pages/Chatbot/Chatbot",
+            "ui/src/pages/Chatbot/rebucketChart"
+          ]
+        },
+        {
+          "name": "computeHeatmapStats",
+          "label": "Function",
+          "metricChips": [
+            "entry point",
+            "complexity 6",
+            "cognitive 8",
+            "loop depth 1",
+            "calls out 1",
+            "no tests"
+          ],
+          "callerCount": 5,
+          "impactedPackages": [
+            "ui/src/pages/Chatbot/ChatConversation",
+            "ui/src/pages/Chatbot/ChatDebugPage",
+            "ui/src/pages/Chatbot/ChatDebugRoutes",
+            "ui/src/pages/Chatbot/Chatbot",
+            "ui/src/pages/Chatbot/ChatbotRoutes"
+          ]
+        },
+        {
+          "name": "computeSlopeStats",
+          "label": "Function",
+          "metricChips": [
+            "entry point",
+            "complexity 13",
+            "cognitive 21",
+            "loop depth 1",
+            "calls out 1",
+            "no tests"
+          ],
+          "callerCount": 5,
+          "impactedPackages": [
+            "ui/src/pages/Chatbot/ChatConversation",
+            "ui/src/pages/Chatbot/ChatDebugPage",
+            "ui/src/pages/Chatbot/ChatDebugRoutes",
+            "ui/src/pages/Chatbot/Chatbot",
+            "ui/src/pages/Chatbot/ChatbotRoutes"
+          ]
+        },
+        {
+          "name": "isSlopeGraph",
+          "label": "Function",
+          "metricChips": [
+            "entry point",
+            "complexity 1",
+            "cognitive 1",
+            "calls out 1",
+            "no tests"
+          ],
+          "callerCount": 5,
+          "impactedPackages": [
+            "ui/src/pages/Chatbot/ChatConversation",
+            "ui/src/pages/Chatbot/ChatDebugPage",
+            "ui/src/pages/Chatbot/ChatDebugRoutes",
+            "ui/src/pages/Chatbot/Chatbot",
+            "ui/src/pages/Chatbot/ChatbotRoutes"
+          ]
+        },
+        {
+          "name": "SlopeStats",
+          "label": "Interface",
+          "metricChips": [
+            "no tests"
+          ],
+          "callerCount": 0,
+          "impactedPackages": [
+            "ui"
+          ]
+        },
+        {
+          "name": "SlopeEncodingParts",
+          "label": "Interface",
+          "metricChips": [
+            "no tests"
+          ],
+          "callerCount": 0,
+          "impactedPackages": [
+            "ui"
+          ]
+        }
+      ],
+      "rawValues": {
+        "BlastRadiusRaw": 30.702042046643918,
+        "BlastRadiusNorm": 100,
+        "MaxBlastRadiusRaw": 30.702042046643918,
+        "ReviewPriorityRaw": 69.7,
+        "ReviewPriorityNorm": 100,
+        "MaxReviewPriorityRaw": 69.7,
+        "Combined": 100,
+        "HygieneMultiplier": 1,
+        "Weights": {
+          "BlastRadius": 0.6,
+          "ReviewPriority": 0.4
+        },
+        "FileCouplingBonus": 0.25980762113533157
+      }
+    }
+  ]
+}
