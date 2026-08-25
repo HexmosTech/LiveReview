@@ -576,7 +576,8 @@ CREATE TABLE public.blast_radius_hunks (
     combined numeric(5,2) NOT NULL,
     tier character varying(32) NOT NULL,
     math_mode jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT blast_radius_hunks_tier_check CHECK (((tier)::text = ANY (ARRAY[('blast-radius-none'::character varying)::text, ('blast-radius-low'::character varying)::text, ('blast-radius-medium'::character varying)::text, ('blast-radius-high'::character varying)::text])))
 );
 
 
@@ -6459,4 +6460,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260823120000'),
     ('20260823200000'),
     ('20260824190000'),
-    ('20260825140000');
+    ('20260825140000'),
+    ('20260825190000');

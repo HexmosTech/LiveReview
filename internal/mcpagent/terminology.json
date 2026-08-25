@@ -9,8 +9,6 @@
       "high risk reviews"
     ],
     "targets": [
-      "blast_radius_reviews.combined",
-      "blast_radius_reviews.tier",
       "blast_radius_hunks.combined",
       "blast_radius_hunks.tier"
     ],
