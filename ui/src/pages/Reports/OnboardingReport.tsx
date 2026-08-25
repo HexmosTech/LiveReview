@@ -31,18 +31,18 @@ interface SectionResponse {
 }
 
 type ExportFormat = 'pdf' | 'html';
-type ExportPhase = 'idle' | 'starting' | 'running' | 'done' | 'error';
+type ExportPhase = 'starting' | 'running' | 'done' | 'error';
 
-interface ExportState {
-  jobId: string | null;
+interface ExportModalState {
+  open: boolean;
+  format: ExportFormat;
   phase: ExportPhase;
+  jobId: string | null;
   current: number;
   total: number;
   label: string;
   error: string;
 }
-
-const emptyExportState = (): ExportState => ({ jobId: null, phase: 'idle', current: 0, total: 0, label: '', error: '' });
 
 interface ExportStatusResponse {
   status: ExportPhase;
@@ -51,6 +51,8 @@ interface ExportStatusResponse {
   label: string;
   error: string;
 }
+
+const closedModal: ExportModalState = { open: false, format: 'pdf', phase: 'starting', jobId: null, current: 0, total: 0, label: '', error: '' };
 
 const OnboardingReport: React.FC = () => {
   const { currentOrg } = useOrgContext();
@@ -61,18 +63,9 @@ const OnboardingReport: React.FC = () => {
   const [progress, setProgress] = useState({ current: 0, total: 0, label: '' });
   const [completed, setCompleted] = useState(false);
   const [activeSection, setActiveSection] = useState<string | null>(null);
-  const [exports, setExports] = useState<Record<ExportFormat, ExportState>>({ pdf: emptyExportState(), html: emptyExportState() });
+  const [exportModal, setExportModal] = useState<ExportModalState>(closedModal);
   const abortRef = useRef<AbortController | null>(null);
-  // Tracks the *current* job id per format so a stale poll loop (e.g. left
-  // over from a "Regenerate Report" that started a fresh export job) can
-  // tell it's been superseded and stop updating state / stop re-polling.
-  const activeJobIdRef = useRef<Record<ExportFormat, string | null>>({ pdf: null, html: null });
-  // If the user clicks "Save as X" while that export is still running (it's
-  // kicked off automatically as soon as report generation completes, so
-  // this is only for someone who clicks before it's finished), the download
-  // fires the moment the in-flight job reports done instead of requiring a
-  // second click.
-  const pendingDownloadRef = useRef<Record<ExportFormat, boolean>>({ pdf: false, html: false });
+  const activeJobIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     apiClient
@@ -152,94 +145,53 @@ const OnboardingReport: React.FC = () => {
       a.remove();
       window.URL.revokeObjectURL(objectUrl);
     } catch (err: any) {
-      setError(`Download failed: ${err?.message || 'Unknown error'}`);
+      setExportModal((prev) => ({ ...prev, phase: 'error', error: `Download failed: ${err?.message || 'Unknown error'}` }));
     }
   }, []);
 
-  // Polls an export job's progress until it's done or errors, updating the
-  // per-format button state (chart N of M) as it goes. Generating a PDF/HTML
-  // export re-runs every chart's SQL query and re-renders each chart to a
-  // PNG server-side — the same slow pipeline the CLI tool uses — so this is
-  // what replaces a plain "still loading?" spinner with real progress.
-  const pollExportStatus = useCallback((format: ExportFormat, jobId: string) => {
-    const tick = async () => {
-      if (activeJobIdRef.current[format] !== jobId) return; // superseded by a newer job
-      try {
-        const res = await apiClient.get<ExportStatusResponse>(`/api/v1/reports/onboarding/export/${jobId}/status`);
-        const data = ((res as any)?.data ?? res) as ExportStatusResponse;
-        if (activeJobIdRef.current[format] !== jobId) return;
-
-        const phase = data.status || 'running';
-        setExports((prev) => ({
-          ...prev,
-          [format]: {
-            ...prev[format],
-            phase,
-            current: data.current || 0,
-            total: data.total || prev[format].total,
-            label: data.label || '',
-            error: data.error || '',
-          },
-        }));
-
-        if (phase === 'done') {
-          if (pendingDownloadRef.current[format]) {
-            pendingDownloadRef.current[format] = false;
-            fetchAndSaveExport(format, jobId);
-          }
-          return;
-        }
-        if (phase === 'error') return;
-        setTimeout(tick, 900);
-      } catch {
-        if (activeJobIdRef.current[format] === jobId) setTimeout(tick, 1500);
-      }
-    };
-    tick();
-  }, [fetchAndSaveExport]);
-
-  // Kicks off (or restarts) a PDF/HTML export job in the background.
+  // Kicks off an export job and opens the progress modal.
   const startExport = useCallback(async (format: ExportFormat) => {
-    setExports((prev) => ({ ...prev, [format]: { ...emptyExportState(), phase: 'starting' } }));
+    setExportModal({ open: true, format, phase: 'starting', jobId: null, current: 0, total: 0, label: '', error: '' });
     try {
       const res = await apiClient.post<{ job_id: string; total: number }>(`/api/v1/reports/onboarding/export?format=${format}`, {});
       const data = (res as any)?.data ?? res;
       const jobId = data.job_id as string;
-      activeJobIdRef.current[format] = jobId;
-      setExports((prev) => ({ ...prev, [format]: { ...prev[format], jobId, phase: 'running', total: data.total || 0 } }));
-      pollExportStatus(format, jobId);
+      activeJobIdRef.current = jobId;
+      setExportModal((prev) => ({ ...prev, jobId, phase: 'running', total: data.total || 0 }));
+
+      // Poll until done
+      const poll = async () => {
+        while (activeJobIdRef.current === jobId) {
+          try {
+            const statusRes = await apiClient.get<ExportStatusResponse>(`/api/v1/reports/onboarding/export/${jobId}/status`);
+            const statusData = ((statusRes as any)?.data ?? statusRes) as ExportStatusResponse;
+            if (activeJobIdRef.current !== jobId) return;
+
+            const phase = statusData.status || 'running';
+            setExportModal((prev) => ({ ...prev, phase, current: statusData.current || 0, total: statusData.total || prev.total, label: statusData.label || '', error: statusData.error || '' }));
+
+            if (phase === 'done') {
+              fetchAndSaveExport(format, jobId);
+              return;
+            }
+            if (phase === 'error') return;
+            await new Promise((r) => setTimeout(r, 900));
+          } catch {
+            await new Promise((r) => setTimeout(r, 1500));
+          }
+        }
+      };
+      poll();
     } catch (err: any) {
-      activeJobIdRef.current[format] = null;
-      setExports((prev) => ({ ...prev, [format]: { ...prev[format], phase: 'error', error: err?.message || 'Failed to start export' } }));
+      activeJobIdRef.current = null;
+      setExportModal((prev) => ({ ...prev, phase: 'error', error: err?.message || 'Failed to start export' }));
     }
-  }, [pollExportStatus]);
+  }, [fetchAndSaveExport]);
 
-  // As soon as the full report finishes generating, start rendering both
-  // exports in the background so they're usually already done (or well
-  // underway) by the time someone reaches for "Save as PDF/HTML" — the
-  // "prep ahead of time" half of avoiding the download-button stall.
-  useEffect(() => {
-    if (!completed) return;
-    pendingDownloadRef.current = { pdf: false, html: false };
-    startExport('pdf');
-    startExport('html');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [completed]);
-
-  // Button click: download immediately if the prefetched export is ready,
-  // otherwise mark it to auto-download the moment the in-flight (or
-  // freshly (re)started) job finishes.
-  const downloadReport = useCallback((format: ExportFormat) => {
-    const state = exports[format];
-    if (state.phase === 'done' && state.jobId) {
-      fetchAndSaveExport(format, state.jobId);
-      return;
-    }
-    pendingDownloadRef.current[format] = true;
-    if (state.phase === 'idle' || state.phase === 'error') {
-      startExport(format);
-    }
-  }, [exports, fetchAndSaveExport, startExport]);
+  const closeExportModal = useCallback(() => {
+    activeJobIdRef.current = null;
+    setExportModal(closedModal);
+  }, []);
 
   const totalCharts = Object.values(sectionData).reduce((sum, charts) => sum + charts.length, 0);
   const errorCharts = Object.values(sectionData).reduce(
@@ -272,18 +224,16 @@ const OnboardingReport: React.FC = () => {
               {!loading && completed && (
                 <>
                   <button
-                    onClick={() => downloadReport('html')}
-                    disabled={downloading !== null}
-                    className="px-4 py-2 text-sm rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800 disabled:opacity-50 transition-colors"
+                    onClick={() => startExport('html')}
+                    className="px-4 py-2 text-sm rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors"
                   >
-                    {downloading === 'html' ? 'Preparing...' : 'Save as HTML'}
+                    Save as HTML
                   </button>
                   <button
-                    onClick={() => downloadReport('pdf')}
-                    disabled={downloading !== null}
-                    className="px-4 py-2 text-sm rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800 disabled:opacity-50 transition-colors"
+                    onClick={() => startExport('pdf')}
+                    className="px-4 py-2 text-sm rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors"
                   >
-                    {downloading === 'pdf' ? 'Preparing...' : 'Save as PDF'}
+                    Save as PDF
                   </button>
                 </>
               )}
@@ -489,6 +439,92 @@ const OnboardingReport: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Export progress modal */}
+      {exportModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-100">
+                Exporting {exportModal.format.toUpperCase()}
+              </h3>
+              {(exportModal.phase === 'done' || exportModal.phase === 'error') && (
+                <button onClick={closeExportModal} className="text-slate-400 hover:text-slate-200 transition-colors">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+
+            {exportModal.phase === 'starting' && (
+              <div className="flex items-center gap-3 py-6">
+                <div className="animate-spin w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full" />
+                <span className="text-slate-300 text-sm">Preparing export...</span>
+              </div>
+            )}
+
+            {exportModal.phase === 'running' && (
+              <div className="py-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-slate-300">
+                    <span className="inline-block animate-pulse mr-1.5 text-blue-400">&#9679;</span>
+                    Rendering chart {exportModal.current} of {exportModal.total}
+                  </span>
+                  <span className="text-xs font-mono text-slate-500">
+                    {exportModal.total > 0 ? Math.round((exportModal.current / exportModal.total) * 100) : 0}%
+                  </span>
+                </div>
+                <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500 rounded-full transition-all duration-500 ease-out"
+                    style={{ width: `${exportModal.total > 0 ? (exportModal.current / exportModal.total) * 100 : 0}%` }}
+                  />
+                </div>
+                {exportModal.label && (
+                  <p className="text-xs text-slate-500 mt-2 truncate">{exportModal.label}</p>
+                )}
+                <p className="text-xs text-slate-600 mt-3">This may take a minute for large reports. Please keep this tab open.</p>
+              </div>
+            )}
+
+            {exportModal.phase === 'done' && (
+              <div className="flex flex-col items-center py-6">
+                <div className="w-12 h-12 rounded-full bg-emerald-600/20 flex items-center justify-center mb-3">
+                  <svg className="w-6 h-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <p className="text-slate-200 text-sm font-medium">Download started</p>
+                <p className="text-slate-500 text-xs mt-1">Your {exportModal.format.toUpperCase()} is ready.</p>
+                <button onClick={closeExportModal} className="mt-4 px-4 py-2 text-sm rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors">
+                  Close
+                </button>
+              </div>
+            )}
+
+            {exportModal.phase === 'error' && (
+              <div className="flex flex-col items-center py-6">
+                <div className="w-12 h-12 rounded-full bg-red-600/20 flex items-center justify-center mb-3">
+                  <svg className="w-6 h-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                </div>
+                <p className="text-red-300 text-sm font-medium">Export failed</p>
+                <p className="text-slate-500 text-xs mt-1 text-center">{exportModal.error || 'Something went wrong.'}</p>
+                <div className="flex gap-2 mt-4">
+                  <button onClick={closeExportModal} className="px-4 py-2 text-sm rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors">
+                    Close
+                  </button>
+                  <button onClick={() => startExport(exportModal.format)} className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors">
+                    Retry
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
