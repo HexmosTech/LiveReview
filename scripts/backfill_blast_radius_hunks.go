@@ -79,8 +79,16 @@ func main() {
 		if m == nil {
 			continue
 		}
-		orgID, _ := strconv.ParseInt(m[1], 10, 64)
-		reviewID, _ := strconv.ParseInt(m[2], 10, 64)
+		orgID, err := strconv.ParseInt(m[1], 10, 64)
+		if err != nil {
+			log.Printf("skip %s: bad org id: %v", obj.Key, err)
+			continue
+		}
+		reviewID, err := strconv.ParseInt(m[2], 10, 64)
+		if err != nil {
+			log.Printf("skip %s: bad review id: %v", obj.Key, err)
+			continue
+		}
 		targets = append(targets, target{key: obj.Key, orgID: orgID, reviewID: reviewID})
 	}
 	fmt.Printf("found %d blast-radius artifact(s)\n", len(targets))

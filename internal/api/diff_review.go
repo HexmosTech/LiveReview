@@ -451,11 +451,16 @@ func (s *Server) PutDiffReviewArtifact(c echo.Context) error {
 	}
 
 	if artifactType == "blast-radius" {
-		// Best-effort: the raw artifact in S3 above is already the source of
-		// truth (and still what the diff viewer's Sunburst/Flamegraph read
-		// for Callers/Path data - see docs/blast-radius-backend-port-plan.md).
-		// This derived-data write must never fail the upload itself.
-		s.replicateBlastRadiusToPostgres(ctx, orgID, reviewID, payload)
+		// Best-effort and fire-and-forget: the raw artifact in S3 above is
+		// already the source of truth (and still what the diff viewer's
+		// Sunburst/Flamegraph read for Callers/Path data - see
+		// docs/blast-radius-backend-port-plan.md). This derived-data write
+		// must never fail the upload, or make the caller (git-lrc) wait on
+		// it. Deliberately uses context.Background(), not ctx: this
+		// handler's request context is canceled the moment the HTTP
+		// response below is written, which would abort an in-flight
+		// goroutine still holding c.Request().Context().
+		go s.replicateBlastRadiusToPostgres(context.Background(), orgID, reviewID, payload)
 	}
 
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{

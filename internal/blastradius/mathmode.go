@@ -103,7 +103,7 @@ func dimensionBreakdown(
 	title string,
 	h HunkReport,
 	categories map[string]bool,
-	max, norm float64,
+	raw, max, norm float64,
 	maxSourceFile, maxSourceHeader string,
 ) (DimensionBreakdown, int) {
 	var perSymbol []SubtotalLine
@@ -138,19 +138,12 @@ func dimensionBreakdown(
 	stepScale := n
 	n++
 
-	var total float64
-	if title == "Blast Radius" {
-		total = h.BlastRadiusRaw
-	} else {
-		total = h.ReviewPriorityRaw
-	}
-
 	return DimensionBreakdown{
 		Title:               title,
 		PerSymbol:           perSymbol,
 		HunkSignals:         hunkSigs,
 		HunkSignalsSubtotal: hunkSubtotal,
-		Total:               total,
+		Total:               raw,
 		Max:                 max,
 		Norm:                norm,
 		MaxSourceFile:       maxSourceFile,
@@ -172,10 +165,10 @@ func ComputeMathMode(h HunkReport) MathMode {
 	hygiene := effectiveHygiene(h.HygieneMultiplier)
 
 	blast, afterBlast := dimensionBreakdown(1, "Blast Radius", h, blastCategories,
-		h.MaxBlastRadiusRaw, h.BlastRadiusNorm,
+		h.BlastRadiusRaw, h.MaxBlastRadiusRaw, h.BlastRadiusNorm,
 		h.MaxBlastRadiusHunkFile, h.MaxBlastRadiusHunkHeader)
 	priority, afterPriority := dimensionBreakdown(afterBlast, "Review Priority", h, priorityCategories,
-		h.MaxReviewPriorityRaw, h.ReviewPriorityNorm,
+		h.ReviewPriorityRaw, h.MaxReviewPriorityRaw, h.ReviewPriorityNorm,
 		h.MaxReviewPriorityHunkFile, h.MaxReviewPriorityHunkHeader)
 
 	blastShare := weights.BlastRadius * h.BlastRadiusNorm

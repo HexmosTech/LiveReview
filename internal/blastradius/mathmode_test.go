@@ -33,6 +33,14 @@ func findHunk(t *testing.T, r Report, filePath string, newStart int) HunkReport 
 	return HunkReport{}
 }
 
+// approxEqual's 0.05 tolerance isn't test-quality slop: `want` values in
+// this file are the *displayed* (1-decimal-rounded) numbers from the live
+// UI, e.g. "1.7" for a raw signal of 1.7320508075688772 (sqrt(3), an
+// irrational graph-distance weight). `got` is ComputeMathMode's unrounded
+// float64. Half a display-decimal (0.05) is the correct bound for "these
+// match once you round to what a human reads" - a tighter bound would
+// require hardcoding the same irrational raw values instead of the
+// numbers actually verified against the UI.
 func approxEqual(t *testing.T, label string, got, want float64) {
 	t.Helper()
 	if math.Abs(got-want) > 0.05 {

@@ -80,9 +80,12 @@ func (s *Store) ReplaceHunksForReview(ctx context.Context, orgID, reviewID int64
 	return nil
 }
 
-// GetForReview returns every stored hunk for reviewID, keyed by HunkKey so
-// callers can attach MathMode/Tier onto a freshly-fetched S3 report by
-// matching (FilePath, NewStart, NewLines) - see GetDiffReviewArtifact.
+// GetForReview returns every stored hunk for reviewID, keyed by HunkKey
+// (the same join key ui/src/lib/blastRadius.ts's hunkBlastKey() uses) so a
+// future caller can match rows back onto a freshly-fetched S3 report by
+// (FilePath, NewStart, NewLines). No production caller today - the diff
+// viewer's read path (GetDiffReviewArtifact) was deliberately left
+// untouched, see docs/blast-radius-backend-port-plan.md's Status section.
 func (s *Store) GetForReview(ctx context.Context, orgID, reviewID int64) (map[string]StoredHunk, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT file_path, new_start, new_lines, combined, tier, math_mode
