@@ -1,6 +1,23 @@
 [
   {
     "aliases": [
+      "blast radius",
+      "blast-radius",
+      "change impact",
+      "review risk score",
+      "risky reviews",
+      "high risk reviews"
+    ],
+    "targets": [
+      "blast_radius_reviews.combined",
+      "blast_radius_reviews.tier",
+      "blast_radius_hunks.combined",
+      "blast_radius_hunks.tier"
+    ],
+    "term": "blast radius"
+  },
+  {
+    "aliases": [
       "LOC",
       "line of code",
       "lines of code",

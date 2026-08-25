@@ -13,6 +13,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	apimiddleware "github.com/livereview/internal/api/middleware"
+	"github.com/livereview/internal/blastradius"
 	"github.com/livereview/internal/blobstore"
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/license"
@@ -22,6 +23,7 @@ import (
 	reviewpkg "github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
 	"github.com/livereview/storage/archive"
+	storageblastradius "github.com/livereview/storage/blastradius"
 	"gocloud.dev/blob"
 )
 
@@ -448,11 +450,41 @@ func (s *Server) PutDiffReviewArtifact(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to store artifact: %v", err))
 	}
 
+	if artifactType == "blast-radius" {
+		// Best-effort: the raw artifact in S3 above is already the source of
+		// truth (and still what the diff viewer's Sunburst/Flamegraph read
+		// for Callers/Path data - see docs/blast-radius-backend-port-plan.md).
+		// This derived-data write must never fail the upload itself.
+		s.replicateBlastRadiusToPostgres(ctx, orgID, reviewID, payload)
+	}
+
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
 		"status":        "stored",
 		"review_id":     fmt.Sprintf("%d", reviewID),
 		"artifact_type": artifactType,
 	})
+}
+
+// replicateBlastRadiusToPostgres parses a just-uploaded blast-radius
+// artifact and replaces reviewID's rows in blast_radius_hunks, so the score
+// git-lrc computed becomes queryable via plain SQL (Livi chat included)
+// instead of living only in an opaque S3 blob. See
+// storage/blastradius.Store.ReplaceHunksForReview for why this is a
+// delete-then-insert, not an upsert.
+func (s *Server) replicateBlastRadiusToPostgres(ctx context.Context, orgID, reviewID int64, payload json.RawMessage) {
+	var report blastradius.Report
+	if err := json.Unmarshal(payload, &report); err != nil {
+		log.Printf("blast radius: failed to parse artifact for review %d, skipping Postgres replication: %v", reviewID, err)
+		return
+	}
+	var hunks []blastradius.HunkReport
+	for _, f := range report.Files {
+		hunks = append(hunks, f.Hunks...)
+	}
+	store := storageblastradius.NewStore(s.db)
+	if err := store.ReplaceHunksForReview(ctx, orgID, reviewID, hunks); err != nil {
+		log.Printf("blast radius: failed to replicate %d hunks to Postgres for review %d: %v", len(hunks), reviewID, err)
+	}
 }
 
 // GetDiffReviewArtifact returns a previously-stored artifact for a review, or
