@@ -33,6 +33,7 @@ const LicenseAssignment = React.lazy(() => import('./pages/Licenses/LicenseAssig
 const UserForm = React.lazy(() => import('./components/UserManagement/UserForm'));
 const BillingPortfolio = React.lazy(() => import('./pages/Admin/BillingPortfolio'));
 const TaxonomyReports = React.lazy(() => import('./pages/Reports/TaxonomyReports'));
+const OnboardingReport = React.lazy(() => import('./pages/Reports/OnboardingReport'));
 const ChatbotRoutes = React.lazy(() => import('./pages/Chatbot/ChatbotRoutes'));
 const ChatDebugRoutes = React.lazy(() => import('./pages/Chatbot/ChatDebugRoutes'));
 // import { usePostHog } from '@posthog/react'
@@ -318,6 +319,7 @@ const AppContent: React.FC = () => {
                                 <Route path="/settings/users/add/bulk" element={<UserForm />} />
                                 <Route path="/settings/users/edit/:userId" element={<UserForm />} />
                                 <Route path="/admin/billing-portfolio" element={<BillingPortfolio />} />
+                                <Route path="/reports/onboarding" element={<OnboardingReport />} />
                                 <Route path="/reports/*" element={<TaxonomyReports />} />
                                 <Route path="/chat/*" element={<ChatbotRoutes />} />
                                 {isDebugMode() && <Route path="/chat-debug/*" element={<ChatDebugRoutes />} />}

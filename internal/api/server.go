@@ -1348,12 +1348,12 @@ func (s *Server) setupRoutes() {
 	// rename/delete it, and re-render one of its charts on demand.
 	chatGroup.POST("", s.CreateConversation)
 	chatGroup.GET("", s.ListConversations)
+	chatGroup.GET("/summaries", s.ListConversationSummaries)
 	chatGroup.GET("/:id", s.GetConversation)
 	chatGroup.PATCH("/:id", s.RenameConversation)
 	chatGroup.DELETE("/:id", s.DeleteConversation)
 	chatGroup.GET("/charts/:chartId/render", s.RenderChart)
 	chatGroup.GET("/:id/export", s.ExportConversation)
-	chatGroup.GET("/summaries", s.ListConversationSummaries)
 	chatGroup.POST("/export/compile", s.CompileExport)
 
 	// Register dev-only routes (excluded in production builds via build tag)
@@ -1507,6 +1507,17 @@ func (s *Server) setupRoutes() {
 	adminReportsGroup.GET("/export/preview", taxonomyHandler.GetAdminTaxonomyExportPreview)
 	adminReportsGroup.GET("/export", taxonomyHandler.ExportAdminTaxonomyCSV)
 	adminReportsGroup.GET("/export/xlsx", taxonomyHandler.ExportAdminTaxonomyXLSX)
+
+	// Onboarding report endpoints (org-scoped: any member)
+	onboardingHandler := NewOnboardingReportHandler(s.db)
+	onboardingGroup := v1.Group("/reports/onboarding")
+	onboardingGroup.Use(authMiddleware.RequireAuth())
+	onboardingGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	onboardingGroup.Use(authMiddleware.ValidateOrgAccess())
+	onboardingGroup.Use(authMiddleware.BuildPermissionContext())
+	onboardingGroup.GET("/sections", onboardingHandler.GetSections)
+	onboardingGroup.GET("/charts", onboardingHandler.GetAllCharts)
+	onboardingGroup.GET("/charts/:section", onboardingHandler.GetSectionCharts)
 
 	// Razorpay webhook endpoint (public - signature verified in handler)
 	webhookHandler := payment.NewRazorpayWebhookHandler(s.db, os.Getenv("RAZORPAY_WEBHOOK_SECRET"))
