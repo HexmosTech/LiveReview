@@ -14,6 +14,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-swiss/fonts"
@@ -290,6 +292,11 @@ func validateChartPNG(pngData []byte, title string) string {
 // "chart N of M" progress instead of a bare spinner, since each chart's SQL
 // query plus its vl-convert render is the expensive step and can take a
 // while across a full catalog.
+//
+// Charts are processed in parallel (up to chartConcurrency workers) since
+// each vl-convert invocation is an independent external process and each SQL
+// query is independent. Results are returned in catalog order regardless of
+// completion order.
 func generateChartResults(ctx context.Context, db *sql.DB, orgID int64, orgName string, logf func(format string, args ...interface{}), onProgress func(current, total int, label string)) ([]chartResult, []string) {
 	if logf == nil {
 		logf = func(string, ...interface{}) {}
@@ -302,108 +309,125 @@ func generateChartResults(ctx context.Context, db *sql.DB, orgID int64, orgName 
 	bySection := ChartsBySection()
 	logf("Template catalog: %d charts across %d sections\n", cat.TotalCharts, len(cat.Sections))
 
-	var results []chartResult
-	var validationErrors []string
-	done := 0
+	// Flatten all charts into ordered jobs so we can index results directly.
+	type chartJob struct {
+		globalIdx int
+		tmpl      ChartTemplate
+		section   Section
+	}
+	var jobs []chartJob
 	for _, section := range cat.Sections {
-		charts := bySection[section.ID]
-		logf("\n=== %s (%d charts) ===\n", section.Label, len(charts))
-
-		for i, tmpl := range charts {
-			logf("  [%d/%d] %s ... ", i+1, len(charts), tmpl.Title)
-			done++
-			onProgress(done, cat.TotalCharts, tmpl.Title)
-
-			r := chartResult{
-				Title:       tmpl.Title,
-				Description: substituteOrgName(tmpl.Description, orgName),
-				SQL:         tmpl.SQL,
-				Section:     section.Label,
-			}
-
-			sqlQuery := tmpl.PrepareSQL(orgID)
-			rows, err := db.QueryContext(ctx, sqlQuery)
-			if err != nil {
-				r.Err = fmt.Errorf("query: %w", err)
-				logf("QUERY ERROR: %v\n", err)
-				results = append(results, r)
-				continue
-			}
-
-			columns, _ := rows.Columns()
-			var resultRows []map[string]interface{}
-			for rows.Next() {
-				values := make([]interface{}, len(columns))
-				valuePtrs := make([]interface{}, len(columns))
-				for j := range values {
-					valuePtrs[j] = &values[j]
-				}
-				if err := rows.Scan(valuePtrs...); err != nil {
-					continue
-				}
-				row := make(map[string]interface{}, len(columns))
-				for j, col := range columns {
-					if b, ok := values[j].([]byte); ok {
-						row[col] = string(b)
-					} else {
-						row[col] = values[j]
-					}
-				}
-				resultRows = append(resultRows, row)
-			}
-			rows.Close()
-
-			if len(resultRows) == 0 {
-				r.Err = fmt.Errorf("no data")
-				logf("NO DATA\n")
-				results = append(results, r)
-				continue
-			}
-
-			logf("%d rows, ", len(resultRows))
-
-			dataJSON, err := json.Marshal(resultRows)
-			if err != nil {
-				r.Err = fmt.Errorf("marshal: %w", err)
-				logf("MARSHAL ERROR: %v\n", err)
-				results = append(results, r)
-				continue
-			}
-
-			vegaSpec := tmpl.PrepareVegaSpec(dataJSON)
-
-			pngData, err := renderChartPNG(ctx, vegaSpec, "2")
-			if err != nil {
-				r.Err = fmt.Errorf("render: %w", err)
-				logf("RENDER ERROR: %v\n", err)
-				results = append(results, r)
-				continue
-			}
-
-			// Validate the final PNG.
-			if vErr := validateChartPNG(pngData, tmpl.Title); vErr != "" {
-				validationErrors = append(validationErrors, fmt.Sprintf("%s: %s", tmpl.Title, vErr))
-				logf("VALIDATION: %s\n", vErr)
-			}
-
-			// Record the image's rendered height in mm at goldmark-pdf's
-			// fixed display width, so the page-fit logic in buildMarkdown /
-			// drawChartBlock knows exactly how much space this chart needs
-			// without re-decoding the PNG later.
-			if img, decErr := png.Decode(bytes.NewReader(pngData)); decErr == nil {
-				b := img.Bounds()
-				if b.Dx() > 0 {
-					r.ImgHeightMM = goldmarkImageWidthMM * float64(b.Dy()) / float64(b.Dx())
-				}
-			}
-
-			r.PNG = pngData
-			logf("OK (%d bytes PNG)\n", len(pngData))
-			results = append(results, r)
+		for _, tmpl := range bySection[section.ID] {
+			jobs = append(jobs, chartJob{globalIdx: len(jobs), tmpl: tmpl, section: section})
 		}
 	}
 
+	results := make([]chartResult, len(jobs))
+	var validationErrors []string
+	var veMu sync.Mutex // guards validationErrors and logf
+	var done int32      // atomic, for progress
+
+	// Worker pool: each worker processes charts independently.
+	const chartConcurrency = 6
+	sem := make(chan struct{}, chartConcurrency)
+	var wg sync.WaitGroup
+
+	for _, job := range jobs {
+		wg.Add(1)
+		go func(j chartJob) {
+			defer wg.Done()
+			sem <- struct{}{}        // acquire slot
+			defer func() { <-sem }() // release slot
+
+			r := processOneChart(ctx, db, orgID, orgName, j.tmpl, j.section)
+
+			// Validate and measure the PNG if we got one.
+			if r.PNG != nil {
+				if vErr := validateChartPNG(r.PNG, j.tmpl.Title); vErr != "" {
+					veMu.Lock()
+					validationErrors = append(validationErrors, fmt.Sprintf("%s: %s", j.tmpl.Title, vErr))
+					veMu.Unlock()
+				}
+				if img, decErr := png.Decode(bytes.NewReader(r.PNG)); decErr == nil {
+					b := img.Bounds()
+					if b.Dx() > 0 {
+						r.ImgHeightMM = goldmarkImageWidthMM * float64(b.Dy()) / float64(b.Dx())
+					}
+				}
+			}
+
+			results[j.globalIdx] = r
+
+			cur := int(atomic.AddInt32(&done, 1))
+			onProgress(cur, len(jobs), j.tmpl.Title)
+		}(job)
+	}
+
+	wg.Wait()
 	return results, validationErrors
+}
+
+// processOneChart runs the full single-chart pipeline: SQL query, row scan,
+// JSON marshal, Vega-Lite spec preparation, and PNG render. It returns a
+// chartResult with Err set (never panics) if any step fails.
+func processOneChart(ctx context.Context, db *sql.DB, orgID int64, orgName string, tmpl ChartTemplate, section Section) chartResult {
+	r := chartResult{
+		Title:       tmpl.Title,
+		Description: substituteOrgName(tmpl.Description, orgName),
+		SQL:         tmpl.SQL,
+		Section:     section.Label,
+	}
+
+	sqlQuery := tmpl.PrepareSQL(orgID)
+	rows, err := db.QueryContext(ctx, sqlQuery)
+	if err != nil {
+		r.Err = fmt.Errorf("query: %w", err)
+		return r
+	}
+	defer rows.Close()
+
+	columns, _ := rows.Columns()
+	var resultRows []map[string]interface{}
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for j := range values {
+			valuePtrs[j] = &values[j]
+		}
+		if err := rows.Scan(valuePtrs...); err != nil {
+			continue
+		}
+		row := make(map[string]interface{}, len(columns))
+		for j, col := range columns {
+			if b, ok := values[j].([]byte); ok {
+				row[col] = string(b)
+			} else {
+				row[col] = values[j]
+			}
+		}
+		resultRows = append(resultRows, row)
+	}
+
+	if len(resultRows) == 0 {
+		r.Err = fmt.Errorf("no data")
+		return r
+	}
+
+	dataJSON, err := json.Marshal(resultRows)
+	if err != nil {
+		r.Err = fmt.Errorf("marshal: %w", err)
+		return r
+	}
+
+	vegaSpec := tmpl.PrepareVegaSpec(dataJSON)
+	pngData, err := renderChartPNG(ctx, vegaSpec, "2")
+	if err != nil {
+		r.Err = fmt.Errorf("render: %w", err)
+		return r
+	}
+
+	r.PNG = pngData
+	return r
 }
 
 // GenerateOnboardingPDF connects to the DB, executes all onboarding report
