@@ -157,7 +157,26 @@ export interface DashboardData {
     review_layers?: ReviewLayers;
     system_overview?: SystemOverview;
     people?: People;
+    issue_treemap?: IssueTreemapData;
     last_updated: string;
+}
+
+export interface IssueTreemapChild {
+    name: string;
+    value: number;
+}
+
+export interface IssueTreemapCategory {
+    name: string;
+    value: number;
+    children: IssueTreemapChild[];
+}
+
+export interface IssueTreemapData {
+    day: { categories: IssueTreemapCategory[] };
+    week: { categories: IssueTreemapCategory[] };
+    month: { categories: IssueTreemapCategory[] };
+    all: { categories: IssueTreemapCategory[] };
 }
 
 // Coalesces concurrent callers into a single network request. Dashboard.tsx and each of the

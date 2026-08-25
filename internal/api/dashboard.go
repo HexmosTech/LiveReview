@@ -86,6 +86,9 @@ type DashboardData struct {
 	// People — same precomputed dashboard_cache row, sibling key to review_layers/system_overview (see collectPeople).
 	People json.RawMessage `json:"people,omitempty"`
 
+	// IssueTreemap — precomputed category→subcategory→count tree for the treemap widget (see collectIssueTreemap).
+	IssueTreemap json.RawMessage `json:"issue_treemap,omitempty"`
+
 	// Last updated timestamp
 	LastUpdated time.Time `json:"last_updated"`
 }
@@ -400,6 +403,9 @@ func (dm *DashboardManager) updateDashboardData(ctx context.Context, trigger str
 		}
 		if err := dm.refreshAllPeople(ctx, orgIDs); err != nil {
 			dm.logErrorf("[dashboard_cache] people refresh failed cycle=%d trigger=%s err=%v", cycleID, trigger, err)
+		}
+		if err := dm.refreshAllIssueTreemap(ctx, orgIDs); err != nil {
+			dm.logErrorf("[dashboard_cache] issue_treemap refresh failed cycle=%d trigger=%s err=%v", cycleID, trigger, err)
 		}
 	}
 
@@ -820,7 +826,34 @@ func (dm *DashboardManager) collectPeople(ctx context.Context, data *DashboardDa
 	return nil
 }
 
-// storeDashboardData saves the collected data to the database
+// collectIssueTreemap is a cheap single-row read of the precomputed dashboard_cache; a missing row just leaves the field empty, not an error.
+func (dm *DashboardManager) collectIssueTreemap(ctx context.Context, data *DashboardData, orgID int64) error {
+	if dm.cacheStore == nil {
+		return nil
+	}
+
+	queryCtx, cancel := context.WithTimeout(ctx, dashboardDBQueryTimeout)
+	defer cancel()
+
+	raw, err := dm.cacheStore.GetFinalJSON(queryCtx, orgID)
+	if err != nil {
+		return err
+	}
+	if raw == nil {
+		return nil
+	}
+
+	var wrapper struct {
+		IssueTreemap json.RawMessage `json:"issue_treemap"`
+	}
+	if err := json.Unmarshal(raw, &wrapper); err != nil {
+		log.Printf("[dashboard_cache] unmarshal final_json failed org_id=%d err=%v raw=%s", orgID, err, raw)
+		return fmt.Errorf("unmarshal final_json: %w", err)
+	}
+
+	data.IssueTreemap = wrapper.IssueTreemap
+	return nil
+}
 
 // GetDashboardData retrieves the cached dashboard data
 func (s *Server) GetDashboardData(c echo.Context) error {
@@ -849,6 +882,9 @@ func (s *Server) GetDashboardData(c echo.Context) error {
 	}
 	if err := s.dashboardManager.collectPeople(c.Request().Context(), &data, orgID); err != nil {
 		log.Printf("Error collecting people for org %d: %v", orgID, err)
+	}
+	if err := s.dashboardManager.collectIssueTreemap(c.Request().Context(), &data, orgID); err != nil {
+		log.Printf("Error collecting issue_treemap for org %d: %v", orgID, err)
 	}
 
 	return c.JSON(http.StatusOK, data)
@@ -900,6 +936,13 @@ func (s *Server) RefreshDashboardData(c echo.Context) error {
 			log.Printf("Error refreshing people for org %d: %v", orgID, err)
 		} else {
 			response["people"] = people
+		}
+
+		issueTreemap, err := s.dashboardManager.RefreshOrgIssueTreemap(c.Request().Context(), orgID)
+		if err != nil {
+			log.Printf("Error refreshing issue_treemap for org %d: %v", orgID, err)
+		} else {
+			response["issue_treemap"] = issueTreemap
 		}
 	}
 
