@@ -279,32 +279,40 @@ func validateChartPNG(pngData []byte, title string) string {
 	return ""
 }
 
-// GenerateOnboardingPDF connects to the DB, executes all onboarding report
-// templates, renders charts to PNG, and produces a PDF using goldmark-pdf.
-func GenerateOnboardingPDF(ctx context.Context, dbURL string, orgID int64, orgName string, outPath string) error {
-	db, err := sql.Open("postgres", dbURL)
-	if err != nil {
-		return fmt.Errorf("connect db: %w", err)
+// generateChartResults executes every chart template's SQL against db for
+// the given org and renders each result to a PNG. It's the shared core of
+// both the CLI PDF generator and the HTTP download handlers (PDF and HTML),
+// so all three describe the same underlying data. logf receives progress
+// lines (nil disables logging, used by the HTTP path where stderr chatter
+// per request isn't useful). onProgress, if non-nil, is called once before
+// each chart starts (1-indexed current, out of total, with the chart's
+// title) — this is what lets the HTTP export endpoints report real
+// "chart N of M" progress instead of a bare spinner, since each chart's SQL
+// query plus its vl-convert render is the expensive step and can take a
+// while across a full catalog.
+func generateChartResults(ctx context.Context, db *sql.DB, orgID int64, orgName string, logf func(format string, args ...interface{}), onProgress func(current, total int, label string)) ([]chartResult, []string) {
+	if logf == nil {
+		logf = func(string, ...interface{}) {}
 	}
-	defer db.Close()
-
-	if err := db.PingContext(ctx); err != nil {
-		return fmt.Errorf("ping db: %w", err)
+	if onProgress == nil {
+		onProgress = func(int, int, string) {}
 	}
 
 	cat := Catalog()
 	bySection := ChartsBySection()
-	fmt.Fprintf(os.Stderr, "Template catalog: %d charts across %d sections\n", cat.TotalCharts, len(cat.Sections))
+	logf("Template catalog: %d charts across %d sections\n", cat.TotalCharts, len(cat.Sections))
 
-	// Phase 1: Execute all SQL and render all charts to PNG.
 	var results []chartResult
 	var validationErrors []string
+	done := 0
 	for _, section := range cat.Sections {
 		charts := bySection[section.ID]
-		fmt.Fprintf(os.Stderr, "\n=== %s (%d charts) ===\n", section.Label, len(charts))
+		logf("\n=== %s (%d charts) ===\n", section.Label, len(charts))
 
 		for i, tmpl := range charts {
-			fmt.Fprintf(os.Stderr, "  [%d/%d] %s ... ", i+1, len(charts), tmpl.Title)
+			logf("  [%d/%d] %s ... ", i+1, len(charts), tmpl.Title)
+			done++
+			onProgress(done, cat.TotalCharts, tmpl.Title)
 
 			r := chartResult{
 				Title:       tmpl.Title,
@@ -317,7 +325,7 @@ func GenerateOnboardingPDF(ctx context.Context, dbURL string, orgID int64, orgNa
 			rows, err := db.QueryContext(ctx, sqlQuery)
 			if err != nil {
 				r.Err = fmt.Errorf("query: %w", err)
-				fmt.Fprintf(os.Stderr, "QUERY ERROR: %v\n", err)
+				logf("QUERY ERROR: %v\n", err)
 				results = append(results, r)
 				continue
 			}
@@ -347,17 +355,17 @@ func GenerateOnboardingPDF(ctx context.Context, dbURL string, orgID int64, orgNa
 
 			if len(resultRows) == 0 {
 				r.Err = fmt.Errorf("no data")
-				fmt.Fprintf(os.Stderr, "NO DATA\n")
+				logf("NO DATA\n")
 				results = append(results, r)
 				continue
 			}
 
-			fmt.Fprintf(os.Stderr, "%d rows, ", len(resultRows))
+			logf("%d rows, ", len(resultRows))
 
 			dataJSON, err := json.Marshal(resultRows)
 			if err != nil {
 				r.Err = fmt.Errorf("marshal: %w", err)
-				fmt.Fprintf(os.Stderr, "MARSHAL ERROR: %v\n", err)
+				logf("MARSHAL ERROR: %v\n", err)
 				results = append(results, r)
 				continue
 			}
@@ -367,7 +375,7 @@ func GenerateOnboardingPDF(ctx context.Context, dbURL string, orgID int64, orgNa
 			pngData, err := renderChartPNG(ctx, vegaSpec, "2")
 			if err != nil {
 				r.Err = fmt.Errorf("render: %w", err)
-				fmt.Fprintf(os.Stderr, "RENDER ERROR: %v\n", err)
+				logf("RENDER ERROR: %v\n", err)
 				results = append(results, r)
 				continue
 			}
@@ -375,7 +383,7 @@ func GenerateOnboardingPDF(ctx context.Context, dbURL string, orgID int64, orgNa
 			// Validate the final PNG.
 			if vErr := validateChartPNG(pngData, tmpl.Title); vErr != "" {
 				validationErrors = append(validationErrors, fmt.Sprintf("%s: %s", tmpl.Title, vErr))
-				fmt.Fprintf(os.Stderr, "VALIDATION: %s\n", vErr)
+				logf("VALIDATION: %s\n", vErr)
 			}
 
 			// Record the image's rendered height in mm at goldmark-pdf's
@@ -390,10 +398,30 @@ func GenerateOnboardingPDF(ctx context.Context, dbURL string, orgID int64, orgNa
 			}
 
 			r.PNG = pngData
-			fmt.Fprintf(os.Stderr, "OK (%d bytes PNG)\n", len(pngData))
+			logf("OK (%d bytes PNG)\n", len(pngData))
 			results = append(results, r)
 		}
 	}
+
+	return results, validationErrors
+}
+
+// GenerateOnboardingPDF connects to the DB, executes all onboarding report
+// templates, renders charts to PNG, and produces a PDF using goldmark-pdf.
+func GenerateOnboardingPDF(ctx context.Context, dbURL string, orgID int64, orgName string, outPath string) error {
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		return fmt.Errorf("connect db: %w", err)
+	}
+	defer db.Close()
+
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping db: %w", err)
+	}
+
+	results, validationErrors := generateChartResults(ctx, db, orgID, orgName, func(format string, args ...interface{}) {
+		fmt.Fprintf(os.Stderr, format, args...)
+	}, nil)
 
 	// Report validation summary.
 	if len(validationErrors) > 0 {
@@ -404,7 +432,7 @@ func GenerateOnboardingPDF(ctx context.Context, dbURL string, orgID int64, orgNa
 	}
 
 	// Phase 2: Build markdown from results.
-	md := buildMarkdown(cat, results, orgName)
+	md := buildMarkdown(Catalog(), results, orgName)
 	fmt.Fprintf(os.Stderr, "\nMarkdown: %d bytes\n", len(md))
 
 	// Phase 3: Render markdown to PDF using goldmark-pdf.
@@ -421,6 +449,19 @@ func GenerateOnboardingPDF(ctx context.Context, dbURL string, orgID int64, orgNa
 
 	fmt.Fprintf(os.Stderr, "PDF saved to: %s\n", outPath)
 	return nil
+}
+
+// GenerateOnboardingPDFToWriter renders the onboarding report PDF for orgID
+// straight to w, using an already-open db connection. Used by the HTTP
+// download endpoint (internal/api/onboarding_report_handler.go), which has
+// a request-scoped org and an existing pool connection rather than a raw
+// DATABASE_URL and an output file path like the CLI entry point. onProgress
+// (may be nil) is forwarded to generateChartResults — see its doc comment.
+func GenerateOnboardingPDFToWriter(ctx context.Context, db *sql.DB, orgID int64, orgName string, w io.Writer, onProgress func(current, total int, label string)) error {
+	results, _ := generateChartResults(ctx, db, orgID, orgName, nil, onProgress)
+	md := buildMarkdown(Catalog(), results, orgName)
+	generatedAt := time.Now().Format("2006-01-02 15:04")
+	return renderMarkdownPDF(ctx, md, orgName, generatedAt, w)
 }
 
 // chartBlockMeta is the payload embedded in a <!--chart:BASE64--> sentinel.

@@ -1518,6 +1518,9 @@ func (s *Server) setupRoutes() {
 	onboardingGroup.GET("/sections", onboardingHandler.GetSections)
 	onboardingGroup.GET("/charts", onboardingHandler.GetAllCharts)
 	onboardingGroup.GET("/charts/:section", onboardingHandler.GetSectionCharts)
+	onboardingGroup.POST("/export", onboardingHandler.StartExport)
+	onboardingGroup.GET("/export/:jobId/status", onboardingHandler.ExportStatus)
+	onboardingGroup.GET("/export/:jobId/file", onboardingHandler.ExportFile)
 
 	// Razorpay webhook endpoint (public - signature verified in handler)
 	webhookHandler := payment.NewRazorpayWebhookHandler(s.db, os.Getenv("RAZORPAY_WEBHOOK_SECRET"))

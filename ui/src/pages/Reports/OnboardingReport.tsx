@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import apiClient from '../../api/apiClient';
+import apiClient, { authFetch } from '../../api/apiClient';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { InteractiveChart } from '../Chatbot/InteractiveChart';
 
@@ -30,6 +30,28 @@ interface SectionResponse {
   total_charts: number;
 }
 
+type ExportFormat = 'pdf' | 'html';
+type ExportPhase = 'idle' | 'starting' | 'running' | 'done' | 'error';
+
+interface ExportState {
+  jobId: string | null;
+  phase: ExportPhase;
+  current: number;
+  total: number;
+  label: string;
+  error: string;
+}
+
+const emptyExportState = (): ExportState => ({ jobId: null, phase: 'idle', current: 0, total: 0, label: '', error: '' });
+
+interface ExportStatusResponse {
+  status: ExportPhase;
+  current: number;
+  total: number;
+  label: string;
+  error: string;
+}
+
 const OnboardingReport: React.FC = () => {
   const { currentOrg } = useOrgContext();
   const [sections, setSections] = useState<SectionMeta[]>([]);
@@ -39,7 +61,18 @@ const OnboardingReport: React.FC = () => {
   const [progress, setProgress] = useState({ current: 0, total: 0, label: '' });
   const [completed, setCompleted] = useState(false);
   const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [exports, setExports] = useState<Record<ExportFormat, ExportState>>({ pdf: emptyExportState(), html: emptyExportState() });
   const abortRef = useRef<AbortController | null>(null);
+  // Tracks the *current* job id per format so a stale poll loop (e.g. left
+  // over from a "Regenerate Report" that started a fresh export job) can
+  // tell it's been superseded and stop updating state / stop re-polling.
+  const activeJobIdRef = useRef<Record<ExportFormat, string | null>>({ pdf: null, html: null });
+  // If the user clicks "Save as X" while that export is still running (it's
+  // kicked off automatically as soon as report generation completes, so
+  // this is only for someone who clicks before it's finished), the download
+  // fires the moment the in-flight job reports done instead of requiring a
+  // second click.
+  const pendingDownloadRef = useRef<Record<ExportFormat, boolean>>({ pdf: false, html: false });
 
   useEffect(() => {
     apiClient
@@ -99,6 +132,115 @@ const OnboardingReport: React.FC = () => {
     setLoading(false);
   }, []);
 
+  // Fetches a finished export job's bytes and triggers the browser's save-file flow.
+  const fetchAndSaveExport = useCallback(async (format: ExportFormat, jobId: string) => {
+    try {
+      const response = await authFetch(`/api/v1/reports/onboarding/export/${jobId}/file`);
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(text || `Download failed with status ${response.status}`);
+      }
+      const blob = await response.blob();
+      const objectUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const contentDisposition = response.headers.get('Content-Disposition') || '';
+      const match = contentDisposition.match(/filename="?([^";]+)"?/i);
+      a.href = objectUrl;
+      a.download = match?.[1] || `livereview-onboarding-report.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(objectUrl);
+    } catch (err: any) {
+      setError(`Download failed: ${err?.message || 'Unknown error'}`);
+    }
+  }, []);
+
+  // Polls an export job's progress until it's done or errors, updating the
+  // per-format button state (chart N of M) as it goes. Generating a PDF/HTML
+  // export re-runs every chart's SQL query and re-renders each chart to a
+  // PNG server-side — the same slow pipeline the CLI tool uses — so this is
+  // what replaces a plain "still loading?" spinner with real progress.
+  const pollExportStatus = useCallback((format: ExportFormat, jobId: string) => {
+    const tick = async () => {
+      if (activeJobIdRef.current[format] !== jobId) return; // superseded by a newer job
+      try {
+        const res = await apiClient.get<ExportStatusResponse>(`/api/v1/reports/onboarding/export/${jobId}/status`);
+        const data = ((res as any)?.data ?? res) as ExportStatusResponse;
+        if (activeJobIdRef.current[format] !== jobId) return;
+
+        const phase = data.status || 'running';
+        setExports((prev) => ({
+          ...prev,
+          [format]: {
+            ...prev[format],
+            phase,
+            current: data.current || 0,
+            total: data.total || prev[format].total,
+            label: data.label || '',
+            error: data.error || '',
+          },
+        }));
+
+        if (phase === 'done') {
+          if (pendingDownloadRef.current[format]) {
+            pendingDownloadRef.current[format] = false;
+            fetchAndSaveExport(format, jobId);
+          }
+          return;
+        }
+        if (phase === 'error') return;
+        setTimeout(tick, 900);
+      } catch {
+        if (activeJobIdRef.current[format] === jobId) setTimeout(tick, 1500);
+      }
+    };
+    tick();
+  }, [fetchAndSaveExport]);
+
+  // Kicks off (or restarts) a PDF/HTML export job in the background.
+  const startExport = useCallback(async (format: ExportFormat) => {
+    setExports((prev) => ({ ...prev, [format]: { ...emptyExportState(), phase: 'starting' } }));
+    try {
+      const res = await apiClient.post<{ job_id: string; total: number }>(`/api/v1/reports/onboarding/export?format=${format}`, {});
+      const data = (res as any)?.data ?? res;
+      const jobId = data.job_id as string;
+      activeJobIdRef.current[format] = jobId;
+      setExports((prev) => ({ ...prev, [format]: { ...prev[format], jobId, phase: 'running', total: data.total || 0 } }));
+      pollExportStatus(format, jobId);
+    } catch (err: any) {
+      activeJobIdRef.current[format] = null;
+      setExports((prev) => ({ ...prev, [format]: { ...prev[format], phase: 'error', error: err?.message || 'Failed to start export' } }));
+    }
+  }, [pollExportStatus]);
+
+  // As soon as the full report finishes generating, start rendering both
+  // exports in the background so they're usually already done (or well
+  // underway) by the time someone reaches for "Save as PDF/HTML" — the
+  // "prep ahead of time" half of avoiding the download-button stall.
+  useEffect(() => {
+    if (!completed) return;
+    pendingDownloadRef.current = { pdf: false, html: false };
+    startExport('pdf');
+    startExport('html');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completed]);
+
+  // Button click: download immediately if the prefetched export is ready,
+  // otherwise mark it to auto-download the moment the in-flight (or
+  // freshly (re)started) job finishes.
+  const downloadReport = useCallback((format: ExportFormat) => {
+    const state = exports[format];
+    if (state.phase === 'done' && state.jobId) {
+      fetchAndSaveExport(format, state.jobId);
+      return;
+    }
+    pendingDownloadRef.current[format] = true;
+    if (state.phase === 'idle' || state.phase === 'error') {
+      startExport(format);
+    }
+  }, [exports, fetchAndSaveExport, startExport]);
+
   const totalCharts = Object.values(sectionData).reduce((sum, charts) => sum + charts.length, 0);
   const errorCharts = Object.values(sectionData).reduce(
     (sum, charts) => sum + charts.filter((c) => c.error).length,
@@ -126,6 +268,24 @@ const OnboardingReport: React.FC = () => {
                 >
                   Cancel
                 </button>
+              )}
+              {!loading && completed && (
+                <>
+                  <button
+                    onClick={() => downloadReport('html')}
+                    disabled={downloading !== null}
+                    className="px-4 py-2 text-sm rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800 disabled:opacity-50 transition-colors"
+                  >
+                    {downloading === 'html' ? 'Preparing...' : 'Save as HTML'}
+                  </button>
+                  <button
+                    onClick={() => downloadReport('pdf')}
+                    disabled={downloading !== null}
+                    className="px-4 py-2 text-sm rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800 disabled:opacity-50 transition-colors"
+                  >
+                    {downloading === 'pdf' ? 'Preparing...' : 'Save as PDF'}
+                  </button>
+                </>
               )}
               {!loading && (
                 <button
