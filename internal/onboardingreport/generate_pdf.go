@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-swiss/fonts"
 	_ "github.com/lib/pq"
+	"github.com/livereview/internal/chatstats"
 	"github.com/livereview/internal/vlrender"
 	"github.com/phpdave11/gofpdf"
 	pdflib "github.com/stephenafamo/goldmark-pdf"
@@ -37,6 +38,7 @@ type chartResult struct {
 	PNG         []byte
 	ImgHeightMM float64
 	Section     string
+	Stats       json.RawMessage // chatstats.AllStats — KPI chips (Top3, Avg, Peak, etc.)
 	Err         error
 }
 
@@ -420,6 +422,14 @@ func processOneChart(ctx context.Context, db *sql.DB, orgID int64, orgName strin
 	}
 
 	vegaSpec := tmpl.PrepareVegaSpec(dataJSON)
+
+	// Compute KPI stats (Top3, Bottom3, Avg, Peak, Low, Trend%, etc.)
+	// from the finalized Vega-Lite spec. This reuses the same logic that
+	// powers the Livi chat stat chips (internal/chatstats).
+	if statsJSON, err := chatstats.ComputeAllStats(vegaSpec); err == nil && statsJSON != nil {
+		r.Stats = statsJSON
+	}
+
 	pngData, err := renderChartPNG(ctx, vegaSpec, "2")
 	if err != nil {
 		r.Err = fmt.Errorf("render: %w", err)
@@ -428,6 +438,136 @@ func processOneChart(ctx context.Context, db *sql.DB, orgID int64, orgName strin
 
 	r.PNG = pngData
 	return r
+}
+
+// formatStats converts a chatstats.AllStats JSON blob into a slice of
+// human-readable "Label: Value" lines suitable for inclusion in the report
+// below each chart. Returns nil if stats are nil or unrecognised.
+func formatStats(stats json.RawMessage) []string {
+	if len(stats) == 0 {
+		return nil
+	}
+	var all chatstats.AllStats
+	if err := json.Unmarshal(stats, &all); err != nil {
+		return nil
+	}
+
+	// For trend-shaped charts, pick the finest available granularity.
+	var raw json.RawMessage
+	switch {
+	case all.Day != nil:
+		raw = all.Day
+	case all.Week != nil:
+		raw = all.Week
+	case all.Month != nil:
+		raw = all.Month
+	default:
+		raw = all.Stats
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+
+	var lines []string
+
+	switch all.Kind {
+	case "trend":
+		var s chatstats.TrendStats
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return nil
+		}
+		lines = append(lines, fmt.Sprintf("Total: %s", formatNum(s.Total)))
+		lines = append(lines, fmt.Sprintf("Avg per period: %s", formatNum(s.AvgPerPeriod)))
+		lines = append(lines, fmt.Sprintf("Peak: %s (%s)", formatNum(s.Peak.Value), s.Peak.Date))
+		lines = append(lines, fmt.Sprintf("Low: %s (%s)", formatNum(s.Low.Value), s.Low.Date))
+		if s.TrendPct != nil {
+			lines = append(lines, fmt.Sprintf("Trend: %s%%", formatNum(*s.TrendPct)))
+		}
+
+	case "multi_series_trend":
+		var s chatstats.MultiSeriesTrendStats
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return nil
+		}
+		lines = append(lines, fmt.Sprintf("Total: %s", formatNum(s.Total)))
+		lines = append(lines, fmt.Sprintf("Series: %d", s.SeriesCount))
+		lines = append(lines, fmt.Sprintf("Top series: %s (%s)", s.TopSeries.Label, formatNum(s.TopSeries.Value)))
+
+	case "category":
+		var s chatstats.CategoryStats
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return nil
+		}
+		lines = append(lines, fmt.Sprintf("Highest: %s (%s)", s.Highest.Label, formatNum(s.Highest.Value)))
+		lines = append(lines, fmt.Sprintf("Lowest: %s (%s)", s.Lowest.Label, formatNum(s.Lowest.Value)))
+		if len(s.Top3) > 0 {
+			lines = append(lines, fmt.Sprintf("Top 3: %s", formatRankList(s.Top3)))
+		}
+		if len(s.Bottom3) > 0 {
+			lines = append(lines, fmt.Sprintf("Bottom 3: %s", formatRankList(s.Bottom3)))
+		}
+
+	case "band":
+		var s chatstats.BandStats
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return nil
+		}
+		lines = append(lines, fmt.Sprintf("Total active: %s", formatNum(s.TotalActive)))
+		lines = append(lines, fmt.Sprintf("Largest: %s (%d%% share)", s.Largest.Label, s.LargestSharePct))
+
+	case "heatmap":
+		var s chatstats.HeatmapStats
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return nil
+		}
+		lines = append(lines, fmt.Sprintf("Total: %s", formatNum(s.Total)))
+		lines = append(lines, fmt.Sprintf("Active days: %d", s.ActiveDays))
+		lines = append(lines, fmt.Sprintf("Avg on active days: %s", formatNum(s.AvgOnActiveDays)))
+		lines = append(lines, fmt.Sprintf("Busiest: %s (%s)", formatNum(s.Busiest.Value), s.Busiest.Date))
+
+	case "slope":
+		var s chatstats.SlopeStats
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return nil
+		}
+		lines = append(lines, fmt.Sprintf("Entities: %d", s.EntityCount))
+		lines = append(lines, fmt.Sprintf("Gained: %d · Lost: %d · Flat: %d", s.Gained, s.Lost, s.Flat))
+		if s.BiggestGain.Label != "" {
+			lines = append(lines, fmt.Sprintf("Biggest gain: %s (+%s)", s.BiggestGain.Label, formatNum(s.BiggestGain.Delta)))
+		}
+		if s.BiggestLoss.Label != "" {
+			lines = append(lines, fmt.Sprintf("Biggest loss: %s (%s)", s.BiggestLoss.Label, formatNum(s.BiggestLoss.Delta)))
+		}
+
+	case "generic":
+		var s chatstats.GenericStats
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return nil
+		}
+		lines = append(lines, fmt.Sprintf("Total: %s", formatNum(s.Total)))
+		lines = append(lines, fmt.Sprintf("Count: %d", s.Count))
+		lines = append(lines, fmt.Sprintf("Highest: %s (%s)", s.Highest.Label, formatNum(s.Highest.Value)))
+		lines = append(lines, fmt.Sprintf("Lowest: %s (%s)", s.Lowest.Label, formatNum(s.Lowest.Value)))
+	}
+
+	return lines
+}
+
+// formatNum formats a float64 with up to 1 decimal place, trimming trailing zeros.
+func formatNum(v float64) string {
+	if v == float64(int64(v)) {
+		return fmt.Sprintf("%d", int64(v))
+	}
+	return fmt.Sprintf("%.1f", v)
+}
+
+// formatRankList renders a list of CategoryStat entries as "Label (value), Label (value)".
+func formatRankList(items []chatstats.CategoryStat) string {
+	parts := make([]string, len(items))
+	for i, it := range items {
+		parts[i] = fmt.Sprintf("%s (%s)", it.Label, formatNum(it.Value))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // GenerateOnboardingPDF connects to the DB, executes all onboarding report
@@ -595,6 +735,12 @@ func buildMarkdown(cat TemplateCatalog, results []chartResult, orgName string) s
 			b.WriteString(fmt.Sprintf("![](%s)\n\n", dataURI))
 		}
 
+		// Emit KPI stats below the chart image.
+		if statLines := formatStats(r.Stats); len(statLines) > 0 {
+			statsJSON, _ := json.Marshal(statLines)
+			b.WriteString(fmt.Sprintf("<!--stats:%s-->\n\n", base64.StdEncoding.EncodeToString(statsJSON)))
+		}
+
 		firstInSection = false
 	}
 
@@ -628,6 +774,8 @@ func (r *onboardingNodeRenderer) renderHTMLBlock(w *pdflib.Writer, source []byte
 			withRawPdf(w, drawSectionRule)
 		case strings.HasPrefix(line, chartMetaPrefix):
 			withRawPdf(w, func(raw *gofpdf.Fpdf) { renderChartMetaLine(raw, line) })
+		case strings.HasPrefix(line, "<!--stats:"):
+			withRawPdf(w, func(raw *gofpdf.Fpdf) { renderStatsBlock(raw, line) })
 		}
 	}
 	return ast.WalkContinue, nil
@@ -754,6 +902,35 @@ func drawChartBlock(raw *gofpdf.Fpdf, meta chartBlockMeta) {
 	if meta.Err != "" {
 		drawWarningBox(raw, meta.Err)
 	}
+}
+
+// renderStatsBlock draws the KPI stats lines (Top 3, Avg, Peak, etc.)
+// below a chart image in a compact, muted style.
+func renderStatsBlock(raw *gofpdf.Fpdf, line string) {
+	payload := strings.TrimSuffix(strings.TrimPrefix(line, "<!--stats:"), "-->")
+	data, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return
+	}
+	var statLines []string
+	if err := json.Unmarshal(data, &statLines); err != nil || len(statLines) == 0 {
+		return
+	}
+
+	const statsFontSize = 7.5
+	statsLineH := mm(3.4)
+
+	raw.SetY(raw.GetY() + mm(1.5))
+	raw.SetFont("Helvetica", "", statsFontSize)
+	setTextColor(raw, colMuted)
+	raw.SetX(chartColX)
+
+	for _, s := range statLines {
+		raw.SetX(chartColX)
+		raw.CellFormat(chartColWidth, statsLineH, s, "", 0, "L", false, 0, "")
+		raw.SetY(raw.GetY() + statsLineH)
+	}
+	raw.SetY(raw.GetY() + mm(1))
 }
 
 // drawWarningBox draws the "no data" / "could not be generated" callout in

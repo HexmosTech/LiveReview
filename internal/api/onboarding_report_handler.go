@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/chatstats"
 	"github.com/livereview/internal/onboardingreport"
 	"github.com/rs/zerolog/log"
 )
@@ -42,6 +43,7 @@ type chartResult struct {
 	TimeRange   string          `json:"time_range"`
 	VegaSpec    json.RawMessage `json:"vega_spec"`
 	RowCount    int             `json:"row_count"`
+	Stats       json.RawMessage `json:"stats,omitempty"`
 	Error       string          `json:"error,omitempty"`
 }
 
@@ -459,5 +461,11 @@ func (h *OnboardingReportHandler) executeChart(ctx context.Context, orgID int64,
 	}
 
 	cr.VegaSpec = tmpl.PrepareVegaSpec(dataJSON)
+
+	// Compute KPI stats (Top3, Bottom3, Avg, Peak, Low, Trend%, etc.)
+	if statsJSON, err := chatstats.ComputeAllStats(cr.VegaSpec); err == nil && statsJSON != nil {
+		cr.Stats = statsJSON
+	}
+
 	return cr
 }
