@@ -1,5 +1,23 @@
 # Port blast radius scoring/signals/Math Mode to LiveReview's Go backend
 
+## Status: backend/storage only — frontend read-path reverted
+
+Everything through step 3 below shipped and is live: `internal/blastradius`
+(the Go port), `storage/blastradius` + the `blast_radius_hunks` table/
+`blast_radius_reviews` view, wired into `PutDiffReviewArtifact` so every new
+upload replicates to Postgres, `terminology.json` updated, and a one-time
+backfill run against production data (365 reviews / 5521 hunks).
+
+**Steps 4 and 5 (reading `MathMode` back out of `GetDiffReviewArtifact` and
+having `BlastRadiusPanel.tsx` render it instead of computing it) were
+implemented, verified working end-to-end, and then explicitly reverted** —
+the decision was to leave the diff viewer's UI untouched and use this purely
+as a Postgres mirror for Livi to query. `GetDiffReviewArtifact` still returns
+the raw S3 blob unmodified; `BlastRadiusPanel.tsx` still recomputes
+everything client-side, unchanged. The design for the reverted steps is kept
+below for reference in case that direction is revisited, but it does not
+reflect the current code.
+
 ## Context
 
 Blast radius data lives entirely in S3 (`git-lrc` uploads one JSON artifact per
@@ -30,7 +48,7 @@ is untouched.
 ```
 git-lrc uploads artifact ──▶ PutDiffReviewArtifact ──┬──▶ S3 (raw blob, unchanged - still needed for Sunburst/Flamegraph's Callers/Path)
                                                         └──▶ internal/blastradius.ComputeMathMode (per hunk)
-                                                             ──▶ storage/blastradius.UpsertHunks ──▶ Postgres (blast_radius_hunks)
+                                                             ──▶ storage/blastradius.ReplaceHunksForReview ──▶ Postgres (blast_radius_hunks)
 
 GetDiffReviewArtifact ──▶ fetch S3 raw report (unchanged, for Symbols/Callers)
                        ──▶ storage/blastradius.GetForReview (one SELECT)
@@ -103,9 +121,8 @@ func Tier(combined float64) string // mirrors ui/src/lib/blastRadius.ts's blastR
 
 **Emit raw `float64`, never pre-formatted strings.** Go's `fmt.Sprintf("%.1f",
 …)` uses banker's rounding while JS `.toFixed(1)` rounds half away from zero —
-`0.25` formats as `0.2` in Go and `0.3` in JS. Keeping `.toFixed()` in the
-frontend (formatting is rendering, not math) sidesteps that entire class of
-silent drift. See the "Number formatting hazard" section of the golden doc.
+`0.25` formats as `0.2` in Go and `0.3` in JS. Verified directly (`go run` a
+one-liner vs `node -e`) during implementation.
 
 **Three behaviours that are easy to miss** — all captured in the golden fixture:
 - **Dynamic step numbering.** The *"add every subtotal together"* step only
@@ -119,11 +136,10 @@ silent drift. See the "Number formatting hazard" section of the golden doc.
   zero-point signals separated into the collapsed "checked, not contributing"
   group.
 
-Table tests assert against the checked-in golden fixture
-(`internal/blastradius/testdata/review_11632_golden.json`, see
-[the golden doc](./blast-radius-frontend-golden-11632.md)), whose 4 hunks cover
-every branch: zero-signal, single-symbol (skipped sum step), multi-symbol full
-8-step, `IsSelf` true and false. Also assert the invariant
+Table tests assert against the checked-in real artifact
+(`internal/blastradius/testdata/review_11632_report.json`), whose 4 hunks
+cover every branch: zero-signal, single-symbol (skipped sum step),
+multi-symbol full 8-step, `IsSelf` true and false. Also assert the invariant
 **`MathMode.Final == hunk.Combined`** — if the derivation stops landing on the
 number git-lrc computed, the port has drifted.
 
@@ -172,7 +188,7 @@ references with `make check-status-doc`.
 `internal/api/diff_review.go:413` — after the existing S3 write succeeds (S3
 stays the raw source of truth, unchanged), when `artifactType ==
 "blast-radius"`: `json.Unmarshal` the payload into `blastradius.Report`, flatten
-`Files[].Hunks[]`, call `storage/blastradius.UpsertHunks`. Best-effort: log and
+`Files[].Hunks[]`, call `storage/blastradius.ReplaceHunksForReview`. Best-effort: log and
 continue on failure (don't fail the upload over the derived-data write, same
 posture as the rest of this codebase's fire-and-forget artifact writes).
 
@@ -242,29 +258,27 @@ Run once locally, then against prod after deploy (prod run is your call).
 
 ## Verification
 
-The golden fixture is already captured and checked in — see
-[blast-radius-frontend-golden-11632.md](./blast-radius-frontend-golden-11632.md)
-for the full pre-port reference output and
-`internal/blastradius/testdata/` for the machine-readable pair
-(`review_11632_report.json` input → `review_11632_golden.json` expected).
-That capture was verified character-for-character against the live UI.
+`internal/blastradius/testdata/review_11632_report.json` is a real S3
+artifact checked in as the test fixture. Its 4 hunks were hand-verified
+against the live UI's Math Mode output (a Python transliteration of
+`BlastRadiusPanel.tsx` matched shrijith's pasted output character-for-
+character before any Go was written) and cover every branch: zero-signal,
+single-symbol (skipped sum step), multi-symbol full 8-step, and both
+`IsSelf` narration branches.
 
-- `go test ./internal/blastradius/...` — assert `ComputeMathMode` over
-  `review_11632_report.json` equals `review_11632_golden.json`, across all 4
-  hunks (covers zero-signal, single-symbol skipped-step, multi-symbol 8-step,
-  and both `IsSelf` branches). Plus the `Final == Combined` invariant.
-- `go test ./storage/blastradius/... ./internal/api/...` — replace/get
-  round-trip incl. the shrinking-hunk-set case (upload N hunks, re-upload N-1,
-  assert no orphan row survives); `PutDiffReviewArtifact` /
-  `GetDiffReviewArtifact` unchanged for non-blast-radius artifact types.
-- `make check-status-doc` — validates the `storage_status.md` additions.
-- Manual: run the backfill locally, then
+- `go test ./internal/blastradius/...` — asserts `ComputeMathMode` against
+  hand-computed expected values for all 4 hunks, plus the `Final ==
+  Combined` invariant and the `effectiveHygiene` absent-vs-real-zero case
+  (a real divergence from the frontend caught in code review).
+- `go test ./storage/blastradius/...` — replace/get round-trip incl. the
+  shrinking-hunk-set case (upload N hunks, re-upload N-1, assert no orphan
+  row survives).
+- `go test ./internal/api/...` — `PutDiffReviewArtifact`/
+  `GetDiffReviewArtifact` unchanged for every artifact type (blast-radius
+  included on the read side - only the write side changed).
+- Ran the backfill locally against production data:
   `SELECT combined FROM blast_radius_hunks WHERE review_id = 11632 ORDER BY combined DESC`
-  → expect `100.00, 35.51, 35.51, 0.00` (matching the golden table).
-- Manual: open `http://localhost:8081/#/reviews/11632`, confirm Summary + Math
-  Mode render identically to the golden doc (now from `detail.MathMode`), and
-  that Sunburst/Flamegraph still work (they still read `Symbols[].Callers` from
-  the untouched S3 report).
+  → `100.00, 35.51, 35.51, 0.00`, matching the hand-verified numbers exactly.
 - Manual: `make prep-dbctx`, then ask Livi *"How many reviews had critical or
   high blast radius this month? Show those repositories"* (the exact question
   that hallucinated `metadata -> 'review_result' -> 'comments' ->> 'Severity'`
