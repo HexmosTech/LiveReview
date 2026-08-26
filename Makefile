@@ -1,5 +1,5 @@
 .PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run-debug run-fast logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker prep-dbctx
-.PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi
+.PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi prep-training-data
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging
 
@@ -484,6 +484,12 @@ prep-dbctx:
 	@echo "📦 Importing terminology..."
 	dbctx terminology import $(HOME)/livereview.dtx ./internal/mcpagent/terminology.json
 	@echo "✅ dbctx index ready at $(HOME)/livereview.dtx"
+
+# Pull Markdown docs from git-lrc, git-lrc wiki, LiveReview, and LiveReview
+# wiki into ui/docs/training_data/ (RAG corpus for the chatbot). Leaves
+# ui/docs/training_data/lr_routes/ (hand-written route docs) untouched.
+prep-training-data:
+	@bash scripts/prep_training_data.sh
 
 # Generate a token-compact schema dump of the prod DB (public schema) for LLM context.
 .PHONY: compressed-schema
