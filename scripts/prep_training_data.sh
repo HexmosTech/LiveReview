@@ -73,12 +73,11 @@ done
 # Single content hash for the whole training-data corpus (all sources plus
 # lr_routes/), so callers (e.g. the RAG indexer, or `make develop`) can
 # detect "did anything change" without diffing hundreds of files.
-HASH_FILE="$OUT_DIR/.content-hash"
 CONTENT_HASH="$("$ROOT_DIR/scripts/training_data_hash.sh")"
-echo "$CONTENT_HASH" > "$HASH_FILE"
-echo "Content hash: $CONTENT_HASH (written to ${HASH_FILE#$ROOT_DIR/})"
+echo "Content hash: $CONTENT_HASH"
 
-# Mirror the hash into the Makefile's TRAINING_DATA_HASH variable so
+# Mirror the hash into the Makefile's TRAINING_DATA_HASH variable (the sole
+# source of truth for drift detection - see check-training-data) so
 # `make develop`/`run-debug`/`run-fast` can compare against it cheaply
 # (via `make check-training-data`) without re-hashing on every dev-server
 # start, and only re-run this script when the corpus has actually drifted.
