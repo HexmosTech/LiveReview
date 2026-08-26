@@ -71,19 +71,19 @@ for name in "${!SOURCES[@]}"; do
 done
 
 # Single content hash for the whole training-data corpus (all sources plus
-# lr_routes/), so callers (e.g. the RAG indexer) can detect "did anything
-# change" without diffing hundreds of files. Hashes path+content of every
-# file in sorted order, so it's stable regardless of filesystem iteration
-# order and changes if any file's content, name, or path changes.
+# lr_routes/), so callers (e.g. the RAG indexer, or `make develop`) can
+# detect "did anything change" without diffing hundreds of files.
 HASH_FILE="$OUT_DIR/.content-hash"
-CONTENT_HASH=$(
-  cd "$OUT_DIR" && find . -type f ! -name '.content-hash' -print0 \
-    | sort -z \
-    | xargs -0 sha256sum \
-    | sha256sum \
-    | cut -d' ' -f1
-)
+CONTENT_HASH="$("$ROOT_DIR/scripts/training_data_hash.sh")"
 echo "$CONTENT_HASH" > "$HASH_FILE"
 echo "Content hash: $CONTENT_HASH (written to ${HASH_FILE#$ROOT_DIR/})"
+
+# Mirror the hash into the Makefile's TRAINING_DATA_HASH variable so
+# `make develop`/`run-debug`/`run-fast` can compare against it cheaply
+# (via `make check-training-data`) without re-hashing on every dev-server
+# start, and only re-run this script when the corpus has actually drifted.
+sed -i.bak -E "s/^TRAINING_DATA_HASH=.*/TRAINING_DATA_HASH=$CONTENT_HASH/" "$ROOT_DIR/Makefile"
+rm -f "$ROOT_DIR/Makefile.bak"
+echo "Makefile TRAINING_DATA_HASH updated."
 
 echo "Done. Hand-written route docs remain in ui/docs/training_data/lr_routes/ (untouched)."
