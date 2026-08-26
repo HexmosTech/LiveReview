@@ -504,8 +504,10 @@ prep-training-data:
 check-training-data:
 	@current="$$(bash scripts/training_data_hash.sh)"; \
 	if [ "$$current" != "$(TRAINING_DATA_HASH)" ]; then \
-		echo "training_data out of date (have: $(TRAINING_DATA_HASH), want: $$current) - running prep-training-data..."; \
+		echo "[check-training-data] out of date (recorded: $(TRAINING_DATA_HASH), actual: $$current) - running prep-training-data..."; \
 		$(MAKE) prep-training-data; \
+	else \
+		echo "[check-training-data] up to date ($$current)"; \
 	fi
 
 # Generate a token-compact schema dump of the prod DB (public schema) for LLM context.
