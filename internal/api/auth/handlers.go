@@ -23,6 +23,12 @@ import (
 type AuthHandlers struct {
 	tokenService *TokenService
 	db           *sql.DB
+	// onboardingKeyGenerator creates a user's onboarding API key within an existing transaction.
+	// Injected from package api (via SetOnboardingKeyGenerator) rather than imported directly,
+	// since internal/api already imports internal/api/auth and a reverse import would cycle.
+	// Optional: nil just means EnsureCloudUser skips eager generation (dashboard's own lazy
+	// fallback in collectOnboardingData still covers it).
+	onboardingKeyGenerator func(tx *sql.Tx, userID, orgID int64) (string, error)
 }
 
 // NewAuthHandlers creates a new authentication handlers instance
@@ -31,6 +37,13 @@ func NewAuthHandlers(tokenService *TokenService, db *sql.DB) *AuthHandlers {
 		tokenService: tokenService,
 		db:           db,
 	}
+}
+
+// SetOnboardingKeyGenerator wires up eager onboarding-API-key creation for EnsureCloudUser, so a
+// brand-new cloud signup gets its key during account provisioning instead of lazily on the
+// user's first dashboard load (see collectOnboardingData in internal/api/dashboard.go).
+func (h *AuthHandlers) SetOnboardingKeyGenerator(gen func(tx *sql.Tx, userID, orgID int64) (string, error)) {
+	h.onboardingKeyGenerator = gen
 }
 
 // LoginRequest represents the login request body
@@ -727,12 +740,27 @@ func (h *AuthHandlers) EnsureCloudUser(c echo.Context) error {
 
 	// Update user's default_org_id to this organization ID if it is currently NULL
 	_, err = tx.Exec(`
-		UPDATE users 
-		SET default_org_id = COALESCE(default_org_id, $1) 
+		UPDATE users
+		SET default_org_id = COALESCE(default_org_id, $1)
 		WHERE id = $2
 	`, orgID, userID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to set user default organization"})
+	}
+
+	// Eagerly create the onboarding API key for a brand-new user, in this same transaction, so
+	// the user's first dashboard load doesn't have to do it lazily on its own request path (see
+	// collectOnboardingData in internal/api/dashboard.go, which still generates one itself as a
+	// fallback if this is unset or fails - non-fatal here by design).
+	if createdUser && h.onboardingKeyGenerator != nil {
+		if onboardingKey, genErr := h.onboardingKeyGenerator(tx, userID, orgID); genErr != nil {
+			log.Printf("[EnsureCloudUser] failed to eagerly create onboarding API key for user_id=%d: %v", userID, genErr)
+		} else {
+			_, err = tx.Exec(`UPDATE users SET onboarding_api_key = $1 WHERE id = $2`, onboardingKey, userID)
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to set onboarding api key"})
+			}
+		}
 	}
 
 	// 3. Ensure super_admin role assignment for user in this org

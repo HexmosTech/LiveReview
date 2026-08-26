@@ -97,6 +97,12 @@ export const Dashboard: React.FC = () => {
     // page load triggers one refresh+get pair instead of each consumer firing its own.
     const { data: dashboardData = null, isFetching: isSyncing, error: dashboardQueryError } = useDashboardQuery();
     const error = dashboardQueryError ? 'Failed to load dashboard data' : null;
+
+    // One-shot marker for the login-perf trace (see Cloud.tsx) - confirms the dashboard route
+    // chunk resolved and this component actually mounted, closing out the click-to-dashboard timeline.
+    useEffect(() => {
+        console.info('[LiveReview][LoginPerf] Dashboard mounted', performance.now());
+    }, []);
     const [notificationSent, setNotificationSent] = useState(false);
     const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
     const dispatch = useAppDispatch();

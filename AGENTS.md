@@ -195,6 +195,29 @@ If a new feature is not navigable from the mega menu (e.g. it is only reached fr
 button inside an existing page), call that out explicitly rather than silently skipping
 the entry. Keeping the mega menu complete is what makes new capabilities discoverable.
 
+## Route Documentation for RAG (`ui/docs/training_data/lr_routes/`)
+
+`ui/docs/training_data/lr_routes/` holds one Markdown file per UI
+route/page (mirroring `ui/src/pages/`, grouped into subfolders that match
+the top-level route groups in `ui/src/App.tsx`: `reviews/`, `explore/`,
+`git/`, `ai/`, `settings/`, `licenses/`, `reports/`, `chatbot/`, `auth/`).
+It exists to train/feed the in-app chatbot (Livi) so it can answer both
+data questions and "how do I do X in the UI" / navigation questions. See
+`ui/docs/training_data/lr_routes/README.md` for the file structure this
+folder follows.
+
+**Rule: whenever you make a UI change, update the relevant `.md` file(s) in
+this folder in the same change.**
+
+- New route/page added → add a new file for it (and link it from its
+  group's parent page / the relevant `README.md`/overview file).
+- Route removed → delete its file, and remove dangling links to it from
+  other files.
+- Page behavior, key actions, or access/permission gating changed → update
+  the file's "Key actions" / "Who can access it" section to match.
+- `ui/docs/training_data` is excluded from Air's file watcher (`.air.toml`
+  `exclude_dir`) so editing these docs does not trigger a backend rebuild.
+
 ## Chat UI (/chat and /chat-debug) Must Stay In Sync
 
 `/chat` (`ui/src/pages/Chatbot/Chatbot.tsx`) and `/chat-debug`

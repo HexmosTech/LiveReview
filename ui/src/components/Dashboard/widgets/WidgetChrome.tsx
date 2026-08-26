@@ -114,8 +114,8 @@ export const WidgetChrome: React.FC<WidgetChromeProps> = ({
             </motion.div>
 
             {expanded && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-6">
-                    <div className="w-full max-w-5xl h-[80vh] flex flex-col bg-slate-800/95 rounded-xl shadow-2xl border border-slate-700/80">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
+                    <div className="w-full max-w-[96vw] h-[94vh] flex flex-col bg-slate-800/95 rounded-xl shadow-2xl border border-slate-700/80">
                         <div className="flex items-center justify-between gap-2 px-5 py-4 border-b border-slate-700/60 shrink-0">
                             <h3 className="text-base font-semibold text-slate-100">{title}</h3>
                             <button

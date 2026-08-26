@@ -936,20 +936,20 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
               <p className="text-2xl font-semibold text-slate-200">Hello {userName}! How can I help you?</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl w-full">
                 <ExampleCard
+                  text="How many reviews had critical or high blast radius issues this month? Show those repositories"
+                  onClick={() => setInput('How many reviews had critical or high blast radius issues this month? Show those repositories')}
+                />
+                <ExampleCard
+                  text="Who has adopted LiveReview—and who hasn't?"
+                  onClick={() => setInput('Who has adopted LiveReview—and who hasn\u0027t?')}
+                />
+                <ExampleCard
+                  text="Are engineers actually incorporating reviews into their daily workflow?"
+                  onClick={() => setInput('Are engineers actually incorporating reviews into their daily workflow?')}
+                />
+                <ExampleCard
                   text="Show me how our review productivity and throughput have trended over the last few months"
                   onClick={() => setInput('Show me how our review productivity and throughput have trended over the last few months')}
-                />
-                <ExampleCard
-                  text="What's our current billing status and total billing usage?"
-                  onClick={() => setInput('What\u0027s our current billing status and total billing usage?')}
-                />
-                <ExampleCard
-                  text="Show me review activity per month and the top reviewers"
-                  onClick={() => setInput('Show me review activity per month and the top reviewers')}
-                />
-                <ExampleCard
-                  text="Show me all members sorted by lines of code reviewed"
-                  onClick={() => setInput('Show me all members sorted by lines of code reviewed')}
                 />
                 <ExampleCard
                   text="Trigger a full code review on my latest pull request"

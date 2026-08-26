@@ -38,6 +38,8 @@ func GenerateOnboardingHTMLToWriter(ctx context.Context, db *sql.DB, orgID int64
   .chart h3 { margin: 0 0 6px; font-size: 14px; color:#0f172a; }
   .chart p.desc { margin: 0 0 14px; font-size: 12px; color:#64748b; font-style: italic; }
   .chart img { max-width: 100%%; display:block; border-radius:4px; }
+  .stats { margin: 10px 0 0; padding: 8px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 11px; color: #64748b; line-height: 1.6; }
+  .stats span { display: inline-block; margin-right: 14px; white-space: nowrap; }
   .warn { background:#fffbeb; border:1px solid #fde68a; color:#b45309; border-radius:6px; padding:12px 14px; font-size:12px; }
   footer { color:#94a3b8; font-size:11px; text-align:center; margin-top:40px; }
 </style>
@@ -68,6 +70,16 @@ func GenerateOnboardingHTMLToWriter(ctx context.Context, db *sql.DB, orgID int64
 			fmt.Fprintf(&b, "<img src=\"data:image/png;base64,%s\" alt=\"%s\">\n",
 				base64.StdEncoding.EncodeToString(r.PNG), html.EscapeString(r.Title))
 		}
+
+		// Render KPI stats below the chart image.
+		if statLines := formatStats(r.Stats); len(statLines) > 0 {
+			b.WriteString("<div class=\"stats\">")
+			for _, s := range statLines {
+				fmt.Fprintf(&b, "<span>%s</span>", html.EscapeString(s))
+			}
+			b.WriteString("</div>\n")
+		}
+
 		b.WriteString("</div>\n")
 	}
 

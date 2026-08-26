@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import apiClient, { authFetch } from '../../api/apiClient';
+import { ChartStats } from '../../api/chatbot';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { InteractiveChart } from '../Chatbot/InteractiveChart';
 
@@ -15,6 +16,7 @@ interface ChartResult {
   time_range: string;
   vega_spec: Record<string, unknown>;
   row_count: number;
+  stats?: ChartStats;
   error?: string;
 }
 
@@ -53,6 +55,102 @@ interface ExportStatusResponse {
 }
 
 const closedModal: ExportModalState = { open: false, format: 'pdf', phase: 'starting', jobId: null, current: 0, total: 0, label: '', error: '' };
+
+const StatChip: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div className="rounded-md border border-slate-700 bg-slate-800/60 px-2.5 py-1.5 min-w-0">
+    <div className="text-[11px] text-slate-500">{label}</div>
+    <div className="text-xs text-slate-300 font-medium break-words">{value}</div>
+  </div>
+);
+
+const fmtNum = (v: number) => v.toLocaleString();
+
+const ChartStatsDisplay: React.FC<{ stats: ChartStats }> = ({ stats }) => {
+  const finest = (s: { day?: unknown; week?: unknown; month?: unknown }) => s.day ?? s.week ?? s.month;
+
+  switch (stats.kind) {
+    case 'trend': {
+      const s = finest(stats) as { total: number; avgPerPeriod: number; peak: { value: number; date: string }; low: { value: number; date: string }; trendPct: number | null } | undefined;
+      if (!s) return null;
+      return (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+          <StatChip label="Total" value={fmtNum(s.total)} />
+          <StatChip label="Avg per period" value={fmtNum(s.avgPerPeriod)} />
+          <StatChip label="Peak" value={`${fmtNum(s.peak.value)} (${s.peak.date})`} />
+          <StatChip label="Low" value={`${fmtNum(s.low.value)} (${s.low.date})`} />
+          <StatChip label="Trend" value={s.trendPct === null ? 'n/a' : `${s.trendPct >= 0 ? '+' : ''}${s.trendPct}%`} />
+        </div>
+      );
+    }
+    case 'multi_series_trend': {
+      const s = finest(stats) as { total: number; seriesCount: number; topSeries: { label: string; value: number } } | undefined;
+      if (!s) return null;
+      return (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <StatChip label="Total" value={fmtNum(s.total)} />
+          <StatChip label="Series" value={String(s.seriesCount)} />
+          <StatChip label="Top series" value={`${s.topSeries.label} (${fmtNum(s.topSeries.value)})`} />
+        </div>
+      );
+    }
+    case 'category': {
+      const s = stats.stats;
+      return (
+        <div className="grid grid-cols-2 gap-2">
+          <StatChip label="Highest" value={`${s.highest.label} (${fmtNum(s.highest.value)})`} />
+          <StatChip label="Lowest" value={`${s.lowest.label} (${fmtNum(s.lowest.value)})`} />
+          <StatChip label="Top 3" value={s.top3.map((x) => `${x.label} (${fmtNum(x.value)})`).join(', ')} />
+          <StatChip label="Bottom 3" value={s.bottom3.map((x) => `${x.label} (${fmtNum(x.value)})`).join(', ')} />
+        </div>
+      );
+    }
+    case 'band': {
+      const s = stats.stats;
+      return (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <StatChip label="Total active" value={fmtNum(s.totalActive)} />
+          <StatChip label="Largest" value={`${s.largest.label} (${fmtNum(s.largest.value)})`} />
+          <StatChip label="Largest share" value={`${s.largestSharePct}%`} />
+        </div>
+      );
+    }
+    case 'heatmap': {
+      const s = stats.stats;
+      return (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <StatChip label="Total" value={fmtNum(s.total)} />
+          <StatChip label="Active days" value={String(s.activeDays)} />
+          <StatChip label="Avg on active days" value={fmtNum(s.avgOnActiveDays)} />
+          <StatChip label="Busiest" value={`${s.busiest.date} (${fmtNum(s.busiest.value)})`} />
+        </div>
+      );
+    }
+    case 'slope': {
+      const s = stats.stats;
+      return (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <StatChip label="Entities" value={String(s.entityCount)} />
+          <StatChip label="Gained / Lost / Flat" value={`${s.gained} / ${s.lost} / ${s.flat}`} />
+          <StatChip label="Biggest gain" value={`${s.biggestGain.label} (+${fmtNum(s.biggestGain.delta)})`} />
+          <StatChip label="Biggest loss" value={`${s.biggestLoss.label} (${fmtNum(s.biggestLoss.delta)})`} />
+        </div>
+      );
+    }
+    case 'generic': {
+      const s = stats.stats;
+      return (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <StatChip label="Total" value={fmtNum(s.total)} />
+          <StatChip label="Count" value={String(s.count)} />
+          <StatChip label="Highest" value={`${s.highest.label} (${fmtNum(s.highest.value)})`} />
+          <StatChip label="Lowest" value={`${s.lowest.label} (${fmtNum(s.lowest.value)})`} />
+        </div>
+      );
+    }
+    default:
+      return null;
+  }
+};
 
 const OnboardingReport: React.FC = () => {
   const { currentOrg } = useOrgContext();
@@ -425,6 +523,11 @@ const OnboardingReport: React.FC = () => {
                           </div>
                         ) : (
                           <InteractiveChart spec={chart.vega_spec} />
+                        )}
+                        {chart.stats && (
+                          <div className="mt-3">
+                            <ChartStatsDisplay stats={chart.stats} />
+                          </div>
                         )}
                       </div>
                     ))}

@@ -20,6 +20,8 @@ import { NavMegaMenu } from './NavMegaMenu';
 import { shortcutKeyLabel } from '../../utils/platform';
 import { NotificationBell } from '../Notifications/NotificationBell';
 import { add as addNotification, dismiss as dismissNotification } from '../../store/Notifications/slice';
+import { prefetchRoute } from '../../utils/routePrefetch';
+import { triggerNavigationProgress } from '../NavigationProgressBar';
 
 type NavbarBillingStatusResponse = {
     billing: {
@@ -650,6 +652,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
         .map(section => filterMegaMenuSection(section, megaMenuContext));
 
     const handleNavClick = (target: string) => {
+        triggerNavigationProgress();
         if (onNavigate) onNavigate(target);
         setIsOpen(false);
         setIsMegaMenuOpen(false);
@@ -826,7 +829,11 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                                     key={link.key}
                                     variant="ghost"
                                     onClick={link.path ? () => handleNavClick(link.path as string) : undefined}
-                                    onMouseEnter={() => setHoveredNavKey(link.key)}
+                                    onMouseEnter={() => {
+                                        setHoveredNavKey(link.key);
+                                        if (link.path) prefetchRoute(link.path);
+                                    }}
+                                    onFocus={() => { if (link.path) prefetchRoute(link.path); }}
                                     icon={activePage === link.key ? link.icon : <span className="text-slate-400">{link.icon}</span>}
                                     className={classNames(
                                         'relative !px-2.5 2xl:!px-4 text-sm font-medium transition-all duration-200 focus:!ring-0 focus:!ring-offset-0',

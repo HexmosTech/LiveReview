@@ -86,6 +86,9 @@ type DashboardData struct {
 	// People — same precomputed dashboard_cache row, sibling key to review_layers/system_overview (see collectPeople).
 	People json.RawMessage `json:"people,omitempty"`
 
+	// IssueTreemap — precomputed category→subcategory→count tree for the treemap widget (see collectIssueTreemap).
+	IssueTreemap json.RawMessage `json:"issue_treemap,omitempty"`
+
 	// Last updated timestamp
 	LastUpdated time.Time `json:"last_updated"`
 }
@@ -401,6 +404,9 @@ func (dm *DashboardManager) updateDashboardData(ctx context.Context, trigger str
 		if err := dm.refreshAllPeople(ctx, orgIDs); err != nil {
 			dm.logErrorf("[dashboard_cache] people refresh failed cycle=%d trigger=%s err=%v", cycleID, trigger, err)
 		}
+		if err := dm.refreshAllIssueTreemap(ctx, orgIDs); err != nil {
+			dm.logErrorf("[dashboard_cache] issue_treemap refresh failed cycle=%d trigger=%s err=%v", cycleID, trigger, err)
+		}
 	}
 
 	return nil
@@ -442,19 +448,44 @@ func (dm *DashboardManager) buildDashboardData(ctx context.Context, orgID int64,
 		LastUpdated: time.Now(),
 	}
 
-	// total_reviews/active_ai_connectors drive the onboarding stepper's hasRunReview/hasAIProvider checks — still read by the frontend.
-	if err := dm.collectStatistics(ctx, &data, orgID); err != nil {
-		dm.logErrorf("[dashboard] collect statistics failed org_id=%d err=%v", orgID, err)
-	}
+	// These three collectors are independent (each writes disjoint fields of DashboardData, none
+	// reads another's output), so they run concurrently against their own local struct - writing
+	// into `data` directly from multiple goroutines would be a data race. Was previously three
+	// sequential DB round trips; now it's the slowest of the three instead of the sum of all three.
+	var statsData, onboardingData, connectorData DashboardData
+	var wg sync.WaitGroup
+	wg.Add(3)
 
-	if err := dm.collectOnboardingData(ctx, &data, orgID); err != nil {
-		dm.logErrorf("[dashboard] collect onboarding failed org_id=%d err=%v", orgID, err)
-	}
+	go func() {
+		defer wg.Done()
+		// total_reviews/active_ai_connectors drive the onboarding stepper's hasRunReview/hasAIProvider checks — still read by the frontend.
+		if err := dm.collectStatistics(ctx, &statsData, orgID); err != nil {
+			dm.logErrorf("[dashboard] collect statistics failed org_id=%d err=%v", orgID, err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := dm.collectOnboardingData(ctx, &onboardingData, orgID); err != nil {
+			dm.logErrorf("[dashboard] collect onboarding failed org_id=%d err=%v", orgID, err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		// connector_setup_progress drives the "connectors needing setup" banner — still read by the frontend.
+		if err := dm.collectConnectorSetupProgress(ctx, &connectorData, orgID); err != nil {
+			dm.logErrorf("[dashboard] collect connector_setup failed org_id=%d err=%v", orgID, err)
+		}
+	}()
+	wg.Wait()
 
-	// connector_setup_progress drives the "connectors needing setup" banner — still read by the frontend.
-	if err := dm.collectConnectorSetupProgress(ctx, &data, orgID); err != nil {
-		dm.logErrorf("[dashboard] collect connector_setup failed org_id=%d err=%v", orgID, err)
-	}
+	data.TotalReviews = statsData.TotalReviews
+	data.TotalComments = statsData.TotalComments
+	data.ConnectedProviders = statsData.ConnectedProviders
+	data.ActiveAIConnectors = statsData.ActiveAIConnectors
+	data.OnboardingAPIKey = onboardingData.OnboardingAPIKey
+	data.APIUrl = onboardingData.APIUrl
+	data.CLIInstalled = onboardingData.CLIInstalled
+	data.ConnectorSetupProgress = connectorData.ConnectorSetupProgress
 
 	// review_layers is fetched fresh per request instead, directly in the GetDashboardData handler below.
 
@@ -820,7 +851,34 @@ func (dm *DashboardManager) collectPeople(ctx context.Context, data *DashboardDa
 	return nil
 }
 
-// storeDashboardData saves the collected data to the database
+// collectIssueTreemap is a cheap single-row read of the precomputed dashboard_cache; a missing row just leaves the field empty, not an error.
+func (dm *DashboardManager) collectIssueTreemap(ctx context.Context, data *DashboardData, orgID int64) error {
+	if dm.cacheStore == nil {
+		return nil
+	}
+
+	queryCtx, cancel := context.WithTimeout(ctx, dashboardDBQueryTimeout)
+	defer cancel()
+
+	raw, err := dm.cacheStore.GetFinalJSON(queryCtx, orgID)
+	if err != nil {
+		return err
+	}
+	if raw == nil {
+		return nil
+	}
+
+	var wrapper struct {
+		IssueTreemap json.RawMessage `json:"issue_treemap"`
+	}
+	if err := json.Unmarshal(raw, &wrapper); err != nil {
+		log.Printf("[dashboard_cache] unmarshal final_json failed org_id=%d err=%v raw=%s", orgID, err, raw)
+		return fmt.Errorf("unmarshal final_json: %w", err)
+	}
+
+	data.IssueTreemap = wrapper.IssueTreemap
+	return nil
+}
 
 // GetDashboardData retrieves the cached dashboard data
 func (s *Server) GetDashboardData(c echo.Context) error {
@@ -840,16 +898,44 @@ func (s *Server) GetDashboardData(c echo.Context) error {
 		})
 	}
 
-	// Fetched fresh on every request, deliberately not part of the cached data above.
-	if err := s.dashboardManager.collectReviewLayers(c.Request().Context(), &data, orgID); err != nil {
-		log.Printf("Error collecting review_layers for org %d: %v", orgID, err)
-	}
-	if err := s.dashboardManager.collectSystemOverview(c.Request().Context(), &data, orgID); err != nil {
-		log.Printf("Error collecting system_overview for org %d: %v", orgID, err)
-	}
-	if err := s.dashboardManager.collectPeople(c.Request().Context(), &data, orgID); err != nil {
-		log.Printf("Error collecting people for org %d: %v", orgID, err)
-	}
+	// Fetched fresh on every request, deliberately not part of the cached data above. Each writes
+	// a disjoint json.RawMessage field and none reads another's output, so run them concurrently
+	// against their own local struct rather than paying four sequential DB round trips.
+	reqCtx := c.Request().Context()
+	var reviewLayersData, systemOverviewData, peopleData, issueTreemapData DashboardData
+	var wg sync.WaitGroup
+	wg.Add(4)
+
+	go func() {
+		defer wg.Done()
+		if err := s.dashboardManager.collectReviewLayers(reqCtx, &reviewLayersData, orgID); err != nil {
+			log.Printf("Error collecting review_layers for org %d: %v", orgID, err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := s.dashboardManager.collectSystemOverview(reqCtx, &systemOverviewData, orgID); err != nil {
+			log.Printf("Error collecting system_overview for org %d: %v", orgID, err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := s.dashboardManager.collectPeople(reqCtx, &peopleData, orgID); err != nil {
+			log.Printf("Error collecting people for org %d: %v", orgID, err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := s.dashboardManager.collectIssueTreemap(reqCtx, &issueTreemapData, orgID); err != nil {
+			log.Printf("Error collecting issue_treemap for org %d: %v", orgID, err)
+		}
+	}()
+	wg.Wait()
+
+	data.ReviewLayers = reviewLayersData.ReviewLayers
+	data.SystemOverview = systemOverviewData.SystemOverview
+	data.People = peopleData.People
+	data.IssueTreemap = issueTreemapData.IssueTreemap
 
 	return c.JSON(http.StatusOK, data)
 }
@@ -900,6 +986,13 @@ func (s *Server) RefreshDashboardData(c echo.Context) error {
 			log.Printf("Error refreshing people for org %d: %v", orgID, err)
 		} else {
 			response["people"] = people
+		}
+
+		issueTreemap, err := s.dashboardManager.RefreshOrgIssueTreemap(c.Request().Context(), orgID)
+		if err != nil {
+			log.Printf("Error refreshing issue_treemap for org %d: %v", orgID, err)
+		} else {
+			response["issue_treemap"] = issueTreemap
 		}
 	}
 

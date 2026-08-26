@@ -14,6 +14,7 @@ import { DashboardPeriodProvider } from './DashboardPeriod';
 import { ReviewLayersProvider } from './ReviewLayersData';
 import { SystemOverviewProvider } from './SystemOverviewData';
 import { PeopleProvider } from './PeopleData';
+import { IssueTreemapProvider } from './IssueTreemapData';
 import { PeriodSelector } from './PeriodSelector';
 import { CATEGORY_BADGE_CLASSES, CATEGORY_LABELS, WidgetCategory } from './registry';
 import { DASHBOARD_QUERY_KEY, refreshDashboardData } from '../../../api/dashboard';
@@ -129,6 +130,7 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
         <ReviewLayersProvider>
         <SystemOverviewProvider>
         <PeopleProvider>
+        <IssueTreemapProvider>
         <div className="mb-6">
             <div className="sticky top-16 z-30 py-2 mb-3 bg-slate-800/90 backdrop-blur-sm border-b border-slate-700/80 rounded-lg flex flex-wrap items-center justify-between gap-2 px-4">
                 <div className="flex flex-wrap items-center gap-3">
@@ -250,6 +252,7 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
                 )}
             </div>
         </div>
+        </IssueTreemapProvider>
         </PeopleProvider>
         </SystemOverviewProvider>
         </ReviewLayersProvider>

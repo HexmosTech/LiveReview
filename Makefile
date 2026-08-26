@@ -1,5 +1,5 @@
 .PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run-debug run-fast logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker prep-dbctx
-.PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi
+.PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi prep-training-data check-training-data
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging
 
@@ -35,6 +35,12 @@ RELEASE_NOTES_DIR=docs/releases
 RELEASE_NOTES_TEMPLATE=$(RELEASE_NOTES_DIR)/_template.md
 RELEASE_GH_SCRIPT=scripts/release_gh.py
 OSV_SCANNER_CONFIG=osv-scanner.toml
+
+# Content hash of ui/docs/training_data/ as of the last `make prep-training-data`
+# run. Kept up to date automatically by that target (scripts/prep_training_data.sh
+# rewrites this line). `make check-training-data` compares it against the
+# corpus's current hash and re-runs prep-training-data when they diverge.
+TRAINING_DATA_HASH=b07421c6eb497d475ab5255ec2f5c101f5766140cbe0f773875c9c44fd0371b0
 
 # Load environment variables from .env file
 -include .env
@@ -157,7 +163,7 @@ docker-interactive-dry:
 # Legacy build-push for backward compatibility (now uses versioning)
 build-push: docker-build-push
 
-run-debug:
+run-debug: check-training-data
 	pkill -9 livereview || true
 	@DLV_BIN_DIR=$$($(GOCMD) env GOBIN); \
 	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; \
@@ -178,7 +184,7 @@ run-debug:
 # embedding/scoring code in particular is much slower under run-debug's
 # `-gcflags='all=-N -l'`, which disables optimization/inlining across the
 # whole binary, not just the code being debugged.
-run-fast:
+run-fast: check-training-data
 	pkill -9 livereview-fast || true
 	which air || $(GOCMD) install github.com/air-verse/air@latest
 	air -c .air.fast.toml
@@ -191,7 +197,7 @@ logrun:
 	which air || $(GOCMD) install github.com/air-verse/air@latest
 	bash -c 'set -o pipefail; air 2>&1 | tee "logrun-$$(date +%Y%m%d-%H%M%S).log"'
 
-develop:
+develop: check-training-data
 	@DLV_BIN_DIR=$$($(GOCMD) env GOBIN); \
 	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; \
 	command -v dlv >/dev/null 2>&1 || { \
@@ -205,7 +211,7 @@ develop:
 	which air || $(GOCMD) install github.com/air-verse/air@latest
 	DLV_BIN_DIR=$$($(GOCMD) env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
 
-develop-reflex:
+develop-reflex: check-training-data
 	which reflex || $(GOCMD) install github.com/cespare/reflex@latest
 	reflex -r '\.go$$' -s -- sh -c '$(GOENV) go build -o $(BINARY_NAME) && ./$(BINARY_NAME) api'
 
@@ -484,6 +490,23 @@ prep-dbctx:
 	@echo "📦 Importing terminology..."
 	dbctx terminology import $(HOME)/livereview.dtx ./internal/mcpagent/terminology.json
 	@echo "✅ dbctx index ready at $(HOME)/livereview.dtx"
+
+# Pull Markdown docs from git-lrc, git-lrc wiki, LiveReview, and LiveReview
+# wiki into ui/docs/training_data/ (RAG corpus for the chatbot). Leaves
+# ui/docs/training_data/lr_routes/ (hand-written route docs) untouched.
+prep-training-data:
+	@bash scripts/prep_training_data.sh
+
+# Re-fetches ui/docs/training_data/ whenever its content has drifted from
+# TRAINING_DATA_HASH above (corpus missing, never fetched, or stale). Cheap
+# no-op when nothing changed. Wired as a prerequisite of the dev-server
+# targets below so the RAG corpus is never silently out of date.
+check-training-data:
+	@current="$$(bash scripts/training_data_hash.sh)"; \
+	if [ "$$current" != "$(TRAINING_DATA_HASH)" ]; then \
+		echo "training_data out of date (have: $(TRAINING_DATA_HASH), want: $$current) - running prep-training-data..."; \
+		$(MAKE) prep-training-data; \
+	fi
 
 # Generate a token-compact schema dump of the prod DB (public schema) for LLM context.
 .PHONY: compressed-schema

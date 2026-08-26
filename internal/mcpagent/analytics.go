@@ -1725,22 +1725,18 @@ func (a *Agent) executeInterpretation(
 
 	relabelTriggerTypeValues(rs.Rows)
 
-	// Weak result filter.
-	if len(rs.Rows) <= 1 {
-		reason := "single-row result (weak)"
-		if len(rs.Rows) == 0 {
-			// Distinct from "weak" - zero rows usually means a filter
-			// eliminated everything (often a hallucinated enum value the
-			// WHERE clause matched literally, silently, e.g. status =
-			// 'processed' instead of 'accounted'), not that the shape was
-			// merely thin.
-			reason = "query returned no rows - check for an invalid filter or enum value"
-		}
+	// Zero-row filter. A single row is still rendered (e.g. "who are the
+	// authors" can genuinely have one answer) - only an empty result is
+	// skipped, since that usually means a filter eliminated everything
+	// (often a hallucinated enum value the WHERE clause matched literally,
+	// silently, e.g. status = 'processed' instead of 'accounted'), not that
+	// the real answer was thin.
+	if len(rs.Rows) == 0 {
 		return InterpretationResult{
 			Status:     "skipped",
-			SkipReason: reason,
-			RowCount:   len(rs.Rows),
-			Rows:       rs.Rows, // preserve for debug preview
+			SkipReason: "query returned no rows - check for an invalid filter or enum value",
+			RowCount:   0,
+			Rows:       rs.Rows,
 		}
 	}
 

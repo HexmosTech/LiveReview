@@ -562,6 +562,78 @@ CREATE SEQUENCE public.billing_notification_outbox_id_seq
 
 ALTER SEQUENCE public.billing_notification_outbox_id_seq OWNED BY public.billing_notification_outbox.id;
 
+--
+-- Name: blast_radius_hunks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.blast_radius_hunks (
+    id bigint NOT NULL,
+    review_id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    file_path text NOT NULL,
+    new_start integer NOT NULL,
+    new_lines integer NOT NULL,
+    combined numeric(5,2) NOT NULL,
+    tier character varying(32) NOT NULL,
+    math_mode jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT blast_radius_hunks_tier_check CHECK (((tier)::text = ANY (ARRAY[('blast-radius-none'::character varying)::text, ('blast-radius-low'::character varying)::text, ('blast-radius-medium'::character varying)::text, ('blast-radius-high'::character varying)::text])))
+);
+
+
+--
+-- Name: TABLE blast_radius_hunks; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.blast_radius_hunks IS 'Per-hunk blast radius scores, computed server-side from git-lrc''s S3 artifact at upload time. combined is the 0-100 score (see internal/blastradius.ComputeMathMode); math_mode is the full step-by-step derivation (signal-level detail included) that powers the diff viewer''s Math Mode tab without recomputing anything client-side.';
+
+
+--
+-- Name: COLUMN blast_radius_hunks.tier; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.blast_radius_hunks.tier IS 'One of blast-radius-{none,low,medium,high} - see internal/blastradius.Tier. Thresholds: >=66 high, >=33 medium, >0 low, else none.';
+
+
+--
+-- Name: blast_radius_hunks_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.blast_radius_hunks_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: blast_radius_hunks_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.blast_radius_hunks_id_seq OWNED BY public.blast_radius_hunks.id;
+
+
+--
+-- Name: blast_radius_reviews; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.blast_radius_reviews AS
+ SELECT review_id,
+    org_id,
+    max(combined) AS combined,
+    (array_agg(tier ORDER BY blast_radius_hunks.combined DESC))[1] AS tier
+   FROM public.blast_radius_hunks
+  GROUP BY review_id, org_id;
+
+
+--
+-- Name: VIEW blast_radius_reviews; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON VIEW public.blast_radius_reviews IS 'One row per review: its highest-scoring hunk''s combined score and tier. The shape Livi should query for "how many reviews had high blast radius" style questions.';
+
+
 
 --
 -- Name: chat_charts; Type: TABLE; Schema: public; Owner: -
@@ -2992,6 +3064,13 @@ ALTER TABLE ONLY public.billing_notification_outbox ALTER COLUMN id SET DEFAULT 
 
 
 --
+-- Name: blast_radius_hunks id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.blast_radius_hunks ALTER COLUMN id SET DEFAULT nextval('public.blast_radius_hunks_id_seq'::regclass);
+
+
+--
 -- Name: chat_charts id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3354,6 +3433,23 @@ ALTER TABLE ONLY public.auth_tokens
 
 ALTER TABLE ONLY public.billing_notification_outbox
     ADD CONSTRAINT billing_notification_outbox_pkey PRIMARY KEY (id);
+
+--
+-- Name: blast_radius_hunks blast_radius_hunks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.blast_radius_hunks
+    ADD CONSTRAINT blast_radius_hunks_pkey PRIMARY KEY (id);
+
+
+
+--
+-- Name: blast_radius_hunks uq_blast_radius_hunks_review_hunk; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.blast_radius_hunks
+    ADD CONSTRAINT uq_blast_radius_hunks_review_hunk UNIQUE (review_id, file_path, new_start, new_lines);
+
 
 
 --
@@ -4237,6 +4333,20 @@ CREATE INDEX idx_billing_notification_outbox_org_created ON public.billing_notif
 --
 
 CREATE INDEX idx_billing_notification_outbox_pending ON public.billing_notification_outbox USING btree (status, send_after, created_at) WHERE ((status)::text = ANY (ARRAY[('pending'::character varying)::text, ('failed'::character varying)::text]));
+
+--
+-- Name: idx_blast_radius_hunks_org_combined; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_blast_radius_hunks_org_combined ON public.blast_radius_hunks USING btree (org_id, combined DESC);
+
+
+--
+-- Name: idx_blast_radius_hunks_review_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_blast_radius_hunks_review_id ON public.blast_radius_hunks USING btree (review_id);
+
 
 
 --
@@ -5471,6 +5581,22 @@ ALTER TABLE ONLY public.billing_notification_outbox
 ALTER TABLE ONLY public.billing_notification_outbox
     ADD CONSTRAINT billing_notification_outbox_recipient_user_id_fkey FOREIGN KEY (recipient_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
 
+--
+-- Name: blast_radius_hunks blast_radius_hunks_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.blast_radius_hunks
+    ADD CONSTRAINT blast_radius_hunks_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: blast_radius_hunks blast_radius_hunks_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.blast_radius_hunks
+    ADD CONSTRAINT blast_radius_hunks_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id) ON DELETE CASCADE;
+
+
 
 --
 -- Name: chat_charts chat_charts_message_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -6333,4 +6459,6 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260821120000'),
     ('20260823120000'),
     ('20260823200000'),
-    ('20260824190000');
+    ('20260824190000'),
+    ('20260825140000'),
+    ('20260825190000');

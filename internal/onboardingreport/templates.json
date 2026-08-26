@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "generated_from": "livereview-debug-export-27.json",
-  "total_charts": 58,
+  "total_charts": 57,
   "sections": [
     {
       "id": "adoption",
@@ -1162,60 +1162,6 @@
       "granularity": "Overall",
       "time_range": "All time",
       "sort_order": 1
-    },
-    {
-      "id": "top-repositories-reviewed-by-each-engineer",
-      "section": "engineers",
-      "section_label": "Engineer Analysis",
-      "title": "Top Repositories Reviewed by Each Engineer",
-      "description": "This chart displays the top 5 repositories each engineer has reviewed, indicating where their review activity is most concentrated.",
-      "query_summary": "This query identifies the top 5 repositories by review count for each engineer in hexmos-internal, based on completed reviews.",
-      "sql": "WITH EngineerRepoReviews AS (\n    SELECT\n        COALESCE(users.first_name || ' ' || users.last_name, reviews.user_email) AS engineer_name,\n        reviews.repository AS repository_name,\n        COUNT(reviews.id) AS review_count\n    FROM reviews\n    JOIN users ON reviews.user_email = users.email\n    JOIN user_roles ON users.id = user_roles.user_id AND user_roles.org_id = {{.OrgID}}\n    WHERE\n        reviews.org_id = {{.OrgID}}\n        AND reviews.status = 'completed'\n        AND reviews.user_email IS NOT NULL\n        AND reviews.repository IS NOT NULL\n        AND reviews.repository != ''\n    GROUP BY\n        COALESCE(users.first_name || ' ' || users.last_name, reviews.user_email),\n        reviews.repository\n),\nRankedEngineerRepoReviews AS (\n    SELECT\n        engineer_name,\n        repository_name,\n        review_count,\n        RANK() OVER (PARTITION BY engineer_name ORDER BY review_count DESC) as rank_num\n    FROM EngineerRepoReviews\n)\nSELECT\n    engineer_name,\n    repository_name,\n    review_count\nFROM RankedEngineerRepoReviews\nWHERE rank_num <= 5\nORDER BY\n    engineer_name, review_count DESC;\n",
-      "vega_spec": {
-        "data": {
-          "values": "DATA_PLACEHOLDER"
-        },
-        "spec": {
-          "mark": "bar",
-          "encoding": {
-            "x": {
-              "type": "quantitative",
-              "field": "review_count",
-              "title": "Review Count"
-            },
-            "y": {
-              "sort": "-x",
-              "type": "nominal",
-              "field": "repository_name",
-              "title": "Repository"
-            },
-            "tooltip": [
-              {
-                "field": "engineer_name",
-                "title": "Engineer"
-              },
-              {
-                "field": "repository_name",
-                "title": "Repository"
-              },
-              {
-                "field": "review_count",
-                "title": "Review Count"
-              }
-            ]
-          }
-        },
-        "facet": {
-          "type": "nominal",
-          "field": "engineer_name",
-          "columns": 3
-        },
-        "$schema": "https://vega.github.io/schema/vega-lite/v5.json"
-      },
-      "chart_type": "trellis_bar",
-      "granularity": "Overall",
-      "time_range": "All time",
-      "sort_order": 2
     },
     {
       "id": "review-trigger-types-per-engineer",

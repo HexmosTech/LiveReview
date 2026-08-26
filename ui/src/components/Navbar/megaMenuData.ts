@@ -206,9 +206,7 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
                 link('All Findings', React.createElement(Icons.Search), '/reports?mode=explore'),
             ], React.createElement(Icons.List)),
             link('Download Report', React.createElement(Icons.Download), '/reports?export=pdf'),
-            group('Onboarding', [
-                link('Onboarding Report', React.createElement(Icons.Dashboard), '/reports/onboarding'),
-            ], React.createElement(Icons.Dashboard)),
+            link('Custom Reports', React.createElement(Icons.Dashboard), '/reports?mode=custom'),
         ],
     },
     {

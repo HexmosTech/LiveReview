@@ -298,6 +298,14 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 
 	// Initialize user management system
 	apiKeyManager := NewAPIKeyManager(db)
+
+	// Wire up eager onboarding-API-key creation for new cloud signups (see
+	// AuthHandlers.SetOnboardingKeyGenerator / EnsureCloudUser) - injected here rather than
+	// imported directly in package auth, since this package already imports internal/api/auth.
+	authHandlers.SetOnboardingKeyGenerator(func(tx *sql.Tx, userID, orgID int64) (string, error) {
+		_, key, err := apiKeyManager.CreateAPIKeyTx(tx, userID, orgID, "Onboarding API Key", []string{}, nil)
+		return key, err
+	})
 	userService := users.NewUserService(db, func(tx *sql.Tx, userID, orgID int64) (string, error) {
 		_, key, err := apiKeyManager.CreateAPIKeyTx(tx, userID, orgID, "Onboarding API Key", []string{}, nil)
 		return key, err

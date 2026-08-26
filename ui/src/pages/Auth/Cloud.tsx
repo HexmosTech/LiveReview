@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAppDispatch } from '../../store/configureStore';
 import { handleLoginSuccess, handleLoginError, getRedirectAfterLogin, clearRedirectAfterLogin } from '../../utils/authHelpers';
 import { LoginResponse } from '../../api/auth';
+import { FullScreenLoader } from '../../components/FullScreenLoader';
+import { prefetchRoute, awaitRoutePrefetch } from '../../utils/routePrefetch';
 
 interface AuthedUser {
     email: string;
@@ -31,14 +33,23 @@ const Cloud: React.FC = () => {
     const [provisionResult, setProvisionResult] = useState<CloudProvisionResponse | null>(null);
     const [provisioning, setProvisioning] = useState(false);
     const [loggingIn, setLoggingIn] = useState(false);
-    const [hasUrlParams, setHasUrlParams] = useState(false);
+    // Computed synchronously (not in an effect) so the very first render already shows the
+    // loader instead of a login-button flash on the OAuth-return visit - an effect only runs
+    // after that first paint, which would otherwise put a visible frame of the wrong screen
+    // between the boot screen and this one.
+    const [hasUrlParams, setHasUrlParams] = useState(() => new URLSearchParams(window.location.search).has('data'));
 
     useEffect(() => {
         setIsClient(true);
-        // Check if we have URL params immediately to show loader
         const sp = new URLSearchParams(window.location.search);
         if (sp.get('data')) {
             setHasUrlParams(true);
+            console.info('[LiveReview][LoginPerf] data param detected, prefetching dashboard chunk', performance.now());
+            // Start downloading the /dashboard route chunk right now, in parallel with the
+            // ensure-cloud-user request below - the browser is otherwise idle during that wait,
+            // so by the time login succeeds and navigate('/dashboard') fires, the chunk is
+            // already warm and Suspense resolves immediately instead of starting a cold fetch.
+            prefetchRoute('/dashboard');
         }
     }, []);
 
@@ -106,6 +117,7 @@ const Cloud: React.FC = () => {
     useEffect(() => {
         if (!user || provisioning || provisionResult || loggingIn) return;
         setProvisioning(true);
+        console.info('[LiveReview][LoginPerf] ensure-cloud-user starting', performance.now());
         (async () => {
             try {
                 const url = `${window.location.origin}/api/v1/auth/ensure-cloud-user`;
@@ -131,6 +143,7 @@ const Cloud: React.FC = () => {
 
                     // If we got tokens and user info back, process as a login
                     if (data.tokens && data.user && data.organizations) {
+                        console.info('[LiveReview][LoginPerf] ensure-cloud-user resolved', performance.now());
                         setLoggingIn(true);
                         const loginResponse: LoginResponse = {
                             user: data.user,
@@ -158,20 +171,30 @@ const Cloud: React.FC = () => {
                         
                         // Get the redirect URL if it was stored
                         const redirectUrl = getRedirectAfterLogin();
-                        
+
                         // Navigate to the original URL or dashboard as fallback
                         const targetUrl = redirectUrl || '/dashboard';
                         clearRedirectAfterLogin();
-                        
+
                         // If redirectUrl is a hash path like #/reviews/618, extract the path part
-                        if (redirectUrl && redirectUrl.startsWith('#')) {
-                            const pathWithoutHash = redirectUrl.slice(1); // Remove the # prefix
-                            navigate(pathWithoutHash, { replace: true });
-                        } else if (redirectUrl) {
-                            navigate(redirectUrl, { replace: true });
-                        } else {
-                            navigate(targetUrl, { replace: true });
-                        }
+                        const destination = redirectUrl && redirectUrl.startsWith('#')
+                            ? redirectUrl.slice(1) // Remove the # prefix
+                            : redirectUrl || targetUrl;
+
+                        // Wait for the destination's route chunk (kicked off in parallel back
+                        // when the ?data= param was first detected) to actually finish - not
+                        // just have started - before navigating. A fire-and-forget prefetch only
+                        // gives it a head start; if ensure-cloud-user happens to resolve first,
+                        // Suspense would still flash its own fallback screen for however long is
+                        // left. Since we're already showing a full-screen loader here, folding
+                        // that remaining wait into it (same screen, no new one appearing) is
+                        // strictly better than swapping to a second, different-looking one for a
+                        // few hundred ms. Capped internally so a slow/failed chunk load can't
+                        // hang the navigation forever.
+                        console.info('[LiveReview][LoginPerf] awaiting dashboard chunk before navigating', performance.now());
+                        await awaitRoutePrefetch(destination);
+                        console.info('[LiveReview][LoginPerf] navigating', performance.now());
+                        navigate(destination, { replace: true });
                     }
                 }
             } catch (err: any) {
@@ -182,6 +205,13 @@ const Cloud: React.FC = () => {
             }
         })();
     }, [user, provisioning, provisionResult, loggingIn, dispatch]);
+
+    // Same visual as the app shell's boot/auth-gate and route-Suspense loaders (FullScreenLoader)
+    // so this reads as a continuation of the same screen instead of a differently-styled card
+    // popping in - see App.tsx's isLoading/RouteFallback usage of the same component.
+    if (hasUrlParams || loggingIn || provisioning) {
+        return <FullScreenLoader text="Logging you in…" />;
+    }
 
     return (
         <div className="min-h-screen bg-gray-900 flex items-center justify-center relative">
@@ -198,31 +228,22 @@ const Cloud: React.FC = () => {
                     />
                 </div>
 
-                {hasUrlParams || loggingIn || provisioning ? (
-                    <div className="flex flex-col items-center justify-center space-y-4 py-8">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div>
-                        <p className="text-gray-400 text-sm">Logging you in...</p>
-                    </div>
-                ) : (
-                    <>
-                        <div className="text-center mb-8">
-                            <h2 className="text-lg font-medium text-gray-300">Sign in to <strong>LiveReview</strong> in 30 seconds:</h2>
-                        </div>
-                        <div className="flex justify-center">
-                            <button
-                                onClick={handleLoginClick}
-                                className="inline-flex items-center justify-center gap-3 py-4 px-8 border border-transparent text-base font-semibold rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-lg"
-                            >
-                                <img
-                                    src="/assets/hexmos-logo.svg"
-                                    alt="Hexmos"
-                                    className="h-6 w-6"
-                                />
-                                Sign in with Hexmos
-                            </button>
-                        </div>
-                    </>
-                )}
+                <div className="text-center mb-8">
+                    <h2 className="text-lg font-medium text-gray-300">Sign in to <strong>LiveReview</strong> in 30 seconds:</h2>
+                </div>
+                <div className="flex justify-center">
+                    <button
+                        onClick={handleLoginClick}
+                        className="inline-flex items-center justify-center gap-3 py-4 px-8 border border-transparent text-base font-semibold rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-lg"
+                    >
+                        <img
+                            src="/assets/hexmos-logo.svg"
+                            alt="Hexmos"
+                            className="h-6 w-6"
+                        />
+                        Sign in with Hexmos
+                    </button>
+                </div>
 
                 <div className="overflow-x-auto hidden">
                     <table className="min-w-full text-left text-sm border border-gray-700 rounded-lg overflow-hidden">
