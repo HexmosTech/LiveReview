@@ -45,6 +45,7 @@ across interpretations and never repeat the same type.
   Chart spec: `y: {field: "repository", type: "nominal", sort: "-x"}` (repositories ranked by total review count), `x: {field: "review_count", type: "quantitative", stack: "zero", title: "Reviews"}`, `color: {field: "tier", type: "nominal", sort: ["High","Moderate","Low","Minimal"], scale: {domain: ["High","Moderate","Low","Minimal"], range: ["#ff5c7c","#ffb454","#7c9cff","#3a4358"]}}`, `order: {field: "tier", sort: "ascending"}` so segments stack High-first from the axis. This is in addition to, not instead of, any interpretation that answers the literal "how many had high blast radius" count using `tier = 'blast-radius-high'` per law 7 of the schema chapter — the filtered-count interpretation must independently use `count(DISTINCT r.id)` per law 8 of the schema chapter, since `blast_radius_hunks` is one row per hunk, not per review, in both interpretations.
 
 This is a two-level query — the SQL is NOT valid with a single flat `GROUP BY r.repository, tier`. You need an inner step that collapses to one row per review first (the example CTE above does this: `GROUP BY r.id, r.repository`, producing exactly one `tier` value per review), and then an outer step that counts reviews per `(repository, tier)` (`GROUP BY repository, tier` over the CTE's output, `count(id)` there is safe because the CTE already deduplicated to one row per review). Skipping the outer step and returning the inner query's rows directly returns one row per review (as many rows as there are scored reviews) instead of a handful of `(repository, tier)` counts — check the row count is small (repositories × at most 4 tiers) before finalizing this interpretation, not equal to the total number of scored reviews. {#blast-radius-tier-breakdown-stacked-bar}
+
 ```sql
 SELECT repository, tier, count(\*) AS review_count
 FROM (
@@ -59,7 +60,5 @@ WHERE r.org_id = 151 AND r.completed_at >= date_trunc('month', current_date)
 GROUP BY r.id, r.repository
 ) scored
 GROUP BY repository, tier
-
-```
 
 ```
