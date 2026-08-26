@@ -12,6 +12,8 @@ import { SubscriptionGuard } from './components/SubscriptionGuard';
 import { Toaster } from 'react-hot-toast';
 import { useBottomRightBlockers } from './store/uiLayout';
 import { ToastBridge } from './components/Notifications/ToastBridge';
+import { NavigationProgressBar, triggerNavigationProgress } from './components/NavigationProgressBar';
+import { prefetchRoutes } from './utils/routePrefetch';
 
 const Dashboard = React.lazy(() => import('./components/Dashboard/Dashboard').then((m) => ({ default: m.Dashboard })));
 const GitProviders = React.lazy(() => import('./pages/GitProviders/GitProviders'));
@@ -213,8 +215,21 @@ const AppContent: React.FC = () => {
         });
     }, [isAuthenticated, isSetupRequired, isLoading]);
 
+    // Idle-time prefetch warmup for most-likely-next routes
+    useEffect(() => {
+        if (!isAuthenticated) return;
+        const warmup = () => prefetchRoutes(['/dashboard', '/reviews', '/settings']);
+        if ('requestIdleCallback' in window) {
+            const id = (window as unknown as { requestIdleCallback: (cb: () => void) => number }).requestIdleCallback(warmup);
+            return () => (window as unknown as { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(id);
+        }
+        const timer = setTimeout(warmup, 2000);
+        return () => clearTimeout(timer);
+    }, [isAuthenticated]);
+
     // Handle navigation
     const handleNavigate = (target: string) => {
+        triggerNavigationProgress();
         if (target.startsWith('/')) {
             navigate(target);
             return;
@@ -285,6 +300,7 @@ const AppContent: React.FC = () => {
     } else {
         body = (
             <div className={`min-h-screen flex flex-col transition-opacity duration-200 ${uiReady ? 'opacity-100' : 'opacity-0'}`}>
+                <NavigationProgressBar />
                 <Navbar
                     title="LiveReview"
                     activePage={activePage}
