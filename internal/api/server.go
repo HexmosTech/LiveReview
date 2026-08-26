@@ -133,7 +133,8 @@ type Server struct {
 	port                  int
 	db                    *sql.DB
 	jobQueue              *jobqueue.JobQueue
-	dashboardManager      *DashboardManager
+	dashboardManager         *DashboardManager
+	eventCompactionManager  *EventCompactionManager
 	autoWebhookInstaller  *AutoWebhookInstaller
 	versionInfo           *VersionInfo
 	deploymentConfig      *DeploymentConfig
@@ -289,6 +290,9 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	dashboardCacheStore := dashboard.NewCacheStore(db)
 	dashboardManager := NewDashboardManager(db, schedulerLockStore, dashboardCacheStore)
 
+	// Initialize event compaction manager — one goroutine compacting review_events logs daily.
+	eventCompactionManager := NewEventCompactionManager(db, schedulerLockStore, 0 /* use default 24h */)
+
 	// Initialize auto webhook installer
 	autoWebhookInstaller := NewAutoWebhookInstaller(db, nil, jq) // server will be set later
 
@@ -331,7 +335,8 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 		port:                 port,
 		db:                   db,
 		jobQueue:             jq,
-		dashboardManager:     dashboardManager,
+		dashboardManager:        dashboardManager,
+		eventCompactionManager:  eventCompactionManager,
 		autoWebhookInstaller: autoWebhookInstaller,
 		versionInfo:          versionInfo,
 		deploymentConfig:     deploymentConfig,
@@ -1096,6 +1101,11 @@ func (s *Server) setupRoutes() {
 	adminGroup.PUT("/settings/storage", s.UpdateStorageSettings)
 	adminGroup.POST("/settings/storage/test", s.TestStorageSettings)
 
+	// Super admin log compaction settings endpoints
+	adminGroup.GET("/settings/compaction", s.GetCompactionSettings)
+	adminGroup.PUT("/settings/compaction", s.UpdateCompactionSettings)
+	adminGroup.POST("/settings/compaction/run", s.RunCompactionNow)
+
 	// Organization management endpoints
 	// User organization access (get their orgs) - needs permission context to detect super admin
 	protectedOrgsGroup := protected.Group("")
@@ -1664,6 +1674,10 @@ func (s *Server) Start() error {
 	s.dashboardManager.Start()
 	fmt.Println("Dashboard manager started")
 
+	// Start event compaction manager (daily log compaction for review_events > 30 days)
+	s.eventCompactionManager.Start()
+	fmt.Println("Event compaction manager started")
+
 	// Start server in a goroutine
 	go func() {
 		if err := s.echo.Start(bindAddress); err != nil && err != http.ErrServerClosed {
@@ -1767,6 +1781,12 @@ func (s *Server) Start() error {
 	if s.dashboardManager != nil {
 		s.dashboardManager.Stop()
 		fmt.Println("Dashboard manager stopped")
+	}
+
+	// Stop event compaction manager
+	if s.eventCompactionManager != nil {
+		s.eventCompactionManager.Stop()
+		fmt.Println("Event compaction manager stopped")
 	}
 
 	// Close database connection

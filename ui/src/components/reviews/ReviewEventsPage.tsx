@@ -8,6 +8,7 @@ import { ReviewEvent } from './types';
 interface ReviewEventsPageProps {
   reviewId: number;
   initialEvents: ReviewEvent[];
+  initialEventCount?: number;
   isLive?: boolean;
   pollingInterval?: number;
   className?: string;
@@ -18,12 +19,16 @@ type ViewMode = 'progress' | 'raw';
 export default function ReviewEventsPage({ 
   reviewId, 
   initialEvents, 
+  initialEventCount,
   isLive = false, 
   pollingInterval = 5000,
   className 
 }: ReviewEventsPageProps) {
   const [currentView, setCurrentView] = useState<ViewMode>('progress');
   const [events, setEvents] = useState<ReviewEvent[]>(initialEvents);
+  // displayCount tracks the original total count from meta.count (which the backend
+  // restores from the compaction marker). Falls back to actual array length.
+  const [displayCount, setDisplayCount] = useState<number>(initialEventCount ?? initialEvents.length);
   const [isPolling, setIsPolling] = useState(true); // Default to ON
   const [lastEventCount, setLastEventCount] = useState(initialEvents.length);
   const scrollPositionRef = useRef<number>(0);
@@ -153,6 +158,14 @@ export default function ReviewEventsPage({
       });
       
       appendNewEvents(newEvents);
+      // Sync displayCount from meta.count (compaction-aware original total).
+      // Falls back to actual array length for live/uncompacted reviews.
+      const metaCount = (data as any)?.meta?.count;
+      if (typeof metaCount === 'number') {
+        setDisplayCount(metaCount);
+      } else {
+        setDisplayCount(newEvents.length);
+      }
     } catch (error) {
       console.error('Failed to poll for updates:', error);
     }
@@ -255,7 +268,7 @@ export default function ReviewEventsPage({
             <div className="w-4 h-4 inline-block mr-2">
               <Icons.List />
             </div>
-            Raw Events ({events.length})
+            Raw Events ({displayCount})
           </button>
         </div>
 

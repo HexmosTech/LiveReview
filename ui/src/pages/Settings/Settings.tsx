@@ -10,6 +10,7 @@ import MCPIntegrationTab from './MCPIntegrationTab';
 import IntegrationsTab from './IntegrationsTab';
 import SMTPSettingsTab from './SMTPSettingsTab';
 import StorageSettingsTab from './StorageSettingsTab';
+import CompactionSettingsTab from './CompactionSettingsTab';
 import { UserManagement } from '../../components/UserManagement';
 import LicenseManagement from '../Licenses/LicenseManagement';
 import { useOrgContext } from '../../hooks/useOrgContext';
@@ -380,6 +381,10 @@ const Settings = () => {
 
     // Ensure a valid default tab if hash missing or removed (but not for subscription sub-routes)
     useEffect(() => {
+        if (location.hash === '#compaction') {
+            navigate('#storage', { replace: true });
+            return;
+        }
         if (!isSubscriptionRoute && !location.hash && firstTab) {
             navigate(`#${firstTab}`, { replace: true });
         }
