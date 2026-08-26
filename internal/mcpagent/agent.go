@@ -318,6 +318,16 @@ func (a *Agent) runStepLoop(
 			}
 			toolStart := time.Now()
 			content, err := CallTool(ctx, a.mcpSession, tc.Name, tc.Arguments)
+			if err != nil && strings.Contains(err.Error(), "not found in operations map") {
+				// Some models hallucinate a "namespace:" prefix onto a tool
+				// name (e.g. "default_api:GET_api_v1_...") that was never in
+				// the schema we gave them. Retry once with that prefix
+				// stripped before giving up.
+				if bareName, ok := stripToolNamespacePrefix(tc.Name); ok {
+					log.Warn().Str("original_tool", tc.Name).Str("retry_tool", bareName).Msg("tool name not found, retrying without namespace prefix")
+					content, err = CallTool(ctx, a.mcpSession, bareName, tc.Arguments)
+				}
+			}
 			toolElapsed := time.Since(toolStart)
 			if err != nil {
 				clog.ToolError(step, tc.Name, toolElapsed, err)
@@ -534,6 +544,18 @@ func isAuthError(content string) bool {
 		}
 	}
 	return false
+}
+
+// stripToolNamespacePrefix strips a "namespace:" prefix a model sometimes
+// hallucinates onto a tool name (e.g. "default_api:GET_api_v1_...") that was
+// never in the tool schema it was given. Returns the bare name and whether a
+// prefix was actually present to strip.
+func stripToolNamespacePrefix(name string) (string, bool) {
+	idx := strings.LastIndex(name, ":")
+	if idx < 0 || idx == len(name)-1 {
+		return name, false
+	}
+	return name[idx+1:], true
 }
 
 // looksLikeUnrecognizedJSON reports whether response, once any code fence is

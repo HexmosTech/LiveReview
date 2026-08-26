@@ -338,8 +338,9 @@ func TestCountQueryBranchRejectsTruncatedJSON(t *testing.T) {
 
 func TestDispatchClassifyFailureDegradesToChat(t *testing.T) {
 	prov := &recordingProvider{replies: []string{
-		"I'm not sure what you mean, could you clarify?", // classify call: not the {"response": ...} JSON it was told to return
-		"Sure, I'm happy to help with that.",              // the degraded chat-branch call
+		"I'm not sure what you mean, could you clarify?", // classify call attempt 1: not the {"response": ...} JSON it was told to return
+		"Still not sure what you mean.",                   // classify call attempt 2 (the one corrective retry): also unparseable
+		"Sure, I'm happy to help with that.",               // the degraded chat-branch call
 	}}
 	agent := dispatchTestAgent(prov)
 
@@ -350,11 +351,11 @@ func TestDispatchClassifyFailureDegradesToChat(t *testing.T) {
 	if text != "Sure, I'm happy to help with that." {
 		t.Fatalf("unexpected response %q", text)
 	}
-	if len(prov.toolsPerCall) != 2 {
-		t.Fatalf("expected exactly 2 provider calls (classify + degraded chat), got %d", len(prov.toolsPerCall))
+	if len(prov.toolsPerCall) != 3 {
+		t.Fatalf("expected exactly 3 provider calls (classify + its retry + degraded chat), got %d", len(prov.toolsPerCall))
 	}
-	if len(prov.toolsPerCall[1]) != 0 {
-		t.Fatalf("degraded call should offer no tools (chat branch), got %d", len(prov.toolsPerCall[1]))
+	if len(prov.toolsPerCall[2]) != 0 {
+		t.Fatalf("degraded call should offer no tools (chat branch), got %d", len(prov.toolsPerCall[2]))
 	}
 	sys, _ := history[0]["content"].(string)
 	if strings.Contains(sys, "Answering data questions with SQL") || strings.Contains(sys, "You have access to the following tools") {

@@ -129,7 +129,31 @@ function chartFileName(title?: string): string {
   return `${base}__LiveReview__${dd}${mm}${yy}.png`;
 }
 
-function formatText(text: string): React.ReactNode[] {
+
+const DATA_DETAIL_LABELS = ['Query', 'Time range', 'Granularity', 'Context'];
+
+function extractTrailingDataDetails(text: string): { body: string; details: { label: string; value: string }[] } {
+  const lines = text.split('\n');
+  const details: { label: string; value: string }[] = [];
+  let end = lines.length;
+  while (end > 0) {
+    const line = lines[end - 1];
+    const match = DATA_DETAIL_LABELS.find((label) => line.startsWith(`${label}: `));
+    if (!match) break;
+    details.unshift({ label: match, value: line.slice(match.length + 2) });
+    end -= 1;
+  }
+  if (details.length === 0) {
+    return { body: text, details: [] };
+  }
+  if (end > 0 && lines[end - 1].trim() === '') {
+    end -= 1;
+  }
+  return { body: lines.slice(0, end).join('\n'), details };
+}
+
+function formatText(rawText: string): React.ReactNode[] {
+  const { body: text, details } = extractTrailingDataDetails(rawText);
   const parts: React.ReactNode[] = [];
   const lines = text.split('\n');
   let inCodeBlock = false;
@@ -171,6 +195,21 @@ function formatText(text: string): React.ReactNode[] {
       <pre key={`code-${lineIdx++}`} className="bg-slate-800 text-green-300 p-3 rounded-lg overflow-x-auto text-sm my-2">
         {codeContent}
       </pre>
+    );
+  }
+
+  if (details.length > 0) {
+    parts.push(
+      <details key="data-details" className="group mt-1">
+        <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
+          Data details
+        </summary>
+        <div className="mt-1.5 space-y-1 text-xs text-slate-400 italic">
+          {details.map((d) => (
+            <p key={d.label}><span className="not-italic font-medium text-slate-400">{d.label}:</span> {d.value}</p>
+          ))}
+        </div>
+      </details>
     );
   }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/vlrender"
+	"github.com/rs/zerolog/log"
 	"github.com/tmc/langchaingo/llms"
 )
 
@@ -41,28 +42,43 @@ func (a *Agent) classify(ctx context.Context, history []HistoryEntry, userText s
 	classifyHistory = append(classifyHistory, boundedRecentHistory(history, classifyBoundHistory)...)
 	classifyHistory = append(classifyHistory, HistoryEntry{"role": "user", "content": userText})
 
-	payload := ""
-	if clog.Enabled() {
-		if b, err := json.Marshal(classifyHistory); err == nil {
-			payload = string(b)
+	// Two attempts: the model occasionally imitates a tool-call-shaped reply
+	// here (most often when recent history shows it just made a real tool
+	// call in an earlier turn), which isn't a valid {"response": ...}
+	// shape. One corrective retry recovers most of these instead of
+	// silently degrading the whole turn to chat.
+	for attempt := 1; attempt <= 2; attempt++ {
+		payload := ""
+		if clog.Enabled() {
+			if b, err := json.Marshal(classifyHistory); err == nil {
+				payload = string(b)
+			}
+		}
+		clog.LLMCallRequest(0, "classify", "", attempt, payload)
+
+		start := time.Now()
+		response, usage, err := a.provider.Complete(ctx, classifyHistory, nil, llms.WithJSONMode())
+		elapsed := time.Since(start)
+		if err != nil {
+			clog.LLMCallError(0, "classify", "", attempt, elapsed, err)
+			return "", fmt.Errorf("classify call: %w", err)
+		}
+		clog.LLMCallResponse(0, "classify", "", attempt, elapsed, usage.InputTokens, usage.OutputTokens, response)
+
+		if shape, ok := parseClassifyShape(response); ok {
+			return shape, nil
+		}
+
+		if attempt == 1 {
+			log.Warn().Str("response_preview", truncateContent(response, 200)).Msg("classify call returned unparseable shape, retrying with correction")
+			classifyHistory = append(classifyHistory,
+				HistoryEntry{"role": "assistant", "content": response},
+				HistoryEntry{"role": "user", "content": `That is not a valid classification reply. Reply with ONLY a JSON object of the exact shape {"response": "action" | "count_query" | "chat", "applied_laws": [...]} - never a tool call, never prose, nothing else.`},
+			)
 		}
 	}
-	clog.LLMCallRequest(0, "classify", "", 1, payload)
 
-	start := time.Now()
-	response, usage, err := a.provider.Complete(ctx, classifyHistory, nil, llms.WithJSONMode())
-	elapsed := time.Since(start)
-	if err != nil {
-		clog.LLMCallError(0, "classify", "", 1, elapsed, err)
-		return "", fmt.Errorf("classify call: %w", err)
-	}
-	clog.LLMCallResponse(0, "classify", "", 1, elapsed, usage.InputTokens, usage.OutputTokens, response)
-
-	shape, ok := parseClassifyShape(response)
-	if !ok {
-		return "", fmt.Errorf("classify call returned an unparseable shape: %q", truncateContent(response, 200))
-	}
-	return shape, nil
+	return "", fmt.Errorf("classify call returned an unparseable shape after retry")
 }
 
 // boundedRecentHistory returns the last n entries of history, skipping any
