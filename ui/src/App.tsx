@@ -13,6 +13,7 @@ import { Toaster } from 'react-hot-toast';
 import { useBottomRightBlockers } from './store/uiLayout';
 import { ToastBridge } from './components/Notifications/ToastBridge';
 import { NavigationProgressBar, triggerNavigationProgress } from './components/NavigationProgressBar';
+import { FullScreenLoader } from './components/FullScreenLoader';
 import { prefetchRoutes } from './utils/routePrefetch';
 
 const Dashboard = React.lazy(() => import('./components/Dashboard/Dashboard').then((m) => ({ default: m.Dashboard })));
@@ -90,19 +91,6 @@ const Footer = () => (
             </div>
         </div>
     </footer>
-);
-
-// Single shared full-screen loading visual - reused for both the auth-state gate (isLoading
-// below) and the route-chunk Suspense fallback, so consecutive loading states read as one
-// continuous screen instead of two differently-styled spinners swapping in sequence (see
-// docs/perf-improvement.md "Finding D").
-const FullScreenLoader: React.FC<{ text: string }> = ({ text }) => (
-    <div className="min-h-screen flex items-center justify-center bg-slate-900 text-slate-100">
-        <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" aria-hidden />
-            <span>{text}</span>
-        </div>
-    </div>
 );
 
 const RouteFallback = () => <FullScreenLoader text="Loading…" />;
@@ -187,13 +175,18 @@ const AppContent: React.FC = () => {
         }
     }, [isAuthenticated, location.pathname, navigate]);
 
-    // Check setup status or fetch user data on app load
+    // Check setup status or fetch user data on app load. checkSetupStatus only matters for the
+    // self-hosted first-run admin wizard (isSetupRequired -> <Setup /> below) - cloud accounts
+    // are auto-provisioned via ensure-cloud-user and never see that wizard, so in cloud mode
+    // this would just be a wasted network round trip gating the whole UI behind isLoading,
+    // including the post-Hexmos-SSO-redirect return where Cloud.tsx needs to mount immediately
+    // to process its own ?data= param.
     useEffect(() => {
         if (accessToken) {
             // If we have a token, fetch user data to validate the session
             dispatch(fetchUser());
-        } else {
-            // Otherwise, check if the initial setup is required
+        } else if (!isCloudMode()) {
+            // Otherwise, check if the initial setup is required (self-hosted only)
             dispatch(checkSetupStatus());
         }
     }, [dispatch, accessToken]);
@@ -373,7 +366,17 @@ const AppContent: React.FC = () => {
         );
     }
 
-    return body;
+    // Login/Setup/SelfHosted (assigned to `body` above) are all React.lazy - without a Suspense
+    // boundary here, the very first render of any of them (their chunk is always still pending
+    // at that point - a dynamic import() can never resolve synchronously) has nothing to catch
+    // the suspension. On the *initial* mount specifically that leaves nothing committed to
+    // #root at all while the chunk downloads - a blank page had it not been for the static
+    // #lr-boot overlay still sitting on top, which the auto-hide in index.tsx was hiding on the
+    // very next animation frame regardless of whether React had actually painted anything yet.
+    // This boundary fixes both: something real commits immediately (this fallback), and it's
+    // the same FullScreenLoader used everywhere else, so there's no gap or mismatched screen
+    // between the boot handoff and whichever of Login/Setup/SelfHosted's chunk finishes loading.
+    return <Suspense fallback={<RouteFallback />}>{body}</Suspense>;
 };
 
 // Main App component with Router
