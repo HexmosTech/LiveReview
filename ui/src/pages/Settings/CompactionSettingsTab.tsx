@@ -14,7 +14,7 @@ interface CompactionConfig {
 
 const DEFAULT_CONFIG: CompactionConfig = {
     enabled: true,
-    cron_expression: '0 2 * * *',
+    cron_expression: '30 20 * * *',
     retention_days: 30,
 };
 

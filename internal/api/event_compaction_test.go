@@ -17,8 +17,8 @@ func TestDefaultCompactionSettingsConfig(t *testing.T) {
 		t.Errorf("expected default RetentionDays to be 30, got %d", cfg.RetentionDays)
 	}
 
-	if cfg.CronExpression != "0 2 * * *" {
-		t.Errorf("expected default CronExpression to be '0 2 * * *', got %q", cfg.CronExpression)
+	if cfg.CronExpression != "30 20 * * *" {
+		t.Errorf("expected default CronExpression to be '30 20 * * *', got %q", cfg.CronExpression)
 	}
 }
 

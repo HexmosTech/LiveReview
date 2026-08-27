@@ -12,7 +12,7 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-const defaultCompactionCronExpr = "0 0,12 * * *"
+const defaultCompactionCronExpr = "30 20 * * *" // Daily at 2:00 AM IST (20:30 UTC)
 const defaultRetentionDays = 30
 
 type compactionLeaderLocker interface {

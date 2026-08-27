@@ -27,7 +27,7 @@ type CompactionSettingsResponse struct {
 func defaultCompactionSettingsConfig() CompactionSettingsConfig {
 	return CompactionSettingsConfig{
 		Enabled:        true,
-		CronExpression: "0 2 * * *", // daily at 2 AM server time
+		CronExpression: "30 20 * * *", // Daily at 2:00 AM IST (20:30 UTC)
 		RetentionDays:  30,
 	}
 }
@@ -47,7 +47,7 @@ func (s *Server) GetCompactionSettings(c echo.Context) error {
 		cfg.RetentionDays = 30
 	}
 	if strings.TrimSpace(cfg.CronExpression) == "" {
-		cfg.CronExpression = "0 2 * * *"
+		cfg.CronExpression = "30 20 * * *"
 	}
 
 	return c.JSON(http.StatusOK, CompactionSettingsResponse{
@@ -67,7 +67,7 @@ func (s *Server) UpdateCompactionSettings(c echo.Context) error {
 		cfg.RetentionDays = 30
 	}
 	if strings.TrimSpace(cfg.CronExpression) == "" {
-		cfg.CronExpression = "0 2 * * *"
+		cfg.CronExpression = "30 20 * * *"
 	}
 
 	data, err := json.Marshal(cfg)
