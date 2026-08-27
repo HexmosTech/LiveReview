@@ -7,112 +7,186 @@
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background-color: #f3f4f6;
+      background-color: #0f172a;
       margin: 0;
       padding: 0;
       -webkit-font-smoothing: antialiased;
     }
     .wrapper {
       width: 100%;
-      background-color: #f3f4f6;
+      background-color: #0f172a;
       padding: 40px 20px;
       box-sizing: border-box;
     }
     .container {
       max-width: 600px;
       margin: 0 auto;
-      background: #ffffff;
+      background: #1e293b;
       border-radius: 16px;
       overflow: hidden;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
     }
     .header {
-      background: linear-gradient(135deg, #013E7D 0%, #002244 100%);
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
       padding: 40px;
       text-align: center;
-      color: #ffffff;
+      border-bottom: 1px solid #334155;
+    }
+    .logo {
+      margin-bottom: 16px;
+    }
+    .logo img {
+      height: 60px;
+      width: auto;
     }
     .header h1 {
       margin: 0;
       font-size: 28px;
       font-weight: 700;
       letter-spacing: -0.5px;
+      color: #f8fafc;
     }
     .content {
       padding: 40px;
-      color: #374151;
+      color: #e2e8f0;
       line-height: 1.6;
     }
     .greeting {
       font-size: 18px;
       font-weight: 600;
       margin-bottom: 16px;
+      color: #f8fafc;
     }
     .message {
       font-size: 16px;
+      margin-bottom: 32px;
+      color: #cbd5e1;
+    }
+    .step {
+      background-color: #0f172a;
+      border-radius: 12px;
+      padding: 24px;
       margin-bottom: 24px;
+      border: 1px solid #334155;
+    }
+    .step-header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .step-number {
+      background-color: #3b82f6;
+      color: white;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 14px;
+      margin-right: 12px;
+    }
+    .step-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #f8fafc;
+    }
+    .step-description {
+      font-size: 15px;
+      color: #94a3b8;
+      margin-bottom: 16px;
+      margin-left: 40px;
     }
     .cta-container {
       text-align: center;
-      margin: 32px 0;
+      margin: 16px 0;
+      margin-left: 40px;
     }
     .btn {
       display: inline-block;
-      padding: 14px 30px;
-      background-color: #013E7D;
+      padding: 12px 24px;
+      background-color: #3b82f6;
       color: #ffffff !important;
       text-decoration: none;
       border-radius: 8px;
       font-weight: 600;
-      font-size: 16px;
-      box-shadow: 0 4px 12px rgba(1, 62, 125, 0.2);
+      font-size: 15px;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
     }
     .btn:hover {
-      background-color: #002c5c;
+      background-color: #2563eb;
     }
     .cli-section {
-      background-color: #0f172a;
+      background-color: #1e293b;
       border-radius: 12px;
-      padding: 24px;
+      padding: 20px;
       color: #f8fafc;
-      margin-top: 32px;
+      margin-top: 16px;
+      margin-left: 40px;
+      border: 1px solid #334155;
     }
     .cli-title {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 1px;
       color: #94a3b8;
-      margin-bottom: 16px;
+      margin-bottom: 12px;
     }
     .cli-header {
-      font-size: 13px;
-      color: #38bdf8;
+      font-size: 12px;
+      color: #60a5fa;
       margin-bottom: 6px;
       font-weight: 600;
     }
     .code-block {
-      background-color: #1e293b;
+      background-color: #0f172a;
       padding: 12px;
       border-radius: 6px;
       font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
-      font-size: 13px;
-      margin: 0 0 16px 0;
+      font-size: 12px;
+      margin: 0 0 12px 0;
       white-space: pre-wrap;
       word-break: break-all;
       color: #e2e8f0;
-      border-left: 4px solid #38bdf8;
+      border-left: 3px solid #3b82f6;
     }
     .code-block:last-child {
       margin-bottom: 0;
     }
+    .checklist {
+      background-color: #0f172a;
+      border-radius: 12px;
+      padding: 24px;
+      margin-top: 32px;
+      border: 1px solid #334155;
+    }
+    .checklist-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #f8fafc;
+      margin-bottom: 16px;
+    }
+    .checklist-item {
+      display: flex;
+      align-items: flex-start;
+      margin-bottom: 12px;
+      color: #cbd5e1;
+      font-size: 15px;
+    }
+    .checklist-icon {
+      color: #22c55e;
+      margin-right: 12px;
+      font-size: 18px;
+    }
     .footer {
-      background-color: #f9fafb;
+      background-color: #0f172a;
       padding: 24px 40px;
       text-align: center;
       font-size: 12px;
-      color: #9ca3af;
-      border-top: 1px solid #f3f4f6;
+      color: #64748b;
+      border-top: 1px solid #334155;
     }
   </style>
 </head>
@@ -120,32 +194,67 @@
   <div class="wrapper">
     <div class="container">
       <div class="header">
-        <h1>{{.AppName}}</h1>
+        <div class="logo">
+          <img src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB3aWR0aD0iODAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDgwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPCEtLSBCYWNrZ3JvdW5kIGdsb3cgZWZmZWN0IC0tPgogIDxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDEwMCwgMTAwKSBzY2FsZSgwLjgpIj4KICAgIDxjaXJjbGUgY3g9IjAiIGN5PSIwIiByPSIxMDAiIGZpbGw9IiMxRTQyOUYiIG9wYWNpdHk9IjAuMiIgLz4KICAgIAogICAgPCEtLSBNYWluIGV5ZSBzaGFwZSAtLT4KICAgIDxjaXJjbGUgY3g9IjAiIGN5PSIwIiByPSI4MCIgZmlsbD0iIzExMTgyNyIgLz4KICAgIDxjaXJjbGUgY3g9IjAiIGN5PSIwIiByPSI4MCIgc3Ryb2tlPSIjM0I4MkY2IiBzdHJva2Utd2lkdGg9IjEwIiAvPgogICAgCiAgICA8IS0tIElyaXMgLS0+CiAgICA8Y2lyY2xlIGN4PSIwIiBjeT0iMCIgcj0iNDAiIGZpbGw9IiM2MEE1RkEiIC8+CiAgICAKICAgIDwhLS0gUHVwaWwgLS0+CiAgICA8Y2lyY2xlIGN4PSIwIiBjeT0iMCIgcj0iMjAiIGZpbGw9IiMxRTQwQUYiIC8+CiAgICAKICAgIDwhLS0gU2luZ2xlIGxpZ2h0IHJlZmxlY3Rpb24gKG1vcmUgc3VidGxlKSAtLT4KICAgIDxwYXRoIGQ9Ik0tNSAtMjBDLTUgLTE0LjQ3NzIgLTkuNDc3MTUgLTEwIC0xNSAtMTBDLTIwLjUyMjggLTEwIC0yNSAtMTQuNDc3MiAtMjUgLTIwQy0yNSAtMjUuNTIyOCAtMjAuNTIyOCAtMzAgLTE1IC0zMEMtOS40NzcxNSAtMzAgLTUgLTI1LjUyMjggLTUgLTIwWiIgZmlsbD0id2hpdGUiIG9wYWNpdHk9IjAuOCIgLz4KICAgIAogICAgPCEtLSBPdXRlciBnbG93IC0tPgogICAgPGNpcmNsZSBjeD0iMCIgY3k9IjAiIHI9IjkwIiBzdHJva2U9IiM5M0M1RkQiIHN0cm9rZS13aWR0aD0iMiIgb3BhY2l0eT0iMC42IiAvPgogIDwvZz4KICAKICA8IS0tIFRleHQgLS0+CiAgPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMjIwLCAxMDApIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSJib2xkIj4KICAgIDx0ZXh0IHg9IjAiIHk9IjE1IiBmb250LXNpemU9IjcwIiBmaWxsPSJ3aGl0ZSI+TGl2ZTwvdGV4dD4KICAgIDx0ZXh0IHg9IjE1MCIgeT0iMTUiIGZvbnQtc2l6ZT0iNzAiIGZpbGw9IiM2MEE1RkEiPlJldmlldzwvdGV4dD4KICAgIDx0ZXh0IHg9IjAiIHk9IjYwIiBmb250LXNpemU9IjI0IiBmaWxsPSIjOUNBM0FGIj5BSSBDb2RlIFJldmlldyB3aXRoIFRlZXRoPC90ZXh0PgogIDwvZz4KPC9zdmc+Cg==" alt="LiveReview" />
+        </div>
+        <h1>Join {{.AppName}}</h1>
       </div>
       <div class="content">
         <div class="greeting">Hi {{.InvitedToName}},</div>
         <div class="message">
-          <strong>{{.InvitedByName}}</strong> has invited you to join the <strong>{{.AppName}}</strong> workspace. Collaborative, AI-powered code reviews are just one step away.
+          Your team has made a commitment to improve engineering standards through LiveReview — and you're invited onto the platform.
         </div>
-        <div class="cta-container">
-          <a href="{{.URL}}" class="btn">Join Workspace</a>
+
+        <div class="step">
+          <div class="step-header">
+            <div class="step-number">1</div>
+            <div class="step-title">Login to Web</div>
+          </div>
+          <div class="step-description">
+            Trigger reviews, get analysis of various issues in your apps, get blast radius analysis, and make your apps higher quality with less effort.
+          </div>
+          <div class="cta-container">
+            <a href="{{.URL}}" class="btn">Login to Web</a>
+          </div>
         </div>
-        
-        {{if or .InstallCommandLinux .InstallCommandWindows}}
-        <div class="cli-section">
-          <div class="cli-title">Get Started with the CLI</div>
-          
-          {{if .InstallCommandLinux}}
-          <div class="cli-header">Linux / macOS Install Command:</div>
-          <pre class="code-block">{{.InstallCommandLinux}}</pre>
+
+        <div class="step">
+          <div class="step-header">
+            <div class="step-number">2</div>
+            <div class="step-title">Connect CLI</div>
+          </div>
+          <div class="step-description">
+            Automatically review on every commit — takes just 30 seconds, gives you higher quality with very little effort.
+          </div>
+
+          {{if or .InstallCommandLinux .InstallCommandWindows}}
+          <div class="cli-section">
+            <div class="cli-title">Quick Install</div>
+            
+            {{if .InstallCommandLinux}}
+            <div class="cli-header">Linux / macOS:</div>
+            <pre class="code-block">{{.InstallCommandLinux}}</pre>
+            {{end}}
+            
+            {{if .InstallCommandWindows}}
+            <div class="cli-header">Windows PowerShell:</div>
+            <pre class="code-block">{{.InstallCommandWindows}}</pre>
+            {{end}}
+          </div>
           {{end}}
-          
-          {{if .InstallCommandWindows}}
-          <div class="cli-header">Windows PowerShell Install Command:</div>
-          <pre class="code-block">{{.InstallCommandWindows}}</pre>
-          {{end}}
         </div>
-        {{end}}
+
+        <div class="checklist">
+          <div class="checklist-title">Make sure to try both:</div>
+          <div class="checklist-item">
+            <span class="checklist-icon">✓</span>
+            <span>Trigger a review on the web</span>
+          </div>
+          <div class="checklist-item">
+            <span class="checklist-icon">✓</span>
+            <span>Make a local commit and verify you get git-lrc review</span>
+          </div>
+        </div>
       </div>
       <div class="footer">
         This is an automated invitation email. If you did not expect this, you can safely ignore it.<br>

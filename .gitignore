@@ -51,6 +51,7 @@ cmd/lrc/lrc
 # Environment files - contain secrets
 .env
 .env.*
+.current-env
 .env.local
 .env.prod
 .env.production
@@ -90,3 +91,6 @@ opencode.json
 
 scripts/prelivi/.venv/
 *.swp
+
+# email testing
+email-preview.html

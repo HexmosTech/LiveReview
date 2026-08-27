@@ -1,0 +1,11 @@
+SMTP Configuration Successful!
+
+This is a test email from LiveReview.
+
+Your SMTP configuration has been correctly applied to your self-hosted instance.
+You will receive invitation emails at this address when new users are added.
+
+Status: Connected
+Recipient: {{.Recipient}}
+
+This is an automated test email from your LiveReview instance.

@@ -23,6 +23,12 @@ var invitationHTMLTemplate string
 //go:embed templates/invitation.txt
 var invitationTextTemplate string
 
+//go:embed templates/verification.html
+var verificationHTMLTemplate string
+
+//go:embed templates/verification.txt
+var verificationTextTemplate string
+
 // SendInvitationEmailSMTP sends the invitation email using SMTP credentials
 func SendInvitationEmailSMTP(host string, port int, username, password, sender, senderName string, skipTLS bool, params InvitationParams) error {
 	if host == "" {
@@ -182,20 +188,35 @@ func SendRawEmailSMTP(host string, port int, username, password, sender, senderN
 // SendVerificationEmailSMTP sends a verification email to confirm SMTP settings from the admin dashboard
 func SendVerificationEmailSMTP(host string, port int, username, password, sender, senderName string, skipTLS bool, recipient string) error {
 	subject := "LiveReview SMTP Verification"
-	
-	htmlBody := `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-</head>
-<body style="font-family: sans-serif; padding: 20px;">
-  <h2>SMTP Configuration Successful!</h2>
-  <p>This is a test email from <strong>LiveReview Enterprise version</strong>.</p>
-  <p>Your SMTP configuration has been correctly applied to your self-hosted instance.</p>
-</body>
-</html>`
 
-	textBody := "SMTP Configuration Successful!\n\nThis is a test email from LiveReview Enterprise version.\nYour SMTP configuration has been correctly applied to your self-hosted instance."
+	// Prepare data for templates
+	data := struct {
+		Recipient   string
+		CurrentYear int
+	}{
+		Recipient:   recipient,
+		CurrentYear: time.Now().Year(),
+	}
 
-	return SendRawEmailSMTP(host, port, username, password, sender, senderName, skipTLS, recipient, subject, textBody, htmlBody)
+	// Render HTML template
+	htmlTmpl, err := template.New("verificationHTML").Parse(verificationHTMLTemplate)
+	if err != nil {
+		return fmt.Errorf("failed to parse verification HTML template: %w", err)
+	}
+	var htmlBuf bytes.Buffer
+	if err := htmlTmpl.Execute(&htmlBuf, data); err != nil {
+		return fmt.Errorf("failed to execute verification HTML template: %w", err)
+	}
+
+	// Render text template
+	textTmpl, err := textTemplate.New("verificationText").Parse(verificationTextTemplate)
+	if err != nil {
+		return fmt.Errorf("failed to parse verification text template: %w", err)
+	}
+	var textBuf bytes.Buffer
+	if err := textTmpl.Execute(&textBuf, data); err != nil {
+		return fmt.Errorf("failed to execute verification text template: %w", err)
+	}
+
+	return SendRawEmailSMTP(host, port, username, password, sender, senderName, skipTLS, recipient, subject, textBuf.String(), htmlBuf.String())
 }

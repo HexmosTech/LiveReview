@@ -3,6 +3,45 @@
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging
 
+# ============================================================================
+# Environment switching
+# ============================================================================
+
+.PHONY: switch-env-prod switch-env-prod-low-pricing switch-env-selfhosted-local switch-env-selfhosted-docker switch-env-cloud-local which-env
+
+define SWITCH_ENV
+	@if [ ! -f ".env.$(1)" ]; then \
+		echo "ERROR: .env.$(1) not found"; \
+		exit 1; \
+	fi
+	@if [ -f .env ]; then cp .env .env.bak && echo "Backed up .env -> .env.bak"; fi
+	@cp .env.$(1) .env
+	@echo "$(1)" > .current-env
+	@echo "Switched to $(1) (.env.$(1) -> .env)"
+endef
+
+switch-env-prod:
+	$(call SWITCH_ENV,prod)
+
+switch-env-prod-low-pricing:
+	$(call SWITCH_ENV,prod-low-pricing)
+
+switch-env-selfhosted-local:
+	$(call SWITCH_ENV,selfhosted.local)
+
+switch-env-selfhosted-docker:
+	$(call SWITCH_ENV,selfhosted.docker)
+
+switch-env-cloud-local:
+	$(call SWITCH_ENV,cloud.local)
+
+which-env:
+	@if [ ! -f .current-env ]; then \
+		echo "No .current-env found. Run 'make switch-env-<name>' first."; \
+	else \
+		echo "Current env: $$(cat .current-env)"; \
+	fi
+
 # Go parameters
 GOENV=env -u GOROOT
 GOCMD=$(GOENV) go
@@ -66,6 +105,10 @@ vendor-prompts-build:
 
 # Convenience: regenerate assets and build vendor binary in one step
 vendor-prompts-rebuild: vendor-prompts-encrypt vendor-prompts-build
+
+# Email template preview
+email-preview:
+	$(GOCMD) run cmd/email-preview/main.go
 
 # Version management targets
 version:
@@ -544,6 +587,36 @@ prod-data-import:
 prod-data-sync:
 	@$(MAKE) prod-data-export
 	@$(MAKE) prod-data-import
+
+# ============================================================================
+# Enterprise-Selfhosted: local rapid dev (no Docker rebuild needed)
+# ============================================================================
+
+# Restore prod dump into the enterprise-selfhosted database (.env.selfhosted.local)
+.PHONY: prod-data-import-enterprise-selfhosted
+prod-data-import-enterprise-selfhosted:
+	@if [ ! -f .env.selfhosted.local ]; then \
+		echo "❌ ERROR: .env.selfhosted.local not found"; \
+		exit 1; \
+	fi
+	@command -v pg_restore >/dev/null 2>&1 || { echo "❌ ERROR: pg_restore not found - install postgresql-client"; exit 1; }
+	@bash scripts/prod-data-import-enterprise-selfhosted.sh
+
+# Apply selfhosted transformations (plan, billing, dev user) to enterprise-selfhosted DB
+.PHONY: prod-data-transform-selfhosted
+prod-data-transform-selfhosted:
+	@if [ ! -f .env.selfhosted.local ]; then \
+		echo "❌ ERROR: .env.selfhosted.local not found"; \
+		exit 1; \
+	fi
+	@bash scripts/prod-data-transform-selfhosted.sh
+
+# Full sync: export from prod → import into enterprise-selfhosted → apply transformations
+.PHONY: prod-data-sync-enterprise-selfhosted
+prod-data-sync-enterprise-selfhosted:
+	@$(MAKE) prod-data-export
+	@$(MAKE) prod-data-import-enterprise-selfhosted
+	@$(MAKE) prod-data-transform-selfhosted
 
 # Multi-architecture Docker build targets
 docker-multiarch:

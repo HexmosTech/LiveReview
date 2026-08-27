@@ -86,6 +86,11 @@ func (uh *UserHandlers) BulkInviteUsers(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusForbidden, "Permission denied: cannot create users")
 	}
 
+	// Check prerequisites (production URL and SMTP)
+	if err := uh.userService.checkInvitationPrerequisites(); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
 	var req struct {
 		Users []BulkInviteUserRow `json:"users" validate:"required"`
 	}
@@ -123,6 +128,11 @@ func (uh *UserHandlers) CreateUser(c echo.Context) error {
 	// Check permission to create users
 	if !permCtx.HasPermission(auth.PermissionCreateUsers) {
 		return echo.NewHTTPError(http.StatusForbidden, "Permission denied: cannot create users")
+	}
+
+	// Check prerequisites (production URL and SMTP)
+	if err := uh.userService.checkInvitationPrerequisites(); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	// Parse request

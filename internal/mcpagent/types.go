@@ -95,6 +95,15 @@ type InterpretationResult struct {
 	Status         string                  // "rendered", "skipped", "failed"
 	SkipReason     string
 	Rows           []map[string]any // actual row data for debug preview
+	RetryCount     int
+	Retries        []RetryInfo
+}
+
+// RetryInfo captures one retry attempt during SQL execution.
+type RetryInfo struct {
+	Attempt     int    `json:"attempt"`
+	Error       string `json:"error"`
+	RepairedSQL string `json:"repaired_sql,omitempty"`
 }
 
 // DebugArtifacts captures every intermediate representation of a multi-
@@ -112,14 +121,16 @@ type DebugArtifacts struct {
 
 // DebugResultEntry is one interpretation's outcome for the debug view.
 type DebugResultEntry struct {
-	Index      int      `json:"index"`
-	Title      string   `json:"title"`
-	ChartType  string   `json:"chart_type"`
-	SQL        string   `json:"sql"`
-	Status     string   `json:"status"`
-	SkipReason string   `json:"skip_reason,omitempty"`
-	RowCount   int      `json:"row_count"`
-	Stats      []string `json:"stats,omitempty"`
-	CSVData    string   `json:"csv_data,omitempty"`   // first N rows for preview
-	VegaSpec   string   `json:"vega_spec,omitempty"`  // rendered chart spec JSON
+	Index      int         `json:"index"`
+	Title      string      `json:"title"`
+	ChartType  string      `json:"chart_type"`
+	SQL        string      `json:"sql"`
+	Status     string      `json:"status"`
+	SkipReason string      `json:"skip_reason,omitempty"`
+	RowCount   int         `json:"row_count"`
+	Stats      []string    `json:"stats,omitempty"`
+	CSVData    string      `json:"csv_data,omitempty"`   // first N rows for preview
+	VegaSpec   string      `json:"vega_spec,omitempty"`  // rendered chart spec JSON
+	RetryCount int         `json:"retry_count,omitempty"`
+	Retries    []RetryInfo `json:"retries,omitempty"`
 }

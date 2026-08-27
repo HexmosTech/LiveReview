@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -123,7 +124,7 @@ func (s *Server) TestSMTPSettings(c echo.Context) error {
 
 	if err != nil {
 		log.Error().Err(err).Msg("SMTP Test failed")
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "SMTP Connection Failed. Check logs for details."})
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("SMTP connection failed: %s", err.Error())})
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"message": "Test email sent successfully to " + userEmail})
