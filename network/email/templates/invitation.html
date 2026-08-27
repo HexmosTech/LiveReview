@@ -80,12 +80,12 @@
       color: white;
       width: 28px;
       height: 28px;
+      line-height: 28px;
       border-radius: 50%;
       text-align: center;
       vertical-align: middle;
       font-weight: 700;
       font-size: 14px;
-      padding-right: 12px;
     }
     .step-title {
       font-size: 18px;
@@ -98,9 +98,17 @@
       margin-bottom: 16px;
       margin-left: 40px;
     }
+    .learn-more {
+      font-size: 14px;
+      color: #60a5fa;
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .learn-more:hover {
+      text-decoration: underline;
+    }
     .cta-container {
-      text-align: center;
-      margin: 16px 0;
+      margin: 20px 0;
       margin-left: 40px;
     }
     .btn {
@@ -156,17 +164,16 @@
       margin-bottom: 0;
     }
     .checklist {
-      background-color: #0f172a;
-      border-radius: 12px;
-      padding: 24px;
-      margin-top: 32px;
-      border: 1px solid #334155;
+      margin-top: 20px;
+      margin-left: 40px;
+      padding-top: 16px;
+      border-top: 1px solid #334155;
     }
     .checklist-title {
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 600;
-      color: #f8fafc;
-      margin-bottom: 16px;
+      color: #94a3b8;
+      margin-bottom: 12px;
     }
     .checklist-item {
       margin-bottom: 12px;
@@ -180,6 +187,15 @@
       color: #22c55e;
       padding-right: 12px;
       font-size: 18px;
+    }
+    .learn-more {
+      font-size: 14px;
+      color: #60a5fa;
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .learn-more:hover {
+      text-decoration: underline;
     }
     .footer {
       background-color: #0f172a;
@@ -196,7 +212,7 @@
     <div class="container">
       <div class="header">
         <div class="logo">
-          <img src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB3aWR0aD0iODAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDgwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPCEtLSBCYWNrZ3JvdW5kIGdsb3cgZWZmZWN0IC0tPgogIDxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDEwMCwgMTAwKSBzY2FsZSgwLjgpIj4KICAgIDxjaXJjbGUgY3g9IjAiIGN5PSIwIiByPSIxMDAiIGZpbGw9IiMxRTQyOUYiIG9wYWNpdHk9IjAuMiIgLz4KICAgIAogICAgPCEtLSBNYWluIGV5ZSBzaGFwZSAtLT4KICAgIDxjaXJjbGUgY3g9IjAiIGN5PSIwIiByPSI4MCIgZmlsbD0iIzExMTgyNyIgLz4KICAgIDxjaXJjbGUgY3g9IjAiIGN5PSIwIiByPSI4MCIgc3Ryb2tlPSIjM0I4MkY2IiBzdHJva2Utd2lkdGg9IjEwIiAvPgogICAgCiAgICA8IS0tIElyaXMgLS0+CiAgICA8Y2lyY2xlIGN4PSIwIiBjeT0iMCIgcj0iNDAiIGZpbGw9IiM2MEE1RkEiIC8+CiAgICAKICAgIDwhLS0gUHVwaWwgLS0+CiAgICA8Y2lyY2xlIGN4PSIwIiBjeT0iMCIgcj0iMjAiIGZpbGw9IiMxRTQwQUYiIC8+CiAgICAKICAgIDwhLS0gU2luZ2xlIGxpZ2h0IHJlZmxlY3Rpb24gKG1vcmUgc3VidGxlKSAtLT4KICAgIDxwYXRoIGQ9Ik0tNSAtMjBDLTUgLTE0LjQ3NzIgLTkuNDc3MTUgLTEwIC0xNSAtMTBDLTIwLjUyMjggLTEwIC0yNSAtMTQuNDc3MiAtMjUgLTIwQy0yNSAtMjUuNTIyOCAtMjAuNTIyOCAtMzAgLTE1IC0zMEMtOS40NzcxNSAtMzAgLTUgLTI1LjUyMjggLTUgLTIwWiIgZmlsbD0id2hpdGUiIG9wYWNpdHk9IjAuOCIgLz4KICAgIAogICAgPCEtLSBPdXRlciBnbG93IC0tPgogICAgPGNpcmNsZSBjeD0iMCIgY3k9IjAiIHI9IjkwIiBzdHJva2U9IiM5M0M1RkQiIHN0cm9rZS13aWR0aD0iMiIgb3BhY2l0eT0iMC42IiAvPgogIDwvZz4KICAKICA8IS0tIFRleHQgLS0+CiAgPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMjIwLCAxMDApIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSJib2xkIj4KICAgIDx0ZXh0IHg9IjAiIHk9IjE1IiBmb250LXNpemU9IjcwIiBmaWxsPSJ3aGl0ZSI+TGl2ZTwvdGV4dD4KICAgIDx0ZXh0IHg9IjE1MCIgeT0iMTUiIGZvbnQtc2l6ZT0iNzAiIGZpbGw9IiM2MEE1RkEiPlJldmlldzwvdGV4dD4KICAgIDx0ZXh0IHg9IjAiIHk9IjYwIiBmb250LXNpemU9IjI0IiBmaWxsPSIjOUNBM0FGIj5BSSBDb2RlIFJldmlldyB3aXRoIFRlZXRoPC90ZXh0PgogIDwvZz4KPC9zdmc+Cg==" alt="LiveReview" />
+          <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGZpbGw9Im5vbmUiIHZpZXdCb3g9IjAgMCA2NDIuNDAwMDAwMDAwMDAwMSAxOTYiIHN0eWxlPSJtYXgtaGVpZ2h0OiA1MDBweCIgd2lkdGg9IjY0Mi40MDAwMDAwMDAwMDAxIiBoZWlnaHQ9IjE5NiI+CiAgCiAgPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMTAwLCAxMDApIHNjYWxlKDAuOCkiPgogICAgPGNpcmNsZSBvcGFjaXR5PSIwLjIiIGZpbGw9IiMxRTQyOUYiIHI9IjEwMCIgY3k9IjAiIGN4PSIwIi8+CiAgICAKICAgIAogICAgPGNpcmNsZSBmaWxsPSIjMTExODI3IiByPSI4MCIgY3k9IjAiIGN4PSIwIi8+CiAgICA8Y2lyY2xlIHN0cm9rZS13aWR0aD0iMTAiIHN0cm9rZT0iIzNCODJGNiIgcj0iODAiIGN5PSIwIiBjeD0iMCIvPgogICAgCiAgICAKICAgIDxjaXJjbGUgZmlsbD0iIzYwQTVGQSIgcj0iNDAiIGN5PSIwIiBjeD0iMCIvPgogICAgCiAgICAKICAgIDxjaXJjbGUgZmlsbD0iIzFFNDBBRiIgcj0iMjAiIGN5PSIwIiBjeD0iMCIvPgogICAgCiAgICAKICAgIDxwYXRoIG9wYWNpdHk9IjAuOCIgZmlsbD0id2hpdGUiIGQ9Ik0tNSAtMjBDLTUgLTE0LjQ3NzIgLTkuNDc3MTUgLTEwIC0xNSAtMTBDLTIwLjUyMjggLTEwIC0yNSAtMTQuNDc3MiAtMjUgLTIwQy0yNSAtMjUuNTIyOCAtMjAuNTIyOCAtMzAgLTE1IC0zMEMtOS40NzcxNSAtMzAgLTUgLTI1LjUyMjggLTUgLTIwWiIvPgogICAgCiAgICAKICAgIDxjaXJjbGUgb3BhY2l0eT0iMC42IiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZT0iIzkzQzVGRCIgcj0iOTAiIGN5PSIwIiBjeD0iMCIvPgogIDwvZz4KICAKICAKICA8ZyBmb250LXdlaWdodD0iYm9sZCIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgyMjAsIDEwMCkiPgogICAgPHRleHQgZmlsbD0id2hpdGUiIGZvbnQtc2l6ZT0iNzAiIHk9IjE1IiB4PSIwIj5MaXZlPC90ZXh0PgogICAgPHRleHQgZmlsbD0iIzYwQTVGQSIgZm9udC1zaXplPSI3MCIgeT0iMTUiIHg9IjE1MCI+UmV2aWV3PC90ZXh0PgogICAgPHRleHQgZmlsbD0iIzlDQTNBRiIgZm9udC1zaXplPSIyNCIgeT0iNjAiIHg9IjAiPkFJIENvZGUgUmV2aWV3IHdpdGggVGVldGg8L3RleHQ+CiAgPC9nPgo8L3N2Zz4=" alt="LiveReview" />
         </div>
         <h1>Join {{.AppName}}</h1>
       </div>
@@ -207,12 +223,13 @@
         </div>
 
         <div class="step">
-          <table class="step-header" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
+          <table class="step-header" cellpadding="0" cellspacing="0" border="0"><tr>
             <td class="step-number">1</td>
+            <td width="12"></td>
             <td class="step-title">Login to Web</td>
           </tr></table>
           <div class="step-description">
-            Trigger reviews, get analysis of various issues in your apps, get blast radius analysis, and make your apps higher quality with less effort.
+            Trigger reviews, get analysis of various issues in your apps, get blast radius analysis, and make your apps higher quality with less effort. <a href="https://hexmos.com/livereview/" class="learn-more">Learn more →</a>
           </div>
           <div class="cta-container">
             <a href="{{.URL}}" class="btn">Login to Web</a>
@@ -220,12 +237,13 @@
         </div>
 
         <div class="step">
-          <table class="step-header" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
+          <table class="step-header" cellpadding="0" cellspacing="0" border="0"><tr>
             <td class="step-number">2</td>
+            <td width="12"></td>
             <td class="step-title">Connect CLI</td>
           </tr></table>
           <div class="step-description">
-            Automatically review on every commit — takes just 30 seconds, gives you higher quality with very little effort.
+            Automatically review on every commit — takes just 30 seconds, gives you higher quality with very little effort. <a href="https://hexmos.com/livereview/docs/git-lrc/get-started/install" class="learn-more">Learn more →</a>
           </div>
 
           {{if or .InstallCommandLinux .InstallCommandWindows}}
@@ -243,18 +261,18 @@
             {{end}}
           </div>
           {{end}}
-        </div>
 
-        <div class="checklist">
-          <div class="checklist-title">Make sure to try both:</div>
-          <table class="checklist-item" cellpadding="0" cellspacing="0" border="0"><tr>
-            <td class="checklist-icon">✓</td>
-            <td>Trigger a review on the web</td>
-          </tr></table>
-          <table class="checklist-item" cellpadding="0" cellspacing="0" border="0"><tr>
-            <td class="checklist-icon">✓</td>
-            <td>Make a local commit and verify you get git-lrc review</td>
-          </tr></table>
+          <div class="checklist">
+            <div class="checklist-title">Make sure to try both:</div>
+            <table class="checklist-item" cellpadding="0" cellspacing="0" border="0"><tr>
+              <td class="checklist-icon">✓</td>
+              <td>Trigger a review on the web</td>
+            </tr></table>
+            <table class="checklist-item" cellpadding="0" cellspacing="0" border="0"><tr>
+              <td class="checklist-icon">✓</td>
+              <td>Install git-lrc and verify it reviews your code before each commit</td>
+            </tr></table>
+          </div>
         </div>
       </div>
       <div class="footer">

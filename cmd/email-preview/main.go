@@ -144,7 +144,7 @@ func main() {
         }
         iframe {
             width: 100%%;
-            height: 800px;
+            height: 1600px;
             border: none;
         }
     </style>
