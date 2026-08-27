@@ -70,9 +70,10 @@
       border: 1px solid #334155;
     }
     .step-header {
-      display: flex;
-      align-items: center;
       margin-bottom: 12px;
+    }
+    .step-header td {
+      vertical-align: middle;
     }
     .step-number {
       background-color: #3b82f6;
@@ -80,12 +81,11 @@
       width: 28px;
       height: 28px;
       border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      text-align: center;
+      vertical-align: middle;
       font-weight: 700;
       font-size: 14px;
-      margin-right: 12px;
+      padding-right: 12px;
     }
     .step-title {
       font-size: 18px;
@@ -169,15 +169,16 @@
       margin-bottom: 16px;
     }
     .checklist-item {
-      display: flex;
-      align-items: flex-start;
       margin-bottom: 12px;
       color: #cbd5e1;
       font-size: 15px;
     }
+    .checklist-item td {
+      vertical-align: top;
+    }
     .checklist-icon {
       color: #22c55e;
-      margin-right: 12px;
+      padding-right: 12px;
       font-size: 18px;
     }
     .footer {
@@ -206,10 +207,10 @@
         </div>
 
         <div class="step">
-          <div class="step-header">
-            <div class="step-number">1</div>
-            <div class="step-title">Login to Web</div>
-          </div>
+          <table class="step-header" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
+            <td class="step-number">1</td>
+            <td class="step-title">Login to Web</td>
+          </tr></table>
           <div class="step-description">
             Trigger reviews, get analysis of various issues in your apps, get blast radius analysis, and make your apps higher quality with less effort.
           </div>
@@ -219,10 +220,10 @@
         </div>
 
         <div class="step">
-          <div class="step-header">
-            <div class="step-number">2</div>
-            <div class="step-title">Connect CLI</div>
-          </div>
+          <table class="step-header" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
+            <td class="step-number">2</td>
+            <td class="step-title">Connect CLI</td>
+          </tr></table>
           <div class="step-description">
             Automatically review on every commit — takes just 30 seconds, gives you higher quality with very little effort.
           </div>
@@ -246,14 +247,14 @@
 
         <div class="checklist">
           <div class="checklist-title">Make sure to try both:</div>
-          <div class="checklist-item">
-            <span class="checklist-icon">✓</span>
-            <span>Trigger a review on the web</span>
-          </div>
-          <div class="checklist-item">
-            <span class="checklist-icon">✓</span>
-            <span>Make a local commit and verify you get git-lrc review</span>
-          </div>
+          <table class="checklist-item" cellpadding="0" cellspacing="0" border="0"><tr>
+            <td class="checklist-icon">✓</td>
+            <td>Trigger a review on the web</td>
+          </tr></table>
+          <table class="checklist-item" cellpadding="0" cellspacing="0" border="0"><tr>
+            <td class="checklist-icon">✓</td>
+            <td>Make a local commit and verify you get git-lrc review</td>
+          </tr></table>
         </div>
       </div>
       <div class="footer">

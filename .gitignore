@@ -100,4 +100,5 @@ scripts/prelivi/.venv/
 *.swp
 
 # email testing
+email-preview
 email-preview.html

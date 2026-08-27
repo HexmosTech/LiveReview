@@ -56,12 +56,18 @@ if [ -z "${DATABASE_URL:-}" ]; then
 fi
 
 # Parse user/password/dbname out of DATABASE_URL
-IFS=$'\t' read -r DB_USER DB_PASS DB_NAME <<<"$(python3 -c "
-from urllib.parse import urlparse
-import sys
-u = urlparse('$DATABASE_URL'.replace('postgres://', 'postgresql://', 1))
-print(f'{u.username or \"\"}\t{u.password or \"\"}\t{(u.path or \"/\").lstrip(\"/\")}')
-")"
+# Strip the scheme (postgres:// or postgresql://) and parse the remaining components
+_clean_url="${DATABASE_URL#postgres://}"
+_clean_url="${_clean_url#postgresql://}"
+
+# Extract userinfo (everything before @) and host+path (everything after @)
+_userinfo="${_clean_url%%@*}"
+_rest="${_clean_url#*@}"
+
+DB_USER="${_userinfo%%:*}"
+DB_PASS="${_userinfo#*:}"
+DB_NAME="${_rest#*/}"
+DB_NAME="${DB_NAME%%\?*}"
 
 if [ -z "$DB_USER" ] || [ -z "$DB_NAME" ]; then
   echo "ERROR: could not parse a username and database name out of DATABASE_URL in $ENV_FILE"

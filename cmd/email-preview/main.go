@@ -5,28 +5,45 @@ import (
 	"fmt"
 	"html/template"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/livereview/network/email"
 )
 
-// InvitationParams matches the struct in network/email/invitation.go
-type InvitationParams struct {
-	AppName               string
-	InvitedToName         string
-	InvitedToEmail        string
-	InvitedByName         string
-	URL                   string
-	InstallCommandLinux   string
-	InstallCommandWindows string
+type invitationData struct {
+	email.InvitationParams
+	CurrentYear int
+}
+
+func findProjectRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("could not find project root (go.mod)")
+		}
+		dir = parent
+	}
 }
 
 func main() {
+	root, err := findProjectRoot()
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Sample data for invitation email
-	invitationData := struct {
-		InvitationParams
-		CurrentYear int
-	}{
-		InvitationParams: InvitationParams{
+	data := invitationData{
+		InvitationParams: email.InvitationParams{
 			AppName:             "LiveReview",
 			InvitedToName:       "John Doe",
 			InvitedToEmail:      "john@example.com",
@@ -48,13 +65,14 @@ func main() {
 	}
 
 	// Read templates
-	invitationHTML, err := os.ReadFile("network/email/templates/invitation.html")
+	templateDir := filepath.Join(root, "network", "email", "templates")
+	invitationHTML, err := os.ReadFile(filepath.Join(templateDir, "invitation.html"))
 	if err != nil {
 		fmt.Printf("Error reading invitation template: %v\n", err)
 		os.Exit(1)
 	}
 
-	verificationHTML, err := os.ReadFile("network/email/templates/verification.html")
+	verificationHTML, err := os.ReadFile(filepath.Join(templateDir, "verification.html"))
 	if err != nil {
 		fmt.Printf("Error reading verification template: %v\n", err)
 		os.Exit(1)
@@ -76,7 +94,7 @@ func main() {
 	// Execute templates
 	var invitationBuf, verificationBuf bytes.Buffer
 
-	if err := invitationTmpl.Execute(&invitationBuf, invitationData); err != nil {
+	if err := invitationTmpl.Execute(&invitationBuf, data); err != nil {
 		fmt.Printf("Error executing invitation template: %v\n", err)
 		os.Exit(1)
 	}

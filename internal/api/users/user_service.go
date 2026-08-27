@@ -233,7 +233,7 @@ func (us *UserService) sendInvitation(user *UserWithRole, invitedByUserID int64)
 		invitedToName = *user.FirstName
 	}
 
-	prodURL := us.getProductionURL()
+	prodURL := strings.TrimRight(us.getProductionURL(), "/")
 
 	installCmdLinux := ""
 	installCmdWindows := ""
