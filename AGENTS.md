@@ -215,6 +215,15 @@ this folder in the same change.**
   other files.
 - Page behavior, key actions, or access/permission gating changed → update
   the file's "Key actions" / "Who can access it" section to match.
+- After editing anything under `ui/docs/training_data/` (including
+  `lr_routes/`), **run `make prep-training-data`** to refresh the
+  `TRAINING_DATA_HASH` value it rewrites at the top of the Makefile, then
+  **commit that Makefile change together with your doc edit** — `make
+  develop`/`run-debug`/`run-fast`/etc. compare the live corpus hash against
+  the committed `TRAINING_DATA_HASH` (via `check-training-data`) and will
+  otherwise treat your edit as drift and re-fetch external sources
+  needlessly on the next teammate's dev-server start. See
+  `scripts/prep_training_data.sh` and `scripts/training_data_hash.sh`.
 - `ui/docs/training_data` is excluded from Air's file watcher (`.air.toml`
   `exclude_dir`) so editing these docs does not trigger a backend rebuild.
 

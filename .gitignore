@@ -28,7 +28,6 @@ lrdata/postgres/
 /ui/docs/training_data/git-lrc-wiki/
 /ui/docs/training_data/livereview/
 /ui/docs/training_data/livereview-wiki/
-/ui/docs/training_data/.content-hash
 
 # Vendor prompts local artifacts (never commit)
 internal/prompts/vendor/keyring_gen.go
