@@ -448,19 +448,44 @@ func (dm *DashboardManager) buildDashboardData(ctx context.Context, orgID int64,
 		LastUpdated: time.Now(),
 	}
 
-	// total_reviews/active_ai_connectors drive the onboarding stepper's hasRunReview/hasAIProvider checks — still read by the frontend.
-	if err := dm.collectStatistics(ctx, &data, orgID); err != nil {
-		dm.logErrorf("[dashboard] collect statistics failed org_id=%d err=%v", orgID, err)
-	}
+	// These three collectors are independent (each writes disjoint fields of DashboardData, none
+	// reads another's output), so they run concurrently against their own local struct - writing
+	// into `data` directly from multiple goroutines would be a data race. Was previously three
+	// sequential DB round trips; now it's the slowest of the three instead of the sum of all three.
+	var statsData, onboardingData, connectorData DashboardData
+	var wg sync.WaitGroup
+	wg.Add(3)
 
-	if err := dm.collectOnboardingData(ctx, &data, orgID); err != nil {
-		dm.logErrorf("[dashboard] collect onboarding failed org_id=%d err=%v", orgID, err)
-	}
+	go func() {
+		defer wg.Done()
+		// total_reviews/active_ai_connectors drive the onboarding stepper's hasRunReview/hasAIProvider checks — still read by the frontend.
+		if err := dm.collectStatistics(ctx, &statsData, orgID); err != nil {
+			dm.logErrorf("[dashboard] collect statistics failed org_id=%d err=%v", orgID, err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := dm.collectOnboardingData(ctx, &onboardingData, orgID); err != nil {
+			dm.logErrorf("[dashboard] collect onboarding failed org_id=%d err=%v", orgID, err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		// connector_setup_progress drives the "connectors needing setup" banner — still read by the frontend.
+		if err := dm.collectConnectorSetupProgress(ctx, &connectorData, orgID); err != nil {
+			dm.logErrorf("[dashboard] collect connector_setup failed org_id=%d err=%v", orgID, err)
+		}
+	}()
+	wg.Wait()
 
-	// connector_setup_progress drives the "connectors needing setup" banner — still read by the frontend.
-	if err := dm.collectConnectorSetupProgress(ctx, &data, orgID); err != nil {
-		dm.logErrorf("[dashboard] collect connector_setup failed org_id=%d err=%v", orgID, err)
-	}
+	data.TotalReviews = statsData.TotalReviews
+	data.TotalComments = statsData.TotalComments
+	data.ConnectedProviders = statsData.ConnectedProviders
+	data.ActiveAIConnectors = statsData.ActiveAIConnectors
+	data.OnboardingAPIKey = onboardingData.OnboardingAPIKey
+	data.APIUrl = onboardingData.APIUrl
+	data.CLIInstalled = onboardingData.CLIInstalled
+	data.ConnectorSetupProgress = connectorData.ConnectorSetupProgress
 
 	// review_layers is fetched fresh per request instead, directly in the GetDashboardData handler below.
 
@@ -873,19 +898,44 @@ func (s *Server) GetDashboardData(c echo.Context) error {
 		})
 	}
 
-	// Fetched fresh on every request, deliberately not part of the cached data above.
-	if err := s.dashboardManager.collectReviewLayers(c.Request().Context(), &data, orgID); err != nil {
-		log.Printf("Error collecting review_layers for org %d: %v", orgID, err)
-	}
-	if err := s.dashboardManager.collectSystemOverview(c.Request().Context(), &data, orgID); err != nil {
-		log.Printf("Error collecting system_overview for org %d: %v", orgID, err)
-	}
-	if err := s.dashboardManager.collectPeople(c.Request().Context(), &data, orgID); err != nil {
-		log.Printf("Error collecting people for org %d: %v", orgID, err)
-	}
-	if err := s.dashboardManager.collectIssueTreemap(c.Request().Context(), &data, orgID); err != nil {
-		log.Printf("Error collecting issue_treemap for org %d: %v", orgID, err)
-	}
+	// Fetched fresh on every request, deliberately not part of the cached data above. Each writes
+	// a disjoint json.RawMessage field and none reads another's output, so run them concurrently
+	// against their own local struct rather than paying four sequential DB round trips.
+	reqCtx := c.Request().Context()
+	var reviewLayersData, systemOverviewData, peopleData, issueTreemapData DashboardData
+	var wg sync.WaitGroup
+	wg.Add(4)
+
+	go func() {
+		defer wg.Done()
+		if err := s.dashboardManager.collectReviewLayers(reqCtx, &reviewLayersData, orgID); err != nil {
+			log.Printf("Error collecting review_layers for org %d: %v", orgID, err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := s.dashboardManager.collectSystemOverview(reqCtx, &systemOverviewData, orgID); err != nil {
+			log.Printf("Error collecting system_overview for org %d: %v", orgID, err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := s.dashboardManager.collectPeople(reqCtx, &peopleData, orgID); err != nil {
+			log.Printf("Error collecting people for org %d: %v", orgID, err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := s.dashboardManager.collectIssueTreemap(reqCtx, &issueTreemapData, orgID); err != nil {
+			log.Printf("Error collecting issue_treemap for org %d: %v", orgID, err)
+		}
+	}()
+	wg.Wait()
+
+	data.ReviewLayers = reviewLayersData.ReviewLayers
+	data.SystemOverview = systemOverviewData.SystemOverview
+	data.People = peopleData.People
+	data.IssueTreemap = issueTreemapData.IssueTreemap
 
 	return c.JSON(http.StatusOK, data)
 }

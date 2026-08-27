@@ -22,6 +22,13 @@ livereview_pgdata/
 .livereview_pgdata/
 lrdata/postgres/
 
+# Fetched training-data docs (regenerate with `make prep-training-data`);
+# lr_routes/ is hand-written and stays tracked.
+/ui/docs/training_data/git-lrc/
+/ui/docs/training_data/git-lrc-wiki/
+/ui/docs/training_data/livereview/
+/ui/docs/training_data/livereview-wiki/
+
 # Vendor prompts local artifacts (never commit)
 internal/prompts/vendor/keyring_gen.go
 internal/prompts/vendor/templates/*.enc
