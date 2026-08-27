@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
+
+	"github.com/livereview/internal/chatstats"
 )
 
 const (
@@ -78,7 +80,9 @@ type Report struct {
 	Query       string
 	TimeRange   string
 	Granularity string
-	PNGPath     string
+	Context     ChartContext
+	Stats   json.RawMessage
+	PNGPath string
 }
 
 // ErrTrivialSpec is returned when a Vega-Lite payload resolves to only a single
@@ -305,12 +309,20 @@ func renderVegaLiteReports(ctx context.Context, raw string, scale string) ([]Rep
 		if err != nil {
 			return nil, err
 		}
+		stats, statsErr := chatstats.ComputeAllStats(spec)
+		if statsErr != nil {
+			log.Printf("[VegaRender] chart stats computation failed for report %q, continuing without stats: %s", wrapped.Title, statsErr)
+		}
 		return []Report{{
 			PNGData:     png,
 			PNGPath:     pngPath,
 			Title:       FriendlyTitle(wrapped.Title, wrapped.Subtitle),
 			Description: wrapped.Description,
 			Query:       wrapped.Query,
+			TimeRange:   wrapped.TimeRange,
+			Granularity: wrapped.Granularity,
+			Context:     wrapped.Context,
+			Stats:       stats,
 		}}, nil
 	}
 
@@ -355,12 +367,20 @@ func renderReports(ctx context.Context, reports []VegaLiteReport, scale string) 
 			log.Printf("[VegaRender] Skipping report %q: failed to render chart: %s", r.Title, err)
 			continue
 		}
+		stats, statsErr := chatstats.ComputeAllStats(spec)
+		if statsErr != nil {
+			log.Printf("[VegaRender] chart stats computation failed for report %q, continuing without stats: %s", r.Title, statsErr)
+		}
 		out = append(out, Report{
 			PNGData:     png,
 			PNGPath:     pngPath,
 			Title:       FriendlyTitle(r.Title, r.Subtitle),
 			Description: r.Description,
 			Query:       r.Query,
+			TimeRange:   r.TimeRange,
+			Granularity: r.Granularity,
+			Context:     r.Context,
+			Stats:       stats,
 		})
 	}
 	if len(out) == 0 {

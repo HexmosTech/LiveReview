@@ -47,6 +47,7 @@ import (
 	"github.com/livereview/internal/scheduledreview"
 	"github.com/livereview/internal/slackbot"
 	"github.com/livereview/internal/teamsbot"
+	storageanalytics "github.com/livereview/storage/analytics"
 	"github.com/livereview/storage/core"
 	"github.com/livereview/storage/dashboard"
 	// Import FetchGitLabProfile
@@ -596,6 +597,7 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 	connectorStorage := aiconnectors.NewStorage(db)
 	mcpServerURL := resolveMCPBaseURL(db)
 	maxSteps := 20
+	analyticsEngine := storageanalytics.NewAdHocStore(db)
 
 	var orgCfgs []slackbot.OrgConfig
 
@@ -649,6 +651,7 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 			MCPServerURL:  mcpServerURL,
 			MCPHeaders:    mcpHeaders,
 			Connector:     connector,
+			Analytics:     analyticsEngine,
 			MaxAgentSteps: maxSteps,
 		})
 	}
@@ -689,6 +692,7 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 	if n, err := strconv.Atoi(stepStr); err == nil && n > 0 {
 		maxSteps = n
 	}
+	analyticsEngine := storageanalytics.NewAdHocStore(db)
 
 	var orgCfgs []discordbot.OrgConfig
 
@@ -734,6 +738,7 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 			MCPServerURL:  mcpServerURL,
 			MCPHeaders:    mcpHeaders,
 			Connector:     connector,
+			Analytics:     analyticsEngine,
 			MaxAgentSteps: maxSteps,
 		})
 	}
@@ -801,6 +806,7 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 								MCPServerURL:  mcpServerURL,
 								MCPHeaders:    map[string]string{"X-API-Key": envAPIKey},
 								Connector:     connector,
+								Analytics:     analyticsEngine,
 								MaxAgentSteps: maxSteps,
 							})
 							log.Printf("Discord bot: env-var bot configured for org %d (%s)", envOrgID, envOrgName)

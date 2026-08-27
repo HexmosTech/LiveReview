@@ -41,6 +41,7 @@ type orgHandler struct {
 	mcpServerURL  string
 	mcpHeaders    map[string]string
 	connector     *aiconnectors.Connector
+	analytics     mcpagent.AnalyticsEngine
 	maxSteps      int
 }
 
@@ -62,6 +63,7 @@ type BotConfig struct {
 	MCPServerURL string
 	MCPHeaders   map[string]string
 	Connector    *aiconnectors.Connector
+	Analytics    mcpagent.AnalyticsEngine
 	MaxSteps     int
 }
 
@@ -84,6 +86,7 @@ func NewBot(ctx context.Context, configs []BotConfig, baseURL string) *Bot {
 			mcpServerURL:  cfg.MCPServerURL,
 			mcpHeaders:    cfg.MCPHeaders,
 			connector:     cfg.Connector,
+			analytics:     cfg.Analytics,
 			maxSteps:      cfg.MaxSteps,
 		}
 		b.orgs[cfg.OrgID] = oh
@@ -115,6 +118,7 @@ func (b *Bot) AddOrg(cfg BotConfig) {
 		mcpServerURL:  cfg.MCPServerURL,
 		mcpHeaders:    cfg.MCPHeaders,
 		connector:     cfg.Connector,
+		analytics:     cfg.Analytics,
 		maxSteps:      cfg.MaxSteps,
 	}
 	b.orgs[cfg.OrgID] = oh
@@ -453,7 +457,8 @@ func (oh *orgHandler) ensureAgent(ctx context.Context) error {
 	if oh.orgName != "" {
 		mcpSession.OrgName = oh.orgName
 	}
-	agent := mcpagent.NewAgent(provider, mcpSession, oh.maxSteps)
+	mcpSession.OrgID = oh.orgID
+	agent := mcpagent.NewAgent(provider, mcpSession, oh.maxSteps).WithAnalytics(oh.analytics)
 
 	oh.agent = agent
 	return nil
