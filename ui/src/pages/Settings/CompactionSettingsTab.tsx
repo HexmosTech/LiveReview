@@ -60,10 +60,13 @@ const CompactionSettingsTab: React.FC = () => {
         setIsSaving(true);
         try {
             await saveSettingsToBackend(false);
+        } catch (error: any) {
+            notify.error(error?.message || 'Failed to save settings');
         } finally {
             setIsSaving(false);
         }
     };
+
 
     const handleRunNow = async () => {
         setIsRunning(true);

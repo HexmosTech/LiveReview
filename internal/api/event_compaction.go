@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -26,6 +27,7 @@ type EventCompactionManager struct {
 	entryID       cron.EntryID
 	ctx           context.Context
 	cancel        context.CancelFunc
+	running       atomic.Int32 // 1 while a cycle is in progress, 0 otherwise
 }
 
 // NewEventCompactionManager creates a new compaction manager.
@@ -148,8 +150,16 @@ func (m *EventCompactionManager) TriggerManualCycle() {
 }
 
 // runCycle executes bulk compaction. Compaction runs in the backend process
-// (single instance), so no distributed lock is required.
+// (single instance), so no distributed lock is required. Concurrent invocations
+// (e.g. cron fires while a manual run is still in progress) are skipped.
 func (m *EventCompactionManager) runCycle() {
+	// Atomically claim the running slot. If another cycle is already running, skip.
+	if !m.running.CompareAndSwap(0, 1) {
+		log.Warn().Msg("[compaction] cycle already in progress, skipping")
+		return
+	}
+	defer m.running.Store(0)
+
 	m.mu.Lock()
 	enabled := m.enabled
 	retentionDays := m.retentionDays
