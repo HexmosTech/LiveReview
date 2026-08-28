@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -68,9 +67,10 @@ func (m *EventCompactionManager) loadSettingsFromDB() {
 	}
 }
 
-// Start launches the background cron runner. Returns an error if the cron
-// expression is invalid and the job cannot be scheduled.
-func (m *EventCompactionManager) Start() error {
+// Start launches the background cron runner. Falls back to the default cron
+// expression if the configured one is invalid, so a bad DB setting never
+// prevents the server from booting.
+func (m *EventCompactionManager) Start() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -79,12 +79,20 @@ func (m *EventCompactionManager) Start() error {
 		m.runCycle()
 	})
 	if err != nil {
-		return fmt.Errorf("[compaction] failed to schedule cron %q: %w", m.cronExpr, err)
+		log.Warn().Str("bad_cron_expr", m.cronExpr).Err(err).Str("fallback", defaultCompactionCronExpr).Msg("[compaction] invalid cron expression in settings, falling back to default")
+		m.cronExpr = defaultCompactionCronExpr
+		entryID, err = m.cronRunner.AddFunc(m.cronExpr, func() {
+			m.runCycle()
+		})
+		if err != nil {
+			// Default expression is hardcoded and always valid — this should never happen.
+			log.Error().Err(err).Msg("[compaction] failed to schedule even with default cron expression")
+			return
+		}
 	}
 	m.entryID = entryID
 	m.cronRunner.Start()
 	log.Info().Str("schedule", m.cronExpr).Bool("enabled", m.enabled).Int("retention_days", m.retentionDays).Msg("[compaction] manager started")
-	return nil
 }
 
 // Stop gracefully shuts down the cron runner.

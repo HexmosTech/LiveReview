@@ -1675,10 +1675,9 @@ func (s *Server) Start() error {
 	fmt.Println("Dashboard manager started")
 
 	// Start event compaction manager (daily log compaction for review_events > 30 days)
-	if err := s.eventCompactionManager.Start(); err != nil {
-		log.Printf("event compaction manager failed to start: %v", err)
-	}
+	s.eventCompactionManager.Start()
 	fmt.Println("Event compaction manager started")
+
 
 	// Start server in a goroutine
 	go func() {
