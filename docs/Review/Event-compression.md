@@ -35,7 +35,7 @@ The event compaction manager uses Go Cron (`github.com/robfig/cron/v3`) and is i
 ```mermaid
 flowchart TD
     subgraph Server_Startup ["Server Startup (server.go)"]
-        A["Start API Server"] --> B["NewEventCompactionManager(db, lockStore)"]
+        A["Start API Server"] --> B["NewEventCompactionManager(db)"]
         B --> C["loadSettingsFromDB() — reads system_settings row"]
         C --> D["manager.Start() — schedules cron"]
     end
@@ -65,7 +65,7 @@ flowchart TD
 
 ### Key Architectural Points
 
-1. **No Leader Lock in current implementation**: The `lockStore` field exists on the struct but `runCycle()` does not call `TryAcquireEventCompactionLeaderLock`. Compaction runs directly from the cron trigger without advisory lock gating. This is intentional for single-server deployments.
+1. **No Distributed Lock**: Compaction runs in the **backend process** (single instance). A distributed advisory lock is not needed — concurrent execution from multiple backend processes is not a deployment scenario. The `lockStore` field and `compactionLeaderLocker` interface have been removed entirely from `EventCompactionManager`.
 
 2. **Dynamic Config Reload**: `UpdateConfig(enabled, cronExpr, retentionDays)` updates `m.enabled`, `m.retentionDays`, and `m.cronExpr` in memory. If `cronExpr` changed and `m.cronRunner` is running, it removes the old entry and adds a new one — **no server restart required**.
 

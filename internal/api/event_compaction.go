@@ -15,14 +15,11 @@ import (
 const defaultCompactionCronExpr = "30 20 * * *" // Daily at 2:00 AM IST (20:30 UTC)
 const defaultRetentionDays = 30
 
-type compactionLeaderLocker interface {
-	TryAcquireEventCompactionLeaderLock(ctx context.Context) (bool, error)
-}
+
 
 // EventCompactionManager runs an automated background compaction job.
 type EventCompactionManager struct {
 	db            *sql.DB
-	lockStore     compactionLeaderLocker
 	mu            sync.Mutex
 	enabled       bool
 	cronExpr      string
@@ -34,11 +31,10 @@ type EventCompactionManager struct {
 }
 
 // NewEventCompactionManager creates a new compaction manager.
-func NewEventCompactionManager(db *sql.DB, lockStore compactionLeaderLocker, customInterval time.Duration) *EventCompactionManager {
+func NewEventCompactionManager(db *sql.DB, customInterval time.Duration) *EventCompactionManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &EventCompactionManager{
 		db:            db,
-		lockStore:     lockStore,
 		enabled:       true,
 		cronExpr:      defaultCompactionCronExpr,
 		retentionDays: defaultRetentionDays,
@@ -143,7 +139,8 @@ func (m *EventCompactionManager) TriggerManualCycle() {
 	m.runCycle()
 }
 
-// runCycle acquires the leader lock and executes bulk compaction.
+// runCycle executes bulk compaction. Compaction runs in the backend process
+// (single instance), so no distributed lock is required.
 func (m *EventCompactionManager) runCycle() {
 	m.mu.Lock()
 	enabled := m.enabled

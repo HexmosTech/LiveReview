@@ -291,7 +291,7 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	dashboardManager := NewDashboardManager(db, schedulerLockStore, dashboardCacheStore)
 
 	// Initialize event compaction manager — one goroutine compacting review_events logs daily.
-	eventCompactionManager := NewEventCompactionManager(db, schedulerLockStore, 0 /* use default 24h */)
+	eventCompactionManager := NewEventCompactionManager(db, 0 /* use default cron schedule */)
 
 	// Initialize auto webhook installer
 	autoWebhookInstaller := NewAutoWebhookInstaller(db, nil, jq) // server will be set later
