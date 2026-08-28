@@ -10,7 +10,7 @@ Production PostgreSQL analysis revealed that `review_events` accounted for **1.5
 
 Core AI review findings, inline comments, file diffs, and cost accounting reside in separate, untouched tables (`reviews`, `ai_comments`, `loc_usage_ledger`, `tool_credit_ledger`) and blob artifacts.
 
-**Solution:** Implement an automated, in-process Go compaction manager (`EventCompactionManager`) using Go Cron (`github.com/robfig/cron/v3`) that runs on a configurable schedule (default: **daily at 02:00 Server Time** (`0 2 * * *`)). Before deleting raw debug logs older than the retention threshold (default: **30 days**), the manager writes a **Compaction Summary Marker** containing original total event count.
+**Solution:** Implement an automated, in-process Go compaction manager (`EventCompactionManager`) using Go Cron (`github.com/robfig/cron/v3`) that runs on a configurable schedule (default: **daily at 02:00 AM IST / 20:30 UTC** (`30 20 * * *`)). Before deleting raw debug logs older than the retention threshold (default: **30 days**), the manager writes a **Compaction Summary Marker** containing original total event count.
 
 ---
 
@@ -37,29 +37,30 @@ flowchart TD
     subgraph Server_Startup ["Server Startup (server.go)"]
         A["Start API Server"] --> B["NewEventCompactionManager(db)"]
         B --> C["loadSettingsFromDB() — reads system_settings row"]
-        C --> D["manager.Start() — schedules cron"]
+        C --> D["manager.Start() — validates cron, falls back to default if invalid"]
     end
 
     subgraph Go_Cron_Loop ["Go Cron Scheduler (In-Process)"]
         D --> E["cron.AddFunc(cronExpr, runCycle)"]
         E --> F{"Cron Trigger fires"}
-        F --> G["runCycle() — reads enabled & retentionDays under mutex"]
-        G --> H{"enabled?"}
-        H -->|"No"| I["Skip — log and return"]
-        H -->|"Yes"| J["executeBulkCompaction(ctx, retentionDays)"]
+        F --> G["runCycle() — atomic CAS: already running?"]
+        G --> |"Yes"| SKIP["Skip — log warn and return"]
+        G --> |"No"| H{"enabled?"}
+        H --> |"No"| I["Skip — log and return"]
+        H --> |"Yes"| J["executeBulkCompaction(ctx, retentionDays)"]
     end
 
     subgraph Manual_Trigger ["Manual 'Run Now' (compaction_settings.go)"]
         K["POST /api/v1/admin/settings/compaction/run"] --> L["go TriggerManualCycle()"]
-        L --> J
+        L --> G
     end
 
     subgraph Execution ["executeBulkCompaction — PostgreSQL"]
         J --> M["Step 1: INSERT summary markers for all uncompacted reviews (1 query)"]
         M --> N["Step 2: Loop — DELETE 50,000 rows per batch until 0 rows remain"]
         N --> O{"ctx.Done()?"}
-        O -->|"Yes"| P["Cancel gracefully, log rows deleted so far"]
-        O -->|"No"| N
+        O --> |"Yes"| P["Cancel gracefully, log rows deleted so far"]
+        O --> |"No"| N
     end
 ```
 
@@ -67,9 +68,13 @@ flowchart TD
 
 1. **No Distributed Lock**: Compaction runs in the **backend process** (single instance). A distributed advisory lock is not needed — concurrent execution from multiple backend processes is not a deployment scenario. The `lockStore` field and `compactionLeaderLocker` interface have been removed entirely from `EventCompactionManager`.
 
-2. **Dynamic Config Reload**: `UpdateConfig(enabled, cronExpr, retentionDays)` updates `m.enabled`, `m.retentionDays`, and `m.cronExpr` in memory. If `cronExpr` changed and `m.cronRunner` is running, it removes the old entry and adds a new one — **no server restart required**.
+2. **Concurrent Cycle Guard**: `runCycle()` uses an `atomic.Int32` flag (`running`) — a `CompareAndSwap(0,1)` at entry ensures only one cycle runs at a time. If the cron fires while a manual "Run Now" is still in progress, the second invocation logs a warning and returns immediately. This prevents duplicate summary markers and DB contention.
 
-3. **Graceful Shutdown**: `Stop()` calls `m.cronRunner.Stop()` (which waits up to 5 seconds for running jobs to finish) then cancels `m.ctx`, which causes any in-progress batch delete loop to exit cleanly via `ctx.Done()`.
+3. **Invalid Cron Fallback**: `Start()` does not crash the server on a bad cron expression stored in DB. It logs a warning and falls back to `defaultCompactionCronExpr` (`30 20 * * *`) automatically.
+
+4. **Dynamic Config Reload**: `UpdateConfig(enabled, cronExpr, retentionDays)` updates `m.enabled`, `m.retentionDays`, and `m.cronExpr` in memory. If `cronExpr` changed and `m.cronRunner` is running, it removes the old entry and adds a new one — **no server restart required**.
+
+5. **Graceful Shutdown**: `Stop()` calls `m.cronRunner.Stop()` (which waits up to 5 seconds for running jobs to finish) then cancels `m.ctx`, which causes any in-progress batch delete loop to exit cleanly via `ctx.Done()`.
 
 ---
 
