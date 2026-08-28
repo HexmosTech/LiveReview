@@ -291,7 +291,7 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	dashboardManager := NewDashboardManager(db, schedulerLockStore, dashboardCacheStore)
 
 	// Initialize event compaction manager — one goroutine compacting review_events logs daily.
-	eventCompactionManager := NewEventCompactionManager(db, 0 /* use default cron schedule */)
+	eventCompactionManager := NewEventCompactionManager(db)
 
 	// Initialize auto webhook installer
 	autoWebhookInstaller := NewAutoWebhookInstaller(db, nil, jq) // server will be set later
@@ -1675,7 +1675,9 @@ func (s *Server) Start() error {
 	fmt.Println("Dashboard manager started")
 
 	// Start event compaction manager (daily log compaction for review_events > 30 days)
-	s.eventCompactionManager.Start()
+	if err := s.eventCompactionManager.Start(); err != nil {
+		log.Printf("event compaction manager failed to start: %v", err)
+	}
 	fmt.Println("Event compaction manager started")
 
 	// Start server in a goroutine

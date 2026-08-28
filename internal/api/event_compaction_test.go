@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"strings"
 	"testing"
 )
 
@@ -37,7 +36,7 @@ func TestDescribeCronSchedule(t *testing.T) {
 		},
 		{
 			expr:     "0 0,12 * * *",
-			expected: "Multiple times daily (0,12:00 UTC)",
+			expected: "Multiple times daily (0:00, 12:00 UTC)",
 		},
 		{
 			expr:     "custom_expr",
@@ -47,7 +46,7 @@ func TestDescribeCronSchedule(t *testing.T) {
 
 	for _, tt := range tests {
 		result := describeCronSchedule(tt.expr)
-		if !strings.Contains(result, strings.TrimSuffix(tt.expected, " (0,12:00 UTC)")) && result != tt.expected {
+		if result != tt.expected {
 			t.Errorf("describeCronSchedule(%q) = %q, want %q", tt.expr, result, tt.expected)
 		}
 	}

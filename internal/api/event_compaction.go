@@ -4,18 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"log"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/robfig/cron/v3"
+	"github.com/rs/zerolog/log"
 )
 
 const defaultCompactionCronExpr = "30 20 * * *" // Daily at 2:00 AM IST (20:30 UTC)
 const defaultRetentionDays = 30
-
-
 
 // EventCompactionManager runs an automated background compaction job.
 type EventCompactionManager struct {
@@ -31,7 +30,7 @@ type EventCompactionManager struct {
 }
 
 // NewEventCompactionManager creates a new compaction manager.
-func NewEventCompactionManager(db *sql.DB, customInterval time.Duration) *EventCompactionManager {
+func NewEventCompactionManager(db *sql.DB) *EventCompactionManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &EventCompactionManager{
 		db:            db,
@@ -48,7 +47,7 @@ func NewEventCompactionManager(db *sql.DB, customInterval time.Duration) *EventC
 
 func (m *EventCompactionManager) loadSettingsFromDB() {
 	var data []byte
-	err := m.db.QueryRow("SELECT data FROM system_settings WHERE name = 'event_compaction_settings'").Scan(&data)
+	err := m.db.QueryRowContext(m.ctx, "SELECT data FROM system_settings WHERE name = 'event_compaction_settings'").Scan(&data)
 	if err == nil && len(data) > 0 {
 		var cfg struct {
 			Enabled        *bool  `json:"enabled"`
@@ -69,8 +68,9 @@ func (m *EventCompactionManager) loadSettingsFromDB() {
 	}
 }
 
-// Start launches the background cron runner.
-func (m *EventCompactionManager) Start() {
+// Start launches the background cron runner. Returns an error if the cron
+// expression is invalid and the job cannot be scheduled.
+func (m *EventCompactionManager) Start() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -79,12 +79,12 @@ func (m *EventCompactionManager) Start() {
 		m.runCycle()
 	})
 	if err != nil {
-		log.Printf("[compaction] failed to schedule cron %q: %v", m.cronExpr, err)
-		return
+		return fmt.Errorf("[compaction] failed to schedule cron %q: %w", m.cronExpr, err)
 	}
 	m.entryID = entryID
 	m.cronRunner.Start()
-	log.Printf("[compaction] manager started schedule=%q enabled=%v retention_days=%d", m.cronExpr, m.enabled, m.retentionDays)
+	log.Info().Str("schedule", m.cronExpr).Bool("enabled", m.enabled).Int("retention_days", m.retentionDays).Msg("[compaction] manager started")
+	return nil
 }
 
 // Stop gracefully shuts down the cron runner.
@@ -92,7 +92,7 @@ func (m *EventCompactionManager) Stop() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	log.Printf("[compaction] manager stopping")
+	log.Info().Msg("[compaction] manager stopping")
 	if m.cronRunner != nil {
 		ctx := m.cronRunner.Stop()
 		select {
@@ -124,18 +124,18 @@ func (m *EventCompactionManager) UpdateConfig(enabled bool, cronExpr string, ret
 			if err == nil {
 				m.entryID = entryID
 			} else {
-				log.Printf("[compaction] invalid cron expression %q: %v", cronExpr, err)
+				log.Error().Str("cron_expr", cronExpr).Err(err).Msg("[compaction] invalid cron expression")
 			}
 		}
 		m.cronExpr = cronExpr
 	}
 
-	log.Printf("[compaction] config updated: enabled=%v schedule=%q retention_days=%d", m.enabled, m.cronExpr, m.retentionDays)
+	log.Info().Bool("enabled", m.enabled).Str("schedule", m.cronExpr).Int("retention_days", m.retentionDays).Msg("[compaction] config updated")
 }
 
 // TriggerManualCycle runs a cycle immediately.
 func (m *EventCompactionManager) TriggerManualCycle() {
-	log.Printf("[compaction] manual cycle triggered")
+	log.Info().Msg("[compaction] manual cycle triggered")
 	m.runCycle()
 }
 
@@ -148,17 +148,16 @@ func (m *EventCompactionManager) runCycle() {
 	m.mu.Unlock()
 
 	if !enabled {
-		log.Printf("[compaction] skipping cycle — compaction is currently disabled in settings")
+		log.Info().Msg("[compaction] skipping cycle — compaction is currently disabled in settings")
 		return
 	}
 
 	start := time.Now()
-	log.Printf("[compaction] cycle start retention_days=%d", retentionDays)
+	log.Info().Int("retention_days", retentionDays).Msg("[compaction] cycle start")
 
 	compacted, errs := m.executeBulkCompaction(m.ctx, retentionDays)
 
-	log.Printf("[compaction] cycle done elapsed=%s compacted_reviews=%d errors=%d",
-		time.Since(start).Round(time.Millisecond), compacted, errs)
+	log.Info().Str("elapsed", time.Since(start).Round(time.Millisecond).String()).Int64("compacted_reviews", compacted).Int("errors", errs).Msg("[compaction] cycle done")
 }
 
 // executeBulkCompaction executes compaction in safe batches:
@@ -189,7 +188,7 @@ func (m *EventCompactionManager) executeBulkCompaction(ctx context.Context, rete
 		GROUP BY re.review_id, re.org_id;
 	`, retentionDays)
 	if err != nil {
-		log.Printf("[compaction] insert summary markers failed: %v", err)
+		log.Error().Err(err).Msg("[compaction] insert summary markers failed")
 		return 0, 1
 	}
 
@@ -219,14 +218,14 @@ func (m *EventCompactionManager) executeBulkCompaction(ctx context.Context, rete
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("[compaction] deletion context cancelled after deleting %d rows", totalDeleted)
+			log.Info().Int64("rows_deleted", totalDeleted).Msg("[compaction] deletion context cancelled")
 			return markersInserted, 0
 		default:
 		}
 
 		res, err := m.db.ExecContext(ctx, deleteQuery, retentionDays, batchSize)
 		if err != nil {
-			log.Printf("[compaction] batch delete error: %v", err)
+			log.Error().Err(err).Msg("[compaction] batch delete error")
 			break
 		}
 
@@ -237,6 +236,6 @@ func (m *EventCompactionManager) executeBulkCompaction(ctx context.Context, rete
 		}
 	}
 
-	log.Printf("[compaction] bulk cycle complete: reviews_compacted=%d rows_deleted=%d", markersInserted, totalDeleted)
+	log.Info().Int64("reviews_compacted", markersInserted).Int64("rows_deleted", totalDeleted).Msg("[compaction] bulk cycle complete")
 	return markersInserted, 0
 }
