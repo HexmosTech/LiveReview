@@ -168,12 +168,9 @@ func (h *Handler) HandleMessage(c echo.Context) error {
 			log.Printf("[TeamsBot] JWT validation failed")
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		}
-		// err comes from HandleActivity, which also receives authHeader as a
-		// parameter (used for JWT validation, handled above via errors.Is).
-		// Non-JWT activity-handling errors don't embed the auth header in
-		// practice, but avoid logging anything derived from err here so
-		// that stays true regardless of what future error paths do.
-		log.Printf("[TeamsBot] Error handling activity")
+		// Non-JWT errors here come from HandleActivity's message/postReply
+		// path (marshal/HTTP/URL errors, agent errors) - none embed authHeader.
+		log.Printf("[TeamsBot] Error handling activity: %s", err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
 	}
 

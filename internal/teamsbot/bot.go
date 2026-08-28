@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -244,16 +245,20 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 	if vlrender.HasVegaLiteSpec(response) {
 		vlCtx, vlCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer vlCancel()
-		attachments, replyText := buildAttachmentsFromVegaLite(vlCtx, b.baseURL, response)
-		if len(attachments) > 0 {
-			log.Printf("[TeamsBot] Rendered %d Vega-Lite charts for Teams", len(attachments))
-			if replyText != "" {
-				b.postReply(ctx, activity, b.buildReply(replyText, activity, nil))
-			}
-			for _, att := range attachments {
-				if err := b.postReply(ctx, activity, b.buildReply("", activity, []Attachment{att})); err != nil {
-					log.Printf("[TeamsBot] Failed to send chart image (413), sending text fallback")
+		replies, leftoverText := buildChartRepliesFromVegaLite(vlCtx, b.baseURL, response)
+		if len(replies) > 0 {
+			log.Printf("[TeamsBot] Rendered %d Vega-Lite charts for Teams", len(replies))
+			for _, cr := range replies {
+				if err := b.postReply(ctx, activity, b.buildReply("", activity, []Attachment{cr.Attachment})); err != nil {
+					log.Printf("[TeamsBot] Failed to send chart image: %s", err)
+					continue
 				}
+				if cr.Text != "" {
+					b.postReply(ctx, activity, b.buildReply(cr.Text, activity, nil))
+				}
+			}
+			if leftoverText != "" {
+				b.postReply(ctx, activity, b.buildReply(leftoverText, activity, nil))
 			}
 			return nil
 		}
@@ -370,10 +375,19 @@ func (b *Bot) buildReply(text string, orig *Activity, attachments []Attachment) 
 // on validating serviceUrl before use.
 func isTrustedBotFrameworkServiceURL(raw string) bool {
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
+	if err != nil || u.Host == "" {
 		return false
 	}
 	host := strings.ToLower(u.Hostname())
+	// Opt-in only: lets local tools (M365 Agents Playground, Bot Framework
+	// Emulator) post replies back without a real botframework.com serviceUrl.
+	if strings.EqualFold(os.Getenv("TEAMS_BOT_ALLOW_LOCAL_SERVICEURL"), "true") &&
+		(host == "localhost" || host == "127.0.0.1") {
+		return true
+	}
+	if u.Scheme != "https" {
+		return false
+	}
 	return host == "smba.trafficmanager.net" ||
 		host == "api.botframework.com" ||
 		strings.HasSuffix(host, ".botframework.com")

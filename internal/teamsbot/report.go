@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/livereview/internal/chatstats"
 	"github.com/livereview/internal/vlrender"
 )
 
@@ -35,16 +36,22 @@ func LookupChartFile(id string) (string, bool) {
 	return p, ok
 }
 
-func buildAttachmentsFromVegaLite(ctx context.Context, baseURL string, text string) ([]Attachment, string) {
+// chartReply pairs one chart's image card with its own description/metadata
+// text, so the bot can send them as image-then-text, per chart, matching
+// Discord's layout instead of one combined text block followed by all images.
+type chartReply struct {
+	Attachment Attachment
+	Text       string
+}
+
+func buildChartRepliesFromVegaLite(ctx context.Context, baseURL string, text string) ([]chartReply, string) {
 	reports, err := vlrender.RenderVegaLiteReportsWithRetry(ctx, text, "1.0", 3)
 	if err != nil {
 		log.Printf("[TeamsBot] Vega-Lite render failed: %s", err)
 		return nil, text
 	}
 
-	var descriptions []string
-	var attachments []Attachment
-
+	var replies []chartReply
 	for _, r := range reports {
 		chartID := make([]byte, 8)
 		rand.Read(chartID)
@@ -52,20 +59,6 @@ func buildAttachmentsFromVegaLite(ctx context.Context, baseURL string, text stri
 		pngPath := filepath.Join(r.PNGPath, "report.png")
 		RegisterChartFile(id, pngPath)
 		imgURL := fmt.Sprintf("%s/charts/%s", strings.TrimRight(baseURL, "/"), id)
-
-		if r.Description != "" {
-			descriptions = append(descriptions, r.Description)
-		}
-		if r.Query != "" || r.TimeRange != "" || r.Granularity != "" {
-			detail := "Query: " + r.Query
-			if r.TimeRange != "" {
-				detail += "\nTime range: " + r.TimeRange
-			}
-			if r.Granularity != "" {
-				detail += "\nGranularity: " + r.Granularity
-			}
-			descriptions = append(descriptions, detail)
-		}
 
 		card := map[string]any{
 			"type":    "AdaptiveCard",
@@ -86,9 +79,29 @@ func buildAttachmentsFromVegaLite(ctx context.Context, baseURL string, text stri
 			},
 		}
 
-		attachments = append(attachments, Attachment{
-			ContentType: "application/vnd.microsoft.card.adaptive",
-			Content:     card,
+		var lines []string
+		if r.Description != "" {
+			lines = append(lines, r.Description)
+		}
+		for _, chip := range chatstats.FormatChips(r.Stats) {
+			lines = append(lines, fmt.Sprintf("**%s:** %s", chip.Label, chip.Value))
+		}
+		if r.Query != "" {
+			lines = append(lines, "_Query: "+r.Query+"_")
+		}
+		if r.TimeRange != "" {
+			lines = append(lines, "_Time range: "+r.TimeRange+"_")
+		}
+		if r.Granularity != "" {
+			lines = append(lines, "_Granularity: "+r.Granularity+"_")
+		}
+		if formattedCtx := r.Context.Format(); formattedCtx != "" {
+			lines = append(lines, "_Context: "+formattedCtx+"_")
+		}
+
+		replies = append(replies, chartReply{
+			Attachment: Attachment{ContentType: "application/vnd.microsoft.card.adaptive", Content: card},
+			Text:       strings.Join(lines, "\n\n"),
 		})
 	}
 
@@ -107,17 +120,5 @@ func buildAttachmentsFromVegaLite(ctx context.Context, baseURL string, text stri
 	cleanText = vlrender.StripVegaJSON(cleanText)
 	cleanText = strings.TrimSpace(cleanText)
 
-	if len(descriptions) > 0 {
-		if cleanText != "" {
-			cleanText += "\n\n" + strings.Join(descriptions, "\n\n")
-		} else {
-			cleanText = strings.Join(descriptions, "\n\n")
-		}
-	}
-
-	if cleanText == "" {
-		cleanText = "Here are the results:"
-	}
-
-	return attachments, cleanText
+	return replies, cleanText
 }
