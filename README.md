@@ -7,10 +7,7 @@
 
 Your team's attention is limited. LiveReview spends it where **business risk is highest** — not spread evenly across every diff.
 
-<p align="center">
-  <video src="./assets/videos/blast-radius-demo.mp4" poster="./assets/screenshots/blast-radius/poster.webp" controls muted loop playsinline width="90%">
-  </video>
-</p>
+https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 
 <p align="center"><i>LiveReview's Blast Radius &amp; Review Priority scoring, live in the diff viewer.</i></p>
 
