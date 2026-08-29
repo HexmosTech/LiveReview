@@ -2,6 +2,7 @@
 .PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi prep-training-data check-training-data
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging
+.PHONY: dev dev-up dev-down dev-restart dev-status dev-attach
 
 # ============================================================================
 # Environment switching
@@ -1295,3 +1296,27 @@ razorpay-verify-plans:
 
 razorpay-verify-plans-low-pricing:
 	@bash ./scripts/verify-razorpay-plans.sh $(DEPLOY_LOW_PRICING_ENV_FILE)
+
+# ============================================================================
+# Tmux dev environment (port of VS Code "start all")
+# ============================================================================
+
+dev dev-up:
+	@./dev up
+
+dev-down:
+	@./dev down
+
+# Usage: make dev-restart SVC=api   (or ui, worker, niceurl)
+dev-restart:
+	@if [ -z "$(SVC)" ]; then \
+		echo "Usage: make dev-restart SVC=<api|ui|worker|niceurl>"; \
+		exit 1; \
+	fi
+	@./dev restart $(SVC)
+
+dev-status:
+	@./dev status
+
+dev-attach:
+	@./dev attach

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Start in GitHub Discussions
+    url: https://github.com/HexmosTech/LiveReview/discussions
+    about: Use Discussions for ideas, early proposals, problem framing, and work that is not yet clearly scoped.
+  - name: Private security vulnerability report
+    url: https://github.com/HexmosTech/LiveReview/security/advisories/new
+    about: Report security vulnerabilities privately here. Do not open public issues for undisclosed security problems.
+  - name: Read the contributing guide
+    url: https://github.com/HexmosTech/LiveReview/blob/main/CONTRIBUTING.md
+    about: Review contribution flow, testing expectations, and the Contributor License Agreement before opening an issue or PR.

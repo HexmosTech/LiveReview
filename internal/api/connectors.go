@@ -3,12 +3,18 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
+	giteaprovider "github.com/livereview/internal/provider_input/gitea"
+	githubprovider "github.com/livereview/internal/provider_input/github"
+	gitlabprovider "github.com/livereview/internal/provider_input/gitlab"
+	azuredevopsprovider "github.com/livereview/internal/providers/azuredevops"
 )
 
 // WebhookStatusSummary represents aggregated webhook status for a connector
@@ -541,5 +547,175 @@ func (s *Server) DeleteConnector(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": "Connector deleted successfully",
+	})
+}
+
+// UpdateConnectorRequest is the body for PUT /api/v1/connectors/:id
+type UpdateConnectorRequest struct {
+	Name     string `json:"name"`
+	PATToken string `json:"pat_token"`
+}
+
+// UpdateConnector updates a Git connector's name and/or PAT token
+func (s *Server) UpdateConnector(c echo.Context) error {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Invalid connector ID"})
+	}
+
+	if _, err := s.validateConnectorOwnership(c, id); err != nil {
+		return err
+	}
+
+	var req UpdateConnectorRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Invalid request body"})
+	}
+
+	// Build dynamic UPDATE query
+	setClauses := []string{}
+	args := []interface{}{}
+	argIdx := 1
+
+	if req.Name != "" {
+		setClauses = append(setClauses, fmt.Sprintf("connection_name = $%d", argIdx))
+		args = append(args, req.Name)
+		argIdx++
+	}
+	if req.PATToken != "" {
+		setClauses = append(setClauses, fmt.Sprintf("pat_token = $%d", argIdx))
+		args = append(args, req.PATToken)
+		argIdx++
+	}
+
+	if len(setClauses) == 0 {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "No fields to update"})
+	}
+
+	setClauses = append(setClauses, "updated_at = now()")
+
+	query := fmt.Sprintf("UPDATE integration_tokens SET %s WHERE id = $%d", strings.Join(setClauses, ", "), argIdx)
+	args = append(args, id)
+
+	result, err := s.db.Exec(query, args...)
+	if err != nil {
+		log.Printf("Failed to update connector %d: %v", id, err)
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to update connector"})
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return c.JSON(http.StatusNotFound, ErrorResponse{Error: "Connector not found"})
+	}
+
+	// Return the updated connector
+	var connector ConnectorResponse
+	var metadataRaw []byte
+	err = s.db.QueryRow(`
+		SELECT id, provider, provider_app_id, connection_name, provider_url, metadata, created_at, updated_at
+		FROM integration_tokens WHERE id = $1
+	`, id).Scan(
+		&connector.ID, &connector.Provider, &connector.ProviderAppID,
+		&connector.ConnectionName, &connector.ProviderURL, &metadataRaw,
+		&connector.CreatedAt, &connector.UpdatedAt,
+	)
+	if err != nil {
+		log.Printf("Failed to read updated connector %d: %v", id, err)
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to read updated connector"})
+	}
+	if metadataRaw != nil {
+		connector.Metadata = metadataRaw
+	}
+
+	return c.JSON(http.StatusOK, connector)
+}
+
+// TestConnectorConnection tests whether a stored connector's credentials are still valid
+func (s *Server) TestConnectorConnection(c echo.Context) error {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "Invalid connector ID"})
+	}
+
+	if _, err := s.validateConnectorOwnership(c, id); err != nil {
+		return err
+	}
+
+	// Load the full connector row (including tokens)
+	var provider, providerURL, accessToken, patToken, tokenType string
+	err = s.db.QueryRow(`
+		SELECT provider, provider_url, COALESCE(access_token, ''), COALESCE(pat_token, ''), COALESCE(token_type, '')
+		FROM integration_tokens WHERE id = $1
+	`, id).Scan(&provider, &providerURL, &accessToken, &patToken, &tokenType)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.JSON(http.StatusNotFound, ErrorResponse{Error: "Connector not found"})
+		}
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to load connector"})
+	}
+
+	// Determine which credential to use for validation
+	credential := patToken
+	if credential == "" {
+		credential = accessToken
+	}
+	if credential == "" || credential == "NA" {
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"valid":   false,
+			"message": "No stored credentials found for this connector. Please reconnect it.",
+		})
+	}
+
+	// Validate against the appropriate provider
+	var validateErr error
+	switch provider {
+	case "gitlab", "gitlab-com", "gitlab-self-hosted":
+		_, validateErr = gitlabprovider.FetchGitLabProfile(providerURL, credential)
+	case "github":
+		_, validateErr = githubprovider.FetchGitHubProfile(credential)
+	case "bitbucket":
+		// Bitbucket requires email + api_token for validation
+		var metadataRaw []byte
+		err = s.db.QueryRow(`SELECT COALESCE(metadata, '{}') FROM integration_tokens WHERE id = $1`, id).Scan(&metadataRaw)
+		if err != nil {
+			validateErr = fmt.Errorf("failed to load connector metadata")
+			break
+		}
+		var metadata map[string]interface{}
+		if len(metadataRaw) > 0 {
+			if err := json.Unmarshal(metadataRaw, &metadata); err != nil {
+				validateErr = fmt.Errorf("Bitbucket connector has corrupt metadata; please reconnect the integration")
+				break
+			}
+		}
+		email, ok := metadata["email"].(string)
+		if !ok || email == "" {
+			validateErr = fmt.Errorf("Bitbucket connector missing or invalid email in metadata; please reconnect the integration")
+			break
+		}
+		_, validateErr = FetchBitbucketProfile(email, credential)
+	case "gitea":
+		_, validateErr = giteaprovider.FetchGiteaProfile(providerURL, credential)
+	case "azure-devops", "azuredevops":
+		_, validateErr = azuredevopsprovider.FetchAzureDevOpsProfile(providerURL, credential)
+	default:
+		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+			"valid":   false,
+			"message": fmt.Sprintf("Testing connections for %s is not yet supported", provider),
+		})
+	}
+
+	if validateErr != nil {
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"valid":   false,
+			"message": fmt.Sprintf("Connection failed: %s", validateErr.Error()),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"valid":   true,
+		"message": "Connection is working",
 	})
 }

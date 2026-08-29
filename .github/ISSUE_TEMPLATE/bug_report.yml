@@ -1,0 +1,70 @@
+name: Bug report
+description: Report a concrete, reproducible bug in LiveReview.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, please read [CONTRIBUTING.md](../CONTRIBUTING.md).
+
+        If this is a private security issue, stop here and use the private reporting flow in [SECURITY.md](../SECURITY.md) instead of opening a public issue.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I searched existing issues and discussions.
+          required: true
+        - label: I read CONTRIBUTING.md.
+          required: true
+        - label: This is not a private security vulnerability report.
+          required: true
+  - type: textarea
+    id: current_behavior
+    attributes:
+      label: Current behavior
+      description: Describe what is happening now.
+      placeholder: What broke, and what did you observe?
+    validations:
+      required: true
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected behavior
+      description: Describe the behavior you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest reproducible sequence you can.
+      placeholder: |
+        1. Deploy or run LiveReview with...
+        2. Configure...
+        3. Trigger a review on...
+        4. Observe...
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: version_info
+    attributes:
+      label: Environment
+      description: Include version, deployment mode, and any setup details that matter.
+      value: |
+        - LiveReview version:
+        - Deployment mode (self-hosted / cloud):
+        - Git provider:
+        - AI provider:
+    validations:
+      required: true
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: Logs, screenshots, diffs, or related links.
+    validations:
+      required: false

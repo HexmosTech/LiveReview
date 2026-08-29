@@ -408,6 +408,46 @@ export const disableManualTriggerForAllProjects = async (connectorId: string): P
   }
 };
 
+export interface TestConnectionResponse {
+  valid: boolean;
+  message: string;
+  profile?: any;
+}
+
+/**
+ * Test an existing Git connector's stored credentials
+ * @param connectorId The ID of the connector to test
+ * @returns Promise with test result
+ */
+export const testConnectorConnection = async (connectorId: string): Promise<TestConnectionResponse> => {
+  try {
+    return await apiClient.post<TestConnectionResponse>(`/connectors/${connectorId}/test`, {});
+  } catch (error) {
+    console.error('Error testing connector connection:', error);
+    throw error;
+  }
+};
+
+export interface UpdateConnectorRequest {
+  name?: string;
+  pat_token?: string;
+}
+
+/**
+ * Update a Git connector's name or credentials
+ * @param connectorId The ID of the connector to update
+ * @param data The fields to update
+ * @returns Promise with the updated connector
+ */
+export const updateConnector = async (connectorId: string, data: UpdateConnectorRequest): Promise<ConnectorResponse> => {
+  try {
+    return await apiClient.put<ConnectorResponse>(`/connectors/${connectorId}`, data);
+  } catch (error) {
+    console.error('Error updating connector:', error);
+    throw error;
+  }
+};
+
 /**
  * Fetch dynamic models list from backend for a specific provider
  * @param provider The provider id (e.g. 'openai', 'gemini', 'claude')

@@ -14,8 +14,10 @@ import {
     Input,
     Popover
 } from '../../components/UIPrimitives';
+import { ConfirmModal } from '../../components/ConfirmModal';
+import { useToast } from '../../components/NotificationToast';
 import { Connector } from '../../store/Connector/reducer';
-import { deleteConnector, getRepositoryAccess, enableManualTriggerForAllProjects, disableManualTriggerForAllProjects, ProjectWithStatus, getConnector } from '../../api/connectors';
+import { deleteConnector, getRepositoryAccess, enableManualTriggerForAllProjects, disableManualTriggerForAllProjects, testConnectorConnection, updateConnector, ProjectWithStatus, getConnector } from '../../api/connectors';
 import type { RepositoryAccess } from '../../api/connectors';
 
 // Extended interface to support both old and new API response formats
@@ -221,15 +223,9 @@ const ConnectorDetails: React.FC = () => {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [isEnablingManualTrigger, setIsEnablingManualTrigger] = useState(false);
     const [isDisablingManualTrigger, setIsDisablingManualTrigger] = useState(false);
-    
-    // Simple notification state
-    const [notification, setNotification] = useState<{
-        type: 'success' | 'error' | 'warning' | 'info';
-        message: string;
-        show: boolean;
-        persistent?: boolean; // Don't auto-hide if true
-    } | null>(null);
-    
+
+    const { showToast, ToastContainer } = useToast();
+
     // Confirmation modal state
     const [confirmModal, setConfirmModal] = useState<{
         show: boolean;
@@ -240,6 +236,16 @@ const ConnectorDetails: React.FC = () => {
         cancelText: string;
         type: 'warning' | 'danger';
     } | null>(null);
+
+    // Inline edit state for Actions card
+    const [isEditing, setIsEditing] = useState(false);
+    const [editName, setEditName] = useState('');
+    const [editPatToken, setEditPatToken] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+    const [editSaved, setEditSaved] = useState(false);
+
+    // Inline test result state
+    const [testResult, setTestResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
     
     // Repository filtering and grouping state
     const [searchTerm, setSearchTerm] = useState('');
@@ -289,26 +295,9 @@ const ConnectorDetails: React.FC = () => {
         return raw;
     }, [repositoryAccess?.projects_with_status]);
 
-    // Helper function to parse simple markdown bold (**text**)
-    const parseMarkdownBold = (text: string) => {
-        const parts = text.split(/(\*\*[^*]+\*\*)/);
-        return parts.map((part, index) => {
-            if (part.startsWith('**') && part.endsWith('**')) {
-                return <strong key={index}>{part.slice(2, -2)}</strong>;
-            }
-            return part;
-        });
-    };
-
     // Helper function for simple notifications
-    const showNotification = (type: 'success' | 'error' | 'warning' | 'info', message: string, persistent = false) => {
-        setNotification({ type, message, show: true, persistent });
-        // Auto-hide after 5 seconds unless persistent
-        if (!persistent) {
-            setTimeout(() => {
-                setNotification(prev => prev ? { ...prev, show: false } : null);
-            }, 5000);
-        }
+    const showNotification = (type: 'success' | 'error' | 'warning' | 'info', message: string) => {
+        showToast(message, type);
     };
 
     // Helper function to show confirmation modal
@@ -531,8 +520,7 @@ const ConnectorDetails: React.FC = () => {
                     
                     showNotification(
                         'success', 
-                        `✅ Webhook removal has been queued for ${result.jobs_queued || result.total_projects || 'all'} projects. **It may take several minutes for all webhook statuses to update.** Manual trigger functionality has been disabled for this connector.`,
-                        true // Make it persistent
+                        `✅ Webhook removal has been queued for ${result.jobs_queued || result.total_projects || 'all'} projects. **It may take several minutes for all webhook statuses to update.** Manual trigger functionality has been disabled for this connector.`
                     );
                     
                     // Refresh repository access to show updated status after a short delay
@@ -570,8 +558,7 @@ const ConnectorDetails: React.FC = () => {
                     
                     showNotification(
                         'success', 
-                        `✅ Webhook configuration has been queued for ${result.jobs_queued || result.total_projects || 'all'} projects. **It may take several minutes for all webhook statuses to update.** You can now trigger AI reviews using "@liveapibot" mentions or via the web UI.`,
-                        true // Make it persistent
+                        `✅ Webhook configuration has been queued for ${result.jobs_queued || result.total_projects || 'all'} projects. **It may take several minutes for all webhook statuses to update.** You can now trigger AI reviews using "@liveapibot" mentions or via the web UI.`
                     );
                     
                     // Refresh repository access to show updated status after a short delay
@@ -626,27 +613,40 @@ const ConnectorDetails: React.FC = () => {
 
     const handleDeleteConnector = async () => {
         if (!connector) return;
-        
-        if (!confirm(`Are you sure you want to delete "${connector.name}"? This action cannot be undone.`)) {
-            return;
-        }
-
-        try {
-            setIsDeleting(true);
-            await deleteConnector(connector.id);
-            navigate('/git');
-        } catch (err) {
-            console.error('Error deleting connector:', err);
-            setError('Failed to delete connector. Please try again.');
-        } finally {
-            setIsDeleting(false);
-        }
+        showConfirmModal(
+            'Delete Connector',
+            `Are you sure you want to delete "${connector.name}"? This action cannot be undone.`,
+            async () => {
+                try {
+                    setIsDeleting(true);
+                    await deleteConnector(connector.id);
+                    navigate('/git');
+                } catch (err) {
+                    console.error('Error deleting connector:', err);
+                    showToast('Failed to delete connector. Please try again.', 'error');
+                } finally {
+                    setIsDeleting(false);
+                }
+            },
+            { type: 'danger', confirmText: 'Delete', cancelText: 'Cancel' }
+        );
     };
 
-    const handleTestConnection = () => {
-        if (connector) {
-            alert(`Testing connection to ${connector.name}`);
+    const handleTestConnection = async () => {
+        if (!connector) return;
+        setTestResult(null);
+        try {
+            const result = await testConnectorConnection(connector.id);
+            if (result.valid) {
+                setTestResult({ type: 'success', message: result.message || 'Connection is working' });
+            } else {
+                setTestResult({ type: 'error', message: result.message || 'Connection failed' });
+            }
+        } catch (err: any) {
+            setTestResult({ type: 'error', message: err?.message || 'Failed to test connection' });
         }
+        // Auto-clear after 8 seconds
+        setTimeout(() => setTestResult(null), 8000);
     };
 
     if (isLoading) {
@@ -1012,8 +1012,28 @@ const ConnectorDetails: React.FC = () => {
                                             Webhook Status
                                         </label>
                                         <div className="flex items-center space-x-2">
-                                            <Icons.NotReady />
-                                            <span className="text-yellow-400 text-sm font-medium">Setup Required</span>
+                                            {statusCounts.unconnected > 0 ? (
+                                                <>
+                                                    <Icons.Error />
+                                                    <span className="text-red-400 text-sm font-medium">
+                                                        {statusCounts.unconnected} not connected
+                                                    </span>
+                                                </>
+                                            ) : statusCounts.manual > 0 ? (
+                                                <>
+                                                    <Icons.Clock />
+                                                    <span className="text-blue-400 text-sm font-medium">
+                                                        {statusCounts.manual} manual trigger
+                                                    </span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Icons.Success />
+                                                    <span className="text-green-400 text-sm font-medium">
+                                                        All connected
+                                                    </span>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -1063,43 +1083,41 @@ const ConnectorDetails: React.FC = () => {
                                         </div>
                                     </div>
                                     
-                                    <div className="flex items-center justify-between pt-3 border-t border-slate-600">
-                                        <div className="flex-1">
-                                            <p className="text-sm text-slate-300 font-medium mb-3">
-                                                Project Webhook Status
-                                            </p>
-                                            <div className="grid grid-cols-3 gap-4">
-                                                <div className="text-center">
-                                                    <div className="flex items-center justify-center space-x-1 mb-1">
-                                                        <Icons.Error />
-                                                        <span className="text-lg font-semibold text-red-400">
-                                                            {statusCounts.unconnected}
-                                                        </span>
-                                                    </div>
-                                                    <p className="text-xs text-slate-400">Not Connected</p>
+                                    <div className="pt-3 border-t border-slate-600">
+                                        <p className="text-sm text-slate-300 font-medium mb-3">
+                                            Project Webhook Status
+                                        </p>
+                                        <div className="grid grid-cols-3 gap-4 mb-4">
+                                            <div className="text-center">
+                                                <div className="flex items-center justify-center space-x-1 mb-1">
+                                                    <Icons.Error />
+                                                    <span className="text-lg font-semibold text-red-400">
+                                                        {statusCounts.unconnected}
+                                                    </span>
                                                 </div>
-                                                <div className="text-center">
-                                                    <div className="flex items-center justify-center space-x-1 mb-1">
-                                                        <Icons.Clock />
-                                                        <span className="text-lg font-semibold text-blue-400">
-                                                            {statusCounts.manual}
-                                                        </span>
-                                                    </div>
-                                                    <p className="text-xs text-slate-400">Manual Trigger</p>
+                                                <p className="text-xs text-slate-400">Not Connected</p>
+                                            </div>
+                                            <div className="text-center">
+                                                <div className="flex items-center justify-center space-x-1 mb-1">
+                                                    <Icons.Clock />
+                                                    <span className="text-lg font-semibold text-blue-400">
+                                                        {statusCounts.manual}
+                                                    </span>
                                                 </div>
-                                                <div className="text-center">
-                                                    <div className="flex items-center justify-center space-x-1 mb-1">
-                                                        <Icons.Success />
-                                                        <span className="text-lg font-semibold text-green-400">
-                                                            {statusCounts.automatic}
-                                                        </span>
-                                                    </div>
-                                                    <p className="text-xs text-slate-400">Automatic</p>
-                                                    <p className="text-xs text-slate-500">(Coming Soon)</p>
+                                                <p className="text-xs text-slate-400">Manual Trigger</p>
+                                            </div>
+                                            <div className="text-center">
+                                                <div className="flex items-center justify-center space-x-1 mb-1">
+                                                    <Icons.Success />
+                                                    <span className="text-lg font-semibold text-green-400">
+                                                        {statusCounts.automatic}
+                                                    </span>
                                                 </div>
+                                                <p className="text-xs text-slate-400">Automatic</p>
+                                                <p className="text-xs text-slate-500">(Coming Soon)</p>
                                             </div>
                                         </div>
-                                        <div className="flex items-center space-x-2 ml-6">
+                                        <div className="flex items-center space-x-2">
                                             <Button
                                                 variant={connectorStatus === 'unconnected' ? 'primary' : 'outline'}
                                                 size="sm"
@@ -1280,50 +1298,138 @@ const ConnectorDetails: React.FC = () => {
                 {/* Actions sidebar */}
                 <div>
                     <Card title="Actions">
-                        <div className="space-y-3">
-                            <Button
-                                variant="primary"
-                                size="md"
-                                onClick={handleTestConnection}
-                                className="w-full"
-                                icon={<Icons.Success />}
-                            >
-                                Test Connection
-                            </Button>
-                            
-                            <Button
-                                variant="outline"
-                                size="md"
-                                onClick={() => alert('Edit functionality coming soon')}
-                                className="w-full"
-                                icon={<Icons.Edit />}
-                            >
-                                Edit Connection
-                            </Button>
-                            
-                            <Button
-                                variant="outline"
-                                size="md"
-                                onClick={() => alert('Disable functionality coming soon')}
-                                className="w-full"
-                                icon={<Icons.Warning />}
-                            >
-                                Disable Connection
-                            </Button>
-                            
-                            <div className="border-t border-slate-600 pt-3 mt-4">
+                        {isEditing ? (
+                            <div className="space-y-4">
+                                <Input
+                                    label="Connection Name"
+                                    value={editName}
+                                    onChange={(e) => setEditName(e.target.value)}
+                                    placeholder="My GitHub"
+                                />
+                                <Input
+                                    label="Personal Access Token"
+                                    value={editPatToken}
+                                    onChange={(e) => setEditPatToken(e.target.value)}
+                                    placeholder="Leave blank to keep current"
+                                    type="password"
+                                />
+                                {editSaved && (
+                                    <Alert variant="success" icon={<Icons.Success />}>
+                                        Connection updated successfully
+                                    </Alert>
+                                )}
+                                <div className="flex space-x-2">
+                                    <Button
+                                        variant="primary"
+                                        size="md"
+                                        isLoading={isSaving}
+                                        onClick={async () => {
+                                            if (!connector) return;
+                                            try {
+                                                setIsSaving(true);
+                                                const data: { name?: string; pat_token?: string } = {};
+                                                if (editName.trim()) data.name = editName.trim();
+                                                if (editPatToken.trim()) data.pat_token = editPatToken.trim();
+                                                if (Object.keys(data).length === 0) {
+                                                    setIsEditing(false);
+                                                    return;
+                                                }
+                                                await updateConnector(connector.id, data);
+                                                const updated = await getConnector(connector.id);
+                                                setConnector({
+                                                    ...connector,
+                                                    name: updated.connection_name || connector.name,
+                                                    url: updated.provider_url || connector.url,
+                                                });
+                                                setEditSaved(true);
+                                                setTimeout(() => {
+                                                    setEditSaved(false);
+                                                    setIsEditing(false);
+                                                }, 1500);
+                                            } catch (err: any) {
+                                                showToast(err?.message || 'Failed to update connection', 'error');
+                                            } finally {
+                                                setIsSaving(false);
+                                            }
+                                        }}
+                                        className="flex-1"
+                                    >
+                                        Save
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="md"
+                                        onClick={() => {
+                                            setIsEditing(false);
+                                            setEditName('');
+                                            setEditPatToken('');
+                                            setEditSaved(false);
+                                        }}
+                                        className="flex-1"
+                                    >
+                                        Cancel
+                                    </Button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                <Button
+                                    variant="primary"
+                                    size="md"
+                                    onClick={handleTestConnection}
+                                    className="w-full"
+                                    icon={<Icons.Success />}
+                                >
+                                    Test Connection
+                                </Button>
+
+                                {testResult && (
+                                    <Alert
+                                        variant={testResult.type}
+                                        onClose={() => setTestResult(null)}
+                                    >
+                                        {testResult.message}
+                                    </Alert>
+                                )}
+                                
                                 <Button
                                     variant="outline"
                                     size="md"
-                                    onClick={handleDeleteConnector}
-                                    disabled={isDeleting}
-                                    className="w-full !text-red-400 hover:!text-red-300 hover:!border-red-400"
-                                    icon={isDeleting ? <Spinner size="sm" color="text-red-400" /> : <Icons.Delete />}
+                                    onClick={() => {
+                                        setIsEditing(true);
+                                        setEditName(connector?.name || '');
+                                        setEditPatToken('');
+                                    }}
+                                    className="w-full"
+                                    icon={<Icons.Edit />}
                                 >
-                                    {isDeleting ? 'Deleting...' : 'Delete Connection'}
+                                    Edit Connection
                                 </Button>
+                                
+                                <Button
+                                    variant="outline"
+                                    size="md"
+                                    onClick={() => showNotification('info', 'Disabling connections is not yet supported.')}
+                                    className="w-full"
+                                    icon={<Icons.Warning />}
+                                >
+                                    Disable Connection
+                                </Button>
+                                
+                                <div className="border-t border-slate-600 pt-3 mt-4">
+                                    <Button
+                                        variant="outline"
+                                        size="md"
+                                        onClick={handleDeleteConnector}
+                                        disabled={isDeleting}
+                                        className="w-full !text-red-400 hover:!text-red-300 hover:!border-red-400"
+                                        icon={isDeleting ? <Spinner size="sm" color="text-red-400" /> : <Icons.Delete />}
+                                    >
+                                        {isDeleting ? 'Deleting...' : 'Delete Connection'}
+                                    </Button>
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </Card>
 
                     {/* Activity - Placeholder */}
@@ -1342,100 +1448,18 @@ const ConnectorDetails: React.FC = () => {
             </div>
             
             {/* Confirmation Modal */}
-            {confirmModal && confirmModal.show && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-                        <div className="p-6">
-                            {/* Modal Header */}
-                            <div className="flex items-center mb-4">
-                                <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mr-3 ${
-                                    confirmModal.type === 'danger' ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'
-                                }`}>
-                                    {confirmModal.type === 'danger' ? <Icons.Error /> : <Icons.Warning />}
-                                </div>
-                                <h3 className="text-lg font-medium text-gray-900">{confirmModal.title}</h3>
-                            </div>
-                            
-                            {/* Modal Message */}
-                            <div className="mb-6">
-                                <p className="text-sm text-gray-700">
-                                    {parseMarkdownBold(confirmModal.message)}
-                                </p>
-                            </div>
-                            
-                            {/* Modal Actions */}
-                            <div className="flex justify-end space-x-3">
-                                <Button
-                                    variant="outline"
-                                    onClick={() => setConfirmModal(null)}
-                                >
-                                    {confirmModal.cancelText}
-                                </Button>
-                                <Button
-                                    variant={confirmModal.type === 'danger' ? 'danger' : 'primary'}
-                                    onClick={confirmModal.onConfirm}
-                                >
-                                    {confirmModal.confirmText}
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-            
-            {/* Notification Display */}
-            {notification && notification.show && (
-                <div className={`fixed z-50 transition-all duration-300 ${
-                    notification.persistent 
-                        ? 'inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4' // Full overlay for persistent
-                        : 'top-4 right-4 max-w-md' // Top-right for regular notifications
-                }`}>
-                    <div className={notification.persistent ? 'bg-white rounded-lg shadow-xl max-w-lg w-full p-6' : ''}>
-                        {notification.persistent ? (
-                            // Persistent notification as modal
-                            <div>
-                                <div className="flex items-center mb-4">
-                                    <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center mr-3 ${
-                                        notification.type === 'success' ? 'bg-green-100 text-green-600' :
-                                        notification.type === 'error' ? 'bg-red-100 text-red-600' :
-                                        notification.type === 'warning' ? 'bg-yellow-100 text-yellow-600' : 'bg-blue-100 text-blue-600'
-                                    }`}>
-                                        {notification.type === 'success' ? <Icons.Success /> : 
-                                         notification.type === 'error' ? <Icons.Error /> :
-                                         notification.type === 'warning' ? <Icons.Warning /> : <Icons.Info />}
-                                    </div>
-                                    <h3 className="text-lg font-medium text-gray-900">
-                                        {notification.type === 'success' ? 'Success!' :
-                                         notification.type === 'error' ? 'Error' :
-                                         notification.type === 'warning' ? 'Warning' : 'Information'}
-                                    </h3>
-                                </div>
-                                <div className="mb-6">
-                                    <p className="text-sm text-gray-700">
-                                        {parseMarkdownBold(notification.message)}
-                                    </p>
-                                </div>
-                                <div className="flex justify-end">
-                                    <Button
-                                        variant="primary"
-                                        onClick={() => setNotification(prev => prev ? { ...prev, show: false } : null)}
-                                    >
-                                        Got it
-                                    </Button>
-                                </div>
-                            </div>
-                        ) : (
-                            // Regular notification as Alert
-                            <Alert
-                                variant={notification.type}
-                                onClose={() => setNotification(prev => prev ? { ...prev, show: false } : null)}
-                            >
-                                {notification.message}
-                            </Alert>
-                        )}
-                    </div>
-                </div>
-            )}
+            <ConfirmModal
+                show={Boolean(confirmModal?.show)}
+                title={confirmModal?.title || ''}
+                message={confirmModal?.message || ''}
+                onConfirm={confirmModal?.onConfirm || (() => {})}
+                onCancel={() => setConfirmModal(null)}
+                confirmText={confirmModal?.confirmText}
+                cancelText={confirmModal?.cancelText}
+                type={confirmModal?.type}
+            />
+
+            <ToastContainer />
         </div>
     );
 };
