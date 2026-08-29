@@ -42,7 +42,7 @@ https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 
 | I want to... | Go to |
 |---|---|
-| Wire reviews into every commit | [Git-Native CLI](#cli) |
+| Wire reviews into every commit | [Git-Native CLI](#cli) (`git-lrc`) |
 | Review from inside Claude Code | [Git-Native CLI](#cli) (`claude-lrc`) |
 | Review code without leaving my editor | [IDE Extensions](#ide-extensions) |
 | Connect LiveReview to Claude, Cursor, or Windsurf | [MCP Server](#mcp-server) |
