@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import classNames from 'classnames';
 import { Button } from '../../UIPrimitives';
@@ -51,6 +52,22 @@ export const WidgetChrome: React.FC<WidgetChromeProps> = ({
     children,
 }) => {
     const [expanded, setExpanded] = useState(false);
+
+    // The overlay now covers the whole viewport, so Escape needs to work - the close button is the
+    // only other way out. Also locks background scroll while it's open.
+    useEffect(() => {
+        if (!expanded) return;
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setExpanded(false);
+        };
+        window.addEventListener('keydown', onKeyDown);
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            window.removeEventListener('keydown', onKeyDown);
+            document.body.style.overflow = previousOverflow;
+        };
+    }, [expanded]);
 
     const header = (
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-700/60 shrink-0">
@@ -113,25 +130,31 @@ export const WidgetChrome: React.FC<WidgetChromeProps> = ({
                 </div>
             </motion.div>
 
-            {expanded && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
-                    <div className="w-full max-w-[96vw] h-[94vh] flex flex-col bg-slate-800/95 rounded-xl shadow-2xl border border-slate-700/80">
-                        <div className="flex items-center justify-between gap-2 px-5 py-4 border-b border-slate-700/60 shrink-0">
-                            <h3 className="text-base font-semibold text-slate-100">{title}</h3>
-                            <button
-                                type="button"
-                                onClick={() => setExpanded(false)}
-                                className="p-1.5 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-700/60 transition-colors"
-                                aria-label="Close expanded view"
-                            >
-                                <CloseIcon />
-                            </button>
-                        </div>
-                        <div className="flex-1 min-h-0 p-5 overflow-hidden">
-                            {children}
-                        </div>
+            {/*
+                Portalled to document.body on purpose. react-grid-layout positions every grid item
+                with a CSS `transform`, and a transformed ancestor becomes the containing block for
+                `position: fixed` descendants - so rendered in place, this overlay was sized and
+                clipped against its widget cell instead of the viewport, which is why "expand"
+                produced a small offset panel rather than a fullscreen one.
+            */}
+            {expanded && createPortal(
+                <div className="fixed inset-0 z-[100] flex flex-col bg-slate-900">
+                    <div className="flex items-center justify-between gap-2 px-5 py-4 border-b border-slate-700/60 shrink-0">
+                        <h3 className="text-base font-semibold text-slate-100">{title}</h3>
+                        <button
+                            type="button"
+                            onClick={() => setExpanded(false)}
+                            className="p-1.5 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-700/60 transition-colors"
+                            aria-label="Close expanded view"
+                        >
+                            <CloseIcon />
+                        </button>
                     </div>
-                </div>
+                    <div className="flex-1 min-h-0 p-5 overflow-hidden">
+                        {children}
+                    </div>
+                </div>,
+                document.body
             )}
         </>
     );
