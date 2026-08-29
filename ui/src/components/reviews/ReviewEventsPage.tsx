@@ -26,8 +26,7 @@ export default function ReviewEventsPage({
 }: ReviewEventsPageProps) {
   const [currentView, setCurrentView] = useState<ViewMode>('progress');
   const [events, setEvents] = useState<ReviewEvent[]>(initialEvents);
-  // displayCount tracks the original total count from meta.count (which the backend
-  // restores from the compaction marker). Falls back to actual array length.
+  // displayCount tracks original historical count from meta.count (restored from compaction marker)
   const [displayCount, setDisplayCount] = useState<number>(initialEventCount ?? initialEvents.length);
   const [isPolling, setIsPolling] = useState(true); // Default to ON
   const [lastEventCount, setLastEventCount] = useState(initialEvents.length);
@@ -51,16 +50,17 @@ export default function ReviewEventsPage({
   };
 
   // Smooth append for new events (no position disruption)
-  const appendNewEvents = (newEvents: ReviewEvent[]) => {
-    if (newEvents.length > events.length) {
-      const addedEvents = newEvents.slice(events.length);
+  const appendNewEvents = (allEvents: ReviewEvent[]) => {
+    if (allEvents.length > events.length) {
+      const addedEvents = allEvents.slice(events.length);
       
       // Save position before update
       saveScrollPosition();
       
       // Update events
-      setEvents(newEvents);
-      setLastEventCount(newEvents.length);
+      setEvents(allEvents);
+      setLastEventCount(allEvents.length);
+      setDisplayCount(allEvents.length);
       
       // Restore position after React update
       setTimeout(restoreScrollPosition, 0);
@@ -95,7 +95,7 @@ export default function ReviewEventsPage({
       const data = await getReviewEvents(reviewId, undefined, 1000);
       // Transform backend events to frontend format  
       const backendEvents = data.events || [];
-      const newEvents: ReviewEvent[] = backendEvents.map((event: any) => {
+      const allEvents: ReviewEvent[] = backendEvents.map((event: any) => {
         // Generate human-readable message for display (Raw Events tab)
         let message = '';
         const eventData = event.data || {};
@@ -145,26 +145,24 @@ export default function ReviewEventsPage({
       });
       
       console.log('[ReviewEventsPage] Received events:', {
-        totalEvents: newEvents.length,
-        sampleEvents: newEvents.slice(0, 10).map(e => ({ 
+        totalEvents: allEvents.length,
+        sampleEvents: allEvents.slice(0, 10).map(e => ({ 
           message: e.message, 
           eventType: e.eventType,
           severity: e.severity,
           timestamp: e.timestamp 
         })),
-        stageCompletionEvents: newEvents.filter(e => 
+        stageCompletionEvents: allEvents.filter(e => 
           e.message.toLowerCase().includes('stage completed successfully')
         ).map(e => e.message)
       });
       
-      appendNewEvents(newEvents);
-      // Sync displayCount from meta.count (compaction-aware original total).
-      // Falls back to actual array length for live/uncompacted reviews.
+      appendNewEvents(allEvents);
       const metaCount = (data as any)?.meta?.count;
       if (typeof metaCount === 'number') {
         setDisplayCount(metaCount);
       } else {
-        setDisplayCount(newEvents.length);
+        setDisplayCount(allEvents.length);
       }
     } catch (error) {
       console.error('Failed to poll for updates:', error);
