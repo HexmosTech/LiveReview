@@ -43,8 +43,10 @@ https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 | I want to... | Go to |
 |---|---|
 | Wire reviews into every commit | [Git-Native CLI](#cli) |
+| Review from inside Claude Code | [Git-Native CLI](#cli) (`claude-lrc`) |
 | Review code without leaving my editor | [IDE Extensions](#ide-extensions) |
 | Connect LiveReview to Claude, Cursor, or Windsurf | [MCP Server](#mcp-server) |
+| Automate LiveReview in CI/CD, scripts, or bots | [MCP Server](#mcp-server) (REST API) |
 | Enforce my team's own coding standards | [Repository Rules](#repository-rules) |
 | Cut AI review costs in half | [Adaptive Reviews](#adaptive-reviews) |
 
@@ -55,6 +57,7 @@ https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 | Compare pricing plans | [Pricing & Enterprise](#self-hosted-tiers) |
 | See how LiveReview stacks up vs Copilot / CodeRabbit / SonarQube / Claude Code | [Comparisons](#comparisons) |
 | Understand LiveReview's security posture | [Security](#security) |
+| Read the full setup and API docs | [Full Documentation](#full-documentation) |
 
 **🤝 Get Hands-On Help**
 
@@ -279,16 +282,18 @@ Below is a sample of the questions different roles ask Livi. Each chart uses the
 <a id="why-livereview"></a>
 ## Why LiveReview
 
-Most AI review tools flag style nits and treat every line the same. LiveReview is built around two things most tools skip:
+Most AI review tools flag style nits and treat every line the same. LiveReview is built around three things most tools skip:
 
 - **Blast-Radius scoring**: every hunk is ranked by how much of the system it can actually break, so reviewers spend their limited time on the change that could take down production, not the one that renamed a variable.
 - **A named taxonomy of 104 failure patterns** across Reliability, Correctness, Security, Compliance, Maintainability, and Cost (see [Prevent Outages, Breaches, and Technical Debt](#impact-report)), checked on every commit, not just at PR time.
+- **Livi, an AI chatbot for your engineering data**: ask any question in plain English — adoption, cost, quality, who's actually incorporating review feedback — and get a data-backed chart back, not a guess. See [Data-Backed Decisions](#data-backed-decisions).
 
-That combination is what leads teams to keep it turned on:
+Blast-Radius scoring and the failure taxonomy change what gets reviewed. Livi changes what gets *decided*: every rollout, staffing, or process call is backed by real numbers pulled from your own review history, not gut feel. That combination is what leads teams to keep it turned on:
 
 - **Accelerate Delivery Cycles**: Cut PR review time from hours to minutes, because reviewers see what matters first instead of reading top to bottom.
 - **Save Senior Engineering Time**: Free senior developers from routine reviews. Let them focus on mentorship and high-impact architecture work.
 - **Drive Quality Excellence**: Track metrics that show improvements in code standards, fewer defects, and better development efficiency.
+- **Decide with Confidence, Not Guesswork**: Ask Livi instead of guessing. Every engineering, staffing, or process decision gets a chart pulled from real review history behind it.
 
 <a id="features"></a>
 ## Powerful Features for Modern Engineering Teams
@@ -678,6 +683,7 @@ Custom deployments, SSO integration, dedicated AI keys, and priority SLA support
 
 </details>
 
+<a id="full-documentation"></a>
 ## Full Documentation
 
 Visit the [LiveReview Docs](https://hexmos.com/livereview/docs/) for complete documentation, including self-hosted setup guides, git provider integration, MCP/API reference, and more.
@@ -698,73 +704,63 @@ LiveReview documents the questions enterprise teams ask first: deployment model 
 ### Security FAQ
 
 **What data is collected, stored, and used in LiveReview?**
-When you run a review, LiveReview sends only the diff to the AI model. Nothing else. We do not store your code. We never train any AI model on your code. We regularly scan our own codebase with Gitleaks, OSV Scanner, Govulncheck, and Semgrep, through GitHub Actions. We generate and publish a Bill of Materials with every release.
+- Only the diff is sent to the AI model. Nothing else.
+- Your code is never stored, and never used to train any AI model.
+- Own codebase is scanned continuously with Gitleaks, OSV Scanner, Govulncheck, and Semgrep, via GitHub Actions.
+- A Bill of Materials (SBOM) is published with every release.
 
 **How does self-hosted deployment differ from cloud in terms of security?**
-In self-hosted mode, your team runs the entire application stack and database. Your infrastructure team controls all data storage, backups, retention, and network access. In cloud or provider-integrated mode, LiveReview sends data to configured external provider endpoints for AI inference and git provider operations.
+- **Self-hosted**: your team runs the entire stack and database. Your infra team controls storage, backups, retention, and network access.
+- **Cloud / provider-integrated**: LiveReview sends data to configured external provider endpoints for AI inference and git provider operations.
 
 **Does LiveReview provide a Software Bill of Materials (SBOM)?**
-Yes. An SBOM is automatically generated on every release using Syft and published to the GitHub release assets.
+Yes, generated automatically on every release using Syft, published to GitHub release assets.
 
 **Is LiveReview SOC 2 Type II certified?**
-Not at this time. The full security documentation, scan history, SBOM, and source code are all public. Enterprise buyers can review them directly and see the product's security posture for themselves.
+Not at this time. Security docs, scan history, SBOM, and source code are all public instead, so enterprise buyers can review the actual posture rather than take a certification on faith.
 
-For complete details, see [SECURITY.md](SECURITY.md). For pricing, LOC, and general product questions, see the [FAQ](#faq) below.
-
-### Security Scans
-
-LiveReview includes local security scan targets in the Makefile:
-
-```bash
-make security-govulncheck
-make security-govulncheck-json
-make security-osv
-make security-gitleaks
-make security-triage
-```
-
-Scan artifacts are written under `security_issues/`.
-
-#### Ported Workflows Are Disabled By Default
-
-The following workflows are present but gated off by default:
-
-- `.github/workflows/gitleaks.yml`
-- `.github/workflows/osv-scanner.yml`
-- `.github/workflows/govulncheck.yml`
-
-They only run when GitHub repository variable `ENABLE_SECURITY_WORKFLOWS` is set to `true`.
-
-Enable later:
-
-1. Open repository settings in GitHub.
-2. Go to Secrets and variables > Actions > Variables.
-3. Add `ENABLE_SECURITY_WORKFLOWS` with value `true`.
-
-Disable again:
-
-- Set `ENABLE_SECURITY_WORKFLOWS=false` or remove the variable.
+For complete details, including local security scan commands and how to enable the gated-off scanning workflows, see [SECURITY.md](SECURITY.md). For pricing, LOC, and general product questions, see the [FAQ](#faq) below.
 
 <a id="faq"></a>
 ## FAQ
 
 **What is Blast-Radius scoring, exactly?**
-It is a per-hunk score. It combines call-graph reach, cross-package impact, persistent-state mutation, cyclomatic and cognitive complexity, and test coverage gaps. The score shows which parts of a diff can do the most damage if something is wrong, so reviewers spend their limited attention where it matters most.
+A per-hunk score combining:
+- Call-graph reach and cross-package impact
+- Persistent-state mutation
+- Cyclomatic and cognitive complexity
+- Test coverage gaps
+
+Shows which parts of a diff can do the most damage if something is wrong, so reviewers spend their limited attention where it matters most.
 
 **What is LOC in LiveReview?**
-LOC stands for Lines of Code. In LiveReview pricing, it refers to the code shown in the reviewed diff, not the total size of your repository.
+Lines of Code shown in the reviewed diff — not your total repository size.
 
 **How much LOC is available on the premium plan?**
-Premium starts at 100,000 LOC per month for $32. Higher paid bands are 200,000 LOC for $64, 400,000 LOC for $128, 800,000 LOC for $256, 1.6M LOC for $512, and 3.2M LOC for $1024. All paid bands keep users unlimited and refresh every month.
+| LOC / month | Price |
+|---|---|
+| 100,000 | $32 |
+| 200,000 | $64 |
+| 400,000 | $128 |
+| 800,000 | $256 |
+| 1,600,000 | $512 |
+| 3,200,000 | $1024 |
+
+All paid bands keep users unlimited and refresh every month.
 
 **What does the enterprise plan offer?**
-Multiple organization support, SSO & directory sync (SAML/OIDC), self-hosted deployment within your own infrastructure, a custom domain, and full data privacy over where your code and review data are stored.
+- Multiple organization support
+- SSO & directory sync (SAML/OIDC)
+- Self-hosted deployment within your own infrastructure
+- A custom domain
+- Full data privacy over where your code and review data are stored
 
 **Is my code secure with LiveReview?**
-When you run a review, LiveReview sends only the diff to the AI model. Nothing else. We do not store your code, and we never train any AI model on it. See the [Security](#security) section above for full details.
+Only the diff is sent to the AI model, nothing else. Your code is never stored or used to train any model. See [Security](#security) above for full details.
 
 **What's the difference between self-hosting this repo and the cloud version?**
-This repository is the self-hosted product itself. It is Docker-based and runs entirely on your infrastructure. The [cloud version](https://hexmos.com/livereview/) runs the same review engine as a managed service, so you do not have to run the stack yourself.
+- **This repo**: the self-hosted product itself, Docker-based, runs entirely on your infrastructure.
+- **[Cloud version](https://hexmos.com/livereview/)**: the same review engine as a managed service, so you don't run the stack yourself.
 
 ## License
 
