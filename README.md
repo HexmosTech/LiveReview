@@ -46,7 +46,7 @@ https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 | Review from inside Claude Code | [Git-Native CLI](#cli) (`claude-lrc`) |
 | Review code without leaving my editor | [IDE Extensions](#ide-extensions) |
 | Connect LiveReview to Claude, Cursor, or Windsurf | [MCP Server](#mcp-server) |
-| Automate LiveReview in CI/CD, scripts, or bots | [MCP Server](#mcp-server) (REST API) |
+| Automate LiveReview in CI/CD, scripts, or bots | [REST API](#mcp-server) |
 | Enforce my team's own coding standards | [Repository Rules](#repository-rules) |
 | Cut AI review costs in half | [Adaptive Reviews](#adaptive-reviews) |
 
@@ -493,18 +493,25 @@ Get AI code reviews without leaving your editor. Available for VSCode, Cursor, a
 | **Antigravity** | [Open VSX Registry](https://open-vsx.org/extension/hexmos/livereview) |
 
 <a id="mcp-server"></a>
-## Get Actionable Engineering Intelligence with MCP and APIs
+## Get Actionable Engineering Intelligence with MCP and the REST API
 
-Every code review LiveReview performs adds to a growing source of **engineering intelligence**. Use the MCP server or REST API instead of piecing pull requests, comments, and reviews together by hand:
+Every code review LiveReview performs adds to a growing source of **engineering intelligence**. LiveReview exposes this two separate ways, for two separate purposes:
+
+- **MCP Server** — for AI assistants and agents (Claude, Cursor, Windsurf) that need to ask questions and take action conversationally.
+- **REST API** — for scripts, CI/CD pipelines, and custom integrations that need direct HTTP calls with no AI agent in the loop.
+
+Both let you:
 
 - Generate custom reports
 - Identify your strongest contributors
 - Uncover quality and security trends
 - Drill into engineering activity in minutes, not hours
 
-Real use cases from teams already doing this: [Prevent Production Issues](https://hexmos.com/livereview/docs/livereview/mcp/usecases/prevent-production-issues/), [Turn Findings into Tickets](https://hexmos.com/livereview/docs/livereview/mcp/usecases/turn-findings-into-tickets/), [Keep Project Management in Sync](https://hexmos.com/livereview/docs/livereview/mcp/usecases/keep-project-management-in-sync/), and [Generate Release Notes](https://hexmos.com/livereview/docs/livereview/mcp/usecases/generate-release-notes/) — see the [full use-case list](https://hexmos.com/livereview/docs/livereview/mcp/usecases/).
+Real use cases from teams already doing this: [Prevent Production Issues](https://hexmos.com/livereview/docs/livereview/mcp/usecases/prevent-production-issues/), [Turn Findings into Tickets](https://hexmos.com/livereview/docs/livereview/mcp/usecases/turn-findings-into-tickets/), [Keep Project Management in Sync](https://hexmos.com/livereview/docs/livereview/mcp/usecases/keep-project-management-in-sync/), and [Generate Release Notes](https://hexmos.com/livereview/docs/livereview/mcp/usecases/generate-release-notes/) — see the [full MCP use-case list](https://hexmos.com/livereview/docs/livereview/mcp/usecases/).
 
 ### Getting your API Key
+
+The same key authenticates both the MCP server and the REST API.
 
 1. Go to LiveReview
 2. Click on Settings
@@ -517,7 +524,11 @@ Real use cases from teams already doing this: [Prevent Production Issues](https:
 
 Watch [Create and Manage API Keys](https://hexmos.com/livereview/demo?v=kW_Fhx4AJfk).
 
-### Configuration
+### MCP Server
+
+For AI assistants and agents: Claude Desktop, Claude Code, Cursor, Windsurf, or anything else that speaks MCP.
+
+#### Configuration
 
 Add the following block to your MCP client's configuration file:
 
@@ -546,11 +557,11 @@ Add the following block to your MCP client's configuration file:
 
 Replace `<YOUR_LIVEREVIEW_API_KEY>` with your actual LiveReview API key. See the [MCP Configuration docs](https://hexmos.com/livereview/docs/livereview/mcp/mcp-configuration/), or watch [Connect LiveReview MCP Server to AI Coding Assistants](https://hexmos.com/livereview/demo?v=sUTU0qS73_4).
 
-Wiring this into a pipeline instead of an assistant? See [Automate Code Reviews in CI/CD with LiveReview MCP](https://hexmos.com/livereview/demo?v=ar4B6IrDrqk).
+Running an AI agent in your CI/CD pipeline instead of a chat assistant? The MCP server works there too: [Automate Code Reviews in CI/CD with LiveReview MCP](https://hexmos.com/livereview/demo?v=ar4B6IrDrqk).
 
-### What you can do
+#### What you can do
 
-Once connected to the MCP server, you can ask your assistant to interact with LiveReview.
+Once connected to the MCP server, you can ask your assistant to interact with LiveReview. Each MCP tool below wraps one REST API endpoint (its name follows the endpoint's method and path), but the tool itself is only reachable through the MCP server, not by calling the endpoint directly.
 
 #### Code Reviews
 | Tool | Description | Example Prompt |
@@ -591,7 +602,13 @@ Once connected to the MCP server, you can ask your assistant to interact with Li
 
 </details>
 
-Full reference: [MCP Usage docs](https://hexmos.com/livereview/docs/livereview/mcp/mcp-usage/) · [API Reference](https://hexmos.com/livereview/docs/livereview/api/)
+Full MCP reference: [MCP Usage docs](https://hexmos.com/livereview/docs/livereview/mcp/mcp-usage/)
+
+### REST API
+
+For scripts, CI/CD pipelines, and custom integrations that call LiveReview directly over HTTP, with no AI agent or MCP client involved. Same API key as above, sent as the `X-API-KEY` header. Covers reviews, reports, learnings, billing, connectors, and more.
+
+Full REST API reference: [hexmos.com/livereview/docs/livereview/api](https://hexmos.com/livereview/docs/livereview/api/)
 
 <a id="repository-rules"></a>
 ## Enforce Your Team's Engineering Standards with Repository Rules
@@ -725,9 +742,12 @@ The [LiveReview Docs](https://hexmos.com/livereview/docs/) go far deeper than th
 - [Getting Started](https://hexmos.com/livereview/docs/git-lrc/get-started/intro/) · [Install](https://hexmos.com/livereview/docs/git-lrc/get-started/install/) · [Concepts: Workflow](https://hexmos.com/livereview/docs/git-lrc/concepts/workflow/), [Roles](https://hexmos.com/livereview/docs/git-lrc/concepts/roles/), [Collaboration](https://hexmos.com/livereview/docs/git-lrc/concepts/collaboration/)
 - [Repository Rules](https://hexmos.com/livereview/docs/git-lrc/configure/repository-rules/) · [Set Review Rules](https://hexmos.com/livereview/docs/git-lrc/configure/set-review-rules/) · [Integrations](https://hexmos.com/livereview/docs/git-lrc/configure/integrations/) · [git-lrc Security](https://hexmos.com/livereview/docs/git-lrc/git-lrc-security/)
 
-**MCP Server & REST API**
-- [MCP Configuration](https://hexmos.com/livereview/docs/livereview/mcp/mcp-configuration/) · [MCP Usage](https://hexmos.com/livereview/docs/livereview/mcp/mcp-usage/) · [Full API Reference](https://hexmos.com/livereview/docs/livereview/api/) (reviews, reports, learnings, billing, connectors, and more)
+**MCP Server** (for AI assistants and agents)
+- [MCP Configuration](https://hexmos.com/livereview/docs/livereview/mcp/mcp-configuration/) · [MCP Usage](https://hexmos.com/livereview/docs/livereview/mcp/mcp-usage/)
 - Use cases: [Prevent Production Issues](https://hexmos.com/livereview/docs/livereview/mcp/usecases/prevent-production-issues/) · [Turn Findings into Tickets](https://hexmos.com/livereview/docs/livereview/mcp/usecases/turn-findings-into-tickets/) · [Keep Project Management in Sync](https://hexmos.com/livereview/docs/livereview/mcp/usecases/keep-project-management-in-sync/) · [Generate Release Notes](https://hexmos.com/livereview/docs/livereview/mcp/usecases/generate-release-notes/) · [Generate Engineering Reports](https://hexmos.com/livereview/docs/livereview/mcp/usecases/generate-engineering-reports/) · [Understand Engineering Decisions](https://hexmos.com/livereview/docs/livereview/mcp/usecases/understand-engineering-decisions/) — [full list](https://hexmos.com/livereview/docs/livereview/mcp/usecases/)
+
+**REST API** (for scripts, CI/CD, and custom integrations, no AI agent required)
+- [Full API Reference](https://hexmos.com/livereview/docs/livereview/api/): reviews, reports, learnings, billing, connectors, and more
 
 **Video Library**
 - [hexmos.com/livereview/demo](https://hexmos.com/livereview/demo/) has dozens of short, focused demos, filterable by role (Developer, Engineering Manager, CTO, CEO): setup, every git and AI provider integration, review workflows, reporting and Slack/Teams automation, and team administration.
