@@ -28,9 +28,9 @@ const (
 	// database round trips.
 	maxReportsPerTurn = 4
 
-	// maxSQLAttempts is the budget per SQL slot: one original plus one repair.
+	// maxSQLAttempts is the budget per SQL slot: one original plus up to two repairs.
 	// Count and data SQL get separate budgets.
-	maxSQLAttempts = 2
+	maxSQLAttempts = 3
 
 	// maxChartRows is the point past which a chart stops communicating. Beyond
 	// it the model is asked to aggregate coarser or switch to CSV - never
@@ -1320,16 +1320,20 @@ func (a *Agent) repairSQL(ctx context.Context, call int, reportID string, failed
 	// never sees the count/finalize prompt's org context header, so the
 	// org_id value has to be repeated here too, or a missing-org-filter
 	// rejection could never actually be fixed.
+	log.Info().Str("title", reportID).Int("attempt", failedAttempt).Msg("repairSQL: calling LLM for repair")
 	raw, err := a.completeOnce(ctx, clog, call, "repair", reportID, failedAttempt,
 		a.repairPrompt,
 		fmt.Sprintf("Question: %s\n\nThis query was rejected:\n%s\n\nReason: %s\n\nReturn only the corrected SQL.", question, badSQL, hint))
 	if err != nil {
+		log.Warn().Str("title", reportID).Int("attempt", failedAttempt).Err(err).Msg("repairSQL: LLM call failed")
 		return "", err
 	}
 	fixed := extractSQL(raw)
 	if strings.TrimSpace(fixed) == "" {
+		log.Warn().Str("title", reportID).Int("attempt", failedAttempt).Msg("repairSQL: LLM returned empty SQL")
 		return "", fmt.Errorf("repair produced no SQL")
 	}
+	log.Info().Str("title", reportID).Int("attempt", failedAttempt).Msg("repairSQL: repair succeeded")
 	return fixed, nil
 }
 
@@ -1655,6 +1659,8 @@ func (a *Agent) runMultiInterpret(
 		entry.SkipReason = result.SkipReason
 		entry.RowCount = result.RowCount
 		entry.Stats = result.Stats
+		entry.RetryCount = result.RetryCount
+		entry.Retries = result.Retries
 
 		// Include row data as CSV for debug preview (from any outcome).
 		if len(result.Rows) > 0 {
@@ -1696,83 +1702,170 @@ func (a *Agent) executeInterpretation(
 	clog *logging.ChatTurnLogger,
 ) InterpretationResult {
 	sqlText := interp.SQL
+	var retries []RetryInfo
 
-	// Validate with the guard.
-	rewritten, err := a.guard().Rewrite(sqlText)
-	if err != nil {
-		clog.SQLRejected(interp.Title, "data", 1, err.Error())
-		// Try repairing once.
-		fixed, rerr := a.repairSQL(ctx, 2, interp.Title, 1, userText, sqlText, hintFor(err), clog)
-		if rerr != nil {
-			return InterpretationResult{Status: "failed", SkipReason: "SQL rejected: " + err.Error()}
-		}
-		sqlText = fixed
-		rewritten, err = a.guard().Rewrite(sqlText)
+	log.Info().Str("title", interp.Title).Int("max_attempts", maxSQLAttempts).Msg("executeInterpretation: starting retry loop")
+
+	for attempt := 1; attempt <= maxSQLAttempts; attempt++ {
+		log.Info().Str("title", interp.Title).Int("attempt", attempt).Msg("executeInterpretation: attempt starting")
+		// Validate with the guard.
+		rewritten, err := a.guard().Rewrite(sqlText)
 		if err != nil {
-			return InterpretationResult{Status: "failed", SkipReason: "SQL still rejected after repair: " + err.Error()}
+			log.Warn().Str("title", interp.Title).Int("attempt", attempt).Err(err).Msg("executeInterpretation: guard rejected SQL")
+			clog.SQLRejected(interp.Title, "data", attempt, err.Error())
+			// Try repairing.
+			log.Info().Str("title", interp.Title).Int("attempt", attempt).Msg("executeInterpretation: attempting repair after guard rejection")
+			fixed, rerr := a.repairSQL(ctx, attempt+1, interp.Title, attempt, userText, sqlText, hintFor(err), clog)
+			if rerr != nil {
+				log.Warn().Str("title", interp.Title).Int("attempt", attempt).Err(rerr).Msg("executeInterpretation: repair failed after guard rejection")
+				retries = append(retries, RetryInfo{
+					Attempt: attempt,
+					Error:   err.Error(),
+				})
+				log.Info().Str("title", interp.Title).Int("retry_count", len(retries)).Msg("executeInterpretation: returning failed after guard rejection repair failure")
+				return InterpretationResult{
+					Status:     "failed",
+					SkipReason: "SQL rejected: " + err.Error(),
+					RetryCount: len(retries),
+					Retries:    retries,
+				}
+			}
+			log.Info().Str("title", interp.Title).Int("attempt", attempt).Msg("executeInterpretation: repair succeeded after guard rejection")
+			sqlText = fixed
+			retries = append(retries, RetryInfo{
+				Attempt:     attempt,
+				Error:       err.Error(),
+				RepairedSQL: fixed,
+			})
+			continue
 		}
-	}
-	clog.SQLRewritten(interp.Title, "data", 1, rewritten)
+		clog.SQLRewritten(interp.Title, "data", attempt, rewritten)
 
-	// Execute.
-	start := time.Now()
-	rs, err := a.analytics.Query(ctx, rewritten, maxCSVRows)
-	if err != nil {
-		clog.SQLError(interp.Title, "data", 1, time.Since(start), err)
-		return InterpretationResult{Status: "failed", SkipReason: "Query failed: " + err.Error()}
-	}
-	clog.SQLResult(interp.Title, "data", 1, time.Since(start), len(rs.Rows), rs.Truncated)
+		// Execute.
+		start := time.Now()
+		rs, err := a.analytics.Query(ctx, rewritten, maxCSVRows)
+		if err != nil {
+			log.Warn().Str("title", interp.Title).Int("attempt", attempt).Err(err).Msg("executeInterpretation: query execution failed")
+			clog.SQLError(interp.Title, "data", attempt, time.Since(start), err)
+			// If we have more attempts, try repairing.
+			if attempt < maxSQLAttempts {
+				log.Info().Str("title", interp.Title).Int("attempt", attempt).Msg("executeInterpretation: attempting repair after execution error")
+				fixed, rerr := a.repairSQL(ctx, attempt+1, interp.Title, attempt, userText, sqlText, err.Error(), clog)
+				if rerr != nil {
+					log.Warn().Str("title", interp.Title).Int("attempt", attempt).Err(rerr).Msg("executeInterpretation: repair failed after execution error")
+					retries = append(retries, RetryInfo{
+						Attempt: attempt,
+						Error:   err.Error(),
+					})
+					log.Info().Str("title", interp.Title).Int("retry_count", len(retries)).Msg("executeInterpretation: returning failed after execution error repair failure")
+					return InterpretationResult{
+						Status:     "failed",
+						SkipReason: "Query failed: " + err.Error(),
+						RetryCount: len(retries),
+						Retries:    retries,
+					}
+				}
+				log.Info().Str("title", interp.Title).Int("attempt", attempt).Msg("executeInterpretation: repair succeeded after execution error")
+				sqlText = fixed
+				retries = append(retries, RetryInfo{
+					Attempt:     attempt,
+					Error:       err.Error(),
+					RepairedSQL: fixed,
+				})
+				continue
+			}
+			log.Warn().Str("title", interp.Title).Int("attempt", attempt).Msg("executeInterpretation: exhausted all retries after execution error")
+			retries = append(retries, RetryInfo{
+				Attempt: attempt,
+				Error:   err.Error(),
+			})
+			log.Info().Str("title", interp.Title).Int("retry_count", len(retries)).Msg("executeInterpretation: returning failed after exhausting retries")
+			return InterpretationResult{
+				Status:     "failed",
+				SkipReason: "Query failed: " + err.Error(),
+				RetryCount: len(retries),
+				Retries:    retries,
+			}
+		}
+		log.Info().Str("title", interp.Title).Int("attempt", attempt).Int("rows", len(rs.Rows)).Msg("executeInterpretation: query succeeded")
+		clog.SQLResult(interp.Title, "data", attempt, time.Since(start), len(rs.Rows), rs.Truncated)
 
-	relabelTriggerTypeValues(rs.Rows)
+		relabelTriggerTypeValues(rs.Rows)
 
-	// Zero-row filter. A single row is still rendered (e.g. "who are the
-	// authors" can genuinely have one answer) - only an empty result is
-	// skipped, since that usually means a filter eliminated everything
-	// (often a hallucinated enum value the WHERE clause matched literally,
-	// silently, e.g. status = 'processed' instead of 'accounted'), not that
-	// the real answer was thin.
-	if len(rs.Rows) == 0 {
+		// Weak result filter.
+		if len(rs.Rows) <= 1 {
+			reason := "single-row result (weak)"
+			if len(rs.Rows) == 0 {
+				// Distinct from "weak" - zero rows usually means a filter
+				// eliminated everything (often a hallucinated enum value the
+				// WHERE clause matched literally, silently, e.g. status =
+				// 'processed' instead of 'accounted'), not that the shape was
+				// merely thin.
+				reason = "query returned no rows - check for an invalid filter or enum value"
+			}
+			log.Info().Str("title", interp.Title).Int("retry_count", len(retries)).Msg("executeInterpretation: returning skipped (weak result)")
+			return InterpretationResult{
+				Status:     "skipped",
+				SkipReason: reason,
+				RowCount:   len(rs.Rows),
+				Rows:       rs.Rows, // preserve for debug preview
+				RetryCount: len(retries),
+				Retries:    retries,
+			}
+		}
+
+		// Smart time aggregation for day-level time series.
+		aggregated, timeUnit, groupFields := smartAggregateTime(rs)
+		if aggregated != nil {
+			rs = aggregated
+		}
+
+		// Build chart.
+		chart, art := a.buildChartFromInterp(ctx, interp, rs, timeUnit, groupFields, clog)
+
+		stats := computeStats(rs.Rows, interp.Encoding)
+
+		if chart != nil {
+			log.Info().Str("title", interp.Title).Int("retry_count", len(retries)).Msg("executeInterpretation: returning rendered (chart)")
+			return InterpretationResult{
+				Status:     "rendered",
+				Chart:      chart,
+				RowCount:   len(rs.Rows),
+				Stats:      stats,
+				Rows:       rs.Rows,
+				RetryCount: len(retries),
+				Retries:    retries,
+			}
+		}
+		if art != nil {
+			log.Info().Str("title", interp.Title).Int("retry_count", len(retries)).Msg("executeInterpretation: returning rendered (artifact)")
+			return InterpretationResult{
+				Status:     "rendered",
+				Artifact:   art,
+				RowCount:   len(rs.Rows),
+				Stats:      stats,
+				Rows:       rs.Rows,
+				RetryCount: len(retries),
+				Retries:    retries,
+			}
+		}
+		log.Info().Str("title", interp.Title).Int("retry_count", len(retries)).Msg("executeInterpretation: returning skipped (no chart)")
 		return InterpretationResult{
 			Status:     "skipped",
-			SkipReason: "query returned no rows - check for an invalid filter or enum value",
-			RowCount:   0,
-			Rows:       rs.Rows,
+			SkipReason: "could not build chart",
+			RowCount:   len(rs.Rows),
+			RetryCount: len(retries),
+			Retries:    retries,
 		}
 	}
 
-	// Smart time aggregation for day-level time series.
-	aggregated, timeUnit, groupFields := smartAggregateTime(rs)
-	if aggregated != nil {
-		rs = aggregated
-	}
-
-	// Build chart.
-	chart, art := a.buildChartFromInterp(ctx, interp, rs, timeUnit, groupFields, clog)
-
-	stats := computeStats(rs.Rows, interp.Encoding)
-
-	if chart != nil {
-		return InterpretationResult{
-			Status:   "rendered",
-			Chart:    chart,
-			RowCount: len(rs.Rows),
-			Stats:    stats,
-			Rows:     rs.Rows,
-		}
-	}
-	if art != nil {
-		return InterpretationResult{
-			Status:   "rendered",
-			Artifact: art,
-			RowCount: len(rs.Rows),
-			Stats:    stats,
-			Rows:     rs.Rows,
-		}
-	}
+	// Should not reach here, but just in case.
+	log.Warn().Str("title", interp.Title).Int("retry_count", len(retries)).Msg("executeInterpretation: returning failed (exhausted)")
 	return InterpretationResult{
-		Status:     "skipped",
-		SkipReason: "could not build chart",
-		RowCount:   len(rs.Rows),
+		Status:     "failed",
+		SkipReason: "exhausted all retry attempts",
+		RetryCount: len(retries),
+		Retries:    retries,
 	}
 }
 

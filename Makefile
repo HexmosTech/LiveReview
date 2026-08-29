@@ -3,6 +3,69 @@
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging
 
+# ============================================================================
+# Environment switching
+# ============================================================================
+
+.PHONY: switch-env-prod switch-env-prod-low-pricing switch-env-selfhosted-local switch-env-selfhosted-docker switch-env-cloud-local which-env
+
+define SWITCH_ENV
+	@if [ ! -f ".env.$(1)" ]; then \
+		echo "ERROR: .env.$(1) not found"; \
+		exit 1; \
+	fi
+	@if [ -f .env ]; then cp .env .env.bak && echo "Backed up .env -> .env.bak"; fi
+	@cp .env.$(1) .env
+	@echo "$(1)" > .current-env
+	@echo "Switched to $(1) (.env.$(1) -> .env)"
+endef
+
+switch-env-prod:
+	$(call SWITCH_ENV,prod)
+
+switch-env-prod-low-pricing:
+	$(call SWITCH_ENV,prod-low-pricing)
+
+switch-env-selfhosted-local:
+	$(call SWITCH_ENV,selfhosted.local)
+
+switch-env-selfhosted-docker:
+	$(call SWITCH_ENV,selfhosted.docker)
+
+switch-env-cloud-local:
+	$(call SWITCH_ENV,cloud.local)
+
+which-env:
+	@if [ ! -f .current-env ]; then \
+		echo "No .current-env found. Run 'make switch-env-<name>' first."; \
+	else \
+		echo "Current env: $$(cat .current-env)"; \
+	fi
+
+# ============================================================================
+# Docker management (requires selfhosted.docker env)
+# ============================================================================
+
+define CHECK_DOCKER_ENV
+	@if [ ! -f .current-env ] || [ "$$(cat .current-env)" != "selfhosted.docker" ]; then \
+		echo "ERROR: Current env is not selfhosted.docker. Run: make switch-env-selfhosted-docker"; \
+		exit 1; \
+	fi
+endef
+
+.PHONY: docker-local-start docker-local-rebuild docker-local-stop
+
+docker-local-start:
+	$(CHECK_DOCKER_ENV)
+	docker compose up -d
+
+docker-local-rebuild:
+	$(CHECK_DOCKER_ENV)
+	docker compose up -d --build
+
+docker-local-stop:
+	docker compose down
+
 # Go parameters
 GOENV=env -u GOROOT
 GOCMD=$(GOENV) go
@@ -72,6 +135,10 @@ vendor-prompts-build:
 
 # Convenience: regenerate assets and build vendor binary in one step
 vendor-prompts-rebuild: vendor-prompts-encrypt vendor-prompts-build
+
+# Email template preview
+email-preview:
+	$(GOCMD) run cmd/email-preview/main.go
 
 # Version management targets
 version:
@@ -570,6 +637,36 @@ prod-data-sync:
 	@$(MAKE) prod-data-export
 	@$(MAKE) prod-data-import
 
+# ============================================================================
+# Enterprise-Selfhosted: local rapid dev (no Docker rebuild needed)
+# ============================================================================
+
+# Restore prod dump into the enterprise-selfhosted database (.env.selfhosted.local)
+.PHONY: prod-data-import-enterprise-selfhosted
+prod-data-import-enterprise-selfhosted:
+	@if [ ! -f .env.selfhosted.local ]; then \
+		echo "❌ ERROR: .env.selfhosted.local not found"; \
+		exit 1; \
+	fi
+	@command -v pg_restore >/dev/null 2>&1 || { echo "❌ ERROR: pg_restore not found - install postgresql-client"; exit 1; }
+	@bash scripts/prod-data-import-enterprise-selfhosted.sh
+
+# Apply selfhosted transformations (plan, billing, dev user) to enterprise-selfhosted DB
+.PHONY: prod-data-transform-selfhosted
+prod-data-transform-selfhosted:
+	@if [ ! -f .env.selfhosted.local ]; then \
+		echo "❌ ERROR: .env.selfhosted.local not found"; \
+		exit 1; \
+	fi
+	@bash scripts/prod-data-transform-selfhosted.sh
+
+# Full sync: export from prod → import into enterprise-selfhosted → apply transformations
+.PHONY: prod-data-sync-enterprise-selfhosted
+prod-data-sync-enterprise-selfhosted:
+	@$(MAKE) prod-data-export
+	@$(MAKE) prod-data-import-enterprise-selfhosted
+	@$(MAKE) prod-data-transform-selfhosted
+
 # Multi-architecture Docker build targets
 docker-multiarch:
 	@python scripts/lrops.py build --docker --multiarch $(ARGS)
@@ -709,6 +806,50 @@ niceurl3:
 		-o ConnectTimeout=10 \
 		-o ConnectionAttempts=3 \
 		-R 6545:localhost:8081 root@master -N
+
+niceurl4:
+	@command -v autossh >/dev/null 2>&1 || { \
+		echo "autossh is not installed. Install it with: sudo apt install autossh"; \
+		exit 1; \
+	}
+	@PIDS="$$(lsof -tiTCP:20003 -sTCP:LISTEN 2>/dev/null || true) $$(pgrep -f '^/usr/lib/autossh/autossh -M 20003 ' || true)"; \
+	PIDS="$$(printf '%s\n' $$PIDS | tr ' ' '\n' | awk 'NF' | sort -u | tr '\n' ' ')"; \
+	if [ -n "$$PIDS" ]; then \
+		echo "Stopping existing local autossh/ssh for niceurl4: $$PIDS"; \
+		kill -9 $$PIDS || true; \
+	fi
+	@ssh root@master "PID=\$$( netstat -tulpn | grep :6546 | awk '{print \$$7}' | cut -d/ -f1 | head -n 1); [ -n \"\$$PID\" ] && kill -9 \$$PID || true" || true
+	@echo "Starting autossh reverse tunnel on remote port 6546 -> localhost:8081"
+	@AUTOSSH_GATETIME=0 AUTOSSH_POLL=60 AUTOSSH_FIRST_POLL=30 AUTOSSH_LOGLEVEL=6 autossh -M 20003 \
+		-o ServerAliveInterval=30 \
+		-o ServerAliveCountMax=3 \
+		-o TCPKeepAlive=yes \
+		-o ExitOnForwardFailure=yes \
+		-o ConnectTimeout=10 \
+		-o ConnectionAttempts=3 \
+		-R 6546:localhost:8081 root@master -N
+
+niceurl5:
+	@command -v autossh >/dev/null 2>&1 || { \
+		echo "autossh is not installed. Install it with: sudo apt install autossh"; \
+		exit 1; \
+	}
+	@PIDS="$$(lsof -tiTCP:20004 -sTCP:LISTEN 2>/dev/null || true) $$(pgrep -f '^/usr/lib/autossh/autossh -M 20004 ' || true)"; \
+	PIDS="$$(printf '%s\n' $$PIDS | tr ' ' '\n' | awk 'NF' | sort -u | tr '\n' ' ')"; \
+	if [ -n "$$PIDS" ]; then \
+		echo "Stopping existing local autossh/ssh for niceurl5: $$PIDS"; \
+		kill -9 $$PIDS || true; \
+	fi
+	@ssh root@master "PID=\$$( netstat -tulpn | grep :6547 | awk '{print \$$7}' | cut -d/ -f1 | head -n 1); [ -n \"\$$PID\" ] && kill -9 \$$PID || true" || true
+	@echo "Starting autossh reverse tunnel on remote port 6547 -> localhost:8081"
+	@AUTOSSH_GATETIME=0 AUTOSSH_POLL=60 AUTOSSH_FIRST_POLL=30 AUTOSSH_LOGLEVEL=6 autossh -M 20004 \
+		-o ServerAliveInterval=30 \
+		-o ServerAliveCountMax=3 \
+		-o TCPKeepAlive=yes \
+		-o ExitOnForwardFailure=yes \
+		-o ConnectTimeout=10 \
+		-o ConnectionAttempts=3 \
+		-R 6547:localhost:8081 root@master -N
 
 build-with-ui:
 	@echo "🔨 Building for PRODUCTION deployment (is_cloud=true)"
@@ -1017,7 +1158,7 @@ chat_debug:
 
 run-selfhosted:
 	which air || $(GOCMD) install github.com/air-verse/air@latest
-	air -- --env-file .env.selfhosted
+	air -- --env-file .env.selfhosted.docker
 
 # Upload tracked env files (.env, .env.prod, ui/.env.prod) to GitHub repo variables.
 # Backward compatible target name; implementation moved to scripts/ghsm.py.

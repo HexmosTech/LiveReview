@@ -5,6 +5,7 @@ import * as z from 'zod';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { notify } from '../../utils/notify';
 import { useOrgContext } from '../../hooks/useOrgContext';
+import apiClient from '../../api/apiClient';
 import {
     createOrgUser,
     fetchOrgUser,
@@ -134,6 +135,8 @@ const UserForm: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [showUpgradeModal, setShowUpgradeModal] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+    const [prerequisiteError, setPrerequisiteError] = useState<string | null>(null);
+    const [prerequisiteStatus, setPrerequisiteStatus] = useState<{ productionUrl: boolean; smtp: boolean } | null>(null);
 
     const [activeTab, setActiveTab] = useState<'single' | 'bulk'>(
         location.pathname.endsWith('/bulk') ? 'bulk' : 'single'
@@ -360,7 +363,14 @@ const UserForm: React.FC = () => {
             dispatch(loadUserOrganizations());
         } catch (error) {
             console.error('Bulk invite submit failed', error);
-            notify.error('Failed to submit bulk invite. Please try again.');
+            const rawMessage = (error as Error).message || 'Failed to submit bulk invite. Please try again.';
+            
+            // Check if this is a prerequisite error
+            if (rawMessage.includes('invitations require')) {
+                setPrerequisiteError(rawMessage);
+            } else {
+                notify.error('Failed to submit bulk invite. Please try again.');
+            }
         } finally {
             setBulkSubmitting(false);
         }
@@ -437,6 +447,55 @@ const UserForm: React.FC = () => {
                 .finally(() => setLoading(false));
         }
     }, [userId, currentOrgId, reset, navigate]);
+
+    // Check prerequisites on mount (only for invite mode, not edit)
+    useEffect(() => {
+        if (!isEditMode && !userId) {
+            checkPrerequisites();
+        }
+    }, [isEditMode, userId]);
+
+    const checkPrerequisites = async () => {
+        try {
+            const missing: string[] = [];
+            let productionUrlOk = false;
+            let smtpOk = false;
+            
+            // Check production URL
+            try {
+                const prodUrlResponse = await apiClient.get<{ url: string }>('/api/v1/production-url');
+                if (prodUrlResponse?.url) {
+                    productionUrlOk = true;
+                } else {
+                    missing.push('Production URL (Settings → Instance)');
+                }
+            } catch (error) {
+                missing.push('Production URL (Settings → Instance)');
+            }
+            
+            // Check SMTP settings
+            try {
+                const smtpResponse = await apiClient.get<{ host: string }>('/api/v1/admin/settings/smtp');
+                if (smtpResponse?.host) {
+                    smtpOk = true;
+                } else {
+                    missing.push('SMTP settings (Settings → SMTP)');
+                }
+            } catch (error) {
+                missing.push('SMTP settings (Settings → SMTP)');
+            }
+            
+            setPrerequisiteStatus({ productionUrl: productionUrlOk, smtp: smtpOk });
+            
+            if (missing.length > 0) {
+                setPrerequisiteError(`Invitations require the following to be configured: ${missing.join(', ')}`);
+            } else {
+                setPrerequisiteError(null);
+            }
+        } catch (error) {
+            console.error('Failed to check prerequisites', error);
+        }
+    };
 
     const getRoleOptions = () => {
         if (currentUserRole === 'super_admin') {
@@ -521,7 +580,13 @@ const UserForm: React.FC = () => {
                     .replace(/[\r\n]+/g, ' ')
                     .trim()
                     .slice(0, 200) || 'An unknown error occurred.';
-            notify.error(['Failed to', action, 'user:', errorMessage].join(' '));
+            
+            // Check if this is a prerequisite error
+            if (errorMessage.includes('invitations require')) {
+                setPrerequisiteError(errorMessage);
+            } else {
+                notify.error(['Failed to', action, 'user:', errorMessage].join(' '));
+            }
             console.error('User operation error', { action, error });
         }
     };
@@ -568,6 +633,50 @@ const UserForm: React.FC = () => {
                 <h1 className="text-2xl font-bold mb-4">
                     {isEditMode ? 'Edit User' : 'Invite User'}
                 </h1>
+
+                {prerequisiteError && (
+                    <div className="mb-4 p-4 bg-amber-900/30 border border-amber-600 rounded-lg">
+                        <div className="flex items-start">
+                            <svg className="w-5 h-5 text-amber-500 mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                            </svg>
+                            <div className="flex-1">
+                                <h3 className="text-amber-500 font-medium">Configuration Required</h3>
+                                <p className="text-amber-200/80 mt-1 text-sm">{prerequisiteError}</p>
+                                <div className="mt-3 space-y-2">
+                                    <div className="flex items-center">
+                                        {prerequisiteStatus?.productionUrl ? (
+                                            <svg className="w-4 h-4 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                            </svg>
+                                        ) : (
+                                            <svg className="w-4 h-4 text-amber-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                                            </svg>
+                                        )}
+                                        <a href="/settings#instance" className="text-sm text-amber-400 hover:text-amber-300 underline">
+                                            Settings → Instance
+                                        </a>
+                                    </div>
+                                    <div className="flex items-center">
+                                        {prerequisiteStatus?.smtp ? (
+                                            <svg className="w-4 h-4 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                            </svg>
+                                        ) : (
+                                            <svg className="w-4 h-4 text-amber-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                                            </svg>
+                                        )}
+                                        <a href="/settings#smtp" className="text-sm text-amber-400 hover:text-amber-300 underline">
+                                            Settings → SMTP
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-xl overflow-hidden">
                     {isEditMode ? (

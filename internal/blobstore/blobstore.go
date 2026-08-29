@@ -44,7 +44,7 @@ const (
 )
 
 // DefaultLocalDir is used when Backend is filesystem and LocalDir is unset.
-const DefaultLocalDir = "./data/blobs"
+const DefaultLocalDir = "./lrdata/blobs"
 
 // Config describes where blob data lives. It's the exact shape stored in
 // the "blob_storage" system_settings row (see internal/api/storage_settings.go).

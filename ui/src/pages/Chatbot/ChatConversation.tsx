@@ -90,6 +90,12 @@ interface DebugArtifacts {
     stats?: string[];
     csv_data?: string;
     vega_spec?: string;
+    retry_count?: number;
+    retries?: Array<{
+      attempt: number;
+      error: string;
+      repaired_sql?: string;
+    }>;
   }>;
 }
 
@@ -442,6 +448,11 @@ const DebugPanelBody: React.FC<{ artifacts: DebugArtifacts }> = ({ artifacts }) 
                 <span className={`w-2 h-2 rounded-full ${statusColor}`} />
                 <span className="text-xs font-medium text-slate-200">{interp.title}</span>
                 <span className="text-[10px] text-slate-500 font-mono">{interp.chart_type}</span>
+                {result && result.retry_count != null && result.retry_count > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-mono">
+                    {result.retry_count} retry{result.retry_count > 1 ? 's' : ''}
+                  </span>
+                )}
                 {result && <span className="text-[10px] text-slate-600 ml-auto font-mono">{result.row_count} rows</span>}
               </div>
               <div className="px-3 py-2 text-[11px] text-slate-400 border-b border-slate-700/30">{interp.description}</div>
@@ -457,6 +468,20 @@ const DebugPanelBody: React.FC<{ artifacts: DebugArtifacts }> = ({ artifacts }) 
                 {result?.vega_spec && (
                   <CollapsibleSection id={`vega-${i}`} label="Vega-Lite Spec" content={prettyJSON(result.vega_spec)} isGreen maxH="max-h-48"
                     activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy} />
+                )}
+                {result?.retries && result.retries.length > 0 && (
+                  <CollapsibleSection
+                    id={`retries-${i}`}
+                    label={`Retry Details (${result.retries.length} attempt${result.retries.length > 1 ? 's' : ''})`}
+                    content={result.retries.map((r) => {
+                      let text = `Attempt ${r.attempt}: ${r.error}`;
+                      if (r.repaired_sql) {
+                        text += `\nRepaired SQL:\n${r.repaired_sql}`;
+                      }
+                      return text;
+                    }).join('\n\n')}
+                    activeSection={activeSection} toggleSection={toggleSection} copiedId={copiedId} handleCopy={handleCopy}
+                  />
                 )}
               </div>
             </div>

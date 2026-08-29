@@ -15,7 +15,45 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const defaultProductionURL = "https://livereview.hexmos.com"
+// getProductionURL fetches the production URL from instance_details table
+func (us *UserService) getProductionURL() string {
+	var url sql.NullString
+	err := us.db.QueryRow("SELECT livereview_prod_url FROM instance_details LIMIT 1").Scan(&url)
+	if err != nil || !url.Valid {
+		return ""
+	}
+	return strings.TrimSpace(url.String)
+}
+
+// checkInvitationPrerequisites verifies that production URL and SMTP are configured
+func (us *UserService) checkInvitationPrerequisites() error {
+	var missing []string
+
+	// Check production URL
+	prodURL := us.getProductionURL()
+	if prodURL == "" {
+		missing = append(missing, "Production URL (Settings → Instance)")
+	}
+
+	// Check SMTP settings
+	var data []byte
+	err := us.db.QueryRow("SELECT data FROM system_settings WHERE name = 'smtp'").Scan(&data)
+	if err != nil {
+		missing = append(missing, "SMTP settings (Settings → SMTP)")
+	} else {
+		var settings struct {
+			Host string `json:"host"`
+		}
+		if err := json.Unmarshal(data, &settings); err != nil || settings.Host == "" {
+			missing = append(missing, "SMTP settings (Settings → SMTP)")
+		}
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf("invitations require the following to be configured: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
 
 // APIKeyGeneratorTx defines a function type to generate onboarding keys within a transaction context
 type APIKeyGeneratorTx func(tx *sql.Tx, userID, orgID int64) (string, error)
@@ -189,17 +227,19 @@ func (us *UserService) sendInvitation(user *UserWithRole, invitedByUserID int64)
 	}()
 
 	invitedByName := us.getInvitedByUserName(invitedByUserID)
-	
+
 	invitedToName := user.Email
 	if user.FirstName != nil && *user.FirstName != "" {
 		invitedToName = *user.FirstName
 	}
 
+	prodURL := strings.TrimRight(us.getProductionURL(), "/")
+
 	installCmdLinux := ""
 	installCmdWindows := ""
-	if user.OnboardingAPIKey != "" {
-		installCmdLinux = fmt.Sprintf("curl -fsSL https://hexmos.com/lrc-install.sh | LRC_API_KEY=%q LRC_API_URL=%q bash", user.OnboardingAPIKey, defaultProductionURL)
-		installCmdWindows = fmt.Sprintf("$env:LRC_API_KEY=%q; $env:LRC_API_URL=%q; iwr -useb https://hexmos.com/lrc-install.ps1 | iex", user.OnboardingAPIKey, defaultProductionURL)
+	if user.OnboardingAPIKey != "" && prodURL != "" {
+		installCmdLinux = fmt.Sprintf("curl -fsSL https://hexmos.com/lrc-install.sh | LRC_API_KEY=%q LRC_API_URL=%q bash", user.OnboardingAPIKey, prodURL)
+		installCmdWindows = fmt.Sprintf("$env:LRC_API_KEY=%q; $env:LRC_API_URL=%q; iwr -useb https://hexmos.com/lrc-install.ps1 | iex", user.OnboardingAPIKey, prodURL)
 	}
 
 	err := email.SendInvitationEmail(us.db, email.InvitationParams{
@@ -207,7 +247,7 @@ func (us *UserService) sendInvitation(user *UserWithRole, invitedByUserID int64)
 		InvitedToName:         invitedToName,
 		InvitedToEmail:        user.Email,
 		InvitedByName:         invitedByName,
-		URL:                   defaultProductionURL,
+		URL:                   prodURL,
 		InstallCommandLinux:   installCmdLinux,
 		InstallCommandWindows: installCmdWindows,
 	})
