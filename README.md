@@ -132,7 +132,7 @@ Every commit git-lrc reviews gets checked against the same risk categories LiveR
    <img src="./assets/screenshots/2026-08-29/13-impact-report-slash-reports.png" alt="Impact Report: findings filtered by severity, confidence, type, category, and subcategory" width="80%"/>
 </p>
 
-See it live: [Analyze Findings with the Impact Report](https://hexmos.com/livereview/demo?v=xjUISiSSKEk) and [Export Impact Reports as PDF or CSV](https://hexmos.com/livereview/demo?v=kN6o6lognxA). For the case against skipping this step, read [The Hidden Costs of Manual Code Reviews](https://hexmos.com/livereview/blog/hidden-costs-manual-reviews).
+See it live: [Analyze Findings with the Impact Report](https://hexmos.com/livereview/demo?v=xjUISiSSKEk) and [Export Impact Reports as PDF or CSV](https://hexmos.com/livereview/demo?v=kN6o6lognxA).
 
 ### 🔥 Outages: what takes down production, and impacts your on-call rotation
 
@@ -300,8 +300,6 @@ Blast-Radius scoring and the failure taxonomy change what gets reviewed. Livi ch
 - **Save Senior Engineering Time**: Free senior developers from routine reviews. Let them focus on mentorship and high-impact architecture work.
 - **Drive Quality Excellence**: Track metrics that show improvements in code standards, fewer defects, and better development efficiency.
 - **Decide with Confidence, Not Guesswork**: Ask Livi instead of guessing. Every engineering, staffing, or process decision gets a chart pulled from real review history behind it.
-
-Further reading: [Developers Don't Read Code Anymore. What Now?](https://hexmos.com/livereview/blog/developers-arent-reading-code-anymore) and [The Hidden Costs of Manual Code Reviews](https://hexmos.com/livereview/blog/hidden-costs-manual-reviews).
 
 <a id="features"></a>
 ## Powerful Features for Modern Engineering Teams
@@ -733,9 +731,6 @@ The [LiveReview Docs](https://hexmos.com/livereview/docs/) go far deeper than th
 
 **Video Library**
 - [hexmos.com/livereview/demo](https://hexmos.com/livereview/demo/) has dozens of short, focused demos, filterable by role (Developer, Engineering Manager, CTO, CEO): setup, every git and AI provider integration, review workflows, reporting and Slack/Teams automation, and team administration.
-
-**Blog & Deep Dives**
-- [The Hidden Costs of Manual Code Reviews](https://hexmos.com/livereview/blog/hidden-costs-manual-reviews) · [Developers Don't Read Code Anymore. What Now?](https://hexmos.com/livereview/blog/developers-arent-reading-code-anymore) — [full blog](https://hexmos.com/livereview/blog/)
 
 **FAQ & Security**
 - [Docs FAQ](https://hexmos.com/livereview/docs/faq/) · [Full Security Documentation](https://hexmos.com/livereview/docs/livereview/livereview-security/)
