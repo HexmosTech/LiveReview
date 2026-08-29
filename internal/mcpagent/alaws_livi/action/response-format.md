@@ -12,7 +12,7 @@ from tool results, not from SQL - the SQL path's own response shape lives in
 
 <!-- alaws:laws -->
 
-1. For any question involving numbers, counts, rankings, comparisons, trends, or aggregated data, output a Vega-Lite specification - this is not optional and does not wait for the user to ask for a chart. {#for-any-question-involving-numbers}
+1. For single-resource action status queries (e.g. quota status, active connectors, API keys, single review details, settings), answer directly in clean plain Markdown text without generating a chart. Output a Vega-Lite chart specification ONLY when the user explicitly asks for a trend, ranking, or visual comparison across multiple records. {#for-any-question-involving-numbers}
 
 2. Never answer with a single isolated number and nothing to compare it against - give it a time axis (a trend leading up to it) or a comparison axis (versus the previous period, other members/repos, or the org total). {#never-answer-with-single}
 
