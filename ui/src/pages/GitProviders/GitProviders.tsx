@@ -18,6 +18,8 @@ import {
     Tooltip,
     Alert
 } from '../../components/UIPrimitives';
+import { ConfirmModal } from '../../components/ConfirmModal';
+import { useToast } from '../../components/NotificationToast';
 import LicenseUpgradeDialog from '../../components/License/LicenseUpgradeDialog';
 import { getConnectors, ConnectorResponse, deleteConnector, WebhookStatusSummary } from '../../api/connectors';
 import { useOrgContext } from '../../hooks/useOrgContext';
@@ -74,6 +76,14 @@ const GitProvidersList: React.FC = () => {
     const { isFreePlan, isSuperAdmin } = useOrgContext();
     const isReadOnly = isFreePlan && !isSuperAdmin;
     const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+    const { showToast, ToastContainer } = useToast();
+    
+    // Confirm modal state for delete
+    const [deleteConfirm, setDeleteConfirm] = useState<{
+        show: boolean;
+        id: string;
+        name: string;
+    }>({ show: false, id: '', name: '' });
     
     // Use redux state only for connectors
     const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -173,9 +183,12 @@ const GitProvidersList: React.FC = () => {
     };
 
     const handleDeleteConnector = async (connectorId: string, connectorName: string) => {
-        if (!confirm(`Are you sure you want to delete "${connectorName}"? This action cannot be undone.`)) {
-            return;
-        }
+        setDeleteConfirm({ show: true, id: connectorId, name: connectorName });
+    };
+
+    const confirmDelete = async () => {
+        const { id: connectorId, name: connectorName } = deleteConfirm;
+        setDeleteConfirm({ show: false, id: '', name: '' });
 
         try {
             setIsLoading(true);
@@ -188,7 +201,7 @@ const GitProvidersList: React.FC = () => {
             setError(null);
         } catch (err) {
             console.error('Error deleting connector:', err);
-            setError('Failed to delete connector. Please try again.');
+            showToast('Failed to delete connector. Please try again.', 'error');
         } finally {
             setIsLoading(false);
         }
@@ -385,6 +398,19 @@ const GitProvidersList: React.FC = () => {
                 featureName="Git Provider Management"
                 featureDescription="Upgrade to a paid plan to add, remove, and manage your Git provider configurations."
             />
+
+            <ConfirmModal
+                show={deleteConfirm.show}
+                title="Delete Connector"
+                message={`Are you sure you want to delete "${deleteConfirm.name}"? This action cannot be undone.`}
+                onConfirm={confirmDelete}
+                onCancel={() => setDeleteConfirm({ show: false, id: '', name: '' })}
+                confirmText="Delete"
+                cancelText="Cancel"
+                type="danger"
+            />
+
+            <ToastContainer />
         </div>
     );
 };

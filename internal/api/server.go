@@ -1211,7 +1211,9 @@ func (s *Server) setupRoutes() {
 
 	connectorGroup.GET("", s.GetConnectors)
 	connectorGroup.GET("/:id", s.GetConnector)
+	connectorGroup.PUT("/:id", s.UpdateConnector)
 	connectorGroup.DELETE("/:id", s.DeleteConnector)
+	connectorGroup.POST("/:id/test", s.TestConnectorConnection)
 	connectorGroup.GET("/:connectorId/repository-access", s.GetRepositoryAccess)
 	connectorGroup.POST("/:connectorId/enable-manual-trigger", s.EnableManualTriggerForAllProjects)
 	connectorGroup.POST("/:connectorId/disable-manual-trigger", s.DisableManualTriggerForAllProjects)

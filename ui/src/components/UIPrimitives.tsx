@@ -629,10 +629,10 @@ export const Alert: React.FC<AlertProps> = ({
   className,
 }) => {
   const variantStyles = {
-    info: 'bg-blue-900/40 text-blue-100 border-blue-700/50',
-    success: 'bg-green-900/40 text-green-100 border-green-700/50',
-    warning: 'bg-amber-900/40 text-amber-100 border-amber-700/50',
-    error: 'bg-red-900/40 text-red-100 border-red-700/50',
+    info: 'bg-blue-900/80 text-blue-100 border-blue-700/50',
+    success: 'bg-green-900/80 text-green-100 border-green-700/50',
+    warning: 'bg-amber-900/80 text-amber-100 border-amber-700/50',
+    error: 'bg-red-900/80 text-red-100 border-red-700/50',
   };
   
   return (
