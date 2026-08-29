@@ -645,8 +645,8 @@ const ConnectorDetails: React.FC = () => {
         } catch (err: any) {
             setTestResult({ type: 'error', message: err?.message || 'Failed to test connection' });
         }
-        // Auto-clear after 5 seconds
-        setTimeout(() => setTestResult(null), 5000);
+        // Auto-clear after 8 seconds
+        setTimeout(() => setTestResult(null), 8000);
     };
 
     if (isLoading) {

@@ -622,7 +622,7 @@ func (s *Server) UpdateConnector(c echo.Context) error {
 	)
 	if err != nil {
 		log.Printf("Failed to read updated connector %d: %v", id, err)
-		return c.JSON(http.StatusOK, map[string]string{"message": "Connector updated"})
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to read updated connector"})
 	}
 	if metadataRaw != nil {
 		connector.Metadata = metadataRaw
@@ -676,9 +676,26 @@ func (s *Server) TestConnectorConnection(c echo.Context) error {
 	case "github":
 		_, validateErr = githubprovider.FetchGitHubProfile(credential)
 	case "bitbucket":
-		// Bitbucket requires email + api_token; we stored api_token in pat_token
-		// Fall back to access_token validation via the generic check
-		validateErr = nil // Bitbucket full validation requires email which we don't store
+		// Bitbucket requires email + api_token for validation
+		var metadataRaw []byte
+		err = s.db.QueryRow(`SELECT COALESCE(metadata, '{}') FROM integration_tokens WHERE id = $1`, id).Scan(&metadataRaw)
+		if err != nil {
+			validateErr = fmt.Errorf("failed to load connector metadata")
+			break
+		}
+		var metadata map[string]interface{}
+		if len(metadataRaw) > 0 {
+			if err := json.Unmarshal(metadataRaw, &metadata); err != nil {
+				validateErr = fmt.Errorf("Bitbucket connector has corrupt metadata; please reconnect the integration")
+				break
+			}
+		}
+		email, ok := metadata["email"].(string)
+		if !ok || email == "" {
+			validateErr = fmt.Errorf("Bitbucket connector missing or invalid email in metadata; please reconnect the integration")
+			break
+		}
+		_, validateErr = FetchBitbucketProfile(email, credential)
 	case "gitea":
 		_, validateErr = giteaprovider.FetchGiteaProfile(providerURL, credential)
 	case "azure-devops", "azuredevops":
