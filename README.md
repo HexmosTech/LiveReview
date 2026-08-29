@@ -5,7 +5,7 @@
 
 # Blast-Radius Aware AI Code Review for Business-Critical Systems
 
-Your team's attention is limited. LiveReview spends it where **business risk is highest** — not spread evenly across every diff.
+Your team's attention is limited. Spend review effort where **business risk is highest** — not spread evenly across every diff.
 
 https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 
@@ -38,17 +38,17 @@ https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 | Connect LiveReview to Claude, Cursor, or Windsurf | [MCP Server](#mcp-server) |
 | Enforce my team's own coding standards | [Repository Rules](#repository-rules) |
 | Cut AI review costs in half | [Adaptive Reviews](#adaptive-reviews) |
-| Compare self-hosted pricing tiers | [Self-Hosted Tiers](#self-hosted-tiers) |
-| See how LiveReview stacks up vs Copilot / CodeRabbit / Graphite | [Comparisons](#comparisons) |
+| Compare pricing plans | [Pricing & Enterprise](#self-hosted-tiers) |
+| See how LiveReview stacks up vs Copilot / CodeRabbit / SonarQube / Claude Code | [Comparisons](#comparisons) |
 | Understand LiveReview's security posture | [Security](#security) |
 | Get hands-on help rolling this out to my team | [14-Day Transformation Program](#transformation-program) |
 
 ---
 
 <a id="quick-start"></a>
-## Quick Start — Self-Hosted Community Edition (Free)
+## Quick Start — Self-Hosted, Free to Start
 
-Get LiveReview running in under 5 minutes. The **Community Edition is free forever** and includes the full AI review engine, Blast-Radius scoring, all git providers, and unlimited reviews for up to 3 users — see the full breakdown in [Self-Hosted Tiers](#self-hosted-tiers).
+Get LiveReview running in under 5 minutes. Self-hosting starts free with a free licence — the same 30k LOC/month, bring-your-own-key plan available on the cloud — and you can scale up from there. See [Pricing & Enterprise](#self-hosted-tiers) for the full breakdown.
 
 ### One-Command Install
 
@@ -87,16 +87,14 @@ For teams needing external access and webhooks, follow the [Productionization Gu
 
 Activate checks at the levels that matter to you — mix and match enforcement per repository.
 
-| Commit | Before Push | MR / PR | CI / CD | Scheduled Checks |
-|:---:|:---:|:---:|:---:|:---:|
-| `git lrc review` on staged changes | Guardrail before code leaves your machine | Full AI review + Blast-Radius score on the diff | Gate merges on review completion | Periodic sweeps for drift and hotspots |
+**Commit · Before Push · MR / PR · CI / CD · Scheduled Checks**
 
 ---
 
 <a id="impact-report"></a>
 ## Prevent Outages, Breaches, and Technical Debt Before They Happen
 
-Every commit LiveReview reviews gets checked against the same risk categories tracked across production codebases:
+Every commit git-lrc reviews gets checked against the same risk categories LiveReview tracks across production codebases:
 
 | 10 | 100+ | Every Commit |
 |:---:|:---:|:---:|
@@ -111,9 +109,13 @@ Every commit LiveReview reviews gets checked against the same risk categories tr
 ---
 
 <a id="data-backed-decisions"></a>
-## See It In Action: Data-Backed Decisions
+## An AI Chatbot for Your Engineering Data
 
-LiveReview ships with **Livi**, a chat-native analytics layer that answers plain-English questions about your review activity with live charts — no dashboard-building required. Below is a sample of the kind of questions different roles ask Livi, rendered from the same chart specs used in the interactive demo on the live site.
+Ask **Livi** a product, engineering, or ops question in plain English. It answers with a chart pulled straight from your organization's own data — no dashboards to build, no SQL to write.
+
+> Every engineering decision becomes more data-backed, so you can act with confidence instead of guesswork.
+
+Below is a sample of the kind of questions different roles ask Livi, rendered from the same chart specs used in the interactive demo on the live site.
 
 ### Adoption & Growth
 
@@ -178,21 +180,11 @@ LiveReview ships with **Livi**, a chat-native analytics layer that answers plain
 <a id="why-livereview"></a>
 ## Why LiveReview
 
-| | |
-|---|---|
-| **Blast-Radius Aware** | Reviews are ranked by how much of the system a change can actually break — not by diff size. |
-| **Git-Level Guardrails** | Unread code never sneaks in. Reviews track every commit, and deliberate skips stay in the audit trail. |
-| **Works With Your Git Setup** | GitHub, GitLab, Bitbucket, Gitea, or something else — LiveReview adapts to your workflow, not the other way around. |
-| **Choose Your AI** | Pick the LLMs that match quality, latency, and budget today — and swap them whenever your requirements change. |
-| **Works Wherever You Do** | Web, CLI, IDE. Cloud, self-hosted, or air gapped. Same guardrails and visibility everywhere. |
-| **Priced to Stay Out of the Way** | The cost of review shouldn't decide whether review happens. LiveReview stays lean so teams can use it daily. |
-
 ### Why Engineering Teams Love LiveReview
 
 - **Accelerate Delivery Cycles** — Reduce PR review time from hours to minutes, enabling your team to ship features faster and with greater confidence
 - **Save Senior Engineering Time** — Liberate senior developers from routine reviews, allowing them to focus on mentorship and high-impact architectural work
 - **Drive Quality Excellence** — Build a culture of quality with metrics that highlight improvements in code standards, reduced defects, and development efficiency
-- **Prioritize by Risk, Not Volume** — Blast-Radius scoring means the riskiest hunks surface first, even on a huge PR
 
 ---
 
@@ -235,14 +227,14 @@ Monitor review progress in real-time. Track which files have been reviewed, iden
 </p>
 
 ### Customize Review Prompts to Fit Your Team
-Tailor AI review behavior to match your team's coding standards and priorities. Create custom prompts that focus on what matters most to your organization. *(Team & Enterprise)*
+Tailor AI review behavior to match your team's coding standards and priorities. Create custom prompts that focus on what matters most to your organization. *(Premium & Enterprise)*
 
 <p align="center">
    <img src="./assets/screenshots/prompt_customization.png" alt="Customizing LiveReview's review prompts" width="80%"/>
 </p>
 
 ### Discuss with AI in MR and See it Learn Everyday
-Build an institutional knowledge base from code reviews. Capture best practices, common issues, and team learnings to continuously improve code quality. *(Team & Enterprise)*
+Build an institutional knowledge base from code reviews. Capture best practices, common issues, and team learnings to continuously improve code quality.
 
 <p align="center">
    <img src="./assets/screenshots/learnings_management.png" alt="Managing team learnings in LiveReview" width="80%"/>
@@ -441,60 +433,48 @@ A good reviewer doesn't just know your language and framework — it knows *your
 ---
 
 <a id="self-hosted-tiers"></a>
-## Self-Hosted Tiers
+## Pricing & Enterprise
 
-LiveReview offers three tiers for self-hosted deployments. **Community Edition is free forever and provides genuine value for small teams and individual developers.**
+LiveReview's pricing scales with **reviewed workload, not headcount**:
 
-| Feature | Community (Free) | Team | Enterprise |
-|---------|:----------------:|:----:|:----------:|
-| AI Code Reviews (with Blast-Radius scoring) | ✅ | ✅ | ✅ |
-| Git Provider Integration | ✅ | ✅ | ✅ |
-| AI Provider Configuration | ✅ | ✅ | ✅ |
-| Dashboard & Analytics | ✅ | ✅ | ✅ |
-| **Unlimited Reviews** | ✅ | ✅ | ✅ |
-| Users | Up to 3 | Unlimited | Unlimited |
-| Prompt Customization | ❌ | ✅ | ✅ |
-| Learnings Management | ❌ | ✅ | ✅ |
-| Multiple API Keys | ❌ | ✅ | ✅ |
-| Priority Support | ❌ | ✅ | ✅ |
-| SSO / SAML | ❌ | ❌ | ✅ |
-| Audit Logs | ❌ | ❌ | ✅ |
-| Compliance Reports | ❌ | ❌ | ✅ |
-| Custom Integrations | ❌ | ❌ | ✅ |
+| Plan | Price | Includes |
+|---|---|---|
+| **Individual** (Free) | Free — 30k LOC/month | Bring your own AI keys, unlimited projects, git-native CLI (`git-lrc`), dedicated VS Code extension |
+| **Premium** | From $32/month for 100k LOC, scaling to $1024/month for 3.2M LOC | Unlimited team members, AI-generated review summaries, custom review prompts, engineering insights dashboard, full API access |
+| **Enterprise** | Contact us | Multiple organizations, self-hosted deployment, SSO/SAML & directory sync, custom domain, full data privacy |
 
-**Growing team?** Upgrade to Team or Enterprise for advanced features, priority support, and unlimited users.
+LOC (Lines of Code) refers to the code shown in the reviewed diff, not your total repository size. Paid plans keep users unlimited, so cost tracks reviewed workload instead of seats.
 
-[Get a License](https://hexmos.com/livereview/selfhosted-access/)
+### LiveReview Enterprise
+
+Custom deployments, SSO integration, dedicated AI keys, and priority SLA support for scaling engineering organizations:
+
+- **Security & Ops** — Self-hosted deployment (optional), support for multiple organizations, custom domain hosting, SSO & User Directory integration (SAML/OIDC), and full data privacy
+- **Flexible AI & Models** — Connect to private cloud LLMs or opt for fully self-hosted AI models using Ollama or your private infrastructure to guarantee no code leaves your network
+- **Custom Integrations** — Custom API access, bespoke workflow integrations, and engineering insights dashboards tailored to your development tooling
+- **Dedicated SLA Support** — Prioritized support channel with dedicated SLAs, custom development, and professional onboarding
+
+[Get a Self-Hosted License](https://hexmos.com/livereview/selfhosted-access/) · [Explore Self-Hosted Enterprise](https://hexmos.com/livereview/enterprise-selfhosted)
 
 ---
 
 <a id="comparisons"></a>
 ## How LiveReview Compares
 
-### vs GitHub Copilot Code Review
-- **Multi-Platform Support**: Works with GitHub, GitLab, Bitbucket, AND Gitea (not just GitHub)
-- **Self-Hosted Option**: Your code stays private vs cloud-only risk
-- **AI Choice Freedom**: Pick your AI backend vs locked into one model
-- **Cost Control**: You control both costs and quality
-
 ### vs CodeRabbit
-- **More Affordable**: Significantly lower pricing
-- **Zero Cloud Risk**: Self-hosted option vs cloud-only deployment
-- **Complete Control**: Your code never leaves your infrastructure (with self-hosted)
-- **Attack Prevention**: Eliminates entire class of cloud-based vulnerabilities
+LiveReview starts free with 30k LOC per month. Paid usage then scales through fixed monthly bands: 100k LOC for $32, 200k for $64, 400k for $128, 800k for $256, 1.6M for $512, and 3.2M for $1024 — users stay unlimited, so the bill tracks reviewed workload instead of headcount. CodeRabbit charges per seat, so cost rises as the team grows even when workload does not, and applies hourly rate limits per developer per repository. LiveReview is also source-available — you can browse the entire codebase and security scanning reports on GitHub — and enforces code quality at the git level regardless of which editor or OS your team uses.
 
-### vs Graphite / Qodo Merge / CodeAnt AI
-- **Deployment Flexibility**: Cloud or self-hosted — your choice
-- **AI Provider Freedom**: Bring your own keys, use any LLM
-- **Git-Native Protocol**: `git lrc review` integrates directly into your workflow
-- **Works Everywhere**: Web, CLI, IDE — same experience across all
+### vs GitHub Copilot Code Review
+LiveReview's pricing tracks reviewed LOC, not seats, so cost stays tied to review workload rather than headcount. Copilot caps premium requests at 300 on the Pro plan; LiveReview's main limit is monthly reviewed LOC, with capacity available across unlimited users and projects inside that envelope. Copilot is also GitHub-only — if your team uses GitLab, Gitea, Bitbucket, or Azure DevOps, you'd need separate products. LiveReview works across all of them through unified git-level integration with no additional setup.
 
-### vs Building Your Own
-- **Ready Out-of-Box**: Skip months of development time
-- **Complex Integration Covered**: Code host APIs, webhooks, dashboards all handled
-- **AI Expertise Included**: Advanced prompt engineering and review logic, including Blast-Radius scoring, included
-- **Ongoing Maintenance**: No need for ongoing MR/PR handling, user management
-- **Focus on Product**: Your team builds features, not infrastructure
+### vs SonarQube
+SonarQube's Community Edition is source-available but feature-limited, while the Developer and Enterprise editions are closed. LiveReview's entire codebase is source-available. Setting up and maintaining a SonarQube server can be a burden due to its resource intensity and dependency management overhead; with LiveReview, you can self-host on your own infrastructure with a single command in under 5 minutes.
+
+### vs Claude Code
+Claude Code is token-metered, so a few complex reviews can create costs that are hard to forecast; LiveReview's LOC-based pricing is predictable and directly tied to reviewed code. Claude Code is a closed product that sends your source code to Anthropic's cloud; LiveReview is source-available and can be self-hosted on the Enterprise plan, keeping your data within your own network. Claude Code is a CLI tool built for individual developers tackling specific tasks, not for enforcing code standards across an entire organization — LiveReview enforces quality at the git level across GitHub, GitLab, Gitea, Bitbucket, and Azure DevOps, regardless of which IDE your team uses.
+
+### vs Cursor / Antigravity in-editor review
+In-editor review from tools like Cursor and Antigravity is only visible to the individual using them, which makes it hard to enforce common code quality standards when team members use different IDEs. Because LiveReview operates at the git level, it works regardless of which IDE your team uses, and it automatically triggers analysis during commits — catching buggy or non-production-ready code before it gets pushed, with organization-wide visibility into what was found.
 
 ---
 
@@ -507,12 +487,33 @@ Visit the [Wiki](https://github.com/HexmosTech/LiveReview/wiki) for complete doc
 ---
 
 <a id="security"></a>
-## Security You Can Count On
+## Security
 
-- Security is treated as a first-class concern across LiveReview deployment models.
-- We maintain documented reporting channels, response commitments, and verification references.
-- Automated security checks and SBOM generation support ongoing transparency.
-- For complete details, see [SECURITY.md](SECURITY.md).
+### Built for security review
+
+LiveReview documents the answers enterprise teams ask first: deployment model differences, code/data handling, AI safeguards, supply-chain visibility, and clear security response timelines.
+
+- Separate guidance for self-hosted/Ollama and cloud LLM deployments
+- Explicit data handling: what leaves your network, when it happens, and retention/deletion expectations
+- Prompt-injection and unsafe-output mitigations, automated scanners, SBOM visibility, and transparent GitHub source with responsive disclosure policy
+
+[Open Security Page](https://hexmos.com/livereview/security) · [Read SECURITY.md](https://github.com/HexmosTech/LiveReview/blob/master/SECURITY.md) · [Report a Vulnerability](https://github.com/HexmosTech/LiveReview/security/advisories/new)
+
+### Security FAQ
+
+**What data is collected, stored, and used in LiveReview?**
+When you run a review, LiveReview only sends the diff to the AI model — nothing else. We do not store your code, and we never train any AI models on your code. We regularly run scans on our own codebase — Gitleaks, OSV Scanner, Govulncheck, and Semgrep — through GitHub Actions, and a Bill of Materials is generated and published with every release.
+
+**How does self-hosted deployment differ from cloud in terms of security?**
+In self-hosted mode, your team runs the entire application stack and database, and your infrastructure team controls all data storage, backups, retention, and network access. In cloud/provider-integrated mode, LiveReview sends data to configured external provider endpoints for AI inference and git provider operations.
+
+**Does LiveReview provide a Software Bill of Materials (SBOM)?**
+Yes. An SBOM is automatically generated on every release using Syft and published to the GitHub release assets.
+
+**Is LiveReview SOC 2 Type II certified?**
+Not at this time. The full security documentation, scan history, SBOM, and source code are publicly available for review, giving enterprise buyers direct visibility into the security posture of the product.
+
+For complete details, see [SECURITY.md](SECURITY.md).
 
 ### Security Scans
 
@@ -552,17 +553,23 @@ Disable again:
 
 ## FAQ
 
-**How will LiveReview benefit our engineering organization?**
-LiveReview provides tangible improvements in code quality and delivery speed while generating meaningful metrics that demonstrate the value of your engineering investments. Teams typically see a 70% reduction in review time and up to 40% increase in velocity.
-
 **What is Blast-Radius scoring, exactly?**
 It's a per-hunk score built from call-graph reach, cross-package impact, persistent-state mutation, cyclomatic/cognitive complexity, and test coverage gaps. It tells you which parts of a diff can do the most damage if something's wrong, so reviewers spend their limited attention where it matters most.
 
-**Is my code secure with LiveReview?**
-Absolutely. With self-hosted deployment, all code stays within your infrastructure with no data sent to external servers. For teams preferring managed hosting, our [cloud version](https://hexmos.com/livereview/) uses industry-standard security practices and encryption.
+**What is LOC in LiveReview?**
+LOC stands for Lines of Code. In LiveReview pricing, it refers to the code shown in the reviewed diff, not the total size of your repository.
 
-**What's the difference between Community and paid tiers?**
-Community Edition is fully functional with unlimited reviews, all AI providers, and all git integrations — limited to 3 users. Team and Enterprise tiers add prompt customization, learnings management, priority support, and unlimited users.
+**How much LOC is available on the premium plan?**
+Premium starts at 100,000 LOC per month for $32. Higher paid bands are 200,000 LOC for $64, 400,000 LOC for $128, 800,000 LOC for $256, 1.6M LOC for $512, and 3.2M LOC for $1024. All paid bands keep users unlimited and refresh every month.
+
+**What does the enterprise plan offer?**
+Multiple organization support, SSO & directory sync (SAML/OIDC), self-hosted deployment within your own infrastructure, a custom domain, and full data privacy over where your code and review data are stored.
+
+**Is my code secure with LiveReview?**
+When you run a review, LiveReview only sends the diff to the AI model — nothing else. We do not store your code, and we never train any AI model on it. See the [Security](#security) section above for full details.
+
+**What's the difference between self-hosting this repo and the cloud version?**
+This repository is the self-hosted product itself — Docker-based, running entirely on your infrastructure. The [cloud version](https://hexmos.com/livereview/) is the same review engine as a managed service, so you don't have to run the stack yourself.
 
 ---
 
