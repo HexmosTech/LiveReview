@@ -42,6 +42,30 @@ which-env:
 		echo "Current env: $$(cat .current-env)"; \
 	fi
 
+# ============================================================================
+# Docker management (requires selfhosted.docker env)
+# ============================================================================
+
+define CHECK_DOCKER_ENV
+	@if [ ! -f .current-env ] || [ "$$(cat .current-env)" != "selfhosted.docker" ]; then \
+		echo "ERROR: Current env is not selfhosted.docker. Run: make switch-env-selfhosted-docker"; \
+		exit 1; \
+	fi
+endef
+
+.PHONY: docker-local-start docker-local-rebuild docker-local-stop
+
+docker-local-start:
+	$(CHECK_DOCKER_ENV)
+	docker compose up -d
+
+docker-local-rebuild:
+	$(CHECK_DOCKER_ENV)
+	docker compose up -d --build
+
+docker-local-stop:
+	docker compose down
+
 # Go parameters
 GOENV=env -u GOROOT
 GOCMD=$(GOENV) go
@@ -1090,7 +1114,7 @@ chat_debug:
 
 run-selfhosted:
 	which air || $(GOCMD) install github.com/air-verse/air@latest
-	air -- --env-file .env.selfhosted
+	air -- --env-file .env.selfhosted.docker
 
 # Upload tracked env files (.env, .env.prod, ui/.env.prod) to GitHub repo variables.
 # Backward compatible target name; implementation moved to scripts/ghsm.py.

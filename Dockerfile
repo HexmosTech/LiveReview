@@ -13,7 +13,7 @@ RUN echo "📦 Installing UI dependencies..." && \
 # Copy UI source and build production assets
 COPY ui/ ./
 # Copy .env.selfhosted to parent directory for webpack (self-hosted Docker builds)
-COPY .env.selfhosted ../.env.selfhosted
+COPY .env.selfhosted.docker ../.env.selfhosted
 
 # Build UI with explicit SELFHOSTED mode to ensure is_cloud=false
 RUN echo "🔨 Building UI for SELF-HOSTED deployment (is_cloud=false)..." && \
@@ -152,7 +152,7 @@ RUN echo "📥 Downloading AgentLaws binary..." && \
 # Create non-root user for security
 RUN echo "👤 Creating non-root user..." && \
     groupadd -g 1001 -r livereview && \
-    useradd -u 1001 -r -g livereview -d /app -s /sbin/nologin livereview && \
+    useradd -u 1001 -r -g livereview -d /app -s /bin/sh livereview && \
     echo "User 'livereview' created successfully"
 
 # Create directories
@@ -189,8 +189,7 @@ RUN echo "📋 Final image contents:" && \
     echo "Migration count: $(ls /app/db/migrations/*.sql | wc -l)" && \
     echo "✅ LiveReview container build completed successfully!"
 
-# Switch to non-root user
-USER livereview
+# Runs as root to handle bind mount permissions
 WORKDIR /app
 
 # Expose ports for backend API (8888), frontend (8081), and River UI (8080)
