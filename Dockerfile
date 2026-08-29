@@ -152,7 +152,7 @@ RUN echo "📥 Downloading AgentLaws binary..." && \
 # Create non-root user for security
 RUN echo "👤 Creating non-root user..." && \
     groupadd -g 1001 -r livereview && \
-    useradd -u 1001 -r -g livereview -d /app -s /bin/sh livereview && \
+    useradd -u 1001 -r -g livereview -d /app -s /sbin/nologin livereview && \
     echo "User 'livereview' created successfully"
 
 # Create directories
