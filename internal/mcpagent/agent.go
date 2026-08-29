@@ -209,7 +209,11 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 
 			idx := a.docIndex
 			if idx == nil {
-				idx = docindex.GetGlobalIndex()
+				var err error
+				idx, err = docindex.GetGlobalIndex()
+				if err != nil {
+					log.Warn().Err(err).Msg("global docindex initialization failed")
+				}
 			}
 			if idx != nil {
 				docs, err := idx.Query(ctx, userText, 3)
