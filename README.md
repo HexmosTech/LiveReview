@@ -3,29 +3,35 @@
 <a href="https://github.com/HexmosTech/LiveReview/actions/workflows/gitleaks.yml" target="_blank" rel="noopener noreferrer"><img alt="gitleaks.yml" title="gitleaks.yml: Secret scanning workflow" src="https://github.com/HexmosTech/LiveReview/actions/workflows/gitleaks.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/osv-scanner.yml" target="_blank" rel="noopener noreferrer"><img alt="osv-scanner.yml" title="osv-scanner.yml: Dependency vulnerability scan" src="https://github.com/HexmosTech/LiveReview/actions/workflows/osv-scanner.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/govulncheck.yml" target="_blank" rel="noopener noreferrer"><img alt="govulncheck.yml" title="govulncheck.yml: Go vulnerability check" src="https://github.com/HexmosTech/LiveReview/actions/workflows/govulncheck.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/semgrep.yml" target="_blank" rel="noopener noreferrer"><img alt="semgrep.yml" title="semgrep.yml: Static analysis security scan" src="https://github.com/HexmosTech/LiveReview/actions/workflows/semgrep.yml/badge.svg"></a>&nbsp;<img alt="dependabot-enabled" title="dependabot-enabled: Automated dependency updates are enabled" src="./assets/gfx/dependabot-enabled.svg">&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/mcp-testcases.yml" target="_blank" rel="noopener noreferrer"><img alt="mcp-testcases.yml" title="mcp-testcases.yml: MCP integration test suite" src="https://github.com/HexmosTech/LiveReview/actions/workflows/mcp-testcases.yml/badge.svg"></a>
 
 
-# AI Code Review with Teeth.
+# Blast-Radius Aware AI Code Review for Business-Critical Systems
 
-**A powerful and flexible AI code reviewer — light on the pocket, heavy on impact.**
-
-<p align="center">
-   <img src="./assets/gfx/jpg/home_bg.jpg" alt="LiveReview Dashboard - AI Code Review in Action" width="95%"/>
-</p>
+**Not every diff is equal risk.** LiveReview scores every change by how far it can actually break your system — call graph reach, cross-package impact, cyclomatic and cognitive complexity, test coverage gaps — and turns that into a **Blast Radius** and **Review Priority** score your team can triage against. It's AI code review that tells you *what to look at first*, not just what changed.
 
 <p align="center">
-   <a href="#quick-start">Quick Start</a> |
-   <a href="#why-livereview">Why LiveReview</a> |
-   <a href="#features">Features</a> |
-   <a href="#cli">CLI</a> |
-   <a href="#ide-extensions">Extensions</a> |
-   <a href="#mcp-server">MCP Server</a> |
-   <a href="#self-hosted-tiers">Tiers</a> |
-   <a href="#comparisons">Comparisons</a>
+   <img src="./assets/screenshots/blast-radius/new-risk-score-2.webp" alt="LiveReview Blast Radius and Review Priority scoring breakdown" width="90%"/>
 </p>
 
 <p align="center">
    <b>Self-Host for Free:</b> <a href="#quick-start">Get Started in 5 Minutes</a><br/>
-   <i>Don't want to self-host?</i> <a href="https://hexmos.com/livereview">Try the Cloud Version</a>
+   <i>Want a guided rollout?</i> <a href="https://hexmos.com/livereview/transform/">Join the 14-Day Transformation Program</a>
 </p>
+
+---
+
+## What Do You Need?
+
+| I want to... | Go to |
+|---|---|
+| Try LiveReview free in under 5 minutes | [Quick Start](#quick-start) |
+| Understand Blast-Radius scoring | [Blast-Radius Aware Review](#blast-radius) |
+| See what LiveReview's analytics can tell my team | [Data-Backed Decisions](#data-backed-decisions) |
+| See the full feature set | [Features](#features) |
+| Wire reviews into every commit | [Git-Native CLI](#cli) |
+| Review code without leaving my editor | [IDE Extensions](#ide-extensions) |
+| Connect LiveReview to Claude, Cursor, or Windsurf | [MCP Server](#mcp-server) |
+| Compare self-hosted pricing tiers | [Self-Hosted Tiers](#self-hosted-tiers) |
+| See how LiveReview stacks up vs Copilot / CodeRabbit / Graphite | [Comparisons](#comparisons) |
+| Get hands-on help rolling this out to my team | [14-Day Transformation Program](#transformation-program) |
 
 ---
 
@@ -55,7 +61,7 @@ You'll need a **Free Licence** to get started — follow the guide [here](https:
 
 ### What You Get for Free (Community Edition)
 
-- ✅ **Full AI Code Reviews** — Same powerful AI review engine as paid tiers
+- ✅ **Full AI Code Reviews** — Same powerful AI review engine as paid tiers, including Blast-Radius scoring
 - ✅ **All Git Providers** — GitHub, GitLab, Bitbucket, Gitea integration
 - ✅ **Any AI Provider** — Gemini, OpenAI, or self-hosted Ollama
 - ✅ **Dashboard & Analytics** — Track review quality and team velocity
@@ -75,23 +81,113 @@ For teams needing external access and webhooks, follow the [Productionization Gu
 
 ---
 
+<a id="blast-radius"></a>
+## Blast-Radius Aware AI Code Review
+
+Line count and diff size are terrible proxies for risk. A five-line change to a shared auth helper can be far more dangerous than a five-hundred-line change to an isolated script. LiveReview scores every reviewable hunk on two axes:
+
+- **Blast Radius** — how far the change can propagate: caller reach (direct + transitive callers), cross-package impact, whether it mutates persistent state, and how many packages/services are touched.
+- **Review Priority** — how much attention the change deserves right now: cyclomatic and cognitive complexity, nested-loop depth, fan-out, and test coverage gaps.
+
+Both scores are broken down term-by-term in the UI — nothing is a black box — so reviewers can see exactly *why* a hunk ranked where it did.
+
+<p align="center">
+   <img src="./assets/screenshots/blast-radius/new-risk-score-1.webp" alt="Full Blast Radius and Review Priority math breakdown in the LiveReview diff viewer" width="90%"/>
+</p>
+
+### Enforce It at Every Stage — Org-Wide
+
+Mix and match enforcement per repository, at whichever point in the workflow matters to your team:
+
+| Commit | Before Push | MR / PR | CI / CD | Scheduled Checks |
+|:---:|:---:|:---:|:---:|:---:|
+| `git lrc review` on staged changes | Guardrail before code leaves your machine | Full AI review + Blast-Radius score on the diff | Gate merges on review completion | Periodic sweeps for drift and hotspots |
+
+---
+
 <a id="why-livereview"></a>
 ## Why LiveReview
 
 | | |
 |---|---|
+| **Blast-Radius Aware** | Reviews are ranked by how much of the system a change can actually break — not by diff size. |
 | **Git-Level Guardrails** | Unread code never sneaks in. Reviews track every commit, and deliberate skips stay in the audit trail. |
 | **Works With Your Git Setup** | GitHub, GitLab, Bitbucket, Gitea, or something else—LiveReview adapts to your workflow, not the other way around. |
 | **Choose Your AI** | Pick the LLMs that match quality, latency, and budget today—and swap them whenever your requirements change. |
 | **Works Wherever You Do** | Web, CLI, IDE. Cloud, self-hosted, or air gapped. Same guardrails and visibility everywhere. |
 | **Priced to Stay Out of the Way** | The cost of review shouldn't decide whether review happens. LiveReview stays lean so teams can use it daily. |
-| **Enough Depth When You Need It** | Line-level review, real MR conversations, and durable team learnings—without the usual tool bloat. |
 
 ### Why Engineering Teams Love LiveReview
 
 - **Accelerate Delivery Cycles** — Reduce PR review time from hours to minutes, enabling your team to ship features faster and with greater confidence
 - **Save Senior Engineering Time** — Liberate senior developers from routine reviews, allowing them to focus on mentorship and high-impact architectural work
 - **Drive Quality Excellence** — Build a culture of quality with metrics that highlight improvements in code standards, reduced defects, and development efficiency
+- **Prioritize by Risk, Not Volume** — Blast-Radius scoring means the riskiest hunks surface first, even on a huge PR
+
+---
+
+<a id="data-backed-decisions"></a>
+## See It In Action: Data-Backed Decisions
+
+LiveReview ships with **Livi**, a chat-native analytics layer that answers plain-English questions about your review activity with live charts — no dashboard-building required. Below is a sample of the kind of questions different roles ask Livi, rendered from the same chart specs used in the interactive product demo at [hexmos.com/livereview](https://hexmos.com/livereview/#data-backed-decisions).
+
+### Adoption & Growth
+
+| Persona | Question to Livi | Chart |
+|---|---|---|
+| Exec | "Is LiveReview adoption increasing across the org?" | <img src="./assets/screenshots/livi-charts/01-adoption-is-livereview-adoption-increasing-across.png" width="320"/> |
+| Exec | "Which repositories have adopted LiveReview the most?" | <img src="./assets/screenshots/livi-charts/02-adoption-which-repositories-have-adopted-liverevi.png" width="320"/> |
+
+### Repository Analysis
+
+| Persona | Question to Livi | Chart |
+|---|---|---|
+| Product | "Which repos are gaining or losing engineering velocity?" | <img src="./assets/screenshots/livi-charts/03-repos-which-repos-are-gaining-or-losing-engine.png" width="320"/> |
+| Product | "How much code are we reviewing in each repository?" | <img src="./assets/screenshots/livi-charts/04-repos-how-much-code-are-we-reviewing-in-each-r.png" width="320"/> |
+
+### Engineer Analysis
+
+| Persona | Question to Livi | Chart |
+|---|---|---|
+| Eng Manager | "Who are our top contributors by review volume?" | <img src="./assets/screenshots/livi-charts/05-engineers-who-are-our-top-contributors-by-review-v.png" width="320"/> |
+| Eng Manager | "How does each engineer trigger their reviews?" | <img src="./assets/screenshots/livi-charts/06-engineers-how-does-each-engineer-trigger-their-rev.png" width="320"/> |
+
+### Review Quality
+
+| Persona | Question to Livi | Chart |
+|---|---|---|
+| Eng Manager | "What are the most concerning issue types this quarter?" | <img src="./assets/screenshots/livi-charts/07-quality-what-are-the-most-concerning-issue-types.png" width="320"/> |
+| Eng Manager | "Are engineers actually incorporating reviews into their daily workflow?" | <img src="./assets/screenshots/livi-charts/08-quality-are-engineers-actually-incorporating-rev.png" width="320"/> |
+
+### Cost & Efficiency
+
+| Persona | Question to Livi | Chart |
+|---|---|---|
+| Exec | "How much does LiveReview cost us per day?" | <img src="./assets/screenshots/livi-charts/09-cost-how-much-does-livereview-cost-us-per-day.png" width="320"/> |
+| Product | "Which AI provider gives us the best value?" | <img src="./assets/screenshots/livi-charts/10-cost-which-ai-provider-gives-us-the-best-valu.png" width="320"/> |
+
+### Engagement & Trust
+
+| Persona | Question to Livi | Chart |
+|---|---|---|
+| Eng Manager | "Are people trusting the reviews LiveReview produces?" | <img src="./assets/screenshots/livi-charts/11-engagement-are-people-trusting-the-reviews-liverevi.png" width="320"/> |
+| Product | "Which engineers get the most value from LiveReview?" | <img src="./assets/screenshots/livi-charts/12-engagement-which-engineers-get-the-most-value-from-.png" width="320"/> |
+
+### Summary & Comparison
+
+| Persona | Question to Livi | Chart |
+|---|---|---|
+| Exec | "How does this week compare to last week?" | <img src="./assets/screenshots/livi-charts/13-summary-how-does-this-week-compare-to-last-week.png" width="320"/> |
+| Eng Manager | "What's the overall severity mix across all our findings?" | <img src="./assets/screenshots/livi-charts/14-summary-what-s-the-overall-severity-mix-across-a.png" width="320"/> |
+
+### Trace & Investigate
+
+| Persona | Question to Livi | Chart |
+|---|---|---|
+| Engineer | "Show me reviews connected to last week's production incident." | <img src="./assets/screenshots/livi-charts/15-trace-show-me-reviews-connected-to-last-week-s.png" width="320"/> |
+| Engineer | "Which files keep showing up with issues?" | <img src="./assets/screenshots/livi-charts/16-trace-which-files-keep-showing-up-with-issues.png" width="320"/> |
+
+*Charts above use illustrative sample data. Try the fully interactive version, with live chart drill-down, at [hexmos.com/livereview](https://hexmos.com/livereview/#data-backed-decisions).*
 
 ---
 
@@ -104,6 +200,10 @@ For teams needing external access and webhooks, follow the [Productionization Gu
 
 ### Track Engineering Excellence
 Quantify your team's improvement with comprehensive metrics. Track review times, code quality trends, and team velocity to demonstrate engineering value to stakeholders.
+
+<p align="center">
+   <img src="./assets/screenshots/progress_tracker.png" alt="LiveReview Progress Tracker" width="80%"/>
+</p>
 
 ### Pick Your AI: Gemini, OpenAI, or Self-Hosted Ollama
 Bring Your Own Key (BYOK) - Use Gemini, OpenAI, or any LLM provider of your choice. Maintain complete control over your AI usage and costs while leveraging the best models for your needs.
@@ -122,17 +222,37 @@ Works effortlessly with GitHub, GitLab, Bitbucket, Gitea. Connect your repositor
 ### View All AI Reviews in One Place
 Manage all your code reviews from a single, intuitive interface. Track review status, prioritize PRs, and monitor team activity with real-time updates.
 
+<p align="center">
+   <img src="./assets/screenshots/reviewlist.png" alt="LiveReview review list" width="80%"/>
+</p>
+
 ### Sharp AI-Generated Pull Request Summaries
 Get detailed, actionable summaries of every pull request. Understand changes at a glance with AI-generated insights that highlight key modifications, potential issues, and improvement suggestions.
+
+<p align="center">
+   <img src="./assets/screenshots/detailed_mr_summaries.png" alt="Detailed AI-generated MR/PR summaries" width="80%"/>
+</p>
 
 ### Ask AI for Clarification or Debate Code Changes
 Ask questions and get instant clarifications about code changes. The AI reviewer understands context and provides helpful explanations to speed up the review process.
 
+<p align="center">
+   <img src="./assets/screenshots/clarification_question.png" alt="Asking LiveReview's AI a clarification question in a merge request" width="80%"/>
+</p>
+
 ### Customize Review Prompts to Fit Your Team
 Tailor AI review behavior to match your team's coding standards and priorities. Create custom prompts that focus on what matters most to your organization. *(Team & Enterprise)*
 
+<p align="center">
+   <img src="./assets/screenshots/prompt_customization.png" alt="Customizing LiveReview's review prompts" width="80%"/>
+</p>
+
 ### Discuss with AI in MR and See it Learn Everyday
 Build an institutional knowledge base from code reviews. Capture best practices, common issues, and team learnings to continuously improve code quality. *(Team & Enterprise)*
+
+<p align="center">
+   <img src="./assets/screenshots/learnings_management.png" alt="Managing team learnings in LiveReview" width="80%"/>
+</p>
 
 ---
 
@@ -155,11 +275,19 @@ git commit -m "message"
    <img src="./assets/screenshots/lr_cli1.png" alt="LiveReview CLI showing inline findings" width="80%"/>
 </p>
 
+<p align="center">
+   <img src="./assets/screenshots/git-cli/01_hidden_cost_of_unread_code.png" alt="The hidden cost of unread code" width="80%"/>
+</p>
+
 **CLI Benefits:**
 - Review becomes part of git workflow, not an afterthought
-- Runs directly in your repo on uncommitted code
+- Runs directly in your repo on uncommitted code — before merge time, not after
 - Skips are explicit and tracked in commit history
 - Human oversight for AI-generated code
+
+<p align="center">
+   <img src="./assets/screenshots/git-cli/02_merge_time_vs_before_commit.png" alt="Reviewing before commit vs. at merge time" width="80%"/>
+</p>
 
 ### Quick Install
 
@@ -201,8 +329,6 @@ Integrate LiveReview natively into your favorite AI-powered IDEs and clients, in
 3. Navigate to API Keys
 4. Generate and copy a new API key
 
-
-
 ### Configuration
 
 Add the following block to your MCP client's configuration file:
@@ -231,7 +357,6 @@ Add the following block to your MCP client's configuration file:
 ```
 
 Replace `<YOUR_LIVEREVIEW_API_KEY>` with your actual LiveReview API key.
-
 
 ### What you can do
 
@@ -280,7 +405,7 @@ LiveReview offers three tiers for self-hosted deployments. **Community Edition i
 
 | Feature | Community (Free) | Team | Enterprise |
 |---------|:----------------:|:----:|:----------:|
-| AI Code Reviews | ✅ | ✅ | ✅ |
+| AI Code Reviews (with Blast-Radius scoring) | ✅ | ✅ | ✅ |
 | Git Provider Integration | ✅ | ✅ | ✅ |
 | AI Provider Configuration | ✅ | ✅ | ✅ |
 | Dashboard & Analytics | ✅ | ✅ | ✅ |
@@ -325,7 +450,7 @@ LiveReview offers three tiers for self-hosted deployments. **Community Edition i
 ### vs Building Your Own
 - **Ready Out-of-Box**: Skip months of development time
 - **Complex Integration Covered**: Code host APIs, webhooks, dashboards all handled
-- **AI Expertise Included**: Advanced prompt engineering and review logic included
+- **AI Expertise Included**: Advanced prompt engineering and review logic, including Blast-Radius scoring, included
 - **Ongoing Maintenance**: No need for ongoing MR/PR handling, user management
 - **Focus on Product**: Your team builds features, not infrastructure
 
@@ -389,6 +514,9 @@ Disable again:
 **How will LiveReview benefit our engineering organization?**
 LiveReview provides tangible improvements in code quality and delivery speed while generating meaningful metrics that demonstrate the value of your engineering investments. Teams typically see a 70% reduction in review time and up to 40% increase in velocity.
 
+**What is Blast-Radius scoring, exactly?**
+It's a per-hunk score built from call-graph reach, cross-package impact, persistent-state mutation, cyclomatic/cognitive complexity, and test coverage gaps. It tells you which parts of a diff can do the most damage if something's wrong, so reviewers spend their limited attention where it matters most. See [Blast-Radius Aware Review](#blast-radius) above.
+
 **Is my code secure with LiveReview?**
 Absolutely. With self-hosted deployment, all code stays within your infrastructure with no data sent to external servers. For teams preferring managed hosting, our [cloud version](https://hexmos.com/livereview/) uses industry-standard security practices and encryption.
 
@@ -415,7 +543,22 @@ LiveReview is distributed under a modified variant of **Sustainable Use License 
 For detailed terms, examples of permitted and prohibited uses, and definitions, see the full
 [LICENSE.md](LICENSE.md).
 
+---
 
+<a id="transformation-program"></a>
+## Want Hands-On Help Rolling This Out?
+
+Self-hosting gets you the tool. The **14-Day Transformation Program** gets your whole team — from execs to individual contributors — actually using it well: onboarding, workflow integration, and measurable before/after engineering metrics.
+
+<p align="center">
+   <a href="https://hexmos.com/livereview/transform/">
+      <img src="./assets/screenshots/transform/transformation-program-thumb.jpg" alt="The 14-Day Transformation Program" width="50%"/>
+   </a>
+</p>
+
+<p align="center">
+   <a href="https://hexmos.com/livereview/transform/"><b>Join the 14-Day Transformation Program →</b></a>
+</p>
 
 ---
 
