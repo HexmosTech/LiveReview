@@ -382,10 +382,6 @@ git lrc review --skip
 git commit -m "message"
 ```
 
-<p align="center">
-   <img src="./assets/screenshots/lr_cli1.png" alt="LiveReview CLI showing inline findings" width="80%"/>
-</p>
-
 **`git-lrc` (git commit hook):**
 - Git-native, works in any repo without a cloud platform connection
 - Skips tracked in git log, auditable, not silent
