@@ -99,28 +99,69 @@ Every commit git-lrc reviews gets checked against the same risk categories LiveR
 
 ### Outages — what takes down production, and impacts your on-call rotation
 
-| Category | What it costs you |
-|---|---|
-| **Reliability** | One dependency hiccup cascades into a full outage instead of degrading gracefully. |
-| **Correctness** | Wrong calculations ship to production and quietly produce incorrect invoices, prices, or reports. |
-| **Performance** | An unindexed query that's fine today locks up the database the moment you scale. |
-| **Scalability** | The app can't run on more than one instance, so growth means a rewrite. |
+**Reliability**
+- One dependency hiccup cascades into a full outage instead of degrading gracefully.
+- Missing retries turn brief network blips into failed payments, lost orders, and support tickets.
+- Requests hang forever, exhausting connections until the whole service grinds to a halt.
+- Leaked connections and file handles pile up until the server falls over at 2am.
+
+**Correctness**
+- Wrong calculations ship to production and quietly produce incorrect invoices, prices, or reports.
+- The 1% scenario nobody tested is the one your biggest customer hits first.
+- Parallel operations step on each other, causing duplicate charges or lost updates.
+- An unexpected null crashes the checkout flow at the worst possible moment.
+
+**Performance**
+- An unindexed query that's fine today locks up the database the moment you scale.
+- Code that's fast with 100 records grinds to a crawl with 100,000.
+- Memory leaks force daily restarts — and eventually an outage when nobody's watching.
+- Every request hits the database directly, so traffic spikes become outages.
+
+**Scalability**
+- The app can't run on more than one instance, so growth means a rewrite.
+- Two services disagree about reality, and nobody notices until the numbers don't add up.
+- Traffic piles onto one node while others sit idle, until that one node falls over.
+- One slow component caps the throughput of the entire system, no matter what else you scale.
 
 ### Breaches — what ends up in a disclosure letter, and a board meeting
 
-| Category | What it costs you |
-|---|---|
-| **Security** | A missing permission check lets any logged-in user act as an admin. |
-| **Compliance & Governance** | A missed requirement in GDPR, HIPAA, or SOC 2 becomes a finding in your next audit. |
+**Security**
+- A missing permission check lets any logged-in user act as an admin.
+- A hardcoded API key in source control is a breach waiting for someone to find it.
+- One unsanitized query away from an attacker reading your entire database.
+- A session that never expires is a credential an attacker can use forever.
+
+**Compliance & Governance**
+- Mishandled personal data turns a code review comment into a regulatory investigation.
+- A missed requirement in GDPR, HIPAA, or SOC 2 becomes a finding in your next audit.
+- An incompatible open-source license buried in a dependency can taint your entire codebase.
+- Unreviewed changes to production are how "small fixes" become headline incidents.
 
 ### Technical Debt — what slows every future release until someone pays it down
 
-| Category | What it costs you |
-|---|---|
-| **Maintainability** | Code only one person understands is a single point of failure with a name and a vacation schedule. |
-| **Architecture** | Tightly coupled services mean a change in one place breaks three others, unpredictably. |
-| **Developer Experience** | A flaky pipeline trains engineers to ignore failures — including the real ones. |
-| **Cost** | Unbounded prompts and retries can turn an AI feature into your biggest infrastructure cost. |
+**Maintainability**
+- Code only one person understands is a single point of failure with a name and a vacation schedule.
+- The same bug gets fixed in one of five copies — and reappears from the other four.
+- Debt that's never tracked never gets a budget, so it never gets paid down.
+- A config value hardcoded for staging quietly ships to production.
+
+**Architecture**
+- Tightly coupled services mean a change in one place breaks three others, unpredictably.
+- A monolith with no seams means every team is blocked by every other team's code.
+- Fuzzy service boundaries turn "add one feature" into "coordinate four teams."
+- A poorly designed API gets baked into every client — and outlives its own usefulness.
+
+**Developer Experience**
+- A flaky pipeline trains engineers to ignore failures — including the real ones.
+- No logs, no traces, no clue — incidents take hours instead of minutes to resolve.
+- A manual, fragile deploy process is where "routine release" becomes "incident."
+- Bad tooling doesn't just slow developers down — it pushes your best ones toward the door.
+
+**Cost**
+- Idle resources keep billing 24/7 whether anyone's using them or not.
+- Inefficient queries don't just slow things down — on managed databases, they show up on the invoice.
+- Forgotten integrations keep charging long after anyone remembers why they're there.
+- Unbounded prompts and retries can turn an AI feature into your biggest infrastructure cost.
 
 <a id="data-backed-decisions"></a>
 ## An AI Chatbot for Your Engineering Data
