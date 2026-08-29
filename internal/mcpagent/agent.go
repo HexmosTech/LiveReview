@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/livereview/internal/docindex"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/vlrender"
 	"github.com/rs/zerolog/log"
@@ -50,7 +51,6 @@ type Agent struct {
 	classifyPrompt string      // call #0's system prompt: shape instructions + tool NAMES only
 	actionPrompt   string      // call #1: identical in shape to the plain tool-only prompt
 	actionTools    []llms.Tool // call #1's tools (raw-row tools withheld, same as before the split)
-	chatPrompt     string      // persona/org header only, no tools, no schema
 	countQueryHead string      // header, precomputed from lawbook
 	countQueryTail string      // plan laws, precomputed from lawbook
 	// countQueryHead/Tail bracket dbctxTableText's output, which can only be
@@ -76,9 +76,21 @@ type Agent struct {
 	// interpretSystem is the fully rendered multi-interpret system prompt
 	// (self-contained, no schema splice — schema goes in the user message).
 	interpretSystem string
+	// productGuidancePrompt is the system prompt for the product_guidance
+	// branch: how-to and UI navigation questions answered from embedded
+	// lr_routes documentation rather than from SQL or tools.
+	productGuidancePrompt string
+	// docIndex is the vector index for product_guidance documentation RAG.
+	docIndex *docindex.Index
 	// chartTypes is the embedded chart_types.json content, passed in the
 	// user message alongside the dbctx schema context.
 	chartTypes string
+}
+
+// WithDocIndex sets the product guidance vector index for RAG retrieval.
+func (a *Agent) WithDocIndex(idx *docindex.Index) *Agent {
+	a.docIndex = idx
+	return a
 }
 
 func NewAgent(provider *Provider, mcpSession *MCPSession, maxSteps int) *Agent {
@@ -146,17 +158,18 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 	// runs when analytics is enabled - a plain tool-only agent keeps its
 	// single fixed prompt, byte-identical to before this split existed.
 	if a.analyticsEnabled() {
-		shape, err := a.classify(ctx, history, userText, clog)
+		res, err := a.classify(ctx, history, userText, clog)
+		shape := res.Shape
 		if err != nil {
-			log.Warn().Err(err).Msg("call #0 classify failed; degrading to chat-only response for this turn")
-			shape = shapeChat
+			log.Warn().Err(err).Msg("call #0 classify failed; degrading to product_guidance for this turn")
+			shape = shapeProductGuidance
 		}
 
-		if shape == shapeCountQuery {
+		if shape == shapeAnalytics {
 			// Multi-interpret pipeline (ported from prelivi Python script):
 			// single LLM call returns SQL + chart specs for up to 5
 			// interpretations. No plan→finalize two-step.
-			clog.BranchSelected("count_query", 0, 0)
+			clog.BranchSelected("analytics", 0, 0)
 			text, artifacts, debugArt, err := a.runMultiInterpret(ctx, userText, clog, a.mcpSession.OrgID, a.mcpSession.OrgName)
 			if err != nil {
 				return text, history, artifacts, debugArt, err
@@ -165,7 +178,20 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			return text, history, artifacts, debugArt, nil
 		}
 
-		// Action and chat branches use the existing step loop.
+		if shape == shapeUnclassified {
+			clog.BranchSelected("unclassified", 0, 0)
+			msg := strings.TrimSpace(res.Message)
+			if msg == "" {
+				msg = "Livi presently doesn't know how to answer this question, we will look into this.\n\nMeanwhile, you can ask questions of these types:"
+			}
+			history = append(history, HistoryEntry{"role": "assistant", "text": msg, "content": msg, "suggested_questions": res.SuggestedQuestions})
+			clog.FinalResponse(msg)
+			return msg, history, nil, nil, nil
+		}
+
+		// Action and product_guidance branches use the existing step loop.
+		// product_guidance is also the fallback for classify failures — it handles
+		// greetings, capability questions, and general conversational turns.
 		systemPrompt := a.systemPrompt
 		tools := a.providerTools
 		callNumber := 0
@@ -177,9 +203,30 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			systemPrompt = a.actionPrompt
 			tools = a.actionTools
 			callNumber = 1
-		default:
-			systemPrompt = a.chatPrompt
+		default: // shapeProductGuidance (and any future unknown shape)
+			systemPrompt = a.productGuidancePrompt
 			tools = nil
+
+			idx := a.docIndex
+			if idx == nil {
+				idx = docindex.GetGlobalIndex()
+			}
+			if idx != nil {
+				docs, err := idx.Query(ctx, userText, 3)
+				if err != nil {
+					log.Warn().Err(err).Msg("failed to query docindex for product_guidance")
+				} else if len(docs) > 0 {
+					var sb strings.Builder
+					var logParts []string
+					sb.WriteString("\n\n--- Relevant Product Documentation ---\n")
+					for _, d := range docs {
+						sb.WriteString(fmt.Sprintf("\n### %s\n%s\n", d.Title, d.Content))
+						logParts = append(logParts, fmt.Sprintf("id=%q title=%q score=%.3f", d.ID, d.Title, d.Score))
+					}
+					systemPrompt += sb.String()
+					clog.DocIndexRetrieved(len(docs), strings.Join(logParts, ", "))
+				}
+			}
 		}
 		clog.BranchSelected(string(shape), len(systemPrompt), len(tools))
 

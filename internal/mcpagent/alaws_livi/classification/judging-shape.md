@@ -11,8 +11,10 @@ a single number. Both look conversational and are not.
 
 <!-- alaws:laws -->
 
-1. Decide the shape by what answering the question honestly requires, not by its grammar. A question phrased as yes-or-no — whether adoption is rising, whether a repository has slowed — is `count_query` where only data can answer it. {#decide-the-shape-by-what}
+1. Decide the shape by what answering the question honestly requires, not by its grammar. A question phrased as yes-or-no — whether adoption is rising, whether a repository has slowed — is `analytics` where only data can answer it. {#decide-the-shape-by-what}
 
-2. Answer `count_query` even where the question's literal answer is a single number, because a number without a trend or a comparison around it is not an acceptable answer and only this route guarantees that framing. {#answer-count-query-even-where}
+2. Answer `analytics` even where the question's literal answer is a single number, because a number without a trend or a comparison around it is not an acceptable answer and only this route guarantees that framing. {#answer-analytics-even-where}
 
-3. A question about the organization's own configuration/settings is `action`, not ambiguous — see the Three Shapes chapter's `action` rule; do not apply this tie-break to override it. Action already produces a Vega-Lite chart for any countable data (see the Final Response Format chapter), so "count_query charts and action doesn't" is not a valid tie-break reason. For any other case genuinely ambiguous between `action` and `count_query`, prefer `action` when a single tool call answers it directly, and `count_query` only where the answer requires combining, filtering, or trending across records that no single tool call returns as-is. {#where-turn-is-genuinely-ambiguous}
+3. Inspecting or retrieving specific individual resources by ID (e.g. fetching a specific review by ID, user, connector, or setting) or triggering an action is `action`, not `analytics`. Prefer `action` whenever a single tool call (such as `GET_api_v1_reviews_id` or `POST_api_v1_connectors_trigger-review`) returns the requested resource directly, and reserve `analytics` for turns requiring aggregation, SQL analysis, trends, or multi-record metrics across time. {#where-turn-is-genuinely-ambiguous}
+
+4. General world knowledge, general trivia, off-topic questions, or requests completely unrelated to LiveReview software, repositories, or organizational settings are `unclassified`, not `product_guidance`. {#out-of-domain-questions-are-unclassified}

@@ -12,26 +12,38 @@ import (
 
 func TestParseClassifyShape(t *testing.T) {
 	cases := []struct {
-		name string
-		in   string
-		want classifyShape
-		ok   bool
+		name          string
+		in            string
+		want          classifyShape
+		wantMsg       string
+		wantQuestions int
+		ok            bool
 	}{
-		{"bare", `{"response":"action"}`, shapeAction, true},
-		{"fenced", "```json\n{\"response\": \"count_query\"}\n```", shapeCountQuery, true},
-		{"chat", `{"response":"chat"}`, shapeChat, true},
-		{"case insensitive", `{"response":"ACTION"}`, shapeAction, true},
-		{"whitespace", `  {"response":"chat"}  `, shapeChat, true},
-		{"unknown shape", `{"response":"delete_everything"}`, "", false},
-		{"not json", `sure, I can help with that`, "", false},
-		{"empty", ``, "", false},
-		{"missing field", `{}`, "", false},
+		{"bare", `{"response":"action"}`, shapeAction, "", 0, true},
+		{"analytics", "```json\n{\"response\": \"analytics\"}\n```", shapeAnalytics, "", 0, true},
+		{"product_guidance", `{"response":"product_guidance"}`, shapeProductGuidance, "", 0, true},
+		{"unclassified", `{"response":"unclassified"}`, shapeUnclassified, "", 0, true},
+		{"unclassified with questions", `{"response":"unclassified","message":"Livi presently doesn't know...","suggested_questions":[{"category":"Product Guidance","questions":["How to add connector?"]}]}`, shapeUnclassified, "Livi presently doesn't know...", 1, true},
+		{"case insensitive", `{"response":"ACTION"}`, shapeAction, "", 0, true},
+		{"whitespace", `  {"response":"product_guidance"}  `, shapeProductGuidance, "", 0, true},
+		{"unknown shape", `{"response":"delete_everything"}`, "", "", 0, false},
+		{"not json", `sure, I can help with that`, "", "", 0, false},
+		{"empty", ``, "", "", 0, false},
+		{"missing field", `{}`, "", "", 0, false},
+		// old name must no longer parse - renaming is a hard break
+		{"old count_query rejected", `{"response":"count_query"}`, "", "", 0, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got, ok := parseClassifyShape(c.in)
-			if ok != c.ok || got != c.want {
-				t.Errorf("parseClassifyShape(%q) = (%q, %v), want (%q, %v)", c.in, got, ok, c.want, c.ok)
+			if ok != c.ok || got.Shape != c.want {
+				t.Errorf("parseClassifyShape(%q) = (%q, %v), want (%q, %v)", c.in, got.Shape, ok, c.want, c.ok)
+			}
+			if c.wantMsg != "" && got.Message != c.wantMsg {
+				t.Errorf("got message %q, want %q", got.Message, c.wantMsg)
+			}
+			if c.wantQuestions > 0 && len(got.SuggestedQuestions) != c.wantQuestions {
+				t.Errorf("got %d suggested question categories, want %d", len(got.SuggestedQuestions), c.wantQuestions)
 			}
 		})
 	}
@@ -226,7 +238,7 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 		t.Fatalf("turn 2 (action call): expected tool schemas to be offered")
 	}
 
-	// --- Turn 3: count_query ---
+	// --- Turn 3: analytics ---
 	text, updated, _, _, err = agent.RunTurnWithArtifacts(context.Background(), history, "reviews per month?", "s1", "test")
 	if err != nil {
 		t.Fatalf("turn 3: %v", err)
@@ -237,16 +249,16 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 	history = updated
 	sys3, _ := history[0]["content"].(string)
 	if !strings.Contains(sys3, "PostgreSQL") {
-		t.Fatalf("turn 3 (count_query): expected the SQL rules in history[0], got: %q", sys3)
+		t.Fatalf("turn 3 (analytics): expected the SQL rules in history[0], got: %q", sys3)
 	}
 	if strings.Contains(sys3, "You have access to the following tools") {
-		t.Fatalf("turn 3 (count_query): system prompt leaked the general tool list: %q", sys3)
+		t.Fatalf("turn 3 (analytics): system prompt leaked the general tool list: %q", sys3)
 	}
 	if len(prov.toolsPerCall[5]) != 0 {
-		t.Fatalf("turn 3 (count_query call): expected no tools offered, got %d", len(prov.toolsPerCall[5]))
+		t.Fatalf("turn 3 (analytics call): expected no tools offered, got %d", len(prov.toolsPerCall[5]))
 	}
 	if sys3 == sys2 || sys3 == sys1 {
-		t.Fatalf("turn 3: system prompt was not swapped to the count_query branch")
+		t.Fatalf("turn 3: system prompt was not swapped to the analytics branch")
 	}
 
 	// The raw {"analytics_plan": [...]} JSON the model replied with for turn 3
@@ -317,7 +329,7 @@ func TestChatBranchRejectsFabricatedJSON(t *testing.T) {
 // (correctly rejects invalid JSON) and the safety net.
 func TestCountQueryBranchRejectsTruncatedJSON(t *testing.T) {
 	prov := &recordingProvider{replies: []string{
-		`{"response":"count_query"}`,
+		`{"response":"analytics"}`,
 		// Truncated mid-object: no closing quote, no closing brackets.
 		`{"analytics_plan": [{"id": "r1", "question": "q", "count_sql": "SELECT count(*) FROM reviews`,
 		"I could not work out a full query for that - try rephrasing it.",
@@ -339,8 +351,8 @@ func TestCountQueryBranchRejectsTruncatedJSON(t *testing.T) {
 func TestDispatchClassifyFailureDegradesToChat(t *testing.T) {
 	prov := &recordingProvider{replies: []string{
 		"I'm not sure what you mean, could you clarify?", // classify call attempt 1: not the {"response": ...} JSON it was told to return
-		"Still not sure what you mean.",                   // classify call attempt 2 (the one corrective retry): also unparseable
-		"Sure, I'm happy to help with that.",               // the degraded chat-branch call
+		"Still not sure what you mean.",                  // classify call attempt 2 (the one corrective retry): also unparseable
+		"Sure, I'm happy to help with that.",             // the degraded chat-branch call
 	}}
 	agent := dispatchTestAgent(prov)
 
