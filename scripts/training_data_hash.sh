@@ -7,15 +7,13 @@
 set -euo pipefail
 
 OUT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/ui/docs/training_data"
+DOCINDEX_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/internal/docindex/docs"
 
-if [ ! -d "$OUT_DIR" ]; then
-  echo "MISSING"
-  exit 0
-fi
-
-cd "$OUT_DIR"
-find . -type f -print0 \
-  | sort -z \
-  | xargs -0 sha256sum \
-  | sha256sum \
-  | cut -d' ' -f1
+(
+  if [ -d "$OUT_DIR" ]; then
+    cd "$OUT_DIR" && find . -type f -print0 | sort -z | xargs -0 sha256sum 2>/dev/null || true
+  fi
+  if [ -d "$DOCINDEX_DIR" ]; then
+    cd "$DOCINDEX_DIR" && find . -type f -print0 | sort -z | xargs -0 sha256sum 2>/dev/null || true
+  fi
+) | sha256sum | cut -d' ' -f1

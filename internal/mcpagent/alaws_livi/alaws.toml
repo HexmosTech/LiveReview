@@ -93,6 +93,8 @@ ordering = [
   "action/confirmation.md",
   "action/domain.md",
   "action/response-format.md",
+  "product-guidance.md",
+  "product-guidance/response.md",
 ]
 
 promptTemplates = [
@@ -102,4 +104,5 @@ promptTemplates = [
   "prompts/repair.md",
   "prompts/nodata.md",
   "prompts/interpret.md",
+  "prompts/product-guidance.md",
 ]

@@ -72,7 +72,6 @@ func (a *Agent) WithAnalytics(engine AnalyticsEngine) *Agent {
 
 	a.actionTools = a.provider.FormatTools(tools)
 	a.actionPrompt = buildSystemPrompt(tools, orgName, userName)
-	a.chatPrompt = buildPromptHeader(orgName, userName) + "\n\n" + chatOnlyInstructions
 
 	// Load the alaws lawbook and render the analytics-specific prompts
 	// from it. Each pipeline branch sees only the law sections relevant
@@ -103,6 +102,7 @@ func (a *Agent) WithAnalytics(engine AnalyticsEngine) *Agent {
 	a.noDataPrompt = lb.noData
 	a.describePrompt = lb.describe
 	a.interpretSystem = lb.interpretSystem
+	a.productGuidancePrompt = lb.productGuidance
 	a.chartTypes = lb.chartTypes
 
 	// Kept in sync for any caller still reading systemPrompt/providerTools

@@ -70,6 +70,31 @@ for name in "${!SOURCES[@]}"; do
   echo "    copied $count markdown file(s) to ${dest#$ROOT_DIR/}"
 done
 
+# Sync the 3 RAG corpus directories (routes_guide, lr_wiki, lrc_wiki) to internal/docindex/docs/
+DOCINDEX_DOCS="$ROOT_DIR/internal/docindex/docs"
+mkdir -p "$DOCINDEX_DOCS/routes_guide" "$DOCINDEX_DOCS/lr_wiki" "$DOCINDEX_DOCS/lrc_wiki"
+
+if [ -d "$OUT_DIR/livereview-wiki" ]; then
+  rm -rf "$DOCINDEX_DOCS/lr_wiki"/*
+  cp -r "$OUT_DIR/livereview-wiki/"* "$DOCINDEX_DOCS/lr_wiki/" 2>/dev/null || true
+fi
+if [ -f "$OUT_DIR/git-lrc/LRC_README.md" ]; then
+  rm -rf "$DOCINDEX_DOCS/lrc_wiki"/*
+  cp "$OUT_DIR/git-lrc/LRC_README.md" "$DOCINDEX_DOCS/lrc_wiki/LRC_README.md"
+fi
+
+# Sanitize non-ASCII hyphens (\u2010) and invalid characters for Go embed
+find "$DOCINDEX_DOCS" -type f -print0 | while IFS= read -r -d '' f; do
+  dir=$(dirname "$f")
+  base=$(basename "$f" | sed 's/‐/-/g; s/,//g')
+  if [ "$f" != "$dir/$base" ]; then
+    mv "$f" "$dir/$base"
+  fi
+done
+
+echo "==> Synced RAG corpus to internal/docindex/docs/ (routes_guide, lr_wiki, lrc_wiki)"
+
+
 # Single content hash for the whole training-data corpus (all sources plus
 # lr_routes/), so callers (e.g. the RAG indexer, or `make develop`) can
 # detect "did anything change" without diffing hundreds of files.
