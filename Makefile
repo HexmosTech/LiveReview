@@ -2,6 +2,7 @@
 .PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi prep-training-data check-training-data
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging
+.PHONY: dev dev-up dev-down dev-restart dev-status dev-attach
 
 # ============================================================================
 # Environment switching
@@ -103,7 +104,7 @@ OSV_SCANNER_CONFIG=osv-scanner.toml
 # run. Kept up to date automatically by that target (scripts/prep_training_data.sh
 # rewrites this line). `make check-training-data` compares it against the
 # corpus's current hash and re-runs prep-training-data when they diverge.
-TRAINING_DATA_HASH=b07421c6eb497d475ab5255ec2f5c101f5766140cbe0f773875c9c44fd0371b0
+TRAINING_DATA_HASH=86290644f8dd90a8fc4a951c099d0e2bf3e1e01e7a97ea96620d3a312b88e71f
 
 # Load environment variables from .env file
 -include .env
@@ -1295,3 +1296,27 @@ razorpay-verify-plans:
 
 razorpay-verify-plans-low-pricing:
 	@bash ./scripts/verify-razorpay-plans.sh $(DEPLOY_LOW_PRICING_ENV_FILE)
+
+# ============================================================================
+# Tmux dev environment (port of VS Code "start all")
+# ============================================================================
+
+dev dev-up:
+	@./dev up
+
+dev-down:
+	@./dev down
+
+# Usage: make dev-restart SVC=api   (or ui, worker, niceurl)
+dev-restart:
+	@if [ -z "$(SVC)" ]; then \
+		echo "Usage: make dev-restart SVC=<api|ui|worker|niceurl>"; \
+		exit 1; \
+	fi
+	@./dev restart $(SVC)
+
+dev-status:
+	@./dev status
+
+dev-attach:
+	@./dev attach
