@@ -416,8 +416,17 @@ No local setup needed. Paste a merge or pull request URL into LiveReview and it 
    <img src="./assets/screenshots/2026-08-29/03-new-review-slash-reviews-new.png" alt="Trigger a review by pasting a merge or pull request URL" width="80%"/>
 </p>
 
-<details>
-<summary>Show git-lrc in action (Issue Navigator, Summary Deck, Risk-Scored View)</summary>
+### git-lrc and claude-lrc in Action
+
+`git-lrc` and `claude-lrc` are the two CLI tools above, in motion. Both plug into the same LiveReview backend.
+
+**git-lrc catching real issues on commit:** leaked credentials, expensive cloud calls, and sensitive data in log statements, all flagged before the commit lands.
+
+https://github.com/user-attachments/assets/cc4aa598-a7e3-4a1d-998c-9f2ba4b4c66e
+
+**claude-lrc reviewing a diff inside Claude Code:** no separate terminal, no context switch, just a slash command or a plain-English request.
+
+https://github.com/user-attachments/assets/bff8595b-fcf0-47a2-b0af-859e6af656e3
 
 **Issue Navigator:** every finding, filterable by severity, category, and subcategory, with a one-click send to your AI agent.
 
@@ -442,6 +451,17 @@ No local setup needed. Paste a merge or pull request URL into LiveReview and it 
 <p align="center">
    <img src="./assets/screenshots/git-lrc/git-lrc-ui.png" alt="git-lrc connector management preview" width="80%"/>
 </p>
+
+<details>
+<summary>Show 2 more git-lrc videos (setup walkthrough, review UI walkthrough)</summary>
+
+**Setup, start to finish:** one command, two browser sign-ins (LiveReview API key, free Gemini API key), about a minute total.
+
+https://github.com/user-attachments/assets/392a4605-6e45-42ad-b2d9-6435312444b5
+
+**The review UI, end to end:** GitHub-style diff, inline AI comments with severity badges, staged file list, and the review summary, all in the browser window that opens after `git commit`.
+
+https://github.com/user-attachments/assets/b579d7c6-bdf6-458b-b446-006ca41fe47d
 
 </details>
 
