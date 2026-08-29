@@ -807,6 +807,50 @@ niceurl3:
 		-o ConnectionAttempts=3 \
 		-R 6545:localhost:8081 root@master -N
 
+niceurl4:
+	@command -v autossh >/dev/null 2>&1 || { \
+		echo "autossh is not installed. Install it with: sudo apt install autossh"; \
+		exit 1; \
+	}
+	@PIDS="$$(lsof -tiTCP:20003 -sTCP:LISTEN 2>/dev/null || true) $$(pgrep -f '^/usr/lib/autossh/autossh -M 20003 ' || true)"; \
+	PIDS="$$(printf '%s\n' $$PIDS | tr ' ' '\n' | awk 'NF' | sort -u | tr '\n' ' ')"; \
+	if [ -n "$$PIDS" ]; then \
+		echo "Stopping existing local autossh/ssh for niceurl4: $$PIDS"; \
+		kill -9 $$PIDS || true; \
+	fi
+	@ssh root@master "PID=\$$( netstat -tulpn | grep :6546 | awk '{print \$$7}' | cut -d/ -f1 | head -n 1); [ -n \"\$$PID\" ] && kill -9 \$$PID || true" || true
+	@echo "Starting autossh reverse tunnel on remote port 6546 -> localhost:8081"
+	@AUTOSSH_GATETIME=0 AUTOSSH_POLL=60 AUTOSSH_FIRST_POLL=30 AUTOSSH_LOGLEVEL=6 autossh -M 20003 \
+		-o ServerAliveInterval=30 \
+		-o ServerAliveCountMax=3 \
+		-o TCPKeepAlive=yes \
+		-o ExitOnForwardFailure=yes \
+		-o ConnectTimeout=10 \
+		-o ConnectionAttempts=3 \
+		-R 6546:localhost:8081 root@master -N
+
+niceurl5:
+	@command -v autossh >/dev/null 2>&1 || { \
+		echo "autossh is not installed. Install it with: sudo apt install autossh"; \
+		exit 1; \
+	}
+	@PIDS="$$(lsof -tiTCP:20004 -sTCP:LISTEN 2>/dev/null || true) $$(pgrep -f '^/usr/lib/autossh/autossh -M 20004 ' || true)"; \
+	PIDS="$$(printf '%s\n' $$PIDS | tr ' ' '\n' | awk 'NF' | sort -u | tr '\n' ' ')"; \
+	if [ -n "$$PIDS" ]; then \
+		echo "Stopping existing local autossh/ssh for niceurl5: $$PIDS"; \
+		kill -9 $$PIDS || true; \
+	fi
+	@ssh root@master "PID=\$$( netstat -tulpn | grep :6547 | awk '{print \$$7}' | cut -d/ -f1 | head -n 1); [ -n \"\$$PID\" ] && kill -9 \$$PID || true" || true
+	@echo "Starting autossh reverse tunnel on remote port 6547 -> localhost:8081"
+	@AUTOSSH_GATETIME=0 AUTOSSH_POLL=60 AUTOSSH_FIRST_POLL=30 AUTOSSH_LOGLEVEL=6 autossh -M 20004 \
+		-o ServerAliveInterval=30 \
+		-o ServerAliveCountMax=3 \
+		-o TCPKeepAlive=yes \
+		-o ExitOnForwardFailure=yes \
+		-o ConnectTimeout=10 \
+		-o ConnectionAttempts=3 \
+		-R 6547:localhost:8081 root@master -N
+
 build-with-ui:
 	@echo "🔨 Building for PRODUCTION deployment (is_cloud=true)"
 	@if [ ! -f .env.prod ]; then \
