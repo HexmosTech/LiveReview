@@ -174,7 +174,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			if err != nil {
 				return text, history, artifacts, debugArt, err
 			}
-			history = append(history, HistoryEntry{"role": "assistant", "text": text})
+			history = append(history, HistoryEntry{"role": "assistant", "content": text, "text": text})
 			return text, history, artifacts, debugArt, nil
 		}
 
@@ -299,7 +299,7 @@ func (a *Agent) runStepLoop(
 		log.Debug().Int("step", step).Int("response_len", len(response)).Msg("LLM call succeeded")
 		clog.AIResponse(callNumber, step, aiElapsed, usage.InputTokens, usage.OutputTokens, response)
 
-		history = append(history, HistoryEntry{"role": "assistant", "text": response})
+		history = append(history, HistoryEntry{"role": "assistant", "content": response, "text": response})
 
 		toolCalls := parseToolCalls(response)
 		if len(toolCalls) == 0 {

@@ -34,11 +34,11 @@ whose shape cannot be determined is routed to `unclassified`.
 
 2. Use one of the four literal tokens `action`, `analytics`, `product_guidance` or `unclassified` as the value of `response`, and never substitute a descriptive phrase such as "data question" or "conversation". {#use-one-of-the-three}
 
-3. Answer `action` where the user wants an action executed (triggering a review, creating a learning, updating settings) or wants to view specific resource details (individual reviews by ID, connectors, providers, integrations, quota, learnings, keys). Any request to execute an operation, trigger a workflow, or inspect specific resources by ID or name that a single tool call returns is `action`. {#answer-action-where-the-user}
+3. Answer `action` for any request to execute an operation (triggering a review, creating/updating learnings, settings) or to view/list current system setup and configuration (e.g. "list the git providers I have", "show active connectors", "list AI providers", "show API keys", "quota status", or details of a review by ID). Any query asking to list or inspect current setup state that a single REST tool call returns MUST be classified as `action` (never `analytics` or `product_guidance`). {#answer-action-where-the-user}
 
-4. Answer `analytics` where answering the question requires counting, grouping, ranking, comparing or trending across many records. {#answer-analytics-where-answering}
+4. Reserve `analytics` strictly for queries requiring SQL database analysis, counting, grouping, ranking, or historical trend analysis across review activity records over time (e.g. "how many reviews were completed this week?", "review trends over time"). Never classify a request to list current setup, git/AI providers, connectors, or settings as `analytics`. {#answer-analytics-where-answering}
 
-5. Answer `product_guidance` for LiveReview how-to questions: questions about how to use LiveReview (navigation, feature discovery, workflow explanations, meaning of terms), greetings, questions about what Livi can do, requests for clarification, and how to use the `lrc` CLI. {#answer-product-guidance-for-everything-else}
+5. Answer `product_guidance` for how-to and instructional questions asking how to use LiveReview (e.g. "how to trigger a review?", "how do I invite a member?", "where are settings configured?"), feature explanations, UI navigation, greetings, questions about Livi's capabilities, and `lrc` CLI usage. {#answer-product-guidance-for-everything-else}
 
 6. Do not attempt the work of the stage it is routing to, and do not answer the user's question in this reply. {#do-not-attempt-the-work}
 
