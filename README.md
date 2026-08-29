@@ -2,7 +2,6 @@
 
 <a href="https://github.com/HexmosTech/LiveReview/actions/workflows/gitleaks.yml" target="_blank" rel="noopener noreferrer"><img alt="gitleaks.yml" title="gitleaks.yml: Secret scanning workflow" src="https://github.com/HexmosTech/LiveReview/actions/workflows/gitleaks.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/osv-scanner.yml" target="_blank" rel="noopener noreferrer"><img alt="osv-scanner.yml" title="osv-scanner.yml: Dependency vulnerability scan" src="https://github.com/HexmosTech/LiveReview/actions/workflows/osv-scanner.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/govulncheck.yml" target="_blank" rel="noopener noreferrer"><img alt="govulncheck.yml" title="govulncheck.yml: Go vulnerability check" src="https://github.com/HexmosTech/LiveReview/actions/workflows/govulncheck.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/semgrep.yml" target="_blank" rel="noopener noreferrer"><img alt="semgrep.yml" title="semgrep.yml: Static analysis security scan" src="https://github.com/HexmosTech/LiveReview/actions/workflows/semgrep.yml/badge.svg"></a>&nbsp;<img alt="dependabot-enabled" title="dependabot-enabled: Automated dependency updates are enabled" src="./assets/gfx/dependabot-enabled.svg">&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/mcp-testcases.yml" target="_blank" rel="noopener noreferrer"><img alt="mcp-testcases.yml" title="mcp-testcases.yml: MCP integration test suite" src="https://github.com/HexmosTech/LiveReview/actions/workflows/mcp-testcases.yml/badge.svg"></a>
 
-
 # Blast-Radius Aware AI Code Review for Business-Critical Systems
 
 Your team's attention is limited. Spend review effort where **business risk is highest** — not spread evenly across every diff.
@@ -19,8 +18,6 @@ https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
    <b>Self-Host for Free:</b> <a href="#quick-start">Get Started in 5 Minutes</a><br/>
    <i>Want a guided rollout?</i> <a href="#transformation-program">Join the 14-Day Transformation Program</a>
 </p>
-
----
 
 ## What Do You Need?
 
@@ -42,8 +39,6 @@ https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 | See how LiveReview stacks up vs Copilot / CodeRabbit / SonarQube / Claude Code | [Comparisons](#comparisons) |
 | Understand LiveReview's security posture | [Security](#security) |
 | Get hands-on help rolling this out to my team | [14-Day Transformation Program](#transformation-program) |
-
----
 
 <a id="quick-start"></a>
 ## Quick Start — Self-Hosted, Free to Start
@@ -80,16 +75,18 @@ For teams needing external access and webhooks, follow the [Productionization Gu
 | **Configuration** | Zero config required | Reverse proxy setup needed |
 | **Perfect for** | Development, testing, demos | Teams, production deployments |
 
----
-
 <a id="org-wide-harness"></a>
 ## Enforce Your Standards on Every Line of AI-Generated Code
 
-Activate checks at the levels that matter to you — mix and match enforcement per repository.
+Activate checks at the levels that matter to you — mix and match enforcement per repository. AI writes code faster than any human can review it by hand; LiveReview gives you a checkpoint at every stage where that code could reach production.
 
-**Commit · Before Push · MR / PR · CI / CD · Scheduled Checks**
-
----
+| Stage | What happens |
+|---|---|
+| **Commit** | `git lrc review` runs against your staged changes before the commit is even made — right in your terminal, no context switch. |
+| **Before Push** | Catch issues one last time before code leaves your machine. Skips are explicit (`git lrc review --skip`) and stay auditable in git log — nothing slips through silently. |
+| **MR / PR** | Full AI review posts directly as comments on the pull/merge request, with a Blast Radius and Review Priority score on every hunk, across GitHub, GitLab, Bitbucket, Gitea, and Azure DevOps. |
+| **CI / CD** | In production deployments, webhook-triggered reviews run automatically on every push, so merges can be gated on review completion instead of relying on someone remembering to ask for one. |
+| **Scheduled Checks** | Periodic sweeps across your repositories catch drift and emerging hotspots even on code nobody has recently touched. |
 
 <a id="impact-report"></a>
 ## Prevent Outages, Breaches, and Technical Debt Before They Happen
@@ -100,13 +97,30 @@ Every commit git-lrc reviews gets checked against the same risk categories LiveR
 |:---:|:---:|:---:|
 | Risk Categories | Failure Patterns Tracked | Scanned Automatically |
 
-| Pillar | What it costs you | Categories checked |
-|---|---|---|
-| **Outages** | What takes down production — and impacts your on-call rotation | Reliability, Correctness, Performance, Scalability |
-| **Breaches** | What ends up in a disclosure letter — and a board meeting | Security, Compliance & Governance |
-| **Technical Debt** | What slows every future release until someone pays it down | Maintainability, Architecture |
+### Outages — what takes down production, and impacts your on-call rotation
 
----
+| Category | What it costs you |
+|---|---|
+| **Reliability** | One dependency hiccup cascades into a full outage instead of degrading gracefully. |
+| **Correctness** | Wrong calculations ship to production and quietly produce incorrect invoices, prices, or reports. |
+| **Performance** | An unindexed query that's fine today locks up the database the moment you scale. |
+| **Scalability** | The app can't run on more than one instance, so growth means a rewrite. |
+
+### Breaches — what ends up in a disclosure letter, and a board meeting
+
+| Category | What it costs you |
+|---|---|
+| **Security** | A missing permission check lets any logged-in user act as an admin. |
+| **Compliance & Governance** | A missed requirement in GDPR, HIPAA, or SOC 2 becomes a finding in your next audit. |
+
+### Technical Debt — what slows every future release until someone pays it down
+
+| Category | What it costs you |
+|---|---|
+| **Maintainability** | Code only one person understands is a single point of failure with a name and a vacation schedule. |
+| **Architecture** | Tightly coupled services mean a change in one place breaks three others, unpredictably. |
+| **Developer Experience** | A flaky pipeline trains engineers to ignore failures — including the real ones. |
+| **Cost** | Unbounded prompts and retries can turn an AI feature into your biggest infrastructure cost. |
 
 <a id="data-backed-decisions"></a>
 ## An AI Chatbot for Your Engineering Data
@@ -175,8 +189,6 @@ Below is a sample of the kind of questions different roles ask Livi, rendered fr
 
 *Charts above use illustrative sample data. Try the fully interactive version, with live chart drill-down, at [hexmos.com/livereview](https://hexmos.com/livereview/#data-backed-decisions).*
 
----
-
 <a id="why-livereview"></a>
 ## Why LiveReview
 
@@ -185,8 +197,6 @@ Below is a sample of the kind of questions different roles ask Livi, rendered fr
 - **Accelerate Delivery Cycles** — Reduce PR review time from hours to minutes, enabling your team to ship features faster and with greater confidence
 - **Save Senior Engineering Time** — Liberate senior developers from routine reviews, allowing them to focus on mentorship and high-impact architectural work
 - **Drive Quality Excellence** — Build a culture of quality with metrics that highlight improvements in code standards, reduced defects, and development efficiency
-
----
 
 <a id="features"></a>
 ## Powerful Features for Modern Engineering Teams
@@ -254,8 +264,6 @@ Ask questions and get instant clarifications about code changes. The AI reviewer
    <img src="./assets/screenshots/clarification_question.png" alt="Asking LiveReview's AI a clarification question in a merge request" width="80%"/>
 </p>
 
----
-
 <a id="cli"></a>
 ## Two CLI Tools. One LiveReview Backend.
 
@@ -297,8 +305,6 @@ curl -fsSL https://hexmos.com/lrc-install.sh | bash
 iwr -useb https://hexmos.com/lrc-install.ps1 | iex
 ```
 
----
-
 <a id="ide-extensions"></a>
 ## IDE Extensions
 
@@ -309,8 +315,6 @@ Get instant AI code reviews without leaving your editor. Available for VSCode, C
 | **VSCode** | [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=Hexmos.livereview) |
 | **Cursor** | [Open VSX Registry](https://open-vsx.org/extension/hexmos/livereview) |
 | **Antigravity** | [Open VSX Registry](https://open-vsx.org/extension/hexmos/livereview) |
-
----
 
 <a id="mcp-server"></a>
 ## Get Actionable Engineering Intelligence with MCP and APIs
@@ -391,8 +395,6 @@ Once connected to the MCP server, you can ask your assistant to interact with Li
 | `get_api_v1_connectors` | List configured Git connectors | *"List our configured Git connectors"* |
 | `get_api_v1_aiconnectors` | List configured AI provider connections | *"Which AI providers are currently active?"* |
 
----
-
 <a id="repository-rules"></a>
 ## Enforce Your Team's Engineering Standards with Repository Rules
 
@@ -416,8 +418,6 @@ A good reviewer doesn't just know your language and framework — it knows *your
 | **Policies** *(coming soon)* | Decide which tools and checks are allowed to run on this repo. Machine-readable settings that LiveReview reads directly — never sent to the AI model. |
 | **Static Checks** *(coming soon)* | Pair AI review with static analyzers like semgrep and eslint, authorized through policy and run as part of the same commit-time flow. |
 
----
-
 <a id="adaptive-reviews"></a>
 ## Cut AI Review Costs by 50% Without Compromising Quality
 
@@ -429,8 +429,6 @@ A good reviewer doesn't just know your language and framework — it knows *your
 | **Double Review Volume** | Review up to 2x more code with the same budget — no need to constantly monitor limits. |
 | **Leader + Helper Architecture** | The Leader Model is solely dedicated to finding complex issues; the Helper Model expands those findings into detailed explanations. |
 | **Maintain Review Quality** | Because issue detection is still driven by the high-end Leader Model, there's no degradation in accuracy. |
-
----
 
 <a id="self-hosted-tiers"></a>
 ## Pricing & Enterprise
@@ -456,8 +454,6 @@ Custom deployments, SSO integration, dedicated AI keys, and priority SLA support
 
 [Get a Self-Hosted License](https://hexmos.com/livereview/selfhosted-access/) · [Explore Self-Hosted Enterprise](https://hexmos.com/livereview/enterprise-selfhosted)
 
----
-
 <a id="comparisons"></a>
 ## How LiveReview Compares
 
@@ -476,15 +472,11 @@ Claude Code is token-metered, so a few complex reviews can create costs that are
 ### vs Cursor / Antigravity in-editor review
 In-editor review from tools like Cursor and Antigravity is only visible to the individual using them, which makes it hard to enforce common code quality standards when team members use different IDEs. Because LiveReview operates at the git level, it works regardless of which IDE your team uses, and it automatically triggers analysis during commits — catching buggy or non-production-ready code before it gets pushed, with organization-wide visibility into what was found.
 
----
-
 ## Full Documentation
 
 Visit the [Wiki](https://github.com/HexmosTech/LiveReview/wiki) for complete documentation:
 
 <a href="https://github.com/HexmosTech/LiveReview/wiki"><img src="./assets/screenshots/wikiview.png" width="80%"></a>
-
----
 
 <a id="security"></a>
 ## Security
@@ -549,8 +541,6 @@ Disable again:
 
 - Set `ENABLE_SECURITY_WORKFLOWS=false` or remove the variable.
 
----
-
 ## FAQ
 
 **What is Blast-Radius scoring, exactly?**
@@ -571,8 +561,6 @@ When you run a review, LiveReview only sends the diff to the AI model — nothin
 **What's the difference between self-hosting this repo and the cloud version?**
 This repository is the self-hosted product itself — Docker-based, running entirely on your infrastructure. The [cloud version](https://hexmos.com/livereview/) is the same review engine as a managed service, so you don't have to run the stack yourself.
 
----
-
 ## License
 
 LiveReview is distributed under a modified variant of **Sustainable Use License (SUL)**.
@@ -591,8 +579,6 @@ LiveReview is distributed under a modified variant of **Sustainable Use License 
 For detailed terms, examples of permitted and prohibited uses, and definitions, see the full
 [LICENSE.md](LICENSE.md).
 
----
-
 <a id="transformation-program"></a>
 ## Want Hands-On Help Rolling This Out?
 
@@ -607,8 +593,6 @@ Self-hosting gets you the tool. The **14-Day Transformation Program** gets your 
 <p align="center">
    <a href="https://hexmos.com/livereview/transform/"><b>Join the 14-Day Transformation Program →</b></a>
 </p>
-
----
 
 <p align="center">
    <b>Self-Host:</b> <a href="#quick-start">Get Started Free</a> | 
