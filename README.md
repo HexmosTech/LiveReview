@@ -527,7 +527,7 @@ LiveReview's pricing tracks **reviewed workload, not headcount**:
 |---|---|---|
 | **Individual** (Free) | Free (30k LOC/month) | Bring your own AI keys, unlimited projects, git-native CLI (`git-lrc`), dedicated VS Code extension |
 | **Premium** | From $32/month for 100k LOC, scaling to $1024/month for 3.2M LOC | Unlimited team members, AI-generated review summaries, custom review prompts, engineering insights dashboard, full API access |
-| **Enterprise** | Contact us | Multiple organizations, self-hosted deployment, SSO/SAML & directory sync, custom domain, full data privacy |
+| **Enterprise** | [Contact us](https://hexmos.com/livereview?modal=start-free) | Multiple organizations, self-hosted deployment, SSO/SAML & directory sync, custom domain, full data privacy |
 
 LOC (Lines of Code) means the code shown in the reviewed diff, not your total repository size. Paid plans keep users unlimited, so cost tracks reviewed workload, not seats.
 
