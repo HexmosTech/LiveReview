@@ -1,6 +1,6 @@
 # LiveReview Licence Enforcement & Management – Execution Checklist
 
-This checklist converts the specification in `licence-enforcement-and-management.md` into concrete, incremental phases. Each task references target files and the nature of changes. Execute phases in order. Do not skip verification gates.
+This checklist converts the specification in `entitlement-enforcement-and-management.md` into concrete, incremental phases. Each task references target files and the nature of changes. Execute phases in order. Do not skip verification gates.
 
 Legend:
 - (N) new file

@@ -1188,7 +1188,7 @@ Files to be modified:
    - `ui/e2e/deployment-modes.spec.ts` - E2E validation tests (NEW)
 
 4. **Documentation:**
-   - `docs/subscription-licence-shift.md` - This file
+   - `docs/subscription-entitlement-shift.md` - This file
    - `README.md` - Update deployment instructions
    - `docs/API.md` - Document new JWT claims
 
