@@ -52,12 +52,13 @@ type WebChatChart struct {
 }
 
 type WebChatResponse struct {
-	Response       string          `json:"response"`
-	Charts         []WebChatChart  `json:"charts,omitempty"`
-	Files          []WebChatFile   `json:"files,omitempty"`
-	DebugArtifacts json.RawMessage `json:"debug_artifacts,omitempty"`
-	SessionID      string          `json:"sessionId,omitempty"`
-	ConversationID int64           `json:"conversationId"`
+	Response           string                            `json:"response"`
+	Charts             []WebChatChart                    `json:"charts,omitempty"`
+	Files              []WebChatFile                     `json:"files,omitempty"`
+	SuggestedQuestions []mcpagent.SuggestedQuestionCategory `json:"suggested_questions,omitempty"`
+	DebugArtifacts     json.RawMessage                   `json:"debug_artifacts,omitempty"`
+	SessionID          string                            `json:"sessionId,omitempty"`
+	ConversationID     int64                             `json:"conversationId"`
 }
 
 // analyticsRoleFor maps permissions onto the SQL catalog's roles. Super admins
@@ -229,6 +230,21 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		Response:       responseText,
 		SessionID:      sessionID,
 		ConversationID: convID,
+	}
+
+	for _, entry := range turnEntries {
+		if sq, ok := entry["suggested_questions"].([]mcpagent.SuggestedQuestionCategory); ok && len(sq) > 0 {
+			resp.SuggestedQuestions = sq
+			break
+		} else if rawSq, ok := entry["suggested_questions"]; ok && rawSq != nil {
+			if b, err := json.Marshal(rawSq); err == nil {
+				var sq []mcpagent.SuggestedQuestionCategory
+				if err := json.Unmarshal(b, &sq); err == nil && len(sq) > 0 {
+					resp.SuggestedQuestions = sq
+					break
+				}
+			}
+		}
 	}
 
 	if vlrender.HasVegaLiteSpec(responseText) {

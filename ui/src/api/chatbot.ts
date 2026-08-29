@@ -129,10 +129,16 @@ export interface ChatFile {
   rows?: number;
 }
 
+export interface SuggestedQuestionCategory {
+  category: string;
+  questions: string[];
+}
+
 export interface ChatResponse {
   response: string;
   charts?: ChatChart[];
   files?: ChatFile[];
+  suggested_questions?: SuggestedQuestionCategory[];
   debug_artifacts?: unknown;
   sessionId?: string;
   conversationId: number;

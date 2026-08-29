@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { View } from 'vega';
-import { sendChatMessage, ChatFile, ChatChart, ChartContext } from '../../api/chatbot';
+import { sendChatMessage, ChatFile, ChatChart, ChartContext, SuggestedQuestionCategory } from '../../api/chatbot';
 import { basePathForSurface, createConversation, getConversation, type ChatSurface } from '../../api/chatConversations';
 import { BASE_URL, authFetch } from '../../api/apiClient';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -105,6 +105,7 @@ interface ChatEntry {
   text: string;
   charts?: ChatChart[];
   files?: ChatFile[];
+  suggestedQuestions?: SuggestedQuestionCategory[];
   debugArtifacts?: DebugArtifacts | null;
 }
 
@@ -741,6 +742,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         text: m.content,
         charts: m.charts && m.charts.length > 0 ? m.charts : undefined,
         files: m.files && m.files.length > 0 ? m.files : undefined,
+        suggestedQuestions: m.suggested_questions,
         debugArtifacts: m.debug_artifacts as DebugArtifacts | undefined,
       })),
     );
@@ -783,6 +785,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         text: result.response,
         charts: result.charts && result.charts.length > 0 ? result.charts : undefined,
         files: result.files && result.files.length > 0 ? result.files : undefined,
+        suggestedQuestions: result.suggested_questions,
         debugArtifacts: result.debug_artifacts as DebugArtifacts | undefined,
       };
       setMessages((prev) => [...prev, assistantEntry]);
@@ -811,6 +814,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
             content: entry.text,
             charts: entry.charts,
             files: entry.files,
+            suggested_questions: entry.suggestedQuestions,
             debug_artifacts: entry.debugArtifacts,
           })),
         });
@@ -1264,6 +1268,29 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                       {msg.text && (
                         <div className={`${(msg.charts && msg.charts.length > 0) || (msg.files && msg.files.length > 0) ? 'mt-6' : ''} text-base leading-snug whitespace-pre-wrap break-words text-slate-200`}>
                           {formatText(msg.text)}
+                        </div>
+                      )}
+                      {msg.suggestedQuestions && msg.suggestedQuestions.length > 0 && (
+                        <div className="mt-4 space-y-4">
+                          {msg.suggestedQuestions.map((cat: SuggestedQuestionCategory, catIdx: number) => (
+                            <div key={catIdx} className="space-y-2">
+                              <h4 className="text-sm font-semibold text-indigo-400">{cat.category}</h4>
+                              <div className="flex flex-wrap gap-2">
+                                {cat.questions.map((q: string, qIdx: number) => (
+                                  <button
+                                    key={qIdx}
+                                    onClick={() => {
+                                      setInput(q);
+                                      inputRef.current?.focus();
+                                    }}
+                                    className="text-left text-sm bg-slate-800/80 hover:bg-slate-700 border border-slate-700/80 hover:border-indigo-500 text-slate-200 px-3.5 py-2 rounded-lg transition-all cursor-pointer shadow-sm hover:shadow-indigo-500/10"
+                                  >
+                                    {q}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       )}
                       {/* Debug artifacts trigger - chat_debug surface only, opens a dialog instead of an inline dump. */}
