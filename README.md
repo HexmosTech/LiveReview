@@ -97,71 +97,61 @@ Every commit git-lrc reviews gets checked against the same risk categories LiveR
 |:---:|:---:|:---:|
 | Risk Categories | Failure Patterns Tracked | Scanned Automatically |
 
-### Outages — what takes down production, and impacts your on-call rotation
+### 🔥 Outages — what takes down production, and impacts your on-call rotation
 
-**Reliability**
-- One dependency hiccup cascades into a full outage instead of degrading gracefully.
-- Missing retries turn brief network blips into failed payments, lost orders, and support tickets.
-- Requests hang forever, exhausting connections until the whole service grinds to a halt.
-- Leaked connections and file handles pile up until the server falls over at 2am.
+| Reliability *(10 risks)* | Correctness *(10 risks)* | Performance *(10 risks)* | Scalability *(10 risks)* |
+|---|---|---|---|
+| Error Handling | Logic Errors | Database Efficiency | Horizontal Scaling |
+| Fault Tolerance | Edge Cases | Algorithmic Complexity | Vertical Scaling |
+| Retry Logic | Data Validation | Memory Usage | Distributed Systems |
+| Timeout Management | State Management | CPU Utilization | Load Balancing |
+| Resilience Patterns | Concurrency Bugs | Network Efficiency | Capacity Planning |
+| Availability Risks | Business Rule Violations | Caching | Bottleneck Risks |
+| Data Integrity | Numerical Accuracy | Concurrency | Concurrency Limits |
+| Race Conditions | Null Handling | Resource Contention | Service Growth Constraints |
+| Resource Cleanup | Type Safety | Rendering Performance | Database Scaling |
+| Failure Recovery | API Contract Violations | Startup Performance | Queue Backpressure |
 
-**Correctness**
-- Wrong calculations ship to production and quietly produce incorrect invoices, prices, or reports.
-- The 1% scenario nobody tested is the one your biggest customer hits first.
-- Parallel operations step on each other, causing duplicate charges or lost updates.
-- An unexpected null crashes the checkout flow at the worst possible moment.
+> **Correctness → Business Rule Violations**
+> A discount, limit, or policy nobody approved gets applied automatically, at scale.
 
-**Performance**
-- An unindexed query that's fine today locks up the database the moment you scale.
-- Code that's fast with 100 records grinds to a crawl with 100,000.
-- Memory leaks force daily restarts — and eventually an outage when nobody's watching.
-- Every request hits the database directly, so traffic spikes become outages.
+### 🛡️ Breaches — what ends up in a disclosure letter, and a board meeting
 
-**Scalability**
-- The app can't run on more than one instance, so growth means a rewrite.
-- Two services disagree about reality, and nobody notices until the numbers don't add up.
-- Traffic piles onto one node while others sit idle, until that one node falls over.
-- One slow component caps the throughput of the entire system, no matter what else you scale.
+| Security *(10 risks)* | Compliance & Governance *(10 risks)* |
+|---|---|
+| Authentication | Privacy |
+| Authorization | Regulatory Compliance |
+| Secrets Management | Auditability |
+| Input Validation | Data Retention |
+| Injection Vulnerabilities | Data Residency |
+| Cryptography | Licensing |
+| Dependency Vulnerabilities | Policy Enforcement |
+| Data Exposure | Access Controls |
+| Session Management | Change Management |
+| Security Logging & Auditing | Governance Standards |
 
-### Breaches — what ends up in a disclosure letter, and a board meeting
+> **Security → Authentication**
+> A weak login flow is an open door — and attackers check every door.
 
-**Security**
-- A missing permission check lets any logged-in user act as an admin.
-- A hardcoded API key in source control is a breach waiting for someone to find it.
-- One unsanitized query away from an attacker reading your entire database.
-- A session that never expires is a credential an attacker can use forever.
+### 🧱 Technical Debt — what slows every future release until someone pays it down
 
-**Compliance & Governance**
-- Mishandled personal data turns a code review comment into a regulatory investigation.
-- A missed requirement in GDPR, HIPAA, or SOC 2 becomes a finding in your next audit.
-- An incompatible open-source license buried in a dependency can taint your entire codebase.
-- Unreviewed changes to production are how "small fixes" become headline incidents.
+| Maintainability *(12 risks)* | Architecture *(10 risks)* | Developer Experience *(12 risks)* | Cost *(10 risks)* |
+|---|---|---|---|
+| Code Complexity | Separation of Concerns | Testing | Cloud Resource Waste |
+| Readability | Modularity | CI/CD | Infrastructure Overprovisioning |
+| Documentation | Coupling | Build System | Storage Optimization |
+| Code Duplication | Cohesion | Local Development | Database Cost Optimization |
+| Dead Code | Layering Violations | Debuggability | Excessive API Usage |
+| Naming Quality | Dependency Management | Observability | Third-Party Service Costs |
+| Testability | Service Boundaries | Deployment Process | Redundant Computation |
+| Technical Debt | Domain Modeling | Automation | LLM Token Consumption |
+| Refactoring Opportunities | API Design | Developer Tooling | Caching Opportunities |
+| Configuration Management | Extensibility | Documentation Quality | Data Transfer Costs |
+| UI/UX | | UI/UX | |
+| Accessibility | | Accessibility | |
 
-### Technical Debt — what slows every future release until someone pays it down
-
-**Maintainability**
-- Code only one person understands is a single point of failure with a name and a vacation schedule.
-- The same bug gets fixed in one of five copies — and reappears from the other four.
-- Debt that's never tracked never gets a budget, so it never gets paid down.
-- A config value hardcoded for staging quietly ships to production.
-
-**Architecture**
-- Tightly coupled services mean a change in one place breaks three others, unpredictably.
-- A monolith with no seams means every team is blocked by every other team's code.
-- Fuzzy service boundaries turn "add one feature" into "coordinate four teams."
-- A poorly designed API gets baked into every client — and outlives its own usefulness.
-
-**Developer Experience**
-- A flaky pipeline trains engineers to ignore failures — including the real ones.
-- No logs, no traces, no clue — incidents take hours instead of minutes to resolve.
-- A manual, fragile deploy process is where "routine release" becomes "incident."
-- Bad tooling doesn't just slow developers down — it pushes your best ones toward the door.
-
-**Cost**
-- Idle resources keep billing 24/7 whether anyone's using them or not.
-- Inefficient queries don't just slow things down — on managed databases, they show up on the invoice.
-- Forgotten integrations keep charging long after anyone remembers why they're there.
-- Unbounded prompts and retries can turn an AI feature into your biggest infrastructure cost.
+> **Maintainability → Code Complexity**
+> Code only one person understands is a single point of failure with a name and a vacation schedule.
 
 <a id="data-backed-decisions"></a>
 ## An AI Chatbot for Your Engineering Data
