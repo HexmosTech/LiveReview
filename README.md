@@ -4,7 +4,7 @@
 
 # LiveReview: Blast-Radius Aware AI Code Review for Business-Critical Systems
 
-Your team's attention is limited. Spend it where **business risk is highest**, not spread evenly across every diff.
+LiveReview is an AI code reviewer that scores every hunk of a diff by **blast radius**: how far a change reaches through your call graph, how much persistent state it touches, and how well-tested it is. A 3-line change to a shared auth check can outrank a 300-line UI tweak. Your team's attention goes to the highest-risk code first, not spread evenly across every diff.
 
 https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 
@@ -98,7 +98,7 @@ For teams needing external access and webhooks, follow the [Productionization Gu
 | **Perfect for** | Development, testing, demos | Teams, production deployments |
 
 <a id="org-wide-harness"></a>
-## Enforce Your Standards on Every Line of AI-Generated Code
+## Org-Wide Harness: Enforce Your Standards on Every Line of AI-Generated Code
 
 AI writes code faster than any human can review it by hand. LiveReview gives you a checkpoint at every stage where that code could reach production. Turn on the stages that matter to you, per repository.
 
@@ -199,7 +199,7 @@ Every commit git-lrc reviews gets checked against the same risk categories LiveR
 </details>
 
 <a id="data-backed-decisions"></a>
-## An AI Chatbot for Your Engineering Data
+## Data-Backed Decisions: An AI Chatbot for Your Engineering Data
 
 Ask **Livi** a product, engineering, or ops question in plain English. Livi answers with a chart pulled straight from your organization's own data. No dashboards to build, no SQL to write.
 
@@ -279,9 +279,14 @@ Below is a sample of the questions different roles ask Livi. Each chart uses the
 <a id="why-livereview"></a>
 ## Why LiveReview
 
-### Why Engineering Teams Love LiveReview
+Most AI review tools flag style nits and treat every line the same. LiveReview is built around two things most tools skip:
 
-- **Accelerate Delivery Cycles**: Cut PR review time from hours to minutes. Ship features faster, with more confidence.
+- **Blast-Radius scoring**: every hunk is ranked by how much of the system it can actually break, so reviewers spend their limited time on the change that could take down production, not the one that renamed a variable.
+- **A named taxonomy of 104 failure patterns** across Reliability, Correctness, Security, Compliance, Maintainability, and Cost (see [Prevent Outages, Breaches, and Technical Debt](#impact-report)), checked on every commit, not just at PR time.
+
+That combination is what leads teams to keep it turned on:
+
+- **Accelerate Delivery Cycles**: Cut PR review time from hours to minutes, because reviewers see what matters first instead of reading top to bottom.
 - **Save Senior Engineering Time**: Free senior developers from routine reviews. Let them focus on mentorship and high-impact architecture work.
 - **Drive Quality Excellence**: Track metrics that show improvements in code standards, fewer defects, and better development efficiency.
 
@@ -292,8 +297,8 @@ Below is a sample of the questions different roles ask Livi. Each chart uses the
    <img src="./assets/screenshots/2026-08-29/04-menu-actions.png" alt="LiveReview navigation: Reviews, Explore, Providers, Reports, Settings" width="80%"/>
 </p>
 
-### Track Engineering Excellence
-Quantify your team's improvement with comprehensive metrics. Track review times, code quality trends, and team velocity to demonstrate engineering value to stakeholders.
+### Review Pipeline and Issue Distribution Charts
+See where reviews get stuck (Sankey flow from open to merged) and where issues cluster by category (treemap), pulled from your own review history.
 
 | Review pipeline, at a glance | Issue distribution by category |
 |:---:|:---:|
@@ -307,7 +312,7 @@ LiveReview comes with its own fine-tuned AI model, ready from day one. Prefer yo
 </p>
 
 ### Use Any Git Provider: GitHub, GitLab, Bitbucket, Gitea, Azure DevOps
-Works effortlessly with GitHub, GitLab, Bitbucket, Gitea, Azure DevOps. Connect your repositories in minutes and start receiving AI-powered code reviews across all your projects.
+Connect a repository from GitHub, GitLab, Bitbucket, Gitea, or Azure DevOps, and LiveReview reviews it the same way, with the same Blast Radius scoring.
 
 <p align="center">
    <img src="./assets/screenshots/2026-08-29/12-git-providers-slash-git.png" alt="Git Provider Integration" width="80%"/>
@@ -324,42 +329,42 @@ Browse every repository and merge or pull request LiveReview can see, in one lis
 <summary>Show 6 more features (review list, progress tracking, custom prompts, team learnings, PR summaries, AI clarification)</summary>
 
 ### View All AI Reviews in One Place
-Manage all your code reviews from a single, intuitive interface. Track review status, prioritize PRs, and monitor team activity with real-time updates.
+See every review's status, from queued to complete, and jump straight into the ones that need attention.
 
 <p align="center">
    <img src="./assets/screenshots/2026-08-29/06-list-reviews-slash-reviews.png" alt="LiveReview review list" width="80%"/>
 </p>
 
-### Look Under the Hood with Detailed Progress Tracking
-Monitor review progress in real-time. Track which files have been reviewed, identify bottlenecks, and ensure nothing falls through the cracks.
+### Track Which Files Are Reviewed, Live
+Watch a review work through your diff file by file, so you know exactly what's covered and what's still queued.
 
 <p align="center">
    <img src="./assets/screenshots/progress_tracker.png" alt="LiveReview Progress Tracker" width="80%"/>
 </p>
 
 ### Customize Review Prompts to Fit Your Team
-Tailor AI review behavior to match your team's coding standards and priorities. Create custom prompts that focus on what matters most to your organization. *(Premium & Enterprise)*
+Write custom prompts so the AI reviewer enforces your team's own coding standards and priorities, not generic defaults. *(Premium & Enterprise)*
 
 <p align="center">
    <img src="./assets/screenshots/prompt_customization.png" alt="Customizing LiveReview's review prompts" width="80%"/>
 </p>
 
 ### Discuss with AI in MR and See it Learn Everyday
-Build an institutional knowledge base from code reviews. Capture best practices, common issues, and team learnings to continuously improve code quality.
+Every discussion in a merge request becomes a stored "learning": a best practice, a recurring issue, or a team convention the AI applies to every future review.
 
 <p align="center">
    <img src="./assets/screenshots/learnings_management.png" alt="Managing team learnings in LiveReview" width="80%"/>
 </p>
 
 ### Sharp AI-Generated Pull Request Summaries
-Get a detailed, actionable summary of every pull request. See changes at a glance: key modifications, potential issues, and suggested improvements.
+Every pull request gets a summary of what changed, why it matters, and what risks were flagged, so reviewers don't have to read the whole diff to know where to look.
 
 <p align="center">
    <img src="./assets/screenshots/detailed_mr_summaries.png" alt="Detailed AI-generated MR/PR summaries" width="80%"/>
 </p>
 
 ### Ask AI for Clarification or Debate Code Changes
-Ask questions and get instant clarifications about code changes. The AI reviewer understands context and provides helpful explanations to speed up the review process.
+Reply to any AI comment in the merge request to ask why it flagged something, or push back on it. The AI has the full diff context, not just the one line it commented on.
 
 <p align="center">
    <img src="./assets/screenshots/clarification_question.png" alt="Asking LiveReview's AI a clarification question in a merge request" width="80%"/>
@@ -589,7 +594,7 @@ A good reviewer knows your language and framework. A great reviewer also knows *
 | **Static Checks** *(coming soon)* | Pair AI review with static analyzers like semgrep and eslint. Authorized through policy, run as part of the same commit-time flow. |
 
 <a id="adaptive-reviews"></a>
-## Cut AI Review Costs by 50% Without Compromising Quality
+## Adaptive Reviews: Cut AI Review Costs by 50% Without Compromising Quality
 
 **Adaptive Reviews** uses two AI models instead of one: a powerful Leader Model finds complex issues, and a cost-efficient Helper Model explains them. Same review quality, at half the price.
 
@@ -631,20 +636,20 @@ Custom deployments, SSO integration, dedicated AI keys, and priority SLA support
 
 | | LiveReview | CodeRabbit |
 |---|---|---|
-| **Pricing model** | Free up to 30k LOC/month, then fixed LOC bands ($32 for 100k, up to $1024 for 3.2M) | Per-seat pricing |
-| **Cost as team grows** | Stays flat; tracks reviewed workload, not headcount | Rises with headcount, even if workload does not |
-| **Rate limits** | None per developer | Hourly rate limits per developer per repository |
 | **Source code** | Source-available, browse the full codebase and scan reports on GitHub | Closed source |
 | **Enforcement point** | Git level, same for every editor and OS | Varies by integration |
+| **Rate limits** | None per developer | Hourly rate limits per developer per repository |
+| **Pricing model** | Free up to 30k LOC/month, then fixed LOC bands ($32 for 100k, up to $1024 for 3.2M) | Per-seat pricing |
+| **Cost as team grows** | Stays flat; tracks reviewed workload, not headcount | Rises with headcount, even if workload does not |
 
 ### vs GitHub Copilot Code Review
 
 | | LiveReview | GitHub Copilot |
 |---|---|---|
-| **Pricing model** | Tracks reviewed LOC, not seats | Caps premium requests at 300 on the Pro plan |
-| **Users and projects** | Unlimited, inside your monthly LOC quota | Limited by plan tier |
 | **Git provider support** | GitHub, GitLab, Bitbucket, Gitea, Azure DevOps | GitHub only |
 | **Setup for other providers** | None needed, works out of the box | Requires a separate product |
+| **Pricing model** | Tracks reviewed LOC, not seats | Caps premium requests at 300 on the Pro plan |
+| **Users and projects** | Unlimited, inside your monthly LOC quota | Limited by plan tier |
 
 <details>
 <summary>Show more comparisons (SonarQube, Claude Code, Cursor / Antigravity)</summary>
@@ -660,9 +665,9 @@ Custom deployments, SSO integration, dedicated AI keys, and priority SLA support
 
 | | LiveReview | Claude Code |
 |---|---|---|
-| **Pricing model** | LOC-based, predictable, tied to reviewed code | Token-metered; a few complex reviews can create hard-to-forecast costs |
-| **Source and data** | Source-available, self-hostable on Enterprise, data stays on your network | Closed product; sends your source code to Anthropic's cloud |
 | **Intended use** | Enforces standards org-wide, at the git level, across GitHub, GitLab, Gitea, Bitbucket, and Azure DevOps | CLI tool built for individual developers on specific tasks |
+| **Source and data** | Source-available, self-hostable on Enterprise, data stays on your network | Closed product; sends your source code to Anthropic's cloud |
+| **Pricing model** | LOC-based, predictable, tied to reviewed code | Token-metered; a few complex reviews can create hard-to-forecast costs |
 
 ### vs Cursor / Antigravity in-editor review
 
@@ -704,7 +709,7 @@ Yes. An SBOM is automatically generated on every release using Syft and publishe
 **Is LiveReview SOC 2 Type II certified?**
 Not at this time. The full security documentation, scan history, SBOM, and source code are all public. Enterprise buyers can review them directly and see the product's security posture for themselves.
 
-For complete details, see [SECURITY.md](SECURITY.md).
+For complete details, see [SECURITY.md](SECURITY.md). For pricing, LOC, and general product questions, see the [FAQ](#faq) below.
 
 ### Security Scans
 
@@ -740,6 +745,7 @@ Disable again:
 
 - Set `ENABLE_SECURITY_WORKFLOWS=false` or remove the variable.
 
+<a id="faq"></a>
 ## FAQ
 
 **What is Blast-Radius scoring, exactly?**
