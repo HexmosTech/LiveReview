@@ -110,6 +110,10 @@ AI writes code faster than any human can review it by hand. LiveReview gives you
 | **CI / CD** | In production deployments, a webhook triggers a review on every push. Merges can wait on review completion instead of relying on someone to ask for one. |
 | **Scheduled Checks** | Periodic sweeps scan your repositories for drift and new hotspots, even in code nobody has touched recently. |
 
+<p align="center">
+   <img src="./assets/screenshots/2026-08-29/08-scheduled-reviews-slash-reviews-scheduled.png" alt="Scheduled Reviews: turn on periodic sweeps per repository, see the schedule and last run" width="80%"/>
+</p>
+
 <a id="impact-report"></a>
 ## Prevent Outages, Breaches, and Technical Debt Before They Happen
 
@@ -118,6 +122,10 @@ Every commit git-lrc reviews gets checked against the same risk categories LiveR
 | 10 | 100+ | Every Commit |
 |:---:|:---:|:---:|
 | Risk Categories | Failure Patterns Tracked | Scanned Automatically |
+
+<p align="center">
+   <img src="./assets/screenshots/2026-08-29/13-impact-report-slash-reports.png" alt="Impact Report: findings filtered by severity, confidence, type, category, and subcategory" width="80%"/>
+</p>
 
 ### 🔥 Outages: what takes down production, and impacts your on-call rotation
 
@@ -197,6 +205,12 @@ Ask **Livi** a product, engineering, or ops question in plain English. Livi answ
 
 > Every engineering decision becomes more data-backed, so you can act with confidence instead of guesswork.
 
+The same 7 categories also power a one-click **Onboarding Report**, exportable as HTML or PDF, with real charts pulled from your own review history:
+
+<p align="center">
+   <img src="./assets/screenshots/2026-08-29/14-onboarding-report-slash-reports-onboarding.png" alt="Onboarding Report: 57 charts across 7 sections, generated from real review history" width="80%"/>
+</p>
+
 Below is a sample of the questions different roles ask Livi. Each chart uses the same specs as the interactive demo on the live site.
 
 ### Adoption & Growth
@@ -275,11 +289,15 @@ Below is a sample of the questions different roles ask Livi. Each chart uses the
 ## Powerful Features for Modern Engineering Teams
 
 <p align="center">
-   <img src="./assets/screenshots/dashboard.png" alt="LiveReview Dashboard" width="80%"/>
+   <img src="./assets/screenshots/2026-08-29/04-menu-actions.png" alt="LiveReview navigation: Reviews, Explore, Providers, Reports, Settings" width="80%"/>
 </p>
 
 ### Track Engineering Excellence
 Quantify your team's improvement with comprehensive metrics. Track review times, code quality trends, and team velocity to demonstrate engineering value to stakeholders.
+
+| Review pipeline, at a glance | Issue distribution by category |
+|:---:|:---:|
+| <img src="./assets/screenshots/2026-08-29/01-dashboard-sankey-slash.png" width="380"/> | <img src="./assets/screenshots/2026-08-29/02-dashboard-treemap-slash.png" width="380"/> |
 
 ### Fine-Tuned LiveReview AI Model
 LiveReview comes with its own fine-tuned AI model, ready from day one. Prefer your own provider? Bring your own key (BYOK) for Gemini, OpenAI, AWS Bedrock, a self-hosted Ollama model, or any other LLM.
@@ -292,14 +310,24 @@ LiveReview comes with its own fine-tuned AI model, ready from day one. Prefer yo
 Works effortlessly with GitHub, GitLab, Bitbucket, Gitea, Azure DevOps. Connect your repositories in minutes and start receiving AI-powered code reviews across all your projects.
 
 <p align="center">
-   <img src="./assets/screenshots/git_providers.png" alt="Git Provider Integration" width="80%"/>
+   <img src="./assets/screenshots/2026-08-29/12-git-providers-slash-git.png" alt="Git Provider Integration" width="80%"/>
 </p>
+
+### Explore Every Repository and Pull Request, Across Every Provider
+Browse every repository and merge or pull request LiveReview can see, in one list, no matter which git provider it lives on. Trigger a review straight from that list.
+
+| Every connected repository | Every merge/pull request |
+|:---:|:---:|
+| <img src="./assets/screenshots/2026-08-29/10-explore-slash-explore-repositories.png" width="380"/> | <img src="./assets/screenshots/2026-08-29/11-explore-slash-merge-requests.png" width="380"/> |
+
+<details>
+<summary>Show 6 more features (review list, progress tracking, custom prompts, team learnings, PR summaries, AI clarification)</summary>
 
 ### View All AI Reviews in One Place
 Manage all your code reviews from a single, intuitive interface. Track review status, prioritize PRs, and monitor team activity with real-time updates.
 
 <p align="center">
-   <img src="./assets/screenshots/reviewlist.png" alt="LiveReview review list" width="80%"/>
+   <img src="./assets/screenshots/2026-08-29/06-list-reviews-slash-reviews.png" alt="LiveReview review list" width="80%"/>
 </p>
 
 ### Look Under the Hood with Detailed Progress Tracking
@@ -308,9 +336,6 @@ Monitor review progress in real-time. Track which files have been reviewed, iden
 <p align="center">
    <img src="./assets/screenshots/progress_tracker.png" alt="LiveReview Progress Tracker" width="80%"/>
 </p>
-
-<details>
-<summary>Show 4 more features (custom prompts, team learnings, PR summaries, AI clarification)</summary>
 
 ### Customize Review Prompts to Fit Your Team
 Tailor AI review behavior to match your team's coding standards and priorities. Create custom prompts that focus on what matters most to your organization. *(Premium & Enterprise)*
@@ -383,6 +408,43 @@ curl -fsSL https://hexmos.com/lrc-install.sh | bash
 iwr -useb https://hexmos.com/lrc-install.ps1 | iex
 ```
 
+### Prefer the Web UI? Paste a URL Instead
+
+No local setup needed. Paste a merge or pull request URL into LiveReview and it runs the same review, with the same Blast Radius scoring.
+
+<p align="center">
+   <img src="./assets/screenshots/2026-08-29/03-new-review-slash-reviews-new.png" alt="Trigger a review by pasting a merge or pull request URL" width="80%"/>
+</p>
+
+<details>
+<summary>Show git-lrc in action (Issue Navigator, Summary Deck, Risk-Scored View)</summary>
+
+**Issue Navigator:** every finding, filterable by severity, category, and subcategory, with a one-click send to your AI agent.
+
+<p align="center">
+   <img src="./assets/screenshots/git-lrc/issue-navigator.gif" alt="Issue Navigator: browse review comments by risk category, severity, and area" width="80%"/>
+</p>
+
+**Summary Deck:** a 60-second slide summary of what changed, why, and what risks were flagged, generated automatically for every review.
+
+<p align="center">
+   <img src="./assets/screenshots/git-lrc/summary-deck.gif" alt="Summary Deck: a 60-second slide summary of what changed and why" width="80%"/>
+</p>
+
+**Risk-Scored View:** every hunk ranked by blast radius and customer-impact potential, with the full signal breakdown behind each score.
+
+| Score badge, with breakdown | Whole diff, ranked by risk |
+|:---:|:---:|
+| <img src="./assets/screenshots/git-lrc/risk-scored-view-1.png" width="380"/> | <img src="./assets/screenshots/git-lrc/risk-scored-view-2.png" width="380"/> |
+
+**Connector management:** switch AI providers, or reorder them to set review priority, from one screen.
+
+<p align="center">
+   <img src="./assets/screenshots/git-lrc/git-lrc-ui.png" alt="git-lrc connector management preview" width="80%"/>
+</p>
+
+</details>
+
 <a id="ide-extensions"></a>
 ## IDE Extensions
 
@@ -410,6 +472,10 @@ Every code review LiveReview performs adds to a growing source of **engineering 
 2. Click on Settings
 3. Navigate to API Keys
 4. Generate and copy a new API key
+
+<p align="center">
+   <img src="./assets/screenshots/2026-08-29/15-api-keys-slash-settings-api-keys.png" alt="Settings > API Keys: generate and manage keys for the lrc CLI and MCP server" width="80%"/>
+</p>
 
 ### Configuration
 
