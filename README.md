@@ -21,23 +21,45 @@ https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 
 ## What Do You Need?
 
+**🚀 Get Started**
+
 | I want to... | Go to |
 |---|---|
 | Try LiveReview free in under 5 minutes | [Quick Start](#quick-start) |
 | Understand Blast-Radius scoring | [above ↑](#blast-radius-aware-ai-code-review-for-business-critical-systems) |
 | Enforce checks at commit / push / PR / CI | [Org-Wide Harness](#org-wide-harness) |
+
+**📊 See the Product In Action**
+
+| I want to... | Go to |
+|---|---|
 | See what risks LiveReview actually catches | [Prevent Outages, Breaches & Technical Debt](#impact-report) |
 | See what LiveReview's analytics can tell my team | [Data-Backed Decisions](#data-backed-decisions) |
 | Understand how LiveReview differs from other tools | [Why LiveReview](#why-livereview) |
 | See the full feature set | [Features](#features) |
+
+**🔌 Integrate LiveReview**
+
+| I want to... | Go to |
+|---|---|
 | Wire reviews into every commit | [Git-Native CLI](#cli) |
 | Review code without leaving my editor | [IDE Extensions](#ide-extensions) |
 | Connect LiveReview to Claude, Cursor, or Windsurf | [MCP Server](#mcp-server) |
 | Enforce my team's own coding standards | [Repository Rules](#repository-rules) |
 | Cut AI review costs in half | [Adaptive Reviews](#adaptive-reviews) |
+
+**💰 Pricing & Trust**
+
+| I want to... | Go to |
+|---|---|
 | Compare pricing plans | [Pricing & Enterprise](#self-hosted-tiers) |
 | See how LiveReview stacks up vs Copilot / CodeRabbit / SonarQube / Claude Code | [Comparisons](#comparisons) |
 | Understand LiveReview's security posture | [Security](#security) |
+
+**🤝 Get Hands-On Help**
+
+| I want to... | Go to |
+|---|---|
 | Get hands-on help rolling this out to my team | [14-Day Transformation Program](#transformation-program) |
 
 <a id="quick-start"></a>
@@ -58,7 +80,7 @@ curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh
 - Docker (with `docker-compose` or `docker compose`)
 - `jq`
 
-You'll need a **Free Licence** to get started — follow the guide [here](https://github.com/HexmosTech/LiveReview/wiki/Get-a-LiveReview-Licence).
+You'll need a **Free Licence** to get started — follow the guide [here](https://hexmos.com/livereview/docs/livereview/self-hosted/get-a-livereview-licence/).
 
 **Access your installation:**
 - Web UI: http://localhost:8081/
@@ -66,7 +88,7 @@ You'll need a **Free Licence** to get started — follow the guide [here](https:
 
 ### Production Deployment
 
-For teams needing external access and webhooks, follow the [Productionization Guide](https://github.com/HexmosTech/LiveReview/wiki/Productionize-LiveReview).
+For teams needing external access and webhooks, follow the [Productionization Guide](https://hexmos.com/livereview/docs/livereview/self-hosted/productionize-livereview/).
 
 | Feature | Demo Mode | Production Mode |
 |---------|-----------|-----------------|
@@ -99,6 +121,12 @@ Every commit git-lrc reviews gets checked against the same risk categories LiveR
 
 ### 🔥 Outages — what takes down production, and impacts your on-call rotation
 
+> **Correctness → Business Rule Violations**
+> A discount, limit, or policy nobody approved gets applied automatically, at scale.
+
+<details>
+<summary>Show all 40 tracked risks (Reliability, Correctness, Performance, Scalability)</summary>
+
 | Reliability *(10 risks)* | Correctness *(10 risks)* | Performance *(10 risks)* | Scalability *(10 risks)* |
 |---|---|---|---|
 | Error Handling | Logic Errors | Database Efficiency | Horizontal Scaling |
@@ -112,10 +140,15 @@ Every commit git-lrc reviews gets checked against the same risk categories LiveR
 | Resource Cleanup | Type Safety | Rendering Performance | Database Scaling |
 | Failure Recovery | API Contract Violations | Startup Performance | Queue Backpressure |
 
-> **Correctness → Business Rule Violations**
-> A discount, limit, or policy nobody approved gets applied automatically, at scale.
+</details>
 
 ### 🛡️ Breaches — what ends up in a disclosure letter, and a board meeting
+
+> **Security → Authentication**
+> A weak login flow is an open door — and attackers check every door.
+
+<details>
+<summary>Show all 20 tracked risks (Security, Compliance & Governance)</summary>
 
 | Security *(10 risks)* | Compliance & Governance *(10 risks)* |
 |---|---|
@@ -130,10 +163,15 @@ Every commit git-lrc reviews gets checked against the same risk categories LiveR
 | Session Management | Change Management |
 | Security Logging & Auditing | Governance Standards |
 
-> **Security → Authentication**
-> A weak login flow is an open door — and attackers check every door.
+</details>
 
 ### 🧱 Technical Debt — what slows every future release until someone pays it down
+
+> **Maintainability → Code Complexity**
+> Code only one person understands is a single point of failure with a name and a vacation schedule.
+
+<details>
+<summary>Show all 44 tracked risks (Maintainability, Architecture, Developer Experience, Cost)</summary>
 
 | Maintainability *(12 risks)* | Architecture *(10 risks)* | Developer Experience *(12 risks)* | Cost *(10 risks)* |
 |---|---|---|---|
@@ -150,8 +188,7 @@ Every commit git-lrc reviews gets checked against the same risk categories LiveR
 | UI/UX | | UI/UX | |
 | Accessibility | | Accessibility | |
 
-> **Maintainability → Code Complexity**
-> Code only one person understands is a single point of failure with a name and a vacation schedule.
+</details>
 
 <a id="data-backed-decisions"></a>
 ## An AI Chatbot for Your Engineering Data
@@ -175,6 +212,9 @@ Below is a sample of the kind of questions different roles ask Livi, rendered fr
 |---|---|---|
 | Product | "Which repos are gaining or losing engineering velocity?" | <img src="./assets/screenshots/livi-charts/03-repos-which-repos-are-gaining-or-losing-engine.png" width="320"/> |
 | Product | "How much code are we reviewing in each repository?" | <img src="./assets/screenshots/livi-charts/04-repos-how-much-code-are-we-reviewing-in-each-r.png" width="320"/> |
+
+<details>
+<summary>Show 12 more examples (Engineer Analysis, Review Quality, Cost & Efficiency, Engagement & Trust, Summary & Comparison, Trace & Investigate)</summary>
 
 ### Engineer Analysis
 
@@ -217,6 +257,8 @@ Below is a sample of the kind of questions different roles ask Livi, rendered fr
 |---|---|---|
 | Engineer | "Show me reviews connected to last week's production incident." | <img src="./assets/screenshots/livi-charts/15-trace-show-me-reviews-connected-to-last-week-s.png" width="320"/> |
 | Engineer | "Which files keep showing up with issues?" | <img src="./assets/screenshots/livi-charts/16-trace-which-files-keep-showing-up-with-issues.png" width="320"/> |
+
+</details>
 
 *Charts above use illustrative sample data. Try the fully interactive version, with live chart drill-down, at [hexmos.com/livereview](https://hexmos.com/livereview/#data-backed-decisions).*
 
@@ -267,6 +309,9 @@ Monitor review progress in real-time. Track which files have been reviewed, iden
    <img src="./assets/screenshots/progress_tracker.png" alt="LiveReview Progress Tracker" width="80%"/>
 </p>
 
+<details>
+<summary>Show 4 more features (custom prompts, team learnings, PR summaries, AI clarification)</summary>
+
 ### Customize Review Prompts to Fit Your Team
 Tailor AI review behavior to match your team's coding standards and priorities. Create custom prompts that focus on what matters most to your organization. *(Premium & Enterprise)*
 
@@ -294,6 +339,8 @@ Ask questions and get instant clarifications about code changes. The AI reviewer
 <p align="center">
    <img src="./assets/screenshots/clarification_question.png" alt="Asking LiveReview's AI a clarification question in a merge request" width="80%"/>
 </p>
+
+</details>
 
 <a id="cli"></a>
 ## Two CLI Tools. One LiveReview Backend.
@@ -400,6 +447,9 @@ Once connected to the MCP server, you can ask your assistant to interact with Li
 | `get_api_v1_reviews_id_summary` | Get the AI summary and insights for a specific review | *"Summarize the review ID xyz"* |
 | `get_api_v1_reviews_id_accounting` | Get the token and LOC accounting for a review | *"Show the token usage for review ID xyz"* |
 
+<details>
+<summary>Show all MCP tools (Learnings & Prompts, Billing & Quotas, Integrations)</summary>
+
 #### Learnings & Prompts
 | Tool | Description | Example Prompt |
 |------|-------------|----------------|
@@ -425,6 +475,8 @@ Once connected to the MCP server, you can ask your assistant to interact with Li
 |------|-------------|----------------|
 | `get_api_v1_connectors` | List configured Git connectors | *"List our configured Git connectors"* |
 | `get_api_v1_aiconnectors` | List configured AI provider connections | *"Which AI providers are currently active?"* |
+
+</details>
 
 <a id="repository-rules"></a>
 ## Enforce Your Team's Engineering Standards with Repository Rules
@@ -494,6 +546,9 @@ LiveReview starts free with 30k LOC per month. Paid usage then scales through fi
 ### vs GitHub Copilot Code Review
 LiveReview's pricing tracks reviewed LOC, not seats, so cost stays tied to review workload rather than headcount. Copilot caps premium requests at 300 on the Pro plan; LiveReview's main limit is monthly reviewed LOC, with capacity available across unlimited users and projects inside that envelope. Copilot is also GitHub-only — if your team uses GitLab, Gitea, Bitbucket, or Azure DevOps, you'd need separate products. LiveReview works across all of them through unified git-level integration with no additional setup.
 
+<details>
+<summary>Show more comparisons (SonarQube, Claude Code, Cursor / Antigravity)</summary>
+
 ### vs SonarQube
 SonarQube's Community Edition is source-available but feature-limited, while the Developer and Enterprise editions are closed. LiveReview's entire codebase is source-available. Setting up and maintaining a SonarQube server can be a burden due to its resource intensity and dependency management overhead; with LiveReview, you can self-host on your own infrastructure with a single command in under 5 minutes.
 
@@ -503,11 +558,11 @@ Claude Code is token-metered, so a few complex reviews can create costs that are
 ### vs Cursor / Antigravity in-editor review
 In-editor review from tools like Cursor and Antigravity is only visible to the individual using them, which makes it hard to enforce common code quality standards when team members use different IDEs. Because LiveReview operates at the git level, it works regardless of which IDE your team uses, and it automatically triggers analysis during commits — catching buggy or non-production-ready code before it gets pushed, with organization-wide visibility into what was found.
 
+</details>
+
 ## Full Documentation
 
-Visit the [Wiki](https://github.com/HexmosTech/LiveReview/wiki) for complete documentation:
-
-<a href="https://github.com/HexmosTech/LiveReview/wiki"><img src="./assets/screenshots/wikiview.png" width="80%"></a>
+Visit the [LiveReview Docs](https://hexmos.com/livereview/docs/) for complete documentation, including self-hosted setup guides, git provider integration, MCP/API reference, and more.
 
 <a id="security"></a>
 ## Security
@@ -628,5 +683,5 @@ Self-hosting gets you the tool. The **14-Day Transformation Program** gets your 
 <p align="center">
    <b>Self-Host:</b> <a href="#quick-start">Get Started Free</a> | 
    <b>Cloud:</b> <a href="https://hexmos.com/livereview/">Try hexmos.com/livereview</a> | 
-   <a href="https://github.com/HexmosTech/LiveReview/wiki">Documentation</a>
+   <a href="https://hexmos.com/livereview/docs/">Documentation</a>
 </p>
