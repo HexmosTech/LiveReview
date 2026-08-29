@@ -10,18 +10,12 @@ internal/chatexport/assets/fonts/LiberationSans-Regular.ttf
 internal/chatexport/assets/logo-icon.png
 
 
-assets/screenshots/blast-radius/new-risk-score-1.webp
 assets/screenshots/blast-radius/new-risk-score-2.webp
 assets/screenshots/blast-radius/new-risk-score-3.webp
 assets/screenshots/blast-radius/new-risk-score-4.webp
-assets/screenshots/blast-radius/new-risk-score-5.webp
-assets/screenshots/blast-radius/new-risk-score-6.webp
+assets/screenshots/blast-radius/poster.webp
 assets/screenshots/clarification_question.png
 assets/screenshots/detailed_mr_summaries.png
-assets/screenshots/git-cli/01_hidden_cost_of_unread_code.png
-assets/screenshots/git-cli/02_merge_time_vs_before_commit.png
-assets/screenshots/git-cli/03_lrc_technical_workflow.png
-assets/screenshots/git-cli/04_believing_to_checking.png
 assets/screenshots/learnings_management.png
 assets/screenshots/livi-charts/01-adoption-is-livereview-adoption-increasing-across.png
 assets/screenshots/livi-charts/02-adoption-which-repositories-have-adopted-liverevi.png
@@ -43,3 +37,4 @@ assets/screenshots/progress_tracker.png
 assets/screenshots/prompt_customization.png
 assets/screenshots/reviewlist.png
 assets/screenshots/transform/transformation-program-thumb.jpg
+assets/videos/blast-radius-demo.mp4

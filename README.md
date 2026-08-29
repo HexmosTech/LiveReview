@@ -5,15 +5,22 @@
 
 # Blast-Radius Aware AI Code Review for Business-Critical Systems
 
-**Not every diff is equal risk.** LiveReview scores every change by how far it can actually break your system — call graph reach, cross-package impact, cyclomatic and cognitive complexity, test coverage gaps — and turns that into a **Blast Radius** and **Review Priority** score your team can triage against. It's AI code review that tells you *what to look at first*, not just what changed.
+Your team's attention is limited. LiveReview spends it where **business risk is highest** — not spread evenly across every diff.
 
 <p align="center">
-   <img src="./assets/screenshots/blast-radius/new-risk-score-2.webp" alt="LiveReview Blast Radius and Review Priority scoring breakdown" width="90%"/>
+  <video src="./assets/videos/blast-radius-demo.mp4" poster="./assets/screenshots/blast-radius/poster.webp" controls muted loop playsinline width="90%">
+  </video>
 </p>
+
+<p align="center"><i>LiveReview's Blast Radius &amp; Review Priority scoring, live in the diff viewer.</i></p>
+
+| The exact math, not a black box | Visualize blast radius at a glance | Every factor that feeds the score |
+|:---:|:---:|:---:|
+| <img src="./assets/screenshots/blast-radius/new-risk-score-3.webp" width="280"/> | <img src="./assets/screenshots/blast-radius/new-risk-score-4.webp" width="280"/> | <img src="./assets/screenshots/blast-radius/new-risk-score-2.webp" width="280"/> |
 
 <p align="center">
    <b>Self-Host for Free:</b> <a href="#quick-start">Get Started in 5 Minutes</a><br/>
-   <i>Want a guided rollout?</i> <a href="https://hexmos.com/livereview/transform/">Join the 14-Day Transformation Program</a>
+   <i>Want a guided rollout?</i> <a href="#transformation-program">Join the 14-Day Transformation Program</a>
 </p>
 
 ---
@@ -23,14 +30,20 @@
 | I want to... | Go to |
 |---|---|
 | Try LiveReview free in under 5 minutes | [Quick Start](#quick-start) |
-| Understand Blast-Radius scoring | [Blast-Radius Aware Review](#blast-radius) |
+| Understand Blast-Radius scoring | [above ↑](#blast-radius-aware-ai-code-review-for-business-critical-systems) |
+| Enforce checks at commit / push / PR / CI | [Org-Wide Harness](#org-wide-harness) |
+| See what risks LiveReview actually catches | [Prevent Outages, Breaches & Technical Debt](#impact-report) |
 | See what LiveReview's analytics can tell my team | [Data-Backed Decisions](#data-backed-decisions) |
+| Understand how LiveReview differs from other tools | [Why LiveReview](#why-livereview) |
 | See the full feature set | [Features](#features) |
 | Wire reviews into every commit | [Git-Native CLI](#cli) |
 | Review code without leaving my editor | [IDE Extensions](#ide-extensions) |
 | Connect LiveReview to Claude, Cursor, or Windsurf | [MCP Server](#mcp-server) |
+| Enforce my team's own coding standards | [Repository Rules](#repository-rules) |
+| Cut AI review costs in half | [Adaptive Reviews](#adaptive-reviews) |
 | Compare self-hosted pricing tiers | [Self-Hosted Tiers](#self-hosted-tiers) |
 | See how LiveReview stacks up vs Copilot / CodeRabbit / Graphite | [Comparisons](#comparisons) |
+| Understand LiveReview's security posture | [Security](#security) |
 | Get hands-on help rolling this out to my team | [14-Day Transformation Program](#transformation-program) |
 
 ---
@@ -38,7 +51,7 @@
 <a id="quick-start"></a>
 ## Quick Start — Self-Hosted Community Edition (Free)
 
-Get LiveReview running in under 5 minutes. The **Community Edition is completely free** and includes everything you need to start AI-powered code reviews.
+Get LiveReview running in under 5 minutes. The **Community Edition is free forever** and includes the full AI review engine, Blast-Radius scoring, all git providers, and unlimited reviews for up to 3 users — see the full breakdown in [Self-Hosted Tiers](#self-hosted-tiers).
 
 ### One-Command Install
 
@@ -59,15 +72,6 @@ You'll need a **Free Licence** to get started — follow the guide [here](https:
 - Web UI: http://localhost:8081/
 - API: http://localhost:8888/api
 
-### What You Get for Free (Community Edition)
-
-- ✅ **Full AI Code Reviews** — Same powerful AI review engine as paid tiers, including Blast-Radius scoring
-- ✅ **All Git Providers** — GitHub, GitLab, Bitbucket, Gitea integration
-- ✅ **Any AI Provider** — Gemini, OpenAI, or self-hosted Ollama
-- ✅ **Dashboard & Analytics** — Track review quality and team velocity
-- ✅ **Up to 3 Users** — Perfect for small teams or individual developers
-- ✅ **Unlimited Reviews** — No daily limits, review as much as you need
-
 ### Production Deployment
 
 For teams needing external access and webhooks, follow the [Productionization Guide](https://github.com/HexmosTech/LiveReview/wiki/Productionize-LiveReview).
@@ -81,23 +85,10 @@ For teams needing external access and webhooks, follow the [Productionization Gu
 
 ---
 
-<a id="blast-radius"></a>
-## Blast-Radius Aware AI Code Review
+<a id="org-wide-harness"></a>
+## Enforce Your Standards on Every Line of AI-Generated Code
 
-Line count and diff size are terrible proxies for risk. A five-line change to a shared auth helper can be far more dangerous than a five-hundred-line change to an isolated script. LiveReview scores every reviewable hunk on two axes:
-
-- **Blast Radius** — how far the change can propagate: caller reach (direct + transitive callers), cross-package impact, whether it mutates persistent state, and how many packages/services are touched.
-- **Review Priority** — how much attention the change deserves right now: cyclomatic and cognitive complexity, nested-loop depth, fan-out, and test coverage gaps.
-
-Both scores are broken down term-by-term in the UI — nothing is a black box — so reviewers can see exactly *why* a hunk ranked where it did.
-
-<p align="center">
-   <img src="./assets/screenshots/blast-radius/new-risk-score-1.webp" alt="Full Blast Radius and Review Priority math breakdown in the LiveReview diff viewer" width="90%"/>
-</p>
-
-### Enforce It at Every Stage — Org-Wide
-
-Mix and match enforcement per repository, at whichever point in the workflow matters to your team:
+Activate checks at the levels that matter to you — mix and match enforcement per repository.
 
 | Commit | Before Push | MR / PR | CI / CD | Scheduled Checks |
 |:---:|:---:|:---:|:---:|:---:|
@@ -105,31 +96,27 @@ Mix and match enforcement per repository, at whichever point in the workflow mat
 
 ---
 
-<a id="why-livereview"></a>
-## Why LiveReview
+<a id="impact-report"></a>
+## Prevent Outages, Breaches, and Technical Debt Before They Happen
 
-| | |
-|---|---|
-| **Blast-Radius Aware** | Reviews are ranked by how much of the system a change can actually break — not by diff size. |
-| **Git-Level Guardrails** | Unread code never sneaks in. Reviews track every commit, and deliberate skips stay in the audit trail. |
-| **Works With Your Git Setup** | GitHub, GitLab, Bitbucket, Gitea, or something else—LiveReview adapts to your workflow, not the other way around. |
-| **Choose Your AI** | Pick the LLMs that match quality, latency, and budget today—and swap them whenever your requirements change. |
-| **Works Wherever You Do** | Web, CLI, IDE. Cloud, self-hosted, or air gapped. Same guardrails and visibility everywhere. |
-| **Priced to Stay Out of the Way** | The cost of review shouldn't decide whether review happens. LiveReview stays lean so teams can use it daily. |
+Every commit LiveReview reviews gets checked against the same risk categories tracked across production codebases:
 
-### Why Engineering Teams Love LiveReview
+| 10 | 100+ | Every Commit |
+|:---:|:---:|:---:|
+| Risk Categories | Failure Patterns Tracked | Scanned Automatically |
 
-- **Accelerate Delivery Cycles** — Reduce PR review time from hours to minutes, enabling your team to ship features faster and with greater confidence
-- **Save Senior Engineering Time** — Liberate senior developers from routine reviews, allowing them to focus on mentorship and high-impact architectural work
-- **Drive Quality Excellence** — Build a culture of quality with metrics that highlight improvements in code standards, reduced defects, and development efficiency
-- **Prioritize by Risk, Not Volume** — Blast-Radius scoring means the riskiest hunks surface first, even on a huge PR
+| Pillar | What it costs you | Categories checked |
+|---|---|---|
+| **Outages** | What takes down production — and impacts your on-call rotation | Reliability, Correctness, Performance, Scalability |
+| **Breaches** | What ends up in a disclosure letter — and a board meeting | Security, Compliance & Governance |
+| **Technical Debt** | What slows every future release until someone pays it down | Maintainability, Architecture |
 
 ---
 
 <a id="data-backed-decisions"></a>
 ## See It In Action: Data-Backed Decisions
 
-LiveReview ships with **Livi**, a chat-native analytics layer that answers plain-English questions about your review activity with live charts — no dashboard-building required. Below is a sample of the kind of questions different roles ask Livi, rendered from the same chart specs used in the interactive product demo at [hexmos.com/livereview](https://hexmos.com/livereview/#data-backed-decisions).
+LiveReview ships with **Livi**, a chat-native analytics layer that answers plain-English questions about your review activity with live charts — no dashboard-building required. Below is a sample of the kind of questions different roles ask Livi, rendered from the same chart specs used in the interactive demo on the live site.
 
 ### Adoption & Growth
 
@@ -191,6 +178,27 @@ LiveReview ships with **Livi**, a chat-native analytics layer that answers plain
 
 ---
 
+<a id="why-livereview"></a>
+## Why LiveReview
+
+| | |
+|---|---|
+| **Blast-Radius Aware** | Reviews are ranked by how much of the system a change can actually break — not by diff size. |
+| **Git-Level Guardrails** | Unread code never sneaks in. Reviews track every commit, and deliberate skips stay in the audit trail. |
+| **Works With Your Git Setup** | GitHub, GitLab, Bitbucket, Gitea, or something else — LiveReview adapts to your workflow, not the other way around. |
+| **Choose Your AI** | Pick the LLMs that match quality, latency, and budget today — and swap them whenever your requirements change. |
+| **Works Wherever You Do** | Web, CLI, IDE. Cloud, self-hosted, or air gapped. Same guardrails and visibility everywhere. |
+| **Priced to Stay Out of the Way** | The cost of review shouldn't decide whether review happens. LiveReview stays lean so teams can use it daily. |
+
+### Why Engineering Teams Love LiveReview
+
+- **Accelerate Delivery Cycles** — Reduce PR review time from hours to minutes, enabling your team to ship features faster and with greater confidence
+- **Save Senior Engineering Time** — Liberate senior developers from routine reviews, allowing them to focus on mentorship and high-impact architectural work
+- **Drive Quality Excellence** — Build a culture of quality with metrics that highlight improvements in code standards, reduced defects, and development efficiency
+- **Prioritize by Risk, Not Volume** — Blast-Radius scoring means the riskiest hunks surface first, even on a huge PR
+
+---
+
 <a id="features"></a>
 ## Powerful Features for Modern Engineering Teams
 
@@ -201,19 +209,15 @@ LiveReview ships with **Livi**, a chat-native analytics layer that answers plain
 ### Track Engineering Excellence
 Quantify your team's improvement with comprehensive metrics. Track review times, code quality trends, and team velocity to demonstrate engineering value to stakeholders.
 
-<p align="center">
-   <img src="./assets/screenshots/progress_tracker.png" alt="LiveReview Progress Tracker" width="80%"/>
-</p>
-
-### Pick Your AI: Gemini, OpenAI, or Self-Hosted Ollama
-Bring Your Own Key (BYOK) - Use Gemini, OpenAI, or any LLM provider of your choice. Maintain complete control over your AI usage and costs while leveraging the best models for your needs.
+### Fine-Tuned LiveReview AI Model
+LiveReview comes with its own fine-tuned AI model ready to use from day one. If you prefer to use your own provider — Gemini, OpenAI, AWS Bedrock, a self-hosted Ollama model, or any other LLM — you can bring your own key (BYOK) and plug it in.
 
 <p align="center">
    <img src="./assets/screenshots/ai_providers.png" alt="AI Provider Configuration" width="80%"/>
 </p>
 
-### Use Any Git Provider: GitHub, GitLab, Bitbucket, Gitea
-Works effortlessly with GitHub, GitLab, Bitbucket, Gitea. Connect your repositories in minutes and start receiving AI-powered code reviews across all your projects.
+### Use Any Git Provider: GitHub, GitLab, Bitbucket, Gitea, Azure DevOps
+Works effortlessly with GitHub, GitLab, Bitbucket, Gitea, Azure DevOps. Connect your repositories in minutes and start receiving AI-powered code reviews across all your projects.
 
 <p align="center">
    <img src="./assets/screenshots/git_providers.png" alt="Git Provider Integration" width="80%"/>
@@ -226,18 +230,11 @@ Manage all your code reviews from a single, intuitive interface. Track review st
    <img src="./assets/screenshots/reviewlist.png" alt="LiveReview review list" width="80%"/>
 </p>
 
-### Sharp AI-Generated Pull Request Summaries
-Get detailed, actionable summaries of every pull request. Understand changes at a glance with AI-generated insights that highlight key modifications, potential issues, and improvement suggestions.
+### Look Under the Hood with Detailed Progress Tracking
+Monitor review progress in real-time. Track which files have been reviewed, identify bottlenecks, and ensure nothing falls through the cracks.
 
 <p align="center">
-   <img src="./assets/screenshots/detailed_mr_summaries.png" alt="Detailed AI-generated MR/PR summaries" width="80%"/>
-</p>
-
-### Ask AI for Clarification or Debate Code Changes
-Ask questions and get instant clarifications about code changes. The AI reviewer understands context and provides helpful explanations to speed up the review process.
-
-<p align="center">
-   <img src="./assets/screenshots/clarification_question.png" alt="Asking LiveReview's AI a clarification question in a merge request" width="80%"/>
+   <img src="./assets/screenshots/progress_tracker.png" alt="LiveReview Progress Tracker" width="80%"/>
 </p>
 
 ### Customize Review Prompts to Fit Your Team
@@ -254,12 +251,26 @@ Build an institutional knowledge base from code reviews. Capture best practices,
    <img src="./assets/screenshots/learnings_management.png" alt="Managing team learnings in LiveReview" width="80%"/>
 </p>
 
+### Sharp AI-Generated Pull Request Summaries
+Get detailed, actionable summaries of every pull request. Understand changes at a glance with AI-generated insights that highlight key modifications, potential issues, and improvement suggestions.
+
+<p align="center">
+   <img src="./assets/screenshots/detailed_mr_summaries.png" alt="Detailed AI-generated MR/PR summaries" width="80%"/>
+</p>
+
+### Ask AI for Clarification or Debate Code Changes
+Ask questions and get instant clarifications about code changes. The AI reviewer understands context and provides helpful explanations to speed up the review process.
+
+<p align="center">
+   <img src="./assets/screenshots/clarification_question.png" alt="Asking LiveReview's AI a clarification question in a merge request" width="80%"/>
+</p>
+
 ---
 
 <a id="cli"></a>
-## Git-Native Code Review Protocol
+## Two CLI Tools. One LiveReview Backend.
 
-LiveReview adds a new git subcommand: `git lrc review`. Review before every commit, explicitly skip when needed, and maintain an auditable trail in your git history.
+Install `git-lrc` for commit-time reviews in any terminal. Use `claude-lrc` when you're building inside Claude Code. Both tools share the same AI review engine and monthly LOC quota.
 
 ```bash
 # Typical Git Guardrails Flow
@@ -275,19 +286,15 @@ git commit -m "message"
    <img src="./assets/screenshots/lr_cli1.png" alt="LiveReview CLI showing inline findings" width="80%"/>
 </p>
 
-<p align="center">
-   <img src="./assets/screenshots/git-cli/01_hidden_cost_of_unread_code.png" alt="The hidden cost of unread code" width="80%"/>
-</p>
+**`git-lrc` — git commit hook:**
+- Git-native — works in any repo without a cloud platform connection
+- Skips tracked in git log — auditable, not silent
+- One-line install, 30k LOC free every month
 
-**CLI Benefits:**
-- Review becomes part of git workflow, not an afterthought
-- Runs directly in your repo on uncommitted code — before merge time, not after
-- Skips are explicit and tracked in commit history
-- Human oversight for AI-generated code
-
-<p align="center">
-   <img src="./assets/screenshots/git-cli/02_merge_time_vs_before_commit.png" alt="Reviewing before commit vs. at merge time" width="80%"/>
-</p>
+**`claude-lrc` — Claude Code integration:**
+- Review, vouch, and skip inside Claude Code without leaving the chat surface
+- Natural language or slash commands (`/lrc:review`, `/lrc:skip`, `/lrc:vouch`)
+- Bundled with `git-lrc` — no separate install needed
 
 ### Quick Install
 
@@ -317,10 +324,9 @@ Get instant AI code reviews without leaving your editor. Available for VSCode, C
 ---
 
 <a id="mcp-server"></a>
+## Get Actionable Engineering Intelligence with MCP and APIs
 
-## Model Context Protocol (MCP) Server
-
-Integrate LiveReview natively into your favorite AI-powered IDEs and clients, including Cursor, Claude Desktop, Windsurf, and VS Code.
+Every code review LiveReview performs adds to a growing source of **engineering intelligence**. Instead of manually piecing together pull requests, comments, and reviews, generate custom reports, identify your strongest contributors, uncover quality and security trends, or drill into engineering activity — in minutes instead of hours — via the MCP server or REST API.
 
 ### Getting your API Key
 
@@ -360,7 +366,7 @@ Replace `<YOUR_LIVEREVIEW_API_KEY>` with your actual LiveReview API key.
 
 ### What you can do
 
-Once connected to the MCP server, You can ask your assistant to interact with LiveReview.
+Once connected to the MCP server, you can ask your assistant to interact with LiveReview.
 
 #### Code Reviews
 | Tool | Description | Example Prompt |
@@ -395,6 +401,45 @@ Once connected to the MCP server, You can ask your assistant to interact with Li
 |------|-------------|----------------|
 | `get_api_v1_connectors` | List configured Git connectors | *"List our configured Git connectors"* |
 | `get_api_v1_aiconnectors` | List configured AI provider connections | *"Which AI providers are currently active?"* |
+
+---
+
+<a id="repository-rules"></a>
+## Enforce Your Team's Engineering Standards with Repository Rules
+
+A good reviewer doesn't just know your language and framework — it knows *your* repository: which patterns your team prefers, which dependencies are off-limits, and which files don't need a second look. LiveReview enforces your team's engineering standards through repository rules — drop a `.lrc/` directory in your repo and LiveReview reads it on every review.
+
+```
+.lrc/
+├── ignore               # files the reviewer never sees
+├── rules/
+│   ├── INSTRUCTIONS.md  # read first, every review
+│   ├── security.md
+│   └── style.md
+└── policy/
+    └── tools.toml       # which checks are allowed to run
+```
+
+| | |
+|---|---|
+| **Repository Rules** | Write down the handful of decisions that come up in every review — "prefer direct SQL over ORM abstractions", "avoid new infrastructure dependencies". `INSTRUCTIONS.md` is read first, every other `rules/*.md` file follows in order. |
+| **Ignore File** | Point the reviewer away from generated code, vendored dependencies, and anything else that doesn't need a second look. Gitignore syntax, matched from your repo root — ignored files don't count toward billable lines. |
+| **Policies** *(coming soon)* | Decide which tools and checks are allowed to run on this repo. Machine-readable settings that LiveReview reads directly — never sent to the AI model. |
+| **Static Checks** *(coming soon)* | Pair AI review with static analyzers like semgrep and eslint, authorized through policy and run as part of the same commit-time flow. |
+
+---
+
+<a id="adaptive-reviews"></a>
+## Cut AI Review Costs by 50% Without Compromising Quality
+
+**Adaptive Reviews** saves 40-50% of AI inference costs using a multi-model technique: a powerful Leader Model detects complex issues, while a cost-efficient Helper Model explains them — delivering the same review quality at half the price.
+
+| | |
+|---|---|
+| **Reduce Costs by 40-50%** | Use a cost-efficient Helper Model for explanations instead of a single expensive model for everything. |
+| **Double Review Volume** | Review up to 2x more code with the same budget — no need to constantly monitor limits. |
+| **Leader + Helper Architecture** | The Leader Model is solely dedicated to finding complex issues; the Helper Model expands those findings into detailed explanations. |
+| **Maintain Review Quality** | Because issue detection is still driven by the high-end Leader Model, there's no degradation in accuracy. |
 
 ---
 
@@ -464,6 +509,7 @@ Visit the [Wiki](https://github.com/HexmosTech/LiveReview/wiki) for complete doc
 
 ---
 
+<a id="security"></a>
 ## Security You Can Count On
 
 - Security is treated as a first-class concern across LiveReview deployment models.
@@ -471,9 +517,7 @@ Visit the [Wiki](https://github.com/HexmosTech/LiveReview/wiki) for complete doc
 - Automated security checks and SBOM generation support ongoing transparency.
 - For complete details, see [SECURITY.md](SECURITY.md).
 
----
-
-## Security Scans
+### Security Scans
 
 LiveReview includes local security scan targets in the Makefile:
 
@@ -487,7 +531,7 @@ make security-triage
 
 Scan artifacts are written under `security_issues/`.
 
-### Ported Workflows Are Disabled By Default
+#### Ported Workflows Are Disabled By Default
 
 The following workflows are present but gated off by default:
 
@@ -515,7 +559,7 @@ Disable again:
 LiveReview provides tangible improvements in code quality and delivery speed while generating meaningful metrics that demonstrate the value of your engineering investments. Teams typically see a 70% reduction in review time and up to 40% increase in velocity.
 
 **What is Blast-Radius scoring, exactly?**
-It's a per-hunk score built from call-graph reach, cross-package impact, persistent-state mutation, cyclomatic/cognitive complexity, and test coverage gaps. It tells you which parts of a diff can do the most damage if something's wrong, so reviewers spend their limited attention where it matters most. See [Blast-Radius Aware Review](#blast-radius) above.
+It's a per-hunk score built from call-graph reach, cross-package impact, persistent-state mutation, cyclomatic/cognitive complexity, and test coverage gaps. It tells you which parts of a diff can do the most damage if something's wrong, so reviewers spend their limited attention where it matters most.
 
 **Is my code secure with LiveReview?**
 Absolutely. With self-hosted deployment, all code stays within your infrastructure with no data sent to external servers. For teams preferring managed hosting, our [cloud version](https://hexmos.com/livereview/) uses industry-standard security practices and encryption.
