@@ -14,6 +14,17 @@ https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 |:---:|:---:|:---:|
 | <img src="./assets/screenshots/blast-radius/new-risk-score-3.webp" width="280"/> | <img src="./assets/screenshots/blast-radius/new-risk-score-4.webp" width="280"/> | <img src="./assets/screenshots/blast-radius/new-risk-score-2.webp" width="280"/> |
 
+<details>
+<summary>How does Blast Radius scoring work?</summary>
+
+LiveReview gives each hunk two scores: Blast Radius and Review Priority. Blast Radius shows how far a change can reach through your code, such as how many other functions call it, or whether it writes to a database or other stored data. Review Priority shows how much care a change needs, such as whether it has tests, or whether similar code already exists elsewhere. LiveReview combines both into one score, and ranks every hunk in the diff by it. The exact signals may change over time as LiveReview adds new checks; the two questions behind them — how far, and how much care — stay the same.
+
+For example:
+- A 3-line fix in a function used by 40 other files, that also writes to a database, scores high.
+- A 300-line UI change in one file, fully covered by tests and used by nothing else, scores low.
+
+</details>
+
 <p align="center">
    <b>Self-Host for Free:</b> <a href="#quick-start">Get Started in 5 Minutes</a><br/>
    <i>Want a guided rollout?</i> <a href="#transformation-program">Join the 14-Day Transformation Program</a>
