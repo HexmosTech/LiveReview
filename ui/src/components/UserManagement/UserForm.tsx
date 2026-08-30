@@ -1161,9 +1161,9 @@ const UserForm: React.FC = () => {
 
                                         <div
                                             onClick={!prerequisiteError ? handleUploadUsersClick : undefined}
-                                            onDragOver={!prerequisiteError ? handleBulkDragOver : undefined}
-                                            onDragLeave={!prerequisiteError ? handleBulkDragLeave : undefined}
-                                            onDrop={!prerequisiteError ? handleBulkDrop : undefined}
+                                            onDragOver={!prerequisiteError ? (e) => { e.preventDefault(); handleBulkDragOver(e); } : undefined}
+                                            onDragLeave={(e) => { if (!prerequisiteError) handleBulkDragLeave(e); }}
+                                            onDrop={(e) => { e.preventDefault(); if (!prerequisiteError) handleBulkDrop(e); }}
                                             className={`border-2 border-dashed rounded-lg py-20 px-6 flex flex-col items-center justify-center text-center transition-colors ${
                                                 prerequisiteError
                                                     ? 'border-slate-700 bg-slate-900/50 opacity-50 cursor-not-allowed'
