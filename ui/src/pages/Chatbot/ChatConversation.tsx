@@ -280,7 +280,7 @@ function formatText(rawText: string): React.ReactNode[] {
 function toSafeHref(rawUrl: string): string | null {
   const trimmed = rawUrl.trim();
   if (!trimmed) return null;
-  if (trimmed.startsWith('#') || trimmed.startsWith('/')) return trimmed;
+  if (trimmed.startsWith('#') || trimmed.startsWith('/')) return encodeURI(trimmed);
   try {
     const parsed = new URL(trimmed, window.location.origin);
     const protocol = parsed.protocol.toLowerCase();
