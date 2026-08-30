@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button, Input } from '../../components/UIPrimitives';
 import apiClient from '../../api/apiClient';
 import { notify } from '../../utils/notify';
+import CompactionSettingsTab from './CompactionSettingsTab';
 
 type Backend = 'filesystem' | 's3' | 'gcs' | 'azure';
 
@@ -280,6 +281,14 @@ const StorageSettingsTab: React.FC = () => {
                         Save Settings
                     </Button>
                 </div>
+            </div>
+
+            {/* Divider */}
+            <div className="my-10 border-t border-slate-700/80"></div>
+
+            {/* Section 2: PostgreSQL Event Log Compaction & Retention */}
+            <div id="log-compaction">
+                <CompactionSettingsTab />
             </div>
         </div>
     );

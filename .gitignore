@@ -83,3 +83,4 @@ ui/bun.lock
 internal/api/docs/spec.go
 
 opencode.json
+livereview.dtx
