@@ -18,6 +18,7 @@ import (
 
 	"github.com/livereview/cmd/mrmodel/lib"
 	"github.com/livereview/pkg/models"
+	toml "github.com/pelletier/go-toml/v2"
 	gitignore "github.com/sabhiram/go-gitignore"
 )
 
@@ -32,6 +33,8 @@ const rulesPrefix = "rules/"
 const rulesReadmePath = rulesPrefix + "README.md"
 const rulesInstructionsPath = rulesPrefix + "INSTRUCTIONS.md"
 const ignorePath = "ignore"
+const policyToolsTomlPath = "policy/tools.toml"
+const toolsTomlPath = "tools.toml"
 
 // Issue describes a problem found while processing a Bundle.
 type Issue struct {
@@ -205,4 +208,226 @@ func TruncateAtLineBoundary(text string, limit int) string {
 		return text[:limit]
 	}
 	return text[:cut]
+}
+
+// ToolRuleConfig represents per-tool configuration within policy/tools.toml or tools.toml
+type ToolRuleConfig struct {
+	Enabled  *bool    `toml:"enabled"`
+	Category string   `toml:"category"`
+	Include  []string `toml:"include"`
+	Exclude  []string `toml:"exclude"`
+}
+
+// ParseToolRuleConfigs reads .lrc/policy/tools.toml or .lrc/tools.toml from a Bundle.
+// Returns a map of tool_name -> *ToolRuleConfig.
+func ParseToolRuleConfigs(b Bundle) (map[string]*ToolRuleConfig, error) {
+	data, ok := b.Files[policyToolsTomlPath]
+	if !ok || len(data) == 0 {
+		data, ok = b.Files[toolsTomlPath]
+	}
+	if !ok || len(data) == 0 {
+		return nil, nil
+	}
+
+	var raw map[string]interface{}
+	if err := toml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse tools.toml: %w", err)
+	}
+
+	results := make(map[string]*ToolRuleConfig)
+
+	processEntry := func(toolName string, val interface{}) {
+		toolName = strings.ToLower(toolName)
+		switch v := val.(type) {
+		case bool:
+			bVal := v
+			results[toolName] = &ToolRuleConfig{Enabled: &bVal}
+		case map[string]interface{}:
+			cfg := &ToolRuleConfig{}
+			if enabledRaw, exists := v["enabled"]; exists && enabledRaw != nil {
+				if enabledVal, ok := enabledRaw.(bool); ok {
+					cfg.Enabled = &enabledVal
+				}
+			}
+			if catRaw, exists := v["category"]; exists && catRaw != nil {
+				if catVal, ok := catRaw.(string); ok {
+					cfg.Category = catVal
+				}
+			}
+			if incRaw, exists := v["include"]; exists && incRaw != nil {
+				if incSlice, ok := incRaw.([]interface{}); ok {
+					for _, item := range incSlice {
+						if str, isStr := item.(string); isStr {
+							cfg.Include = append(cfg.Include, str)
+						}
+					}
+				}
+			}
+			if excRaw, exists := v["exclude"]; exists && excRaw != nil {
+				if excSlice, ok := excRaw.([]interface{}); ok {
+					for _, item := range excSlice {
+						if str, isStr := item.(string); isStr {
+							cfg.Exclude = append(cfg.Exclude, str)
+						}
+					}
+				}
+			}
+			results[toolName] = cfg
+		}
+	}
+
+	for k, v := range raw {
+		if k == "tools" {
+			if toolsMap, ok := v.(map[string]interface{}); ok {
+				for tName, tVal := range toolsMap {
+					if _, exists := results[strings.ToLower(tName)]; !exists {
+						processEntry(tName, tVal)
+					}
+				}
+			}
+		} else {
+			processEntry(k, v)
+		}
+	}
+
+	return results, nil
+}
+
+// ShouldRunToolRuleForDiff determines whether a tool should run against the given local diffs based on ToolRuleConfig.
+func ShouldRunToolRuleForDiff(cfg *ToolRuleConfig, diffs []lib.LocalCodeDiff) bool {
+	if cfg == nil {
+		return true
+	}
+
+	if cfg.Enabled != nil && !*cfg.Enabled {
+		return false
+	}
+
+	if len(diffs) == 0 {
+		return true
+	}
+
+	var includeMatcher *gitignore.GitIgnore
+	if len(cfg.Include) > 0 {
+		includeMatcher = gitignore.CompileIgnoreLines(cfg.Include...)
+	}
+
+	var excludeMatcher *gitignore.GitIgnore
+	if len(cfg.Exclude) > 0 {
+		excludeMatcher = gitignore.CompileIgnoreLines(cfg.Exclude...)
+	}
+
+	if includeMatcher == nil && excludeMatcher == nil {
+		return true
+	}
+
+	matchingFilesCount := 0
+	for _, d := range diffs {
+		path := d.NewPath
+		if path == "" {
+			path = d.OldPath
+		}
+		if path == "" {
+			continue
+		}
+
+		if excludeMatcher != nil && excludeMatcher.MatchesPath(path) {
+			continue
+		}
+
+		if includeMatcher != nil {
+			if includeMatcher.MatchesPath(path) {
+				matchingFilesCount++
+			}
+		} else {
+			matchingFilesCount++
+		}
+	}
+
+	return matchingFilesCount > 0
+}
+
+// FilterLocalCodeDiffsForTool filters local code diffs according to a tool's ToolRuleConfig.
+// It returns a new slice containing only the diffs for file paths that match inclusion and pass exclusion rules.
+func FilterLocalCodeDiffsForTool(cfg *ToolRuleConfig, diffs []lib.LocalCodeDiff) []lib.LocalCodeDiff {
+	if cfg == nil || len(diffs) == 0 {
+		return diffs
+	}
+
+	var includeMatcher *gitignore.GitIgnore
+	if len(cfg.Include) > 0 {
+		includeMatcher = gitignore.CompileIgnoreLines(cfg.Include...)
+	}
+
+	var excludeMatcher *gitignore.GitIgnore
+	if len(cfg.Exclude) > 0 {
+		excludeMatcher = gitignore.CompileIgnoreLines(cfg.Exclude...)
+	}
+
+	if includeMatcher == nil && excludeMatcher == nil {
+		return diffs
+	}
+
+	var filtered []lib.LocalCodeDiff
+	for _, d := range diffs {
+		path := d.NewPath
+		if path == "" {
+			path = d.OldPath
+		}
+		if path == "" {
+			continue
+		}
+
+		if excludeMatcher != nil && excludeMatcher.MatchesPath(path) {
+			continue
+		}
+
+		if includeMatcher != nil {
+			if includeMatcher.MatchesPath(path) {
+				filtered = append(filtered, d)
+			}
+		} else {
+			filtered = append(filtered, d)
+		}
+	}
+
+	return filtered
+}
+
+// FormatLocalDiffs converts a slice of lib.LocalCodeDiff into a standard unified diff string.
+func FormatLocalDiffs(diffs []lib.LocalCodeDiff) string {
+	var b strings.Builder
+	for _, d := range diffs {
+		path := d.NewPath
+		if path == "" {
+			path = d.OldPath
+		}
+		if path == "" {
+			continue
+		}
+
+		b.WriteString(fmt.Sprintf("diff --git a/%s b/%s\n", path, path))
+		if d.OldPath == "/dev/null" || d.OldPath == "" {
+			b.WriteString("new file mode 100644\n")
+		} else if d.NewPath == "/dev/null" || d.NewPath == "" {
+			b.WriteString("deleted file mode 100644\n")
+		}
+		for _, hunk := range d.Hunks {
+			b.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@", hunk.OldStartLine, hunk.OldLineCount, hunk.NewStartLine, hunk.NewLineCount))
+			if hunk.HeaderText != "" {
+				b.WriteString(" " + hunk.HeaderText)
+			}
+			b.WriteString("\n")
+			for _, line := range hunk.Lines {
+				prefix := " "
+				if line.LineType == "added" {
+					prefix = "+"
+				} else if line.LineType == "deleted" {
+					prefix = "-"
+				}
+				b.WriteString(prefix + line.Content + "\n")
+			}
+		}
+	}
+	return b.String()
 }
