@@ -34,7 +34,7 @@ WORKDIR /app
 # Install build dependencies
 RUN echo "🔧 Installing Go build dependencies..." && \
     apt-get update && \
-    apt-get install -y --no-install-recommends curl git ca-certificates gcc && \
+    apt-get install -y --no-install-recommends curl git ca-certificates gcc gcc-aarch64-linux-gnu libc6-dev-arm64-cross && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy Go module files and download dependencies
@@ -56,7 +56,8 @@ ARG GIT_COMMIT=unknown
 
 # Cross-compile main Go binary for target architecture
 RUN echo "🔨 Cross-compiling LiveReview binary for ${TARGETOS}/${TARGETARCH}${TARGETVARIANT:+/${TARGETVARIANT}} with version: ${VERSION} (tags: ${GO_BUILD_TAGS})" && \
-    CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    CC=$(if [ "${TARGETARCH}" = "arm64" ]; then echo "aarch64-linux-gnu-gcc"; else echo "gcc"; fi) && \
+    CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} CC=$CC \
     $([ "$TARGETARCH" = "arm" ] && [ "$TARGETVARIANT" = "v7" ] && echo "GOARM=7" || echo "") \
     go build \
     -tags "${GO_BUILD_TAGS}" \
@@ -117,7 +118,7 @@ RUN echo "🔧 Installing runtime dependencies..." && \
 
 # Download vl-convert binary for target architecture
 RUN echo "📥 Downloading vl-convert binary..." && \
-    VLCONVERT_ARCH=$(uname -m | sed 's/x86_64/linux-64/' | sed 's/aarch64/linux-arm64/') && \
+    VLCONVERT_ARCH=$(uname -m | sed 's/x86_64/linux-64/' | sed 's/aarch64/linux-aarch64/') && \
     curl -sL --fail "https://github.com/vega/vl-convert/releases/download/v1.9.0/vl-convert_${VLCONVERT_ARCH}.zip" \
         -o /tmp/vl-convert.zip && \
     unzip -o /tmp/vl-convert.zip -d /tmp/vl-convert-extracted && \
