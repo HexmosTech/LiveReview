@@ -170,7 +170,7 @@ func (h *Handler) HandleMessage(c echo.Context) error {
 		}
 		// Non-JWT errors here come from HandleActivity's message/postReply
 		// path (marshal/HTTP/URL errors, agent errors) - none embed authHeader.
-		log.Printf("[TeamsBot] Error handling activity: %s", err)
+		log.Printf("[TeamsBot] Error handling activity")
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
 	}
 

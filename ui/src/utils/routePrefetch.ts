@@ -19,8 +19,10 @@ function normalize(path: string): string {
 
 export function prefetchRoute(path: string): void {
     const normalized = normalize(path);
+    if (!Object.prototype.hasOwnProperty.call(routeImports, normalized)) return;
     const importer = routeImports[normalized];
     if (!importer) return;
+    if (typeof importer !== 'function') return;
     if (prefetchCache.has(normalized)) return;
     const promise = importer().catch(() => {});
     prefetchCache.set(normalized, promise);
@@ -39,7 +41,7 @@ export function prefetchRoutes(paths: string[]): void {
 // hang navigation forever - the caller just falls back to Suspense's own fallback in that case.
 export function awaitRoutePrefetch(path: string, timeoutMs = 4000): Promise<void> {
     const normalized = normalize(path);
-    if (!routeImports[normalized]) return Promise.resolve();
+    if (!Object.prototype.hasOwnProperty.call(routeImports, normalized)) return Promise.resolve();
     prefetchRoute(path);
     const chunkPromise = prefetchCache.get(normalized) ?? Promise.resolve();
     return Promise.race([

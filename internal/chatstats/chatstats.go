@@ -534,7 +534,7 @@ func bucketRows(values []map[string]any, xField, yField, seriesField string, gra
 		if existing, ok := grouped[key]; ok {
 			existing[yField] = toFloat(existing[yField]) + yVal
 		} else {
-			clone := make(map[string]any, len(row)+1)
+			clone := make(map[string]any, len(row))
 			for k, v := range row {
 				clone[k] = v
 			}

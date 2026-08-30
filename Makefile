@@ -312,8 +312,8 @@ TEST_PACKAGES := $(shell find . \
 	-type f -name '*.go' -print 2>/dev/null | \
 	xargs -n1 dirname | sort -u | tr '\n' ' ')
 
-# Exclude ./scripts because it contains multiple standalone main programs.
-SECURITY_GOVULN_PACKAGES := $(filter-out ./scripts,$(TEST_PACKAGES))
+# Exclude ./scripts and ./cmd/onboarding-pdf because they contain standalone/ignored build constraint main programs.
+SECURITY_GOVULN_PACKAGES := $(filter-out ./scripts ./cmd/onboarding-pdf,$(TEST_PACKAGES))
 
 .PHONY: testall
 testall:
