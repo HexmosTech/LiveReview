@@ -645,7 +645,7 @@ const UserForm: React.FC = () => {
                                 ) : (
                                     <span className="text-amber-500">○</span>
                                 )}
-                                <a href="/settings#instance" className="underline">Settings → Instance</a>
+                                <a href="/#/settings#instance" className="underline">Settings → Instance</a>
                             </div>
                             <div className="flex items-center gap-2">
                                 {prerequisiteStatus?.smtp ? (
@@ -653,7 +653,7 @@ const UserForm: React.FC = () => {
                                 ) : (
                                     <span className="text-amber-500">○</span>
                                 )}
-                                <a href="/settings#smtp" className="underline">Settings → SMTP</a>
+                                <a href="/#/settings#smtp" className="underline">Settings → SMTP</a>
                             </div>
                         </div>
                     </Alert>

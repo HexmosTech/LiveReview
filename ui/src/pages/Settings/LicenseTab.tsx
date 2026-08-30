@@ -5,7 +5,7 @@ import { useAppSelector, useAppDispatch } from '../../store/configureStore';
 import { triggerLicenseRefresh, triggerLicenseRevalidation, triggerLicenseDelete, openModal as openLicenseModal, openDeleteConfirm, closeDeleteConfirm } from '../../store/License/slice';
 import { logout } from '../../store/Auth/reducer';
 import { isCloudMode } from '../../utils/deploymentMode';
-import LicenseSeatAssignment from './LicenseSeatAssignment';
+// import LicenseSeatAssignment from './LicenseSeatAssignment';
 
 const roleCanView = (role?: string) => role === 'super_admin' || role === 'owner';
 
@@ -97,11 +97,12 @@ const LicenseTab: React.FC = () => {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'overview' ? (
+      <LicenseOverviewTab />
+      {/* {activeTab === 'overview' ? (
         <LicenseOverviewTab />
       ) : (
         <LicenseSeatAssignment />
-      )}
+      )} */}
     </div>
   );
 };
@@ -181,7 +182,7 @@ const LicenseOverviewTab: React.FC = () => {
             <div className="text-slate-400 mb-1">App Name</div>
             <div className="text-slate-200">{license.appName || '—'}</div>
           </div>
-          <div className="bg-slate-800/60 border border-slate-700 rounded p-4">
+          {/* <div className="bg-slate-800/60 border border-slate-700 rounded p-4">
             <div className="text-slate-400 mb-1">Seats</div>
             <div className="text-slate-200">
               {license.unlimited ? 'Unlimited' : (
@@ -192,7 +193,7 @@ const LicenseOverviewTab: React.FC = () => {
                 ) : '—'
               )}
             </div>
-          </div>
+          </div> */}
           <div className="bg-slate-800/60 border border-slate-700 rounded p-4">
             <div className="text-slate-400 mb-1">Expires At</div>
             <div className="text-slate-200">{license.expiresAt || '—'}</div>
@@ -201,10 +202,10 @@ const LicenseOverviewTab: React.FC = () => {
             <div className="text-slate-400 mb-1">Last Validated</div>
             <div className="text-slate-200">{license.lastValidatedAt || '—'}</div>
           </div>
-          <div className="bg-slate-800/60 border border-slate-700 rounded p-4">
+          {/* <div className="bg-slate-800/60 border border-slate-700 rounded p-4">
             <div className="text-slate-400 mb-1">Validation Code</div>
             <div className="text-slate-200">{license.lastValidationCode || '—'}</div>
-          </div>
+          </div> */}
         </div>
       </div>
       <div className="flex gap-3">

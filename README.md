@@ -136,9 +136,20 @@ AI writes code faster than any human can review it by hand. LiveReview gives you
 | **CI / CD** | In production deployments, a webhook triggers a review on every push. Merges can wait on review completion instead of relying on someone to ask for one. See [Automate Code Reviews in CI/CD with LiveReview MCP](https://hexmos.com/livereview/demo?v=ar4B6IrDrqk). |
 | **Scheduled Checks** | Periodic sweeps scan your repositories for drift and new hotspots, even in code nobody has touched recently. See [Scheduled Reviews](#scheduled-reviews) below, or watch it in action: [Automatically Review Your Production Code with Scheduled Reviews](https://hexmos.com/livereview/demo?v=45EfHmXe_Dw). |
 
+### Pick the Right Review Depth Based on Your Need for Shipping Speed
+
+Not every repo needs the same amount of scrutiny. Turn on more checkpoints where the blast radius of a bad change is high, and fewer where speed matters most.
+
 <p align="center">
-   <img src="./assets/screenshots/2026-08-29/08-scheduled-reviews-slash-reviews-scheduled.png" alt="Scheduled Reviews: turn on periodic sweeps per repository, see the schedule and last run" width="80%"/>
+   <img src="./assets/screenshots/2026-08-29/16-review-depth-quadrant.png" alt="Quadrant chart: shipping speed vs. review depth for four checkpoint combinations" width="70%"/>
 </p>
+
+- **Commit Only**: fastest, lightest net. Fine for low-stakes, throwaway repos.
+- **Commit + Scheduled**: the startup pick. Near-zero friction day-to-day, plus a daily sweep that catches anything that slipped past commit-time checks.
+- **Commit + Before Push + MR/PR**: the standard team flow. A human sees every change before it merges.
+- **All Five (Full Harness)**: Commit, Before Push, MR/PR, CI/CD, and Scheduled together, for repos where a bad change is expensive: payments, auth, core infra.
+
+There's no single right answer, only the right trade-off for a given repository, team, or organization. Mix and match per repository, and change your mind any time.
 
 Setting up MR/PR reviews for your provider? See the step-by-step guides for [GitHub](https://hexmos.com/livereview/docs/livereview/self-hosted/github/), [GitLab](https://hexmos.com/livereview/docs/livereview/self-hosted/gitlab/), [Bitbucket](https://hexmos.com/livereview/docs/livereview/self-hosted/bitbucket/), [Gitea](https://hexmos.com/livereview/docs/livereview/self-hosted/gitea/), and [Azure DevOps](https://hexmos.com/livereview/docs/livereview/self-hosted/azure-devops/).
 
