@@ -14,6 +14,29 @@ https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 |:---:|:---:|:---:|
 | <img src="./assets/screenshots/blast-radius/new-risk-score-3.webp" width="280"/> | <img src="./assets/screenshots/blast-radius/new-risk-score-4.webp" width="280"/> | <img src="./assets/screenshots/blast-radius/new-risk-score-2.webp" width="280"/> |
 
+<details>
+<summary>How does Blast Radius scoring work? (a more technical explanation)</summary>
+
+**Here's the goal:**
+- A 3-line fix in a function used by 40 other files, that also writes to a database, should score high.
+- A 300-line UI change in one file, fully covered by tests and used by nothing else, should score low, even though it's the bigger diff.
+
+To get there, LiveReview gives each hunk two scores, then combines them into one and ranks every hunk in the diff by it.
+
+- **Blast Radius**: how far a change can reach through your code.
+  - How many other places call this code, directly or a few steps removed
+  - Whether it writes to a database or other long-term storage
+  - Whether those callers live in other parts of the codebase, not just nearby files
+- **Review Priority**: how much scrutiny a change warrants, based on its complexity, subtlety, and potential for important details to be missed.
+  - How many different paths the logic can take, and how hard it is to follow
+  - How deeply loops sit nested inside other loops
+  - How many other functions or symbols this code itself calls into
+  - Whether the code has tests
+
+LiveReview may add new signals over time. The two questions behind them stay the same: how far, and how much scrutiny.
+
+</details>
+
 <p align="center">
    <b>Self-Host for Free:</b> <a href="#quick-start">Get Started in 5 Minutes</a><br/>
    <i>Want a guided rollout?</i> <a href="#transformation-program">Join the 14-Day Transformation Program</a>
