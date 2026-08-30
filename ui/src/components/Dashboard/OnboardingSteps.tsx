@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import classNames from 'classnames';
 import { Button, Icons } from '../UIPrimitives';
 import { SafetyBanner } from '../SafetyBanner/SafetyBanner';
+import ProductionUrlWarning from '../ProductionUrlWarning';
 
 export interface OnboardingStepsProps {
   hasCLI: boolean;
@@ -82,9 +83,10 @@ export const OnboardingSteps: React.FC<OnboardingStepsProps> = ({
 }) => {
   const allSet = hasCLI && hasAIProvider;
 
-  return (
-    <div className="space-y-2">
-      <SafetyBanner variant="detailed" className="mb-4" />
+    return (
+        <div className="space-y-2">
+            <ProductionUrlWarning />
+            <SafetyBanner variant="detailed" className="mb-4" />
       <Step
         title="Step 1: Configure AI"
         description="Add at least one AI provider (e.g., OpenAI, Gemini, or Ollama) to generate code review comments."

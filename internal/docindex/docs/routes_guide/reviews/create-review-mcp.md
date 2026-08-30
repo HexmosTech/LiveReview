@@ -20,6 +20,12 @@ Any authenticated org member.
 - Follow MCP setup steps for their editor/assistant of choice.
 - Open external docs: full API reference, MCP use-case examples.
 
+## Prerequisites
+
+- **Production URL must be configured** (Settings → Instance). A warning
+  banner is shown if it is missing — the MCP server URL in the setup
+  snippet depends on the correct production URL being set.
+
 ## Related pages
 
 - [Dashboard](../dashboard.md)

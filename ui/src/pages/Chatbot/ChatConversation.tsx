@@ -6,11 +6,13 @@ import { BASE_URL, authFetch } from '../../api/apiClient';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppSelector } from '../../store/configureStore';
+import { useOrgContext } from '../../hooks/useOrgContext';
 import { InteractiveChart, downloadChartView } from './InteractiveChart';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { CONVERSATIONS_QUERY_KEY } from './ConversationSidebar';
 import { isDailyTrendChart, buildTrendSpec, formatAxisDate, Granularity } from './rebucketChart';
 import { buildJsonExport, downloadJsonExport } from './jsonExport';
+import ProductionUrlWarning from '../../components/ProductionUrlWarning';
 
 const GRANULARITY_OPTIONS: { value: Granularity; label: string }[] = [
   { value: 'day', label: 'Day' },
@@ -685,6 +687,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
   const organizations = useAppSelector((state) => state.Auth.organizations);
   const currentOrgId = useAppSelector((state) => state.Organizations.currentOrgId);
   const currentOrg = useAppSelector((state) => state.Organizations.currentOrg);
+  const { isSuperAdmin } = useOrgContext();
 
   const downloadFile = useCallback(
     async (file: ChatFile) => {
@@ -746,6 +749,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
   // it. Keyed per chart instance since one message can carry several charts.
   const chartViewsRef = useRef<Map<string, View>>(new Map());
   const [showAISetup, setShowAISetup] = useState(false);
+  const [dismissedProdUrlWarning, setDismissedProdUrlWarning] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -1025,7 +1029,10 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-6">
-        <div className="max-w-4xl mx-auto w-full min-h-full flex flex-col">
+        <div className="max-w-4xl mx-auto w-full min-h-full flex flex-col relative">
+          {isSuperAdmin && !dismissedProdUrlWarning && (
+            <ProductionUrlWarning floating onClose={() => setDismissedProdUrlWarning(true)} />
+          )}
           {showAISetup && (
             <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3">
               <div>

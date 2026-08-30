@@ -17,6 +17,12 @@ within those tools.
 - Copy MCP server connection config for the assistant of choice.
 - Follow links to full API documentation and MCP use-case examples.
 
+## Prerequisites
+
+- **Production URL must be configured** (Settings → Instance). A warning
+  banner is shown if it is missing — the MCP server URL in the setup
+  snippet depends on the correct production URL being set.
+
 ## Related pages
 
 [Settings overview](settings-overview.md), [Create Review via MCP](../reviews/create-review-mcp.md)

@@ -134,22 +134,11 @@ AI writes code faster than any human can review it by hand. LiveReview gives you
 | **Before Push** | LiveReview catches issues one last time before code leaves your machine. Skips are explicit (`git lrc review --skip`) and stay in the git log, so nothing slips through silently. |
 | **MR / PR** | LiveReview posts a full AI review as comments on the pull or merge request. Every hunk gets a Blast Radius and Review Priority score. Works across GitHub, GitLab, Bitbucket, Gitea, and Azure DevOps. |
 | **CI / CD** | In production deployments, a webhook triggers a review on every push. Merges can wait on review completion instead of relying on someone to ask for one. See [Automate Code Reviews in CI/CD with LiveReview MCP](https://hexmos.com/livereview/demo?v=ar4B6IrDrqk). |
-| **Scheduled Checks** | Periodic sweeps scan your repositories for drift and new hotspots, even in code nobody has touched recently. Watch it in action: [Automatically Review Your Production Code with Scheduled Reviews](https://hexmos.com/livereview/demo?v=45EfHmXe_Dw). |
+| **Scheduled Checks** | Periodic sweeps scan your repositories for drift and new hotspots, even in code nobody has touched recently. See [Scheduled Reviews](#scheduled-reviews) below, or watch it in action: [Automatically Review Your Production Code with Scheduled Reviews](https://hexmos.com/livereview/demo?v=45EfHmXe_Dw). |
 
-### Scheduled Reviews: A Safety Net for the Code Nobody Reviewed
-
-Not every change goes through a full review. A hotfix might land straight on the main branch. A dependency bump might merge on its own. For a small, fast-moving team, that's often the right call, you can't review every line by hand and still ship fast.
-
-Scheduled Reviews give you a safety net for exactly that. LiveReview checks your default branch on its own schedule, even when nobody asked it to. If something risky got in outside your normal commit, push, or PR checks, a scheduled sweep still catches it. For most teams, once a day on the main branch is enough to keep quality high without slowing anyone down.
-
-- Turn it on per repository, one toggle
-- Pick how often it runs, in plain cron syntax, or leave it blank and LiveReview checks once a day
-- See the last time it ran and the next time it will, right in the schedule list
-- Runs by itself in the background, nobody has to remember to trigger it
-
-| The schedule list, per repository | Editing a repository's schedule |
-|:---:|:---:|
-| <img src="./assets/screenshots/2026-08-29/08-scheduled-reviews-slash-reviews-scheduled.png" width="380"/> | <img src="./assets/screenshots/2026-08-29/09-scheduled-reviews-slash-reviews-scheduled-edit.png" width="380"/> |
+<p align="center">
+   <img src="./assets/screenshots/2026-08-29/08-scheduled-reviews-slash-reviews-scheduled.png" alt="Scheduled Reviews: turn on periodic sweeps per repository, see the schedule and last run" width="80%"/>
+</p>
 
 Setting up MR/PR reviews for your provider? See the step-by-step guides for [GitHub](https://hexmos.com/livereview/docs/livereview/self-hosted/github/), [GitLab](https://hexmos.com/livereview/docs/livereview/self-hosted/gitlab/), [Bitbucket](https://hexmos.com/livereview/docs/livereview/self-hosted/bitbucket/), [Gitea](https://hexmos.com/livereview/docs/livereview/self-hosted/gitea/), and [Azure DevOps](https://hexmos.com/livereview/docs/livereview/self-hosted/azure-devops/).
 
@@ -370,8 +359,8 @@ Browse every repository and merge or pull request LiveReview can see, in one lis
 |:---:|:---:|
 | <img src="./assets/screenshots/2026-08-29/10-explore-slash-explore-repositories.png" width="380"/> | <img src="./assets/screenshots/2026-08-29/11-explore-slash-merge-requests.png" width="380"/> |
 
-<details>
-<summary>Show 6 more features (review list, progress tracking, custom prompts, team learnings, PR summaries, AI clarification)</summary>
+<details id="scheduled-reviews">
+<summary>Show 7 more features (review list, progress tracking, custom prompts, team learnings, PR summaries, AI clarification, scheduled reviews)</summary>
 
 ### View All AI Reviews in One Place
 See every review's status, from queued to complete, and jump straight into the ones that need attention. See [Trigger Manual Pull Request Reviews](https://hexmos.com/livereview/demo?v=ReHJfGbeUCo).
@@ -414,6 +403,27 @@ Reply to any AI comment in the merge request to ask why it flagged something, or
 <p align="center">
    <img src="./assets/screenshots/clarification_question.png" alt="Asking LiveReview's AI a clarification question in a merge request" width="80%"/>
 </p>
+
+### Scheduled Reviews: A Safety Net for the Code Nobody Reviewed
+
+Not every change goes through a full review:
+
+- A hotfix might land straight on the main branch.
+- A dependency bump might merge on its own.
+
+For a small, fast-moving team, that's often the right call, you can't review every line by hand and still ship fast. **Scheduled Reviews** are the safety net for exactly that gap.
+
+- **Checks on its own schedule.** LiveReview reviews your default branch even when nobody asked it to, and catches anything that got in outside your normal commit, push, or PR checks.
+- **Per-repository control.** Turn it on with one toggle.
+- **Your own cadence.** Pick how often it runs, in plain cron syntax, or leave it blank and LiveReview checks once a day.
+- **Always visible.** See the last time it ran and the next time it will, right in the schedule list.
+- **Zero upkeep.** Runs by itself in the background, nobody has to remember to trigger it.
+
+> For most teams, once a day on the main branch is enough to keep quality high without slowing anyone down.
+
+| The schedule list, per repository | Editing a repository's schedule |
+|:---:|:---:|
+| <img src="./assets/screenshots/2026-08-29/08-scheduled-reviews-slash-reviews-scheduled.png" width="380"/> | <img src="./assets/screenshots/2026-08-29/09-scheduled-reviews-slash-reviews-scheduled-edit.png" width="380"/> |
 
 </details>
 

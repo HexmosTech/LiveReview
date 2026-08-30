@@ -104,7 +104,7 @@ OSV_SCANNER_CONFIG=osv-scanner.toml
 # run. Kept up to date automatically by that target (scripts/prep_training_data.sh
 # rewrites this line). `make check-training-data` compares it against the
 # corpus's current hash and re-runs prep-training-data when they diverge.
-TRAINING_DATA_HASH=095c6cdb33cf2d1002909501dad7a9bd86bbfe2f6dffdf648728fd184d861bc4
+TRAINING_DATAgs_HASH=0d62f21d8a1b7bdb5951511afde5e85cc8b5dd8854a354f42d1f54074e66a8c9
 
 # Load environment variables from .env file
 -include .env

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Icons } from '../../components/UIPrimitives';
 import { getApiUrl } from '../../utils/apiUrl';
+import ProductionUrlWarning from '../../components/ProductionUrlWarning';
 
 interface MCPIntegrationTabProps {
     // Settings shows its own tab heading; pages that already have their own section
@@ -40,6 +41,7 @@ const MCPIntegrationTab: React.FC<MCPIntegrationTabProps> = ({ showHeading = tru
 
     return (
         <div className="space-y-6">
+            <ProductionUrlWarning />
             {showHeading && (
                 <div>
                     <h3 className="text-lg font-medium text-white mb-1">Model Context Protocol (MCP) Server</h3>
