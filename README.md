@@ -359,7 +359,7 @@ Browse every repository and merge or pull request LiveReview can see, in one lis
 |:---:|:---:|
 | <img src="./assets/screenshots/2026-08-29/10-explore-slash-explore-repositories.png" width="380"/> | <img src="./assets/screenshots/2026-08-29/11-explore-slash-merge-requests.png" width="380"/> |
 
-<details>
+<details id="scheduled-reviews">
 <summary>Show 7 more features (review list, progress tracking, custom prompts, team learnings, PR summaries, AI clarification, scheduled reviews)</summary>
 
 ### View All AI Reviews in One Place
@@ -404,7 +404,6 @@ Reply to any AI comment in the merge request to ask why it flagged something, or
    <img src="./assets/screenshots/clarification_question.png" alt="Asking LiveReview's AI a clarification question in a merge request" width="80%"/>
 </p>
 
-<a id="scheduled-reviews"></a>
 ### Scheduled Reviews: A Safety Net for the Code Nobody Reviewed
 
 Not every change goes through a full review:
