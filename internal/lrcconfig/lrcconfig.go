@@ -398,15 +398,16 @@ func FilterLocalCodeDiffsForTool(cfg *ToolRuleConfig, diffs []lib.LocalCodeDiff)
 func FormatLocalDiffs(diffs []lib.LocalCodeDiff) string {
 	var b strings.Builder
 	for _, d := range diffs {
-		path := d.NewPath
-		if path == "" {
-			path = d.OldPath
+		oldPath := d.OldPath
+		if oldPath == "" {
+			oldPath = d.NewPath
 		}
-		if path == "" {
-			continue
+		newPath := d.NewPath
+		if newPath == "" {
+			newPath = d.OldPath
 		}
 
-		b.WriteString(fmt.Sprintf("diff --git a/%s b/%s\n", path, path))
+		b.WriteString(fmt.Sprintf("diff --git a/%s b/%s\n", oldPath, newPath))
 		if d.OldPath == "/dev/null" || d.OldPath == "" {
 			b.WriteString("new file mode 100644\n")
 		} else if d.NewPath == "/dev/null" || d.NewPath == "" {
