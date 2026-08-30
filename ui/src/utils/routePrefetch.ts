@@ -23,8 +23,10 @@ function normalize(path: string): string {
 
 export function prefetchRoute(path: string): void {
     const normalized = normalize(path);
+    if (!routeImports.has(normalized)) return;
     const importer = routeImports.get(normalized);
     if (!importer) return;
+    if (typeof importer !== 'function') return;
     if (prefetchCache.has(normalized)) return;
     const promise = importer().catch(() => {});
     prefetchCache.set(normalized, promise);

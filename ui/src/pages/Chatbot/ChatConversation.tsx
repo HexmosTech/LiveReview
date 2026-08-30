@@ -275,6 +275,17 @@ function formatText(rawText: string): React.ReactNode[] {
   return parts;
 }
 
+function isSafeUrl(url: string): boolean {
+  try {
+    const trimmed = url.trim().toLowerCase();
+    if (trimmed.startsWith('/') || trimmed.startsWith('#')) return true;
+    const parsed = new URL(url, window.location.origin);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'mailto:';
+  } catch {
+    return false;
+  }
+}
+
 function formatLine(line: string): React.ReactNode {
   const parts: React.ReactNode[] = [];
   let i = 0;
@@ -289,17 +300,21 @@ function formatLine(line: string): React.ReactNode {
         if (urlEnd > labelEnd + 1) {
           const label = line.slice(i + 1, labelEnd);
           const url = line.slice(labelEnd + 2, urlEnd);
-          parts.push(
-            <a
-              key={`link-${partIdx++}`}
-              href={url}
-              target={url.startsWith('/') || url.startsWith('#') ? '_self' : '_blank'}
-              rel="noopener noreferrer"
-              className="text-indigo-400 hover:text-indigo-300 underline underline-offset-2 font-medium transition-colors"
-            >
-              {label}
-            </a>
-          );
+          if (isSafeUrl(url)) {
+            parts.push(
+              <a
+                key={`link-${partIdx++}`}
+                href={url}
+                target={url.startsWith('/') || url.startsWith('#') ? '_self' : '_blank'}
+                rel="noopener noreferrer"
+                className="text-indigo-400 hover:text-indigo-300 underline underline-offset-2 font-medium transition-colors"
+              >
+                {label}
+              </a>
+            );
+          } else {
+            parts.push(<span key={`text-${partIdx++}`}>{label}</span>);
+          }
           i = urlEnd + 1;
           continue;
         }
