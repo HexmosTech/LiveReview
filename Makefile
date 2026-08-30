@@ -31,7 +31,7 @@ switch-env-selfhosted-local:
 	$(call SWITCH_ENV,selfhosted.local)
 
 switch-env-selfhosted-docker:
-	$(call SWITCH_ENV,selfhosted.docker)
+	$(call SWITCH_ENV,selfhosted)
 
 switch-env-cloud-local:
 	$(call SWITCH_ENV,cloud.local)
@@ -1160,7 +1160,7 @@ chat_debug:
 
 run-selfhosted:
 	which air || $(GOCMD) install github.com/air-verse/air@latest
-	air -- --env-file .env.selfhosted.docker
+	air -- --env-file .env.selfhosted
 
 # Upload tracked env files (.env, .env.prod, ui/.env.prod) to GitHub repo variables.
 # Backward compatible target name; implementation moved to scripts/ghsm.py.
