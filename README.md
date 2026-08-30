@@ -27,13 +27,13 @@ To get there, LiveReview gives each hunk two scores, then combines them into one
   - How many other places call this code, directly or a few steps removed
   - Whether it writes to a database or other long-term storage
   - Whether those callers live in other parts of the codebase, not just nearby files
-- **Review Priority**: how much care a change needs.
+- **Review Priority**: how much scrutiny a change warrants, based on its complexity, subtlety, and potential for important details to be missed.
   - How many different paths the logic can take, and how hard it is to follow
   - How deeply loops sit nested inside other loops
   - How many other functions or symbols this code itself calls into
   - Whether the code has tests
 
-LiveReview may add new signals over time. The two questions behind them stay the same: how far, and how much care.
+LiveReview may add new signals over time. The two questions behind them stay the same: how far, and how much scrutiny.
 
 </details>
 
