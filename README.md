@@ -148,10 +148,10 @@ Not every repo needs the same amount of scrutiny. Turn on more checkpoints where
    <img src="./assets/screenshots/2026-08-29/16-review-depth-quadrant.png" alt="Quadrant chart: shipping speed vs. review depth for four checkpoint combinations" width="70%"/>
 </p>
 
-- **Commit Only** — fastest, lightest net. Fine for low-stakes, throwaway repos.
-- **Commit + Scheduled** — the startup pick. Near-zero friction day-to-day, plus a daily sweep that catches anything that slipped past commit-time checks.
-- **Commit + Before Push + MR/PR** — the standard team flow. A human sees every change before it merges.
-- **All Five (Full Harness)** — Commit, Before Push, MR/PR, CI/CD, and Scheduled together. Maximum coverage, for repos where a bad change is expensive: payments, auth, core infra.
+- **Commit Only**: fastest, lightest net. Fine for low-stakes, throwaway repos.
+- **Commit + Scheduled**: the startup pick. Near-zero friction day-to-day, plus a daily sweep that catches anything that slipped past commit-time checks.
+- **Commit + Before Push + MR/PR**: the standard team flow. A human sees every change before it merges.
+- **All Five (Full Harness)**: Commit, Before Push, MR/PR, CI/CD, and Scheduled together, for repos where a bad change is expensive: payments, auth, core infra.
 
 There's no single right answer, only the right trade-off for a given repository, team, or organization. Mix and match per repository, and change your mind any time.
 
