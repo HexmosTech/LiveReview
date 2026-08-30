@@ -46,7 +46,7 @@ export interface ReviewEvent {
   data: ReviewEventData;
 }
 
-export type ReviewEventType = 'status' | 'log' | 'batch' | 'artifact' | 'completion';
+export type ReviewEventType = 'status' | 'log' | 'batch' | 'artifact' | 'completion' | 'tool_dispatch' | 'tool_result';
 export type ReviewEventLevel = 'info' | 'warn' | 'error' | 'debug';
 
 export interface ReviewEventData {
