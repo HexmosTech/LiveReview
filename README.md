@@ -17,7 +17,9 @@ https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 <details>
 <summary>How does Blast Radius scoring work? (a more technical explanation)</summary>
 
-LiveReview gives each hunk two scores, then combines them into one and ranks every hunk in the diff by it.
+**Here's the goal:** a 3-line fix in a function used by 40 other files, that also writes to a database, should score high. A 300-line UI change in one file, fully covered by tests and used by nothing else, should score low, even though it's the bigger diff.
+
+To get there, LiveReview gives each hunk two scores, then combines them into one and ranks every hunk in the diff by it.
 
 - **Blast Radius**: how far a change can reach through your code.
   - How many other places call this code, directly or a few steps removed
@@ -30,10 +32,6 @@ LiveReview gives each hunk two scores, then combines them into one and ranks eve
   - Whether the code has tests
 
 LiveReview may add new signals over time. The two questions behind them stay the same: how far, and how much care.
-
-**For example:**
-- A 3-line fix in a function used by 40 other files, that also writes to a database, scores high.
-- A 300-line UI change in one file, fully covered by tests and used by nothing else, scores low.
 
 </details>
 
