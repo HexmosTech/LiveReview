@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { LuTerminal } from 'react-icons/lu';
+import { LuTerminal, LuClock } from 'react-icons/lu';
 import { SiGitlab } from 'react-icons/si';
 import { Button, Icons, Tabs, RelativeTime } from '../../components/UIPrimitives';
 import { ReviewEventsPage, DiffViewerPanel } from '../../components/reviews';
@@ -26,30 +26,10 @@ import {
   ReviewEventLevel,
   ReviewEventType
 } from '../../types/reviews';
+import { normalizeSource } from '../../utils/sourceUtils';
 
-const normalizeSource = (provider?: string, prMrUrl?: string): string => {
-  if (provider) {
-    const normalized = provider.toLowerCase();
-    if (normalized === 'cli') return 'cli';
-    if (normalized.startsWith('github')) return 'github';
-    if (normalized.startsWith('gitlab')) return 'gitlab';
-    if (normalized.startsWith('bitbucket')) return 'bitbucket';
-    if (normalized.startsWith('gitea')) return 'gitea';
-    if (normalized.startsWith('azuredevops')) return 'azuredevops';
-  }
-  if (prMrUrl) {
-    const url = prMrUrl.toLowerCase();
-    if (url.includes('github.com')) return 'github';
-    if (url.includes('gitlab')) return 'gitlab';
-    if (url.includes('bitbucket')) return 'bitbucket';
-    if (url.includes('gitea')) return 'gitea';
-    if (url.includes('azure')) return 'azuredevops';
-  }
-  return (provider || '').toLowerCase();
-};
-
-const getProviderActionLabel = (provider?: string, prMrUrl?: string): string => {
-  const source = normalizeSource(provider, prMrUrl);
+const getProviderActionLabel = (provider?: string, triggerType?: string): string => {
+  const source = normalizeSource(provider, triggerType);
   if (source === 'gitlab') return 'View MR';
   if (source === 'cli') return 'CLI';
   return 'View PR';
@@ -74,8 +54,9 @@ const extractMRInfo = (url?: string): string => {
   }
 };
 
-const SourceIcon: React.FC<{ provider?: string; prMrUrl?: string }> = ({ provider, prMrUrl }) => {
-  switch (normalizeSource(provider, prMrUrl)) {
+const SourceIcon: React.FC<{ provider?: string; triggerType?: string }> = ({ provider, triggerType }) => {
+  switch (normalizeSource(provider, triggerType)) {
+    case 'scheduled': return <LuClock size={18} className="shrink-0 text-slate-300" />;
     case 'cli': return <LuTerminal size={14} className="shrink-0 text-slate-300" />;
     case 'github': return <span className="shrink-0 inline-flex items-center text-white"><Icons.GitHub /></span>;
     case 'gitlab': return <SiGitlab className="w-4 h-4 shrink-0" style={{ color: '#FC6D26' }} />;
@@ -695,10 +676,11 @@ const ReviewDetail: React.FC = () => {
         events.forEach(e => {
             const dataAny = e.data as any;
             const sev = (dataAny?.severity || '').toLowerCase();
+            const eventType = String(e.type);
             if (e.level === 'error' || sev === 'critical' || sev === 'high') high++;
             else if (e.level === 'warn' || sev === 'warning' || sev === 'medium') medium++;
-            else if (sev === 'info' || sev === 'low' || (e.level === 'info' && e.type === 'tool_result')) low++;
-            else if (e.level === 'info' && e.type === 'tool_dispatch') {
+            else if (sev === 'info' || sev === 'low' || (e.level === 'info' && eventType === 'tool_result')) low++;
+            else if (e.level === 'info' && eventType === 'tool_dispatch') {
                 // Ignore dispatch log events
             } else if (sev === 'info' || e.level === 'info') low++;
         });
@@ -918,7 +900,7 @@ const ReviewDetail: React.FC = () => {
                         {/* Provider / CLI Logo */}
                         <div className="shrink-0">
                             <div className="inline-flex items-center justify-center p-1.5 rounded-md border border-slate-700/80 bg-slate-900/60 text-slate-200 leading-none">
-                                <SourceIcon provider={review.provider} prMrUrl={review.prMrUrl} />
+                                <SourceIcon provider={review.provider} triggerType={review.triggerType} />
                             </div>
                         </div>
                     </div>
