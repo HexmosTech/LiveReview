@@ -1,5 +1,5 @@
 import { Dispatch, AnyAction } from '@reduxjs/toolkit';
-import toast from 'react-hot-toast';
+import { notify } from './notify';
 import { LoginResponse } from '../api/auth';
 
 /**
@@ -37,7 +37,7 @@ export const handleLoginSuccess = (
 		payload: loginResponse,
 	});
 	
-	toast.success('Login successful!');
+	notify.success('Login successful!');
 };
 
 /**
@@ -46,6 +46,6 @@ export const handleLoginSuccess = (
  */
 export const handleLoginError = (error: unknown) => {
 	const errorMessage = (error as Error).message || 'An unknown error occurred.';
-	toast.error(`Login failed: ${errorMessage}`);
+	notify.error(`Login failed: ${errorMessage}`);
 	console.error('Login error:', error);
 };

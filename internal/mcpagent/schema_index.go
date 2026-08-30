@@ -124,6 +124,21 @@ func InitSchemaIndex(dsn string) {
 			}
 			log.Info().Int("accepted", termResult.Accepted).Int("rejected", len(termResult.Rejected)).
 				Msg("dbctx terminology imported")
+
+			// One throwaway idx.Query call here pays whatever cold-start cost
+			// the first call incurs (e.g. spinning up the semantic scorer's
+			// ONNX session - see openSemanticScorer's sync.Once) during
+			// process startup instead of during the first real user's chat
+			// turn. The query text is a representative real question, not
+			// special in any way; the result is discarded.
+			warmStart := time.Now()
+			if _, err := idx.Query("Is LiveReview adoption increasing since my team started using it?"); err != nil {
+				fmt.Printf("[dbctx] warm-up query failed: %v\n", err)
+				log.Warn().Err(err).Msg("dbctx warm-up query failed")
+			} else {
+				fmt.Printf("[dbctx] warm-up query done in %s\n", time.Since(warmStart).Round(time.Millisecond))
+				log.Info().Dur("elapsed", time.Since(warmStart)).Msg("dbctx warm-up query done")
+			}
 		}()
 	})
 }

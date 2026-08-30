@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
+import { notify } from '../../utils/notify';
 import { useSelector } from 'react-redux';
 import { SortingState, ColumnFiltersState, PaginationState, OnChangeFn } from '@tanstack/react-table';
 import { Button } from '../UIPrimitives';
@@ -178,16 +178,16 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             if (isSuperAdminView) {
                 // TODO: Implement super admin deactivation
                 console.log('Super admin deactivate user:', user);
-                toast.error('Super admin deactivation not yet implemented.');
+                notify.error('Super admin deactivation not yet implemented.');
             } else if (currentOrg) {
                 await deactivateOrgUser(currentOrg.id.toString(), user.id.toString());
-                toast.success(`User ${userName} deactivated successfully.`);
+                notify.success(`User ${userName} deactivated successfully.`);
                 await refetchCurrent(); // Refresh list
             }
         } catch (err: any) {
             console.error('Failed to deactivate user:', err);
             setError(err.message || 'Failed to deactivate user');
-            toast.error(`Failed to deactivate user: ${err.message}`);
+            notify.error(`Failed to deactivate user: ${err.message}`);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isSuperAdminView, currentOrg, refetchCurrent]);
@@ -195,7 +195,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     const handleTransferUser = useCallback((user: Member) => {
         // TODO: Open transfer user modal
         console.log('Transfer user:', user);
-        toast.error('User transfer not yet implemented.');
+        notify.error('User transfer not yet implemented.');
     }, []);
 
     return (

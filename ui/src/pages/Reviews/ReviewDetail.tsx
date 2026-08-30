@@ -133,6 +133,7 @@ const ReviewDetail: React.FC = () => {
     const mapEventLevel = (level: ReviewEventLevel) => level;
     const [review, setReview] = useState<Review | null>(null);
     const [events, setEvents] = useState<ReviewEvent[]>([]);
+    const [eventCount, setEventCount] = useState<number>(0);
     const [summary, setSummary] = useState<ReviewSummary | null>(null);
     const [accounting, setAccounting] = useState<ReviewAccounting | null>(null);
     const [accountingError, setAccountingError] = useState<string | null>(null);
@@ -632,6 +633,13 @@ const ReviewDetail: React.FC = () => {
             
             const newEvents = (eventsData?.events as ReviewEvent[] | undefined) || [];
             setEvents(newEvents);
+            
+            // meta.count carries the historical total (restored from compaction marker)
+            if (eventsData?.meta?.count !== undefined) {
+                setEventCount(eventsData.meta.count);
+            } else {
+                setEventCount(newEvents.length);
+            }
             
             // Update last event time for next polling
             if (newEvents.length > 0) {
@@ -1244,6 +1252,7 @@ const ReviewDetail: React.FC = () => {
             <div className={activeTab === 'events' ? '' : 'hidden'}>
                     <ReviewEventsPage
                         reviewId={reviewId}
+                        initialEventCount={eventCount}
                         initialEvents={events.map(event => ({
                             id: event.id.toString(),
                             timestamp: event.time,

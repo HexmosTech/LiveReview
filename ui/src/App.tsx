@@ -1,7 +1,6 @@
 import React, { Suspense, useEffect, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
 import { Navbar } from './components/Navbar/Navbar';
-import { DemoModeBanner } from './components/DemoModeBanner';
 import { URLMismatchBanner } from './components/URLMismatchBanner';
 import { useAppDispatch, useAppSelector } from './store/configureStore';
 import { logout, checkSetupStatus, fetchUser } from './store/Auth/reducer';
@@ -12,6 +11,7 @@ import { isCloudMode } from './utils/deploymentMode';
 import { SubscriptionGuard } from './components/SubscriptionGuard';
 import { Toaster } from 'react-hot-toast';
 import { useBottomRightBlockers } from './store/uiLayout';
+import { ToastBridge } from './components/Notifications/ToastBridge';
 
 const Dashboard = React.lazy(() => import('./components/Dashboard/Dashboard').then((m) => ({ default: m.Dashboard })));
 const GitProviders = React.lazy(() => import('./pages/GitProviders/GitProviders'));
@@ -316,8 +316,6 @@ const AppContent: React.FC = () => {
                     onNavigate={handleNavigate}
                     onLogout={handleLogout}
                 />
-                {/* DemoModeBanner kept for compatibility; now mostly replaced by status bar badge */}
-                {/* <DemoModeBanner /> */}
                 <URLMismatchBanner />
                 {!isCloudMode() && location.pathname !== '/chat' && <LicenseStatusBar onOpenModal={() => dispatch(openLicenseModal())} />}
                 <div className="flex-grow">
@@ -451,6 +449,7 @@ const App: React.FC = () => {
         <Router>
             <AppContent />
             <Toaster />
+            <ToastBridge />
         </Router>
     );
 };

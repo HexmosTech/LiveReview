@@ -158,6 +158,7 @@ func (a *Agent) runAnalyticsPlan(
 	plan []PlanEntry,
 	history []HistoryEntry,
 	userText string,
+	schemaTableText string,
 	clog *logging.ChatTurnLogger,
 ) (string, []HistoryEntry, []Artifact, error) {
 	ctx, cancel := context.WithTimeout(ctx, analyticsTurnTimeout)
@@ -179,7 +180,7 @@ func (a *Agent) runAnalyticsPlan(
 	// LLM call, and sequential failure semantics are far easier to reason about.
 	// Bounded concurrency is a follow-up once latency is measured.
 	for _, entry := range plan {
-		done := a.runOneReport(ctx, entry, userText, clog)
+		done := a.runOneReport(ctx, entry, userText, schemaTableText, clog)
 		switch {
 		case done.report != nil:
 			reports = append(reports, *done.report)
@@ -208,6 +209,7 @@ func (a *Agent) runOneReport(
 	ctx context.Context,
 	entry PlanEntry,
 	userText string,
+	schemaTableText string,
 	clog *logging.ChatTurnLogger,
 ) finishedReport {
 	count, ok := a.runCountPhase(ctx, entry, clog)
@@ -223,7 +225,7 @@ func (a *Agent) runOneReport(
 		return finishedReport{text: text}
 	}
 
-	final := a.runFinalizePhase(ctx, entry, userText, count, clog)
+	final := a.runFinalizePhase(ctx, entry, userText, count, schemaTableText, clog)
 	if final == nil {
 		return finishedReport{text: fmt.Sprintf("I could not build the result for %q.", entry.Question)}
 	}
@@ -282,12 +284,13 @@ func (a *Agent) runFinalizePhase(
 	entry PlanEntry,
 	userText string,
 	count int64,
+	schemaTableText string,
 	clog *logging.ChatTurnLogger,
 ) *FinalizePlan {
 	base := fmt.Sprintf("Original question: %s\n\nThis report answers: %s\n\nThe result will contain %d rows.\n\nThe counting query used was:\n%s",
 		userText, entry.Question, count, entry.CountSQL)
 	user := base
-	system := a.finalizePrompt(clog, entry.Question)
+	system := a.finalizePrompt(schemaTableText)
 
 	for attempt := 1; attempt <= maxSQLAttempts; attempt++ {
 		raw, err := a.completeOnce(ctx, clog, 3, "finalize", entry.ID, attempt, system, user)
@@ -436,8 +439,12 @@ func (a *Agent) buildChartReport(
 		if strings.TrimSpace(mark) == "" {
 			mark = "bar"
 		}
-		spec["mark"] = mark
-		spec["encoding"] = json.RawMessage(plan.Encoding)
+		if layer, ok := maybeAddRollingAverageLayer(mark, plan.Encoding, len(rs.Rows)); ok {
+			spec["layer"] = layer
+		} else {
+			spec["mark"] = mark
+			spec["encoding"] = json.RawMessage(plan.Encoding)
+		}
 	}
 	specJSON, err := json.Marshal(spec)
 	if err != nil {
@@ -457,6 +464,216 @@ func (a *Agent) buildChartReport(
 		Query:       plan.Query,
 		Spec:        normalized,
 	}}
+}
+
+// rollingWindow describes the smoothing window to use for one x-axis bucket
+// granularity: how many trailing rows the window transform averages over,
+// and what that window is called in the UI. The caller requires at least
+// 2x rows before using one, so at least one full window's worth of history
+// exists on both sides of "recent" - otherwise the "average" is really just
+// the whole series restated.
+type rollingWindow struct {
+	rows  int
+	label string
+}
+
+// rollingWindowFor maps an x-channel's Vega-Lite timeUnit to the smoothing
+// window appropriate for that bucket size, and the minimum row count before
+// it's worth showing at all. One row in the data IS one bucket (one day, one
+// week, one month, ...), so the window size must scale with the bucket or
+// the label lies about what it's averaging: a fixed 7-row window is a real
+// 7-day average on daily data, but a mislabeled ~7-week average on weekly
+// data. Chosen windows: daily -> 7-day (a week), weekly -> 4-week (about a
+// month), monthly -> 6-month (half a year) - each roughly "the next unit up"
+// from the bucket, which is what a viewer skimming the chart would expect
+// "the average" to mean at that zoom level. Quarter/year buckets return
+// !ok - a handful of quarterly/yearly points is usually already readable
+// without smoothing, and there's no obviously-right "next unit up" to
+// average them into.
+func rollingWindowFor(timeUnit string) (rollingWindow, bool) {
+	tu := strings.ToLower(timeUnit)
+	switch {
+	case tu == "" || strings.Contains(tu, "date") || strings.Contains(tu, "day") ||
+		strings.Contains(tu, "hours") || strings.Contains(tu, "minutes") || strings.Contains(tu, "seconds"):
+		// Empty timeUnit means a raw temporal field with no explicit
+		// bucketing in the encoding - assume day granularity, matching
+		// what SQL almost always produces in that case (date_trunc('day', ...)).
+		return rollingWindow{rows: 7, label: "7-day"}, true
+	case strings.Contains(tu, "week"):
+		return rollingWindow{rows: 4, label: "4-week"}, true
+	case strings.Contains(tu, "month"):
+		// Checked after "week": no Vega-Lite timeUnit contains both
+		// substrings, so order doesn't matter for correctness, but month is
+		// checked before the day-granularity branch's "date" substring
+		// match already resolved above - "yearmonthdate" is caught by the
+		// "date" check first, so by the time we get here tu is a pure
+		// month-or-coarser bucket.
+		return rollingWindow{rows: 6, label: "6-month"}, true
+	default:
+		return rollingWindow{}, false
+	}
+}
+
+// maybeAddRollingAverageLayer augments a flat mark+encoding chart into a
+// two-layer spec (the original mark, plus a rolling-average line sized to
+// the chart's own bucket granularity) when the chart is a single-series
+// time trend with enough points for bucket-to-bucket noise to obscure
+// whether it is actually trending. This runs unconditionally in Go rather
+// than relying on the model to ask for it: analytics_finalize.md's
+// chart-shape table already documents "add a second line layer for a
+// rolling average if the trend is noisy" as one row among many, and in
+// practice the model does not reliably choose it (the "is adoption
+// increasing" report that motivated this returned a plain bar with no
+// rolling average at all). Vega-Lite's own window transform computes the
+// average client-side from the same data.values the query already
+// returned, so this needs no new SQL and no LLM cooperation - it cannot be
+// skipped the way a prompt instruction can.
+//
+// Deliberately conservative: returns false (unchanged spec) for anything
+// the model already made a deliberate richer choice about. A color, detail,
+// size, column, or row channel means grouped or multi-series data, where
+// one rolling-average line drawn across all of it would be presentationally
+// wrong, not helpful - and x must be temporal with y the sole quantitative
+// channel, i.e. a plain "count over bucket" shape, not something this
+// heuristic should guess about.
+func maybeAddRollingAverageLayer(mark string, encoding json.RawMessage, rowCount int) (json.RawMessage, bool) {
+	switch mark {
+	case "", "bar", "line", "area", "point", "circle":
+	default:
+		return nil, false
+	}
+
+	var channels map[string]json.RawMessage
+	if err := json.Unmarshal(encoding, &channels); err != nil {
+		return nil, false
+	}
+	for _, extra := range []string{"color", "detail", "size", "column", "row"} {
+		if _, ok := channels[extra]; ok {
+			return nil, false
+		}
+	}
+
+	type channelSpec struct {
+		Field    string `json:"field"`
+		Type     string `json:"type"`
+		TimeUnit string `json:"timeUnit"`
+		Title    string `json:"title"`
+	}
+	var x, y channelSpec
+	xRaw, ok := channels["x"]
+	if !ok || json.Unmarshal(xRaw, &x) != nil {
+		return nil, false
+	}
+	yRaw, ok := channels["y"]
+	if !ok || json.Unmarshal(yRaw, &y) != nil {
+		return nil, false
+	}
+	if x.Type != "temporal" || y.Type != "quantitative" || x.Field == "" || y.Field == "" {
+		return nil, false
+	}
+
+	win, ok := rollingWindowFor(x.TimeUnit)
+	if !ok || rowCount < win.rows*2 {
+		return nil, false
+	}
+
+	// A named, identical color scale (same domain/range) on every layer's
+	// "datum" color channel is what makes Vega-Lite draw one shared legend
+	// for three layers that otherwise have no data-driven color channel at
+	// all (a plain bar + two synthetic lines): each layer's color is a
+	// literal constant, not a field lookup, but literal-vs-literal still
+	// participates in a legend the same way a real categorical field would.
+	baseLabel := firstNonEmpty(strings.TrimSpace(y.Title), "Value")
+	rollingLabel := win.label + " rolling average"
+	baselineLabel := "Period average (baseline)"
+	domain := []string{baseLabel, rollingLabel, baselineLabel}
+	colorRange := []string{"#7c9cff", "#ffb454", "#ff5c7c"}
+	colorFor := func(label string) map[string]any {
+		return map[string]any{
+			"datum":  label,
+			"type":   "nominal",
+			"scale":  map[string]any{"domain": domain, "range": colorRange},
+			"legend": map[string]any{"title": nil, "orient": "top"},
+		}
+	}
+
+	// Every layer's y channel gets the exact same explicit title
+	// (baseLabel), instead of each layer defaulting to a title derived from
+	// its own field name ("Reviews Completed" vs "rolling_avg" vs
+	// "period_avg"). All three layers share one y-axis/scale (Vega-Lite's
+	// default resolve), and when layers sharing an axis carry different
+	// titles, Vega-Lite concatenates them into one garbled label instead of
+	// picking one - identical titles on every layer sidesteps that instead
+	// of fighting it. An earlier version of this used "axis": null on the
+	// second/third layers to suppress the title collision, which turned out
+	// to suppress the ENTIRE shared axis (no tick labels at all) rather
+	// than just that layer's title - do not reintroduce that.
+	channels["y"] = mustMarshalJSON(map[string]any{"field": y.Field, "type": "quantitative", "title": baseLabel})
+	channels["color"] = mustMarshalJSON(colorFor(baseLabel))
+	baseEncoding, err := json.Marshal(channels)
+	if err != nil {
+		return nil, false
+	}
+
+	layer := []any{
+		map[string]any{"mark": firstNonEmpty(mark, "bar"), "encoding": json.RawMessage(baseEncoding)},
+		map[string]any{
+			"transform": []any{map[string]any{
+				"window": []any{map[string]any{"op": "mean", "field": y.Field, "as": "rolling_avg"}},
+				"frame":  []any{-(win.rows - 1), 0},
+				"sort":   []any{map[string]any{"field": x.Field}},
+			}},
+			"mark": map[string]any{"type": "line", "strokeWidth": 2.5},
+			"encoding": map[string]any{
+				"x":     xRaw,
+				"y":     map[string]any{"field": "rolling_avg", "type": "quantitative", "title": baseLabel},
+				"color": colorFor(rollingLabel),
+				"tooltip": []any{
+					map[string]any{"field": x.Field, "type": "temporal", "title": "Period"},
+					// format: the mean/window aggregates below are raw
+					// floats (e.g. 4.333333...) with no rounding of their
+					// own - .2f keeps the tooltip readable.
+					map[string]any{"field": "rolling_avg", "type": "quantitative", "title": rollingLabel, "format": ".2f"},
+				},
+			},
+		},
+		// The baseline rule needs no Go-side computation of the actual
+		// average: an "aggregate" transform collapses the same data.values
+		// every other layer sees into a single {period_avg} row, entirely
+		// client-side in the browser, the same way the rolling-average
+		// layer's "window" transform above needs no precomputed numbers.
+		map[string]any{
+			"transform": []any{map[string]any{
+				"aggregate": []any{map[string]any{"op": "mean", "field": y.Field, "as": "period_avg"}},
+			}},
+			"mark": map[string]any{"type": "rule", "strokeDash": []any{6, 4}, "strokeWidth": 1.5},
+			"encoding": map[string]any{
+				"y":     map[string]any{"field": "period_avg", "type": "quantitative", "title": baseLabel},
+				"color": colorFor(baselineLabel),
+				"tooltip": []any{
+					map[string]any{"field": "period_avg", "type": "quantitative", "title": baselineLabel, "format": ".2f"},
+				},
+			},
+		},
+	}
+	b, err := json.Marshal(layer)
+	if err != nil {
+		return nil, false
+	}
+	return b, true
+}
+
+// mustMarshalJSON marshals a value this package built itself (plain
+// map[string]any/string/[]string literals, never user/model input), so a
+// marshal error here would mean a programming mistake, not bad data -
+// exactly the case where a panic-on-can't-happen helper is appropriate
+// instead of threading an error return through colorFor's every caller.
+func mustMarshalJSON(v any) json.RawMessage {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(fmt.Sprintf("mustMarshalJSON: %v", err))
+	}
+	return b
 }
 
 // buildCSVReport writes the result set to CSV. Column order comes from the

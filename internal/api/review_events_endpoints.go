@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -110,13 +111,37 @@ func (h *ReviewEventsHandler) GetReviewEvents(c echo.Context) error {
 		events = make([]*ReviewEvent, 0)
 	}
 
+	// If the review has been compacted, use the original total event count stored
+	// in the compaction marker so the UI shows the correct historical count
+	// (e.g. "Events: 248") even though we now only hold ~30 rows.
+	eventCount := len(events)
+	var rawMarker []byte
+	markerErr := h.service.repo.DB().QueryRowContext(
+		c.Request().Context(),
+		`SELECT data FROM public.review_events
+		 WHERE review_id = $1 AND org_id = $2
+		   AND event_type = 'log'
+		   AND (data->>'compacted')::boolean = true
+		 LIMIT 1`,
+		reviewID, orgID,
+	).Scan(&rawMarker)
+	if markerErr == nil && rawMarker != nil {
+		var marker struct {
+			OriginalTotalEventCount *int `json:"original_total_event_count"`
+		}
+		if err := json.Unmarshal(rawMarker, &marker); err == nil && marker.OriginalTotalEventCount != nil {
+			eventCount = *marker.OriginalTotalEventCount
+		}
+	}
+
 	// Return events in the standard envelope format
 	response := map[string]interface{}{
 		"events": events,
 		"meta": map[string]interface{}{
-			"reviewId": reviewID,
-			"count":    len(events),
-			"limit":    limit,
+			"reviewId":   reviewID,
+			"count":      eventCount,
+			"limit":      limit,
+			"compacted":  markerErr == nil && rawMarker != nil,
 		},
 	}
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import toast from 'react-hot-toast';
+import { notify } from '../../utils/notify';
 import { Button } from '../UIPrimitives';
 
 export interface BulkOnboardingRow {
@@ -45,7 +45,7 @@ export const BulkOnboardingDetails: React.FC<BulkOnboardingDetailsProps> = ({ ro
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast.success(`git-lrc-setup.csv downloaded successfully for ${rows.length} user(s)!`);
+    notify.success(`git-lrc-setup.csv downloaded successfully for ${rows.length} user(s)!`);
   };
 
   return (

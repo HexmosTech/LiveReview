@@ -4,7 +4,7 @@ import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { useNavigate } from 'react-router-dom';
 import { login } from '../../store/Auth/reducer';
 import { handleLoginError, getRedirectAfterLogin, clearRedirectAfterLogin } from '../../utils/authHelpers';
-import toast from 'react-hot-toast';
+import { notify } from '../../utils/notify';
 
 const SelfHosted: React.FC = () => {
 	const dispatch = useAppDispatch();
@@ -50,13 +50,13 @@ const SelfHosted: React.FC = () => {
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		if (!email || !password) {
-			toast.error('Please enter both email and password.');
+			notify.error('Please enter both email and password.');
 			return;
 		}
 
 		try {
 			await dispatch(login({ email, password })).unwrap();
-			toast.success('Login successful!');
+			notify.success('Login successful!');
 			
 			// Get the redirect URL if it was stored
 			const redirectUrl = getRedirectAfterLogin();
