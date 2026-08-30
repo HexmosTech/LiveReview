@@ -277,15 +277,20 @@ function formatText(rawText: string): React.ReactNode[] {
   return parts;
 }
 
-function isSafeUrl(url: string): boolean {
+function toSafeHref(rawUrl: string): string | null {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('#') || trimmed.startsWith('/')) return trimmed;
   try {
-    const trimmed = url.trim().toLowerCase();
-    if (trimmed.startsWith('/') || trimmed.startsWith('#')) return true;
-    const parsed = new URL(url, window.location.origin);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'mailto:';
+    const parsed = new URL(trimmed, window.location.origin);
+    const protocol = parsed.protocol.toLowerCase();
+    if (protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:' || protocol === 'tel:') {
+      return parsed.href;
+    }
   } catch {
-    return false;
+    return null;
   }
+  return null;
 }
 
 function formatLine(line: string): React.ReactNode {
@@ -302,12 +307,13 @@ function formatLine(line: string): React.ReactNode {
         if (urlEnd > labelEnd + 1) {
           const label = line.slice(i + 1, labelEnd);
           const url = line.slice(labelEnd + 2, urlEnd);
-          if (isSafeUrl(url)) {
+          const safeHref = toSafeHref(url);
+          if (safeHref) {
             parts.push(
               <a
                 key={`link-${partIdx++}`}
-                href={url}
-                target={url.startsWith('/') || url.startsWith('#') ? '_self' : '_blank'}
+                href={safeHref}
+                target={safeHref.startsWith('/') || safeHref.startsWith('#') ? '_self' : '_blank'}
                 rel="noopener noreferrer"
                 className="text-indigo-400 hover:text-indigo-300 underline underline-offset-2 font-medium transition-colors"
               >
