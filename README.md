@@ -15,7 +15,7 @@ https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 | <img src="./assets/screenshots/blast-radius/new-risk-score-3.webp" width="280"/> | <img src="./assets/screenshots/blast-radius/new-risk-score-4.webp" width="280"/> | <img src="./assets/screenshots/blast-radius/new-risk-score-2.webp" width="280"/> |
 
 <details>
-<summary>How does Blast Radius scoring work?</summary>
+<summary>How does Blast Radius scoring work? (a more technical explanation)</summary>
 
 LiveReview gives each hunk two scores, then combines them into one and ranks every hunk in the diff by it.
 
