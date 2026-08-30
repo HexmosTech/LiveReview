@@ -6,6 +6,7 @@ import { ReviewVolumeBar } from './ReviewVolumeBar';
 import { SystemKpiRow } from './SystemKpiRow';
 import { RepoHierarchySunburst } from './RepoHierarchySunburst';
 import { ConnectedProviders } from './ConnectedProviders';
+import { ToolsUsageWidget } from './ToolsUsageWidget';
 import { CoverageGauge } from './CoverageGauge';
 import { AverageReviewsStat } from './AverageReviewsStat';
 import { TopReviewersLeaderboard } from './TopReviewersLeaderboard';
@@ -107,9 +108,18 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
         title: 'Connected Providers',
         category: 'system',
         description: 'Every git host and AI provider currently connected.',
-        defaultLayout: { x: 7, y: 35, w: 5, h: 10 },
-        minW: 4, minH: 6,
+        defaultLayout: { x: 7, y: 35, w: 5, h: 5 },
+        minW: 4, minH: 5,
         component: ConnectedProviders,
+    },
+    {
+        id: 'tools-usage-widget',
+        title: 'Third-Party Static Analysis Tools',
+        category: 'system',
+        description: 'Enabled third-party static analysis security and linting tools.',
+        defaultLayout: { x: 7, y: 40, w: 5, h: 5 },
+        minW: 4, minH: 5,
+        component: ToolsUsageWidget,
     },
     {
         id: 'coverage-gauge',

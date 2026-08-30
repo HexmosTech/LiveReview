@@ -2415,6 +2415,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, webhookWorker)
 	river.AddWorker(workers, manualWorker)
 	river.AddWorker(workers, scheduledReviewWorker)
+	river.AddWorker(workers, NewToolReviewWorker(db))
 	river.AddWorker(workers, &UpdateOrgUsageWorker{db: db, pool: pool})
 	river.AddWorker(workers, repoPRSyncWorker)
 	river.AddWorker(workers, prStateSyncWorker)
@@ -2574,6 +2575,16 @@ func (jq *JobQueue) QueueUpdateOrgUsageJob(ctx context.Context, args UpdateOrgUs
 	if err != nil {
 		log.Printf("[ERROR] Failed to queue update org usage job: %v", err)
 		return fmt.Errorf("failed to queue update org usage job: %w", err)
+	}
+	return nil
+}
+
+// QueueToolReviewJob enqueues a single tool review execution job.
+func (jq *JobQueue) QueueToolReviewJob(ctx context.Context, args ToolReviewJobArgs) error {
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review", MaxAttempts: 3})
+	if err != nil {
+		log.Printf("[ERROR] Failed to queue tool review job for %s: %v", args.ToolName, err)
+		return fmt.Errorf("failed to queue tool review job: %w", err)
 	}
 	return nil
 }

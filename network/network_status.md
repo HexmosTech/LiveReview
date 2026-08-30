@@ -2,21 +2,20 @@
 
 Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-LOC-001, MF-LOC-002, MF-LOC-003, MF-LOC-004, MF-LOC-005, MF-LOC-006, MF-LOC-007, MF-LOC-008, MF-PRORATION-001, MF-PRORATION-002, MF-PRORATION-003, MF-ATTRIB-001, MF-ATTRIB-002, MF-PORTFOLIO-001, MF-NOTIFY-001, MF-NOTIFY-002, MF-DASHBOARD-LOG-001, MF-EXPIRY-001, MF-UPI-UPGRADE-001, MF-UPI-UPGRADE-002, MF-UPI-UPGRADE-003, MF-UPI-UPGRADE-004, MF-TRIAL-CANCEL-001, MF-CANCEL-VERIFY-001, MF-CANCEL-PROJECTION-001, MF-STATUS-LABEL-001, MF-BILLING-PRICE-001, MF-AI-HELPER-001): added provider-backed monthly plan price exposure in billing status, surfaced current paid subscription currency for settings flows, rejected unsupported paid cross-currency upgrade previews instead of letting quantity-only subscription updates imply currency switching, and exposed Leader/Helper review AI settings plus per-stage review accounting breakdowns.
 
-| Operation                             | Status  | Evidence                                                                          |
-| ------------------------------------- | ------- | --------------------------------------------------------------------------------- |
-| payment.CreateSubscriptionAddon       | added   | [CreateSubscriptionAddon](../internal/license/payment/payment.go#L309)            |
-| payment.CreateOrder                   | added   | [CreateOrder](../internal/license/payment/payment.go#L359)                        |
-| payment.CreateSubscriptionAt          | added   | [CreateSubscriptionAt](../internal/license/payment/subscription.go#L78)           |
-| payment.CancelScheduledChangesByID    | added   | [CancelScheduledChangesByID](../internal/license/payment/subscription.go#L295)    |
-| api.CreateSubscription                | updated | [CreateSubscription](../internal/api/subscriptions_handler.go#L141)               |
-| api.CancelSubscription                | updated | [CancelSubscription](../internal/api/subscriptions_handler.go#L299)               |
-| api.GetBillingStatus                  | updated | [GetBillingStatus](../internal/api/billing_actions_handler.go#L1311)              |
-| api.checkGitHubParentCommentAuthor    | updated | [checkGitHubParentCommentAuthor](../internal/api/unified_processor_v2.go#L707)    |
+| Operation | Status | Evidence |
+| --- | --- | --- |
+| payment.CreateSubscriptionAddon | added | [CreateSubscriptionAddon](../internal/license/payment/payment.go#L309) |
+| payment.CreateOrder | added | [CreateOrder](../internal/license/payment/payment.go#L359) |
+| payment.CreateSubscriptionAt | added | [CreateSubscriptionAt](../internal/license/payment/subscription.go#L78) |
+| payment.CancelScheduledChangesByID | added | [CancelScheduledChangesByID](../internal/license/payment/subscription.go#L295) |
+| api.CreateSubscription | updated | [CreateSubscription](../internal/api/subscriptions_handler.go#L141) |
+| api.CancelSubscription | updated | [CancelSubscription](../internal/api/subscriptions_handler.go#L299) |
+| api.GetBillingStatus | updated | [GetBillingStatus](../internal/api/billing_actions_handler.go#L1322) |
+| api.checkGitHubParentCommentAuthor | updated | [checkGitHubParentCommentAuthor](../internal/api/unified_processor_v2.go#L707) |
 | api.checkBitbucketParentCommentAuthor | updated | [checkBitbucketParentCommentAuthor](../internal/api/unified_processor_v2.go#L776) |
-| api.PreviewUpgrade                    | updated | [PreviewUpgrade](../internal/api/billing_actions_handler.go#L457)                 |
-
-| api.GetCurrentSubscription | updated | [GetCurrentSubscription](../internal/api/subscriptions_handler.go#L620) |
-| api.ListUserSubscriptions | updated | [ListUserSubscriptions](../internal/api/subscriptions_handler.go#L773) |
+| api.PreviewUpgrade | updated | [PreviewUpgrade](../internal/api/billing_actions_handler.go#L457) |
+| api.GetCurrentSubscription | updated | [GetCurrentSubscription](../internal/api/subscriptions_handler.go#L632) |
+| api.ListUserSubscriptions | updated | [ListUserSubscriptions](../internal/api/subscriptions_handler.go#L785) |
 | api.parseFindingsOptions | added | [parseFindingsOptions](../internal/api/taxonomy_report_handler.go#L115) |
 | api.ListOrgTaxonomyFindings | updated | [ListOrgTaxonomyFindings](../internal/api/taxonomy_report_handler.go#L244) |
 | api.ListAdminTaxonomyFindings | updated | [ListAdminTaxonomyFindings](../internal/api/taxonomy_report_handler.go#L388) |
@@ -27,8 +26,8 @@ Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-
 | providersgitea.postInlineViaSession | updated | [postInlineViaSession](../internal/providers/gitea/gitea_provider.go#L381) |
 | providersgitea.ensureSession | updated | [ensureSession](../internal/providers/gitea/gitea_provider.go#L446) |
 | providersgitea.fetchPullRequest | updated | [fetchPullRequest](../internal/providers/gitea/gitea_provider.go#L556) |
-| payment.cancellationVerified | updated | [cancellationVerified](../internal/license/payment/subscription_service.go#L1029) |
-| payment.verifyCancellationWithRetry | updated | [verifyCancellationWithRetry](../internal/license/payment/subscription_service.go#L1046) |
+| payment.cancellationVerified | updated | [cancellationVerified](../internal/license/payment/subscription_service.go#L1032) |
+| payment.verifyCancellationWithRetry | updated | [verifyCancellationWithRetry](../internal/license/payment/subscription_service.go#L1049) |
 | payment.handleSubscriptionCharged | updated | [handleSubscriptionCharged](../internal/license/payment/webhook_handler.go#L530) |
 | payment.resolveCancelAtPeriodEndAfterCharge | added | [resolveCancelAtPeriodEndAfterCharge](../internal/license/payment/webhook_handler.go#L738) |
 | payment.handleSubscriptionCancelled | updated | [handleSubscriptionCancelled](../internal/license/payment/webhook_handler.go#L764) |
@@ -71,3 +70,8 @@ Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-
 | api.selectLeaderAIConfig | added | [selectLeaderAIConfig](../internal/api/reviews_api.go#L378) |
 | api.selectHelperAIConfig | added | [selectHelperAIConfig](../internal/api/reviews_api.go#L414) |
 | api.GetReviewAccounting | updated | [GetReviewAccounting](../internal/api/review_events_endpoints.go#L207) |
+| api.UpsertAvailableTool | added | [UpsertAvailableTool](../internal/api/tools_handler.go#L26) |
+| api.ListAvailableTools | added | [ListAvailableTools](../internal/api/tools_handler.go#L48) |
+| api.ListOrgTools | added | [ListOrgTools](../internal/api/tools_handler.go#L95) |
+| api.UpdateOrgTool | added | [UpdateOrgTool](../internal/api/tools_handler.go#L115) |
+| tools.InvokeTool | added | [InvokeTool](tools/lambda_client.go#L18) |

@@ -650,6 +650,48 @@ func (c *Connector) Call(ctx context.Context, input string, options ...llms.Call
 	return llms.GenerateFromSinglePrompt(ctx, c.llm, input, callOptions...)
 }
 
+// CallWithUsage calls the LLM with the given input and returns the text output along with actual input & output token counts.
+func (c *Connector) CallWithUsage(ctx context.Context, input string, options ...llms.CallOption) (string, int, int, error) {
+	log.Debug().
+		Str("provider", string(c.provider)).
+		Str("model", c.options.ModelConfig.Model).
+		Msg("Connector.CallWithUsage invoked")
+
+	msg := []llms.MessageContent{
+		llms.TextParts(llms.ChatMessageTypeHuman, input),
+	}
+	resp, err := c.GenerateContent(ctx, msg, options...)
+	if err != nil {
+		// Fallback to Call if GenerateContent fails
+		text, callErr := c.Call(ctx, input, options...)
+		if callErr != nil {
+			return "", 0, 0, callErr
+		}
+		return text, len(input) / 4, len(text) / 4, nil
+	}
+
+	if len(resp.Choices) == 0 {
+		return "", 0, 0, fmt.Errorf("no choices returned from LLM")
+	}
+
+	contentText := resp.Choices[0].Content
+	inputTokens := len(input) / 4
+	outputTokens := len(contentText) / 4
+
+	if genInfo := resp.Choices[0].GenerationInfo; genInfo != nil {
+		if usageMap, ok := genInfo["Usage"].(map[string]interface{}); ok {
+			if pt, ok := usageMap["PromptTokens"].(float64); ok && pt > 0 {
+				inputTokens = int(pt)
+			}
+			if ct, ok := usageMap["CompletionTokens"].(float64); ok && ct > 0 {
+				outputTokens = int(ct)
+			}
+		}
+	}
+
+	return contentText, inputTokens, outputTokens, nil
+}
+
 func isCloudProviderProvider(provider Provider) bool {
 	switch provider {
 	case ProviderOpenAI, ProviderDeepSeek, ProviderGemini, ProviderGeminiEnterprise, ProviderClaude, ProviderAnthropicCompatible, ProviderOpenRouter, ProviderAtlas, ProviderBedrock:

@@ -37,6 +37,7 @@ import {
     getStatusText,
 } from '../../api/reviews';
 import { Review, ReviewsFilters, ReviewsSort } from '../../types/reviews';
+import { normalizeSource, sourceLabel } from '../../utils/sourceUtils';
 
 const pageSizeOptions = [20, 50, 100];
 
@@ -52,44 +53,6 @@ const truncate = (text: string, max: number): string =>
 
 const toTitleCase = (value: string): string =>
     value.replace(/\b\w/g, (char) => char.toUpperCase());
-
-// review.provider is literally "cli" for CLI-triggered reviews
-// (internal/jobqueue/review_worker.go), not a real git provider - treated
-// as its own "source" alongside github/gitlab/etc. Scheduled reviews carry
-// a real git provider (whatever the connector uses), so they're identified
-// by triggerType instead - checked first so it takes priority over provider.
-const normalizeSource = (provider?: string, triggerType?: string): string => {
-    if (triggerType === 'scheduled') return 'scheduled';
-    const normalized = (provider || '').toLowerCase();
-    if (normalized === 'cli') return 'cli';
-    if (normalized.startsWith('github')) return 'github';
-    if (normalized.startsWith('gitlab')) return 'gitlab';
-    if (normalized.startsWith('bitbucket')) return 'bitbucket';
-    if (normalized.startsWith('gitea')) return 'gitea';
-    if (normalized.startsWith('azuredevops')) return 'azuredevops';
-    return normalized;
-};
-
-const sourceLabel = (provider?: string, triggerType?: string): string => {
-    switch (normalizeSource(provider, triggerType)) {
-        case 'scheduled':
-            return 'Scheduled';
-        case 'cli':
-            return 'CLI';
-        case 'github':
-            return 'GitHub';
-        case 'gitlab':
-            return 'GitLab';
-        case 'bitbucket':
-            return 'Bitbucket';
-        case 'gitea':
-            return 'Gitea';
-        case 'azuredevops':
-            return 'Azure DevOps';
-        default:
-            return provider ? toTitleCase(provider) : '—';
-    }
-};
 
 const SourceIcon: React.FC<{ provider?: string; triggerType?: string }> = ({ provider, triggerType }) => {
     switch (normalizeSource(provider, triggerType)) {

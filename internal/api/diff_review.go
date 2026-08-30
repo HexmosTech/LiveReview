@@ -31,6 +31,7 @@ type DiffReviewRequest struct {
 	RepoName      string      `json:"repo_name"`
 	BranchName    string      `json:"branch_name"`
 	CommitRefs    []CommitRef `json:"commit_refs,omitempty"`
+	ToolsOnly     bool        `json:"tools_only,omitempty"`
 }
 
 // CommitRef identifies a commit or commit range that a review's diff
@@ -126,6 +127,7 @@ func (s *Server) DiffReview(c echo.Context) error {
 		RepoName:      repoName,
 		DiffZipBase64: req.DiffZipBase64,
 		TriggerSource: "api",
+		ToolsOnly:     req.ToolsOnly,
 	})
 	if err != nil {
 		log.Printf("[ERROR] Failed to queue diff review job: %v", err)
@@ -264,7 +266,79 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 
 	result, err := decodeReviewResult(meta)
 	if err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to decode review result: %v", err))
+		// For tools-only reviews or reviews without AI comments, return an empty result gracefully instead of failing
+		result = DiffReviewResult{
+			Summary:  "Static analysis tools review completed.",
+			Comments: []*models.ReviewComment{},
+		}
+	}
+
+	if len(result.Comments) == 0 {
+		dbComments, dbErr := rm.GetReviewComments(reviewRecord.ID)
+		if dbErr != nil {
+			log.Printf("[WARN] DiffReview: failed to fetch comments from db for review %d: %v", reviewRecord.ID, dbErr)
+		} else if len(dbComments) > 0 {
+			for _, dbC := range dbComments {
+				var contentMap map[string]interface{}
+				if err := json.Unmarshal(dbC.Content, &contentMap); err != nil {
+					log.Printf("[WARN] DiffReview: failed to unmarshal comment content for review %d: %v", reviewRecord.ID, err)
+					continue
+				}
+
+				var cStr, sevStr, catStr, subCatStr, confStr, typeStr, srcStr string
+				if v, ok := contentMap["content"].(string); ok {
+					cStr = v
+				}
+				if v, ok := contentMap["severity"].(string); ok {
+					sevStr = v
+				}
+				if v, ok := contentMap["category"].(string); ok {
+					catStr = v
+				}
+				if v, ok := contentMap["subcategory"].(string); ok {
+					subCatStr = v
+				}
+				if v, ok := contentMap["confidence"].(string); ok {
+					confStr = v
+				}
+				if v, ok := contentMap["type"].(string); ok {
+					typeStr = v
+				}
+				if v, ok := contentMap["source"].(string); ok {
+					srcStr = v
+				}
+
+				severity := models.CommentSeverity(strings.ToLower(strings.TrimSpace(sevStr)))
+				switch severity {
+				case models.SeverityCritical, models.SeverityWarning, models.SeverityInfo:
+					// valid enum
+				default:
+					severity = models.SeverityWarning
+				}
+
+				filePath := ""
+				if dbC.FilePath != nil {
+					filePath = *dbC.FilePath
+				}
+				lineNum := 0
+				if dbC.LineNumber != nil {
+					lineNum = *dbC.LineNumber
+				}
+
+				rc := &models.ReviewComment{
+					FilePath:    filePath,
+					Line:        lineNum,
+					Content:     cStr,
+					Severity:    severity,
+					Category:    catStr,
+					Subcategory: subCatStr,
+					Confidence:  confStr,
+					Type:        typeStr,
+					Source:      srcStr,
+				}
+				result.Comments = append(result.Comments, rc)
+			}
+		}
 	}
 
 	files := buildDiffFiles(preloaded, result.Comments)
