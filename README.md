@@ -20,11 +20,14 @@ https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 LiveReview gives each hunk two scores, then combines them into one and ranks every hunk in the diff by it.
 
 - **Blast Radius**: how far a change can reach through your code.
-  - How many other functions call this code
-  - Whether the change writes to a database or other stored data
+  - How many other places call this code, directly or a few steps removed
+  - Whether it writes to a database or other long-term storage
+  - Whether those callers live in other parts of the codebase, not just nearby files
 - **Review Priority**: how much care a change needs.
+  - How many different paths the logic can take, and how hard it is to follow
+  - How deeply loops sit nested inside other loops
+  - How many other functions or symbols this code itself calls into
   - Whether the code has tests
-  - Whether similar code already exists elsewhere
 
 LiveReview may add new signals over time. The two questions behind them stay the same: how far, and how much care.
 
