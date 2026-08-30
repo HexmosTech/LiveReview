@@ -76,7 +76,7 @@ func (m *EventCompactionManager) Start() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.cronRunner = cron.New()
+	m.cronRunner = cron.New(cron.WithLocation(time.UTC))
 	entryID, err := m.cronRunner.AddFunc(m.cronExpr, func() {
 		m.runCycle()
 	})
@@ -94,7 +94,8 @@ func (m *EventCompactionManager) Start() {
 	}
 	m.entryID = entryID
 	m.cronRunner.Start()
-	log.Info().Str("schedule", m.cronExpr).Bool("enabled", m.enabled).Int("retention_days", m.retentionDays).Msg("[compaction] manager started")
+	nextRun := m.cronRunner.Entry(m.entryID).Next
+	log.Info().Str("schedule", m.cronExpr).Bool("enabled", m.enabled).Int("retention_days", m.retentionDays).Time("next_run", nextRun).Msg("[compaction] manager started")
 }
 
 // Stop gracefully shuts down the cron runner.
@@ -125,22 +126,28 @@ func (m *EventCompactionManager) UpdateConfig(enabled bool, cronExpr string, ret
 		cronExpr = defaultCompactionCronExpr
 	}
 
-	if m.cronExpr != cronExpr {
+	if m.cronExpr != cronExpr || m.cronRunner == nil {
 		if m.cronRunner != nil {
-			m.cronRunner.Remove(m.entryID)
-			entryID, err := m.cronRunner.AddFunc(cronExpr, func() {
-				m.runCycle()
-			})
-			if err == nil {
-				m.entryID = entryID
-			} else {
-				log.Error().Str("cron_expr", cronExpr).Err(err).Msg("[compaction] invalid cron expression")
-			}
+			m.cronRunner.Stop()
+		}
+		m.cronRunner = cron.New(cron.WithLocation(time.UTC))
+		entryID, err := m.cronRunner.AddFunc(cronExpr, func() {
+			m.runCycle()
+		})
+		if err == nil {
+			m.entryID = entryID
+			m.cronRunner.Start()
+		} else {
+			log.Error().Str("cron_expr", cronExpr).Err(err).Msg("[compaction] invalid cron expression")
 		}
 		m.cronExpr = cronExpr
 	}
 
-	log.Info().Bool("enabled", m.enabled).Str("schedule", m.cronExpr).Int("retention_days", m.retentionDays).Msg("[compaction] config updated")
+	nextRun := time.Time{}
+	if m.cronRunner != nil {
+		nextRun = m.cronRunner.Entry(m.entryID).Next
+	}
+	log.Info().Bool("enabled", m.enabled).Str("schedule", m.cronExpr).Int("retention_days", m.retentionDays).Time("next_run", nextRun).Msg("[compaction] config updated")
 }
 
 // TriggerManualCycle runs a cycle immediately.
