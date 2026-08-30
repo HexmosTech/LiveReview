@@ -136,10 +136,6 @@ AI writes code faster than any human can review it by hand. LiveReview gives you
 | **CI / CD** | In production deployments, a webhook triggers a review on every push. Merges can wait on review completion instead of relying on someone to ask for one. See [Automate Code Reviews in CI/CD with LiveReview MCP](https://hexmos.com/livereview/demo?v=ar4B6IrDrqk). |
 | **Scheduled Checks** | Periodic sweeps scan your repositories for drift and new hotspots, even in code nobody has touched recently. See [Scheduled Reviews](#scheduled-reviews) below, or watch it in action: [Automatically Review Your Production Code with Scheduled Reviews](https://hexmos.com/livereview/demo?v=45EfHmXe_Dw). |
 
-<p align="center">
-   <img src="./assets/screenshots/2026-08-29/08-scheduled-reviews-slash-reviews-scheduled.png" alt="Scheduled Reviews: turn on periodic sweeps per repository, see the schedule and last run" width="80%"/>
-</p>
-
 ### Pick the Right Review Depth Based on Your Need for Shipping Speed
 
 Not every repo needs the same amount of scrutiny. Turn on more checkpoints where the blast radius of a bad change is high, and fewer where speed matters most.
