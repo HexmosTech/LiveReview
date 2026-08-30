@@ -56,6 +56,7 @@ const ReviewDetail: React.FC = () => {
     const mapEventLevel = (level: ReviewEventLevel) => level;
     const [review, setReview] = useState<Review | null>(null);
     const [events, setEvents] = useState<ReviewEvent[]>([]);
+    const [eventCount, setEventCount] = useState<number>(0);
     const [summary, setSummary] = useState<ReviewSummary | null>(null);
     const [accounting, setAccounting] = useState<ReviewAccounting | null>(null);
     const [accountingError, setAccountingError] = useState<string | null>(null);
@@ -188,6 +189,13 @@ const ReviewDetail: React.FC = () => {
             
             const newEvents = (eventsData?.events as ReviewEvent[] | undefined) || [];
             setEvents(newEvents);
+            
+            // meta.count carries the historical total (restored from compaction marker)
+            if (eventsData?.meta?.count !== undefined) {
+                setEventCount(eventsData.meta.count);
+            } else {
+                setEventCount(newEvents.length);
+            }
             
             // Update last event time for next polling
             if (newEvents.length > 0) {
@@ -474,7 +482,7 @@ const ReviewDetail: React.FC = () => {
                     <HeaderStat label="Branch" value={review.branch || '-'} />
                     <HeaderStat label="Commits" value={commitsLoaded ? String(commits.length) : '...'} />
                     <HeaderStat label="Last activity" value={formatRelativeTime(review.completedAt || review.startedAt || review.createdAt)} />
-                    <HeaderStat label="Events" value={String(Object.values(summary?.eventCounts || {}).reduce((a: number, b: number) => a + b, 0))} />
+                    <HeaderStat label="Events" value={eventCount !== undefined && eventCount > 0 ? String(eventCount) : String(Object.values(summary?.eventCounts || {}).reduce((a: number, b: number) => a + b, 0))} />
                     <HeaderStat label="Batches" value={String(summary?.batchCount ?? 0)} />
                     <div className="ml-auto flex items-center gap-3 shrink-0">
                         <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium text-white ${getStatusColor(review.status)}`}>
@@ -750,6 +758,7 @@ const ReviewDetail: React.FC = () => {
             <div className={activeTab === 'events' ? '' : 'hidden'}>
                     <ReviewEventsPage
                         reviewId={reviewId}
+                        initialEventCount={eventCount}
                         initialEvents={events.map(event => ({
                             id: event.id.toString(),
                             timestamp: event.time,
