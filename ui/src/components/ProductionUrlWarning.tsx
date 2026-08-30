@@ -19,7 +19,7 @@ const ProductionUrlWarning: React.FC<ProductionUrlWarningProps> = ({ floating, o
                 Configure your production URL before using this feature.
             </p>
             <a
-                href="/settings#instance"
+                href="/#/settings#instance"
                 className="mt-2 inline-block text-sm font-medium underline"
             >
                 Settings → Instance
