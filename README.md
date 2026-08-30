@@ -17,9 +17,18 @@ https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 <details>
 <summary>How does Blast Radius scoring work?</summary>
 
-LiveReview gives each hunk two scores: Blast Radius and Review Priority. Blast Radius shows how far a change can reach through your code, such as how many other functions call it, or whether it writes to a database or other stored data. Review Priority shows how much care a change needs, such as whether it has tests, or whether similar code already exists elsewhere. LiveReview combines both into one score, and ranks every hunk in the diff by it. The exact signals may change over time as LiveReview adds new checks; the two questions behind them — how far, and how much care — stay the same.
+LiveReview gives each hunk two scores, then combines them into one and ranks every hunk in the diff by it.
 
-For example:
+- **Blast Radius**: how far a change can reach through your code.
+  - How many other functions call this code
+  - Whether the change writes to a database or other stored data
+- **Review Priority**: how much care a change needs.
+  - Whether the code has tests
+  - Whether similar code already exists elsewhere
+
+LiveReview may add new signals over time. The two questions behind them stay the same: how far, and how much care.
+
+**For example:**
 - A 3-line fix in a function used by 40 other files, that also writes to a database, scores high.
 - A 300-line UI change in one file, fully covered by tests and used by nothing else, scores low.
 
