@@ -375,6 +375,37 @@ func persistAssistantMessage(ctx context.Context, chatStore *storagechat.Store, 
 		fileInputs = append(fileInputs, toFileInput(art))
 	}
 
+	if strings.TrimSpace(assistantText) == "" {
+		if len(charts) > 0 {
+			var titles []string
+			for _, c := range charts {
+				if c.Title != "" {
+					titles = append(titles, c.Title)
+				}
+			}
+			if len(titles) > 0 {
+				assistantText = "Rendered charts for: " + strings.Join(titles, ", ") + "."
+			} else {
+				assistantText = "Rendered analytics charts."
+			}
+		} else if len(artifacts) > 0 {
+			assistantText = "I've put the results in a file you can download."
+		}
+	}
+
+	for idx, entry := range assistantEntries {
+		if role, _ := entry["role"].(string); role == "assistant" {
+			content, _ := entry["content"].(string)
+			text, _ := entry["text"].(string)
+			if strings.TrimSpace(content) == "" && strings.TrimSpace(text) == "" {
+				assistantEntries[idx]["content"] = assistantText
+				assistantEntries[idx]["text"] = assistantText
+			} else if strings.TrimSpace(content) == "" {
+				assistantEntries[idx]["content"] = text
+			}
+		}
+	}
+
 	_, fileIDs, err := chatStore.AppendAssistantMessage(ctx, convID,
 		storagechat.MessageInput{
 			Role:              "assistant",

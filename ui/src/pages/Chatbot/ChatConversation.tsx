@@ -172,7 +172,7 @@ function formatText(rawText: string): React.ReactNode[] {
     if (line.startsWith('```')) {
       if (inCodeBlock) {
         parts.push(
-          <pre key={`code-${lineIdx++}`} className="bg-slate-800 text-green-300 p-3 rounded-lg overflow-x-auto text-sm my-2">
+          <pre key={`code-${lineIdx++}`} className="bg-slate-800/90 text-cyan-300 p-3.5 rounded-xl border border-slate-700/60 overflow-x-auto text-sm my-3 shadow-inner">
             {codeContent}
           </pre>
         );
@@ -193,13 +193,65 @@ function formatText(rawText: string): React.ReactNode[] {
       continue;
     }
 
+    // Markdown headings
+    if (line.startsWith('### ')) {
+      parts.push(
+        <h3 key={`h3-${lineIdx++}`} className="text-base font-semibold text-slate-100 mt-4 mb-1.5 flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 inline-block" />
+          {formatLine(line.slice(4))}
+        </h3>
+      );
+      continue;
+    }
+    if (line.startsWith('## ')) {
+      parts.push(
+        <h2 key={`h2-${lineIdx++}`} className="text-lg font-bold text-slate-100 mt-5 mb-2 border-b border-slate-700/60 pb-1.5">
+          {formatLine(line.slice(3))}
+        </h2>
+      );
+      continue;
+    }
+    if (line.startsWith('# ')) {
+      parts.push(
+        <h1 key={`h1-${lineIdx++}`} className="text-xl font-bold text-white mt-6 mb-3">
+          {formatLine(line.slice(2))}
+        </h1>
+      );
+      continue;
+    }
+
+    // Bullet list items (* or -)
+    const trimmedLine = line.trim();
+    if (trimmedLine.startsWith('* ') || trimmedLine.startsWith('- ')) {
+      const content = trimmedLine.slice(2);
+      parts.push(
+        <div key={`list-${lineIdx++}`} className="flex items-start gap-2.5 my-1 pl-2 text-slate-200">
+          <span className="text-indigo-400 select-none mt-1 text-xs">•</span>
+          <div className="flex-1 leading-relaxed">{formatLine(content)}</div>
+        </div>
+      );
+      continue;
+    }
+
+    // Numbered list items (1., 2., etc.)
+    const numMatch = trimmedLine.match(/^(\d+)\.\s+(.*)$/);
+    if (numMatch) {
+      parts.push(
+        <div key={`numlist-${lineIdx++}`} className="flex items-start gap-2.5 my-1 pl-2 text-slate-200">
+          <span className="font-semibold text-indigo-400 select-none text-sm">{numMatch[1]}.</span>
+          <div className="flex-1 leading-relaxed">{formatLine(numMatch[2])}</div>
+        </div>
+      );
+      continue;
+    }
+
     const formattedLine = formatLine(line);
-    parts.push(<div key={`line-${lineIdx++}`} className="mb-1">{formattedLine}</div>);
+    parts.push(<div key={`line-${lineIdx++}`} className="mb-1 leading-relaxed">{formattedLine}</div>);
   }
 
   if (inCodeBlock && codeContent) {
     parts.push(
-      <pre key={`code-${lineIdx++}`} className="bg-slate-800 text-green-300 p-3 rounded-lg overflow-x-auto text-sm my-2">
+      <pre key={`code-${lineIdx++}`} className="bg-slate-800/90 text-cyan-300 p-3.5 rounded-xl border border-slate-700/60 overflow-x-auto text-sm my-3 shadow-inner">
         {codeContent}
       </pre>
     );
@@ -207,7 +259,7 @@ function formatText(rawText: string): React.ReactNode[] {
 
   if (details.length > 0) {
     parts.push(
-      <details key="data-details" className="group mt-1">
+      <details key="data-details" className="group mt-2">
         <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
           Data details
         </summary>
@@ -229,10 +281,35 @@ function formatLine(line: string): React.ReactNode {
   let partIdx = 0;
 
   while (i < line.length) {
+    // Markdown links: [label](url)
+    if (line[i] === '[') {
+      const labelEnd = line.indexOf(']', i + 1);
+      if (labelEnd > i && line[labelEnd + 1] === '(') {
+        const urlEnd = line.indexOf(')', labelEnd + 2);
+        if (urlEnd > labelEnd + 1) {
+          const label = line.slice(i + 1, labelEnd);
+          const url = line.slice(labelEnd + 2, urlEnd);
+          parts.push(
+            <a
+              key={`link-${partIdx++}`}
+              href={url}
+              target={url.startsWith('/') || url.startsWith('#') ? '_self' : '_blank'}
+              rel="noopener noreferrer"
+              className="text-indigo-400 hover:text-indigo-300 underline underline-offset-2 font-medium transition-colors"
+            >
+              {label}
+            </a>
+          );
+          i = urlEnd + 1;
+          continue;
+        }
+      }
+    }
+
     if (line[i] === '*' && i + 1 < line.length && line[i + 1] === '*') {
       const end = line.indexOf('**', i + 2);
       if (end >= 0) {
-        parts.push(<strong key={`b-${partIdx++}`}>{line.slice(i + 2, end)}</strong>);
+        parts.push(<strong key={`b-${partIdx++}`} className="font-semibold text-slate-100">{line.slice(i + 2, end)}</strong>);
         i = end + 2;
         continue;
       }
@@ -240,12 +317,10 @@ function formatLine(line: string): React.ReactNode {
     if (line[i] === '*' && line[i + 1] !== '*') {
       const end = line.indexOf('*', i + 1);
       if (end >= 0) {
-        parts.push(<em key={`i-${partIdx++}`}>{line.slice(i + 1, end)}</em>);
+        parts.push(<em key={`i-${partIdx++}`} className="italic text-slate-300">{line.slice(i + 1, end)}</em>);
         i = end + 1;
         continue;
       }
-      // Stray single '*' with no closing pair (e.g. a leftover emphasis/bullet
-      // marker). Drop it instead of printing a literal asterisk.
       i += 1;
       continue;
     }
@@ -253,7 +328,7 @@ function formatLine(line: string): React.ReactNode {
       const end = line.indexOf('`', i + 1);
       if (end >= 0) {
         parts.push(
-          <code key={`c-${partIdx++}`} className="bg-slate-700 text-cyan-300 px-1.5 py-0.5 rounded text-sm">
+          <code key={`c-${partIdx++}`} className="bg-slate-800 text-cyan-300 border border-slate-700/60 px-1.5 py-0.5 rounded text-xs font-mono">
             {line.slice(i + 1, end)}
           </code>
         );
@@ -264,7 +339,7 @@ function formatLine(line: string): React.ReactNode {
     if (line[i] === '>' && (i === 0 || line[i - 1] === ' ')) {
       const rest = line.slice(i + 1).trim();
       parts.push(
-        <blockquote key={`q-${partIdx++}`} className="border-l-4 border-indigo-400 pl-3 text-slate-300 italic my-1">
+        <blockquote key={`q-${partIdx++}`} className="border-l-2 border-indigo-400 pl-3 text-slate-300 italic my-1">
           {formatLine(rest)}
         </blockquote>
       );
@@ -273,8 +348,6 @@ function formatLine(line: string): React.ReactNode {
     }
 
     let segEnd = findNextSpecial(line, i);
-    // An unmatched marker at this position (no closing pair found above) would
-    // otherwise keep i frozen forever. Treat it as literal text and advance.
     if (segEnd === i) segEnd = i + 1;
     parts.push(<span key={`t-${partIdx++}`}>{line.slice(i, segEnd)}</span>);
     i = segEnd;
@@ -285,7 +358,7 @@ function formatLine(line: string): React.ReactNode {
 
 function findNextSpecial(line: string, from: number): number {
   for (let i = from; i < line.length; i++) {
-    if (line[i] === '*' || line[i] === '`' || line[i] === '>') return i;
+    if (line[i] === '*' || line[i] === '`' || line[i] === '>' || line[i] === '[') return i;
   }
   return line.length;
 }
