@@ -16,6 +16,7 @@ import (
 	"github.com/livereview/internal/lrcconfig"
 	"github.com/livereview/internal/review"
 	reviewprocessor "github.com/livereview/internal/review_processor"
+	storagetools "github.com/livereview/storage/tools"
 	"github.com/livereview/pkg/models"
 	"github.com/riverqueue/river"
 )
@@ -121,6 +122,7 @@ type DiffReviewJobArgs struct {
 	RepoName      string `json:"repo_name"`
 	DiffZipBase64 string `json:"diff_zip_base64"`
 	TriggerSource string `json:"trigger_source"`
+	ToolsOnly     bool   `json:"tools_only,omitempty"`
 }
 
 // Kind returns the job kind for River routing.
@@ -264,6 +266,98 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 
 	// 6. Transition status to in_progress
 	_ = rm.UpdateReviewStatus(args.ReviewID, "in_progress")
+
+	if args.ToolsOnly {
+		if logger != nil {
+			logger.LogSection("PROCESSING STATIC ANALYSIS REVIEW")
+			logger.Log("AI review skipped due to --tools flag. Initiating tool execution...")
+		}
+
+		toolsStore := storagetools.NewToolsStore(w.db)
+		enabledTools, err := toolsStore.GetEnabledToolsForOrg(ctx, args.OrgID)
+		if err != nil {
+			log.Printf("[WARN] Failed to fetch enabled tools for org %d: %v", args.OrgID, err)
+		}
+
+		var toolRuleConfigs map[string]*lrcconfig.ToolRuleConfig
+		if lrcBundle.Files != nil {
+			var parseErr error
+			toolRuleConfigs, parseErr = lrcconfig.ParseToolRuleConfigs(lrcBundle)
+			if parseErr != nil && logger != nil {
+				logger.Log("[WARN] Failed to parse tool rule configs from .lrc bundle: %v", parseErr)
+			}
+		}
+
+		existingMap := make(map[string]bool)
+		for _, t := range enabledTools {
+			existingMap[strings.ToLower(t.Name)] = true
+		}
+
+		for toolName, cfg := range toolRuleConfigs {
+			if cfg != nil && cfg.Enabled != nil && *cfg.Enabled && !existingMap[toolName] {
+				t, err := toolsStore.GetAvailableToolByName(ctx, toolName)
+				if err == nil && t != nil {
+					enabledTools = append(enabledTools, *t)
+					existingMap[toolName] = true
+					if logger != nil {
+						logger.Log("Repo-level config (.lrc/policy/tools.toml) enabled tool %q", t.Name)
+					}
+				}
+			}
+		}
+
+		var filteredTools []storagetools.AvailableTool
+		for _, t := range enabledTools {
+			toolNameLower := strings.ToLower(t.Name)
+			cfg := toolRuleConfigs[toolNameLower]
+
+			if lrcconfig.ShouldRunToolRuleForDiff(cfg, localDiffs) {
+				filteredTools = append(filteredTools, t)
+			} else if logger != nil {
+				logger.Log("Tool %q skipped: no diff files matched trigger rules (.lrc/policy/tools.toml)", t.Name)
+			}
+		}
+		enabledTools = filteredTools
+
+		if len(enabledTools) > 0 {
+			var totalMultiplier float64
+			for _, t := range enabledTools {
+				totalMultiplier += t.Multiplier
+			}
+
+			creditStore := storagetools.NewCreditStore(w.db)
+			if err := creditStore.DeductCredits(ctx, args.OrgID, args.ReviewID, totalMultiplier, license.PlanType(planCode)); err != nil {
+				w.handleFailure(ctx, args, logger, eventSink, fmt.Sprintf("failed to deduct tool credits: %v", err), "insufficient_tool_credits")
+				return nil
+			}
+
+			for _, tool := range enabledTools {
+				dispatchJSON := fmt.Sprintf(`{"tool_id": %d, "tool_name": %q, "status": "pending"}`, tool.ID, tool.Name)
+				if _, execErr := w.db.ExecContext(ctx, `
+					INSERT INTO public.review_events (review_id, org_id, event_type, level, data)
+					VALUES ($1, $2, 'tool_dispatch', 'info', $3)`,
+					args.ReviewID, args.OrgID, []byte(dispatchJSON)); execErr != nil {
+					log.Printf("[WARN] DiffReviewWorker: failed to insert tool_dispatch event for tool=%s review=%d: %v", tool.Name, args.ReviewID, execErr)
+				}
+
+				toolJobArgs := ToolReviewJobArgs{
+					ReviewID:      args.ReviewID,
+					OrgID:         args.OrgID,
+					PlanCode:      string(planCode),
+					ToolID:        tool.ID,
+					ToolName:      tool.Name,
+					LambdaARN:     tool.LambdaARN,
+					DiffZipBase64: args.DiffZipBase64,
+				}
+				if err := w.jq.QueueToolReviewJob(ctx, toolJobArgs); err != nil {
+					log.Printf("[ERROR] Failed to queue tool job for %s: %v", tool.Name, err)
+				} else if logger != nil {
+					logger.Log("Enqueued tool job for %s (Lambda ARN: %s)", tool.Name, tool.LambdaARN)
+				}
+			}
+		}
+		return nil
+	}
 
 	// 7. Load AI Configuration
 	selection, err := aiselection.GetReviewAISelection(ctx, w.db, args.OrgID, planCode)

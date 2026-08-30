@@ -693,9 +693,14 @@ const ReviewDetail: React.FC = () => {
         }
         let high = 0, medium = 0, low = 0;
         events.forEach(e => {
-            if (e.level === 'error') high++;
-            else if (e.level === 'warn') medium++;
-            else low++;
+            const dataAny = e.data as any;
+            const sev = (dataAny?.severity || '').toLowerCase();
+            if (e.level === 'error' || sev === 'critical' || sev === 'high') high++;
+            else if (e.level === 'warn' || sev === 'warning' || sev === 'medium') medium++;
+            else if (sev === 'info' || sev === 'low' || (e.level === 'info' && e.type === 'tool_result')) low++;
+            else if (e.level === 'info' && e.type === 'tool_dispatch') {
+                // Ignore dispatch log events
+            } else if (sev === 'info' || e.level === 'info') low++;
         });
         return { high, medium, low };
     }, [summary?.severityCounts, events]);

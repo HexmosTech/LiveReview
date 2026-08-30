@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
+	"strings"
 )
 
 type AvailableTool struct {
@@ -163,41 +165,91 @@ func (s *ToolsStore) GetEnabledToolsForOrg(ctx context.Context, orgID int64) ([]
 	return tools, nil
 }
 
+// GetAvailableToolByName fetches a tool from the global available_tools catalog by name.
+func (s *ToolsStore) GetAvailableToolByName(ctx context.Context, name string) (*AvailableTool, error) {
+	query := `
+		SELECT id, name, description, lambda_arn, multiplier, use_case
+		FROM public.available_tools
+		WHERE LOWER(name) = LOWER($1)
+		LIMIT 1
+	`
+	var t AvailableTool
+	err := s.db.QueryRowContext(ctx, query, name).Scan(
+		&t.ID,
+		&t.Name,
+		&t.Description,
+		&t.LambdaARN,
+		&t.Multiplier,
+		&t.UseCase,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query available tool %q: %w", name, err)
+	}
+	return &t, nil
+}
+
 // InsertToolResultEvent wraps raw Lambda response and logs it in review_events table.
 func (s *ToolsStore) InsertToolResultEvent(ctx context.Context, reviewID, orgID, toolID int64, toolName string, resultJSON []byte) error {
-	type ToolLambdaResponse struct {
-		ExitCode    int             `json:"exit_code"`
-		Findings    json.RawMessage `json:"findings"`
-		LinesOfCode int             `json:"lines_of_code"`
-		Stderr      string          `json:"stderr"`
+	var parsedFindings []ToolFinding
+	trimmedJSON := strings.TrimSpace(string(resultJSON))
+	var exitCode int
+	var stderr string
+	var loc int
+
+	if strings.HasPrefix(trimmedJSON, "[") {
+		if err := json.Unmarshal(resultJSON, &parsedFindings); err != nil {
+			log.Printf("[WARN] StoreToolResultEvent: failed to parse array findings for tool %d: %v", toolID, err)
+			parsedFindings = []ToolFinding{}
+			stderr = fmt.Sprintf("failed to parse array findings: %v", err)
+			exitCode = -1
+		} else if len(parsedFindings) > 0 {
+			exitCode = 1
+		} else {
+			exitCode = 0
+		}
+	} else {
+		type ToolLambdaResponse struct {
+			ExitCode    int             `json:"exit_code"`
+			Findings    json.RawMessage `json:"findings"`
+			LinesOfCode int             `json:"lines_of_code"`
+			Stderr      string          `json:"stderr"`
+		}
+
+		var resp ToolLambdaResponse
+		if err := json.Unmarshal(resultJSON, &resp); err != nil {
+			stderr = fmt.Sprintf("failed to parse lambda response: %v. Raw: %s", err, string(resultJSON))
+			exitCode = -1
+		} else {
+			exitCode = resp.ExitCode
+			stderr = resp.Stderr
+			loc = resp.LinesOfCode
+			if len(resp.Findings) > 0 {
+				if errFindings := json.Unmarshal(resp.Findings, &parsedFindings); errFindings != nil {
+					log.Printf("[WARN] StoreToolResultEvent: failed to unmarshal findings for tool %d: %v", toolID, errFindings)
+				}
+			}
+		}
 	}
 
-	var resp ToolLambdaResponse
-	// If unmarshaling fails or findings is nil, initialize it with empty array
-	if err := json.Unmarshal(resultJSON, &resp); err != nil {
-		resp.Stderr = fmt.Sprintf("failed to parse lambda response: %v. Raw: %s", err, string(resultJSON))
-		resp.ExitCode = -1
-	}
-	if len(resp.Findings) == 0 {
-		resp.Findings = json.RawMessage("[]")
-	}
+	// Redact plaintext secrets across all finding fields before persisting to database event log
+	for idx := range parsedFindings {
+		parsedFindings[idx].Secret = "[REDACTED]"
+		parsedFindings[idx].CodeSnippet = "[REDACTED]"
 
-	type ToolResultEventData struct {
-		ToolID      int64           `json:"tool_id"`
-		ToolName    string          `json:"tool_name"`
-		ExitCode    int             `json:"exit_code"`
-		Findings    json.RawMessage `json:"findings"`
-		LinesOfCode int             `json:"lines_of_code"`
-		Stderr      string          `json:"stderr"`
+		parsedFindings[idx].Message = redactMatchDetails(parsedFindings[idx].Message)
+		parsedFindings[idx].Extra.Message = redactMatchDetails(parsedFindings[idx].Extra.Message)
 	}
 
 	eventData := ToolResultEventData{
 		ToolID:      toolID,
 		ToolName:    toolName,
-		ExitCode:    resp.ExitCode,
-		Findings:    resp.Findings,
-		LinesOfCode: resp.LinesOfCode,
-		Stderr:      resp.Stderr,
+		ExitCode:    exitCode,
+		Findings:    parsedFindings,
+		LinesOfCode: loc,
+		Stderr:      stderr,
 	}
 
 	eventDataBytes, err := json.Marshal(eventData)
@@ -214,4 +266,76 @@ func (s *ToolsStore) InsertToolResultEvent(ctx context.Context, reviewID, orgID,
 		return fmt.Errorf("failed to insert tool result review event: %w", err)
 	}
 	return nil
+}
+
+func redactMatchDetails(msg string) string {
+	msg = strings.TrimSpace(msg)
+	for _, pattern := range []string{" (Match:", "(Match:", " Match:"} {
+		if idx := strings.Index(msg, pattern); idx != -1 {
+			msg = strings.TrimSpace(msg[:idx])
+		}
+	}
+	// Redact plaintext token matches if embedded in message
+	if strings.Contains(msg, "AKIA") || strings.Contains(msg, "ghp_") || strings.Contains(msg, "sk_") {
+		msg = strings.TrimSpace(msg) + " [REDACTED]"
+	}
+	return msg
+}
+
+type ToolFinding struct {
+	File        string `json:"file"`
+	FilePath    string `json:"file_path"`
+	Path        string `json:"path"`
+	Line        int    `json:"line"`
+	LineNumber  int    `json:"line_number"`
+	Start       struct {
+		Line int `json:"line"`
+		Col  int `json:"col"`
+	} `json:"start"`
+	Col         int    `json:"col"`
+	Rule        string `json:"rule"`
+	RuleID      string `json:"rule_id"`
+	CheckID     string `json:"check_id"`
+	Message     string `json:"message"`
+	Extra       struct {
+		Message  string `json:"message"`
+		Severity string `json:"severity"`
+	} `json:"extra"`
+	Secret      string `json:"secret,omitempty"`
+	CodeSnippet string `json:"code_snippet,omitempty"`
+}
+
+type ToolResultEventData struct {
+	ToolID      int64         `json:"tool_id"`
+	ToolName    string        `json:"tool_name"`
+	ExitCode    int           `json:"exit_code"`
+	Findings    []ToolFinding `json:"findings"`
+	LinesOfCode int           `json:"lines_of_code"`
+	Stderr      string        `json:"stderr"`
+}
+
+func (s *ToolsStore) GetToolResultsForReview(ctx context.Context, reviewID int64) ([]ToolResultEventData, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT data 
+		FROM public.review_events 
+		WHERE review_id = $1 AND event_type = 'tool_result'
+	`, reviewID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []ToolResultEventData
+	for rows.Next() {
+		var rawData []byte
+		if err := rows.Scan(&rawData); err != nil {
+			return nil, err
+		}
+		var data ToolResultEventData
+		if err := json.Unmarshal(rawData, &data); err != nil {
+			return nil, err
+		}
+		results = append(results, data)
+	}
+	return results, nil
 }

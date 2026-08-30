@@ -191,8 +191,9 @@ type ReviewComment struct {
 	Category      string
 	Subcategory   string
 	Suggestions   []string
-	IsDeletedLine bool // True if comment is on a deleted line (old_line) rather than new_line
-	IsInternal    bool // True if comment is for internal synthesis only, false if it should be posted to user
+	IsDeletedLine bool   // True if comment is on a deleted line (old_line) rather than new_line
+	IsInternal    bool   // True if comment is for internal synthesis only, false if it should be posted to user
+	Source        string // Optional: source of comment, e.g. "tool" for static analysis findings
 }
 
 // CommentSeverity represents the severity level of a review comment

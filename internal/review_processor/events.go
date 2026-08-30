@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -577,37 +578,67 @@ type ToolSummary struct {
 	ToolBreakdown          []ToolBreakdownItem `json:"toolBreakdown"`
 }
 
-// GetSeverityCounts queries review_events to count High, Medium, and Low severity events
+// GetSeverityCounts queries public.ai_comments (and review_events fallback) to count High, Medium, and Low severity issues
 func (r *ReviewEventsRepo) GetSeverityCounts(ctx context.Context, reviewID, orgID int64) (SeverityCounts, error) {
+	var counts SeverityCounts
 	query := `
-		SELECT COALESCE(level, 'info') as lvl, COUNT(*)
-		FROM public.review_events
+		SELECT COALESCE(content->>'severity', 'warning') as sev, COUNT(*)
+		FROM public.ai_comments
 		WHERE review_id = $1 AND org_id = $2
-		GROUP BY COALESCE(level, 'info')
+		GROUP BY COALESCE(content->>'severity', 'warning')
 	`
 	rows, err := r.db.QueryContext(ctx, query, reviewID, orgID)
-	if err != nil {
-		return SeverityCounts{}, fmt.Errorf("failed to query severity counts: %w", err)
+	if err == nil {
+		defer rows.Close()
+		hasComments := false
+		for rows.Next() {
+			hasComments = true
+			var sev string
+			var cnt int
+			if err := rows.Scan(&sev, &cnt); err == nil {
+				switch strings.ToLower(strings.TrimSpace(sev)) {
+				case "critical", "high", "error":
+					counts.High += cnt
+				case "warning", "medium", "warn":
+					counts.Medium += cnt
+				case "info", "low":
+					counts.Low += cnt
+				}
+			}
+		}
+		if hasComments {
+			return counts, nil
+		}
 	}
-	defer rows.Close()
 
-	var counts SeverityCounts
-	for rows.Next() {
-		var lvl string
+	queryEvents := `
+		SELECT COALESCE(data->>'severity', level) as sev, COUNT(*)
+		FROM public.review_events
+		WHERE review_id = $1 AND org_id = $2 AND (data->>'severity' IS NOT NULL OR level IN ('error', 'warn'))
+		GROUP BY COALESCE(data->>'severity', level)
+	`
+	eventRows, eventErr := r.db.QueryContext(ctx, queryEvents, reviewID, orgID)
+	if eventErr != nil {
+		log.Printf("[WARN] Failed to query review_events for severity counts (review_id=%d, org_id=%d): %v", reviewID, orgID, eventErr)
+		return counts, fmt.Errorf("failed to query review_events for severity counts: %w", eventErr)
+	}
+	defer eventRows.Close()
+
+	for eventRows.Next() {
+		var sev string
 		var cnt int
-		if err := rows.Scan(&lvl, &cnt); err != nil {
-			return SeverityCounts{}, err
-		}
-		switch strings.ToLower(lvl) {
-		case "error", "high", "critical":
-			counts.High += cnt
-		case "warn", "warning", "medium":
-			counts.Medium += cnt
-		case "info", "low":
-			counts.Low += cnt
+		if err := eventRows.Scan(&sev, &cnt); err == nil {
+			switch strings.ToLower(strings.TrimSpace(sev)) {
+			case "critical", "high", "error":
+				counts.High += cnt
+			case "warning", "medium", "warn":
+				counts.Medium += cnt
+			case "info", "low":
+				counts.Low += cnt
+			}
 		}
 	}
-	return counts, rows.Err()
+	return counts, nil
 }
 
 type rawToolEvent struct {

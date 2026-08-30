@@ -228,7 +228,7 @@ CREATE TABLE public.ai_comments (
     line_number integer,
     created_at timestamp with time zone DEFAULT now(),
     org_id bigint DEFAULT 1 NOT NULL,
-    CONSTRAINT ai_comments_type_check CHECK (((comment_type)::text = ANY ((ARRAY['summary'::character varying, 'line_comment'::character varying, 'suggestion'::character varying, 'general'::character varying, 'file_comment'::character varying])::text[])))
+    CONSTRAINT ai_comments_type_check CHECK (((comment_type)::text = ANY (ARRAY[('summary'::character varying)::text, ('line_comment'::character varying)::text, ('suggestion'::character varying)::text, ('general'::character varying)::text, ('file_comment'::character varying)::text])))
 );
 
 
@@ -440,7 +440,7 @@ CREATE TABLE public.auth_tokens (
     requests_this_hour integer DEFAULT 0,
     revoked_at timestamp with time zone,
     is_active boolean DEFAULT true NOT NULL,
-    CONSTRAINT auth_tokens_token_type_check CHECK (((token_type)::text = ANY ((ARRAY['session'::character varying, 'refresh'::character varying, 'api_key'::character varying])::text[])))
+    CONSTRAINT auth_tokens_token_type_check CHECK (((token_type)::text = ANY (ARRAY[('session'::character varying)::text, ('refresh'::character varying)::text, ('api_key'::character varying)::text])))
 );
 
 
@@ -517,8 +517,8 @@ CREATE TABLE public.billing_notification_outbox (
     sent_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT chk_billing_notification_outbox_channel CHECK (((channel)::text = ANY ((ARRAY['in_app'::character varying, 'email'::character varying])::text[]))),
-    CONSTRAINT chk_billing_notification_outbox_status CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'processing'::character varying, 'sent'::character varying, 'failed'::character varying, 'cancelled'::character varying])::text[])))
+    CONSTRAINT chk_billing_notification_outbox_channel CHECK (((channel)::text = ANY (ARRAY[('in_app'::character varying)::text, ('email'::character varying)::text]))),
+    CONSTRAINT chk_billing_notification_outbox_status CHECK (((status)::text = ANY (ARRAY[('pending'::character varying)::text, ('processing'::character varying)::text, ('sent'::character varying)::text, ('failed'::character varying)::text, ('cancelled'::character varying)::text])))
 );
 
 
@@ -572,7 +572,8 @@ CREATE TABLE public.instance_details (
     livereview_prod_url text,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    admin_password text NOT NULL
+    admin_password text NOT NULL,
+    worker_concurrent_reviews integer DEFAULT 10 NOT NULL
 );
 
 
@@ -860,13 +861,13 @@ CREATE TABLE public.loc_usage_ledger (
     llm_cost_usd double precision,
     actor_kind character varying(16),
     actor_email_snapshot character varying(320),
-    CONSTRAINT chk_loc_usage_ledger_actor_kind CHECK (((actor_kind IS NULL) OR ((actor_kind)::text = ANY ((ARRAY['member'::character varying, 'system'::character varying, 'unknown'::character varying])::text[])))),
+    CONSTRAINT chk_loc_usage_ledger_actor_kind CHECK (((actor_kind IS NULL) OR ((actor_kind)::text = ANY (ARRAY[('member'::character varying)::text, ('system'::character varying)::text, ('unknown'::character varying)::text])))),
     CONSTRAINT chk_loc_usage_ledger_billable_positive CHECK ((billable_loc > 0)),
     CONSTRAINT chk_loc_usage_ledger_cost_non_negative CHECK (((llm_cost_usd IS NULL) OR (llm_cost_usd >= (0)::double precision))),
     CONSTRAINT chk_loc_usage_ledger_input_tokens_non_negative CHECK (((input_tokens IS NULL) OR (input_tokens >= 0))),
     CONSTRAINT chk_loc_usage_ledger_output_tokens_non_negative CHECK (((output_tokens IS NULL) OR (output_tokens >= 0))),
     CONSTRAINT chk_loc_usage_ledger_period_valid CHECK ((billing_period_end > billing_period_start)),
-    CONSTRAINT chk_loc_usage_ledger_status_valid CHECK (((status)::text = ANY ((ARRAY['accounted'::character varying, 'ignored'::character varying])::text[])))
+    CONSTRAINT chk_loc_usage_ledger_status_valid CHECK (((status)::text = ANY (ARRAY[('accounted'::character varying)::text, ('ignored'::character varying)::text])))
 );
 
 
@@ -1137,14 +1138,14 @@ ALTER SEQUENCE public.org_teams_configs_id_seq OWNED BY public.org_teams_configs
 CREATE TABLE public.org_tool_billing_state (
     id bigint NOT NULL,
     org_id bigint NOT NULL,
-    credits_used_month double precision DEFAULT 0.0 NOT NULL,
-    credits_limit_month double precision DEFAULT 50000.0 NOT NULL,
+    credits_used_month numeric(18,4) DEFAULT 0.0 NOT NULL,
+    credits_limit_month numeric(18,4) DEFAULT 50000.0 NOT NULL,
     billing_period_start timestamp with time zone NOT NULL,
     billing_period_end timestamp with time zone NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT chk_tool_billing_period_valid CHECK ((billing_period_end > billing_period_start)),
-    CONSTRAINT chk_tool_billing_used_non_negative CHECK ((credits_used_month >= (0.0)::double precision))
+    CONSTRAINT chk_tool_billing_used_non_negative CHECK ((credits_used_month >= 0.0))
 );
 
 
@@ -1810,8 +1811,8 @@ CREATE TABLE public.review_feedback (
     lrc_version character varying(50),
     created_at timestamp with time zone DEFAULT now(),
     retracted_at timestamp with time zone,
-    CONSTRAINT review_feedback_source_check CHECK (((source_type)::text = ANY ((ARRAY['comment'::character varying, 'pr_level'::character varying, 'slideshow'::character varying, 'general'::character varying])::text[]))),
-    CONSTRAINT review_feedback_vote_check CHECK (((vote_type)::text = ANY ((ARRAY['up'::character varying, 'down'::character varying])::text[])))
+    CONSTRAINT review_feedback_source_check CHECK (((source_type)::text = ANY (ARRAY[('comment'::character varying)::text, ('pr_level'::character varying)::text, ('slideshow'::character varying)::text, ('general'::character varying)::text]))),
+    CONSTRAINT review_feedback_vote_check CHECK (((vote_type)::text = ANY (ARRAY[('up'::character varying)::text, ('down'::character varying)::text])))
 );
 
 
@@ -1859,7 +1860,7 @@ CREATE TABLE public.reviews (
     author_username text,
     friendly_name text,
     pull_request_id bigint,
-    CONSTRAINT reviews_status_check CHECK (((status)::text = ANY ((ARRAY['created'::character varying, 'in_progress'::character varying, 'completed'::character varying, 'failed'::character varying])::text[])))
+    CONSTRAINT reviews_status_check CHECK (((status)::text = ANY (ARRAY[('created'::character varying)::text, ('in_progress'::character varying)::text, ('completed'::character varying)::text, ('failed'::character varying)::text])))
 );
 
 
@@ -2390,7 +2391,7 @@ CREATE TABLE public.tool_credit_ledger (
     id bigint NOT NULL,
     org_id bigint NOT NULL,
     review_id bigint,
-    credits_deducted double precision NOT NULL,
+    credits_deducted numeric(18,4) NOT NULL,
     idempotency_key character varying(255) NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -2491,7 +2492,7 @@ CREATE TABLE public.upgrade_payment_attempts (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     upgrade_request_id character varying(36),
     CONSTRAINT chk_upgrade_payment_attempts_amount_non_negative CHECK ((amount_cents >= 0)),
-    CONSTRAINT chk_upgrade_payment_attempts_status CHECK (((status)::text = ANY ((ARRAY['prepared'::character varying, 'payment_failed'::character varying, 'payment_captured'::character varying, 'execute_applied'::character varying])::text[])))
+    CONSTRAINT chk_upgrade_payment_attempts_status CHECK (((status)::text = ANY (ARRAY[('prepared'::character varying)::text, ('payment_failed'::character varying)::text, ('payment_captured'::character varying)::text, ('execute_applied'::character varying)::text])))
 );
 
 
@@ -2541,7 +2542,7 @@ CREATE TABLE public.upgrade_replacement_cutovers (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT chk_upgrade_replacement_cutovers_retry_non_negative CHECK ((retry_count >= 0)),
-    CONSTRAINT chk_upgrade_replacement_cutovers_status CHECK (((status)::text = ANY ((ARRAY['pending_provisioning'::character varying, 'replacement_created'::character varying, 'old_cancellation_scheduled'::character varying, 'retry_pending'::character varying, 'manual_review_required'::character varying, 'completed'::character varying])::text[]))),
+    CONSTRAINT chk_upgrade_replacement_cutovers_status CHECK (((status)::text = ANY (ARRAY[('pending_provisioning'::character varying)::text, ('replacement_created'::character varying)::text, ('old_cancellation_scheduled'::character varying)::text, ('retry_pending'::character varying)::text, ('manual_review_required'::character varying)::text, ('completed'::character varying)::text]))),
     CONSTRAINT chk_upgrade_replacement_cutovers_target_quantity_positive CHECK ((target_quantity > 0))
 );
 
@@ -2637,8 +2638,8 @@ CREATE TABLE public.upgrade_requests (
     action_needed_at timestamp with time zone,
     last_customer_state_change_at timestamp with time zone,
     CONSTRAINT chk_upgrade_requests_amount_non_negative CHECK ((expected_amount_cents >= 0)),
-    CONSTRAINT chk_upgrade_requests_customer_state CHECK (((customer_state IS NULL) OR ((customer_state)::text = ANY ((ARRAY['processing'::character varying, 'action_needed'::character varying, 'resolved'::character varying, 'failed'::character varying])::text[])))),
-    CONSTRAINT chk_upgrade_requests_status CHECK (((current_status)::text = ANY ((ARRAY['created'::character varying, 'payment_order_created'::character varying, 'waiting_for_capture'::character varying, 'payment_capture_confirmed'::character varying, 'subscription_update_requested'::character varying, 'waiting_for_subscription_confirm'::character varying, 'subscription_change_confirmed'::character varying, 'reconciliation_retrying'::character varying, 'manual_review_required'::character varying, 'resolved'::character varying, 'failed'::character varying])::text[])))
+    CONSTRAINT chk_upgrade_requests_customer_state CHECK (((customer_state IS NULL) OR ((customer_state)::text = ANY (ARRAY[('processing'::character varying)::text, ('action_needed'::character varying)::text, ('resolved'::character varying)::text, ('failed'::character varying)::text])))),
+    CONSTRAINT chk_upgrade_requests_status CHECK (((current_status)::text = ANY (ARRAY[('created'::character varying)::text, ('payment_order_created'::character varying)::text, ('waiting_for_capture'::character varying)::text, ('payment_capture_confirmed'::character varying)::text, ('subscription_update_requested'::character varying)::text, ('waiting_for_subscription_confirm'::character varying)::text, ('subscription_change_confirmed'::character varying)::text, ('reconciliation_retrying'::character varying)::text, ('manual_review_required'::character varying)::text, ('resolved'::character varying)::text, ('failed'::character varying)::text])))
 );
 
 
@@ -3641,19 +3642,19 @@ ALTER TABLE ONLY public.roles
 
 
 --
--- Name: scheduled_review_configs scheduled_review_configs_repository_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.scheduled_review_configs
-    ADD CONSTRAINT scheduled_review_configs_repository_id_key UNIQUE (repository_id);
-
-
---
 -- Name: scheduled_review_configs scheduled_review_configs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.scheduled_review_configs
     ADD CONSTRAINT scheduled_review_configs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: scheduled_review_configs scheduled_review_configs_repository_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scheduled_review_configs
+    ADD CONSTRAINT scheduled_review_configs_repository_id_key UNIQUE (repository_id);
 
 
 --
@@ -3878,6 +3879,14 @@ ALTER TABLE ONLY public.repositories
 
 ALTER TABLE ONLY public.review_commits
     ADD CONSTRAINT uq_review_commits_review_ref UNIQUE (review_id, ref);
+
+
+--
+-- Name: tool_credit_ledger uq_tool_credit_ledger_idempotency; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tool_credit_ledger
+    ADD CONSTRAINT uq_tool_credit_ledger_idempotency UNIQUE (org_id, idempotency_key);
 
 
 --
@@ -4128,7 +4137,7 @@ CREATE INDEX idx_billing_notification_outbox_org_created ON public.billing_notif
 -- Name: idx_billing_notification_outbox_pending; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_billing_notification_outbox_pending ON public.billing_notification_outbox USING btree (status, send_after, created_at) WHERE ((status)::text = ANY ((ARRAY['pending'::character varying, 'failed'::character varying])::text[]));
+CREATE INDEX idx_billing_notification_outbox_pending ON public.billing_notification_outbox USING btree (status, send_after, created_at) WHERE ((status)::text = ANY (ARRAY[('pending'::character varying)::text, ('failed'::character varying)::text]));
 
 
 --
@@ -5757,19 +5766,19 @@ ALTER TABLE ONLY public.river_client_queue
 
 
 --
--- Name: scheduled_review_configs scheduled_review_configs_repository_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.scheduled_review_configs
-    ADD CONSTRAINT scheduled_review_configs_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES public.repositories(id) ON DELETE CASCADE;
-
-
---
 -- Name: scheduled_review_configs scheduled_review_configs_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.scheduled_review_configs
     ADD CONSTRAINT scheduled_review_configs_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: scheduled_review_configs scheduled_review_configs_repository_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scheduled_review_configs
+    ADD CONSTRAINT scheduled_review_configs_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES public.repositories(id) ON DELETE CASCADE;
 
 
 --
@@ -6159,12 +6168,12 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260612152523'),
     ('20260618100000'),
     ('20260618100001'),
-    ('20260618100002'),
     ('20260620000000'),
     ('20260620120000'),
     ('20260621194000'),
     ('20260622180000'),
     ('20260623135113'),
+    ('20260623152712'),
     ('20260701120000'),
     ('20260702130000'),
     ('20260702140000'),
@@ -6180,5 +6189,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260808120000'),
     ('20260809120000'),
     ('20260809150000'),
-    ('20260811120000');
-    ('20260809120000');
+    ('20260811120000'),
+    ('20260813000000');
