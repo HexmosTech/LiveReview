@@ -328,7 +328,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 			creditStore := storagetools.NewCreditStore(w.db)
 			if err := creditStore.DeductCredits(ctx, args.OrgID, args.ReviewID, totalMultiplier, license.PlanType(planCode)); err != nil {
 				w.handleFailure(ctx, args, logger, eventSink, fmt.Sprintf("failed to deduct tool credits: %v", err), "insufficient_tool_credits")
-				return nil
+				return fmt.Errorf("insufficient tool credits: %w", err)
 			}
 
 			for _, tool := range enabledTools {

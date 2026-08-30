@@ -69,6 +69,9 @@ func NewToolReviewWorker(db *sql.DB) *ToolReviewWorker {
 	if err != nil {
 		log.Printf("[WARN] ToolReviewWorker: failed to load AWS config: %v. Creating fallback config.", err)
 		awsCfg = aws.Config{Region: region}
+		if accessKey != "" && secretKey != "" {
+			awsCfg.Credentials = credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")
+		}
 	}
 	return &ToolReviewWorker{db: db, awsCfg: awsCfg}
 }
