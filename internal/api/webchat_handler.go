@@ -171,8 +171,12 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 
 	connector, err := s.resolveOrgConnector(ctx, orgID)
 	if err != nil {
-		persistReply(err.Error(), nil, nil, nil, "", nil)
-		return c.JSON(http.StatusBadGateway, map[string]string{"error": err.Error()})
+		userFriendlyErr := "No active AI Connector configured for your organization. Please add or enable an AI Model Connector in Settings → AI Settings."
+		if !strings.Contains(err.Error(), "no AI connectors") {
+			userFriendlyErr = fmt.Sprintf("AI Connector error: %s. Please check your AI model settings.", err.Error())
+		}
+		persistReply(userFriendlyErr, nil, nil, nil, "", nil)
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": userFriendlyErr})
 	}
 
 	mcpURL := resolveMCPBaseURL(s.db)
@@ -190,9 +194,9 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	mcpSession, err := mcpagent.ConnectMCP(ctx, mcpURL, mcpHeaders)
 	if err != nil {
 		log.Error().Err(err).Str("url", mcpURL).Msg("WebChat: failed to connect to MCP server")
-		errText := fmt.Sprintf("Failed to connect: %s", err.Error())
+		errText := fmt.Sprintf("Internal AI Service Error: Unable to connect to MCP tools (%s).", err.Error())
 		persistReply(errText, nil, nil, nil, "", nil)
-		return c.JSON(http.StatusBadGateway, map[string]string{"error": errText})
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": errText})
 	}
 
 	if pc.CurrentOrg != nil && pc.CurrentOrg.Name != "" {
@@ -256,30 +260,10 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 			cleanText = strings.TrimSpace(cleanText)
 			resp.Response = cleanText
 		} else if errors.Is(err, vlrender.ErrTrivialSpec) {
-			// A single value/bar is not worth a chart — show the description
-			// (and query) as plain text instead.
-			desc, query, timeRange, granularity, chartContext, ok := vlrender.TrivialDescription(responseText)
-			text := desc
-			if query != "" || timeRange != "" || granularity != "" || chartContext != "" {
-				if text != "" {
-					text += "\n\n"
-				}
-				detail := "Query: " + query
-				if timeRange != "" {
-					detail += "\nTime range: " + timeRange
-				}
-				if granularity != "" {
-					detail += "\nGranularity: " + granularity
-				}
-				if chartContext != "" {
-					detail += "\nContext: " + chartContext
-				}
-				text += detail
+			resp.Response = mcpagent.NoDataAnalyticsResponseText
+			if len(resp.SuggestedQuestions) == 0 {
+				resp.SuggestedQuestions = mcpagent.DefaultNoDataSuggestedQuestions
 			}
-			if !ok || text == "" {
-				text = strings.TrimSpace(cleanText)
-			}
-			resp.Response = text
 		} else {
 			// Extraction failed: never show the raw JSON.
 			resp.Response = "Having an issue generating the data, please try again."

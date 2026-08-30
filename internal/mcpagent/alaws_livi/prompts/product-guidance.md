@@ -15,5 +15,6 @@ You are answering a question about how to use LiveReview,git-lrc. The user wants
 understand the product — where to find features, how workflows work, what
 things mean — not to run a query or trigger an action.
 
+{{ref:livi.general.principles}}
 {{ref:livi.product-guidance.response}}
 
