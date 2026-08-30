@@ -314,8 +314,8 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
-        // License tab: in cloud mode only super_admin, in self-hosted mode super_admin or owner
-        ...((isCloudMode() ? isSuperAdmin : (isSuperAdmin || currentOrg?.role === 'owner')) ? [{ id: 'license', name: 'License', icon: (
+        // License tab: self-hosted only (super_admin or owner)
+        ...(!isCloudMode() && (isSuperAdmin || currentOrg?.role === 'owner') ? [{ id: 'license', name: 'License', icon: (
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a4 4 0 10-4 4v1a1 1 0 001 1h1v1a1 1 0 001 1h1l3 3 3-3-3-3v-2a4 4 0 00-4-4z" />
             </svg>
@@ -769,7 +769,7 @@ const Settings = () => {
                         </Card>
                     )}
 
-                    {activeTab === 'license' && (isCloudMode() ? isSuperAdmin : (isSuperAdmin || currentOrg?.role === 'owner')) && (
+                    {activeTab === 'license' && !isCloudMode() && (isSuperAdmin || currentOrg?.role === 'owner') && (
                         <Card>
                             <LicenseTab />
                         </Card>

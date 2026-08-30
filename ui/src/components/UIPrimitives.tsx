@@ -618,6 +618,7 @@ interface AlertProps {
   icon?: ReactNode;
   onClose?: () => void;
   className?: string;
+  floating?: boolean;
 }
 
 export const Alert: React.FC<AlertProps> = ({
@@ -627,6 +628,7 @@ export const Alert: React.FC<AlertProps> = ({
   icon,
   onClose,
   className,
+  floating,
 }) => {
   const variantStyles = {
     info: 'bg-blue-900/80 text-blue-100 border-blue-700/50',
@@ -634,11 +636,12 @@ export const Alert: React.FC<AlertProps> = ({
     warning: 'bg-amber-900/80 text-amber-100 border-amber-700/50',
     error: 'bg-red-900/80 text-red-100 border-red-700/50',
   };
-  
+
   return (
     <div className={classNames(
       'rounded-lg border p-4',
       variantStyles[variant],
+      floating && 'absolute top-0 left-0 right-0 z-10 shadow-lg shadow-black/20',
       className
     )}>
       <div className="flex">

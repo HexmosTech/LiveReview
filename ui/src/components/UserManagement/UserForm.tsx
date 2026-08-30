@@ -16,7 +16,7 @@ import {
     BulkCheckResultRow,
     submitBulkInvite,
 } from '../../api/users';
-import { Button, Input, Select, Icons, Spinner } from '../UIPrimitives';
+import { Alert, Button, Input, Select, Icons, Spinner } from '../UIPrimitives';
 import { useAppDispatch } from '../../store/configureStore';
 import { loadUserOrganizations } from '../../store/Organizations/reducer';
 import { UpgradePromptModal } from '../Subscriptions';
@@ -635,47 +635,28 @@ const UserForm: React.FC = () => {
                 </h1>
 
                 {prerequisiteError && (
-                    <div className="mb-4 p-4 bg-amber-900/30 border border-amber-600 rounded-lg">
-                        <div className="flex items-start">
-                            <svg className="w-5 h-5 text-amber-500 mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                            </svg>
-                            <div className="flex-1">
-                                <h3 className="text-amber-500 font-medium">Configuration Required</h3>
-                                <p className="text-amber-200/80 mt-1 text-sm">{prerequisiteError}</p>
-                                <div className="mt-3 space-y-2">
-                                    <div className="flex items-center">
-                                        {prerequisiteStatus?.productionUrl ? (
-                                            <svg className="w-4 h-4 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                            </svg>
-                                        ) : (
-                                            <svg className="w-4 h-4 text-amber-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                                            </svg>
-                                        )}
-                                        <a href="/settings#instance" className="text-sm text-amber-400 hover:text-amber-300 underline">
-                                            Settings → Instance
-                                        </a>
-                                    </div>
-                                    <div className="flex items-center">
-                                        {prerequisiteStatus?.smtp ? (
-                                            <svg className="w-4 h-4 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                            </svg>
-                                        ) : (
-                                            <svg className="w-4 h-4 text-amber-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                                            </svg>
-                                        )}
-                                        <a href="/settings#smtp" className="text-sm text-amber-400 hover:text-amber-300 underline">
-                                            Settings → SMTP
-                                        </a>
-                                    </div>
-                                </div>
+                    <Alert variant="warning" icon={<Icons.Warning />} className="mb-4">
+                        <p className="font-medium">Configuration Required</p>
+                        <p className="text-sm mt-1">{prerequisiteError}</p>
+                        <div className="mt-2 space-y-1 text-sm">
+                            <div className="flex items-center gap-2">
+                                {prerequisiteStatus?.productionUrl ? (
+                                    <Icons.Success />
+                                ) : (
+                                    <span className="text-amber-500">○</span>
+                                )}
+                                <a href="/settings#instance" className="underline">Settings → Instance</a>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {prerequisiteStatus?.smtp ? (
+                                    <Icons.Success />
+                                ) : (
+                                    <span className="text-amber-500">○</span>
+                                )}
+                                <a href="/settings#smtp" className="underline">Settings → SMTP</a>
                             </div>
                         </div>
-                    </div>
+                    </Alert>
                 )}
 
                 <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-xl overflow-hidden">
@@ -920,7 +901,8 @@ const UserForm: React.FC = () => {
                                                                             }
                                                                             disabled={
                                                                                 bulkSubmitting ||
-                                                                                hasGlobalAccount
+                                                                                hasGlobalAccount ||
+                                                                                !!prerequisiteError
                                                                             }
                                                                             className="w-full bg-slate-900 border border-slate-600 rounded px-2.5 py-1.5 text-white text-sm outline-none focus:border-blue-500 disabled:opacity-50"
                                                                         />
@@ -953,7 +935,8 @@ const UserForm: React.FC = () => {
                                                                             }
                                                                             disabled={
                                                                                 bulkSubmitting ||
-                                                                                hasGlobalAccount
+                                                                                hasGlobalAccount ||
+                                                                                !!prerequisiteError
                                                                             }
                                                                             className="w-full bg-slate-900 border border-slate-600 rounded px-2.5 py-1.5 text-white text-sm outline-none focus:border-blue-500 disabled:opacity-50"
                                                                         />
@@ -985,7 +968,8 @@ const UserForm: React.FC = () => {
                                                                                     )
                                                                                 }
                                                                                 disabled={
-                                                                                    bulkSubmitting
+                                                                                    bulkSubmitting ||
+                                                                                    !!prerequisiteError
                                                                                 }
                                                                                 className="w-full appearance-none bg-slate-900 border border-slate-600 rounded pl-2.5 pr-7 py-1.5 text-white text-sm outline-none focus:border-blue-500 disabled:opacity-50"
                                                                             >
@@ -1148,7 +1132,8 @@ const UserForm: React.FC = () => {
                                                 isLoading={bulkSubmitting}
                                                 disabled={
                                                     bulkRows.length === 0 ||
-                                                    bulkSubmitting
+                                                    bulkSubmitting ||
+                                                    !!prerequisiteError
                                                 }
                                             >
                                                 {bulkSubmitting
@@ -1175,14 +1160,16 @@ const UserForm: React.FC = () => {
                                         </button>
 
                                         <div
-                                            onClick={handleUploadUsersClick}
-                                            onDragOver={handleBulkDragOver}
-                                            onDragLeave={handleBulkDragLeave}
-                                            onDrop={handleBulkDrop}
-                                            className={`border-2 border-dashed rounded-lg py-20 px-6 flex flex-col items-center justify-center text-center cursor-pointer transition-colors ${
-                                                isDragging
-                                                    ? 'border-blue-500 bg-slate-700/40'
-                                                    : 'border-slate-600 hover:border-slate-500 bg-slate-900/30'
+                                            onClick={!prerequisiteError ? handleUploadUsersClick : undefined}
+                                            onDragOver={!prerequisiteError ? handleBulkDragOver : undefined}
+                                            onDragLeave={!prerequisiteError ? handleBulkDragLeave : undefined}
+                                            onDrop={!prerequisiteError ? handleBulkDrop : undefined}
+                                            className={`border-2 border-dashed rounded-lg py-20 px-6 flex flex-col items-center justify-center text-center transition-colors ${
+                                                prerequisiteError
+                                                    ? 'border-slate-700 bg-slate-900/50 opacity-50 cursor-not-allowed'
+                                                    : isDragging
+                                                        ? 'border-blue-500 bg-slate-700/40 cursor-pointer'
+                                                        : 'border-slate-600 hover:border-slate-500 bg-slate-900/30 cursor-pointer'
                                             }`}
                                         >
                                             <span className="text-slate-200">
@@ -1197,6 +1184,7 @@ const UserForm: React.FC = () => {
                                                 accept=".csv"
                                                 className="hidden"
                                                 onChange={handleBulkFileChange}
+                                                disabled={!!prerequisiteError}
                                             />
                                         </div>
 
@@ -1230,7 +1218,7 @@ const UserForm: React.FC = () => {
                                         onBlur={handleEmailCheck}
                                         error={errors.email?.message}
                                         required
-                                        disabled={isEditMode}
+                                        disabled={isEditMode || !!prerequisiteError}
                                         icon={
                                             checkingEmail ? (
                                                 <svg
@@ -1275,6 +1263,7 @@ const UserForm: React.FC = () => {
                                                     errors.firstName?.message
                                                 }
                                                 required
+                                                disabled={!!prerequisiteError}
                                             />
                                             <Input
                                                 label="Last Name"
@@ -1282,6 +1271,7 @@ const UserForm: React.FC = () => {
                                                 {...register('lastName')}
                                                 error={errors.lastName?.message}
                                                 required
+                                                disabled={!!prerequisiteError}
                                             />
                                         </div>
                                     )}
@@ -1293,6 +1283,7 @@ const UserForm: React.FC = () => {
                                         options={getRoleOptions()}
                                         error={errors.role?.message}
                                         required
+                                        disabled={!!prerequisiteError}
                                     />
 
                                     {(!isEditMode && !existsGlobally) ||
@@ -1315,6 +1306,7 @@ const UserForm: React.FC = () => {
                                                 {...register('password')}
                                                 error={errors.password?.message}
                                                 required={!isEditMode}
+                                                disabled={!!prerequisiteError}
                                                 iconPosition="right"
                                                 icon={
                                                     <button
@@ -1391,6 +1383,7 @@ const UserForm: React.FC = () => {
                                                         ?.message
                                                 }
                                                 required={!isEditMode}
+                                                disabled={!!prerequisiteError}
                                             />
                                         </div>
                                     ) : null}
@@ -1408,7 +1401,7 @@ const UserForm: React.FC = () => {
                                         </Button>
                                         <Button
                                             type="submit"
-                                            disabled={isSubmitting}
+                                            disabled={isSubmitting || !!prerequisiteError}
                                         >
                                             {isSubmitting
                                                 ? isEditMode

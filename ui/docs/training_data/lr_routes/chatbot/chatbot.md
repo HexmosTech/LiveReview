@@ -30,6 +30,11 @@ Any authenticated org member.
   new one remounts the component so state starts clean.
 - (`/chat-debug` only) inspect debug artifacts behind the model's answer.
 
+## Prerequisites
+
+- **Production URL must be configured** (Settings → Instance). Super-admins
+  see a warning banner if it is missing.
+
 ## Related pages
 
 All other pages are effectively "related" — the chatbot answers questions

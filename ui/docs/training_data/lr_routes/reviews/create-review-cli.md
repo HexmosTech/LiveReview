@@ -25,6 +25,12 @@ Any authenticated org member. Free-plan orgs may see an upgrade dialog
 - See live onboarding status: CLI installed?, AI provider connected?, first
   review run yet?
 
+## Prerequisites
+
+- **Production URL must be configured** (Settings → Instance). A warning
+  banner is shown if it is missing — the install command includes
+  `LRC_API_URL` which depends on the correct production URL being set.
+
 ## Related pages
 
 - [Dashboard](../dashboard.md)
