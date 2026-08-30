@@ -174,7 +174,11 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			if err != nil {
 				return text, history, artifacts, debugArt, err
 			}
-			history = append(history, HistoryEntry{"role": "assistant", "content": text, "text": text})
+			entry := HistoryEntry{"role": "assistant", "content": text, "text": text}
+			if text == NoDataAnalyticsResponseText {
+				entry["suggested_questions"] = DefaultNoDataSuggestedQuestions
+			}
+			history = append(history, entry)
 			return text, history, artifacts, debugArt, nil
 		}
 

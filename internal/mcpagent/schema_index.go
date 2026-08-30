@@ -342,9 +342,9 @@ func InitSchemaIndex(dsn string) {
 			<-ready
 			elapsed := time.Since(start)
 			if err := idx.Err(); err != nil {
-				fmt.Fprintf(out, "[dbctx] schema index: build failed after %s: %v (analytics prompts will use the static fallback schema)\n", elapsed.Round(time.Millisecond), err)
-				log.Error().Err(err).Dur("elapsed", elapsed).
-					Msg("dbctx schema index: build failed; analytics prompts will use the static fallback schema")
+				fmt.Fprintf(out, "[dbctx] schema index: build failed after %s: %v [FATAL: halting server boot]\n", elapsed.Round(time.Millisecond), err)
+				log.Fatal().Err(err).Dur("elapsed", elapsed).
+					Msg("dbctx schema index: build failed; halting server boot")
 				return
 			}
 			stats, err := idx.Stats()

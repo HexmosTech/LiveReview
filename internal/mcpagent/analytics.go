@@ -1387,6 +1387,20 @@ func hintFor(err error) string {
 	return "The query was rejected. Rewrite it as a simple SELECT over the documented tables."
 }
 
+const NoDataAnalyticsResponseText = "Livi doesn't have enough data to perform this analytics yet. Let me know if you need more details about LiveReview or want help triggering a review."
+
+var DefaultNoDataSuggestedQuestions = []SuggestedQuestionCategory{
+	{
+		Category: "Product Guidance",
+		Questions: []string{
+			"How do I connect a Git provider?",
+			"How to invite my team mate?",
+			"How can i trigger a review?",
+			"How to use the git-lrc?",
+		},
+	},
+}
+
 // assembleAnalyticsResponse produces the string RunTurn returns. Charts go into
 // the existing {"reports":[...]} envelope that every surface already renders;
 // plain notes are returned as prose when there is nothing to draw. hasArtifacts
@@ -1399,18 +1413,15 @@ func hintFor(err error) string {
 // rightly read as a bug, because it is one.
 func assembleAnalyticsResponse(reports []vlrender.VegaLiteReport, notes []string, hasArtifacts bool) string {
 	if len(reports) == 0 {
-		if len(notes) == 0 {
-			if hasArtifacts {
-				return "I've put the results in a file you can download."
-			}
-			return "I could not find anything to answer that."
+		if hasArtifacts {
+			return "I've put the results in a file you can download."
 		}
-		return strings.Join(notes, "\n\n")
+		return NoDataAnalyticsResponseText
 	}
 	payload, err := json.Marshal(map[string]any{"reports": reports})
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal analytics reports")
-		return strings.Join(notes, "\n\n")
+		return NoDataAnalyticsResponseText
 	}
 	// Notes (skip reasons) are only in debug artifacts, not in chat response.
 	return string(payload)
