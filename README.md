@@ -14,6 +14,29 @@ https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 |:---:|:---:|:---:|
 | <img src="./assets/screenshots/blast-radius/new-risk-score-3.webp" width="280"/> | <img src="./assets/screenshots/blast-radius/new-risk-score-4.webp" width="280"/> | <img src="./assets/screenshots/blast-radius/new-risk-score-2.webp" width="280"/> |
 
+<details>
+<summary>How does Blast Radius scoring work? (a more technical explanation)</summary>
+
+**Here's the goal:**
+- A 3-line fix in a function used by 40 other files, that also writes to a database, should score high.
+- A 300-line UI change in one file, fully covered by tests and used by nothing else, should score low, even though it's the bigger diff.
+
+To get there, LiveReview gives each hunk two scores, then combines them into one and ranks every hunk in the diff by it.
+
+- **Blast Radius**: how far a change can reach through your code.
+  - How many other places call this code, directly or a few steps removed
+  - Whether it writes to a database or other long-term storage
+  - Whether those callers live in other parts of the codebase, not just nearby files
+- **Review Priority**: how much scrutiny a change warrants, based on its complexity, subtlety, and potential for important details to be missed.
+  - How many different paths the logic can take, and how hard it is to follow
+  - How deeply loops sit nested inside other loops
+  - How many other functions or symbols this code itself calls into
+  - Whether the code has tests
+
+LiveReview may add new signals over time. The two questions behind them stay the same: how far, and how much scrutiny.
+
+</details>
+
 <p align="center">
    <b>Self-Host for Free:</b> <a href="#quick-start">Get Started in 5 Minutes</a><br/>
    <i>Want a guided rollout?</i> <a href="#transformation-program">Join the 14-Day Transformation Program</a>
@@ -111,7 +134,7 @@ AI writes code faster than any human can review it by hand. LiveReview gives you
 | **Before Push** | LiveReview catches issues one last time before code leaves your machine. Skips are explicit (`git lrc review --skip`) and stay in the git log, so nothing slips through silently. |
 | **MR / PR** | LiveReview posts a full AI review as comments on the pull or merge request. Every hunk gets a Blast Radius and Review Priority score. Works across GitHub, GitLab, Bitbucket, Gitea, and Azure DevOps. |
 | **CI / CD** | In production deployments, a webhook triggers a review on every push. Merges can wait on review completion instead of relying on someone to ask for one. See [Automate Code Reviews in CI/CD with LiveReview MCP](https://hexmos.com/livereview/demo?v=ar4B6IrDrqk). |
-| **Scheduled Checks** | Periodic sweeps scan your repositories for drift and new hotspots, even in code nobody has touched recently. Watch it in action: [Automatically Review Your Production Code with Scheduled Reviews](https://hexmos.com/livereview/demo?v=45EfHmXe_Dw). |
+| **Scheduled Checks** | Periodic sweeps scan your repositories for drift and new hotspots, even in code nobody has touched recently. See [Scheduled Reviews](#features) below, or watch it in action: [Automatically Review Your Production Code with Scheduled Reviews](https://hexmos.com/livereview/demo?v=45EfHmXe_Dw). |
 
 <p align="center">
    <img src="./assets/screenshots/2026-08-29/08-scheduled-reviews-slash-reviews-scheduled.png" alt="Scheduled Reviews: turn on periodic sweeps per repository, see the schedule and last run" width="80%"/>
@@ -337,7 +360,7 @@ Browse every repository and merge or pull request LiveReview can see, in one lis
 | <img src="./assets/screenshots/2026-08-29/10-explore-slash-explore-repositories.png" width="380"/> | <img src="./assets/screenshots/2026-08-29/11-explore-slash-merge-requests.png" width="380"/> |
 
 <details>
-<summary>Show 6 more features (review list, progress tracking, custom prompts, team learnings, PR summaries, AI clarification)</summary>
+<summary>Show 7 more features (review list, progress tracking, custom prompts, team learnings, PR summaries, AI clarification, scheduled reviews)</summary>
 
 ### View All AI Reviews in One Place
 See every review's status, from queued to complete, and jump straight into the ones that need attention. See [Trigger Manual Pull Request Reviews](https://hexmos.com/livereview/demo?v=ReHJfGbeUCo).
@@ -380,6 +403,18 @@ Reply to any AI comment in the merge request to ask why it flagged something, or
 <p align="center">
    <img src="./assets/screenshots/clarification_question.png" alt="Asking LiveReview's AI a clarification question in a merge request" width="80%"/>
 </p>
+
+### Scheduled Reviews: A Safety Net for the Code Nobody Reviewed
+Not every change goes through a full review. A hotfix might land straight on the main branch. A dependency bump might merge on its own. For a small, fast-moving team, that's often the right call, you can't review every line by hand and still ship fast. Scheduled Reviews give you a safety net for exactly that: LiveReview checks your default branch on its own schedule, even when nobody asked it to, and catches anything that got in outside your normal commit, push, or PR checks. For most teams, once a day on the main branch is enough to keep quality high without slowing anyone down.
+
+- Turn it on per repository, one toggle
+- Pick how often it runs, in plain cron syntax, or leave it blank and LiveReview checks once a day
+- See the last time it ran and the next time it will, right in the schedule list
+- Runs by itself in the background, nobody has to remember to trigger it
+
+| The schedule list, per repository | Editing a repository's schedule |
+|:---:|:---:|
+| <img src="./assets/screenshots/2026-08-29/08-scheduled-reviews-slash-reviews-scheduled.png" width="380"/> | <img src="./assets/screenshots/2026-08-29/09-scheduled-reviews-slash-reviews-scheduled-edit.png" width="380"/> |
 
 </details>
 

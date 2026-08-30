@@ -240,6 +240,7 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
             ], React.createElement(Icons.Reports)),
             group('Manage System', [
                 link('Storage', React.createElement(Icons.Folder), '/settings#storage', (ctx) => ctx.isSuperAdmin),
+                link('Log Compaction', React.createElement(Icons.Clock), '/settings#storage', (ctx) => ctx.isSuperAdmin),
             ], React.createElement(Icons.Settings)),
         ],
     },

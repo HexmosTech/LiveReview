@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/orgname"
+	storageanalytics "github.com/livereview/storage/analytics"
 )
 
 // resolveMCPBaseURL derives the MCP endpoint the bots talk to. In cloud mode
@@ -66,6 +67,7 @@ func buildBot(db *sql.DB) (*Bot, error) {
 	}
 
 	connectorStorage := aiconnectors.NewStorage(db)
+	analyticsEngine := storageanalytics.NewAdHocStore(db)
 
 	var botCfgs []BotConfig
 	for _, cfg := range configs {
@@ -107,6 +109,7 @@ func buildBot(db *sql.DB) (*Bot, error) {
 			MCPServerURL: mcpServerURL,
 			MCPHeaders:   mcpHeaders,
 			Connector:    connector,
+			Analytics:    analyticsEngine,
 			MaxSteps:     maxSteps,
 		})
 	}
@@ -165,11 +168,8 @@ func (h *Handler) HandleMessage(c echo.Context) error {
 			log.Printf("[TeamsBot] JWT validation failed")
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		}
-		// err comes from HandleActivity, which also receives authHeader as a
-		// parameter (used for JWT validation, handled above via errors.Is).
-		// Non-JWT activity-handling errors don't embed the auth header in
-		// practice, but avoid logging anything derived from err here so
-		// that stays true regardless of what future error paths do.
+		// Non-JWT errors here come from HandleActivity's message/postReply
+		// path (marshal/HTTP/URL errors, agent errors) - none embed authHeader.
 		log.Printf("[TeamsBot] Error handling activity")
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal error"})
 	}

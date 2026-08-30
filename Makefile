@@ -104,7 +104,7 @@ OSV_SCANNER_CONFIG=osv-scanner.toml
 # run. Kept up to date automatically by that target (scripts/prep_training_data.sh
 # rewrites this line). `make check-training-data` compares it against the
 # corpus's current hash and re-runs prep-training-data when they diverge.
-TRAINING_DATA_HASH=0d62f21d8a1b7bdb5951511afde5e85cc8b5dd8854a354f42d1f54074e66a8c9
+TRAINING_DATAgs_HASH=0d62f21d8a1b7bdb5951511afde5e85cc8b5dd8854a354f42d1f54074e66a8c9
 
 # Load environment variables from .env file
 -include .env
@@ -312,8 +312,8 @@ TEST_PACKAGES := $(shell find . \
 	-type f -name '*.go' -print 2>/dev/null | \
 	xargs -n1 dirname | sort -u | tr '\n' ' ')
 
-# Exclude ./scripts because it contains multiple standalone main programs.
-SECURITY_GOVULN_PACKAGES := $(filter-out ./scripts,$(TEST_PACKAGES))
+# Exclude ./scripts and ./cmd/onboarding-pdf because they contain standalone/ignored build constraint main programs.
+SECURITY_GOVULN_PACKAGES := $(filter-out ./scripts ./cmd/onboarding-pdf,$(TEST_PACKAGES))
 
 .PHONY: testall
 testall:

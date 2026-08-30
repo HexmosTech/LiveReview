@@ -52,6 +52,9 @@ type lawbookPaths struct {
 	// interpretSystem is the fully rendered multi-interpret system prompt
 	// (self-contained, no schema splice — schema goes in the user message).
 	interpretSystem string
+	// productGuidance is the system prompt for the product_guidance branch:
+	// how-to / UI navigation questions answered from embedded lr_routes docs.
+	productGuidance string
 	// chartTypes is the embedded chart_types.json content, passed in the
 	// user message alongside the dbctx schema context.
 	chartTypes string
@@ -223,7 +226,7 @@ func actionInstructions() string {
 			log.Error().Err(err).Msg("action instructions: lawbook failed to load")
 			return
 		}
-		text, err := renderBranch(book, []string{"livi.action"}, nil)
+		text, err := renderBranch(book, []string{"livi.general.principles", "livi.action"}, nil)
 		if err != nil {
 			log.Error().Err(err).Msg("action instructions: render failed")
 			return
@@ -346,6 +349,21 @@ func buildLawbookPrompts(orgName, userName string, orgID int64) (*lawbookPaths, 
 	header := buildPromptHeader(orgName, userName)
 	orgFilter := orgIDFilterInstruction(orgID)
 
+	// Product guidance: PromptBook template with persona + product_guidance laws.
+	productGuidancePromptTemplate, err := book.Prompt("livi.prompts.product-guidance")
+	if err != nil {
+		return nil, fmt.Errorf("product-guidance prompt template: %w", err)
+	}
+	productGuidance, err := productGuidancePromptTemplate.Render(alaws.PromptRenderOptions{
+		Vars:      vars,
+		OnMissing: alaws.MissingKeepPlaceholder,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("product-guidance prompt render: %w", err)
+	}
+	// Prepend persona/org header so the model knows who it's helping.
+	productGuidance = header + "\n\n" + productGuidance
+
 	return &lawbookPaths{
 		classify: classify,
 		// Plan head: header + org filter + the law text comes next, then
@@ -378,6 +396,8 @@ func buildLawbookPrompts(orgName, userName string, orgID int64) (*lawbookPaths, 
 		// Schema context and chart types go in the user message, matching
 		// the Python script's approach.
 		interpretSystem: interpretSystem,
+		// Product guidance: no schema, no tools - answered from embedded knowledge.
+		productGuidance: productGuidance,
 		chartTypes:      string(chartTypesBytes),
 	}, nil
 }

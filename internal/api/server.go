@@ -47,6 +47,7 @@ import (
 	"github.com/livereview/internal/scheduledreview"
 	"github.com/livereview/internal/slackbot"
 	"github.com/livereview/internal/teamsbot"
+	storageanalytics "github.com/livereview/storage/analytics"
 	"github.com/livereview/storage/core"
 	"github.com/livereview/storage/dashboard"
 	// Import FetchGitLabProfile
@@ -133,7 +134,8 @@ type Server struct {
 	port                  int
 	db                    *sql.DB
 	jobQueue              *jobqueue.JobQueue
-	dashboardManager      *DashboardManager
+	dashboardManager         *DashboardManager
+	eventCompactionManager  *EventCompactionManager
 	autoWebhookInstaller  *AutoWebhookInstaller
 	versionInfo           *VersionInfo
 	deploymentConfig      *DeploymentConfig
@@ -289,6 +291,9 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	dashboardCacheStore := dashboard.NewCacheStore(db)
 	dashboardManager := NewDashboardManager(db, schedulerLockStore, dashboardCacheStore)
 
+	// Initialize event compaction manager — one goroutine compacting review_events logs daily.
+	eventCompactionManager := NewEventCompactionManager(db)
+
 	// Initialize auto webhook installer
 	autoWebhookInstaller := NewAutoWebhookInstaller(db, nil, jq) // server will be set later
 
@@ -339,7 +344,8 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 		port:                 port,
 		db:                   db,
 		jobQueue:             jq,
-		dashboardManager:     dashboardManager,
+		dashboardManager:        dashboardManager,
+		eventCompactionManager:  eventCompactionManager,
 		autoWebhookInstaller: autoWebhookInstaller,
 		versionInfo:          versionInfo,
 		deploymentConfig:     deploymentConfig,
@@ -596,6 +602,7 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 	connectorStorage := aiconnectors.NewStorage(db)
 	mcpServerURL := resolveMCPBaseURL(db)
 	maxSteps := 20
+	analyticsEngine := storageanalytics.NewAdHocStore(db)
 
 	var orgCfgs []slackbot.OrgConfig
 
@@ -649,6 +656,7 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 			MCPServerURL:  mcpServerURL,
 			MCPHeaders:    mcpHeaders,
 			Connector:     connector,
+			Analytics:     analyticsEngine,
 			MaxAgentSteps: maxSteps,
 		})
 	}
@@ -689,6 +697,7 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 	if n, err := strconv.Atoi(stepStr); err == nil && n > 0 {
 		maxSteps = n
 	}
+	analyticsEngine := storageanalytics.NewAdHocStore(db)
 
 	var orgCfgs []discordbot.OrgConfig
 
@@ -734,6 +743,7 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 			MCPServerURL:  mcpServerURL,
 			MCPHeaders:    mcpHeaders,
 			Connector:     connector,
+			Analytics:     analyticsEngine,
 			MaxAgentSteps: maxSteps,
 		})
 	}
@@ -801,6 +811,7 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 								MCPServerURL:  mcpServerURL,
 								MCPHeaders:    map[string]string{"X-API-Key": envAPIKey},
 								Connector:     connector,
+								Analytics:     analyticsEngine,
 								MaxAgentSteps: maxSteps,
 							})
 							log.Printf("Discord bot: env-var bot configured for org %d (%s)", envOrgID, envOrgName)
@@ -1103,6 +1114,11 @@ func (s *Server) setupRoutes() {
 	adminGroup.GET("/settings/storage", s.GetStorageSettings)
 	adminGroup.PUT("/settings/storage", s.UpdateStorageSettings)
 	adminGroup.POST("/settings/storage/test", s.TestStorageSettings)
+
+	// Super admin log compaction settings endpoints
+	adminGroup.GET("/settings/compaction", s.GetCompactionSettings)
+	adminGroup.PUT("/settings/compaction", s.UpdateCompactionSettings)
+	adminGroup.POST("/settings/compaction/run", s.RunCompactionNow)
 
 	// Organization management endpoints
 	// User organization access (get their orgs) - needs permission context to detect super admin
@@ -1702,6 +1718,11 @@ func (s *Server) Start() error {
 	s.dashboardManager.Start()
 	fmt.Println("Dashboard manager started")
 
+	// Start event compaction manager (daily log compaction for review_events > 30 days)
+	s.eventCompactionManager.Start()
+	fmt.Println("Event compaction manager started")
+
+
 	// Start server in a goroutine
 	go func() {
 		if err := s.echo.Start(bindAddress); err != nil && err != http.ErrServerClosed {
@@ -1805,6 +1826,12 @@ func (s *Server) Start() error {
 	if s.dashboardManager != nil {
 		s.dashboardManager.Stop()
 		fmt.Println("Dashboard manager stopped")
+	}
+
+	// Stop event compaction manager
+	if s.eventCompactionManager != nil {
+		s.eventCompactionManager.Stop()
+		fmt.Println("Event compaction manager stopped")
 	}
 
 	// Close database connection

@@ -268,6 +268,11 @@ func (l *ChatTurnLogger) BranchSelected(shape string, promptLen, toolCount int) 
 	l.write("Branch Selected", "shape=%s prompt_len=%d tools=%d", shape, promptLen, toolCount)
 }
 
+// DocIndexRetrieved records details about documents retrieved from vector RAG search.
+func (l *ChatTurnLogger) DocIndexRetrieved(count int, docDetails string) {
+	l.write("DocIndex RAG", "count=%d docs=[%s]", count, docDetails)
+}
+
 // SchemaSourceDegraded records that a count_query-branch turn rendered the
 // static fallback table list instead of the live dbctx-derived schema,
 // because the index wasn't ready or failed to build (see

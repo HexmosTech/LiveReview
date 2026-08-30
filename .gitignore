@@ -28,6 +28,8 @@ lrdata/postgres/
 /ui/docs/training_data/git-lrc-wiki/
 /ui/docs/training_data/livereview/
 /ui/docs/training_data/livereview-wiki/
+/internal/docindex/docs/lr_wiki/
+/internal/docindex/docs/lrc_wiki/
 
 # Vendor prompts local artifacts (never commit)
 internal/prompts/vendor/keyring_gen.go
@@ -102,3 +104,4 @@ scripts/prelivi/.venv/
 # email testing
 email-preview
 email-preview.html
+livereview.dtx

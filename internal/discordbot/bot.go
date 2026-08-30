@@ -12,6 +12,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/livereview/internal/aiconnectors"
+	"github.com/livereview/internal/chatstats"
 	"github.com/livereview/internal/mcpagent"
 	"github.com/livereview/internal/vlrender"
 )
@@ -38,6 +39,7 @@ type orgHandler struct {
 	mcpServerURL  string
 	mcpHeaders    map[string]string
 	connector     *aiconnectors.Connector
+	analytics     mcpagent.AnalyticsEngine
 	maxAgentSteps int
 	botUserID     string
 }
@@ -57,6 +59,7 @@ type OrgConfig struct {
 	MCPServerURL  string
 	MCPHeaders    map[string]string
 	Connector     *aiconnectors.Connector
+	Analytics     mcpagent.AnalyticsEngine
 	MaxAgentSteps int
 }
 
@@ -113,6 +116,7 @@ func NewOrg(oc OrgConfig) (*orgHandler, []string, error) {
 		mcpServerURL:  oc.MCPServerURL,
 		mcpHeaders:    oc.MCPHeaders,
 		connector:     oc.Connector,
+		analytics:     oc.Analytics,
 		maxAgentSteps: oc.MaxAgentSteps,
 		botUserID:     botUser,
 	}, guildIDs, nil
@@ -219,6 +223,7 @@ func (b *Bot) UpdateBotToken(orgID int64, newToken string) {
 			MCPServerURL:  oh.mcpServerURL,
 			MCPHeaders:    oh.mcpHeaders,
 			Connector:     oh.connector,
+			Analytics:     oh.analytics,
 			MaxAgentSteps: oh.maxAgentSteps,
 		}
 		newOh, newGuildIDs, err := NewOrg(oc)
@@ -359,7 +364,8 @@ func (oh *orgHandler) ensureAgent() error {
 	if oh.orgName != "" {
 		mcpSession.OrgName = oh.orgName
 	}
-	oh.agent = mcpagent.NewAgent(provider, mcpSession, oh.maxAgentSteps)
+	mcpSession.OrgID = oh.orgID
+	oh.agent = mcpagent.NewAgent(provider, mcpSession, oh.maxAgentSteps).WithAnalytics(oh.analytics)
 	log.Printf("[DiscordBot] Org %d: connected to MCP. Tools: %v", oh.orgID, toolNames(mcpSession.Tools))
 	return nil
 }
@@ -421,14 +427,17 @@ func (oh *orgHandler) processMessage(channelID, messageID, threadID, text string
 			return
 		}
 		// A single value/bar isn't worth a chart — reply with the description text.
-		if desc, query, timeRange, granularity, _, ok := vlrender.TrivialDescription(finalText); ok && desc != "" {
-			if query != "" || timeRange != "" || granularity != "" {
+		if desc, query, timeRange, granularity, chartCtx, ok := vlrender.TrivialDescription(finalText); ok && desc != "" {
+			if query != "" || timeRange != "" || granularity != "" || chartCtx != "" {
 				detail := "\n\nQuery: " + query
 				if timeRange != "" {
 					detail += "\nTime range: " + timeRange
 				}
 				if granularity != "" {
 					detail += "\nGranularity: " + granularity
+				}
+				if chartCtx != "" {
+					detail += "\nContext: " + chartCtx
 				}
 				desc += detail
 			}
@@ -460,36 +469,59 @@ func (oh *orgHandler) processMessage(channelID, messageID, threadID, text string
 	}
 }
 
+
 func (oh *orgHandler) uploadReportsToDiscord(channelID string, reports []renderedReport, originalText string) {
 	for _, r := range reports {
 		if len(r.PNGData) == 0 {
 			continue
 		}
-		msg := r.Description
-		if msg == "" {
-			msg = r.Title
-		}
-		if r.Query != "" || r.TimeRange != "" || r.Granularity != "" {
-			if msg != "" {
-				msg += "\n\n"
-			}
-			detail := fmt.Sprintf("Query: %s", r.Query)
-			if r.TimeRange != "" {
-				detail += fmt.Sprintf("\nTime range: %s", r.TimeRange)
-			}
-			if r.Granularity != "" {
-				detail += fmt.Sprintf("\nGranularity: %s", r.Granularity)
-			}
-			msg += detail
-		}
 		reader := bytes.NewReader(r.PNGData)
-		name := "report.png"
-		if _, err := oh.session.ChannelFileSend(channelID, name, reader); err != nil {
+		if _, err := oh.session.ChannelFileSend(channelID, "report.png", reader); err != nil {
 			log.Printf("[DiscordBot] Failed to upload report: %s", err)
 			continue
 		}
-		if msg != "" {
-			oh.session.ChannelMessageSend(channelID, msg)
+
+		var sb strings.Builder
+		if r.Title != "" {
+			fmt.Fprintf(&sb, "**%s**\n", r.Title)
+		}
+		if r.Description != "" {
+			sb.WriteString(r.Description + "\n")
+		}
+		if chips := chatstats.FormatChips(r.Stats); len(chips) > 0 {
+			sb.WriteString("\n")
+			for _, chip := range chips {
+				fmt.Fprintf(&sb, "**%s:** %s\n", chip.Label, chip.Value)
+			}
+		}
+		var details []string
+		if r.Query != "" {
+			details = append(details, "Query: "+r.Query)
+		}
+		if r.TimeRange != "" {
+			details = append(details, "Time range: "+r.TimeRange)
+		}
+		if r.Granularity != "" {
+			details = append(details, "Granularity: "+r.Granularity)
+		}
+		if formattedCtx := r.Context.Format(); formattedCtx != "" {
+			details = append(details, "Context: "+formattedCtx)
+		}
+		if len(details) > 0 {
+			sb.WriteString("\n")
+			for _, d := range details {
+				sb.WriteString("_" + d + "_\n")
+			}
+		}
+
+		if msg := strings.TrimSpace(sb.String()); msg != "" {
+			if len(msg) > discordMaxMessageLen {
+				for _, part := range splitMessage(msg, discordMaxMessageLen) {
+					oh.session.ChannelMessageSend(channelID, part)
+				}
+			} else {
+				oh.session.ChannelMessageSend(channelID, msg)
+			}
 		}
 	}
 

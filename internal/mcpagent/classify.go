@@ -9,6 +9,7 @@ import (
 
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/vlrender"
+	"github.com/rs/zerolog/log"
 	"github.com/tmc/langchaingo/llms"
 )
 
@@ -18,9 +19,10 @@ import (
 type classifyShape string
 
 const (
-	shapeAction     classifyShape = "action"
-	shapeCountQuery classifyShape = "count_query"
-	shapeChat       classifyShape = "chat"
+	shapeAction          classifyShape = "action"
+	shapeAnalytics       classifyShape = "analytics"        // formerly "count_query" - renamed when multi-interpret replaced plan+finalize
+	shapeProductGuidance classifyShape = "product_guidance" // covers how-to questions AND conversational turns (replaces old "chat" shape)
+	shapeUnclassified    classifyShape = "unclassified"     // out-of-domain / general world knowledge questions
 )
 
 // classifyBoundHistory caps how many trailing history entries call #0 sees.
@@ -31,38 +33,64 @@ const (
 // don't map 1:1 to conversational turns.
 const classifyBoundHistory = 6
 
+type SuggestedQuestionCategory struct {
+	Category  string   `json:"category"`
+	Questions []string `json:"questions"`
+}
+
+type classifyResult struct {
+	Shape              classifyShape
+	Message            string
+	SuggestedQuestions []SuggestedQuestionCategory
+}
+
 // classify runs call #0. It never touches the growing session `history`
 // directly - only a bounded, independently-built copy - and never sees the
 // SQL schema or full tool definitions, which is the entire point of
 // splitting it out from the calls that used to decide and act in one shot.
-func (a *Agent) classify(ctx context.Context, history []HistoryEntry, userText string, clog *logging.ChatTurnLogger) (classifyShape, error) {
+func (a *Agent) classify(ctx context.Context, history []HistoryEntry, userText string, clog *logging.ChatTurnLogger) (classifyResult, error) {
 	classifyHistory := make([]HistoryEntry, 0, classifyBoundHistory+2)
 	classifyHistory = append(classifyHistory, HistoryEntry{"role": "system", "content": a.classifyPrompt})
 	classifyHistory = append(classifyHistory, boundedRecentHistory(history, classifyBoundHistory)...)
 	classifyHistory = append(classifyHistory, HistoryEntry{"role": "user", "content": userText})
 
-	payload := ""
-	if clog.Enabled() {
-		if b, err := json.Marshal(classifyHistory); err == nil {
-			payload = string(b)
+	// Two attempts: the model occasionally imitates a tool-call-shaped reply
+	// here (most often when recent history shows it just made a real tool
+	// call in an earlier turn), which isn't a valid {"response": ...}
+	// shape. One corrective retry recovers most of these instead of
+	// silently degrading the whole turn to chat.
+	for attempt := 1; attempt <= 2; attempt++ {
+		payload := ""
+		if clog.Enabled() {
+			if b, err := json.Marshal(classifyHistory); err == nil {
+				payload = string(b)
+			}
+		}
+		clog.LLMCallRequest(0, "classify", "", attempt, payload)
+
+		start := time.Now()
+		response, usage, err := a.provider.Complete(ctx, classifyHistory, nil, llms.WithJSONMode())
+		elapsed := time.Since(start)
+		if err != nil {
+			clog.LLMCallError(0, "classify", "", attempt, elapsed, err)
+			return classifyResult{}, fmt.Errorf("classify call: %w", err)
+		}
+		clog.LLMCallResponse(0, "classify", "", attempt, elapsed, usage.InputTokens, usage.OutputTokens, response)
+
+		if res, ok := parseClassifyShape(response); ok {
+			return res, nil
+		}
+
+		if attempt == 1 {
+			log.Warn().Str("response_preview", truncateContent(response, 200)).Msg("classify call returned unparseable shape, retrying with correction")
+			classifyHistory = append(classifyHistory,
+				HistoryEntry{"role": "assistant", "content": response},
+				HistoryEntry{"role": "user", "content": `That is not a valid classification reply. Reply with ONLY a JSON object of the exact shape {"response": "action" | "analytics" | "product_guidance" | "unclassified", "message": "...", "suggested_questions": [...], "applied_laws": [...]} - never a tool call, never prose, nothing else.`},
+			)
 		}
 	}
-	clog.LLMCallRequest(0, "classify", "", 1, payload)
 
-	start := time.Now()
-	response, usage, err := a.provider.Complete(ctx, classifyHistory, nil, llms.WithJSONMode())
-	elapsed := time.Since(start)
-	if err != nil {
-		clog.LLMCallError(0, "classify", "", 1, elapsed, err)
-		return "", fmt.Errorf("classify call: %w", err)
-	}
-	clog.LLMCallResponse(0, "classify", "", 1, elapsed, usage.InputTokens, usage.OutputTokens, response)
-
-	shape, ok := parseClassifyShape(response)
-	if !ok {
-		return "", fmt.Errorf("classify call returned an unparseable shape: %q", truncateContent(response, 200))
-	}
-	return shape, nil
+	return classifyResult{}, fmt.Errorf("classify call returned an unparseable shape after retry")
 }
 
 // boundedRecentHistory returns the last n entries of history, skipping any
@@ -88,30 +116,33 @@ func boundedRecentHistory(history []HistoryEntry, n int) []HistoryEntry {
 // response text logged by LLMCallResponse shows which numbered laws the
 // model believed it followed, for debugging (see chat_debug.log).
 type classifyEnvelope struct {
-	Response    string   `json:"response"`
-	AppliedLaws []string `json:"applied_laws"`
+	Response           string                      `json:"response"`
+	Message            string                      `json:"message"`
+	SuggestedQuestions []SuggestedQuestionCategory `json:"suggested_questions"`
+	AppliedLaws        []string                    `json:"applied_laws"`
 }
 
 // parseClassifyShape decodes call #0's response, tolerating a fenced or
 // bare JSON object the same way the rest of this protocol does (see
 // parseAnalyticsPlan/parseFinalizePlan in analytics_types.go).
-func parseClassifyShape(text string) (classifyShape, bool) {
+func parseClassifyShape(text string) (classifyResult, bool) {
 	body := strings.TrimSpace(vlrender.ExtractJSONBlock(text))
 	if body == "" {
-		return "", false
+		return classifyResult{}, false
 	}
 	var env classifyEnvelope
 	if err := json.Unmarshal([]byte(body), &env); err != nil {
-		return "", false
+		return classifyResult{}, false
 	}
-	switch classifyShape(strings.ToLower(strings.TrimSpace(env.Response))) {
-	case shapeAction:
-		return shapeAction, true
-	case shapeCountQuery:
-		return shapeCountQuery, true
-	case shapeChat:
-		return shapeChat, true
+	shape := classifyShape(strings.ToLower(strings.TrimSpace(env.Response)))
+	switch shape {
+	case shapeAction, shapeAnalytics, shapeProductGuidance, shapeUnclassified:
+		return classifyResult{
+			Shape:              shape,
+			Message:            env.Message,
+			SuggestedQuestions: env.SuggestedQuestions,
+		}, true
 	default:
-		return "", false
+		return classifyResult{}, false
 	}
 }

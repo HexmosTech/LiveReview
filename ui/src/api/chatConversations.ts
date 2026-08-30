@@ -1,5 +1,5 @@
 import apiClient, { BASE_URL } from './apiClient';
-import { ChatChart, ChatFile } from './chatbot';
+import { ChatChart, ChatFile, SuggestedQuestionCategory } from './chatbot';
 
 // Which UI surface a conversation was started from — /chat and /chat-debug
 // share the same backend table, so this is what keeps their sidebar lists
@@ -25,6 +25,7 @@ export interface ConversationMessage {
   content: string;
   charts?: ChatChart[];
   files?: ChatFile[];
+  suggested_questions?: SuggestedQuestionCategory[];
   debug_artifacts?: unknown;
 }
 

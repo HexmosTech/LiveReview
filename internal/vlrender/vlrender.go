@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
+
+	"github.com/livereview/internal/chatstats"
 )
 
 const (
@@ -78,7 +80,9 @@ type Report struct {
 	Query       string
 	TimeRange   string
 	Granularity string
-	PNGPath     string
+	Context     ChartContext
+	Stats   json.RawMessage
+	PNGPath string
 }
 
 // ErrTrivialSpec is returned when a Vega-Lite payload resolves to only a single
@@ -305,12 +309,20 @@ func renderVegaLiteReports(ctx context.Context, raw string, scale string) ([]Rep
 		if err != nil {
 			return nil, err
 		}
+		stats, statsErr := chatstats.ComputeAllStats(spec)
+		if statsErr != nil {
+			log.Printf("[VegaRender] chart stats computation failed for report %q, continuing without stats: %s", wrapped.Title, statsErr)
+		}
 		return []Report{{
 			PNGData:     png,
 			PNGPath:     pngPath,
 			Title:       FriendlyTitle(wrapped.Title, wrapped.Subtitle),
 			Description: wrapped.Description,
 			Query:       wrapped.Query,
+			TimeRange:   wrapped.TimeRange,
+			Granularity: wrapped.Granularity,
+			Context:     wrapped.Context,
+			Stats:       stats,
 		}}, nil
 	}
 
@@ -355,12 +367,20 @@ func renderReports(ctx context.Context, reports []VegaLiteReport, scale string) 
 			log.Printf("[VegaRender] Skipping report %q: failed to render chart: %s", r.Title, err)
 			continue
 		}
+		stats, statsErr := chatstats.ComputeAllStats(spec)
+		if statsErr != nil {
+			log.Printf("[VegaRender] chart stats computation failed for report %q, continuing without stats: %s", r.Title, statsErr)
+		}
 		out = append(out, Report{
 			PNGData:     png,
 			PNGPath:     pngPath,
 			Title:       FriendlyTitle(r.Title, r.Subtitle),
 			Description: r.Description,
 			Query:       r.Query,
+			TimeRange:   r.TimeRange,
+			Granularity: r.Granularity,
+			Context:     r.Context,
+			Stats:       stats,
 		})
 	}
 	if len(out) == 0 {
@@ -382,11 +402,33 @@ func NormalizeVegaLiteSpec(spec []byte) ([]byte, error) {
 	injectAxisAngle(m)
 	injectSafeFonts(m)
 	injectFriendlyTitles(m)
+	injectCompactLegend(m)
 	b, err := json.Marshal(m)
 	if err != nil {
 		return nil, err
 	}
 	return b, nil
+}
+
+// injectCompactLegend overrides the theme's legend.offset/padding, which on
+// the powerbi theme leaves a large dead gap between the plot and the legend.
+func injectCompactLegend(m map[string]any) {
+	config, ok := m["config"].(map[string]any)
+	if !ok {
+		config = map[string]any{}
+		m["config"] = config
+	}
+	legend, ok := config["legend"].(map[string]any)
+	if !ok {
+		legend = map[string]any{}
+		config["legend"] = legend
+	}
+	if _, exists := legend["offset"]; !exists {
+		legend["offset"] = float64(8)
+	}
+	if _, exists := legend["padding"]; !exists {
+		legend["padding"] = float64(0)
+	}
 }
 
 // safeFontStack is a font family every environment has, with fallbacks.
@@ -545,7 +587,10 @@ func injectAxisAngle(m map[string]any) {
 			channelMap["axis"] = axis
 		}
 		if _, exists := axis["labelAngle"]; !exists {
-			axis["labelAngle"] = float64(45)
+			// Align/baseline pair pivots the rotated label on its tick.
+			axis["labelAngle"] = float64(-45)
+			axis["labelAlign"] = "right"
+			axis["labelBaseline"] = "middle"
 		}
 	}
 }
@@ -705,6 +750,24 @@ func ExtractJSONBlock(raw string) string {
 	return s
 }
 
+// injectBackground sets a light background so exported PNGs stay readable on
+// dark UIs (Discord, Slack, Teams) - vl-convert's default PNG background is
+// transparent regardless of theme.
+func injectBackground(spec []byte) []byte {
+	var m map[string]any
+	if err := json.Unmarshal(spec, &m); err != nil {
+		return spec
+	}
+	if _, ok := m["background"]; !ok {
+		m["background"] = "#f7f7f7"
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return spec
+	}
+	return out
+}
+
 // ConvertVegaLiteToPNG renders a normalized spec to a PNG via vl-convert and
 // returns the in-memory PNG data plus the temp directory containing report.png.
 // The caller is responsible for removing the temp dir once it is no longer
@@ -717,6 +780,8 @@ func ConvertVegaLiteToPNG(ctx context.Context, spec []byte, scale string) ([]byt
 	if err != nil {
 		return nil, "", err
 	}
+
+	spec = injectBackground(spec)
 
 	inputPath := filepath.Join(tmpDir, "report.vl.json")
 	outputPath := filepath.Join(tmpDir, "report.png")

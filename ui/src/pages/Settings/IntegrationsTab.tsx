@@ -307,7 +307,10 @@ settings:
                                             When prompted <strong className="text-slate-200">Allow the "Livi" app to access Slack</strong>, click <strong className="text-slate-200">Allow</strong>.
                                         </li>
                                         <li>
-                                            The app has been created. Expand <strong className="text-slate-200">"Your app credentials"</strong>, and copy the <strong className="text-slate-200">App token</strong>, and the <strong className="text-slate-200">Bot token</strong> and paste it in the fields above.
+                                            Go to <strong className="text-slate-200">Basic Information &gt; App-Level Tokens</strong>, click <strong className="text-slate-200">Generate Token and Scopes</strong>, add the <strong className="text-slate-200">connections:write</strong> scope, then click <strong className="text-slate-200">Generate</strong>. Copy it into the <strong className="text-slate-200">App-Level Token</strong> field above.
+                                        </li>
+                                        <li>
+                                            Go to <strong className="text-slate-200">Install App</strong> in the sidebar and click <strong className="text-slate-200">Install to Workspace</strong> to reveal the <strong className="text-slate-200">Bot Token</strong>. Copy it into the field above.
                                         </li>
                                         <li>
                                             Click <strong className="text-slate-200">Save</strong>.

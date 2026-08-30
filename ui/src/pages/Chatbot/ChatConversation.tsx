@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { View } from 'vega';
-import { sendChatMessage, ChatFile, ChatChart, ChartContext } from '../../api/chatbot';
+import { sendChatMessage, ChatFile, ChatChart, ChartContext, SuggestedQuestionCategory } from '../../api/chatbot';
 import { basePathForSurface, createConversation, getConversation, type ChatSurface } from '../../api/chatConversations';
 import { BASE_URL, authFetch } from '../../api/apiClient';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -107,6 +107,7 @@ interface ChatEntry {
   text: string;
   charts?: ChatChart[];
   files?: ChatFile[];
+  suggestedQuestions?: SuggestedQuestionCategory[];
   debugArtifacts?: DebugArtifacts | null;
 }
 
@@ -137,7 +138,31 @@ function chartFileName(title?: string): string {
   return `${base}__LiveReview__${dd}${mm}${yy}.png`;
 }
 
-function formatText(text: string): React.ReactNode[] {
+
+const DATA_DETAIL_LABELS = ['Query', 'Time range', 'Granularity', 'Context'];
+
+function extractTrailingDataDetails(text: string): { body: string; details: { label: string; value: string }[] } {
+  const lines = text.split('\n');
+  const details: { label: string; value: string }[] = [];
+  let end = lines.length;
+  while (end > 0) {
+    const line = lines[end - 1];
+    const match = DATA_DETAIL_LABELS.find((label) => line.startsWith(`${label}: `));
+    if (!match) break;
+    details.unshift({ label: match, value: line.slice(match.length + 2) });
+    end -= 1;
+  }
+  if (details.length === 0) {
+    return { body: text, details: [] };
+  }
+  if (end > 0 && lines[end - 1].trim() === '') {
+    end -= 1;
+  }
+  return { body: lines.slice(0, end).join('\n'), details };
+}
+
+function formatText(rawText: string): React.ReactNode[] {
+  const { body: text, details } = extractTrailingDataDetails(rawText);
   const parts: React.ReactNode[] = [];
   const lines = text.split('\n');
   let inCodeBlock = false;
@@ -149,7 +174,7 @@ function formatText(text: string): React.ReactNode[] {
     if (line.startsWith('```')) {
       if (inCodeBlock) {
         parts.push(
-          <pre key={`code-${lineIdx++}`} className="bg-slate-800 text-green-300 p-3 rounded-lg overflow-x-auto text-sm my-2">
+          <pre key={`code-${lineIdx++}`} className="bg-slate-800/90 text-cyan-300 p-3.5 rounded-xl border border-slate-700/60 overflow-x-auto text-sm my-3 shadow-inner">
             {codeContent}
           </pre>
         );
@@ -170,15 +195,82 @@ function formatText(text: string): React.ReactNode[] {
       continue;
     }
 
+    // Markdown headings
+    if (line.startsWith('### ')) {
+      parts.push(
+        <h3 key={`h3-${lineIdx++}`} className="text-base font-semibold text-slate-100 mt-4 mb-1.5 flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 inline-block" />
+          {formatLine(line.slice(4))}
+        </h3>
+      );
+      continue;
+    }
+    if (line.startsWith('## ')) {
+      parts.push(
+        <h2 key={`h2-${lineIdx++}`} className="text-lg font-bold text-slate-100 mt-5 mb-2 border-b border-slate-700/60 pb-1.5">
+          {formatLine(line.slice(3))}
+        </h2>
+      );
+      continue;
+    }
+    if (line.startsWith('# ')) {
+      parts.push(
+        <h1 key={`h1-${lineIdx++}`} className="text-xl font-bold text-white mt-6 mb-3">
+          {formatLine(line.slice(2))}
+        </h1>
+      );
+      continue;
+    }
+
+    // Bullet list items (* or -)
+    const trimmedLine = line.trim();
+    if (trimmedLine.startsWith('* ') || trimmedLine.startsWith('- ')) {
+      const content = trimmedLine.slice(2);
+      parts.push(
+        <div key={`list-${lineIdx++}`} className="flex items-start gap-2.5 my-1 pl-2 text-slate-200">
+          <span className="text-indigo-400 select-none mt-1 text-xs">•</span>
+          <div className="flex-1 leading-relaxed">{formatLine(content)}</div>
+        </div>
+      );
+      continue;
+    }
+
+    // Numbered list items (1., 2., etc.)
+    const numMatch = trimmedLine.match(/^(\d+)\.\s+(.*)$/);
+    if (numMatch) {
+      parts.push(
+        <div key={`numlist-${lineIdx++}`} className="flex items-start gap-2.5 my-1 pl-2 text-slate-200">
+          <span className="font-semibold text-indigo-400 select-none text-sm">{numMatch[1]}.</span>
+          <div className="flex-1 leading-relaxed">{formatLine(numMatch[2])}</div>
+        </div>
+      );
+      continue;
+    }
+
     const formattedLine = formatLine(line);
-    parts.push(<div key={`line-${lineIdx++}`} className="mb-1">{formattedLine}</div>);
+    parts.push(<div key={`line-${lineIdx++}`} className="mb-1 leading-relaxed">{formattedLine}</div>);
   }
 
   if (inCodeBlock && codeContent) {
     parts.push(
-      <pre key={`code-${lineIdx++}`} className="bg-slate-800 text-green-300 p-3 rounded-lg overflow-x-auto text-sm my-2">
+      <pre key={`code-${lineIdx++}`} className="bg-slate-800/90 text-cyan-300 p-3.5 rounded-xl border border-slate-700/60 overflow-x-auto text-sm my-3 shadow-inner">
         {codeContent}
       </pre>
+    );
+  }
+
+  if (details.length > 0) {
+    parts.push(
+      <details key="data-details" className="group mt-2">
+        <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
+          Data details
+        </summary>
+        <div className="mt-1.5 space-y-1 text-xs text-slate-400 italic">
+          {details.map((d) => (
+            <p key={d.label}><span className="not-italic font-medium text-slate-400">{d.label}:</span> {d.value}</p>
+          ))}
+        </div>
+      </details>
     );
   }
 
@@ -191,10 +283,35 @@ function formatLine(line: string): React.ReactNode {
   let partIdx = 0;
 
   while (i < line.length) {
+    // Markdown links: [label](url)
+    if (line[i] === '[') {
+      const labelEnd = line.indexOf(']', i + 1);
+      if (labelEnd > i && line[labelEnd + 1] === '(') {
+        const urlEnd = line.indexOf(')', labelEnd + 2);
+        if (urlEnd > labelEnd + 1) {
+          const label = line.slice(i + 1, labelEnd);
+          const url = line.slice(labelEnd + 2, urlEnd);
+          parts.push(
+            <a
+              key={`link-${partIdx++}`}
+              href={url}
+              target={url.startsWith('/') || url.startsWith('#') ? '_self' : '_blank'}
+              rel="noopener noreferrer"
+              className="text-indigo-400 hover:text-indigo-300 underline underline-offset-2 font-medium transition-colors"
+            >
+              {label}
+            </a>
+          );
+          i = urlEnd + 1;
+          continue;
+        }
+      }
+    }
+
     if (line[i] === '*' && i + 1 < line.length && line[i + 1] === '*') {
       const end = line.indexOf('**', i + 2);
       if (end >= 0) {
-        parts.push(<strong key={`b-${partIdx++}`}>{line.slice(i + 2, end)}</strong>);
+        parts.push(<strong key={`b-${partIdx++}`} className="font-semibold text-slate-100">{line.slice(i + 2, end)}</strong>);
         i = end + 2;
         continue;
       }
@@ -202,12 +319,10 @@ function formatLine(line: string): React.ReactNode {
     if (line[i] === '*' && line[i + 1] !== '*') {
       const end = line.indexOf('*', i + 1);
       if (end >= 0) {
-        parts.push(<em key={`i-${partIdx++}`}>{line.slice(i + 1, end)}</em>);
+        parts.push(<em key={`i-${partIdx++}`} className="italic text-slate-300">{line.slice(i + 1, end)}</em>);
         i = end + 1;
         continue;
       }
-      // Stray single '*' with no closing pair (e.g. a leftover emphasis/bullet
-      // marker). Drop it instead of printing a literal asterisk.
       i += 1;
       continue;
     }
@@ -215,7 +330,7 @@ function formatLine(line: string): React.ReactNode {
       const end = line.indexOf('`', i + 1);
       if (end >= 0) {
         parts.push(
-          <code key={`c-${partIdx++}`} className="bg-slate-700 text-cyan-300 px-1.5 py-0.5 rounded text-sm">
+          <code key={`c-${partIdx++}`} className="bg-slate-800 text-cyan-300 border border-slate-700/60 px-1.5 py-0.5 rounded text-xs font-mono">
             {line.slice(i + 1, end)}
           </code>
         );
@@ -226,7 +341,7 @@ function formatLine(line: string): React.ReactNode {
     if (line[i] === '>' && (i === 0 || line[i - 1] === ' ')) {
       const rest = line.slice(i + 1).trim();
       parts.push(
-        <blockquote key={`q-${partIdx++}`} className="border-l-4 border-indigo-400 pl-3 text-slate-300 italic my-1">
+        <blockquote key={`q-${partIdx++}`} className="border-l-2 border-indigo-400 pl-3 text-slate-300 italic my-1">
           {formatLine(rest)}
         </blockquote>
       );
@@ -235,8 +350,6 @@ function formatLine(line: string): React.ReactNode {
     }
 
     let segEnd = findNextSpecial(line, i);
-    // An unmatched marker at this position (no closing pair found above) would
-    // otherwise keep i frozen forever. Treat it as literal text and advance.
     if (segEnd === i) segEnd = i + 1;
     parts.push(<span key={`t-${partIdx++}`}>{line.slice(i, segEnd)}</span>);
     i = segEnd;
@@ -247,7 +360,7 @@ function formatLine(line: string): React.ReactNode {
 
 function findNextSpecial(line: string, from: number): number {
   for (let i = from; i < line.length; i++) {
-    if (line[i] === '*' || line[i] === '`' || line[i] === '>') return i;
+    if (line[i] === '*' || line[i] === '`' || line[i] === '>' || line[i] === '[') return i;
   }
   return line.length;
 }
@@ -706,6 +819,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         text: m.content,
         charts: m.charts && m.charts.length > 0 ? m.charts : undefined,
         files: m.files && m.files.length > 0 ? m.files : undefined,
+        suggestedQuestions: m.suggested_questions,
         debugArtifacts: m.debug_artifacts as DebugArtifacts | undefined,
       })),
     );
@@ -748,6 +862,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         text: result.response,
         charts: result.charts && result.charts.length > 0 ? result.charts : undefined,
         files: result.files && result.files.length > 0 ? result.files : undefined,
+        suggestedQuestions: result.suggested_questions,
         debugArtifacts: result.debug_artifacts as DebugArtifacts | undefined,
       };
       setMessages((prev) => [...prev, assistantEntry]);
@@ -776,6 +891,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
             content: entry.text,
             charts: entry.charts,
             files: entry.files,
+            suggested_questions: entry.suggestedQuestions,
             debug_artifacts: entry.debugArtifacts,
           })),
         });
@@ -1232,6 +1348,29 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                       {msg.text && (
                         <div className={`${(msg.charts && msg.charts.length > 0) || (msg.files && msg.files.length > 0) ? 'mt-6' : ''} text-base leading-snug whitespace-pre-wrap break-words text-slate-200`}>
                           {formatText(msg.text)}
+                        </div>
+                      )}
+                      {msg.suggestedQuestions && msg.suggestedQuestions.length > 0 && (
+                        <div className="mt-4 space-y-4">
+                          {msg.suggestedQuestions.map((cat: SuggestedQuestionCategory, catIdx: number) => (
+                            <div key={catIdx} className="space-y-2">
+                              <h4 className="text-sm font-semibold text-indigo-400">{cat.category}</h4>
+                              <div className="flex flex-wrap gap-2">
+                                {cat.questions.map((q: string, qIdx: number) => (
+                                  <button
+                                    key={qIdx}
+                                    onClick={() => {
+                                      setInput(q);
+                                      inputRef.current?.focus();
+                                    }}
+                                    className="text-left text-sm bg-slate-800/80 hover:bg-slate-700 border border-slate-700/80 hover:border-indigo-500 text-slate-200 px-3.5 py-2 rounded-lg transition-all cursor-pointer shadow-sm hover:shadow-indigo-500/10"
+                                  >
+                                    {q}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       )}
                       {/* Debug artifacts trigger - chat_debug surface only, opens a dialog instead of an inline dump. */}

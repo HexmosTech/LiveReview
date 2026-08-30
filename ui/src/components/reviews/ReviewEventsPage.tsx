@@ -8,6 +8,7 @@ import { ReviewEvent } from './types';
 interface ReviewEventsPageProps {
   reviewId: number;
   initialEvents: ReviewEvent[];
+  initialEventCount?: number;
   isLive?: boolean;
   pollingInterval?: number;
   className?: string;
@@ -18,12 +19,15 @@ type ViewMode = 'progress' | 'raw';
 export default function ReviewEventsPage({ 
   reviewId, 
   initialEvents, 
+  initialEventCount,
   isLive = false, 
   pollingInterval = 5000,
   className 
 }: ReviewEventsPageProps) {
   const [currentView, setCurrentView] = useState<ViewMode>('progress');
   const [events, setEvents] = useState<ReviewEvent[]>(initialEvents);
+  // displayCount tracks original historical count from meta.count (restored from compaction marker)
+  const [displayCount, setDisplayCount] = useState<number>(initialEventCount ?? initialEvents.length);
   const [isPolling, setIsPolling] = useState(true); // Default to ON
   const [lastEventCount, setLastEventCount] = useState(initialEvents.length);
   const scrollPositionRef = useRef<number>(0);
@@ -46,16 +50,17 @@ export default function ReviewEventsPage({
   };
 
   // Smooth append for new events (no position disruption)
-  const appendNewEvents = (newEvents: ReviewEvent[]) => {
-    if (newEvents.length > events.length) {
-      const addedEvents = newEvents.slice(events.length);
+  const appendNewEvents = (allEvents: ReviewEvent[]) => {
+    if (allEvents.length > events.length) {
+      const addedEvents = allEvents.slice(events.length);
       
       // Save position before update
       saveScrollPosition();
       
       // Update events
-      setEvents(newEvents);
-      setLastEventCount(newEvents.length);
+      setEvents(allEvents);
+      setLastEventCount(allEvents.length);
+      setDisplayCount(allEvents.length);
       
       // Restore position after React update
       setTimeout(restoreScrollPosition, 0);
@@ -90,7 +95,7 @@ export default function ReviewEventsPage({
       const data = await getReviewEvents(reviewId, undefined, 1000);
       // Transform backend events to frontend format  
       const backendEvents = data.events || [];
-      const newEvents: ReviewEvent[] = backendEvents.map((event: any) => {
+      const allEvents: ReviewEvent[] = backendEvents.map((event: any) => {
         // Generate human-readable message for display (Raw Events tab)
         let message = '';
         const eventData = event.data || {};
@@ -140,19 +145,25 @@ export default function ReviewEventsPage({
       });
       
       console.log('[ReviewEventsPage] Received events:', {
-        totalEvents: newEvents.length,
-        sampleEvents: newEvents.slice(0, 10).map(e => ({ 
+        totalEvents: allEvents.length,
+        sampleEvents: allEvents.slice(0, 10).map(e => ({ 
           message: e.message, 
           eventType: e.eventType,
           severity: e.severity,
           timestamp: e.timestamp 
         })),
-        stageCompletionEvents: newEvents.filter(e => 
+        stageCompletionEvents: allEvents.filter(e => 
           e.message.toLowerCase().includes('stage completed successfully')
         ).map(e => e.message)
       });
       
-      appendNewEvents(newEvents);
+      appendNewEvents(allEvents);
+      const metaCount = (data as any)?.meta?.count;
+      if (typeof metaCount === 'number') {
+        setDisplayCount(metaCount);
+      } else {
+        setDisplayCount(allEvents.length);
+      }
     } catch (error) {
       console.error('Failed to poll for updates:', error);
     }
@@ -255,7 +266,7 @@ export default function ReviewEventsPage({
             <div className="w-4 h-4 inline-block mr-2">
               <Icons.List />
             </div>
-            Raw Events ({events.length})
+            Raw Events ({displayCount})
           </button>
         </div>
 

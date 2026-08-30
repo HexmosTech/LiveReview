@@ -52,12 +52,13 @@ type WebChatChart struct {
 }
 
 type WebChatResponse struct {
-	Response       string          `json:"response"`
-	Charts         []WebChatChart  `json:"charts,omitempty"`
-	Files          []WebChatFile   `json:"files,omitempty"`
-	DebugArtifacts json.RawMessage `json:"debug_artifacts,omitempty"`
-	SessionID      string          `json:"sessionId,omitempty"`
-	ConversationID int64           `json:"conversationId"`
+	Response           string                            `json:"response"`
+	Charts             []WebChatChart                    `json:"charts,omitempty"`
+	Files              []WebChatFile                     `json:"files,omitempty"`
+	SuggestedQuestions []mcpagent.SuggestedQuestionCategory `json:"suggested_questions,omitempty"`
+	DebugArtifacts     json.RawMessage                   `json:"debug_artifacts,omitempty"`
+	SessionID          string                            `json:"sessionId,omitempty"`
+	ConversationID     int64                             `json:"conversationId"`
 }
 
 // analyticsRoleFor maps permissions onto the SQL catalog's roles. Super admins
@@ -231,6 +232,21 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		ConversationID: convID,
 	}
 
+	for _, entry := range turnEntries {
+		if sq, ok := entry["suggested_questions"].([]mcpagent.SuggestedQuestionCategory); ok && len(sq) > 0 {
+			resp.SuggestedQuestions = sq
+			break
+		} else if rawSq, ok := entry["suggested_questions"]; ok && rawSq != nil {
+			if b, err := json.Marshal(rawSq); err == nil {
+				var sq []mcpagent.SuggestedQuestionCategory
+				if err := json.Unmarshal(b, &sq); err == nil && len(sq) > 0 {
+					resp.SuggestedQuestions = sq
+					break
+				}
+			}
+		}
+	}
+
 	if vlrender.HasVegaLiteSpec(responseText) {
 		charts, cleanText, err := extractChartsFromVega(responseText)
 		if err == nil && len(charts) > 0 {
@@ -357,6 +373,37 @@ func persistAssistantMessage(ctx context.Context, chatStore *storagechat.Store, 
 	fileInputs := make([]storagechat.FileInput, 0, len(artifacts))
 	for _, art := range artifacts {
 		fileInputs = append(fileInputs, toFileInput(art))
+	}
+
+	if strings.TrimSpace(assistantText) == "" {
+		if len(charts) > 0 {
+			var titles []string
+			for _, c := range charts {
+				if c.Title != "" {
+					titles = append(titles, c.Title)
+				}
+			}
+			if len(titles) > 0 {
+				assistantText = "Rendered charts for: " + strings.Join(titles, ", ") + "."
+			} else {
+				assistantText = "Rendered analytics charts."
+			}
+		} else if len(artifacts) > 0 {
+			assistantText = "I've put the results in a file you can download."
+		}
+	}
+
+	for idx, entry := range assistantEntries {
+		if role, _ := entry["role"].(string); role == "assistant" {
+			content, _ := entry["content"].(string)
+			text, _ := entry["text"].(string)
+			if strings.TrimSpace(content) == "" && strings.TrimSpace(text) == "" {
+				assistantEntries[idx]["content"] = assistantText
+				assistantEntries[idx]["text"] = assistantText
+			} else if strings.TrimSpace(content) == "" {
+				assistantEntries[idx]["content"] = text
+			}
+		}
 	}
 
 	_, fileIDs, err := chatStore.AppendAssistantMessage(ctx, convID,

@@ -1,0 +1,71 @@
+name: Scoped change request
+description: Propose concrete, agreed work that is ready to become an issue.
+title: "[Change]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This tracker is for scoped, agreed work.
+
+        If the idea is still fuzzy, start in [GitHub Discussions](https://github.com/HexmosTech/LiveReview/discussions) first.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I read CONTRIBUTING.md.
+          required: true
+        - label: This work is already discussed and scoped.
+          required: true
+        - label: I am not using this form for a private security report.
+          required: true
+  - type: input
+    id: discussion_link
+    attributes:
+      label: Discussion link
+      description: Link the Discussion or other agreed context that scoped this work.
+      placeholder: https://github.com/HexmosTech/LiveReview/discussions/...
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the user problem or project problem, not just the proposed implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_scope
+    attributes:
+      label: Proposed scope
+      description: Define the exact boundaries of this issue. Keep it narrow.
+    validations:
+      required: true
+  - type: dropdown
+    id: areas
+    attributes:
+      label: Main area touched
+      description: Choose the primary area involved.
+      options:
+        - Review engine / Blast Radius scoring
+        - Git provider integrations
+        - AI provider integrations
+        - Git-Native CLI (git-lrc / claude-lrc)
+        - MCP server
+        - REST API
+        - UI
+        - Licensing / entitlements
+        - Docs
+        - Security
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Expected validation
+      description: What focused test or validation should prove this work is done?
+      placeholder: go test ./path/to/package/...
+    validations:
+      required: true
