@@ -74,6 +74,7 @@ const ReviewDetail: React.FC = () => {
     const [lastEventTime, setLastEventTime] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'findings' | 'accounting' | 'events'>('findings');
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const defaultedTabForReviewRef = useRef<number | null>(null);
 
     // Status colors are imported via getStatusColor from ../../api/reviews
 
@@ -222,6 +223,19 @@ const ReviewDetail: React.FC = () => {
         setCommitsLoaded(false);
         setAllCommitsShown(false);
     }, [id]);
+
+    // Findings only exist once the review has finished. While it is still
+    // running -- or has failed, e.g. an expired git connector -- the Events
+    // tab is what tells the user what is actually happening, so open there
+    // instead of on an empty Findings panel. Applied once per review so a
+    // user who deliberately clicks Findings is not bounced back.
+    useEffect(() => {
+        if (!review || defaultedTabForReviewRef.current === review.id) return;
+        defaultedTabForReviewRef.current = review.id;
+        if (review.status !== 'completed') {
+            setActiveTab('events');
+        }
+    }, [review]);
 
     const githubBaseUrl = useMemo(() => {
         if (!review || !review.provider?.toLowerCase().startsWith('github')) return null;

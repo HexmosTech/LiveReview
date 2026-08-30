@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import apiClient from '../api/apiClient';
+import { SYSTEM_INFO_QUERY_KEY } from '../hooks/useSystemInfo';
 import { useAppDispatch } from '../store/configureStore';
 import { add, dismiss } from '../store/Notifications/slice';
 import { registerNotificationAction } from '../store/Notifications/actionRegistry';
@@ -30,8 +32,15 @@ const URL_MISMATCH_ID = 'url-mismatch';
 // else in the notification system.
 export const URLMismatchBanner: React.FC = () => {
   const dispatch = useAppDispatch();
-  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [productionUrl, setProductionUrl] = useState<string>('');
+
+  // Shares the same queryKey as useSystemInfo() (Navbar.tsx) so the two never fire duplicate
+  // /system/info requests on mount - see docs/perf-improvement.md "Finding C".
+  const { data: systemInfo } = useQuery<SystemInfo>({
+    queryKey: SYSTEM_INFO_QUERY_KEY,
+    queryFn: () => apiClient.get<SystemInfo>('/system/info'),
+    staleTime: 5 * 60_000,
+  });
 
   const getCurrentBrowserUrl = () => {
     const protocol = window.location.protocol;
@@ -46,23 +55,18 @@ export const URLMismatchBanner: React.FC = () => {
   };
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchProductionUrl = async () => {
       try {
-        const [systemInfoResponse, productionUrlResponse] = await Promise.all([
-          apiClient.get<SystemInfo>('/system/info'),
-          apiClient.get<ProductionURLResponse>('/production-url')
-        ]);
-
-        setSystemInfo(systemInfoResponse);
+        const productionUrlResponse = await apiClient.get<ProductionURLResponse>('/production-url');
         if (productionUrlResponse && productionUrlResponse.url) {
           setProductionUrl(productionUrlResponse.url);
         }
       } catch (error) {
-        console.warn('Failed to fetch data for URL mismatch banner:', error);
+        console.warn('Failed to fetch production URL for URL mismatch banner:', error);
       }
     };
 
-    fetchData();
+    fetchProductionUrl();
   }, []);
 
   const handleFixURL = useCallback(async () => {

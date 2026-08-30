@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LiveReview Adoption Leaderboard — hexmos-internal</title>
+<script src="https://cdn.jsdelivr.net/npm/vega@5.33.1" integrity="sha384-NMXhl2TbCXxcN7o4ROC56Funm78m4AylL8gMg/7Kn4YU+wrm23K9l7cY8lDRXQ9d" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5.23.0" integrity="sha384-D9LYH0esGjcxQJsBuxOuXtCDJGXRWW1+KhluzWPqi0rLJmiR/ygPChefaD+rFFDQ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6.29.0" integrity="sha384-M+Ax7e/WFJpxSOF09HzI+Sj4wg9ottVd/uxmV2ItGGh02fLH28t2FAOJx3TJBap5" crossorigin="anonymous"></script>
+<style>
+  body { background:#0b0e17; color:#e6ebf5; font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:32px; }
+  .stats { margin-top:20px; font-size:14px; line-height:1.6; color:#c9d1e0; max-width:900px; }
+  .stats b { color:#fff; }
+  #view { max-width: 740px; }
+  .legend { display:flex; gap:20px; margin:16px 0 4px; font-size:13px; color:#aab4c8; }
+  .swatch { display:inline-block; width:12px; height:12px; border-radius:2px; margin-right:6px; vertical-align:middle; }
+  details { margin-top:20px; max-width:900px; }
+  summary { cursor:pointer; color:#aab4c8; font-size:13px; }
+  pre.sql { margin-top:10px; padding:12px 14px; background:#0b0e17; border:1px solid #232a3d; border-radius:8px;
+             font-family: "SF Mono", Menlo, Consolas, monospace; font-size:12px; line-height:1.5; color:#a3b3cc;
+             white-space:pre-wrap; overflow-x:auto; }
+</style>
+</head>
+<body>
+  <div id="view"></div>
+  <div class="legend">
+    <span><span class="swatch" style="background:#3a4358"></span>0 reviews</span><span><span class="swatch" style="background:#7c9cff"></span>1-4 (light)</span><span><span class="swatch" style="background:#ffb454"></span>5-19 (regular)</span><span><span class="swatch" style="background:#39d353"></span>20+ (heavy)</span>
+    <span><span class="swatch" style="background:#ff5c7c"></span>Target (5)</span>
+  </div>
+  <div class="stats">
+    <b>1</b> of <b>8</b> engineers are below the target of <b>5 reviews</b>.
+  </div>
+  <details>
+    <summary>Query used</summary>
+    <pre class="sql">SELECT author_username, count(*) AS value
+        FROM reviews
+        WHERE org_id = 151
+          AND author_username IS NOT NULL
+          AND COALESCE(completed_at, created_at) &gt;= CURRENT_DATE - INTERVAL &#x27;90 days&#x27;
+        GROUP BY 1
+        ORDER BY 2 DESC;</pre>
+  </details>
+  <script>
+    vegaEmbed('#view', {"$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "Who has adopted LiveReview \u2014 hexmos-internal, last 90 days", "width": 700, "height": 224, "data": {"values": [{"engineer": "shrijith", "value": 136, "band": "20+ (heavy)", "color": "#39d353"}, {"engineer": "ganeshkumar6120", "value": 121, "band": "20+ (heavy)", "color": "#39d353"}, {"engineer": "lince", "value": 114, "band": "20+ (heavy)", "color": "#39d353"}, {"engineer": "", "value": 31, "band": "20+ (heavy)", "color": "#39d353"}, {"engineer": "joe", "value": 15, "band": "5-19 (regular)", "color": "#ffb454"}, {"engineer": "RijulTP", "value": 13, "band": "5-19 (regular)", "color": "#ffb454"}, {"engineer": "LinceMathew", "value": 7, "band": "5-19 (regular)", "color": "#ffb454"}, {"engineer": "lovestaco", "value": 3, "band": "1-4 (light)", "color": "#7c9cff"}]}, "layer": [{"mark": {"type": "bar", "cornerRadiusTopRight": 3, "cornerRadiusBottomRight": 3}, "encoding": {"y": {"field": "engineer", "type": "nominal", "title": "Engineer", "sort": "-x"}, "x": {"field": "value", "type": "quantitative", "title": "Reviews"}, "color": {"field": "band", "type": "nominal", "scale": {"domain": ["0 reviews", "1-4 (light)", "5-19 (regular)", "20+ (heavy)"], "range": ["#3a4358", "#7c9cff", "#ffb454", "#39d353"]}, "legend": null}, "tooltip": [{"field": "engineer", "type": "nominal", "title": "Engineer"}, {"field": "value", "type": "quantitative", "title": "Reviews"}, {"field": "band", "type": "nominal", "title": "Tier"}]}}, {"data": {"values": [{"target": 5}]}, "mark": {"type": "rule", "color": "#ff5c7c", "strokeDash": [6, 4], "strokeWidth": 1.5}, "encoding": {"x": {"field": "target", "type": "quantitative"}}}], "resolve": {"scale": {"y": "shared"}}, "config": {"background": "#0f1420", "axis": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5", "gridColor": "#232a3d", "domainColor": "#3a4358"}, "title": {"color": "#e6ebf5", "fontSize": 16}, "view": {"stroke": "transparent"}}}, {actions: false});
+  </script>
+</body>
+</html>

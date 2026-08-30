@@ -2,6 +2,7 @@ package logging
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -24,11 +25,22 @@ import (
 
 const chatDebugLogPath = "chat_debug_logs/chat_debug.log"
 
+// dbctxDebugLogPath holds the full dbctx schema text that DBCtxResponse used
+// to inline into chatDebugLogPath - one schema dump is tens of KB, and it
+// drowned out everything else when grepping/tailing the main log for a
+// specific turn. chat_debug.log keeps just the call/elapsed/len summary;
+// the full table text lives here instead, correlated by the same
+// [session_id][time][source] prefix.
+const dbctxDebugLogPath = "chat_debug_logs/dbctx_debug.log"
+
 var (
 	chatLogEnabled bool
 	chatLogFile    *os.File
 	chatLogMu      sync.Mutex
 	chatLogOnce    sync.Once
+
+	dbctxLogFile *os.File
+	dbctxLogMu   sync.Mutex
 )
 
 // InitChatDebugLog enables and wipes the shared chat debug log if
@@ -54,7 +66,74 @@ func InitChatDebugLog() {
 		chatLogFile = f
 		chatLogEnabled = true
 		fmt.Printf("[ChatDebugLog] enabled, writing to %s\n", chatDebugLogPath)
+
+		// Same directory, same boot-wipe policy as chatLogFile - only the
+		// destination differs. A failure here degrades DBCtxRequest/Response
+		// to no-ops (see their nil check) rather than taking down the main log.
+		if f, err := os.Create(dbctxDebugLogPath); err != nil {
+			fmt.Printf("[ChatDebugLog] failed to create log file %s: %v\n", dbctxDebugLogPath, err)
+		} else {
+			dbctxLogFile = f
+			fmt.Printf("[ChatDebugLog] enabled, writing to %s\n", dbctxDebugLogPath)
+		}
 	})
+}
+
+// dbctxFileWriter adapts dbctxLogFile to io.Writer for DBCtxDebugWriter,
+// sharing dbctxLogMu with writeDBCtx so a concurrent per-turn DBCtx line and
+// dbctx's own boot-time progress output ("4/4 Building search index...")
+// never interleave mid-line.
+type dbctxFileWriter struct{}
+
+func (dbctxFileWriter) Write(p []byte) (int, error) {
+	dbctxLogMu.Lock()
+	defer dbctxLogMu.Unlock()
+	if dbctxLogFile == nil {
+		return len(p), nil
+	}
+	n, err := dbctxLogFile.Write(p)
+	dbctxLogFile.Sync()
+	return n, err
+}
+
+// DBCtxDebugWriter returns the writer for dbctx's own progress output (its
+// Options.Logger) - the "N/N Building ... index" and terminology-import
+// lines it prints itself, as opposed to the DBCtxRequest/DBCtxResponse lines
+// this package writes around each call. Both end up in dbctxDebugLogPath so
+// the whole dbctx lifecycle - boot-time index build through every per-turn
+// query - lives in one file. Safe to use even when LIVI_DEBUG_LOG is off or
+// InitChatDebugLog hasn't run yet: writes are silently discarded until the
+// log file exists.
+func DBCtxDebugWriter() io.Writer {
+	return dbctxFileWriter{}
+}
+
+// chatFileWriter adapts chatLogFile to io.Writer, sharing chatLogMu with
+// ChatTurnLogger.write so a boot-time line (no session yet to attach a
+// ChatTurnLogger to) never interleaves mid-line with a concurrent per-turn
+// one.
+type chatFileWriter struct{}
+
+func (chatFileWriter) Write(p []byte) (int, error) {
+	chatLogMu.Lock()
+	defer chatLogMu.Unlock()
+	if chatLogFile == nil {
+		return len(p), nil
+	}
+	n, err := chatLogFile.Write(p)
+	chatLogFile.Sync()
+	return n, err
+}
+
+// ChatDebugWriter returns the writer for chatDebugLogPath itself (the
+// "normal" chat log, as opposed to dbctxDebugLogPath's dbctx-only detail) -
+// for boot-time status lines that happen before any chat session/turn
+// exists to own a ChatTurnLogger, such as the schema index's own
+// ready/failed outcome. Safe to use even when LIVI_DEBUG_LOG is off or
+// InitChatDebugLog hasn't run yet: writes are silently discarded until the
+// log file exists.
+func ChatDebugWriter() io.Writer {
+	return chatFileWriter{}
 }
 
 // ChatTurnLogger writes correlated debug lines for one chat session. Agents
@@ -86,6 +165,20 @@ func (l *ChatTurnLogger) write(label, format string, args ...interface{}) {
 		l.sessionID, time.Now().Format("15:04:05"), l.source, label, fmt.Sprintf(format, args...))
 	chatLogFile.WriteString(line)
 	chatLogFile.Sync()
+}
+
+// writeDBCtx mirrors write but targets dbctxLogFile instead of chatLogFile -
+// see dbctxDebugLogPath's doc comment for why DBCtx lines split out here.
+func (l *ChatTurnLogger) writeDBCtx(label, format string, args ...interface{}) {
+	if !l.Enabled() || dbctxLogFile == nil {
+		return
+	}
+	dbctxLogMu.Lock()
+	defer dbctxLogMu.Unlock()
+	line := fmt.Sprintf("[%s][%s][%s] %s: %s\n",
+		l.sessionID, time.Now().Format("15:04:05"), l.source, label, fmt.Sprintf(format, args...))
+	dbctxLogFile.WriteString(line)
+	dbctxLogFile.Sync()
 }
 
 func (l *ChatTurnLogger) Context(orgName, userEmail, providerModel string) {
@@ -146,16 +239,23 @@ func (l *ChatTurnLogger) LLMCallError(call int, kind, reportID string, attempt i
 // the model never invokes it directly; it runs before the LLM call to
 // assemble that call's system prompt, so these lines appear just before the
 // AIRequest/LLMCallRequest line for the call whose prompt they fed.
+//
+// The full schema text goes to dbctxDebugLogPath only (see writeDBCtx) -
+// chat_debug.log gets just the call/elapsed/len summary, so tailing/grepping
+// a turn there isn't drowned out by a multi-KB table dump on every call.
 func (l *ChatTurnLogger) DBCtxRequest(call int, role, queryText string) {
 	l.write("DBCtx Request", "call=%d role=%s query=%q", call, role, queryText)
+	l.writeDBCtx("DBCtx Request", "call=%d role=%s query=%q", call, role, queryText)
 }
 
 func (l *ChatTurnLogger) DBCtxResponse(call int, elapsed time.Duration, tableText string, err error) {
 	if err != nil {
 		l.write("DBCtx Response", "call=%d elapsed=%s degraded=true error=%v", call, elapsed.Round(time.Millisecond), err)
+		l.writeDBCtx("DBCtx Response", "call=%d elapsed=%s degraded=true error=%v", call, elapsed.Round(time.Millisecond), err)
 		return
 	}
-	l.write("DBCtx Response", "call=%d elapsed=%s len=%d %s", call, elapsed.Round(time.Millisecond), len(tableText), tableText)
+	l.write("DBCtx Response", "call=%d elapsed=%s len=%d", call, elapsed.Round(time.Millisecond), len(tableText))
+	l.writeDBCtx("DBCtx Response", "call=%d elapsed=%s len=%d %s", call, elapsed.Round(time.Millisecond), len(tableText), tableText)
 }
 
 // BranchSelected records call #0's classify decision and which (prompt,
@@ -166,6 +266,11 @@ func (l *ChatTurnLogger) DBCtxResponse(call int, elapsed time.Duration, tableTex
 // (see livi_analytics_plan.md's "Call #0" section).
 func (l *ChatTurnLogger) BranchSelected(shape string, promptLen, toolCount int) {
 	l.write("Branch Selected", "shape=%s prompt_len=%d tools=%d", shape, promptLen, toolCount)
+}
+
+// DocIndexRetrieved records details about documents retrieved from vector RAG search.
+func (l *ChatTurnLogger) DocIndexRetrieved(count int, docDetails string) {
+	l.write("DocIndex RAG", "count=%d docs=[%s]", count, docDetails)
 }
 
 // SchemaSourceDegraded records that a count_query-branch turn rendered the

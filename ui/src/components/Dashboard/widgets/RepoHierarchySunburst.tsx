@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import ReactECharts from 'echarts-for-react';
+import React, { useMemo, useState } from 'react';
+import ReactECharts from 'echarts-for-react/lib/core';
 import classNames from 'classnames';
 import { useNavigate } from 'react-router-dom';
-import { LIVEREVIEW_ECHARTS_THEME, ECHARTS_ANIMATION_DEFAULTS } from './echartsTheme';
+import { LIVEREVIEW_ECHARTS_THEME, ECHARTS_ANIMATION_DEFAULTS, LR_ECHARTS_CORE } from './echartsTheme';
 import { useChartResize } from './useChartResize';
 import { useDashboardPeriod } from './DashboardPeriod';
 import { useSystemOverview } from './SystemOverviewData';
@@ -33,24 +33,18 @@ export const RepoHierarchySunburst: React.FC = () => {
     const navigate = useNavigate();
     const { period } = useDashboardPeriod();
     const { systemOverview, loading } = useSystemOverview();
-
-    if (loading) {
-        return <ChartSkeleton />;
-    }
-
     const repoHierarchy = systemOverview?.repo_hierarchy ?? [];
-    if (repoHierarchy.length === 0) {
-        return (
-            <EmptyState
-                icon={<Icons.EmptyState />}
-                title="No repositories yet"
-                description="PR volume by repository will appear here once repositories are synced."
-            />
-        );
-    }
 
-    // A repo with pr_count=0 for this period has nothing to show — drop it rather than render a zero-width sliver (same reasoning as review_layers' Sankey/Radar).
-    const hierarchyData = repoHierarchy
+    // A repo with pr_count=0 for this period has nothing to show — drop it rather than render a
+    // zero-width sliver (same reasoning as review_layers' Sankey/Radar). Memoized (keyed on the
+    // stable `repoHierarchy`/`period` inputs, not recomputed inline) so echarts only replays its
+    // entrance animation when the underlying data actually changes, not on every unrelated
+    // re-render (e.g. DashboardGrid's ResizeObserver-driven gridWidth updates) - an unstable
+    // option reference plus `notMerge` below meant the chart was redrawing (and re-animating)
+    // itself a second time shortly after its real first render. See docs/perf-improvement.md
+    // ("chart animation plays twice"). Computed unconditionally (before the loading/empty early
+    // returns below) so the hook calls stay unconditional, same pattern as the other widgets.
+    const hierarchyData = useMemo(() => repoHierarchy
         .map((host) => {
             const withPRs = [...host.repos]
                 .filter((repo) => repo.pr_count[period] > 0)
@@ -76,19 +70,11 @@ export const RepoHierarchySunburst: React.FC = () => {
                 ],
             };
         })
-        .filter((host) => host.children.length > 0);
+        .filter((host) => host.children.length > 0),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [repoHierarchy, period]);
 
-    if (hierarchyData.length === 0) {
-        return (
-            <EmptyState
-                icon={<Icons.EmptyState />}
-                title="No PR activity in this period"
-                description="Try a wider period, or check back once new PRs come in."
-            />
-        );
-    }
-
-    const sunburstOption = {
+    const sunburstOption = useMemo(() => ({
         ...ECHARTS_ANIMATION_DEFAULTS,
         tooltip: { formatter: '{b}: {c} PRs' },
         series: [{
@@ -103,9 +89,9 @@ export const RepoHierarchySunburst: React.FC = () => {
                 { r0: '45%', r: '90%', label: { rotate: 'tangential' } },
             ],
         }],
-    };
+    }), [hierarchyData]);
 
-    const treemapOption = {
+    const treemapOption = useMemo(() => ({
         ...ECHARTS_ANIMATION_DEFAULTS,
         tooltip: { formatter: '{b}: {c} PRs' },
         series: [{
@@ -117,14 +103,38 @@ export const RepoHierarchySunburst: React.FC = () => {
             itemStyle: { borderColor: 'rgba(15, 23, 42, 0.6)', borderWidth: 1, gapWidth: 1 },
             roam: false,
         }],
-    };
+    }), [hierarchyData]);
 
-    const onEvents = {
+    const onEvents = useMemo(() => ({
         click: (params: { data?: { children?: unknown[] } }) => {
             const isHostNode = Boolean(params.data?.children);
             navigate(isHostNode ? '/git' : '/explore/repositories');
         },
-    };
+    }), [navigate]);
+
+    if (loading) {
+        return <ChartSkeleton />;
+    }
+
+    if (repoHierarchy.length === 0) {
+        return (
+            <EmptyState
+                icon={<Icons.EmptyState />}
+                title="No repositories yet"
+                description="PR volume by repository will appear here once repositories are synced."
+            />
+        );
+    }
+
+    if (hierarchyData.length === 0) {
+        return (
+            <EmptyState
+                icon={<Icons.EmptyState />}
+                title="No PR activity in this period"
+                description="Try a wider period, or check back once new PRs come in."
+            />
+        );
+    }
 
     return (
         <div className="w-full h-full flex flex-col">
@@ -146,6 +156,7 @@ export const RepoHierarchySunburst: React.FC = () => {
             <div ref={containerRef} className="flex-1 min-h-0">
                 <ReactECharts
                     ref={chartRef}
+                    echarts={LR_ECHARTS_CORE}
                     option={view === 'sunburst' ? sunburstOption : treemapOption}
                     theme={LIVEREVIEW_ECHARTS_THEME}
                     style={{ height: '100%', width: '100%' }}

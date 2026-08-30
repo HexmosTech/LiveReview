@@ -31,6 +31,30 @@ var reviewLayerLabels = map[string]string{
 // reviewLayerOrder is precommit/mr-pr/api-mcp/scheduled.
 var reviewLayerOrder = []string{"precommit", "mr-pr", "api-mcp", "scheduled"}
 
+// issueTreemapSourceQuery extracts category + subcategory counts per org for a single day.
+// Scoped to the same day window as reviewLayersSourceQuery.
+const issueTreemapSourceQuery = `
+SELECT
+  r.org_id,
+  COALESCE(NULLIF(c.comment->>'category',''), NULLIF(c.comment->>'Category',''), '') AS category,
+  COALESCE(NULLIF(c.comment->>'subcategory',''), NULLIF(c.comment->>'Subcategory',''), '') AS subcategory,
+  COUNT(*) AS count
+FROM reviews r
+JOIN LATERAL jsonb_array_elements(
+  CASE
+    WHEN jsonb_typeof(r.metadata->'review_result'->'comments') = 'array'  THEN r.metadata->'review_result'->'comments'
+    WHEN jsonb_typeof(r.metadata->'review_result'->'comments') = 'object' THEN jsonb_build_array(r.metadata->'review_result'->'comments')
+    ELSE '[]'::jsonb
+  END
+) AS c(comment) ON true
+WHERE r.org_id = ANY($1)
+  AND r.created_at >= $2
+  AND r.created_at <  $2::date + INTERVAL '1 day'
+  AND COALESCE(NULLIF(c.comment->>'category',''), NULLIF(c.comment->>'Category','')) <> ''
+GROUP BY r.org_id, category, subcategory
+ORDER BY r.org_id, count DESC
+`
+
 // reviewLayersSourceQuery is the validated batched shape (~50x faster than looping per org, see cmd/dashboard-perf-test); trigger_type is mapped at read time since the column still holds the old raw values.
 const reviewLayersSourceQuery = `
 SELECT
@@ -209,6 +233,73 @@ func (dm *DashboardManager) BackfillReviewLayers(ctx context.Context, days int) 
 	}
 
 	log.Printf("[dashboard_cache] backfill: wrote dashboard_cache for %d org(s)", len(finalRows))
+	return nil
+}
+
+// BackfillIssueTreemap is a one-off operational backfill that populates dashboard_cache with
+// issue_treemap history for every org active in the backfill window. Same day-by-day merge
+// pattern as BackfillReviewLayers, but for the category→subcategory treemap data.
+func (dm *DashboardManager) BackfillIssueTreemap(ctx context.Context, days int) error {
+	if dm.cacheStore == nil {
+		return fmt.Errorf("cacheStore not configured")
+	}
+	if days <= 0 {
+		return fmt.Errorf("days must be positive, got %d", days)
+	}
+
+	queryCtx, cancel := context.WithTimeout(ctx, time.Duration(days)*dashboardDBQueryTimeout)
+	defer cancel()
+
+	today := time.Now().UTC()
+	sinceDay := today.AddDate(0, 0, -days+1).Format("2006-01-02")
+
+	orgIDs, err := dm.activeOrgIDsSince(queryCtx, sinceDay)
+	if err != nil {
+		return fmt.Errorf("list active orgs: %w", err)
+	}
+	if len(orgIDs) == 0 {
+		log.Printf("[dashboard_cache] treemap backfill: no active orgs since %s", sinceDay)
+		return nil
+	}
+	log.Printf("[dashboard_cache] treemap backfill: %d day(s) for %d active org(s)", days, len(orgIDs))
+
+	existing, err := dm.cacheStore.GetBatch(queryCtx, orgIDs)
+	if err != nil {
+		return fmt.Errorf("get existing cache batch: %w", err)
+	}
+
+	rowsByOrg := make(map[int64]dashboard.CacheRow, len(orgIDs))
+	for _, orgID := range orgIDs {
+		rowsByOrg[orgID] = existing[orgID]
+	}
+
+	for i := days - 1; i >= 0; i-- {
+		day := today.AddDate(0, 0, -i).Format("2006-01-02")
+		dayData, err := dm.fetchIssueTreemapToday(queryCtx, orgIDs, day)
+		if err != nil {
+			return fmt.Errorf("fetch treemap day %s: %w", day, err)
+		}
+		now := time.Now()
+		for _, orgID := range orgIDs {
+			row, err := dm.buildTreemapCacheRow(orgID, rowsByOrg[orgID], dayData[orgID], day, now)
+			if err != nil {
+				log.Printf("[dashboard_cache] treemap backfill: failed to build row org_id=%d day=%s err=%v — skipping", orgID, day, err)
+				continue
+			}
+			rowsByOrg[orgID] = row
+		}
+		log.Printf("[dashboard_cache] treemap backfill: merged day=%s", day)
+	}
+
+	finalRows := make([]dashboard.CacheRow, 0, len(rowsByOrg))
+	for _, row := range rowsByOrg {
+		finalRows = append(finalRows, row)
+	}
+	if err := dm.cacheStore.UpsertBatch(queryCtx, finalRows); err != nil {
+		return fmt.Errorf("upsert batch: %w", err)
+	}
+
+	log.Printf("[dashboard_cache] treemap backfill: wrote dashboard_cache for %d org(s)", len(finalRows))
 	return nil
 }
 
@@ -462,4 +553,300 @@ func toFinalRows(totals map[string]*reviewLayerAggregate) []finalLayerRow {
 		})
 	}
 	return rows
+}
+
+// ---- Issue treemap (category → subcategory → count) ----
+
+// issueTreemapChild is one subcategory leaf in the treemap.
+type issueTreemapChild struct {
+	Name  string `json:"name"`
+	Value int    `json:"value"`
+}
+
+// issueTreemapCategory is one top-level category with its subcategory children.
+type issueTreemapCategory struct {
+	Name     string               `json:"name"`
+	Value    int                  `json:"value"`
+	Children []issueTreemapChild  `json:"children"`
+}
+
+// issueTreemapData is the final_json shape for the treemap widget.
+type issueTreemapData struct {
+	Categories []issueTreemapCategory `json:"categories"`
+}
+
+// issueTreemapDayAgg is the per-org aggregation for one day: category → subcategory → count.
+type issueTreemapDayAgg map[string]map[string]int
+
+// fetchIssueTreemapToday runs issueTreemapSourceQuery for the given orgs and day.
+func (dm *DashboardManager) fetchIssueTreemapToday(ctx context.Context, orgIDs []int64, dayUTC string) (map[int64]issueTreemapDayAgg, error) {
+	dayStart, err := time.Parse("2006-01-02", dayUTC)
+	if err != nil {
+		return nil, fmt.Errorf("parse day: %w", err)
+	}
+
+	rows, err := dm.db.QueryContext(ctx, issueTreemapSourceQuery, pq.Array(orgIDs), dayStart)
+	if err != nil {
+		return nil, fmt.Errorf("query: %w", err)
+	}
+	defer rows.Close()
+
+	result := map[int64]issueTreemapDayAgg{}
+	for rows.Next() {
+		var orgID int64
+		var category, subcategory string
+		var count int
+		if err := rows.Scan(&orgID, &category, &subcategory, &count); err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		if result[orgID] == nil {
+			result[orgID] = issueTreemapDayAgg{}
+		}
+		if result[orgID][category] == nil {
+			result[orgID][category] = map[string]int{}
+		}
+		sub := subcategory
+		if sub == "" {
+			sub = "(unspecified)"
+		}
+		result[orgID][category][sub] += count
+	}
+	return result, rows.Err()
+}
+
+// extractDayTreemap reads the issue_treemap subfield from a daily json_raw entry.
+func extractDayTreemap(dayEntryRaw json.RawMessage) issueTreemapDayAgg {
+	if len(dayEntryRaw) == 0 {
+		return nil
+	}
+	var wrapper struct {
+		Treemap issueTreemapDayAgg `json:"issue_treemap"`
+	}
+	if err := json.Unmarshal(dayEntryRaw, &wrapper); err != nil || wrapper.Treemap == nil {
+		return nil
+	}
+	return wrapper.Treemap
+}
+
+// deriveIssueTreemapPeriods sums daily treemap entries into day/week/month/all windows.
+func deriveIssueTreemapPeriods(jsonRawMap map[string]json.RawMessage, today string) map[string]issueTreemapData {
+	dates := make([]string, 0, len(jsonRawMap))
+	for d := range jsonRawMap {
+		dates = append(dates, d)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(dates)))
+
+	todayIdx := -1
+	for i, d := range dates {
+		if d == today {
+			todayIdx = i
+			break
+		}
+	}
+
+	windowDates := func(days int) []string {
+		if todayIdx < 0 {
+			return nil
+		}
+		end := todayIdx + days
+		if end > len(dates) {
+			end = len(dates)
+		}
+		return dates[todayIdx:end]
+	}
+
+	sumTreemap := func(days []string) issueTreemapData {
+		totals := map[string]map[string]int{}
+		for _, d := range days {
+			dayAgg := extractDayTreemap(jsonRawMap[d])
+			for cat, subs := range dayAgg {
+				if totals[cat] == nil {
+					totals[cat] = map[string]int{}
+				}
+				for sub, count := range subs {
+					totals[cat][sub] += count
+				}
+			}
+		}
+		return toTreemapData(totals)
+	}
+
+	return map[string]issueTreemapData{
+		"day":   sumTreemap(windowDates(1)),
+		"week":  sumTreemap(windowDates(7)),
+		"month": sumTreemap(windowDates(30)),
+		"all":   sumTreemap(dates),
+	}
+}
+
+// toTreemapData converts raw category→subcategory→count totals into the sorted treemap JSON shape.
+func toTreemapData(totals map[string]map[string]int) issueTreemapData {
+	categories := make([]issueTreemapCategory, 0, len(totals))
+	for cat, subs := range totals {
+		catTotal := 0
+		children := make([]issueTreemapChild, 0, len(subs))
+		for sub, count := range subs {
+			children = append(children, issueTreemapChild{Name: sub, Value: count})
+			catTotal += count
+		}
+		// Sort children descending by value for better visual layout.
+		sort.Slice(children, func(i, j int) bool { return children[i].Value > children[j].Value })
+		categories = append(categories, issueTreemapCategory{
+			Name:     cat,
+			Value:    catTotal,
+			Children: children,
+		})
+	}
+	// Sort categories descending by total value.
+	sort.Slice(categories, func(i, j int) bool { return categories[i].Value > categories[j].Value })
+	return issueTreemapData{Categories: categories}
+}
+
+// refreshAllIssueTreemap computes and stores issue_treemap for all orgs, following the same
+// daily-merge-into-json_raw + derive-final_json pattern as refreshAllReviewLayers.
+func (dm *DashboardManager) refreshAllIssueTreemap(ctx context.Context, orgIDs []int64) error {
+	if len(orgIDs) == 0 {
+		return nil
+	}
+
+	start := time.Now()
+	queryCtx, cancel := context.WithTimeout(ctx, dashboardDBQueryTimeout)
+	defer cancel()
+
+	today := time.Now().UTC().Format("2006-01-02")
+
+	todayData, err := dm.fetchIssueTreemapToday(queryCtx, orgIDs, today)
+	if err != nil {
+		return fmt.Errorf("fetch issue treemap: %w", err)
+	}
+
+	existing, err := dm.cacheStore.GetBatch(queryCtx, orgIDs)
+	if err != nil {
+		return fmt.Errorf("get existing cache batch: %w", err)
+	}
+
+	now := time.Now()
+	rows := make([]dashboard.CacheRow, 0, len(orgIDs))
+
+	for _, orgID := range orgIDs {
+		row, err := dm.buildTreemapCacheRow(orgID, existing[orgID], todayData[orgID], today, now)
+		if err != nil {
+			log.Printf("[dashboard_cache] failed to build treemap cache row org_id=%d err=%v — skipping", orgID, err)
+			continue
+		}
+		rows = append(rows, row)
+	}
+
+	if err := dm.cacheStore.UpsertBatch(queryCtx, rows); err != nil {
+		return fmt.Errorf("upsert batch: %w", err)
+	}
+
+	log.Printf("[dashboard_cache] refreshed issue_treemap for %d/%d orgs duration_ms=%d", len(rows), len(orgIDs), time.Since(start).Milliseconds())
+	return nil
+}
+
+// buildTreemapCacheRow merges today's treemap data into the org's existing cache row.
+// It reads the existing json_raw/final_json, adds/updates the issue_treemap entries,
+// and writes back — preserving review_layers and other sibling keys.
+func (dm *DashboardManager) buildTreemapCacheRow(orgID int64, existingRow dashboard.CacheRow, dayAgg issueTreemapDayAgg, today string, now time.Time) (dashboard.CacheRow, error) {
+	jsonRawMap := map[string]json.RawMessage{}
+	if len(existingRow.JSONRaw) > 0 {
+		if err := json.Unmarshal(existingRow.JSONRaw, &jsonRawMap); err != nil {
+			log.Printf("[dashboard_cache] failed to parse existing json_raw org_id=%d err=%v — starting fresh", orgID, err)
+			jsonRawMap = map[string]json.RawMessage{}
+		}
+	}
+
+	if dayAgg == nil {
+		dayAgg = issueTreemapDayAgg{}
+	}
+
+	// Merge into today's entry, preserving review_layers sibling key.
+	todayEntry := map[string]json.RawMessage{}
+	if existingDay, ok := jsonRawMap[today]; ok {
+		if err := json.Unmarshal(existingDay, &todayEntry); err != nil {
+			log.Printf("[dashboard_cache] failed to parse existing today entry org_id=%d err=%v — starting fresh", orgID, err)
+			todayEntry = map[string]json.RawMessage{}
+		}
+	}
+	treemapBytes, err := json.Marshal(dayAgg)
+	if err != nil {
+		return dashboard.CacheRow{}, fmt.Errorf("marshal today's treemap data: %w", err)
+	}
+	todayEntry["issue_treemap"] = treemapBytes
+
+	todayEntryBytes, err := json.Marshal(todayEntry)
+	if err != nil {
+		return dashboard.CacheRow{}, fmt.Errorf("marshal today's entry: %w", err)
+	}
+	jsonRawMap[today] = todayEntryBytes
+
+	newJSONRaw, err := json.Marshal(jsonRawMap)
+	if err != nil {
+		return dashboard.CacheRow{}, fmt.Errorf("marshal json_raw: %w", err)
+	}
+
+	// Derive final_json, preserving existing sibling keys (review_layers, system_overview, people).
+	finalMap := map[string]json.RawMessage{}
+	if len(existingRow.FinalJSON) > 0 {
+		if err := json.Unmarshal(existingRow.FinalJSON, &finalMap); err != nil {
+			log.Printf("[dashboard_cache] failed to parse existing final_json org_id=%d err=%v — starting fresh", orgID, err)
+			finalMap = map[string]json.RawMessage{}
+		}
+	}
+	finalTreemapBytes, err := json.Marshal(deriveIssueTreemapPeriods(jsonRawMap, today))
+	if err != nil {
+		return dashboard.CacheRow{}, fmt.Errorf("marshal final issue_treemap: %w", err)
+	}
+	finalMap["issue_treemap"] = finalTreemapBytes
+
+	newFinalJSON, err := json.Marshal(finalMap)
+	if err != nil {
+		return dashboard.CacheRow{}, fmt.Errorf("marshal final_json: %w", err)
+	}
+
+	return dashboard.CacheRow{
+		OrgID:     orgID,
+		JSONRaw:   newJSONRaw,
+		FinalJSON: newFinalJSON,
+		UpdatedAt: now,
+	}, nil
+}
+
+// RefreshOrgIssueTreemap recomputes and stores issue_treemap for one org on demand.
+func (dm *DashboardManager) RefreshOrgIssueTreemap(ctx context.Context, orgID int64) (map[string]issueTreemapData, error) {
+	start := time.Now()
+	queryCtx, cancel := context.WithTimeout(ctx, dashboardDBQueryTimeout)
+	defer cancel()
+
+	today := time.Now().UTC().Format("2006-01-02")
+
+	todayData, err := dm.fetchIssueTreemapToday(queryCtx, []int64{orgID}, today)
+	if err != nil {
+		return nil, fmt.Errorf("fetch issue treemap: %w", err)
+	}
+
+	existing, err := dm.cacheStore.GetBatch(queryCtx, []int64{orgID})
+	if err != nil {
+		return nil, fmt.Errorf("get existing cache row: %w", err)
+	}
+
+	row, err := dm.buildTreemapCacheRow(orgID, existing[orgID], todayData[orgID], today, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("build treemap cache row: %w", err)
+	}
+
+	if err := dm.cacheStore.UpsertBatch(queryCtx, []dashboard.CacheRow{row}); err != nil {
+		return nil, fmt.Errorf("upsert cache row: %w", err)
+	}
+
+	var finalWrapper struct {
+		IssueTreemap map[string]issueTreemapData `json:"issue_treemap"`
+	}
+	if err := json.Unmarshal(row.FinalJSON, &finalWrapper); err != nil {
+		return nil, fmt.Errorf("unmarshal final_json: %w", err)
+	}
+
+	log.Printf("[dashboard_cache] refreshed issue_treemap trigger=manual org_id=%d duration_ms=%d", orgID, time.Since(start).Milliseconds())
+	return finalWrapper.IssueTreemap, nil
 }

@@ -6,14 +6,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/livereview/internal/chatstats"
 	"github.com/livereview/internal/livisql"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/vlrender"
 	storageanalytics "github.com/livereview/storage/analytics"
 	"github.com/rs/zerolog/log"
+	"github.com/tmc/langchaingo/llms"
 )
 
 // Bounds on one analytics turn. Every one of these exists because the
@@ -25,9 +28,9 @@ const (
 	// database round trips.
 	maxReportsPerTurn = 4
 
-	// maxSQLAttempts is the budget per SQL slot: one original plus one repair.
+	// maxSQLAttempts is the budget per SQL slot: one original plus up to two repairs.
 	// Count and data SQL get separate budgets.
-	maxSQLAttempts = 2
+	maxSQLAttempts = 3
 
 	// maxChartRows is the point past which a chart stops communicating. Beyond
 	// it the model is asked to aggregate coarser or switch to CSV - never
@@ -69,10 +72,38 @@ func (a *Agent) WithAnalytics(engine AnalyticsEngine) *Agent {
 
 	a.actionTools = a.provider.FormatTools(tools)
 	a.actionPrompt = buildSystemPrompt(tools, orgName, userName)
-	a.chatPrompt = buildPromptHeader(orgName, userName) + "\n\n" + chatOnlyInstructions
-	a.classifyPrompt = buildClassifyPrompt(tools)
-	a.countQueryHead, a.countQueryTail = buildCountQueryPromptHalves(orgName, userName, a.mcpSession.OrgID)
-	a.finalizeHead, a.finalizeTail = buildFinalizePromptHalves(orgName, userName, a.mcpSession.OrgID)
+
+	// Load the alaws lawbook and render the analytics-specific prompts
+	// from it. Each pipeline branch sees only the law sections relevant
+	// to its stage.
+	lb, err := buildLawbookPrompts(orgName, userName, a.mcpSession.OrgID)
+	if err != nil {
+		log.Fatal().Err(err).Msg("alaws lawbook failed to load")
+	}
+	a.classifyPrompt = lb.classify
+	// Append tool names so the model can distinguish action (has tools)
+	// from count_query/chat (no tools). The lawbook's classify chapter
+	// governs the routing decision itself, but the model still needs to
+	// see which tools exist to know when an action is possible.
+	if len(tools) > 0 {
+		var b strings.Builder
+		b.WriteString(a.classifyPrompt)
+		b.WriteString("\n\nAvailable tool names (arguments are not shown here):\n")
+		for _, t := range tools {
+			b.WriteString(fmt.Sprintf("- %s\n", t.Name))
+		}
+		a.classifyPrompt = b.String()
+	}
+	a.countQueryHead = lb.planHead
+	a.countQueryTail = lb.planTail
+	a.finalizeHead = lb.finalizeHead
+	a.finalizeTail = lb.finalizeTail
+	a.repairPrompt = lb.repair
+	a.noDataPrompt = lb.noData
+	a.describePrompt = lb.describe
+	a.interpretSystem = lb.interpretSystem
+	a.productGuidancePrompt = lb.productGuidance
+	a.chartTypes = lb.chartTypes
 
 	// Kept in sync for any caller still reading systemPrompt/providerTools
 	// directly (there is none in this codebase today, but they remain
@@ -287,7 +318,7 @@ func (a *Agent) runFinalizePhase(
 	schemaTableText string,
 	clog *logging.ChatTurnLogger,
 ) *FinalizePlan {
-	base := fmt.Sprintf("Original question: %s\n\nThis report answers: %s\n\nThe result will contain %d rows.\n\nThe counting query used was:\n%s",
+	base := fmt.Sprintf("Original question: %s\n\nThis report answers: %s\n\nA separate, earlier estimate query predicted roughly %d rows - this number is stale the moment your data_sql differs from the counting query below in any way (an added filter, a different grouping), and it is a row count, not a metric of anything. Never state it, or any number derived from it, in the description; only the rows your own data_sql actually returns are real.\n\nThe counting query used was:\n%s",
 		userText, entry.Question, count, entry.CountSQL)
 	user := base
 	system := a.finalizePrompt(schemaTableText)
@@ -300,10 +331,15 @@ func (a *Agent) runFinalizePhase(
 		}
 		plan, perr := parseFinalizePlan(raw)
 		if perr == nil {
-			// The model does not get to decide that "too much data for a chart" is fine.
-			if plan.ResponseType == ResponseTypeChart && count > maxChartRows {
-				plan.ResponseType = ResponseTypeCSV
-			}
+			// Deliberately NOT downgrading chart->csv here based on `count`.
+			// `count` is a prediction from a separate, earlier LLM call
+			// (the count phase) and is not reliable - it can undercount
+			// (grouping wrong) or wildly overcount (an ungrouped total)
+			// independently of how many rows the real answer has. Forcing
+			// the decision here, before the actual data query has even
+			// run, downgrades good charts to CSV based on bad guesses.
+			// materializeReport makes this call for real, off the actual
+			// fetched row count.
 			return plan
 		}
 		clog.SQLRejected(entry.ID, "finalize", attempt, perr.Error())
@@ -326,10 +362,12 @@ func (a *Agent) materializeReport(
 		return finishedReport{text: strings.TrimSpace(plan.Text)}
 	}
 
+	// Always fetch with the generous CSV ceiling. The chart/CSV decision
+	// happens below, after the real row count is known - not here, based
+	// on a limit chosen from the (unreliable) count-phase prediction. A
+	// chart-shaped answer that's actually small must not get truncated
+	// down to maxChartRows before we've even seen it.
 	maxRows := maxCSVRows
-	if plan.ResponseType == ResponseTypeChart {
-		maxRows = maxChartRows
-	}
 
 	sqlText := plan.DataSQL
 	for attempt := 1; attempt <= maxSQLAttempts; attempt++ {
@@ -368,13 +406,220 @@ func (a *Agent) materializeReport(
 			return finishedReport{text: fmt.Sprintf("I found no data for %q.", entry.Question)}
 		}
 
+		relabelTriggerTypeValues(rs.Rows)
+
+		// The model does not get to decide that "too much data for a
+		// chart" is fine, but the decision is made off the real,
+		// just-fetched row count - not the count phase's prediction,
+		// which can be wrong in either direction (see the comment in
+		// runFinalizePhase).
+		if plan.ResponseType == ResponseTypeChart && len(rs.Rows) > maxChartRows {
+			plan.ResponseType = ResponseTypeCSV
+		}
 		if plan.ResponseType == ResponseTypeCSV || rs.Truncated {
-			return a.buildCSVReport(entry, plan, rs, clog)
+			return a.buildCSVReport(ctx, entry, plan, rs, clog)
 		}
 		return a.buildChartReport(ctx, entry, plan, rs, clog)
 	}
 
 	return finishedReport{text: fmt.Sprintf("I could not fetch the data for %q.", entry.Question)}
+}
+
+// computeTimeRange derives the calendar window a result set actually covers,
+// straight from the rows themselves, rather than trusting the model's own
+// `time_range` text. The model has repeatedly copied a worked example's
+// placeholder date range verbatim instead of stating the real one (see
+// finalizing/response-shape.md and finalizing/output.md) - this makes that
+// class of error structurally impossible for any report with a temporal
+// column, by computing the answer instead of asking for it.
+//
+// coerce (storage/analytics/coerce.go) already turns every timestamp column
+// into an RFC3339 string, so detection is just: find the column where every
+// non-nil value across every row parses as RFC3339, preferring whichever
+// such column has the most non-nil values (the real time axis, as opposed to
+// an incidental text column that happens to parse). Returns "" if no column
+// qualifies, in which case the caller falls back to the model's own text -
+// some charts (e.g. a ranking with no date axis) have no time column at all.
+func computeTimeRange(rs *storageanalytics.ResultSet) string {
+	if rs == nil || len(rs.Rows) == 0 {
+		return ""
+	}
+
+	bestCol := ""
+	bestCount := 0
+	var bestMin, bestMax time.Time
+
+	for _, col := range rs.Columns {
+		var colMin, colMax time.Time
+		count := 0
+		ok := true
+		for _, row := range rs.Rows {
+			v := row[col]
+			if v == nil {
+				continue
+			}
+			s, isStr := v.(string)
+			if !isStr {
+				ok = false
+				break
+			}
+			t, err := time.Parse(time.RFC3339, s)
+			if err != nil {
+				ok = false
+				break
+			}
+			if count == 0 || t.Before(colMin) {
+				colMin = t
+			}
+			if count == 0 || t.After(colMax) {
+				colMax = t
+			}
+			count++
+		}
+		if !ok || count == 0 {
+			continue
+		}
+		if count > bestCount {
+			bestCol, bestCount, bestMin, bestMax = col, count, colMin, colMax
+		}
+	}
+
+	if bestCol == "" {
+		return ""
+	}
+	// Humanized ("January 1, 2023"), matching the same date style the rest
+	// of the response is already required to use (finalizing/describing.md,
+	// action/response-format.md) - a bare "2023-01-01 to 2024-07-24" reads
+	// like debug output, not something written for the person asking.
+	const humanDate = "January 2, 2006"
+	if bestMin.Format(humanDate) == bestMax.Format(humanDate) {
+		return bestMin.Format(humanDate)
+	}
+	return fmt.Sprintf("%s to %s", bestMin.Format(humanDate), bestMax.Format(humanDate))
+}
+
+// describeFacts is the real, already-computed numeric summary of a query
+// result, handed to the post-data description call so it has nothing left
+// to guess. Never built from anything the model wrote - only from rs itself.
+type describeFacts struct {
+	Description string `json:"description"`
+}
+
+// columnStats is one numeric column's first/last/min/max across the actual
+// rows fetched. "First"/"last" follow row order, which is already the
+// chart's own ORDER BY - meaningful as "earliest"/"most recent" without
+// needing to know which column is the time axis.
+type columnStats struct {
+	First, Last, Min, Max float64
+}
+
+// computeNumericFacts extracts every numeric column's first/last/min/max
+// from the real result set, formatted as text for the describe prompt. Skips
+// columns whose values are all identical (a constant like period_avg still
+// gets through since first==last==min==max there, which is exactly the
+// correct thing to state about a period average). Returns "" if the result
+// has no numeric columns at all (e.g. every column is text/temporal).
+func computeNumericFacts(rs *storageanalytics.ResultSet) string {
+	if rs == nil || len(rs.Rows) == 0 {
+		return ""
+	}
+	var lines []string
+	for _, col := range rs.Columns {
+		var stats columnStats
+		count := 0
+		ok := true
+		for _, row := range rs.Rows {
+			v := row[col]
+			if v == nil {
+				continue
+			}
+			// coerce (storage/analytics/coerce.go) hands back different Go
+			// types depending on the Postgres type: count(*)/bigint columns
+			// arrive as int64 (its default case), while avg()/NUMERIC
+			// columns arrive as float64 (NUMERIC goes through coerceBytes,
+			// which parses to float64). A version of this that only handled
+			// float64 silently dropped every raw count column from the
+			// facts block, leaving the description call with rolling
+			// averages but not the counts they're averaging.
+			var f float64
+			switch n := v.(type) {
+			case float64:
+				f = n
+			case int64:
+				f = float64(n)
+			case int32:
+				f = float64(n)
+			case int:
+				f = float64(n)
+			default:
+				ok = false
+			}
+			if !ok {
+				break
+			}
+			if count == 0 {
+				stats.First = f
+			}
+			stats.Last = f
+			if count == 0 || f < stats.Min {
+				stats.Min = f
+			}
+			if count == 0 || f > stats.Max {
+				stats.Max = f
+			}
+			count++
+		}
+		if !ok || count == 0 {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s: first=%.2f, last=%.2f, min=%.2f, max=%.2f", col, stats.First, stats.Last, stats.Min, stats.Max))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("Rows returned: %d\n%s", len(rs.Rows), strings.Join(lines, "\n"))
+}
+
+// regenerateDescription rewrites plan.Description from the real query
+// result. runFinalizePhase's description is written before materializeReport
+// ever runs plan.DataSQL - the model was stating numbers for a query it had
+// not yet seen the result of, which is forecasting, not reading, no matter
+// how the lawbook's wording is tightened. This call runs after the real rows
+// are in hand and is given nothing but those rows' own first/last/min/max,
+// so there is nothing left for it to invent. Falls back to the original
+// (unreliable) description on any failure - a stale-but-present description
+// beats no description.
+func (a *Agent) regenerateDescription(ctx context.Context, entry PlanEntry, plan *FinalizePlan, rs *storageanalytics.ResultSet, clog *logging.ChatTurnLogger) string {
+	facts := computeNumericFacts(rs)
+	if facts == "" {
+		return plan.Description
+	}
+	user := fmt.Sprintf("Original question: %s\n\nChart title: %s\n\nReal numbers from the query result:\n%s", entry.Question, plan.Title, facts)
+
+	// No timeout of its own: this call shares the parent turn's ctx and
+	// analyticsTurnTimeout (90s) bounds it same as every other call in the
+	// pipeline. A short timeout here (previously 6s) was added when a slow
+	// describe call could make the whole turn vanish - the client would
+	// disconnect before persistTurn ever ran, losing the user's question
+	// too. That's fixed now: AppendUserMessage (webchat_handler.go) saves
+	// the question the moment it arrives, before the agent even runs, so a
+	// slow describe call only delays the reply, it can't lose the turn.
+	// Observed latency on this call has been 17-20s on some AI connectors -
+	// a short timeout meant it almost never actually succeeded, defeating
+	// the point of adding it.
+	raw, err := a.completeOnce(ctx, clog, 4, "describe", entry.ID, 1, a.describePrompt, user)
+	if err != nil {
+		return plan.Description
+	}
+	var out describeFacts
+	if err := json.Unmarshal([]byte(vlrender.ExtractJSONBlock(raw)), &out); err != nil {
+		return plan.Description
+	}
+	desc := strings.TrimSpace(out.Description)
+	if desc == "" {
+		return plan.Description
+	}
+	return desc
 }
 
 // buildChartReport assembles the Vega-Lite spec in Go. The model supplies only
@@ -404,7 +649,7 @@ func (a *Agent) buildChartReport(
 			fmt.Sprintf("encoding references missing columns %v; available %v", missing, rs.Columns))
 		// The data is sound even though the presentation is not, so fall back
 		// to CSV rather than discarding a correct result.
-		return a.buildCSVReport(entry, plan, rs, clog)
+		return a.buildCSVReport(ctx, entry, plan, rs, clog)
 	}
 
 	spec := map[string]any{
@@ -439,9 +684,15 @@ func (a *Agent) buildChartReport(
 		if strings.TrimSpace(mark) == "" {
 			mark = "bar"
 		}
-		if layer, ok := maybeAddRollingAverageLayer(mark, plan.Encoding, len(rs.Rows)); ok {
-			spec["layer"] = layer
-		} else {
+		isRhythmQuestion := looksLikeRhythmQuestion(entry.Question, plan.Title, plan.Query, plan.Description)
+		rollingLayer, hasRollingLayer := maybeAddRollingAverageLayer(mark, plan.Encoding, len(rs.Rows))
+		switch {
+		case isRhythmQuestion && maybeCalendarHeatmap(plan.Encoding, len(rs.Rows), spec):
+			// maybeCalendarHeatmap already wrote mark/encoding/width/height
+			// directly into spec when it returns true - see its doc comment.
+		case hasRollingLayer:
+			spec["layer"] = rollingLayer
+		default:
 			spec["mark"] = mark
 			spec["encoding"] = json.RawMessage(plan.Encoding)
 		}
@@ -449,21 +700,308 @@ func (a *Agent) buildChartReport(
 	specJSON, err := json.Marshal(spec)
 	if err != nil {
 		log.Error().Err(err).Str("report", entry.ID).Msg("failed to marshal chart spec")
-		return a.buildCSVReport(entry, plan, rs, clog)
+		return a.buildCSVReport(ctx, entry, plan, rs, clog)
 	}
+	specJSON = sanitizeChartSpec(specJSON)
 	normalized, err := vlrender.NormalizeVegaLiteSpec(specJSON)
 	if err != nil {
 		log.Warn().Err(err).Str("report", entry.ID).Msg("spec normalization failed, using raw spec")
 		normalized = specJSON
 	}
 
+	timeRange := plan.TimeRange
+	if computed := computeTimeRange(rs); computed != "" {
+		timeRange = computed
+	}
+	description := a.regenerateDescription(ctx, entry, plan, rs, clog)
+
+	stats, err := chatstats.ComputeAllStats(normalized)
+	if err != nil {
+		log.Warn().Err(err).Str("report", entry.ID).Msg("chart stats computation failed, continuing without stats")
+	}
+
 	clog.ReportFinalized(entry.ID, ResponseTypeChart, plan.Title, len(rs.Rows))
 	return finishedReport{report: &vlrender.VegaLiteReport{
 		Title:       plan.Title,
-		Description: plan.Description,
+		Description: description,
 		Query:       plan.Query,
+		TimeRange:   timeRange,
+		Granularity: plan.Granularity,
 		Spec:        normalized,
+		Stats:       stats,
 	}}
+}
+
+// rhythmQuestionKeywords are hardcoded, case-insensitive substrings that mark
+// a question as asking about usage *rhythm* - a daily-habit/consistency
+// question ("are engineers actually incorporating reviews into their daily
+// workflow", "is this a habit yet") - not just a plain trend. Matched
+// against the report's own question plus everything the model itself wrote
+// about the chart (title/query/description), since the exact phrasing that
+// triggered this pattern can show up in either.
+var rhythmQuestionKeywords = []string{
+	"daily workflow", "rhythm", "habit", "consisten", // consistency/consistently
+	"calendar heatmap", "day of week", "day-of-week", "weekday pattern",
+	"incorporat", // incorporate/incorporating
+}
+
+func looksLikeRhythmQuestion(texts ...string) bool {
+	for _, t := range texts {
+		lower := strings.ToLower(t)
+		for _, kw := range rhythmQuestionKeywords {
+			if strings.Contains(lower, kw) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// calendarHeatmapMinRows is the floor on how many dated rows the model's own
+// query must have returned before this is worth treating as calendar data at
+// all - not a floor on how much of the grid ends up populated (that's always
+// calendarHeatmapDays regardless, since the grid is zero-filled to a full
+// year - see maybeCalendarHeatmap). This just guards against misfiring on a
+// degenerate 1-2-row result that happened to pass the shape checks above.
+const calendarHeatmapMinRows = 3
+
+// calendarHeatmapDays is always a full year (365 days, matching GitHub's own
+// contribution graph), ending today - regardless of what window the model's
+// data_sql actually queried. See maybeCalendarHeatmap's doc comment for why
+// the grid's date range is no longer trusted to the model.
+const calendarHeatmapDays = 365
+
+// isDayGranularity reports whether a Vega-Lite timeUnit is day-level or
+// finer (or absent, which SQL almost always means date_trunc('day', ...)).
+// Duplicated from rollingWindowFor's day-branch check rather than shared: it
+// tests a different, narrower question (day-or-finer only, no week/month
+// acceptance) and the two callers' meaning of "close enough" would drift out
+// of sync if forced through one function.
+func isDayGranularity(timeUnit string) bool {
+	tu := strings.ToLower(timeUnit)
+	if tu == "" {
+		return true
+	}
+	for _, fine := range []string{"date", "day", "hours", "minutes", "seconds"} {
+		if strings.Contains(tu, fine) {
+			return true
+		}
+	}
+	return false
+}
+
+// maybeCalendarHeatmap replaces spec's mark/width/height and writes a
+// top-level "encoding" with a GitHub-contribution-graph-style calendar grid,
+// when the chart is a single-series daily count/sum over a long enough
+// window - see analytics_finalize.md's calendar-heatmap chart-shape row and
+// looksLikeRhythmQuestion's doc comment for why this is triggered by
+// keyword-matching the question rather than asked of the model directly:
+// getting an LLM to hand-write a correct band-scale Vega-Lite calendar
+// heatmap (ordinal, not temporal, x/y scales; paddingInner for the gap
+// between cells; a threshold color scale; deduped month-only-once axis
+// labels) proved unreliable across several iterations building this exact
+// chart by hand in scripts/adoption_chart/generate_heatmap.py - so instead
+// the model only has to supply daily-granularity data (x/y field names),
+// and Go builds the entire presentation deterministically, the same
+// division of labor as maybeAddRollingAverageLayer.
+//
+// Colors are GitHub's own *light*-mode green scale (not the dark-mode
+// palette generate_heatmap.py uses for its standalone dark HTML) because
+// buildChartReport always renders against a forced white background (see
+// its "background": "#ffffff" comment) - vl-convert produces a PNG embedded
+// in the chat UI, not a themeable page, so there is no dark background here
+// to design against.
+//
+// Mutates spec in place (rather than returning a value the caller
+// assembles) because a calendar heatmap needs band-scale width/height
+// ({"step": N}, not the plain-number 600x340 buildChartReport sets
+// unconditionally before this runs) in addition to mark/encoding - three
+// keys to overwrite together is more naturally a mutation than a 3-tuple
+// return.
+// parseCalendarRow extracts a "YYYY-MM-DD" date key and a float value from
+// one result row, for maybeCalendarHeatmap's zero-fill pass. dateField's
+// value is whatever coerce() in storage/analytics/coerce.go produced for a
+// timestamp column - an RFC3339 string, formatted in the value's own zone
+// rather than UTC (see that function's doc comment on why: converting to
+// UTC can shift date_trunc('day', ...) buckets to the wrong calendar date).
+// Parsing with the same RFC3339 layout and then formatting the date portion
+// preserves that same wall-clock date here.
+func parseCalendarRow(row map[string]any, dateField, valueField string) (string, float64, bool) {
+	dateRaw, ok := row[dateField]
+	if !ok {
+		return "", 0, false
+	}
+	dateStr, ok := dateRaw.(string)
+	if !ok {
+		return "", 0, false
+	}
+	t, err := time.Parse(time.RFC3339, dateStr)
+	if err != nil {
+		// Some data_sql aliases already produce a bare date (no time
+		// component) rather than a timestamp - accept that shape too.
+		t, err = time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			return "", 0, false
+		}
+	}
+
+	var val float64
+	switch v := row[valueField].(type) {
+	case int64:
+		val = float64(v)
+	case float64:
+		val = v
+	case nil:
+		val = 0
+	default:
+		return "", 0, false
+	}
+	return t.Format("2006-01-02"), val, true
+}
+
+func maybeCalendarHeatmap(encoding json.RawMessage, rowCount int, spec map[string]any) bool {
+	var channels map[string]json.RawMessage
+	if err := json.Unmarshal(encoding, &channels); err != nil {
+		return false
+	}
+	for _, extra := range []string{"color", "detail", "size", "column", "row"} {
+		if _, ok := channels[extra]; ok {
+			return false
+		}
+	}
+
+	type channelSpec struct {
+		Field    string `json:"field"`
+		Type     string `json:"type"`
+		TimeUnit string `json:"timeUnit"`
+		Title    string `json:"title"`
+	}
+	var x, y channelSpec
+	xRaw, ok := channels["x"]
+	if !ok || json.Unmarshal(xRaw, &x) != nil {
+		return false
+	}
+	yRaw, ok := channels["y"]
+	if !ok || json.Unmarshal(yRaw, &y) != nil {
+		return false
+	}
+	if x.Type != "temporal" || y.Type != "quantitative" || x.Field == "" || y.Field == "" {
+		return false
+	}
+	if !isDayGranularity(x.TimeUnit) || rowCount < calendarHeatmapMinRows {
+		return false
+	}
+
+	// The model's data_sql picks whatever WHERE-clause window and grouping
+	// it wants - it has already proven unreliable at both remembering to
+	// span a full year and remembering to zero-fill missing days via
+	// generate_series (see the "shows only 90 days" and "empty boxes
+	// missing" bugs this replaced). Rather than keep asking the model to
+	// get a SQL detail right that a prompt tweak has already failed to fix
+	// twice, Go now completely rebuilds data.values itself: read whatever
+	// dated values the query DID return, keyed by calendar date, and re-emit
+	// exactly calendarHeatmapDays consecutive days ending today, filling
+	// anything the model's rows didn't cover with 0. This makes the grid's
+	// shape (a full year, gaps included) independent of what the model's
+	// SQL actually queried - the same "Go controls the parts an LLM has
+	// proven unreliable at" split as maybeAddRollingAverageLayer.
+	byDate := map[string]float64{}
+	if data, ok := spec["data"].(map[string]any); ok {
+		if values, ok := data["values"].([]map[string]any); ok {
+			for _, row := range values {
+				dateStr, val, ok := parseCalendarRow(row, x.Field, y.Field)
+				if !ok {
+					continue
+				}
+				byDate[dateStr] += val
+			}
+		}
+	}
+	today := time.Now()
+	filled := make([]map[string]any, 0, calendarHeatmapDays+1)
+	for i := calendarHeatmapDays; i >= 0; i-- {
+		d := today.AddDate(0, 0, -i).Format("2006-01-02")
+		filled = append(filled, map[string]any{x.Field: d, y.Field: byDate[d]})
+	}
+	spec["data"] = map[string]any{"values": filled}
+
+	valueLabel := firstNonEmpty(strings.TrimSpace(y.Title), "Value")
+
+	// buildChartReport forces a white background/light-theme colors for
+	// every OTHER chart type (see its own "background": "#ffffff" comment -
+	// that default exists so an unpredictable embed context never leaves
+	// gray-on-gray text), but a GitHub-style contribution graph specifically
+	// needs the opposite: it's only recognizable, and its "empty" cells only
+	// read as *empty* rather than as stray white boxes, against a dark card
+	// with GitHub's actual dark-mode green ramp - confirmed against
+	// github.com's own graph and this repo's generate_heatmap.py, which
+	// already renders this exact chart correctly with these exact colors.
+	// So this is the one chart type that overrides those chat-wide defaults
+	// rather than inheriting them.
+	spec["background"] = "#0d1117"
+	spec["config"] = map[string]any{
+		"axis":   map[string]any{"labelColor": "#8b949e", "titleColor": "#e6ebf5", "labelFontSize": 10},
+		"title":  map[string]any{"color": "#e6ebf5", "fontSize": 16, "anchor": "start"},
+		"legend": map[string]any{"labelColor": "#8b949e", "titleColor": "#e6ebf5"},
+		"view":   map[string]any{"stroke": "transparent"},
+	}
+	// GitHub's own dark-mode contribution-graph greens (empty -> darkest).
+	githubGreensDark := []string{"#161b22", "#0e4429", "#006d32", "#26a641", "#39d353"}
+
+	// Plain numbers, not {"step": N} - the chat frontend
+	// (ui/src/pages/Chatbot/InteractiveChart.tsx) resizes every chart to
+	// fill its container client-side, but it only derives the aspect ratio
+	// to resize by (specAspectRatio = spec.width / spec.height) when both
+	// are plain numbers; a step/band sizing object made it silently skip
+	// that entirely, so the grid just rendered at its own small intrinsic
+	// size and left the rest of the card empty - exactly the "empty space
+	// on the right and bottom" bug. These numbers only need to set a
+	// believable aspect ratio (~53 weeks wide by 7 days tall) - the actual
+	// on-screen pixel size is whatever the frontend stretches it to.
+	spec["width"] = 900
+	spec["height"] = 130
+	spec["mark"] = map[string]any{"type": "rect", "cornerRadius": 2}
+	spec["encoding"] = map[string]any{
+		// type "ordinal", not "temporal": a temporal x/y here puts week/day
+		// columns on a continuous scale, whose band-width math for a rect
+		// mark collapses/overlaps adjacent cells into each other instead of
+		// giving each one a fixed-width cell - confirmed the hard way
+		// building generate_heatmap.py's standalone version of this exact
+		// chart, see that script's comment on the same bug.
+		"x": map[string]any{
+			"field": x.Field, "type": "ordinal", "timeUnit": "yearweek", "title": nil,
+			"scale": map[string]any{"paddingInner": 0.15},
+			"axis": map[string]any{
+				"format": "%b",
+				// Only label a week column if it's the first week whose
+				// start falls in a new month - otherwise every ~4-5 weeks
+				// in a month would repeat that month's label.
+				"labelExpr":  "date(datum.value) <= 7 ? timeFormat(datum.value, '%b') : ''",
+				"labelAngle": 0, "ticks": false, "domain": false, "grid": false,
+			},
+		},
+		"y": map[string]any{
+			"field": x.Field, "type": "ordinal", "timeUnit": "day", "title": nil,
+			"sort":  []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"},
+			"scale": map[string]any{"paddingInner": 0.15},
+			// GitHub only labels every other row (Mon/Wed/Fri) to keep the
+			// axis readable at this cell size.
+			"axis": map[string]any{"values": []string{"Mon", "Wed", "Fri"}, "ticks": false, "domain": false, "grid": false},
+		},
+		"color": map[string]any{
+			"field": y.Field, "type": "quantitative", "title": nil,
+			"scale": map[string]any{"type": "threshold", "domain": []int{1, 3, 6, 10}, "range": githubGreensDark},
+			// No legend at all - the grid + hover tooltip is enough; every
+			// legend placement/orientation tried here left leftover chrome
+			// the grid didn't need.
+			"legend": nil,
+		},
+		"tooltip": []any{
+			map[string]any{"field": x.Field, "type": "temporal", "title": "Date", "format": "%A, %b %d, %Y"},
+			map[string]any{"field": y.Field, "type": "quantitative", "title": valueLabel},
+		},
+	}
+	return true
 }
 
 // rollingWindow describes the smoothing window to use for one x-axis bucket
@@ -572,22 +1110,37 @@ func maybeAddRollingAverageLayer(mark string, encoding json.RawMessage, rowCount
 		return nil, false
 	}
 
-	win, ok := rollingWindowFor(x.TimeUnit)
-	if !ok || rowCount < win.rows*2 {
-		return nil, false
-	}
+	// The baseline (period average) rule is a flat mean of whatever rows
+	// exist - meaningful regardless of how many there are or how they're
+	// bucketed, so it's added whenever the basic single-series time-trend
+	// shape checks above pass. The rolling-average line is different: it
+	// only means what its label says (win.rows *rows*, e.g. "6-month") when
+	// there are enough rows for that window to be more signal than noise
+	// (rollingWindowFor's !ok / rowCount check below) - so it's the only
+	// one gated on granularity/row count, added on top of the baseline
+	// when that gate passes.
+	win, winOK := rollingWindowFor(x.TimeUnit)
+	includeRolling := winOK && rowCount >= win.rows*2
 
 	// A named, identical color scale (same domain/range) on every layer's
 	// "datum" color channel is what makes Vega-Lite draw one shared legend
-	// for three layers that otherwise have no data-driven color channel at
-	// all (a plain bar + two synthetic lines): each layer's color is a
-	// literal constant, not a field lookup, but literal-vs-literal still
+	// for layers that otherwise have no data-driven color channel at all (a
+	// plain bar + synthetic line(s)): each layer's color is a literal
+	// constant, not a field lookup, but literal-vs-literal still
 	// participates in a legend the same way a real categorical field would.
 	baseLabel := firstNonEmpty(strings.TrimSpace(y.Title), "Value")
-	rollingLabel := win.label + " rolling average"
 	baselineLabel := "Period average (baseline)"
-	domain := []string{baseLabel, rollingLabel, baselineLabel}
-	colorRange := []string{"#7c9cff", "#ffb454", "#ff5c7c"}
+	domain := []string{baseLabel, baselineLabel}
+	colorRange := []string{"#7c9cff", "#ff5c7c"}
+	var rollingLabel string
+	if includeRolling {
+		rollingLabel = win.label + " rolling average"
+		// Insert rolling before baseline so bar/line/rule keep their
+		// established color order (blue/orange/pink) regardless of which
+		// optional layers are present.
+		domain = []string{baseLabel, rollingLabel, baselineLabel}
+		colorRange = []string{"#7c9cff", "#ffb454", "#ff5c7c"}
+	}
 	colorFor := func(label string) map[string]any {
 		return map[string]any{
 			"datum":  label,
@@ -600,7 +1153,7 @@ func maybeAddRollingAverageLayer(mark string, encoding json.RawMessage, rowCount
 	// Every layer's y channel gets the exact same explicit title
 	// (baseLabel), instead of each layer defaulting to a title derived from
 	// its own field name ("Reviews Completed" vs "rolling_avg" vs
-	// "period_avg"). All three layers share one y-axis/scale (Vega-Lite's
+	// "period_avg"). All layers share one y-axis/scale (Vega-Lite's
 	// default resolve), and when layers sharing an axis carry different
 	// titles, Vega-Lite concatenates them into one garbled label instead of
 	// picking one - identical titles on every layer sidesteps that instead
@@ -617,7 +1170,10 @@ func maybeAddRollingAverageLayer(mark string, encoding json.RawMessage, rowCount
 
 	layer := []any{
 		map[string]any{"mark": firstNonEmpty(mark, "bar"), "encoding": json.RawMessage(baseEncoding)},
-		map[string]any{
+	}
+
+	if includeRolling {
+		layer = append(layer, map[string]any{
 			"transform": []any{map[string]any{
 				"window": []any{map[string]any{"op": "mean", "field": y.Field, "as": "rolling_avg"}},
 				"frame":  []any{-(win.rows - 1), 0},
@@ -636,26 +1192,28 @@ func maybeAddRollingAverageLayer(mark string, encoding json.RawMessage, rowCount
 					map[string]any{"field": "rolling_avg", "type": "quantitative", "title": rollingLabel, "format": ".2f"},
 				},
 			},
-		},
-		// The baseline rule needs no Go-side computation of the actual
-		// average: an "aggregate" transform collapses the same data.values
-		// every other layer sees into a single {period_avg} row, entirely
-		// client-side in the browser, the same way the rolling-average
-		// layer's "window" transform above needs no precomputed numbers.
-		map[string]any{
-			"transform": []any{map[string]any{
-				"aggregate": []any{map[string]any{"op": "mean", "field": y.Field, "as": "period_avg"}},
-			}},
-			"mark": map[string]any{"type": "rule", "strokeDash": []any{6, 4}, "strokeWidth": 1.5},
-			"encoding": map[string]any{
-				"y":     map[string]any{"field": "period_avg", "type": "quantitative", "title": baseLabel},
-				"color": colorFor(baselineLabel),
-				"tooltip": []any{
-					map[string]any{"field": "period_avg", "type": "quantitative", "title": baselineLabel, "format": ".2f"},
-				},
+		})
+	}
+
+	// The baseline rule needs no Go-side computation of the actual
+	// average: an "aggregate" transform collapses the same data.values
+	// every other layer sees into a single {period_avg} row, entirely
+	// client-side in the browser, the same way the rolling-average
+	// layer's "window" transform above needs no precomputed numbers.
+	layer = append(layer, map[string]any{
+		"transform": []any{map[string]any{
+			"aggregate": []any{map[string]any{"op": "mean", "field": y.Field, "as": "period_avg"}},
+		}},
+		"mark": map[string]any{"type": "rule", "strokeDash": []any{6, 4}, "strokeWidth": 1.5},
+		"encoding": map[string]any{
+			"y":     map[string]any{"field": "period_avg", "type": "quantitative", "title": baseLabel},
+			"color": colorFor(baselineLabel),
+			"tooltip": []any{
+				map[string]any{"field": "period_avg", "type": "quantitative", "title": baselineLabel, "format": ".2f"},
 			},
 		},
-	}
+	})
+
 	b, err := json.Marshal(layer)
 	if err != nil {
 		return nil, false
@@ -679,6 +1237,7 @@ func mustMarshalJSON(v any) json.RawMessage {
 // buildCSVReport writes the result set to CSV. Column order comes from the
 // result set rather than from map iteration, so the header matches the data.
 func (a *Agent) buildCSVReport(
+	ctx context.Context,
 	entry PlanEntry,
 	plan *FinalizePlan,
 	rs *storageanalytics.ResultSet,
@@ -710,9 +1269,14 @@ func (a *Agent) buildCSVReport(
 		return finishedReport{text: fmt.Sprintf("I could not export %q.", entry.Question)}
 	}
 
-	description := plan.Description
+	description := a.regenerateDescription(ctx, entry, plan, rs, clog)
 	if rs.Truncated {
 		description = strings.TrimSpace(description + fmt.Sprintf("\n\nThis export stops at %d rows. Narrow the question for a complete set.", len(rs.Rows)))
+	}
+
+	timeRange := plan.TimeRange
+	if computed := computeTimeRange(rs); computed != "" {
+		timeRange = computed
 	}
 
 	clog.ReportFinalized(entry.ID, ResponseTypeCSV, plan.Title, len(rs.Rows))
@@ -722,6 +1286,8 @@ func (a *Agent) buildCSVReport(
 		Title:       plan.Title,
 		Description: description,
 		Query:       plan.Query,
+		TimeRange:   timeRange,
+		Granularity: plan.Granularity,
 		Data:        []byte(buf.String()),
 		Rows:        len(rs.Rows),
 	}}
@@ -730,7 +1296,7 @@ func (a *Agent) buildCSVReport(
 // noDataText asks the model for one clean sentence. If that call fails the
 // fallback is still a sentence, never an empty chart or a generic error.
 func (a *Agent) noDataText(ctx context.Context, entry PlanEntry, userText string, clog *logging.ChatTurnLogger) string {
-	raw, err := a.completeOnce(ctx, clog, 3, "no_data", entry.ID, 1, analyticsNoDataInstructions,
+	raw, err := a.completeOnce(ctx, clog, 3, "no_data", entry.ID, 1, a.noDataPrompt,
 		fmt.Sprintf("Original question: %s\n\nThis report answers: %s\n\nThere are zero matching rows.", userText, entry.Question))
 	if err == nil {
 		if plan, perr := parseFinalizePlan(raw); perr == nil && strings.TrimSpace(plan.Text) != "" {
@@ -754,16 +1320,20 @@ func (a *Agent) repairSQL(ctx context.Context, call int, reportID string, failed
 	// never sees the count/finalize prompt's org context header, so the
 	// org_id value has to be repeated here too, or a missing-org-filter
 	// rejection could never actually be fixed.
+	log.Info().Str("title", reportID).Int("attempt", failedAttempt).Msg("repairSQL: calling LLM for repair")
 	raw, err := a.completeOnce(ctx, clog, call, "repair", reportID, failedAttempt,
-		analyticsRepairInstructions+orgIDFilterInstruction(a.mcpSession.OrgID),
+		a.repairPrompt,
 		fmt.Sprintf("Question: %s\n\nThis query was rejected:\n%s\n\nReason: %s\n\nReturn only the corrected SQL.", question, badSQL, hint))
 	if err != nil {
+		log.Warn().Str("title", reportID).Int("attempt", failedAttempt).Err(err).Msg("repairSQL: LLM call failed")
 		return "", err
 	}
 	fixed := extractSQL(raw)
 	if strings.TrimSpace(fixed) == "" {
+		log.Warn().Str("title", reportID).Int("attempt", failedAttempt).Msg("repairSQL: LLM returned empty SQL")
 		return "", fmt.Errorf("repair produced no SQL")
 	}
+	log.Info().Str("title", reportID).Int("attempt", failedAttempt).Msg("repairSQL: repair succeeded")
 	return fixed, nil
 }
 
@@ -787,11 +1357,19 @@ func (a *Agent) completeOnce(ctx context.Context, clog *logging.ChatTurnLogger, 
 		}
 	}
 
+	// finalize and no_data expect a JSON object; repair expects bare SQL
+	// (extractSQL pulls it straight from the text, no JSON wrapper) - forcing
+	// JSON mode there would fight the format it's actually asked to return.
+	var opts []llms.CallOption
+	if kind != "repair" {
+		opts = append(opts, llms.WithJSONMode())
+	}
+
 	start := time.Now()
 	text, usage, err := a.provider.Complete(ctx, []HistoryEntry{
 		{"role": "system", "content": system},
 		{"role": "user", "content": user},
-	}, nil)
+	}, nil, opts...)
 	elapsed := time.Since(start)
 	if err != nil {
 		clog.LLMCallError(call, kind, reportID, attempt, elapsed, err)
@@ -823,7 +1401,7 @@ func assembleAnalyticsResponse(reports []vlrender.VegaLiteReport, notes []string
 	if len(reports) == 0 {
 		if len(notes) == 0 {
 			if hasArtifacts {
-				return ""
+				return "I've put the results in a file you can download."
 			}
 			return "I could not find anything to answer that."
 		}
@@ -834,13 +1412,84 @@ func assembleAnalyticsResponse(reports []vlrender.VegaLiteReport, notes []string
 		log.Error().Err(err).Msg("failed to marshal analytics reports")
 		return strings.Join(notes, "\n\n")
 	}
-	out := string(payload)
-	if len(notes) > 0 {
-		// Notes precede the JSON: the render path strips the JSON block and
-		// keeps surrounding prose as the message text.
-		out = strings.Join(notes, "\n\n") + "\n" + out
+	// Notes (skip reasons) are only in debug artifacts, not in chat response.
+	return string(payload)
+}
+
+// rowsToPreviewCSV converts rows to a CSV string for debug preview.
+// Truncates at ~2KB, always at a row boundary to keep CSV parseable.
+func rowsToPreviewCSV(rows []map[string]any) string {
+	if len(rows) == 0 {
+		return ""
 	}
-	return out
+
+	// Collect all unique column names across all rows.
+	colSet := make(map[string]struct{})
+	for _, row := range rows {
+		for k := range row {
+			colSet[k] = struct{}{}
+		}
+	}
+	cols := make([]string, 0, len(colSet))
+	for k := range colSet {
+		cols = append(cols, k)
+	}
+	sort.Strings(cols)
+
+	// Use byte slice so we can truncate at row boundaries.
+	var buf []byte
+	// Header.
+	for i, c := range cols {
+		if i > 0 {
+			buf = append(buf, ',')
+		}
+		buf = append(buf, c...)
+	}
+	buf = append(buf, '\n')
+
+	// Rows — truncate at row boundary to keep CSV parseable.
+	const maxPreview = 2048
+	for _, row := range rows {
+		rowStart := len(buf)
+		for i, c := range cols {
+			if i > 0 {
+				buf = append(buf, ',')
+			}
+			v := row[c]
+			var s string
+			switch val := v.(type) {
+			case nil:
+				s = ""
+			case string:
+				s = val
+			case float64:
+				s = fmt.Sprintf("%g", val)
+			case int64:
+				s = fmt.Sprintf("%d", val)
+			case bool:
+				if val {
+					s = "true"
+				} else {
+					s = "false"
+				}
+			default:
+				s = fmt.Sprintf("%v", val)
+			}
+			// Quote fields containing comma, newline, carriage return, or double quote.
+			if strings.ContainsAny(s, ",\n\r\"") {
+				s = `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+			}
+			buf = append(buf, s...)
+		}
+		buf = append(buf, '\n')
+		if len(buf) > maxPreview {
+			// Roll back incomplete row to keep CSV valid.
+			buf = buf[:rowStart]
+			buf = append(buf, "... (truncated)\n"...)
+			break
+		}
+	}
+	return string(buf)
 }
 
 func firstNonEmpty(values ...string) string {
@@ -876,4 +1525,773 @@ func extractSQL(raw string) string {
 		}
 	}
 	return trimmed
+}
+
+// ---------------------------------------------------------------------------
+// Multi-interpret pipeline (replaces plan+finalize for count_query)
+// ---------------------------------------------------------------------------
+
+const maxInterpretations = 5
+
+// interpretEnvelope is the JSON shape the interpreting prompt asks for.
+type interpretEnvelope struct {
+	Query           string           `json:"query"`
+	Interpretation  string           `json:"interpretation"`
+	Interpretations []Interpretation `json:"interpretations"`
+}
+
+// parseInterpretations extracts up to maxInterpretations entries from the
+// LLM's JSON response. Accepts both wrapped {"interpretations":[...]} and
+// bare [...] shapes.
+func parseInterpretations(text string) ([]Interpretation, bool) {
+	body := strings.TrimSpace(vlrender.ExtractJSONBlock(text))
+	if body == "" {
+		return nil, false
+	}
+
+	var env interpretEnvelope
+	if err := json.Unmarshal([]byte(body), &env); err == nil && len(env.Interpretations) > 0 {
+		return normalizeInterpretations(env.Interpretations)
+	}
+
+	// Bare array fallback.
+	if strings.HasPrefix(body, "[") {
+		var interps []Interpretation
+		if err := json.Unmarshal([]byte(body), &interps); err == nil && len(interps) > 0 {
+			return normalizeInterpretations(interps)
+		}
+	}
+
+	return nil, false
+}
+
+func normalizeInterpretations(in []Interpretation) ([]Interpretation, bool) {
+	out := make([]Interpretation, 0, len(in))
+	for _, interp := range in {
+		if strings.TrimSpace(interp.SQL) == "" {
+			continue
+		}
+		if strings.TrimSpace(interp.ChartType) == "" {
+			interp.ChartType = "bar"
+		}
+		// Use Name as fallback title if Title is empty.
+		if strings.TrimSpace(interp.Title) == "" {
+			interp.Title = interp.Name
+		}
+		if strings.TrimSpace(interp.Title) == "" {
+			interp.Title = interp.ChartType + " chart"
+		}
+		out = append(out, interp)
+		if len(out) >= maxInterpretations {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
+	return out, true
+}
+
+// runMultiInterpret executes the multi-interpret analytics pipeline. It
+// makes a single LLM call to get up to 5 SQL+chart interpretations, then
+// executes each through the SQL guard, builds charts, and assembles the
+// response. Returns (responseText, artifacts, debugArtifacts, error).
+func (a *Agent) runMultiInterpret(
+	ctx context.Context,
+	userText string,
+	clog *logging.ChatTurnLogger,
+	orgID int64,
+	orgName string,
+) (string, []Artifact, *DebugArtifacts, error) {
+	ctx, cancel := context.WithTimeout(ctx, analyticsTurnTimeout)
+	defer cancel()
+
+	debug := &DebugArtifacts{
+		Query: userText,
+	}
+
+	// System prompt: self-contained from PromptBook template (includes
+	// all rules inline, no schema splice).
+	system := a.interpretPrompt()
+	debug.SystemPrompt = system
+
+	// User message: query + org context + dbctx schema + chart types
+	// (matching the Python script's format in interpretation.py).
+	userMsg, err := a.interpretUserMessage(clog, userText, orgID, orgName)
+	if err != nil {
+		return "Livi is in preparing mode, please come back after 60s.", nil, debug, nil
+	}
+	debug.SchemaContext = userMsg
+
+	// Compose the full request text sent to the LLM for debug visibility.
+	debug.FullRequest = system + "\n---\n" + userMsg
+
+	raw, err := a.completeOnce(ctx, clog, 2, "interpret", "multi", 1, system, userMsg)
+	if err != nil {
+		log.Error().Err(err).Msg("multi-interpret LLM call failed")
+		return "I had trouble understanding that question. Please try rephrasing.", nil, debug, err
+	}
+	debug.LLMRawResponse = raw
+
+	interps, ok := parseInterpretations(raw)
+	if !ok {
+		log.Warn().Str("raw_preview", truncateContent(raw, 200)).Msg("could not parse interpretations from LLM response")
+		return "I could not produce a valid analysis plan. Please try rephrasing.", nil, debug, nil
+	}
+	debug.Interpretations = interps
+
+	var (
+		reports   []vlrender.VegaLiteReport
+		artifacts []Artifact
+		notes     []string
+	)
+
+	for i, interp := range interps {
+		entry := DebugResultEntry{
+			Index:     i,
+			Title:     interp.Title,
+			ChartType: interp.ChartType,
+			SQL:       interp.SQL,
+		}
+
+		result := a.executeInterpretation(ctx, interp, userText, clog)
+		entry.Status = result.Status
+		entry.SkipReason = result.SkipReason
+		entry.RowCount = result.RowCount
+		entry.Stats = result.Stats
+		entry.RetryCount = result.RetryCount
+		entry.Retries = result.Retries
+
+		// Include row data as CSV for debug preview (from any outcome).
+		if len(result.Rows) > 0 {
+			entry.CSVData = rowsToPreviewCSV(result.Rows)
+		}
+
+		switch {
+		case result.Chart != nil:
+			reports = append(reports, *result.Chart)
+			// Include Vega-Lite spec in debug for inspection.
+			if specBytes, err := json.Marshal(result.Chart.Spec); err == nil {
+				entry.VegaSpec = string(specBytes)
+			}
+		case result.Artifact != nil:
+			artifacts = append(artifacts, *result.Artifact)
+			// For rendered CSV artifacts, include data if not already set
+			// and the data looks like CSV (starts with a header row).
+			if entry.CSVData == "" && result.Artifact.Kind == "csv" && len(result.Artifact.Data) > 0 {
+				entry.CSVData = string(result.Artifact.Data)
+			}
+		case result.SkipReason != "":
+			notes = append(notes, fmt.Sprintf("Skipped %q: %s", interp.Title, result.SkipReason))
+		}
+
+		debug.Results = append(debug.Results, entry)
+	}
+
+	responseText := assembleAnalyticsResponse(reports, notes, len(artifacts) > 0)
+	clog.FinalResponse(responseText)
+	return responseText, artifacts, debug, nil
+}
+
+// executeInterpretation runs one interpretation through the SQL guard,
+// executes it, and builds a chart or CSV from the results.
+func (a *Agent) executeInterpretation(
+	ctx context.Context,
+	interp Interpretation,
+	userText string,
+	clog *logging.ChatTurnLogger,
+) InterpretationResult {
+	sqlText := interp.SQL
+	var retries []RetryInfo
+
+	log.Info().Str("title", interp.Title).Int("max_attempts", maxSQLAttempts).Msg("executeInterpretation: starting retry loop")
+
+	for attempt := 1; attempt <= maxSQLAttempts; attempt++ {
+		log.Info().Str("title", interp.Title).Int("attempt", attempt).Msg("executeInterpretation: attempt starting")
+		// Validate with the guard.
+		rewritten, err := a.guard().Rewrite(sqlText)
+		if err != nil {
+			log.Warn().Str("title", interp.Title).Int("attempt", attempt).Err(err).Msg("executeInterpretation: guard rejected SQL")
+			clog.SQLRejected(interp.Title, "data", attempt, err.Error())
+			// Try repairing.
+			log.Info().Str("title", interp.Title).Int("attempt", attempt).Msg("executeInterpretation: attempting repair after guard rejection")
+			fixed, rerr := a.repairSQL(ctx, attempt+1, interp.Title, attempt, userText, sqlText, hintFor(err), clog)
+			if rerr != nil {
+				log.Warn().Str("title", interp.Title).Int("attempt", attempt).Err(rerr).Msg("executeInterpretation: repair failed after guard rejection")
+				retries = append(retries, RetryInfo{
+					Attempt: attempt,
+					Error:   err.Error(),
+				})
+				log.Info().Str("title", interp.Title).Int("retry_count", len(retries)).Msg("executeInterpretation: returning failed after guard rejection repair failure")
+				return InterpretationResult{
+					Status:     "failed",
+					SkipReason: "SQL rejected: " + err.Error(),
+					RetryCount: len(retries),
+					Retries:    retries,
+				}
+			}
+			log.Info().Str("title", interp.Title).Int("attempt", attempt).Msg("executeInterpretation: repair succeeded after guard rejection")
+			sqlText = fixed
+			retries = append(retries, RetryInfo{
+				Attempt:     attempt,
+				Error:       err.Error(),
+				RepairedSQL: fixed,
+			})
+			continue
+		}
+		clog.SQLRewritten(interp.Title, "data", attempt, rewritten)
+
+		// Execute.
+		start := time.Now()
+		rs, err := a.analytics.Query(ctx, rewritten, maxCSVRows)
+		if err != nil {
+			log.Warn().Str("title", interp.Title).Int("attempt", attempt).Err(err).Msg("executeInterpretation: query execution failed")
+			clog.SQLError(interp.Title, "data", attempt, time.Since(start), err)
+			// If we have more attempts, try repairing.
+			if attempt < maxSQLAttempts {
+				log.Info().Str("title", interp.Title).Int("attempt", attempt).Msg("executeInterpretation: attempting repair after execution error")
+				fixed, rerr := a.repairSQL(ctx, attempt+1, interp.Title, attempt, userText, sqlText, err.Error(), clog)
+				if rerr != nil {
+					log.Warn().Str("title", interp.Title).Int("attempt", attempt).Err(rerr).Msg("executeInterpretation: repair failed after execution error")
+					retries = append(retries, RetryInfo{
+						Attempt: attempt,
+						Error:   err.Error(),
+					})
+					log.Info().Str("title", interp.Title).Int("retry_count", len(retries)).Msg("executeInterpretation: returning failed after execution error repair failure")
+					return InterpretationResult{
+						Status:     "failed",
+						SkipReason: "Query failed: " + err.Error(),
+						RetryCount: len(retries),
+						Retries:    retries,
+					}
+				}
+				log.Info().Str("title", interp.Title).Int("attempt", attempt).Msg("executeInterpretation: repair succeeded after execution error")
+				sqlText = fixed
+				retries = append(retries, RetryInfo{
+					Attempt:     attempt,
+					Error:       err.Error(),
+					RepairedSQL: fixed,
+				})
+				continue
+			}
+			log.Warn().Str("title", interp.Title).Int("attempt", attempt).Msg("executeInterpretation: exhausted all retries after execution error")
+			retries = append(retries, RetryInfo{
+				Attempt: attempt,
+				Error:   err.Error(),
+			})
+			log.Info().Str("title", interp.Title).Int("retry_count", len(retries)).Msg("executeInterpretation: returning failed after exhausting retries")
+			return InterpretationResult{
+				Status:     "failed",
+				SkipReason: "Query failed: " + err.Error(),
+				RetryCount: len(retries),
+				Retries:    retries,
+			}
+		}
+		log.Info().Str("title", interp.Title).Int("attempt", attempt).Int("rows", len(rs.Rows)).Msg("executeInterpretation: query succeeded")
+		clog.SQLResult(interp.Title, "data", attempt, time.Since(start), len(rs.Rows), rs.Truncated)
+
+		relabelTriggerTypeValues(rs.Rows)
+
+		// Zero-row filter. A single row is still rendered (e.g. "who are the
+		// authors" can genuinely have one answer) - only an empty result is
+		// skipped, since that usually means a filter eliminated everything
+		// (often a hallucinated enum value the WHERE clause matched literally,
+		// silently, e.g. status = 'processed' instead of 'accounted'), not that
+		// the real answer was thin.
+		if len(rs.Rows) == 0 {
+			return InterpretationResult{
+				Status:     "skipped",
+				SkipReason: "query returned no rows - check for an invalid filter or enum value",
+				RowCount:   0,
+				Rows:       rs.Rows,
+				RetryCount: len(retries),
+				Retries:    retries,
+			}
+		}
+
+		// Smart time aggregation for day-level time series.
+		aggregated, timeUnit, groupFields := smartAggregateTime(rs)
+		if aggregated != nil {
+			rs = aggregated
+		}
+
+		// Build chart.
+		chart, art := a.buildChartFromInterp(ctx, interp, rs, timeUnit, groupFields, clog)
+
+		stats := computeStats(rs.Rows, interp.Encoding)
+
+		if chart != nil {
+			log.Info().Str("title", interp.Title).Int("retry_count", len(retries)).Msg("executeInterpretation: returning rendered (chart)")
+			return InterpretationResult{
+				Status:     "rendered",
+				Chart:      chart,
+				RowCount:   len(rs.Rows),
+				Stats:      stats,
+				Rows:       rs.Rows,
+				RetryCount: len(retries),
+				Retries:    retries,
+			}
+		}
+		if art != nil {
+			log.Info().Str("title", interp.Title).Int("retry_count", len(retries)).Msg("executeInterpretation: returning rendered (artifact)")
+			return InterpretationResult{
+				Status:     "rendered",
+				Artifact:   art,
+				RowCount:   len(rs.Rows),
+				Stats:      stats,
+				Rows:       rs.Rows,
+				RetryCount: len(retries),
+				Retries:    retries,
+			}
+		}
+		log.Info().Str("title", interp.Title).Int("retry_count", len(retries)).Msg("executeInterpretation: returning skipped (no chart)")
+		return InterpretationResult{
+			Status:     "skipped",
+			SkipReason: "could not build chart",
+			RowCount:   len(rs.Rows),
+			RetryCount: len(retries),
+			Retries:    retries,
+		}
+	}
+
+	// Should not reach here, but just in case.
+	log.Warn().Str("title", interp.Title).Int("retry_count", len(retries)).Msg("executeInterpretation: returning failed (exhausted)")
+	return InterpretationResult{
+		Status:     "failed",
+		SkipReason: "exhausted all retry attempts",
+		RetryCount: len(retries),
+		Retries:    retries,
+	}
+}
+
+// buildChartFromInterp builds a Vega-Lite chart from an Interpretation.
+// If the LLM provided a vega_lite_spec with DATA_PLACEHOLDER, replaces
+// the placeholder with actual data (matching the Python script's approach
+// in scripts/prelivi/interpretation.py). Otherwise falls back to building
+// a minimal spec from chart_type + encoding.
+func (a *Agent) buildChartFromInterp(
+	ctx context.Context,
+	interp Interpretation,
+	rs *storageanalytics.ResultSet,
+	timeUnit string,
+	groupFields []string,
+	clog *logging.ChatTurnLogger,
+) (*vlrender.VegaLiteReport, *Artifact) {
+	if len(rs.Rows) > maxChartRows {
+		return nil, a.buildCSVFromRS(interp.Title, interp.Description, interp.SQL, rs)
+	}
+
+	var specJSON []byte
+
+	// If the LLM provided a complete vega_lite_spec, use it with
+	// DATA_PLACEHOLDER replacement (Python script pattern).
+	if len(interp.VegaLiteSpec) > 0 {
+		specBytes, err := json.Marshal(interp.VegaLiteSpec)
+		if err == nil {
+			specStr := string(specBytes)
+			if strings.Contains(specStr, "DATA_PLACEHOLDER") {
+				dataJSON, err := json.Marshal(rs.Rows)
+				if err == nil {
+					specStr = strings.Replace(specStr, `"DATA_PLACEHOLDER"`, string(dataJSON), 1)
+				}
+			}
+			specJSON = []byte(specStr)
+		}
+	}
+
+	// Fallback: build a minimal spec from chart_type + encoding.
+	if specJSON == nil {
+		mark, defaultEncoding := chartTypeToMark(interp.ChartType, timeUnit)
+		encodingJSON := defaultEncoding
+		if len(interp.Encoding) > 0 {
+			if e, err := json.Marshal(interp.Encoding); err == nil {
+				encodingJSON = json.RawMessage(e)
+			}
+		}
+		spec := map[string]any{
+			"$schema":    "https://vega.github.io/schema/vega-lite/v5.json",
+			"width":      600,
+			"height":     340,
+			"background": "#ffffff",
+			"data":       map[string]any{"values": rs.Rows},
+		}
+		if interp.ChartType == "trellis_bar" {
+			spec["facet"] = json.RawMessage(defaultEncoding)
+			spec["spec"] = map[string]any{"mark": "bar", "encoding": encodingJSON}
+		} else {
+			spec["mark"] = mark
+			spec["encoding"] = encodingJSON
+		}
+		var err error
+		specJSON, err = json.Marshal(spec)
+		if err != nil {
+			log.Error().Err(err).Str("interp", interp.Title).Msg("failed to marshal chart spec")
+			return nil, a.buildCSVFromRS(interp.Title, interp.Description, interp.SQL, rs)
+		}
+	}
+
+	specJSON = sanitizeChartSpec(specJSON)
+
+	normalized, err := vlrender.NormalizeVegaLiteSpec(specJSON)
+	if err != nil {
+		log.Warn().Err(err).Str("interp", interp.Title).Msg("spec normalization failed, using raw")
+		normalized = specJSON
+	}
+
+	// Use Name as title if Title is generic/missing.
+	title := interp.Title
+	if title == "" || title == "Query Result" {
+		title = interp.Name
+	}
+	if title == "" {
+		title = interp.ChartType + " chart"
+	}
+
+	stats, err := chatstats.ComputeAllStats(normalized)
+	if err != nil {
+		log.Warn().Err(err).Str("interp", interp.Title).Msg("chart stats computation failed, continuing without stats")
+	}
+
+	clog.ReportFinalized(title, ResponseTypeChart, title, len(rs.Rows))
+	return &vlrender.VegaLiteReport{
+		Title:       title,
+		Description: interp.Description,
+		Query:       interp.QuerySummary,
+		TimeRange:   interp.TimeWindow,
+		Granularity: interp.Granularity,
+		Context:     interp.Context,
+		Spec:        normalized,
+		Stats:       stats,
+	}, nil
+}
+
+// buildCSVFromRS creates a CSV artifact from a result set.
+func (a *Agent) buildCSVFromRS(title, description, query string, rs *storageanalytics.ResultSet) *Artifact {
+	var buf strings.Builder
+	w := csv.NewWriter(&buf)
+	w.Write(rs.Columns)
+	for _, row := range rs.Rows {
+		vals := make([]string, len(rs.Columns))
+		for i, col := range rs.Columns {
+			vals[i] = fmt.Sprintf("%v", row[col])
+		}
+		w.Write(vals)
+	}
+	w.Flush()
+	return &Artifact{
+		Kind:        "csv",
+		Filename:    safeCSVFilename(title),
+		Title:       title,
+		Description: description,
+		Query:       query,
+		Data:        []byte(buf.String()),
+		Rows:        len(rs.Rows),
+	}
+}
+
+// chartTypeToMark maps a chart_type string to a Vega-Lite mark and default
+// encoding. Returns (mark, encodingJSON).
+func chartTypeToMark(chartType, timeUnit string) (string, json.RawMessage) {
+	switch chartType {
+	case "bar":
+		return `"bar"`, json.RawMessage(`{"x":{"type":"nominal","sort":"-y"},"y":{"type":"quantitative"}}`)
+	case "grouped_bar":
+		return `"bar"`, json.RawMessage(`{"x":{"type":"nominal"},"y":{"type":"quantitative"},"color":{"type":"nominal"},"xOffset":{"type":"nominal"}}`)
+	case "stacked_bar":
+		return `"bar"`, json.RawMessage(`{"x":{"type":"nominal"},"y":{"type":"quantitative"},"color":{"type":"nominal"}}`)
+	case "line":
+		return `{"type":"line","point":true}`, json.RawMessage(`{"x":{"type":"temporal","timeUnit":"` + timeUnit + `"},"y":{"type":"quantitative"}}`)
+	case "multi_line":
+		return `{"type":"line","point":true}`, json.RawMessage(`{"x":{"type":"temporal","timeUnit":"` + timeUnit + `"},"y":{"type":"quantitative"},"color":{"type":"nominal"}}`)
+	case "area":
+		return `"area"`, json.RawMessage(`{"x":{"type":"temporal","timeUnit":"` + timeUnit + `"},"y":{"type":"quantitative"}}`)
+	case "stacked_area":
+		return `"area"`, json.RawMessage(`{"x":{"type":"temporal","timeUnit":"` + timeUnit + `"},"y":{"type":"quantitative"},"color":{"type":"nominal"}}`)
+	case "scatter":
+		return `"point"`, json.RawMessage(`{"x":{"type":"quantitative"},"y":{"type":"quantitative"}}`)
+	case "pie":
+		return `{"type":"arc","innerRadius":50}`, json.RawMessage(`{"theta":{"type":"quantitative"},"color":{"type":"nominal"}}`)
+	case "heatmap":
+		return `"rect"`, json.RawMessage(`{"x":{"type":"ordinal"},"y":{"type":"ordinal"},"color":{"type":"quantitative","scale":{"scheme":"blues"}}}`)
+	case "horizontal_bar":
+		return `"bar"`, json.RawMessage(`{"y":{"type":"nominal","sort":"-x"},"x":{"type":"quantitative"}}`)
+	case "boxplot":
+		return `{"type":"boxplot","extent":1.5}`, json.RawMessage(`{"x":{"type":"nominal"},"y":{"type":"quantitative"}}`)
+	case "trellis_bar":
+		// For trellis, the "encoding" is actually the facet channel.
+		return `"bar"`, json.RawMessage(`{"field":"group","type":"nominal","columns":3}`)
+	default:
+		return `"bar"`, json.RawMessage(`{"x":{"type":"nominal","sort":"-y"},"y":{"type":"quantitative"}}`)
+	}
+}
+
+// smartAggregateTime detects day-level time series and re-aggregates to
+// week (≤90 day span) or month (>90 day span). Returns nil if no
+// aggregation was needed. Also strips timezone suffixes for Vega
+// compatibility. Returns (aggregatedRS, timeUnit, groupFields).
+func smartAggregateTime(rs *storageanalytics.ResultSet) (*storageanalytics.ResultSet, string, []string) {
+	if len(rs.Rows) == 0 {
+		return nil, "", nil
+	}
+
+	// Find temporal and group fields from the data shape.
+	var timeField string
+	var valueFields []string
+	var groupFields []string
+
+	for _, col := range rs.Columns {
+		// Check if this column looks temporal (contains dates).
+		sample := rs.Rows[0][col]
+		if sample == nil {
+			continue
+		}
+		s := fmt.Sprintf("%v", sample)
+		if len(s) >= 10 && (s[4] == '-' || strings.Contains(s, "T")) {
+			// Looks like a date/datetime.
+			if timeField == "" {
+				timeField = col
+				continue
+			}
+		}
+		// Check if numeric.
+		switch sample.(type) {
+		case int, int32, int64, float32, float64:
+			valueFields = append(valueFields, col)
+		default:
+			// Try parsing as number.
+			if _, err := fmt.Sscanf(s, "%f", new(float64)); err == nil {
+				valueFields = append(valueFields, col)
+			} else if col != timeField {
+				groupFields = append(groupFields, col)
+			}
+		}
+	}
+
+	if timeField == "" || len(valueFields) == 0 {
+		// No time series — just strip timezones.
+		stripTimezones(rs)
+		return nil, "yearmonthdate", nil
+	}
+
+	// Parse dates and compute span.
+	type datedRow struct {
+		date time.Time
+		row  map[string]any
+	}
+	var dated []datedRow
+	for _, row := range rs.Rows {
+		raw := row[timeField]
+		if raw == nil {
+			continue
+		}
+		s := fmt.Sprintf("%v", raw)
+		s = strings.Replace(s, "+00:00", "", 1)
+		s = strings.Replace(s, "Z", "", 1)
+		var t time.Time
+		for _, layout := range []string{
+			"2006-01-02T15:04:05",
+			"2006-01-02T15:04:05.000",
+			"2006-01-02T15:04:05.000000",
+			"2006-01-02",
+		} {
+			var err error
+			t, err = time.Parse(layout, s)
+			if err == nil {
+				break
+			}
+		}
+		if t.IsZero() {
+			continue
+		}
+		dated = append(dated, datedRow{date: t, row: row})
+	}
+
+	if len(dated) <= 7 {
+		// Too few points to aggregate — just strip timezones.
+		stripTimezones(rs)
+		return nil, "yearmonthdate", nil
+	}
+
+	// This used to coarsen a long-span day-level series down to week/month
+	// buckets server-side, which silently threw away the daily rows a
+	// chart's own Day/Week/Month toggle needs - the toggle re-buckets
+	// client-side from whatever granularity reaches it, so a chart handed a
+	// pre-aggregated 7-point monthly series can never show daily points
+	// again, no matter what the toggle is set to. Always keep day-level
+	// data now and let the frontend do the coarsening.
+	_ = groupFields
+	stripTimezones(rs)
+	return nil, "yearmonthdate", nil
+}
+
+// stripTimezones removes +00:00 suffixes from temporal column values so
+// Vega-Lite doesn't choke on "Incompatible time units".
+func stripTimezones(rs *storageanalytics.ResultSet) {
+	for _, row := range rs.Rows {
+		for k, v := range row {
+			if s, ok := v.(string); ok {
+				if strings.Contains(s, "+00:00") {
+					row[k] = strings.Replace(s, "+00:00", "", 1)
+				}
+			}
+		}
+	}
+}
+
+// toFloat converts a value to float64, returning 0 on failure.
+func toFloat(v any) float64 {
+	if v == nil {
+		return 0
+	}
+	switch n := v.(type) {
+	case float64:
+		return n
+	case float32:
+		return float64(n)
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	case int32:
+		return float64(n)
+	default:
+		var f float64
+		fmt.Sscanf(fmt.Sprintf("%v", v), "%f", &f)
+		return f
+	}
+}
+
+// computeStats produces human-readable summary statistics for a result
+// set, similar to prelivi's compute_stats.
+func computeStats(rows []map[string]any, encoding map[string]any) []string {
+	if len(rows) == 0 {
+		return []string{"No data returned."}
+	}
+
+	var lines []string
+	keys := make([]string, 0, len(rows[0]))
+	for k := range rows[0] {
+		keys = append(keys, k)
+	}
+
+	// Try to identify time, category, and numeric fields from encoding.
+	var timeField, categoryField string
+	var numericFields []string
+
+	if encoding != nil {
+		for _, enc := range encoding {
+			if m, ok := enc.(map[string]any); ok {
+				f, _ := m["field"].(string)
+				t, _ := m["type"].(string)
+				switch t {
+				case "temporal":
+					timeField = f
+				case "nominal", "ordinal":
+					categoryField = f
+				case "quantitative":
+					numericFields = append(numericFields, f)
+				}
+			}
+		}
+	}
+
+	// Fallback: detect from data.
+	if len(numericFields) == 0 {
+		for _, k := range keys {
+			if toFloat(rows[0][k]) != 0 {
+				numericFields = append(numericFields, k)
+				break
+			}
+		}
+	}
+
+	nf := ""
+	if len(numericFields) > 0 {
+		nf = numericFields[0]
+	}
+
+	if timeField != "" && nf != "" {
+		// Time series stats.
+		type tv struct {
+			t string
+			v float64
+		}
+		var vals []tv
+		for _, r := range rows {
+			v := toFloat(r[nf])
+			t := fmt.Sprintf("%v", r[timeField])
+			vals = append(vals, tv{t: t, v: v})
+		}
+		if len(vals) > 0 {
+			total := 0.0
+			maxV, minV := vals[0], vals[0]
+			for _, x := range vals {
+				total += x.v
+				if x.v > maxV.v {
+					maxV = x
+				}
+				if x.v < minV.v {
+					minV = x
+				}
+			}
+			avg := total / float64(len(vals))
+			lines = append(lines, fmt.Sprintf("Total: %.0f", total))
+			lines = append(lines, fmt.Sprintf("Avg per period: %.1f", avg))
+			lines = append(lines, fmt.Sprintf("Peak: %.0f (%s)", maxV.v, maxV.t))
+			lines = append(lines, fmt.Sprintf("Low: %.0f (%s)", minV.v, minV.t))
+			if len(vals) >= 2 && vals[0].v > 0 {
+				changePct := ((vals[len(vals)-1].v - vals[0].v) / vals[0].v) * 100
+				direction := "up"
+				if changePct < 0 {
+					direction = "down"
+				} else if changePct == 0 {
+					direction = "flat"
+				}
+				lines = append(lines, fmt.Sprintf("Trend: %s %.0f%% (%s -> %s)", direction, abs(changePct), vals[0].t, vals[len(vals)-1].t))
+			}
+			lines = append(lines, fmt.Sprintf("Data points: %d", len(vals)))
+		}
+	} else if categoryField != "" && nf != "" {
+		// Category stats.
+		type cv struct {
+			c string
+			v float64
+		}
+		var vals []cv
+		for _, r := range rows {
+			v := toFloat(r[nf])
+			c := fmt.Sprintf("%v", r[categoryField])
+			vals = append(vals, cv{c: c, v: v})
+		}
+		if len(vals) > 0 {
+			total := 0.0
+			maxV, minV := vals[0], vals[0]
+			for _, x := range vals {
+				total += x.v
+				if x.v > maxV.v {
+					maxV = x
+				}
+				if x.v < minV.v {
+					minV = x
+				}
+			}
+			avg := total / float64(len(vals))
+			lines = append(lines, fmt.Sprintf("Total: %.0f", total))
+			lines = append(lines, fmt.Sprintf("Across %d categories", len(vals)))
+			lines = append(lines, fmt.Sprintf("Avg per category: %.1f", avg))
+			lines = append(lines, fmt.Sprintf("Highest: %s (%.0f)", maxV.c, maxV.v))
+			lines = append(lines, fmt.Sprintf("Lowest: %s (%.0f)", minV.c, minV.v))
+		}
+	} else {
+		lines = append(lines, fmt.Sprintf("%d rows returned", len(rows)))
+	}
+
+	return lines
+}
+
+func abs(x float64) float64 {
+	if x < 0 {
+		return -x
+	}
+	return x
 }

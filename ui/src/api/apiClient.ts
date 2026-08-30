@@ -346,6 +346,43 @@ async function apiRequest<T>(
 }
 
 /**
+ * Like the apiClient.* methods below, but returns the raw Response instead
+ * of parsed JSON - for endpoints that return a binary body (chart PNGs,
+ * chat exports). Carries the same Authorization/X-Org-Context headers and
+ * 401 refresh-and-retry behavior as apiRequest, so a download made right as
+ * the access token happens to expire doesn't fail outright the way a bare
+ * fetch() (which has none of this) would.
+ */
+export async function authFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const { accessToken, refreshToken: currentRefreshToken } = store.getState().Auth;
+  const { currentOrgId: selectedOrgId } = store.getState().Organizations;
+
+  const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) };
+  if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+  if (selectedOrgId) headers['X-Org-Context'] = String(selectedOrgId);
+
+  const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
+  const config: RequestInit = { ...init, headers, credentials: 'same-origin' };
+
+  let response = await fetch(url, config);
+
+  if (response.status === 401 && currentRefreshToken) {
+    try {
+      const newTokens = await refreshToken(currentRefreshToken);
+      store.dispatch(setTokens(newTokens));
+      tokenManager.onTokenUpdate();
+      response = await fetch(url, { ...config, headers: { ...headers, Authorization: `Bearer ${newTokens.access_token}` } });
+    } catch {
+      tokenManager.onLogout();
+      (store.dispatch as StoreDispatch)(logout());
+      window.location.replace('/login');
+    }
+  }
+
+  return response;
+}
+
+/**
  * Convenience methods for common HTTP methods
  */
 const apiClient = {

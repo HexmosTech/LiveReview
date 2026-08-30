@@ -1,0 +1,46 @@
+---
+title: "Exception: When Individuals Matter More Than the Shape"
+id: livi.charts.distribution.individuals
+---
+
+<!-- alaws:commentary -->
+
+**Applies when** the population is small — one repository's contributors,
+one team — and the question is about *who* stands out rather than what the
+overall spread looks like.
+
+**This section overrides the chapter's bucketing rule.** Bucketing averages
+people away, and here the outliers are the answer.
+
+**Seen as:** "Which engineers are carrying the repository?"
+
+<!-- alaws:laws -->
+
+1. Apply this section, in place of the chapter's bucketing rule, where the population is small and the question concerns who stands out rather than the overall spread. {#apply-this-section-in-place}
+
+2. Return one row per individual and do not bin them. {#return-one-row-per-individual}
+
+3. Encode two measures, one driving position along the axis and the other the size of the mark, so that a member who did much small work reads differently from one who did a little large work. {#encode-two-measures-one-driving}
+
+4. Jitter the marks so that overlapping individuals remain visible. {#jitter-the-marks-so-that}
+
+5. Sort by the positional measure so the heaviest contributors sit together. {#sort-by-the-positional-measure}
+
+6. Name the individuals who stand out in the description, since the marks are evidence and the naming is the answer. {#name-the-individuals-who-stand}
+
+7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
+```json
+{
+  "width": 600, "height": "<32 * n_members, min 200>",
+  "transform": [{"calculate": "random()", "as": "jitter"}],
+  "mark": {"type": "circle", "opacity": 0.85},
+  "encoding": {
+    "x": {"field": "loc", "type": "quantitative"},
+    "y": {"field": "member", "type": "nominal", "sort": "-x"},
+    "yOffset": {"field": "jitter", "type": "quantitative"},
+    "size": {"field": "reviews", "type": "quantitative", "scale": {"range": [60, 900]}},
+    "color": {"field": "loc", "type": "quantitative", "scale": {"scheme": "blues"}, "legend": null}
+  }
+}
+```
+{#the-specification-below-is-an}

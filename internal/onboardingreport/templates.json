@@ -1,0 +1,3413 @@
+{
+  "version": "1.0.0",
+  "generated_from": "livereview-debug-export-27.json",
+  "total_charts": 57,
+  "sections": [
+    {
+      "id": "adoption",
+      "label": "Adoption & Growth"
+    },
+    {
+      "id": "repos",
+      "label": "Repository Analysis"
+    },
+    {
+      "id": "engineers",
+      "label": "Engineer Analysis"
+    },
+    {
+      "id": "quality",
+      "label": "Review Quality & Findings"
+    },
+    {
+      "id": "cost",
+      "label": "Cost & Efficiency"
+    },
+    {
+      "id": "engagement",
+      "label": "Engagement & Trust"
+    },
+    {
+      "id": "summary",
+      "label": "Summary & Comparison"
+    }
+  ],
+  "charts": [
+    {
+      "id": "daily-review-count-trend",
+      "section": "adoption",
+      "section_label": "Adoption & Growth",
+      "title": "Daily Review Count Trend",
+      "description": "This chart illustrates the daily number of LiveReview reviews completed within the 'hexmos-internal' organization, showing the trend of review activity over time.",
+      "query_summary": "Daily count of completed LiveReview reviews for hexmos-internal.",
+      "sql": "SELECT\n    DATE_TRUNC('day', COALESCE(reviews.completed_at, reviews.created_at)) AS day,\n    COUNT(reviews.id) AS review_count\nFROM\n    reviews\nWHERE\n    reviews.org_id = {{.OrgID}}\nGROUP BY\n    DATE_TRUNC('day', COALESCE(reviews.completed_at, reviews.created_at))\nORDER BY\n    DATE_TRUNC('day', COALESCE(reviews.completed_at, reviews.created_at));",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "review_count",
+            "title": "Number of Reviews"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "day",
+              "title": "Date",
+              "format": "%Y-%m-%d"
+            },
+            {
+              "type": "quantitative",
+              "field": "review_count",
+              "title": "Number of Reviews"
+            }
+          ]
+        }
+      },
+      "chart_type": "line",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 0
+    },
+    {
+      "id": "cumulative-loc-reviewed-trend",
+      "section": "adoption",
+      "section_label": "Adoption & Growth",
+      "title": "Cumulative LOC Reviewed Trend",
+      "description": "This chart displays the cumulative sum of billable lines of code reviewed by LiveReview members over time, indicating the overall growth in adoption and impact for 'hexmos-internal'.",
+      "query_summary": "Cumulative lines of code reviewed by members daily for hexmos-internal.",
+      "sql": "SELECT\n    daily_stats.day,\n    SUM(daily_stats.daily_loc_reviewed) OVER (ORDER BY daily_stats.day) AS cumulative_loc_reviewed\nFROM\n    (\n        SELECT\n            DATE_TRUNC('day', loc_usage_ledger.created_at) AS day,\n            SUM(loc_usage_ledger.billable_loc) AS daily_loc_reviewed\n        FROM\n            loc_usage_ledger\n        WHERE\n            loc_usage_ledger.org_id = {{.OrgID}}\n            AND loc_usage_ledger.status = 'accounted'\n            AND loc_usage_ledger.actor_kind = 'member'\n        GROUP BY\n            DATE_TRUNC('day', loc_usage_ledger.created_at)\n    ) AS daily_stats\nORDER BY\n    daily_stats.day;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "area",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "cumulative_loc_reviewed",
+            "title": "Cumulative LOC Reviewed"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "day",
+              "title": "Date",
+              "format": "%Y-%m-%d"
+            },
+            {
+              "type": "quantitative",
+              "field": "cumulative_loc_reviewed",
+              "title": "Cumulative LOC Reviewed"
+            }
+          ]
+        }
+      },
+      "chart_type": "area",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 1
+    },
+    {
+      "id": "engineer-review-activity-distribution",
+      "section": "adoption",
+      "section_label": "Adoption & Growth",
+      "title": "Engineer Review Activity Distribution",
+      "description": "This chart categorizes engineers by their total number of completed reviews, showing the breadth of adoption across the team.",
+      "query_summary": "Distribution of engineers by the number of completed reviews for hexmos-internal, categorized into adoption bands.",
+      "sql": "WITH engineer_review_counts AS (\n    SELECT reviews.user_email, COUNT(reviews.id) AS total_completed_reviews\n    FROM reviews\n    WHERE reviews.org_id = {{.OrgID}} AND reviews.user_email IS NOT NULL AND reviews.status = 'completed'\n    GROUP BY reviews.user_email\n)\nSELECT\n    CASE\n        WHEN erc.total_completed_reviews = 0 THEN '0 reviews'\n        WHEN erc.total_completed_reviews BETWEEN 1 AND 10 THEN '1-10 (light)'\n        WHEN erc.total_completed_reviews BETWEEN 11 AND 20 THEN '11-20 (regular)'\n        ELSE '21+ (heavy)'\n    END AS review_band,\n    COUNT(DISTINCT erc.user_email) AS engineer_count\nFROM engineer_review_counts AS erc\nGROUP BY\n    CASE\n        WHEN erc.total_completed_reviews = 0 THEN '0 reviews'\n        WHEN erc.total_completed_reviews BETWEEN 1 AND 10 THEN '1-10 (light)'\n        WHEN erc.total_completed_reviews BETWEEN 11 AND 20 THEN '11-20 (regular)'\n        ELSE '21+ (heavy)'\n    END\nORDER BY\n    CASE\n        WHEN CASE WHEN erc.total_completed_reviews = 0 THEN '0 reviews' WHEN erc.total_completed_reviews BETWEEN 1 AND 10 THEN '1-10 (light)' WHEN erc.total_completed_reviews BETWEEN 11 AND 20 THEN '11-20 (regular)' ELSE '21+ (heavy)' END = '0 reviews' THEN 0\n        WHEN CASE WHEN erc.total_completed_reviews = 0 THEN '0 reviews' WHEN erc.total_completed_reviews BETWEEN 1 AND 10 THEN '1-10 (light)' WHEN erc.total_completed_reviews BETWEEN 11 AND 20 THEN '11-20 (regular)' ELSE '21+ (heavy)' END = '1-10 (light)' THEN 1\n        WHEN CASE WHEN erc.total_completed_reviews = 0 THEN '0 reviews' WHEN erc.total_completed_reviews BETWEEN 1 AND 10 THEN '1-10 (light)' WHEN erc.total_completed_reviews BETWEEN 11 AND 20 THEN '11-20 (regular)' ELSE '21+ (heavy)' END = '11-20 (regular)' THEN 2\n        ELSE 3\n    END;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "bar",
+          "color": "#7c9cff"
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "sort": [
+              "0 reviews",
+              "1-10 (light)",
+              "11-20 (regular)",
+              "21+ (heavy)"
+            ],
+            "type": "ordinal",
+            "field": "review_band",
+            "title": "Review Activity Band"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "engineer_count",
+            "title": "Number of Engineers"
+          },
+          "tooltip": [
+            {
+              "field": "review_band",
+              "title": "Review Activity"
+            },
+            {
+              "field": "engineer_count",
+              "title": "Number of Engineers"
+            }
+          ]
+        }
+      },
+      "chart_type": "histogram",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 2
+    },
+    {
+      "id": "completed-reviews-by-trigger-type",
+      "section": "adoption",
+      "section_label": "Adoption & Growth",
+      "title": "Completed Reviews by Trigger Type",
+      "description": "This chart shows how engineers are initiating reviews (e.g., pre-commit, PR/MR), indicating where LiveReview is integrated into their daily development workflow.",
+      "query_summary": "Count of completed reviews by trigger type for hexmos-internal.",
+      "sql": "SELECT reviews.trigger_type, COUNT(reviews.id) AS review_count FROM reviews WHERE reviews.org_id = {{.OrgID}} AND reviews.status = 'completed' GROUP BY reviews.trigger_type ORDER BY review_count DESC;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "quantitative",
+            "field": "review_count",
+            "title": "Number of Completed Reviews"
+          },
+          "y": {
+            "sort": "-x",
+            "type": "nominal",
+            "field": "trigger_type",
+            "title": "Trigger Type"
+          },
+          "tooltip": [
+            {
+              "field": "trigger_type",
+              "title": "Trigger Type"
+            },
+            {
+              "field": "review_count",
+              "title": "Completed Reviews"
+            },
+            {
+              "field": "pct_share",
+              "title": "Share of Total",
+              "format": ".1%"
+            }
+          ]
+        },
+        "transform": [
+          {
+            "joinaggregate": [
+              {
+                "as": "total_reviews",
+                "op": "sum",
+                "field": "review_count"
+              }
+            ]
+          },
+          {
+            "as": "pct_share",
+            "calculate": "datum.review_count / datum.total_reviews"
+          }
+        ]
+      },
+      "chart_type": "horizontal_bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 3
+    },
+    {
+      "id": "engineer-adoption-breadth",
+      "section": "adoption",
+      "section_label": "Adoption & Growth",
+      "title": "Engineer Adoption Breadth",
+      "description": "This chart shows the distribution of engineers across different LiveReview adoption bands, from zero reviews to heavy usage, for the hexmos-internal organization. It indicates how many engineers are actively using LiveReview and at what intensity.",
+      "query_summary": "The distribution of engineers by their LiveReview usage intensity (number of completed reviews) for hexmos-internal.",
+      "sql": "WITH engineer_review_counts AS (\n    SELECT\n        users.email AS engineer_email,\n        COUNT(reviews.id) AS review_count\n    FROM reviews\n    JOIN users ON reviews.user_email = users.email\n    WHERE reviews.org_id = {{.OrgID}} AND reviews.status = 'completed' AND reviews.user_email IS NOT NULL\n    GROUP BY users.email\n),\nall_org_members AS (\n    SELECT users.email AS engineer_email\n    FROM users\n    JOIN user_roles ON user_roles.user_id = users.id AND user_roles.org_id = {{.OrgID}}\n)\nSELECT\n    CASE\n        WHEN erc.review_count IS NULL OR erc.review_count = 0 THEN '0 reviews'\n        WHEN erc.review_count >= 1 AND erc.review_count <= 10 THEN '1-10 (light)'\n        WHEN erc.review_count >= 11 AND erc.review_count <= 20 THEN '11-20 (regular)'\n        WHEN erc.review_count >= 21 THEN '21+ (heavy)'\n        ELSE 'Unknown'\n    END AS adoption_band,\n    COUNT(DISTINCT aom.engineer_email) AS engineer_count\nFROM all_org_members AS aom\nLEFT JOIN engineer_review_counts AS erc ON aom.engineer_email = erc.engineer_email\nGROUP BY\n    CASE\n        WHEN erc.review_count IS NULL OR erc.review_count = 0 THEN '0 reviews'\n        WHEN erc.review_count >= 1 AND erc.review_count <= 10 THEN '1-10 (light)'\n        WHEN erc.review_count >= 11 AND erc.review_count <= 20 THEN '11-20 (regular)'\n        WHEN erc.review_count >= 21 THEN '21+ (heavy)'\n        ELSE 'Unknown'\n    END\nORDER BY\n    CASE\n        WHEN CASE WHEN erc.review_count IS NULL OR erc.review_count = 0 THEN '0 reviews' WHEN erc.review_count >= 1 AND erc.review_count <= 10 THEN '1-10 (light)' WHEN erc.review_count >= 11 AND erc.review_count <= 20 THEN '11-20 (regular)' WHEN erc.review_count >= 21 THEN '21+ (heavy)' ELSE 'Unknown' END = '0 reviews' THEN 1\n        WHEN CASE WHEN erc.review_count IS NULL OR erc.review_count = 0 THEN '0 reviews' WHEN erc.review_count >= 1 AND erc.review_count <= 10 THEN '1-10 (light)' WHEN erc.review_count >= 11 AND erc.review_count <= 20 THEN '11-20 (regular)' WHEN erc.review_count >= 21 THEN '21+ (heavy)' ELSE 'Unknown' END = '1-10 (light)' THEN 2\n        WHEN CASE WHEN erc.review_count IS NULL OR erc.review_count = 0 THEN '0 reviews' WHEN erc.review_count >= 1 AND erc.review_count <= 10 THEN '1-10 (light)' WHEN erc.review_count >= 11 AND erc.review_count <= 20 THEN '11-20 (regular)' WHEN erc.review_count >= 21 THEN '21+ (heavy)' ELSE 'Unknown' END = '11-20 (regular)' THEN 3\n        ELSE 4\n    END;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "sort": null,
+            "type": "nominal",
+            "field": "adoption_band",
+            "title": "Adoption Band"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "engineer_count",
+            "title": "Number of Engineers"
+          },
+          "tooltip": [
+            {
+              "field": "adoption_band",
+              "title": "Adoption Band"
+            },
+            {
+              "field": "engineer_count",
+              "title": "Number of Engineers"
+            }
+          ]
+        }
+      },
+      "chart_type": "bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 4
+    },
+    {
+      "id": "top-repositories-by-livereview-usage",
+      "section": "adoption",
+      "section_label": "Adoption & Growth",
+      "title": "Top Repositories by LiveReview Usage",
+      "description": "This chart identifies the top 10 repositories within the hexmos-internal organization where LiveReview is most frequently used, measured by the number of completed reviews.",
+      "query_summary": "The top 10 repositories by the number of completed LiveReview reviews for hexmos-internal.",
+      "sql": "SELECT\n    reviews.repository AS repository_name,\n    COUNT(reviews.id) AS review_count\nFROM\n    reviews\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND reviews.status = 'completed'\nGROUP BY\n    reviews.repository\nORDER BY\n    review_count DESC\nLIMIT 10;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "quantitative",
+            "field": "review_count",
+            "title": "Number of Reviews"
+          },
+          "y": {
+            "sort": "-x",
+            "type": "nominal",
+            "field": "repository_name",
+            "title": "Repository Name"
+          },
+          "tooltip": [
+            {
+              "field": "repository_name",
+              "title": "Repository Name"
+            },
+            {
+              "field": "review_count",
+              "title": "Number of Reviews"
+            }
+          ]
+        }
+      },
+      "chart_type": "horizontal_bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 5
+    },
+    {
+      "id": "livereview-adoption-levels",
+      "section": "adoption",
+      "section_label": "Adoption & Growth",
+      "title": "LiveReview Adoption Levels",
+      "description": "This chart categorizes engineers by their LiveReview usage, from those who haven't used it at all to heavy users, showing how broadly LiveReview has been adopted within hexmos-internal.",
+      "query_summary": "The number of engineers grouped by their LiveReview adoption level (based on completed review count) within hexmos-internal.",
+      "sql": "WITH UserReviewCounts AS (\n    SELECT\n        COALESCE(users.first_name || ' ' || users.last_name, users.email) AS engineer_name,\n        COUNT(reviews.id) AS review_count\n    FROM users\n    JOIN user_roles ON user_roles.user_id = users.id AND user_roles.org_id = {{.OrgID}}\n    LEFT JOIN reviews ON reviews.user_email = users.email AND reviews.org_id = {{.OrgID}} AND reviews.status = 'completed'\n    WHERE users.email IS NOT NULL\n    GROUP BY users.email, users.first_name, users.last_name\n)\nSELECT\n    CASE\n        WHEN review_count = 0 THEN '0 reviews'\n        WHEN review_count BETWEEN 1 AND 10 THEN '1-10 (light)'\n        WHEN review_count BETWEEN 11 AND 20 THEN '11-20 (regular)'\n        ELSE '21+ (heavy)'\n    END AS adoption_band,\n    COUNT(engineer_name) AS engineer_count\nFROM UserReviewCounts\nGROUP BY\n    CASE\n        WHEN review_count = 0 THEN '0 reviews'\n        WHEN review_count BETWEEN 1 AND 10 THEN '1-10 (light)'\n        WHEN review_count BETWEEN 11 AND 20 THEN '11-20 (regular)'\n        ELSE '21+ (heavy)'\n    END\nORDER BY\n    CASE\n        WHEN CASE WHEN review_count = 0 THEN '0 reviews' WHEN review_count BETWEEN 1 AND 10 THEN '1-10 (light)' WHEN review_count BETWEEN 11 AND 20 THEN '11-20 (regular)' ELSE '21+ (heavy)' END = '0 reviews' THEN 0\n        WHEN CASE WHEN review_count = 0 THEN '0 reviews' WHEN review_count BETWEEN 1 AND 10 THEN '1-10 (light)' WHEN review_count BETWEEN 11 AND 20 THEN '11-20 (regular)' ELSE '21+ (heavy)' END = '1-10 (light)' THEN 1\n        WHEN CASE WHEN review_count = 0 THEN '0 reviews' WHEN review_count BETWEEN 1 AND 10 THEN '1-10 (light)' WHEN review_count BETWEEN 11 AND 20 THEN '11-20 (regular)' ELSE '21+ (heavy)' END = '11-20 (regular)' THEN 2\n        ELSE 3\n    END;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "sort": [
+              "0 reviews",
+              "1-10 (light)",
+              "11-20 (regular)",
+              "21+ (heavy)"
+            ],
+            "type": "nominal",
+            "field": "adoption_band",
+            "title": "Adoption Band"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "engineer_count",
+            "title": "Number of Engineers"
+          },
+          "color": {
+            "type": "nominal",
+            "field": "adoption_band",
+            "title": "Adoption Band",
+            "legend": {
+              "title": "Adoption Band"
+            }
+          },
+          "tooltip": [
+            {
+              "field": "adoption_band",
+              "title": "Adoption Band"
+            },
+            {
+              "field": "engineer_count",
+              "title": "Number of Engineers"
+            }
+          ]
+        }
+      },
+      "chart_type": "bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 6
+    },
+    {
+      "id": "livereview-adoption-breadth",
+      "section": "adoption",
+      "section_label": "Adoption & Growth",
+      "title": "LiveReview Adoption Breadth",
+      "description": "This chart shows the distribution of engineers across different LiveReview adoption levels, from those with no reviews to heavy users. It answers who has adopted and who hasn't.",
+      "query_summary": "The distribution of hexmos-internal's engineers by their LiveReview adoption level, categorized by the number of completed reviews.",
+      "sql": "WITH user_review_counts AS (\n    SELECT\n        users.id AS user_id,\n        COALESCE(COUNT(reviews.id), 0) AS review_count\n    FROM users\n    JOIN user_roles ON users.id = user_roles.user_id AND user_roles.org_id = {{.OrgID}}\n    LEFT JOIN reviews ON users.email = reviews.user_email AND reviews.org_id = {{.OrgID}} AND reviews.status = 'completed'\n    GROUP BY users.id\n)\nSELECT\n    CASE\n        WHEN urc.review_count = 0 THEN '0 reviews'\n        WHEN urc.review_count BETWEEN 1 AND 10 THEN '1-10 (light)'\n        WHEN urc.review_count BETWEEN 11 AND 20 THEN '11-20 (regular)'\n        ELSE '21+ (heavy)'\n    END AS review_band,\n    COUNT(urc.user_id) AS engineer_count\nFROM user_review_counts AS urc\nGROUP BY\n    CASE\n        WHEN urc.review_count = 0 THEN '0 reviews'\n        WHEN urc.review_count BETWEEN 1 AND 10 THEN '1-10 (light)'\n        WHEN urc.review_count BETWEEN 11 AND 20 THEN '11-20 (regular)'\n        ELSE '21+ (heavy)'\n    END\nORDER BY\n    CASE\n        WHEN CASE WHEN urc.review_count = 0 THEN '0 reviews' WHEN urc.review_count BETWEEN 1 AND 10 THEN '1-10 (light)' WHEN urc.review_count BETWEEN 11 AND 20 THEN '11-20 (regular)' ELSE '21+ (heavy)' END = '0 reviews' THEN 1\n        WHEN CASE WHEN urc.review_count = 0 THEN '0 reviews' WHEN urc.review_count BETWEEN 1 AND 10 THEN '1-10 (light)' WHEN urc.review_count BETWEEN 11 AND 20 THEN '11-20 (regular)' ELSE '21+ (heavy)' END = '1-10 (light)' THEN 2\n        WHEN CASE WHEN urc.review_count = 0 THEN '0 reviews' WHEN urc.review_count BETWEEN 1 AND 10 THEN '1-10 (light)' WHEN urc.review_count BETWEEN 11 AND 20 THEN '11-20 (regular)' ELSE '21+ (heavy)' END = '11-20 (regular)' THEN 3\n        ELSE 4\n    END;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "bar",
+          "color": "#7c9cff"
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "sort": [
+              "0 reviews",
+              "1-10 (light)",
+              "11-20 (regular)",
+              "21+ (heavy)"
+            ],
+            "type": "ordinal",
+            "field": "review_band",
+            "title": "Review Count Band"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "engineer_count",
+            "title": "Number of Engineers"
+          },
+          "tooltip": [
+            {
+              "field": "review_band",
+              "title": "Review Count Band"
+            },
+            {
+              "field": "engineer_count",
+              "title": "Number of Engineers"
+            }
+          ]
+        }
+      },
+      "chart_type": "histogram",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 7
+    },
+    {
+      "id": "top-10-livereview-adopters",
+      "section": "adoption",
+      "section_label": "Adoption & Growth",
+      "title": "Top 10 LiveReview Adopters",
+      "description": "This chart highlights the top 10 engineers in your organization based on the total number of completed LiveReview reviews.",
+      "query_summary": "The top 10 engineers in hexmos-internal by the number of completed LiveReview reviews.",
+      "sql": "SELECT\n    users.email AS engineer_email,\n    COALESCE(COUNT(reviews.id), 0) AS review_count\nFROM\n    users\nJOIN\n    user_roles ON users.id = user_roles.user_id AND user_roles.org_id = {{.OrgID}}\nLEFT JOIN\n    reviews ON users.email = reviews.user_email AND reviews.org_id = {{.OrgID}} AND reviews.status = 'completed'\nGROUP BY\n    users.email\nHAVING\n    COUNT(reviews.id) > 0\nORDER BY\n    review_count DESC\nLIMIT 10;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "quantitative",
+            "field": "review_count",
+            "title": "Number of Reviews"
+          },
+          "y": {
+            "sort": "-x",
+            "type": "nominal",
+            "field": "engineer_email",
+            "title": "Engineer Email"
+          },
+          "tooltip": [
+            {
+              "field": "engineer_email",
+              "title": "Engineer Email"
+            },
+            {
+              "field": "review_count",
+              "title": "Number of Reviews"
+            }
+          ]
+        }
+      },
+      "chart_type": "horizontal_bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 8
+    },
+    {
+      "id": "active-engineers-over-time",
+      "section": "adoption",
+      "section_label": "Adoption & Growth",
+      "title": "Active Engineers Over Time",
+      "description": "This chart shows the daily number of unique engineers who completed at least one review in the 'hexmos-internal' organization, indicating the trend of active users over time.",
+      "query_summary": "Daily count of active engineers in hexmos-internal.",
+      "sql": "WITH daily_active_users AS (\n    SELECT\n        DATE_TRUNC('day', COALESCE(reviews.completed_at, reviews.created_at)) AS day,\n        COUNT(DISTINCT reviews.user_email) AS active_users\n    FROM\n        reviews\n    WHERE\n        reviews.org_id = {{.OrgID}}\n        AND reviews.status = 'completed'\n        AND reviews.user_email IS NOT NULL\n    GROUP BY\n        1\n),\nmin_max_dates AS (\n    SELECT\n        MIN(day) AS min_date,\n        MAX(day) AS max_date\n    FROM\n        daily_active_users\n),\ntime_series AS (\n    SELECT\n        generate_series(mmd.min_date, mmd.max_date, '1 day'::interval) AS day\n    FROM\n        min_max_dates AS mmd\n)\nSELECT\n    ts.day AS day,\n    COALESCE(dau.active_users, 0) AS active_users_count\nFROM\n    time_series AS ts\nLEFT JOIN\n    daily_active_users AS dau ON ts.day = dau.day\nORDER BY\n    ts.day;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "active_users_count",
+            "title": "Number of Active Engineers"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "day",
+              "title": "Date"
+            },
+            {
+              "type": "quantitative",
+              "field": "active_users_count",
+              "title": "Active Engineers"
+            }
+          ]
+        }
+      },
+      "chart_type": "line",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 9
+    },
+    {
+      "id": "repository-velocity-change",
+      "section": "repos",
+      "section_label": "Repository Analysis",
+      "title": "Repository Velocity Change",
+      "description": "This chart visualizes the change in lines of code reviewed for each repository, comparing the last 30 days to the previous 30 days. Repositories are colored based on whether they gained, lost, or had flat velocity.",
+      "query_summary": "Lines of code reviewed by repository for hexmos-internal, comparing the last 30 days to the previous 30 days.",
+      "sql": "WITH RecentActivity AS (\n    SELECT\n        reviews.repository AS repository_name,\n        loc_usage_ledger.billable_loc,\n        COALESCE(reviews.completed_at, reviews.created_at) AS activity_time\n    FROM\n        loc_usage_ledger\n    JOIN\n        reviews ON loc_usage_ledger.review_id = reviews.id\n    WHERE\n        loc_usage_ledger.org_id = {{.OrgID}}\n        AND loc_usage_ledger.status = 'accounted'\n        AND loc_usage_ledger.operation_type = 'diff_review'\n        AND reviews.user_email IS NOT NULL\n        AND COALESCE(reviews.completed_at, reviews.created_at) >= NOW() - INTERVAL '60 days'\n),\nAggregatedPeriods AS (\n    SELECT\n        repository_name,\n        SUM(CASE WHEN activity_time >= NOW() - INTERVAL '30 days' THEN billable_loc ELSE 0 END) AS current_loc,\n        SUM(CASE WHEN activity_time >= NOW() - INTERVAL '60 days' AND activity_time < NOW() - INTERVAL '30 days' THEN billable_loc ELSE 0 END) AS previous_loc\n    FROM\n        RecentActivity\n    GROUP BY\n        repository_name\n    HAVING\n        SUM(billable_loc) > 0\n)\nSELECT\n    ad.repository_name,\n    'Current' AS period,\n    ad.current_loc AS loc_reviewed,\n    CASE\n        WHEN ad.previous_loc = 0 AND ad.current_loc > 0 THEN 'gain'\n        WHEN ad.current_loc > ad.previous_loc THEN 'gain'\n        WHEN ad.current_loc < ad.previous_loc THEN 'loss'\n        ELSE 'flat'\n    END AS change_direction\nFROM\n    AggregatedPeriods ad\nWHERE\n    ad.current_loc > 0 OR ad.previous_loc > 0\nUNION ALL\nSELECT\n    ad.repository_name,\n    'Previous' AS period,\n    ad.previous_loc AS loc_reviewed,\n    CASE\n        WHEN ad.previous_loc = 0 AND ad.current_loc > 0 THEN 'gain'\n        WHEN ad.current_loc > ad.previous_loc THEN 'gain'\n        WHEN ad.current_loc < ad.previous_loc THEN 'loss'\n        ELSE 'flat'\n    END AS change_direction\nFROM\n    AggregatedPeriods ad\nWHERE\n    ad.current_loc > 0 OR ad.previous_loc > 0\nORDER BY\n    repository_name,\n    period DESC;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true,
+          "strokeWidth": 2.5
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "sort": [
+              "Previous",
+              "Current"
+            ],
+            "type": "nominal",
+            "field": "period",
+            "title": null
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "loc_reviewed",
+            "title": "Lines of Code Reviewed"
+          },
+          "color": {
+            "type": "nominal",
+            "field": "change_direction",
+            "scale": {
+              "range": [
+                "#39d353",
+                "#8b949e",
+                "#ff5c7c"
+              ],
+              "domain": [
+                "gain",
+                "flat",
+                "loss"
+              ]
+            },
+            "legend": {
+              "title": "Change Direction"
+            }
+          },
+          "detail": {
+            "type": "nominal",
+            "field": "repository_name"
+          },
+          "tooltip": [
+            {
+              "field": "repository_name",
+              "title": "Repository"
+            },
+            {
+              "field": "period",
+              "title": "Period"
+            },
+            {
+              "field": "loc_reviewed",
+              "title": "LOC Reviewed",
+              "format": ","
+            }
+          ]
+        }
+      },
+      "chart_type": "slope_graph",
+      "granularity": "Overall",
+      "time_range": "Last 60 days",
+      "sort_order": 0
+    },
+    {
+      "id": "loc-reviewed-by-repository",
+      "section": "repos",
+      "section_label": "Repository Analysis",
+      "title": "LOC Reviewed by Repository",
+      "description": "This chart shows the top 20 repositories by total lines of code reviewed in hexmos-internal, along with their cumulative percentage of the total.",
+      "query_summary": "Top 20 repositories by lines of code reviewed in hexmos-internal, showing cumulative percentage.",
+      "sql": "SELECT\n    reviews.repository AS repository_name,\n    SUM(loc_usage_ledger.billable_loc) AS total_loc_reviewed,\n    (SUM(SUM(loc_usage_ledger.billable_loc)) OVER (ORDER BY SUM(loc_usage_ledger.billable_loc) DESC)) * 100.0 / (SUM(SUM(loc_usage_ledger.billable_loc)) OVER ()) AS cumulative_pct\nFROM\n    loc_usage_ledger\nJOIN\n    reviews ON loc_usage_ledger.review_id = reviews.id\nWHERE\n    loc_usage_ledger.org_id = {{.OrgID}}\n    AND loc_usage_ledger.status = 'accounted'\nGROUP BY\n    reviews.repository\nORDER BY\n    total_loc_reviewed DESC\nLIMIT 20;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "layer": [
+          {
+            "mark": {
+              "type": "bar",
+              "color": "#7c9cff"
+            },
+            "encoding": {
+              "x": {
+                "type": "quantitative",
+                "field": "total_loc_reviewed",
+                "title": "Total Lines of Code Reviewed"
+              },
+              "y": {
+                "sort": {
+                  "field": "total_loc_reviewed",
+                  "order": "descending"
+                },
+                "type": "nominal",
+                "field": "repository_name",
+                "title": "Repository Name"
+              },
+              "tooltip": [
+                {
+                  "field": "repository_name",
+                  "title": "Repository"
+                },
+                {
+                  "field": "total_loc_reviewed",
+                  "title": "LOC Reviewed",
+                  "format": ","
+                }
+              ]
+            }
+          },
+          {
+            "mark": {
+              "type": "line",
+              "color": "#ff5c7c",
+              "point": true,
+              "strokeWidth": 2
+            },
+            "encoding": {
+              "x": {
+                "axis": {
+                  "format": ".1f",
+                  "orient": "top"
+                },
+                "type": "quantitative",
+                "field": "cumulative_pct",
+                "title": "Cumulative %"
+              },
+              "y": {
+                "axis": null,
+                "sort": {
+                  "field": "total_loc_reviewed",
+                  "order": "descending"
+                },
+                "type": "nominal",
+                "field": "repository_name"
+              },
+              "tooltip": [
+                {
+                  "field": "repository_name",
+                  "title": "Repository"
+                },
+                {
+                  "field": "cumulative_pct",
+                  "title": "Cumulative %",
+                  "format": ".1f"
+                }
+              ]
+            }
+          }
+        ],
+        "title": "Lines of Code Reviewed by Repository (Top 20)",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "resolve": {
+          "scale": {
+            "x": "independent"
+          }
+        }
+      },
+      "chart_type": "pareto",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 1
+    },
+    {
+      "id": "loc-reviewed-by-engineer",
+      "section": "repos",
+      "section_label": "Repository Analysis",
+      "title": "LOC Reviewed by Engineer",
+      "description": "This chart shows the top 20 engineers by total lines of code reviewed in hexmos-internal, along with their cumulative percentage of the total.",
+      "query_summary": "Top 20 engineers by lines of code reviewed in hexmos-internal, showing cumulative percentage.",
+      "sql": "SELECT\n    COALESCE(users.first_name || ' ' || users.last_name, reviews.user_email) AS engineer_name,\n    SUM(loc_usage_ledger.billable_loc) AS total_loc_reviewed,\n    (SUM(SUM(loc_usage_ledger.billable_loc)) OVER (ORDER BY SUM(loc_usage_ledger.billable_loc) DESC)) * 100.0 / (SUM(SUM(loc_usage_ledger.billable_loc)) OVER ()) AS cumulative_pct\nFROM\n    loc_usage_ledger\nJOIN\n    reviews ON loc_usage_ledger.review_id = reviews.id\nLEFT JOIN\n    users ON reviews.user_email = users.email\nWHERE\n    loc_usage_ledger.org_id = {{.OrgID}}\n    AND loc_usage_ledger.status = 'accounted'\n    AND reviews.user_email IS NOT NULL\nGROUP BY\n    COALESCE(users.first_name || ' ' || users.last_name, reviews.user_email)\nORDER BY\n    total_loc_reviewed DESC\nLIMIT 20;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "layer": [
+          {
+            "mark": {
+              "type": "bar",
+              "color": "#7c9cff"
+            },
+            "encoding": {
+              "x": {
+                "type": "quantitative",
+                "field": "total_loc_reviewed",
+                "title": "Total Lines of Code Reviewed"
+              },
+              "y": {
+                "sort": {
+                  "field": "total_loc_reviewed",
+                  "order": "descending"
+                },
+                "type": "nominal",
+                "field": "engineer_name",
+                "title": "Engineer Name"
+              },
+              "tooltip": [
+                {
+                  "field": "engineer_name",
+                  "title": "Engineer"
+                },
+                {
+                  "field": "total_loc_reviewed",
+                  "title": "LOC Reviewed",
+                  "format": ","
+                }
+              ]
+            }
+          },
+          {
+            "mark": {
+              "type": "line",
+              "color": "#ff5c7c",
+              "point": true,
+              "strokeWidth": 2
+            },
+            "encoding": {
+              "x": {
+                "axis": {
+                  "format": ".1f",
+                  "orient": "top"
+                },
+                "type": "quantitative",
+                "field": "cumulative_pct",
+                "title": "Cumulative %"
+              },
+              "y": {
+                "axis": null,
+                "sort": {
+                  "field": "total_loc_reviewed",
+                  "order": "descending"
+                },
+                "type": "nominal",
+                "field": "engineer_name"
+              },
+              "tooltip": [
+                {
+                  "field": "engineer_name",
+                  "title": "Engineer"
+                },
+                {
+                  "field": "cumulative_pct",
+                  "title": "Cumulative %",
+                  "format": ".1f"
+                }
+              ]
+            }
+          }
+        ],
+        "title": "Lines of Code Reviewed by Engineer (Top 20)",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "resolve": {
+          "scale": {
+            "x": "independent"
+          }
+        }
+      },
+      "chart_type": "pareto",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 2
+    },
+    {
+      "id": "daily-loc-reviewed-by-repository",
+      "section": "repos",
+      "section_label": "Repository Analysis",
+      "title": "Daily LOC Reviewed by Repository",
+      "description": "This chart displays the total lines of code reviewed per day, broken down by repository, to show the trend of engineering activity across different projects.",
+      "query_summary": "Daily lines of code reviewed by LiveReview for each repository in hexmos-internal.",
+      "sql": "SELECT\n    date_trunc('day', loc_usage_ledger.created_at) AS day,\n    reviews.repository AS repository_name,\n    SUM(loc_usage_ledger.billable_loc) AS total_loc_reviewed\nFROM\n    loc_usage_ledger\nJOIN\n    reviews ON loc_usage_ledger.review_id = reviews.id\nWHERE\n    loc_usage_ledger.org_id = {{.OrgID}}\n    AND loc_usage_ledger.status = 'accounted'\n    AND loc_usage_ledger.operation_type = 'diff_review'\nGROUP BY\n    day,\n    reviews.repository\nORDER BY\n    day,\n    total_loc_reviewed DESC;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "total_loc_reviewed",
+            "title": "Total Lines of Code Reviewed"
+          },
+          "color": {
+            "type": "nominal",
+            "field": "repository_name",
+            "title": "Repository"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "day",
+              "title": "Date",
+              "format": "%Y-%m-%d"
+            },
+            {
+              "type": "nominal",
+              "field": "repository_name",
+              "title": "Repository"
+            },
+            {
+              "type": "quantitative",
+              "field": "total_loc_reviewed",
+              "title": "Total LOC Reviewed"
+            }
+          ]
+        }
+      },
+      "chart_type": "multi_line",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 3
+    },
+    {
+      "id": "daily-loc-reviewed-trend",
+      "section": "repos",
+      "section_label": "Repository Analysis",
+      "title": "Daily LOC Reviewed Trend",
+      "description": "This chart shows the daily trend of lines of code reviewed by LiveReview for your top 5 repositories, indicating their velocity over time.",
+      "query_summary": "Daily lines of code reviewed by LiveReview for the top 5 repositories in hexmos-internal.",
+      "sql": "WITH top_repositories AS (\n    SELECT\n        reviews.repository AS repository_name,\n        SUM(loc_usage_ledger.billable_loc) AS total_loc_reviewed\n    FROM\n        loc_usage_ledger\n    JOIN\n        reviews ON loc_usage_ledger.review_id = reviews.id\n    WHERE\n        loc_usage_ledger.org_id = {{.OrgID}}\n        AND reviews.org_id = {{.OrgID}}\n        AND loc_usage_ledger.status = 'accounted'\n        AND loc_usage_ledger.actor_kind = 'member'\n    GROUP BY\n        reviews.repository\n    ORDER BY\n        total_loc_reviewed DESC\n    LIMIT 5\n)\nSELECT\n    DATE_TRUNC('day', loc_usage_ledger.created_at) AS day,\n    reviews.repository AS repository_name,\n    SUM(loc_usage_ledger.billable_loc) AS lines_of_code_reviewed\nFROM\n    loc_usage_ledger\nJOIN\n    reviews ON loc_usage_ledger.review_id = reviews.id\nJOIN\n    top_repositories ON reviews.repository = top_repositories.repository_name\nWHERE\n    loc_usage_ledger.org_id = {{.OrgID}}\n    AND reviews.org_id = {{.OrgID}}\n    AND loc_usage_ledger.status = 'accounted'\n    AND loc_usage_ledger.actor_kind = 'member'\nGROUP BY\n    day,\n    reviews.repository\nORDER BY\n    day ASC,\n    reviews.repository ASC;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true
+        },
+        "title": "Daily Lines of Code Reviewed for Top Repositories",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "lines_of_code_reviewed",
+            "title": "Lines of Code Reviewed"
+          },
+          "color": {
+            "type": "nominal",
+            "field": "repository_name",
+            "title": "Repository"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "day",
+              "title": "Date",
+              "format": "%Y-%m-%d"
+            },
+            {
+              "type": "quantitative",
+              "field": "lines_of_code_reviewed",
+              "title": "Lines of Code Reviewed"
+            },
+            {
+              "type": "nominal",
+              "field": "repository_name",
+              "title": "Repository"
+            }
+          ]
+        }
+      },
+      "chart_type": "multi_line",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 4
+    },
+    {
+      "id": "top-repositories-by-completed-reviews-pareto",
+      "section": "repos",
+      "section_label": "Repository Analysis",
+      "title": "Top Repositories by Completed Reviews (Pareto)",
+      "description": "This chart identifies the top repositories by the total number of completed reviews and shows their cumulative contribution to the total review count, highlighting where review activity is most concentrated.",
+      "query_summary": "Top 20 repositories by total completed review count and their cumulative share in hexmos-internal.",
+      "sql": "SELECT\n    reviews.repository AS repository_name,\n    COUNT(reviews.id) AS review_count,\n    SUM(COUNT(reviews.id)) OVER (ORDER BY COUNT(reviews.id) DESC) * 100.0 / SUM(COUNT(reviews.id)) OVER () AS cumulative_percent\nFROM\n    reviews\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND reviews.status = 'completed'\nGROUP BY\n    reviews.repository\nORDER BY\n    review_count DESC\nLIMIT 20;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "layer": [
+          {
+            "mark": {
+              "type": "bar",
+              "color": "#7c9cff"
+            },
+            "encoding": {
+              "x": {
+                "sort": "-y",
+                "type": "nominal",
+                "field": "repository_name",
+                "title": "Repository"
+              },
+              "y": {
+                "type": "quantitative",
+                "field": "review_count",
+                "title": "Number of Completed Reviews"
+              },
+              "tooltip": [
+                {
+                  "field": "repository_name",
+                  "title": "Repository"
+                },
+                {
+                  "field": "review_count",
+                  "title": "Completed Reviews"
+                }
+              ]
+            }
+          },
+          {
+            "mark": {
+              "type": "line",
+              "color": "#ff5c7c",
+              "point": true,
+              "strokeWidth": 2
+            },
+            "encoding": {
+              "x": {
+                "sort": "-y",
+                "type": "nominal",
+                "field": "repository_name",
+                "title": "Repository"
+              },
+              "y": {
+                "axis": {
+                  "format": ".1f",
+                  "orient": "right"
+                },
+                "type": "quantitative",
+                "field": "cumulative_percent",
+                "scale": {
+                  "domain": [
+                    0,
+                    100
+                  ]
+                },
+                "title": "Cumulative %"
+              },
+              "tooltip": [
+                {
+                  "field": "repository_name",
+                  "title": "Repository"
+                },
+                {
+                  "field": "review_count",
+                  "title": "Completed Reviews"
+                },
+                {
+                  "field": "cumulative_percent",
+                  "title": "Cumulative %",
+                  "format": ".1f"
+                }
+              ]
+            }
+          }
+        ],
+        "title": "Top Repositories by Cumulative Completed Review Count",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "resolve": {
+          "scale": {
+            "y": "independent"
+          }
+        }
+      },
+      "chart_type": "pareto",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 5
+    },
+    {
+      "id": "top-engineers-by-reviews",
+      "section": "engineers",
+      "section_label": "Engineer Analysis",
+      "title": "Top Engineers by Reviews",
+      "description": "This chart shows the top 20 engineers by the number of completed reviews in the 'git-lrc' repository.",
+      "query_summary": "Top 20 engineers by completed review count in the 'git-lrc' repository for hexmos-internal.",
+      "sql": "SELECT\n    users.first_name || ' ' || users.last_name AS engineer_name,\n    COUNT(reviews.id) AS review_count\nFROM reviews\nJOIN users ON reviews.user_email = users.email\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND reviews.repository ILIKE '%git-lrc%'\n    AND reviews.status = 'completed'\n    AND reviews.user_email IS NOT NULL\n    AND users.first_name IS NOT NULL\n    AND users.last_name IS NOT NULL\nGROUP BY\n    reviews.user_email,\n    users.first_name,\n    users.last_name\nORDER BY\n    review_count DESC\nLIMIT 20;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "quantitative",
+            "field": "review_count",
+            "title": "Number of Reviews"
+          },
+          "y": {
+            "sort": "-x",
+            "type": "nominal",
+            "field": "engineer_name",
+            "title": "Engineer Name"
+          },
+          "tooltip": [
+            {
+              "field": "engineer_name",
+              "title": "Engineer Name"
+            },
+            {
+              "field": "review_count",
+              "title": "Number of Reviews"
+            }
+          ]
+        }
+      },
+      "chart_type": "horizontal_bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 0
+    },
+    {
+      "id": "loc-reviewed-by-engineers-pareto",
+      "section": "engineers",
+      "section_label": "Engineer Analysis",
+      "title": "LOC Reviewed by Engineers (Pareto)",
+      "description": "This chart shows the top 20 engineers by total lines of code reviewed in the 'git-lrc' repository, along with the cumulative percentage of LOC they account for.",
+      "query_summary": "Top 20 engineers by total lines of code reviewed in the 'git-lrc' repository for hexmos-internal, with cumulative percentage.",
+      "sql": "WITH EngineerLOC AS (\n    SELECT\n        users.first_name || ' ' || users.last_name AS engineer_name,\n        SUM(loc_usage_ledger.billable_loc) AS total_loc_reviewed\n    FROM loc_usage_ledger\n    JOIN reviews ON loc_usage_ledger.review_id = reviews.id\n    JOIN users ON loc_usage_ledger.user_id = users.id\n    WHERE\n        loc_usage_ledger.org_id = {{.OrgID}}\n        AND loc_usage_ledger.status = 'accounted'\n        AND loc_usage_ledger.operation_type = 'diff_review'\n        AND reviews.repository ILIKE '%git-lrc%'\n        AND loc_usage_ledger.user_id IS NOT NULL\n        AND users.first_name IS NOT NULL\n        AND users.last_name IS NOT NULL\n    GROUP BY\n        loc_usage_ledger.user_id,\n        users.first_name,\n        users.last_name\n)\nSELECT\n    engineer_name,\n    total_loc_reviewed,\n    ROUND(SUM(total_loc_reviewed) OVER (ORDER BY total_loc_reviewed DESC) * 100.0 / SUM(total_loc_reviewed) OVER (), 2) AS cumulative_pct\nFROM EngineerLOC\nORDER BY\n    total_loc_reviewed DESC\nLIMIT 20;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "layer": [
+          {
+            "mark": {
+              "type": "bar",
+              "color": "#7c9cff"
+            },
+            "encoding": {
+              "x": {
+                "sort": {
+                  "field": "total_loc_reviewed",
+                  "order": "descending"
+                },
+                "type": "nominal",
+                "field": "engineer_name",
+                "title": "Engineer Name"
+              },
+              "y": {
+                "type": "quantitative",
+                "field": "total_loc_reviewed",
+                "title": "Total LOC Reviewed"
+              },
+              "tooltip": [
+                {
+                  "field": "engineer_name",
+                  "title": "Engineer Name"
+                },
+                {
+                  "field": "total_loc_reviewed",
+                  "title": "Total LOC Reviewed"
+                }
+              ]
+            }
+          },
+          {
+            "mark": {
+              "type": "line",
+              "color": "#ff5c7c",
+              "point": true,
+              "strokeWidth": 2
+            },
+            "encoding": {
+              "x": {
+                "sort": {
+                  "field": "total_loc_reviewed",
+                  "order": "descending"
+                },
+                "type": "nominal",
+                "field": "engineer_name",
+                "title": "Engineer Name"
+              },
+              "y": {
+                "axis": {
+                  "orient": "right"
+                },
+                "type": "quantitative",
+                "field": "cumulative_pct",
+                "title": "Cumulative %",
+                "format": ".1f"
+              },
+              "tooltip": [
+                {
+                  "field": "engineer_name",
+                  "title": "Engineer Name"
+                },
+                {
+                  "field": "cumulative_pct",
+                  "title": "Cumulative %",
+                  "format": ".1f"
+                }
+              ]
+            }
+          }
+        ],
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "resolve": {
+          "scale": {
+            "y": "independent"
+          }
+        }
+      },
+      "chart_type": "pareto",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 1
+    },
+    {
+      "id": "review-trigger-types-per-engineer",
+      "section": "engineers",
+      "section_label": "Engineer Analysis",
+      "title": "Review Trigger Types per Engineer",
+      "description": "This chart shows the distribution of review trigger types (e.g., webhook, cli_diff, mcp) for each engineer, highlighting how they typically initiate reviews.",
+      "query_summary": "This query counts the number of completed reviews by each engineer in hexmos-internal, broken down by the type of trigger used to initiate the review.",
+      "sql": "SELECT\n    COALESCE(users.first_name || ' ' || users.last_name, reviews.user_email) AS engineer_name,\n    reviews.trigger_type AS trigger_type,\n    COUNT(reviews.id) AS review_count\nFROM reviews\nJOIN users ON reviews.user_email = users.email\nJOIN user_roles ON users.id = user_roles.user_id AND user_roles.org_id = {{.OrgID}}\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND reviews.status = 'completed'\n    AND reviews.user_email IS NOT NULL\n    AND reviews.trigger_type IS NOT NULL\n    AND reviews.trigger_type != ''\nGROUP BY\n    COALESCE(users.first_name || ' ' || users.last_name, reviews.user_email),\n    reviews.trigger_type\nORDER BY\n    engineer_name, review_count DESC;\n",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "sort": "-y",
+            "type": "nominal",
+            "field": "engineer_name",
+            "title": "Engineer"
+          },
+          "y": {
+            "axis": {
+              "format": "%"
+            },
+            "type": "quantitative",
+            "field": "review_count",
+            "stack": "normalize",
+            "title": "Share of Reviews"
+          },
+          "color": {
+            "type": "nominal",
+            "field": "trigger_type",
+            "title": "Trigger Type"
+          },
+          "tooltip": [
+            {
+              "field": "engineer_name",
+              "title": "Engineer"
+            },
+            {
+              "field": "trigger_type",
+              "title": "Trigger Type"
+            },
+            {
+              "field": "review_count",
+              "title": "Review Count"
+            },
+            {
+              "field": "review_count",
+              "title": "Total Reviews",
+              "format": ".0f",
+              "aggregate": "sum"
+            },
+            {
+              "type": "quantitative",
+              "field": "review_count",
+              "stack": "normalize",
+              "title": "Share of Reviews",
+              "format": ".1%"
+            }
+          ]
+        }
+      },
+      "chart_type": "stacked_bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 3
+    },
+    {
+      "id": "reviews-by-trigger-type",
+      "section": "quality",
+      "section_label": "Review Quality & Findings",
+      "title": "Reviews by Trigger Type",
+      "description": "This chart shows the distribution of completed reviews across different trigger types within your organization.",
+      "query_summary": "Completed reviews by trigger type for hexmos-internal.",
+      "sql": "SELECT reviews.trigger_type AS trigger_type, COUNT(reviews.id) AS review_count FROM reviews WHERE reviews.org_id = {{.OrgID}} AND reviews.status = 'completed' GROUP BY reviews.trigger_type ORDER BY review_count DESC;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "sort": "-y",
+            "type": "nominal",
+            "field": "trigger_type",
+            "title": "Trigger Type"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "review_count",
+            "title": "Number of Completed Reviews"
+          },
+          "tooltip": [
+            {
+              "field": "trigger_type",
+              "title": "Trigger Type"
+            },
+            {
+              "field": "review_count",
+              "title": "Completed Reviews"
+            }
+          ]
+        }
+      },
+      "chart_type": "bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 0
+    },
+    {
+      "id": "review-trigger-type-trends",
+      "section": "quality",
+      "section_label": "Review Quality & Findings",
+      "title": "Review Trigger Type Trends",
+      "description": "This chart shows the daily proportion of reviews by their trigger type (e.g., pre-commit, PR/MR), indicating shifts towards earlier review stages.",
+      "query_summary": "Daily trend of review trigger types and their percentage of total reviews for hexmos-internal.",
+      "sql": "WITH daily_reviews AS (\n    SELECT\n        DATE_TRUNC('day', reviews.created_at) AS review_day,\n        reviews.trigger_type AS trigger_type,\n        COUNT(reviews.id) AS daily_review_count\n    FROM\n        reviews\n    WHERE\n        reviews.org_id = {{.OrgID}}\n    GROUP BY\n        1, 2\n),\ntotal_daily_reviews AS (\n    SELECT\n        review_day,\n        SUM(daily_review_count) AS total_count_for_day\n    FROM\n        daily_reviews\n    GROUP BY\n        1\n)\nSELECT\n    dr.review_day AS day,\n    dr.trigger_type AS trigger_type,\n    dr.daily_review_count AS review_count,\n    ROUND((dr.daily_review_count * 100.0 / tdr.total_count_for_day), 2) AS percentage_of_total\nFROM\n    daily_reviews AS dr\nJOIN\n    total_daily_reviews AS tdr\nON\n    dr.review_day = tdr.review_day\nORDER BY\n    dr.review_day, dr.trigger_type;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "area",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "axis": {
+              "title": "Percentage of Daily Reviews",
+              "format": "%"
+            },
+            "type": "quantitative",
+            "field": "review_count",
+            "stack": "normalize"
+          },
+          "color": {
+            "type": "nominal",
+            "field": "trigger_type",
+            "title": "Trigger Type"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "day",
+              "title": "Date"
+            },
+            {
+              "type": "nominal",
+              "field": "trigger_type",
+              "title": "Trigger Type"
+            },
+            {
+              "type": "quantitative",
+              "field": "review_count",
+              "title": "Review Count"
+            },
+            {
+              "type": "quantitative",
+              "field": "percentage_of_total",
+              "title": "Percentage (%)",
+              "format": ".1f"
+            }
+          ]
+        }
+      },
+      "chart_type": "stacked_area",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 1
+    },
+    {
+      "id": "average-loc-reviewed-trend",
+      "section": "quality",
+      "section_label": "Review Quality & Findings",
+      "title": "Average LOC Reviewed Trend",
+      "description": "This chart tracks the daily average lines of code reviewed per completed review, which can indicate if reviews are being performed on smaller (earlier) code changes over time.",
+      "query_summary": "Daily average lines of code reviewed per completed review for hexmos-internal.",
+      "sql": "SELECT\n    DATE_TRUNC('day', loc_usage_ledger.created_at) AS day,\n    AVG(loc_usage_ledger.billable_loc) AS average_loc_per_review\nFROM\n    loc_usage_ledger\nWHERE\n    loc_usage_ledger.org_id = {{.OrgID}}\n    AND loc_usage_ledger.status = 'accounted'\n    AND loc_usage_ledger.operation_type = 'diff_review'\nGROUP BY\n    1\nORDER BY\n    1;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "average_loc_per_review",
+            "title": "Average Lines of Code Reviewed"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "day",
+              "title": "Date"
+            },
+            {
+              "type": "quantitative",
+              "field": "average_loc_per_review",
+              "title": "Avg LOC Reviewed",
+              "format": ".1f"
+            }
+          ]
+        }
+      },
+      "chart_type": "line",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 2
+    },
+    {
+      "id": "proportion-of-critical-issues-by-trigger-type",
+      "section": "quality",
+      "section_label": "Review Quality & Findings",
+      "title": "Proportion of Critical Issues by Trigger Type",
+      "description": "This chart displays the percentage of critical issues out of all issues found for each review trigger type. A higher percentage for 'cli_diff' (pre-commit) would indicate that serious issues are effectively being caught before PR/MR.",
+      "query_summary": "The percentage of critical issues found within each review trigger type ('cli_diff', 'webhook', 'mcp') for hexmos-internal.",
+      "sql": "WITH issue_counts AS (\n    SELECT\n        reviews.trigger_type,\n        comment_data ->> 'Severity' AS issue_severity,\n        COUNT(*) AS severity_count\n    FROM\n        reviews,\n        LATERAL jsonb_array_elements(reviews.metadata -> 'review_result' -> 'comments') AS comment_data\n    WHERE\n        reviews.org_id = {{.OrgID}}\n        AND reviews.status = 'completed'\n        AND jsonb_typeof(reviews.metadata -> 'review_result' -> 'comments') = 'array'\n    GROUP BY\n        reviews.trigger_type,\n        issue_severity\n),\ntotal_issues_per_trigger_type AS (\n    SELECT\n        trigger_type,\n        SUM(severity_count) AS total_issues\n    FROM\n        issue_counts\n    GROUP BY\n        trigger_type\n)\nSELECT\n    ic.trigger_type,\n    ROUND((SUM(CASE WHEN ic.issue_severity = 'critical' THEN ic.severity_count ELSE 0 END)::numeric * 100 / tit.total_issues), 2) AS percentage_critical_issues\nFROM\n    issue_counts AS ic\nJOIN\n    total_issues_per_trigger_type AS tit ON ic.trigger_type = tit.trigger_type\nWHERE\n    tit.total_issues > 0\n    AND ic.trigger_type IN ('cli_diff', 'webhook', 'mcp')\nGROUP BY\n    ic.trigger_type,\n    tit.total_issues\nORDER BY\n    percentage_critical_issues DESC;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "axis": {
+              "format": ".1f"
+            },
+            "type": "quantitative",
+            "field": "percentage_critical_issues",
+            "title": "Percentage of Critical Issues"
+          },
+          "y": {
+            "sort": "-x",
+            "type": "nominal",
+            "field": "trigger_type",
+            "title": "Review Trigger Type"
+          },
+          "tooltip": [
+            {
+              "field": "trigger_type",
+              "title": "Trigger Type"
+            },
+            {
+              "type": "quantitative",
+              "field": "percentage_critical_issues",
+              "title": "Critical Issues %",
+              "format": ".2f"
+            }
+          ]
+        }
+      },
+      "chart_type": "horizontal_bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 3
+    },
+    {
+      "id": "daily-trend-of-critical-issues-by-trigger-type",
+      "section": "quality",
+      "section_label": "Review Quality & Findings",
+      "title": "Daily Trend of Critical Issues by Trigger Type",
+      "description": "This chart shows the daily count of critical issues found by different review trigger types, specifically 'cli_diff' (pre-commit) and 'webhook' (PR/MR). This helps to visualize the trend of serious issues being caught over time.",
+      "query_summary": "The daily trend of critical issues found by review trigger types ('cli_diff', 'webhook', 'mcp') for hexmos-internal.",
+      "sql": "WITH daily_critical_issues AS (\n    SELECT\n        DATE_TRUNC('day', COALESCE(reviews.completed_at, reviews.created_at)) AS review_day,\n        reviews.trigger_type,\n        COUNT(*) AS critical_issue_count\n    FROM\n        reviews,\n        LATERAL jsonb_array_elements(reviews.metadata -> 'review_result' -> 'comments') AS comment_data\n    WHERE\n        reviews.org_id = {{.OrgID}}\n        AND reviews.status = 'completed'\n        AND jsonb_typeof(reviews.metadata -> 'review_result' -> 'comments') = 'array'\n        AND comment_data ->> 'Severity' = 'critical'\n        AND reviews.trigger_type IN ('cli_diff', 'webhook', 'mcp')\n    GROUP BY\n        review_day,\n        reviews.trigger_type\n),\nall_days_and_trigger_types AS (\n    SELECT DISTINCT\n        gs.day AS review_day,\n        t.trigger_type\n    FROM\n        GENERATE_SERIES(\n            (SELECT MIN(DATE_TRUNC('day', COALESCE(completed_at, created_at))) FROM reviews WHERE org_id = {{.OrgID}}),\n            (SELECT MAX(DATE_TRUNC('day', COALESCE(completed_at, created_at))) FROM reviews WHERE org_id = {{.OrgID}}),\n            '1 day'::interval\n        ) AS gs(day),\n        (SELECT DISTINCT trigger_type FROM reviews WHERE org_id = {{.OrgID}} AND trigger_type IN ('cli_diff', 'webhook', 'mcp')) AS t\n)\nSELECT\n    adt.review_day,\n    adt.trigger_type,\n    COALESCE(dci.critical_issue_count, 0) AS critical_issue_count\nFROM\n    all_days_and_trigger_types AS adt\nLEFT JOIN\n    daily_critical_issues AS dci ON adt.review_day = dci.review_day AND adt.trigger_type = dci.trigger_type\nORDER BY\n    adt.review_day,\n    adt.trigger_type;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "review_day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "critical_issue_count",
+            "title": "Critical Issue Count"
+          },
+          "color": {
+            "type": "nominal",
+            "field": "trigger_type",
+            "title": "Review Trigger Type"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "review_day",
+              "title": "Date"
+            },
+            {
+              "type": "quantitative",
+              "field": "critical_issue_count",
+              "title": "Critical Issue Count"
+            },
+            {
+              "field": "trigger_type",
+              "title": "Trigger Type"
+            }
+          ]
+        }
+      },
+      "chart_type": "multi_line",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 4
+    },
+    {
+      "id": "top-problem-categories",
+      "section": "quality",
+      "section_label": "Review Quality & Findings",
+      "title": "Top Problem Categories",
+      "description": "This chart shows the top 10 most frequently identified problem categories across all completed LiveReview comments for 'hexmos-internal'.",
+      "query_summary": "Top 10 problem categories identified by LiveReview in completed reviews for hexmos-internal.",
+      "sql": "SELECT\n    comment_data->>'Category' AS comment_category,\n    COUNT(*) AS problem_count\nFROM\n    reviews,\n    LATERAL jsonb_array_elements(reviews.metadata->'review_result'->'comments') AS comment_data\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND reviews.status = 'completed'\n    AND jsonb_typeof(reviews.metadata->'review_result'->'comments') = 'array'\n    AND comment_data->>'Category' IS NOT NULL\nGROUP BY\n    comment_category\nORDER BY\n    problem_count DESC\nLIMIT 10;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "quantitative",
+            "field": "problem_count",
+            "title": "Number of Problems"
+          },
+          "y": {
+            "sort": "-x",
+            "type": "nominal",
+            "field": "comment_category",
+            "title": "Problem Category"
+          },
+          "tooltip": [
+            {
+              "field": "comment_category",
+              "title": "Problem Category"
+            },
+            {
+              "field": "problem_count",
+              "title": "Number of Problems"
+            }
+          ]
+        }
+      },
+      "chart_type": "horizontal_bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 5
+    },
+    {
+      "id": "problem-severity-distribution",
+      "section": "quality",
+      "section_label": "Review Quality & Findings",
+      "title": "Problem Severity Distribution",
+      "description": "This chart shows the distribution of different problem severities (e.g., info, warning, critical) found in completed LiveReview comments for 'hexmos-internal'.",
+      "query_summary": "Distribution of problem severities in completed LiveReview comments for hexmos-internal.",
+      "sql": "SELECT\n    comment_data->>'Severity' AS comment_severity,\n    COUNT(*) AS problem_count\nFROM\n    reviews,\n    LATERAL jsonb_array_elements(reviews.metadata->'review_result'->'comments') AS comment_data\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND reviews.status = 'completed'\n    AND jsonb_typeof(reviews.metadata->'review_result'->'comments') = 'array'\n    AND comment_data->>'Severity' IS NOT NULL\nGROUP BY\n    comment_severity\nORDER BY\n    problem_count DESC;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "arc",
+          "innerRadius": 50
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "color": {
+            "type": "nominal",
+            "field": "comment_severity",
+            "title": "Severity"
+          },
+          "theta": {
+            "type": "quantitative",
+            "field": "problem_count",
+            "title": "Number of Problems"
+          },
+          "tooltip": [
+            {
+              "field": "comment_severity",
+              "title": "Severity"
+            },
+            {
+              "field": "problem_count",
+              "title": "Number of Problems"
+            },
+            {
+              "field": "problem_count",
+              "stack": "normalize",
+              "title": "Share of Total",
+              "format": ".1%",
+              "aggregate": "sum"
+            }
+          ]
+        }
+      },
+      "chart_type": "pie",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 6
+    },
+    {
+      "id": "top-problem-subcategories-pareto",
+      "section": "quality",
+      "section_label": "Review Quality & Findings",
+      "title": "Top Problem Subcategories (Pareto)",
+      "description": "This Pareto chart identifies the top problem subcategories found in completed LiveReview comments for 'hexmos-internal' and shows their cumulative contribution to the total number of problems.",
+      "query_summary": "Top 20 problem subcategories by count and their cumulative percentage in completed LiveReview comments for hexmos-internal.",
+      "sql": "WITH subcategory_counts AS (\n    SELECT\n        comment_data->>'Subcategory' AS comment_subcategory,\n        COUNT(*) AS subcategory_count\n    FROM\n        reviews,\n        LATERAL jsonb_array_elements(reviews.metadata->'review_result'->'comments') AS comment_data\n    WHERE\n        reviews.org_id = {{.OrgID}}\n        AND reviews.status = 'completed'\n        AND jsonb_typeof(reviews.metadata->'review_result'->'comments') = 'array'\n        AND comment_data->>'Subcategory' IS NOT NULL\n    GROUP BY\n        comment_subcategory\n)\nSELECT\n    comment_subcategory,\n    subcategory_count,\n    ROUND(SUM(subcategory_count) OVER (ORDER BY subcategory_count DESC) * 100.0 / SUM(subcategory_count) OVER (), 2) AS cumulative_pct\nFROM\n    subcategory_counts\nORDER BY\n    subcategory_count DESC\nLIMIT 20;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "layer": [
+          {
+            "mark": {
+              "type": "bar",
+              "color": "#7c9cff"
+            },
+            "encoding": {
+              "x": {
+                "axis": {
+                  "labelAngle": -45
+                },
+                "sort": "-y",
+                "type": "nominal",
+                "field": "comment_subcategory",
+                "title": "Problem Subcategory"
+              },
+              "y": {
+                "type": "quantitative",
+                "field": "subcategory_count",
+                "title": "Number of Problems"
+              },
+              "tooltip": [
+                {
+                  "field": "comment_subcategory",
+                  "title": "Problem Subcategory"
+                },
+                {
+                  "field": "subcategory_count",
+                  "title": "Number of Problems"
+                }
+              ]
+            }
+          },
+          {
+            "mark": {
+              "type": "line",
+              "color": "#ff5c7c",
+              "point": true,
+              "strokeWidth": 2
+            },
+            "encoding": {
+              "x": {
+                "axis": {
+                  "labelAngle": -45
+                },
+                "sort": "-y",
+                "type": "nominal",
+                "field": "comment_subcategory"
+              },
+              "y": {
+                "axis": {
+                  "format": ".1f",
+                  "orient": "right"
+                },
+                "type": "quantitative",
+                "field": "cumulative_pct",
+                "title": "Cumulative %"
+              },
+              "tooltip": [
+                {
+                  "field": "comment_subcategory",
+                  "title": "Problem Subcategory"
+                },
+                {
+                  "field": "cumulative_pct",
+                  "title": "Cumulative %",
+                  "format": ".1f"
+                }
+              ]
+            }
+          }
+        ],
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "resolve": {
+          "scale": {
+            "y": "independent"
+          }
+        }
+      },
+      "chart_type": "pareto",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 7
+    },
+    {
+      "id": "top-repositories-by-issue-count-pareto",
+      "section": "quality",
+      "section_label": "Review Quality & Findings",
+      "title": "Top Repositories by Issue Count (Pareto)",
+      "description": "This chart shows the top 20 repositories with the highest number of code review issues, along with a cumulative percentage line to highlight where issues are most concentrated.",
+      "query_summary": "Top 20 repositories by issue count for hexmos-internal, showing cumulative percentage.",
+      "sql": "SELECT\n    reviews.repository AS repository_name,\n    COUNT(comments.value) AS issue_count,\n    ROUND(SUM(COUNT(comments.value)) OVER (ORDER BY COUNT(comments.value) DESC) * 100.0 / SUM(COUNT(comments.value)) OVER (), 2) AS cumulative_pct\nFROM\n    reviews\nCROSS JOIN LATERAL\n    jsonb_array_elements(reviews.metadata->'review_result'->'comments') AS comments\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND reviews.status = 'completed'\n    AND jsonb_typeof(reviews.metadata->'review_result'->'comments') = 'array'\nGROUP BY\n    reviews.repository\nORDER BY\n    issue_count DESC\nLIMIT 20;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "layer": [
+          {
+            "mark": {
+              "type": "bar",
+              "color": "#7c9cff"
+            },
+            "encoding": {
+              "x": {
+                "sort": "-y",
+                "type": "nominal",
+                "field": "repository_name",
+                "title": "Repository"
+              },
+              "y": {
+                "type": "quantitative",
+                "field": "issue_count",
+                "title": "Issue Count"
+              },
+              "tooltip": [
+                {
+                  "field": "repository_name",
+                  "title": "Repository"
+                },
+                {
+                  "type": "quantitative",
+                  "field": "issue_count",
+                  "title": "Issue Count"
+                }
+              ]
+            }
+          },
+          {
+            "mark": {
+              "type": "line",
+              "color": "#ff5c7c",
+              "point": true,
+              "strokeWidth": 2
+            },
+            "encoding": {
+              "x": {
+                "sort": "-y",
+                "type": "nominal",
+                "field": "repository_name",
+                "title": "Repository"
+              },
+              "y": {
+                "axis": {
+                  "orient": "right"
+                },
+                "type": "quantitative",
+                "field": "cumulative_pct",
+                "title": "Cumulative %",
+                "format": ".1f"
+              },
+              "tooltip": [
+                {
+                  "field": "repository_name",
+                  "title": "Repository"
+                },
+                {
+                  "type": "quantitative",
+                  "field": "issue_count",
+                  "title": "Issue Count"
+                },
+                {
+                  "type": "quantitative",
+                  "field": "cumulative_pct",
+                  "title": "Cumulative %",
+                  "format": ".1f"
+                }
+              ]
+            }
+          }
+        ],
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "resolve": {
+          "scale": {
+            "y": "independent"
+          }
+        }
+      },
+      "chart_type": "pareto",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 8
+    },
+    {
+      "id": "top-issue-categories",
+      "section": "quality",
+      "section_label": "Review Quality & Findings",
+      "title": "Top Issue Categories",
+      "description": "This chart displays the most frequent categories of issues found in completed code reviews.",
+      "query_summary": "Top 15 issue categories found in completed reviews for hexmos-internal.",
+      "sql": "SELECT\n    comments.value->>'Category' AS issue_category,\n    COUNT(comments.value) AS issue_count\nFROM\n    reviews\nCROSS JOIN LATERAL\n    jsonb_array_elements(reviews.metadata->'review_result'->'comments') AS comments\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND reviews.status = 'completed'\n    AND jsonb_typeof(reviews.metadata->'review_result'->'comments') = 'array'\n    AND comments.value->>'Category' IS NOT NULL\n    AND comments.value->>'Category' != ''\nGROUP BY\n    issue_category\nORDER BY\n    issue_count DESC\nLIMIT 15;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "quantitative",
+            "field": "issue_count",
+            "title": "Issue Count"
+          },
+          "y": {
+            "sort": "-x",
+            "type": "nominal",
+            "field": "issue_category",
+            "title": "Issue Category"
+          },
+          "tooltip": [
+            {
+              "field": "issue_category",
+              "title": "Issue Category"
+            },
+            {
+              "type": "quantitative",
+              "field": "issue_count",
+              "title": "Issue Count"
+            }
+          ]
+        }
+      },
+      "chart_type": "horizontal_bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 9
+    },
+    {
+      "id": "issue-severity-distribution",
+      "section": "quality",
+      "section_label": "Review Quality & Findings",
+      "title": "Issue Severity Distribution",
+      "description": "This chart shows the proportional breakdown of issues by their severity level (e.g., info, warning, critical) across all completed code reviews.",
+      "query_summary": "Distribution of issue severities in completed reviews for hexmos-internal.",
+      "sql": "SELECT\n    comments.value->>'Severity' AS issue_severity,\n    COUNT(comments.value) AS issue_count\nFROM\n    reviews\nCROSS JOIN LATERAL\n    jsonb_array_elements(reviews.metadata->'review_result'->'comments') AS comments\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND reviews.status = 'completed'\n    AND jsonb_typeof(reviews.metadata->'review_result'->'comments') = 'array'\n    AND comments.value->>'Severity' IS NOT NULL\n    AND comments.value->>'Severity' != ''\nGROUP BY\n    issue_severity\nORDER BY\n    issue_count DESC;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "arc",
+          "innerRadius": 50,
+          "outerRadius": 120
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "color": {
+            "type": "nominal",
+            "field": "issue_severity",
+            "title": "Severity"
+          },
+          "order": {
+            "sort": "descending",
+            "field": "issue_count"
+          },
+          "theta": {
+            "type": "quantitative",
+            "field": "issue_count",
+            "stack": true,
+            "title": "Issue Count"
+          },
+          "tooltip": [
+            {
+              "type": "nominal",
+              "field": "issue_severity",
+              "title": "Severity"
+            },
+            {
+              "type": "quantitative",
+              "field": "issue_count",
+              "title": "Issue Count"
+            },
+            {
+              "type": "quantitative",
+              "field": "pct_share",
+              "title": "Percentage",
+              "format": ".1%"
+            }
+          ]
+        },
+        "transform": [
+          {
+            "joinaggregate": [
+              {
+                "as": "total_issues",
+                "op": "sum",
+                "field": "issue_count"
+              }
+            ]
+          },
+          {
+            "as": "pct_share",
+            "calculate": "datum.issue_count / datum.total_issues"
+          }
+        ]
+      },
+      "chart_type": "pie",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 10
+    },
+    {
+      "id": "top-10-issue-categories",
+      "section": "quality",
+      "section_label": "Review Quality & Findings",
+      "title": "Top 10 Issue Categories",
+      "description": "This chart identifies the top 10 categories of issues most frequently found in completed reviews, indicating the primary areas of concern in the codebase.",
+      "query_summary": "Top 10 categories of issues found in completed reviews for hexmos-internal.",
+      "sql": "SELECT comment->>'Category' AS category, COUNT(*) AS issue_count FROM reviews CROSS JOIN LATERAL jsonb_array_elements(reviews.metadata->'review_result'->'comments') AS comment WHERE reviews.org_id = {{.OrgID}} AND reviews.status = 'completed' AND jsonb_typeof(reviews.metadata->'review_result'->'comments') = 'array' AND comment->>'Category' IS NOT NULL GROUP BY comment->>'Category' ORDER BY issue_count DESC LIMIT 10;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "quantitative",
+            "field": "issue_count",
+            "title": "Number of Issues"
+          },
+          "y": {
+            "sort": "-x",
+            "type": "nominal",
+            "field": "category",
+            "title": "Issue Category"
+          },
+          "tooltip": [
+            {
+              "type": "nominal",
+              "field": "category",
+              "title": "Issue Category"
+            },
+            {
+              "type": "quantitative",
+              "field": "issue_count",
+              "title": "Issue Count"
+            }
+          ]
+        }
+      },
+      "chart_type": "horizontal_bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 11
+    },
+    {
+      "id": "top-10-file-paths-with-issues",
+      "section": "quality",
+      "section_label": "Review Quality & Findings",
+      "title": "Top 10 File Paths with Issues",
+      "description": "This chart highlights the top 10 file paths where issues are most frequently identified in completed reviews, showing which parts of the codebase require the most attention.",
+      "query_summary": "Top 10 file paths by issue count in completed reviews for hexmos-internal.",
+      "sql": "SELECT comment->>'FilePath' AS file_path, COUNT(*) AS issue_count FROM reviews CROSS JOIN LATERAL jsonb_array_elements(reviews.metadata->'review_result'->'comments') AS comment WHERE reviews.org_id = {{.OrgID}} AND reviews.status = 'completed' AND jsonb_typeof(reviews.metadata->'review_result'->'comments') = 'array' AND comment->>'FilePath' IS NOT NULL GROUP BY comment->>'FilePath' ORDER BY issue_count DESC LIMIT 10;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "quantitative",
+            "field": "issue_count",
+            "title": "Number of Issues"
+          },
+          "y": {
+            "sort": "-x",
+            "type": "nominal",
+            "field": "file_path",
+            "title": "File Path"
+          },
+          "tooltip": [
+            {
+              "type": "nominal",
+              "field": "file_path",
+              "title": "File Path"
+            },
+            {
+              "type": "quantitative",
+              "field": "issue_count",
+              "title": "Issue Count"
+            }
+          ]
+        }
+      },
+      "chart_type": "horizontal_bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 12
+    },
+    {
+      "id": "daily-livereview-cost",
+      "section": "cost",
+      "section_label": "Cost & Efficiency",
+      "title": "Daily LiveReview Cost",
+      "description": "This chart shows the total daily cost incurred by LiveReview for all code review operations.",
+      "query_summary": "Daily total cost of LiveReview operations for hexmos-internal.",
+      "sql": "SELECT\n    DATE_TRUNC('day', quota_operation_aggregates.finalized_at) AS day,\n    SUM(quota_operation_aggregates.total_cost_usd_total) AS total_cost\nFROM quota_operation_aggregates\nWHERE\n    quota_operation_aggregates.org_id = {{.OrgID}}\n    AND quota_operation_aggregates.operation_type = 'diff_review'\n    AND quota_operation_aggregates.finalized_at IS NOT NULL\nGROUP BY 1\nORDER BY 1;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "total_cost",
+            "title": "Total Cost (USD)"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "day",
+              "title": "Date",
+              "format": "%Y-%m-%d"
+            },
+            {
+              "type": "quantitative",
+              "field": "total_cost",
+              "title": "Total Cost (USD)",
+              "format": ".2f"
+            }
+          ]
+        }
+      },
+      "chart_type": "line",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 0
+    },
+    {
+      "id": "daily-cost-per-line-of-code",
+      "section": "cost",
+      "section_label": "Cost & Efficiency",
+      "title": "Daily Cost per Line of Code",
+      "description": "This chart illustrates the daily cost efficiency of LiveReview, showing the cost per line of code reviewed.",
+      "query_summary": "Daily cost per line of code reviewed by LiveReview for hexmos-internal.",
+      "sql": "SELECT\n    DATE_TRUNC('day', quota_operation_aggregates.finalized_at) AS day,\n    SUM(quota_operation_aggregates.total_cost_usd_total) AS total_cost,\n    SUM(quota_operation_aggregates.effective_loc_total) AS effective_loc,\n    CASE\n        WHEN SUM(quota_operation_aggregates.effective_loc_total) > 0\n        THEN ROUND(CAST(SUM(quota_operation_aggregates.total_cost_usd_total) / SUM(quota_operation_aggregates.effective_loc_total) AS numeric), 6)\n        ELSE 0\n    END AS cost_per_loc\nFROM quota_operation_aggregates\nWHERE\n    quota_operation_aggregates.org_id = {{.OrgID}}\n    AND quota_operation_aggregates.operation_type = 'diff_review'\n    AND quota_operation_aggregates.finalized_at IS NOT NULL\n    AND quota_operation_aggregates.effective_loc_total > 0\nGROUP BY 1\nORDER BY 1;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "cost_per_loc",
+            "title": "Cost per LOC (USD)"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "day",
+              "title": "Date",
+              "format": "%Y-%m-%d"
+            },
+            {
+              "type": "quantitative",
+              "field": "cost_per_loc",
+              "title": "Cost per LOC (USD)",
+              "format": ".6f"
+            }
+          ]
+        }
+      },
+      "chart_type": "line",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 1
+    },
+    {
+      "id": "cost-by-ai-provider",
+      "section": "cost",
+      "section_label": "Cost & Efficiency",
+      "title": "Cost by AI Provider",
+      "description": "This chart displays the total cost distributed among different AI providers used by LiveReview.",
+      "query_summary": "Distribution of LiveReview costs by AI provider for hexmos-internal.",
+      "sql": "SELECT\n    quota_operation_aggregates.provider AS ai_provider,\n    SUM(quota_operation_aggregates.total_cost_usd_total) AS total_cost\nFROM quota_operation_aggregates\nWHERE\n    quota_operation_aggregates.org_id = {{.OrgID}}\n    AND quota_operation_aggregates.operation_type = 'diff_review'\n    AND quota_operation_aggregates.finalized_at IS NOT NULL\nGROUP BY quota_operation_aggregates.provider\nORDER BY total_cost DESC;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "arc",
+          "innerRadius": 50
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "color": {
+            "type": "nominal",
+            "field": "ai_provider",
+            "title": "AI Provider"
+          },
+          "theta": {
+            "type": "quantitative",
+            "field": "total_cost",
+            "title": "Total Cost (USD)"
+          },
+          "tooltip": [
+            {
+              "type": "nominal",
+              "field": "ai_provider",
+              "title": "AI Provider"
+            },
+            {
+              "type": "quantitative",
+              "field": "total_cost",
+              "title": "Total Cost (USD)",
+              "format": ".2f"
+            },
+            {
+              "type": "quantitative",
+              "field": "total_cost",
+              "stack": "normalize",
+              "title": "Share of Total",
+              "format": ".1%"
+            }
+          ]
+        }
+      },
+      "chart_type": "pie",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 2
+    },
+    {
+      "id": "daily-lines-of-code-reviewed",
+      "section": "cost",
+      "section_label": "Cost & Efficiency",
+      "title": "Daily Lines of Code Reviewed",
+      "description": "This chart shows the total lines of code reviewed by LiveReview per day for your organization.",
+      "query_summary": "Daily lines of code reviewed by LiveReview for hexmos-internal.",
+      "sql": "SELECT\n    date_trunc('day', loc_usage_ledger.accounted_at) AS day,\n    SUM(loc_usage_ledger.billable_loc) AS total_loc_reviewed\nFROM\n    loc_usage_ledger\nWHERE\n    loc_usage_ledger.org_id = {{.OrgID}}\n    AND loc_usage_ledger.status = 'accounted'\n    AND loc_usage_ledger.operation_type = 'diff_review'\nGROUP BY\n    day\nORDER BY\n    day;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "total_loc_reviewed",
+            "title": "Total Lines of Code Reviewed"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "day",
+              "title": "Date"
+            },
+            {
+              "type": "quantitative",
+              "field": "total_loc_reviewed",
+              "title": "Total Lines of Code Reviewed"
+            }
+          ]
+        }
+      },
+      "chart_type": "line",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 3
+    },
+    {
+      "id": "lines-of-code-reviewed-by-repository",
+      "section": "cost",
+      "section_label": "Cost & Efficiency",
+      "title": "Lines of Code Reviewed by Repository",
+      "description": "This chart identifies the top 20 repositories with the most lines of code reviewed by LiveReview within your organization.",
+      "query_summary": "Top 20 repositories by lines of code reviewed by LiveReview for hexmos-internal.",
+      "sql": "SELECT\n    reviews.repository AS repository_name,\n    SUM(loc_usage_ledger.billable_loc) AS total_loc_reviewed\nFROM\n    loc_usage_ledger\nJOIN\n    reviews ON loc_usage_ledger.review_id = reviews.id\nWHERE\n    loc_usage_ledger.org_id = {{.OrgID}}\n    AND loc_usage_ledger.status = 'accounted'\n    AND loc_usage_ledger.operation_type = 'diff_review'\n    AND reviews.org_id = {{.OrgID}}\nGROUP BY\n    reviews.repository\nORDER BY\n    total_loc_reviewed DESC\nLIMIT 20;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "quantitative",
+            "field": "total_loc_reviewed",
+            "title": "Total Lines of Code Reviewed"
+          },
+          "y": {
+            "sort": "-x",
+            "type": "nominal",
+            "field": "repository_name",
+            "title": "Repository Name"
+          },
+          "tooltip": [
+            {
+              "field": "repository_name",
+              "title": "Repository Name"
+            },
+            {
+              "field": "total_loc_reviewed",
+              "title": "Total Lines of Code Reviewed"
+            }
+          ]
+        }
+      },
+      "chart_type": "horizontal_bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 4
+    },
+    {
+      "id": "lines-of-code-reviewed-by-trigger-type",
+      "section": "cost",
+      "section_label": "Cost & Efficiency",
+      "title": "Lines of Code Reviewed by Trigger Type",
+      "description": "This chart shows the total lines of code reviewed by LiveReview, broken down by the type of trigger that initiated the review.",
+      "query_summary": "Lines of code reviewed by LiveReview per trigger type for hexmos-internal.",
+      "sql": "SELECT\n    loc_usage_ledger.trigger_source AS trigger_type,\n    SUM(loc_usage_ledger.billable_loc) AS total_loc_reviewed\nFROM\n    loc_usage_ledger\nWHERE\n    loc_usage_ledger.org_id = {{.OrgID}}\n    AND loc_usage_ledger.status = 'accounted'\n    AND loc_usage_ledger.operation_type = 'diff_review'\nGROUP BY\n    loc_usage_ledger.trigger_source\nORDER BY\n    total_loc_reviewed DESC;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "sort": "-y",
+            "type": "nominal",
+            "field": "trigger_type",
+            "title": "Trigger Type"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "total_loc_reviewed",
+            "title": "Total Lines of Code Reviewed"
+          },
+          "tooltip": [
+            {
+              "field": "trigger_type",
+              "title": "Trigger Type"
+            },
+            {
+              "field": "total_loc_reviewed",
+              "title": "Total Lines of Code Reviewed"
+            }
+          ]
+        }
+      },
+      "chart_type": "bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 5
+    },
+    {
+      "id": "median-review-duration-trend",
+      "section": "cost",
+      "section_label": "Cost & Efficiency",
+      "title": "Median Review Duration Trend",
+      "description": "This chart shows the daily median time taken for reviews to reach completion, helping to identify if reviews are getting faster or slower over time across your organization.",
+      "query_summary": "Daily median review duration for hexmos-internal.",
+      "sql": "SELECT\n    DATE_TRUNC('day', reviews.completed_at) AS day,\n    PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (reviews.completed_at - reviews.started_at)) / 60.0) AS median_review_duration_minutes\nFROM\n    reviews\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND reviews.status = 'completed'\n    AND reviews.started_at IS NOT NULL\n    AND reviews.completed_at IS NOT NULL\nGROUP BY\n    day\nORDER BY\n    day;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "median_review_duration_minutes",
+            "title": "Median Review Duration (Minutes)"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "day",
+              "title": "Date",
+              "format": "%Y-%m-%d"
+            },
+            {
+              "type": "quantitative",
+              "field": "median_review_duration_minutes",
+              "title": "Median Duration (Minutes)",
+              "format": ".1f"
+            }
+          ]
+        }
+      },
+      "chart_type": "line",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 6
+    },
+    {
+      "id": "median-review-duration-by-trigger-type",
+      "section": "cost",
+      "section_label": "Cost & Efficiency",
+      "title": "Median Review Duration by Trigger Type",
+      "description": "This chart compares the daily median time taken for reviews to complete, categorized by the type of trigger that initiated the review (e.g., webhook, CLI, MCP). This helps understand if certain trigger types are inherently faster or slower.",
+      "query_summary": "Daily median review duration for hexmos-internal, broken down by trigger type.",
+      "sql": "SELECT\n    DATE_TRUNC('day', reviews.completed_at) AS day,\n    reviews.trigger_type AS trigger_type,\n    PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (reviews.completed_at - reviews.started_at)) / 60.0) AS median_review_duration_minutes\nFROM\n    reviews\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND reviews.status = 'completed'\n    AND reviews.started_at IS NOT NULL\n    AND reviews.completed_at IS NOT NULL\nGROUP BY\n    day,\n    reviews.trigger_type\nORDER BY\n    day,\n    reviews.trigger_type;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "median_review_duration_minutes",
+            "title": "Median Review Duration (Minutes)"
+          },
+          "color": {
+            "type": "nominal",
+            "field": "trigger_type",
+            "title": "Trigger Type"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "day",
+              "title": "Date",
+              "format": "%Y-%m-%d"
+            },
+            {
+              "type": "quantitative",
+              "field": "median_review_duration_minutes",
+              "title": "Median Duration (Minutes)",
+              "format": ".1f"
+            },
+            {
+              "type": "nominal",
+              "field": "trigger_type",
+              "title": "Trigger Type"
+            }
+          ]
+        }
+      },
+      "chart_type": "multi_line",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 7
+    },
+    {
+      "id": "top-repositories-by-lines-of-code-reviewed",
+      "section": "cost",
+      "section_label": "Cost & Efficiency",
+      "title": "Top Repositories by Lines of Code Reviewed",
+      "description": "This chart shows the top 20 repositories by total lines of code reviewed, along with a cumulative percentage line to highlight the concentration of work in 'hexmos-internal'.",
+      "query_summary": "Top 20 repositories by lines of code reviewed for hexmos-internal, showing cumulative percentage.",
+      "sql": "WITH RepositoryLOC AS (\n    SELECT\n        reviews.repository AS repository_name,\n        SUM(loc_usage_ledger.billable_loc) AS loc_reviewed\n    FROM\n        loc_usage_ledger\n    JOIN\n        reviews ON loc_usage_ledger.review_id = reviews.id\n    WHERE\n        loc_usage_ledger.org_id = {{.OrgID}}\n        AND reviews.org_id = {{.OrgID}}\n        AND loc_usage_ledger.status = 'accounted'\n        AND loc_usage_ledger.operation_type = 'diff_review'\n    GROUP BY\n        reviews.repository\n)\nSELECT\n    repository_name,\n    loc_reviewed,\n    SUM(loc_reviewed) OVER (ORDER BY loc_reviewed DESC) * 100.0 / SUM(loc_reviewed) OVER () AS cumulative_percentage\nFROM\n    RepositoryLOC\nORDER BY\n    loc_reviewed DESC\nLIMIT 20;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "layer": [
+          {
+            "mark": {
+              "type": "bar",
+              "color": "#7c9cff"
+            },
+            "encoding": {
+              "x": {
+                "sort": "-y",
+                "type": "nominal",
+                "field": "repository_name",
+                "title": "Repository Name"
+              },
+              "y": {
+                "type": "quantitative",
+                "field": "loc_reviewed",
+                "title": "Lines of Code Reviewed"
+              },
+              "tooltip": [
+                {
+                  "field": "repository_name",
+                  "title": "Repository"
+                },
+                {
+                  "type": "quantitative",
+                  "field": "loc_reviewed",
+                  "title": "Lines of Code Reviewed"
+                }
+              ]
+            }
+          },
+          {
+            "mark": {
+              "type": "line",
+              "color": "#ff5c7c",
+              "point": true,
+              "strokeWidth": 2
+            },
+            "encoding": {
+              "x": {
+                "sort": "-y",
+                "type": "nominal",
+                "field": "repository_name",
+                "title": "Repository Name"
+              },
+              "y": {
+                "axis": {
+                  "orient": "right"
+                },
+                "type": "quantitative",
+                "field": "cumulative_percentage",
+                "title": "Cumulative %"
+              },
+              "tooltip": [
+                {
+                  "field": "repository_name",
+                  "title": "Repository"
+                },
+                {
+                  "type": "quantitative",
+                  "field": "cumulative_percentage",
+                  "title": "Cumulative %",
+                  "format": ".1f"
+                }
+              ]
+            }
+          }
+        ],
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "resolve": {
+          "scale": {
+            "y": "independent"
+          }
+        }
+      },
+      "chart_type": "pareto",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 8
+    },
+    {
+      "id": "daily-completed-reviews",
+      "section": "engagement",
+      "section_label": "Engagement & Trust",
+      "title": "Daily Completed Reviews",
+      "description": "This chart shows the daily trend of completed reviews for the organization, indicating overall review activity.",
+      "query_summary": "Daily count of completed reviews for hexmos-internal.",
+      "sql": "SELECT\n    DATE_TRUNC('day', reviews.created_at) AS review_day,\n    COUNT(reviews.id) AS review_count\nFROM\n    reviews\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND reviews.status = 'completed'\nGROUP BY\n    DATE_TRUNC('day', reviews.created_at)\nORDER BY\n    review_day;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "review_day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "review_count",
+            "title": "Number of Reviews"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "review_day",
+              "title": "Date",
+              "format": "%Y-%m-%d"
+            },
+            {
+              "type": "quantitative",
+              "field": "review_count",
+              "title": "Number of Reviews"
+            }
+          ]
+        }
+      },
+      "chart_type": "line",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 0
+    },
+    {
+      "id": "top-repositories-by-review-count",
+      "section": "engagement",
+      "section_label": "Engagement & Trust",
+      "title": "Top Repositories by Review Count",
+      "description": "This chart shows the top 20 repositories with the most completed reviews in the 'hexmos-internal' organization.",
+      "query_summary": "Top 20 repositories by the number of completed reviews for hexmos-internal.",
+      "sql": "SELECT reviews.repository AS repository_name, COUNT(reviews.id) AS review_count FROM reviews WHERE reviews.org_id = {{.OrgID}} AND reviews.status = 'completed' GROUP BY reviews.repository ORDER BY COUNT(reviews.id) DESC LIMIT 20;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "title": "Top Repositories by Number of Completed Reviews",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "quantitative",
+            "field": "review_count",
+            "title": "Number of Completed Reviews"
+          },
+          "y": {
+            "sort": "-x",
+            "type": "nominal",
+            "field": "repository_name",
+            "title": "Repository"
+          },
+          "tooltip": [
+            {
+              "field": "repository_name",
+              "title": "Repository"
+            },
+            {
+              "field": "review_count",
+              "title": "Number of Completed Reviews"
+            }
+          ]
+        }
+      },
+      "chart_type": "horizontal_bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 1
+    },
+    {
+      "id": "average-commits-per-review",
+      "section": "engagement",
+      "section_label": "Engagement & Trust",
+      "title": "Average Commits Per Review",
+      "description": "This chart shows the daily average number of commits included in scheduled reviews, indicating the trend in review iterativeness.",
+      "query_summary": "Daily average number of commits per scheduled review for hexmos-internal.",
+      "sql": "SELECT\n    DATE_TRUNC('day', scheduled_review_runs.started_at) AS review_day,\n    AVG(scheduled_review_runs.commit_count) AS avg_commit_count\nFROM scheduled_review_runs\nJOIN reviews ON scheduled_review_runs.review_id = reviews.id\nWHERE reviews.org_id = {{.OrgID}}\nGROUP BY review_day\nORDER BY review_day;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "review_day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "avg_commit_count",
+            "title": "Average Commits Per Review"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "review_day",
+              "title": "Date"
+            },
+            {
+              "type": "quantitative",
+              "field": "avg_commit_count",
+              "title": "Average Commits",
+              "format": ".2f"
+            }
+          ]
+        }
+      },
+      "chart_type": "line",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 2
+    },
+    {
+      "id": "daily-average-comments-per-review",
+      "section": "engagement",
+      "section_label": "Engagement & Trust",
+      "title": "Daily Average Comments per Review",
+      "description": "This chart displays the daily average number of comments per completed review, reflecting the iterativeness of the feedback process.",
+      "query_summary": "Daily average number of comments per completed review for hexmos-internal.",
+      "sql": "SELECT\n    DATE_TRUNC('day', reviews.created_at) AS review_day,\n    AVG(jsonb_array_length(reviews.metadata->'review_result'->'comments')) AS average_comments_per_review\nFROM\n    reviews\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND reviews.status = 'completed'\n    AND reviews.metadata IS NOT NULL\n    AND jsonb_typeof(reviews.metadata->'review_result') = 'object'\n    AND jsonb_typeof(reviews.metadata->'review_result'->'comments') = 'array'\nGROUP BY\n    DATE_TRUNC('day', reviews.created_at)\nORDER BY\n    review_day;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "review_day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "average_comments_per_review",
+            "title": "Average Comments"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "review_day",
+              "title": "Date",
+              "format": "%Y-%m-%d"
+            },
+            {
+              "type": "quantitative",
+              "field": "average_comments_per_review",
+              "title": "Average Comments",
+              "format": ".1f"
+            }
+          ]
+        }
+      },
+      "chart_type": "line",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 3
+    },
+    {
+      "id": "top-engineers-by-review-count",
+      "section": "engagement",
+      "section_label": "Engagement & Trust",
+      "title": "Top Engineers by Review Count",
+      "description": "This chart shows the top 20 engineers who have completed the most LiveReview reviews within the organization.",
+      "query_summary": "Top 20 engineers by the number of completed reviews in hexmos-internal.",
+      "sql": "SELECT\n    users.email AS engineer_email,\n    concat_ws(' ', users.first_name, users.last_name) AS engineer_name,\n    COUNT(reviews.id) AS review_count\nFROM\n    reviews\nINNER JOIN\n    users ON reviews.user_email = users.email\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND reviews.status = 'completed'\n    AND reviews.user_email IS NOT NULL\nGROUP BY\n    users.email, concat_ws(' ', users.first_name, users.last_name)\nORDER BY\n    review_count DESC\nLIMIT 20;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "quantitative",
+            "field": "review_count",
+            "title": "Number of Completed Reviews"
+          },
+          "y": {
+            "sort": "-x",
+            "type": "nominal",
+            "field": "engineer_name",
+            "title": "Engineer"
+          },
+          "tooltip": [
+            {
+              "field": "engineer_name",
+              "title": "Engineer"
+            },
+            {
+              "field": "engineer_email",
+              "title": "Email"
+            },
+            {
+              "field": "review_count",
+              "title": "Completed Reviews"
+            }
+          ]
+        }
+      },
+      "chart_type": "horizontal_bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 4
+    },
+    {
+      "id": "top-engineers-by-lines-of-code-reviewed",
+      "section": "engagement",
+      "section_label": "Engagement & Trust",
+      "title": "Top Engineers by Lines of Code Reviewed",
+      "description": "This chart identifies the top 20 engineers by the total lines of code reviewed by LiveReview for their contributions within the organization.",
+      "query_summary": "Top 20 engineers by total lines of code reviewed in hexmos-internal.",
+      "sql": "SELECT\n    users.email AS engineer_email,\n    concat_ws(' ', users.first_name, users.last_name) AS engineer_name,\n    SUM(loc_usage_ledger.billable_loc) AS total_loc_reviewed\nFROM\n    loc_usage_ledger\nINNER JOIN\n    users ON loc_usage_ledger.user_id = users.id\nWHERE\n    loc_usage_ledger.org_id = {{.OrgID}}\n    AND loc_usage_ledger.status = 'accounted'\n    AND loc_usage_ledger.operation_type = 'diff_review'\n    AND loc_usage_ledger.user_id IS NOT NULL\nGROUP BY\n    users.email, concat_ws(' ', users.first_name, users.last_name)\nORDER BY\n    total_loc_reviewed DESC\nLIMIT 20;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "quantitative",
+            "field": "total_loc_reviewed",
+            "title": "Total Lines of Code Reviewed"
+          },
+          "y": {
+            "sort": "-x",
+            "type": "nominal",
+            "field": "engineer_name",
+            "title": "Engineer"
+          },
+          "tooltip": [
+            {
+              "field": "engineer_name",
+              "title": "Engineer"
+            },
+            {
+              "field": "engineer_email",
+              "title": "Email"
+            },
+            {
+              "field": "total_loc_reviewed",
+              "title": "LOC Reviewed"
+            }
+          ]
+        }
+      },
+      "chart_type": "horizontal_bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 5
+    },
+    {
+      "id": "engineer-review-activity-bands",
+      "section": "engagement",
+      "section_label": "Engagement & Trust",
+      "title": "Engineer Review Activity Bands",
+      "description": "This chart shows the distribution of LiveReview activity across all engineers, categorizing them into bands based on the number of completed reviews.",
+      "query_summary": "Distribution of engineers into review activity bands (0, 1-10, 11-20, 21+ reviews) for hexmos-internal.",
+      "sql": "WITH engineer_review_counts AS (\n    SELECT\n        ur.user_id,\n        COALESCE(COUNT(r.id), 0) AS review_count\n    FROM\n        user_roles AS ur\n    INNER JOIN\n        users ON ur.user_id = users.id\n    LEFT JOIN\n        reviews AS r ON ur.user_id = users.id AND r.user_email = users.email AND r.org_id = {{.OrgID}} AND r.status = 'completed'\n    WHERE\n        ur.org_id = {{.OrgID}}\n    GROUP BY\n        ur.user_id\n),\nengineer_bands AS (\n    SELECT\n        CASE\n            WHEN review_count = 0 THEN '0 reviews'\n            WHEN review_count BETWEEN 1 AND 10 THEN '1-10 (light)'\n            WHEN review_count BETWEEN 11 AND 20 THEN '11-20 (regular)'\n            ELSE '21+ (heavy)'\n        END AS review_band,\n        user_id\n    FROM\n        engineer_review_counts\n)\nSELECT\n    review_band,\n    COUNT(user_id) AS engineer_count\nFROM\n    engineer_bands\nGROUP BY\n    review_band\nORDER BY\n    CASE review_band\n        WHEN '0 reviews' THEN 1\n        WHEN '1-10 (light)' THEN 2\n        WHEN '11-20 (regular)' THEN 3\n        WHEN '21+ (heavy)' THEN 4\n    END;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "bar",
+          "color": "#7c9cff"
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "sort": [
+              "0 reviews",
+              "1-10 (light)",
+              "11-20 (regular)",
+              "21+ (heavy)"
+            ],
+            "type": "nominal",
+            "field": "review_band",
+            "title": "Review Activity Band"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "engineer_count",
+            "title": "Number of Engineers"
+          },
+          "color": {
+            "type": "nominal",
+            "field": "review_band",
+            "legend": {
+              "title": "Review Activity"
+            }
+          },
+          "tooltip": [
+            {
+              "field": "review_band",
+              "title": "Review Activity"
+            },
+            {
+              "field": "engineer_count",
+              "title": "Number of Engineers"
+            }
+          ]
+        }
+      },
+      "chart_type": "histogram",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 6
+    },
+    {
+      "id": "overall-feedback-distribution",
+      "section": "engagement",
+      "section_label": "Engagement & Trust",
+      "title": "Overall Feedback Distribution",
+      "description": "This chart shows the overall proportion of upvotes versus downvotes received on LiveReview comments across your organization.",
+      "query_summary": "The distribution of upvotes and downvotes for LiveReview comments in hexmos-internal.",
+      "sql": "SELECT\n    review_feedback.vote_type,\n    COUNT(review_feedback.id) AS vote_count\nFROM\n    review_feedback\nWHERE\n    review_feedback.org_id = {{.OrgID}} AND review_feedback.vote_type IN ('up', 'down')\nGROUP BY\n    review_feedback.vote_type\nORDER BY\n    vote_count DESC;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "arc",
+          "innerRadius": 50
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "color": {
+            "type": "nominal",
+            "field": "vote_type",
+            "title": "Vote Type"
+          },
+          "theta": {
+            "type": "quantitative",
+            "field": "vote_count",
+            "stack": true
+          },
+          "tooltip": [
+            {
+              "type": "nominal",
+              "field": "vote_type",
+              "title": "Vote Type"
+            },
+            {
+              "type": "quantitative",
+              "field": "vote_count",
+              "title": "Count"
+            },
+            {
+              "type": "quantitative",
+              "field": "vote_count",
+              "stack": "normalize",
+              "title": "Share of Total",
+              "format": ".1%"
+            }
+          ]
+        }
+      },
+      "chart_type": "pie",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 7
+    },
+    {
+      "id": "upvote-and-downvote-trend-over-time",
+      "section": "engagement",
+      "section_label": "Engagement & Trust",
+      "title": "Upvote and Downvote Trend Over Time",
+      "description": "This chart illustrates the daily trend of upvotes and downvotes received on LiveReview comments.",
+      "query_summary": "The daily trend of upvotes and downvotes for LiveReview comments in hexmos-internal.",
+      "sql": "SELECT\n    DATE_TRUNC('day', review_feedback.created_at) AS day,\n    review_feedback.vote_type,\n    COUNT(review_feedback.id) AS vote_count\nFROM\n    review_feedback\nWHERE\n    review_feedback.org_id = {{.OrgID}} AND review_feedback.vote_type IN ('up', 'down')\nGROUP BY\n    DATE_TRUNC('day', review_feedback.created_at),\n    review_feedback.vote_type\nORDER BY\n    day,\n    review_feedback.vote_type;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "vote_count",
+            "title": "Vote Count"
+          },
+          "color": {
+            "type": "nominal",
+            "field": "vote_type",
+            "title": "Vote Type"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "day",
+              "title": "Date"
+            },
+            {
+              "type": "nominal",
+              "field": "vote_type",
+              "title": "Vote Type"
+            },
+            {
+              "type": "quantitative",
+              "field": "vote_count",
+              "title": "Count"
+            }
+          ]
+        }
+      },
+      "chart_type": "multi_line",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 8
+    },
+    {
+      "id": "feedback-by-review-category",
+      "section": "engagement",
+      "section_label": "Engagement & Trust",
+      "title": "Feedback by Review Category",
+      "description": "This chart breaks down the net sentiment (upvotes vs. downvotes) for different categories of review comments, highlighting which types of feedback are most trusted or disputed.",
+      "query_summary": "The upvotes and downvotes for each review comment category in hexmos-internal.",
+      "sql": "SELECT\n    comment_element->>'Category' AS review_category,\n    review_feedback.vote_type,\n    CASE\n        WHEN review_feedback.vote_type = 'up' THEN COUNT(review_feedback.id)\n        WHEN review_feedback.vote_type = 'down' THEN -COUNT(review_feedback.id)\n        ELSE 0\n    END AS signed_vote_count\nFROM\n    review_feedback\nJOIN\n    reviews ON review_feedback.review_id = reviews.id\nCROSS JOIN LATERAL\n    jsonb_array_elements(reviews.metadata->'review_result'->'comments') AS comment_element\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND review_feedback.org_id = {{.OrgID}}\n    AND review_feedback.vote_type IN ('up', 'down')\n    AND jsonb_typeof(reviews.metadata->'review_result'->'comments') = 'array'\n    AND comment_element->>'Category' IS NOT NULL\nGROUP BY\n    comment_element->>'Category',\n    review_feedback.vote_type\nHAVING\n    COUNT(review_feedback.id) > 0\nORDER BY\n    review_category,\n    review_feedback.vote_type;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": "bar",
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "quantitative",
+            "field": "signed_vote_count",
+            "title": "Vote Count"
+          },
+          "y": {
+            "sort": {
+              "op": "sum",
+              "field": "signed_vote_count",
+              "order": "descending"
+            },
+            "type": "nominal",
+            "field": "review_category",
+            "title": "Review Category"
+          },
+          "color": {
+            "type": "nominal",
+            "field": "vote_type",
+            "scale": {
+              "range": [
+                "#39d353",
+                "#ff5c7c"
+              ],
+              "domain": [
+                "up",
+                "down"
+              ]
+            },
+            "legend": {
+              "title": "Vote Type"
+            }
+          },
+          "tooltip": [
+            {
+              "type": "nominal",
+              "field": "review_category",
+              "title": "Category"
+            },
+            {
+              "type": "nominal",
+              "field": "vote_type",
+              "title": "Vote Type"
+            },
+            {
+              "type": "quantitative",
+              "field": "signed_vote_count",
+              "title": "Count",
+              "format": "d"
+            }
+          ]
+        }
+      },
+      "chart_type": "diverging_bar",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 9
+    },
+    {
+      "id": "daily-review-activity-trend",
+      "section": "summary",
+      "section_label": "Summary & Comparison",
+      "title": "Daily Review Activity Trend",
+      "description": "This chart shows the daily count of completed reviews, indicating the overall engagement and consistency of the review workflow over time.",
+      "query_summary": "Analyzes the daily trend of completed reviews for hexmos-internal.",
+      "sql": "SELECT\n    DATE_TRUNC('day', reviews.created_at) AS review_day,\n    COUNT(reviews.id) AS review_count\nFROM\n    reviews\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND reviews.status = 'completed'\nGROUP BY\n    DATE_TRUNC('day', reviews.created_at)\nORDER BY\n    review_day;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "type": "temporal",
+            "field": "review_day",
+            "title": "Date",
+            "timeUnit": "yearmonthdate"
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "review_count",
+            "title": "Number of Completed Reviews"
+          },
+          "tooltip": [
+            {
+              "type": "temporal",
+              "field": "review_day",
+              "title": "Date"
+            },
+            {
+              "type": "quantitative",
+              "field": "review_count",
+              "title": "Review Count"
+            }
+          ]
+        }
+      },
+      "chart_type": "line",
+      "granularity": "Daily",
+      "time_range": "All time",
+      "sort_order": 0
+    },
+    {
+      "id": "engineer-review-loc-contribution-pareto",
+      "section": "summary",
+      "section_label": "Summary & Comparison",
+      "title": "Engineer Review LOC Contribution (Pareto)",
+      "description": "This chart identifies the top engineers by lines of code reviewed and shows the cumulative percentage of total LOC reviewed they account for, highlighting contribution concentration.",
+      "query_summary": "Shows the top 20 engineers by lines of code reviewed and their cumulative contribution to the total for hexmos-internal.",
+      "sql": "WITH EngineerLoc AS (\n    SELECT\n        users.email AS engineer_email,\n        SUM(loc_usage_ledger.billable_loc) AS total_loc_reviewed\n    FROM\n        loc_usage_ledger\n    JOIN\n        users ON loc_usage_ledger.user_id = users.id\n    JOIN\n        user_roles ON users.id = user_roles.user_id AND user_roles.org_id = {{.OrgID}}\n    WHERE\n        loc_usage_ledger.org_id = {{.OrgID}}\n        AND loc_usage_ledger.operation_type = 'diff_review'\n        AND loc_usage_ledger.status = 'accounted'\n        AND loc_usage_ledger.actor_kind = 'member'\n    GROUP BY\n        users.email\n)\nSELECT\n    engineer_email,\n    total_loc_reviewed,\n    ROUND(SUM(total_loc_reviewed) OVER (ORDER BY total_loc_reviewed DESC) * 100.0 / SUM(total_loc_reviewed) OVER (), 2) AS cumulative_pct\nFROM\n    EngineerLoc\nWHERE\n    total_loc_reviewed > 0\nORDER BY\n    total_loc_reviewed DESC\nLIMIT 20;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "layer": [
+          {
+            "mark": {
+              "type": "bar",
+              "color": "#7c9cff"
+            },
+            "encoding": {
+              "x": {
+                "sort": "-y",
+                "type": "nominal",
+                "field": "engineer_email",
+                "title": "Engineer Email"
+              },
+              "y": {
+                "type": "quantitative",
+                "field": "total_loc_reviewed",
+                "title": "Total Lines of Code Reviewed"
+              },
+              "tooltip": [
+                {
+                  "field": "engineer_email",
+                  "title": "Engineer Email"
+                },
+                {
+                  "field": "total_loc_reviewed",
+                  "title": "Total LOC Reviewed"
+                }
+              ]
+            }
+          },
+          {
+            "mark": {
+              "type": "line",
+              "color": "#ff5c7c",
+              "point": true,
+              "strokeWidth": 2
+            },
+            "encoding": {
+              "x": {
+                "sort": "-y",
+                "type": "nominal",
+                "field": "engineer_email",
+                "title": "Engineer Email"
+              },
+              "y": {
+                "axis": {
+                  "orient": "right"
+                },
+                "type": "quantitative",
+                "field": "cumulative_pct",
+                "title": "Cumulative %",
+                "format": ".1f"
+              },
+              "tooltip": [
+                {
+                  "field": "engineer_email",
+                  "title": "Engineer Email"
+                },
+                {
+                  "field": "cumulative_pct",
+                  "title": "Cumulative %",
+                  "format": ".1f"
+                }
+              ]
+            }
+          }
+        ],
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "resolve": {
+          "scale": {
+            "y": "independent"
+          }
+        }
+      },
+      "chart_type": "pareto",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 1
+    },
+    {
+      "id": "distribution-of-review-issue-severities",
+      "section": "summary",
+      "section_label": "Summary & Comparison",
+      "title": "Distribution of Review Issue Severities",
+      "description": "This chart shows the proportion of identified issues categorized by their severity level (e.g., critical, warning, info), highlighting the types of problems LiveReview is catching.",
+      "query_summary": "Breaks down the count of issues by their severity level found in completed reviews for hexmos-internal.",
+      "sql": "SELECT\n    comment_obj ->> 'Severity' AS comment_severity,\n    COUNT(*) AS issue_count\nFROM\n    reviews,\n    LATERAL jsonb_array_elements(reviews.metadata -> 'review_result' -> 'comments') AS comment_obj\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND reviews.status = 'completed'\n    AND jsonb_typeof(reviews.metadata -> 'review_result' -> 'comments') = 'array'\n    AND comment_obj ->> 'Severity' IS NOT NULL\nGROUP BY\n    comment_severity\nORDER BY\n    issue_count DESC;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "arc",
+          "innerRadius": 50
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "color": {
+            "type": "nominal",
+            "field": "comment_severity",
+            "title": "Severity"
+          },
+          "theta": {
+            "type": "quantitative",
+            "field": "issue_count",
+            "title": "Issue Count"
+          },
+          "tooltip": [
+            {
+              "field": "comment_severity",
+              "title": "Severity"
+            },
+            {
+              "type": "quantitative",
+              "field": "issue_count",
+              "title": "Issue Count"
+            },
+            {
+              "field": "issue_count",
+              "stack": "normalize",
+              "title": "Total Issues",
+              "format": ".1%",
+              "aggregate": "sum"
+            }
+          ]
+        }
+      },
+      "chart_type": "pie",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 2
+    },
+    {
+      "id": "review-trigger-type-distribution",
+      "section": "summary",
+      "section_label": "Summary & Comparison",
+      "title": "Review Trigger Type Distribution",
+      "description": "This chart illustrates how reviews are initiated within your organization (e.g., via webhook, CLI, or MCP), providing insight into the adoption of different review mechanisms.",
+      "query_summary": "Shows the distribution of review trigger types for completed reviews within hexmos-internal.",
+      "sql": "SELECT\n    reviews.trigger_type,\n    COUNT(reviews.id) AS review_count\nFROM\n    reviews\nWHERE\n    reviews.org_id = {{.OrgID}}\n    AND reviews.status = 'completed'\nGROUP BY\n    reviews.trigger_type\nORDER BY\n    review_count DESC;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "arc",
+          "innerRadius": 50
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "color": {
+            "type": "nominal",
+            "field": "trigger_type",
+            "title": "Trigger Type"
+          },
+          "theta": {
+            "type": "quantitative",
+            "field": "review_count",
+            "title": "Review Count"
+          },
+          "tooltip": [
+            {
+              "field": "trigger_type",
+              "title": "Trigger Type"
+            },
+            {
+              "type": "quantitative",
+              "field": "review_count",
+              "title": "Review Count"
+            },
+            {
+              "field": "review_count",
+              "stack": "normalize",
+              "title": "Total Reviews",
+              "format": ".1%",
+              "aggregate": "sum"
+            }
+          ]
+        }
+      },
+      "chart_type": "pie",
+      "granularity": "Overall",
+      "time_range": "All time",
+      "sort_order": 3
+    },
+    {
+      "id": "review-count-change-by-engineer",
+      "section": "summary",
+      "section_label": "Summary & Comparison",
+      "title": "Review Count Change by Engineer",
+      "description": "This chart visualizes the change in the number of completed reviews for each engineer between the week before last and the most recent complete week. Lines sloping upwards indicate a gain in review count, downwards indicate a loss, and flat lines indicate no change.",
+      "query_summary": "Shows how the number of completed reviews by each engineer in hexmos-internal changed between the week before last and the most recent complete week.",
+      "sql": "WITH time_periods AS (\n    SELECT\n        DATE_TRUNC('week', NOW() - INTERVAL '1 week') AS current_week_start,\n        DATE_TRUNC('week', NOW() - INTERVAL '2 weeks') AS previous_week_start\n),\ncurrent_week_reviews AS (\n    SELECT\n        reviews.user_email,\n        COUNT(reviews.id) AS review_count\n    FROM\n        reviews\n    WHERE\n        reviews.org_id = {{.OrgID}}\n        AND reviews.status = 'completed'\n        AND COALESCE(reviews.completed_at, reviews.created_at) >= (SELECT current_week_start FROM time_periods)\n        AND COALESCE(reviews.completed_at, reviews.created_at) < (SELECT current_week_start FROM time_periods) + INTERVAL '1 week'\n        AND reviews.user_email IS NOT NULL\n    GROUP BY\n        reviews.user_email\n),\nprevious_week_reviews AS (\n    SELECT\n        reviews.user_email,\n        COUNT(reviews.id) AS review_count\n    FROM\n        reviews\n    WHERE\n        reviews.org_id = {{.OrgID}}\n        AND reviews.status = 'completed'\n        AND COALESCE(reviews.completed_at, reviews.created_at) >= (SELECT previous_week_start FROM time_periods)\n        AND COALESCE(reviews.completed_at, reviews.created_at) < (SELECT previous_week_start FROM time_periods) + INTERVAL '1 week'\n        AND reviews.user_email IS NOT NULL\n    GROUP BY\n        reviews.user_email\n),\ncombined_reviews AS (\n    SELECT\n        COALESCE(c.user_email, p.user_email) AS user_email,\n        COALESCE(c.review_count, 0) AS current_week_review_count,\n        COALESCE(p.review_count, 0) AS previous_week_review_count\n    FROM\n        current_week_reviews c\n    FULL OUTER JOIN\n        previous_week_reviews p ON c.user_email = p.user_email\n    WHERE\n        COALESCE(c.review_count, 0) > 0 OR COALESCE(p.review_count, 0) > 0\n),\nusers_in_org AS (\n    SELECT\n        users.email,\n        CONCAT_WS(' ', users.first_name, users.last_name) AS engineer_name\n    FROM\n        users\n    JOIN\n        user_roles ON user_roles.user_id = users.id AND user_roles.org_id = {{.OrgID}}\n)\nSELECT\n    COALESCE(u.engineer_name, cr.user_email) AS engineer_name,\n    cr.previous_week_review_count AS previous_week_review_count,\n    cr.current_week_review_count AS current_week_review_count,\n    'Previous Week' AS period_label,\n    cr.previous_week_review_count AS review_count,\n    CASE\n        WHEN cr.current_week_review_count > cr.previous_week_review_count THEN 'gain'\n        WHEN cr.current_week_review_count < cr.previous_week_review_count THEN 'loss'\n        ELSE 'flat'\n    END AS change_direction\nFROM\n    combined_reviews cr\nLEFT JOIN\n    users_in_org u ON cr.user_email = u.email\nUNION ALL\nSELECT\n    COALESCE(u.engineer_name, cr.user_email) AS engineer_name,\n    cr.previous_week_review_count AS previous_week_review_count,\n    cr.current_week_review_count AS current_week_review_count,\n    'Current Week' AS period_label,\n    cr.current_week_review_count AS review_count,\n    CASE\n        WHEN cr.current_week_review_count > cr.previous_week_review_count THEN 'gain'\n        WHEN cr.current_week_review_count < cr.previous_week_review_count THEN 'loss'\n        ELSE 'flat'\n    END AS change_direction\nFROM\n    combined_reviews cr\nLEFT JOIN\n    users_in_org u ON cr.user_email = u.email\nORDER BY\n    engineer_name, period_label;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true,
+          "strokeWidth": 2.5
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "sort": [
+              "Previous Week",
+              "Current Week"
+            ],
+            "type": "nominal",
+            "field": "period_label",
+            "title": null
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "review_count",
+            "title": "Number of Reviews"
+          },
+          "color": {
+            "type": "nominal",
+            "field": "change_direction",
+            "scale": {
+              "range": [
+                "#39d353",
+                "#8b949e",
+                "#ff5c7c"
+              ],
+              "domain": [
+                "gain",
+                "flat",
+                "loss"
+              ]
+            },
+            "legend": {
+              "title": "Change Direction"
+            }
+          },
+          "detail": {
+            "type": "nominal",
+            "field": "engineer_name"
+          },
+          "tooltip": [
+            {
+              "field": "engineer_name",
+              "title": "Engineer"
+            },
+            {
+              "field": "period_label",
+              "title": "Period"
+            },
+            {
+              "field": "review_count",
+              "title": "Review Count"
+            }
+          ]
+        }
+      },
+      "chart_type": "slope_graph",
+      "granularity": "Overall",
+      "time_range": "Last two complete weeks",
+      "sort_order": 4
+    },
+    {
+      "id": "lines-of-code-reviewed-change-by-engineer",
+      "section": "summary",
+      "section_label": "Summary & Comparison",
+      "title": "Lines of Code Reviewed Change by Engineer",
+      "description": "This chart illustrates the change in the total lines of code reviewed by each engineer between the week before last and the most recent complete week. Upward slopes indicate an increase in LOC reviewed, downward slopes indicate a decrease, and flat lines indicate no change.",
+      "query_summary": "Shows how the total lines of code reviewed by each engineer in hexmos-internal changed between the week before last and the most recent complete week.",
+      "sql": "WITH time_periods AS (\n    SELECT\n        DATE_TRUNC('week', NOW() - INTERVAL '1 week') AS current_week_start,\n        DATE_TRUNC('week', NOW() - INTERVAL '2 weeks') AS previous_week_start\n),\ncurrent_week_loc AS (\n    SELECT\n        loc_usage_ledger.user_id,\n        SUM(loc_usage_ledger.billable_loc) AS loc_reviewed_count\n    FROM\n        loc_usage_ledger\n    WHERE\n        loc_usage_ledger.org_id = {{.OrgID}}\n        AND loc_usage_ledger.status = 'accounted'\n        AND loc_usage_ledger.operation_type = 'diff_review'\n        AND loc_usage_ledger.accounted_at >= (SELECT current_week_start FROM time_periods)\n        AND loc_usage_ledger.accounted_at < (SELECT current_week_start FROM time_periods) + INTERVAL '1 week'\n        AND loc_usage_ledger.user_id IS NOT NULL\n    GROUP BY\n        loc_usage_ledger.user_id\n),\nprevious_week_loc AS (\n    SELECT\n        loc_usage_ledger.user_id,\n        SUM(loc_usage_ledger.billable_loc) AS loc_reviewed_count\n    FROM\n        loc_usage_ledger\n    WHERE\n        loc_usage_ledger.org_id = {{.OrgID}}\n        AND loc_usage_ledger.status = 'accounted'\n        AND loc_usage_ledger.operation_type = 'diff_review'\n        AND loc_usage_ledger.accounted_at >= (SELECT previous_week_start FROM time_periods)\n        AND loc_usage_ledger.accounted_at < (SELECT previous_week_start FROM time_periods) + INTERVAL '1 week'\n        AND loc_usage_ledger.user_id IS NOT NULL\n    GROUP BY\n        loc_usage_ledger.user_id\n),\ncombined_loc AS (\n    SELECT\n        COALESCE(c.user_id, p.user_id) AS user_id,\n        COALESCE(c.loc_reviewed_count, 0) AS current_week_loc_reviewed,\n        COALESCE(p.loc_reviewed_count, 0) AS previous_week_loc_reviewed\n    FROM\n        current_week_loc c\n    FULL OUTER JOIN\n        previous_week_loc p ON c.user_id = p.user_id\n    WHERE\n        COALESCE(c.loc_reviewed_count, 0) > 0 OR COALESCE(p.loc_reviewed_count, 0) > 0\n),\nusers_in_org AS (\n    SELECT\n        users.id AS user_id,\n        CONCAT_WS(' ', users.first_name, users.last_name) AS engineer_name,\n        users.email\n    FROM\n        users\n    JOIN\n        user_roles ON user_roles.user_id = users.id AND user_roles.org_id = {{.OrgID}}\n)\nSELECT\n    COALESCE(u.engineer_name, u.email) AS engineer_name,\n    cl.previous_week_loc_reviewed AS previous_week_loc_reviewed,\n    cl.current_week_loc_reviewed AS current_week_loc_reviewed,\n    'Previous Week' AS period_label,\n    cl.previous_week_loc_reviewed AS loc_reviewed_count,\n    CASE\n        WHEN cl.current_week_loc_reviewed > cl.previous_week_loc_reviewed THEN 'gain'\n        WHEN cl.current_week_loc_reviewed < cl.previous_week_loc_reviewed THEN 'loss'\n        ELSE 'flat'\n    END AS change_direction\nFROM\n    combined_loc cl\nLEFT JOIN\n    users_in_org u ON cl.user_id = u.user_id\nORDER BY\n    engineer_name, period_label;",
+      "vega_spec": {
+        "data": {
+          "values": "DATA_PLACEHOLDER"
+        },
+        "mark": {
+          "type": "line",
+          "point": true,
+          "strokeWidth": 2.5
+        },
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "encoding": {
+          "x": {
+            "sort": [
+              "Previous Week",
+              "Current Week"
+            ],
+            "type": "nominal",
+            "field": "period_label",
+            "title": null
+          },
+          "y": {
+            "type": "quantitative",
+            "field": "loc_reviewed_count",
+            "title": "Lines of Code Reviewed"
+          },
+          "color": {
+            "type": "nominal",
+            "field": "change_direction",
+            "scale": {
+              "range": [
+                "#39d353",
+                "#8b949e",
+                "#ff5c7c"
+              ],
+              "domain": [
+                "gain",
+                "flat",
+                "loss"
+              ]
+            },
+            "legend": {
+              "title": "Change Direction"
+            }
+          },
+          "detail": {
+            "type": "nominal",
+            "field": "engineer_name"
+          },
+          "tooltip": [
+            {
+              "field": "engineer_name",
+              "title": "Engineer"
+            },
+            {
+              "field": "period_label",
+              "title": "Period"
+            },
+            {
+              "field": "loc_reviewed_count",
+              "title": "LOC Reviewed"
+            }
+          ]
+        }
+      },
+      "chart_type": "slope_graph",
+      "granularity": "Overall",
+      "time_range": "Last two complete weeks",
+      "sort_order": 5
+    }
+  ]
+}

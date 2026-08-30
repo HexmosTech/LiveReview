@@ -106,7 +106,10 @@ func (s *Server) findIntegrationToken(baseURL string, orgID int64) (*Integration
 		return nil, fmt.Errorf("URL is not from a connected Git provider. Please connect the provider first")
 	} else if err != nil {
 		log.Printf("[DEBUG] findIntegrationToken: Database error: %v", err)
-		return nil, fmt.Errorf("database error: %v", err)
+		if strings.Contains(err.Error(), "pat_token") || strings.Contains(err.Error(), "converting NULL") {
+			return nil, fmt.Errorf("your Git provider connection is outdated. Please delete and reconnect it from Providers → Git Providers")
+		}
+		return nil, fmt.Errorf("failed to load Git provider configuration. Please try again later")
 	}
 
 	// Parse metadata JSON
@@ -141,7 +144,11 @@ func (s *Server) loadIntegrationTokenByID(connectorID int64) (*IntegrationToken,
 		&token.TokenType, &token.PatToken, &metadataJSON, &token.OrgID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load integration token %d: %w", connectorID, err)
+		log.Printf("[DEBUG] loadIntegrationTokenByID: Database error: %v", err)
+		if strings.Contains(err.Error(), "pat_token") || strings.Contains(err.Error(), "converting NULL") {
+			return nil, fmt.Errorf("your Git provider connection is outdated. Please delete and reconnect it from Providers → Git Providers")
+		}
+		return nil, fmt.Errorf("failed to load Git provider configuration. Please try again later")
 	}
 
 	token.Metadata = make(map[string]interface{})

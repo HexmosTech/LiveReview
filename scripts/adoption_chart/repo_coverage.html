@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Repo Coverage — hexmos-internal</title>
+<script src="https://cdn.jsdelivr.net/npm/vega@5.33.1" integrity="sha384-NMXhl2TbCXxcN7o4ROC56Funm78m4AylL8gMg/7Kn4YU+wrm23K9l7cY8lDRXQ9d" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5.23.0" integrity="sha384-D9LYH0esGjcxQJsBuxOuXtCDJGXRWW1+KhluzWPqi0rLJmiR/ygPChefaD+rFFDQ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6.29.0" integrity="sha384-M+Ax7e/WFJpxSOF09HzI+Sj4wg9ottVd/uxmV2ItGGh02fLH28t2FAOJx3TJBap5" crossorigin="anonymous"></script>
+<style>
+  body { background:#0b0e17; color:#e6ebf5; font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:32px; }
+  .stats { margin-top:20px; font-size:14px; line-height:1.6; color:#c9d1e0; max-width:900px; }
+  .stats b { color:#fff; }
+  #view { max-width: 640px; overflow-x:auto; }
+  details { margin-top:20px; max-width:900px; }
+  summary { cursor:pointer; color:#aab4c8; font-size:13px; }
+  pre.sql { margin-top:10px; padding:12px 14px; background:#0b0e17; border:1px solid #232a3d; border-radius:8px;
+             font-family: "SF Mono", Menlo, Consolas, monospace; font-size:12px; line-height:1.5; color:#a3b3cc;
+             white-space:pre-wrap; overflow-x:auto; }
+</style>
+</head>
+<body>
+  <div id="view"></div>
+  <div class="stats">Average coverage: <b>2.92</b> reviews per PR across <b>2</b> repos with PR data.<br><i>Y axis is LOC reviewed, not a reviewed/changed ratio - total changed LOC per PR (git-host diff stats) isn't tracked in this schema.</i></div>
+  <details>
+    <summary>Query used</summary>
+    <pre class="sql">SELECT rp.name AS repository,
+           count(DISTINCT pr.id) AS prs,
+           count(DISTINCT r.id) AS reviews,
+           count(DISTINCT r.author_username) AS engineers,
+           coalesce(sum(l.billable_loc), 0) AS loc
+    FROM repositories rp
+    LEFT JOIN pull_requests pr ON pr.repository_id = rp.id
+      AND pr.provider_created_at &gt;= CURRENT_DATE - INTERVAL &#x27;90 days&#x27;
+    LEFT JOIN reviews r ON r.repository = rp.name AND r.org_id = 151
+      AND COALESCE(r.completed_at, r.created_at) &gt;= CURRENT_DATE - INTERVAL &#x27;90 days&#x27;
+    LEFT JOIN loc_usage_ledger l ON l.review_id = r.id AND l.status = &#x27;accounted&#x27;
+    WHERE rp.org_id = 151
+    GROUP BY 1
+    HAVING count(DISTINCT r.id) &gt; 0
+    ORDER BY 3 DESC;</pre>
+  </details>
+  <script>
+    vegaEmbed('#view', {"$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "Repository review coverage \u2014 hexmos-internal, last 90 days", "width": 600, "height": 380, "data": {"values": [{"repository": "LiveReview", "prs": 48, "reviews": 171, "coverage": 3.56, "engineers": 4, "loc": 6637200}, {"repository": "git-lrc", "prs": 32, "reviews": 73, "coverage": 2.28, "engineers": 3, "loc": 867232}, {"repository": "ragfolio", "prs": 0, "reviews": 4, "coverage": 0, "engineers": 2, "loc": 79}, {"repository": "claude-lrc", "prs": 0, "reviews": 3, "coverage": 0, "engineers": 1, "loc": 1195}, {"repository": "makesense", "prs": 0, "reviews": 2, "coverage": 0, "engineers": 1, "loc": 383}]}, "mark": {"type": "circle", "opacity": 0.85}, "encoding": {"x": {"field": "coverage", "type": "quantitative", "title": "Reviews / PRs"}, "y": {"field": "loc", "type": "quantitative", "title": "LOC reviewed"}, "size": {"field": "engineers", "type": "quantitative", "title": "Engineers", "scale": {"range": [60, 900]}}, "color": {"field": "coverage", "type": "quantitative", "title": "Coverage", "scale": {"scheme": "blues"}}, "tooltip": [{"field": "repository", "type": "nominal"}, {"field": "prs", "type": "quantitative", "title": "PRs"}, {"field": "reviews", "type": "quantitative"}, {"field": "coverage", "type": "quantitative", "title": "Reviews/PR"}]}, "config": {"background": "#0f1420", "axis": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5", "gridColor": "#232a3d", "domainColor": "#3a4358"}, "title": {"color": "#e6ebf5", "fontSize": 16}, "legend": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5"}, "view": {"stroke": "transparent"}}}, {actions: false});
+  </script>
+</body>
+</html>

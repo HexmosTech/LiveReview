@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { getDashboardData, DashboardData, refreshDashboardData } from '../../api/dashboard';
+import { useDashboardQuery } from '../../api/dashboard';
+import { useBillingStatusQuery, useQuotaStatusQuery, useBillingUpgradeStatusQuery } from '../../api/billing';
 import {
     Button,
     Icons,
@@ -20,7 +21,6 @@ import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { isCloudMode } from '../../utils/deploymentMode';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import LicenseUpgradeDialog from '../License/LicenseUpgradeDialog';
-import apiClient from '../../api/apiClient';
 import {
     add as addNotification,
     dismiss as dismissNotification,
@@ -92,13 +92,19 @@ export const Dashboard: React.FC = () => {
     const user = useAppSelector(state => state.Auth.user);
     const { isFreePlan } = useOrgContext();
 
-    // Dashboard data state
-    const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const [isSyncing, setIsSyncing] = useState(false);
+    // Dashboard data - shared across every consumer (this component and the
+    // ReviewLayers/SystemOverview/People widget providers) via useDashboardQuery's cache, so a
+    // page load triggers one refresh+get pair instead of each consumer firing its own.
+    const { data: dashboardData = null, isFetching: isSyncing, error: dashboardQueryError } = useDashboardQuery();
+    const error = dashboardQueryError ? 'Failed to load dashboard data' : null;
+
+    // One-shot marker for the login-perf trace (see Cloud.tsx) - confirms the dashboard route
+    // chunk resolved and this component actually mounted, closing out the click-to-dashboard timeline.
+    useEffect(() => {
+        console.info('[LiveReview][LoginPerf] Dashboard mounted', performance.now());
+    }, []);
     const [notificationSent, setNotificationSent] = useState(false);
     const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
-    const [billingInsight, setBillingInsight] = useState<DashboardBillingInsight | null>(null);
     const dispatch = useAppDispatch();
     const notificationItems = useAppSelector(state => state.Notifications.items);
     const hideStepper = !!notificationItems.find(n => n.id === ONBOARDING_STEPPER_ID)?.dismissed;
@@ -131,42 +137,6 @@ export const Dashboard: React.FC = () => {
         }
     }, [user, notificationSent]);
 
-    // Load dashboard data
-    useEffect(() => {
-        const loadDashboardData = async () => {
-            try {
-                setIsSyncing(true);
-                // Ensure backend cache reflects latest connectors/changes
-                try { await refreshDashboardData(); } catch { /* best-effort */ }
-                const data = await getDashboardData();
-                setDashboardData(data);
-                setError(null);
-            } catch (err) {
-                console.error('Error loading dashboard data:', err);
-                setError('Failed to load dashboard data');
-            } finally {
-                setIsSyncing(false);
-            }
-        };
-
-        loadDashboardData();
-
-        // Refresh data every 5 minutes
-        const interval = setInterval(loadDashboardData, 5 * 60 * 1000);
-
-        // Also refresh when the tab regains focus or becomes visible (handy after New Review)
-        const onFocus = () => { loadDashboardData(); };
-        const onVisibility = () => { if (document.visibilityState === 'visible') loadDashboardData(); };
-        window.addEventListener('focus', onFocus);
-        document.addEventListener('visibilitychange', onVisibility);
-
-        return () => {
-            clearInterval(interval);
-            window.removeEventListener('focus', onFocus);
-            document.removeEventListener('visibilitychange', onVisibility);
-        };
-    }, []);
-
     // Register the onboarding stepper as a (session-visible, permanently
     // dismissible) notification once dashboard data has loaded — deferring
     // past the synchronous mount phase gives ToastBridge's hydrate() time to
@@ -183,69 +153,53 @@ export const Dashboard: React.FC = () => {
         }));
     }, [dashboardData, dispatch]);
 
-    useEffect(() => {
+    // Billing/quota/upgrade-status queries: shared with Navbar (and NewReview, TeamCheckout,
+    // SubscriptionTab) via react-query's cache, so these fire once per refetch window instead of
+    // once per component that needs them.
+    const { data: billing } = useBillingStatusQuery<DashboardBillingStatusResponse>({ refetchInterval: 60_000 });
+    const { data: quota } = useQuotaStatusQuery<DashboardQuotaStatusResponse>({ refetchInterval: 60_000 });
+    const { data: upgrade } = useBillingUpgradeStatusQuery<DashboardUpgradeStatusResponse>({ refetchInterval: 60_000 });
 
-        let cancelled = false;
-        const loadBillingInsight = async () => {
-            try {
-                const [billing, quota, upgrade] = await Promise.all([
-                    apiClient.get<DashboardBillingStatusResponse>('/billing/status'),
-                    apiClient.get<DashboardQuotaStatusResponse>('/quota/status').catch((): null => null),
-                    apiClient.get<DashboardUpgradeStatusResponse>('/billing/upgrade/request-status').catch((): null => null),
-                ]);
+    const billingInsight = useMemo<DashboardBillingInsight | null>(() => {
+        if (!billing?.billing) return null;
 
-                if (cancelled || !billing?.billing) return;
+        const planCode = String(billing.billing.current_plan_code || 'free_30k').trim();
 
-                const planCode = String(billing.billing.current_plan_code || 'free_30k').trim();
-                
-                // Hide billing insight for enterprise-selfhosted (licensed)
-                if (!isCloudMode() && planCode === 'enterprise-selfhosted') {
-                    setBillingInsight(null);
-                    return;
-                }
+        // Hide billing insight for enterprise-selfhosted (licensed)
+        if (!isCloudMode() && planCode === 'enterprise-selfhosted') {
+            return null;
+        }
 
-                const plan = (billing.available_plans || []).find((item) => item.plan_code === planCode);
-                const locUsed = Number(billing.billing.loc_used_month || 0);
-                const locLimit = Number(plan?.monthly_loc_limit || 0);
-                const fallbackPct = locLimit > 0 ? Math.min(100, Math.round((locUsed * 100) / locLimit)) : 0;
-                const trialPolicyDays = (billing.available_plans || []).reduce((max, item) => {
-                    const days = Number(item.trial_days || 0);
-                    if (days <= 0) {
-                        return max;
-                    }
-                    return Math.max(max, days);
-                }, 0);
-                const trialEligibilityStatus = String(billing.billing.trial_eligibility?.status || 'unknown').trim().toLowerCase();
-
-                setBillingInsight({
-                    planCode,
-                    locUsed,
-                    locLimit,
-                    usagePct: Math.max(0, Math.round(quota?.envelope?.usage_pct ?? fallbackPct)),
-                    blocked: Boolean(quota?.envelope?.blocked),
-                    trialReadonly: Boolean(quota?.envelope?.trial_readonly),
-                    trialActive: Boolean(billing.billing.trial_active),
-                    trialEndsAt: String(billing.billing.trial_ends_at || '').trim(),
-                    trialEligibleForFirstPaidPurchase: Boolean(billing.billing.trial_eligibility?.eligible),
-                    trialEligibilityStatus,
-                    trialPolicyDays: trialPolicyDays > 0 ? trialPolicyDays : 7,
-                    customerState: String(upgrade?.request?.customer_state || 'none').trim().toLowerCase(),
-                    supportReference: String(upgrade?.request?.support_reference || '').trim(),
-                    actionRequiredType: String(upgrade?.request?.action_required?.type || '').trim().toLowerCase(),
-                });
-            } catch {
-                if (!cancelled) setBillingInsight(null);
+        const plan = (billing.available_plans || []).find((item) => item.plan_code === planCode);
+        const locUsed = Number(billing.billing.loc_used_month || 0);
+        const locLimit = Number(plan?.monthly_loc_limit || 0);
+        const fallbackPct = locLimit > 0 ? Math.min(100, Math.round((locUsed * 100) / locLimit)) : 0;
+        const trialPolicyDays = (billing.available_plans || []).reduce((max, item) => {
+            const days = Number(item.trial_days || 0);
+            if (days <= 0) {
+                return max;
             }
-        };
+            return Math.max(max, days);
+        }, 0);
+        const trialEligibilityStatus = String(billing.billing.trial_eligibility?.status || 'unknown').trim().toLowerCase();
 
-        loadBillingInsight();
-        const intervalId = window.setInterval(loadBillingInsight, 60000);
-
-        return () => {
-            cancelled = true;
-            clearInterval(intervalId);
+        return {
+            planCode,
+            locUsed,
+            locLimit,
+            usagePct: Math.max(0, Math.round(quota?.envelope?.usage_pct ?? fallbackPct)),
+            blocked: Boolean(quota?.envelope?.blocked),
+            trialReadonly: Boolean(quota?.envelope?.trial_readonly),
+            trialActive: Boolean(billing.billing.trial_active),
+            trialEndsAt: String(billing.billing.trial_ends_at || '').trim(),
+            trialEligibleForFirstPaidPurchase: Boolean(billing.billing.trial_eligibility?.eligible),
+            trialEligibilityStatus,
+            trialPolicyDays: trialPolicyDays > 0 ? trialPolicyDays : 7,
+            customerState: String(upgrade?.request?.customer_state || 'none').trim().toLowerCase(),
+            supportReference: String(upgrade?.request?.support_reference || '').trim(),
+            actionRequiredType: String(upgrade?.request?.action_required?.type || '').trim().toLowerCase(),
         };
-    }, []);
+    }, [billing, quota, upgrade]);
 
     // Use dashboard API data exclusively - no fallbacks to Redux store
     const codeReviews = dashboardData?.total_reviews || 0;

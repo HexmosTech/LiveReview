@@ -1,0 +1,36 @@
+# Fast dev-run Air config: no Delve, no CGO, full compiler optimizations.
+# Use when you want quick iteration and don't need `dlv attach` on :2345.
+# dbctx's embedding/scoring code in particular is far slower under
+# `-gcflags='all=-N -l'` (see .air.toml) since that disables inlining and
+# optimization across the whole binary, not just the code you're debugging.
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "if [ \"${SKIP_TYPED_GEN}\" = \"0\" ]; then make generate-openapi; fi && CGO_ENABLED=1 env -u GOROOT go build -o ./tmp/livereview-fast ."
+bin = "tmp/livereview-fast"
+full_bin = "./tmp/livereview-fast api"
+include_ext = ["go", "tpl", "tmpl", "html", "yaml", "md", "toml"]
+exclude_dir = ["assets", "tmp", "vendor", "ui/node_modules", "livereview_pgdata", "lrdata","docs", "internal/api/mcp/generated", "internal/api/docs/spec.go", "scripts/adoption_chart"]
+include_dir = []
+exclude_file = []
+exclude_regex = ["_test.go", "internal/api/docs/spec.go", "internal/api/mcp/generated/server.go"]
+exclude_unchanged = true
+delay = 2000
+follow_symlink = true
+log = "air.log"
+stop_on_error = true
+send_interrupt = false
+kill_delay = 500
+
+[log]
+time = false
+
+[color]
+main = "magenta"
+watcher = "cyan"
+build = "yellow"
+runner = "green"
+
+[misc]
+clean_on_exit = true

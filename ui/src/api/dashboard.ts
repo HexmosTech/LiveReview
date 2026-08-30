@@ -1,4 +1,5 @@
 // API functions for dashboard data
+import { useQuery } from '@tanstack/react-query';
 import apiClient from './apiClient';
 
 export interface ActivityItem {
@@ -156,7 +157,26 @@ export interface DashboardData {
     review_layers?: ReviewLayers;
     system_overview?: SystemOverview;
     people?: People;
+    issue_treemap?: IssueTreemapData;
     last_updated: string;
+}
+
+export interface IssueTreemapChild {
+    name: string;
+    value: number;
+}
+
+export interface IssueTreemapCategory {
+    name: string;
+    value: number;
+    children: IssueTreemapChild[];
+}
+
+export interface IssueTreemapData {
+    day: { categories: IssueTreemapCategory[] };
+    week: { categories: IssueTreemapCategory[] };
+    month: { categories: IssueTreemapCategory[] };
+    all: { categories: IssueTreemapCategory[] };
 }
 
 // Coalesces concurrent callers into a single network request. Dashboard.tsx and each of the
@@ -187,3 +207,27 @@ export interface RefreshDashboardResponse {
 export const refreshDashboardData = async (): Promise<RefreshDashboardResponse> => {
     return apiClient.post<RefreshDashboardResponse>('/api/v1/dashboard/refresh', {});
 };
+
+export const DASHBOARD_QUERY_KEY = ['dashboard'] as const;
+
+// Shared dashboard-data query. Every component that needs dashboard data (Dashboard.tsx, the
+// ReviewLayers/SystemOverview/People widget providers, CreateReviewCLI) should use this instead
+// of calling getDashboardData() directly, so they share one cached in-flight request/result
+// rather than each firing an independent round trip - see docs/perf-improvement.md ("Fix 2").
+//
+// Deliberately just a plain GET, not a refresh+get pair: `dashboard_cache` is already kept
+// fresh by a server-side background job that runs every 5 minutes for every org
+// (DashboardManager.Start, internal/api/dashboard.go), independent of any frontend request.
+// Calling refreshDashboardData() here on every mount/refetch would force an expensive ~25-30
+// sequential-query recompute (internal/api/dashboard.go's RefreshOrgDashboard/ReviewLayers/
+// SystemOverview/People, several scanning unbounded org history) purely redundant with that
+// background job - it was adding 1-2+ seconds to every dashboard load for no freshness benefit.
+// refreshDashboardData() is still exported below for an explicit user-triggered "Refresh now"
+// action (see DashboardGrid.tsx's RefreshWidgetsButton).
+export function useDashboardQuery() {
+    return useQuery<DashboardData>({
+        queryKey: DASHBOARD_QUERY_KEY,
+        queryFn: getDashboardData,
+        refetchInterval: 5 * 60_000,
+    });
+}

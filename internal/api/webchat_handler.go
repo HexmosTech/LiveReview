@@ -15,17 +15,18 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/chatstats"
 	"github.com/livereview/internal/livisql"
 	"github.com/livereview/internal/mcpagent"
 	"github.com/livereview/internal/vlrender"
 	storageanalytics "github.com/livereview/storage/analytics"
+	storagechat "github.com/livereview/storage/chat"
 	"github.com/rs/zerolog/log"
 )
 
 type WebChatRequest struct {
-	Message   string                  `json:"message"`
-	History   []mcpagent.HistoryEntry `json:"history,omitempty"`
-	SessionID string                  `json:"sessionId,omitempty"`
+	Message        string `json:"message"`
+	ConversationID *int64 `json:"conversationId,omitempty"`
 }
 
 // WebChatChart is a chart report the frontend renders itself with
@@ -33,18 +34,31 @@ type WebChatRequest struct {
 // Vega-Lite spec verbatim, so the browser gets full interactivity (tooltips,
 // hover, legend filtering) instead of a flat image.
 type WebChatChart struct {
-	Title       string          `json:"title,omitempty"`
-	Description string          `json:"description,omitempty"`
-	Query       string          `json:"query,omitempty"`
-	Spec        json.RawMessage `json:"spec"`
+	Title       string                `json:"title,omitempty"`
+	Description string                `json:"description,omitempty"`
+	Query       string                `json:"query,omitempty"`
+	TimeRange   string                `json:"time_range,omitempty"`
+	Granularity string                `json:"granularity,omitempty"`
+	Context     vlrender.ChartContext `json:"context"`
+	Spec        json.RawMessage       `json:"spec"`
+	// Stats holds the precomputed KPI chips for this chart (Total/Avg per
+	// period/Peak/Low/Trend etc.) - see internal/chatstats.ComputeAllStats.
+	// Nil when the spec doesn't match any of the shapes chatstats knows how
+	// to summarize.
+	Stats json.RawMessage `json:"stats,omitempty"`
+	// ID is only set for a chart loaded back from persistence (GetConversation,
+	// RenderChart) - a chart freshly produced within a live turn has none yet.
+	ID int64 `json:"id,omitempty"`
 }
 
 type WebChatResponse struct {
-	Response  string                  `json:"response"`
-	History   []mcpagent.HistoryEntry `json:"history"`
-	Charts    []WebChatChart          `json:"charts,omitempty"`
-	Files     []WebChatFile           `json:"files,omitempty"`
-	SessionID string                  `json:"sessionId,omitempty"`
+	Response           string                            `json:"response"`
+	Charts             []WebChatChart                    `json:"charts,omitempty"`
+	Files              []WebChatFile                     `json:"files,omitempty"`
+	SuggestedQuestions []mcpagent.SuggestedQuestionCategory `json:"suggested_questions,omitempty"`
+	DebugArtifacts     json.RawMessage                   `json:"debug_artifacts,omitempty"`
+	SessionID          string                            `json:"sessionId,omitempty"`
+	ConversationID     int64                             `json:"conversationId"`
 }
 
 // analyticsRoleFor maps permissions onto the SQL catalog's roles. Super admins
@@ -78,14 +92,86 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	}
 
 	pc := auth.GetPermissionContext(c)
-	if pc == nil {
+	if pc == nil || pc.User == nil {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 	}
 	orgID := pc.OrgID
+	userID := pc.User.ID
 	ctx := c.Request().Context()
+	chatStore := storagechat.NewStore(s.db)
+
+	// Resolve (or create) the conversation this turn belongs to, and load its
+	// prior turns to feed the agent — the client no longer round-trips history.
+	var convID int64
+	var sessionID string
+	var err error
+	if req.ConversationID != nil {
+		conv, convErr := chatStore.GetConversation(ctx, orgID, userID, *req.ConversationID)
+		if convErr != nil {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "conversation not found"})
+		}
+		convID = conv.ID
+		sessionID = conv.SessionID
+	} else {
+		sessionID = newChatSessionID()
+		convID, err = chatStore.CreateConversation(ctx, orgID, userID, titleFromFirstMessage(req.Message), sessionID, storagechat.SurfaceChat)
+		if err != nil {
+			log.Error().Err(err).Msg("WebChat: failed to create conversation")
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to start conversation"})
+		}
+	}
+	if sessionID == "" {
+		sessionID = newChatSessionID()
+	}
+
+	priorMessages, err := chatStore.ListMessages(ctx, orgID, userID, convID)
+	if err != nil {
+		log.Error().Err(err).Msg("WebChat: failed to load conversation history")
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load conversation"})
+	}
+	var history []mcpagent.HistoryEntry
+	for _, m := range priorMessages {
+		history = append(history, m.RawHistoryEntries...)
+	}
+
+	// Persist the user's question the moment it reaches this handler -
+	// before the connector, MCP session, or agent loop get a chance to
+	// fail, and before a slow turn gives the client a chance to disconnect.
+	// A turn can take 20-40s end to end; without this, a client that gives
+	// up (or a downstream failure) before the reply was ready lost the
+	// question too, since the old path only persisted user+assistant
+	// together in one transaction at the very end. Best-effort: a failure
+	// here is logged but does not block the turn, since the reply is still
+	// worth attempting even if this write had trouble.
+	if _, _, err := chatStore.AppendUserMessage(ctx, convID, storagechat.MessageInput{
+		Role:              "user",
+		Content:           req.Message,
+		RawHistoryEntries: []mcpagent.HistoryEntry{{"role": "user", "content": req.Message}},
+	}); err != nil {
+		log.Error().Err(err).Int64("conversation_id", convID).Msg("WebChat: failed to persist user message")
+	}
+
+	// persistReply saves the assistant's side of this turn - success or
+	// error text alike - so reopening the conversation later always shows
+	// what happened, never a question with no visible outcome. Best-effort
+	// past this point: a persistence failure is logged, never surfaced to
+	// the user as a turn failure, since the reply already computed (or the
+	// error already known) is the thing that matters to return now.
+	persistReply := func(assistantText string, charts []WebChatChart, artifacts []mcpagent.Artifact, turnEntries []mcpagent.HistoryEntry, rawLLMOutput string, debugArt *mcpagent.DebugArtifacts) []int64 {
+		var debugJSON json.RawMessage
+		if debugArt != nil {
+			debugJSON, _ = json.Marshal(debugArt)
+		}
+		fileIDs, err := persistAssistantMessage(ctx, chatStore, convID, req.Message, assistantText, turnEntries, charts, artifacts, rawLLMOutput, debugJSON)
+		if err != nil {
+			log.Error().Err(err).Int64("conversation_id", convID).Msg("WebChat: failed to persist assistant message")
+		}
+		return fileIDs
+	}
 
 	connector, err := s.resolveOrgConnector(ctx, orgID)
 	if err != nil {
+		persistReply(err.Error(), nil, nil, nil, "", nil)
 		return c.JSON(http.StatusBadGateway, map[string]string{"error": err.Error()})
 	}
 
@@ -104,7 +190,9 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	mcpSession, err := mcpagent.ConnectMCP(ctx, mcpURL, mcpHeaders)
 	if err != nil {
 		log.Error().Err(err).Str("url", mcpURL).Msg("WebChat: failed to connect to MCP server")
-		return c.JSON(http.StatusBadGateway, map[string]string{"error": fmt.Sprintf("Failed to connect: %s", err.Error())})
+		errText := fmt.Sprintf("Failed to connect: %s", err.Error())
+		persistReply(errText, nil, nil, nil, "", nil)
+		return c.JSON(http.StatusBadGateway, map[string]string{"error": errText})
 	}
 
 	if pc.CurrentOrg != nil && pc.CurrentOrg.Name != "" {
@@ -123,22 +211,40 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	agent := mcpagent.NewAgent(provider, mcpSession, maxSteps).
 		WithAnalytics(storageanalytics.NewAdHocStore(s.db))
 
-	sessionID := req.SessionID
-	if sessionID == "" {
-		sessionID = newChatSessionID()
-	}
-
-	responseText, updatedHistory, artifacts, err := agent.RunTurnWithArtifacts(ctx, req.History, req.Message, sessionID, "livi")
+	responseText, updatedHistory, artifacts, debugArt, err := agent.RunTurnWithArtifacts(ctx, history, req.Message, sessionID, "livi")
 	if err != nil {
 		log.Error().Err(err).Msg("WebChat: agent loop failed")
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Agent loop failed: %s", err.Error())})
+		errText := fmt.Sprintf("Agent loop failed: %s", err.Error())
+		persistReply(errText, nil, nil, nil, "", nil)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": errText})
 	}
+	// Whatever RunTurnWithArtifacts appended on top of the history we fed it
+	// (possibly including a freshly swapped-in system prompt entry - see
+	// mcpagent/agent.go's per-turn prompt selection) is this turn's new
+	// content. The user entry within it was already persisted above by
+	// AppendUserMessage before the call; only the assistant entries get
+	// saved below.
+	turnEntries := updatedHistory[len(history):]
 
 	resp := WebChatResponse{
-		Response:  responseText,
-		History:   updatedHistory,
-		SessionID: sessionID,
-		Files:     registerChatExports(artifacts, orgID),
+		Response:       responseText,
+		SessionID:      sessionID,
+		ConversationID: convID,
+	}
+
+	for _, entry := range turnEntries {
+		if sq, ok := entry["suggested_questions"].([]mcpagent.SuggestedQuestionCategory); ok && len(sq) > 0 {
+			resp.SuggestedQuestions = sq
+			break
+		} else if rawSq, ok := entry["suggested_questions"]; ok && rawSq != nil {
+			if b, err := json.Marshal(rawSq); err == nil {
+				var sq []mcpagent.SuggestedQuestionCategory
+				if err := json.Unmarshal(b, &sq); err == nil && len(sq) > 0 {
+					resp.SuggestedQuestions = sq
+					break
+				}
+			}
+		}
 	}
 
 	if vlrender.HasVegaLiteSpec(responseText) {
@@ -152,13 +258,23 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		} else if errors.Is(err, vlrender.ErrTrivialSpec) {
 			// A single value/bar is not worth a chart — show the description
 			// (and query) as plain text instead.
-			desc, query, ok := vlrender.TrivialDescription(responseText)
+			desc, query, timeRange, granularity, chartContext, ok := vlrender.TrivialDescription(responseText)
 			text := desc
-			if query != "" {
+			if query != "" || timeRange != "" || granularity != "" || chartContext != "" {
 				if text != "" {
 					text += "\n\n"
 				}
-				text += "Query used: " + query
+				detail := "Query: " + query
+				if timeRange != "" {
+					detail += "\nTime range: " + timeRange
+				}
+				if granularity != "" {
+					detail += "\nGranularity: " + granularity
+				}
+				if chartContext != "" {
+					detail += "\nContext: " + chartContext
+				}
+				text += detail
 			}
 			if !ok || text == "" {
 				text = strings.TrimSpace(cleanText)
@@ -172,7 +288,135 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		resp.Response = extractDescriptionFromVegaSpec(responseText)
 	}
 
+	// Include debug artifacts in the live response for /chat-debug.
+	if debugArt != nil {
+		if debugJSON, err := json.Marshal(debugArt); err == nil {
+			resp.DebugArtifacts = debugJSON
+		}
+	}
+
+	// Persist the reply (messages + charts + file exports) so the file
+	// exports get durable DB ids we can build stable download URLs from.
+	// Charts and exports are surfaced on the response regardless, since the
+	// files field is driven by the persisted ids below. The user message
+	// was already saved by AppendUserMessage before the agent ran.
+	fileIDs := persistReply(resp.Response, resp.Charts, artifacts, turnEntries, responseText, debugArt)
+
+	// File downloads are served from the DB, so only files that were actually
+	// persisted (got a real id back) are offered. A persistence failure loses
+	// the download rather than advertising a link that 404s - the message text
+	// stays honest because it is stored alongside, so the two can never drift.
+	resp.Files = make([]WebChatFile, 0, len(artifacts))
+	for i, art := range artifacts {
+		if i >= len(fileIDs) {
+			break
+		}
+		resp.Files = append(resp.Files, chatFileFromArtifact(art, fileIDs[i]))
+	}
+
 	return c.JSON(http.StatusOK, resp)
+}
+
+// titleFromFirstMessage derives a v1 conversation title by truncating the
+// first user message - no extra LLM call. Runes, not bytes, so multi-byte
+// text isn't cut mid-character.
+func titleFromFirstMessage(message string) string {
+	const maxRunes = 80
+	trimmed := strings.TrimSpace(message)
+	runes := []rune(trimmed)
+	if len(runes) <= maxRunes {
+		return trimmed
+	}
+	return strings.TrimSpace(string(runes[:maxRunes])) + "…"
+}
+
+// persistAssistantMessage saves the reply half of a turn (plus any chart and
+// file-export artifacts) via AppendAssistantMessage - the user half was
+// already saved by AppendUserMessage before the agent ran. It returns the
+// persisted file ids, one per artifact entry, so the caller can build stable
+// download URLs - or nil if a file was not persisted.
+//
+// turnEntries is nil on an early-failure path (connector/MCP/agent-loop
+// error, before any LLM history exists) - in that case a single synthetic
+// assistant entry is stored so the conversation still replays as valid
+// history, matching what a real assistant turn's shape would have been. The
+// system-prompt entry mcpagent/agent.go may have prepended ahead of the user
+// entry, when turnEntries is populated, is intentionally dropped:
+// RunTurnWithArtifacts idempotently re-derives/swaps it on every call
+// (agent.go:148-166), so replaying persisted history without it is safe, and
+// simpler than tracking which prompt variant was live on a given turn.
+func persistAssistantMessage(ctx context.Context, chatStore *storagechat.Store, convID int64, userText, assistantText string, turnEntries []mcpagent.HistoryEntry, charts []WebChatChart, artifacts []mcpagent.Artifact, rawLLMOutput string, debugArtifacts json.RawMessage) ([]int64, error) {
+	assistantEntries := []mcpagent.HistoryEntry{{"role": "assistant", "content": assistantText}}
+	for i, e := range turnEntries {
+		if role, _ := e["role"].(string); role == "user" {
+			assistantEntries = turnEntries[i+1:]
+			break
+		}
+	}
+
+	chartInputs := make([]storagechat.ChartInput, 0, len(charts))
+	for _, ch := range charts {
+		chartInputs = append(chartInputs, storagechat.ChartInput{
+			Title:                 ch.Title,
+			Description:           ch.Description,
+			Query:                 ch.Query,
+			TimeRange:             ch.TimeRange,
+			Granularity:           ch.Granularity,
+			Context:               ch.Context,
+			TriggeringUserMessage: userText,
+			VegaSpec:              ch.Spec,
+			Stats:                 ch.Stats,
+			RawLLMOutput:          rawLLMOutput,
+		})
+	}
+
+	fileInputs := make([]storagechat.FileInput, 0, len(artifacts))
+	for _, art := range artifacts {
+		fileInputs = append(fileInputs, toFileInput(art))
+	}
+
+	if strings.TrimSpace(assistantText) == "" {
+		if len(charts) > 0 {
+			var titles []string
+			for _, c := range charts {
+				if c.Title != "" {
+					titles = append(titles, c.Title)
+				}
+			}
+			if len(titles) > 0 {
+				assistantText = "Rendered charts for: " + strings.Join(titles, ", ") + "."
+			} else {
+				assistantText = "Rendered analytics charts."
+			}
+		} else if len(artifacts) > 0 {
+			assistantText = "I've put the results in a file you can download."
+		}
+	}
+
+	for idx, entry := range assistantEntries {
+		if role, _ := entry["role"].(string); role == "assistant" {
+			content, _ := entry["content"].(string)
+			text, _ := entry["text"].(string)
+			if strings.TrimSpace(content) == "" && strings.TrimSpace(text) == "" {
+				assistantEntries[idx]["content"] = assistantText
+				assistantEntries[idx]["text"] = assistantText
+			} else if strings.TrimSpace(content) == "" {
+				assistantEntries[idx]["content"] = text
+			}
+		}
+	}
+
+	_, fileIDs, err := chatStore.AppendAssistantMessage(ctx, convID,
+		storagechat.MessageInput{
+			Role:              "assistant",
+			Content:           assistantText,
+			RawHistoryEntries: assistantEntries,
+			DebugArtifacts:    debugArtifacts,
+		},
+		chartInputs,
+		fileInputs,
+	)
+	return fileIDs, err
 }
 
 // extractChartsFromVega pulls the normalized Vega-Lite spec(s) out of the raw
@@ -218,7 +462,11 @@ func extractChartsFromVega(text string) ([]WebChatChart, string, error) {
 	if vlrender.SpecIsTrivial(spec) {
 		return nil, text, vlrender.ErrTrivialSpec
 	}
-	return []WebChatChart{{Title: "LiveReview Chart", Spec: json.RawMessage(spec)}}, stripVegaBlocks(text), nil
+	stats, statsErr := chatstats.ComputeAllStats(spec)
+	if statsErr != nil {
+		log.Warn().Err(statsErr).Msg("chart stats computation failed for text-extracted spec, continuing without stats")
+	}
+	return []WebChatChart{{Title: "LiveReview Chart", Spec: json.RawMessage(spec), Stats: stats}}, stripVegaBlocks(text), nil
 }
 
 func reportsToCharts(reports []vlrender.VegaLiteReport) ([]WebChatChart, error) {
@@ -238,7 +486,11 @@ func reportsToCharts(reports []vlrender.VegaLiteReport) ([]WebChatChart, error) 
 			Title:       vlrender.FriendlyTitle(r.Title, r.Subtitle),
 			Description: r.Description,
 			Query:       r.Query,
+			TimeRange:   r.TimeRange,
+			Granularity: r.Granularity,
+			Context:     r.Context,
 			Spec:        json.RawMessage(spec),
+			Stats:       r.Stats,
 		})
 	}
 	if len(charts) == 0 {

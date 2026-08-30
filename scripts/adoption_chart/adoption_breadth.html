@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LiveReview Adoption Breadth — hexmos-internal</title>
+<script src="https://cdn.jsdelivr.net/npm/vega@5.33.1" integrity="sha384-NMXhl2TbCXxcN7o4ROC56Funm78m4AylL8gMg/7Kn4YU+wrm23K9l7cY8lDRXQ9d" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5.23.0" integrity="sha384-D9LYH0esGjcxQJsBuxOuXtCDJGXRWW1+KhluzWPqi0rLJmiR/ygPChefaD+rFFDQ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6.29.0" integrity="sha384-M+Ax7e/WFJpxSOF09HzI+Sj4wg9ottVd/uxmV2ItGGh02fLH28t2FAOJx3TJBap5" crossorigin="anonymous"></script>
+<style>
+  body { background:#0b0e17; color:#e6ebf5; font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:32px; }
+  .kpis { display:flex; gap:16px; margin:20px 0; flex-wrap:wrap; }
+  .kpi { background:#161b22; border:1px solid #30363d; border-radius:10px; padding:14px 18px; min-width:160px; }
+  .kpi .label { font-size:12px; color:#8b949e; }
+  .kpi .value { font-size:22px; font-weight:600; margin-top:4px; }
+  .stats { margin-top:12px; font-size:14px; line-height:1.6; color:#c9d1e0; max-width:900px; }
+  .stats b { color:#fff; }
+  #view { max-width: 740px; }
+  details { margin-top:20px; max-width:900px; }
+  summary { cursor:pointer; color:#aab4c8; font-size:13px; }
+  pre.sql { margin-top:10px; padding:12px 14px; background:#0b0e17; border:1px solid #232a3d; border-radius:8px;
+             font-family: "SF Mono", Menlo, Consolas, monospace; font-size:12px; line-height:1.5; color:#a3b3cc;
+             white-space:pre-wrap; overflow-x:auto; }
+</style>
+</head>
+<body>
+  <div id="view"></div>
+  <div class="kpis">
+    <div class="kpi"><div class="label">Engineers active</div><div class="value">8</div></div>
+    <div class="kpi"><div class="label">Median reviews/engineer</div><div class="value">31</div></div>
+    <div class="kpi"><div class="label">Top contributor's share</div><div class="value">31%</div></div>
+  </div>
+  <div class="stats">
+    <b>shrijith</b> completed the most reviews (<b>136</b> of <b>440</b> total,
+    <b>31%</b> of all activity).<br>
+    Usage is broad-based: the median engineer completed 31 reviews.
+  </div>
+  <details>
+    <summary>Query used</summary>
+    <pre class="sql">SELECT author_username, count(*) AS reviews
+    FROM reviews
+    WHERE org_id = 151
+      AND author_username IS NOT NULL
+      AND COALESCE(completed_at, created_at) &gt;= CURRENT_DATE - INTERVAL &#x27;90 days&#x27;
+    GROUP BY 1
+    ORDER BY 2 DESC;</pre>
+  </details>
+  <script>
+    vegaEmbed('#view', {"$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "Adoption breadth \u2014 hexmos-internal, last 90 days", "width": 700, "height": 340, "data": {"values": [{"band": "1-4 (light)", "engineers": 1}, {"band": "5-19 (regular)", "engineers": 3}, {"band": "20+ (heavy)", "engineers": 4}]}, "mark": {"type": "bar", "cornerRadiusTopLeft": 4, "cornerRadiusTopRight": 4}, "encoding": {"x": {"field": "band", "type": "nominal", "title": "Reviews per engineer", "sort": ["1-4 (light)", "5-19 (regular)", "20+ (heavy)"], "axis": {"labelAngle": 0}}, "y": {"field": "engineers", "type": "quantitative", "title": "Engineer count"}, "color": {"field": "band", "type": "nominal", "sort": ["1-4 (light)", "5-19 (regular)", "20+ (heavy)"], "scale": {"domain": ["1-4 (light)", "5-19 (regular)", "20+ (heavy)"], "range": ["#7c9cff", "#ffb454", "#39d353"]}, "legend": null}, "tooltip": [{"field": "band", "type": "nominal", "title": "Band"}, {"field": "engineers", "type": "quantitative", "title": "Engineers"}]}, "config": {"background": "#0f1420", "axis": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5", "gridColor": "#232a3d", "domainColor": "#3a4358"}, "title": {"color": "#e6ebf5", "fontSize": 16}, "view": {"stroke": "transparent"}}}, {actions: false});
+  </script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>7-Day Change Matrix — hexmos-internal</title>
+<script src="https://cdn.jsdelivr.net/npm/vega@5.33.1" integrity="sha384-NMXhl2TbCXxcN7o4ROC56Funm78m4AylL8gMg/7Kn4YU+wrm23K9l7cY8lDRXQ9d" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5.23.0" integrity="sha384-D9LYH0esGjcxQJsBuxOuXtCDJGXRWW1+KhluzWPqi0rLJmiR/ygPChefaD+rFFDQ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6.29.0" integrity="sha384-M+Ax7e/WFJpxSOF09HzI+Sj4wg9ottVd/uxmV2ItGGh02fLH28t2FAOJx3TJBap5" crossorigin="anonymous"></script>
+<style>
+  body { background:#0b0e17; color:#e6ebf5; font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:32px; }
+  .stats { margin-top:20px; font-size:14px; line-height:1.6; color:#c9d1e0; max-width:900px; }
+  .stats b { color:#fff; }
+  #view { max-width: 340px; overflow-x:auto; }
+  details { margin-top:20px; max-width:900px; }
+  summary { cursor:pointer; color:#aab4c8; font-size:13px; }
+  pre.sql { margin-top:10px; padding:12px 14px; background:#0b0e17; border:1px solid #232a3d; border-radius:8px;
+             font-family: "SF Mono", Menlo, Consolas, monospace; font-size:12px; line-height:1.5; color:#a3b3cc;
+             white-space:pre-wrap; overflow-x:auto; }
+</style>
+</head>
+<body>
+  <div id="view"></div>
+  <div class="stats"><b>1</b> of <b>5</b> metrics improved or held steady period-over-period.</div>
+  <details>
+    <summary>Query used</summary>
+    <pre class="sql">-- two periods, each computed via one_period_metrics() in generate_change_matrix.py:
+-- W1: 14 to 7 days ago
+-- W2: 7 days ago to now
+-- (see the script for the underlying per-metric SQL)</pre>
+  </details>
+  <script>
+    vegaEmbed('#view', {"$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "7-day verdict \u2014 hexmos-internal", "width": 300, "height": 220, "data": {"values": [{"metric": "Reviews", "period": "W1", "value": 66.0, "is_delta": false}, {"metric": "Reviews", "period": "W2", "value": 36.0, "is_delta": false}, {"metric": "Reviews", "period": "Delta", "value": -45.45454545454545, "is_delta": true}, {"metric": "LOC reviewed", "period": "W1", "value": 55957.0, "is_delta": false}, {"metric": "LOC reviewed", "period": "W2", "value": 112815.0, "is_delta": false}, {"metric": "LOC reviewed", "period": "Delta", "value": 101.61016494808514, "is_delta": true}, {"metric": "Active engineers", "period": "W1", "value": 6.0, "is_delta": false}, {"metric": "Active engineers", "period": "W2", "value": 5.0, "is_delta": false}, {"metric": "Active engineers", "period": "Delta", "value": -16.666666666666664, "is_delta": true}, {"metric": "Repos active", "period": "W1", "value": 10.0, "is_delta": false}, {"metric": "Repos active", "period": "W2", "value": 8.0, "is_delta": false}, {"metric": "Repos active", "period": "Delta", "value": -20.0, "is_delta": true}, {"metric": "Pre-commit %", "period": "W1", "value": 83.0, "is_delta": false}, {"metric": "Pre-commit %", "period": "W2", "value": 69.0, "is_delta": false}, {"metric": "Pre-commit %", "period": "Delta", "value": -16.867469879518072, "is_delta": true}]}, "layer": [{"mark": {"type": "rect"}, "encoding": {"x": {"field": "period", "type": "nominal", "title": null, "sort": ["W1", "W2", "Delta"]}, "y": {"field": "metric", "type": "nominal", "title": null, "sort": ["Reviews", "LOC reviewed", "Active engineers", "Repos active", "Pre-commit %"]}, "color": {"condition": {"test": "datum.is_delta", "field": "value", "type": "quantitative", "scale": {"domainMid": 0, "range": ["#ff5c7c", "#232a3d", "#39d353"]}}, "value": "#161b22"}}}, {"mark": {"type": "text", "color": "#e6ebf5", "fontSize": 12}, "encoding": {"x": {"field": "period", "type": "nominal", "sort": ["W1", "W2", "Delta"]}, "y": {"field": "metric", "type": "nominal", "sort": ["Reviews", "LOC reviewed", "Active engineers", "Repos active", "Pre-commit %"]}, "text": {"field": "value", "type": "quantitative", "format": ".1f"}}}], "config": {"background": "#0f1420", "axis": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5", "domainColor": "#3a4358"}, "title": {"color": "#e6ebf5", "fontSize": 16}, "view": {"stroke": "transparent"}}}, {actions: false});
+  </script>
+</body>
+</html>

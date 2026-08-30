@@ -158,6 +158,40 @@ Targeted tests and docs:
 | Semgrep | [![Semgrep](https://github.com/HexmosTech/LiveReview/actions/workflows/semgrep.yml/badge.svg)](https://github.com/HexmosTech/LiveReview/actions/workflows/semgrep.yml) | Static analysis for security patterns | Pull request, push, scheduled, manual | Detects many common code-level security anti-patterns | Cannot prove absence of logic flaws or business-logic abuse |
 | SBOM | [![sbom](https://github.com/HexmosTech/LiveReview/actions/workflows/sbom.yml/badge.svg)](https://github.com/HexmosTech/LiveReview/actions/workflows/sbom.yml) | Software bill of materials generation (Syft) | Release publish, push (dependency-relevant files), manual | Produces auditable component inventory for releases | Does not by itself prove component safety |
 
+## Running Security Scans Locally
+
+LiveReview includes local security scan targets in the Makefile:
+
+```bash
+make security-govulncheck
+make security-govulncheck-json
+make security-osv
+make security-gitleaks
+make security-triage
+```
+
+Scan artifacts are written under `security_issues/`.
+
+### Ported Workflows Are Disabled By Default
+
+The following workflows are present but gated off by default:
+
+- `.github/workflows/gitleaks.yml`
+- `.github/workflows/osv-scanner.yml`
+- `.github/workflows/govulncheck.yml`
+
+They only run when GitHub repository variable `ENABLE_SECURITY_WORKFLOWS` is set to `true`.
+
+Enable later:
+
+1. Open repository settings in GitHub.
+2. Go to Secrets and variables > Actions > Variables.
+3. Add `ENABLE_SECURITY_WORKFLOWS` with value `true`.
+
+Disable again:
+
+- Set `ENABLE_SECURITY_WORKFLOWS=false` or remove the variable.
+
 ## SBOM And Dependency Transparency
 
 - Latest releases: [LiveReview latest release](https://github.com/HexmosTech/LiveReview/releases/latest)

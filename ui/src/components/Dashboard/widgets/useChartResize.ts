@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type ReactECharts from 'echarts-for-react';
+import type EChartsReactCore from 'echarts-for-react/lib/core';
 
 /**
  * echarts-for-react auto-resizes on *window* resize, but dragging/resizing a widget
@@ -8,7 +8,7 @@ import type ReactECharts from 'echarts-for-react';
  */
 export function useChartResize<T extends HTMLElement = HTMLDivElement>() {
     const containerRef = useRef<T | null>(null);
-    const chartRef = useRef<ReactECharts | null>(null);
+    const chartRef = useRef<EChartsReactCore | null>(null);
 
     useEffect(() => {
         const container = containerRef.current;

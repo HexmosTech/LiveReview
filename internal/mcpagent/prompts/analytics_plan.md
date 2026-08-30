@@ -35,6 +35,18 @@ answer with a single bare number, which is never the right shape - only write
 a 1-row `count_sql` when the user has explicitly asked for one fixed value
 (e.g. "how many reviews were completed on exactly May 3rd").
 
+**A question about *rhythm*, *habit*, or *consistency* ("are engineers
+actually incorporating reviews into their daily workflow", "is this a habit
+yet") is asking about a pattern across CALENDAR DAYS, not about who did the
+most.** Group `count_sql` (and the `data_sql` you write next) by day
+(`date_trunc('day', ...)`) over a long window (90+ days), not by
+`author_username`/`author_name`. A per-engineer leaderboard answers "who is
+using it," which is a different, narrower question than "is it part of the
+daily routine" - the second one needs to see gaps and streaks across the
+calendar, which only a daily grouping shows. LiveReview renders this pattern
+as a calendar heatmap automatically once it sees daily-granularity data; the
+model does not need to do anything special beyond grouping by day.
+
 Do not include the data query yet, and do not describe the results — you have
 not seen them. You will be asked for both once the count is known.
 

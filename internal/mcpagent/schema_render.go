@@ -228,7 +228,11 @@ func renderTableContext(b *strings.Builder, tc dbctx.TableContext, visible map[s
 
 		// Structure only, never SampleValues - see the function doc comment.
 		for _, jp := range c.JSONBPaths {
-			fmt.Fprintf(b, "  - `%s` %s\n", jp.Path, jp.InferredType)
+			if jp.SampleValues != "" {
+				fmt.Fprintf(b, "  - `%s` %s  {%s}\n", jp.Path, jp.InferredType, jp.SampleValues)
+			} else {
+				fmt.Fprintf(b, "  - `%s` %s\n", jp.Path, jp.InferredType)
+			}
 		}
 	}
 
@@ -286,7 +290,11 @@ func renderTable(b *strings.Builder, name string, detail *dbctx.TableDetail, vis
 
 		// Structure only, never SampleValues - see the function doc comment.
 		for _, jp := range c.JSONBPaths {
-			fmt.Fprintf(b, "  - `%s` %s\n", jp.Path, jp.InferredType)
+			if jp.SampleValues != "" {
+				fmt.Fprintf(b, "  - `%s` %s  {%s}\n", jp.Path, jp.InferredType, jp.SampleValues)
+			} else {
+				fmt.Fprintf(b, "  - `%s` %s\n", jp.Path, jp.InferredType)
+			}
 		}
 	}
 

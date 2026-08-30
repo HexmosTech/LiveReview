@@ -9,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -72,8 +74,19 @@ func dialValidatedMCPHost(ctx context.Context, network, addr string) (net.Conn, 
 }
 
 func isDisallowedMCPTargetIP(ip net.IP) bool {
+	if mcpAllowLocalHost() {
+		return false
+	}
 	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
 		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+}
+
+// mcpAllowLocalHost is an explicit, opt-in escape hatch for local
+// development, where the MCP server genuinely is this same machine
+// (loopback/private) - the SSRF guard above must stay strict for everyone
+// else, so this only relaxes it when set deliberately, never by default.
+func mcpAllowLocalHost() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("MCP_ALLOW_LOCAL_HOST")), "true")
 }
 
 // jsonrpcMessage is a JSON-RPC 2.0 request/response.

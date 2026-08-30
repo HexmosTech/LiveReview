@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CTO Analytics Chart Ideas — LiveReview</title>
+    <style>
+      :root {
+        --bg: #0d1117;
+        --card: #161b22;
+        --border: #30363d;
+        --text: #e6ebf5;
+        --text-dim: #8b949e;
+        --accent: #7c9cff;
+        --tier1: #39d353;
+        --tier2: #ffb454;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+        margin: 0;
+        padding: 32px 40px 64px;
+      }
+      h1 {
+        font-size: 22px;
+        margin: 0 0 4px;
+      }
+      .sub {
+        color: var(--text-dim);
+        font-size: 14px;
+        margin: 0 0 28px;
+      }
+      h2 {
+        font-size: 15px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin: 40px 0 4px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      h2 .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+      }
+      .tier-sub {
+        color: var(--text-dim);
+        font-size: 13px;
+        margin: 0 0 14px;
+      }
+      .table-wrap {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: auto;
+        max-width: 100%;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        min-width: 1100px;
+        font-size: 13px;
+      }
+      thead th {
+        position: sticky;
+        top: 0;
+        background: var(--card);
+        text-align: left;
+        padding: 10px 14px;
+        font-weight: 600;
+        color: var(--text);
+        border-bottom: 1px solid var(--border);
+        white-space: nowrap;
+      }
+      tbody td {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+        color: var(--text);
+      }
+      tbody tr:last-child td {
+        border-bottom: none;
+      }
+      tbody tr:hover {
+        background: rgba(124, 156, 255, 0.06);
+      }
+      .num {
+        color: var(--text-dim);
+        font-variant-numeric: tabular-nums;
+      }
+      .query {
+        font-weight: 500;
+        max-width: 280px;
+      }
+      .graph-badge {
+        display: inline-block;
+        background: rgba(124, 156, 255, 0.12);
+        color: var(--accent);
+        border: 1px solid rgba(124, 156, 255, 0.3);
+        border-radius: 6px;
+        padding: 3px 8px;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .axis {
+        color: var(--text-dim);
+        font-size: 12.5px;
+        white-space: nowrap;
+      }
+      .encoding {
+        color: var(--text-dim);
+        max-width: 220px;
+      }
+      .why {
+        max-width: 320px;
+        color: #c9d1e0;
+      }
+      .suggested {
+        max-width: 220px;
+        color: var(--accent);
+        font-style: italic;
+      }
+      .empty {
+        color: #3a4358;
+      }
+      .value {
+        color: var(--text-dim);
+        white-space: nowrap;
+        line-height: 1.6;
+      }
+      .built {
+        display: inline-block;
+        margin-left: 6px;
+        font-size: 10px;
+        background: rgba(57, 211, 83, 0.15);
+        color: var(--tier1);
+        border: 1px solid rgba(57, 211, 83, 0.35);
+        border-radius: 4px;
+        padding: 1px 6px;
+        vertical-align: middle;
+      }
+      .open-link {
+        display: inline-block;
+        margin-left: 6px;
+        font-size: 11px;
+        color: var(--accent);
+        text-decoration: none;
+        border-bottom: 1px dotted var(--accent);
+      }
+      .open-link:hover {
+        color: #a5bcff;
+      }
+      .nodata-badge {
+        display: inline-block;
+        margin-left: 6px;
+        font-size: 10px;
+        background: rgba(255, 92, 124, 0.12);
+        color: #ff8fa3;
+        border: 1px solid rgba(255, 92, 124, 0.3);
+        border-radius: 4px;
+        padding: 1px 6px;
+        vertical-align: middle;
+        cursor: help;
+      }
+      .skipped-badge {
+        display: inline-block;
+        margin-left: 6px;
+        font-size: 10px;
+        background: rgba(255, 180, 84, 0.12);
+        color: var(--tier2);
+        border: 1px solid rgba(255, 180, 84, 0.3);
+        border-radius: 4px;
+        padding: 1px 6px;
+        vertical-align: middle;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>CTO Analytics Chart Ideas</h1>
+    <p class="sub">
+      Reference catalogue for Livi's analytics chart shapes — LiveReview
+      usage/adoption/quality reporting. Rows marked
+      <span class="built">built</span> already exist in the pipeline (<code
+        >internal/mcpagent/analytics.go</code
+      >
+      / <code>scripts/adoption_chart/</code>).
+    </p>
+
+    <h2>
+      <span class="dot" style="background: var(--tier1)"></span>CTO Queries
+    </h2>
+    <p class="tier-sub">30 charts</p>
+    <div class="table-wrap">
+      <table id="all"></table>
+    </div>
+
+    <script>
+      const queries = [
+        {
+          built: true,
+          q: "Is LiveReview adoption increasing?",
+          graph: "Layered line + area + target rule",
+          x: "Day",
+          y: "Reviews/day",
+          enc: "Area = reviews; line = 7-day rolling avg; rule = target",
+          why: "More informative than a plain line. The rolling average shows whether adoption is genuinely increasing rather than being driven by noisy days.",
+          suggested:
+            "Is LiveReview adoption increasing since my team started using it?",
+          demo: "./adoption_chart.html",
+          value: "1.\n2.",
+        },
+        {
+          built: true,
+          q: "Are engineers actually incorporating reviews into their daily workflow?",
+          graph: "Calendar heatmap",
+          x: "Day",
+          y: "Day-of-week",
+          enc: "Color = reviews or reviewed LOC",
+          why: "Gives a very immediate “usage rhythm.” Weekday gaps, isolated users, and sudden changes become visually obvious. Particularly good for a 14–30 day trial.",
+          suggested:
+            "Are engineers actually incorporating reviews into their daily workflow since my team started using it?",
+          demo: "./adoption_heatmap.html",
+          value: "1.\n2.",
+        },
+        {
+          built: true,
+          q: "How broadly has the organization adopted LiveReview?",
+          graph: "Histogram / distribution + KPI overlay",
+          x: "Reviews per engineer",
+          y: "Engineer count",
+          enc: "Color by adoption band",
+          why: "Shows whether usage is broad or concentrated. “500 reviews” means something very different if one engineer generated 450.",
+          suggested: "",
+          demo: "./adoption_breadth.html",
+          value: "1.\n2.",
+        },
+        {
+          built: true,
+          q: "Who has adopted LiveReview—and who hasn't?",
+          graph: "Sorted horizontal bar / dot plot",
+          x: "Reviews or LOC",
+          y: "Engineer",
+          enc: "Color = adoption tier",
+          why: "Rank engineers from highest to lowest. Add a vertical target rule, e.g. 5 reviews/day. This is directly actionable for engineering leaders.",
+          suggested: "Who has adopted LiveReview the most and least?",
+          demo: "./adoption_leaderboard.html",
+          value: "1.\n2.",
+        },
+        {
+          built: true,
+          q: "Is adoption becoming broader over time?",
+          graph: "Stacked area chart",
+          x: "Week",
+          y: "Active engineers",
+          enc: "Color = 0 reviews / 1–4 / 5+ / heavy users",
+          why: "This is much more interesting than total users. It answers whether the organization is moving from “a few enthusiasts” toward habitual adoption.",
+          suggested: "",
+          demo: "./adoption_growth.html",
+          value: "1.\n2.",
+        },
+        {
+          built: true,
+          q: "Which repositories are gaining or losing engineering velocity?",
+          graph: "Slope graph",
+          x: "Period (Previous, Current)",
+          y: "LOC reviewed",
+          enc: "One line per repository; color = gain/loss",
+          why: "Probably one of your strongest CTO charts. It makes period-over-period movement immediately visible. Label only the biggest movers.",
+          suggested: "",
+          demo: "./repo_slope.html",
+          value: "1.\n2.",
+        },
+        {
+          built: true,
+          q: "Where is organizational velocity concentrated?",
+          graph: "Pareto / cumulative distribution",
+          x: "Repositories ranked by LOC",
+          y: "LOC reviewed",
+          enc: "Layer cumulative % line",
+          why: "Answers “are our top 3 repos responsible for 80% of activity?” This reveals concentration and organizational risk.",
+          suggested: "",
+          demo: "./repo_pareto.html",
+          value: "1.\n2.",
+        },
+        {
+          built: true,
+          q: "Which repositories are unusually active or inactive?",
+          graph: "Scatterplot",
+          x: "LOC reviewed",
+          y: "Reviews",
+          enc: "Size = active engineers; color = repository",
+          why: "Separates high-volume/high-frequency repos from large-diff/low-frequency repos. Add quadrant rules. Very useful for identifying anomalous teams.",
+          suggested: "",
+          demo: "./repo_scatter.html",
+          value: "1.\n2.",
+        },
+        {
+          built: true,
+          q: "What does engineering activity look like across repositories and days?",
+          graph: "Repository × day heatmap",
+          x: "Day",
+          y: "Repository",
+          enc: "Color = LOC reviewed",
+          why: "This is excellent for finding bursts, sustained inactivity, and velocity dips. Add text only for unusually high/low cells.",
+          suggested: "",
+          demo: "./repo_day_heatmap.html",
+          value: "1.\n2.",
+        },
+        {
+          built: true,
+          q: "What happened to a repository's velocity?",
+          graph: "Layered line + rolling average + highlighted interval",
+          x: "Day",
+          y: "LOC reviewed",
+          enc: "Line = daily LOC; second line = rolling avg; rectangle = selected period",
+          why: "Directly implements your 6.1 idea while using Vega-Lite's layering/annotation capabilities.",
+          suggested: "",
+          demo: "./repo_velocity.html",
+          value: "1.\n2.",
+        },
+        {
+          q: "Why did this repository's velocity change?",
+          graph: "Small-multiple contribution chart",
+          x: "Contributor",
+          y: "Change in LOC",
+          enc: "Positive/negative color",
+          why: "Compare previous vs current period per engineer. It turns “velocity dropped 30%” into “Alice -40%, Bob -20%, Carol +5%.”",
+          suggested: "",
+          demo: "./contributor_change.html",
+          value: "1.\n2.",
+        },
+        {
+          q: "Which engineers are carrying the repository?",
+          graph: "Beeswarm / dot plot",
+          x: "LOC reviewed",
+          y: "—",
+          enc: "X = LOC; Y = contributor; point size = reviews",
+          why: "Better than bars when you want to show the distribution and outliers. Particularly useful when there are many engineers.",
+          suggested: "",
+          demo: "./contributor_beeswarm.html",
+          value: "1.\n2.",
+        },
+        {
+          q: "What does each engineer actually spend their review activity on?",
+          graph: "Trellis stacked bars",
+          x: "Engineer",
+          y: "Reviews",
+          enc: "Color = repository",
+          why: "Small multiples let a CTO see whether an engineer is concentrated on one repo or spreading across many. Vega-Lite supports trellis/faceted views.",
+          suggested: "",
+          demo: "./engineer_trellis.html",
+          value: "1.\n2.",
+        },
+        {
+          q: "Where are reviews happening?",
+          graph: "Normalized stacked bar",
+          x: "Time period",
+          y: "% of reviews",
+          enc: "Color = trigger: PR/MR, pre-commit, MCP, API, manual",
+          why: "More useful than a pie chart because you can compare periods. The key question is whether activity is migrating toward earlier review stages.",
+          suggested: "",
+          demo: "./trigger_share.html",
+          value: "1.\n2.",
+        },
+        {
+          q: "Are we moving review earlier in the development lifecycle?",
+          graph: "100% stacked area",
+          x: "Day/week",
+          y: "% of reviews",
+          enc: "Color = trigger source",
+          why: "Shows the transition between workflows. This is strategically more interesting than simply showing source distribution.",
+          suggested: "",
+          demo: "./trigger_shift.html",
+          value: "1.\n2.",
+        },
+        {
+          q: "Are serious issues being caught before PR/MR?",
+          graph: "Severity × trigger heatmap",
+          x: "Trigger source",
+          y: "Severity",
+          enc: "Color = finding count / rate",
+          why: "Rows = pre-commit, PR/MR, MCP, API; columns = critical/high/medium/low. A leader can immediately see whether serious findings are disproportionately arriving late.",
+          suggested: "",
+          nodata:
+            "ai_comments has 0 rows in this dev DB - no findings to group by severity/trigger yet.",
+          value: "1.\n2.",
+        },
+        {
+          q: "What kinds of engineering problems is LiveReview finding?",
+          graph: "Treemap",
+          x: "—",
+          y: "—",
+          enc: "Rectangle area = finding count; color = severity",
+          why: "Excellent for “what is LR actually discovering?” Use hierarchy category → subcategory. Requires reliably extracting category/severity from ai_comments.content, since the schema stores the comment payload as JSON rather than a normalized issue-category column.",
+          suggested: "",
+          nodata:
+            "ai_comments has 0 rows in this dev DB - no category/severity data to build a treemap from.",
+          value: "1.\n2.",
+        },
+        {
+          q: "Where are the issues concentrated?",
+          graph: "File/repository heatmap",
+          x: "Repository",
+          y: "File/path",
+          enc: "Color = findings; size/text = severity",
+          why: "The ai_comments.file_path field makes file-level concentration directly possible. Show only top files per repo.",
+          suggested: "",
+          nodata:
+            "ai_comments has 0 rows in this dev DB - no file_path data to build this from.",
+          value: "1.\n2.",
+        },
+        {
+          q: "What is the blast radius of issues being caught?",
+          graph: "Bubble scatterplot",
+          x: "Findings per review",
+          y: "Files affected",
+          enc: "Bubble size = severity/LOC; color = category",
+          why: "Each bubble = review or issue cluster. Large/high-severity bubbles in the upper-right are the reviews where LR prevented potentially large problems. File-level blast radius is supported by ai_comments.file_path; dependency-level blast radius would require additional metadata.",
+          suggested: "",
+          nodata:
+            "ai_comments has 0 rows in this dev DB - no findings to bubble-plot yet.",
+          value: "1.\n2.",
+        },
+        {
+          q: "How much does LiveReview save versus alternatives?",
+          graph: "Waterfall chart",
+          x: "Cost components",
+          y: "USD",
+          enc: "Positive = avoided cost; negative = LR cost",
+          why: "Start with hypothetical alternative cost, subtract LR LLM cost + subscription, arrive at net savings. Vega-Lite explicitly has a waterfall example.",
+          suggested: "",
+          demo: "./cost_waterfall.html",
+          value: "1.\n2.",
+        },
+        {
+          q: "How much code has LR reviewed?",
+          graph: "Horizon graph",
+          x: "Day",
+          y: "LOC",
+          enc: "Layer intensity",
+          why: "Extremely compact long-term view. Useful when the dashboard needs to show 30–90 days without consuming much space. Vega-Lite has a native horizon-graph pattern.",
+          suggested: "",
+          demo: "./loc_horizon.html",
+          value: "1.\n2.",
+        },
+        {
+          q: "Are reviews getting faster?",
+          graph: "Line + percentile bands",
+          x: "Day",
+          y: "Review duration",
+          enc: "Median line; p50/p90/p95 bands",
+          why: "A CTO cares less about average latency than whether the tail is becoming problematic. Layered/error-band techniques are well supported.",
+          demo: "./latency_bands.html",
+          value: "1.\n2.",
+        },
+        {
+          q: "How much engineering work is being covered by LR?",
+          graph: "Dual layered line",
+          x: "Day",
+          y: "LOC reviewed",
+          enc: "Line 1 = LOC; line 2 = reviews",
+          why: "Add a derived LOC/review tooltip. This distinguishes more reviews from genuinely more code being inspected.",
+          demo: "./loc_vs_reviews.html",
+          value: "1.\n2.",
+        },
+        {
+          q: "Are reviews becoming more iterative?",
+          graph: "Histogram / violin / box plot",
+          x: "Reviews per commit",
+          y: "Count of commits",
+          enc: "Color = trigger",
+          why: "Distribution is more revealing than an average. A long right tail means some commits are being reviewed repeatedly.",
+          demo: "./reviews_per_commit.html",
+          value: "1.\n2.",
+        },
+        {
+          q: "Which engineers are getting the most value from LR?",
+          graph: "2D scatterplot",
+          x: "Reviews/engineer",
+          y: "Useful findings/engineer",
+          enc: "Size = LOC; color = feedback acceptance",
+          why: "Separates “heavy users” from “productive users.” If feedback is sufficiently populated, this can become one of the most interesting charts.",
+          demo: "./value_scatter.html",
+          value: "1.\n2.",
+        },
+        {
+          q: "Are people trusting the reviews?",
+          graph: "Diverging stacked bar",
+          x: "Engineer/team",
+          y: "Feedback count",
+          enc: "Up vs down",
+          why: "review_feedback explicitly records up/down votes and severity, so this is grounded in the schema.",
+          demo: "./feedback_trust.html",
+          value: "1.\n2.",
+        },
+        {
+          q: "Which repositories have the highest review coverage?",
+          graph: "Bubble chart",
+          x: "Reviews / PRs",
+          y: "LOC reviewed / LOC changed",
+          enc: "Size = engineers; color = coverage",
+          why: "Useful if you can establish total changed LOC/PRs from the Git-host data. This distinguishes high LR usage from genuinely broad coverage.",
+          demo: "./repo_coverage.html",
+          value: "1.\n2.",
+        },
+        {
+          q: "What does a healthy engineering-review workflow look like based on our current activity?",
+          graph: "Connected scatterplot",
+          x: "Review stage / latency",
+          y: "Finding severity or review iteration",
+          enc: "Point = period; connected chronologically",
+          why: "Plot successive weekly states and connect them. The trajectory itself becomes meaningful: more pre-commit reviews + lower latency + fewer late critical findings. Connected scatterplots are explicitly supported by Vega-Lite.",
+          nodata:
+            "review_feedback.severity has only 15 rows total across ~10 weeks - too sparse to plot a meaningful weekly trajectory.",
+          value: "1.\n2.",
+        },
+        {
+          q: "How much of the organization's activity is covered by the top users?",
+          graph: "Cumulative area / Pareto",
+          x: "Engineers ranked by activity",
+          y: "Cumulative % of reviews",
+          enc: "Line + bars",
+          why: "Makes “adoption is broad” vs “three people are doing everything” immediately apparent.",
+          demo: "./engineer_pareto.html",
+          value: "1.\n2.",
+        },
+        {
+          q: "What changed between week 1 and week 2?",
+          graph: "Two-dimensional change matrix",
+          x: "Metric",
+          y: "Metric",
+          enc: "Color = delta",
+          why: "Rows = reviews, LOC, active engineers, repos, pre-commit %, critical findings, etc. Columns = W1/W2/delta. This can become a compact “14-day verdict.”",
+          demo: "./change_matrix.html",
+          value: "1.\n2.",
+        },
+      ];
+
+      function esc(s) {
+        const d = document.createElement("div");
+        d.textContent = s == null ? "" : s;
+        return d.innerHTML;
+      }
+
+      function renderTable(id, rows, hasSuggested) {
+        const cols = [
+          "#",
+          "CTO query",
+          "Vega-Lite graph",
+          "X axis",
+          "Y axis",
+          "Color / size / encoding",
+          "Why this works / action",
+        ];
+        if (hasSuggested) cols.push("Suggested CTO query");
+        cols.push("Value");
+        let html =
+          "<thead><tr>" +
+          cols.map((c) => `<th>${esc(c)}</th>`).join("") +
+          "</tr></thead><tbody>";
+        rows.forEach((r, i) => {
+          html += "<tr>";
+          html += `<td class="num">${i + 1}</td>`;
+          html += `<td class="query">${esc(r.q)}${r.built ? '<span class="built">built</span>' : ""}`;
+          if (r.demo) {
+            html += `<a class="open-link" href="${r.demo}" target="_blank" rel="noopener">↗ open demo</a>`;
+          }
+          if (r.nodata) {
+            html += `<span class="nodata-badge" title="${esc(r.nodata)}">no data yet</span>`;
+          }
+          if (r.skipped) {
+            html += `<span class="skipped-badge">skipped</span>`;
+          }
+          html += `</td>`;
+          html += `<td><span class="graph-badge">${esc(r.graph)}</span></td>`;
+          html += `<td class="axis">${esc(r.x)}</td>`;
+          html += `<td class="axis">${esc(r.y)}</td>`;
+          html += `<td class="encoding">${esc(r.enc)}</td>`;
+          html += `<td class="why">${esc(r.why)}</td>`;
+          if (hasSuggested) {
+            html += r.suggested
+              ? `<td class="suggested">${esc(r.suggested)}</td>`
+              : `<td class="empty">—</td>`;
+          }
+          html += `<td class="value">${esc(r.value).replace(/\n/g, "<br>")}</td>`;
+          html += "</tr>";
+        });
+        html += "</tbody>";
+        document.getElementById(id).innerHTML = html;
+      }
+
+      renderTable("all", queries, true);
+    </script>
+  </body>
+</html>

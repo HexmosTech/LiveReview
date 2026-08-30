@@ -5,6 +5,7 @@ import * as z from 'zod';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { notify } from '../../utils/notify';
 import { useOrgContext } from '../../hooks/useOrgContext';
+import apiClient from '../../api/apiClient';
 import {
     createOrgUser,
     fetchOrgUser,
@@ -15,7 +16,7 @@ import {
     BulkCheckResultRow,
     submitBulkInvite,
 } from '../../api/users';
-import { Button, Input, Select, Icons, Spinner } from '../UIPrimitives';
+import { Alert, Button, Input, Select, Icons, Spinner } from '../UIPrimitives';
 import { useAppDispatch } from '../../store/configureStore';
 import { loadUserOrganizations } from '../../store/Organizations/reducer';
 import { UpgradePromptModal } from '../Subscriptions';
@@ -134,6 +135,8 @@ const UserForm: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [showUpgradeModal, setShowUpgradeModal] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+    const [prerequisiteError, setPrerequisiteError] = useState<string | null>(null);
+    const [prerequisiteStatus, setPrerequisiteStatus] = useState<{ productionUrl: boolean; smtp: boolean } | null>(null);
 
     const [activeTab, setActiveTab] = useState<'single' | 'bulk'>(
         location.pathname.endsWith('/bulk') ? 'bulk' : 'single'
@@ -360,7 +363,14 @@ const UserForm: React.FC = () => {
             dispatch(loadUserOrganizations());
         } catch (error) {
             console.error('Bulk invite submit failed', error);
-            notify.error('Failed to submit bulk invite. Please try again.');
+            const rawMessage = (error as Error).message || 'Failed to submit bulk invite. Please try again.';
+            
+            // Check if this is a prerequisite error
+            if (rawMessage.includes('invitations require')) {
+                setPrerequisiteError(rawMessage);
+            } else {
+                notify.error('Failed to submit bulk invite. Please try again.');
+            }
         } finally {
             setBulkSubmitting(false);
         }
@@ -437,6 +447,55 @@ const UserForm: React.FC = () => {
                 .finally(() => setLoading(false));
         }
     }, [userId, currentOrgId, reset, navigate]);
+
+    // Check prerequisites on mount (only for invite mode, not edit)
+    useEffect(() => {
+        if (!isEditMode && !userId) {
+            checkPrerequisites();
+        }
+    }, [isEditMode, userId]);
+
+    const checkPrerequisites = async () => {
+        try {
+            const missing: string[] = [];
+            let productionUrlOk = false;
+            let smtpOk = false;
+            
+            // Check production URL
+            try {
+                const prodUrlResponse = await apiClient.get<{ url: string }>('/api/v1/production-url');
+                if (prodUrlResponse?.url) {
+                    productionUrlOk = true;
+                } else {
+                    missing.push('Production URL (Settings → Instance)');
+                }
+            } catch (error) {
+                missing.push('Production URL (Settings → Instance)');
+            }
+            
+            // Check SMTP settings
+            try {
+                const smtpResponse = await apiClient.get<{ host: string }>('/api/v1/admin/settings/smtp');
+                if (smtpResponse?.host) {
+                    smtpOk = true;
+                } else {
+                    missing.push('SMTP settings (Settings → SMTP)');
+                }
+            } catch (error) {
+                missing.push('SMTP settings (Settings → SMTP)');
+            }
+            
+            setPrerequisiteStatus({ productionUrl: productionUrlOk, smtp: smtpOk });
+            
+            if (missing.length > 0) {
+                setPrerequisiteError(`Invitations require the following to be configured: ${missing.join(', ')}`);
+            } else {
+                setPrerequisiteError(null);
+            }
+        } catch (error) {
+            console.error('Failed to check prerequisites', error);
+        }
+    };
 
     const getRoleOptions = () => {
         if (currentUserRole === 'super_admin') {
@@ -521,7 +580,13 @@ const UserForm: React.FC = () => {
                     .replace(/[\r\n]+/g, ' ')
                     .trim()
                     .slice(0, 200) || 'An unknown error occurred.';
-            notify.error(['Failed to', action, 'user:', errorMessage].join(' '));
+            
+            // Check if this is a prerequisite error
+            if (errorMessage.includes('invitations require')) {
+                setPrerequisiteError(errorMessage);
+            } else {
+                notify.error(['Failed to', action, 'user:', errorMessage].join(' '));
+            }
             console.error('User operation error', { action, error });
         }
     };
@@ -568,6 +633,31 @@ const UserForm: React.FC = () => {
                 <h1 className="text-2xl font-bold mb-4">
                     {isEditMode ? 'Edit User' : 'Invite User'}
                 </h1>
+
+                {prerequisiteError && (
+                    <Alert variant="warning" icon={<Icons.Warning />} className="mb-4">
+                        <p className="font-medium">Configuration Required</p>
+                        <p className="text-sm mt-1">{prerequisiteError}</p>
+                        <div className="mt-2 space-y-1 text-sm">
+                            <div className="flex items-center gap-2">
+                                {prerequisiteStatus?.productionUrl ? (
+                                    <Icons.Success />
+                                ) : (
+                                    <span className="text-amber-500">○</span>
+                                )}
+                                <a href="/#/settings#instance" className="underline">Settings → Instance</a>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {prerequisiteStatus?.smtp ? (
+                                    <Icons.Success />
+                                ) : (
+                                    <span className="text-amber-500">○</span>
+                                )}
+                                <a href="/#/settings#smtp" className="underline">Settings → SMTP</a>
+                            </div>
+                        </div>
+                    </Alert>
+                )}
 
                 <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-xl overflow-hidden">
                     {isEditMode ? (
@@ -811,7 +901,8 @@ const UserForm: React.FC = () => {
                                                                             }
                                                                             disabled={
                                                                                 bulkSubmitting ||
-                                                                                hasGlobalAccount
+                                                                                hasGlobalAccount ||
+                                                                                !!prerequisiteError
                                                                             }
                                                                             className="w-full bg-slate-900 border border-slate-600 rounded px-2.5 py-1.5 text-white text-sm outline-none focus:border-blue-500 disabled:opacity-50"
                                                                         />
@@ -844,7 +935,8 @@ const UserForm: React.FC = () => {
                                                                             }
                                                                             disabled={
                                                                                 bulkSubmitting ||
-                                                                                hasGlobalAccount
+                                                                                hasGlobalAccount ||
+                                                                                !!prerequisiteError
                                                                             }
                                                                             className="w-full bg-slate-900 border border-slate-600 rounded px-2.5 py-1.5 text-white text-sm outline-none focus:border-blue-500 disabled:opacity-50"
                                                                         />
@@ -876,7 +968,8 @@ const UserForm: React.FC = () => {
                                                                                     )
                                                                                 }
                                                                                 disabled={
-                                                                                    bulkSubmitting
+                                                                                    bulkSubmitting ||
+                                                                                    !!prerequisiteError
                                                                                 }
                                                                                 className="w-full appearance-none bg-slate-900 border border-slate-600 rounded pl-2.5 pr-7 py-1.5 text-white text-sm outline-none focus:border-blue-500 disabled:opacity-50"
                                                                             >
@@ -1039,7 +1132,8 @@ const UserForm: React.FC = () => {
                                                 isLoading={bulkSubmitting}
                                                 disabled={
                                                     bulkRows.length === 0 ||
-                                                    bulkSubmitting
+                                                    bulkSubmitting ||
+                                                    !!prerequisiteError
                                                 }
                                             >
                                                 {bulkSubmitting
@@ -1066,14 +1160,16 @@ const UserForm: React.FC = () => {
                                         </button>
 
                                         <div
-                                            onClick={handleUploadUsersClick}
-                                            onDragOver={handleBulkDragOver}
-                                            onDragLeave={handleBulkDragLeave}
-                                            onDrop={handleBulkDrop}
-                                            className={`border-2 border-dashed rounded-lg py-20 px-6 flex flex-col items-center justify-center text-center cursor-pointer transition-colors ${
-                                                isDragging
-                                                    ? 'border-blue-500 bg-slate-700/40'
-                                                    : 'border-slate-600 hover:border-slate-500 bg-slate-900/30'
+                                            onClick={!prerequisiteError ? handleUploadUsersClick : undefined}
+                                            onDragOver={!prerequisiteError ? (e) => { e.preventDefault(); handleBulkDragOver(e); } : undefined}
+                                            onDragLeave={(e) => { if (!prerequisiteError) handleBulkDragLeave(e); }}
+                                            onDrop={(e) => { e.preventDefault(); if (!prerequisiteError) handleBulkDrop(e); }}
+                                            className={`border-2 border-dashed rounded-lg py-20 px-6 flex flex-col items-center justify-center text-center transition-colors ${
+                                                prerequisiteError
+                                                    ? 'border-slate-700 bg-slate-900/50 opacity-50 cursor-not-allowed'
+                                                    : isDragging
+                                                        ? 'border-blue-500 bg-slate-700/40 cursor-pointer'
+                                                        : 'border-slate-600 hover:border-slate-500 bg-slate-900/30 cursor-pointer'
                                             }`}
                                         >
                                             <span className="text-slate-200">
@@ -1088,6 +1184,7 @@ const UserForm: React.FC = () => {
                                                 accept=".csv"
                                                 className="hidden"
                                                 onChange={handleBulkFileChange}
+                                                disabled={!!prerequisiteError}
                                             />
                                         </div>
 
@@ -1121,7 +1218,7 @@ const UserForm: React.FC = () => {
                                         onBlur={handleEmailCheck}
                                         error={errors.email?.message}
                                         required
-                                        disabled={isEditMode}
+                                        disabled={isEditMode || !!prerequisiteError}
                                         icon={
                                             checkingEmail ? (
                                                 <svg
@@ -1166,6 +1263,7 @@ const UserForm: React.FC = () => {
                                                     errors.firstName?.message
                                                 }
                                                 required
+                                                disabled={!!prerequisiteError}
                                             />
                                             <Input
                                                 label="Last Name"
@@ -1173,6 +1271,7 @@ const UserForm: React.FC = () => {
                                                 {...register('lastName')}
                                                 error={errors.lastName?.message}
                                                 required
+                                                disabled={!!prerequisiteError}
                                             />
                                         </div>
                                     )}
@@ -1184,6 +1283,7 @@ const UserForm: React.FC = () => {
                                         options={getRoleOptions()}
                                         error={errors.role?.message}
                                         required
+                                        disabled={!!prerequisiteError}
                                     />
 
                                     {(!isEditMode && !existsGlobally) ||
@@ -1206,6 +1306,7 @@ const UserForm: React.FC = () => {
                                                 {...register('password')}
                                                 error={errors.password?.message}
                                                 required={!isEditMode}
+                                                disabled={!!prerequisiteError}
                                                 iconPosition="right"
                                                 icon={
                                                     <button
@@ -1282,6 +1383,7 @@ const UserForm: React.FC = () => {
                                                         ?.message
                                                 }
                                                 required={!isEditMode}
+                                                disabled={!!prerequisiteError}
                                             />
                                         </div>
                                     ) : null}
@@ -1299,7 +1401,7 @@ const UserForm: React.FC = () => {
                                         </Button>
                                         <Button
                                             type="submit"
-                                            disabled={isSubmitting}
+                                            disabled={isSubmitting || !!prerequisiteError}
                                         >
                                             {isSubmitting
                                                 ? isEditMode

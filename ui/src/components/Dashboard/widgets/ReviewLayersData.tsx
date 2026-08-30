@@ -1,5 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { getDashboardData, refreshDashboardData, ReviewLayer, ReviewLayers } from '../../../api/dashboard';
+import React, { createContext, useContext, useMemo } from 'react';
+import { useDashboardQuery, ReviewLayer, ReviewLayers } from '../../../api/dashboard';
 
 // Backend always returns one row per known layer, even at all-zero — treat that the same as "no layers at all".
 export function hasNoReviewLayerData(layers: ReviewLayer[]): boolean {
@@ -21,55 +21,27 @@ interface ReviewLayersContextValue {
 
 const ReviewLayersContext = createContext<ReviewLayersContextValue | null>(null);
 
+// Reads review_layers off the shared dashboard query (see useDashboardQuery) instead of
+// fetching it independently - the whole widget grid shares one cached request/result.
 export const ReviewLayersProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [reviewLayers, setReviewLayers] = useState<ReviewLayers | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const { data, isLoading, error, refetch } = useDashboardQuery();
 
-    // Passive load: reads whatever dashboard_cache already has — cheap, no live query.
-    useEffect(() => {
-        let cancelled = false;
-        getDashboardData()
-            .then((data) => {
-                if (cancelled) return;
-                setReviewLayers(data.review_layers ?? null);
-            })
-            .catch((err) => {
-                if (cancelled) return;
-                setError(err instanceof Error ? err.message : 'Failed to load review layers');
-            })
-            .finally(() => {
-                if (!cancelled) setLoading(false);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, []);
-
-    // Explicit refresh: recomputes and stores this org's review_layers on demand, then returns the fresh result.
-    const refetch = useCallback(() => {
-        let cancelled = false;
-        setLoading(true);
-        refreshDashboardData()
-            .then((data) => {
-                if (cancelled) return;
-                setReviewLayers(data.review_layers ?? null);
-                setError(null);
-            })
-            .catch((err) => {
-                if (cancelled) return;
-                setError(err instanceof Error ? err.message : 'Failed to refresh review layers');
-            })
-            .finally(() => {
-                if (!cancelled) setLoading(false);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+    // Memoized so this only produces a new object when the underlying data actually changes -
+    // otherwise every unrelated re-render higher up the tree (e.g. DashboardGrid's
+    // ResizeObserver-driven gridWidth updates) creates a new context value, which re-renders
+    // every consumer, including every echarts widget - each of which then rebuilds its `option`
+    // object and re-triggers echarts' entrance animation even though nothing it actually draws
+    // changed. See docs/perf-improvement.md ("chart animation plays twice").
+    const reviewLayers = data?.review_layers ?? null;
+    const value: ReviewLayersContextValue = useMemo(() => ({
+        reviewLayers,
+        loading: isLoading,
+        error: error ? (error instanceof Error ? error.message : 'Failed to load review layers') : null,
+        refetch: () => { void refetch(); },
+    }), [reviewLayers, isLoading, error, refetch]);
 
     return (
-        <ReviewLayersContext.Provider value={{ reviewLayers, loading, error, refetch }}>
+        <ReviewLayersContext.Provider value={value}>
             {children}
         </ReviewLayersContext.Provider>
     );

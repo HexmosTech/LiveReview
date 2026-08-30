@@ -23,8 +23,8 @@ import (
 	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/api/organizations"
 	"github.com/livereview/internal/api/users"
-	"github.com/livereview/internal/discordbot"
 	"github.com/livereview/internal/database"
+	"github.com/livereview/internal/discordbot"
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/license"
@@ -47,6 +47,7 @@ import (
 	"github.com/livereview/internal/scheduledreview"
 	"github.com/livereview/internal/slackbot"
 	"github.com/livereview/internal/teamsbot"
+	storageanalytics "github.com/livereview/storage/analytics"
 	"github.com/livereview/storage/core"
 	"github.com/livereview/storage/dashboard"
 	// Import FetchGitLabProfile
@@ -302,6 +303,14 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 
 	// Initialize user management system
 	apiKeyManager := NewAPIKeyManager(db)
+
+	// Wire up eager onboarding-API-key creation for new cloud signups (see
+	// AuthHandlers.SetOnboardingKeyGenerator / EnsureCloudUser) - injected here rather than
+	// imported directly in package auth, since this package already imports internal/api/auth.
+	authHandlers.SetOnboardingKeyGenerator(func(tx *sql.Tx, userID, orgID int64) (string, error) {
+		_, key, err := apiKeyManager.CreateAPIKeyTx(tx, userID, orgID, "Onboarding API Key", []string{}, nil)
+		return key, err
+	})
 	userService := users.NewUserService(db, func(tx *sql.Tx, userID, orgID int64) (string, error) {
 		_, key, err := apiKeyManager.CreateAPIKeyTx(tx, userID, orgID, "Onboarding API Key", []string{}, nil)
 		return key, err
@@ -593,6 +602,7 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 	connectorStorage := aiconnectors.NewStorage(db)
 	mcpServerURL := resolveMCPBaseURL(db)
 	maxSteps := 20
+	analyticsEngine := storageanalytics.NewAdHocStore(db)
 
 	var orgCfgs []slackbot.OrgConfig
 
@@ -646,6 +656,7 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 			MCPServerURL:  mcpServerURL,
 			MCPHeaders:    mcpHeaders,
 			Connector:     connector,
+			Analytics:     analyticsEngine,
 			MaxAgentSteps: maxSteps,
 		})
 	}
@@ -686,6 +697,7 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 	if n, err := strconv.Atoi(stepStr); err == nil && n > 0 {
 		maxSteps = n
 	}
+	analyticsEngine := storageanalytics.NewAdHocStore(db)
 
 	var orgCfgs []discordbot.OrgConfig
 
@@ -731,6 +743,7 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 			MCPServerURL:  mcpServerURL,
 			MCPHeaders:    mcpHeaders,
 			Connector:     connector,
+			Analytics:     analyticsEngine,
 			MaxAgentSteps: maxSteps,
 		})
 	}
@@ -798,6 +811,7 @@ func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
 								MCPServerURL:  mcpServerURL,
 								MCPHeaders:    map[string]string{"X-API-Key": envAPIKey},
 								Connector:     connector,
+								Analytics:     analyticsEngine,
 								MaxAgentSteps: maxSteps,
 							})
 							log.Printf("Discord bot: env-var bot configured for org %d (%s)", envOrgID, envOrgName)
@@ -1213,7 +1227,9 @@ func (s *Server) setupRoutes() {
 
 	connectorGroup.GET("", s.GetConnectors)
 	connectorGroup.GET("/:id", s.GetConnector)
+	connectorGroup.PUT("/:id", s.UpdateConnector)
 	connectorGroup.DELETE("/:id", s.DeleteConnector)
+	connectorGroup.POST("/:id/test", s.TestConnectorConnection)
 	connectorGroup.GET("/:connectorId/repository-access", s.GetRepositoryAccess)
 	connectorGroup.POST("/:connectorId/enable-manual-trigger", s.EnableManualTriggerForAllProjects)
 	connectorGroup.POST("/:connectorId/disable-manual-trigger", s.DisableManualTriggerForAllProjects)
@@ -1354,6 +1370,20 @@ func (s *Server) setupRoutes() {
 	// CSV exports are bulk org data, so unlike the chart PNGs below they are
 	// served from the authenticated group and checked against the caller's org.
 	chatGroup.GET("/files/:id", s.ServeChatCSV)
+	// Persisted conversation history: list/search the sidebar, open a thread,
+	// rename/delete it, and re-render one of its charts on demand.
+	chatGroup.POST("", s.CreateConversation)
+	chatGroup.GET("", s.ListConversations)
+	chatGroup.GET("/summaries", s.ListConversationSummaries)
+	chatGroup.GET("/:id", s.GetConversation)
+	chatGroup.PATCH("/:id", s.RenameConversation)
+	chatGroup.DELETE("/:id", s.DeleteConversation)
+	chatGroup.GET("/charts/:chartId/render", s.RenderChart)
+	chatGroup.GET("/:id/export", s.ExportConversation)
+	chatGroup.POST("/export/compile", s.CompileExport)
+
+	// Register dev-only routes (excluded in production builds via build tag)
+	s.registerDevRoutes(v1)
 
 	// Dashboard endpoints (organization scoped)
 	dashboardGroup := v1.Group("/dashboard")
@@ -1503,6 +1533,20 @@ func (s *Server) setupRoutes() {
 	adminReportsGroup.GET("/export/preview", taxonomyHandler.GetAdminTaxonomyExportPreview)
 	adminReportsGroup.GET("/export", taxonomyHandler.ExportAdminTaxonomyCSV)
 	adminReportsGroup.GET("/export/xlsx", taxonomyHandler.ExportAdminTaxonomyXLSX)
+
+	// Onboarding report endpoints (org-scoped: any member)
+	onboardingHandler := NewOnboardingReportHandler(s.db)
+	onboardingGroup := v1.Group("/reports/onboarding")
+	onboardingGroup.Use(authMiddleware.RequireAuth())
+	onboardingGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	onboardingGroup.Use(authMiddleware.ValidateOrgAccess())
+	onboardingGroup.Use(authMiddleware.BuildPermissionContext())
+	onboardingGroup.GET("/sections", onboardingHandler.GetSections)
+	onboardingGroup.GET("/charts", onboardingHandler.GetAllCharts)
+	onboardingGroup.GET("/charts/:section", onboardingHandler.GetSectionCharts)
+	onboardingGroup.POST("/export", onboardingHandler.StartExport)
+	onboardingGroup.GET("/export/:jobId/status", onboardingHandler.ExportStatus)
+	onboardingGroup.GET("/export/:jobId/file", onboardingHandler.ExportFile)
 
 	// Razorpay webhook endpoint (public - signature verified in handler)
 	webhookHandler := payment.NewRazorpayWebhookHandler(s.db, os.Getenv("RAZORPAY_WEBHOOK_SECRET"))

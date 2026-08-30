@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
-import { Area, AreaChart, Brush, CartesianGrid, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import apiClient from '../../api/apiClient';
 import { useAppSelector } from '../../store/configureStore';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { Spinner } from '../../components/UIPrimitives';
 import { generateImpactReportPdf } from './pdfExport';
+import { TrendAreaChart } from './TrendAreaChart';
 
 type MultiOption = { value: string; label: string };
 
@@ -373,9 +373,9 @@ const emptyFilters = (): Filters => ({
 
 // ---- URL <-> filter state sync ---------------------------------------------
 
-const filtersToParams = (f: Filters, mode: 'overview' | 'explore'): URLSearchParams => {
+const filtersToParams = (f: Filters, mode: 'overview' | 'explore' | 'custom'): URLSearchParams => {
   const p = new URLSearchParams();
-  if (mode === 'explore') p.set('mode', 'explore');
+  if (mode !== 'overview') p.set('mode', mode);
   if (f.since) p.set('since', f.since);
   if (f.until) p.set('until', f.until);
   if (f.severity) p.set('severity', f.severity);
@@ -390,7 +390,7 @@ const filtersToParams = (f: Filters, mode: 'overview' | 'explore'): URLSearchPar
   return p;
 };
 
-const paramsToFilters = (sp: URLSearchParams): { filters: Filters; mode: 'overview' | 'explore' } => {
+const paramsToFilters = (sp: URLSearchParams): { filters: Filters; mode: 'overview' | 'explore' | 'custom' } => {
   const defaults = emptyFilters();
   const filters: Filters = {
     since: sp.get('since') || defaults.since,
@@ -405,7 +405,9 @@ const paramsToFilters = (sp: URLSearchParams): { filters: Filters; mode: 'overvi
     orgId: sp.get('org_id') || '',
     grain: sp.get('grain') || 'day',
   };
-  return { filters, mode: sp.get('mode') === 'explore' ? 'explore' : 'overview' };
+  const rawMode = sp.get('mode');
+  const mode = rawMode === 'explore' || rawMode === 'custom' ? rawMode : 'overview';
+  return { filters, mode };
 };
 
 const DATASETS = [
@@ -424,7 +426,7 @@ const TaxonomyReports: React.FC = () => {
   const { isSuperAdmin, currentOrg } = useOrgContext();
   const userEmail = useAppSelector((state) => state.Auth.user?.email) || '';
   const [searchParams, setSearchParams] = useSearchParams();
-  const [mode, setMode] = useState<'overview' | 'explore'>(() => paramsToFilters(searchParams).mode);
+  const [mode, setMode] = useState<'overview' | 'explore' | 'custom'>(() => paramsToFilters(searchParams).mode);
 
   const [filters, setFilters] = useState<Filters>(() => paramsToFilters(searchParams).filters);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -609,7 +611,7 @@ const TaxonomyReports: React.FC = () => {
   }, [searchParams, load]);
 
   // Push the given filters/mode into the URL; the effect above picks up the change and reloads.
-  const navigateToView = useCallback((nextFilters: Filters, nextMode: 'overview' | 'explore') => {
+  const navigateToView = useCallback((nextFilters: Filters, nextMode: 'overview' | 'explore' | 'custom') => {
     setSearchParams(filtersToParams(nextFilters, nextMode));
   }, [setSearchParams]);
 
@@ -1084,50 +1086,6 @@ const TaxonomyReports: React.FC = () => {
     </svg>
   );
 
-  const TrendAreaChart = ({
-    rows,
-    height = 120,
-    showBrush = true,
-    showLegend = true,
-  }: {
-    rows: FilledTrendRow[];
-    height?: number;
-    showBrush?: boolean;
-    showLegend?: boolean;
-  }) => {
-    if (rows.length === 0) {
-      return <p className="text-slate-400 text-xs">No trend data in the selected range.</p>;
-    }
-    const tooltipStyle = {
-      background: '#0f172a',
-      border: '1px solid #334155',
-      borderRadius: 8,
-      color: '#e2e8f0',
-      fontSize: 12,
-    } as const;
-
-    return (
-      <div className="space-y-2">
-        <div className="w-full rounded bg-slate-900/50 border border-slate-700 p-2" style={{ height }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: showBrush ? 26 : 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="bucket" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickLine={{ stroke: '#475569' }} />
-              <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={{ stroke: '#475569' }} tickLine={{ stroke: '#475569' }} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#cbd5e1', fontSize: 11 }} />
-              {showLegend && <Legend wrapperStyle={{ color: '#cbd5e1', fontSize: 11 }} />}
-              <Area name="Findings" type="monotone" dataKey="count" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} strokeWidth={2} />
-              <Line name="Reviews" type="monotone" dataKey="review_count" stroke="#22c55e" strokeWidth={2} dot={false} />
-              {showBrush && (
-                <Brush dataKey="bucket" height={14} stroke="#334155" fill="#0f172a" travellerWidth={6} />
-              )}
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-    );
-  };
-
   // ---- main render ---------------------------------------------------------
 
   return (
@@ -1164,8 +1122,33 @@ const TaxonomyReports: React.FC = () => {
           onClick={() => { setMode('explore'); navigateToView(filters, 'explore'); }}
           className={`px-3 py-1.5 rounded text-xs border ${mode === 'explore' ? 'bg-slate-700 border-slate-500 text-white' : 'bg-slate-900 border-slate-700 text-slate-300'}`}
         >Exploration</button>
+        <button
+          onClick={() => { setMode('custom'); navigateToView(filters, 'custom'); }}
+          className={`px-3 py-1.5 rounded text-xs border ${mode === 'custom' ? 'bg-slate-700 border-slate-500 text-white' : 'bg-slate-900 border-slate-700 text-slate-300'}`}
+        >Custom Reports</button>
       </div>
 
+      {mode === 'custom' && (
+        <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-5">
+          <h2 className="text-white font-semibold text-sm mb-1">Custom Reports</h2>
+          <p className="text-slate-400 text-xs mb-4">
+            Purpose-built reports outside the standard Impact Report filters above.
+          </p>
+          <Link
+            to="/reports/onboarding"
+            className="flex items-center justify-between gap-3 rounded-lg border border-slate-700 bg-slate-900/60 hover:bg-slate-900 hover:border-slate-600 transition-colors px-4 py-3 max-w-md"
+          >
+            <span>
+              <span className="block text-white text-sm font-medium">Onboarding Report</span>
+              <span className="block text-slate-400 text-xs mt-0.5">LiveReview adoption metrics for your organization</span>
+            </span>
+            <span className="text-slate-500">&rarr;</span>
+          </Link>
+        </div>
+      )}
+
+      {mode !== 'custom' && (
+      <>
       {/* Filters */}
       <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-3">
         <p className="text-slate-400 text-xs mb-3">
@@ -1973,6 +1956,8 @@ const TaxonomyReports: React.FC = () => {
             )}
           </div>
         </div>
+      )}
+      </>
       )}
 
       {showTrendModal && (

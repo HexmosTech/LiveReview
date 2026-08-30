@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import type { Layout } from 'react-grid-layout/legacy';
 import { WIDGET_REGISTRY, WidgetDefinition } from './registry';
 
-const STORAGE_VERSION = 1;
+const STORAGE_VERSION = 2;
 
 interface StoredDashboardLayout {
     version: number;
@@ -57,8 +57,41 @@ function saveStored(key: string, data: StoredDashboardLayout): void {
 
 export function useDashboardLayout(userId?: number | string) {
     const storageKey = storageKeyFor(userId);
-    const [layout, setLayout] = useState<Layout>(() => loadStored(storageKey)?.layout ?? defaultLayout());
-    const [widgetIds, setWidgetIds] = useState<string[]>(() => loadStored(storageKey)?.widgetIds ?? defaultWidgetIds());
+    const [layout, setLayout] = useState<Layout>(() => {
+        const stored = loadStored(storageKey);
+        if (!stored) return defaultLayout();
+        // Merge any new widgets from the registry that weren't in the saved layout.
+        // This ensures new widgets appear automatically for users with a persisted layout.
+        const savedIds = new Set(stored.widgetIds);
+        const newWidgets = WIDGET_REGISTRY.filter((w) => !savedIds.has(w.id));
+        if (newWidgets.length === 0) return stored.layout;
+        const mergedLayout: Layout = [
+            ...stored.layout,
+            ...newWidgets.map((w) => ({
+                i: w.id,
+                x: w.defaultLayout.x,
+                y: w.defaultLayout.y,
+                w: w.defaultLayout.w,
+                h: w.defaultLayout.h,
+                minW: w.minW,
+                minH: w.minH,
+            })),
+        ];
+        return mergedLayout;
+    });
+    const [widgetIds, setWidgetIds] = useState<string[]>(() => {
+        const stored = loadStored(storageKey);
+        if (!stored) return defaultWidgetIds();
+        // Merge new registry widget IDs into the saved list, then sort to match
+        // registry order so new widgets appear at their intended position (not appended at end).
+        const savedIds = new Set(stored.widgetIds);
+        const newIds = WIDGET_REGISTRY.filter((w) => !savedIds.has(w.id)).map((w) => w.id);
+        if (newIds.length === 0) return stored.widgetIds;
+        const merged = [...stored.widgetIds, ...newIds];
+        const registryOrder = WIDGET_REGISTRY.map((w) => w.id);
+        merged.sort((a, b) => registryOrder.indexOf(a) - registryOrder.indexOf(b));
+        return merged;
+    });
     const [editMode, setEditMode] = useState(false);
     const saveTimerRef = useRef<number | null>(null);
 

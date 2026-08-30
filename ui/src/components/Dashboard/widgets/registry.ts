@@ -1,16 +1,25 @@
 import React from 'react';
-import { ReviewPipelineSankey } from './ReviewPipelineSankey';
 import { LayerStageCards } from './LayerStageCards';
-import { IssueCategoryRadar } from './IssueCategoryRadar';
-import { ReviewVolumeBar } from './ReviewVolumeBar';
 import { SystemKpiRow } from './SystemKpiRow';
-import { RepoHierarchySunburst } from './RepoHierarchySunburst';
 import { ConnectedProviders } from './ConnectedProviders';
-import { CoverageGauge } from './CoverageGauge';
 import { AverageReviewsStat } from './AverageReviewsStat';
 import { TopReviewersLeaderboard } from './TopReviewersLeaderboard';
-import { ContributionCalendarHeatmap } from './ContributionCalendarHeatmap';
-import { UsageShareDonut } from './UsageShareDonut';
+
+// The 7 echarts-based widgets are lazy-loaded (not statically imported like the ones above):
+// registry.ts is itself statically imported by DashboardGrid.tsx, which Dashboard.tsx statically
+// imports - so without this, echarts (600KB+) had to finish downloading before ANY widget (or
+// Dashboard's own data-fetching, which lives in the same React.lazy() boundary) could even start,
+// even though Dashboard's data queries have zero dependency on echarts. Each of these now
+// resolves independently once its own chunk arrives, behind the per-widget Suspense boundary in
+// DashboardGrid.tsx - see docs/perf-improvement.md.
+const ReviewPipelineSankey = React.lazy(() => import('./ReviewPipelineSankey').then((m) => ({ default: m.ReviewPipelineSankey })));
+const IssueCategoryTreemap = React.lazy(() => import('./IssueCategoryTreemap').then((m) => ({ default: m.IssueCategoryTreemap })));
+const IssueCategoryRadar = React.lazy(() => import('./IssueCategoryRadar').then((m) => ({ default: m.IssueCategoryRadar })));
+const ReviewVolumeBar = React.lazy(() => import('./ReviewVolumeBar').then((m) => ({ default: m.ReviewVolumeBar })));
+const RepoHierarchySunburst = React.lazy(() => import('./RepoHierarchySunburst').then((m) => ({ default: m.RepoHierarchySunburst })));
+const CoverageGauge = React.lazy(() => import('./CoverageGauge').then((m) => ({ default: m.CoverageGauge })));
+const UsageShareDonut = React.lazy(() => import('./UsageShareDonut').then((m) => ({ default: m.UsageShareDonut })));
+const ContributionCalendarHeatmap = React.lazy(() => import('./ContributionCalendarHeatmap').then((m) => ({ default: m.ContributionCalendarHeatmap })));
 
 export type WidgetCategory = 'layers' | 'system' | 'people';
 
@@ -56,11 +65,20 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
         component: ReviewPipelineSankey,
     },
     {
+        id: 'issue-category-treemap',
+        title: 'Issue Distribution',
+        category: 'layers',
+        description: 'Hierarchical treemap of issue categories and subcategories, sized by count.',
+        defaultLayout: { x: 0, y: 10, w: 12, h: 24 },
+        minW: 6, minH: 12,
+        component: IssueCategoryTreemap,
+    },
+    {
         id: 'issue-category-radar',
         title: 'Issue Mix by Stage',
         category: 'layers',
         description: 'Compares the kinds of issues each review stage tends to catch.',
-        defaultLayout: { x: 0, y: 10, w: 12, h: 10 },
+        defaultLayout: { x: 0, y: 34, w: 12, h: 10 },
         minW: 6, minH: 7,
         component: IssueCategoryRadar,
     },
@@ -69,7 +87,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
         title: 'Reviews by Stage',
         category: 'layers',
         description: 'Volume and issue counts for each review trigger source.',
-        defaultLayout: { x: 0, y: 20, w: 12, h: 5 },
+        defaultLayout: { x: 0, y: 44, w: 12, h: 5 },
         minW: 6, minH: 5,
         component: LayerStageCards,
     },
@@ -78,7 +96,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
         title: 'Stage Volume Comparison',
         category: 'layers',
         description: 'Quick side-by-side read of review volume per stage.',
-        defaultLayout: { x: 0, y: 24, w: 12, h: 7 },
+        defaultLayout: { x: 0, y: 48, w: 12, h: 7 },
         minW: 5, minH: 5,
         component: ReviewVolumeBar,
     },
@@ -89,7 +107,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
         title: 'System at a Glance',
         category: 'system',
         description: 'Git hosts, AI connectors, repos, and PRs tracked by LiveReview.',
-        defaultLayout: { x: 0, y: 31, w: 12, h: 4 },
+        defaultLayout: { x: 0, y: 55, w: 12, h: 4 },
         minW: 6, minH: 3,
         component: SystemKpiRow,
     },
@@ -98,7 +116,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
         title: 'PR Count by Repo / Host',
         category: 'system',
         description: 'Git host → repository → PR volume, sized by activity.',
-        defaultLayout: { x: 0, y: 35, w: 7, h: 10 },
+        defaultLayout: { x: 0, y: 59, w: 7, h: 10 },
         minW: 5, minH: 7,
         component: RepoHierarchySunburst,
     },
@@ -107,7 +125,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
         title: 'Connected Providers',
         category: 'system',
         description: 'Every git host and AI provider currently connected.',
-        defaultLayout: { x: 7, y: 35, w: 5, h: 10 },
+        defaultLayout: { x: 7, y: 59, w: 5, h: 10 },
         minW: 4, minH: 6,
         component: ConnectedProviders,
     },
@@ -116,7 +134,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
         title: 'Review Coverage',
         category: 'system',
         description: 'Share of PRs/MRs that received at least one AI review in the selected period.',
-        defaultLayout: { x: 0, y: 45, w: 4, h: 7 },
+        defaultLayout: { x: 0, y: 69, w: 4, h: 7 },
         minW: 3, minH: 5,
         component: CoverageGauge,
     },
@@ -125,7 +143,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
         title: 'Review Averages',
         category: 'system',
         description: 'Average reviews per PR/MR and per commit.',
-        defaultLayout: { x: 4, y: 45, w: 8, h: 7 },
+        defaultLayout: { x: 4, y: 69, w: 8, h: 7 },
         minW: 5, minH: 5,
         component: AverageReviewsStat,
     },
@@ -136,7 +154,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
         title: 'Top Reviewers',
         category: 'people',
         description: 'Ranked by number of reviews given this period.',
-        defaultLayout: { x: 0, y: 52, w: 6, h: 9 },
+        defaultLayout: { x: 0, y: 76, w: 6, h: 9 },
         minW: 4, minH: 6,
         component: TopReviewersLeaderboard,
     },
@@ -145,7 +163,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
         title: 'Usage Share',
         category: 'people',
         description: 'Share of review volume by contributor (top 5 + others).',
-        defaultLayout: { x: 6, y: 52, w: 6, h: 9 },
+        defaultLayout: { x: 6, y: 76, w: 6, h: 9 },
         minW: 4, minH: 6,
         component: UsageShareDonut,
     },
@@ -154,7 +172,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
         title: 'Contribution Activity',
         category: 'people',
         description: 'Daily review activity over the last 7 months.',
-        defaultLayout: { x: 0, y: 61, w: 12, h: 6 },
+        defaultLayout: { x: 0, y: 85, w: 12, h: 6 },
         minW: 8, minH: 4,
         component: ContributionCalendarHeatmap,
     },

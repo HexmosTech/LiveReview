@@ -31,6 +31,36 @@ type Bot struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	teamIDStored func(orgID int64, teamID string) error
+	dedup        *eventDedup
+}
+
+
+type eventDedup struct {
+	mu   sync.Mutex
+	seen map[string]time.Time
+}
+
+const dedupWindow = 5 * time.Minute
+
+func newEventDedup() *eventDedup {
+	return &eventDedup{seen: make(map[string]time.Time)}
+}
+
+// seenBefore records key if new, returns true if it's a recent duplicate.
+func (d *eventDedup) seenBefore(key string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	now := time.Now()
+	for k, t := range d.seen {
+		if now.Sub(t) >= dedupWindow {
+			delete(d.seen, k)
+		}
+	}
+	if t, ok := d.seen[key]; ok && now.Sub(t) < dedupWindow {
+		return true
+	}
+	d.seen[key] = now
+	return false
 }
 
 // socketRunner owns a single Socket Mode connection (one app token) and the
@@ -58,6 +88,7 @@ type orgHandler struct {
 	mcpServerURL  string
 	mcpHeaders    map[string]string
 	connector     *aiconnectors.Connector
+	analytics     mcpagent.AnalyticsEngine
 	maxAgentSteps int
 	agentMu       sync.Mutex
 }
@@ -76,6 +107,7 @@ type OrgConfig struct {
 	MCPServerURL  string
 	MCPHeaders    map[string]string
 	Connector     *aiconnectors.Connector
+	Analytics     mcpagent.AnalyticsEngine
 	MaxAgentSteps int
 }
 
@@ -126,7 +158,7 @@ func New(cfg *Config, teamIDStored func(orgID int64, teamID string) error) (*Bot
 		appGroups[oc.SlackAppToken] = append(appGroups[oc.SlackAppToken], oc)
 	}
 
-	bot := &Bot{teamIDStored: teamIDStored}
+	bot := &Bot{teamIDStored: teamIDStored, dedup: newEventDedup()}
 
 	for _, appToken := range appOrder {
 		runner := &socketRunner{bot: bot, appToken: appToken, orgs: make(map[string]*orgHandler)}
@@ -228,6 +260,7 @@ func (r *socketRunner) addOrg(oc *OrgConfig, teamIDStored func(orgID int64, team
 		mcpServerURL:  oc.MCPServerURL,
 		mcpHeaders:    oc.MCPHeaders,
 		connector:     oc.Connector,
+		analytics:     oc.Analytics,
 		maxAgentSteps: oc.MaxAgentSteps,
 	}
 
@@ -400,6 +433,11 @@ func (b *Bot) handleAppMention(data any, teamID string) {
 		return
 	}
 
+	if b.dedup.seenBefore(mention.Channel + ":" + mention.TimeStamp) {
+		log.Printf("[SlackBot] Duplicate app_mention for %s/%s, skipping", mention.Channel, mention.TimeStamp)
+		return
+	}
+
 	oh := b.resolveTeam(teamID)
 	if oh == nil {
 		log.Printf("[SlackBot] Unknown team %s for app_mention, skipping", teamID)
@@ -419,6 +457,11 @@ func (b *Bot) handleMessage(data any, teamID string) {
 	}
 
 	if msg.BotID != "" {
+		return
+	}
+
+	if b.dedup.seenBefore(msg.Channel + ":" + msg.TimeStamp) {
+		log.Printf("[SlackBot] Duplicate message event for %s/%s, skipping", msg.Channel, msg.TimeStamp)
 		return
 	}
 
@@ -454,7 +497,8 @@ func (oh *orgHandler) ensureAgent() error {
 	if oh.orgName != "" {
 		mcpSession.OrgName = oh.orgName
 	}
-	oh.agent = mcpagent.NewAgent(provider, mcpSession, oh.maxAgentSteps)
+	mcpSession.OrgID = oh.orgID
+	oh.agent = mcpagent.NewAgent(provider, mcpSession, oh.maxAgentSteps).WithAnalytics(oh.analytics)
 	log.Printf("[SlackBot] Org %d: connected to MCP lazily. Tools: %v", oh.orgID, toolNames(mcpSession.Tools))
 	return nil
 }
@@ -535,9 +579,16 @@ func (oh *orgHandler) processMessage(channel, ts, threadTS, text string) {
 			return
 		}
 		// A single value/bar isn't worth a chart — reply with the description text.
-		if desc, query, ok := vlrender.TrivialDescription(finalText); ok && desc != "" {
-			if query != "" {
-				desc += "\n\nQuery used: " + query
+		if desc, query, timeRange, granularity, _, ok := vlrender.TrivialDescription(finalText); ok && desc != "" {
+			if query != "" || timeRange != "" || granularity != "" {
+				detail := "\n\nQuery: " + query
+				if timeRange != "" {
+					detail += "\nTime range: " + timeRange
+				}
+				if granularity != "" {
+					detail += "\nGranularity: " + granularity
+				}
+				desc += detail
 			}
 			if _, _, err := oh.slackClient.PostMessage(channel, slack.MsgOptionText(desc, false)); err != nil {
 				log.Printf("[SlackBot] Failed to post response: %s", err)

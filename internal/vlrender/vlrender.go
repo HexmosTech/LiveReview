@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
+
+	"github.com/livereview/internal/chatstats"
 )
 
 const (
@@ -29,7 +31,41 @@ type VegaLiteReport struct {
 	Subtitle    string          `json:"subtitle,omitempty"`
 	Description string          `json:"description,omitempty"`
 	Query       string          `json:"query,omitempty"`
+	TimeRange   string          `json:"time_range,omitempty"`
+	Granularity string          `json:"granularity,omitempty"`
+	Context     ChartContext    `json:"context"`
 	Spec        json.RawMessage `json:"spec"`
+	// Stats holds the precomputed KPI chips for this chart (Total/Avg per
+	// period/Peak/Low/Trend etc.) - see internal/chatstats.ComputeAllStats.
+	// Nil when the spec doesn't match any of the shapes chatstats knows how
+	// to summarize (e.g. a layered/faceted spec).
+	Stats json.RawMessage `json:"stats,omitempty"`
+}
+
+// ChartContext names who or what a chart/export is scoped to. Organization
+// is always the real org name - every query is org-scoped regardless of
+// whether it's also narrowed to specific repositories or people.
+type ChartContext struct {
+	Organization string   `json:"organization"`
+	Repository   []string `json:"repository,omitempty"`
+	Person       []string `json:"person,omitempty"`
+}
+
+// Format renders a ChartContext as one plain-text line, for surfaces (Slack,
+// Discord, Teams plain-text fallback) that show a single string rather than
+// the structured object the web chat UI renders as separate bullet points.
+func (c ChartContext) Format() string {
+	var parts []string
+	if c.Organization != "" {
+		parts = append(parts, "Organization: "+c.Organization)
+	}
+	if len(c.Repository) > 0 {
+		parts = append(parts, "Repository: "+strings.Join(c.Repository, ", "))
+	}
+	if len(c.Person) > 0 {
+		parts = append(parts, "Person: "+strings.Join(c.Person, ", "))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // Report is a rendered chart. PNGData holds the in-memory image; PNGPath is the
@@ -42,7 +78,11 @@ type Report struct {
 	Title       string
 	Description string
 	Query       string
-	PNGPath     string
+	TimeRange   string
+	Granularity string
+	Context     ChartContext
+	Stats   json.RawMessage
+	PNGPath string
 }
 
 // ErrTrivialSpec is returned when a Vega-Lite payload resolves to only a single
@@ -105,11 +145,11 @@ func countDataValues(m map[string]any) (total int, known bool) {
 	return total, known
 }
 
-// TrivialDescription returns the human-readable description and the query used
-// to show in place of a chart when the payload's spec(s) resolve to only a
-// single value/bar, plus true if that is the case. Callers render the returned
-// text instead of a chart and may append the query with their own phrasing.
-func TrivialDescription(raw string) (desc string, query string, ok bool) {
+// TrivialDescription returns the human-readable description, query, time range,
+// and granularity to show in place of a chart when the payload's spec(s) resolve
+// to only a single value/bar, plus true if that is the case. Callers render the
+// returned text instead of a chart and may append the query with their own phrasing.
+func TrivialDescription(raw string) (desc string, query string, timeRange string, granularity string, context string, ok bool) {
 	body := ExtractJSONBlock(raw)
 
 	var multi struct {
@@ -119,6 +159,9 @@ func TrivialDescription(raw string) (desc string, query string, ok bool) {
 		trivial := true
 		var parts []string
 		var queries []string
+		var timeRanges []string
+		var granularities []string
+		var contexts []string
 		for _, r := range multi.Reports {
 			spec, err := NormalizeVegaLiteSpec(r.Spec)
 			if err != nil {
@@ -134,41 +177,59 @@ func TrivialDescription(raw string) (desc string, query string, ok bool) {
 			if strings.TrimSpace(r.Query) != "" {
 				queries = append(queries, r.Query)
 			}
+			if strings.TrimSpace(r.TimeRange) != "" {
+				timeRanges = append(timeRanges, r.TimeRange)
+			}
+			if strings.TrimSpace(r.Granularity) != "" {
+				granularities = append(granularities, r.Granularity)
+			}
+			if formatted := r.Context.Format(); formatted != "" {
+				contexts = append(contexts, formatted)
+			}
 		}
 		if !trivial {
-			return "", "", false
+			return "", "", "", "", "", false
 		}
-		return strings.Join(parts, "\n\n"), strings.Join(queries, "\n\n"), true
+		return strings.Join(parts, "\n\n"), strings.Join(queries, "\n\n"),
+			strings.Join(timeRanges, "\n\n"), strings.Join(granularities, "\n\n"),
+			strings.Join(contexts, "\n\n"), true
 	}
 
 	var wrapped VegaLiteReport
 	if err := json.Unmarshal([]byte(body), &wrapped); err == nil && len(wrapped.Spec) > 0 {
 		spec, err := NormalizeVegaLiteSpec(wrapped.Spec)
 		if err != nil {
-			return "", "", false
+			return "", "", "", "", "", false
 		}
 		if !SpecIsTrivial(spec) {
-			return "", "", false
+			return "", "", "", "", "", false
 		}
-		return wrapped.Description, wrapped.Query, true
+		return wrapped.Description, wrapped.Query, wrapped.TimeRange, wrapped.Granularity, wrapped.Context.Format(), true
 	}
 
 	var m map[string]any
 	if err := json.Unmarshal([]byte(body), &m); err != nil {
-		return "", "", false
+		return "", "", "", "", "", false
 	}
 	spec, err := NormalizeVegaLiteSpec([]byte(body))
 	if err != nil {
-		return "", "", false
+		return "", "", "", "", "", false
 	}
 	if !SpecIsTrivial(spec) {
-		return "", "", false
+		return "", "", "", "", "", false
 	}
 	q, _ := m["query"].(string)
-	if d, ok := m["description"].(string); ok {
-		return d, q, true
+	tr, _ := m["time_range"].(string)
+	g, _ := m["granularity"].(string)
+	var chartCtx ChartContext
+	if raw, err := json.Marshal(m["context"]); err == nil {
+		_ = json.Unmarshal(raw, &chartCtx)
 	}
-	return "", q, true
+	ctx := chartCtx.Format()
+	if d, ok := m["description"].(string); ok {
+		return d, q, tr, g, ctx, true
+	}
+	return "", q, tr, g, ctx, true
 }
 
 // CleanupReports removes the temp directories backing the given reports.
@@ -248,12 +309,20 @@ func renderVegaLiteReports(ctx context.Context, raw string, scale string) ([]Rep
 		if err != nil {
 			return nil, err
 		}
+		stats, statsErr := chatstats.ComputeAllStats(spec)
+		if statsErr != nil {
+			log.Printf("[VegaRender] chart stats computation failed for report %q, continuing without stats: %s", wrapped.Title, statsErr)
+		}
 		return []Report{{
 			PNGData:     png,
 			PNGPath:     pngPath,
 			Title:       FriendlyTitle(wrapped.Title, wrapped.Subtitle),
 			Description: wrapped.Description,
 			Query:       wrapped.Query,
+			TimeRange:   wrapped.TimeRange,
+			Granularity: wrapped.Granularity,
+			Context:     wrapped.Context,
+			Stats:       stats,
 		}}, nil
 	}
 
@@ -298,12 +367,20 @@ func renderReports(ctx context.Context, reports []VegaLiteReport, scale string) 
 			log.Printf("[VegaRender] Skipping report %q: failed to render chart: %s", r.Title, err)
 			continue
 		}
+		stats, statsErr := chatstats.ComputeAllStats(spec)
+		if statsErr != nil {
+			log.Printf("[VegaRender] chart stats computation failed for report %q, continuing without stats: %s", r.Title, statsErr)
+		}
 		out = append(out, Report{
 			PNGData:     png,
 			PNGPath:     pngPath,
 			Title:       FriendlyTitle(r.Title, r.Subtitle),
 			Description: r.Description,
 			Query:       r.Query,
+			TimeRange:   r.TimeRange,
+			Granularity: r.Granularity,
+			Context:     r.Context,
+			Stats:       stats,
 		})
 	}
 	if len(out) == 0 {
@@ -325,11 +402,33 @@ func NormalizeVegaLiteSpec(spec []byte) ([]byte, error) {
 	injectAxisAngle(m)
 	injectSafeFonts(m)
 	injectFriendlyTitles(m)
+	injectCompactLegend(m)
 	b, err := json.Marshal(m)
 	if err != nil {
 		return nil, err
 	}
 	return b, nil
+}
+
+// injectCompactLegend overrides the theme's legend.offset/padding, which on
+// the powerbi theme leaves a large dead gap between the plot and the legend.
+func injectCompactLegend(m map[string]any) {
+	config, ok := m["config"].(map[string]any)
+	if !ok {
+		config = map[string]any{}
+		m["config"] = config
+	}
+	legend, ok := config["legend"].(map[string]any)
+	if !ok {
+		legend = map[string]any{}
+		config["legend"] = legend
+	}
+	if _, exists := legend["offset"]; !exists {
+		legend["offset"] = float64(8)
+	}
+	if _, exists := legend["padding"]; !exists {
+		legend["padding"] = float64(0)
+	}
 }
 
 // safeFontStack is a font family every environment has, with fallbacks.
@@ -488,7 +587,10 @@ func injectAxisAngle(m map[string]any) {
 			channelMap["axis"] = axis
 		}
 		if _, exists := axis["labelAngle"]; !exists {
-			axis["labelAngle"] = float64(45)
+			// Align/baseline pair pivots the rotated label on its tick.
+			axis["labelAngle"] = float64(-45)
+			axis["labelAlign"] = "right"
+			axis["labelBaseline"] = "middle"
 		}
 	}
 }
@@ -617,8 +719,13 @@ func FriendlyTitle(title, subtitle string) string {
 	return title
 }
 
-// ExtractJSONBlock pulls a JSON payload out of a markdown code fence, returning
-// the trimmed text if no fence is present.
+// ExtractJSONBlock pulls a JSON payload out of a markdown code fence, or, if
+// no fence is present, out of a leading prose note tacked onto the front of
+// it - as assembleAnalyticsResponse does for a skipped interpretation, e.g.
+// `Skipped "X": single-row result (weak)\n{"reports":[...]}`. Without this
+// fallback, that note text made every multi-interpretation turn with a
+// skipped chart fail JSON parsing entirely, hiding otherwise-successful
+// charts behind "Having an issue generating the data, please try again."
 func ExtractJSONBlock(raw string) string {
 	s := strings.TrimSpace(raw)
 	if idx := strings.Index(s, "```json"); idx >= 0 {
@@ -635,7 +742,30 @@ func ExtractJSONBlock(raw string) string {
 			return strings.TrimSpace(s[start : start+end])
 		}
 	}
+	if !strings.HasPrefix(s, "{") {
+		if idx := strings.Index(s, "\n{"); idx >= 0 {
+			return strings.TrimSpace(s[idx+1:])
+		}
+	}
 	return s
+}
+
+// injectBackground sets a light background so exported PNGs stay readable on
+// dark UIs (Discord, Slack, Teams) - vl-convert's default PNG background is
+// transparent regardless of theme.
+func injectBackground(spec []byte) []byte {
+	var m map[string]any
+	if err := json.Unmarshal(spec, &m); err != nil {
+		return spec
+	}
+	if _, ok := m["background"]; !ok {
+		m["background"] = "#f7f7f7"
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return spec
+	}
+	return out
 }
 
 // ConvertVegaLiteToPNG renders a normalized spec to a PNG via vl-convert and
@@ -650,6 +780,8 @@ func ConvertVegaLiteToPNG(ctx context.Context, spec []byte, scale string) ([]byt
 	if err != nil {
 		return nil, "", err
 	}
+
+	spec = injectBackground(spec)
 
 	inputPath := filepath.Join(tmpDir, "report.vl.json")
 	outputPath := filepath.Join(tmpDir, "report.png")

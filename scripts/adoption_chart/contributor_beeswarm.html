@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LiveReview Beeswarm</title>
+<script src="https://cdn.jsdelivr.net/npm/vega@5.33.1" integrity="sha384-NMXhl2TbCXxcN7o4ROC56Funm78m4AylL8gMg/7Kn4YU+wrm23K9l7cY8lDRXQ9d" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5.23.0" integrity="sha384-D9LYH0esGjcxQJsBuxOuXtCDJGXRWW1+KhluzWPqi0rLJmiR/ygPChefaD+rFFDQ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6.29.0" integrity="sha384-M+Ax7e/WFJpxSOF09HzI+Sj4wg9ottVd/uxmV2ItGGh02fLH28t2FAOJx3TJBap5" crossorigin="anonymous"></script>
+<style>
+  body { background:#0b0e17; color:#e6ebf5; font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:32px; }
+  .stats { margin-top:20px; font-size:14px; line-height:1.6; color:#c9d1e0; max-width:900px; }
+  .stats b { color:#fff; }
+  #view { max-width: 640px; overflow-x:auto; }
+  details { margin-top:20px; max-width:900px; }
+  summary { cursor:pointer; color:#aab4c8; font-size:13px; }
+  pre.sql { margin-top:10px; padding:12px 14px; background:#0b0e17; border:1px solid #232a3d; border-radius:8px;
+             font-family: "SF Mono", Menlo, Consolas, monospace; font-size:12px; line-height:1.5; color:#a3b3cc;
+             white-space:pre-wrap; overflow-x:auto; }
+</style>
+</head>
+<body>
+  <div id="view"></div>
+  <div class="stats"><b>ganeshkumar6120</b> carries the most at <b>71214</b> LOC (52% of the repo's total).</div>
+  <details>
+    <summary>Query used</summary>
+    <pre class="sql">SELECT r.author_username, count(*) AS reviews, sum(l.billable_loc) AS loc
+    FROM loc_usage_ledger l JOIN reviews r ON r.id = l.review_id
+    WHERE l.org_id = 151 AND l.status = &#x27;accounted&#x27; AND r.repository = &#x27;LiveReview&#x27;
+      AND r.author_username IS NOT NULL
+      AND l.accounted_at &gt;= CURRENT_DATE - INTERVAL &#x27;90 days&#x27;
+    GROUP BY 1
+    ORDER BY 3 DESC;</pre>
+  </details>
+  <script>
+    vegaEmbed('#view', {"$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "LiveReview: who's carrying it \u2014 last 90 days", "width": 600, "height": 200, "data": {"values": [{"engineer": "ganeshkumar6120", "reviews": 53, "loc": 71214}, {"engineer": "lince", "reviews": 74, "loc": 39164}, {"engineer": "shrijith", "reviews": 24, "loc": 25346}, {"engineer": "joe", "reviews": 14, "loc": 2551}]}, "transform": [{"calculate": "random()", "as": "jitter"}], "mark": {"type": "circle", "opacity": 0.85}, "encoding": {"x": {"field": "loc", "type": "quantitative", "title": "LOC reviewed"}, "y": {"field": "engineer", "type": "nominal", "title": null, "sort": "-x"}, "yOffset": {"field": "jitter", "type": "quantitative"}, "size": {"field": "reviews", "type": "quantitative", "title": "Reviews", "scale": {"range": [60, 900]}}, "color": {"field": "loc", "type": "quantitative", "scale": {"scheme": "blues"}, "legend": null}, "tooltip": [{"field": "engineer", "type": "nominal"}, {"field": "loc", "type": "quantitative", "title": "LOC"}, {"field": "reviews", "type": "quantitative"}]}, "config": {"background": "#0f1420", "axis": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5", "gridColor": "#232a3d", "domainColor": "#3a4358"}, "title": {"color": "#e6ebf5", "fontSize": 16}, "view": {"stroke": "transparent"}}}, {actions: false});
+  </script>
+</body>
+</html>

@@ -26,7 +26,7 @@ RUN echo "✅ Verifying UI build output..." && \
     echo "UI build completed successfully"
 
 # Stage 2: Build Go binary with embedded UI
-FROM golang:1.26-alpine AS go-builder
+FROM golang:1.26-bookworm AS go-builder
 
 # Platform arguments for multi-arch builds
 ARG TARGETPLATFORM
@@ -37,7 +37,9 @@ WORKDIR /app
 
 # Install build dependencies
 RUN echo "🔧 Installing Go build dependencies..." && \
-    apk add --no-cache curl git ca-certificates
+    apt-get update && \
+    apt-get install -y --no-install-recommends curl git ca-certificates gcc && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install dbmate for database migrations
 RUN echo "📊 Installing dbmate for database migrations..." && \
@@ -77,7 +79,7 @@ ARG GIT_COMMIT=unknown
 
 # Build the Go binary with version info and embedded UI
 RUN echo "🔨 Building Go binary with version: ${VERSION}" && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build \
+    CGO_ENABLED=1 GOOS=linux GOARCH=$TARGETARCH go build \
     -ldflags="-w -s -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.gitCommit=${GIT_COMMIT}" \
     -v -o livereview . && \
     echo "Go binary built successfully"
@@ -94,7 +96,7 @@ RUN echo "✅ Verifying installed tools..." && \
     echo "All tools and migrations verified successfully"
 
 # Stage 3: Create minimal runtime container
-FROM ubuntu:24.04
+FROM debian:trixie-slim
 LABEL maintainer="LiveReview Team"
 LABEL description="LiveReview - AI-powered code review tool"
 
@@ -117,6 +119,35 @@ RUN echo "📥 Downloading vl-convert binary..." && \
     chmod +x /usr/local/bin/vl-convert && \
     rm -rf /tmp/vl-convert.zip /tmp/vl-convert-extracted && \
     echo "vl-convert installed: $(/usr/local/bin/vl-convert --version 2>&1 || true)"
+
+# Download codebase-memory-mcp binary
+RUN echo "📥 Downloading codebase-memory-mcp binary..." && \
+    curl -sL --fail "https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.10.8/codebase-memory-mcp-linux-amd64.tar.gz" \
+        -o /tmp/mcp.tar.gz && \
+    tar -xzf /tmp/mcp.tar.gz -C /usr/local/bin/ && \
+    chmod +x /usr/local/bin/codebase-memory-mcp && \
+    rm -f /tmp/mcp.tar.gz && \
+    echo "codebase-memory-mcp installed: $(/usr/local/bin/codebase-memory-mcp --version 2>&1 || true)"
+
+# Download dbctx binary
+RUN echo "📥 Downloading dbctx binary..." && \
+    curl -L --fail "https://github.com/shrsv/dbctx/releases/download/v0.1.0/dbctx_linux_amd64.tar.gz" \
+        -o /tmp/dbctx.tar.gz && \
+    tar -xzf /tmp/dbctx.tar.gz -C /tmp/ && \
+    mv /tmp/dbctx_linux_amd64 /usr/local/bin/dbctx && \
+    chmod +x /usr/local/bin/dbctx && \
+    rm -f /tmp/dbctx.tar.gz && \
+    echo "dbctx installed: $(/usr/local/bin/dbctx --help 2>&1 | head -1)"
+
+# Download AgentLaws (alaws) binary
+RUN echo "📥 Downloading AgentLaws binary..." && \
+    curl -L --fail "https://github.com/shrsv/AgentLaws/releases/download/v0.1.0/alaws_linux_amd64.tar.gz" \
+        -o /tmp/alaws.tar.gz && \
+    tar -xzf /tmp/alaws.tar.gz -C /tmp/ && \
+    mv /tmp/alaws_linux_amd64 /usr/local/bin/alaws && \
+    chmod +x /usr/local/bin/alaws && \
+    rm -f /tmp/alaws.tar.gz && \
+    echo "AgentLaws installed: $(/usr/local/bin/alaws --help 2>&1 | head -1)"
 
 # Create non-root user for security
 RUN echo "👤 Creating non-root user..." && \
@@ -144,7 +175,10 @@ COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh && \
     chmod +x /usr/local/bin/dbmate && \
     chmod +x /usr/local/bin/river && \
-    chmod +x /usr/local/bin/riverui
+    chmod +x /usr/local/bin/riverui && \
+    chmod +x /usr/local/bin/codebase-memory-mcp && \
+    chmod +x /usr/local/bin/dbctx && \
+    chmod +x /usr/local/bin/alaws
 
 RUN echo "📋 Final image contents:" && \
     ls -la /app/ && \
@@ -155,8 +189,7 @@ RUN echo "📋 Final image contents:" && \
     echo "Migration count: $(ls /app/db/migrations/*.sql | wc -l)" && \
     echo "✅ LiveReview container build completed successfully!"
 
-# Switch to non-root user
-USER livereview
+# Runs as root to handle bind mount permissions
 WORKDIR /app
 
 # Expose ports for backend API (8888), frontend (8081), and River UI (8080)

@@ -1,6 +1,6 @@
 // Command dashboard-cache-backfill is a one-time maintenance script that populates
-// dashboard_cache with historical review_layers data for every org that has run at
-// least one review in the backfill window.
+// dashboard_cache with historical review_layers and issue_treemap data for every org
+// that has run at least one review in the backfill window.
 //
 // Root cause this fixes: dashboard_cache is only ever kept fresh going forward by
 // DashboardManager's regular 5-minute tick, which only ever computes "today" - it
@@ -42,7 +42,11 @@ func main() {
 	dashboardManager := api.NewDashboardManager(db, nil, cacheStore)
 
 	if err := dashboardManager.BackfillReviewLayers(context.Background(), *days); err != nil {
-		log.Fatalf("backfill failed: %v", err)
+		log.Fatalf("review_layers backfill failed: %v", err)
+	}
+
+	if err := dashboardManager.BackfillIssueTreemap(context.Background(), *days); err != nil {
+		log.Fatalf("issue_treemap backfill failed: %v", err)
 	}
 
 	log.Printf("backfill complete: %d day(s)", *days)

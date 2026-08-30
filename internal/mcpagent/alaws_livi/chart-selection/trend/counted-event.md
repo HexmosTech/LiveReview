@@ -1,0 +1,44 @@
+---
+title: "Trend of a Counted Event"
+id: livi.charts.trend.counted_event
+---
+
+<!-- alaws:commentary -->
+
+**Applies when** the question asks whether some countable activity is
+rising or falling across the whole organization, with no entity filter and
+no second measure.
+
+**Seen as:** "Is LiveReview adoption increasing since my team started
+using it?"
+
+<!-- alaws:laws -->
+
+1. Apply this section where a question asks whether a countable activity is rising or falling across the whole organization, without an entity filter and without a second measure. {#apply-this-section-where-question}
+
+2. Count the events per day over the window. {#count-the-events-per-day}
+
+3. Compute the rolling average and the period average as window functions in the query rather than in the chart, each rounded to two decimal places, and include the period average as a column on every row of the same result set — do not fetch it separately. {#compute-the-rolling-average-and}
+
+4. Layer three marks: the raw series, the rolling average, and the period average as a rule. Draw the rule's value directly off the inherited dataset with `"aggregate": "mean"`, not from a second `data` block — since the period average is already a constant column on every row, aggregating it is exact and needs no value to be filled in by hand. {#layer-three-marks-the-raw}
+
+5. Quote the `rolling_avg_7d` value of the first row and the `rolling_avg_7d` value of the last row, taken verbatim from the query result — never the raw per-day count, and never a placeholder or estimate. Base "increasing" or "decreasing" on those two smoothed values, not on impression. Never write a calendar date in the description — the `time_range` field already states the window exactly, and a date typed into prose is a value the model is inventing rather than reading, since nothing forces it back against the rows the way `time_range` is. {#state-the-direction-of-travel}
+
+6. Where the smoothed line peaked and has since fallen back — the last value is below the highest value seen anywhere in the series — say so explicitly instead of calling the trend "increasing": quote the peak's value alongside the last value, since a reader comparing only endpoints would otherwise miss a recent decline. {#where-smoothed-line-peaked}
+
+7. The specification below is an example of the shape this section's chart takes, not a template to copy verbatim. Adapt the field names to those its own query produced:
+```json
+{
+  "width": 900, "height": 420,
+  "layer": [
+    {"mark": {"type": "area", "opacity": 0.25, "color": "#7c9cff", "interpolate": "monotone"},
+     "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "reviews", "type": "quantitative"}}},
+    {"mark": {"type": "line", "color": "#ffb454", "strokeWidth": 2.5, "interpolate": "monotone"},
+     "encoding": {"x": {"field": "day", "type": "temporal"}, "y": {"field": "rolling_avg_7d", "type": "quantitative"}}},
+    {"mark": {"type": "rule", "color": "#ff5c7c", "strokeDash": [6, 4], "strokeWidth": 1.5},
+     "encoding": {"y": {"field": "period_avg", "type": "quantitative", "aggregate": "mean"}}}
+  ],
+  "resolve": {"scale": {"y": "shared"}}
+}
+```
+{#the-specification-below-is-an}

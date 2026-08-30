@@ -7,11 +7,14 @@ import { logout, checkSetupStatus, fetchUser } from './store/Auth/reducer';
 import { fetchLicenseStatus, openModal as openLicenseModal, closeModal as closeLicenseModal } from './store/License/slice';
 import LicenseModal from './components/License/LicenseModal';
 import LicenseStatusBar from './components/License/LicenseStatusBar';
-import { isCloudMode } from './utils/deploymentMode';
+import { isCloudMode, isDebugMode } from './utils/deploymentMode';
 import { SubscriptionGuard } from './components/SubscriptionGuard';
 import { Toaster } from 'react-hot-toast';
 import { useBottomRightBlockers } from './store/uiLayout';
 import { ToastBridge } from './components/Notifications/ToastBridge';
+import { NavigationProgressBar, triggerNavigationProgress } from './components/NavigationProgressBar';
+import { FullScreenLoader } from './components/FullScreenLoader';
+import { prefetchRoutes } from './utils/routePrefetch';
 
 const Dashboard = React.lazy(() => import('./components/Dashboard/Dashboard').then((m) => ({ default: m.Dashboard })));
 const GitProviders = React.lazy(() => import('./pages/GitProviders/GitProviders'));
@@ -33,7 +36,9 @@ const LicenseAssignment = React.lazy(() => import('./pages/Licenses/LicenseAssig
 const UserForm = React.lazy(() => import('./components/UserManagement/UserForm'));
 const BillingPortfolio = React.lazy(() => import('./pages/Admin/BillingPortfolio'));
 const TaxonomyReports = React.lazy(() => import('./pages/Reports/TaxonomyReports'));
-const Chatbot = React.lazy(() => import('./pages/Chatbot/Chatbot'));
+const OnboardingReport = React.lazy(() => import('./pages/Reports/OnboardingReport'));
+const ChatbotRoutes = React.lazy(() => import('./pages/Chatbot/ChatbotRoutes'));
+const ChatDebugRoutes = React.lazy(() => import('./pages/Chatbot/ChatDebugRoutes'));
 // import { usePostHog } from '@posthog/react'
 
 const Footer = () => (
@@ -51,34 +56,34 @@ const Footer = () => (
                             href="https://github.com/HexmosTech/LiveReview/wiki"
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm border border-blue-500"
+                            className="flex items-center space-x-2 bg-slate-800/70 hover:bg-slate-700/60 text-slate-300 hover:text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm border border-slate-700"
                         >
-                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
                             </svg>
-                            <span>📚 Documentation</span>
+                            <span>Documentation</span>
                         </a>
                         <a
                             href="https://github.com/HexmosTech/LiveReview/issues"
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center space-x-2 bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm border border-orange-500"
+                            className="flex items-center space-x-2 bg-slate-800/70 hover:bg-slate-700/60 text-slate-300 hover:text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm border border-slate-700"
                         >
-                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3.75h.008v.008H12v-.008zM21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
-                            <span>🐛 Report Issue</span>
+                            <span>Report Issue</span>
                         </a>
                         <a
                             href="https://github.com/HexmosTech/LiveReview/discussions"
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm border border-emerald-500"
+                            className="flex items-center space-x-2 bg-slate-800/70 hover:bg-slate-700/60 text-slate-300 hover:text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm border border-slate-700"
                         >
-                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M18 13V5a2 2 0 00-2-2H4a2 2 0 00-2 2v8a2 2 0 002 2h3l3 3 3-3h3a2 2 0 002-2zM5 7a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1zm1 3a1 1 0 100 2h3a1 1 0 100-2H6z" clipRule="evenodd" />
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.456-2.456L14.25 6l1.035-.259a3.375 3.375 0 002.456-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
                             </svg>
-                            <span>💡 Suggest Improvement</span>
+                            <span>Suggest Improvement</span>
                         </a>
                     </div>
                     <p className="text-sm text-slate-200">© {new Date().getFullYear()} LiveReview. All rights reserved.</p>
@@ -88,26 +93,7 @@ const Footer = () => (
     </footer>
 );
 
-const RouteFallback = () => (
-    <div className="min-h-screen flex items-center justify-center bg-slate-900 text-slate-100">
-        <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" aria-hidden />
-            <span>Loading…</span>
-        </div>
-    </div>
-);
-
-const BootScreen: React.FC<{ visible: boolean }> = ({ visible }) => (
-    <div
-        className={`fixed inset-0 z-40 flex items-center justify-center bg-slate-950 transition-opacity duration-200 ${visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
-        aria-busy={visible}
-    >
-        <div className="flex flex-col items-center gap-4">
-            <img src="/assets/logo-horizontal.svg" alt="LiveReview" className="h-12 w-auto" width="240" height="64" loading="eager" />
-            <div className="h-10 w-10 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" aria-hidden />
-        </div>
-    </div>
-);
+const RouteFallback = () => <FullScreenLoader text="Loading…" />;
 
 // Main application content with routing
 const AppContent: React.FC = () => {
@@ -123,7 +109,6 @@ const AppContent: React.FC = () => {
     const commentNavOccupying = (blockers & 2) !== 0;
     // Subtle fade-in for main content to make initial paint feel smoother
     const [uiReady, setUiReady] = useState(false);
-    const [bootVisible, setBootVisible] = useState(true);
     useEffect(() => {
         console.info('[LiveReview][AppContent] mounted');
         const id = requestAnimationFrame(() => setUiReady(true));
@@ -132,16 +117,6 @@ const AppContent: React.FC = () => {
             console.info('[LiveReview][AppContent] unmounted');
         };
     }, []);
-
-    // Hide boot overlay once we have auth state resolved or after a short timeout
-    useEffect(() => {
-        if (!bootVisible) return;
-        const timeout = setTimeout(() => setBootVisible(false), isLoading ? 1200 : 150);
-        if (!isLoading) {
-            setBootVisible(false);
-        }
-        return () => clearTimeout(timeout);
-    }, [bootVisible, isLoading]);
 
     // CRITICAL: Capture the intended destination URL immediately on mount, before any navigation occurs
     // This runs once when the component mounts to preserve the user's originally requested URL
@@ -200,13 +175,18 @@ const AppContent: React.FC = () => {
         }
     }, [isAuthenticated, location.pathname, navigate]);
 
-    // Check setup status or fetch user data on app load
+    // Check setup status or fetch user data on app load. checkSetupStatus only matters for the
+    // self-hosted first-run admin wizard (isSetupRequired -> <Setup /> below) - cloud accounts
+    // are auto-provisioned via ensure-cloud-user and never see that wizard, so in cloud mode
+    // this would just be a wasted network round trip gating the whole UI behind isLoading,
+    // including the post-Hexmos-SSO-redirect return where Cloud.tsx needs to mount immediately
+    // to process its own ?data= param.
     useEffect(() => {
         if (accessToken) {
             // If we have a token, fetch user data to validate the session
             dispatch(fetchUser());
-        } else {
-            // Otherwise, check if the initial setup is required
+        } else if (!isCloudMode()) {
+            // Otherwise, check if the initial setup is required (self-hosted only)
             dispatch(checkSetupStatus());
         }
     }, [dispatch, accessToken]);
@@ -228,8 +208,21 @@ const AppContent: React.FC = () => {
         });
     }, [isAuthenticated, isSetupRequired, isLoading]);
 
+    // Idle-time prefetch warmup for most-likely-next routes
+    useEffect(() => {
+        if (!isAuthenticated) return;
+        const warmup = () => prefetchRoutes(['/dashboard', '/reviews', '/settings']);
+        if ('requestIdleCallback' in window) {
+            const id = (window as unknown as { requestIdleCallback: (cb: () => void) => number }).requestIdleCallback(warmup);
+            return () => (window as unknown as { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(id);
+        }
+        const timer = setTimeout(warmup, 2000);
+        return () => clearTimeout(timer);
+    }, [isAuthenticated]);
+
     // Handle navigation
     const handleNavigate = (target: string) => {
+        triggerNavigationProgress();
         if (target.startsWith('/')) {
             navigate(target);
             return;
@@ -286,17 +279,7 @@ const AppContent: React.FC = () => {
     // Decide what to render based on auth/setup states AFTER all hooks declared (avoid hook order issues)
     let body: React.ReactNode;
     if (isLoading) {
-        body = (
-            <div className="min-h-screen flex items-center justify-center">
-                <div className="text-center">
-                    <svg className="w-12 h-12 mx-auto mb-4 text-blue-500 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <h2 className="text-xl font-medium text-white">Loading LiveReview...</h2>
-                </div>
-            </div>
-        );
+        body = <FullScreenLoader text="Loading LiveReview…" />;
     } else if (isSetupRequired) {
         body = <Setup />;
     } else if (!isAuthenticated) {
@@ -310,6 +293,7 @@ const AppContent: React.FC = () => {
     } else {
         body = (
             <div className={`min-h-screen flex flex-col transition-opacity duration-200 ${uiReady ? 'opacity-100' : 'opacity-0'}`}>
+                <NavigationProgressBar />
                 <Navbar
                     title="LiveReview"
                     activePage={activePage}
@@ -317,7 +301,7 @@ const AppContent: React.FC = () => {
                     onLogout={handleLogout}
                 />
                 <URLMismatchBanner />
-                {!isCloudMode() && location.pathname !== '/chat' && <LicenseStatusBar onOpenModal={() => dispatch(openLicenseModal())} />}
+                {!isCloudMode() && !location.pathname.startsWith('/chat') && <LicenseStatusBar onOpenModal={() => dispatch(openLicenseModal())} />}
                 <div className="flex-grow">
                     <SubscriptionGuard>
                         <Suspense fallback={<RouteFallback />}>
@@ -344,8 +328,10 @@ const AppContent: React.FC = () => {
                                 <Route path="/settings/users/add/bulk" element={<UserForm />} />
                                 <Route path="/settings/users/edit/:userId" element={<UserForm />} />
                                 <Route path="/admin/billing-portfolio" element={<BillingPortfolio />} />
+                                <Route path="/reports/onboarding" element={<OnboardingReport />} />
                                 <Route path="/reports/*" element={<TaxonomyReports />} />
-                                <Route path="/chat" element={<Chatbot />} />
+                                <Route path="/chat/*" element={<ChatbotRoutes />} />
+                                {isDebugMode() && <Route path="/chat-debug/*" element={<ChatDebugRoutes />} />}
                                 <Route path="/test-middleware" element={<MiddlewareTestPage />} />
                                 <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
                                 <Route path="*" element={<Navigate to="/" replace />} />
@@ -353,9 +339,9 @@ const AppContent: React.FC = () => {
                         </Suspense>
                     </SubscriptionGuard>
                 </div>
-                {location.pathname !== '/chat' && <Footer />}
+                {!location.pathname.startsWith('/chat') && <Footer />}
                 {!isCloudMode() && <LicenseModal open={licenseOpen} onClose={() => dispatch(closeLicenseModal())} />}
-                {location.pathname !== '/chat' && (
+                {!location.pathname.startsWith('/chat') && (
                 <div className={`fixed right-6 z-50 flex items-center gap-3 transition-all duration-300 ${nudgeOccupying ? 'bottom-20' : 'bottom-6'}`}>
                     {!commentNavOccupying && (
                     <span className="hidden lg:flex items-center gap-2 text-sm font-semibold text-slate-100 px-4 py-2 rounded-full bg-slate-800/90 border border-slate-600 shadow-lg pointer-events-none">
@@ -380,12 +366,17 @@ const AppContent: React.FC = () => {
         );
     }
 
-    return (
-        <>
-            <BootScreen visible={bootVisible} />
-            {body}
-        </>
-    );
+    // Login/Setup/SelfHosted (assigned to `body` above) are all React.lazy - without a Suspense
+    // boundary here, the very first render of any of them (their chunk is always still pending
+    // at that point - a dynamic import() can never resolve synchronously) has nothing to catch
+    // the suspension. On the *initial* mount specifically that leaves nothing committed to
+    // #root at all while the chunk downloads - a blank page had it not been for the static
+    // #lr-boot overlay still sitting on top, which the auto-hide in index.tsx was hiding on the
+    // very next animation frame regardless of whether React had actually painted anything yet.
+    // This boundary fixes both: something real commits immediately (this fallback), and it's
+    // the same FullScreenLoader used everywhere else, so there's no gap or mismatched screen
+    // between the boot handoff and whichever of Login/Setup/SelfHosted's chunk finishes loading.
+    return <Suspense fallback={<RouteFallback />}>{body}</Suspense>;
 };
 
 // Main App component with Router

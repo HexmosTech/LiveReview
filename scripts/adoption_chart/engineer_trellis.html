@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Engineer x Repo — hexmos-internal</title>
+<script src="https://cdn.jsdelivr.net/npm/vega@5.33.1" integrity="sha384-NMXhl2TbCXxcN7o4ROC56Funm78m4AylL8gMg/7Kn4YU+wrm23K9l7cY8lDRXQ9d" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5.23.0" integrity="sha384-D9LYH0esGjcxQJsBuxOuXtCDJGXRWW1+KhluzWPqi0rLJmiR/ygPChefaD+rFFDQ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6.29.0" integrity="sha384-M+Ax7e/WFJpxSOF09HzI+Sj4wg9ottVd/uxmV2ItGGh02fLH28t2FAOJx3TJBap5" crossorigin="anonymous"></script>
+<style>
+  body { background:#0b0e17; color:#e6ebf5; font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:32px; }
+  .stats { margin-top:20px; font-size:14px; line-height:1.6; color:#c9d1e0; max-width:900px; }
+  .stats b { color:#fff; }
+  #view { max-width: 740px; overflow-x:auto; }
+  details { margin-top:20px; max-width:900px; }
+  summary { cursor:pointer; color:#aab4c8; font-size:13px; }
+  pre.sql { margin-top:10px; padding:12px 14px; background:#0b0e17; border:1px solid #232a3d; border-radius:8px;
+             font-family: "SF Mono", Menlo, Consolas, monospace; font-size:12px; line-height:1.5; color:#a3b3cc;
+             white-space:pre-wrap; overflow-x:auto; }
+</style>
+</head>
+<body>
+  <div id="view"></div>
+  <div class="stats">Most spread across repos: <b>shrijith</b> (25 repos). Most focused: <b>joe</b> (2 repo(s)).</div>
+  <details>
+    <summary>Query used</summary>
+    <pre class="sql">SELECT author_username, repository, count(*) AS reviews
+    FROM reviews
+    WHERE org_id = 151 AND author_username IS NOT NULL
+      AND COALESCE(completed_at, created_at) &gt;= CURRENT_DATE - INTERVAL &#x27;90 days&#x27;
+    GROUP BY 1, 2
+    ORDER BY 1, 3 DESC;</pre>
+  </details>
+  <script>
+    vegaEmbed('#view', {"$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "Review activity by engineer and repository \u2014 hexmos-internal, last 90 days", "width": 700, "height": 340, "data": {"values": [{"engineer": "", "repository": "HexmosTech/LiveReview", "reviews": 10}, {"engineer": "", "repository": "https://github.com/test/test-repo", "reviews": 10}, {"engineer": "", "repository": "{{TEST_REPO_URL}}", "reviews": 4}, {"engineer": "", "repository": "https://github.com/livereview/live-review", "reviews": 3}, {"engineer": "", "repository": "https://github.com", "reviews": 1}, {"engineer": "", "repository": "https://example.com/test-repo", "reviews": 1}, {"engineer": "", "repository": "https://github.com/test-repo", "reviews": 1}, {"engineer": "", "repository": "https://github.com/livereview/test-repo", "reviews": 1}, {"engineer": "ganeshkumar6120", "repository": "LiveReview", "reviews": 54}, {"engineer": "ganeshkumar6120", "repository": "lr-tools", "reviews": 16}, {"engineer": "ganeshkumar6120", "repository": "git-lrc", "reviews": 15}, {"engineer": "ganeshkumar6120", "repository": "ExpenseSync", "reviews": 13}, {"engineer": "ganeshkumar6120", "repository": "hex-ansible", "reviews": 10}, {"engineer": "ganeshkumar6120", "repository": "momeeto", "reviews": 4}, {"engineer": "ganeshkumar6120", "repository": "ai-industrial-safety", "reviews": 3}, {"engineer": "ganeshkumar6120", "repository": "Elevate-me", "reviews": 2}, {"engineer": "ganeshkumar6120", "repository": "chhoto-url", "reviews": 2}, {"engineer": "ganeshkumar6120", "repository": "hexmosjournal", "reviews": 1}, {"engineer": "ganeshkumar6120", "repository": "gatus", "reviews": 1}, {"engineer": "joe", "repository": "LiveReview", "reviews": 14}, {"engineer": "joe", "repository": "fw-parse", "reviews": 1}, {"engineer": "lince", "repository": "LiveReview", "reviews": 75}, {"engineer": "lince", "repository": "git-lrc", "reviews": 17}, {"engineer": "lince", "repository": "hexmoshomepage", "reviews": 12}, {"engineer": "lince", "repository": "fw-parse", "reviews": 4}, {"engineer": "lince", "repository": "ragfolio", "reviews": 3}, {"engineer": "lince", "repository": "initHex", "reviews": 2}, {"engineer": "lince", "repository": "seed", "reviews": 1}, {"engineer": "LinceMathew", "repository": "https://github.com/LinceMathew/ragfolio", "reviews": 6}, {"engineer": "LinceMathew", "repository": "https://github.com/HexmosTech/LiveReview", "reviews": 1}, {"engineer": "lovestaco", "repository": "https://github.com/HexmosTech/git-lrc", "reviews": 2}, {"engineer": "lovestaco", "repository": "https://github.com/HexmosTech/LiveReview", "reviews": 1}, {"engineer": "RijulTP", "repository": "https://github.com/HexmosTech/LiveReview", "reviews": 6}, {"engineer": "RijulTP", "repository": "https://github.com/RijulTP/MCP-Test", "reviews": 6}, {"engineer": "RijulTP", "repository": "https://github.com/RijulTP/workspace-api", "reviews": 1}, {"engineer": "shrijith", "repository": "git-lrc", "reviews": 41}, {"engineer": "shrijith", "repository": "LiveReview", "reviews": 28}, {"engineer": "shrijith", "repository": "claude-world", "reviews": 14}, {"engineer": "shrijith", "repository": "HexmosTech/git-lrc", "reviews": 13}, {"engineer": "shrijith", "repository": "octocat/Hello-World", "reviews": 7}, {"engineer": "shrijith", "repository": "sadmann7/tablecn", "reviews": 5}, {"engineer": "shrijith", "repository": "repo", "reviews": 3}, {"engineer": "shrijith", "repository": "claude-lrc", "reviews": 3}, {"engineer": "shrijith", "repository": "makesense", "reviews": 2}, {"engineer": "shrijith", "repository": "main", "reviews": 2}, {"engineer": "shrijith", "repository": "getnao/nao", "reviews": 2}, {"engineer": "shrijith", "repository": "HexmosTech/LiveReview", "reviews": 2}, {"engineer": "shrijith", "repository": "akissinger/dodo", "reviews": 2}, {"engineer": "shrijith", "repository": "hexmostech/git-lrc", "reviews": 1}, {"engineer": "shrijith", "repository": "dbctx", "reviews": 1}, {"engineer": "shrijith", "repository": "lrc-scratch", "reviews": 1}, {"engineer": "shrijith", "repository": "ragfolio", "reviews": 1}, {"engineer": "shrijith", "repository": "gogs/gogs", "reviews": 1}, {"engineer": "shrijith", "repository": "lrc-test-repo.iqUxZZ", "reviews": 1}, {"engineer": "shrijith", "repository": "ops", "reviews": 1}, {"engineer": "shrijith", "repository": "wailsapp/wails", "reviews": 1}, {"engineer": "shrijith", "repository": "quiz-feature-verify-2", "reviews": 1}, {"engineer": "shrijith", "repository": "quiz-feature-verify", "reviews": 1}, {"engineer": "shrijith", "repository": "infini-scroll/infini", "reviews": 1}, {"engineer": "shrijith", "repository": "hexmails", "reviews": 1}]}, "mark": {"type": "bar"}, "encoding": {"x": {"field": "engineer", "type": "nominal", "title": null, "sort": "-y"}, "y": {"field": "reviews", "type": "quantitative", "title": "Reviews", "stack": true}, "color": {"field": "repository", "type": "nominal", "title": "Repository", "legend": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5"}}, "tooltip": [{"field": "engineer", "type": "nominal"}, {"field": "repository", "type": "nominal"}, {"field": "reviews", "type": "quantitative"}]}, "config": {"background": "#0f1420", "axis": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5", "gridColor": "#232a3d", "domainColor": "#3a4358"}, "title": {"color": "#e6ebf5", "fontSize": 16}, "view": {"stroke": "transparent"}}}, {actions: false});
+  </script>
+</body>
+</html>

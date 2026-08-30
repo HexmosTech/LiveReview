@@ -25,13 +25,16 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({ className }) => 
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Load activities for a specific page
-    const loadActivities = async (page: number = 0, append: boolean = false) => {
+    // Load activities for a specific page. `background` marks a silent periodic refresh (the
+    // 30s poll below) - it must not flip `isLoading`, which would tear the already-rendered list
+    // down to a full spinner and rebuild it every 30 seconds for as long as the dashboard stays
+    // open. Only the very first load (and an explicit error-retry) show the full loading state.
+    const loadActivities = async (page: number = 0, append: boolean = false, background: boolean = false) => {
         try {
-            if (!append) {
-                setIsLoading(true);
-            } else {
+            if (append) {
                 setIsLoadingMore(true);
+            } else if (!background) {
+                setIsLoading(true);
             }
             
             const offset = page * pagination.pageSize;
@@ -81,9 +84,10 @@ export const RecentActivity: React.FC<RecentActivityProps> = ({ className }) => 
     useEffect(() => {
         loadActivities(0, false);
         
-        // Refresh activities every 30 seconds (only first page)
+        // Refresh activities every 30 seconds (only first page) - silent/background, doesn't
+        // show the full loading spinner (see loadActivities' `background` param above).
         const interval = setInterval(() => {
-            loadActivities(0, false);
+            loadActivities(0, false, true);
         }, 30 * 1000);
         
         return () => clearInterval(interval);

@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Cost Savings Estimate — hexmos-internal</title>
+<script src="https://cdn.jsdelivr.net/npm/vega@5.33.1" integrity="sha384-NMXhl2TbCXxcN7o4ROC56Funm78m4AylL8gMg/7Kn4YU+wrm23K9l7cY8lDRXQ9d" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5.23.0" integrity="sha384-D9LYH0esGjcxQJsBuxOuXtCDJGXRWW1+KhluzWPqi0rLJmiR/ygPChefaD+rFFDQ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6.29.0" integrity="sha384-M+Ax7e/WFJpxSOF09HzI+Sj4wg9ottVd/uxmV2ItGGh02fLH28t2FAOJx3TJBap5" crossorigin="anonymous"></script>
+<style>
+  body { background:#0b0e17; color:#e6ebf5; font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:32px; }
+  .stats { margin-top:20px; font-size:14px; line-height:1.6; color:#c9d1e0; max-width:900px; }
+  .stats b { color:#fff; }
+  #view { max-width: 640px; overflow-x:auto; }
+  details { margin-top:20px; max-width:900px; }
+  summary { cursor:pointer; color:#aab4c8; font-size:13px; }
+  pre.sql { margin-top:10px; padding:12px 14px; background:#0b0e17; border:1px solid #232a3d; border-radius:8px;
+             font-family: "SF Mono", Menlo, Consolas, monospace; font-size:12px; line-height:1.5; color:#a3b3cc;
+             white-space:pre-wrap; overflow-x:auto; }
+</style>
+</head>
+<body>
+  <div id="view"></div>
+  <div class="stats"><b>402</b> reviews cost <b>$12.70</b> in LLM usage. Assuming manual review would take <b>15 min</b> at <b>$75/hr</b>, estimated net savings: <b>$7524.80</b>.<br><i>This is an estimate based on the assumed manual-review time/rate above, not a measured figure — adjust --hourly-rate/--minutes-per-review to your own numbers.</i></div>
+  <details>
+    <summary>Query used</summary>
+    <pre class="sql">SELECT count(*) AS reviews, coalesce(sum(llm_cost_usd), 0) AS llm_cost
+    FROM loc_usage_ledger
+    WHERE org_id = 151 AND status = &#x27;accounted&#x27;
+      AND accounted_at &gt;= CURRENT_DATE - INTERVAL &#x27;90 days&#x27;;</pre>
+  </details>
+  <script>
+    vegaEmbed('#view', {"$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "Estimated cost savings \u2014 hexmos-internal, last 90 days", "width": 600, "height": 380, "data": {"values": [{"label": "Hypothetical manual review cost", "base": 0, "top": 7537.5, "color": "positive"}, {"label": "LiveReview LLM cost", "base": 7524.796639, "top": 7537.5, "color": "negative"}, {"label": "LiveReview subscription", "base": 7524.796639, "top": 7524.796639, "color": "positive"}, {"label": "Net savings", "base": 0, "top": 7524.796639, "color": "positive"}]}, "mark": {"type": "bar", "size": 60}, "encoding": {"x": {"field": "label", "type": "nominal", "title": null, "sort": null, "axis": {"labelAngle": -20}}, "y": {"field": "base", "type": "quantitative", "title": "USD"}, "y2": {"field": "top"}, "color": {"field": "color", "type": "nominal", "legend": null, "scale": {"domain": ["positive", "negative"], "range": ["#39d353", "#ff5c7c"]}}, "tooltip": [{"field": "label", "type": "nominal"}, {"field": "top", "type": "quantitative", "title": "USD", "format": ".2f"}]}, "config": {"background": "#0f1420", "axis": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5", "gridColor": "#232a3d", "domainColor": "#3a4358"}, "title": {"color": "#e6ebf5", "fontSize": 16}, "view": {"stroke": "transparent"}}}, {actions: false});
+  </script>
+</body>
+</html>

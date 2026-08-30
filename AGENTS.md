@@ -195,4 +195,135 @@ If a new feature is not navigable from the mega menu (e.g. it is only reached fr
 button inside an existing page), call that out explicitly rather than silently skipping
 the entry. Keeping the mega menu complete is what makes new capabilities discoverable.
 
+## Route Documentation for RAG (`ui/docs/training_data/lr_routes/`)
+
+`ui/docs/training_data/lr_routes/` holds one Markdown file per UI
+route/page (mirroring `ui/src/pages/`, grouped into subfolders that match
+the top-level route groups in `ui/src/App.tsx`: `reviews/`, `explore/`,
+`git/`, `ai/`, `settings/`, `licenses/`, `reports/`, `chatbot/`, `auth/`).
+It exists to train/feed the in-app chatbot (Livi) so it can answer both
+data questions and "how do I do X in the UI" / navigation questions. See
+`ui/docs/training_data/lr_routes/README.md` for the file structure this
+folder follows.
+
+**Rule: whenever you make a UI change, update the relevant `.md` file(s) in
+this folder in the same change.**
+
+- New route/page added → add a new file for it (and link it from its
+  group's parent page / the relevant `README.md`/overview file).
+- Route removed → delete its file, and remove dangling links to it from
+  other files.
+- Page behavior, key actions, or access/permission gating changed → update
+  the file's "Key actions" / "Who can access it" section to match.
+- After editing anything under `ui/docs/training_data/` (including
+  `lr_routes/`), **run `make prep-training-data`** to refresh the
+  `TRAINING_DATA_HASH` value it rewrites at the top of the Makefile, then
+  **commit that Makefile change together with your doc edit** — `make
+  develop`/`run-debug`/`run-fast`/etc. compare the live corpus hash against
+  the committed `TRAINING_DATA_HASH` (via `check-training-data`) and will
+  otherwise treat your edit as drift and re-fetch external sources
+  needlessly on the next teammate's dev-server start. See
+  `scripts/prep_training_data.sh` and `scripts/training_data_hash.sh`.
+- `ui/docs/training_data` is excluded from Air's file watcher (`.air.toml`
+  `exclude_dir`) so editing these docs does not trigger a backend rebuild.
+
+## Chat UI (/chat and /chat-debug) Must Stay In Sync
+
+`/chat` (`ui/src/pages/Chatbot/Chatbot.tsx`) and `/chat-debug`
+(`ui/src/pages/Chatbot/ChatDebugPage.tsx`) are two routes over **one** shared
+component: `ui/src/pages/Chatbot/ChatConversation.tsx`. Both page files are
+thin wrappers - `<ChatConversation surface="chat" />` and
+`<ChatConversation surface="chat_debug" />` - with no rendering logic of
+their own.
+
+**The only intentional difference between the two surfaces is the
+debug-artifacts button/dialog**, gated inside `ChatConversation` by
+`surface === 'chat_debug'` (see the `showDebug` flag, `DebugTrigger`,
+`DebugModal`). Everything else - message rendering, chart cards (granularity
+toggle, stat chips, expand/download), file cards, the input box, loading
+states, empty state, header - must render identically for both surfaces
+because they share the same code path.
+
+**Rule: never duplicate chat page logic.** If you need to change how a
+message, chart, or file renders, or fix a loading/layout bug, change it in
+`ChatConversation.tsx` once - it applies to both routes automatically. Do
+not add page-specific rendering back into `Chatbot.tsx` or
+`ChatDebugPage.tsx`, and do not fork `ChatConversation.tsx` into two copies.
+A new surface-specific feature must be explicitly gated by the `surface`
+prop, not implemented by branching the component in two.
+
+## PromptBook & LawBook Conventions
+
+The MCP agent's prompts follow a two-layer architecture:
+
+- **LawBook** (`internal/mcpagent/alaws_livi/`): Numbered, citable rules in `.md` files with alaws frontmatter. Each section has a unique `id` (e.g. `livi.interpreting.schema`). Laws are the single source of truth — if a rule exists only in a PromptBook template and not as a law, it is a bug.
+
+- **PromptBook** (`alaws_livi/prompts/`): Templates that assemble laws into system prompts for specific model calls. Templates use `{{ref:livi.section.id}}` to embed laws — they never duplicate rule text inline.
+
+### Rules
+
+1. Every instruction the model receives MUST be a numbered law in the lawbook, not inline text in a prompt template.
+2. PromptBook templates use `{{ref:}}` exclusively — no hardcoded rule text.
+3. When adding a new rule, create it as a law in the appropriate lawbook section, then `{{ref:}}` it from the prompt template.
+4. After lawbook changes, rebuild with `make prep-dbctx` and verify with `go test ./internal/mcpagent/...` (specifically `TestLawbookCompiles`).
+5. Test the interpret pipeline end-to-end with: `curl -s -X POST localhost:8080/api/v1/test-chat -H 'Content-Type: application/json' -d '{"message":"how many reviews do we have?"}' | jq .`
+
+## UI Builds Require Explicit User Approval
+
+`npm run build` in `ui/` (or any other full UI production build) is highly
+resource-intensive and has been reported to crash the user's machine.
+
+**Rule: never run a full UI build without the user's explicit, per-instance
+approval.** A prior approval does not carry forward to later changes or
+later sessions - ask again each time a full build seems warranted.
+
+For everyday verification after frontend changes, use `npx tsc --noEmit`
+(fast, cheap, catches type errors) instead. Only reach for a full build if
+something genuinely requires it (e.g. confirming a bundler-only error or
+asset output), and only after the user says yes.
+
+## Production Safety & Feature Gating
+
+### Development-Only Features
+
+The following features are gated and MUST be disabled in production:
+
+| Feature | Gate | Default | Notes |
+|---------|------|---------|-------|
+| `/test-chat` endpoint | Build tag `production` | Included in dev | Excluded in production builds |
+| `/chat-debug` route | `LIVI_DEBUG_LOG` | `false` | Debug artifacts UI |
+
+### Build Tags
+
+| Tag | Purpose | Usage |
+|-----|---------|-------|
+| `vendor_prompts` | Encrypted prompts | Docker builds |
+| `production` | Production safety | Excludes test endpoints like `/test-chat` |
+
+### Docker Binary Versions
+
+External binaries bundled in Docker images are tracked in `docker-binaries.json`.
+Update versions consciously - this file is the source of truth for:
+- `vl-convert` - Vega-Lite chart rendering
+- `codebase-memory-mcp` - Codebase knowledge graph MCP server
+- `dbctx` - Database context tool
+- `alaws` - AgentLaws CLI
+
+### Docker Production Checklist
+
+Before releasing a new Docker image:
+
+1. [ ] Verify `LIVI_DEBUG_LOG=false` in `.env.selfhosted`
+2. [ ] Verify `/test-chat` excluded with `production` tag
+3. [ ] Verify `/chat-debug` gated by `LIVI_DEBUG_LOG`
+4. [ ] Test `make docker-multiarch-dry` output
+5. [ ] Verify all binaries present: `vl-convert`, `dbctx`, `alaws`, `codebase-memory-mcp`
+6. [ ] Check `docker-binaries.json` for version updates
+
+### Raw Deploy Safety
+
+`make raw-deploy` uses the `production` build tag to exclude dev-only endpoints.
+The `/test-chat` endpoint (unauthenticated, hardcoded org access) is automatically
+excluded in production builds.
+
 

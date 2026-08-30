@@ -12,26 +12,38 @@ import (
 
 func TestParseClassifyShape(t *testing.T) {
 	cases := []struct {
-		name string
-		in   string
-		want classifyShape
-		ok   bool
+		name          string
+		in            string
+		want          classifyShape
+		wantMsg       string
+		wantQuestions int
+		ok            bool
 	}{
-		{"bare", `{"shape":"action"}`, shapeAction, true},
-		{"fenced", "```json\n{\"shape\": \"count_query\"}\n```", shapeCountQuery, true},
-		{"chat", `{"shape":"chat"}`, shapeChat, true},
-		{"case insensitive", `{"shape":"ACTION"}`, shapeAction, true},
-		{"whitespace", `  {"shape":"chat"}  `, shapeChat, true},
-		{"unknown shape", `{"shape":"delete_everything"}`, "", false},
-		{"not json", `sure, I can help with that`, "", false},
-		{"empty", ``, "", false},
-		{"missing field", `{}`, "", false},
+		{"bare", `{"response":"action"}`, shapeAction, "", 0, true},
+		{"analytics", "```json\n{\"response\": \"analytics\"}\n```", shapeAnalytics, "", 0, true},
+		{"product_guidance", `{"response":"product_guidance"}`, shapeProductGuidance, "", 0, true},
+		{"unclassified", `{"response":"unclassified"}`, shapeUnclassified, "", 0, true},
+		{"unclassified with questions", `{"response":"unclassified","message":"Livi presently doesn't know...","suggested_questions":[{"category":"Product Guidance","questions":["How to add connector?"]}]}`, shapeUnclassified, "Livi presently doesn't know...", 1, true},
+		{"case insensitive", `{"response":"ACTION"}`, shapeAction, "", 0, true},
+		{"whitespace", `  {"response":"product_guidance"}  `, shapeProductGuidance, "", 0, true},
+		{"unknown shape", `{"response":"delete_everything"}`, "", "", 0, false},
+		{"not json", `sure, I can help with that`, "", "", 0, false},
+		{"empty", ``, "", "", 0, false},
+		{"missing field", `{}`, "", "", 0, false},
+		// old name must no longer parse - renaming is a hard break
+		{"old count_query rejected", `{"response":"count_query"}`, "", "", 0, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got, ok := parseClassifyShape(c.in)
-			if ok != c.ok || got != c.want {
-				t.Errorf("parseClassifyShape(%q) = (%q, %v), want (%q, %v)", c.in, got, ok, c.want, c.ok)
+			if ok != c.ok || got.Shape != c.want {
+				t.Errorf("parseClassifyShape(%q) = (%q, %v), want (%q, %v)", c.in, got.Shape, ok, c.want, c.ok)
+			}
+			if c.wantMsg != "" && got.Message != c.wantMsg {
+				t.Errorf("got message %q, want %q", got.Message, c.wantMsg)
+			}
+			if c.wantQuestions > 0 && len(got.SuggestedQuestions) != c.wantQuestions {
+				t.Errorf("got %d suggested question categories, want %d", len(got.SuggestedQuestions), c.wantQuestions)
 			}
 		})
 	}
@@ -40,23 +52,21 @@ func TestParseClassifyShape(t *testing.T) {
 // The finalize call (#3) writes its own data_sql from scratch in a fresh,
 // history-less exchange - it must get the same table/column reference the
 // count call gets, or it silently guesses wrong column names for anything
-// the count query didn't already select (e.g. "who did the review" is
-// author_username, not a guessable reviewer_id/user_id). See
-// buildFinalizePromptHalves.
+// the count query didn't already select.
 func TestFinalizePromptCarriesSchema(t *testing.T) {
-	head, tail := buildFinalizePromptHalves("Acme", "alice@acme.com", 42)
-	prompt := head + tail
-	if !strings.Contains(prompt, "author_username") {
-		t.Fatalf("finalize prompt is missing the schema/column reference that names author_username: %q", prompt)
+	lb, err := buildLawbookPrompts("Acme", "alice@acme.com", 42)
+	if err != nil {
+		t.Fatalf("buildLawbookPrompts: %v", err)
 	}
-	if !strings.Contains(prompt, "finalizing one report") {
-		t.Fatalf("finalize prompt lost its chart/csv format instructions: %q", prompt)
+	prompt := lb.finalizeHead + lb.finalizeTail
+	if !strings.Contains(prompt, "PostgreSQL") {
+		t.Fatalf("finalize prompt is missing the SQL rules: %q", prompt)
 	}
-	if !strings.Contains(head, "org_id = 42") {
-		t.Fatalf("finalize prompt is missing the org_id filter instruction: %q", head)
+	if !strings.Contains(prompt, "org_id") {
+		t.Fatalf("finalize prompt is missing the org_id reference: %q", prompt)
 	}
-	if strings.Contains(tail, "How to start a data question") {
-		t.Fatalf("finalize prompt should not carry the analytics_plan instructions meant for call #2: %q", tail)
+	if !strings.Contains(lb.finalizeHead, "org_id") {
+		t.Fatalf("finalize head is missing the org_id filter instruction: %q", lb.finalizeHead)
 	}
 }
 
@@ -101,7 +111,7 @@ type recordingProvider struct {
 	toolsPerCall [][]llms.Tool
 }
 
-func (p *recordingProvider) Complete(_ context.Context, history []HistoryEntry, tools []llms.Tool) (string, TokenUsage, error) {
+func (p *recordingProvider) Complete(_ context.Context, history []HistoryEntry, tools []llms.Tool, _ ...llms.CallOption) (string, TokenUsage, error) {
 	p.histories = append(p.histories, append([]HistoryEntry(nil), history...))
 	p.toolsPerCall = append(p.toolsPerCall, tools)
 	if p.calls >= len(p.replies) {
@@ -162,16 +172,16 @@ func dispatchTestAgent(prov *recordingProvider) *Agent {
 func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 	prov := &recordingProvider{replies: []string{
 		// Turn 1: chat
-		`{"shape":"chat"}`,
+		`{"response":"chat"}`,
 		"Hi! I'm Livi, how can I help you?",
 		// Turn 2: action (no tool call in the reply - just confirms the
 		// prompt/tools selection, not the tool-calling loop itself, which
 		// is unchanged and already covered elsewhere)
-		`{"shape":"action"}`,
+		`{"response":"action"}`,
 		"Which repository would you like me to review?",
 		// Turn 3: count_query - a table outside the catalog so the guard
 		// rejects it deterministically, without touching a database.
-		`{"shape":"count_query"}`,
+		`{"response":"count_query"}`,
 		`{"analytics_plan":[{"id":"r1","question":"bad","count_sql":"SELECT count(*) FROM secret_table"}]}`,
 		"SELECT count(*) AS n FROM public.reviews", // repair attempt, also rejected
 	}}
@@ -180,7 +190,7 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 	var history []HistoryEntry
 
 	// --- Turn 1: chat ---
-	text, updated, _, err := agent.RunTurnWithArtifacts(context.Background(), history, "hello", "s1", "test")
+	text, updated, _, _, err := agent.RunTurnWithArtifacts(context.Background(), history, "hello", "s1", "test")
 	if err != nil {
 		t.Fatalf("turn 1: %v", err)
 	}
@@ -192,8 +202,8 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 	if !strings.Contains(sys1, "friendly persona") {
 		t.Fatalf("turn 1: expected the persona header in history[0], got: %q", sys1)
 	}
-	if strings.Contains(sys1, "Answering data questions with SQL") {
-		t.Fatalf("turn 1 (chat): system prompt leaked the SQL schema section: %q", sys1)
+	if strings.Contains(sys1, "PostgreSQL") {
+		t.Fatalf("turn 1 (chat): system prompt leaked the SQL rules: %q", sys1)
 	}
 	if strings.Contains(sys1, "You have access to the following tools") {
 		t.Fatalf("turn 1 (chat): system prompt leaked the tool list: %q", sys1)
@@ -206,7 +216,7 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 	}
 
 	// --- Turn 2: action ---
-	text, updated, _, err = agent.RunTurnWithArtifacts(context.Background(), history, "trigger a review", "s1", "test")
+	text, updated, _, _, err = agent.RunTurnWithArtifacts(context.Background(), history, "trigger a review", "s1", "test")
 	if err != nil {
 		t.Fatalf("turn 2: %v", err)
 	}
@@ -215,8 +225,8 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 	}
 	history = updated
 	sys2, _ := history[0]["content"].(string)
-	if strings.Contains(sys2, "Answering data questions with SQL") {
-		t.Fatalf("turn 2 (action): system prompt leaked the SQL schema section: %q", sys2)
+	if strings.Contains(sys2, "PostgreSQL") {
+		t.Fatalf("turn 2 (action): system prompt leaked the SQL rules: %q", sys2)
 	}
 	if !strings.Contains(sys2, "POST_api_v1_connectors_trigger_review") {
 		t.Fatalf("turn 2 (action): expected the tool list in history[0], got: %q", sys2)
@@ -228,8 +238,8 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 		t.Fatalf("turn 2 (action call): expected tool schemas to be offered")
 	}
 
-	// --- Turn 3: count_query ---
-	text, updated, _, err = agent.RunTurnWithArtifacts(context.Background(), history, "reviews per month?", "s1", "test")
+	// --- Turn 3: analytics ---
+	text, updated, _, _, err = agent.RunTurnWithArtifacts(context.Background(), history, "reviews per month?", "s1", "test")
 	if err != nil {
 		t.Fatalf("turn 3: %v", err)
 	}
@@ -238,17 +248,17 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 	}
 	history = updated
 	sys3, _ := history[0]["content"].(string)
-	if !strings.Contains(sys3, "Answering data questions with SQL") {
-		t.Fatalf("turn 3 (count_query): expected the SQL schema section in history[0], got: %q", sys3)
+	if !strings.Contains(sys3, "PostgreSQL") {
+		t.Fatalf("turn 3 (analytics): expected the SQL rules in history[0], got: %q", sys3)
 	}
 	if strings.Contains(sys3, "You have access to the following tools") {
-		t.Fatalf("turn 3 (count_query): system prompt leaked the general tool list: %q", sys3)
+		t.Fatalf("turn 3 (analytics): system prompt leaked the general tool list: %q", sys3)
 	}
 	if len(prov.toolsPerCall[5]) != 0 {
-		t.Fatalf("turn 3 (count_query call): expected no tools offered, got %d", len(prov.toolsPerCall[5]))
+		t.Fatalf("turn 3 (analytics call): expected no tools offered, got %d", len(prov.toolsPerCall[5]))
 	}
 	if sys3 == sys2 || sys3 == sys1 {
-		t.Fatalf("turn 3: system prompt was not swapped to the count_query branch")
+		t.Fatalf("turn 3: system prompt was not swapped to the analytics branch")
 	}
 
 	// The raw {"analytics_plan": [...]} JSON the model replied with for turn 3
@@ -290,7 +300,7 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 // UI would just render raw JSON. See looksLikeUnrecognizedJSON.
 func TestChatBranchRejectsFabricatedJSON(t *testing.T) {
 	prov := &recordingProvider{replies: []string{
-		`{"shape":"chat"}`,
+		`{"response":"chat"}`,
 		// The model invents its own ad hoc chart shape instead of answering
 		// in prose - none of parseToolCalls/parseAnalyticsPlan recognize it.
 		`{"chart": {"title": "x"}, "learning": {"title": "y"}}`,
@@ -298,7 +308,7 @@ func TestChatBranchRejectsFabricatedJSON(t *testing.T) {
 	}}
 	agent := dispatchTestAgent(prov)
 
-	text, _, _, err := agent.RunTurnWithArtifacts(context.Background(), nil, "are engineers using this daily?", "s1", "test")
+	text, _, _, _, err := agent.RunTurnWithArtifacts(context.Background(), nil, "are engineers using this daily?", "s1", "test")
 	if err != nil {
 		t.Fatalf("expected the turn to recover, not error: %v", err)
 	}
@@ -319,14 +329,14 @@ func TestChatBranchRejectsFabricatedJSON(t *testing.T) {
 // (correctly rejects invalid JSON) and the safety net.
 func TestCountQueryBranchRejectsTruncatedJSON(t *testing.T) {
 	prov := &recordingProvider{replies: []string{
-		`{"shape":"count_query"}`,
+		`{"response":"analytics"}`,
 		// Truncated mid-object: no closing quote, no closing brackets.
 		`{"analytics_plan": [{"id": "r1", "question": "q", "count_sql": "SELECT count(*) FROM reviews`,
 		"I could not work out a full query for that - try rephrasing it.",
 	}}
 	agent := dispatchTestAgent(prov)
 
-	text, _, _, err := agent.RunTurnWithArtifacts(context.Background(), nil, "what's our billing status?", "s1", "test")
+	text, _, _, _, err := agent.RunTurnWithArtifacts(context.Background(), nil, "what's our billing status?", "s1", "test")
 	if err != nil {
 		t.Fatalf("expected the turn to recover, not error: %v", err)
 	}
@@ -340,23 +350,24 @@ func TestCountQueryBranchRejectsTruncatedJSON(t *testing.T) {
 
 func TestDispatchClassifyFailureDegradesToChat(t *testing.T) {
 	prov := &recordingProvider{replies: []string{
-		"I'm not sure what you mean, could you clarify?", // classify call: not the {"shape": ...} JSON it was told to return
-		"Sure, I'm happy to help with that.",              // the degraded chat-branch call
+		"I'm not sure what you mean, could you clarify?", // classify call attempt 1: not the {"response": ...} JSON it was told to return
+		"Still not sure what you mean.",                  // classify call attempt 2 (the one corrective retry): also unparseable
+		"Sure, I'm happy to help with that.",             // the degraded chat-branch call
 	}}
 	agent := dispatchTestAgent(prov)
 
-	text, history, _, err := agent.RunTurnWithArtifacts(context.Background(), nil, "hello", "s1", "test")
+	text, history, _, _, err := agent.RunTurnWithArtifacts(context.Background(), nil, "hello", "s1", "test")
 	if err != nil {
 		t.Fatalf("expected the turn to degrade gracefully, not error: %v", err)
 	}
 	if text != "Sure, I'm happy to help with that." {
 		t.Fatalf("unexpected response %q", text)
 	}
-	if len(prov.toolsPerCall) != 2 {
-		t.Fatalf("expected exactly 2 provider calls (classify + degraded chat), got %d", len(prov.toolsPerCall))
+	if len(prov.toolsPerCall) != 3 {
+		t.Fatalf("expected exactly 3 provider calls (classify + its retry + degraded chat), got %d", len(prov.toolsPerCall))
 	}
-	if len(prov.toolsPerCall[1]) != 0 {
-		t.Fatalf("degraded call should offer no tools (chat branch), got %d", len(prov.toolsPerCall[1]))
+	if len(prov.toolsPerCall[2]) != 0 {
+		t.Fatalf("degraded call should offer no tools (chat branch), got %d", len(prov.toolsPerCall[2]))
 	}
 	sys, _ := history[0]["content"].(string)
 	if strings.Contains(sys, "Answering data questions with SQL") || strings.Contains(sys, "You have access to the following tools") {

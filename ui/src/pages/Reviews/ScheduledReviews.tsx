@@ -476,7 +476,12 @@ const ScheduledReviews: React.FC = () => {
       cell: ({ row }) => {
         const state = scheduleByRepoId[row.original.id];
         if (!state?.enabled) return <span className="text-sm text-slate-500 whitespace-nowrap">Not scheduled</span>;
-        return <span className="text-sm text-slate-200 whitespace-nowrap">{getLocalCronText(state.cronExpression).value}</span>;
+        const summary = getLocalCronText(state.cronExpression).value;
+        return (
+          <span className="block text-sm text-slate-200 truncate" title={summary}>
+            {summary}
+          </span>
+        );
       },
     },
     {

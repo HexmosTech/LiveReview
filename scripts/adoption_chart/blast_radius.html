@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Blast Radius Risk — hexmos-internal</title>
+<script src="https://cdn.jsdelivr.net/npm/vega@5.33.1" integrity="sha384-NMXhl2TbCXxcN7o4ROC56Funm78m4AylL8gMg/7Kn4YU+wrm23K9l7cY8lDRXQ9d" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5.23.0" integrity="sha384-D9LYH0esGjcxQJsBuxOuXtCDJGXRWW1+KhluzWPqi0rLJmiR/ygPChefaD+rFFDQ" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6.29.0" integrity="sha384-M+Ax7e/WFJpxSOF09HzI+Sj4wg9ottVd/uxmV2ItGGh02fLH28t2FAOJx3TJBap5" crossorigin="anonymous"></script>
+<style>
+  body { background:#0b0e17; color:#e6ebf5; font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:32px; }
+  .stats { margin-top:20px; font-size:14px; line-height:1.6; color:#c9d1e0; max-width:900px; }
+  .stats b { color:#fff; }
+  #view { max-width: 680px; overflow-x:auto; }
+  details { margin-top:20px; max-width:900px; }
+  summary { cursor:pointer; color:#aab4c8; font-size:13px; }
+  pre.sql { margin-top:10px; padding:12px 14px; background:#0b0e17; border:1px solid #232a3d; border-radius:8px;
+             font-family: "SF Mono", Menlo, Consolas, monospace; font-size:12px; line-height:1.5; color:#a3b3cc;
+             white-space:pre-wrap; overflow-x:auto; }
+</style>
+</head>
+<body>
+  <div id="view"></div>
+  <div class="stats"><b>39</b> of <b>66</b> scored reviews (59%) hit <b>High</b> blast radius (score ≥ 66, the top tier - there is no separate "critical" bucket) in the last 30 days; <b>21</b> more were Moderate.<br>Riskiest repository: <b>LiveReview</b> (24 High-risk reviews).<br>Only reviews run through the git-lrc CLI produce a blast-radius report, so this covers <b>66</b> of the org's reviews in-window, not all of them.</div>
+  <details>
+    <summary>Query used</summary>
+    <pre class="sql">SELECT id, repository
+    FROM reviews
+    WHERE org_id = 151
+      AND created_at &gt;= CURRENT_DATE - INTERVAL &#x27;30 days&#x27;
+    ORDER BY id;</pre>
+  </details>
+  <script>
+    vegaEmbed('#view', {"$schema": "https://vega.github.io/schema/vega-lite/v5.json", "title": "Blast radius risk by repository \u2014 hexmos-internal, last 30 days", "width": 640, "height": {"step": 18}, "data": {"values": [{"repository": "LiveReview", "tier": "High", "count": 24}, {"repository": "LiveReview", "tier": "Moderate", "count": 10}, {"repository": "LiveReview", "tier": "Low", "count": 2}, {"repository": "LiveReview", "tier": "Minimal", "count": 2}, {"repository": "git-lrc", "tier": "High", "count": 9}, {"repository": "git-lrc", "tier": "Moderate", "count": 9}, {"repository": "git-lrc", "tier": "Low", "count": 1}, {"repository": "hex-ansible", "tier": "High", "count": 4}, {"repository": "dbctx", "tier": "High", "count": 1}, {"repository": "dbctx", "tier": "Minimal", "count": 1}, {"repository": "seed", "tier": "High", "count": 1}, {"repository": "dental", "tier": "Moderate", "count": 1}, {"repository": "AgentLaws", "tier": "Moderate", "count": 1}]}, "mark": {"type": "bar"}, "encoding": {"y": {"field": "repository", "type": "nominal", "sort": ["LiveReview", "git-lrc", "hex-ansible", "dbctx", "seed", "dental", "AgentLaws"], "title": null}, "x": {"field": "count", "type": "quantitative", "title": "Reviews", "stack": "zero"}, "color": {"field": "tier", "type": "nominal", "title": "Blast radius", "sort": ["High", "Moderate", "Low", "Minimal"], "scale": {"domain": ["High", "Moderate", "Low", "Minimal"], "range": ["#ff5c7c", "#ffb454", "#7c9cff", "#3a4358"]}}, "order": {"field": "tier", "sort": "ascending"}, "tooltip": [{"field": "repository", "type": "nominal"}, {"field": "tier", "type": "nominal", "title": "Blast radius"}, {"field": "count", "type": "quantitative", "title": "Reviews"}]}, "config": {"background": "#0f1420", "axis": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5", "gridColor": "#232a3d", "domainColor": "#3a4358"}, "legend": {"labelColor": "#c9d1e0", "titleColor": "#e6ebf5"}, "title": {"color": "#e6ebf5", "fontSize": 16}, "view": {"stroke": "transparent"}}}, {actions: false});
+  </script>
+</body>
+</html>

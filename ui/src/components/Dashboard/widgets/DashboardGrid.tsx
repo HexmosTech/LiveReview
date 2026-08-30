@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'classnames';
 import { useSearchParams } from 'react-router-dom';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Responsive } from 'react-grid-layout/legacy';
 import type { Layout } from 'react-grid-layout/legacy';
 import 'react-grid-layout/css/styles.css';
@@ -8,39 +9,44 @@ import 'react-resizable/css/styles.css';
 import { Button, Icons, Popover, Tooltip } from '../../UIPrimitives';
 import { useDashboardLayout } from './useDashboardLayout';
 import { WidgetChrome } from './WidgetChrome';
+import { ChartSkeleton } from './ChartSkeleton';
 import { DashboardPeriodProvider } from './DashboardPeriod';
-import { ReviewLayersProvider, useReviewLayers } from './ReviewLayersData';
-import { SystemOverviewProvider, useSystemOverview } from './SystemOverviewData';
-import { PeopleProvider, usePeople } from './PeopleData';
+import { ReviewLayersProvider } from './ReviewLayersData';
+import { SystemOverviewProvider } from './SystemOverviewData';
+import { PeopleProvider } from './PeopleData';
+import { IssueTreemapProvider } from './IssueTreemapData';
 import { PeriodSelector } from './PeriodSelector';
 import { CATEGORY_BADGE_CLASSES, CATEGORY_LABELS, WidgetCategory } from './registry';
+import { DASHBOARD_QUERY_KEY, refreshDashboardData } from '../../../api/dashboard';
 import './dashboardGrid.css';
 
 interface DashboardGridProps {
     userId?: number | string;
 }
 
-// Rendered inside all three providers (not DashboardGrid itself) so it can consume the contexts it wraps.
+// Rendered inside all three providers (not DashboardGrid itself) so it sits alongside the
+// widgets it refreshes. The dashboard query itself is a plain cheap GET (see useDashboardQuery
+// in api/dashboard.ts) - this button is the explicit, user-triggered path to the expensive
+// server-side recompute (POST /api/v1/dashboard/refresh), which everything else deliberately
+// avoids calling automatically now that a server-side background job keeps the cache fresh.
 const RefreshWidgetsButton: React.FC = () => {
-    const reviewLayers = useReviewLayers();
-    const systemOverview = useSystemOverview();
-    const people = usePeople();
-    const loading = reviewLayers.loading || systemOverview.loading || people.loading;
-    const refetch = () => {
-        reviewLayers.refetch();
-        systemOverview.refetch();
-        people.refetch();
-    };
+    const queryClient = useQueryClient();
+    const { mutate: refresh, isPending } = useMutation({
+        mutationFn: refreshDashboardData,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: DASHBOARD_QUERY_KEY });
+        },
+    });
     return (
-        <Tooltip content={loading ? 'Refreshing…' : 'Refresh widget data'}>
+        <Tooltip content={isPending ? 'Refreshing…' : 'Refresh widget data'}>
             <Button
                 variant="outline"
                 size="sm"
-                onClick={refetch}
-                disabled={loading}
+                onClick={() => refresh()}
+                disabled={isPending}
                 aria-label="Refresh dashboard widgets"
             >
-                <span className={loading ? 'animate-spin' : undefined}><Icons.Refresh /></span>
+                <span className={isPending ? 'animate-spin' : undefined}><Icons.Refresh /></span>
             </Button>
         </Tooltip>
     );
@@ -124,6 +130,7 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
         <ReviewLayersProvider>
         <SystemOverviewProvider>
         <PeopleProvider>
+        <IssueTreemapProvider>
         <div className="mb-6">
             <div className="sticky top-16 z-30 py-2 mb-3 bg-slate-800/90 backdrop-blur-sm border-b border-slate-700/80 rounded-lg flex flex-wrap items-center justify-between gap-2 px-4">
                 <div className="flex flex-wrap items-center gap-3">
@@ -230,7 +237,13 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
                                         animationIndex={index}
                                         onRemove={() => removeWidget(widget.id)}
                                     >
-                                        <widget.component />
+                                        {/* Per-widget boundary, not the outer route-level Suspense in App.tsx -
+                                            without this, one lazy widget (e.g. an echarts one) suspending would
+                                            unmount the entire dashboard back to the route-level fallback instead
+                                            of just showing this one widget's own skeleton. */}
+                                        <React.Suspense fallback={<ChartSkeleton />}>
+                                            <widget.component />
+                                        </React.Suspense>
                                     </WidgetChrome>
                                 </div>
                             );
@@ -239,6 +252,7 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
                 )}
             </div>
         </div>
+        </IssueTreemapProvider>
         </PeopleProvider>
         </SystemOverviewProvider>
         </ReviewLayersProvider>

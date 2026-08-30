@@ -1,7 +1,7 @@
-import React from 'react';
-import ReactECharts from 'echarts-for-react';
+import React, { useMemo } from 'react';
+import ReactECharts from 'echarts-for-react/lib/core';
 import { useNavigate } from 'react-router-dom';
-import { LIVEREVIEW_ECHARTS_THEME, ECHARTS_ANIMATION_DEFAULTS } from './echartsTheme';
+import { LIVEREVIEW_ECHARTS_THEME, ECHARTS_ANIMATION_DEFAULTS, LR_ECHARTS_CORE } from './echartsTheme';
 import { useChartResize } from './useChartResize';
 import { useDashboardPeriod } from './DashboardPeriod';
 import { useSystemOverview } from './SystemOverviewData';
@@ -14,23 +14,15 @@ export const CoverageGauge: React.FC = () => {
     const { period, label } = useDashboardPeriod();
     const { systemOverview, loading } = useSystemOverview();
 
-    if (loading) {
-        return <ChartSkeleton />;
-    }
-
-    if (!systemOverview || systemOverview.total_prs.all === 0) {
-        return (
-            <EmptyState
-                icon={<Icons.EmptyState />}
-                title="No PR data yet"
-                description="Review coverage will appear here once PRs/MRs are tracked."
-            />
-        );
-    }
-
-    const coveragePct = Math.round(systemOverview.coverage_pct[period]);
-
-    const option = {
+    // Memoized so echarts only replays its entrance animation when the underlying data actually
+    // changes, not on every unrelated re-render (e.g. DashboardGrid's ResizeObserver-driven
+    // gridWidth updates) - an unstable option reference plus `notMerge` below meant the chart
+    // was redrawing (and re-animating) itself a second time shortly after its real first
+    // render. See docs/perf-improvement.md ("chart animation plays twice"). Computed
+    // unconditionally (before the loading/empty early returns below) so the hook call stays
+    // unconditional, same pattern as the other chart widgets.
+    const coveragePct = Math.round(systemOverview?.coverage_pct[period] ?? 0);
+    const option = useMemo(() => ({
         ...ECHARTS_ANIMATION_DEFAULTS,
         series: [{
             type: 'gauge',
@@ -62,17 +54,32 @@ export const CoverageGauge: React.FC = () => {
             },
             data: [{ value: coveragePct, name: `Coverage — ${label}` }],
         }],
-    };
+    }), [coveragePct, label]);
 
-    const onEvents = {
+    const onEvents = useMemo(() => ({
         click: () => navigate('/reports?mode=overview'),
-    };
+    }), [navigate]);
+
+    if (loading) {
+        return <ChartSkeleton />;
+    }
+
+    if (!systemOverview || systemOverview.total_prs.all === 0) {
+        return (
+            <EmptyState
+                icon={<Icons.EmptyState />}
+                title="No PR data yet"
+                description="Review coverage will appear here once PRs/MRs are tracked."
+            />
+        );
+    }
 
     return (
         <div className="w-full h-full flex flex-col">
             <div ref={containerRef} className="flex-1 min-h-0">
                 <ReactECharts
                     ref={chartRef}
+                    echarts={LR_ECHARTS_CORE}
                     option={option}
                     theme={LIVEREVIEW_ECHARTS_THEME}
                     style={{ height: '100%', width: '100%' }}

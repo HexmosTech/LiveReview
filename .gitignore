@@ -22,6 +22,15 @@ livereview_pgdata/
 .livereview_pgdata/
 lrdata/postgres/
 
+# Fetched training-data docs (regenerate with `make prep-training-data`);
+# lr_routes/ is hand-written and stays tracked.
+/ui/docs/training_data/git-lrc/
+/ui/docs/training_data/git-lrc-wiki/
+/ui/docs/training_data/livereview/
+/ui/docs/training_data/livereview-wiki/
+/internal/docindex/docs/lr_wiki/
+/internal/docindex/docs/lrc_wiki/
+
 # Vendor prompts local artifacts (never commit)
 internal/prompts/vendor/keyring_gen.go
 internal/prompts/vendor/templates/*.enc
@@ -51,6 +60,7 @@ cmd/lrc/lrc
 # Environment files - contain secrets
 .env
 .env.*
+.current-env
 .env.local
 .env.prod
 .env.production
@@ -63,6 +73,10 @@ tests/mcp/.env
 
 # Prod DB export dumps (make prod-data-export) - real customer data, never commit
 db/prod-exports/
+
+# dbctx context index (generated from production DB)
+livereviewctx.dtx*
+dbctx.dtx*
 
 # TOML configuration files - may contain local/sensitive settings
 livereview.toml
@@ -83,4 +97,11 @@ ui/bun.lock
 internal/api/docs/spec.go
 
 opencode.json
+
+scripts/prelivi/.venv/
+*.swp
+
+# email testing
+email-preview
+email-preview.html
 livereview.dtx

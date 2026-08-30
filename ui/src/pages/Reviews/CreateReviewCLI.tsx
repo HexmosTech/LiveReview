@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, PageHeader, Spinner } from '../../components/UIPrimitives';
-import { getDashboardData, DashboardData } from '../../api/dashboard';
+import { useDashboardQuery } from '../../api/dashboard';
 import { OnboardingSteps } from '../../components/Dashboard/OnboardingSteps';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { useOrgContext } from '../../hooks/useOrgContext';
@@ -14,23 +14,10 @@ import LicenseUpgradeDialog from '../../components/License/LicenseUpgradeDialog'
 const CreateReviewCLI: React.FC = () => {
   const navigate = useNavigate();
   const { isFreePlan } = useOrgContext();
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Shares the same cached query as Dashboard.tsx - arriving here right after visiting the
+  // dashboard reuses that result instead of firing another request.
+  const { data: dashboardData = null, isLoading: loading } = useDashboardQuery();
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    getDashboardData()
-      .then((data) => {
-        if (!cancelled) setDashboardData(data);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const codeReviews = dashboardData?.total_reviews || 0;
   const aiConnectors = dashboardData?.active_ai_connectors || 0;

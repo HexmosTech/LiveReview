@@ -1,0 +1,398 @@
+# 1.
+
+Working
+
+# 2.
+
+Working
+
+# 3.
+
+### Query: How broadly has the organization adopted LiveReview?
+
+### Result from livi:
+
+Daily Review Completion Volume
+
+[](Daily Review Completion Volume**LiveReview**160826.png)
+
+The organization has completed reviews across 111 distinct days.
+
+Activity peaked with the highest daily volume of reviews recorded during the tracked period.
+
+This trend illustrates the consistent integration of LiveReview into developer workflows.
+
+Time range: Entire history (inception to date)
+
+Granularity: Daily
+
+Query: daily count of reviews completed by the organization
+
+---
+
+Review Adoption over Time
+
+[rendered graph](Review Adoption over Time**LiveReview**160826.png)
+
+The organization has seen a total of 7 unique contributors complete at least one review.
+
+This count represents the cumulative number of individual engineers who have successfully utilized LiveReview.
+
+Time range: Last 7 months (Dec 2024 – Jun 2025)
+
+Granularity: Monthly
+
+Query: count of unique users who have completed at least one review, by month
+
+### What is missing from the demo:
+
+**Symptom** — For the query "How broadly has the organization adopted LiveReview?", Livi planned and rendered two time-series charts (chat_debug.log, request dd8a06177ca3916e):
+
+- `Daily Review Adoption` — bar chart, reviews completed per day, 111 rows
+- `Review Adoption over Time` — line chart, _cumulative_ unique contributors per month, 7 rows
+
+Both charts answer "how much / how many over time". Neither answers "how broadly" — i.e. whether usage is spread across the whole org or concentrated in a few engineers. (The call #2 plan JSON was `adoption_trend` + `unique_users` — both grouped by time.)
+
+**Expected** (see adoption_breadth.html): ONE histogram + KPI overlay —
+
+- SQL: completed reviews per engineer over the last 90 days, grouped by `author_username`, then bucketed into bands: `1-4 (light)`, `5-19 (regular)`, `20+ (heavy)`.
+- Chart: `bar` mark; x = band (ordinal, fixed sort order), y = engineer count, color = band.
+- Stats in description: engineers active (8), median reviews/engineer (31), top contributor's share (shrijith, 136 of 440 = 31%).
+
+**Root cause** — the wrong decision is made in the _planning_ call (call #2), not in chart rendering. `internal/mcpagent/prompts/analytics_plan.md` has a special routing rule for rhythm/habit/consistency questions ("group by day") but no rule for breadth/distribution/concentration questions. Faced with "how broadly adopted", the planner fell back to its default group-by-time bias and emitted two time-series reports. The finalize call (#3) does know the histogram shape ("distributed across many rows, as an aggregate shape → bar over SQL-computed bins" in `internal/mcpagent/prompts/analytics_finalize.md`), but it is contractually bound to the planned sub-question ("This report answers: ..."), so it never gets to choose a distribution.
+
+### One-line summary
+
+Asked "how broadly," Livi answered "how much over time" — it plotted two time-series charts because the planner has no rule for breadth/distribution questions, only for time-trend ones.
+
+# 4.
+
+### Query: Who has adopted LiveReview—and who hasn't?
+
+### Result from livi:
+
+Reviewer Activity Rankings
+
+[](Reviewer Activity Rankings**LiveReview**160826.png)
+
+The organization's top contributor has completed 42 reviews, while the least active reviewer has completed 1.
+
+Activity is measured by the total count of completed reviews per author.
+
+Time range: All time
+
+Granularity: Per contributor
+
+Query: who has reviewed the most pull requests
+
+---
+
+Review Productivity per Contributor
+
+[](Review Productivity per Contributor**LiveReview**160826.png)
+
+The chart displays the number of completed reviews by each contributor in hexmos-internal.
+
+Athreya leads with 15 reviews, while the least active contributors have completed 1 review each.
+
+Time range: All time
+
+Granularity: Per contributor
+
+Query: count of completed reviews per contributor in hexmos-internal
+
+### What is missing from the demo:
+
+**Symptom** — For "Who has adopted LiveReview the most and least?", Livi planned and rendered two separate bar charts (chat_debug.log, request d6cb8598fb73d768, call #2 plan at line 787):
+
+```
+{"analytics_plan": [
+  {"id": "most_active_reviewers", "question": "Who has reviewed the most pull requests?",
+   "count_sql": "SELECT count(*) AS n FROM (SELECT author_username FROM reviews WHERE org_id = 151 AND status = 'completed' GROUP BY author_username) t"},
+  {"id": "least_active_reviewers", "question": "Who has reviewed the fewest pull requests?",
+   "count_sql": "SELECT count(*) AS n FROM (SELECT author_username FROM reviews WHERE org_id = 151 AND status = 'completed' GROUP BY author_username) t"}
+]}
+```
+
+- `Reviewer Activity Rankings` — `bar` mark, `most_active_reviewers`, data_sql `ORDER BY review_count DESC`, 8 rows (line 809/811/812).
+- `Review Productivity per Contributor` — `bar` mark, `least_active_reviewers`, data_sql `ORDER BY review_count ASC`, 8 rows (line 840/842/843).
+
+Both charts' Vega-Lite encoding hardcodes `"sort": "-x"` on the y-field (line 844), so despite the opposite `ORDER BY` in their SQL, they render as the same descending ranking of the same 8 rows (`lince` 334, `shrijith` 127, `ganeshkumar6120` 121, `""` 10, `joe` 15, `RijulTP` 8, `LinceMathew` 7, `lovestaco` 3) — visually duplicate charts, distinguished only by title/description text. Neither query includes engineers with zero reviews (both `GROUP BY author_username` on `reviews` alone, no join against a full roster), so the "who hasn't" half of the question has no data behind it at all.
+
+**Expected** (see adoption_leaderboard.html) — ONE sorted horizontal bar with adoption-tier coloring and a target rule:
+
+- SQL: `SELECT author_username, count(*) AS value FROM reviews WHERE org_id = 151 AND author_username IS NOT NULL AND COALESCE(completed_at, created_at) >= CURRENT_DATE - INTERVAL '90 days' GROUP BY 1 ORDER BY 2 DESC` — a 90-day window, unlike the log's all-time/no-window query.
+- Bands: `0 reviews` (#3a4358), `1-4 (light)` (#7c9cff), `5-19 (regular)` (#ffb454), `20+ (heavy)` (#39d353).
+- Chart: two-layer spec — `bar` mark (y = engineer sorted `-x`, x = value, color = band) + a dashed `rule` layer at x = 5 (the target).
+- KPI text: "1 of 8 engineers are below the target of 5 reviews."
+
+**Root cause** — the wrong decision is made in the planning call (call #2), not in chart rendering. `internal/mcpagent/prompts/analytics_plan.md` instructs the model: _"One entry per distinct thing the user asked for. 'Show me reviews per month and my top reviewers' is **two** entries."_ That rule is correct for genuinely independent asks, but the planner over-applies it here: "most and least" is one ranking question with two ends, not two independent sub-questions, yet the plan produced two mirrored `PlanEntry` objects (`most_active_reviewers` / `least_active_reviewers`) with near-identical `count_sql`. Because finalize (call #3) is "contractually bound to the planned sub-question" per report (same mechanism noted in section 3's root cause), each finalize call only ever sees one half of the ranking and has no opportunity to produce the single banded-and-targeted chart `analytics_finalize.md`'s own chart-shape table already documents for this pattern ("comparing named categories against each other → sorted bar ... add a rule layer for a fixed target threshold") — that row exists but nothing in `analytics_plan.md` routes a compound most/least question to it as one report instead of two.
+
+### One-line summary
+
+"Most and least" got split into two mirrored, identically-sorted bar charts instead of one ranked leaderboard — and neither included engineers with zero reviews, so "who hasn't" was never actually answered.
+
+# 5.
+
+### Query: Is adoption becoming broader over time?
+
+### Result from livi:
+
+Weekly Unique Reviewers
+
+[](Weekly Unique Reviewers**LiveReview**160826.png)
+
+The number of unique users performing reviews has grown from 2 in early 2026 to 12 in the most recent week.
+
+Activity across the organization shows a consistent upward trend in participation over the last 6 months.
+
+Time range: Last 6 months (Jan 2026 – Jun 2026)
+
+Granularity: Weekly
+
+Query: unique users performing reviews per week
+
+### What is missing from the demo:
+
+**Symptom** — For "Is adoption becoming broader over time?", Livi planned and rendered one report (chat_debug.log, request 864afedfb14e75b0, call #2 plan at line 947):
+
+```
+{"analytics_plan": [
+  {"id": "adoption_trend",
+   "question": "Number of unique users performing reviews per week over the last 6 months",
+   "count_sql": "SELECT count(*) FROM (SELECT date_trunc('week', created_at) AS week FROM reviews WHERE org_id = 151 AND status = 'completed' GROUP BY 1) t"}
+]}
+```
+
+`Weekly Unique Reviewers` — 3-layer `line` chart (raw count + 4-week rolling average + period-average baseline, the standard auto-injected rolling-average pattern for weekly data), data_sql `count(DISTINCT user_email)` grouped by `date_trunc('week', created_at)`, 26 rows (line 966/968/969). This measures **headcount** — how many distinct people touched a review each week — not **breadth of usage across activity tiers**, so it cannot show whether growth is many people doing a little or the same few people doing more. It also doesn't answer "broader" in the sense of light/regular/heavy segmentation at all: there is no tier field anywhere in this report.
+
+The rendered description is also inconsistent with its own `data.values` (line 970): it claims growth "from 2 in early 2026 to 12 in the most recent week," but the actual series starts at `unique_users: 1` (2026-02-02) and the last point is `unique_users: 5` (2026-08-10) — the true max across all 26 weeks is 5, not 12, and never reaches 2 until the week of 2026-05-25.
+
+**Expected** (see adoption_growth.html) — a stacked area chart of active-engineer counts broken out by usage tier, so growth in headcount and growth in engagement depth are visually separable:
+
+- SQL: `SELECT date_trunc('week', COALESCE(completed_at, created_at))::date AS week, author_username, count(*) AS n FROM reviews WHERE org_id = 151 AND author_username IS NOT NULL AND COALESCE(completed_at, created_at) >= CURRENT_DATE - INTERVAL '180 days'` — per-engineer weekly counts, then bucketed into tiers in a second pass (not a single flat GROUP BY).
+- Bands: `1-4 (light)` (#7c9cff), `5-19 (regular)` (#ffb454), `20+ (heavy)` (#39d353).
+- Chart: `area` mark (`interpolate: monotone`), x = week, y = engineer count (`stack: true`), color = tier.
+- Stats: "Total active engineers/week went from 1 to 5. Heavy users (20+ reviews/week) went from 0 to 0."
+
+**Root cause** — the wrong decision is made in the planning call (call #2), not in chart rendering. `internal/mcpagent/prompts/analytics_plan.md` has a rule for rhythm/habit questions ("group by day, not by author") but no equivalent rule distinguishing a _breadth_ question ("is adoption spreading across more people at more depth") from a plain headcount trend. The only applicable rule here is the generic "Default to a grouped answer... Write count_sql as if the answer will be grouped by time (or by whatever dimension makes the comparison)" — the planner picked time (week) as the sole grouping dimension and `count(DISTINCT user_email)` as the metric, which satisfies "grouped by time" literally but drops the per-engineer tier dimension entirely. Because finalize (call #3) only ever sees this report's own question ("Number of unique users performing reviews per week"), it has no basis to introduce tiers that were never in the plan — it just applies the standard time-trend chart-shape rule (line + rolling average) from `analytics_finalize.md`, which is the correct rule for the plan it was given, not for the question that was actually asked.
+
+### One-line summary
+
+"Broader" got reduced to a plain weekly-headcount line with no usage-tier breakdown at all — and its description numbers (2→12) don't even match its own data (1→5).
+
+# 6.
+
+### Query: Which repositories are gaining or losing engineering velocity?
+
+### Result from livi:
+
+Engineering Velocity by Repository
+
+[](Engineering Velocity by Repository**LiveReview**160826.png)
+
+This chart tracks the monthly number of completed reviews for each repository within hexmos-internal.
+
+Repositories with rising review counts show increasing velocity, while those with declining counts indicate a slowdown.
+
+Overall, the organization completed 81 distinct repository-month activity records over the tracked period.
+
+Time range: Last 6 months (Feb 2025 – Jul 2025)
+
+Granularity: Monthly
+
+Query: monthly engineering velocity (completed reviews) per repository
+
+### What is missing from the demo:
+
+**Symptom** — For "Which repositories are gaining or losing engineering velocity?", Livi planned and rendered one report (chat_debug.log, request 31d956505f3ff5c0, call #2 plan at line 809):
+
+```
+{"analytics_plan": [
+  {"id": "velocity_trend",
+   "question": "Engineering velocity (completed reviews) per repository by month",
+   "count_sql": "SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS month, repository FROM reviews WHERE status = 'completed' AND org_id = 151 GROUP BY 1, 2) t"}
+]}
+```
+
+`Engineering Velocity by Repository` — a **faceted small-multiples** spec (`"facet": {"field": "repository", "columns": 3}`, single-panel `spec` = `bar` mark, x = month (`yearmonth`), y = review_count), 81 rows, data_sql `date_trunc('month', completed_at)` × `repository` × `count(*)` (line 829/831/832). This is one bar-chart panel per repository (dozens of panels — the data spans 43+ distinct repository names, including several that are clearly the same repo under different labels, e.g. `LiveReview`, `HexmosTech/LiveReview`, `https://github.com/HexmosTech/LiveReview` all appear as separate facet panels), each showing raw monthly review _count_, not LOC. There is no gain/loss comparison anywhere: no two-period split, no color encoding for trend direction, nothing that answers "gaining or losing" directly — a viewer has to visually eyeball dozens of small bar panels and infer direction themselves. Most panels also only have 1-2 months of data at all (many repos appear in exactly one month), so "rising vs declining" isn't even computable for most of the facets shown.
+
+**Expected** (see repo_slope.html) — a slope graph: one line per repository between two periods, colored by direction:
+
+- SQL: `SELECT r.repository, CASE WHEN l.accounted_at >= CURRENT_DATE - INTERVAL '45 days' THEN 'Current' ELSE 'Previous' END AS period, sum(l.billable_loc) AS loc FROM loc_usage_ledger l JOIN reviews r ON r.id = l.review_id WHERE l.org_id = 151 AND l.status = 'accounted' AND l.accounted_at >= CURRENT_DATE - INTERVAL '90 days' GROUP BY 1, 2` — LOC reviewed (not review count), collapsed into exactly two periods (a 45/45-day split of a 90-day window), not 6 months of monthly buckets.
+- Chart: `line` mark with `point: true`, x = period (`Previous`/`Current`, nominal, fixed order), y = LOC, one line per repository (`detail` channel), color = trend (`gain`/`flat`/`loss` → green/gray/red).
+- Stats: "30 repos gained velocity, 13 lost velocity, out of 43 tracked."
+
+**Root cause** — the wrong decision is made in the planning call (call #2), not in chart rendering. `internal/mcpagent/prompts/analytics_plan.md` has no rule for a period-over-period _comparison_ question at all — its only relevant guidance is the generic "Default to a grouped answer... Write count_sql as if the answer will be grouped by time (or by whatever dimension makes the comparison)." The planner satisfied "grouped by time" literally by bucketing into 6 monthly buckets crossed with repository, but "gaining or losing" is a two-point comparison question (this period vs. the last), not a multi-month trend question — the plan never collapses the window into a Previous/Current split, so finalize (call #3) never has the two-period shape it would need to compute a gain/loss color. Instead finalize falls back to `analytics_finalize.md`'s "the same mini chart repeated once per category" trellis/facet pattern for "per repository" data, which is the correct rule for _that_ shape but the wrong shape for a comparison question — nothing in `analytics_plan.md` routes a "gaining or losing X" phrasing toward a two-period `CASE WHEN ... period` split the way `repo_slope.html` computes it.
+
+### One-line summary
+
+"Gaining or losing" needed a two-period comparison, but the plan built a dozens-of-panels monthly facet grid instead — there's no rule that collapses a trend window into a before/after split.
+
+# 7.
+
+### Query: Where is organizational velocity concentrated?
+
+### Result from livi:
+
+Review Concentration by Repository
+
+[](Review Concentration by Repository**LiveReview**160826.png)
+
+The organization completed reviews across 50 repositories.
+
+Activity is concentrated in the top repositories, with the most active one accounting for the largest share of the total review volume.
+
+This distribution highlights where the development effort is focused.
+
+Time range: All-time
+
+Granularity: Per repository
+
+Query: review completions grouped by repository
+
+---
+
+Review Velocity by Author
+
+[](Review Velocity by Author**LiveReview**160826.png)
+
+This chart shows the distribution of completed reviews across the top 8 contributors in the organization.
+
+Author activity reflects individual contributions to the review process, with the most active contributor having completed the highest number of reviews.
+
+Time range: All time
+
+Granularity: Per contributor
+
+Query: review completions by author, showing the top 8 contributors
+
+### What is missing from the demo:
+
+**Symptom** — For "Where is organizational velocity concentrated?", Livi planned and rendered two reports (chat_debug.log, request 10c3a36c8600fa3d, call #2 plan at line 937):
+
+```
+{"analytics_plan": [
+  {"id": "velocity_by_repo", "question": "Concentration of reviews by repository",
+   "count_sql": "SELECT count(*) AS n FROM (SELECT repository, count(*) AS review_count FROM reviews WHERE status = 'completed' AND org_id = 151 GROUP BY repository) t"},
+  {"id": "velocity_by_author", "question": "Concentration of reviews by author",
+   "count_sql": "SELECT count(*) AS n FROM (SELECT author_username, count(*) AS review_count FROM reviews WHERE status = 'completed' AND org_id = 151 GROUP BY author_username) t"}
+]}
+```
+
+- `Review Concentration by Repository` — plain `bar` mark, review count per repository, sorted `-y`, 50 rows (line 959/961/962).
+- `Review Velocity by Author` — plain `bar` mark, review count per author, top 8 only (`LIMIT 8` in data_sql), sorted `-y` (line 977/979/980).
+
+Confirmed: **no Pareto/cumulative line appears in either chart** (line 981) — both are single-layer `mark: "bar"` specs with no `"layer"` key, no cumulative-percent field in `data.values`, and no second axis. This is despite `analytics_finalize.md`'s own chart-shape table having a row for exactly this pattern ("concentration - who accounts for most of a total → Pareto: sorted bar + a second line layer of cumulative percent"), which neither report used. The by-author report is also a scope drift the query didn't ask for: the user asked where velocity concentrates by repository; the plan added a second, unrequested by-author breakdown, and additionally silently truncated it to `LIMIT 8` with no mention of that cutoff in the description.
+
+**Expected** (see repo_pareto.html) — ONE sorted bar + cumulative-percent line, by repository, by LOC:
+
+- SQL: `SELECT r.repository, sum(l.billable_loc) AS loc FROM loc_usage_ledger l JOIN reviews r ON r.id = l.review_id WHERE l.org_id = 151 AND l.status = 'accounted' AND l.accounted_at >= CURRENT_DATE - INTERVAL '90 days' GROUP BY 1 ORDER BY 2 DESC` — LOC reviewed (not review count), scoped to the last 90 days.
+- Chart: two-layer spec — `bar` mark (x = repository, y = LOC) + `line` mark with `point: true` (y = cumulative %, on an independent right-hand scale, `resolve.scale.y: "independent"`).
+- Stats: "Top 3 repositories account for 69% of all LOC reviewed (43 repos total)."
+
+**Root cause** — the wrong decision is split across two stages. The primary one is _finalize_ (call #3): `internal/mcpagent/prompts/analytics_finalize.md`'s chart-shape table already documents the exact pattern needed ("concentration - who accounts for most of a total → Pareto ... sorted bar + a second line layer of cumulative percent"), but the model defaulted to a plain sorted `bar` instead of reaching for that row, even though the report's own question ("Concentration of reviews by repository") uses the word "concentration" that the table row is keyed on. A secondary, plan-stage (call #2) issue: `internal/mcpagent/prompts/analytics_plan.md`'s instruction to add "one entry per distinct thing the user asked for" caused the planner to add an unrequested `velocity_by_author` entry the single-subject "where is organizational velocity concentrated" question never asked for, diluting the response with a second, differently-scoped chart instead of one correct Pareto chart for the thing that was actually asked.
+
+### One-line summary
+
+"Concentrated" should have triggered the Pareto chart pattern already documented in the finalize prompt, but Livi rendered two plain sorted bar charts instead — one of them for an author breakdown nobody asked for.
+
+# 8.
+
+### Query: Which repositories are unusually active or inactive?
+
+### Result from livi:
+
+Review Activity by Repository
+
+[](Review Activity by Repository**LiveReview**160826.png)
+
+This chart shows the total number of reviews completed per repository in hexmos-internal.
+
+The most active repository has 258 reviews, while several others have seen minimal activity.
+
+Repositories are sorted by review volume to highlight those with high vs low engagement.
+
+Time range: All time
+
+Granularity: Per repository
+
+Query: review counts per repository in hexmos-internal
+
+### What is missing from the demo:
+
+**Symptom** — For "Which repositories are unusually active or inactive?", Livi planned and rendered one report (chat_debug.log, request c28dbf04c907d555, call #2 plan at line 862):
+
+```
+{"analytics_plan": [
+  {"id": "repository_activity",
+   "question": "Repository activity levels based on review counts",
+   "count_sql": "SELECT count(*) AS n FROM (SELECT repository FROM reviews WHERE org_id = 151 GROUP BY repository) t"}
+]}
+```
+
+`Review Activity by Repository` — plain `bar` mark, x = repository (sorted `-y`), y = `review_count` only, 58 rows (line 881/883/884). This is a single-dimension ranking (review count alone) — it has no LOC axis, no engineer-count encoding, and no `circle`/scatter mark at all, so it cannot show the two-dimensional "high-volume vs high-frequency" split the query's "unusually active or inactive" framing calls for (a repo with many small reviews looks identical here to one with few large ones).
+
+The description is also inconsistent with its own `data.values` (line 885): it claims "the most active repository has 258 reviews," but the actual top row is `LiveReview: 198` — no repository in the 58-row result reaches 258.
+
+**Expected** (see repo_scatter.html) — a scatterplot with three independent dimensions:
+
+- SQL: `SELECT r.repository, count(*) AS reviews, count(DISTINCT r.author_username) AS engineers, coalesce(sum(l.billable_loc), 0) AS loc FROM reviews r LEFT JOIN loc_usage_ledger l ON l.review_id = r.id AND l.status = 'accounted' WHERE r.org_id = 151 AND COALESCE(r.completed_at, r.created_at) >= CURRENT_DATE - INTERVAL '90 days' GROUP BY 1` — scoped to the last 90 days, joined against `loc_usage_ledger` for LOC.
+- Chart: `circle` mark, x = LOC reviewed, y = reviews, size = active engineers (`scale.range: [80, 1200]`), color = repository.
+- Stats: "50 repositories active. Largest by LOC: LiveReview (138275 LOC, 171 reviews)."
+
+**Root cause** — the wrong decision is made in the planning call (call #2), not in chart rendering. The plan's `count_sql` only ever counts and groups `repository` from the `reviews` table — it never brings in `loc_usage_ledger` or a distinct-engineer count, so the single-metric shape is already locked in before finalize (call #3) ever runs; finalize has no LOC or engineer field available to plot even if it wanted to. `internal/mcpagent/prompts/analytics_plan.md` has no rule steering a two-axis "activity" question (volume AND frequency, i.e. LOC AND review count) toward a multi-column `count_sql`/`data_sql` the way it has an explicit rule for rhythm questions ("group by day, not by author") — faced with "unusually active or inactive," the planner defaulted to the single obvious metric (review count) instead of recognizing the question implies comparing two independent measures against each other, which `analytics_finalize.md`'s own chart-shape table documents as the scatter/bubble pattern ("relationship between two numeric measures → scatter/bubble, with size for a third measure") but which the plan's single-column SQL never gives finalize the data to use.
+
+### One-line summary
+
+"Unusually active or inactive" is a two-axis question (volume vs. frequency), but the plan only ever fetched one metric (review count), so no scatter/bubble chart was possible — and the description's "258 reviews" claim doesn't match any row in the data.
+
+# 9.
+
+# 10.
+
+### Query: What happened to LiveReview repository's velocity?
+
+### Result from livi:
+
+Review Velocity in LiveReview Repository
+
+[](Review Velocity in LiveReview Repository**LiveReview**160826.png)
+
+The LiveReview repository completed a total of 152 reviews over the last six months.
+
+Monthly activity peaked in April 2026 with 34 completions, showing a steady output compared to the 22 completions recorded in January 2026.
+
+Time range: Last 6 months (Jan 2026 – Jun 2026)
+
+Granularity: Monthly
+
+Query: monthly review completions for the LiveReview repository
+
+### What is missing from the demo:
+
+**Symptom** — For "What happened to LiveReview repository's velocity?", Livi planned and rendered one report (chat_debug.log, request 91e9b112523b0eac, call #2 plan at line 816):
+
+```
+{"analytics_plan": [
+  {"id": "velocity_trend",
+   "question": "Velocity of reviews in the LiveReview repository over the last 6 months",
+   "count_sql": "SELECT count(*) AS n FROM (SELECT date_trunc('month', completed_at) AS month FROM reviews WHERE repository = 'LiveReview' AND status = 'completed' AND org_id = 151 GROUP BY 1) t"}
+]}
+```
+
+`Review Velocity in LiveReview Repository` — 2-layer spec (`bar` mark for monthly review count + a dashed `rule` baseline layer for the period average), data_sql `date_trunc('month', completed_at)` × `count(*)`, 6 rows (line 835/837/838). This measures monthly review _count_, not LOC, and has no rolling-average line (only 6 monthly rows, below the granularity/row-count floor for a rolling window) and no highlighted-interval rectangle marking a specific recent period — none of the three things the query pattern calls for (daily LOC line, rolling average, highlighted interval) are present.
+
+The rendered description is also badly inconsistent with its own `data.values` (line 839): it claims "a total of 152 reviews," but summing the actual 6 monthly values (13+2+9+56+57+48) gives 185, not 152. It claims the peak was "April 2026 with 34 completions," but April's actual value is 2 (the _lowest_ month in the series) and no month reaches 34 at all — the true peak is July at 57. It also cites "22 completions recorded in January 2026," but the data starts in March 2026; there is no January row in the result set at all.
+
+**Expected** (see repo_velocity.html) — a layered daily-LOC line with a 7-day rolling average and a highlighted recent interval:
+
+- SQL: daily LOC for the repository over the last 90 days, zero-filled via `generate_series`, then windowed: `SELECT day, loc, round(avg(loc) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW), 1) AS rolling_avg FROM filled ORDER BY day` (joins `loc_usage_ledger` to `reviews` filtered to `repository = 'LiveReview'`).
+- Chart: 3-layer spec — a semi-transparent `rect` layer (`opacity: 0.12`) marking the last 14 days, a thin raw-`line` layer (daily LOC), and a heavier orange `line` layer (7-day rolling average).
+- Stats: "Highlighted: last 14 days, avg 1329.2 LOC/day vs prior 14 days' 3738.9 LOC/day."
+
+**Root cause** — the wrong decision is made in the planning call (call #2), not in chart rendering. The plan's `count_sql` groups by `date_trunc('month', ...)` and counts reviews, which locks the report into monthly review-count granularity before finalize (call #3) ever runs — at 6 rows, finalize's own rolling-average logic (`analytics_finalize.md`'s chart-shape table: "a value changing over time → line, add a second line layer for a rolling average if the trend is noisy") has no daily data to smooth and no basis to highlight a "last 14 days" interval, since the plan discarded day-level granularity entirely. `internal/mcpagent/prompts/analytics_plan.md` has a rule steering rhythm/habit questions toward day-level grouping ("group count_sql... by day... over a long window (90+ days), not by author_username"), but no equivalent rule for a "what happened to X's velocity" / "what changed" question about a single named entity — faced with "velocity... over the last 6 months," the planner defaulted to the coarser monthly bucket that the phrase "last 6 months" suggested, rather than the daily-granularity, shorter (90-day) window `repo_velocity.html` uses specifically so a rolling average and a recent-interval highlight are both computable.
+
+### One-line summary
+
+"What happened to velocity" needed daily LOC with a rolling average and a highlighted recent interval, but the plan collapsed everything to 6 monthly review-count buckets — and the description's numbers (152 total, April peak of 34) don't match the actual 6 rows at all.

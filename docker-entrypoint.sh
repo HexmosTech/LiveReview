@@ -3,6 +3,10 @@ set -e
 
 echo "🚀 Starting LiveReview application..."
 
+# Ensure blob storage directory exists (runs as root)
+mkdir -p /app/lrdata/blobs
+chown -R livereview:livereview /app/lrdata/blobs
+
 # Function to wait for PostgreSQL to be ready
 wait_for_postgres() {
     echo "⏳ Waiting for PostgreSQL to be ready..."

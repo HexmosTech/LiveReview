@@ -1,4 +1,45 @@
-import * as echarts from 'echarts';
+// Modular echarts import: only the chart types/components the app actually renders are
+// registered below, instead of the default `import * as echarts from 'echarts'` (which pulls in
+// the entire package - every chart type, every component, ~1MB+ even after minification,
+// regardless of what's used). This file is imported by every echarts-consuming widget/chart, so
+// it's the single shared registration point - widgets themselves import `echarts-for-react/lib/core`
+// (not the default `echarts-for-react` export, which internally re-pulls the full package) and pass
+// `LR_ECHARTS_CORE` (exported below) as their `echarts` prop.
+// See docs/perf-improvement.md for the investigation behind this.
+import * as echarts from 'echarts/core';
+import {
+    HeatmapChart,
+    GaugeChart,
+    RadarChart,
+    SunburstChart,
+    TreemapChart,
+    SankeyChart,
+    BarChart,
+    PieChart,
+    LineChart,
+} from 'echarts/charts';
+import {
+    TooltipComponent,
+    GridComponent,
+    CalendarComponent,
+    VisualMapComponent,
+    LegendComponent,
+    TitleComponent,
+    DataZoomComponent,
+    DataZoomSliderComponent,
+} from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
+
+echarts.use([
+    HeatmapChart, GaugeChart, RadarChart, SunburstChart, TreemapChart, SankeyChart, BarChart, PieChart, LineChart,
+    TooltipComponent, GridComponent, CalendarComponent, VisualMapComponent, LegendComponent, TitleComponent,
+    DataZoomComponent, DataZoomSliderComponent,
+    CanvasRenderer,
+]);
+
+// Pass this to every `ReactEChartsCore`'s `echarts` prop - the modular core doesn't auto-register
+// itself the way the default echarts-for-react import does.
+export const LR_ECHARTS_CORE = echarts;
 
 // Registered once at module load. Matches the app's existing dark slate/blue/purple/green
 // palette (see tailwind.config.js `livereview` colors + UIPrimitives Badge variants) so

@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
-import ReactECharts from 'echarts-for-react';
+import ReactECharts from 'echarts-for-react/lib/core';
 import { useNavigate } from 'react-router-dom';
-import { LIVEREVIEW_ECHARTS_THEME, ECHARTS_ANIMATION_DEFAULTS } from './echartsTheme';
+import { LIVEREVIEW_ECHARTS_THEME, ECHARTS_ANIMATION_DEFAULTS, LR_ECHARTS_CORE } from './echartsTheme';
 import { useChartResize } from './useChartResize';
 import { ISSUE_CATEGORIES, CATEGORY_COLORS } from './mockData';
 import { useDashboardPeriod } from './DashboardPeriod';
@@ -40,7 +40,12 @@ export const ReviewPipelineSankey: React.FC = () => {
             .map((c) => ({ source: layer.label, target: c.category, value: c.count }))
     ), [activeLayers]);
 
-    const option = {
+    // Memoized so echarts only replays its entrance animation when nodes/links actually change,
+    // not on every unrelated re-render (e.g. DashboardGrid's ResizeObserver-driven gridWidth
+    // updates) - an unstable option reference plus `notMerge` below meant the chart was
+    // redrawing (and re-animating) itself a second time shortly after its real first render.
+    // See docs/perf-improvement.md ("chart animation plays twice").
+    const option = useMemo(() => ({
         ...ECHARTS_ANIMATION_DEFAULTS,
         tooltip: {
             trigger: 'item',
@@ -67,7 +72,7 @@ export const ReviewPipelineSankey: React.FC = () => {
             label: { color: '#CBD5E1', fontSize: 12 },
             lineStyle: { color: 'gradient', curveness: 0.5, opacity: 0.4 },
         }],
-    };
+    }), [nodes, links]);
 
     const onEvents = {
         click: (params: { dataType: string; name: string }) => {
@@ -95,6 +100,7 @@ export const ReviewPipelineSankey: React.FC = () => {
         <div ref={containerRef} className="w-full h-full">
             <ReactECharts
                 ref={chartRef}
+                echarts={LR_ECHARTS_CORE}
                 option={option}
                 theme={LIVEREVIEW_ECHARTS_THEME}
                 style={{ height: '100%', width: '100%' }}

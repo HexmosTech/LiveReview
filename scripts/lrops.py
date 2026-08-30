@@ -686,7 +686,8 @@ class LiveReviewOps:
             vendor = True
         else:
             vendor = env_vendor != '0'
-        go_build_tags = []
+        # Always include production tag for Docker builds (excludes dev-only endpoints like /test-chat)
+        go_build_tags = ['production']
         if vendor:
             go_build_tags.append('vendor_prompts')
 
@@ -764,7 +765,8 @@ class LiveReviewOps:
         # Use buildx with the cross-compilation Dockerfile for consistency and UI reuse
         env_vendor = os.environ.get('LIVEREVIEW_VENDOR_PROMPTS')
         vendor = True if env_vendor is None else env_vendor != '0'
-        go_tags = []
+        # Always include production tag for Docker builds (excludes dev-only endpoints like /test-chat)
+        go_tags = ['production']
         if vendor:
             go_tags.append('vendor_prompts')
         # Add GitHub repository association labels
@@ -846,7 +848,8 @@ class LiveReviewOps:
         
         env_vendor = os.environ.get('LIVEREVIEW_VENDOR_PROMPTS')
         vendor = True if env_vendor is None else env_vendor != '0'
-        go_tags = []
+        # Always include production tag for Docker builds (excludes dev-only endpoints like /test-chat)
+        go_tags = ['production']
         if vendor:
             go_tags.append('vendor_prompts')
         cmd = [

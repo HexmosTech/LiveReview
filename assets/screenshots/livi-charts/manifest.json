@@ -1,0 +1,130 @@
+[
+  {
+    "id": 1,
+    "section": "adoption",
+    "persona": "Exec",
+    "question": "Is LiveReview adoption increasing across the org?",
+    "file": "01-adoption-is-livereview-adoption-increasing-across.png",
+    "response": "Adoption is up 23% this month. Here's the daily review count with a 7 day rolling average: steady growth since mid June, from 1 review in May to 15 on Aug 12."
+  },
+  {
+    "id": 2,
+    "section": "adoption",
+    "persona": "Exec",
+    "question": "Which repositories have adopted LiveReview the most?",
+    "file": "02-adoption-which-repositories-have-adopted-liverevi.png",
+    "response": "LiveReview itself leads with 171 reviews, followed by git-lrc at 73. Five smaller repos are active but under 20 reviews each: worth a nudge if you want org-wide coverage."
+  },
+  {
+    "id": 3,
+    "section": "repos",
+    "persona": "Product",
+    "question": "Which repos are gaining or losing engineering velocity?",
+    "file": "03-repos-which-repos-are-gaining-or-losing-engine.png",
+    "response": "LiveReview and git-lrc are both trending up: LiveReview went from 45k LOC reviewed last week to 73k this week (+62%). ExpenseSync dropped from 14k to 8k. The scatterplot below plots reviews vs. LOC per repo, with bubble size showing active engineers."
+  },
+  {
+    "id": 4,
+    "section": "repos",
+    "persona": "Product",
+    "question": "How much code are we reviewing in each repository?",
+    "file": "04-repos-how-much-code-are-we-reviewing-in-each-r.png",
+    "response": "LiveReview accounts for 138k of the 200k total LOC reviewed this quarter, more than every other repo combined. git-lrc and ExpenseSync are a distant second and third."
+  },
+  {
+    "id": 5,
+    "section": "engineers",
+    "persona": "Eng Manager",
+    "question": "Who are our top contributors by review volume?",
+    "file": "05-engineers-who-are-our-top-contributors-by-review-v.png",
+    "response": "Alex leads with 62 reviews this quarter, followed by Priya at 54. The top 3 engineers account for over half of all reviews on the team."
+  },
+  {
+    "id": 6,
+    "section": "engineers",
+    "persona": "Eng Manager",
+    "question": "How does each engineer trigger their reviews?",
+    "file": "06-engineers-how-does-each-engineer-trigger-their-rev.png",
+    "response": "Alex and Priya lean heavily on pre-commit reviews, while Sam and Jordan still rely more on PR/MR review. Worth sharing Alex's workflow with the rest of the team."
+  },
+  {
+    "id": 7,
+    "section": "quality",
+    "persona": "Eng Manager",
+    "question": "What are the most concerning issue types this quarter?",
+    "file": "07-quality-what-are-the-most-concerning-issue-types.png",
+    "response": "Security leads with 87 findings, followed by Reliability (64) and Correctness (53). Those three categories make up 60% of all issues, so I'd point next sprint's review time at Security and Reliability."
+  },
+  {
+    "id": 8,
+    "section": "quality",
+    "persona": "Eng Manager",
+    "question": "Are engineers actually incorporating reviews into their daily workflow?",
+    "file": "08-quality-are-engineers-actually-incorporating-rev.png",
+    "response": "Yes. Pre-commit reviews now make up 52% of all reviews, up from 18% six weeks ago, while PR/MR reviews dropped from 55% to 27%. Your team is catching issues earlier, before they ever reach a pull request."
+  },
+  {
+    "id": 9,
+    "section": "cost",
+    "persona": "Exec",
+    "question": "How much does LiveReview cost us per day?",
+    "file": "09-cost-how-much-does-livereview-cost-us-per-day.png",
+    "response": "Daily spend has climbed from about $14 to $24 over the last two weeks, tracking the growth in review volume. Cost per review has stayed flat, so this is growth, not waste."
+  },
+  {
+    "id": 10,
+    "section": "cost",
+    "persona": "Product",
+    "question": "Which AI provider gives us the best value?",
+    "file": "10-cost-which-ai-provider-gives-us-the-best-valu.png",
+    "response": "Anthropic handles 65% of review volume and 66% of spend, roughly proportional. OpenAI and Google make up the rest as fallback providers for redundancy."
+  },
+  {
+    "id": 11,
+    "section": "engagement",
+    "persona": "Eng Manager",
+    "question": "Are people trusting the reviews LiveReview produces?",
+    "file": "11-engagement-are-people-trusting-the-reviews-liverevi.png",
+    "response": "Correctness and Security findings get upvoted far more than downvoted. Style suggestions have the most pushback, 14 downvotes against 28 upvotes, worth tuning if it keeps coming up."
+  },
+  {
+    "id": 12,
+    "section": "engagement",
+    "persona": "Product",
+    "question": "Which engineers get the most value from LiveReview?",
+    "file": "12-engagement-which-engineers-get-the-most-value-from-.png",
+    "response": "Alex has the most LOC reviewed at 42k, with Priya close behind at 38.5k. These are the two engineers whose workflow is worth showcasing to the rest of the org."
+  },
+  {
+    "id": 13,
+    "section": "summary",
+    "persona": "Exec",
+    "question": "How does this week compare to last week?",
+    "file": "13-summary-how-does-this-week-compare-to-last-week.png",
+    "response": "Sam and Jordan both grew their review counts week over week, while Priya dipped from 22 to 19. Net review volume across the team is still up."
+  },
+  {
+    "id": 14,
+    "section": "summary",
+    "persona": "Eng Manager",
+    "question": "What's the overall severity mix across all our findings?",
+    "file": "14-summary-what-s-the-overall-severity-mix-across-a.png",
+    "response": "Medium severity issues dominate at 112, but Critical (18) and High (46) are the ones worth prioritizing since they're the most likely to cause real damage."
+  },
+  {
+    "id": 15,
+    "section": "trace",
+    "persona": "Engineer",
+    "question": "Show me reviews connected to last week's production incident.",
+    "file": "15-trace-show-me-reviews-connected-to-last-week-s.png",
+    "response": "Found 8 reviews touching the affected files in the 2 weeks before the incident. The heatmap below shows review activity by repo and day: notice the gap on Aug 4-5, right before the outage on Aug 6. payment-service had zero reviews that week."
+  },
+  {
+    "id": 16,
+    "section": "trace",
+    "persona": "Engineer",
+    "question": "Which files keep showing up with issues?",
+    "file": "16-trace-which-files-keep-showing-up-with-issues.png",
+    "response": "auth/session.go has been flagged 14 times, more than any other file. It's touched by three different engineers, which is a common source of merge-time regressions."
+  }
+]

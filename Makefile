@@ -1,7 +1,71 @@
-.PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker
-.PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi
+.PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run-debug run-fast logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker prep-dbctx
+.PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi prep-training-data check-training-data
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging
+.PHONY: dev dev-up dev-down dev-restart dev-status dev-attach
+
+# ============================================================================
+# Environment switching
+# ============================================================================
+
+.PHONY: switch-env-prod switch-env-prod-low-pricing switch-env-selfhosted-local switch-env-selfhosted-docker switch-env-cloud-local which-env
+
+define SWITCH_ENV
+	@if [ ! -f ".env.$(1)" ]; then \
+		echo "ERROR: .env.$(1) not found"; \
+		exit 1; \
+	fi
+	@if [ -f .env ]; then cp .env .env.bak && echo "Backed up .env -> .env.bak"; fi
+	@cp .env.$(1) .env
+	@echo "$(1)" > .current-env
+	@echo "Switched to $(1) (.env.$(1) -> .env)"
+endef
+
+switch-env-prod:
+	$(call SWITCH_ENV,prod)
+
+switch-env-prod-low-pricing:
+	$(call SWITCH_ENV,prod-low-pricing)
+
+switch-env-selfhosted-local:
+	$(call SWITCH_ENV,selfhosted.local)
+
+switch-env-selfhosted-docker:
+	$(call SWITCH_ENV,selfhosted)
+
+switch-env-cloud-local:
+	$(call SWITCH_ENV,cloud.local)
+
+which-env:
+	@if [ ! -f .current-env ]; then \
+		echo "No .current-env found. Run 'make switch-env-<name>' first."; \
+	else \
+		echo "Current env: $$(cat .current-env)"; \
+	fi
+
+# ============================================================================
+# Docker management (requires selfhosted.docker env)
+# ============================================================================
+
+define CHECK_DOCKER_ENV
+	@if [ ! -f .current-env ] || [ "$$(cat .current-env)" != "selfhosted.docker" ]; then \
+		echo "ERROR: Current env is not selfhosted.docker. Run: make switch-env-selfhosted-docker"; \
+		exit 1; \
+	fi
+endef
+
+.PHONY: docker-local-start docker-local-rebuild docker-local-stop
+
+docker-local-start:
+	$(CHECK_DOCKER_ENV)
+	docker compose up -d
+
+docker-local-rebuild:
+	$(CHECK_DOCKER_ENV)
+	docker compose up -d --build
+
+docker-local-stop:
+	docker compose down
 
 # Go parameters
 GOENV=env -u GOROOT
@@ -36,6 +100,12 @@ RELEASE_NOTES_TEMPLATE=$(RELEASE_NOTES_DIR)/_template.md
 RELEASE_GH_SCRIPT=scripts/release_gh.py
 OSV_SCANNER_CONFIG=osv-scanner.toml
 
+# Content hash of ui/docs/training_data/ as of the last `make prep-training-data`
+# run. Kept up to date automatically by that target (scripts/prep_training_data.sh
+# rewrites this line). `make check-training-data` compares it against the
+# corpus's current hash and re-runs prep-training-data when they diverge.
+TRAINING_DATAgs_HASH=0d62f21d8a1b7bdb5951511afde5e85cc8b5dd8854a354f42d1f54074e66a8c9
+
 # Load environment variables from .env file
 -include .env
 export
@@ -66,6 +136,10 @@ vendor-prompts-build:
 
 # Convenience: regenerate assets and build vendor binary in one step
 vendor-prompts-rebuild: vendor-prompts-encrypt vendor-prompts-build
+
+# Email template preview
+email-preview:
+	$(GOCMD) run cmd/email-preview/main.go
 
 # Version management targets
 version:
@@ -157,7 +231,7 @@ docker-interactive-dry:
 # Legacy build-push for backward compatibility (now uses versioning)
 build-push: docker-build-push
 
-run:
+run-debug: check-training-data
 	pkill -9 livereview || true
 	@DLV_BIN_DIR=$$($(GOCMD) env GOBIN); \
 	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; \
@@ -173,15 +247,25 @@ run:
 	DLV_BIN_DIR=$$($(GOCMD) env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
 
 
+# Fast dev-run: full compiler optimizations, no Delve. Use this instead of
+# `run-debug` when you don't need to attach a debugger - dbctx's
+# embedding/scoring code in particular is much slower under run-debug's
+# `-gcflags='all=-N -l'`, which disables optimization/inlining across the
+# whole binary, not just the code being debugged.
+run-fast: check-training-data
+	pkill -9 livereview-fast || true
+	which air || $(GOCMD) install github.com/air-verse/air@latest
+	air -c .air.fast.toml
+
 # Disable Typed OpenAPI schema generation for CI
 run-skip-typed:
-	SKIP_TYPED_GEN=1 $(MAKE) run
+	SKIP_TYPED_GEN=1 $(MAKE) run-debug
 
 logrun:
 	which air || $(GOCMD) install github.com/air-verse/air@latest
 	bash -c 'set -o pipefail; air 2>&1 | tee "logrun-$$(date +%Y%m%d-%H%M%S).log"'
 
-develop:
+develop: check-training-data
 	@DLV_BIN_DIR=$$($(GOCMD) env GOBIN); \
 	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; \
 	command -v dlv >/dev/null 2>&1 || { \
@@ -195,7 +279,7 @@ develop:
 	which air || $(GOCMD) install github.com/air-verse/air@latest
 	DLV_BIN_DIR=$$($(GOCMD) env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
 
-develop-reflex:
+develop-reflex: check-training-data
 	which reflex || $(GOCMD) install github.com/cespare/reflex@latest
 	reflex -r '\.go$$' -s -- sh -c '$(GOENV) go build -o $(BINARY_NAME) && ./$(BINARY_NAME) api'
 
@@ -228,8 +312,8 @@ TEST_PACKAGES := $(shell find . \
 	-type f -name '*.go' -print 2>/dev/null | \
 	xargs -n1 dirname | sort -u | tr '\n' ' ')
 
-# Exclude ./scripts because it contains multiple standalone main programs.
-SECURITY_GOVULN_PACKAGES := $(filter-out ./scripts,$(TEST_PACKAGES))
+# Exclude ./scripts and ./cmd/onboarding-pdf because they contain standalone/ignored build constraint main programs.
+SECURITY_GOVULN_PACKAGES := $(filter-out ./scripts ./cmd/onboarding-pdf,$(TEST_PACKAGES))
 
 .PHONY: testall
 testall:
@@ -419,7 +503,9 @@ install-vl-convert:
 	echo "Downloading $$asset..."; \
 	curl -sL --fail "$$url" -o /tmp/vl-convert.zip && \
 	unzip -o /tmp/vl-convert.zip -d /tmp/vl-convert-extracted && \
+	sudo mkdir -p /usr/local/lib/vl-convert && \
 	sudo cp /tmp/vl-convert-extracted/bin/vl-convert /usr/local/bin/ && \
+	sudo cp /tmp/vl-convert-extracted/bin/LICENSE /tmp/vl-convert-extracted/bin/thirdparty_* /usr/local/lib/vl-convert/ 2>/dev/null; \
 	rm -rf /tmp/vl-convert.zip /tmp/vl-convert-extracted && \
 	echo "Installed: $$(/usr/local/bin/vl-convert --version 2>&1 || true)"
 
@@ -458,6 +544,40 @@ db-flip:
 	@echo "New DATABASE_URL in .env:"
 	@grep "DATABASE_URL=" .env
 
+# Build dbctx index from local .env DATABASE_URL and import terminology
+prep-dbctx: export PATH := $(HOME)/go/bin:$(PATH)
+prep-dbctx:
+	@if [ -z "$(DATABASE_URL)" ]; then \
+		echo "❌ ERROR: DATABASE_URL not set. Check your .env file."; \
+		exit 1; \
+	fi
+	-rm -f $(HOME)/livereview.dtx $(HOME)/livereview.dtx-wal $(HOME)/livereview.dtx-shm $(HOME)/livereview.dtx-journal
+	@DBURL=$$(echo '$(DATABASE_URL)' | sed 's/?sslmode=.*//'); \
+	echo "🔨 Building dbctx index from $$(echo "$$DBURL" | sed -E 's#(://[^:]+:)[^@]+(@)#\1***\2#')..."; \
+	dbctx build "$$DBURL" --output $(HOME)/livereview.dtx
+	@echo "📦 Importing terminology..."
+	dbctx terminology import $(HOME)/livereview.dtx ./internal/mcpagent/terminology.json
+	@echo "✅ dbctx index ready at $(HOME)/livereview.dtx"
+
+# Pull Markdown docs from git-lrc, git-lrc wiki, LiveReview, and LiveReview
+# wiki into ui/docs/training_data/ (RAG corpus for the chatbot). Leaves
+# ui/docs/training_data/lr_routes/ (hand-written route docs) untouched.
+prep-training-data:
+	@bash scripts/prep_training_data.sh
+
+# Re-fetches ui/docs/training_data/ whenever its content has drifted from
+# TRAINING_DATA_HASH above (corpus missing, never fetched, or stale). Cheap
+# no-op when nothing changed. Wired as a prerequisite of the dev-server
+# targets below so the RAG corpus is never silently out of date.
+check-training-data:
+	@current="$$(bash scripts/training_data_hash.sh)"; \
+	if [ "$$current" != "$(TRAINING_DATA_HASH)" ]; then \
+		echo "[check-training-data] out of date (recorded: $(TRAINING_DATA_HASH), actual: $$current) - running prep-training-data..."; \
+		$(MAKE) prep-training-data; \
+	else \
+		echo "[check-training-data] up to date ($$current)"; \
+	fi
+
 # Generate a token-compact schema dump of the prod DB (public schema) for LLM context.
 .PHONY: compressed-schema
 compressed-schema:
@@ -486,9 +606,9 @@ prod-data-export:
 	OUT="db/prod-exports/prod-$$(date +%Y%m%d-%H%M%S).dump" && \
 	echo "Exporting prod data (read-only pg_dump) to $$OUT ..." && \
 	pg_dump "$$DATABASE_URL" --format=custom --no-owner --no-privileges --verbose \
-	  --exclude-table=review_events \
-	  --exclude-table=upgrade_request_events \
-	  --exclude-table=river_job \
+	  --exclude-table-data=review_events \
+	  --exclude-table-data=upgrade_request_events \
+	  --exclude-table-data=river_job \
 	  --file="$$OUT" && \
 	echo "✅ Wrote $$OUT" && \
 	echo "Now run: make prod-data-import"
@@ -517,6 +637,36 @@ prod-data-import:
 prod-data-sync:
 	@$(MAKE) prod-data-export
 	@$(MAKE) prod-data-import
+
+# ============================================================================
+# Enterprise-Selfhosted: local rapid dev (no Docker rebuild needed)
+# ============================================================================
+
+# Restore prod dump into the enterprise-selfhosted database (.env.selfhosted.local)
+.PHONY: prod-data-import-enterprise-selfhosted
+prod-data-import-enterprise-selfhosted:
+	@if [ ! -f .env.selfhosted.local ]; then \
+		echo "❌ ERROR: .env.selfhosted.local not found"; \
+		exit 1; \
+	fi
+	@command -v pg_restore >/dev/null 2>&1 || { echo "❌ ERROR: pg_restore not found - install postgresql-client"; exit 1; }
+	@bash scripts/prod-data-import-enterprise-selfhosted.sh
+
+# Apply selfhosted transformations (plan, billing, dev user) to enterprise-selfhosted DB
+.PHONY: prod-data-transform-selfhosted
+prod-data-transform-selfhosted:
+	@if [ ! -f .env.selfhosted.local ]; then \
+		echo "❌ ERROR: .env.selfhosted.local not found"; \
+		exit 1; \
+	fi
+	@bash scripts/prod-data-transform-selfhosted.sh
+
+# Full sync: export from prod → import into enterprise-selfhosted → apply transformations
+.PHONY: prod-data-sync-enterprise-selfhosted
+prod-data-sync-enterprise-selfhosted:
+	@$(MAKE) prod-data-export
+	@$(MAKE) prod-data-import-enterprise-selfhosted
+	@$(MAKE) prod-data-transform-selfhosted
 
 # Multi-architecture Docker build targets
 docker-multiarch:
@@ -828,11 +978,12 @@ raw-deploy-staging: build-staging-with-ui
 	@echo "🔄 Running database migrations from local machine..."
 	set -a && . ./$(DEPLOY_STAGING_ENV_FILE) && set +a && dbmate --url "$$DATABASE_URL" up && river migrate-up --database-url "$$DATABASE_URL"
 	ssh $(DEPLOY_STAGING_HOST) "mkdir -p $(DEPLOY_STAGING_PATH) && cd $(DEPLOY_STAGING_PATH) && mv ./livereview ./livereview.bak || true"
-	rsync -avz ./livereview ecosystem.staging.config.js $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/
+	rsync -avz ./livereview deps.sh install-vl-convert.sh ecosystem.staging.config.js $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/
 	rsync -avz ./$(DEPLOY_STAGING_ENV_FILE) $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/.env
 	ssh $(DEPLOY_STAGING_HOST) "mkdir -p $(DEPLOY_STAGING_PATH)/config $(DEPLOY_STAGING_PATH)/internal/mockllm"
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./internal/mockllm/mockllm.toml $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/internal/mockllm/mockllm.toml
+	ssh $(DEPLOY_STAGING_HOST) "cd $(DEPLOY_STAGING_PATH) && chmod a+x install-vl-convert.sh && ./install-vl-convert.sh"
 	ssh $(DEPLOY_STAGING_HOST) "bash -ic 'cd $(DEPLOY_STAGING_PATH) && pm2 reload ecosystem.staging.config.js --update-env || pm2 start ecosystem.staging.config.js'"
 	@echo "✅ Staging deployment complete!"
 
@@ -1146,3 +1297,27 @@ razorpay-verify-plans:
 
 razorpay-verify-plans-low-pricing:
 	@bash ./scripts/verify-razorpay-plans.sh $(DEPLOY_LOW_PRICING_ENV_FILE)
+
+# ============================================================================
+# Tmux dev environment (port of VS Code "start all")
+# ============================================================================
+
+dev dev-up:
+	@./dev up
+
+dev-down:
+	@./dev down
+
+# Usage: make dev-restart SVC=api   (or ui, worker, niceurl)
+dev-restart:
+	@if [ -z "$(SVC)" ]; then \
+		echo "Usage: make dev-restart SVC=<api|ui|worker|niceurl>"; \
+		exit 1; \
+	fi
+	@./dev restart $(SVC)
+
+dev-status:
+	@./dev status
+
+dev-attach:
+	@./dev attach

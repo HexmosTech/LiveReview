@@ -1,11 +1,27 @@
 Hi {{.InvitedToName}},
 
-{{.InvitedByName}} has invited you to join the {{.AppName}} workspace!
+{{.InvitedByName}} has invited you to join the {{.AppName}} workspace.
+Your team has made a commitment to improve engineering standards through LiveReview — and you're invited onto the platform.
 
-Join Workspace:
-{{.URL}}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Step 1: Login to Web
+
+Why? You can trigger reviews, get analysis of various issues in your apps,
+get blast radius analysis, and make your apps higher quality with less effort.
+
+Login to Web: {{.URL}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Step 2: Connect CLI (30 seconds)
+
+Why? Automatically review on every commit — gives you higher quality with
+very little effort.
+
+Get Started with CLI: {{.URL}}/setup
 {{if or .InstallCommandLinux .InstallCommandWindows}}
-Get Started with the CLI:
+Quick Install:
 {{if .InstallCommandLinux}}
 Linux / macOS:
 {{.InstallCommandLinux}}
@@ -15,4 +31,10 @@ Windows PowerShell:
 {{.InstallCommandWindows}}
 {{end}}
 {{end}}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Make sure to try both:
+  1. Trigger a review on the web
+  2. Make a local commit and verify you get git-lrc review
+
 This is an automated invitation email. If you did not expect this, you can safely ignore it.

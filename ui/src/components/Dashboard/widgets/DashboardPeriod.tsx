@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useMemo, useState } from 'react';
 
 export type DashboardPeriod = 'day' | 'week' | 'month' | 'all';
 
@@ -31,12 +31,18 @@ const DashboardPeriodContext = createContext<DashboardPeriodContextValue | null>
 export const DashboardPeriodProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [period, setPeriod] = useState<DashboardPeriod>('month');
 
-    const value: DashboardPeriodContextValue = {
+    // Memoized so this only produces a new object when `period` actually changes - otherwise
+    // every unrelated re-render higher up the tree (e.g. DashboardGrid's ResizeObserver-driven
+    // gridWidth updates) creates a new context value, which re-renders every consumer, including
+    // every echarts widget - each of which then rebuilds its `option` object and re-triggers
+    // echarts' entrance animation even though nothing it actually draws changed. See
+    // docs/perf-improvement.md ("chart animation plays twice").
+    const value: DashboardPeriodContextValue = useMemo(() => ({
         period,
         setPeriod,
         label: PERIOD_LABELS[period],
         scale: (monthlyValue: number) => Math.max(0, Math.round(monthlyValue * PERIOD_MULTIPLIERS[period])),
-    };
+    }), [period]);
 
     return (
         <DashboardPeriodContext.Provider value={value}>

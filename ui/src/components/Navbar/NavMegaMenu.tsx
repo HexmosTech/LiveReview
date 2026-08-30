@@ -5,6 +5,8 @@ import { Icons } from '../UIPrimitives';
 import { flattenMegaMenuSections, MegaMenuGroupNode, MegaMenuLinkNode, MegaMenuNode, MegaMenuSearchEntry, MegaMenuSection } from './megaMenuData';
 import { shortcutKeyLabel } from '../../utils/platform';
 import { isCloudMode } from '../../utils/deploymentMode';
+import { prefetchRoute } from '../../utils/routePrefetch';
+import { triggerNavigationProgress } from '../NavigationProgressBar';
 
 
 // Ranking tiers (lower score wins). Each tier's floor is set well above the previous tier's
@@ -56,6 +58,8 @@ const LinkRow: React.FC<{ node: MegaMenuLinkNode; goTo: (path: string) => void }
         <button
             type="button"
             onClick={() => goTo(node.path)}
+            onMouseEnter={() => prefetchRoute(node.path)}
+            onFocus={() => prefetchRoute(node.path)}
             className="flex w-full items-center gap-2 whitespace-nowrap rounded-lg px-2 py-1.5 text-left text-xs text-slate-300 transition-colors hover:bg-slate-700/60 hover:text-white"
         >
             <span className="shrink-0 text-slate-400">{node.icon}</span>
@@ -212,6 +216,8 @@ const SearchResultRow: React.FC<{ entry: MegaMenuSearchEntry; isFirst: boolean; 
         <button
             type="button"
             onClick={() => goTo(entry.path)}
+            onMouseEnter={() => prefetchRoute(entry.path)}
+            onFocus={() => prefetchRoute(entry.path)}
             className={classNames(
                 'flex w-full items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2 text-left transition-colors hover:bg-slate-700/60',
                 isFirst && 'bg-slate-800/60'
@@ -272,6 +278,7 @@ export const NavMegaMenu: React.FC<NavMegaMenuProps> = ({ isOpen, onClose, secti
     if (!isOpen) return null;
 
     const goTo = (path: string) => {
+        triggerNavigationProgress();
         navigate(path);
         onClose();
     };
