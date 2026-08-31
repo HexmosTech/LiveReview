@@ -472,6 +472,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp.RegisterSchema("GET", "/api/v1/prompts/:key/variables", nil, RenderPromptQuery{})
 	mcp.RegisterSchema("GET", "/api/v1/prompts/:key/render", nil, RenderPromptQuery{})
 	mcp.RegisterSchema("POST", "/api/v1/mcp-agent/chat", nil, MCPAgentChatRequest{})
+	mcp.RegisterSchema("GET", "/api/v1/org/members", nil, nil)
 
 	mcp.RegisterEndpoints([]string{
 		"/api/v1/auth/me",
@@ -502,6 +503,7 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/aiconnectors/reorder",
 		"/api/v1/mcp-api-integration-guide",
 		"/api/v1/mcp-agent/chat",
+		"/api/v1/org/members",
 	})
 
 	mcp.Mount("/api/mcp")
@@ -1500,6 +1502,15 @@ func (s *Server) setupRoutes() {
 	billingGroup.POST("/upgrade", billingActionsHandler.UpgradePlan)
 	billingGroup.POST("/downgrade/schedule", billingActionsHandler.ScheduleDowngrade)
 	billingGroup.POST("/downgrade/cancel", billingActionsHandler.CancelScheduledDowngrade)
+
+	// Org-implicit member roster, scoped via header like billingGroup above
+	// (no org_id path param) - used by the "list/count org members" MCP tool.
+	orgMembersGroup := v1.Group("/org")
+	orgMembersGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	orgMembersGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	orgMembersGroup.Use(authMiddleware.ValidateOrgAccess())
+	orgMembersGroup.Use(authMiddleware.BuildPermissionContext())
+	orgMembersGroup.GET("/members", s.orgHandlers.GetOrgMembers)
 
 	adminBillingGroup := v1.Group("/admin/billing")
 	adminBillingGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))

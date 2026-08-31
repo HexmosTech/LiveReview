@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
@@ -295,6 +296,48 @@ func (h *OrganizationHandlers) GetOrganizationMembers(c echo.Context) error {
 		"page":        page,
 		"limit":       limit,
 		"total_pages": totalPages,
+	})
+}
+
+// orgMemberSummary is a lean, tool-safe view of a member - no billing/API-key
+// fields, unlike models.UserWithRole which GetOrganizationMembers returns.
+type orgMemberSummary struct {
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Role     string `json:"role"`
+	JoinedAt string `json:"joined_at"`
+}
+
+// GetOrgMembers returns the caller's own org's member roster, scoped
+// implicitly via permCtx (no org_id path param) for the MCP action tool.
+func (h *OrganizationHandlers) GetOrgMembers(c echo.Context) error {
+	permCtx := auth.GetPermissionContext(c)
+	if permCtx == nil {
+		return echo.NewHTTPError(http.StatusForbidden, "permission context required")
+	}
+	if !permCtx.HasPermission(auth.PermissionViewUsers) {
+		return echo.NewHTTPError(http.StatusForbidden, "Permission denied: cannot view users")
+	}
+
+	members, totalCount, err := h.service.GetOrganizationMembers(permCtx.OrgID, 200, 0, "", "u.email", "ASC")
+	if err != nil {
+		h.logger.Printf("Error getting org members: %v", err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get members")
+	}
+
+	summaries := make([]orgMemberSummary, 0, len(members))
+	for _, m := range members {
+		summaries = append(summaries, orgMemberSummary{
+			Name:     m.FullName(),
+			Email:    m.Email,
+			Role:     m.Role,
+			JoinedAt: m.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"members": summaries,
+		"total":   totalCount,
 	})
 }
 

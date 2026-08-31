@@ -64,8 +64,8 @@ func TestTrivialDescription(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected trivial single-value wrapped report")
 	}
-	if desc != "D" {
-		t.Errorf("expected description 'D', got %q", desc)
+	if desc != "D\nResult: A: x, B: 5" {
+		t.Errorf("expected description with row summary appended, got %q", desc)
 	}
 	if query != "review completions in June" {
 		t.Errorf("expected query preserved, got %q", query)

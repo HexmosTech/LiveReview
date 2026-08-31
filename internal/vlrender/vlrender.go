@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -145,6 +146,57 @@ func countDataValues(m map[string]any) (total int, known bool) {
 	return total, known
 }
 
+// collectDataValues gathers every row across all `data.values` arrays embedded
+// in a spec, mirroring the traversal countDataValues uses to tally them.
+func collectDataValues(m map[string]any) []any {
+	var out []any
+	for _, key := range []string{"layer", "concat", "hconcat", "vconcat"} {
+		if arr, ok := m[key].([]any); ok {
+			for _, item := range arr {
+				if child, ok := item.(map[string]any); ok {
+					out = append(out, collectDataValues(child)...)
+				}
+			}
+		}
+	}
+	if child, ok := m["spec"].(map[string]any); ok {
+		out = append(out, collectDataValues(child)...)
+	}
+	if data, ok := m["data"].(map[string]any); ok {
+		if values, ok := data["values"].([]any); ok {
+			out = append(out, values...)
+		}
+	}
+	return out
+}
+
+// singleRowSummary formats a trivial spec's lone data row as "Field: value, ..."
+// text. Returns "" if the spec doesn't resolve to exactly one object row.
+func singleRowSummary(spec []byte) string {
+	var m map[string]any
+	if err := json.Unmarshal(spec, &m); err != nil {
+		return ""
+	}
+	rows := collectDataValues(m)
+	if len(rows) != 1 {
+		return ""
+	}
+	row, ok := rows[0].(map[string]any)
+	if !ok {
+		return ""
+	}
+	keys := make([]string, 0, len(row))
+	for k := range row {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, humanizeFieldName(k)+": "+fmt.Sprintf("%v", row[k]))
+	}
+	return strings.Join(parts, ", ")
+}
+
 // TrivialDescription returns the human-readable description, query, time range,
 // and granularity to show in place of a chart when the payload's spec(s) resolve
 // to only a single value/bar, plus true if that is the case. Callers render the
@@ -171,8 +223,12 @@ func TrivialDescription(raw string) (desc string, query string, timeRange string
 			if !SpecIsTrivial(spec) {
 				trivial = false
 			}
-			if strings.TrimSpace(r.Description) != "" {
-				parts = append(parts, r.Description)
+			part := r.Description
+			if row := singleRowSummary(spec); row != "" {
+				part = strings.TrimSpace(part + "\nResult: " + row)
+			}
+			if part != "" {
+				parts = append(parts, part)
 			}
 			if strings.TrimSpace(r.Query) != "" {
 				queries = append(queries, r.Query)
@@ -204,7 +260,11 @@ func TrivialDescription(raw string) (desc string, query string, timeRange string
 		if !SpecIsTrivial(spec) {
 			return "", "", "", "", "", false
 		}
-		return wrapped.Description, wrapped.Query, wrapped.TimeRange, wrapped.Granularity, wrapped.Context.Format(), true
+		desc := wrapped.Description
+		if row := singleRowSummary(spec); row != "" {
+			desc = strings.TrimSpace(desc + "\nResult: " + row)
+		}
+		return desc, wrapped.Query, wrapped.TimeRange, wrapped.Granularity, wrapped.Context.Format(), true
 	}
 
 	var m map[string]any
@@ -226,10 +286,11 @@ func TrivialDescription(raw string) (desc string, query string, timeRange string
 		_ = json.Unmarshal(raw, &chartCtx)
 	}
 	ctx := chartCtx.Format()
-	if d, ok := m["description"].(string); ok {
-		return d, q, tr, g, ctx, true
+	d, _ := m["description"].(string)
+	if row := singleRowSummary(spec); row != "" {
+		d = strings.TrimSpace(d + "\nResult: " + row)
 	}
-	return "", q, tr, g, ctx, true
+	return d, q, tr, g, ctx, true
 }
 
 // CleanupReports removes the temp directories backing the given reports.
