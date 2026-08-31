@@ -741,9 +741,8 @@ check_system_prerequisites() {
     # Check available disk space on target filesystem
     local target_fs
     target_fs="${LIVEREVIEW_INSTALL_DIR:-${DEFAULT_HOME_DIR}/livereview}"
-    mkdir -p "$target_fs" 2>/dev/null || true
     local available_space
-    available_space=$(df -P "$target_fs" 2>/dev/null | awk 'NR==2 {print $4}' || echo "0")
+    available_space=$(df -P "$(dirname "$target_fs")" 2>/dev/null | awk 'NR==2 {print $4}' || echo "0")
     if [[ ${available_space:-0} -lt 2097152 ]]; then  # 2GB in KB
         log_warning "Low disk space for $target_fs. At least 2GB recommended."
     else
@@ -1773,8 +1772,8 @@ create_directory_structure() {
         log_warning "Could not set permissions on $LIVEREVIEW_INSTALL_DIR"
     fi
     
-    # Data directory needs to be writable for Docker containers
-    if ! chmod 755 "$LIVEREVIEW_INSTALL_DIR/lrdata"; then
+    # Data directory needs to be writable by the container user (different UID than host)
+    if ! chmod 777 "$LIVEREVIEW_INSTALL_DIR/lrdata"; then
         log_warning "Could not set permissions on lrdata directory"
     fi
     
