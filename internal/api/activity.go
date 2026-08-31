@@ -351,23 +351,17 @@ func BackfillRecentActivityOrgIDs(db *sql.DB) error {
 			  AND ra.org_id IS DISTINCT FROM r.org_id`,
 		`UPDATE recent_activity ra
 			SET org_id = it.org_id
-			FROM integration_tokens it,
-				LATERAL (
-					SELECT (ra.event_data->>'connector_id')::bigint AS connector_id
-					WHERE (ra.event_data->>'connector_id') ~ '^[0-9]+$'
-				) conn
+			FROM integration_tokens it
 			WHERE ra.activity_type = 'connector_created'
-			  AND conn.connector_id = it.id
+			  AND it.id = CASE WHEN ra.event_data->>'connector_id' ~ '^[0-9]+$'
+			                    THEN (ra.event_data->>'connector_id')::bigint END
 			  AND ra.org_id IS DISTINCT FROM it.org_id`,
 		`UPDATE recent_activity ra
 			SET org_id = it.org_id
-			FROM integration_tokens it,
-				LATERAL (
-					SELECT (ra.event_data->>'connector_id')::bigint AS connector_id
-					WHERE (ra.event_data->>'connector_id') ~ '^[0-9]+$'
-				) conn
+			FROM integration_tokens it
 			WHERE ra.activity_type = 'webhook_installed'
-			  AND conn.connector_id = it.id
+			  AND it.id = CASE WHEN ra.event_data->>'connector_id' ~ '^[0-9]+$'
+			                    THEN (ra.event_data->>'connector_id')::bigint END
 			  AND ra.org_id IS DISTINCT FROM it.org_id`,
 	}
 

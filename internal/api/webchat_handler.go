@@ -260,10 +260,33 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 			cleanText = strings.TrimSpace(cleanText)
 			resp.Response = cleanText
 		} else if errors.Is(err, vlrender.ErrTrivialSpec) {
-			resp.Response = mcpagent.NoDataAnalyticsResponseText
-			if len(resp.SuggestedQuestions) == 0 {
-				resp.SuggestedQuestions = mcpagent.DefaultNoDataSuggestedQuestions
+			// A single value/bar (1 row) is a real answer, not "no data" —
+			// show its description/query as plain text instead of a chart.
+			desc, query, timeRange, granularity, chartContext, ok := vlrender.TrivialDescription(responseText)
+			text := desc
+			if query != "" || timeRange != "" || granularity != "" || chartContext != "" {
+				if text != "" {
+					text += "\n\n"
+				}
+				detail := "Query: " + query
+				if timeRange != "" {
+					detail += "\nTime range: " + timeRange
+				}
+				if granularity != "" {
+					detail += "\nGranularity: " + granularity
+				}
+				if chartContext != "" {
+					detail += "\nContext: " + chartContext
+				}
+				text += detail
 			}
+			if !ok || text == "" {
+				text = mcpagent.NoDataAnalyticsResponseText
+				if len(resp.SuggestedQuestions) == 0 {
+					resp.SuggestedQuestions = mcpagent.DefaultNoDataSuggestedQuestions
+				}
+			}
+			resp.Response = text
 		} else {
 			// Extraction failed: never show the raw JSON.
 			resp.Response = "Having an issue generating the data, please try again."

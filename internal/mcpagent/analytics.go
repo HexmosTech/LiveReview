@@ -1387,7 +1387,7 @@ func hintFor(err error) string {
 	return "The query was rejected. Rewrite it as a simple SELECT over the documented tables."
 }
 
-const NoDataAnalyticsResponseText = "Livi doesn't have enough data to perform this analytics yet. Let me know if you need more details about LiveReview or want help triggering a review."
+const NoDataAnalyticsResponseText = "There is 0 record/data to perform this analytics. Let me know if you need more details about LiveReview or want help triggering a review."
 
 var DefaultNoDataSuggestedQuestions = []SuggestedQuestionCategory{
 	{

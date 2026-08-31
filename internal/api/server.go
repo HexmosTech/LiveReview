@@ -25,6 +25,7 @@ import (
 	"github.com/livereview/internal/api/users"
 	"github.com/livereview/internal/database"
 	"github.com/livereview/internal/discordbot"
+	"github.com/livereview/internal/docindex"
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/license"
@@ -510,6 +511,11 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// chat/bot code, so wiping the log file here at boot is safe - workers
 	// never write to it.
 	logging.InitChatDebugLog() // reads LIVI_DEBUG_LOG at boot
+
+	// Starts building the product-guidance doc index (chromem-go + ONNX embedder)
+	// in the background. Agents fall back to this via docindex.GetGlobalIndex()
+	// when no per-request index was set, so no other wiring is needed.
+	docindex.InitGlobalIndex(context.Background(), docindex.DocsFS)
 
 	// Starts building the dbctx schema index in the background (non-blocking -
 	// see schema_index.go). It replaces the hand-written table listing in the

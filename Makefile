@@ -860,7 +860,7 @@ build-with-ui:
 	fi
 	rm $(BINARY_NAME) || true
 	cd ui/ && npm install && set -a && . ./.env.prod && set +a && LIVEREVIEW_BUILD_MODE=prod NODE_ENV=production npm run build:obfuscated && cd ..
-	$(GOBUILD) -o $(BINARY_NAME) .
+	$(GOBUILD) -tags production -o $(BINARY_NAME) .
 	@echo "✅ Production build complete. Binary ready for raw-deploy."
 
 # Define API source files for spec generation
@@ -1044,7 +1044,7 @@ raw-deploy-low-pricing: build-with-ui
 
 raw-deploy-backend:
 	@echo "🚀 Deploying to production server..."
-	$(GOBUILD) livereview.go
+	$(GOBUILD) -tags production livereview.go
 	@if [ ! -f ./livereview ]; then \
 		echo "❌ ERROR: livereview binary not found! Run 'make build-with-ui' first."; \
 		exit 1; \
@@ -1087,7 +1087,7 @@ raw-deploy-backend:
 
 raw-deploy-backend-low-pricing:
 	@echo "🚀 Deploying backend with LOW pricing profile..."
-	$(GOBUILD) livereview.go
+	$(GOBUILD) -tags production livereview.go
 	@if [ ! -f ./livereview ]; then \
 		echo "❌ ERROR: livereview binary not found! Run 'make build-with-ui' first."; \
 		exit 1; \
