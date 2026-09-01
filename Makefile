@@ -190,14 +190,14 @@ build-versioned:
 # Implementation: scripts/lrops.py:cmd_build() -> build_docker_image() (lines 634-661)
 # Process Flow:
 #   1. Gets current Git version/commit from get_current_version_info() (lines 186-261)
-#   2. Builds React UI: cd ui/ && npm install && npm run build (via Dockerfile.crosscompile stage 1)
+#   2. Builds React UI: cd ui/ && npm install && npm run build (via Dockerfile stage 1)
 #   3. Creates multi-stage Docker build with embedded UI assets
-#   4. Injects version info via build args: VERSION, BUILD_TIME, GIT_COMMIT
-#   5. Uses Dockerfile.crosscompile stages: ui-builder (Node.js) -> builder (Go cross-compile) -> debian:trixie-slim runtime
+#   4. Injects version info via build args: VERSION, BUILD_TIME, GIT_COMMIT (Dockerfile lines 78-85)
+#   5. Uses Dockerfile stages: ui-builder (Node.js) -> go-builder (Go+tools) -> alpine runtime
 #   6. Embeds dbmate, River CLI/UI tools for database/queue management
 #   7. Single-arch build by default (amd64), can be multi-arch with --multiarch
 #   8. Interactive confirmation prompt before build execution
-# Files: scripts/lrops.py (lines 634-826), Dockerfile.crosscompile (multi-stage), ui/package.json
+# Files: scripts/lrops.py (lines 634-826), Dockerfile (multi-stage), ui/package.json
 docker-build:
 	@python scripts/lrops.py build --docker $(ARGS)
 
