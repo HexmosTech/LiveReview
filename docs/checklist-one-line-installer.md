@@ -503,7 +503,7 @@ lrops.sh status --json | jq .                # Should provide machine-readable s
 lrops.sh info --urls-only                    # Should show just access URLs
 
 # Final integration test
-curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash -s -- --express --force
+curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh | bash -s -- --express --force
 # Should work end-to-end from GitHub
 ```
 

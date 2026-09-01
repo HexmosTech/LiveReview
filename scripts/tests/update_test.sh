@@ -44,8 +44,8 @@ need_cmd curl
 need_cmd jq
 
 if [[ ! -f "$LROPS" ]]; then
-	info "lrops.sh not found locally – downloading from main branch"
-	curl -fsSL "https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh" -o lrops.sh || die "Failed to download lrops.sh"
+	info "lrops.sh not found locally – downloading from master branch"
+	curl -fsSL "https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh" -o lrops.sh || die "Failed to download lrops.sh"
 	chmod +x lrops.sh
 fi
 

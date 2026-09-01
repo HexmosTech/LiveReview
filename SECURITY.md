@@ -224,7 +224,7 @@ Security fixes are prioritized on currently supported, actively maintained relea
 
 ## Where To Verify
 
-- Workflow definitions: [LiveReview workflows](https://github.com/HexmosTech/LiveReview/tree/main/.github/workflows)
+- Workflow definitions: [LiveReview workflows](https://github.com/HexmosTech/LiveReview/tree/master/.github/workflows)
 - Storage operations inventory: [storage/storage_status.md](storage/storage_status.md)
 - Network operations inventory: [network/network_status.md](network/network_status.md)
 
