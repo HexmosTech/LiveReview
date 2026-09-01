@@ -146,7 +146,7 @@ class LiveReviewOps:
         
         if build_type == "docker":
             print(f"   1️⃣  UI BUILD PHASE: inside Docker (shared across architectures)")
-            print(f"       🧰 Handled by Dockerfile (ui-builder stage) — no local npm runs")
+            print(f"       🧰 Handled by Dockerfile.crosscompile (ui-builder stage) — no local npm runs")
             
             if multiarch:
                 print(f"   2️⃣  STANDARD BUILDX MULTI-ARCH DOCKER BUILD PHASE:")
@@ -761,7 +761,7 @@ class LiveReviewOps:
     
     def _build_single_arch_image(self, version, docker_version, git_commit, build_time,
                                 version_tag, latest_tag, make_latest, push, no_cache=False):
-        """Build single architecture Docker image via cross-compilation Dockerfile"""
+        """Build single architecture Docker image via Dockerfile.crosscompile"""
         # Use buildx with the cross-compilation Dockerfile for consistency and UI reuse
         env_vendor = os.environ.get('LIVEREVIEW_VENDOR_PROMPTS')
         vendor = True if env_vendor is None else env_vendor != '0'
