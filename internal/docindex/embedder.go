@@ -333,7 +333,9 @@ func extractTarGzMember(archivePath, member, destPath string) error {
 			return err
 		}
 		defer out.Close()
-		if _, err := io.Copy(out, tr); err != nil {
+		// Bound the copy by the size the archive declares for this member, so a
+		// crafted archive can't stream unbounded data onto disk.
+		if _, err := io.CopyN(out, tr, hdr.Size); err != nil && err != io.EOF {
 			return err
 		}
 		return nil
@@ -362,7 +364,9 @@ func extractZipMember(archivePath, member, destPath string) error {
 			return err
 		}
 		defer out.Close()
-		if _, err := io.Copy(out, rc); err != nil {
+		// Bound the copy by the size the archive declares for this member, so a
+		// crafted archive can't stream unbounded data onto disk.
+		if _, err := io.CopyN(out, rc, int64(f.UncompressedSize64)); err != nil && err != io.EOF {
 			return err
 		}
 		return nil

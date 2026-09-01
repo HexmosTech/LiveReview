@@ -206,6 +206,9 @@ func serveCompressedAsset(w http.ResponseWriter, r *http.Request, urlPath string
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(http.StatusOK)
 	if r.Method != http.MethodHead {
+		// Safe: data is a compile-time embedded asset (embed.FS), never request
+		// data, and is served with its own explicit Content-Type.
+		// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter
 		_, _ = w.Write(data)
 	}
 	return true
