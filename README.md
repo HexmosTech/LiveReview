@@ -97,7 +97,7 @@ Get LiveReview running in under 5 minutes. Self-hosting starts free, with the sa
 
 ```bash
 # Quick demo setup (localhost only, no webhooks)
-curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | sudo bash -s -- setup-demo
+curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh | sudo bash -s -- setup-demo
 ```
 
 **Requirements:**
