@@ -219,9 +219,9 @@ func (s *Server) ListRepositories(c echo.Context) error {
 		selectColumns = repositoryColumnsQualified
 	}
 
-	// nosemgrep: go.lang.security.audit.database.string-formatted-query
 	// Safe: selectColumns and fromClause are compile-time constants (lines 190-202),
 	// never derived from user input. All user-supplied values use $N placeholders.
+	// nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query
 	query := `SELECT ` + selectColumns + `,
 		(SELECT count(*) FROM pull_requests pr WHERE pr.repository_id = repositories.id AND pr.state = 'open') AS open_pr_count,
 		(SELECT max(pr.provider_updated_at) FROM pull_requests pr WHERE pr.repository_id = repositories.id) AS last_pr_activity_at
