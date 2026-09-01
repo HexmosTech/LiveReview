@@ -197,6 +197,34 @@ func singleRowSummary(spec []byte) string {
 	return strings.Join(parts, ", ")
 }
 
+// formatTrivialReportBlock renders one trivial report as a self-contained,
+// titled text block - used when multiple trivial reports share one turn, so
+// each report's query/time range/granularity/context stays with its own
+// description instead of being merged with every other report's.
+func formatTrivialReportBlock(r VegaLiteReport, spec []byte) string {
+	var b strings.Builder
+	b.WriteString(FriendlyTitle(r.Title, r.Subtitle))
+	if desc := strings.TrimSpace(r.Description); desc != "" {
+		b.WriteString("\n" + desc)
+	}
+	if row := singleRowSummary(spec); row != "" {
+		b.WriteString("\nResult: " + row)
+	}
+	if q := strings.TrimSpace(r.Query); q != "" {
+		b.WriteString("\nQuery: " + q)
+	}
+	if tr := strings.TrimSpace(r.TimeRange); tr != "" {
+		b.WriteString("\nTime range: " + tr)
+	}
+	if g := strings.TrimSpace(r.Granularity); g != "" {
+		b.WriteString("\nGranularity: " + g)
+	}
+	if ctx := r.Context.Format(); ctx != "" {
+		b.WriteString("\nContext: " + ctx)
+	}
+	return b.String()
+}
+
 // TrivialDescription returns the human-readable description, query, time range,
 // and granularity to show in place of a chart when the payload's spec(s) resolve
 // to only a single value/bar, plus true if that is the case. Callers render the
@@ -209,46 +237,36 @@ func TrivialDescription(raw string) (desc string, query string, timeRange string
 	}
 	if err := json.Unmarshal([]byte(body), &multi); err == nil && len(multi.Reports) > 0 {
 		trivial := true
-		var parts []string
-		var queries []string
-		var timeRanges []string
-		var granularities []string
-		var contexts []string
 		for _, r := range multi.Reports {
 			spec, err := NormalizeVegaLiteSpec(r.Spec)
-			if err != nil {
+			if err != nil || !SpecIsTrivial(spec) {
 				trivial = false
-				continue
-			}
-			if !SpecIsTrivial(spec) {
-				trivial = false
-			}
-			part := r.Description
-			if row := singleRowSummary(spec); row != "" {
-				part = strings.TrimSpace(part + "\nResult: " + row)
-			}
-			if part != "" {
-				parts = append(parts, part)
-			}
-			if strings.TrimSpace(r.Query) != "" {
-				queries = append(queries, r.Query)
-			}
-			if strings.TrimSpace(r.TimeRange) != "" {
-				timeRanges = append(timeRanges, r.TimeRange)
-			}
-			if strings.TrimSpace(r.Granularity) != "" {
-				granularities = append(granularities, r.Granularity)
-			}
-			if formatted := r.Context.Format(); formatted != "" {
-				contexts = append(contexts, formatted)
+				break
 			}
 		}
 		if !trivial {
 			return "", "", "", "", "", false
 		}
-		return strings.Join(parts, "\n\n"), strings.Join(queries, "\n\n"),
-			strings.Join(timeRanges, "\n\n"), strings.Join(granularities, "\n\n"),
-			strings.Join(contexts, "\n\n"), true
+		// A lone report keeps its query/time range/granularity/context as
+		// separate return values, as callers already format them. Two or
+		// more reports get folded field-by-field otherwise - "Query: a, b"
+		// mixing two unrelated reports' queries under one label - so each
+		// report is rendered as its own self-contained, titled block instead.
+		if len(multi.Reports) == 1 {
+			r := multi.Reports[0]
+			spec, _ := NormalizeVegaLiteSpec(r.Spec)
+			desc := r.Description
+			if row := singleRowSummary(spec); row != "" {
+				desc = strings.TrimSpace(desc + "\nResult: " + row)
+			}
+			return desc, r.Query, r.TimeRange, r.Granularity, r.Context.Format(), true
+		}
+		var blocks []string
+		for _, r := range multi.Reports {
+			spec, _ := NormalizeVegaLiteSpec(r.Spec)
+			blocks = append(blocks, formatTrivialReportBlock(r, spec))
+		}
+		return strings.Join(blocks, "\n\n---\n\n"), "", "", "", "", true
 	}
 
 	var wrapped VegaLiteReport

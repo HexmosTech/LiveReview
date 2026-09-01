@@ -335,9 +335,14 @@ func (h *OrganizationHandlers) GetOrgMembers(c echo.Context) error {
 		})
 	}
 
+	orgName := ""
+	if permCtx.CurrentOrg != nil {
+		orgName = permCtx.CurrentOrg.Name
+	}
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"members": summaries,
-		"total":   totalCount,
+		"organization": orgName,
+		"members":      summaries,
+		"total":        totalCount,
 	})
 }
 

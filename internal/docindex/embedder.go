@@ -562,6 +562,12 @@ var envOnce struct {
 
 func ensureEnvironment(libPath string) error {
 	envOnce.Do(func() {
+		// onnxruntime_go's environment is a process-wide singleton (dbctx, run
+		// concurrently at startup, may have already initialized it) - reuse it
+		// instead of erroring, since InitializeEnvironment refuses a second call.
+		if ort.IsInitialized() {
+			return
+		}
 		ort.SetSharedLibraryPath(libPath)
 		envOnce.err = ort.InitializeEnvironment()
 	})
