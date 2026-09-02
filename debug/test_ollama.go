@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -124,3 +126,4 @@ func testChat(ctx context.Context, llm llms.Model) {
 	fmt.Printf("Total chunks received: %d\n", chunkCount)
 	fmt.Printf("Full response: %s\n", fullResponse)
 }
+

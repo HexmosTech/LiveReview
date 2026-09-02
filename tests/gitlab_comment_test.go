@@ -1,4 +1,4 @@
-package livereview
+package livereview_test
 
 import (
 	"context"
