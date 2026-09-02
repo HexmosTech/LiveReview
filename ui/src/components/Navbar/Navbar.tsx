@@ -492,10 +492,17 @@ const BillingChip: React.FC = () => {
                             </div>
                         </div>
                     )}
-                    <div className="mt-2 rounded bg-blue-950/40 border border-blue-700/50 p-2 text-[11px]">
-                        <p className="text-blue-200 font-medium">Usage resets on {formatResetAt(chip.resetAt)}</p>
-                        <p className="text-blue-300/80 mt-0.5">Local timezone. New cycle usage starts immediately after this time.</p>
-                    </div>
+                    {chip.resetAt ? (
+                        <div className="mt-2 rounded bg-blue-950/40 border border-blue-700/50 p-2 text-[11px]">
+                            <p className="text-blue-200 font-medium">Usage resets on {formatResetAt(chip.resetAt)}</p>
+                            <p className="text-blue-300/80 mt-0.5">Local timezone. New cycle usage starts immediately after this time.</p>
+                        </div>
+                    ) : (
+                        <div className="mt-2 rounded bg-blue-950/40 border border-blue-700/50 p-2 text-[11px]">
+                            <p className="text-blue-200 font-medium">LOC Limit: {chip.locUsed.toLocaleString()} / {chip.locLimit > 0 ? chip.locLimit.toLocaleString() : 'Unlimited'} used</p>
+                            <p className="text-blue-300/80 mt-0.5">No billing period. One-time usage limit.</p>
+                        </div>
+                    )}
                     <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
                         <div className="rounded bg-slate-800/70 border border-slate-700 p-2">
                             <p className="text-slate-400">Plan</p>

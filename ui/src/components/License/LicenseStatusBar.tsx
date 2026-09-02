@@ -168,8 +168,8 @@ const LicenseStatusBar: React.FC<LicenseStatusBarProps> = ({ onOpenModal }) => {
                   {license.refreshing ? 'Refreshing…' : 'Refresh'}
                 </button>
               )}
-              {/* Upsell: Show "View Plans" for Community Edition / missing license */}
-              {style.upsellText && (
+              {/* Upsell: Show "Renew now" for expired licenses only */}
+              {style.upsellText && license.status !== 'missing' && (
                 <button
                   onClick={() => setShowUpgradeDialog(true)}
                   className="px-2 py-0.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-xs font-medium rounded transition-all"
@@ -229,7 +229,7 @@ const LicenseStatusBar: React.FC<LicenseStatusBarProps> = ({ onOpenModal }) => {
                   <p className="mb-2">Webhooks are disabled. Only manual review triggers are available. This mode is for local testing and demonstration purposes only.</p>
                   <div className="flex items-center gap-2 mt-3">
                     <a
-                      href="/docs/deployment"
+                      href="https://hexmos.com/livereview/docs/livereview/self-hosted/productionize-livereview/"
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex items-center gap-2 text-amber-200 hover:text-amber-100 underline"

@@ -108,7 +108,8 @@ const GitProvidersList: React.FC = () => {
                         url: apiConnector.provider_url || (apiConnector.metadata && apiConnector.metadata.provider_url) || '',
                         apiKey: apiConnector.provider_app_id || '',
                         createdAt: apiConnector.created_at,
-                        metadata: apiConnector.metadata || {} // Store the complete metadata
+                        metadata: apiConnector.metadata || {}, // Store the complete metadata
+                        token_suffix: apiConnector.token_suffix || '',
                     };
                 });
                 dispatch(setConnectors(connectorsFromApi));

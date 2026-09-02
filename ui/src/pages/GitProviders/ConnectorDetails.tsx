@@ -246,7 +246,7 @@ const ConnectorDetails: React.FC = () => {
 
     // Inline test result state
     const [testResult, setTestResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-    
+
     // Repository filtering and grouping state
     const [searchTerm, setSearchTerm] = useState('');
     const [viewMode, setViewMode] = useState<'tree' | 'list'>('tree'); // Default to tree view
@@ -430,7 +430,8 @@ const ConnectorDetails: React.FC = () => {
                             url: connectorResponse.provider_url || '',
                             apiKey: connectorResponse.provider_app_id || '',
                             createdAt: connectorResponse.created_at,
-                            metadata: connectorResponse.metadata || {}
+                            metadata: connectorResponse.metadata || {},
+                            token_suffix: connectorResponse.token_suffix || ''
                         };
                     } catch (apiError) {
                         console.error('Error fetching specific connector:', apiError);
@@ -775,8 +776,8 @@ const ConnectorDetails: React.FC = () => {
                                         API Key (Last 4 chars)
                                     </label>
                                     <span className="text-slate-200 font-mono text-sm">
-                                        {connector.apiKey ? 
-                                            '****' + connector.apiKey.slice(-4) : 
+                                        {connector.token_suffix ? 
+                                            '****' + connector.token_suffix : 
                                             'Not available'
                                         }
                                     </span>
@@ -1340,6 +1341,8 @@ const ConnectorDetails: React.FC = () => {
                                                     ...connector,
                                                     name: updated.connection_name || connector.name,
                                                     url: updated.provider_url || connector.url,
+                                                    apiKey: updated.provider_app_id || '',
+                                                    token_suffix: updated.token_suffix || '',
                                                 });
                                                 setEditSaved(true);
                                                 setTimeout(() => {

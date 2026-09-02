@@ -219,7 +219,7 @@ func (s *Server) preflightLOCQuota(c echo.Context) (blocked bool, err error) {
 		return false, nil
 	}
 	applyPreflightToEnvelopeContext(c, preflightResult)
-	if !preflightResult.Blocked || !apimiddleware.IsCloudMode() {
+	if !preflightResult.Blocked || (!apimiddleware.IsCloudMode() && planCode == license.PlanEnterpriseSelfhosted) {
 		return false, nil
 	}
 
