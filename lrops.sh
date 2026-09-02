@@ -17,7 +17,7 @@ fi
 # SCRIPT METADATA AND CONSTANTS
 # =============================================================================
 
-SCRIPT_VERSION="1.1.1"
+SCRIPT_VERSION="1.1.2"
 SCRIPT_NAME="lrops.sh"
 # Resolve invoking user and home directory robustly (works with sudo)
 # Priority: SUDO_UID/SUDO_USER -> tilde expansion -> current $HOME
@@ -6076,6 +6076,12 @@ server {
 your-domain.com {
     # Automatic HTTPS with Let's Encrypt
     
+    # NOTE: do NOT add an `encode gzip` directive here. The livereview-ui process
+    # pre-gzips its static assets at startup and sends Content-Encoding: gzip itself
+    # (cmd/ui.go, buildCompressedAssets). Re-compressing already-gzipped responses on
+    # every request was the confirmed cause of multi-second stalls across whole request
+    # bursts. See docs/perf-improvement.md "Finding A" in the LiveReview repo.
+
     # Handle API routes (send to backend)
     handle /api/* {
         reverse_proxy localhost:8888 {
@@ -6083,6 +6089,17 @@ your-domain.com {
             header_up X-Real-IP {remote_host}
             header_up X-Forwarded-For {remote_host}
             header_up X-Forwarded-Proto {scheme}
+
+            # Reuse connections to the single-instance Go backend instead of opening a
+            # new one per request. Caddy keeps connections alive by default; this makes
+            # the pool size explicit and matches the nginx template's `keepalive 32`.
+            transport http {
+                keepalive 2m
+                keepalive_idle_conns 32
+                # Reviews can take a while - do not cut long API calls short.
+                read_timeout 300s
+                write_timeout 300s
+            }
         }
     }
     
@@ -6093,6 +6110,11 @@ your-domain.com {
             header_up X-Real-IP {remote_host}
             header_up X-Forwarded-For {remote_host}
             header_up X-Forwarded-Proto {scheme}
+
+            transport http {
+                keepalive 2m
+                keepalive_idle_conns 32
+            }
         }
     }
     
@@ -6109,7 +6131,8 @@ your-domain.com {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
     }
     
-    # File upload size limit
+    # File upload size limit. Review submissions upload archives - keep this well
+    # above your largest expected payload or uploads fail with 413.
     request_body {
         max_size 100MB
     }
@@ -6151,15 +6174,24 @@ your-domain.com {
     Header always set X-XSS-Protection "1; mode=block"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     
-    # Increase upload size
+    # Increase upload size. Review submissions upload archives - keep this well above
+    # your largest expected payload or uploads fail with 413.
     LimitRequestBody 104857600  # 100MB
     
     # Proxy API requests to backend (port 8888)
     ProxyPreserveHost On
     ProxyRequests Off
     
+    # Reviews can be long-running - do not cut API calls short (default is 60s).
+    ProxyTimeout 300
+
     <Location /api/>
-        ProxyPass http://127.0.0.1:8888/api/
+        # enablereuse=on keeps connections to the single-instance Go backend alive
+        # instead of opening a new one per request, which under bursts (many parallel
+        # requests right after login) stalls every request in the burst.
+        # Equivalent to `keepalive 32` in the nginx template.
+        # See docs/perf-improvement.md in the LiveReview repo.
+        ProxyPass http://127.0.0.1:8888/api/ enablereuse=on timeout=300
         ProxyPassReverse http://127.0.0.1:8888/api/
         
         # Forward headers
@@ -6171,8 +6203,15 @@ your-domain.com {
     
     # Proxy everything else to frontend (port 8081)
     <Location />
-        ProxyPass http://127.0.0.1:8081/
+        ProxyPass http://127.0.0.1:8081/ enablereuse=on
         ProxyPassReverse http://127.0.0.1:8081/
+
+        # Do NOT enable mod_deflate here. The livereview-ui process pre-gzips its
+        # static assets and sends Content-Encoding: gzip itself (cmd/ui.go,
+        # buildCompressedAssets); re-compressing them was the confirmed cause of
+        # multi-second stalls across whole request bursts. mod_deflate skips already
+        # encoded responses, but this makes the intent explicit.
+        SetEnv no-gzip 1
         
         # Forward headers
         ProxySetHeader Host %{HTTP_HOST}
@@ -6214,8 +6253,10 @@ your-domain.com {
 #     ProxyRequests Off
 #     LimitRequestBody 104857600
 #     
+#     ProxyTimeout 300
+#
 #     <Location /api/>
-#         ProxyPass http://127.0.0.1:8888/api/
+#         ProxyPass http://127.0.0.1:8888/api/ enablereuse=on timeout=300
 #         ProxyPassReverse http://127.0.0.1:8888/api/
 #         ProxySetHeader Host %{HTTP_HOST}
 #         ProxySetHeader X-Real-IP %{REMOTE_ADDR}
@@ -6224,8 +6265,9 @@ your-domain.com {
 #     </Location>
 #     
 #     <Location />
-#         ProxyPass http://127.0.0.1:8081/
+#         ProxyPass http://127.0.0.1:8081/ enablereuse=on
 #         ProxyPassReverse http://127.0.0.1:8081/
+#         SetEnv no-gzip 1
 #         ProxySetHeader Host %{HTTP_HOST}
 #         ProxySetHeader X-Real-IP %{REMOTE_ADDR}
 #         ProxySetHeader X-Forwarded-For %{REMOTE_ADDR}
