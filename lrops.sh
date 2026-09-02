@@ -17,7 +17,7 @@ fi
 # SCRIPT METADATA AND CONSTANTS
 # =============================================================================
 
-SCRIPT_VERSION="1.1.0"
+SCRIPT_VERSION="1.1.1"
 SCRIPT_NAME="lrops.sh"
 # Resolve invoking user and home directory robustly (works with sudo)
 # Priority: SUDO_UID/SUDO_USER -> tilde expansion -> current $HOME
@@ -1913,7 +1913,10 @@ generate_docker_compose() {
     
     # Determine version to inject (fallback if empty)
     local effective_version="${LIVEREVIEW_VERSION:-latest}"
-    sed_inplace "s/\\${LIVEREVIEW_VERSION}/$effective_version/g" "$output_file"
+    # Single-quote the pattern: in double quotes bash expands ${LIVEREVIEW_VERSION}
+    # before sed sees it, producing e.g. s/\1.0.0/1.0.0/g - an invalid back reference.
+    # The goal is to match the literal placeholder text in the template.
+    sed_inplace 's/\${LIVEREVIEW_VERSION}/'"$effective_version"'/g' "$output_file"
     # Do not rewrite DB_PASSWORD placeholder; leave ${DB_PASSWORD} intact in compose
     # Ports are parameterized; no hard substitution required beyond defaults
     # Ensure ownership by invoking user
