@@ -1,112 +1,173 @@
 # Copy to /etc/nginx/sites-available/livereview and enable
+#
+# Debian/Ubuntu packaged nginx:
+#   sudo cp nginx.conf.example /etc/nginx/sites-available/livereview
+#   sudo ln -s /etc/nginx/sites-available/livereview /etc/nginx/sites-enabled/
+# Source-built nginx (no sites-available/sites-enabled):
+#   sudo cp nginx.conf.example /etc/nginx/conf.d/livereview.conf
+# Then: sudo nginx -t && sudo systemctl reload nginx
+
+# Upstream keepalive pools: without these, nginx opens a brand-new TCP connection to the
+# single-instance Go backend for every proxied request (its default proxy_pass behavior is
+# HTTP/1.0-style, connection-per-request). Invisible under light/sequential load, but under a
+# burst of many simultaneous requests - e.g. right after login, when the browser fires off many
+# JS chunk downloads plus API calls at once - connection setup churns across the whole burst and
+# every request in it stalls, static files included. `keepalive N` lets nginx reuse a pool of
+# persistent connections to each backend instead of opening a fresh one per request.
+# See docs/perf-improvement.md in the LiveReview repo.
+upstream livereview_api {
+    server 127.0.0.1:8888;
+    keepalive 32;
+}
+
+upstream livereview_ui {
+    server 127.0.0.1:8081;
+    keepalive 32;
+}
+
+# Only send "Connection: upgrade" for requests that actually are WebSocket upgrades.
+# Setting it unconditionally breaks the keepalive pools above (and is protocol-incorrect
+# on ordinary requests), so it must stay empty for everything else.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
 
 server {
     listen 80;
     server_name your-domain.com;  # Replace with your domain
-    
+
     # Security headers
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    
+
     # Increase client max body size for file uploads
     client_max_body_size 100M;
-    
+
     # Prevent proxy temp file issues
     proxy_max_temp_file_size 0;
-    
+
+    # Let's Encrypt HTTP-01 challenge (keep this reachable over plain HTTP for renewals)
+    location /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+    }
+
     # Route API requests to backend (port 8888)
     location ^~ /api/ {
-        proxy_pass http://127.0.0.1:8888;
+        proxy_pass http://livereview_api;
+
+        # Required for the upstream keepalive pool to take effect: it only works over
+        # HTTP/1.1 with the Connection header cleared (nginx defaults to HTTP/1.0 +
+        # Connection: close otherwise, which defeats the upstream{} pool above).
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # WebSocket support if needed
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        
+
         # Timeouts
         proxy_connect_timeout 60s;
         proxy_send_timeout 60s;
         proxy_read_timeout 60s;
     }
-    
+
     # Route everything else to frontend (port 8081)
     location / {
-        proxy_pass http://127.0.0.1:8081;
+        proxy_pass http://livereview_ui;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # WebSocket support for hot reload in development
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
+
+        # The livereview-ui process pre-gzips its static assets at startup and sends
+        # Content-Encoding: gzip itself (cmd/ui.go, buildCompressedAssets). nginx
+        # re-compressing an already-gzipped response on every request was the confirmed
+        # root cause of multi-second stalls across entire request bursts (static files AND
+        # unrelated API calls queuing behind the same CPU-bound compression work). nginx
+        # already skips gzip when Content-Encoding is set; this makes the intent explicit.
+        # See docs/perf-improvement.md "Finding A" in the LiveReview repo.
+        gzip off;
     }
 }
 
+# ---------------------------------------------------------------------------
+# HTTPS: run `sudo lrops.sh setup-ssl <domain>` to obtain a certificate and
+# uncomment the two blocks below automatically, or uncomment them by hand.
+# Note: once the redirect server is enabled, remove the proxy `location` blocks
+# from the plain-HTTP server above (keep its acme-challenge location), otherwise
+# two servers listen on :80 for the same name and nginx keeps only the first.
+# ---------------------------------------------------------------------------
+
 # HTTPS configuration (uncomment after setting up SSL)
 # server {
-#     listen 443 ssl http2;
+#     listen 443 ssl;
+#     http2 on;
 #     server_name your-domain.com;
-#     
-#     # SSL certificate files (adjust paths as needed)
-#     ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+#
+#     ssl_certificate     /etc/letsencrypt/live/your-domain.com/fullchain.pem;
 #     ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
-#     
-#     # SSL configuration
+#
 #     ssl_protocols TLSv1.2 TLSv1.3;
-#     ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
 #     ssl_prefer_server_ciphers off;
 #     ssl_session_cache shared:SSL:10m;
 #     ssl_session_timeout 10m;
-#     
-#     # Security headers
+#
 #     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 #     add_header X-Frame-Options "SAMEORIGIN" always;
 #     add_header X-Content-Type-Options "nosniff" always;
 #     add_header X-XSS-Protection "1; mode=block" always;
 #     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-#     
-#     # Same location blocks as HTTP version
+#
 #     client_max_body_size 100M;
-#     
-#     # Prevent proxy temp file issues
 #     proxy_max_temp_file_size 0;
-#     
+#
 #     location ^~ /api/ {
-#         proxy_pass http://127.0.0.1:8888;
+#         proxy_pass http://livereview_api;
+#         proxy_http_version 1.1;
+#         proxy_set_header Upgrade $http_upgrade;
+#         proxy_set_header Connection $connection_upgrade;
 #         proxy_set_header Host $host;
 #         proxy_set_header X-Real-IP $remote_addr;
 #         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 #         proxy_set_header X-Forwarded-Proto $scheme;
-#         proxy_http_version 1.1;
-#         proxy_set_header Upgrade $http_upgrade;
-#         proxy_set_header Connection "upgrade";
 #         proxy_connect_timeout 60s;
 #         proxy_send_timeout 60s;
 #         proxy_read_timeout 60s;
 #     }
-#     
+#
 #     location / {
-#         proxy_pass http://127.0.0.1:8081;
+#         proxy_pass http://livereview_ui;
+#         proxy_http_version 1.1;
+#         proxy_set_header Upgrade $http_upgrade;
+#         proxy_set_header Connection $connection_upgrade;
 #         proxy_set_header Host $host;
 #         proxy_set_header X-Real-IP $remote_addr;
 #         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 #         proxy_set_header X-Forwarded-Proto $scheme;
-#         proxy_http_version 1.1;
-#         proxy_set_header Upgrade $http_upgrade;
-#         proxy_set_header Connection "upgrade";
+#         gzip off;
 #     }
 # }
+
 # Redirect HTTP to HTTPS (uncomment after setting up SSL)
 # server {
 #     listen 80;
 #     server_name your-domain.com;
-#     return 301 https://$server_name$request_uri;
+#
+#     location /.well-known/acme-challenge/ {
+#         root /var/www/letsencrypt;
+#     }
+#
+#     location / {
+#         return 301 https://$host$request_uri;
+#     }
 # }
