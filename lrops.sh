@@ -17,7 +17,7 @@ fi
 # SCRIPT METADATA AND CONSTANTS
 # =============================================================================
 
-SCRIPT_VERSION="1.1.2"
+SCRIPT_VERSION="1.2.0"
 SCRIPT_NAME="lrops.sh"
 # Resolve invoking user and home directory robustly (works with sudo)
 # Priority: SUDO_UID/SUDO_USER -> tilde expansion -> current $HOME
@@ -6799,83 +6799,123 @@ if ! docker ps | grep -q livereview; then
     exit 1
 fi
 
-# Prepare for certificate generation
-log_info "Preparing for certificate generation..."
-
-# Stop nginx/apache if running on ports 80/443. certbot --standalone binds :80
-# itself, so whatever was there has to come back up afterwards - remember what we
-# stopped, and restart it even if certificate generation fails.
-STOPPED_SERVICES=""
-restart_stopped_services() {
-    for svc in $STOPPED_SERVICES; do
-        log_info "Restarting $svc..."
-        sudo systemctl start "$svc" || log_warning "Could not restart $svc"
-    done
-    STOPPED_SERVICES=""
+# Back up a file before modifying it, so an existing configuration is never lost.
+backup_file() {
+    local f="$1"
+    [[ -f "$f" ]] || return 0
+    local bak="${f}.lrbak.$(date +%Y%m%d-%H%M%S)"
+    sudo cp -a "$f" "$bak"
+    log_info "Backed up $f -> $bak"
 }
-trap restart_stopped_services EXIT
 
-for service in nginx apache2 httpd; do
-    if systemctl is-active --quiet "$service" 2>/dev/null; then
-        log_info "Stopping $service temporarily..."
-        sudo systemctl stop "$service"
-        STOPPED_SERVICES="$STOPPED_SERVICES $service"
-    fi
-done
+# Which reverse proxy should terminate TLS? Ask rather than infer: guessing from
+# which files happen to exist picks the wrong one on hosts that have more than one
+# installed, and then writes config for a proxy that is not actually serving.
+detect_default_proxy() {
+    # Prefer whichever is actually running, then whichever is merely installed.
+    for svc in nginx caddy apache2; do
+        if systemctl is-active --quiet "$svc" 2>/dev/null; then
+            case "$svc" in
+                nginx)   echo 1; return ;;
+                caddy)   echo 2; return ;;
+                apache2) echo 3; return ;;
+            esac
+        fi
+    done
+    command -v nginx     >/dev/null 2>&1 && { echo 1; return; }
+    command -v caddy     >/dev/null 2>&1 && { echo 2; return; }
+    command -v apache2   >/dev/null 2>&1 && { echo 3; return; }
+    echo 0
+}
 
-# Generate certificate using standalone mode
-log_info "Generating SSL certificate..."
-if [[ -n "$EMAIL" ]]; then
-    CERT_CMD="sudo certbot certonly --standalone --non-interactive --agree-tos --email $EMAIL -d $DOMAIN"
-else
-    CERT_CMD="sudo certbot certonly --standalone --agree-tos -d $DOMAIN"
-fi
+PROXY_DEFAULT="$(detect_default_proxy)"
+PROXY_CHOICE="${LIVEREVIEW_PROXY:-}"
 
-if $CERT_CMD; then
-    log_success "✓ SSL certificate generated successfully"
-else
-    log_error "Certificate generation failed"
-    exit 1
-fi
-
-# Set up automatic renewal
-log_info "Setting up automatic renewal..."
-sudo crontab -l 2>/dev/null | grep -v "certbot renew" | sudo crontab - 2>/dev/null || true
-(sudo crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | sudo crontab -
-
-log_success "✓ Automatic renewal configured"
-
-# Update reverse proxy configuration
-log_info "Updating reverse proxy configuration..."
-
-# Check which reverse proxy configuration exists
-# Where an existing LiveReview vhost might live. The ".conf" suffix is preferred:
-# some nginx builds use `include sites-enabled/*.conf` and ignore extensionless files.
-NGINX_VHOST=""
-for candidate in \
-    /etc/nginx/sites-available/livereview.conf \
-    /etc/nginx/sites-available/livereview \
-    /etc/nginx/conf.d/livereview.conf; do
-    [[ -f "$candidate" ]] && { NGINX_VHOST="$candidate"; break; }
-done
-# No vhost yet, but nginx is installed: create one rather than telling the user to
-# go do it by hand - the template and the domain are both already available here.
-if [[ -z "$NGINX_VHOST" ]] && command -v nginx >/dev/null 2>&1; then
-    if [[ -d /etc/nginx/sites-available ]]; then
-        NGINX_VHOST="/etc/nginx/sites-available/livereview.conf"
+if [[ -z "$PROXY_CHOICE" ]]; then
+    if [[ -t 0 ]]; then
+        echo ""
+        log_info "Which reverse proxy should serve $DOMAIN?"
+        echo "  1) nginx"
+        echo "  2) Caddy"
+        echo "  3) Apache"
+        echo "  4) None - just issue the certificate, I will configure it myself"
+        if [[ "$PROXY_DEFAULT" != "0" ]]; then
+            read -r -p "Select [${PROXY_DEFAULT}]: " PROXY_CHOICE
+            PROXY_CHOICE="${PROXY_CHOICE:-$PROXY_DEFAULT}"
+        else
+            read -r -p "Select [4]: " PROXY_CHOICE
+            PROXY_CHOICE="${PROXY_CHOICE:-4}"
+        fi
     else
-        NGINX_VHOST="/etc/nginx/conf.d/livereview.conf"
+        # Non-interactive (piped installer, CI): fall back to detection.
+        PROXY_CHOICE="${PROXY_DEFAULT:-4}"
+        [[ "$PROXY_CHOICE" == "0" ]] && PROXY_CHOICE=4
+        log_info "Non-interactive; using detected proxy choice: $PROXY_CHOICE"
     fi
-    log_info "No LiveReview vhost found - creating $NGINX_VHOST"
 fi
 
-if [[ -n "$NGINX_VHOST" ]]; then
-    log_info "Updating nginx configuration..."
-    # Create SSL-enabled nginx config
-    sudo cp "$LIVEREVIEW_DIR/config/nginx.conf.example" "/tmp/livereview-ssl.conf"
-    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "/tmp/livereview-ssl.conf"
-    
-    # Uncomment HTTPS section
+case "$PROXY_CHOICE" in
+    1) PROXY_KIND="nginx"  ;;
+    2) PROXY_KIND="caddy"  ;;
+    3) PROXY_KIND="apache" ;;
+    *) PROXY_KIND="none"   ;;
+esac
+log_info "Reverse proxy: $PROXY_KIND"
+
+# Caddy obtains and renews certificates itself (automatic HTTPS). Running certbot
+# for it is unnecessary, and certbot --standalone would fail anyway because Caddy
+# holds port 80.
+if [[ "$PROXY_KIND" == "caddy" ]]; then
+    log_info "Caddy manages certificates automatically - skipping certbot"
+else
+    # Prepare for certificate generation
+    log_info "Preparing for certificate generation..."
+
+    # Stop whatever holds :80 so certbot --standalone can bind it, and remember what
+    # we stopped so it comes back up even if issuance fails.
+    STOPPED_SERVICES=""
+    restart_stopped_services() {
+        for svc in $STOPPED_SERVICES; do
+            log_info "Restarting $svc..."
+            sudo systemctl start "$svc" || log_warning "Could not restart $svc"
+        done
+        STOPPED_SERVICES=""
+    }
+    trap restart_stopped_services EXIT
+
+    for service in nginx apache2 httpd caddy; do
+        if systemctl is-active --quiet "$service" 2>/dev/null; then
+            log_info "Stopping $service temporarily..."
+            sudo systemctl stop "$service"
+            STOPPED_SERVICES="$STOPPED_SERVICES $service"
+        fi
+    done
+
+    log_info "Generating SSL certificate..."
+    if [[ -n "$EMAIL" ]]; then
+        CERT_CMD="sudo certbot certonly --standalone --non-interactive --agree-tos --email $EMAIL -d $DOMAIN"
+    else
+        CERT_CMD="sudo certbot certonly --standalone --agree-tos -d $DOMAIN"
+    fi
+
+    if $CERT_CMD; then
+        log_success "✓ SSL certificate generated successfully"
+    else
+        log_error "Certificate generation failed"
+        exit 1
+    fi
+
+    log_info "Setting up automatic renewal..."
+    sudo crontab -l 2>/dev/null | grep -v "certbot renew" | sudo crontab - 2>/dev/null || true
+    (sudo crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | sudo crontab -
+    log_success "✓ Automatic renewal configured"
+fi
+
+# Build the TLS-enabled config from the bundled template.
+render_nginx_conf() {
+    local out="$1"
+    sudo cp "$LIVEREVIEW_DIR/config/nginx.conf.example" "$out"
+    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "$out"
     # Uncomment the commented-out directives, but leave the two human-readable anchor
     # headings commented - uncommenting those emitted them as nginx directives and made
     # the generated config fail to load ("unknown directive \"HTTPS\"").
@@ -6883,21 +6923,46 @@ if [[ -n "$NGINX_VHOST" ]]; then
 /^# Redirect HTTP to HTTPS/b
 s/^# //
 s/^#$//
-}' "/tmp/livereview-ssl.conf"
+}' "$out"
     sudo_sed_inplace '/^# Redirect HTTP to HTTPS/,/^# }/{/^# Redirect HTTP to HTTPS/b
 s/^# //
 s/^#$//
-}' "/tmp/livereview-ssl.conf"
-    
-    # Install the configuration
+}' "$out"
+}
+
+# Update reverse proxy configuration
+log_info "Updating reverse proxy configuration..."
+
+case "$PROXY_KIND" in
+nginx)
+    if ! command -v nginx >/dev/null 2>&1; then
+        log_error "nginx was selected but is not installed"
+        exit 1
+    fi
+    NGINX_VHOST=""
+    for candidate in \
+        /etc/nginx/sites-available/livereview.conf \
+        /etc/nginx/sites-available/livereview \
+        /etc/nginx/conf.d/livereview.conf; do
+        [[ -f "$candidate" ]] && { NGINX_VHOST="$candidate"; break; }
+    done
+    if [[ -z "$NGINX_VHOST" ]]; then
+        if [[ -d /etc/nginx/sites-available ]]; then
+            NGINX_VHOST="/etc/nginx/sites-available/livereview.conf"
+        else
+            NGINX_VHOST="/etc/nginx/conf.d/livereview.conf"
+        fi
+        log_info "No LiveReview vhost found - creating $NGINX_VHOST"
+    fi
+
+    render_nginx_conf "/tmp/livereview-ssl.conf"
+    backup_file "$NGINX_VHOST"
     sudo cp "/tmp/livereview-ssl.conf" "$NGINX_VHOST"
     if [[ "$NGINX_VHOST" == /etc/nginx/sites-available/* ]]; then
         sudo mkdir -p /etc/nginx/sites-enabled
         sudo ln -sf "$NGINX_VHOST" "/etc/nginx/sites-enabled/$(basename "$NGINX_VHOST")"
     fi
-    
-    # Test and reload nginx. It may be stopped at this point (certbot standalone),
-    # in which case `reload` fails - start it instead.
+
     if sudo nginx -t; then
         if systemctl is-active --quiet nginx; then
             sudo systemctl reload nginx
@@ -6907,44 +6972,77 @@ s/^#$//
         STOPPED_SERVICES="${STOPPED_SERVICES// nginx/}"
         log_success "✓ Nginx configuration updated"
     else
-        log_error "Nginx configuration test failed"
+        log_error "Nginx configuration test failed - restoring is possible from the .lrbak file"
     fi
-    
-elif [[ -f "/etc/caddy/Caddyfile" ]]; then
-    log_info "Updating Caddy configuration..."
-    sudo cp "$LIVEREVIEW_DIR/config/caddy.conf.example" "/etc/caddy/Caddyfile"
-    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "/etc/caddy/Caddyfile"
-    sudo systemctl reload caddy
-    log_success "✓ Caddy configuration updated (automatic HTTPS)"
-    
-elif [[ -f "/etc/apache2/sites-available/livereview.conf" ]]; then
-    log_info "Updating Apache configuration..."
-    sudo cp "$LIVEREVIEW_DIR/config/apache.conf.example" "/tmp/livereview-ssl.conf"
-    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "/tmp/livereview-ssl.conf"
-    
-    # Uncomment HTTPS section
-    sudo_sed_inplace '/# HTTPS virtual host/,/# <\/VirtualHost>/s/^# //' "/tmp/livereview-ssl.conf"
-    sudo_sed_inplace '/# Redirect HTTP to HTTPS/,/# <\/VirtualHost>/s/^# //' "/tmp/livereview-ssl.conf"
-    
-    sudo cp "/tmp/livereview-ssl.conf" "/etc/apache2/sites-available/livereview.conf"
-    
-    # Enable SSL module and site
-    sudo a2enmod ssl
-    sudo a2ensite livereview
-    
+    ;;
+
+caddy)
+    if ! command -v caddy >/dev/null 2>&1; then
+        log_error "Caddy was selected but is not installed"
+        exit 1
+    fi
+    # Write a dedicated site file instead of overwriting /etc/caddy/Caddyfile, which
+    # may serve other sites. Only add the import line if it is not already there.
+    CADDY_SITE_DIR="/etc/caddy/conf.d"
+    CADDY_SITE="$CADDY_SITE_DIR/livereview.caddy"
+    sudo mkdir -p "$CADDY_SITE_DIR"
+    backup_file "$CADDY_SITE"
+    sudo cp "$LIVEREVIEW_DIR/config/caddy.conf.example" "$CADDY_SITE"
+    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "$CADDY_SITE"
+
+    if [[ -f /etc/caddy/Caddyfile ]] && ! sudo grep -q "conf.d/\*" /etc/caddy/Caddyfile; then
+        backup_file /etc/caddy/Caddyfile
+        echo "import $CADDY_SITE_DIR/*" | sudo tee -a /etc/caddy/Caddyfile >/dev/null
+        log_info "Added 'import $CADDY_SITE_DIR/*' to /etc/caddy/Caddyfile"
+    fi
+
+    if sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>/dev/null; then
+        sudo systemctl reload caddy 2>/dev/null || sudo systemctl start caddy
+        log_success "✓ Caddy configuration updated (automatic HTTPS)"
+    else
+        log_error "Caddy configuration test failed - restore from the .lrbak file if needed"
+    fi
+    ;;
+
+apache)
+    if ! command -v apache2 >/dev/null 2>&1 && ! command -v httpd >/dev/null 2>&1; then
+        log_error "Apache was selected but is not installed"
+        exit 1
+    fi
+    APACHE_VHOST="/etc/apache2/sites-available/livereview.conf"
+    [[ -f "$APACHE_VHOST" ]] || log_info "No LiveReview vhost found - creating $APACHE_VHOST"
+    backup_file "$APACHE_VHOST"
+    sudo cp "$LIVEREVIEW_DIR/config/apache.conf.example" "$APACHE_VHOST"
+    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "$APACHE_VHOST"
+    # Uncomment the HTTPS virtual host, leaving its heading comment intact.
+    sudo_sed_inplace '/^# HTTPS virtual host/,/^# <\/VirtualHost>/{/^# HTTPS virtual host/b
+s/^# //
+s/^#$//
+}' "$APACHE_VHOST"
+
+    sudo a2enmod ssl proxy proxy_http headers >/dev/null 2>&1 || true
+    sudo a2ensite livereview >/dev/null 2>&1 || true
+
     if sudo apache2ctl configtest; then
-        sudo systemctl reload apache2
+        if systemctl is-active --quiet apache2; then
+            sudo systemctl reload apache2
+        else
+            sudo systemctl start apache2
+        fi
+        STOPPED_SERVICES="${STOPPED_SERVICES// apache2/}"
         log_success "✓ Apache configuration updated"
     else
-        log_error "Apache configuration test failed"
+        log_error "Apache configuration test failed - restore from the .lrbak file if needed"
     fi
-else
-    log_warning "No reverse proxy configuration found"
-    log_info "Please configure your reverse proxy manually"
+    ;;
+
+*)
+    log_warning "No reverse proxy configured (you chose to do it yourself)"
     log_info "Certificate files:"
     log_info "  - Certificate: /etc/letsencrypt/live/$DOMAIN/fullchain.pem"
     log_info "  - Private Key: /etc/letsencrypt/live/$DOMAIN/privkey.pem"
-fi
+    ;;
+esac
 
 # Verify SSL certificate
 log_info "Verifying SSL certificate..."
