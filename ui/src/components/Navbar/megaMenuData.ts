@@ -232,14 +232,14 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
                 link('Slack', React.createElement(Icons.Slack), '/settings#integrations', (ctx) => ctx.isSuperAdmin || ctx.hasOrg, true),
                 link('Microsoft Teams', React.createElement(Icons.Teams), '/settings#integrations', (ctx) => ctx.isSuperAdmin || ctx.hasOrg, true),
                 link('Discord', React.createElement(Icons.Discord), '/settings#integrations', (ctx) => ctx.isSuperAdmin || ctx.hasOrg, true),
-                link('SMTP', React.createElement(Icons.Email), '/settings#smtp', (ctx) => ctx.isSuperAdmin && !isCloudMode()),
+                link('SMTP', React.createElement(Icons.Email), '/settings#smtp', (ctx) => (ctx.isSuperAdmin || ctx.orgRole === 'owner') && !isCloudMode()),
             ], React.createElement(Icons.Grid)),
             group('Manage Billing', [
                 link('View License', React.createElement(Icons.Info), '/settings#license', (ctx) => (isCloudMode() ? ctx.isSuperAdmin : ctx.isSuperAdmin || ctx.orgRole === 'owner')),
                 link('View Usage', React.createElement(Icons.List), '/settings-subscriptions-overview', (ctx) => isCloudMode() && (ctx.isSuperAdmin || ctx.hasOrg)),
             ], React.createElement(Icons.Reports)),
             group('Manage System', [
-                link('Storage', React.createElement(Icons.Folder), '/settings#storage', (ctx) => ctx.isSuperAdmin),
+                link('Storage', React.createElement(Icons.Folder), '/settings#storage', (ctx) => ctx.isSuperAdmin || (ctx.orgRole === 'owner' && !isCloudMode())),
                 link('Log Compaction', React.createElement(Icons.Clock), '/settings#storage', (ctx) => ctx.isSuperAdmin),
             ], React.createElement(Icons.Settings)),
         ],
