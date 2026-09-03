@@ -35,14 +35,14 @@ services:
       start_period: 30s
 
   livereview-db:
-    image: postgres:15-alpine
+    image: postgres:18-alpine
     container_name: livereview-db
     environment:
       - POSTGRES_USER=livereview
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=livereview
     volumes:
-      - ./lrdata/postgres:/var/lib/postgresql/data
+      - ./lrdata/postgres:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U livereview -d livereview"]
       interval: 10s
