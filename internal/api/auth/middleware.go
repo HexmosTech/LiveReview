@@ -602,6 +602,40 @@ func (am *AuthMiddleware) RequireSuperAdmin() echo.MiddlewareFunc {
 	}
 }
 
+// RequireSuperAdminOrOwner middleware checks if user is a super admin or an org owner
+func (am *AuthMiddleware) RequireSuperAdminOrOwner() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			// Get user from context
+			userInterface := c.Get(string(UserContextKey))
+			if userInterface == nil {
+				return echo.NewHTTPError(http.StatusUnauthorized, "User not found in context")
+			}
+			user := userInterface.(*models.User)
+
+			// Check if user is super admin or owner in any organization
+			var isAllowed bool
+			err := am.db.QueryRow(`
+				SELECT EXISTS(
+					SELECT 1 FROM user_roles ur
+					JOIN roles r ON ur.role_id = r.id
+					WHERE ur.user_id = $1 AND r.name IN ($2, $3)
+				)
+			`, user.ID, RoleSuperAdmin, RoleOwner).Scan(&isAllowed)
+
+			if err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to check admin status")
+			}
+
+			if !isAllowed {
+				return echo.NewHTTPError(http.StatusForbidden, "Super admin or owner access required")
+			}
+
+			return next(c)
+		}
+	}
+}
+
 // RequirePermission creates middleware that checks for a specific permission
 func (am *AuthMiddleware) RequirePermission(permission Permission) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {

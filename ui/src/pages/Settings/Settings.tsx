@@ -269,6 +269,9 @@ const Settings = () => {
     const { domain } = useAppSelector((state) => state.Settings);
     const { isSuperAdmin, canManageCurrentOrg, currentOrg, isFreePlan } = useOrgContext();
     const canAccessPrompts = isSuperAdmin || (currentOrg && ['owner', 'member'].includes(currentOrg.role));
+    // Instance-wide config (production URL, blob storage): self-hosted owners may manage it,
+    // but in cloud it's shared across every tenant, so it stays super-admin-only there
+    const canManageInstanceConfig = isSuperAdmin || (currentOrg?.role === 'owner' && !isCloudMode());
     
     // Check if we're on a subscription sub-route
     const isSubscriptionRoute = location.pathname.startsWith('/settings-subscriptions-');
@@ -287,17 +290,19 @@ const Settings = () => {
 
     // Available tabs based on permissions
     const tabs = [
-        ...(isSuperAdmin ? [{ id: 'instance', name: 'Instance', icon: <Icons.Settings /> }] : []),
-        ...(isSuperAdmin && !isCloudMode() ? [{ 
-            id: 'smtp', 
-            name: 'SMTP', 
+        // Instance-wide config: self-hosted owners may manage it, but in cloud it's shared across every tenant, so it stays super-admin-only there
+        ...(canManageInstanceConfig ? [{ id: 'instance', name: 'Instance', icon: <Icons.Settings /> }] : []),
+        ...(canManageCurrentOrg && !isCloudMode() ? [{
+            id: 'smtp',
+            name: 'SMTP',
             icon: (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                 </svg>
             )
         }] : []),
-        ...(isSuperAdmin ? [{
+        // Instance-wide blob storage: self-hosted owners may manage it, but in cloud it's shared across every tenant, so it stays super-admin-only there
+        ...(canManageInstanceConfig ? [{
             id: 'storage',
             name: 'Storage',
             icon: (
@@ -306,7 +311,7 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
-        ...(isSuperAdmin ? [{
+        ...(canManageCurrentOrg ? [{
             id: 'deployment',
             name: 'Deployment', 
             icon: (
@@ -630,7 +635,7 @@ const Settings = () => {
                             <div className="p-4 text-sm text-red-300">You do not have access to Prompts. Only organization owners and super administrators can view this section.</div>
                         </Card>
                     )}
-                    {activeTab === 'instance' && isSuperAdmin && (
+                    {activeTab === 'instance' && canManageInstanceConfig && (
                         <Card>
                             <div className="flex items-center mb-6">
                                 <img src="assets/logo.svg" alt="LiveReview Logo" className="h-8 w-auto mr-3" />
@@ -740,19 +745,19 @@ const Settings = () => {
                         </Card>
                     )}
 
-                    {activeTab === 'smtp' && isSuperAdmin && !isCloudMode() && (
+                    {activeTab === 'smtp' && canManageCurrentOrg && !isCloudMode() && (
                         <Card>
                             <SMTPSettingsTab />
                         </Card>
                     )}
 
-                    {activeTab === 'storage' && isSuperAdmin && (
+                    {activeTab === 'storage' && canManageInstanceConfig && (
                         <Card>
                             <StorageSettingsTab />
                         </Card>
                     )}
 
-                    {activeTab === 'deployment' && isSuperAdmin && (
+                    {activeTab === 'deployment' && canManageCurrentOrg && (
                         <Card>
                             <div className="flex items-center mb-6">
                                 <div className="text-blue-400 mr-3">
