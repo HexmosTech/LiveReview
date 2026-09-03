@@ -62,8 +62,8 @@ which-env:
 # ============================================================================
 
 define CHECK_DOCKER_ENV
-	@if [ ! -f .current-env ] || [ "$$(cat .current-env)" != "selfhosted.docker" ]; then \
-		echo "ERROR: Current env is not selfhosted.docker. Run: make switch-env-selfhosted-docker"; \
+	@if [ ! -f .current-env ] || [ "$$(cat .current-env)" != "selfhosted" ]; then \
+		echo "ERROR: Current env is not selfhosted. Run: make switch-env-selfhosted-docker"; \
 		exit 1; \
 	fi
 endef
