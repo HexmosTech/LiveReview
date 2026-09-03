@@ -722,19 +722,45 @@ docker-interactive-multiarch-push:
 cplrops:
 	@cp lrops.sh ../gh/LiveReview/
 
-# SYNC-LROPS: push the working-copy lrops.sh to a test host and install it as the
-# real /usr/local/bin/lrops.sh (not a side copy), so what you test is what ships.
-# Also re-extracts the embedded helper scripts and reverse-proxy templates into an
-# existing ~/livereview, since those are written at install time and would otherwise
-# stay stale after a script update.
-#   make sync-lrops                  # defaults to host 'nats03'
-#   make sync-lrops LROPS_HOST=myhost
-LROPS_HOST ?= nats03
+
+
+# SYNC-LROPS: push the working-copy lrops.sh to /usr/local/bin/lrops.sh so what you
+# test is what ships (not a side copy). Also re-extracts the embedded helper scripts
+# and reverse-proxy templates into an existing ~/livereview, since those are written
+# at install time and would otherwise stay stale after a script update.
+#   make sync-lrops                 # this machine
+#   make sync-lrops HOST=nats03     # over ssh
+#   make sync-lrops HOST=gitlab
+HOST ?=
 .PHONY: sync-lrops
-sync-lrops: ## Deploy lrops.sh to $(LROPS_HOST):/usr/local/bin/lrops.sh
-	@echo "→ syncing lrops.sh to $(LROPS_HOST)"
-	@rsync -az lrops.sh $(LROPS_HOST):/tmp/lrops-sync.sh
-	@ssh $(LROPS_HOST) '\
+sync-lrops: ## Deploy lrops.sh to /usr/local/bin/lrops.sh (this machine, or HOST=<ssh-host>)
+ifeq ($(HOST),)
+	@echo "→ syncing lrops.sh locally"
+	@sudo install -m 755 -o root -g root lrops.sh /usr/local/bin/lrops.sh
+	@if [ -d "$$HOME/livereview" ]; then \
+		for t in setup-ssl.sh backup.sh restore.sh renew-ssl.sh; do \
+			sed -n "/^# === DATA:$$t ===/,/^# === END:$$t ===/p" /usr/local/bin/lrops.sh \
+				| grep -v "^# === " > /tmp/$$t 2>/dev/null && \
+				[ -s /tmp/$$t ] && sudo install -m 755 /tmp/$$t "$$HOME/livereview/scripts/$$t"; \
+			rm -f /tmp/$$t; \
+		done; \
+		for t in nginx.conf.example caddy.conf.example apache.conf.example; do \
+			sed -n "/^# === DATA:$$t ===/,/^# === END:$$t ===/p" /usr/local/bin/lrops.sh \
+				| grep -v "^# === " > /tmp/$$t 2>/dev/null && \
+				[ -s /tmp/$$t ] && sudo install -m 644 /tmp/$$t "$$HOME/livereview/config/$$t"; \
+			rm -f /tmp/$$t; \
+		done; \
+		echo "  re-extracted helper scripts and proxy templates into $$HOME/livereview"; \
+	else \
+		echo "  no ~/livereview locally - script installed, nothing to re-extract"; \
+	fi
+	@printf "  local:      %s\n" "$$(md5sum lrops.sh | cut -d' ' -f1)"
+	@printf "  installed:  %s\n" "$$(md5sum /usr/local/bin/lrops.sh | cut -d' ' -f1)"
+	@lrops.sh --version | head -1
+else
+	@echo "→ syncing lrops.sh to $(HOST)"
+	@rsync -az lrops.sh $(HOST):/tmp/lrops-sync.sh
+	@ssh $(HOST) '\
 		sudo install -m 755 -o root -g root /tmp/lrops-sync.sh /usr/local/bin/lrops.sh && rm -f /tmp/lrops-sync.sh; \
 		if [ -d "$$HOME/livereview" ]; then \
 			for t in setup-ssl.sh backup.sh restore.sh renew-ssl.sh; do \
@@ -751,58 +777,28 @@ sync-lrops: ## Deploy lrops.sh to $(LROPS_HOST):/usr/local/bin/lrops.sh
 			done; \
 			echo "  re-extracted helper scripts and proxy templates into $$HOME/livereview"; \
 		else \
-			echo "  no ~/livereview on $(LROPS_HOST) - script installed, nothing to re-extract"; \
+			echo "  no ~/livereview on $(HOST) - script installed, nothing to re-extract"; \
 		fi'
-	@printf "  local:  %s\n" "$$(md5sum lrops.sh | cut -d" " -f1)"
-	@printf "  remote: %s\n" "$$(ssh $(LROPS_HOST) 'md5sum /usr/local/bin/lrops.sh' | cut -d' ' -f1)"
-	@ssh $(LROPS_HOST) 'lrops.sh --version | head -1'
+	@printf "  local:  %s\n" "$$(md5sum lrops.sh | cut -d' ' -f1)"
+	@printf "  remote: %s\n" "$$(ssh $(HOST) 'md5sum /usr/local/bin/lrops.sh' | cut -d' ' -f1)"
+	@ssh $(HOST) 'lrops.sh --version | head -1'
+endif
 
-# PURGE-LROPS: wipe a LiveReview install off a test host so the next run starts from a
-# genuine blank slate. Removes containers, the install dir (including root's, if a sudo
-# run created one), and any reverse-proxy vhost LiveReview wrote.
-# Deliberately KEPT: docker images (re-pulling is slow; pass FORCE=1 to also remove them),
-# /usr/local/bin/lrops.sh (so you can reinstall), and any Let's Encrypt certificates
-# (re-issuing burns the 5-per-week duplicate limit).
-#   make purge-lr-nats03
-#   make purge-lr-nats03 FORCE=1     # also remove the livereview/postgres images
-.PHONY: purge-lr-nats03
-purge-lr-nats03: ## Remove LiveReview containers/config from $(LROPS_HOST) (FORCE=1 also removes images)
-	@echo "→ purging LiveReview from $(LROPS_HOST)"
-	@ssh $(LROPS_HOST) 'FORCE=$(FORCE) sh -c '"'"'\
-		if [ -f "$$HOME/livereview/docker-compose.yml" ]; then \
-			(cd "$$HOME/livereview" && docker compose down -v --remove-orphans >/dev/null 2>&1) || true; \
-		fi; \
-		docker rm -f livereview-app livereview-db >/dev/null 2>&1 || true; \
-		if [ "$$FORCE" = "1" ]; then \
-			imgs=$$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "hexmostech/livereview|^postgres:15-alpine$$" || true); \
-			[ -n "$$imgs" ] && docker rmi -f $$imgs >/dev/null 2>&1 || true; \
-		fi; \
-		sudo rm -rf "$$HOME/livereview" "$$HOME"/livereview.backup.* "$$HOME"/livereview.removed.* "$$HOME/livereview_env" "$$HOME/lrops.sh"; \
-		sudo sh -c "rm -rf /root/livereview /root/livereview.backup.* /root/livereview.removed.*"; \
-		sudo rm -f /etc/nginx/sites-enabled/livereview.conf /etc/nginx/sites-available/livereview.conf \
-			/etc/nginx/sites-available/livereview /etc/nginx/conf.d/livereview* ; \
-		sudo sh -c "rm -f /etc/nginx/sites-available/*lrbak* /etc/nginx/sites-available/livereview.conf.bak.*"; \
-		sudo rm -f /etc/caddy/conf.d/livereview.caddy; \
-		sudo rm -f /etc/apache2/sites-enabled/livereview.conf /etc/apache2/sites-available/livereview.conf; \
-		if command -v nginx >/dev/null 2>&1 && sudo nginx -t >/dev/null 2>&1; then \
-			sudo systemctl reload nginx >/dev/null 2>&1 || sudo systemctl start nginx >/dev/null 2>&1 || true; \
-		fi'"'"''
-	@echo "→ verifying"
-	@ssh $(LROPS_HOST) '\
-		echo "  containers: $$(docker ps -a --filter name=livereview --format "{{.Names}}" | tr "\n" " ")"; \
-		echo "  images:     $$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -cE "hexmostech/livereview|postgres:15-alpine") remaining"; \
-		echo "  install:    $$( [ -d "$$HOME/livereview" ] && echo PRESENT || echo removed )"; \
-		echo "  nginx:      $$(sudo ls /etc/nginx/sites-enabled/ 2>/dev/null | tr "\n" " ")"; \
-		echo "  script:     $$(lrops.sh --version 2>/dev/null | head -1)"'
-	@if [ "$(FORCE)" = "1" ]; then echo "images: also removed (FORCE=1)"; else echo "images: kept (pass FORCE=1 to remove)"; fi
-	@echo "kept on purpose: /usr/local/bin/lrops.sh and any Let's Encrypt certificates"
-
-# PURGE-LR-LOCAL: same as purge-lr-nats03, but runs directly on this machine instead of
-# over ssh - for testing lrops.sh installs (e.g. setup-production) on your own dev box.
-#   make purge-lr-local
-#   make purge-lr-local FORCE=1      # also remove the livereview/postgres images
-.PHONY: purge-lr-local
-purge-lr-local: ## Remove LiveReview containers/config from this machine (FORCE=1 also removes images)
+# PURGE-LR: wipe a LiveReview install so the next run starts from a genuine blank
+# slate. Removes containers, the install dir (including root's, if a sudo run created
+# one), and any reverse-proxy vhost LiveReview wrote.
+# Deliberately KEPT: docker images (re-pulling is slow; pass FORCE=1 to also remove
+# them), /usr/local/bin/lrops.sh (so you can reinstall), and any Let's Encrypt
+# certificates (re-issuing burns the 5-per-week duplicate limit).
+#   make purge-lr                        # this machine
+#   make purge-lr FORCE=1                # + images, this machine
+#   make purge-lr HOST=nats03            # over ssh
+#   make purge-lr HOST=nats03 FORCE=1
+#   make purge-lr HOST=gitlab
+#   make purge-lr HOST=gitlab FORCE=1
+.PHONY: purge-lr
+purge-lr: ## Remove LiveReview containers/config (this machine, or HOST=<ssh-host>). FORCE=1 also removes images.
+ifeq ($(HOST),)
 	@echo "→ purging LiveReview from this machine"
 	@if [ -f "$$HOME/livereview/docker-compose.yml" ]; then \
 		(cd "$$HOME/livereview" && docker compose down -v --remove-orphans >/dev/null 2>&1) || true; \
@@ -828,6 +824,35 @@ purge-lr-local: ## Remove LiveReview containers/config from this machine (FORCE=
 	@echo "  install:    $$( [ -d "$$HOME/livereview" ] && echo PRESENT || echo removed )"
 	@echo "  nginx:      $$(sudo ls /etc/nginx/sites-enabled/ 2>/dev/null | tr '\n' ' ')"
 	@echo "  script:     $$(lrops.sh --version 2>/dev/null | head -1)"
+else
+	@echo "→ purging LiveReview from $(HOST)"
+	@ssh $(HOST) '\
+		if [ -f "$$HOME/livereview/docker-compose.yml" ]; then \
+			(cd "$$HOME/livereview" && docker compose down -v --remove-orphans >/dev/null 2>&1) || true; \
+		fi; \
+		docker rm -f livereview-app livereview-db >/dev/null 2>&1 || true; \
+		if [ "$(FORCE)" = "1" ]; then \
+			imgs=$$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "hexmostech/livereview|^postgres:15-alpine$$" || true); \
+			[ -n "$$imgs" ] && docker rmi -f $$imgs >/dev/null 2>&1 || true; \
+		fi; \
+		sudo rm -rf "$$HOME/livereview" "$$HOME"/livereview.backup.* "$$HOME"/livereview.removed.* "$$HOME/livereview_env" "$$HOME/lrops.sh"; \
+		sudo sh -c "rm -rf /root/livereview /root/livereview.backup.* /root/livereview.removed.*"; \
+		sudo rm -f /etc/nginx/sites-enabled/livereview.conf /etc/nginx/sites-available/livereview.conf \
+			/etc/nginx/sites-available/livereview /etc/nginx/conf.d/livereview* ; \
+		sudo sh -c "rm -f /etc/nginx/sites-available/*lrbak* /etc/nginx/sites-available/livereview.conf.bak.*"; \
+		sudo rm -f /etc/caddy/conf.d/livereview.caddy; \
+		sudo rm -f /etc/apache2/sites-enabled/livereview.conf /etc/apache2/sites-available/livereview.conf; \
+		if command -v nginx >/dev/null 2>&1 && sudo nginx -t >/dev/null 2>&1; then \
+			sudo systemctl reload nginx >/dev/null 2>&1 || sudo systemctl start nginx >/dev/null 2>&1 || true; \
+		fi'
+	@echo "→ verifying"
+	@ssh $(HOST) '\
+		echo "  containers: $$(docker ps -a --filter name=livereview --format "{{.Names}}" | tr "\n" " ")"; \
+		echo "  images:     $$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -cE "hexmostech/livereview|postgres:15-alpine") remaining"; \
+		echo "  install:    $$( [ -d "$$HOME/livereview" ] && echo PRESENT || echo removed )"; \
+		echo "  nginx:      $$(sudo ls /etc/nginx/sites-enabled/ 2>/dev/null | tr "\n" " ")"; \
+		echo "  script:     $$(lrops.sh --version 2>/dev/null | head -1)"'
+endif
 	@if [ "$(FORCE)" = "1" ]; then echo "images: also removed (FORCE=1)"; else echo "images: kept (pass FORCE=1 to remove)"; fi
 	@echo "kept on purpose: /usr/local/bin/lrops.sh and any Let's Encrypt certificates"
 
