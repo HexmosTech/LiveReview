@@ -388,7 +388,7 @@ Watch a review work through your diff file by file, so you know exactly what's c
 </p>
 
 ### Customize Review Prompts to Fit Your Team
-Write custom prompts so the AI reviewer enforces your team's own coding standards and priorities, not generic defaults. *(Premium & Enterprise)* Watch [Customize AI Review Prompts for Your Team](https://hexmos.com/livereview/demo?v=PA0hQWo_6nE), or read [Customize LiveReview to Your Team's Best Practices](https://hexmos.com/livereview/docs/livereview/self-hosted/customize-livereview-to-your-teams-best-practices/).
+Custom Prompts apply org-wide, to every repo LiveReview reviews, so keep them to the handful of standards that really are universal across your org. *(Premium & Enterprise)* For anything specific to one repo, use [Repository Rules](#repository-rules) instead — most teams should start there. Watch [Customize AI Review Prompts for Your Team](https://hexmos.com/livereview/demo?v=PA0hQWo_6nE), or read [Customize LiveReview to Your Team's Best Practices](https://hexmos.com/livereview/docs/livereview/self-hosted/customize-livereview-to-your-teams-best-practices/).
 
 <p align="center">
    <img src="./assets/screenshots/prompt_customization.png" alt="Customizing LiveReview's review prompts" width="80%"/>
@@ -669,6 +669,8 @@ Full REST API reference: [hexmos.com/livereview/docs/livereview/api](https://hex
 ## Enforce Your Team's Engineering Standards with Repository Rules
 
 A good reviewer knows your language and framework. A great reviewer also knows *your* repository: which patterns your team prefers, which dependencies are off-limits, and which files don't need a second look. Drop a `.lrc/` directory in your repo, and LiveReview reads it on every review.
+
+This is per-repo, and stacks on top of any org-wide [Custom Prompts](#features) — reach for Repository Rules first; it's how most teams should scope their standards, since each team keeps its own rules without affecting anyone else's repo.
 
 ```
 .lrc/
