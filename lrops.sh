@@ -17,7 +17,7 @@ fi
 # SCRIPT METADATA AND CONSTANTS
 # =============================================================================
 
-SCRIPT_VERSION="1.0.0"
+SCRIPT_VERSION="1.2.2"
 SCRIPT_NAME="lrops.sh"
 # Resolve invoking user and home directory robustly (works with sudo)
 # Priority: SUDO_UID/SUDO_USER -> tilde expansion -> current $HOME
@@ -399,6 +399,9 @@ docker_compose() {
 # Default values
 EXPRESS_MODE=false
 FORCE_INSTALL=false
+# Set by `setup-production` to skip the interactive demo/production question below
+# and answer it as production directly - the command name should not be a lie.
+PRESET_DEPLOYMENT_MODE=""
 DRY_RUN=false
 VERBOSE=false
 DEBUG_MODE=false
@@ -588,6 +591,8 @@ USAGE:
     (Use --backup-dir as backup subcommand option - see BACKUP OPTIONS below)
     lrops.sh uninstall                 # Safely uninstall (moves directory, keeps backups)
     lrops.sh logs [service]            # Show container logs
+    lrops.sh doctor <domain>           # Diagnose reverse proxy / TLS / CDN problems
+    lrops.sh setup-ssl <domain> [email] # Obtain a certificate and enable HTTPS
     lrops.sh env validate              # Validate .env and suggest fixes
     lrops.sh help ssl                  # SSL/TLS setup guidance
     lrops.sh help backup               # Backup strategies
@@ -768,7 +773,9 @@ check_existing_installation() {
     fi
     
     # Check for running containers
-    if docker ps --format "table {{.Names}}" | grep -q "livereview"; then
+    # grep -q exits on the first match, docker ps then takes SIGPIPE (141), and
+    # `set -o pipefail` turns that into a false negative. Test captured output instead.
+    if [[ -n "$(docker ps --filter "name=livereview" --format "{{.Names}}" 2>/dev/null)" ]]; then
         log_warning "LiveReview containers are currently running"
         installation_exists=true
     fi
@@ -1554,22 +1561,33 @@ EOF
     log_info "   To upgrade to production mode, set LIVEREVIEW_REVERSE_PROXY=true and configure your reverse proxy"
     else
         log_info "Interactive configuration mode"
-    log_info "Choose your deployment mode:"
-        echo >&2
-        echo "1) Demo Mode (localhost only, no webhooks, quickstart)" >&2
-        echo "2) Production Mode (with reverse proxy, webhooks enabled)" >&2
-        echo >&2
-    echo -n "Select deployment mode [1]: " >&2
-        read -r mode_choice
-        
+
         local deployment_mode="demo"
-        
-        if [[ "$mode_choice" == "2" ]]; then
-            deployment_mode="production"
-            log_info "Production mode selected - requires reverse proxy setup"
+
+        if [[ -n "$PRESET_DEPLOYMENT_MODE" ]]; then
+            # setup-production already answered this - don't ask again.
+            deployment_mode="$PRESET_DEPLOYMENT_MODE"
+            if [[ "$deployment_mode" == "production" ]]; then
+                log_info "Production mode selected - requires reverse proxy setup"
+            else
+                log_info "Demo mode selected - localhost only, no configuration needed"
+            fi
         else
-            deployment_mode="demo"
-            log_info "Demo mode selected - localhost only, no configuration needed"
+    log_info "Choose your deployment mode:"
+            echo >&2
+            echo "1) Demo Mode (localhost only, no webhooks, quickstart)" >&2
+            echo "2) Production Mode (with reverse proxy, webhooks enabled)" >&2
+            echo >&2
+    echo -n "Select deployment mode [1]: " >&2
+            read -r mode_choice
+
+            if [[ "$mode_choice" == "2" ]]; then
+                deployment_mode="production"
+                log_info "Production mode selected - requires reverse proxy setup"
+            else
+                deployment_mode="demo"
+                log_info "Demo mode selected - localhost only, no configuration needed"
+            fi
         fi
         
         # Generate database password
@@ -1688,10 +1706,10 @@ validate_configuration() {
     
     # Check if ports are available
     if command -v netstat >/dev/null 2>&1; then
-        if netstat -tln | grep -q ":${backend_port} "; then
+        if [[ -n "$(netstat -tln 2>/dev/null | grep ":${backend_port} ")" ]]; then
             log_warning "Port $backend_port appears to be in use"
         fi
-        if netstat -tln | grep -q ":${frontend_port} "; then
+        if [[ -n "$(netstat -tln 2>/dev/null | grep ":${frontend_port} ")" ]]; then
             log_warning "Port $frontend_port appears to be in use"
         fi
     fi
@@ -1911,7 +1929,10 @@ generate_docker_compose() {
     
     # Determine version to inject (fallback if empty)
     local effective_version="${LIVEREVIEW_VERSION:-latest}"
-    sed_inplace "s/\\${LIVEREVIEW_VERSION}/$effective_version/g" "$output_file"
+    # Single-quote the pattern: in double quotes bash expands ${LIVEREVIEW_VERSION}
+    # before sed sees it, producing e.g. s/\1.0.0/1.0.0/g - an invalid back reference.
+    # The goal is to match the literal placeholder text in the template.
+    sed_inplace 's/\${LIVEREVIEW_VERSION}/'"$effective_version"'/g' "$output_file"
     # Do not rewrite DB_PASSWORD placeholder; leave ${DB_PASSWORD} intact in compose
     # Ports are parameterized; no hard substitution required beyond defaults
     # Ensure ownership by invoking user
@@ -2440,7 +2461,7 @@ show_status() {
     
     # Show container status (using docker_compose function which handles paths correctly)
     log_info "Container Status:"
-    if docker_compose ps 2>/dev/null | grep -q "livereview"; then
+    if [[ -n "$(docker_compose ps 2>/dev/null | grep "livereview")" ]]; then
         docker_compose ps
         echo
         
@@ -2470,7 +2491,7 @@ show_status() {
     log_info "  Script: $SCRIPT_VERSION"
     
     # Show access URLs if running
-    if docker_compose ps 2>/dev/null | grep -q "Up.*8888"; then
+    if [[ -n "$(docker_compose ps 2>/dev/null | grep "Up.*8888")" ]]; then
         echo
         log_info "🌐 Access URLs:"
         local api_port=$(docker_compose ps livereview-app | grep -o "0.0.0.0:[0-9]*->8888" | cut -d':' -f2 | cut -d'-' -f1)
@@ -4104,13 +4125,15 @@ INSTALLATION
    sudo apt update && sudo apt install nginx
 
 2. Copy the LiveReview Nginx template:
-   sudo cp ~/livereview/config/nginx.conf.example /etc/nginx/sites-available/livereview
+   sudo cp ~/livereview/config/nginx.conf.example /etc/nginx/sites-available/livereview.conf
 
 3. Edit the domain name:
-    sudo_sed_inplace 's/your-domain.com/your-actual-domain.org/g' /etc/nginx/sites-available/livereview
+   sudo sed -i 's/your-domain.com/your-actual-domain.org/g' /etc/nginx/sites-available/livereview.conf
+   e.g. for livereview.google.com:
+   sudo sed -i 's/your-domain.com/livereview.google.com/g' /etc/nginx/sites-available/livereview.conf
 
 4. Enable the site:
-   sudo ln -s /etc/nginx/sites-available/livereview /etc/nginx/sites-enabled/
+   sudo ln -s /etc/nginx/sites-available/livereview.conf /etc/nginx/sites-enabled/
    sudo nginx -t
    sudo systemctl reload nginx
 
@@ -4118,14 +4141,15 @@ TEMPLATE FEATURES
 ================
 - API proxy to port 8888 (/api/* routes)
 - UI proxy to port 8081 (all other routes)
-- WebSocket support for real-time features
+- WebSocket support for real-time features (only on genuine Upgrade requests)
+- Upstream keepalive pools, so proxied requests reuse connections
+- gzip off on the UI route - the app already serves pre-gzipped assets
 - Proper headers for security
-- Gzip compression
 - SSL/TLS configuration ready
 
 CUSTOMIZATION
 =============
-Edit /etc/nginx/sites-available/livereview to:
+Edit /etc/nginx/sites-available/livereview.conf to:
 - Change domain names
 - Adjust proxy settings
 - Add custom headers
@@ -4271,7 +4295,9 @@ INSTALLATION
 
 2. Copy and configure the template:
    sudo cp ~/livereview/config/caddy.conf.example /etc/caddy/Caddyfile
-    sudo_sed_inplace 's/your-domain.com/your-actual-domain.org/g' /etc/caddy/Caddyfile
+   sudo sed -i 's/your-domain.com/your-actual-domain.org/g' /etc/caddy/Caddyfile
+   e.g. for livereview.google.com:
+   sudo sed -i 's/your-domain.com/livereview.google.com/g' /etc/caddy/Caddyfile
 
 3. Start Caddy:
    sudo systemctl enable caddy
@@ -4436,7 +4462,9 @@ INSTALLATION
     
 3. Copy and configure the template:
    sudo cp ~/livereview/config/apache.conf.example /etc/apache2/sites-available/livereview.conf
-    sudo_sed_inplace 's/your-domain.com/your-actual-domain.org/g' /etc/apache2/sites-available/livereview.conf
+   sudo sed -i 's/your-domain.com/your-actual-domain.org/g' /etc/apache2/sites-available/livereview.conf
+   e.g. for livereview.google.com:
+   sudo sed -i 's/your-domain.com/livereview.google.com/g' /etc/apache2/sites-available/livereview.conf
 
 4. Enable the site:
    sudo a2ensite livereview
@@ -5007,7 +5035,7 @@ run_diagnostics() {
         log_info "📦 Container Status:"
         
         local containers_found=false
-        if docker ps -a --filter "name=livereview" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -q livereview; then
+        if [[ -n "$(docker ps -a --filter "name=livereview" --format "{{.Names}}" 2>/dev/null)" ]]; then
             containers_found=true
             log_success "  ✅ LiveReview containers found:"
             docker ps -a --filter "name=livereview" --format "  {{.Names}}: {{.Status}}" | sed 's/^/    /'
@@ -5061,7 +5089,7 @@ run_diagnostics() {
     echo
     
     # Check recent logs for errors
-    if [[ -d "$LIVEREVIEW_INSTALL_DIR" ]] && docker ps --filter "name=livereview" --format "{{.Names}}" | grep -q livereview; then
+    if [[ -d "$LIVEREVIEW_INSTALL_DIR" && -n "$(docker ps --filter "name=livereview" --format "{{.Names}}" 2>/dev/null)" ]]; then
         log_info "📋 Recent Issues:"
         local recent_errors=$(docker_compose logs --since=1h 2>/dev/null | grep -i "error\|fail\|panic\|fatal" | grep -v '"error":""' | wc -l)
         
@@ -5078,7 +5106,7 @@ run_diagnostics() {
     log_info "💡 Recommendations:"
     if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
         log_info "  • Install LiveReview: lrops.sh setup-demo"
-    elif ! docker ps --filter "name=livereview" --format "{{.Names}}" | grep -q livereview; then
+    elif [[ -z "$(docker ps --filter "name=livereview" --format "{{.Names}}" 2>/dev/null)" ]]; then
         log_info "  • Start LiveReview: lrops.sh start"
     else
         log_info "  • Check detailed status: lrops.sh status"
@@ -5094,7 +5122,7 @@ main() {
     local is_management_command=false
     
     case "${1:-}" in
-        status|info|start|stop|restart|update|list-backups|backup|quick-backup|backup-info|delete-backup|restore|uninstall|logs|help)
+        status|info|start|stop|restart|update|list-backups|backup|quick-backup|backup-info|delete-backup|restore|uninstall|logs|doctor|setup-ssl|help)
             is_management_command=true
             ;;
         setup-demo|setup-production)
@@ -5248,15 +5276,37 @@ main() {
             show_logs "${2:-}" "${3:-}"
             exit $?
             ;;
+        doctor)
+            doctor_cmd "${2:-}"
+            exit $?
+            ;;
+        setup-ssl)
+            # Delegates to the standalone helper extracted at install time.
+            ssl_script="$LIVEREVIEW_INSTALL_DIR/scripts/setup-ssl.sh"
+            if [[ ! -x "$ssl_script" ]]; then
+                log_error "SSL helper not found: $ssl_script"
+                log_info "Re-extract it by re-running the installer, or see: lrops.sh help ssl"
+                exit 1
+            fi
+            if [[ -z "${2:-}" ]]; then
+                log_error "Usage: lrops.sh setup-ssl <domain> [email]"
+                exit 1
+            fi
+            LIVEREVIEW_INSTALL_DIR="$LIVEREVIEW_INSTALL_DIR" "$ssl_script" "${2}" "${3:-}"
+            exit $?
+            ;;
         setup-demo)
             # Quick demo mode setup
             EXPRESS_MODE=true
             FORCE_INSTALL=false
             ;;
         setup-production)
-            # Quick production mode setup - interactive for safety
+            # Interactive for the password/JWT prompts (so they can be overridden), but
+            # the deployment-mode question itself is answered here: this command said
+            # "production", so it should not turn around and ask which mode you want.
             EXPRESS_MODE=false
             FORCE_INSTALL=false
+            PRESET_DEPLOYMENT_MODE="production"
             log_info "Setting up LiveReview in production mode"
             log_warning "This requires reverse proxy configuration"
             ;;
@@ -5538,6 +5588,244 @@ main() {
 }
 
 # =============================================================================
+# DOCTOR - reverse proxy / TLS topology diagnosis
+# =============================================================================
+
+# Probe one URL and echo the HTTP status, or "-" when nothing answered.
+_doctor_probe() {
+    local out
+    out=$(curl "$@" -s -o /dev/null -w "%{http_code}" --max-time 8 2>/dev/null) || out=""
+    [[ -z "$out" || "$out" == "000" ]] && out="-"
+    echo "$out"
+}
+
+# Query one resolver for A records; echoes comma-separated IPs, or "" on failure.
+_doctor_dig() {
+    local resolver="$1" domain="$2"
+    if command -v dig >/dev/null 2>&1; then
+        dig +short +time=3 +tries=1 "@${resolver}" A "$domain" 2>/dev/null \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | paste -sd, - || true
+    elif command -v nslookup >/dev/null 2>&1; then
+        nslookup "$domain" "$resolver" 2>/dev/null | awk '/^Address: /{print $2}' | paste -sd, - || true
+    fi
+}
+
+# Prerequisite checks: DNS propagation, port reachability, port conflicts.
+# Automates the manual checklist from `lrops.sh help ssl`.
+_doctor_prereqs() {
+    local domain="$1" my_ip="$2" cdn="$3"
+
+    section_header "DNS"
+    if ! command -v dig >/dev/null 2>&1 && ! command -v nslookup >/dev/null 2>&1; then
+        log_warning "Neither dig nor nslookup is installed - skipping DNS checks"
+        log_info "Install with: sudo apt install dnsutils"
+    else
+        local google cloudflare opendns
+        google=$(_doctor_dig 8.8.8.8 "$domain")
+        cloudflare=$(_doctor_dig 1.1.1.1 "$domain")
+        opendns=$(_doctor_dig 208.67.222.222 "$domain")
+        log_info "  Google     (8.8.8.8)        ${google:-<no A record>}"
+        log_info "  Cloudflare (1.1.1.1)        ${cloudflare:-<no A record>}"
+        log_info "  OpenDNS    (208.67.222.222) ${opendns:-<no A record>}"
+
+        if [[ -z "$google$cloudflare$opendns" ]]; then
+            log_error "No A record found by any resolver - DNS is not set up yet."
+            log_info "Certificate issuance cannot work until the domain resolves here."
+        elif [[ "$google" != "$cloudflare" || "$cloudflare" != "$opendns" ]]; then
+            log_warning "Resolvers disagree - DNS is still propagating. Wait before continuing."
+            log_info "Track it at https://www.whatsmydns.net/ (can take up to 48h)"
+        else
+            log_success "All three resolvers agree on ${google}"
+            if [[ "$cdn" == "none" && -n "$my_ip" ]] && ! grep -q "$my_ip" <<< "$google"; then
+                log_error "DNS points at ${google}, but this server is ${my_ip}."
+                log_info "The domain does not reach this machine. Fix the A record first."
+            elif [[ "$cdn" != "none" ]]; then
+                log_info "Resolves to the CDN, not this host - expected when proxied."
+                log_info "For HTTP-01 certificate issuance the CDN must allow"
+                log_info "/.well-known/acme-challenge/ through, or pause proxying (grey cloud)."
+            else
+                log_success "DNS points at this server"
+            fi
+        fi
+    fi
+
+    section_header "PORTS AND FIREWALL"
+    local l80 l443
+    l80=$(sudo ss -tlnp 2>/dev/null | awk '$4 ~ /:80$/ {print $NF; exit}')
+    l443=$(sudo ss -tlnp 2>/dev/null | awk '$4 ~ /:443$/ {print $NF; exit}')
+    log_info "  :80   ${l80:-nothing listening}"
+    log_info "  :443  ${l443:-nothing listening}"
+    if [[ -z "$l80" && -z "$l443" ]]; then
+        log_warning "No web server is listening on :80 or :443 on this host."
+    fi
+
+    if command -v ufw >/dev/null 2>&1; then
+        local ufw_state
+        ufw_state=$(sudo ufw status 2>/dev/null | head -1)
+        log_info "  firewall: ${ufw_state:-unknown}"
+        if grep -qi "active" <<< "$ufw_state"; then
+            for port in 80 443; do
+                if [[ -n "$(sudo ufw status 2>/dev/null | grep -E "^${port}[/ ]|ALLOW.*${port}")" ]]; then
+                    log_success "ufw allows ${port}"
+                else
+                    log_warning "ufw is active but no rule for ${port} was found - it may be blocked"
+                fi
+            done
+        fi
+    else
+        log_info "  firewall: ufw not installed"
+    fi
+    log_info "Cloud firewalls (AWS/GCP/Azure/DigitalOcean) are separate - check those too."
+}
+
+# Diagnose why a domain does or does not reach this LiveReview install.
+# Tests each layer independently - app, origin :80, origin :443, public - because
+# nearly every "site is down" case is those layers disagreeing, and which one
+# disagrees names the fix.
+doctor_cmd() {
+    local domain="${1:-}"
+    section_header "LIVEREVIEW DOCTOR"
+
+    if [[ -z "$domain" ]]; then
+        log_error "Usage: lrops.sh doctor <domain>"
+        log_info "Example: lrops.sh doctor livereview.example.com"
+        return 1
+    fi
+
+    local backend_port="${LIVEREVIEW_BACKEND_PORT:-8888}"
+    local frontend_port="${LIVEREVIEW_FRONTEND_PORT:-8081}"
+    if [[ -f "$LIVEREVIEW_INSTALL_DIR/.env" ]]; then
+        backend_port=$(grep -E "^LIVEREVIEW_BACKEND_PORT=" "$LIVEREVIEW_INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d "[:space:]") || true
+        frontend_port=$(grep -E "^LIVEREVIEW_FRONTEND_PORT=" "$LIVEREVIEW_INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d "[:space:]") || true
+        backend_port="${backend_port:-8888}"
+        frontend_port="${frontend_port:-8081}"
+    fi
+
+    # --- Layer 1: the app itself -------------------------------------------
+    local app_api app_ui
+    app_api=$(_doctor_probe "http://127.0.0.1:${backend_port}/health")
+    app_ui=$(_doctor_probe "http://127.0.0.1:${frontend_port}/")
+
+    # --- Layer 2: this machine's web server, per port -----------------------
+    local origin80 origin443
+    origin80=$(_doctor_probe -H "Host: ${domain}" "http://127.0.0.1/")
+    origin443=$(_doctor_probe -k --resolve "${domain}:443:127.0.0.1" "https://${domain}/")
+
+    # --- Layer 3: what the public internet sees -----------------------------
+    local public_http public_https
+    public_http=$(_doctor_probe "http://${domain}/")
+    public_https=$(_doctor_probe "https://${domain}/")
+
+    # --- Topology: is anything in front of us? ------------------------------
+    local my_ip dns_ips cdn="none" headers=""
+    my_ip=$(curl -s --max-time 8 https://ifconfig.me 2>/dev/null || echo "")
+    dns_ips=$(getent hosts "$domain" 2>/dev/null | awk '{print $1}' | paste -sd, - || echo "")
+    headers=$(curl -sI --max-time 8 "https://${domain}/" 2>/dev/null || echo "")
+    if grep -qi "cf-ray\|server: *cloudflare" <<< "$headers"; then
+        cdn="cloudflare"
+    elif [[ -n "$dns_ips" && -n "$my_ip" ]] && ! grep -q "$my_ip" <<< "$dns_ips"; then
+        cdn="unknown proxy/CDN"
+    fi
+
+    _doctor_prereqs "$domain" "$my_ip" "$cdn"
+
+    section_header "CONNECTIVITY"
+    log_info "Domain:        $domain"
+    log_info "This host IP:  ${my_ip:-unknown}"
+    log_info "DNS resolves:  ${dns_ips:-unresolved}"
+    log_info "In front:      $cdn"
+    echo ""
+    log_info "  app  :${backend_port}/health   ${app_api}"
+    log_info "  app  :${frontend_port}/         ${app_ui}"
+    log_info "  origin :80             ${origin80}"
+    log_info "  origin :443            ${origin443}"
+    log_info "  public http://         ${public_http}"
+    log_info "  public https://        ${public_https}"
+    echo ""
+
+    # --- Diagnosis ----------------------------------------------------------
+    section_header "DIAGNOSIS"
+
+    if [[ "$app_api" != "200" ]]; then
+        log_error "The application is not responding on 127.0.0.1:${backend_port}."
+        log_info "Nothing in front of it can work until this is fixed."
+        log_info "Check: lrops.sh status  &&  lrops.sh logs livereview-app"
+        return 1
+    fi
+    log_success "Application is healthy on 127.0.0.1:${backend_port}"
+
+    if [[ "$origin80" != "200" && "$origin443" != "200" ]]; then
+        log_error "No web server on this host serves '${domain}' on either port."
+        log_info "The reverse proxy vhost is missing or not enabled."
+        log_info "Set it up with: lrops.sh help nginx   (or help caddy / help apache)"
+        return 1
+    fi
+
+    case "$public_https" in
+        521)
+            log_error "Cloudflare returns 521 - it cannot open a connection to this origin."
+            log_info "521 means the CDN is connecting over HTTPS (SSL mode Full or Full-strict),"
+            log_info "but this origin has no :443 listener (origin :443 = ${origin443})."
+            log_info "Fix, in order of preference:"
+            log_info "  1. Give the origin a real certificate:  lrops.sh setup-ssl ${domain}"
+            log_info "  2. Or set the CDN's SSL mode to Flexible so it uses :80 instead"
+            ;;
+        526)
+            log_error "Cloudflare returns 526 - origin certificate is not trusted."
+            log_info "The CDN is on 'Full (strict)', which rejects self-signed certificates."
+            log_info "Issue a real certificate:  lrops.sh setup-ssl ${domain}"
+            log_info "Or relax the CDN SSL mode from 'Full (strict)' to 'Full'."
+            ;;
+        525)
+            log_error "Cloudflare returns 525 - TLS handshake with the origin failed."
+            log_info "Check the ssl_certificate / ssl_certificate_key paths and ssl_protocols."
+            ;;
+        522)
+            log_error "Cloudflare returns 522 - connection to the origin timed out."
+            log_info "Usually a firewall dropping CDN traffic. Check: sudo ufw status"
+            ;;
+        200)
+            log_success "Public HTTPS is serving correctly (200)"
+            if [[ "$cdn" == "cloudflare" && "$origin443" != "200" ]]; then
+                log_warning "This works only because the CDN is on 'Flexible' SSL - CDN-to-origin"
+                log_warning "traffic is unencrypted. Enable origin TLS: lrops.sh setup-ssl ${domain}"
+            fi
+            if [[ "$origin443" == "200" ]]; then
+                local issuer
+                issuer=$(echo | openssl s_client -connect "127.0.0.1:443" -servername "$domain" 2>/dev/null | openssl x509 -noout -issuer 2>/dev/null || echo "")
+                if [[ -n "$issuer" ]] && grep -q "CN *= *${domain}" <<< "$issuer"; then
+                    log_warning "The origin certificate appears self-signed. It works behind a CDN"
+                    log_warning "on 'Full', but fails on 'Full (strict)' and for any direct visitor."
+                    log_warning "Issue a real certificate: lrops.sh setup-ssl ${domain}"
+                fi
+            fi
+            ;;
+        -)
+            log_error "No response at all from https://${domain}/"
+            log_info "DNS may not point here yet, or :443 is firewalled."
+            log_info "DNS resolves to: ${dns_ips:-nothing}. This host is: ${my_ip:-unknown}."
+            ;;
+        *)
+            log_warning "Public HTTPS returned ${public_https} (origin :80=${origin80}, :443=${origin443})"
+            ;;
+    esac
+
+    # Direct-exposure check: published container ports bypass the proxy entirely.
+    if [[ -n "$my_ip" ]]; then
+        local direct
+        direct=$(_doctor_probe "http://${my_ip}:${frontend_port}/")
+        if [[ "$direct" == "200" ]]; then
+            echo ""
+            log_warning "The app answers directly on http://${my_ip}:${frontend_port}/ - visitors can"
+            log_warning "bypass the reverse proxy (and the CDN) entirely. Bind the published"
+            log_warning "ports to 127.0.0.1 in docker-compose.yml, or firewall them."
+        fi
+    fi
+
+    return 0
+}
+
+# =============================================================================
 # SCRIPT ENTRY POINT
 # =============================================================================
 
@@ -5626,116 +5914,177 @@ LIVEREVIEW_PRICING_PROFILE=actual
 
 # === DATA:nginx.conf.example ===
 # Copy to /etc/nginx/sites-available/livereview and enable
+#
+# Debian/Ubuntu packaged nginx:
+#   sudo cp nginx.conf.example /etc/nginx/sites-available/livereview
+#   sudo ln -s /etc/nginx/sites-available/livereview /etc/nginx/sites-enabled/
+# Source-built nginx (no sites-available/sites-enabled):
+#   sudo cp nginx.conf.example /etc/nginx/conf.d/livereview.conf
+# Then: sudo nginx -t && sudo systemctl reload nginx
+
+# Upstream keepalive pools: without these, nginx opens a brand-new TCP connection to the
+# single-instance Go backend for every proxied request (its default proxy_pass behavior is
+# HTTP/1.0-style, connection-per-request). Invisible under light/sequential load, but under a
+# burst of many simultaneous requests - e.g. right after login, when the browser fires off many
+# JS chunk downloads plus API calls at once - connection setup churns across the whole burst and
+# every request in it stalls, static files included. `keepalive N` lets nginx reuse a pool of
+# persistent connections to each backend instead of opening a fresh one per request.
+# See docs/perf-improvement.md in the LiveReview repo.
+upstream livereview_api {
+    server 127.0.0.1:8888;
+    keepalive 32;
+}
+
+upstream livereview_ui {
+    server 127.0.0.1:8081;
+    keepalive 32;
+}
+
+# Only send "Connection: upgrade" for requests that actually are WebSocket upgrades.
+# Setting it unconditionally breaks the keepalive pools above (and is protocol-incorrect
+# on ordinary requests), so it must stay empty for everything else.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
 
 server {
     listen 80;
     server_name your-domain.com;  # Replace with your domain
-    
+
     # Security headers
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    
+
     # Increase client max body size for file uploads
     client_max_body_size 100M;
-    
+
     # Prevent proxy temp file issues
     proxy_max_temp_file_size 0;
-    
+
+    # Let's Encrypt HTTP-01 challenge (keep this reachable over plain HTTP for renewals)
+    location /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+    }
+
     # Route API requests to backend (port 8888)
     location ^~ /api/ {
-        proxy_pass http://127.0.0.1:8888;
+        proxy_pass http://livereview_api;
+
+        # Required for the upstream keepalive pool to take effect: it only works over
+        # HTTP/1.1 with the Connection header cleared (nginx defaults to HTTP/1.0 +
+        # Connection: close otherwise, which defeats the upstream{} pool above).
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # WebSocket support if needed
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        
+
         # Timeouts
         proxy_connect_timeout 60s;
         proxy_send_timeout 60s;
         proxy_read_timeout 60s;
     }
-    
+
     # Route everything else to frontend (port 8081)
     location / {
-        proxy_pass http://127.0.0.1:8081;
+        proxy_pass http://livereview_ui;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # WebSocket support for hot reload in development
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
+
+        # The livereview-ui process pre-gzips its static assets at startup and sends
+        # Content-Encoding: gzip itself (cmd/ui.go, buildCompressedAssets). nginx
+        # re-compressing an already-gzipped response on every request was the confirmed
+        # root cause of multi-second stalls across entire request bursts (static files AND
+        # unrelated API calls queuing behind the same CPU-bound compression work). nginx
+        # already skips gzip when Content-Encoding is set; this makes the intent explicit.
+        # See docs/perf-improvement.md "Finding A" in the LiveReview repo.
+        gzip off;
     }
 }
 
+# ---------------------------------------------------------------------------
+# HTTPS: run `sudo lrops.sh setup-ssl <domain>` to obtain a certificate and
+# uncomment the two blocks below automatically, or uncomment them by hand.
+# Note: once the redirect server is enabled, remove the proxy `location` blocks
+# from the plain-HTTP server above (keep its acme-challenge location), otherwise
+# two servers listen on :80 for the same name and nginx keeps only the first.
+# ---------------------------------------------------------------------------
+
 # HTTPS configuration (uncomment after setting up SSL)
 # server {
-#     listen 443 ssl http2;
+#     listen 443 ssl;
+#     http2 on;
 #     server_name your-domain.com;
-#     
-#     # SSL certificate files (adjust paths as needed)
-#     ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+#
+#     ssl_certificate     /etc/letsencrypt/live/your-domain.com/fullchain.pem;
 #     ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
-#     
-#     # SSL configuration
+#
 #     ssl_protocols TLSv1.2 TLSv1.3;
-#     ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
 #     ssl_prefer_server_ciphers off;
 #     ssl_session_cache shared:SSL:10m;
 #     ssl_session_timeout 10m;
-#     
-#     # Security headers
+#
 #     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 #     add_header X-Frame-Options "SAMEORIGIN" always;
 #     add_header X-Content-Type-Options "nosniff" always;
 #     add_header X-XSS-Protection "1; mode=block" always;
 #     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-#     
-#     # Same location blocks as HTTP version
+#
 #     client_max_body_size 100M;
-#     
-#     # Prevent proxy temp file issues
 #     proxy_max_temp_file_size 0;
-#     
+#
 #     location ^~ /api/ {
-#         proxy_pass http://127.0.0.1:8888;
+#         proxy_pass http://livereview_api;
+#         proxy_http_version 1.1;
+#         proxy_set_header Upgrade $http_upgrade;
+#         proxy_set_header Connection $connection_upgrade;
 #         proxy_set_header Host $host;
 #         proxy_set_header X-Real-IP $remote_addr;
 #         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 #         proxy_set_header X-Forwarded-Proto $scheme;
-#         proxy_http_version 1.1;
-#         proxy_set_header Upgrade $http_upgrade;
-#         proxy_set_header Connection "upgrade";
 #         proxy_connect_timeout 60s;
 #         proxy_send_timeout 60s;
 #         proxy_read_timeout 60s;
 #     }
-#     
+#
 #     location / {
-#         proxy_pass http://127.0.0.1:8081;
+#         proxy_pass http://livereview_ui;
+#         proxy_http_version 1.1;
+#         proxy_set_header Upgrade $http_upgrade;
+#         proxy_set_header Connection $connection_upgrade;
 #         proxy_set_header Host $host;
 #         proxy_set_header X-Real-IP $remote_addr;
 #         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 #         proxy_set_header X-Forwarded-Proto $scheme;
-#         proxy_http_version 1.1;
-#         proxy_set_header Upgrade $http_upgrade;
-#         proxy_set_header Connection "upgrade";
+#         gzip off;
 #     }
 # }
+
 # Redirect HTTP to HTTPS (uncomment after setting up SSL)
 # server {
 #     listen 80;
 #     server_name your-domain.com;
-#     return 301 https://$server_name$request_uri;
+#
+#     location /.well-known/acme-challenge/ {
+#         root /var/www/letsencrypt;
+#     }
+#
+#     location / {
+#         return 301 https://$host$request_uri;
+#     }
 # }
 # === END:nginx.conf.example ===
 
@@ -5746,6 +6095,12 @@ server {
 your-domain.com {
     # Automatic HTTPS with Let's Encrypt
     
+    # NOTE: do NOT add an `encode gzip` directive here. The livereview-ui process
+    # pre-gzips its static assets at startup and sends Content-Encoding: gzip itself
+    # (cmd/ui.go, buildCompressedAssets). Re-compressing already-gzipped responses on
+    # every request was the confirmed cause of multi-second stalls across whole request
+    # bursts. See docs/perf-improvement.md "Finding A" in the LiveReview repo.
+
     # Handle API routes (send to backend)
     handle /api/* {
         reverse_proxy localhost:8888 {
@@ -5753,6 +6108,17 @@ your-domain.com {
             header_up X-Real-IP {remote_host}
             header_up X-Forwarded-For {remote_host}
             header_up X-Forwarded-Proto {scheme}
+
+            # Reuse connections to the single-instance Go backend instead of opening a
+            # new one per request. Caddy keeps connections alive by default; this makes
+            # the pool size explicit and matches the nginx template's `keepalive 32`.
+            transport http {
+                keepalive 2m
+                keepalive_idle_conns 32
+                # Reviews can take a while - do not cut long API calls short.
+                read_timeout 300s
+                write_timeout 300s
+            }
         }
     }
     
@@ -5763,6 +6129,11 @@ your-domain.com {
             header_up X-Real-IP {remote_host}
             header_up X-Forwarded-For {remote_host}
             header_up X-Forwarded-Proto {scheme}
+
+            transport http {
+                keepalive 2m
+                keepalive_idle_conns 32
+            }
         }
     }
     
@@ -5779,7 +6150,8 @@ your-domain.com {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
     }
     
-    # File upload size limit
+    # File upload size limit. Review submissions upload archives - keep this well
+    # above your largest expected payload or uploads fail with 413.
     request_body {
         max_size 100MB
     }
@@ -5821,15 +6193,24 @@ your-domain.com {
     Header always set X-XSS-Protection "1; mode=block"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     
-    # Increase upload size
+    # Increase upload size. Review submissions upload archives - keep this well above
+    # your largest expected payload or uploads fail with 413.
     LimitRequestBody 104857600  # 100MB
     
     # Proxy API requests to backend (port 8888)
     ProxyPreserveHost On
     ProxyRequests Off
     
+    # Reviews can be long-running - do not cut API calls short (default is 60s).
+    ProxyTimeout 300
+
     <Location /api/>
-        ProxyPass http://127.0.0.1:8888/api/
+        # enablereuse=on keeps connections to the single-instance Go backend alive
+        # instead of opening a new one per request, which under bursts (many parallel
+        # requests right after login) stalls every request in the burst.
+        # Equivalent to `keepalive 32` in the nginx template.
+        # See docs/perf-improvement.md in the LiveReview repo.
+        ProxyPass http://127.0.0.1:8888/api/ enablereuse=on timeout=300
         ProxyPassReverse http://127.0.0.1:8888/api/
         
         # Forward headers
@@ -5841,8 +6222,15 @@ your-domain.com {
     
     # Proxy everything else to frontend (port 8081)
     <Location />
-        ProxyPass http://127.0.0.1:8081/
+        ProxyPass http://127.0.0.1:8081/ enablereuse=on
         ProxyPassReverse http://127.0.0.1:8081/
+
+        # Do NOT enable mod_deflate here. The livereview-ui process pre-gzips its
+        # static assets and sends Content-Encoding: gzip itself (cmd/ui.go,
+        # buildCompressedAssets); re-compressing them was the confirmed cause of
+        # multi-second stalls across whole request bursts. mod_deflate skips already
+        # encoded responses, but this makes the intent explicit.
+        SetEnv no-gzip 1
         
         # Forward headers
         ProxySetHeader Host %{HTTP_HOST}
@@ -5884,8 +6272,10 @@ your-domain.com {
 #     ProxyRequests Off
 #     LimitRequestBody 104857600
 #     
+#     ProxyTimeout 300
+#
 #     <Location /api/>
-#         ProxyPass http://127.0.0.1:8888/api/
+#         ProxyPass http://127.0.0.1:8888/api/ enablereuse=on timeout=300
 #         ProxyPassReverse http://127.0.0.1:8888/api/
 #         ProxySetHeader Host %{HTTP_HOST}
 #         ProxySetHeader X-Real-IP %{REMOTE_ADDR}
@@ -5894,8 +6284,9 @@ your-domain.com {
 #     </Location>
 #     
 #     <Location />
-#         ProxyPass http://127.0.0.1:8081/
+#         ProxyPass http://127.0.0.1:8081/ enablereuse=on
 #         ProxyPassReverse http://127.0.0.1:8081/
+#         SetEnv no-gzip 1
 #         ProxySetHeader Host %{HTTP_HOST}
 #         ProxySetHeader X-Real-IP %{REMOTE_ADDR}
 #         ProxySetHeader X-Forwarded-For %{REMOTE_ADDR}
@@ -5922,7 +6313,15 @@ your-domain.com {
 set -euo pipefail
 
 # Configuration
-LIVEREVIEW_DIR=~/livereview
+# Resolve the install directory. Under `sudo`, `~` is /root, so a bare ~/livereview
+# silently points at root's home - which may hold a stale or missing install.
+if [[ -n "${LIVEREVIEW_INSTALL_DIR:-}" ]]; then
+    LIVEREVIEW_DIR="$LIVEREVIEW_INSTALL_DIR"
+elif [[ -n "${SUDO_USER:-}" ]]; then
+    LIVEREVIEW_DIR="$(getent passwd "$SUDO_USER" | cut -d: -f6)/livereview"
+else
+    LIVEREVIEW_DIR="$HOME/livereview"
+fi
 BACKUP_BASE_DIR=~/livereview/backups
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 BACKUP_NAME="${1:-livereview_backup_${TIMESTAMP}}"
@@ -5980,7 +6379,7 @@ fi
 
 # Backup database
 log_info "Backing up database..."
-if docker ps --format "table {{.Names}}" | grep -q "livereview-db"; then
+if [[ -n "$(docker ps --filter "name=livereview-db" --format "{{.Names}}" 2>/dev/null)" ]]; then
     # Database is running, create dump
     if docker exec livereview-db pg_dump -U livereview livereview > "$BACKUP_DIR/database_dump.sql"; then
         log_success "✓ Database dump created"
@@ -6068,7 +6467,15 @@ log_info "To restore: ./restore.sh $BACKUP_NAME"
 set -euo pipefail
 
 # Configuration
-LIVEREVIEW_DIR=~/livereview
+# Resolve the install directory. Under `sudo`, `~` is /root, so a bare ~/livereview
+# silently points at root's home - which may hold a stale or missing install.
+if [[ -n "${LIVEREVIEW_INSTALL_DIR:-}" ]]; then
+    LIVEREVIEW_DIR="$LIVEREVIEW_INSTALL_DIR"
+elif [[ -n "${SUDO_USER:-}" ]]; then
+    LIVEREVIEW_DIR="$(getent passwd "$SUDO_USER" | cut -d: -f6)/livereview"
+else
+    LIVEREVIEW_DIR="$HOME/livereview"
+fi
 BACKUP_BASE_DIR=~/livereview/backups
 
 # Colors for output
@@ -6216,7 +6623,7 @@ if [[ -f "$RESTORE_SOURCE/database_dump.sql" ]]; then
     log_info "Waiting for database to be ready..."
     sleep 10
     
-    if docker ps --format "table {{.Names}}" | grep -q "livereview-db"; then
+    if [[ -n "$(docker ps --filter "name=livereview-db" --format "{{.Names}}" 2>/dev/null)" ]]; then
         log_info "Restoring database from dump..."
         if docker exec -i livereview-db psql -U livereview livereview < "$RESTORE_SOURCE/database_dump.sql"; then
             log_success "✓ Database restored from dump"
@@ -6286,7 +6693,26 @@ set -euo pipefail
 # Configuration
 DOMAIN="${1:-}"
 EMAIL="${2:-}"
-LIVEREVIEW_DIR=~/livereview
+# Resolve the install directory. Under `sudo`, `~` is /root, so a bare ~/livereview
+# silently points at root's home - which may hold a stale or missing install.
+if [[ -n "${LIVEREVIEW_INSTALL_DIR:-}" ]]; then
+    LIVEREVIEW_DIR="$LIVEREVIEW_INSTALL_DIR"
+elif [[ -n "${SUDO_USER:-}" ]]; then
+    LIVEREVIEW_DIR="$(getent passwd "$SUDO_USER" | cut -d: -f6)/livereview"
+else
+    LIVEREVIEW_DIR="$HOME/livereview"
+fi
+
+# In-place sed that works on both GNU (Linux) and BSD (macOS) sed. This script is
+# standalone, so it must define this itself rather than inherit it from lrops.sh.
+sudo_sed_inplace() {
+    local script="$1"
+    local file="$2"
+    case "$(uname -s)" in
+        Darwin) sudo sed -i '' "$script" "$file" ;;
+        *)      sudo sed -i   "$script" "$file" ;;
+    esac
+}
 
 # Colors for output
 RED='\033[0;31m'
@@ -6385,115 +6811,283 @@ else
     log_success "✓ Certbot is already available"
 fi
 
-# Check if LiveReview is running
-if ! docker ps | grep -q livereview; then
+# Check if LiveReview is running.
+# NOTE: do not pipe `docker ps` into `grep -q` - grep exits on the first match, docker ps
+# then takes SIGPIPE and exits 141, and `set -o pipefail` turns that into a false
+# "containers are not running" roughly 40% of the time.
+if [[ -z "$(docker ps --filter "name=livereview" --format "{{.Names}}" 2>/dev/null)" ]]; then
     log_error "LiveReview containers are not running"
     log_info "Start LiveReview first: lrops.sh start"
     exit 1
 fi
 
-# Prepare for certificate generation
-log_info "Preparing for certificate generation..."
+# Back up a file before modifying it, so an existing configuration is never lost.
+backup_file() {
+    local f="$1"
+    [[ -f "$f" ]] || return 0
+    local bak="${f}.lrbak.$(date +%Y%m%d-%H%M%S)"
+    sudo cp -a "$f" "$bak"
+    log_info "Backed up $f -> $bak"
+}
 
-# Stop nginx/apache if running on ports 80/443
-for service in nginx apache2 httpd; do
-    if systemctl is-active --quiet "$service" 2>/dev/null; then
-        log_info "Stopping $service temporarily..."
-        sudo systemctl stop "$service"
+# Which reverse proxy should terminate TLS? Ask rather than infer: guessing from
+# which files happen to exist picks the wrong one on hosts that have more than one
+# installed, and then writes config for a proxy that is not actually serving.
+detect_default_proxy() {
+    # Prefer whichever is actually running, then whichever is merely installed.
+    for svc in nginx caddy apache2; do
+        if systemctl is-active --quiet "$svc" 2>/dev/null; then
+            case "$svc" in
+                nginx)   echo 1; return ;;
+                caddy)   echo 2; return ;;
+                apache2) echo 3; return ;;
+            esac
+        fi
+    done
+    command -v nginx     >/dev/null 2>&1 && { echo 1; return; }
+    command -v caddy     >/dev/null 2>&1 && { echo 2; return; }
+    command -v apache2   >/dev/null 2>&1 && { echo 3; return; }
+    echo 0
+}
+
+PROXY_DEFAULT="$(detect_default_proxy)"
+PROXY_CHOICE="${LIVEREVIEW_PROXY:-}"
+
+if [[ -z "$PROXY_CHOICE" ]]; then
+    if [[ -t 0 ]]; then
+        echo ""
+        log_info "Which reverse proxy should serve $DOMAIN?"
+        echo "  1) nginx"
+        echo "  2) Caddy"
+        echo "  3) Apache"
+        echo "  4) None - just issue the certificate, I will configure it myself"
+        if [[ "$PROXY_DEFAULT" != "0" ]]; then
+            read -r -p "Select [${PROXY_DEFAULT}]: " PROXY_CHOICE
+            PROXY_CHOICE="${PROXY_CHOICE:-$PROXY_DEFAULT}"
+        else
+            read -r -p "Select [4]: " PROXY_CHOICE
+            PROXY_CHOICE="${PROXY_CHOICE:-4}"
+        fi
+    else
+        # Non-interactive (piped installer, CI): fall back to detection.
+        PROXY_CHOICE="${PROXY_DEFAULT:-4}"
+        [[ "$PROXY_CHOICE" == "0" ]] && PROXY_CHOICE=4
+        log_info "Non-interactive; using detected proxy choice: $PROXY_CHOICE"
     fi
-done
-
-# Generate certificate using standalone mode
-log_info "Generating SSL certificate..."
-if [[ -n "$EMAIL" ]]; then
-    CERT_CMD="sudo certbot certonly --standalone --non-interactive --agree-tos --email $EMAIL -d $DOMAIN"
-else
-    CERT_CMD="sudo certbot certonly --standalone --agree-tos -d $DOMAIN"
 fi
 
-if $CERT_CMD; then
-    log_success "✓ SSL certificate generated successfully"
+case "$PROXY_CHOICE" in
+    1) PROXY_KIND="nginx"  ;;
+    2) PROXY_KIND="caddy"  ;;
+    3) PROXY_KIND="apache" ;;
+    *) PROXY_KIND="none"   ;;
+esac
+log_info "Reverse proxy: $PROXY_KIND"
+
+# Caddy obtains and renews certificates itself (automatic HTTPS). Running certbot
+# for it is unnecessary, and certbot --standalone would fail anyway because Caddy
+# holds port 80.
+if [[ "$PROXY_KIND" == "caddy" ]]; then
+    log_info "Caddy manages certificates automatically - skipping certbot"
 else
-    log_error "Certificate generation failed"
-    exit 1
+    # Prepare for certificate generation
+    log_info "Preparing for certificate generation..."
+
+    # Stop whatever holds :80 so certbot --standalone can bind it, and remember what
+    # we stopped so it comes back up even if issuance fails.
+    STOPPED_SERVICES=""
+    restart_stopped_services() {
+        for svc in $STOPPED_SERVICES; do
+            log_info "Restarting $svc..."
+            sudo systemctl start "$svc" || log_warning "Could not restart $svc"
+        done
+        STOPPED_SERVICES=""
+    }
+    trap restart_stopped_services EXIT
+
+    for service in nginx apache2 httpd caddy; do
+        if systemctl is-active --quiet "$service" 2>/dev/null; then
+            log_info "Stopping $service temporarily..."
+            sudo systemctl stop "$service"
+            STOPPED_SERVICES="$STOPPED_SERVICES $service"
+        fi
+    done
+
+    log_info "Generating SSL certificate..."
+    if [[ -n "$EMAIL" ]]; then
+        CERT_CMD="sudo certbot certonly --standalone --non-interactive --agree-tos --email $EMAIL -d $DOMAIN"
+    else
+        CERT_CMD="sudo certbot certonly --standalone --agree-tos -d $DOMAIN"
+    fi
+
+    if $CERT_CMD; then
+        log_success "✓ SSL certificate generated successfully"
+    else
+        log_error "Certificate generation failed"
+        exit 1
+    fi
+
+    log_info "Setting up automatic renewal..."
+    sudo crontab -l 2>/dev/null | grep -v "certbot renew" | sudo crontab - 2>/dev/null || true
+    (sudo crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | sudo crontab -
+    log_success "✓ Automatic renewal configured"
 fi
 
-# Set up automatic renewal
-log_info "Setting up automatic renewal..."
-sudo crontab -l 2>/dev/null | grep -v "certbot renew" | sudo crontab - 2>/dev/null || true
-(sudo crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | sudo crontab -
-
-log_success "✓ Automatic renewal configured"
+# Build the TLS-enabled config from the bundled template.
+render_nginx_conf() {
+    local out="$1"
+    sudo cp "$LIVEREVIEW_DIR/config/nginx.conf.example" "$out"
+    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "$out"
+    # Uncomment the commented-out directives, but leave the two human-readable anchor
+    # headings commented - uncommenting those emitted them as nginx directives and made
+    # the generated config fail to load ("unknown directive \"HTTPS\"").
+    sudo_sed_inplace '/^# HTTPS configuration/,/^# Redirect HTTP to HTTPS/{/^# HTTPS configuration/b
+/^# Redirect HTTP to HTTPS/b
+s/^# //
+s/^#$//
+}' "$out"
+    sudo_sed_inplace '/^# Redirect HTTP to HTTPS/,/^# }/{/^# Redirect HTTP to HTTPS/b
+s/^# //
+s/^#$//
+}' "$out"
+}
 
 # Update reverse proxy configuration
 log_info "Updating reverse proxy configuration..."
 
-# Check which reverse proxy configuration exists
-if [[ -f "/etc/nginx/sites-available/livereview" ]] || [[ -f "/etc/nginx/conf.d/livereview.conf" ]]; then
-    log_info "Updating nginx configuration..."
-    # Create SSL-enabled nginx config
-    sudo cp "$LIVEREVIEW_DIR/config/nginx.conf.example" "/tmp/livereview-ssl.conf"
-    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "/tmp/livereview-ssl.conf"
-    
-    # Uncomment HTTPS section
-    sudo_sed_inplace '/# HTTPS configuration/,/# Redirect HTTP to HTTPS/s/^# //' "/tmp/livereview-ssl.conf"
-    sudo_sed_inplace '/# Redirect HTTP to HTTPS/,/# }/s/^# //' "/tmp/livereview-ssl.conf"
-    
-    # Install the configuration
-    sudo cp "/tmp/livereview-ssl.conf" "/etc/nginx/sites-available/livereview"
-    sudo ln -sf "/etc/nginx/sites-available/livereview" "/etc/nginx/sites-enabled/livereview"
-    
-    # Test and reload nginx
+case "$PROXY_KIND" in
+nginx)
+    if ! command -v nginx >/dev/null 2>&1; then
+        log_error "nginx was selected but is not installed"
+        exit 1
+    fi
+    NGINX_VHOST=""
+    for candidate in \
+        /etc/nginx/sites-available/livereview.conf \
+        /etc/nginx/sites-available/livereview \
+        /etc/nginx/conf.d/livereview.conf; do
+        [[ -f "$candidate" ]] && { NGINX_VHOST="$candidate"; break; }
+    done
+    if [[ -z "$NGINX_VHOST" ]]; then
+        if [[ -d /etc/nginx/sites-available ]]; then
+            NGINX_VHOST="/etc/nginx/sites-available/livereview.conf"
+        else
+            NGINX_VHOST="/etc/nginx/conf.d/livereview.conf"
+        fi
+        log_info "No LiveReview vhost found - creating $NGINX_VHOST"
+    fi
+
+    render_nginx_conf "/tmp/livereview-ssl.conf"
+    backup_file "$NGINX_VHOST"
+    sudo cp "/tmp/livereview-ssl.conf" "$NGINX_VHOST"
+    if [[ "$NGINX_VHOST" == /etc/nginx/sites-available/* ]]; then
+        sudo mkdir -p /etc/nginx/sites-enabled
+        sudo ln -sf "$NGINX_VHOST" "/etc/nginx/sites-enabled/$(basename "$NGINX_VHOST")"
+    fi
+
     if sudo nginx -t; then
-        sudo systemctl reload nginx
+        if systemctl is-active --quiet nginx; then
+            sudo systemctl reload nginx
+        else
+            sudo systemctl start nginx
+        fi
+        STOPPED_SERVICES="${STOPPED_SERVICES// nginx/}"
         log_success "✓ Nginx configuration updated"
     else
-        log_error "Nginx configuration test failed"
+        log_error "Nginx configuration test failed - restoring is possible from the .lrbak file"
     fi
-    
-elif [[ -f "/etc/caddy/Caddyfile" ]]; then
-    log_info "Updating Caddy configuration..."
-    sudo cp "$LIVEREVIEW_DIR/config/caddy.conf.example" "/etc/caddy/Caddyfile"
-    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "/etc/caddy/Caddyfile"
-    sudo systemctl reload caddy
-    log_success "✓ Caddy configuration updated (automatic HTTPS)"
-    
-elif [[ -f "/etc/apache2/sites-available/livereview.conf" ]]; then
-    log_info "Updating Apache configuration..."
-    sudo cp "$LIVEREVIEW_DIR/config/apache.conf.example" "/tmp/livereview-ssl.conf"
-    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "/tmp/livereview-ssl.conf"
-    
-    # Uncomment HTTPS section
-    sudo_sed_inplace '/# HTTPS virtual host/,/# <\/VirtualHost>/s/^# //' "/tmp/livereview-ssl.conf"
-    sudo_sed_inplace '/# Redirect HTTP to HTTPS/,/# <\/VirtualHost>/s/^# //' "/tmp/livereview-ssl.conf"
-    
-    sudo cp "/tmp/livereview-ssl.conf" "/etc/apache2/sites-available/livereview.conf"
-    
-    # Enable SSL module and site
-    sudo a2enmod ssl
-    sudo a2ensite livereview
-    
+    ;;
+
+caddy)
+    if ! command -v caddy >/dev/null 2>&1; then
+        log_error "Caddy was selected but is not installed"
+        exit 1
+    fi
+    # Write a dedicated site file instead of overwriting /etc/caddy/Caddyfile, which
+    # may serve other sites. Only add the import line if it is not already there.
+    CADDY_SITE_DIR="/etc/caddy/conf.d"
+    CADDY_SITE="$CADDY_SITE_DIR/livereview.caddy"
+    sudo mkdir -p "$CADDY_SITE_DIR"
+    backup_file "$CADDY_SITE"
+    sudo cp "$LIVEREVIEW_DIR/config/caddy.conf.example" "$CADDY_SITE"
+    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "$CADDY_SITE"
+
+    if [[ -f /etc/caddy/Caddyfile ]] && ! sudo grep -q "conf.d/\*" /etc/caddy/Caddyfile; then
+        backup_file /etc/caddy/Caddyfile
+        echo "import $CADDY_SITE_DIR/*" | sudo tee -a /etc/caddy/Caddyfile >/dev/null
+        log_info "Added 'import $CADDY_SITE_DIR/*' to /etc/caddy/Caddyfile"
+    fi
+
+    if sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>/dev/null; then
+        sudo systemctl reload caddy 2>/dev/null || sudo systemctl start caddy
+        log_success "✓ Caddy configuration updated (automatic HTTPS)"
+    else
+        log_error "Caddy configuration test failed - restore from the .lrbak file if needed"
+    fi
+    ;;
+
+apache)
+    if ! command -v apache2 >/dev/null 2>&1 && ! command -v httpd >/dev/null 2>&1; then
+        log_error "Apache was selected but is not installed"
+        exit 1
+    fi
+    APACHE_VHOST="/etc/apache2/sites-available/livereview.conf"
+    [[ -f "$APACHE_VHOST" ]] || log_info "No LiveReview vhost found - creating $APACHE_VHOST"
+    backup_file "$APACHE_VHOST"
+    sudo cp "$LIVEREVIEW_DIR/config/apache.conf.example" "$APACHE_VHOST"
+    sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "$APACHE_VHOST"
+    # Uncomment the HTTPS virtual host, leaving its heading comment intact.
+    sudo_sed_inplace '/^# HTTPS virtual host/,/^# <\/VirtualHost>/{/^# HTTPS virtual host/b
+s/^# //
+s/^#$//
+}' "$APACHE_VHOST"
+
+    sudo a2enmod ssl proxy proxy_http headers >/dev/null 2>&1 || true
+    sudo a2ensite livereview >/dev/null 2>&1 || true
+
     if sudo apache2ctl configtest; then
-        sudo systemctl reload apache2
+        if systemctl is-active --quiet apache2; then
+            sudo systemctl reload apache2
+        else
+            sudo systemctl start apache2
+        fi
+        STOPPED_SERVICES="${STOPPED_SERVICES// apache2/}"
         log_success "✓ Apache configuration updated"
     else
-        log_error "Apache configuration test failed"
+        log_error "Apache configuration test failed - restore from the .lrbak file if needed"
     fi
-else
-    log_warning "No reverse proxy configuration found"
-    log_info "Please configure your reverse proxy manually"
+    ;;
+
+*)
+    log_warning "No reverse proxy configured (you chose to do it yourself)"
     log_info "Certificate files:"
     log_info "  - Certificate: /etc/letsencrypt/live/$DOMAIN/fullchain.pem"
     log_info "  - Private Key: /etc/letsencrypt/live/$DOMAIN/privkey.pem"
-fi
+    ;;
+esac
 
 # Verify SSL certificate
 log_info "Verifying SSL certificate..."
 sleep 5  # Give time for configuration to reload
 
-if curl -s "https://$DOMAIN" >/dev/null 2>&1; then
+# Verify against this host's own :443 listener, not just the public URL. A CDN in
+# front can answer (or return its own error page) with curl still exiting 0, which
+# previously reported success even when no proxy had been configured at all.
+origin_https=$(curl -sk -o /dev/null -w "%{http_code}" --resolve "$DOMAIN:443:127.0.0.1" \
+    "https://$DOMAIN/" --max-time 10 2>/dev/null || echo "000")
+public_https=$(curl -s -o /dev/null -w "%{http_code}" "https://$DOMAIN/" --max-time 10 2>/dev/null || echo "000")
+
+if [[ "$origin_https" != "200" ]]; then
+    log_error "This server is not serving HTTPS for $DOMAIN (origin :443 = $origin_https)"
+    log_info "The certificate was issued, but no reverse proxy is terminating TLS with it."
+    log_info "Configure one - see: lrops.sh help nginx - then re-run this command."
+elif [[ "$public_https" == "200" ]]; then
     log_success "✅ SSL certificate is working!"
     log_success "✅ LiveReview is now accessible at: https://$DOMAIN"
+elif [[ "$public_https" =~ ^5 ]]; then
+    log_warning "This server serves HTTPS correctly, but https://$DOMAIN returns $public_https"
+    log_info "That is a CDN/proxy in front of this server, not a problem with the certificate."
+    log_info "Diagnose it with: lrops.sh doctor $DOMAIN"
 else
     log_warning "SSL verification failed, but certificate was generated"
     log_info "You may need to configure your reverse proxy manually"

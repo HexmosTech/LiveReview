@@ -1120,15 +1120,29 @@ func (s *Server) setupRoutes() {
 	adminGroup.PUT("/users/:user_id/org", s.userHandlers.TransferUserToOrg)
 	adminGroup.GET("/analytics/users", s.userHandlers.GetUserAnalytics)
 
-	// Super admin SMTP settings endpoints
-	adminGroup.GET("/settings/smtp", s.GetSMTPSettings)
-	adminGroup.PUT("/settings/smtp", s.UpdateSMTPSettings)
-	adminGroup.POST("/settings/smtp/test", s.TestSMTPSettings)
+	// Instance-wide config (SMTP, blob storage, production URL): self-hosted org
+	// owners may also manage it, but in cloud mode this config is shared across
+	// every tenant, so it stays super-admin-only there.
+	requireSuperAdminOrOwnerUnlessCloud := func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if s.deploymentConfig.IsCloud {
+				return authMiddleware.RequireSuperAdmin()(next)(c)
+			}
+			return authMiddleware.RequireSuperAdminOrOwner()(next)(c)
+		}
+	}
 
-	// Super admin blob-storage settings endpoints (see internal/blobstore)
-	adminGroup.GET("/settings/storage", s.GetStorageSettings)
-	adminGroup.PUT("/settings/storage", s.UpdateStorageSettings)
-	adminGroup.POST("/settings/storage/test", s.TestStorageSettings)
+	adminOrOwnerGroup := v1.Group("/admin")
+	adminOrOwnerGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	adminOrOwnerGroup.Use(requireSuperAdminOrOwnerUnlessCloud)
+
+	adminOrOwnerGroup.GET("/settings/smtp", s.GetSMTPSettings)
+	adminOrOwnerGroup.PUT("/settings/smtp", s.UpdateSMTPSettings)
+	adminOrOwnerGroup.POST("/settings/smtp/test", s.TestSMTPSettings)
+
+	adminOrOwnerGroup.GET("/settings/storage", s.GetStorageSettings)
+	adminOrOwnerGroup.PUT("/settings/storage", s.UpdateStorageSettings)
+	adminOrOwnerGroup.POST("/settings/storage/test", s.TestStorageSettings)
 
 	// Super admin log compaction settings endpoints
 	adminGroup.GET("/settings/compaction", s.GetCompactionSettings)
@@ -1222,9 +1236,11 @@ func (s *Server) setupRoutes() {
 	public.POST("/password/verify", s.VerifyAdminPassword)     // DEPRECATED
 	public.GET("/password/status", s.CheckAdminPasswordStatus) // DEPRECATED
 
-	// Production URL endpoints
-	v1.GET("/production-url", s.GetProductionURL)
-	v1.PUT("/production-url", s.UpdateProductionURL)
+	// Production URL endpoints: read is available to any authenticated user
+	// (used by connector/invite UI to display it); writing it is instance-wide
+	// config, so it follows the same rule as SMTP/storage settings above.
+	v1.GET("/production-url", s.GetProductionURL, RequireAuthOrAPIKey(s.tokenService, s.db))
+	v1.PUT("/production-url", s.UpdateProductionURL, RequireAuthOrAPIKey(s.tokenService, s.db), requireSuperAdminOrOwnerUnlessCloud)
 
 	// GitLab OAuth endpoints
 	v1.POST("/gitlab/token", s.GitLabHandleCodeExchange)
