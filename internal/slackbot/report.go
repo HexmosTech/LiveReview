@@ -9,19 +9,14 @@ import (
 
 	"github.com/slack-go/slack"
 
+	"github.com/livereview/internal/chatstats"
 	"github.com/livereview/internal/vlrender"
 )
 
-// renderedReport holds a single rendered chart with its metadata. Slack uploads
-// charts from in-memory PNGData, so no temp path is retained here.
-type renderedReport struct {
-	PNGData     []byte
-	Title       string
-	Description string
-	Query       string
-	TimeRange   string
-	Granularity string
-}
+// renderedReport mirrors vlrender.Report, matching the Discord/Teams bots -
+// previously a hand-rolled subset missing Context and Stats, so Slack silently
+// dropped organization/repo/person context and KPI chips the other bots show.
+type renderedReport vlrender.Report
 
 // renderVegaLiteReports parses the LLM response and renders 1+ charts at 2x
 // scale, cleaning up temp files afterwards (unless VL_CONVERT_DEBUG_DIR is set).
@@ -32,14 +27,7 @@ func renderVegaLiteReports(ctx context.Context, raw string) ([]renderedReport, e
 	}
 	out := make([]renderedReport, len(reports))
 	for i, r := range reports {
-		out[i] = renderedReport{
-			PNGData:     r.PNGData,
-			Title:       r.Title,
-			Description: r.Description,
-			Query:       r.Query,
-			TimeRange:   r.TimeRange,
-			Granularity: r.Granularity,
-		}
+		out[i] = renderedReport(r)
 		if os.Getenv("VL_CONVERT_DEBUG_DIR") != "" && r.PNGPath != "" {
 			log.Printf("[SlackBot] Vega-Lite debug files kept in: %s", r.PNGPath)
 		} else if r.PNGPath != "" {
@@ -58,18 +46,34 @@ func (oh *orgHandler) uploadReportsToSlack(channel, threadTS string, reports []r
 			filename = fmt.Sprintf("report_%d.png", i+1)
 		}
 		initialComment := r.Description
-		if r.Query != "" || r.TimeRange != "" || r.Granularity != "" {
+		if chips := chatstats.FormatChips(r.Stats); len(chips) > 0 {
 			if initialComment != "" {
 				initialComment += "\n\n"
 			}
-			detail := "Query: " + r.Query
-			if r.TimeRange != "" {
-				detail += "\nTime range: " + r.TimeRange
+			chipLines := make([]string, len(chips))
+			for ci, chip := range chips {
+				chipLines[ci] = fmt.Sprintf("*%s:* %s", chip.Label, chip.Value)
 			}
-			if r.Granularity != "" {
-				detail += "\nGranularity: " + r.Granularity
+			initialComment += strings.Join(chipLines, "\n")
+		}
+		var details []string
+		if r.Query != "" {
+			details = append(details, "Query: "+r.Query)
+		}
+		if r.TimeRange != "" {
+			details = append(details, "Time range: "+r.TimeRange)
+		}
+		if r.Granularity != "" {
+			details = append(details, "Granularity: "+r.Granularity)
+		}
+		if formattedCtx := r.Context.Format(); formattedCtx != "" {
+			details = append(details, "Context: "+formattedCtx)
+		}
+		if len(details) > 0 {
+			if initialComment != "" {
+				initialComment += "\n\n"
 			}
-			initialComment += detail
+			initialComment += strings.Join(details, "\n")
 		}
 		params := slack.UploadFileParameters{
 			Channel:         channel,

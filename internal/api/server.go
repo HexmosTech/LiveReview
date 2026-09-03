@@ -473,6 +473,8 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	mcp.RegisterSchema("GET", "/api/v1/prompts/:key/render", nil, RenderPromptQuery{})
 	mcp.RegisterSchema("POST", "/api/v1/mcp-agent/chat", nil, MCPAgentChatRequest{})
 	mcp.RegisterSchema("GET", "/api/v1/org/members", nil, nil)
+	mcp.RegisterSchema("GET", "/api/v1/repositories", nil, RepositoriesQuery{})
+	mcp.RegisterSchema("GET", "/api/v1/pull-requests", nil, PullRequestsQuery{})
 
 	mcp.RegisterEndpoints([]string{
 		"/api/v1/auth/me",
@@ -504,6 +506,8 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 		"/api/v1/mcp-api-integration-guide",
 		"/api/v1/mcp-agent/chat",
 		"/api/v1/org/members",
+		"/api/v1/repositories",
+		"/api/v1/pull-requests",
 	})
 
 	mcp.Mount("/api/mcp")
@@ -514,20 +518,23 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// never write to it.
 	logging.InitChatDebugLog() // reads LIVI_DEBUG_LOG at boot
 
-	// Starts building the product-guidance doc index (chromem-go + ONNX embedder)
-	// in the background. Agents fall back to this via docindex.GetGlobalIndex()
-	// when no per-request index was set, so no other wiring is needed.
-	docindex.InitGlobalIndex(context.Background(), docindex.DocsFS)
-
 	// Starts building the dbctx schema index in the background (non-blocking -
 	// see schema_index.go). It replaces the hand-written table listing in the
 	// analytics system prompt; a failed/slow build degrades to the static
 	// fallback rather than blocking startup or a chat turn indefinitely.
+	//
+	// Started before docindex: both init the same process-wide onnxruntime env
+	// (allowed once); dbctx has no guard against docindex winning that race.
 	if dsn, err := database.LoadDatabaseURL(); err == nil {
 		mcpagent.InitSchemaIndex(dsn)
 	} else {
 		fmt.Printf("Warning: dbctx schema index not started: %v (analytics prompts will use the static fallback schema)\n", err)
 	}
+
+	// Starts building the product-guidance doc index (chromem-go + ONNX embedder)
+	// in the background. Agents fall back to this via docindex.GetGlobalIndex()
+	// when no per-request index was set, so no other wiring is needed.
+	docindex.InitGlobalIndex(context.Background(), docindex.DocsFS)
 
 	// Initialize org-scoped Slack bots (self-hosted only). Each org supplies its
 	// own bot + app tokens via the UI, so no server-level env vars are required.

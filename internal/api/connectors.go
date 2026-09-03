@@ -600,6 +600,9 @@ func (s *Server) UpdateConnector(c echo.Context) error {
 
 	setClauses = append(setClauses, "updated_at = now()")
 
+	// Safe: setClauses entries are literal column names paired with $N placeholders
+	// built above, never user-supplied values. All values go through args.
+	// nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query
 	query := fmt.Sprintf("UPDATE integration_tokens SET %s WHERE id = $%d", strings.Join(setClauses, ", "), argIdx)
 	args = append(args, id)
 

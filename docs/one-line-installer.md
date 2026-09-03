@@ -7,9 +7,9 @@ Create a user-friendly, self-contained one-line installer that customers can use
 
 ### 1. Installation Command
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash
+curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh | bash
 ```
-*Alternative: `wget -qO- https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash`*
+*Alternative: `wget -qO- https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh | bash`*
 
 **Script location**: `https://github.com/HexmosTech/LiveReview/lrops.sh`
 **Script name**: `lrops.sh` (LiveReview Operations Script)
@@ -67,8 +67,8 @@ v1.2.3 → Validate tag exists → Use specified version
 ### 6. User Experience Goals
 - **Installation safety**: Prevents accidental overwrites of existing installations
 - **Auto-updating script**: Every curl/wget run updates the installed `lrops.sh`
-- **Express installation**: `curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash -s -- --express`
-- **Force reinstall**: `curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash -s -- --force --express`
+- **Express installation**: `curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh | bash -s -- --express`
+- **Force reinstall**: `curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh | bash -s -- --force --express`
 - **Clear progress indicators** during installation
 - **Helpful error messages** with troubleshooting guidance
 - **Comprehensive post-installation summary** with:
@@ -84,7 +84,7 @@ v1.2.3 → Validate tag exists → Use specified version
 ### 7. Version Resolution Flow
 ```bash
 # Default installation (latest)
-curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash
+curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh | bash
   ↓
 Check for existing installation → Abort if found (unless --force)
   ↓
@@ -97,7 +97,7 @@ Use ghcr.io/hexmostech/livereview:1.2.3
 Install lrops.sh to /usr/local/bin/lrops.sh
 
 # Pinned version installation  
-curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash -s -- --version=v1.1.5
+curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh | bash -s -- --version=v1.1.5
   ↓
 Check for existing installation → Abort if found (unless --force)
   ↓
@@ -326,7 +326,7 @@ your-domain.com {
 
 ### Express Mode (Recommended for Quick Start)
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash -s -- --express
+curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh | bash -s -- --express
 ```
 - Uses all secure defaults
 - Auto-generates strong database password
@@ -336,7 +336,7 @@ curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh
 
 ### Interactive Mode (Default)
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash
+curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh | bash
 ```
 - Guides through optional configuration
 - All prompts have sensible defaults
@@ -345,12 +345,12 @@ curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh
 
 ### Version-Specific Installation
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash -s -- --version=v1.2.3 --express
+curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh | bash -s -- --version=v1.2.3 --express
 ```
 
 ### Force Reinstall (Overwrite Existing)
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash -s -- --force --express
+curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh | bash -s -- --force --express
 ```
 
 ### Self-Update Installed Script
@@ -359,7 +359,7 @@ curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh
 lrops.sh self-update
 
 # Automatic update (every curl/wget run updates lrops.sh)
-curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash -s -- --help
+curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh | bash -s -- --help
 ```
 - Updates the installed `/usr/local/bin/lrops.sh` to latest version
 - Preserves existing LiveReview installation

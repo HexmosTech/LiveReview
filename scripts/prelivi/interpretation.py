@@ -214,6 +214,9 @@ def call_gemini(api_keys: list[str], user_message: str) -> tuple[dict, dict]:
             req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
 
             try:
+                # Safe: endpoint is the module-level GEMINI_ENDPOINT/ATLAS_ENDPOINT https constant;
+                # only an env-var API key is interpolated, no user-supplied scheme.
+                # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
                 with urllib.request.urlopen(req, timeout=120) as resp:
                     body = json.loads(resp.read().decode("utf-8"))
             except urllib.error.HTTPError as e:
@@ -283,6 +286,9 @@ def call_atlas(api_key: str, user_message: str) -> tuple[dict, dict]:
         )
 
         try:
+            # Safe: endpoint is the module-level GEMINI_ENDPOINT/ATLAS_ENDPOINT https constant;
+            # only an env-var API key is interpolated, no user-supplied scheme.
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             with urllib.request.urlopen(req, timeout=120) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:

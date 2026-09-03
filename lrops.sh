@@ -555,17 +555,17 @@ LiveReview Operations Script (lrops.sh)
 
 USAGE:
     # Quick installation (recommended)
-    curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash -s -- --express
+    curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh | bash -s -- --express
 
     # Two-mode setup commands (new!)
     lrops.sh setup-demo                # Quick demo mode setup (localhost only)
     lrops.sh setup-production          # Production mode setup (with reverse proxy)
 
     # Interactive installation
-    curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash
+    curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh | bash
 
     # Specific version installation
-    curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh | bash -s -- --version=v1.2.3 --express
+    curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh | bash -s -- --version=v1.2.3 --express
 
     # Management commands (after installation)
     lrops.sh status                    # Show installation status
@@ -1088,7 +1088,7 @@ self_update_cmd() {
     section_header "UPDATING LROPS.SH SCRIPT"
     
     local current_script="$0"
-    local script_url="https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh"
+    local script_url="https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh"
     
     # Check if script is being run via pipe/source
     if [[ "$current_script" == "bash" || "$current_script" == "-bash" || "$current_script" =~ /bash$ ]]; then
@@ -1216,7 +1216,7 @@ install_script_to_system_path() {
         
         # Download the script to a temporary location
         script_source="/tmp/lrops_install_$$.sh"
-        if ! curl -fsSL "https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh" -o "$script_source"; then
+        if ! curl -fsSL "https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh" -o "$script_source"; then
             log_error "Failed to download script for installation"
             return 1
         fi
@@ -1283,7 +1283,7 @@ extract_data() {
         log_debug "Script is piped - downloading to extract templates..."
         script_source="/tmp/lrops_extract_$$.sh"
         
-        if ! curl -fsSL "https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh" -o "$script_source"; then
+        if ! curl -fsSL "https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh" -o "$script_source"; then
             log_error "Failed to download script for template extraction"
             return 1
         fi
@@ -1331,7 +1331,7 @@ list_embedded_templates() {
     # Handle piped execution
     if [[ "$0" == "bash" || "$0" == "-bash" || "$0" =~ /bash$ ]]; then
         script_source="/tmp/lrops_list_$$.sh"
-        if ! curl -fsSL "https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh" -o "$script_source"; then
+        if ! curl -fsSL "https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh" -o "$script_source"; then
             log_error "Failed to download script to list templates"
             return 1
         fi
@@ -1392,7 +1392,7 @@ extract_all_templates() {
     # Handle piped execution
     if [[ "$0" == "bash" || "$0" == "-bash" || "$0" =~ /bash$ ]]; then
         script_source="/tmp/lrops_extract_all_$$.sh"
-        if ! curl -fsSL "https://raw.githubusercontent.com/HexmosTech/LiveReview/main/lrops.sh" -o "$script_source"; then
+        if ! curl -fsSL "https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.sh" -o "$script_source"; then
             log_error "Failed to download script to extract templates"
             return 1
         fi

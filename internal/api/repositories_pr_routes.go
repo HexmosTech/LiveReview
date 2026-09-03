@@ -201,6 +201,19 @@ const repositoryColumnsQualified = `repositories.id, repositories.org_id, reposi
 	repositories.default_branch, repositories.is_private, repositories.description, repositories.last_synced_at,
 	repositories.last_sync_status, repositories.last_sync_error, repositories.created_at, repositories.updated_at`
 
+// RepositoriesQuery documents the /api/v1/repositories query params for the MCP tool schema.
+type RepositoriesQuery struct {
+	Page        int    `form:"page" query:"page" json:"page,omitempty" jsonschema:"description=Page number for pagination"`
+	PerPage     int    `form:"per_page" query:"per_page" json:"per_page,omitempty" jsonschema:"description=Items per page, max 200 (default 20)"`
+	ConnectorID string `form:"connector_id" query:"connector_id" json:"connector_id,omitempty" jsonschema:"description=Filter by connector ID, comma-separated for multiple"`
+	Provider    string `form:"provider" query:"provider" json:"provider,omitempty" jsonschema:"description=Filter by Git provider, comma-separated for multiple (e.g. github, gitlab)"`
+	Search      string `form:"search" query:"search" json:"search,omitempty" jsonschema:"description=Search pattern for repository full name"`
+	SyncStatus  string `form:"sync_status" query:"sync_status" json:"sync_status,omitempty" jsonschema:"description=Filter by last sync status, comma-separated for multiple"`
+	HasOpenPRs  string `form:"has_open_prs" query:"has_open_prs" json:"has_open_prs,omitempty" jsonschema:"description=Filter to repos with (true) or without (false) open pull requests"`
+	Sort        string `form:"sort" query:"sort" json:"sort,omitempty" jsonschema:"description=Sort column: repository, provider, default_branch, sync_status, open_pr_count, last_activity, or schedule (default last_activity)"`
+	Order       string `form:"order" query:"order" json:"order,omitempty" jsonschema:"description=Sort direction: asc or desc"`
+}
+
 // ListRepositories handles GET /api/v1/repositories.
 func (s *Server) ListRepositories(c echo.Context) error {
 	orgID, ok := c.Get("org_id").(int64)
@@ -219,9 +232,9 @@ func (s *Server) ListRepositories(c echo.Context) error {
 		selectColumns = repositoryColumnsQualified
 	}
 
-	// nosemgrep: go.lang.security.audit.database.string-formatted-query
 	// Safe: selectColumns and fromClause are compile-time constants (lines 190-202),
 	// never derived from user input. All user-supplied values use $N placeholders.
+	// nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query
 	query := `SELECT ` + selectColumns + `,
 		(SELECT count(*) FROM pull_requests pr WHERE pr.repository_id = repositories.id AND pr.state = 'open') AS open_pr_count,
 		(SELECT max(pr.provider_updated_at) FROM pull_requests pr WHERE pr.repository_id = repositories.id) AS last_pr_activity_at
@@ -560,6 +573,17 @@ type PullRequestsWithRepoListResponse struct {
 	Page         int                           `json:"page"`
 	PerPage      int                           `json:"per_page"`
 	TotalPages   int                           `json:"total_pages"`
+}
+
+// PullRequestsQuery documents the /api/v1/pull-requests query params for the MCP tool schema.
+type PullRequestsQuery struct {
+	Page         int    `form:"page" query:"page" json:"page,omitempty" jsonschema:"description=Page number for pagination"`
+	PerPage      int    `form:"per_page" query:"per_page" json:"per_page,omitempty" jsonschema:"description=Items per page, max 200 (default 20)"`
+	RepositoryID string `form:"repository_id" query:"repository_id" json:"repository_id,omitempty" jsonschema:"description=Filter to one repository's ID"`
+	ConnectorID  string `form:"connector_id" query:"connector_id" json:"connector_id,omitempty" jsonschema:"description=Filter to one connector's ID"`
+	Provider     string `form:"provider" query:"provider" json:"provider,omitempty" jsonschema:"description=Filter by Git provider, comma-separated for multiple (e.g. github, gitlab)"`
+	State        string `form:"state" query:"state" json:"state,omitempty" jsonschema:"description=Filter by PR/MR state, comma-separated for multiple (e.g. open, closed, merged); omit or pass 'all' for every state"`
+	Search       string `form:"search" query:"search" json:"search,omitempty" jsonschema:"description=Search pattern for PR title, author username, or repository name"`
 }
 
 // ListPullRequests handles GET /api/v1/pull-requests - a unified PR/MR
