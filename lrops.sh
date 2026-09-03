@@ -17,7 +17,7 @@ fi
 # SCRIPT METADATA AND CONSTANTS
 # =============================================================================
 
-SCRIPT_VERSION="1.2.1"
+SCRIPT_VERSION="1.2.2"
 SCRIPT_NAME="lrops.sh"
 # Resolve invoking user and home directory robustly (works with sudo)
 # Priority: SUDO_UID/SUDO_USER -> tilde expansion -> current $HOME
@@ -399,6 +399,9 @@ docker_compose() {
 # Default values
 EXPRESS_MODE=false
 FORCE_INSTALL=false
+# Set by `setup-production` to skip the interactive demo/production question below
+# and answer it as production directly - the command name should not be a lie.
+PRESET_DEPLOYMENT_MODE=""
 DRY_RUN=false
 VERBOSE=false
 DEBUG_MODE=false
@@ -1558,22 +1561,33 @@ EOF
     log_info "   To upgrade to production mode, set LIVEREVIEW_REVERSE_PROXY=true and configure your reverse proxy"
     else
         log_info "Interactive configuration mode"
-    log_info "Choose your deployment mode:"
-        echo >&2
-        echo "1) Demo Mode (localhost only, no webhooks, quickstart)" >&2
-        echo "2) Production Mode (with reverse proxy, webhooks enabled)" >&2
-        echo >&2
-    echo -n "Select deployment mode [1]: " >&2
-        read -r mode_choice
-        
+
         local deployment_mode="demo"
-        
-        if [[ "$mode_choice" == "2" ]]; then
-            deployment_mode="production"
-            log_info "Production mode selected - requires reverse proxy setup"
+
+        if [[ -n "$PRESET_DEPLOYMENT_MODE" ]]; then
+            # setup-production already answered this - don't ask again.
+            deployment_mode="$PRESET_DEPLOYMENT_MODE"
+            if [[ "$deployment_mode" == "production" ]]; then
+                log_info "Production mode selected - requires reverse proxy setup"
+            else
+                log_info "Demo mode selected - localhost only, no configuration needed"
+            fi
         else
-            deployment_mode="demo"
-            log_info "Demo mode selected - localhost only, no configuration needed"
+    log_info "Choose your deployment mode:"
+            echo >&2
+            echo "1) Demo Mode (localhost only, no webhooks, quickstart)" >&2
+            echo "2) Production Mode (with reverse proxy, webhooks enabled)" >&2
+            echo >&2
+    echo -n "Select deployment mode [1]: " >&2
+            read -r mode_choice
+
+            if [[ "$mode_choice" == "2" ]]; then
+                deployment_mode="production"
+                log_info "Production mode selected - requires reverse proxy setup"
+            else
+                deployment_mode="demo"
+                log_info "Demo mode selected - localhost only, no configuration needed"
+            fi
         fi
         
         # Generate database password
@@ -5287,9 +5301,12 @@ main() {
             FORCE_INSTALL=false
             ;;
         setup-production)
-            # Quick production mode setup - interactive for safety
+            # Interactive for the password/JWT prompts (so they can be overridden), but
+            # the deployment-mode question itself is answered here: this command said
+            # "production", so it should not turn around and ask which mode you want.
             EXPRESS_MODE=false
             FORCE_INSTALL=false
+            PRESET_DEPLOYMENT_MODE="production"
             log_info "Setting up LiveReview in production mode"
             log_warning "This requires reverse proxy configuration"
             ;;
