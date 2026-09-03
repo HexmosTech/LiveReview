@@ -722,6 +722,82 @@ docker-interactive-multiarch-push:
 cplrops:
 	@cp lrops.sh ../gh/LiveReview/
 
+# SYNC-LROPS: push the working-copy lrops.sh to a test host and install it as the
+# real /usr/local/bin/lrops.sh (not a side copy), so what you test is what ships.
+# Also re-extracts the embedded helper scripts and reverse-proxy templates into an
+# existing ~/livereview, since those are written at install time and would otherwise
+# stay stale after a script update.
+#   make sync-lrops                  # defaults to host 'nats03'
+#   make sync-lrops LROPS_HOST=myhost
+LROPS_HOST ?= nats03
+.PHONY: sync-lrops
+sync-lrops: ## Deploy lrops.sh to $(LROPS_HOST):/usr/local/bin/lrops.sh
+	@echo "→ syncing lrops.sh to $(LROPS_HOST)"
+	@rsync -az lrops.sh $(LROPS_HOST):/tmp/lrops-sync.sh
+	@ssh $(LROPS_HOST) '\
+		sudo install -m 755 -o root -g root /tmp/lrops-sync.sh /usr/local/bin/lrops.sh && rm -f /tmp/lrops-sync.sh; \
+		if [ -d "$$HOME/livereview" ]; then \
+			for t in setup-ssl.sh backup.sh restore.sh renew-ssl.sh; do \
+				sed -n "/^# === DATA:$$t ===/,/^# === END:$$t ===/p" /usr/local/bin/lrops.sh \
+					| grep -v "^# === " > /tmp/$$t 2>/dev/null && \
+					[ -s /tmp/$$t ] && install -m 755 /tmp/$$t "$$HOME/livereview/scripts/$$t"; \
+				rm -f /tmp/$$t; \
+			done; \
+			for t in nginx.conf.example caddy.conf.example apache.conf.example; do \
+				sed -n "/^# === DATA:$$t ===/,/^# === END:$$t ===/p" /usr/local/bin/lrops.sh \
+					| grep -v "^# === " > /tmp/$$t 2>/dev/null && \
+					[ -s /tmp/$$t ] && install -m 644 /tmp/$$t "$$HOME/livereview/config/$$t"; \
+				rm -f /tmp/$$t; \
+			done; \
+			echo "  re-extracted helper scripts and proxy templates into $$HOME/livereview"; \
+		else \
+			echo "  no ~/livereview on $(LROPS_HOST) - script installed, nothing to re-extract"; \
+		fi'
+	@printf "  local:  %s\n" "$$(md5sum lrops.sh | cut -d" " -f1)"
+	@printf "  remote: %s\n" "$$(ssh $(LROPS_HOST) 'md5sum /usr/local/bin/lrops.sh' | cut -d' ' -f1)"
+	@ssh $(LROPS_HOST) 'lrops.sh --version | head -1'
+
+# PURGE-LROPS: wipe a LiveReview install off a test host so the next run starts from a
+# genuine blank slate. Removes containers, images, the install dir (including root's, if a
+# sudo run created one), and any reverse-proxy vhost LiveReview wrote.
+# Deliberately KEPT: /usr/local/bin/lrops.sh (so you can reinstall) and any Let's Encrypt
+# certificates (re-issuing burns the 5-per-week duplicate limit).
+#   make purge-lrops                   # prompts before destroying anything
+#   make purge-lrops FORCE=1           # no prompt
+#   make purge-lrops LROPS_HOST=myhost
+.PHONY: purge-lrops
+purge-lrops: ## Remove LiveReview containers/images/config from $(LROPS_HOST)
+	@if [ "$(FORCE)" != "1" ]; then \
+		printf "This deletes the LiveReview install, containers, images and proxy vhosts on '$(LROPS_HOST)'.\nType 'yes' to continue: "; \
+		read ans; [ "$$ans" = "yes" ] || { echo "aborted"; exit 1; }; \
+	fi
+	@echo "→ purging LiveReview from $(LROPS_HOST)"
+	@ssh $(LROPS_HOST) '\
+		if [ -f "$$HOME/livereview/docker-compose.yml" ]; then \
+			(cd "$$HOME/livereview" && docker compose down -v --remove-orphans >/dev/null 2>&1) || true; \
+		fi; \
+		docker rm -f livereview-app livereview-db >/dev/null 2>&1 || true; \
+		imgs=$$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "hexmostech/livereview|^postgres:15-alpine$$" || true); \
+		[ -n "$$imgs" ] && docker rmi -f $$imgs >/dev/null 2>&1 || true; \
+		sudo rm -rf "$$HOME/livereview" "$$HOME"/livereview.backup.* "$$HOME"/livereview.removed.* "$$HOME/livereview_env" "$$HOME/lrops.sh"; \
+		sudo sh -c "rm -rf /root/livereview /root/livereview.backup.* /root/livereview.removed.*"; \
+		sudo rm -f /etc/nginx/sites-enabled/livereview.conf /etc/nginx/sites-available/livereview.conf \
+			/etc/nginx/sites-available/livereview /etc/nginx/conf.d/livereview* ; \
+		sudo sh -c "rm -f /etc/nginx/sites-available/*lrbak* /etc/nginx/sites-available/livereview.conf.bak.*"; \
+		sudo rm -f /etc/caddy/conf.d/livereview.caddy; \
+		sudo rm -f /etc/apache2/sites-enabled/livereview.conf /etc/apache2/sites-available/livereview.conf; \
+		if command -v nginx >/dev/null 2>&1 && sudo nginx -t >/dev/null 2>&1; then \
+			sudo systemctl reload nginx >/dev/null 2>&1 || sudo systemctl start nginx >/dev/null 2>&1 || true; \
+		fi'
+	@echo "→ verifying"
+	@ssh $(LROPS_HOST) '\
+		echo "  containers: $$(docker ps -a --filter name=livereview --format "{{.Names}}" | tr "\n" " ")"; \
+		echo "  images:     $$(docker images --format "{{.Repository}}:{{.Tag}}" | grep -cE "hexmostech/livereview|postgres:15-alpine") remaining"; \
+		echo "  install:    $$( [ -d "$$HOME/livereview" ] && echo PRESENT || echo removed )"; \
+		echo "  nginx:      $$(sudo ls /etc/nginx/sites-enabled/ 2>/dev/null | tr "\n" " ")"; \
+		echo "  script:     $$(lrops.sh --version 2>/dev/null | head -1)"'
+	@echo "kept on purpose: /usr/local/bin/lrops.sh and any Let's Encrypt certificates"
+
 .PHONY: vendor-memdump-check
 vendor-memdump-check: ## Build vendor binary, run render smoke, gcore, and grep for raw template markers
 	@echo "[memdump] Building render-smoke with vendor_prompts..."
