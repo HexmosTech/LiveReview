@@ -314,8 +314,9 @@ func (s *Server) GetAIConnectors(c echo.Context) error {
 		})
 	}
 
-	// Convert to response format
-	var response []AIConnectorResponse
+	// Convert to response format. Initialized as [] rather than nil so a zero-connector
+	// org serializes to "[]", not "null" - the frontend spreads this response.
+	response := []AIConnectorResponse{}
 	for _, connector := range connectors {
 		response = append(response, AIConnectorResponse{
 			ID:             connector.ID,
