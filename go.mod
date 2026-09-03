@@ -1,6 +1,6 @@
 module github.com/livereview
 
-go 1.26
+go 1.26.0
 
 toolchain go1.26.6
 
@@ -64,7 +64,7 @@ require (
 	github.com/yuin/goldmark v1.8.5
 	github.com/zricethezav/gitleaks/v8 v8.30.1
 	gocloud.dev v0.46.0
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/text v0.41.0
 	golang.org/x/time v0.15.0
 	google.golang.org/api v0.272.0
