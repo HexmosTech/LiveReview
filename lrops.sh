@@ -17,7 +17,7 @@ fi
 # SCRIPT METADATA AND CONSTANTS
 # =============================================================================
 
-SCRIPT_VERSION="1.2.0"
+SCRIPT_VERSION="1.2.1"
 SCRIPT_NAME="lrops.sh"
 # Resolve invoking user and home directory robustly (works with sudo)
 # Priority: SUDO_UID/SUDO_USER -> tilde expansion -> current $HOME
@@ -770,7 +770,9 @@ check_existing_installation() {
     fi
     
     # Check for running containers
-    if docker ps --format "table {{.Names}}" | grep -q "livereview"; then
+    # grep -q exits on the first match, docker ps then takes SIGPIPE (141), and
+    # `set -o pipefail` turns that into a false negative. Test captured output instead.
+    if [[ -n "$(docker ps --filter "name=livereview" --format "{{.Names}}" 2>/dev/null)" ]]; then
         log_warning "LiveReview containers are currently running"
         installation_exists=true
     fi
@@ -1690,10 +1692,10 @@ validate_configuration() {
     
     # Check if ports are available
     if command -v netstat >/dev/null 2>&1; then
-        if netstat -tln | grep -q ":${backend_port} "; then
+        if [[ -n "$(netstat -tln 2>/dev/null | grep ":${backend_port} ")" ]]; then
             log_warning "Port $backend_port appears to be in use"
         fi
-        if netstat -tln | grep -q ":${frontend_port} "; then
+        if [[ -n "$(netstat -tln 2>/dev/null | grep ":${frontend_port} ")" ]]; then
             log_warning "Port $frontend_port appears to be in use"
         fi
     fi
@@ -2445,7 +2447,7 @@ show_status() {
     
     # Show container status (using docker_compose function which handles paths correctly)
     log_info "Container Status:"
-    if docker_compose ps 2>/dev/null | grep -q "livereview"; then
+    if [[ -n "$(docker_compose ps 2>/dev/null | grep "livereview")" ]]; then
         docker_compose ps
         echo
         
@@ -2475,7 +2477,7 @@ show_status() {
     log_info "  Script: $SCRIPT_VERSION"
     
     # Show access URLs if running
-    if docker_compose ps 2>/dev/null | grep -q "Up.*8888"; then
+    if [[ -n "$(docker_compose ps 2>/dev/null | grep "Up.*8888")" ]]; then
         echo
         log_info "🌐 Access URLs:"
         local api_port=$(docker_compose ps livereview-app | grep -o "0.0.0.0:[0-9]*->8888" | cut -d':' -f2 | cut -d'-' -f1)
@@ -5019,7 +5021,7 @@ run_diagnostics() {
         log_info "📦 Container Status:"
         
         local containers_found=false
-        if docker ps -a --filter "name=livereview" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -q livereview; then
+        if [[ -n "$(docker ps -a --filter "name=livereview" --format "{{.Names}}" 2>/dev/null)" ]]; then
             containers_found=true
             log_success "  ✅ LiveReview containers found:"
             docker ps -a --filter "name=livereview" --format "  {{.Names}}: {{.Status}}" | sed 's/^/    /'
@@ -5073,7 +5075,7 @@ run_diagnostics() {
     echo
     
     # Check recent logs for errors
-    if [[ -d "$LIVEREVIEW_INSTALL_DIR" ]] && docker ps --filter "name=livereview" --format "{{.Names}}" | grep -q livereview; then
+    if [[ -d "$LIVEREVIEW_INSTALL_DIR" && -n "$(docker ps --filter "name=livereview" --format "{{.Names}}" 2>/dev/null)" ]]; then
         log_info "📋 Recent Issues:"
         local recent_errors=$(docker_compose logs --since=1h 2>/dev/null | grep -i "error\|fail\|panic\|fatal" | grep -v '"error":""' | wc -l)
         
@@ -5090,7 +5092,7 @@ run_diagnostics() {
     log_info "💡 Recommendations:"
     if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
         log_info "  • Install LiveReview: lrops.sh setup-demo"
-    elif ! docker ps --filter "name=livereview" --format "{{.Names}}" | grep -q livereview; then
+    elif [[ -z "$(docker ps --filter "name=livereview" --format "{{.Names}}" 2>/dev/null)" ]]; then
         log_info "  • Start LiveReview: lrops.sh start"
     else
         log_info "  • Check detailed status: lrops.sh status"
@@ -5646,7 +5648,7 @@ _doctor_prereqs() {
         log_info "  firewall: ${ufw_state:-unknown}"
         if grep -qi "active" <<< "$ufw_state"; then
             for port in 80 443; do
-                if sudo ufw status 2>/dev/null | grep -qE "^${port}[/ ]|ALLOW.*${port}"; then
+                if [[ -n "$(sudo ufw status 2>/dev/null | grep -E "^${port}[/ ]|ALLOW.*${port}")" ]]; then
                     log_success "ufw allows ${port}"
                 else
                     log_warning "ufw is active but no rule for ${port} was found - it may be blocked"
@@ -6360,7 +6362,7 @@ fi
 
 # Backup database
 log_info "Backing up database..."
-if docker ps --format "table {{.Names}}" | grep -q "livereview-db"; then
+if [[ -n "$(docker ps --filter "name=livereview-db" --format "{{.Names}}" 2>/dev/null)" ]]; then
     # Database is running, create dump
     if docker exec livereview-db pg_dump -U livereview livereview > "$BACKUP_DIR/database_dump.sql"; then
         log_success "✓ Database dump created"
@@ -6604,7 +6606,7 @@ if [[ -f "$RESTORE_SOURCE/database_dump.sql" ]]; then
     log_info "Waiting for database to be ready..."
     sleep 10
     
-    if docker ps --format "table {{.Names}}" | grep -q "livereview-db"; then
+    if [[ -n "$(docker ps --filter "name=livereview-db" --format "{{.Names}}" 2>/dev/null)" ]]; then
         log_info "Restoring database from dump..."
         if docker exec -i livereview-db psql -U livereview livereview < "$RESTORE_SOURCE/database_dump.sql"; then
             log_success "✓ Database restored from dump"
@@ -6792,8 +6794,11 @@ else
     log_success "✓ Certbot is already available"
 fi
 
-# Check if LiveReview is running
-if ! docker ps | grep -q livereview; then
+# Check if LiveReview is running.
+# NOTE: do not pipe `docker ps` into `grep -q` - grep exits on the first match, docker ps
+# then takes SIGPIPE and exits 141, and `set -o pipefail` turns that into a false
+# "containers are not running" roughly 40% of the time.
+if [[ -z "$(docker ps --filter "name=livereview" --format "{{.Names}}" 2>/dev/null)" ]]; then
     log_error "LiveReview containers are not running"
     log_info "Start LiveReview first: lrops.sh start"
     exit 1
