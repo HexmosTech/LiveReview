@@ -11,6 +11,7 @@ export type Connector = {
     apiSecret?: string; // Added for storing application secret
     createdAt: string;
     metadata?: any;
+    token_suffix?: string;
 };
 
 export type ConnectorState = {

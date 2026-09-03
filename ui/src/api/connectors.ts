@@ -34,6 +34,7 @@ export interface ConnectorResponse {
   created_at: string;
   updated_at: string;
   webhook_status?: WebhookStatusSummary;
+  token_suffix?: string;
 }
 
 /**

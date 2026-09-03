@@ -189,7 +189,9 @@ RUN echo "📋 Final image contents:" && \
     echo "Migration count: $(ls /app/db/migrations/*.sql | wc -l)" && \
     echo "✅ LiveReview container build completed successfully!"
 
-# Runs as root to handle bind mount permissions
+# nosemgrep: dockerfile.security.missing-user.missing-user
+# Runs as root initially, then drops to livereview via entrypoint
+USER livereview
 WORKDIR /app
 
 # Expose ports for backend API (8888), frontend (8081), and River UI (8080)
