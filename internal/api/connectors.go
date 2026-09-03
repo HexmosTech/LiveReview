@@ -41,6 +41,7 @@ type ConnectorResponse struct {
 	CreatedAt      time.Time             `json:"created_at"`
 	UpdatedAt      time.Time             `json:"updated_at"`
 	WebhookStatus  *WebhookStatusSummary `json:"webhook_status,omitempty"`
+	TokenSuffix    string                `json:"token_suffix"`
 }
 
 // CompleteConnectorResponse represents a connector with all fields including sensitive data
@@ -293,7 +294,8 @@ func (s *Server) GetConnectors(c echo.Context) error {
 
 	// Query the database for integration tokens in this organization
 	rows, err := s.db.Query(`
-	SELECT id, provider, provider_app_id, connection_name, provider_url, metadata, created_at, updated_at
+	SELECT id, provider, provider_app_id, connection_name, provider_url, metadata, created_at, updated_at,
+	       RIGHT(COALESCE(NULLIF(COALESCE(pat_token, ''), ''), NULLIF(COALESCE(access_token, ''), 'NA')), 4) as token_suffix
 	FROM integration_tokens
 	WHERE org_id = $1
 	ORDER BY created_at DESC
@@ -321,6 +323,7 @@ func (s *Server) GetConnectors(c echo.Context) error {
 			&metadataRaw,
 			&connector.CreatedAt,
 			&connector.UpdatedAt,
+			&connector.TokenSuffix,
 		); err != nil {
 			log.Printf("Failed to scan integration token row: %v", err)
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{
@@ -411,7 +414,8 @@ func (s *Server) GetConnector(c echo.Context) error {
 	var metadataRaw []byte
 
 	err = s.db.QueryRow(`
-		SELECT id, provider, provider_app_id, connection_name, provider_url, metadata, created_at, updated_at
+		SELECT id, provider, provider_app_id, connection_name, provider_url, metadata, created_at, updated_at,
+		       RIGHT(COALESCE(NULLIF(COALESCE(pat_token, ''), ''), NULLIF(COALESCE(access_token, ''), 'NA')), 4) as token_suffix
 		FROM integration_tokens
 		WHERE id = $1 AND org_id = $2
 	`, connectorID, orgID).Scan(
@@ -423,6 +427,7 @@ func (s *Server) GetConnector(c echo.Context) error {
 		&metadataRaw,
 		&connector.CreatedAt,
 		&connector.UpdatedAt,
+		&connector.TokenSuffix,
 	)
 
 	if err != nil {

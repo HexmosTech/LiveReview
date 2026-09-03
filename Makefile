@@ -8,7 +8,7 @@
 # Environment switching
 # ============================================================================
 
-.PHONY: switch-env-prod switch-env-prod-low-pricing switch-env-selfhosted-local switch-env-selfhosted-docker switch-env-cloud-local which-env
+.PHONY: switch-env-prod switch-env-prod-low-pricing switch-env-selfhosted-local switch-env-selfhosted-docker switch-env-selfhosted-local-sandbox switch-env-cloud-local which-env reset-sandbox-db
 
 define SWITCH_ENV
 	@if [ ! -f ".env.$(1)" ]; then \
@@ -36,6 +36,20 @@ switch-env-selfhosted-docker:
 switch-env-cloud-local:
 	$(call SWITCH_ENV,cloud.local)
 
+switch-env-selfhosted-local-sandbox:
+	@if [ ! -f ".env.selfhosted.local" ]; then \
+		echo "ERROR: .env.selfhosted.local not found"; \
+		exit 1; \
+	fi
+	@if [ -f .env ]; then cp .env .env.bak && echo "Backed up .env -> .env.bak"; fi
+	@cp .env.selfhosted.local .env
+	@sed -i '/^DATABASE_URL=/s|livereview_enterprise|livereview_enterprise_sandbox|2' .env
+	@echo "selfhosted-local-sandbox" > .current-env
+	@echo "Switched to selfhosted-local-sandbox (.env.selfhosted.local -> .env, DB: livereview_enterprise_sandbox)"
+
+reset-sandbox-db:
+	./pgctl.sh reset-sandbox-db
+
 which-env:
 	@if [ ! -f .current-env ]; then \
 		echo "No .current-env found. Run 'make switch-env-<name>' first."; \
@@ -48,8 +62,8 @@ which-env:
 # ============================================================================
 
 define CHECK_DOCKER_ENV
-	@if [ ! -f .current-env ] || [ "$$(cat .current-env)" != "selfhosted.docker" ]; then \
-		echo "ERROR: Current env is not selfhosted.docker. Run: make switch-env-selfhosted-docker"; \
+	@if [ ! -f .current-env ] || [ "$$(cat .current-env)" != "selfhosted" ]; then \
+		echo "ERROR: Current env is not selfhosted. Run: make switch-env-selfhosted-docker"; \
 		exit 1; \
 	fi
 endef

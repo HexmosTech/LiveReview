@@ -82,8 +82,8 @@ func (h *QuotaStatusHandler) GetQuotaStatus(c echo.Context) error {
 	planType := resolveQuotaPlanType(envelopeTmp.PlanCode, contextPlanType)
 
 	// Call CheckPreflight with 0 RequiredLOC to just get the current threshold/blocking state
-	// Only run preflight in Cloud Mode
-	if apimiddleware.IsCloudMode() {
+	// Run preflight for cloud mode OR non-enterprise-selfhosted plans
+	if apimiddleware.IsCloudMode() || planType != "enterprise-selfhosted" {
 		accountingService := license.NewLOCAccountingService(h.db)
 		preflightResult, err := accountingService.CheckPreflight(c.Request().Context(), license.LOCPreflightInput{
 			OrgID:       orgID,
@@ -108,9 +108,12 @@ func (h *QuotaStatusHandler) GetQuotaStatus(c echo.Context) error {
 	}
 
 	// Determine if user can trigger reviews
-	if !apimiddleware.IsCloudMode() {
-		// Unlimited reviews in self-hosted mode
+	if planType == "enterprise-selfhosted" {
+		// Licensed self-hosted: unlimited
 		status.CanTriggerReviews = true
+	} else if !apimiddleware.IsCloudMode() {
+		// Unlicensed self-hosted: check blocking
+		status.CanTriggerReviews = !envelope.Blocked
 	} else if isFreeTier {
 		// On free plan, only org creator can trigger reviews AND must be under daily limit
 		status.CanTriggerReviews = isOrgCreator && (dailyLimitPtr == nil || dailyUsed < *dailyLimitPtr)

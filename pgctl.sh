@@ -54,7 +54,7 @@ PG_VOLUME_NAME="livereview_pgdata"
 LEGACY_PG_DATA_DIR="./.livereview_pgdata"
 
 usage() {
-  echo "Usage: $0 [--prod] {start|stop|status|logs|info|rm|reset|migrations|conn|shell|migrate-legacy-data}"
+  echo "Usage: $0 [--prod] {start|stop|status|logs|info|rm|reset|reset-sandbox-db|migrations|conn|shell|migrate-legacy-data}"
   echo ""
   echo "Options:"
   echo "  --prod    Use .env.prod instead of .env"
@@ -67,6 +67,7 @@ usage() {
   echo "  info        Show connection info"
   echo "  rm          Remove container"
   echo "  reset       Reset database (destructive)"
+  echo "  reset-sandbox-db  Reset livereview_enterprise_sandbox database only"
   echo "  migrations  Setup dbmate"
   echo "  conn        Print connection string"
   echo "  shell       Open psql shell or run SQL with -c"
@@ -249,6 +250,21 @@ shell_pg() {
   fi
 }
 
+reset_sandbox_db() {
+  local SANDBOX_DB="livereview_enterprise_sandbox"
+  echo "Resetting $SANDBOX_DB database..."
+  PGPASSWORD="$PG_PASSWORD" psql -h localhost -p "$PG_PORT" -U "$PG_USER" -d postgres -c \
+    "DROP DATABASE IF EXISTS $SANDBOX_DB;" 2>/dev/null || true
+  PGPASSWORD="$PG_PASSWORD" psql -h localhost -p "$PG_PORT" -U "$PG_USER" -d postgres -c \
+    "CREATE DATABASE $SANDBOX_DB;"
+  echo "Running migrations on $SANDBOX_DB..."
+  DATABASE_URL="postgres://${PG_USER}:${PG_PASSWORD}@localhost:${PG_PORT}/${SANDBOX_DB}?sslmode=disable" \
+    dbmate up
+  DATABASE_URL="postgres://${PG_USER}:${PG_PASSWORD}@localhost:${PG_PORT}/${SANDBOX_DB}?sslmode=disable" \
+    river migrate-up --database-url "postgres://${PG_USER}:${PG_PASSWORD}@localhost:${PG_PORT}/${SANDBOX_DB}?sslmode=disable"
+  echo "Done. $SANDBOX_DB is ready."
+}
+
 # Main
 cmd="${1:-}"
 case "$cmd" in
@@ -259,6 +275,7 @@ case "$cmd" in
   info) info_pg ;;
   rm) rm_pg ;;
   reset) reset_pg ;;
+  reset-sandbox-db) reset_sandbox_db ;;
   migrations) setup_migrations ;;
   conn) print_conn_string ;;
   shell) shell_pg "$@" ;;
