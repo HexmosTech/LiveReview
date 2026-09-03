@@ -762,15 +762,9 @@ sync-lrops: ## Deploy lrops.sh to $(LROPS_HOST):/usr/local/bin/lrops.sh
 # sudo run created one), and any reverse-proxy vhost LiveReview wrote.
 # Deliberately KEPT: /usr/local/bin/lrops.sh (so you can reinstall) and any Let's Encrypt
 # certificates (re-issuing burns the 5-per-week duplicate limit).
-#   make purge-lrops                   # prompts before destroying anything
-#   make purge-lrops FORCE=1           # no prompt
-#   make purge-lrops LROPS_HOST=myhost
-.PHONY: purge-lrops
-purge-lrops: ## Remove LiveReview containers/images/config from $(LROPS_HOST)
-	@if [ "$(FORCE)" != "1" ]; then \
-		printf "This deletes the LiveReview install, containers, images and proxy vhosts on '$(LROPS_HOST)'.\nType 'yes' to continue: "; \
-		read ans; [ "$$ans" = "yes" ] || { echo "aborted"; exit 1; }; \
-	fi
+#   make purge-lr-nats03
+.PHONY: purge-lr-nats03
+purge-lr-nats03: ## Remove LiveReview containers/images/config from $(LROPS_HOST)
 	@echo "→ purging LiveReview from $(LROPS_HOST)"
 	@ssh $(LROPS_HOST) '\
 		if [ -f "$$HOME/livereview/docker-compose.yml" ]; then \
