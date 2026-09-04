@@ -195,6 +195,33 @@ If a new feature is not navigable from the mega menu (e.g. it is only reached fr
 button inside an existing page), call that out explicitly rather than silently skipping
 the entry. Keeping the mega menu complete is what makes new capabilities discoverable.
 
+## Keeping `config/*-ssl.conf.example` in Sync with `lrops.sh`
+
+`lrops.sh` is a self-contained installer script (curl-piped and run standalone
+on remote servers), so it embeds its reverse-proxy templates inline — the
+nginx one under `# === DATA:nginx.conf.example ===` in `lrops.sh`, uncommented
+and filled in at runtime by `setup-ssl`'s `render_nginx_conf()`. Nobody reads
+that embedded, commented-out template comfortably; `config/nginx-ssl.conf.example`
+exists purely as a static, readable reference copy of what `lrops.sh setup-ssl
+<domain>` actually produces on disk (for `livereview.example.com`) — it is
+**not** read by `lrops.sh` itself.
+
+**Rule: whenever a change to `lrops.sh` touches the nginx template
+(`DATA:nginx.conf.example`) or `render_nginx_conf()`'s transform logic, regenerate
+`config/nginx-ssl.conf.example` in the same change**, by actually running the
+same `sed` transforms `render_nginx_conf()` runs (domain substitution,
+HTTPS-block uncomment, `HTTP_ROUTES` marker replacement) against the updated
+template — don't hand-edit the reference file, and don't guess at the output.
+Verify the result (brace-balance, `server{}` block count, and ideally an actual
+`nginx -t` / live-nginx check for anything touching the SSL/redirect logic) the
+same way before trusting it.
+
+The same rule applies to Caddy and Apache (`DATA:caddy.conf.example`,
+`DATA:apache.conf.example`, and their respective `setup-ssl.sh` render
+functions) once equivalent `config/caddy-ssl.conf.example` /
+`config/apache-ssl.conf.example` reference files exist — they don't yet, and
+creating them is a separate task, not implied by this rule.
+
 ## Route Documentation for RAG (`ui/docs/training_data/lr_routes/`)
 
 `ui/docs/training_data/lr_routes/` holds one Markdown file per UI
