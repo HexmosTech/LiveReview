@@ -17,7 +17,7 @@ fi
 # SCRIPT METADATA AND CONSTANTS
 # =============================================================================
 
-SCRIPT_VERSION="1.2.9"
+SCRIPT_VERSION="1.3.0"
 SCRIPT_NAME="lrops.sh"
 # Resolve invoking user and home directory robustly (works with sudo)
 # Priority: SUDO_UID/SUDO_USER -> tilde expansion -> current $HOME
@@ -6034,6 +6034,15 @@ server {
         root /var/www/letsencrypt;
     }
 
+    # === HTTP_ROUTES_START ===
+    # `lrops.sh setup-ssl` replaces everything between these two markers with a
+    # single HTTPS-redirect location once a certificate is issued - see
+    # render_nginx_conf() in lrops.sh. Do not delete the markers by hand: nginx
+    # refuses two server{} blocks with the same listen+server_name (it silently
+    # keeps only the first and ignores the second - see nginx's own
+    # "conflicting server name ... ignored" warning), so once HTTPS is live,
+    # this same server{} block, not a second one, has to do the redirecting.
+
     # Route API requests to backend (port 8888)
     location ^~ /api/ {
         proxy_pass http://livereview_api;
@@ -6085,14 +6094,24 @@ server {
         # See docs/perf-improvement.md "Finding A" in the LiveReview repo.
         gzip off;
     }
+    # === HTTP_ROUTES_END ===
 }
 
 # ---------------------------------------------------------------------------
 # HTTPS: run `sudo lrops.sh setup-ssl <domain>` to obtain a certificate and
-# uncomment the two blocks below automatically, or uncomment them by hand.
-# Note: once the redirect server is enabled, remove the proxy `location` blocks
-# from the plain-HTTP server above (keep its acme-challenge location), otherwise
-# two servers listen on :80 for the same name and nginx keeps only the first.
+# do this automatically, or uncomment the block below by hand and then, in the
+# plain-HTTP server{} above, replace the two location blocks between the
+# HTTP_ROUTES markers with:
+#     location / {
+#         return 301 https://$host$request_uri;
+#     }
+# There is deliberately no separate "redirect" server{} block here: nginx
+# treats two server{} blocks with the same listen+server_name as a config
+# error waiting to happen - it keeps only the first (with a
+# "conflicting server name ... ignored" warning at startup) and the second is
+# silently dead code forever, regardless of what's in it. So the plain-HTTP
+# server{} above has to become the redirect itself once HTTPS is live, not
+# hand off to a second one.
 # ---------------------------------------------------------------------------
 
 # HTTPS configuration (uncomment after setting up SSL)
@@ -6177,20 +6196,6 @@ server {
 #         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 #         proxy_set_header X-Forwarded-Proto $scheme;
 #         gzip off;
-#     }
-# }
-
-# Redirect HTTP to HTTPS (uncomment after setting up SSL)
-# server {
-#     listen 80;
-#     server_name your-domain.com;
-#
-#     location /.well-known/acme-challenge/ {
-#         root /var/www/letsencrypt;
-#     }
-#
-#     location / {
-#         return 301 https://$host$request_uri;
 #     }
 # }
 # === END:nginx.conf.example ===
@@ -7054,18 +7059,25 @@ render_nginx_conf() {
     local out="$1"
     sudo cp "$LIVEREVIEW_DIR/config/nginx.conf.example" "$out"
     sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "$out"
-    # Uncomment the commented-out directives, but leave the two human-readable anchor
-    # headings commented - uncommenting those emitted them as nginx directives and made
-    # the generated config fail to load ("unknown directive \"HTTPS\"").
-    sudo_sed_inplace '/^# HTTPS configuration/,/^# Redirect HTTP to HTTPS/{/^# HTTPS configuration/b
-/^# Redirect HTTP to HTTPS/b
+    # Uncomment the commented-out HTTPS server{} block, but leave its human-readable
+    # anchor heading commented - uncommenting that emitted it as an nginx directive and
+    # made the generated config fail to load ("unknown directive \"HTTPS\"").
+    sudo_sed_inplace '/^# HTTPS configuration/,/^# }/{/^# HTTPS configuration/b
 s/^# //
 s/^#$//
 }' "$out"
-    sudo_sed_inplace '/^# Redirect HTTP to HTTPS/,/^# }/{/^# Redirect HTTP to HTTPS/b
-s/^# //
-s/^#$//
-}' "$out"
+    # Replace the plain-HTTP server{}'s API/UI proxy locations with a redirect to
+    # HTTPS. This has to happen in the SAME server{} block, not a second one: nginx
+    # keeps only the first of two server{} blocks sharing a listen+server_name (logs
+    # "conflicting server name ... ignored" and silently never routes to the second,
+    # no matter what's in it), so a separate "redirect" server{} would be dead code
+    # forever. See the HTTP_ROUTES_START comment in the template for the same note.
+    sudo_sed_inplace '/^    # === HTTP_ROUTES_START ===$/,/^    # === HTTP_ROUTES_END ===$/c\
+    # HTTPS is active - send everything except the acme-challenge above (kept\
+    # reachable for cert renewal) to the HTTPS server instead of proxying here.\
+    location / {\
+        return 301 https://$host$request_uri;\
+    }' "$out"
 }
 
 # Update reverse proxy configuration
