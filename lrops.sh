@@ -17,7 +17,7 @@ fi
 # SCRIPT METADATA AND CONSTANTS
 # =============================================================================
 
-SCRIPT_VERSION="1.2.4"
+SCRIPT_VERSION="1.2.6"
 SCRIPT_NAME="lrops.sh"
 # Resolve invoking user and home directory robustly (works with sudo)
 # Priority: SUDO_UID/SUDO_USER -> tilde expansion -> current $HOME
@@ -3807,7 +3807,14 @@ Before configuring SSL or reverse proxy, ensure:
 SSL/TLS SETUP APPROACHES
 =======================
 
-OPTION 1: Automatic SSL with Caddy (Recommended for new setups)
+RECOMMENDED: sudo lrops.sh setup-ssl <domain>
+- e.g. sudo lrops.sh setup-ssl livereview.hexmos.site
+- Lets you select your reverse proxy (nginx, Caddy, or Apache)
+- Auto-configures the selected proxy's LiveReview vhost/site config
+- Requests and installs a Let's Encrypt certificate via certbot
+- One command covers both the reverse proxy config and the certificate
+
+OPTION 1: Automatic SSL with Caddy
 - Handles certificates automatically
 - Zero manual certificate management
 - See: lrops.sh help caddy
@@ -4871,10 +4878,12 @@ display_completion_summary() {
         echo -e "${BOLD}   🔗 Webhooks:       ${GREEN}Enabled (automatic triggers)${NC}"
         echo
         echo -e "${BLUE}🚀 NEXT STEPS (PRODUCTION MODE):${NC}"
-        echo -e "   1. ${BOLD}Configure reverse proxy:${NC} ${CYAN}lrops.sh help nginx${NC}"
-        echo -e "   2. ${BOLD}Set up SSL/TLS:${NC} ${CYAN}lrops.sh help ssl${NC}"
-        echo -e "   3. ${BOLD}Configure DNS:${NC} Point your domain to this server"
-        echo -e "   4. ${BOLD}Test external access:${NC} Access via your domain"
+        echo -e "   1. ${CYAN}lrops.sh help ssl${NC}"
+        echo -e "      Complete steps 1-4 in that guide (DNS, reverse proxy, SSL/TLS, external"
+        echo -e "      access) to point your domain at this server."
+        echo -e "   2. ${CYAN}lrops.sh doctor <your domain>${NC}"
+        echo -e "      Verifies your domain is correctly pointed at this server."
+        echo -e "      e.g. ${CYAN}lrops.sh doctor livereview.hexmos.site${NC}"
         echo
         echo -e "${YELLOW}⚠️  IMPORTANT: Configure reverse proxy before external access!${NC}"
     fi
@@ -5610,6 +5619,15 @@ _doctor_dig() {
     fi
 }
 
+# Sort a comma-separated IP list so two resolvers returning the same set in a
+# different order (DNS round-robin/randomized record order, not an actual
+# disagreement) compare equal. Without this, e.g. "1.2.3.4,5.6.7.8" from one
+# resolver and "5.6.7.8,1.2.3.4" from another falsely trip the "DNS is still
+# propagating" warning below even though both point at the same two records.
+_doctor_sorted_ips() {
+    tr ',' '\n' <<< "$1" | sort | paste -sd, -
+}
+
 # Prerequisite checks: DNS propagation, port reachability, port conflicts.
 # Automates the manual checklist from `lrops.sh help ssl`.
 _doctor_prereqs() {
@@ -5631,7 +5649,8 @@ _doctor_prereqs() {
         if [[ -z "$google$cloudflare$opendns" ]]; then
             log_error "No A record found by any resolver - DNS is not set up yet."
             log_info "Certificate issuance cannot work until the domain resolves here."
-        elif [[ "$google" != "$cloudflare" || "$cloudflare" != "$opendns" ]]; then
+        elif [[ "$(_doctor_sorted_ips "$google")" != "$(_doctor_sorted_ips "$cloudflare")" \
+            || "$(_doctor_sorted_ips "$cloudflare")" != "$(_doctor_sorted_ips "$opendns")" ]]; then
             log_warning "Resolvers disagree - DNS is still propagating. Wait before continuing."
             log_info "Track it at https://www.whatsmydns.net/ (can take up to 48h)"
         else
@@ -5650,9 +5669,15 @@ _doctor_prereqs() {
     fi
 
     section_header "PORTS AND FIREWALL"
-    local l80 l443
-    l80=$(sudo ss -tlnp 2>/dev/null | awk '$4 ~ /:80$/ {print $NF; exit}')
-    l443=$(sudo ss -tlnp 2>/dev/null | awk '$4 ~ /:443$/ {print $NF; exit}')
+    # Capture ss's output once, then awk it from memory. Piping straight from
+    # `sudo ss` into `awk '{...; exit}'` closes the pipe as soon as awk finds
+    # its first match; ss can still be mid-write when that happens, gets
+    # SIGPIPE, and `set -o pipefail` turns that into a fatal 141 for the whole
+    # script - the same class of bug documented near the docker ps check above.
+    local ss_out l80 l443
+    ss_out=$(sudo ss -tlnp 2>/dev/null || true)
+    l80=$(awk '$4 ~ /:80$/ {print $NF; exit}' <<< "$ss_out")
+    l443=$(awk '$4 ~ /:443$/ {print $NF; exit}' <<< "$ss_out")
     log_info "  :80   ${l80:-nothing listening}"
     log_info "  :443  ${l443:-nothing listening}"
     if [[ -z "$l80" && -z "$l443" ]]; then
