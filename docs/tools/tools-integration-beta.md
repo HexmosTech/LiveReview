@@ -45,22 +45,17 @@ flowchart TD
 
     L --> M{"Lambda Success?"}
     M -->|No| N["Write Synthetic Failure<br/>(exit_code: -1)"]
-    M -->|Yes| O["Parse Findings"]
+    M -->|Yes| O["Parse Findings<br/>(check_id per finding)"]
 
-    O --> P{"KnownDeterministicRules?"}
-    P -->|Yes| Q["Deterministic<br/>(0 LLM Tokens)"]
-    P -->|No| R["Helper LLM<br/>(~120 Tokens)"]
-
-    Q --> S["Store Comments<br/>in ai_comments"]
-    R --> S
+    O --> P["ClassifyToolResult()<br/>3-Tier Classifier"]
+    P --> Q["Store Comments<br/>in ai_comments"]
 
     N --> T["w.finalizeIfAllDone()"]
-    S --> T
+    Q --> T
 
     T --> U{"Dispatched Count ==<br/>Completed Count?"}
     U -->|No| V["Wait for Parallel<br/>Tool Jobs"]
     U -->|Yes| W["Set Review Status:<br/>completed"]
-
 
     %% Developer / API
     style A fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1e3a8a
@@ -88,8 +83,6 @@ flowchart TD
     %% Classification
     style P fill:#e0e7ff,stroke:#4f46e5,stroke-width:2px,color:#312e81
     style Q fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#14532d
-    style R fill:#fce7f3,stroke:#db2777,stroke-width:2px,color:#831843
-    style S fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#14532d
 
     %% Finalization
     style T fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0c4a6e
@@ -105,76 +98,218 @@ flowchart TD
 The tool classifier does not require manual hardcoding for every tool rule.
 The system uses a three-tier hybrid architecture to maximize performance and minimize token cost.
 
+Each finding from a Lambda response carries a `check_id` field (e.g. `F401`, `DL3007`, `SC2086`, `generic-api-key`).
+The classifier maps each `check_id` to a LiveReview taxonomy tuple: `category`, `subcategory`, `severity`, `confidence`, `type`.
+
 ```mermaid
 flowchart TD
-    RAW["Raw Tool Finding"] --> TIER1{"Tier 1: In-Memory Map\nKnownDeterministicRules"}
-    
-    TIER1 -->|Match Found| DONE1["0 LLM Tokens\n0.0 ms Latency"]
-    TIER1 -->|Unmapped| TIER2{"Tier 2: DB Rule Cache\npublic.tool_rule_taxonomies"}
-    
-    TIER2 -->|Match Found| DONE2["0 LLM Tokens\n0.5 ms Latency"]
-    TIER2 -->|Cache Miss| TIER3["Tier 3: Helper LLM\ndeepseek-v4-flash (~188 Tokens)"]
-    
-    TIER3 --> SAVE_CACHE["Auto-Save Mapping to DB Cache"]
-    SAVE_CACHE --> DONE3["Classified Finding"]
-    DONE1 & DONE2 --> DONE3
+    RAW["Raw Tool Finding<br/>(tool_name + check_id + message)"] --> TIER1{"Tier 1: In-Memory Map<br/>KnownDeterministicRules"}
+
+    TIER1 -->|"Match Found<br/>e.g. ruff:F401"| DONE1["Taxonomy Tuple<br/>0 LLM Tokens · 0 ms"]
+    TIER1 -->|"Not Found"| DEDUPE["Deduplicate rule_keys<br/>across all findings"]
+
+    DEDUPE --> TIER2{"Tier 2: DB Cache<br/>tool_rule_taxonomies"}
+
+    TIER2 -->|"Match Found<br/>(row exists)"| DONE2["Taxonomy Tuple<br/>0 LLM Tokens · ~0.5 ms"]
+    TIER2 -->|"Cache Miss<br/>(new rule_key)"| TIER3["Tier 3: Helper LLM<br/>Batch Classify (unique rule_keys only)"]
+
+    TIER3 --> SAVE["Upsert into<br/>tool_rule_taxonomies<br/>(persist across restarts)"]
+    SAVE --> DONE3["Taxonomy Tuple<br/>~188 Tokens · one-time cost"]
+
+    DONE1 & DONE2 & DONE3 --> COMMENT["Build ReviewComment<br/>with full taxonomy fields"]
 ```
+
+### Key Design Points
+
+1. **Only unique `rule_key` values go to LLM.** A review with 300 ruff `F401` findings sends ONE LLM request for `ruff:F401`, not 300.
+2. **DB cache survives server restarts.** The `tool_rule_taxonomies` table in PostgreSQL stores mappings permanently. Cold-start or re-deploy does not lose learned classifications.
+3. **LLM sees the full official LiveReview taxonomy.** The prompt includes all valid categories and subcategories from `ValidTaxonomyMap`.
+
+---
 
 ### Classification Tiers
 
 #### Tier 1: Deterministic In-Memory Dictionary (0 LLM Tokens)
-Static analysis tools generate structured rule IDs (such as `gitleaks:generic-api-key` or `bandit:b101`).
+
+Static analysis tools generate structured rule IDs (such as `ruff:F401` or `bandit:B303`).
 The classifier checks incoming findings against the in-memory map `KnownDeterministicRules`.
 
-If a rule ID matches a Tier 1 entry:
+Key: `strings.ToLower(toolName + ":" + check_id)` → `TaxonomyTuple{Category, Subcategory, Severity, Confidence, Type}`.
+
+If a rule key matches a Tier 1 entry:
 - The system assigns the taxonomy tuple immediately without an LLM call.
 - The process uses **0 LLM tokens** and completes in **0 milliseconds**.
 
+Current Tier 1 entries (selected):
+
+| rule_key | Category | Subcategory | Severity |
+|---|---|---|---|
+| `gitleaks:generic-api-key` | Security | Secrets Management | critical |
+| `gitleaks:aws-access-key` | Security | Secrets Management | critical |
+| `bandit:b303` | Security | Cryptography | warning |
+| `bandit:b101` | Security | Input Validation | warning |
+| `hadolint:dl3006` | Maintainability | Configuration Management | warning |
+| `shellcheck:sc2086` | Reliability | Fault Tolerance | info |
+| `ruff:e501` | Maintainability | Code Complexity | info |
+| `ruff:f401` | Maintainability | Dead Code | warning |
+| `eslint:no-unused-vars` | Maintainability | Dead Code | warning |
+
+---
+
 #### Tier 2: Database Rule Cache (0 LLM Tokens)
-If a rule ID is not present in Tier 1, the classifier queries the database table `public.tool_rule_taxonomies`.
-This table stores previously classified custom and third-party rules.
 
-If a rule ID matches a Tier 2 entry:
-- The system retrieves the cached taxonomy tuple from PostgreSQL.
-- The process uses **0 LLM tokens** and completes in **0.5 milliseconds**.
+If a rule key is not in Tier 1, the classifier queries `public.tool_rule_taxonomies`.
+This table stores all previously LLM-classified rule mappings.
 
-#### Tier 3: Ultra-Lean Helper LLM Batch Classifier (~188 LLM Tokens)
-If a rule ID is absent from both Tier 1 and Tier 2, the classifier sends a compact request to `deepseek-v4-flash`.
-The prompt contains a condensed taxonomy list and requires a pipe-delimited JSON response:
+**Schema:**
 
-```text
-Classify static analysis tool findings into LiveReview taxonomy.
-Categories: Security, Performance, Maintainability, Reliability, Compliance, Architecture.
-Subcategories: Secrets Management, Injection Vulnerabilities, Cryptography, Input Validation, Dead Code, Configuration Management, Code Complexity, Fault Tolerance, Data Exposure.
-
-Format response strictly as JSON array of pipe-delimited strings:
-["index|category|subcategory|severity_code|confidence_code|type_code"]
+```sql
+CREATE TABLE IF NOT EXISTS tool_rule_taxonomies (
+    rule_key    VARCHAR(300) PRIMARY KEY,  -- e.g. "ruff:e711"
+    tool_name   VARCHAR(100) NOT NULL,
+    rule_id     VARCHAR(200) NOT NULL,
+    category    VARCHAR(100) NOT NULL,
+    subcategory VARCHAR(100) NOT NULL,
+    severity    VARCHAR(50)  NOT NULL,
+    confidence  VARCHAR(50)  NOT NULL,
+    type        VARCHAR(50)  NOT NULL,
+    created_at  TIMESTAMPTZ  DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ  DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_tool_rule_taxonomies_tool ON tool_rule_taxonomies(tool_name, rule_id);
 ```
 
-This request uses **~188 tokens**, which reduces LLM token consumption by 80.4% compared to full AI code review prompts.
+**Query pattern (batch):**
+
+```sql
+SELECT rule_key, category, subcategory, severity, confidence, type
+FROM tool_rule_taxonomies
+WHERE rule_key = ANY($1);
+```
+
+If a rule key matches a Tier 2 row:
+- The system retrieves the cached taxonomy tuple from PostgreSQL.
+- The process uses **0 LLM tokens** and completes in **~0.5 milliseconds**.
+
+---
+
+#### Tier 3: Helper LLM Batch Classifier (~188 LLM Tokens, one-time per new rule_key)
+
+If a rule key is absent from both Tier 1 and Tier 2, the classifier calls the configured Helper LLM.
+Only **unique, previously-unseen rule keys** go to the LLM — not individual findings.
+
+The prompt uses the **full official LiveReview taxonomy** (`ValidTaxonomyMap`) so the LLM always produces valid output:
+
+```text
+You are a static analysis tool classifier for LiveReview.
+
+Map each tool rule to the LiveReview taxonomy.
+
+CATEGORIES and valid SUBCATEGORIES:
+Security: Authentication, Authorization, Secrets Management, Input Validation,
+  Injection Vulnerabilities, Cryptography, Dependency Vulnerabilities,
+  Data Exposure, Session Management, Security Logging & Auditing
+Reliability: Error Handling, Fault Tolerance, Retry Logic, Timeout Management,
+  Resilience Patterns, Availability Risks, Data Integrity, Race Conditions,
+  Resource Cleanup, Failure Recovery
+Correctness: Logic Errors, Edge Cases, Data Validation, State Management,
+  Concurrency Bugs, Business Rule Violations, Numerical Accuracy,
+  Null Handling, Type Safety, API Contract Violations
+Performance: Database Efficiency, Algorithmic Complexity, Memory Usage,
+  CPU Utilization, Network Efficiency, Caching, Concurrency,
+  Resource Contention, Rendering Performance, Startup Performance
+Cost: Cloud Resource Waste, Infrastructure Overprovisioning,
+  Storage Optimization, Database Cost Optimization, Excessive API Usage,
+  Third-Party Service Costs, Redundant Computation, LLM Token Consumption,
+  Caching Opportunities, Data Transfer Costs
+Scalability: Horizontal Scaling, Vertical Scaling, Distributed Systems,
+  Load Balancing, Capacity Planning, Bottleneck Risks, Concurrency Limits,
+  Service Growth Constraints, Database Scaling, Queue Backpressure
+Maintainability: Code Complexity, Readability, Documentation, Code Duplication,
+  Dead Code, Naming Quality, Testability, Technical Debt,
+  Refactoring Opportunities, Configuration Management, UI/UX, Accessibility
+Architecture: Separation of Concerns, Modularity, Coupling, Cohesion,
+  Layering Violations, Dependency Management, Service Boundaries,
+  Domain Modeling, API Design, Extensibility
+Developer Experience: Testing, CI/CD, Build System, Local Development,
+  Debuggability, Observability, Deployment Process, Automation,
+  Developer Tooling, Documentation Quality, UI/UX, Accessibility
+Compliance & Governance: Privacy, Regulatory Compliance, Auditability,
+  Data Retention, Data Residency, Licensing, Policy Enforcement,
+  Access Controls, Change Management, Governance Standards
+
+SEVERITY codes: c=critical  w=warning  i=info
+CONFIDENCE codes: H=High  M=Medium  L=Low
+TYPE codes: B=Bug  R=Risk  O=Optimization  S=Code Smell  P=Best Practice  D=Technical Debt
+
+Respond ONLY with a JSON array. Each element: "index|category|subcategory|severity|confidence|type"
+
+Findings (tool:rule_id - sample message):
+[{"i":0,"r":"ruff:E711","m":"comparison to None"},{"i":1,"r":"hadolint:DL3008","m":"Pin versions in apt-get install"}]
+```
+
+**Expected response:**
+
+```json
+["0|Maintainability|Code Complexity|w|H|S","1|Maintainability|Configuration Management|w|H|P"]
+```
+
+---
 
 ### Self-Learning Auto-Cache Mechanism
 
-When Tier 3 classifies a new rule ID, the system persists the resulting tuple into `public.tool_rule_taxonomies`.
-All future reviews across the organization use Tier 2 for that rule ID.
-This mechanism converts unknown rules into **0-token executions** after the first execution.
+After Tier 3 classifies a batch of new rule keys, the system upserts all results into `tool_rule_taxonomies`.
+
+```mermaid
+sequenceDiagram
+    participant W as ToolReviewWorker
+    participant C as ClassifyToolResult()
+    participant DB as tool_rule_taxonomies
+    participant LLM as Helper LLM
+
+    W->>C: findings (tool_name, check_id, message)
+    C->>C: Tier 1 check (in-memory)
+    C->>DB: Batch SELECT for unresolved rule_keys
+    DB-->>C: cached rows (0 tokens)
+    C->>LLM: Batch classify ONLY new rule_keys
+    LLM-->>C: pipe-delimited JSON
+    C->>DB: UPSERT new mappings (async, non-blocking)
+    C-->>W: []ReviewComment with taxonomy fields
+```
+
+All future invocations — including after server restart — find the rule key in Tier 2 (0 LLM tokens).
 
 ---
 
 ## Official Tool Specification Mapping Table
 
-The table below lists the official documentation source and taxonomy mapping for each supported tool:
+The table below lists the official documentation source and default taxonomy for each supported tool:
 
-| Tool Name | Official Documentation Reference | Standard Category | Standard Subcategory |
+| Tool Name | Official Documentation Reference | Default Category | Default Subcategory |
 |---|---|---|---|
 | **gitleaks** | [gitleaks.toml Spec](https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml) | Security | Secrets Management |
 | **bandit** | [Bandit Plugin Index](https://bandit.readthedocs.io/en/latest/plugins/index.html) | Security | Cryptography / Injection |
-| **semgrep** | [Semgrep Rule Registry](https://semgrep.dev/rules) | Security / Reliability | Injection Vulnerabilities |
+| **semgrep** | [Semgrep Rule Registry](https://semgrep.dev/rules) | Security | Injection Vulnerabilities |
 | **ruff** | [Ruff Rule Docs](https://docs.astral.sh/ruff/rules/) | Maintainability | Dead Code / Code Complexity |
 | **hadolint** | [Hadolint Rules Wiki](https://github.com/hadolint/hadolint#rules) | Maintainability | Configuration Management |
 | **shellcheck** | [ShellCheck Wiki](https://github.com/koalaman/shellcheck/wiki) | Reliability | Fault Tolerance |
-| **eslint** | [ESLint Rules Guide](https://eslint.org/docs/latest/rules) | Maintainability / Security | Dead Code / Injection |
+| **eslint** | [ESLint Rules Guide](https://eslint.org/docs/latest/rules) | Maintainability | Dead Code |
 | **trivy** | [Trivy Scanner Docs](https://aquasecurity.github.io/trivy) | Security | Dependency Vulnerabilities |
+| **detect-secrets** | [detect-secrets Docs](https://github.com/Yelp/detect-secrets) | Security | Secrets Management |
+| **trufflehog** | [TruffleHog Docs](https://github.com/trufflesecurity/trufflehog) | Security | Secrets Management |
+| **tfsec** | [tfsec Docs](https://github.com/aquasecurity/tfsec) | Security | Configuration Management |
+| **actionlint** | [actionlint Docs](https://github.com/rhysd/actionlint) | Reliability | Fault Tolerance |
+| **osv** | [OSV Scanner Docs](https://google.github.io/osv-scanner) | Security | Dependency Vulnerabilities |
+| **zizmor** | [zizmor Docs](https://github.com/woodruffw/zizmor) | Security | Injection Vulnerabilities |
+| **checkov** | [Checkov Docs](https://www.checkov.io/5.Policy%20Index/terraform.html) | Security | Configuration Management |
+| **brakeman** | [Brakeman Warnings](https://brakemanscanner.org/docs/warning_types/) | Security | Injection Vulnerabilities |
+| **golangci-lint** | [golangci-lint Rules](https://golangci-lint.run/usage/linters/) | Maintainability | Code Complexity |
+| **kubescape** | [Kubescape Controls](https://hub.armosec.io/docs/controls) | Security | Configuration Management |
+| **spectral** | [Spectral Rules](https://docs.stoplight.io/docs/spectral/674b27b261c3c-overview) | Maintainability | API Design |
+| **openapi** | [OpenAPI Spec](https://spec.openapis.org/oas/v3.1.0) | Maintainability | API Design |
+| **ktlint** | [ktlint Rules](https://pinterest.github.io/ktlint/) | Maintainability | Code Complexity |
+| **phpcs** | [PHPCS Standards](https://github.com/squizlabs/PHP_CodeSniffer/wiki) | Maintainability | Code Complexity |
+| **rubocop** | [RuboCop Docs](https://docs.rubocop.org) | Maintainability | Code Complexity |
 
 ---
 
