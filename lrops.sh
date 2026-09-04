@@ -5931,7 +5931,7 @@ services:
             POSTGRES_PASSWORD: ${DB_PASSWORD}
             POSTGRES_DB: livereview
         volumes:
-            - ./lrdata/postgres:/var/lib/postgresql/data
+            - ./lrdata/postgres:/var/lib/postgresql
         healthcheck:
             test: ["CMD-SHELL", "pg_isready -U livereview -d livereview"]
             interval: 10s
