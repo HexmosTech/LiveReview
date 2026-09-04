@@ -69,24 +69,45 @@ const StorageSettingsTab: React.FC = () => {
     const isGCS = settings.backend === 'gcs';
     const isAzure = settings.backend === 'azure';
 
-    const validationError = (): string | null => {
-        if (isS3 && !settings.bucket) return 'Please enter a bucket name';
-        if (isGCS && !settings.bucket) return 'Please enter a bucket name';
-        if (isAzure && !settings.bucket) return 'Please enter a container name';
-        if (isAzure && !settings.azure_account_name) return 'Please enter a storage account name';
+    // Strips stray leading/trailing whitespace (a common copy-paste artifact)
+    // before validating or sending - a trailing space in Bucket makes AWS
+    // reject the bucket name outright.
+    const trimSettings = (s: StorageSettings): StorageSettings => ({
+        ...s,
+        local_dir: s.local_dir?.trim(),
+        bucket: s.bucket?.trim(),
+        endpoint: s.endpoint?.trim(),
+        region: s.region?.trim(),
+        access_key_id: s.access_key_id?.trim(),
+        secret_access_key: s.secret_access_key?.trim(),
+        gcs_credentials_json: s.gcs_credentials_json?.trim(),
+        azure_account_name: s.azure_account_name?.trim(),
+        azure_account_key: s.azure_account_key?.trim(),
+    });
+
+    const validationError = (s: StorageSettings): string | null => {
+        const isS3Backend = s.backend === 's3';
+        const isGCSBackend = s.backend === 'gcs';
+        const isAzureBackend = s.backend === 'azure';
+        if (isS3Backend && !s.bucket) return 'Please enter a bucket name';
+        if (isGCSBackend && !s.bucket) return 'Please enter a bucket name';
+        if (isAzureBackend && !s.bucket) return 'Please enter a container name';
+        if (isAzureBackend && !s.azure_account_name) return 'Please enter a storage account name';
         return null;
     };
-    const canSubmit = validationError() === null;
+    const canSubmit = validationError(trimSettings(settings)) === null;
 
     const handleSave = async () => {
-        const err = validationError();
+        const trimmed = trimSettings(settings);
+        const err = validationError(trimmed);
         if (err) {
             notify.error(err);
             return;
         }
         setIsSaving(true);
         try {
-            await apiClient.put('/api/v1/admin/settings/storage', settings);
+            await apiClient.put('/api/v1/admin/settings/storage', trimmed);
+            setSettings(trimmed);
             notify.success('Storage settings saved successfully!');
         } catch (error: any) {
             notify.error(error?.message || 'Failed to save storage settings');
@@ -96,14 +117,15 @@ const StorageSettingsTab: React.FC = () => {
     };
 
     const handleTest = async () => {
-        const err = validationError();
+        const trimmed = trimSettings(settings);
+        const err = validationError(trimmed);
         if (err) {
             notify.error(err);
             return;
         }
         setIsTesting(true);
         try {
-            const response = await apiClient.post<{ message: string }>('/api/v1/admin/settings/storage/test', settings);
+            const response = await apiClient.post<{ message: string }>('/api/v1/admin/settings/storage/test', trimmed);
             notify.success(response?.message || 'Storage connection succeeded');
         } catch (error: any) {
             notify.error(error?.message || 'Storage connection failed');
