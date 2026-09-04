@@ -1816,7 +1816,10 @@ create_directory_structure() {
         log_warning "Could not set permissions on lrdata directory"
     fi
     
-    # PostgreSQL data directory needs specific permissions
+    # PostgreSQL data directory needs specific permissions.
+    if ! chown 70:70 "$LIVEREVIEW_INSTALL_DIR/lrdata/postgres" 2>/dev/null; then
+        log_warning "Could not chown postgres directory to uid 70 (postgres image user)"
+    fi
     if ! chmod 700 "$LIVEREVIEW_INSTALL_DIR/lrdata/postgres"; then
         log_warning "Could not set permissions on postgres directory"
     fi
