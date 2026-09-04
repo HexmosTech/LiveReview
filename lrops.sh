@@ -4333,9 +4333,9 @@ INSTALLATION
    e.g. for livereview.google.com:
    sudo sed -i 's/your-domain.com/livereview.google.com/g' /etc/caddy/Caddyfile
 
-3. Start Caddy:
+3. Enable Caddy and apply the configuration:
    sudo systemctl enable caddy
-   sudo systemctl start caddy
+   sudo systemctl reload caddy
 
 TEMPLATE FEATURES
 ================
