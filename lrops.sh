@@ -6062,10 +6062,11 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # Timeouts
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
+        # Timeouts. 300s (not nginx's 60s default) to match the Apache/Caddy
+        # templates - reviews can be long-running, don't cut API calls short.
+        proxy_connect_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
 
         # Unlike the UI location below, the backend does not pre-compress these
         # responses, so nginx compressing them here is real work, not redundant
@@ -6181,9 +6182,9 @@ server {
 #         proxy_set_header X-Real-IP $remote_addr;
 #         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 #         proxy_set_header X-Forwarded-Proto $scheme;
-#         proxy_connect_timeout 60s;
-#         proxy_send_timeout 60s;
-#         proxy_read_timeout 60s;
+#         proxy_connect_timeout 300s;
+#         proxy_send_timeout 300s;
+#         proxy_read_timeout 300s;
 #         gzip on;
 #         gzip_types application/json;
 #         gzip_min_length 256;
