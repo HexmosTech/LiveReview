@@ -17,7 +17,7 @@ fi
 # SCRIPT METADATA AND CONSTANTS
 # =============================================================================
 
-SCRIPT_VERSION="1.3.0"
+SCRIPT_VERSION="1.3.1"
 SCRIPT_NAME="lrops.sh"
 # Resolve invoking user and home directory robustly (works with sudo)
 # Priority: SUDO_UID/SUDO_USER -> tilde expansion -> current $HOME
@@ -6062,8 +6062,7 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # Timeouts. 300s (not nginx's 60s default) to match the Apache/Caddy
-        # templates - reviews can be long-running, don't cut API calls short.
+        # Timeouts
         proxy_connect_timeout 300s;
         proxy_send_timeout 300s;
         proxy_read_timeout 300s;
@@ -6315,7 +6314,7 @@ your-domain.com {
     
     # Increase upload size. Review submissions upload archives - keep this well above
     # your largest expected payload or uploads fail with 413.
-    LimitRequestBody 104857600  # 100MB
+    LimitRequestBody 104857600
     
     # Proxy API requests to backend (port 8888)
     ProxyPreserveHost On
@@ -6339,10 +6338,9 @@ your-domain.com {
         AddOutputFilterByType DEFLATE application/json
 
         # Forward headers
-        ProxySetHeader Host %{HTTP_HOST}
-        ProxySetHeader X-Real-IP %{REMOTE_ADDR}
-        ProxySetHeader X-Forwarded-For %{REMOTE_ADDR}
-        ProxySetHeader X-Forwarded-Proto %{REQUEST_SCHEME}
+        RequestHeader set X-Real-IP "expr=%{REMOTE_ADDR}"
+        RequestHeader set X-Forwarded-For "expr=%{REMOTE_ADDR}"
+        RequestHeader set X-Forwarded-Proto "expr=%{REQUEST_SCHEME}"
     </Location>
     
     # Proxy everything else to frontend (port 8081)
@@ -6358,10 +6356,9 @@ your-domain.com {
         SetEnv no-gzip 1
         
         # Forward headers
-        ProxySetHeader Host %{HTTP_HOST}
-        ProxySetHeader X-Real-IP %{REMOTE_ADDR}
-        ProxySetHeader X-Forwarded-For %{REMOTE_ADDR}
-        ProxySetHeader X-Forwarded-Proto %{REQUEST_SCHEME}
+        RequestHeader set X-Real-IP "expr=%{REMOTE_ADDR}"
+        RequestHeader set X-Forwarded-For "expr=%{REMOTE_ADDR}"
+        RequestHeader set X-Forwarded-Proto "expr=%{REQUEST_SCHEME}"
     </Location>
     
     # Logging
@@ -6402,20 +6399,18 @@ your-domain.com {
 #     <Location /api/>
 #         ProxyPass http://127.0.0.1:8888/api/ enablereuse=on timeout=300
 #         ProxyPassReverse http://127.0.0.1:8888/api/
-#         ProxySetHeader Host %{HTTP_HOST}
-#         ProxySetHeader X-Real-IP %{REMOTE_ADDR}
-#         ProxySetHeader X-Forwarded-For %{REMOTE_ADDR}
-#         ProxySetHeader X-Forwarded-Proto %{REQUEST_SCHEME}
+#         RequestHeader set X-Real-IP "expr=%{REMOTE_ADDR}"
+#         RequestHeader set X-Forwarded-For "expr=%{REMOTE_ADDR}"
+#         RequestHeader set X-Forwarded-Proto "expr=%{REQUEST_SCHEME}"
 #     </Location>
 #     
 #     <Location />
 #         ProxyPass http://127.0.0.1:8081/ enablereuse=on
 #         ProxyPassReverse http://127.0.0.1:8081/
 #         SetEnv no-gzip 1
-#         ProxySetHeader Host %{HTTP_HOST}
-#         ProxySetHeader X-Real-IP %{REMOTE_ADDR}
-#         ProxySetHeader X-Forwarded-For %{REMOTE_ADDR}
-#         ProxySetHeader X-Forwarded-Proto %{REQUEST_SCHEME}
+#         RequestHeader set X-Real-IP "expr=%{REMOTE_ADDR}"
+#         RequestHeader set X-Forwarded-For "expr=%{REMOTE_ADDR}"
+#         RequestHeader set X-Forwarded-Proto "expr=%{REQUEST_SCHEME}"
 #     </Location>
 #     
 #     ErrorLog ${APACHE_LOG_DIR}/livereview_ssl_error.log
