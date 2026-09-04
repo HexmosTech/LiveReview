@@ -1889,6 +1889,9 @@ LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION:-latest}
 # Pricing
 LIVEREVIEW_PRICING_PROFILE=actual
 
+# Doc-index embedding model cache
+DBCTX_CACHE_DIR=/app/lrdata/.dbctx
+
 EOF
     
     # Set secure permissions on .env file (readable by Docker containers)
@@ -2153,7 +2156,7 @@ pull_docker_images() {
     log_success "Successfully pulled LiveReview application image"
     
     # Pull PostgreSQL image (using the version specified in docker-compose.yml)
-    local postgres_image="postgres:15-alpine"
+    local postgres_image="postgres:18-alpine"
     log_info "Pulling PostgreSQL image: $postgres_image"
     
     if ! docker pull "$postgres_image"; then
@@ -5875,7 +5878,7 @@ services:
             start_period: 30s
 
     livereview-db:
-        image: postgres:15-alpine
+        image: postgres:18-alpine
         container_name: livereview-db
         environment:
             POSTGRES_USER: livereview
