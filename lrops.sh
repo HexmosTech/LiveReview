@@ -17,7 +17,7 @@ fi
 # SCRIPT METADATA AND CONSTANTS
 # =============================================================================
 
-SCRIPT_VERSION="1.2.6"
+SCRIPT_VERSION="1.2.7"
 SCRIPT_NAME="lrops.sh"
 # Resolve invoking user and home directory robustly (works with sudo)
 # Priority: SUDO_UID/SUDO_USER -> tilde expansion -> current $HOME
@@ -1572,7 +1572,7 @@ EOF
             else
                 log_info "Demo mode selected - localhost only, no configuration needed"
             fi
-        else
+        elif [[ -t 0 ]]; then
     log_info "Choose your deployment mode:"
             echo >&2
             echo "1) Demo Mode (localhost only, no webhooks, quickstart)" >&2
@@ -1588,24 +1588,38 @@ EOF
                 deployment_mode="demo"
                 log_info "Demo mode selected - localhost only, no configuration needed"
             fi
+        else
+            # Non-interactive (curl | bash, CI, etc.) with no mode already picked: stdin
+            # here is not a real terminal - when this script is run as
+            # `curl ... | bash -s -- ...`, fd 0 is the pipe still carrying the rest of
+            # the script's own source text, not a person's keystrokes. A `read` here
+            # would silently consume literal bytes of the script itself as if they were
+            # console input. Fall back to demo mode instead of reading garbage.
+            log_info "Non-interactive install with no mode specified - defaulting to demo mode"
+            log_info "Use 'setup-production' to install in production mode non-interactively"
+            deployment_mode="demo"
         fi
-        
+
         # Generate database password
         local db_password
         db_password=$(generate_password 32)
-        echo -n "Database password [auto-generated secure password]: " >&2
-        read -r user_input
-        if [[ -n "$user_input" ]]; then
-            db_password="$user_input"
+        if [[ -t 0 ]]; then
+            echo -n "Database password [auto-generated secure password]: " >&2
+            read -r user_input
+            if [[ -n "$user_input" ]]; then
+                db_password="$user_input"
+            fi
         fi
-        
+
         # Generate JWT Secret
         local jwt_secret
         jwt_secret=$(generate_jwt_secret)
-        echo -n "JWT secret key [auto-generated secure key]: " >&2
-        read -r user_input
-        if [[ -n "$user_input" ]]; then
-            jwt_secret="$user_input"
+        if [[ -t 0 ]]; then
+            echo -n "JWT secret key [auto-generated secure key]: " >&2
+            read -r user_input
+            if [[ -n "$user_input" ]]; then
+                jwt_secret="$user_input"
+            fi
         fi
         
         # Use standard ports (no custom port configuration for simplicity)
