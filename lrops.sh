@@ -17,7 +17,7 @@ fi
 # SCRIPT METADATA AND CONSTANTS
 # =============================================================================
 
-SCRIPT_VERSION="1.2.3"
+SCRIPT_VERSION="1.2.4"
 SCRIPT_NAME="lrops.sh"
 # Resolve invoking user and home directory robustly (works with sudo)
 # Priority: SUDO_UID/SUDO_USER -> tilde expansion -> current $HOME
@@ -5952,16 +5952,32 @@ server {
     listen 80;
     server_name your-domain.com;  # Replace with your domain
 
-    # Security headers
+    # Security headers. `always` makes nginx send these even on its own error
+    # responses (4xx/5xx), not just successful proxied ones.
+    #   X-Frame-Options: blocks this site from being loaded inside an <iframe> on
+    #     another origin, the standard defense against clickjacking.
+    #   X-Content-Type-Options: stops the browser "sniffing" a response's real type
+    #     from its content and running it as something other than its declared
+    #     Content-Type (e.g. treating an uploaded file as executable JS).
+    #   X-XSS-Protection: legacy header for old browsers' built-in reflected-XSS
+    #     filter. Modern browsers ignore it (they dropped the filter entirely and
+    #     rely on CSP instead), but it is harmless to keep for older clients.
+    #   Referrer-Policy: only send the origin (scheme+host), not the full URL with
+    #     path/query, in the Referer header on cross-origin requests - avoids leaking
+    #     things like a review's URL path to third-party resources.
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
-    # Increase client max body size for file uploads
+    # nginx's own default (1M) is too small for review submissions that upload
+    # archives/diffs - raise it well above the largest expected payload, or uploads
+    # fail with a 413 before ever reaching the backend.
     client_max_body_size 100M;
 
-    # Prevent proxy temp file issues
+    # 0 = never spill a buffered proxied response to a temp file on disk, keep it in
+    # memory (bounded by proxy_buffers) instead. Avoids disk I/O stalls under load;
+    # safe here because responses are JSON/HTML/assets, not huge unbounded streams.
     proxy_max_temp_file_size 0;
 
     # Let's Encrypt HTTP-01 challenge (keep this reachable over plain HTTP for renewals)
@@ -6032,24 +6048,56 @@ server {
 
 # HTTPS configuration (uncomment after setting up SSL)
 # server {
-#     listen 443 ssl;
-#     http2 on;
+#     # `http2` as a `listen` parameter (rather than the newer standalone `http2 on;`
+#     # directive) is the deliberate choice here: `http2 on;` only exists from nginx
+#     # 1.25.1 onward and is a hard "unknown directive" config-test failure on anything
+#     # older - including the nginx that ships in several still-common distro repos
+#     # (e.g. Ubuntu 22.04's packaged nginx is 1.18). The `listen ... http2;` form has
+#     # worked since nginx 1.9.5 and still works today (nginx only logs a deprecation
+#     # notice on very new versions, it does not refuse to start), so it is the one
+#     # choice that works everywhere an installer example needs to work.
+#     listen 443 ssl http2;
 #     server_name your-domain.com;
 #
+#     # Paths certbot's default layout writes to; lrops.sh setup-ssl fills these in via
+#     # `certbot certonly` and does not need this file to already reference the right
+#     # domain - the domain substitution below (your-domain.com -> $DOMAIN) does that.
 #     ssl_certificate     /etc/letsencrypt/live/your-domain.com/fullchain.pem;
 #     ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
 #
+#     # TLS 1.2 and 1.3 only - TLS 1.0/1.1 are deprecated (broken ciphers, no forward
+#     # secrecy guarantee) and major browsers stopped supporting them years ago, so
+#     # disabling them costs no real-world compatibility.
 #     ssl_protocols TLSv1.2 TLSv1.3;
+#     # Off = let the client pick the cipher (from nginx's own ordered list, which is
+#     # already modern-first). "Prefer server ciphers" made sense when clients had bad
+#     # cipher choices; on TLS 1.3, cipher order is entirely up to the client per RFC
+#     # 8446 anyway, so this only matters for the TLS 1.2 fallback above.
 #     ssl_prefer_server_ciphers off;
+#     # Cache TLS session parameters so a repeat visitor's browser can resume a session
+#     # (abbreviated handshake) instead of doing a full handshake every time - cheaper
+#     # for both sides. "shared" makes the cache visible across all nginx worker
+#     # processes, not just the one that handled the first request. 10m ~= tens of
+#     # thousands of cached sessions; 10 minutes is how long an unused session is kept.
 #     ssl_session_cache shared:SSL:10m;
 #     ssl_session_timeout 10m;
 #
+#     # HSTS: tells the browser to always use HTTPS for this domain, skipping even the
+#     # initial HTTP request, for the next year (max-age is in seconds). This must live
+#     # only in the HTTPS server block - sending it over plain HTTP would have no
+#     # security benefit (an attacker doing MITM on that connection could just strip it)
+#     # and risks locking out a domain that later can't serve HTTPS (e.g. cert expired).
 #     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+#     # Same four headers as the plain-HTTP server above - see its comments for why
+#     # each one is here. Repeated because this is a separate server{} block; nginx
+#     # does not inherit add_header from another server{}.
 #     add_header X-Frame-Options "SAMEORIGIN" always;
 #     add_header X-Content-Type-Options "nosniff" always;
 #     add_header X-XSS-Protection "1; mode=block" always;
 #     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 #
+#     # Same reasoning as the plain-HTTP server above: allow large review-submission
+#     # uploads, and avoid nginx buffering large proxied responses to a temp file.
 #     client_max_body_size 100M;
 #     proxy_max_temp_file_size 0;
 #
