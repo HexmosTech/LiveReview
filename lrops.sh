@@ -17,7 +17,7 @@ fi
 # SCRIPT METADATA AND CONSTANTS
 # =============================================================================
 
-SCRIPT_VERSION="1.2.2"
+SCRIPT_VERSION="1.2.3"
 SCRIPT_NAME="lrops.sh"
 # Resolve invoking user and home directory robustly (works with sudo)
 # Priority: SUDO_UID/SUDO_USER -> tilde expansion -> current $HOME
@@ -4458,7 +4458,7 @@ INSTALLATION
    sudo apt update && sudo apt install apache2
 
 2. Enable required modules:
-   sudo a2enmod proxy proxy_http proxy_balancer lbmethod_byrequests headers rewrite ssl
+   sudo a2enmod proxy proxy_http proxy_balancer lbmethod_byrequests headers rewrite deflate ssl
     
 3. Copy and configure the template:
    sudo cp ~/livereview/config/apache.conf.example /etc/apache2/sites-available/livereview.conf
@@ -5989,6 +5989,13 @@ server {
         proxy_connect_timeout 60s;
         proxy_send_timeout 60s;
         proxy_read_timeout 60s;
+
+        # Unlike the UI location below, the backend does not pre-compress these
+        # responses, so nginx compressing them here is real work, not redundant
+        # work - safe to enable, and worthwhile since JSON compresses well.
+        gzip on;
+        gzip_types application/json;
+        gzip_min_length 256;
     }
 
     # Route everything else to frontend (port 8081)
@@ -6058,6 +6065,9 @@ server {
 #         proxy_connect_timeout 60s;
 #         proxy_send_timeout 60s;
 #         proxy_read_timeout 60s;
+#         gzip on;
+#         gzip_types application/json;
+#         gzip_min_length 256;
 #     }
 #
 #     location / {
@@ -6094,15 +6104,14 @@ server {
 
 your-domain.com {
     # Automatic HTTPS with Let's Encrypt
-    
-    # NOTE: do NOT add an `encode gzip` directive here. The livereview-ui process
-    # pre-gzips its static assets at startup and sends Content-Encoding: gzip itself
-    # (cmd/ui.go, buildCompressedAssets). Re-compressing already-gzipped responses on
-    # every request was the confirmed cause of multi-second stalls across whole request
-    # bursts. See docs/perf-improvement.md "Finding A" in the LiveReview repo.
 
     # Handle API routes (send to backend)
     handle /api/* {
+        # Unlike the UI handler below, the backend does not pre-compress these
+        # responses, so Caddy compressing them here is real work, not redundant
+        # work - safe to enable, and worthwhile since JSON compresses well.
+        encode gzip
+
         reverse_proxy localhost:8888 {
             header_up Host {host}
             header_up X-Real-IP {remote_host}
@@ -6121,9 +6130,14 @@ your-domain.com {
             }
         }
     }
-    
+
     # Handle everything else (send to frontend)
     handle {
+        # NOTE: do NOT add an `encode gzip` directive here. The livereview-ui process
+        # pre-gzips its static assets at startup and sends Content-Encoding: gzip itself
+        # (cmd/ui.go, buildCompressedAssets). Re-compressing already-gzipped responses on
+        # every request was the confirmed cause of multi-second stalls across whole request
+        # bursts. See docs/perf-improvement.md "Finding A" in the LiveReview repo.
         reverse_proxy localhost:8081 {
             header_up Host {host}
             header_up X-Real-IP {remote_host}
@@ -6185,7 +6199,7 @@ your-domain.com {
     DocumentRoot /var/www/html
     
     # Enable required modules
-    # a2enmod proxy proxy_http proxy_balancer lbmethod_byrequests headers rewrite ssl
+    # a2enmod proxy proxy_http proxy_balancer lbmethod_byrequests headers rewrite deflate ssl
     
     # Security headers
     Header always set X-Frame-Options "SAMEORIGIN"
@@ -6212,7 +6226,12 @@ your-domain.com {
         # See docs/perf-improvement.md in the LiveReview repo.
         ProxyPass http://127.0.0.1:8888/api/ enablereuse=on timeout=300
         ProxyPassReverse http://127.0.0.1:8888/api/
-        
+
+        # Unlike the UI Location below, the backend does not pre-compress these
+        # responses, so mod_deflate compressing them here is real work, not
+        # redundant work - safe to enable, and worthwhile since JSON compresses well.
+        AddOutputFilterByType DEFLATE application/json
+
         # Forward headers
         ProxySetHeader Host %{HTTP_HOST}
         ProxySetHeader X-Real-IP %{REMOTE_ADDR}
@@ -7042,7 +7061,7 @@ s/^# //
 s/^#$//
 }' "$APACHE_VHOST"
 
-    sudo a2enmod ssl proxy proxy_http headers >/dev/null 2>&1 || true
+    sudo a2enmod ssl proxy proxy_http headers deflate >/dev/null 2>&1 || true
     sudo a2ensite livereview >/dev/null 2>&1 || true
 
     if sudo apache2ctl configtest; then
