@@ -76,26 +76,36 @@ RUN echo "🔨 Cross-compiling LiveReview binary for ${TARGETOS}/${TARGETARCH}${
     -v -o /out/livereview . && \
     echo "LiveReview binary cross-compiled successfully for ${TARGETARCH} (tags: ${GO_BUILD_TAGS})"
 
-# Cross-compile River CLI and UI tools for target architecture
-RUN echo "🌊 Cross-compiling River CLI and UI tools for ${TARGETARCH}..." && \
-    # Create temporary directory for building tools
-    mkdir -p /tmp/tools && \
-    cd /tmp/tools && \
-    # Initialize a temporary module
-    go mod init temp && \
-    # Add the dependencies
+# Cross-compile River CLI and UI tools for target architecture.
+# river and riverui are separate Go modules with independently pinned
+# versions (RIVERUI_VERSION does not necessarily depend on the same
+# github.com/riverqueue/river version as RIVER_VERSION) - each gets its own
+# temp module + `go get` so Go's minimum-version-selection resolves each
+# tool's dependency graph in isolation. Building both from ONE shared temp
+# module (as this used to) forces MVS to unify their (possibly
+# incompatible) shared transitive dependencies and can hard-fail the build
+# with unrelated-looking compile errors deep in a vendored driver.
+RUN echo "🌊 Cross-compiling River CLI for ${TARGETARCH}..." && \
+    mkdir -p /tmp/tools-river && \
+    cd /tmp/tools-river && \
+    go mod init temp-river && \
     go get github.com/riverqueue/river/cmd/river@${RIVER_VERSION} && \
-    go get riverqueue.com/riverui/cmd/riverui@${RIVERUI_VERSION} && \
-    # Cross-compile River CLI
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     $([ "$TARGETARCH" = "arm" ] && [ "$TARGETVARIANT" = "v7" ] && echo "GOARM=7" || echo "") \
     go build -o /out/river github.com/riverqueue/river/cmd/river && \
-    # Cross-compile River UI
+    cd /app && rm -rf /tmp/tools-river && \
+    echo "River CLI cross-compiled successfully for ${TARGETARCH}"
+
+RUN echo "🌊 Cross-compiling River UI for ${TARGETARCH}..." && \
+    mkdir -p /tmp/tools-riverui && \
+    cd /tmp/tools-riverui && \
+    go mod init temp-riverui && \
+    go get riverqueue.com/riverui/cmd/riverui@${RIVERUI_VERSION} && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     $([ "$TARGETARCH" = "arm" ] && [ "$TARGETVARIANT" = "v7" ] && echo "GOARM=7" || echo "") \
     go build -o /out/riverui riverqueue.com/riverui/cmd/riverui && \
-    cd /app && rm -rf /tmp/tools && \
-    echo "River tools cross-compiled successfully for ${TARGETARCH}"
+    cd /app && rm -rf /tmp/tools-riverui && \
+    echo "River UI cross-compiled successfully for ${TARGETARCH}"
 
 # Download dbmate for target architecture
 RUN echo "📥 Installing dbmate for ${TARGETARCH}..." && \
