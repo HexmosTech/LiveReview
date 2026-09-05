@@ -6327,7 +6327,7 @@ your-domain.com {
     ProxyPreserveHost On
     ProxyRequests Off
     
-    # Reviews can be long-running - do not cut API calls short (default is 60s).
+    # Set timeout as 300s - reviews can be long-running, don't cut API calls short.
     ProxyTimeout 300
 
     <Location /api/>
