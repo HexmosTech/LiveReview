@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/livereview/internal/ai/gemini"
 	"github.com/livereview/internal/config"
 )
 
@@ -69,7 +70,7 @@ func (cs *ConfigurationService) buildAIConfig() (AIConfig, error) {
 
 	// Set defaults if not specified
 	if model == "" {
-		model = "gemini-2.5-flash"
+		model = gemini.DefaultModel
 	}
 	if temperature == 0 {
 		temperature = 0.4
@@ -89,7 +90,7 @@ func DefaultReviewConfig() Config {
 	return Config{
 		ReviewTimeout: 10 * time.Minute,
 		DefaultAI:     "langchain",
-		DefaultModel:  "gemini-2.5-flash",
+		DefaultModel:  gemini.DefaultModel,
 		Temperature:   0.4,
 	}
 }

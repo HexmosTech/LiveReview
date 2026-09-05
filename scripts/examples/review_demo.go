@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/livereview/internal/ai/gemini"
 	"github.com/livereview/internal/config"
 	"github.com/livereview/internal/review"
 )
@@ -32,7 +33,7 @@ func main() {
 	reviewConfig := review.Config{
 		ReviewTimeout: 10 * time.Minute,
 		DefaultAI:     "gemini",
-		DefaultModel:  "gemini-2.5-flash",
+		DefaultModel:  gemini.DefaultModel,
 		Temperature:   0.4,
 	}
 

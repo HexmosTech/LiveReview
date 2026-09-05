@@ -10,6 +10,7 @@ import (
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
+	"github.com/livereview/internal/ai/gemini"
 )
 
 // Config represents the application configuration
@@ -74,7 +75,7 @@ func InitConfig(configPath string) error {
 	}
 
 	// Create sample configuration
-	sampleConfig := `# LiveReview Configuration
+	sampleConfig := fmt.Sprintf(`# LiveReview Configuration
 
 [general]
 default_provider = "gitlab"
@@ -86,9 +87,9 @@ token = "your-gitlab-token"
 
 [ai.gemini]
 api_key = "your-gemini-api-key"
-model = "gemini-2.5-flash"
+model = "%s"
 temperature = 0.2
-`
+`, gemini.DefaultModel)
 
 	return os.WriteFile(configPath, []byte(sampleConfig), 0644)
 }
