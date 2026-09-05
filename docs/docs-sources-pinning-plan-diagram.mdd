@@ -1,0 +1,13 @@
+flowchart TD
+    LOCK["scripts/docs_sources.env\n(pinned commit SHAs, committed to git)"]
+    AGENT["Agent edits docs in\ngit-lrc / wikis"] -->|bumps pin, same commit| LOCK
+
+    LOCK --> SYNC["make sync-docs-sources\n(compare pin vs local marker)"]
+    LOCAL["This repo's own docs/\n(always current, no pin needed)"] --> SYNC
+
+    SYNC -->|"in sync: no-op"| EMBED
+    SYNC -->|"out of sync: fetch only\nthat pinned commit"| FETCH["Fetch exact commit\n(subdir-only, no full clone)"]
+    FETCH --> EMBED["internal/docindex/docs/\n(go:embed target)"]
+
+    EMBED --> BUILD["make build / build-with-ui /\nDocker image build"]
+    BUILD --> BINARY["livereview binary\n(docs baked in, no runtime fetch)"]
