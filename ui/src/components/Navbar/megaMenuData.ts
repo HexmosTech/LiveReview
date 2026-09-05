@@ -147,6 +147,9 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
             link('Create via CLI', React.createElement(Icons.Download), '/reviews/create-cli'),
             link('Create via MCP', React.createElement(Icons.AI), '/reviews/create-mcp'),
             link('Schedule Review', React.createElement(Icons.Clock), '/reviews/scheduled'),
+            group('CI/CD Gates', [
+                link('Rulesets', React.createElement(Icons.List), '/ci-rulesets'),
+            ], React.createElement(Icons.Ready), (ctx) => ctx.isSuperAdmin || ctx.orgRole === 'owner', '/ci-rulesets'),
         ],
     },
     {

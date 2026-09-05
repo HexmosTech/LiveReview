@@ -562,6 +562,7 @@ CREATE SEQUENCE public.billing_notification_outbox_id_seq
 
 ALTER SEQUENCE public.billing_notification_outbox_id_seq OWNED BY public.billing_notification_outbox.id;
 
+
 --
 -- Name: blast_radius_hunks; Type: TABLE; Schema: public; Owner: -
 --
@@ -577,7 +578,7 @@ CREATE TABLE public.blast_radius_hunks (
     tier character varying(32) NOT NULL,
     math_mode jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT blast_radius_hunks_tier_check CHECK (((tier)::text = ANY (ARRAY[('blast-radius-none'::character varying)::text, ('blast-radius-low'::character varying)::text, ('blast-radius-medium'::character varying)::text, ('blast-radius-high'::character varying)::text])))
+    CONSTRAINT blast_radius_hunks_tier_check CHECK (((tier)::text = ANY ((ARRAY['blast-radius-none'::character varying, 'blast-radius-low'::character varying, 'blast-radius-medium'::character varying, 'blast-radius-high'::character varying])::text[])))
 );
 
 
@@ -619,12 +620,12 @@ ALTER SEQUENCE public.blast_radius_hunks_id_seq OWNED BY public.blast_radius_hun
 --
 
 CREATE VIEW public.blast_radius_reviews AS
- SELECT review_id,
-    org_id,
-    max(combined) AS combined,
-    (array_agg(tier ORDER BY blast_radius_hunks.combined DESC))[1] AS tier
+ SELECT blast_radius_hunks.review_id,
+    blast_radius_hunks.org_id,
+    max(blast_radius_hunks.combined) AS combined,
+    (array_agg(blast_radius_hunks.tier ORDER BY blast_radius_hunks.combined DESC))[1] AS tier
    FROM public.blast_radius_hunks
-  GROUP BY review_id, org_id;
+  GROUP BY blast_radius_hunks.review_id, blast_radius_hunks.org_id;
 
 
 --
@@ -632,7 +633,6 @@ CREATE VIEW public.blast_radius_reviews AS
 --
 
 COMMENT ON VIEW public.blast_radius_reviews IS 'One row per review: its highest-scoring hunk''s combined score and tier. The shape Livi should query for "how many reviews had high blast radius" style questions.';
-
 
 
 --
@@ -651,7 +651,7 @@ CREATE TABLE public.chat_charts (
     vega_spec jsonb NOT NULL,
     raw_llm_output text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    context jsonb,
+    context text[],
     stats jsonb
 );
 
@@ -730,7 +730,7 @@ CREATE TABLE public.chat_files (
     rows integer,
     data bytea NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    context jsonb
+    context text[]
 );
 
 
@@ -788,6 +788,55 @@ CREATE SEQUENCE public.chat_messages_id_seq
 --
 
 ALTER SEQUENCE public.chat_messages_id_seq OWNED BY public.chat_messages.id;
+
+
+--
+-- Name: ci_rulesets; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ci_rulesets (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    name text NOT NULL,
+    description text DEFAULT ''::text NOT NULL,
+    jq_expr text NOT NULL,
+    created_by bigint,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE ci_rulesets; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.ci_rulesets IS 'Org-scoped CI/CD gate rules: jq_expr is run against a canonical per-review findings document; a truthy result blocks the CI job (see evaluateCIRuleset).';
+
+
+--
+-- Name: COLUMN ci_rulesets.jq_expr; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.ci_rulesets.jq_expr IS 'A jq expression evaluated against {review_id, org_id, repository, provider, status, findings[], counts{by_severity,by_category,total}}. Truthy result => block.';
+
+
+--
+-- Name: ci_rulesets_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.ci_rulesets_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: ci_rulesets_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.ci_rulesets_id_seq OWNED BY public.ci_rulesets.id;
 
 
 --
@@ -3099,6 +3148,13 @@ ALTER TABLE ONLY public.chat_messages ALTER COLUMN id SET DEFAULT nextval('publi
 
 
 --
+-- Name: ci_rulesets id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ci_rulesets ALTER COLUMN id SET DEFAULT nextval('public.ci_rulesets_id_seq'::regclass);
+
+
+--
 -- Name: instance_details id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3434,22 +3490,13 @@ ALTER TABLE ONLY public.auth_tokens
 ALTER TABLE ONLY public.billing_notification_outbox
     ADD CONSTRAINT billing_notification_outbox_pkey PRIMARY KEY (id);
 
+
 --
 -- Name: blast_radius_hunks blast_radius_hunks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.blast_radius_hunks
     ADD CONSTRAINT blast_radius_hunks_pkey PRIMARY KEY (id);
-
-
-
---
--- Name: blast_radius_hunks uq_blast_radius_hunks_review_hunk; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.blast_radius_hunks
-    ADD CONSTRAINT uq_blast_radius_hunks_review_hunk UNIQUE (review_id, file_path, new_start, new_lines);
-
 
 
 --
@@ -3490,6 +3537,14 @@ ALTER TABLE ONLY public.chat_messages
 
 ALTER TABLE ONLY public.chat_messages
     ADD CONSTRAINT chat_messages_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ci_rulesets ci_rulesets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ci_rulesets
+    ADD CONSTRAINT ci_rulesets_pkey PRIMARY KEY (id);
 
 
 --
@@ -4021,6 +4076,14 @@ ALTER TABLE ONLY public.billing_notification_outbox
 
 
 --
+-- Name: blast_radius_hunks uq_blast_radius_hunks_review_hunk; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.blast_radius_hunks
+    ADD CONSTRAINT uq_blast_radius_hunks_review_hunk UNIQUE (review_id, file_path, new_start, new_lines);
+
+
+--
 -- Name: loc_lifecycle_log uq_loc_lifecycle_org_event_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4334,6 +4397,7 @@ CREATE INDEX idx_billing_notification_outbox_org_created ON public.billing_notif
 
 CREATE INDEX idx_billing_notification_outbox_pending ON public.billing_notification_outbox USING btree (status, send_after, created_at) WHERE ((status)::text = ANY (ARRAY[('pending'::character varying)::text, ('failed'::character varying)::text]));
 
+
 --
 -- Name: idx_blast_radius_hunks_org_combined; Type: INDEX; Schema: public; Owner: -
 --
@@ -4346,7 +4410,6 @@ CREATE INDEX idx_blast_radius_hunks_org_combined ON public.blast_radius_hunks US
 --
 
 CREATE INDEX idx_blast_radius_hunks_review_id ON public.blast_radius_hunks USING btree (review_id);
-
 
 
 --
@@ -4417,6 +4480,13 @@ CREATE INDEX idx_chunks_appctx ON public.prompt_chunks USING btree (application_
 --
 
 CREATE INDEX idx_chunks_prompt_var ON public.prompt_chunks USING btree (prompt_key, variable_name);
+
+
+--
+-- Name: idx_ci_rulesets_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ci_rulesets_org_id ON public.ci_rulesets USING btree (org_id);
 
 
 --
@@ -5581,6 +5651,7 @@ ALTER TABLE ONLY public.billing_notification_outbox
 ALTER TABLE ONLY public.billing_notification_outbox
     ADD CONSTRAINT billing_notification_outbox_recipient_user_id_fkey FOREIGN KEY (recipient_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
 
+
 --
 -- Name: blast_radius_hunks blast_radius_hunks_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
@@ -5595,7 +5666,6 @@ ALTER TABLE ONLY public.blast_radius_hunks
 
 ALTER TABLE ONLY public.blast_radius_hunks
     ADD CONSTRAINT blast_radius_hunks_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id) ON DELETE CASCADE;
-
 
 
 --
@@ -5636,6 +5706,22 @@ ALTER TABLE ONLY public.chat_files
 
 ALTER TABLE ONLY public.chat_messages
     ADD CONSTRAINT chat_messages_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.chat_conversations(id) ON DELETE CASCADE;
+
+
+--
+-- Name: ci_rulesets ci_rulesets_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ci_rulesets
+    ADD CONSTRAINT ci_rulesets_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: ci_rulesets ci_rulesets_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ci_rulesets
+    ADD CONSTRAINT ci_rulesets_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
 
 
 --
@@ -6461,4 +6547,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260823200000'),
     ('20260824190000'),
     ('20260825140000'),
-    ('20260825190000');
+    ('20260825190000'),
+    ('20260905090000');
