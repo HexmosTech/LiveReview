@@ -21,7 +21,7 @@ full_bin = "dlv exec ./tmp/livereview --listen=127.0.0.1:2345 --headless=true --
 # or reordering a section only takes effect on a rebuild.
 include_ext = ["go", "tpl", "tmpl", "html", "yaml", "md", "toml"]
 # Ignore these filename extensions or directories.
-exclude_dir = ["assets", "tmp", "vendor", "ui/node_modules", "ui/docs/training_data", "livereview_pgdata", "lrdata","docs", "internal/api/mcp/generated", "internal/api/docs/spec.go", "scripts/adoption_chart"]
+exclude_dir = ["assets", "tmp", "vendor", "ui/node_modules", "livereview_pgdata", "lrdata","docs", "internal/api/mcp/generated", "internal/api/docs/spec.go", "scripts/adoption_chart"]
 # Watch these directories if you specified.
 include_dir = []
 # Exclude files.

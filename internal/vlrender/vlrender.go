@@ -105,7 +105,7 @@ func SpecIsTrivial(spec []byte) bool {
 	// there is at most one value. If the data source isn't inline `values`
 	// (e.g. data.url / data.source / transforms), the count is unknown, so we
 	// must NOT guess — render it as usual.
-	return known && count <= 1
+	return known && count == 0
 }
 
 // countDataValues recursively tallies the number of rows across all `data.values`

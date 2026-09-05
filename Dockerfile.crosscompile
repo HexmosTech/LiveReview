@@ -2,8 +2,14 @@
 # Cross-compilation optimized Multi-stage Dockerfile for LiveReview
 # Fully Dockerized: builds UI and Go binaries in Docker, then assembles runtime image.
 
+# Frozen Docker dependency versions - see docker/docker-deps.env (single source of truth).
+# scripts/lrops.py injects these as --build-arg for every build.
+ARG NODE_IMAGE_TAG=20.20.2-alpine
+ARG GOLANG_IMAGE_TAG=1.26.8-bookworm
+ARG DEBIAN_IMAGE_TAG=trixie-20260824-slim
+
 # Stage 1: Build React UI once (architecture-agnostic)
-FROM --platform=$BUILDPLATFORM node:20-alpine AS ui-builder
+FROM --platform=$BUILDPLATFORM node:${NODE_IMAGE_TAG} AS ui-builder
 WORKDIR /app/ui
 
 # Copy package files and install dependencies
@@ -21,13 +27,18 @@ RUN echo "🔨 Building UI for SELF-HOSTED deployment (is_cloud=false)..." && \
     echo "✅ UI build completed successfully"
 
 # Stage 2: Cross-compile all binaries for all architectures in one stage
-FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS builder
+FROM --platform=$BUILDPLATFORM golang:${GOLANG_IMAGE_TAG} AS builder
 
 # Accept target platform args (injected by buildx)
 ARG TARGETOS
 ARG TARGETARCH
 ARG TARGETVARIANT
 ARG GO_BUILD_TAGS="production"
+
+# Frozen Docker dependency versions - see docker/docker-deps.env
+ARG RIVER_VERSION=v0.32.0
+ARG RIVERUI_VERSION=v0.19.0
+ARG DBMATE_VERSION=v2.35.1
 
 WORKDIR /app
 
@@ -43,8 +54,23 @@ RUN echo "📦 Downloading Go dependencies..." && \
     go mod download && go mod verify && \
     echo "Go dependencies downloaded successfully"
 
+# Fetch the chatbot's RAG corpus (internal/docindex/docs/{lrc_wiki,lr_wiki},
+# go:embed target) to the exact commits pinned in scripts/docs_sources.env -
+# deterministic regardless of what happened to be on the build host. This
+# layer is cached against docs_sources.env alone (copied on its own, before
+# the rest of the source tree), so unrelated source changes never force a
+# refetch - only bumping a pinned commit does. See
+# docs/docs-sources-pinning-plan.md.
+COPY scripts/docs_sources.env scripts/sync_docs_sources.sh ./scripts/
+RUN bash scripts/sync_docs_sources.sh
+
 # Copy source code
 COPY . .
+
+# Re-run the sync: the 3 external sources above are already cached (no
+# network), this pass only does the free local copy of this repo's own
+# docs/ (which didn't exist yet in this stage until the COPY above).
+RUN bash scripts/sync_docs_sources.sh
 
 # Copy UI assets from UI builder stage
 COPY --from=ui-builder /app/ui/dist ./ui/dist
@@ -65,26 +91,36 @@ RUN echo "🔨 Cross-compiling LiveReview binary for ${TARGETOS}/${TARGETARCH}${
     -v -o /out/livereview . && \
     echo "LiveReview binary cross-compiled successfully for ${TARGETARCH} (tags: ${GO_BUILD_TAGS})"
 
-# Cross-compile River CLI and UI tools for target architecture
-RUN echo "🌊 Cross-compiling River CLI and UI tools for ${TARGETARCH}..." && \
-    # Create temporary directory for building tools
-    mkdir -p /tmp/tools && \
-    cd /tmp/tools && \
-    # Initialize a temporary module
-    go mod init temp && \
-    # Add the dependencies
-    go get github.com/riverqueue/river/cmd/river@latest && \
-    go get riverqueue.com/riverui/cmd/riverui@latest && \
-    # Cross-compile River CLI
+# Cross-compile River CLI and UI tools for target architecture.
+# river and riverui are separate Go modules with independently pinned
+# versions (RIVERUI_VERSION does not necessarily depend on the same
+# github.com/riverqueue/river version as RIVER_VERSION) - each gets its own
+# temp module + `go get` so Go's minimum-version-selection resolves each
+# tool's dependency graph in isolation. Building both from ONE shared temp
+# module (as this used to) forces MVS to unify their (possibly
+# incompatible) shared transitive dependencies and can hard-fail the build
+# with unrelated-looking compile errors deep in a vendored driver.
+RUN echo "🌊 Cross-compiling River CLI for ${TARGETARCH}..." && \
+    mkdir -p /tmp/tools-river && \
+    cd /tmp/tools-river && \
+    go mod init temp-river && \
+    go get github.com/riverqueue/river/cmd/river@${RIVER_VERSION} && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     $([ "$TARGETARCH" = "arm" ] && [ "$TARGETVARIANT" = "v7" ] && echo "GOARM=7" || echo "") \
     go build -o /out/river github.com/riverqueue/river/cmd/river && \
-    # Cross-compile River UI
+    cd /app && rm -rf /tmp/tools-river && \
+    echo "River CLI cross-compiled successfully for ${TARGETARCH}"
+
+RUN echo "🌊 Cross-compiling River UI for ${TARGETARCH}..." && \
+    mkdir -p /tmp/tools-riverui && \
+    cd /tmp/tools-riverui && \
+    go mod init temp-riverui && \
+    go get riverqueue.com/riverui/cmd/riverui@${RIVERUI_VERSION} && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     $([ "$TARGETARCH" = "arm" ] && [ "$TARGETVARIANT" = "v7" ] && echo "GOARM=7" || echo "") \
     go build -o /out/riverui riverqueue.com/riverui/cmd/riverui && \
-    cd /app && rm -rf /tmp/tools && \
-    echo "River tools cross-compiled successfully for ${TARGETARCH}"
+    cd /app && rm -rf /tmp/tools-riverui && \
+    echo "River UI cross-compiled successfully for ${TARGETARCH}"
 
 # Download dbmate for target architecture
 RUN echo "📥 Installing dbmate for ${TARGETARCH}..." && \
@@ -95,14 +131,20 @@ RUN echo "📥 Installing dbmate for ${TARGETARCH}..." && \
         *) echo "amd64" ;; \
     esac) && \
     curl -fsSL -o /out/dbmate \
-    https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-${DBMATE_ARCH} && \
+    https://github.com/amacneil/dbmate/releases/download/${DBMATE_VERSION}/dbmate-linux-${DBMATE_ARCH} && \
     chmod +x /out/dbmate && \
     echo "dbmate installed successfully for ${TARGETARCH}"
 
 # Stage 3: Create minimal runtime container for target architecture
-FROM debian:trixie-slim
+FROM debian:${DEBIAN_IMAGE_TAG}
 LABEL maintainer="LiveReview Team"
 LABEL description="LiveReview - AI-powered code review tool (cross-compiled)"
+
+# Frozen Docker dependency versions - see docker/docker-deps.env
+ARG VLCONVERT_VERSION=v1.9.0
+ARG CODEBASE_MEMORY_MCP_VERSION=v0.10.8
+ARG DBCTX_VERSION=v0.1.0
+ARG ALAWS_VERSION=v0.1.0
 
 # Install runtime dependencies
 RUN echo "🔧 Installing runtime dependencies..." && \
@@ -119,7 +161,7 @@ RUN echo "🔧 Installing runtime dependencies..." && \
 # Download vl-convert binary for target architecture
 RUN echo "📥 Downloading vl-convert binary..." && \
     VLCONVERT_ARCH=$(uname -m | sed 's/x86_64/linux-64/' | sed 's/aarch64/linux-aarch64/') && \
-    curl -sL --fail "https://github.com/vega/vl-convert/releases/download/v1.9.0/vl-convert_${VLCONVERT_ARCH}.zip" \
+    curl -sL --fail "https://github.com/vega/vl-convert/releases/download/${VLCONVERT_VERSION}/vl-convert_${VLCONVERT_ARCH}.zip" \
         -o /tmp/vl-convert.zip && \
     unzip -o /tmp/vl-convert.zip -d /tmp/vl-convert-extracted && \
     cp /tmp/vl-convert-extracted/bin/vl-convert /usr/local/bin/vl-convert && \
@@ -130,7 +172,7 @@ RUN echo "📥 Downloading vl-convert binary..." && \
 # Download codebase-memory-mcp binary for target architecture
 RUN echo "📥 Downloading codebase-memory-mcp binary..." && \
     MCP_ARCH=$(uname -m | sed 's/x86_64/linux-amd64/' | sed 's/aarch64/linux-arm64/') && \
-    curl -sL --fail "https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.10.8/codebase-memory-mcp-${MCP_ARCH}.tar.gz" \
+    curl -sL --fail "https://github.com/DeusData/codebase-memory-mcp/releases/download/${CODEBASE_MEMORY_MCP_VERSION}/codebase-memory-mcp-${MCP_ARCH}.tar.gz" \
         -o /tmp/mcp.tar.gz && \
     tar -xzf /tmp/mcp.tar.gz -C /usr/local/bin/ && \
     chmod +x /usr/local/bin/codebase-memory-mcp && \
@@ -140,7 +182,7 @@ RUN echo "📥 Downloading codebase-memory-mcp binary..." && \
 # Download dbctx binary for target architecture
 RUN echo "📥 Downloading dbctx binary..." && \
     DBCTX_ARCH=$(uname -m | sed 's/x86_64/linux_amd64/' | sed 's/aarch64/linux_arm64/') && \
-    curl -L --fail "https://github.com/shrsv/dbctx/releases/download/v0.1.0/dbctx_${DBCTX_ARCH}.tar.gz" \
+    curl -L --fail "https://github.com/shrsv/dbctx/releases/download/${DBCTX_VERSION}/dbctx_${DBCTX_ARCH}.tar.gz" \
         -o /tmp/dbctx.tar.gz && \
     tar -xzf /tmp/dbctx.tar.gz -C /tmp/ && \
     mv /tmp/dbctx_${DBCTX_ARCH} /usr/local/bin/dbctx && \
@@ -151,7 +193,7 @@ RUN echo "📥 Downloading dbctx binary..." && \
 # Download AgentLaws (alaws) binary for target architecture
 RUN echo "📥 Downloading AgentLaws binary..." && \
     ALAWS_ARCH=$(uname -m | sed 's/x86_64/linux_amd64/' | sed 's/aarch64/linux_arm64/') && \
-    curl -L --fail "https://github.com/shrsv/AgentLaws/releases/download/v0.1.0/alaws_${ALAWS_ARCH}.tar.gz" \
+    curl -L --fail "https://github.com/shrsv/AgentLaws/releases/download/${ALAWS_VERSION}/alaws_${ALAWS_ARCH}.tar.gz" \
         -o /tmp/alaws.tar.gz && \
     tar -xzf /tmp/alaws.tar.gz -C /tmp/ && \
     mv /tmp/alaws_${ALAWS_ARCH} /usr/local/bin/alaws && \

@@ -1,0 +1,71 @@
+flowchart TD
+    subgraph SRC["External source repos (GitHub)"]
+        GLRC["git-lrc\n(docs/ subdir only)"]
+        GLRCWIKI["git-lrc.wiki\n(whole repo is docs)"]
+        LRWIKI["LiveReview.wiki\n(whole repo is docs)"]
+    end
+
+    subgraph LR["This repo (LiveReview)"]
+        OWNDOCS["docs/\n(this checkout's own tree)"]
+
+        subgraph LOCKFILES["Pin + state files"]
+            LOCK["scripts/docs_sources.env\nGIT_LRC_COMMIT=sha\nGIT_LRC_WIKI_COMMIT=sha\nLIVEREVIEW_WIKI_COMMIT=sha\n(committed to git)"]
+            MARKER[".synced-commits.env\n(gitignored, records what's\ncurrently embedded on disk)"]
+        end
+
+        subgraph AGENTFLOW["Keeping the pin current (parag 1b)"]
+            EDIT["Agent commits a docs change\nin git-lrc / a wiki repo"]
+            BUMP["Same task: git ls-remote\nnew SHA -> update matching\n*_COMMIT line in docs_sources.env"]
+            CHECK["make check-docs-sources\n(read-only backstop)\ngit ls-remote per source,\nNO clone - flags drift,\ne.g. in CI"]
+            EDIT --> BUMP --> LOCK
+            LOCK -.->|periodic / CI| CHECK
+        end
+
+        subgraph SYNCFLOW["scripts/sync_docs_sources.sh"]
+            direction TB
+            S0["Copy docs/ -> docindex\n(no pin, no network,\nalways current)"]
+            S1{"For each of\ngit-lrc / git-lrc-wiki /\nlivereview-wiki:\npinned SHA == marker SHA?"}
+            S2["Skip - zero network calls"]
+            S3["git init tmp; remote add origin\nsparse-checkout set subdir\n(only for git-lrc: docs)\nfetch --depth 1 --filter=blob:none\norigin pinned-sha\ncheckout FETCH_HEAD"]
+            S4["Copy fetched .md files into\ninternal/docindex/docs/\nlrc_wiki, lr_wiki\n(sanitize filenames)"]
+            S5["Write synced SHA into\n.synced-commits.env"]
+            OWNDOCS --> S0
+            LOCK --> S1
+            MARKER --> S1
+            S1 -->|match| S2
+            S1 -->|mismatch| S3
+            S3 --> S4
+            S4 --> S5
+            S5 --> MARKER
+        end
+
+        EMBEDDIR["internal/docindex/docs/\n(go:embed target,\ngo:embed docs\nin docs.go)"]
+        S0 --> EMBEDDIR
+        S4 --> EMBEDDIR
+        S2 --> EMBEDDIR
+
+        subgraph TRIGGERS["Makefile prerequisites"]
+            DEV["run-fast / run-debug /\ndevelop / develop-reflex"]
+            BLD["build / build-prod /\nbuild-with-ui"]
+        end
+        DEV --> S1
+        BLD --> S1
+
+        subgraph DOCKERFLOW["Docker image build"]
+            DCOPY["COPY docs_sources.env\nsync_docs_sources.sh"]
+            DRUN["RUN sync_docs_sources.sh\n(layer cache keyed on\ndocs_sources.env content)"]
+            DBUILD["go build\n(embeds docindex/docs)"]
+            DCOPY --> DRUN --> DBUILD
+        end
+
+        LOCK -.-> DCOPY
+        EMBEDDIR --> DBUILD
+        EMBEDDIR --> GOBUILD["go build\n(dev/local)"]
+    end
+
+    GLRC -.->|fetched only on mismatch,\nsubdir-restricted| S3
+    GLRCWIKI -.->|fetched only on mismatch| S3
+    LRWIKI -.->|fetched only on mismatch| S3
+
+    GOBUILD --> BIN1["livereview binary\n(dev)"]
+    DBUILD --> BIN2["livereview binary\n(docker / production)\nnever fetches at runtime"]

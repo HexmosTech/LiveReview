@@ -195,15 +195,44 @@ If a new feature is not navigable from the mega menu (e.g. it is only reached fr
 button inside an existing page), call that out explicitly rather than silently skipping
 the entry. Keeping the mega menu complete is what makes new capabilities discoverable.
 
-## Route Documentation for RAG (`ui/docs/training_data/lr_routes/`)
+## Keeping `config/*-ssl.conf.example` in Sync with `lrops.sh`
 
-`ui/docs/training_data/lr_routes/` holds one Markdown file per UI
+`lrops.sh` is a self-contained installer script (curl-piped and run standalone
+on remote servers), so it embeds its reverse-proxy templates inline — the
+nginx one under `# === DATA:nginx.conf.example ===` in `lrops.sh`, uncommented
+and filled in at runtime by `setup-ssl`'s `render_nginx_conf()`. Nobody reads
+that embedded, commented-out template comfortably; `config/nginx-ssl.conf.example`
+exists purely as a static, readable reference copy of what `lrops.sh setup-ssl
+<domain>` actually produces on disk (for `livereview.example.com`) — it is
+**not** read by `lrops.sh` itself.
+
+**Rule: whenever a change to `lrops.sh` touches the nginx template
+(`DATA:nginx.conf.example`) or `render_nginx_conf()`'s transform logic, regenerate
+`config/nginx-ssl.conf.example` in the same change**, by actually running the
+same `sed` transforms `render_nginx_conf()` runs (domain substitution,
+HTTPS-block uncomment, `HTTP_ROUTES` marker replacement) against the updated
+template — don't hand-edit the reference file, and don't guess at the output.
+Verify the result (brace-balance, `server{}` block count, and ideally an actual
+`nginx -t` / live-nginx check for anything touching the SSL/redirect logic) the
+same way before trusting it.
+
+The same rule applies to Caddy and Apache (`DATA:caddy.conf.example`,
+`DATA:apache.conf.example`, and their respective `setup-ssl.sh` render
+functions) once equivalent `config/caddy-ssl.conf.example` /
+`config/apache-ssl.conf.example` reference files exist — they don't yet, and
+creating them is a separate task, not implied by this rule.
+
+## Route Documentation for RAG (`internal/docindex/docs/routes_guide/`)
+
+`internal/docindex/docs/routes_guide/` holds one Markdown file per UI
 route/page (mirroring `ui/src/pages/`, grouped into subfolders that match
 the top-level route groups in `ui/src/App.tsx`: `reviews/`, `explore/`,
 `git/`, `ai/`, `settings/`, `licenses/`, `reports/`, `chatbot/`, `auth/`).
 It exists to train/feed the in-app chatbot (Livi) so it can answer both
-data questions and "how do I do X in the UI" / navigation questions. See
-`ui/docs/training_data/lr_routes/README.md` for the file structure this
+data questions and "how do I do X in the UI" / navigation questions. It is
+tracked directly in git (not fetched/generated) and embedded via
+`//go:embed docs` in `internal/docindex/docs.go`. See
+`internal/docindex/docs/routes_guide/README.md` for the file structure this
 folder follows.
 
 **Rule: whenever you make a UI change, update the relevant `.md` file(s) in
@@ -215,17 +244,28 @@ this folder in the same change.**
   other files.
 - Page behavior, key actions, or access/permission gating changed → update
   the file's "Key actions" / "Who can access it" section to match.
-- After editing anything under `ui/docs/training_data/` (including
-  `lr_routes/`), **run `make prep-training-data`** to refresh the
-  `TRAINING_DATA_HASH` value it rewrites at the top of the Makefile, then
-  **commit that Makefile change together with your doc edit** — `make
-  develop`/`run-debug`/`run-fast`/etc. compare the live corpus hash against
-  the committed `TRAINING_DATA_HASH` (via `check-training-data`) and will
-  otherwise treat your edit as drift and re-fetch external sources
-  needlessly on the next teammate's dev-server start. See
-  `scripts/prep_training_data.sh` and `scripts/training_data_hash.sh`.
-- `ui/docs/training_data` is excluded from Air's file watcher (`.air.toml`
-  `exclude_dir`) so editing these docs does not trigger a backend rebuild.
+- No extra step needed after editing — these files are committed directly
+  and picked up by `//go:embed docs` on the next build, same as any other
+  Go source file. (This replaced an older, fetch-and-hash-based scheme; see
+  `docs/docs-sources-pinning-plan.md` for why.)
+
+## Keeping `scripts/docs_sources.env` in Sync
+
+`internal/docindex/docs/{lr_wiki,lrc_wiki}/` (the rest of the chatbot's RAG
+corpus, alongside `routes_guide/` above) is synced from `git-lrc`, its wiki,
+and `LiveReview`'s wiki via `scripts/sync_docs_sources.sh`, pinned to exact
+commit SHAs in `scripts/docs_sources.env`. GitHub is the source of truth,
+not any one machine's local fetch — see `docs/docs-sources-pinning-plan.md`
+for the full design.
+
+**Rule: whenever you (as an agent) commit a documentation change to
+`git-lrc/docs/`, `git-lrc`'s wiki, or `LiveReview`'s wiki, bump the matching
+`*_COMMIT` line in `LiveReview/scripts/docs_sources.env` to the new commit
+SHA in that same task** — not as a separate follow-up. `make
+check-docs-sources` is a read-only backstop (reports/fails CI when a pin
+has fallen behind) for drift introduced outside agent-driven edits, but it
+is not a substitute for bumping the pin yourself when you're the one making
+the docs change.
 
 ## Chat UI (/chat and /chat-debug) Must Stay In Sync
 
@@ -300,14 +340,81 @@ The following features are gated and MUST be disabled in production:
 | `vendor_prompts` | Encrypted prompts | Docker builds |
 | `production` | Production safety | Excludes test endpoints like `/test-chat` |
 
-### Docker Binary Versions
+### Docker Dependency Versions (NOT the LiveReview app version)
 
-External binaries bundled in Docker images are tracked in `docker-binaries.json`.
-Update versions consciously - this file is the source of truth for:
-- `vl-convert` - Vega-Lite chart rendering
-- `codebase-memory-mcp` - Codebase knowledge graph MCP server
-- `dbctx` - Database context tool
-- `alaws` - AgentLaws CLI
+Every third-party base image and binary baked into the Docker image (node,
+golang, debian base images; dbmate; River CLI/UI; `vl-convert`;
+`codebase-memory-mcp`; `dbctx`; `alaws`) is version-pinned in a single file:
+**`docker/docker-deps.env`**. This is a completely separate system from
+LiveReview's own application version (`scripts/lrops.py version`, Git tags,
+`make version*`) - don't confuse the two.
+
+Full docs: `docker/DOCKER-DEPS.md`. The rules an agent must follow:
+
+- **Never hardcode a version or download URL directly in `Dockerfile` or
+  `Dockerfile.crosscompile`.** Every version lives in `docker/docker-deps.env`
+  as `SOME_TOOL_VERSION=...`, referenced in both Dockerfiles via a matching
+  `ARG SOME_TOOL_VERSION=<same default>`, and injected as `--build-arg` by
+  `scripts/lrops.py` (`_load_docker_dep_versions`/`_docker_dep_build_args`)
+  for every real build. If you're about to type a version string or a
+  `releases/download/vX.Y.Z/...` URL straight into a Dockerfile, stop - add
+  it to `docker/docker-deps.env` instead.
+
+- **`docker buildx build --check` only lints Dockerfile syntax - it never
+  executes any `RUN` step.** It will happily pass on a Dockerfile whose
+  install commands are broken (wrong URL, incompatible version pins,
+  network-dependent failures). It's a fast sanity check after editing a
+  Dockerfile, not proof anything works. The only real proof is an actual
+  build (`docker buildx build -f Dockerfile.crosscompile -t
+  livereview:localtest --load .`) followed by `make verify-docker-deps`.
+
+- **river and riverui must be built in separate temp Go modules, never
+  one shared module.** They're independent release trains - `RIVERUI_VERSION`
+  does not depend on the same underlying `github.com/riverqueue/river`
+  version as `RIVER_VERSION`/`go.mod`, and should not be forced to. Building
+  both via `go get` into one shared `go mod init` lets Go's
+  minimum-version-selection unify their transitive deps and silently pick
+  an incompatible mix, breaking the build with a confusing compile error
+  deep in an unrelated package. This exact bug happened once already after
+  pinning `RIVER_VERSION` to match `go.mod` - see `docker/DOCKER-DEPS.md`
+  for the full story. Both Dockerfiles now use two separate temp modules;
+  keep it that way.
+
+- **Adding a brand-new tool/binary dependency to the Docker image** (do all
+  four, and don't consider it done until a real local build + 
+  `make verify-docker-deps` passes):
+  1. Add `SOME_TOOL_VERSION=vX.Y.Z` to `docker/docker-deps.env` (pick a
+     real, current release - check the tool's GitHub releases page or
+     Docker Hub tags first, the same way `scripts/check_docker_deps.py`
+     would resolve "latest" for it).
+  2. In both `Dockerfile` and `Dockerfile.crosscompile`, add
+     `ARG SOME_TOOL_VERSION=vX.Y.Z` (same default, for standalone
+     `docker build` to still work) in the stage that installs it, and use
+     `${SOME_TOOL_VERSION}` in the download/`go install`/`go get` command -
+     never the literal version string.
+  3. Add an entry to the `DOCKER_DEPS` list in `scripts/check_docker_deps.py`
+     with a `checker` function that resolves "latest" for it (reuse
+     `check_github_release()` for a GitHub-releases tool, or
+     `check_dockerhub_semver()`/`check_dockerhub_dated()` for a Docker Hub
+     base image) - this is what makes the new dependency show up in
+     `make check-docker-deps` / `update-docker-deps` and the automatic
+     pre-build check, instead of silently drifting unmanaged.
+  4. Add the tool's `--version`/`--help` invocation to the `CHECKS` array in
+     `scripts/verify_docker_deps.sh`, then build a local image and run
+     `make verify-docker-deps` to confirm it's actually present and runnable
+     - `check-docker-deps` only validates version *numbers*, it never
+     builds or runs anything.
+
+- **Locking a dependency's version** (so `update-docker-deps`/
+  `update-docker-deps-yes`/the pre-build check never touch it): add its KEY
+  to the comma-separated `PINNED_DOCKER_DEPS=` line in
+  `docker/docker-deps.env`. Never delete that line - it must stay present
+  even when empty.
+
+- Run `python3 scripts/check_docker_deps.py --check` (or
+  `make check-docker-deps`) after any change to `docker/docker-deps.env` or
+  the Dockerfiles to confirm the new/changed entry resolves and both
+  Dockerfiles still parse (`docker buildx build --check -f Dockerfile[.crosscompile] .`).
 
 ### Docker Production Checklist
 
@@ -317,8 +424,10 @@ Before releasing a new Docker image:
 2. [ ] Verify `/test-chat` excluded with `production` tag
 3. [ ] Verify `/chat-debug` gated by `LIVI_DEBUG_LOG`
 4. [ ] Test `make docker-multiarch-dry` output
-5. [ ] Verify all binaries present: `vl-convert`, `dbctx`, `alaws`, `codebase-memory-mcp`
-6. [ ] Check `docker-binaries.json` for version updates
+5. [ ] Run `make check-docker-deps` - see `docker/DOCKER-DEPS.md`
+6. [ ] Run `make verify-docker-deps` against a built image to confirm
+   `vl-convert`, `dbctx`, `alaws`, `codebase-memory-mcp`, `dbmate`, `river`,
+   `riverui` are all present and actually invokable, not just downloaded
 
 ### Raw Deploy Safety
 

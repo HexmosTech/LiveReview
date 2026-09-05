@@ -1,7 +1,6 @@
 package vlrender
 
 import (
-	"errors"
 	"testing"
 )
 
@@ -37,8 +36,8 @@ func TestSpecIsTrivial(t *testing.T) {
 	single := values(`{"a":"x","b":5}`)
 	multi := values(`{"a":"x","b":5}`, `{"a":"y","b":9}`)
 
-	if !SpecIsTrivial([]byte(single)) {
-		t.Errorf("single-value spec should be trivial")
+	if SpecIsTrivial([]byte(single)) {
+		t.Errorf("single-value spec should NOT be trivial")
 	}
 	if SpecIsTrivial([]byte(multi)) {
 		t.Errorf("multi-value spec should NOT be trivial")
@@ -60,15 +59,9 @@ func TestSpecIsTrivialUnknownSource(t *testing.T) {
 }
 
 func TestTrivialDescription(t *testing.T) {
-	desc, query, _, _, _, ok := TrivialDescription(multi(values(`{"a":"x","b":5}`)))
-	if !ok {
-		t.Fatalf("expected trivial single-value wrapped report")
-	}
-	if desc != "D\nResult: A: x, B: 5" {
-		t.Errorf("expected description with row summary appended, got %q", desc)
-	}
-	if query != "review completions in June" {
-		t.Errorf("expected query preserved, got %q", query)
+	// Single-value spec is no longer trivial — only empty data (0 rows) is.
+	if _, _, _, _, _, ok := TrivialDescription(multi(values(`{"a":"x","b":5}`))); ok {
+		t.Errorf("single-value report should NOT be trivial")
 	}
 
 	if _, _, _, _, _, ok := TrivialDescription(multi(values(`{"a":"x","b":5}`, `{"a":"y","b":9}`))); ok {
@@ -77,12 +70,13 @@ func TestTrivialDescription(t *testing.T) {
 }
 
 func TestRenderReportsTrivialSentinel(t *testing.T) {
-	// All reports trivial => ErrTrivialSpec.
+	// Empty-data specs (0 rows) should be skipped and not rendered.
+	empty := values()
 	_, err := renderReports(t.Context(), []VegaLiteReport{
-		{Title: "a", Spec: []byte(values(`{"a":"x","b":5}`))},
-		{Title: "b", Spec: []byte(values(`{"a":"y","b":7}`))},
+		{Title: "a", Spec: []byte(empty)},
+		{Title: "b", Spec: []byte(empty)},
 	}, "1.0")
-	if !errors.Is(err, ErrTrivialSpec) {
-		t.Errorf("all-trivial reports should return ErrTrivialSpec, got %v", err)
+	if err == nil {
+		t.Errorf("all-empty-data reports should return an error")
 	}
 }

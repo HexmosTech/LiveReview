@@ -17,7 +17,7 @@ fi
 # SCRIPT METADATA AND CONSTANTS
 # =============================================================================
 
-SCRIPT_VERSION="1.2.2"
+SCRIPT_VERSION="1.3.1"
 SCRIPT_NAME="lrops.sh"
 # Resolve invoking user and home directory robustly (works with sudo)
 # Priority: SUDO_UID/SUDO_USER -> tilde expansion -> current $HOME
@@ -1505,6 +1505,27 @@ configure_deployment_mode() {
     LIVEREVIEW_API_URL="$API_URL"  # Legacy support
 }
 
+# Read one line of interactive input from the controlling terminal, not stdin.
+# Plain `read` can't be used for prompts here: when this script runs piped, e.g.
+# `curl ... | bash -s -- setup-production`, fd 0 (stdin) is the pipe still
+# carrying the rest of the script's own source text, not the user's keystrokes -
+# a `read` against it would silently consume literal bytes of the script itself
+# as if they were console input. /dev/tty is the actual terminal the user is
+# sitting at regardless of how stdin is redirected, so read prompts from there
+# instead - the same trick curl-pipe installers like rustup use. Echoes the
+# entered line, or nothing if there is no controlling terminal at all (true
+# non-interactive contexts: cron, CI, redirected from /dev/null) - callers
+# already treat an empty reply as "use the default", so this degrades safely.
+_read_tty_line() {
+    local line
+    # 2>/dev/null must come before < /dev/tty: bash applies redirections in
+    # order, and when there is no controlling terminal at all, opening
+    # /dev/tty itself fails ("No such device or address") - that error needs
+    # stderr already silenced to not leak past this being a soft fallback.
+    read -r line 2>/dev/null < /dev/tty && echo "$line"
+    return 0
+}
+
 # Interactive configuration prompts for simplified two-mode system
 gather_configuration() {
     local config_file="/tmp/lrops_config_$$"
@@ -1579,7 +1600,7 @@ EOF
             echo "2) Production Mode (with reverse proxy, webhooks enabled)" >&2
             echo >&2
     echo -n "Select deployment mode [1]: " >&2
-            read -r mode_choice
+            mode_choice="$(_read_tty_line)"
 
             if [[ "$mode_choice" == "2" ]]; then
                 deployment_mode="production"
@@ -1589,21 +1610,21 @@ EOF
                 log_info "Demo mode selected - localhost only, no configuration needed"
             fi
         fi
-        
+
         # Generate database password
         local db_password
         db_password=$(generate_password 32)
         echo -n "Database password [auto-generated secure password]: " >&2
-        read -r user_input
+        user_input="$(_read_tty_line)"
         if [[ -n "$user_input" ]]; then
             db_password="$user_input"
         fi
-        
+
         # Generate JWT Secret
         local jwt_secret
         jwt_secret=$(generate_jwt_secret)
         echo -n "JWT secret key [auto-generated secure key]: " >&2
-        read -r user_input
+        user_input="$(_read_tty_line)"
         if [[ -n "$user_input" ]]; then
             jwt_secret="$user_input"
         fi
@@ -1795,7 +1816,10 @@ create_directory_structure() {
         log_warning "Could not set permissions on lrdata directory"
     fi
     
-    # PostgreSQL data directory needs specific permissions
+    # PostgreSQL data directory needs specific permissions.
+    if ! chown 70:70 "$LIVEREVIEW_INSTALL_DIR/lrdata/postgres" 2>/dev/null; then
+        log_warning "Could not chown postgres directory to uid 70 (postgres image user)"
+    fi
     if ! chmod 700 "$LIVEREVIEW_INSTALL_DIR/lrdata/postgres"; then
         log_warning "Could not set permissions on postgres directory"
     fi
@@ -3810,7 +3834,14 @@ Before configuring SSL or reverse proxy, ensure:
 SSL/TLS SETUP APPROACHES
 =======================
 
-OPTION 1: Automatic SSL with Caddy (Recommended for new setups)
+RECOMMENDED: sudo lrops.sh setup-ssl <domain>
+- e.g. sudo lrops.sh setup-ssl livereview.hexmos.site
+- Lets you select your reverse proxy (nginx, Caddy, or Apache)
+- Auto-configures the selected proxy's LiveReview vhost/site config
+- Requests and installs a Let's Encrypt certificate via certbot
+- One command covers both the reverse proxy config and the certificate
+
+OPTION 1: Automatic SSL with Caddy
 - Handles certificates automatically
 - Zero manual certificate management
 - See: lrops.sh help caddy
@@ -4302,9 +4333,9 @@ INSTALLATION
    e.g. for livereview.google.com:
    sudo sed -i 's/your-domain.com/livereview.google.com/g' /etc/caddy/Caddyfile
 
-3. Start Caddy:
+3. Enable Caddy and apply the configuration:
    sudo systemctl enable caddy
-   sudo systemctl start caddy
+   sudo systemctl reload caddy
 
 TEMPLATE FEATURES
 ================
@@ -4461,7 +4492,7 @@ INSTALLATION
    sudo apt update && sudo apt install apache2
 
 2. Enable required modules:
-   sudo a2enmod proxy proxy_http proxy_balancer lbmethod_byrequests headers rewrite ssl
+   sudo a2enmod proxy proxy_http proxy_balancer lbmethod_byrequests headers rewrite deflate ssl
     
 3. Copy and configure the template:
    sudo cp ~/livereview/config/apache.conf.example /etc/apache2/sites-available/livereview.conf
@@ -4469,8 +4500,10 @@ INSTALLATION
    e.g. for livereview.google.com:
    sudo sed -i 's/your-domain.com/livereview.google.com/g' /etc/apache2/sites-available/livereview.conf
 
-4. Enable the site:
+4. Enable the site and disable Apache's default one (it otherwise wins over
+   livereview.conf for requests that don't match a ServerName, e.g. by bare IP):
    sudo a2ensite livereview
+   sudo a2dissite 000-default.conf
    sudo systemctl reload apache2
 
 TEMPLATE FEATURES
@@ -4874,10 +4907,17 @@ display_completion_summary() {
         echo -e "${BOLD}   🔗 Webhooks:       ${GREEN}Enabled (automatic triggers)${NC}"
         echo
         echo -e "${BLUE}🚀 NEXT STEPS (PRODUCTION MODE):${NC}"
-        echo -e "   1. ${BOLD}Configure reverse proxy:${NC} ${CYAN}lrops.sh help nginx${NC}"
-        echo -e "   2. ${BOLD}Set up SSL/TLS:${NC} ${CYAN}lrops.sh help ssl${NC}"
-        echo -e "   3. ${BOLD}Configure DNS:${NC} Point your domain to this server"
-        echo -e "   4. ${BOLD}Test external access:${NC} Access via your domain"
+        echo -e "   1. ${CYAN}lrops.sh help ssl${NC}"
+        echo -e "      Complete steps 1-4 in that guide (DNS, reverse proxy, SSL/TLS, external"
+        echo -e "      access) to point your domain at this server."
+        echo -e "   2. ${CYAN}lrops.sh doctor <your domain>${NC}"
+        echo -e "      Verifies your domain is correctly pointed at this server."
+        echo -e "      e.g. ${CYAN}lrops.sh doctor livereview.hexmos.site${NC}"
+        echo -e "   3. ${CYAN}sudo lrops.sh setup-ssl <your domain>${NC} (recommended, optional)"
+        echo -e "      Once doctor confirms DNS is pointed here: picks your reverse proxy"
+        echo -e "      (nginx/Caddy/Apache), configures it, and gets a Let's Encrypt"
+        echo -e "      certificate - all in one command."
+        echo -e "      e.g. ${CYAN}sudo lrops.sh setup-ssl livereview.hexmos.site${NC}"
         echo
         echo -e "${YELLOW}⚠️  IMPORTANT: Configure reverse proxy before external access!${NC}"
     fi
@@ -5613,6 +5653,15 @@ _doctor_dig() {
     fi
 }
 
+# Sort a comma-separated IP list so two resolvers returning the same set in a
+# different order (DNS round-robin/randomized record order, not an actual
+# disagreement) compare equal. Without this, e.g. "1.2.3.4,5.6.7.8" from one
+# resolver and "5.6.7.8,1.2.3.4" from another falsely trip the "DNS is still
+# propagating" warning below even though both point at the same two records.
+_doctor_sorted_ips() {
+    tr ',' '\n' <<< "$1" | sort | paste -sd, -
+}
+
 # Prerequisite checks: DNS propagation, port reachability, port conflicts.
 # Automates the manual checklist from `lrops.sh help ssl`.
 _doctor_prereqs() {
@@ -5634,7 +5683,8 @@ _doctor_prereqs() {
         if [[ -z "$google$cloudflare$opendns" ]]; then
             log_error "No A record found by any resolver - DNS is not set up yet."
             log_info "Certificate issuance cannot work until the domain resolves here."
-        elif [[ "$google" != "$cloudflare" || "$cloudflare" != "$opendns" ]]; then
+        elif [[ "$(_doctor_sorted_ips "$google")" != "$(_doctor_sorted_ips "$cloudflare")" \
+            || "$(_doctor_sorted_ips "$cloudflare")" != "$(_doctor_sorted_ips "$opendns")" ]]; then
             log_warning "Resolvers disagree - DNS is still propagating. Wait before continuing."
             log_info "Track it at https://www.whatsmydns.net/ (can take up to 48h)"
         else
@@ -5653,9 +5703,15 @@ _doctor_prereqs() {
     fi
 
     section_header "PORTS AND FIREWALL"
-    local l80 l443
-    l80=$(sudo ss -tlnp 2>/dev/null | awk '$4 ~ /:80$/ {print $NF; exit}')
-    l443=$(sudo ss -tlnp 2>/dev/null | awk '$4 ~ /:443$/ {print $NF; exit}')
+    # Capture ss's output once, then awk it from memory. Piping straight from
+    # `sudo ss` into `awk '{...; exit}'` closes the pipe as soon as awk finds
+    # its first match; ss can still be mid-write when that happens, gets
+    # SIGPIPE, and `set -o pipefail` turns that into a fatal 141 for the whole
+    # script - the same class of bug documented near the docker ps check above.
+    local ss_out l80 l443
+    ss_out=$(sudo ss -tlnp 2>/dev/null || true)
+    l80=$(awk '$4 ~ /:80$/ {print $NF; exit}' <<< "$ss_out")
+    l443=$(awk '$4 ~ /:443$/ {print $NF; exit}' <<< "$ss_out")
     log_info "  :80   ${l80:-nothing listening}"
     log_info "  :443  ${l443:-nothing listening}"
     if [[ -z "$l80" && -z "$l443" ]]; then
@@ -5955,22 +6011,47 @@ server {
     listen 80;
     server_name your-domain.com;  # Replace with your domain
 
-    # Security headers
+    # Security headers. `always` makes nginx send these even on its own error
+    # responses (4xx/5xx), not just successful proxied ones.
+    #   X-Frame-Options: blocks this site from being loaded inside an <iframe> on
+    #     another origin, the standard defense against clickjacking.
+    #   X-Content-Type-Options: stops the browser "sniffing" a response's real type
+    #     from its content and running it as something other than its declared
+    #     Content-Type (e.g. treating an uploaded file as executable JS).
+    #   X-XSS-Protection: legacy header for old browsers' built-in reflected-XSS
+    #     filter. Modern browsers ignore it (they dropped the filter entirely and
+    #     rely on CSP instead), but it is harmless to keep for older clients.
+    #   Referrer-Policy: only send the origin (scheme+host), not the full URL with
+    #     path/query, in the Referer header on cross-origin requests - avoids leaking
+    #     things like a review's URL path to third-party resources.
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
-    # Increase client max body size for file uploads
+    # nginx's own default (1M) is too small for review submissions that upload
+    # archives/diffs - raise it well above the largest expected payload, or uploads
+    # fail with a 413 before ever reaching the backend.
     client_max_body_size 100M;
 
-    # Prevent proxy temp file issues
+    # 0 = never spill a buffered proxied response to a temp file on disk, keep it in
+    # memory (bounded by proxy_buffers) instead. Avoids disk I/O stalls under load;
+    # safe here because responses are JSON/HTML/assets, not huge unbounded streams.
     proxy_max_temp_file_size 0;
 
     # Let's Encrypt HTTP-01 challenge (keep this reachable over plain HTTP for renewals)
     location /.well-known/acme-challenge/ {
         root /var/www/letsencrypt;
     }
+
+    # === HTTP_ROUTES_START ===
+    # `lrops.sh setup-ssl` replaces everything between these two markers with a
+    # single HTTPS-redirect location once a certificate is issued - see
+    # render_nginx_conf() in lrops.sh. Do not delete the markers by hand: nginx
+    # refuses two server{} blocks with the same listen+server_name (it silently
+    # keeps only the first and ignores the second - see nginx's own
+    # "conflicting server name ... ignored" warning), so once HTTPS is live,
+    # this same server{} block, not a second one, has to do the redirecting.
 
     # Route API requests to backend (port 8888)
     location ^~ /api/ {
@@ -5989,9 +6070,16 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
 
         # Timeouts
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
+        proxy_connect_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+
+        # Unlike the UI location below, the backend does not pre-compress these
+        # responses, so nginx compressing them here is real work, not redundant
+        # work - safe to enable, and worthwhile since JSON compresses well.
+        gzip on;
+        gzip_types application/json;
+        gzip_min_length 256;
     }
 
     # Route everything else to frontend (port 8081)
@@ -6016,36 +6104,78 @@ server {
         # See docs/perf-improvement.md "Finding A" in the LiveReview repo.
         gzip off;
     }
+    # === HTTP_ROUTES_END ===
 }
 
 # ---------------------------------------------------------------------------
 # HTTPS: run `sudo lrops.sh setup-ssl <domain>` to obtain a certificate and
-# uncomment the two blocks below automatically, or uncomment them by hand.
-# Note: once the redirect server is enabled, remove the proxy `location` blocks
-# from the plain-HTTP server above (keep its acme-challenge location), otherwise
-# two servers listen on :80 for the same name and nginx keeps only the first.
+# do this automatically, or uncomment the block below by hand and then, in the
+# plain-HTTP server{} above, replace the two location blocks between the
+# HTTP_ROUTES markers with:
+#     location / {
+#         return 301 https://$host$request_uri;
+#     }
+# There is deliberately no separate "redirect" server{} block here: nginx
+# treats two server{} blocks with the same listen+server_name as a config
+# error waiting to happen - it keeps only the first (with a
+# "conflicting server name ... ignored" warning at startup) and the second is
+# silently dead code forever, regardless of what's in it. So the plain-HTTP
+# server{} above has to become the redirect itself once HTTPS is live, not
+# hand off to a second one.
 # ---------------------------------------------------------------------------
 
 # HTTPS configuration (uncomment after setting up SSL)
 # server {
-#     listen 443 ssl;
-#     http2 on;
+#     # `http2` as a `listen` parameter (rather than the newer standalone `http2 on;`
+#     # directive) is the deliberate choice here: `http2 on;` only exists from nginx
+#     # 1.25.1 onward and is a hard "unknown directive" config-test failure on anything
+#     # older - including the nginx that ships in several still-common distro repos
+#     # (e.g. Ubuntu 22.04's packaged nginx is 1.18). The `listen ... http2;` form has
+#     # worked since nginx 1.9.5 and still works today (nginx only logs a deprecation
+#     # notice on very new versions, it does not refuse to start), so it is the one
+#     # choice that works everywhere an installer example needs to work.
+#     listen 443 ssl http2;
 #     server_name your-domain.com;
 #
+#     # Paths certbot's default layout writes to; lrops.sh setup-ssl fills these in via
+#     # `certbot certonly` and does not need this file to already reference the right
+#     # domain - the domain substitution below (your-domain.com -> $DOMAIN) does that.
 #     ssl_certificate     /etc/letsencrypt/live/your-domain.com/fullchain.pem;
 #     ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
 #
+#     # TLS 1.2 and 1.3 only - TLS 1.0/1.1 are deprecated (broken ciphers, no forward
+#     # secrecy guarantee) and major browsers stopped supporting them years ago, so
+#     # disabling them costs no real-world compatibility.
 #     ssl_protocols TLSv1.2 TLSv1.3;
+#     # Off = let the client pick the cipher (from nginx's own ordered list, which is
+#     # already modern-first). "Prefer server ciphers" made sense when clients had bad
+#     # cipher choices; on TLS 1.3, cipher order is entirely up to the client per RFC
+#     # 8446 anyway, so this only matters for the TLS 1.2 fallback above.
 #     ssl_prefer_server_ciphers off;
+#     # Cache TLS session parameters so a repeat visitor's browser can resume a session
+#     # (abbreviated handshake) instead of doing a full handshake every time - cheaper
+#     # for both sides. "shared" makes the cache visible across all nginx worker
+#     # processes, not just the one that handled the first request. 10m ~= tens of
+#     # thousands of cached sessions; 10 minutes is how long an unused session is kept.
 #     ssl_session_cache shared:SSL:10m;
 #     ssl_session_timeout 10m;
 #
+#     # HSTS: tells the browser to always use HTTPS for this domain, skipping even the
+#     # initial HTTP request, for the next year (max-age is in seconds). This must live
+#     # only in the HTTPS server block - sending it over plain HTTP would have no
+#     # security benefit (an attacker doing MITM on that connection could just strip it)
+#     # and risks locking out a domain that later can't serve HTTPS (e.g. cert expired).
 #     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+#     # Same four headers as the plain-HTTP server above - see its comments for why
+#     # each one is here. Repeated because this is a separate server{} block; nginx
+#     # does not inherit add_header from another server{}.
 #     add_header X-Frame-Options "SAMEORIGIN" always;
 #     add_header X-Content-Type-Options "nosniff" always;
 #     add_header X-XSS-Protection "1; mode=block" always;
 #     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 #
+#     # Same reasoning as the plain-HTTP server above: allow large review-submission
+#     # uploads, and avoid nginx buffering large proxied responses to a temp file.
 #     client_max_body_size 100M;
 #     proxy_max_temp_file_size 0;
 #
@@ -6058,9 +6188,12 @@ server {
 #         proxy_set_header X-Real-IP $remote_addr;
 #         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 #         proxy_set_header X-Forwarded-Proto $scheme;
-#         proxy_connect_timeout 60s;
-#         proxy_send_timeout 60s;
-#         proxy_read_timeout 60s;
+#         proxy_connect_timeout 300s;
+#         proxy_send_timeout 300s;
+#         proxy_read_timeout 300s;
+#         gzip on;
+#         gzip_types application/json;
+#         gzip_min_length 256;
 #     }
 #
 #     location / {
@@ -6075,20 +6208,6 @@ server {
 #         gzip off;
 #     }
 # }
-
-# Redirect HTTP to HTTPS (uncomment after setting up SSL)
-# server {
-#     listen 80;
-#     server_name your-domain.com;
-#
-#     location /.well-known/acme-challenge/ {
-#         root /var/www/letsencrypt;
-#     }
-#
-#     location / {
-#         return 301 https://$host$request_uri;
-#     }
-# }
 # === END:nginx.conf.example ===
 
 # === DATA:caddy.conf.example ===
@@ -6097,15 +6216,14 @@ server {
 
 your-domain.com {
     # Automatic HTTPS with Let's Encrypt
-    
-    # NOTE: do NOT add an `encode gzip` directive here. The livereview-ui process
-    # pre-gzips its static assets at startup and sends Content-Encoding: gzip itself
-    # (cmd/ui.go, buildCompressedAssets). Re-compressing already-gzipped responses on
-    # every request was the confirmed cause of multi-second stalls across whole request
-    # bursts. See docs/perf-improvement.md "Finding A" in the LiveReview repo.
 
     # Handle API routes (send to backend)
     handle /api/* {
+        # Unlike the UI handler below, the backend does not pre-compress these
+        # responses, so Caddy compressing them here is real work, not redundant
+        # work - safe to enable, and worthwhile since JSON compresses well.
+        encode gzip
+
         reverse_proxy localhost:8888 {
             header_up Host {host}
             header_up X-Real-IP {remote_host}
@@ -6124,9 +6242,14 @@ your-domain.com {
             }
         }
     }
-    
+
     # Handle everything else (send to frontend)
     handle {
+        # NOTE: do NOT add an `encode gzip` directive here. The livereview-ui process
+        # pre-gzips its static assets at startup and sends Content-Encoding: gzip itself
+        # (cmd/ui.go, buildCompressedAssets). Re-compressing already-gzipped responses on
+        # every request was the confirmed cause of multi-second stalls across whole request
+        # bursts. See docs/perf-improvement.md "Finding A" in the LiveReview repo.
         reverse_proxy localhost:8081 {
             header_up Host {host}
             header_up X-Real-IP {remote_host}
@@ -6188,7 +6311,7 @@ your-domain.com {
     DocumentRoot /var/www/html
     
     # Enable required modules
-    # a2enmod proxy proxy_http proxy_balancer lbmethod_byrequests headers rewrite ssl
+    # a2enmod proxy proxy_http proxy_balancer lbmethod_byrequests headers rewrite deflate ssl
     
     # Security headers
     Header always set X-Frame-Options "SAMEORIGIN"
@@ -6198,13 +6321,13 @@ your-domain.com {
     
     # Increase upload size. Review submissions upload archives - keep this well above
     # your largest expected payload or uploads fail with 413.
-    LimitRequestBody 104857600  # 100MB
+    LimitRequestBody 104857600
     
     # Proxy API requests to backend (port 8888)
     ProxyPreserveHost On
     ProxyRequests Off
     
-    # Reviews can be long-running - do not cut API calls short (default is 60s).
+    # Set timeout as 300s - reviews can be long-running, don't cut API calls short.
     ProxyTimeout 300
 
     <Location /api/>
@@ -6215,12 +6338,16 @@ your-domain.com {
         # See docs/perf-improvement.md in the LiveReview repo.
         ProxyPass http://127.0.0.1:8888/api/ enablereuse=on timeout=300
         ProxyPassReverse http://127.0.0.1:8888/api/
-        
+
+        # Unlike the UI Location below, the backend does not pre-compress these
+        # responses, so mod_deflate compressing them here is real work, not
+        # redundant work - safe to enable, and worthwhile since JSON compresses well.
+        AddOutputFilterByType DEFLATE application/json
+
         # Forward headers
-        ProxySetHeader Host %{HTTP_HOST}
-        ProxySetHeader X-Real-IP %{REMOTE_ADDR}
-        ProxySetHeader X-Forwarded-For %{REMOTE_ADDR}
-        ProxySetHeader X-Forwarded-Proto %{REQUEST_SCHEME}
+        RequestHeader set X-Real-IP "expr=%{REMOTE_ADDR}"
+        RequestHeader set X-Forwarded-For "expr=%{REMOTE_ADDR}"
+        RequestHeader set X-Forwarded-Proto "expr=%{REQUEST_SCHEME}"
     </Location>
     
     # Proxy everything else to frontend (port 8081)
@@ -6236,10 +6363,9 @@ your-domain.com {
         SetEnv no-gzip 1
         
         # Forward headers
-        ProxySetHeader Host %{HTTP_HOST}
-        ProxySetHeader X-Real-IP %{REMOTE_ADDR}
-        ProxySetHeader X-Forwarded-For %{REMOTE_ADDR}
-        ProxySetHeader X-Forwarded-Proto %{REQUEST_SCHEME}
+        RequestHeader set X-Real-IP "expr=%{REMOTE_ADDR}"
+        RequestHeader set X-Forwarded-For "expr=%{REMOTE_ADDR}"
+        RequestHeader set X-Forwarded-Proto "expr=%{REQUEST_SCHEME}"
     </Location>
     
     # Logging
@@ -6280,20 +6406,18 @@ your-domain.com {
 #     <Location /api/>
 #         ProxyPass http://127.0.0.1:8888/api/ enablereuse=on timeout=300
 #         ProxyPassReverse http://127.0.0.1:8888/api/
-#         ProxySetHeader Host %{HTTP_HOST}
-#         ProxySetHeader X-Real-IP %{REMOTE_ADDR}
-#         ProxySetHeader X-Forwarded-For %{REMOTE_ADDR}
-#         ProxySetHeader X-Forwarded-Proto %{REQUEST_SCHEME}
+#         RequestHeader set X-Real-IP "expr=%{REMOTE_ADDR}"
+#         RequestHeader set X-Forwarded-For "expr=%{REMOTE_ADDR}"
+#         RequestHeader set X-Forwarded-Proto "expr=%{REQUEST_SCHEME}"
 #     </Location>
 #     
 #     <Location />
 #         ProxyPass http://127.0.0.1:8081/ enablereuse=on
 #         ProxyPassReverse http://127.0.0.1:8081/
 #         SetEnv no-gzip 1
-#         ProxySetHeader Host %{HTTP_HOST}
-#         ProxySetHeader X-Real-IP %{REMOTE_ADDR}
-#         ProxySetHeader X-Forwarded-For %{REMOTE_ADDR}
-#         ProxySetHeader X-Forwarded-Proto %{REQUEST_SCHEME}
+#         RequestHeader set X-Real-IP "expr=%{REMOTE_ADDR}"
+#         RequestHeader set X-Forwarded-For "expr=%{REMOTE_ADDR}"
+#         RequestHeader set X-Forwarded-Proto "expr=%{REQUEST_SCHEME}"
 #     </Location>
 #     
 #     ErrorLog ${APACHE_LOG_DIR}/livereview_ssl_error.log
@@ -6941,18 +7065,25 @@ render_nginx_conf() {
     local out="$1"
     sudo cp "$LIVEREVIEW_DIR/config/nginx.conf.example" "$out"
     sudo_sed_inplace "s/your-domain.com/$DOMAIN/g" "$out"
-    # Uncomment the commented-out directives, but leave the two human-readable anchor
-    # headings commented - uncommenting those emitted them as nginx directives and made
-    # the generated config fail to load ("unknown directive \"HTTPS\"").
-    sudo_sed_inplace '/^# HTTPS configuration/,/^# Redirect HTTP to HTTPS/{/^# HTTPS configuration/b
-/^# Redirect HTTP to HTTPS/b
+    # Uncomment the commented-out HTTPS server{} block, but leave its human-readable
+    # anchor heading commented - uncommenting that emitted it as an nginx directive and
+    # made the generated config fail to load ("unknown directive \"HTTPS\"").
+    sudo_sed_inplace '/^# HTTPS configuration/,/^# }/{/^# HTTPS configuration/b
 s/^# //
 s/^#$//
 }' "$out"
-    sudo_sed_inplace '/^# Redirect HTTP to HTTPS/,/^# }/{/^# Redirect HTTP to HTTPS/b
-s/^# //
-s/^#$//
-}' "$out"
+    # Replace the plain-HTTP server{}'s API/UI proxy locations with a redirect to
+    # HTTPS. This has to happen in the SAME server{} block, not a second one: nginx
+    # keeps only the first of two server{} blocks sharing a listen+server_name (logs
+    # "conflicting server name ... ignored" and silently never routes to the second,
+    # no matter what's in it), so a separate "redirect" server{} would be dead code
+    # forever. See the HTTP_ROUTES_START comment in the template for the same note.
+    sudo_sed_inplace '/^    # === HTTP_ROUTES_START ===$/,/^    # === HTTP_ROUTES_END ===$/c\
+    # HTTPS is active - send everything except the acme-challenge above (kept\
+    # reachable for cert renewal) to the HTTPS server instead of proxying here.\
+    location / {\
+        return 301 https://$host$request_uri;\
+    }' "$out"
 }
 
 # Update reverse proxy configuration
@@ -7045,7 +7176,7 @@ s/^# //
 s/^#$//
 }' "$APACHE_VHOST"
 
-    sudo a2enmod ssl proxy proxy_http headers >/dev/null 2>&1 || true
+    sudo a2enmod ssl proxy proxy_http headers deflate >/dev/null 2>&1 || true
     sudo a2ensite livereview >/dev/null 2>&1 || true
 
     if sudo apache2ctl configtest; then

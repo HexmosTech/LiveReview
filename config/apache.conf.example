@@ -1,0 +1,127 @@
+# Apache virtual host configuration for LiveReview
+# Save as /etc/apache2/sites-available/livereview.conf
+# Enable with: a2ensite livereview && systemctl reload apache2
+
+<VirtualHost *:80>
+    ServerName your-domain.com
+    DocumentRoot /var/www/html
+
+    # Enable required modules
+    # a2enmod proxy proxy_http proxy_balancer lbmethod_byrequests headers rewrite deflate ssl
+
+    # Security headers
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # Increase upload size. Review submissions upload archives - keep this well above
+    # your largest expected payload or uploads fail with 413.
+    LimitRequestBody 104857600
+
+    # Proxy API requests to backend (port 8888)
+    ProxyPreserveHost On
+    ProxyRequests Off
+
+    # Set timeout as 300s - reviews can be long-running, don't cut API calls short.
+    ProxyTimeout 300
+
+    <Location /api/>
+        # enablereuse=on keeps connections to the single-instance Go backend alive
+        # instead of opening a new one per request, which under bursts (many parallel
+        # requests right after login) stalls every request in the burst.
+        # Equivalent to `keepalive 32` in the nginx template.
+        # See docs/perf-improvement.md in the LiveReview repo.
+        ProxyPass http://127.0.0.1:8888/api/ enablereuse=on timeout=300
+        ProxyPassReverse http://127.0.0.1:8888/api/
+
+        # Unlike the UI Location below, the backend does not pre-compress these
+        # responses, so mod_deflate compressing them here is real work, not
+        # redundant work - safe to enable, and worthwhile since JSON compresses well.
+        AddOutputFilterByType DEFLATE application/json
+
+        # Forward headers
+        RequestHeader set X-Real-IP "expr=%{REMOTE_ADDR}"
+        RequestHeader set X-Forwarded-For "expr=%{REMOTE_ADDR}"
+        RequestHeader set X-Forwarded-Proto "expr=%{REQUEST_SCHEME}"
+    </Location>
+
+    # Proxy everything else to frontend (port 8081)
+    <Location />
+        ProxyPass http://127.0.0.1:8081/ enablereuse=on
+        ProxyPassReverse http://127.0.0.1:8081/
+
+        # Do NOT enable mod_deflate here. The livereview-ui process pre-gzips its
+        # static assets and sends Content-Encoding: gzip itself (cmd/ui.go,
+        # buildCompressedAssets); re-compressing them was the confirmed cause of
+        # multi-second stalls across whole request bursts. mod_deflate skips already
+        # encoded responses, but this makes the intent explicit.
+        SetEnv no-gzip 1
+
+        # Forward headers
+        RequestHeader set X-Real-IP "expr=%{REMOTE_ADDR}"
+        RequestHeader set X-Forwarded-For "expr=%{REMOTE_ADDR}"
+        RequestHeader set X-Forwarded-Proto "expr=%{REQUEST_SCHEME}"
+    </Location>
+
+    # Logging
+    ErrorLog ${APACHE_LOG_DIR}/livereview_error.log
+    CustomLog ${APACHE_LOG_DIR}/livereview_access.log combined
+</VirtualHost>
+
+# HTTPS virtual host (uncomment after setting up SSL)
+# <VirtualHost *:443>
+#     ServerName your-domain.com
+#     DocumentRoot /var/www/html
+#
+#     # SSL configuration
+#     SSLEngine on
+#     SSLCertificateFile /etc/letsencrypt/live/your-domain.com/fullchain.pem
+#     SSLCertificateKeyFile /etc/letsencrypt/live/your-domain.com/privkey.pem
+#
+#     # SSL security settings
+#     SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
+#     SSLCipherSuite ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305
+#     SSLHonorCipherOrder off
+#     SSLSessionTickets off
+#
+#     # Security headers for HTTPS
+#     Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+#     Header always set X-Frame-Options "SAMEORIGIN"
+#     Header always set X-Content-Type-Options "nosniff"
+#     Header always set X-XSS-Protection "1; mode=block"
+#     Header always set Referrer-Policy "strict-origin-when-cross-origin"
+#
+#     # Same proxy configuration as HTTP
+#     ProxyPreserveHost On
+#     ProxyRequests Off
+#     LimitRequestBody 104857600
+#
+#     ProxyTimeout 300
+#
+#     <Location /api/>
+#         ProxyPass http://127.0.0.1:8888/api/ enablereuse=on timeout=300
+#         ProxyPassReverse http://127.0.0.1:8888/api/
+#         RequestHeader set X-Real-IP "expr=%{REMOTE_ADDR}"
+#         RequestHeader set X-Forwarded-For "expr=%{REMOTE_ADDR}"
+#         RequestHeader set X-Forwarded-Proto "expr=%{REQUEST_SCHEME}"
+#     </Location>
+#
+#     <Location />
+#         ProxyPass http://127.0.0.1:8081/ enablereuse=on
+#         ProxyPassReverse http://127.0.0.1:8081/
+#         SetEnv no-gzip 1
+#         RequestHeader set X-Real-IP "expr=%{REMOTE_ADDR}"
+#         RequestHeader set X-Forwarded-For "expr=%{REMOTE_ADDR}"
+#         RequestHeader set X-Forwarded-Proto "expr=%{REQUEST_SCHEME}"
+#     </Location>
+#
+#     ErrorLog ${APACHE_LOG_DIR}/livereview_ssl_error.log
+#     CustomLog ${APACHE_LOG_DIR}/livereview_ssl_access.log combined
+# </VirtualHost>
+
+# Redirect HTTP to HTTPS (uncomment after setting up SSL)
+# <VirtualHost *:80>
+#     ServerName your-domain.com
+#     Redirect permanent / https://your-domain.com/
+# </VirtualHost>

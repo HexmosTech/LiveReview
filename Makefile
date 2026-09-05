@@ -1,5 +1,5 @@
-.PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run-debug run-fast logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker prep-dbctx
-.PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi prep-training-data check-training-data
+.PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned check-docker-deps update-docker-deps update-docker-deps-yes verify-docker-deps docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run-debug run-fast logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker prep-dbctx
+.PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi sync-docs-sources check-docs-sources update-docs-sources update-docs-sources-yes
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging
 .PHONY: dev dev-up dev-down dev-restart dev-status dev-attach
@@ -114,21 +114,15 @@ RELEASE_NOTES_TEMPLATE=$(RELEASE_NOTES_DIR)/_template.md
 RELEASE_GH_SCRIPT=scripts/release_gh.py
 OSV_SCANNER_CONFIG=osv-scanner.toml
 
-# Content hash of ui/docs/training_data/ as of the last `make prep-training-data`
-# run. Kept up to date automatically by that target (scripts/prep_training_data.sh
-# rewrites this line). `make check-training-data` compares it against the
-# corpus's current hash and re-runs prep-training-data when they diverge.
-TRAINING_DATAgs_HASH=0d62f21d8a1b7bdb5951511afde5e85cc8b5dd8854a354f42d1f54074e66a8c9
-
 # Load environment variables from .env file
 -include .env
 export
 
-build:
+build: sync-docs-sources
 	rm $(BINARY_NAME) || true
 	$(GOBUILD) -o $(BINARY_NAME)
 
-build-prod:
+build-prod: sync-docs-sources
 	rm $(BINARY_NAME) || true
 	$(GOBUILD) -tags production -o $(BINARY_NAME)
 # Minimal CI build
@@ -200,6 +194,56 @@ version-major-dry:
 build-versioned:
 	@python scripts/lrops.py build
 
+# ============================================================================
+# Frozen DOCKER DEPENDENCY versions (docker/docker-deps.env)
+# ----------------------------------------------------------------------------
+# This is NOT the LiveReview application version (see the `version`/
+# `version-bump*` targets above for that). This section pins the third-party
+# base images/binaries that go INTO the Docker image: node/golang/debian
+# base images, dbmate, River CLI/UI, vl-convert, codebase-memory-mcp, dbctx,
+# AgentLaws.
+# ============================================================================
+# Full writeup: docker/DOCKER-DEPS.md. Quick reference:
+#
+#   check-docker-deps       CI-friendly, read-only. Exits 1 if anything
+#                           unlocked is outdated.
+#   update-docker-deps      Interactive - shows what's outdated and asks
+#                           per entry (y/n/all/quit).
+#   update-docker-deps-yes  Non-interactive - updates every outdated,
+#                           unlocked entry automatically.
+#
+# All docker-build*/docker-multiarch* targets below also run this check
+# automatically (interactively, degrading to a non-blocking report outside
+# a TTY) before invoking the actual build. Set SKIP_DOCKER_DEPS_CHECK=1 to
+# skip it entirely, e.g.: SKIP_DOCKER_DEPS_CHECK=1 make docker-multiarch-push
+#
+# LOCKING a dependency so updates never touch it: add its KEY to
+# PINNED_DOCKER_DEPS= in docker/docker-deps.env (comma-separated). It still
+# shows up in the report when it falls behind, it's just never auto-applied
+# by update-docker-deps/update-docker-deps-yes or the pre-build check.
+# Override for one run with:
+#   python3 scripts/check_docker_deps.py --include-pinned [--yes]
+check-docker-deps:
+	@python3 scripts/check_docker_deps.py --check
+
+update-docker-deps:
+	@python3 scripts/check_docker_deps.py
+
+update-docker-deps-yes:
+	@python3 scripts/check_docker_deps.py --yes
+
+# Smoke-test that every pinned Docker dependency binary is actually present
+# and invokable INSIDE a built image (dbmate, river, riverui, vl-convert,
+# codebase-memory-mcp, dbctx, alaws) - runs --version/--help on each via
+# `docker run`. This does NOT build an image itself and does NOT check
+# version numbers (that's check-docker-deps) - it only proves the binaries
+# from the last build actually work. Defaults to IMAGE=livereview:localtest;
+# override with e.g.: make verify-docker-deps IMAGE=ghcr.io/hexmostech/livereview:dev-abc123
+# Build a local image first with, e.g.:
+#   docker buildx build -f Dockerfile.crosscompile -t livereview:localtest --load .
+verify-docker-deps:
+	@bash scripts/verify_docker_deps.sh $(IMAGE)
+
 # DOCKER-BUILD: Comprehensive Docker image build with automated version management
 # Implementation: scripts/lrops.py:cmd_build() -> build_docker_image() (lines 634-661)
 # Process Flow:
@@ -245,7 +289,7 @@ docker-interactive-dry:
 # Legacy build-push for backward compatibility (now uses versioning)
 build-push: docker-build-push
 
-run-debug: check-training-data
+run-debug: sync-docs-sources
 	pkill -9 livereview || true
 	@DLV_BIN_DIR=$$($(GOCMD) env GOBIN); \
 	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; \
@@ -266,7 +310,7 @@ run-debug: check-training-data
 # embedding/scoring code in particular is much slower under run-debug's
 # `-gcflags='all=-N -l'`, which disables optimization/inlining across the
 # whole binary, not just the code being debugged.
-run-fast: check-training-data
+run-fast: sync-docs-sources
 	pkill -9 livereview-fast || true
 	which air || $(GOCMD) install github.com/air-verse/air@latest
 	air -c .air.fast.toml
@@ -279,7 +323,7 @@ logrun:
 	which air || $(GOCMD) install github.com/air-verse/air@latest
 	bash -c 'set -o pipefail; air 2>&1 | tee "logrun-$$(date +%Y%m%d-%H%M%S).log"'
 
-develop: check-training-data
+develop: sync-docs-sources
 	@DLV_BIN_DIR=$$($(GOCMD) env GOBIN); \
 	if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; \
 	command -v dlv >/dev/null 2>&1 || { \
@@ -293,7 +337,7 @@ develop: check-training-data
 	which air || $(GOCMD) install github.com/air-verse/air@latest
 	DLV_BIN_DIR=$$($(GOCMD) env GOBIN); if [ -z "$$DLV_BIN_DIR" ]; then DLV_BIN_DIR="$$($(GOCMD) env GOPATH)/bin"; fi; PATH="$$DLV_BIN_DIR:$$PATH" air
 
-develop-reflex: check-training-data
+develop-reflex: sync-docs-sources
 	which reflex || $(GOCMD) install github.com/cespare/reflex@latest
 	reflex -r '\.go$$' -s -- sh -c '$(GOENV) go build -o $(BINARY_NAME) && ./$(BINARY_NAME) api'
 
@@ -573,24 +617,30 @@ prep-dbctx:
 	dbctx terminology import $(HOME)/livereview.dtx ./internal/mcpagent/terminology.json
 	@echo "✅ dbctx index ready at $(HOME)/livereview.dtx"
 
-# Pull Markdown docs from git-lrc, git-lrc wiki, LiveReview, and LiveReview
-# wiki into ui/docs/training_data/ (RAG corpus for the chatbot). Leaves
-# ui/docs/training_data/lr_routes/ (hand-written route docs) untouched.
-prep-training-data:
-	@bash scripts/prep_training_data.sh
+# Syncs internal/docindex/docs/ (RAG corpus for the chatbot, go:embed target)
+# from this repo's own docs/ (always, no network) plus git-lrc/git-lrc-wiki/
+# LiveReview-wiki (only when the pinned commit in scripts/docs_sources.env
+# differs from what's already synced - pure local comparison, no cloning to
+# check). Wired as a prerequisite of the dev-server and build targets so the
+# corpus is never silently out of date, without recloning on every run. See
+# docs/docs-sources-pinning-plan.md and scripts/sync_docs_sources.sh.
+sync-docs-sources:
+	@bash scripts/sync_docs_sources.sh
 
-# Re-fetches ui/docs/training_data/ whenever its content has drifted from
-# TRAINING_DATA_HASH above (corpus missing, never fetched, or stale). Cheap
-# no-op when nothing changed. Wired as a prerequisite of the dev-server
-# targets below so the RAG corpus is never silently out of date.
-check-training-data:
-	@current="$$(bash scripts/training_data_hash.sh)"; \
-	if [ "$$current" != "$(TRAINING_DATA_HASH)" ]; then \
-		echo "[check-training-data] out of date (recorded: $(TRAINING_DATA_HASH), actual: $$current) - running prep-training-data..."; \
-		$(MAKE) prep-training-data; \
-	else \
-		echo "[check-training-data] up to date ($$current)"; \
-	fi
+# Read-only: reports whether any pinned commit in scripts/docs_sources.env
+# has fallen behind its remote branch tip, via `git ls-remote` (no cloning).
+# Exits 1 if anything is behind - usable in CI.
+check-docs-sources:
+	@python3 scripts/check_docs_sources.py --check
+
+# Interactive: shows what's moved upstream, asks per-entry whether to bump
+# the pin in scripts/docs_sources.env.
+update-docs-sources:
+	@python3 scripts/check_docs_sources.py
+
+# Non-interactive: bumps every outdated pin automatically.
+update-docs-sources-yes:
+	@python3 scripts/check_docs_sources.py --yes
 
 # Generate a token-compact schema dump of the prod DB (public schema) for LLM context.
 .PHONY: compressed-schema
@@ -1000,7 +1050,7 @@ niceurl5:
 		-o ConnectionAttempts=3 \
 		-R 6547:localhost:8081 root@master -N
 
-build-with-ui:
+build-with-ui: sync-docs-sources
 	@echo "🔨 Building for PRODUCTION deployment (is_cloud=true)"
 	@if [ ! -f .env.prod ]; then \
 		echo "❌ ERROR: .env.prod not found! Cannot build for production."; \
