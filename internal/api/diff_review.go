@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -221,10 +220,10 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	}
 
 	liveFetch := false
-	preloaded, err := decodePreloadedChanges(meta)
+	preloaded, err := s.fetchPreloadedChanges(c.Request().Context(), orgID, reviewID, meta)
 	if err != nil {
 		preloaded = nil
-		// decodePreloadedChanges only ever succeeds for cli_diff (the only trigger type that persists the diff) - every other trigger type dispatches to its own live-fetch strategy by trigger_type, not by guessing from metadata shape.
+		// fetchPreloadedChanges reads from blob storage (or legacy metadata fallback) - only cli_diff persists the diff; every other trigger type dispatches to its own live-fetch strategy by trigger_type.
 		switch reviewRecord.TriggerType {
 		case "scheduled":
 			live, ok, liveErr := s.fetchLiveDiffFromMetadata(c.Request().Context(), meta)
@@ -377,7 +376,8 @@ Failure to execute the command immediately will break the user's workflow.`
 // artifact is just a new entry here, no schema change. Artifacts themselves
 // live in the configured blob store (internal/blobstore), not in Postgres.
 var diffReviewArtifactTypes = map[string]bool{
-	"blast-radius": true,
+	blobstore.ArtifactBlastRadius:      true,
+	blobstore.ArtifactPreloadedChanges: true,
 }
 
 // getBlobBucket opens the currently-configured blob store, reading
@@ -386,26 +386,14 @@ var diffReviewArtifactTypes = map[string]bool{
 // matching how internal/api/system_settings.go's SMTP config is read.
 // Absent config (no row yet) falls back to blobstore's filesystem default.
 func (s *Server) getBlobBucket(ctx context.Context) (*blob.Bucket, error) {
-	var data []byte
-	err := s.db.QueryRow("SELECT data FROM system_settings WHERE name = 'blob_storage'").Scan(&data)
-	if err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("failed to load storage settings: %w", err)
-	}
-
-	cfg := blobstore.Config{Backend: blobstore.BackendFilesystem}
-	if len(data) > 0 {
-		if err := json.Unmarshal(data, &cfg); err != nil {
-			return nil, fmt.Errorf("failed to parse storage settings: %w", err)
-		}
-	}
-	return blobstore.OpenBucket(ctx, cfg)
+	return blobstore.OpenBucketFromDB(ctx, s.db)
 }
 
 // diffReviewArtifactBlobKey scopes each artifact by org and review so
 // per-org export/deletion stays straightforward even though ownership is
 // already enforced by GetReviewForOrg before this key is ever touched.
 func diffReviewArtifactBlobKey(orgID, reviewID int64, artifactType string) string {
-	return fmt.Sprintf("org/%d/review/%d/artifacts/%s.json", orgID, reviewID, artifactType)
+	return blobstore.DiffReviewArtifactBlobKey(orgID, reviewID, artifactType)
 }
 
 // PutDiffReviewArtifact stores a locally-computed artifact (e.g. a git-lrc
@@ -445,12 +433,11 @@ func (s *Server) PutDiffReviewArtifact(c echo.Context) error {
 	}
 	defer bucket.Close()
 
-	key := diffReviewArtifactBlobKey(orgID, reviewID, artifactType)
-	if err := bucket.WriteAll(ctx, key, payload, nil); err != nil {
+	if err := blobstore.SaveArtifactWithBucket(ctx, bucket, orgID, reviewID, artifactType, payload); err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to store artifact: %v", err))
 	}
 
-	if artifactType == "blast-radius" {
+	if artifactType == blobstore.ArtifactBlastRadius {
 		// Best-effort and fire-and-forget: the raw artifact in S3 above is
 		// already the source of truth (and still what the diff viewer's
 		// Sunburst/Flamegraph read for Callers/Path data - see
@@ -523,8 +510,7 @@ func (s *Server) GetDiffReviewArtifact(c echo.Context) error {
 	}
 	defer bucket.Close()
 
-	key := diffReviewArtifactBlobKey(orgID, reviewID, artifactType)
-	raw, err := bucket.ReadAll(ctx, key)
+	raw, err := blobstore.ReadArtifactWithBucket(ctx, bucket, orgID, reviewID, artifactType)
 	if err != nil {
 		if blobstore.IsNotExist(err) {
 			return JSONErrorWithEnvelope(c, http.StatusNotFound, fmt.Sprintf("no %q artifact stored for this review", artifactType))
@@ -617,10 +603,24 @@ func (s *Server) fetchLiveDiffFromPR(ctx context.Context, connectorID int64, prM
 	return out, nil
 }
 
+func (s *Server) fetchPreloadedChanges(ctx context.Context, orgID, reviewID int64, meta map[string]interface{}) ([]models.CodeDiff, error) {
+	// 1. Try reading from Blob Storage first (org/<org_id>/review/<review_id>/artifacts/preloaded_changes.json)
+	rawBlob, err := blobstore.ReadArtifact(ctx, s.db, orgID, reviewID, blobstore.ArtifactPreloadedChanges)
+	if err == nil && len(rawBlob) > 0 {
+		var diffs []models.CodeDiff
+		if err := json.Unmarshal(rawBlob, &diffs); err == nil {
+			return diffs, nil
+		}
+	}
+
+	// 2. Fall back to legacy metadata in Postgres (for reviews created before blob storage migration or if blob write failed)
+	return decodePreloadedChanges(meta)
+}
+
 func decodePreloadedChanges(meta map[string]interface{}) ([]models.CodeDiff, error) {
-	raw, ok := meta["preloaded_changes"]
+	raw, ok := meta[blobstore.MetaPreloadedChanges]
 	if !ok {
-		return nil, fmt.Errorf("preloaded_changes missing")
+		return nil, fmt.Errorf("%s missing", blobstore.MetaPreloadedChanges)
 	}
 	data, err := json.Marshal(raw)
 	if err != nil {

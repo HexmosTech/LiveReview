@@ -3,6 +3,7 @@ package jobqueue
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/livereview/internal/aiselection"
+	"github.com/livereview/internal/blobstore"
 	"github.com/livereview/internal/diffutil"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
@@ -200,15 +202,33 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	// 3. Calculate Lines of Code
 	billableLOC := diffutil.CalculateEffectiveDiffLOCFromLocalDiffs(localDiffs)
 
-	// 5. Convert diffs and persist preloaded_changes for UI polling
+	// 5. Convert diffs and persist to blob storage (blast radius pattern)
 	modelDiffs := diffutil.ConvertLocalDiffs(localDiffs)
-	rm := reviewprocessor.NewReviewManager(w.db)
-	if err := rm.MergeReviewMetadata(args.ReviewID, map[string]interface{}{
-		"preloaded_changes":      modelDiffs,
+	modelDiffsPayload, err := json.Marshal(modelDiffs)
+	savedToBlob := false
+	if err != nil {
+		log.Printf("[WARN] Failed to marshal diffs for review %d: %v", args.ReviewID, err)
+	} else {
+		if err := blobstore.SaveArtifact(ctx, w.db, args.OrgID, args.ReviewID, blobstore.ArtifactPreloadedChanges, modelDiffsPayload); err != nil {
+			log.Printf("[WARN] Failed to store diff artifact in blob storage for review %d (org %d): %v. Preserving %s in Postgres metadata fallback.", args.ReviewID, args.OrgID, err, blobstore.MetaPreloadedChanges)
+		} else {
+			savedToBlob = true
+			log.Printf("[INFO] Successfully persisted diff artifact to blob storage for review %d (org %d)", args.ReviewID, args.OrgID)
+		}
+	}
+
+	metaUpdates := map[string]interface{}{
 		"operation_billable_loc": billableLOC,
 		"excluded_files":         excludedFiles,
-	}); err != nil {
-		log.Printf("[WARN] failed to store preloaded_changes for review %d: %v", args.ReviewID, err)
+	}
+	if !savedToBlob {
+		// Safety fallback: if blob storage write failed, preserve diff in metadata
+		metaUpdates[blobstore.MetaPreloadedChanges] = modelDiffs
+	}
+
+	rm := reviewprocessor.NewReviewManager(w.db)
+	if err := rm.MergeReviewMetadata(args.ReviewID, metaUpdates); err != nil {
+		log.Printf("[ERROR] Failed to persist review metadata for review %d: %v", args.ReviewID, err)
 	}
 
 	// If .lrc/ignore excluded every changed file, there's nothing for the AI
