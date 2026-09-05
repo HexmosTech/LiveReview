@@ -1,4 +1,4 @@
-.PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned check-docker-deps update-docker-deps update-docker-deps-yes docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run-debug run-fast logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker prep-dbctx
+.PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned check-docker-deps update-docker-deps update-docker-deps-yes verify-docker-deps docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run-debug run-fast logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker prep-dbctx
 .PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi prep-training-data check-training-data
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging
@@ -237,6 +237,18 @@ update-docker-deps:
 
 update-docker-deps-yes:
 	@python3 scripts/check_docker_deps.py --yes
+
+# Smoke-test that every pinned Docker dependency binary is actually present
+# and invokable INSIDE a built image (dbmate, river, riverui, vl-convert,
+# codebase-memory-mcp, dbctx, alaws) - runs --version/--help on each via
+# `docker run`. This does NOT build an image itself and does NOT check
+# version numbers (that's check-docker-deps) - it only proves the binaries
+# from the last build actually work. Defaults to IMAGE=livereview:localtest;
+# override with e.g.: make verify-docker-deps IMAGE=ghcr.io/hexmostech/livereview:dev-abc123
+# Build a local image first with, e.g.:
+#   docker buildx build -f Dockerfile.crosscompile -t livereview:localtest --load .
+verify-docker-deps:
+	@bash scripts/verify_docker_deps.sh $(IMAGE)
 
 # DOCKER-BUILD: Comprehensive Docker image build with automated version management
 # Implementation: scripts/lrops.py:cmd_build() -> build_docker_image() (lines 634-661)
