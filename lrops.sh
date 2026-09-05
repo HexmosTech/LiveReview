@@ -4500,8 +4500,10 @@ INSTALLATION
    e.g. for livereview.google.com:
    sudo sed -i 's/your-domain.com/livereview.google.com/g' /etc/apache2/sites-available/livereview.conf
 
-4. Enable the site:
+4. Enable the site and disable Apache's default one (it otherwise wins over
+   livereview.conf for requests that don't match a ServerName, e.g. by bare IP):
    sudo a2ensite livereview
+   sudo a2dissite 000-default.conf
    sudo systemctl reload apache2
 
 TEMPLATE FEATURES
