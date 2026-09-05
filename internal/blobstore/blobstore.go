@@ -9,8 +9,11 @@ package blobstore
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,6 +44,13 @@ const (
 	BackendS3         = "s3"
 	BackendGCS        = "gcs"
 	BackendAzure      = "azure"
+)
+
+// Review artifact type constants
+const (
+	ArtifactPreloadedChanges = "preloaded_changes"
+	ArtifactBlastRadius      = "blast-radius"
+	MetaPreloadedChanges     = "preloaded_changes"
 )
 
 // DefaultLocalDir is used when Backend is filesystem and LocalDir is unset.
@@ -202,3 +212,100 @@ func openAzureBucket(ctx context.Context, cfg Config) (*blob.Bucket, error) {
 func IsNotExist(err error) bool {
 	return gcerrors.Code(err) == gcerrors.NotFound
 }
+
+// DiffReviewArtifactBlobKey formats the standard storage key for review artifacts:
+// org/<org_id>/review/<review_id>/artifacts/<artifact_type>.json
+func DiffReviewArtifactBlobKey(orgID, reviewID int64, artifactType string) string {
+	return fmt.Sprintf("org/%d/review/%d/artifacts/%s.json", orgID, reviewID, artifactType)
+}
+
+// OpenBucketFromDB opens the currently-configured blob store, reading
+// system_settings WHERE name = 'blob_storage' fresh (no caching). Absent
+// configuration or db=nil falls back to the filesystem default.
+func OpenBucketFromDB(ctx context.Context, db *sql.DB) (*blob.Bucket, error) {
+	cfg := Config{Backend: BackendFilesystem}
+	if db != nil {
+		var data []byte
+		err := db.QueryRowContext(ctx, "SELECT data FROM system_settings WHERE name = 'blob_storage'").Scan(&data)
+		if err != nil && err != sql.ErrNoRows {
+			return nil, fmt.Errorf("blobstore: failed to load storage settings: %w", err)
+		}
+		if len(data) > 0 {
+			if err := json.Unmarshal(data, &cfg); err != nil {
+				return nil, fmt.Errorf("blobstore: failed to parse storage settings: %w", err)
+			}
+		}
+	}
+	return OpenBucket(ctx, cfg)
+}
+
+// MaxArtifactSize defines the maximum size (100 MB) allowed for a single review artifact payload to prevent OOM.
+const MaxArtifactSize int64 = 100 * 1024 * 1024
+
+// SaveArtifactWithBucket writes raw JSON payload to an open *blob.Bucket for orgID, reviewID, and artifactType.
+func SaveArtifactWithBucket(ctx context.Context, bucket *blob.Bucket, orgID, reviewID int64, artifactType string, payload []byte) error {
+	if int64(len(payload)) > MaxArtifactSize {
+		return fmt.Errorf("blobstore: artifact payload size %d exceeds max limit %d", len(payload), MaxArtifactSize)
+	}
+	key := DiffReviewArtifactBlobKey(orgID, reviewID, artifactType)
+	if err := bucket.WriteAll(ctx, key, payload, nil); err != nil {
+		return fmt.Errorf("blobstore: failed to write artifact %s: %w", key, err)
+	}
+	return nil
+}
+
+// ReadArtifactWithBucket reads the raw JSON payload from an open *blob.Bucket, enforcing MaxArtifactSize limit to prevent OOM.
+func ReadArtifactWithBucket(ctx context.Context, bucket *blob.Bucket, orgID, reviewID int64, artifactType string) ([]byte, error) {
+	key := DiffReviewArtifactBlobKey(orgID, reviewID, artifactType)
+	r, err := bucket.NewReader(ctx, key, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+
+	size := r.Size()
+	if size > MaxArtifactSize {
+		return nil, fmt.Errorf("blobstore: artifact %s size %d exceeds max limit %d", key, size, MaxArtifactSize)
+	}
+
+	if size > 0 {
+		buf := make([]byte, size)
+		if _, err := io.ReadFull(r, buf); err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+			return nil, fmt.Errorf("blobstore: failed to read artifact %s: %w", key, err)
+		}
+		return buf, nil
+	}
+
+	lr := io.LimitReader(r, MaxArtifactSize+1)
+	data, err := io.ReadAll(lr)
+	if err != nil {
+		return nil, fmt.Errorf("blobstore: failed to read artifact %s: %w", key, err)
+	}
+	if int64(len(data)) > MaxArtifactSize {
+		return nil, fmt.Errorf("blobstore: artifact %s size exceeds max limit %d", key, MaxArtifactSize)
+	}
+	return data, nil
+}
+
+// SaveArtifact writes raw JSON payload to the configured blob store for orgID, reviewID, and artifactType.
+func SaveArtifact(ctx context.Context, db *sql.DB, orgID, reviewID int64, artifactType string, payload []byte) error {
+	bucket, err := OpenBucketFromDB(ctx, db)
+	if err != nil {
+		return fmt.Errorf("blobstore: failed to open bucket: %w", err)
+	}
+	defer bucket.Close()
+
+	return SaveArtifactWithBucket(ctx, bucket, orgID, reviewID, artifactType, payload)
+}
+
+// ReadArtifact reads the raw JSON payload from the configured blob store for orgID, reviewID, and artifactType.
+func ReadArtifact(ctx context.Context, db *sql.DB, orgID, reviewID int64, artifactType string) ([]byte, error) {
+	bucket, err := OpenBucketFromDB(ctx, db)
+	if err != nil {
+		return nil, fmt.Errorf("blobstore: failed to open bucket: %w", err)
+	}
+	defer bucket.Close()
+
+	return ReadArtifactWithBucket(ctx, bucket, orgID, reviewID, artifactType)
+}
+

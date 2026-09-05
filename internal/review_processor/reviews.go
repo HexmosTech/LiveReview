@@ -12,6 +12,7 @@ import (
 // Review represents a code review record
 type Review struct {
 	ID             int64           `json:"id"`
+	OrgID          int64           `json:"org_id"`
 	Repository     string          `json:"repository"`
 	Branch         string          `json:"branch"`
 	CommitHash     string          `json:"commit_hash"`
@@ -185,7 +186,7 @@ func (rm *ReviewManager) UpdateReviewConnector(reviewID int64, connectorID int64
 // GetReview retrieves a review by ID
 func (rm *ReviewManager) GetReview(reviewID int64) (*Review, error) {
 	query := `
-		SELECT id, repository, branch, commit_hash, pr_mr_url, connector_id,
+		SELECT id, org_id, repository, branch, commit_hash, pr_mr_url, connector_id,
 		       status, trigger_type, user_email, provider, mr_title, friendly_name, author_name, author_username,
 		       created_at, started_at, completed_at, metadata
 		FROM reviews
@@ -194,8 +195,10 @@ func (rm *ReviewManager) GetReview(reviewID int64) (*Review, error) {
 
 	var review Review
 	var mrTitle, friendlyName, authorName, authorUsername sql.NullString
+	var orgID sql.NullInt64
 	err := rm.store.QueryRow(query, reviewID).Scan(
 		&review.ID,
+		&orgID,
 		&review.Repository,
 		&review.Branch,
 		&review.CommitHash,
@@ -218,6 +221,9 @@ func (rm *ReviewManager) GetReview(reviewID int64) (*Review, error) {
 		return nil, fmt.Errorf("failed to get review: %w", err)
 	}
 
+	if orgID.Valid {
+		review.OrgID = orgID.Int64
+	}
 	if mrTitle.Valid {
 		review.MRTitle = &mrTitle.String
 	}
@@ -238,7 +244,7 @@ func (rm *ReviewManager) GetReview(reviewID int64) (*Review, error) {
 // Returns an error if the review does not exist or belongs to a different org.
 func (rm *ReviewManager) GetReviewForOrg(reviewID int64, orgID int64) (*Review, error) {
 	query := `
-		SELECT id, repository, branch, commit_hash, pr_mr_url, connector_id,
+		SELECT id, org_id, repository, branch, commit_hash, pr_mr_url, connector_id,
 		       status, trigger_type, user_email, provider, mr_title, friendly_name, author_name, author_username,
 		       created_at, started_at, completed_at, metadata
 		FROM reviews
@@ -247,8 +253,10 @@ func (rm *ReviewManager) GetReviewForOrg(reviewID int64, orgID int64) (*Review, 
 
 	var review Review
 	var mrTitle, friendlyName, authorName, authorUsername sql.NullString
+	var orgIDVal sql.NullInt64
 	err := rm.store.QueryRow(query, reviewID, orgID).Scan(
 		&review.ID,
+		&orgIDVal,
 		&review.Repository,
 		&review.Branch,
 		&review.CommitHash,
@@ -271,6 +279,9 @@ func (rm *ReviewManager) GetReviewForOrg(reviewID int64, orgID int64) (*Review, 
 		return nil, fmt.Errorf("failed to get review: %w", err)
 	}
 
+	if orgIDVal.Valid {
+		review.OrgID = orgIDVal.Int64
+	}
 	if mrTitle.Valid {
 		review.MRTitle = &mrTitle.String
 	}
