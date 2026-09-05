@@ -98,6 +98,7 @@ Makefile*
 # hand-written and tracked in git, so it's not excluded here.
 internal/docindex/docs/lr_wiki/
 internal/docindex/docs/lrc_wiki/
+internal/docindex/docs/hexmos_docs/
 internal/docindex/docs/.synced-commits.env
 
 # Development containers

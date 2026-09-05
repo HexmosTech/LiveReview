@@ -79,6 +79,15 @@ DOCS_SOURCES = [
         'url': 'https://github.com/HexmosTech/LiveReview.wiki.git',
         'branch': 'master',
     },
+    {
+        # Private repo (SSH-auth'd) - unlike the 3 above. `git ls-remote`
+        # works the same way over SSH as HTTPS; the machine running this
+        # just needs an SSH key with read access to git.apps.hexmos.com.
+        'key': 'HEXMOSHOMEPAGE_DOCS_COMMIT',
+        'label': 'hexmoshomepage docs',
+        'url': 'git@git.apps.hexmos.com:hexmos/frontend/hexmoshomepage.git',
+        'branch': 'main',
+    },
 ]
 
 

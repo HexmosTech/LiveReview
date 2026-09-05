@@ -27,6 +27,7 @@ lrdata/postgres/
 # tracked. See docs/docs-sources-pinning-plan.md.
 /internal/docindex/docs/lr_wiki/
 /internal/docindex/docs/lrc_wiki/
+/internal/docindex/docs/hexmos_docs/
 /internal/docindex/docs/.synced-commits.env
 
 # Vendor prompts local artifacts (never commit)
