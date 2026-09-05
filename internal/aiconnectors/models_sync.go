@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/livereview/internal/ai/gemini"
 	"github.com/rs/zerolog/log"
 )
 
@@ -62,7 +63,7 @@ type MappedModel struct {
 var defaultProviderModels = map[string]string{
 	"openai":     "gpt-5.5",
 	"claude":     "claude-sonnet-4.6",
-	"gemini":     "gemini-2.5-flash",
+	"gemini":     gemini.DefaultModel,
 	"deepseek":   "deepseek-v4-flash",
 	"cohere":     "command-a",
 	"openrouter": "deepseek/deepseek-v4-flash",

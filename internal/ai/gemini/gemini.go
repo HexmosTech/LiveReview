@@ -20,6 +20,9 @@ import (
 	"github.com/tmc/langchaingo/llms"
 )
 
+// DefaultModel is the Gemini model used when no model is configured.
+const DefaultModel = "gemini-3.6-flash"
+
 type GeminiProvider struct {
 	TestableFields
 	llm llms.Model
@@ -52,7 +55,7 @@ func New(config GeminiConfig) (*GeminiProvider, error) {
 	}
 
 	if config.Model == "" {
-		config.Model = "gemini-2.5-flash"
+		config.Model = DefaultModel
 	}
 
 	if config.Temperature == 0 {
