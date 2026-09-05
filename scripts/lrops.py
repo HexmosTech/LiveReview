@@ -86,6 +86,66 @@ class LiveReviewOps:
                     print(f"Stderr: {e.stderr}")
             raise GitError(f"Command failed: {' '.join(cmd)}: {e.stderr}")
     
+    def _load_docker_dep_versions(self):
+        """Load frozen Docker dependency versions from docker/docker-deps.env.
+
+        These are third-party base images/binaries baked into the Docker
+        image (node/golang/debian base images, dbmate, River CLI/UI,
+        vl-convert, etc.) - NOT the LiveReview application version. This is
+        the single source of truth for those, read from simple `KEY=value`
+        lines (comments and blank lines ignored). PINNED_DOCKER_DEPS is a
+        control variable for scripts/check_docker_deps.py (lists which keys
+        are locked against auto-update), not a Dockerfile ARG, so it's
+        excluded here.
+        """
+        versions_file = self.repo_root / 'docker' / 'docker-deps.env'
+        versions = {}
+        if not versions_file.exists():
+            print(f"⚠️  {versions_file} not found - builds will use Dockerfile ARG defaults")
+            return versions
+        for line in versions_file.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            if line.startswith('PINNED_DOCKER_DEPS='):
+                continue
+            key, _, value = line.partition('=')
+            versions[key.strip()] = value.strip()
+        return versions
+
+    def _docker_dep_build_args(self):
+        """Return ['--build-arg', 'KEY=value', ...] for every frozen Docker dependency version."""
+        args = []
+        for key, value in self._load_docker_dep_versions().items():
+            args += ['--build-arg', f'{key}={value}']
+        return args
+
+    def _check_docker_dep_versions(self):
+        """Run scripts/check_docker_deps.py before an actual Docker build.
+
+        Interactive when attached to a TTY (asks per outdated, unlocked
+        Docker dependency, never blocks the build regardless of the
+        answer); auto-degrades to a non-blocking report otherwise. Entries
+        listed in docker/docker-deps.env's PINNED_DOCKER_DEPS are reported
+        but never offered for update here. Set SKIP_DOCKER_DEPS_CHECK=1 to
+        skip the check entirely. Full docs: docker/DOCKER-DEPS.md.
+        """
+        checker = self.repo_root / 'scripts' / 'check_docker_deps.py'
+        if not checker.exists():
+            return
+        cmd = [sys.executable, str(checker)]
+        if os.environ.get('SKIP_DOCKER_DEPS_CHECK') == '1':
+            cmd.append('--skip-network')
+        try:
+            # No timeout here deliberately: in interactive mode this waits
+            # on a human at a y/n/all/quit prompt, which can legitimately
+            # take longer than any fixed timeout. The network calls inside
+            # check_docker_deps.py each have their own short timeout, so a
+            # stuck upstream lookup can't hang this indefinitely.
+            subprocess.run(cmd, cwd=self.repo_root, check=False)
+        except OSError as e:
+            print(f"⚠️  Could not run Docker dependency version check: {e}")
+
     def _run_command_with_retries(self, cmd, max_retries=3, capture_output=True, check=True, cwd=None):
         """Run a shell command with retry logic for network operations"""
         import time
@@ -729,6 +789,8 @@ class LiveReviewOps:
                 print(f"  Would push to registry")
             return version_tag
 
+        self._check_docker_dep_versions()
+
         # If vendor build requested, run encryption pre-step before Docker build
         if vendor:
             print("🔐 Vendor prompts build requested: running encryption step...")
@@ -790,6 +852,7 @@ class LiveReviewOps:
             cmd += ['--no-cache']
         if go_tags:
             cmd += ['--build-arg', f'GO_BUILD_TAGS={" ".join(go_tags)}']
+        cmd += self._docker_dep_build_args()
         cmd += [
             '-f', 'Dockerfile.crosscompile',
             *labels,
@@ -865,6 +928,7 @@ class LiveReviewOps:
             cmd += ['--no-cache']
         if go_tags:
             cmd += ['--build-arg', f'GO_BUILD_TAGS={" ".join(go_tags)}']
+        cmd += self._docker_dep_build_args()
         cmd += [
             *labels,
             *tags,

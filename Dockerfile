@@ -1,8 +1,14 @@
 # Multi-stage Dockerfile for LiveReview
 # Creates a lightweight container with UI + Backend
 
+# Frozen Docker dependency versions - see docker/docker-deps.env (single source of truth).
+# scripts/lrops.py injects these as --build-arg for every build.
+ARG NODE_IMAGE_TAG=20.20.2-alpine
+ARG GOLANG_IMAGE_TAG=1.26.8-bookworm
+ARG DEBIAN_IMAGE_TAG=trixie-20260824-slim
+
 # Stage 1: Build React UI
-FROM node:20-alpine AS ui-builder
+FROM node:${NODE_IMAGE_TAG} AS ui-builder
 WORKDIR /app/ui
 
 # Copy package files and install dependencies
@@ -26,12 +32,17 @@ RUN echo "✅ Verifying UI build output..." && \
     echo "UI build completed successfully"
 
 # Stage 2: Build Go binary with embedded UI
-FROM golang:1.26-bookworm AS go-builder
+FROM golang:${GOLANG_IMAGE_TAG} AS go-builder
 
 # Platform arguments for multi-arch builds
 ARG TARGETPLATFORM
 ARG TARGETARCH
 ARG TARGETOS
+
+# Frozen Docker dependency versions - see docker/docker-deps.env
+ARG RIVER_VERSION=v0.32.0
+ARG RIVERUI_VERSION=v0.19.0
+ARG DBMATE_VERSION=v2.35.1
 
 WORKDIR /app
 
@@ -50,14 +61,14 @@ RUN echo "📊 Installing dbmate for database migrations..." && \
         *) echo "amd64" ;; \
     esac) && \
     curl -fsSL -o /usr/local/bin/dbmate \
-    https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-${DBMATE_ARCH} && \
+    https://github.com/amacneil/dbmate/releases/download/${DBMATE_VERSION}/dbmate-linux-${DBMATE_ARCH} && \
     chmod +x /usr/local/bin/dbmate && \
     echo "dbmate installed successfully"
 
 # Install River CLI and UI tools
 RUN echo "🌊 Installing River CLI and UI tools..." && \
-    go install github.com/riverqueue/river/cmd/river@latest && \
-    go install riverqueue.com/riverui/cmd/riverui@latest && \
+    go install github.com/riverqueue/river/cmd/river@${RIVER_VERSION} && \
+    go install riverqueue.com/riverui/cmd/riverui@${RIVERUI_VERSION} && \
     echo "River tools installed successfully"
 
 # Copy Go module files and download dependencies
@@ -96,9 +107,15 @@ RUN echo "✅ Verifying installed tools..." && \
     echo "All tools and migrations verified successfully"
 
 # Stage 3: Create minimal runtime container
-FROM debian:trixie-slim
+FROM debian:${DEBIAN_IMAGE_TAG}
 LABEL maintainer="LiveReview Team"
 LABEL description="LiveReview - AI-powered code review tool"
+
+# Frozen Docker dependency versions - see docker/docker-deps.env
+ARG VLCONVERT_VERSION=v1.9.0
+ARG CODEBASE_MEMORY_MCP_VERSION=v0.10.8
+ARG DBCTX_VERSION=v0.1.0
+ARG ALAWS_VERSION=v0.1.0
 
 # Install runtime dependencies
 RUN echo "🔧 Installing runtime dependencies..." && \
@@ -113,7 +130,7 @@ RUN echo "🔧 Installing runtime dependencies..." && \
 
 # Download pre-built vl-convert binary (glibc build, no Python needed)
 RUN echo "📥 Downloading vl-convert binary..." && \
-    curl -sL --fail "https://github.com/vega/vl-convert/releases/download/v1.9.0/vl-convert_linux-64.zip" -o /tmp/vl-convert.zip && \
+    curl -sL --fail "https://github.com/vega/vl-convert/releases/download/${VLCONVERT_VERSION}/vl-convert_linux-64.zip" -o /tmp/vl-convert.zip && \
     unzip -o /tmp/vl-convert.zip -d /tmp/vl-convert-extracted && \
     cp /tmp/vl-convert-extracted/bin/vl-convert /usr/local/bin/vl-convert && \
     chmod +x /usr/local/bin/vl-convert && \
@@ -122,7 +139,7 @@ RUN echo "📥 Downloading vl-convert binary..." && \
 
 # Download codebase-memory-mcp binary
 RUN echo "📥 Downloading codebase-memory-mcp binary..." && \
-    curl -sL --fail "https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.10.8/codebase-memory-mcp-linux-amd64.tar.gz" \
+    curl -sL --fail "https://github.com/DeusData/codebase-memory-mcp/releases/download/${CODEBASE_MEMORY_MCP_VERSION}/codebase-memory-mcp-linux-amd64.tar.gz" \
         -o /tmp/mcp.tar.gz && \
     tar -xzf /tmp/mcp.tar.gz -C /usr/local/bin/ && \
     chmod +x /usr/local/bin/codebase-memory-mcp && \
@@ -131,7 +148,7 @@ RUN echo "📥 Downloading codebase-memory-mcp binary..." && \
 
 # Download dbctx binary
 RUN echo "📥 Downloading dbctx binary..." && \
-    curl -L --fail "https://github.com/shrsv/dbctx/releases/download/v0.1.0/dbctx_linux_amd64.tar.gz" \
+    curl -L --fail "https://github.com/shrsv/dbctx/releases/download/${DBCTX_VERSION}/dbctx_linux_amd64.tar.gz" \
         -o /tmp/dbctx.tar.gz && \
     tar -xzf /tmp/dbctx.tar.gz -C /tmp/ && \
     mv /tmp/dbctx_linux_amd64 /usr/local/bin/dbctx && \
@@ -141,7 +158,7 @@ RUN echo "📥 Downloading dbctx binary..." && \
 
 # Download AgentLaws (alaws) binary
 RUN echo "📥 Downloading AgentLaws binary..." && \
-    curl -L --fail "https://github.com/shrsv/AgentLaws/releases/download/v0.1.0/alaws_linux_amd64.tar.gz" \
+    curl -L --fail "https://github.com/shrsv/AgentLaws/releases/download/${ALAWS_VERSION}/alaws_linux_amd64.tar.gz" \
         -o /tmp/alaws.tar.gz && \
     tar -xzf /tmp/alaws.tar.gz -C /tmp/ && \
     mv /tmp/alaws_linux_amd64 /usr/local/bin/alaws && \

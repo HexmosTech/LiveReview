@@ -327,14 +327,56 @@ The following features are gated and MUST be disabled in production:
 | `vendor_prompts` | Encrypted prompts | Docker builds |
 | `production` | Production safety | Excludes test endpoints like `/test-chat` |
 
-### Docker Binary Versions
+### Docker Dependency Versions (NOT the LiveReview app version)
 
-External binaries bundled in Docker images are tracked in `docker-binaries.json`.
-Update versions consciously - this file is the source of truth for:
-- `vl-convert` - Vega-Lite chart rendering
-- `codebase-memory-mcp` - Codebase knowledge graph MCP server
-- `dbctx` - Database context tool
-- `alaws` - AgentLaws CLI
+Every third-party base image and binary baked into the Docker image (node,
+golang, debian base images; dbmate; River CLI/UI; `vl-convert`;
+`codebase-memory-mcp`; `dbctx`; `alaws`) is version-pinned in a single file:
+**`docker/docker-deps.env`**. This is a completely separate system from
+LiveReview's own application version (`scripts/lrops.py version`, Git tags,
+`make version*`) - don't confuse the two.
+
+Full docs: `docker/DOCKER-DEPS.md`. The rules an agent must follow:
+
+- **Never hardcode a version or download URL directly in `Dockerfile` or
+  `Dockerfile.crosscompile`.** Every version lives in `docker/docker-deps.env`
+  as `SOME_TOOL_VERSION=...`, referenced in both Dockerfiles via a matching
+  `ARG SOME_TOOL_VERSION=<same default>`, and injected as `--build-arg` by
+  `scripts/lrops.py` (`_load_docker_dep_versions`/`_docker_dep_build_args`)
+  for every real build. If you're about to type a version string or a
+  `releases/download/vX.Y.Z/...` URL straight into a Dockerfile, stop - add
+  it to `docker/docker-deps.env` instead.
+
+- **Adding a brand-new tool/binary dependency to the Docker image** (do all
+  three, and don't consider it done until `docker buildx build --check`
+  passes on both Dockerfiles):
+  1. Add `SOME_TOOL_VERSION=vX.Y.Z` to `docker/docker-deps.env` (pick a
+     real, current release - check the tool's GitHub releases page or
+     Docker Hub tags first, the same way `scripts/check_docker_deps.py`
+     would resolve "latest" for it).
+  2. In both `Dockerfile` and `Dockerfile.crosscompile`, add
+     `ARG SOME_TOOL_VERSION=vX.Y.Z` (same default, for standalone
+     `docker build` to still work) in the stage that installs it, and use
+     `${SOME_TOOL_VERSION}` in the download/`go install`/`go get` command -
+     never the literal version string.
+  3. Add an entry to the `DOCKER_DEPS` list in `scripts/check_docker_deps.py`
+     with a `checker` function that resolves "latest" for it (reuse
+     `check_github_release()` for a GitHub-releases tool, or
+     `check_dockerhub_semver()`/`check_dockerhub_dated()` for a Docker Hub
+     base image) - this is what makes the new dependency show up in
+     `make check-docker-deps` / `update-docker-deps` and the automatic
+     pre-build check, instead of silently drifting unmanaged.
+
+- **Locking a dependency's version** (so `update-docker-deps`/
+  `update-docker-deps-yes`/the pre-build check never touch it): add its KEY
+  to the comma-separated `PINNED_DOCKER_DEPS=` line in
+  `docker/docker-deps.env`. Never delete that line - it must stay present
+  even when empty.
+
+- Run `python3 scripts/check_docker_deps.py --check` (or
+  `make check-docker-deps`) after any change to `docker/docker-deps.env` or
+  the Dockerfiles to confirm the new/changed entry resolves and both
+  Dockerfiles still parse (`docker buildx build --check -f Dockerfile[.crosscompile] .`).
 
 ### Docker Production Checklist
 
@@ -345,7 +387,7 @@ Before releasing a new Docker image:
 3. [ ] Verify `/chat-debug` gated by `LIVI_DEBUG_LOG`
 4. [ ] Test `make docker-multiarch-dry` output
 5. [ ] Verify all binaries present: `vl-convert`, `dbctx`, `alaws`, `codebase-memory-mcp`
-6. [ ] Check `docker-binaries.json` for version updates
+6. [ ] Run `make check-docker-deps` - see `docker/DOCKER-DEPS.md`
 
 ### Raw Deploy Safety
 

@@ -1,4 +1,4 @@
-.PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run-debug run-fast logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker prep-dbctx
+.PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned check-docker-deps update-docker-deps update-docker-deps-yes docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run-debug run-fast logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker prep-dbctx
 .PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi prep-training-data check-training-data
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging
@@ -199,6 +199,44 @@ version-major-dry:
 
 build-versioned:
 	@python scripts/lrops.py build
+
+# ============================================================================
+# Frozen DOCKER DEPENDENCY versions (docker/docker-deps.env)
+# ----------------------------------------------------------------------------
+# This is NOT the LiveReview application version (see the `version`/
+# `version-bump*` targets above for that). This section pins the third-party
+# base images/binaries that go INTO the Docker image: node/golang/debian
+# base images, dbmate, River CLI/UI, vl-convert, codebase-memory-mcp, dbctx,
+# AgentLaws.
+# ============================================================================
+# Full writeup: docker/DOCKER-DEPS.md. Quick reference:
+#
+#   check-docker-deps       CI-friendly, read-only. Exits 1 if anything
+#                           unlocked is outdated.
+#   update-docker-deps      Interactive - shows what's outdated and asks
+#                           per entry (y/n/all/quit).
+#   update-docker-deps-yes  Non-interactive - updates every outdated,
+#                           unlocked entry automatically.
+#
+# All docker-build*/docker-multiarch* targets below also run this check
+# automatically (interactively, degrading to a non-blocking report outside
+# a TTY) before invoking the actual build. Set SKIP_DOCKER_DEPS_CHECK=1 to
+# skip it entirely, e.g.: SKIP_DOCKER_DEPS_CHECK=1 make docker-multiarch-push
+#
+# LOCKING a dependency so updates never touch it: add its KEY to
+# PINNED_DOCKER_DEPS= in docker/docker-deps.env (comma-separated). It still
+# shows up in the report when it falls behind, it's just never auto-applied
+# by update-docker-deps/update-docker-deps-yes or the pre-build check.
+# Override for one run with:
+#   python3 scripts/check_docker_deps.py --include-pinned [--yes]
+check-docker-deps:
+	@python3 scripts/check_docker_deps.py --check
+
+update-docker-deps:
+	@python3 scripts/check_docker_deps.py
+
+update-docker-deps-yes:
+	@python3 scripts/check_docker_deps.py --yes
 
 # DOCKER-BUILD: Comprehensive Docker image build with automated version management
 # Implementation: scripts/lrops.py:cmd_build() -> build_docker_image() (lines 634-661)

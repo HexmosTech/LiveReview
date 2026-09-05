@@ -4333,9 +4333,9 @@ INSTALLATION
    e.g. for livereview.google.com:
    sudo sed -i 's/your-domain.com/livereview.google.com/g' /etc/caddy/Caddyfile
 
-3. Start Caddy:
+3. Enable Caddy and apply the configuration:
    sudo systemctl enable caddy
-   sudo systemctl start caddy
+   sudo systemctl reload caddy
 
 TEMPLATE FEATURES
 ================
@@ -4913,6 +4913,11 @@ display_completion_summary() {
         echo -e "   2. ${CYAN}lrops.sh doctor <your domain>${NC}"
         echo -e "      Verifies your domain is correctly pointed at this server."
         echo -e "      e.g. ${CYAN}lrops.sh doctor livereview.hexmos.site${NC}"
+        echo -e "   3. ${CYAN}sudo lrops.sh setup-ssl <your domain>${NC} (recommended, optional)"
+        echo -e "      Once doctor confirms DNS is pointed here: picks your reverse proxy"
+        echo -e "      (nginx/Caddy/Apache), configures it, and gets a Let's Encrypt"
+        echo -e "      certificate - all in one command."
+        echo -e "      e.g. ${CYAN}sudo lrops.sh setup-ssl livereview.hexmos.site${NC}"
         echo
         echo -e "${YELLOW}⚠️  IMPORTANT: Configure reverse proxy before external access!${NC}"
     fi
