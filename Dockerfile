@@ -77,8 +77,23 @@ RUN echo "📦 Downloading Go dependencies..." && \
     go mod download && go mod verify && \
     echo "Go dependencies downloaded successfully"
 
+# Fetch the chatbot's RAG corpus (internal/docindex/docs/{lrc_wiki,lr_wiki},
+# go:embed target) to the exact commits pinned in scripts/docs_sources.env -
+# deterministic regardless of what happened to be on the build host. This
+# layer is cached against docs_sources.env alone (copied on its own, before
+# the rest of the source tree), so unrelated source changes never force a
+# refetch - only bumping a pinned commit does. See
+# docs/docs-sources-pinning-plan.md.
+COPY scripts/docs_sources.env scripts/sync_docs_sources.sh ./scripts/
+RUN bash scripts/sync_docs_sources.sh
+
 # Copy source code
 COPY . .
+
+# Re-run the sync: the 3 external sources above are already cached (no
+# network), this pass only does the free local copy of this repo's own
+# docs/ (which didn't exist yet in this stage until the COPY above).
+RUN bash scripts/sync_docs_sources.sh
 
 # Copy built UI assets from previous stage
 COPY --from=ui-builder /app/ui/dist ./ui/dist

@@ -55,20 +55,44 @@ Thumbs.db
 
 # Test files and documentation
 tests/
-docs/
-!docs/openapi.yaml
 examples/
 README.md
 *.md
+!docs/**/*.md
+!internal/docindex/docs/**/*.md
 
-# Scripts and tools (but keep docker-entrypoint.sh)
-scripts/
+# Scripts and tools: exclude known-large local-only artifacts, but keep the
+# rest of scripts/ (needed for scripts/sync_docs_sources.sh +
+# scripts/docs_sources.env, run during the Go builder stage - see
+# docs/docs-sources-pinning-plan.md). A blanket `scripts/` exclusion here
+# would also hide those from the build context; a Dockerfile COPY can only
+# ever see what's already in the context, so exclude specific paths instead.
+scripts/.venv/
+scripts/prelivi/output/
+scripts/prelivi/__pycache__/
+scripts/adoption_chart/rca/
+scripts/adoption_chart/__pycache__/
+scripts/integration/test-results/
+scripts/integration/playwright-report/
+scripts/gitea_session.json
+scripts/mr_details.json
+scripts/sample_review_report.json
 pgctl.sh
 setup_local_dev.sh
 Makefile*
 
 # Keep docker-entrypoint.sh
 !docker-entrypoint.sh
+
+# Chatbot RAG corpus: lr_wiki/ and lrc_wiki/ are synced INSIDE the image
+# build by scripts/sync_docs_sources.sh (pinned to scripts/docs_sources.env
+# - see docs/docs-sources-pinning-plan.md). Excluding them from the build
+# context means a stale/empty local host checkout can never silently get
+# baked into the image instead of the pinned commits; routes_guide/ is
+# hand-written and tracked in git, so it's not excluded here.
+internal/docindex/docs/lr_wiki/
+internal/docindex/docs/lrc_wiki/
+internal/docindex/docs/.synced-commits.env
 
 # Development containers
 docker-compose.yml

@@ -222,15 +222,17 @@ functions) once equivalent `config/caddy-ssl.conf.example` /
 `config/apache-ssl.conf.example` reference files exist — they don't yet, and
 creating them is a separate task, not implied by this rule.
 
-## Route Documentation for RAG (`ui/docs/training_data/lr_routes/`)
+## Route Documentation for RAG (`internal/docindex/docs/routes_guide/`)
 
-`ui/docs/training_data/lr_routes/` holds one Markdown file per UI
+`internal/docindex/docs/routes_guide/` holds one Markdown file per UI
 route/page (mirroring `ui/src/pages/`, grouped into subfolders that match
 the top-level route groups in `ui/src/App.tsx`: `reviews/`, `explore/`,
 `git/`, `ai/`, `settings/`, `licenses/`, `reports/`, `chatbot/`, `auth/`).
 It exists to train/feed the in-app chatbot (Livi) so it can answer both
-data questions and "how do I do X in the UI" / navigation questions. See
-`ui/docs/training_data/lr_routes/README.md` for the file structure this
+data questions and "how do I do X in the UI" / navigation questions. It is
+tracked directly in git (not fetched/generated) and embedded via
+`//go:embed docs` in `internal/docindex/docs.go`. See
+`internal/docindex/docs/routes_guide/README.md` for the file structure this
 folder follows.
 
 **Rule: whenever you make a UI change, update the relevant `.md` file(s) in
@@ -242,17 +244,28 @@ this folder in the same change.**
   other files.
 - Page behavior, key actions, or access/permission gating changed → update
   the file's "Key actions" / "Who can access it" section to match.
-- After editing anything under `ui/docs/training_data/` (including
-  `lr_routes/`), **run `make prep-training-data`** to refresh the
-  `TRAINING_DATA_HASH` value it rewrites at the top of the Makefile, then
-  **commit that Makefile change together with your doc edit** — `make
-  develop`/`run-debug`/`run-fast`/etc. compare the live corpus hash against
-  the committed `TRAINING_DATA_HASH` (via `check-training-data`) and will
-  otherwise treat your edit as drift and re-fetch external sources
-  needlessly on the next teammate's dev-server start. See
-  `scripts/prep_training_data.sh` and `scripts/training_data_hash.sh`.
-- `ui/docs/training_data` is excluded from Air's file watcher (`.air.toml`
-  `exclude_dir`) so editing these docs does not trigger a backend rebuild.
+- No extra step needed after editing — these files are committed directly
+  and picked up by `//go:embed docs` on the next build, same as any other
+  Go source file. (This replaced an older, fetch-and-hash-based scheme; see
+  `docs/docs-sources-pinning-plan.md` for why.)
+
+## Keeping `scripts/docs_sources.env` in Sync
+
+`internal/docindex/docs/{lr_wiki,lrc_wiki}/` (the rest of the chatbot's RAG
+corpus, alongside `routes_guide/` above) is synced from `git-lrc`, its wiki,
+and `LiveReview`'s wiki via `scripts/sync_docs_sources.sh`, pinned to exact
+commit SHAs in `scripts/docs_sources.env`. GitHub is the source of truth,
+not any one machine's local fetch — see `docs/docs-sources-pinning-plan.md`
+for the full design.
+
+**Rule: whenever you (as an agent) commit a documentation change to
+`git-lrc/docs/`, `git-lrc`'s wiki, or `LiveReview`'s wiki, bump the matching
+`*_COMMIT` line in `LiveReview/scripts/docs_sources.env` to the new commit
+SHA in that same task** — not as a separate follow-up. `make
+check-docs-sources` is a read-only backstop (reports/fails CI when a pin
+has fallen behind) for drift introduced outside agent-driven edits, but it
+is not a substitute for bumping the pin yourself when you're the one making
+the docs change.
 
 ## Chat UI (/chat and /chat-debug) Must Stay In Sync
 
