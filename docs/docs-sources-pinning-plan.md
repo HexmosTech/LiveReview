@@ -12,6 +12,14 @@
 > `LiveReview.wiki`) described below. The "livereview docs/ subtree" source
 > mentioned throughout this document never should have existed - treat
 > every reference to it below as historical, not current behavior.
+>
+> **Second correction (path):** the lockfile and scripts described below as
+> `scripts/docs_sources.env` / `scripts/sync_docs_sources.sh` /
+> `scripts/check_docs_sources.py` actually live at
+> `scripts/docindex/docs_sources.env` / `scripts/docindex/sync_docs_sources.sh`
+> / `scripts/docindex/check_docs_sources.py` — grouped under a `docindex/`
+> subfolder since they exist purely to feed `internal/docindex/`. Every
+> `scripts/*.{env,sh,py}` path below should be read with that prefix.
 
 ## Context
 

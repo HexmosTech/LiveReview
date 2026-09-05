@@ -2,8 +2,8 @@
 # Syncs the chatbot's RAG corpus at internal/docindex/docs/ (embedded via
 # `//go:embed docs` in internal/docindex/docs.go) from git-lrc's
 # docs/LRC_README.md, git-lrc's wiki, and LiveReview's wiki - each pinned to
-# an exact commit in scripts/docs_sources.env, fetched ONLY when the pinned
-# commit differs from what's already synced
+# an exact commit in scripts/docindex/docs_sources.env, fetched ONLY when the
+# pinned commit differs from what's already synced
 # (internal/docindex/docs/.synced-commits.env), and even then only that one
 # commit's needed subtree - never a full/branch clone.
 #
@@ -16,11 +16,11 @@
 #
 # See docs/docs-sources-pinning-plan.md for the full design and rationale.
 #
-# Usage: make sync-docs-sources  (or: scripts/sync_docs_sources.sh)
+# Usage: make sync-docs-sources  (or: scripts/docindex/sync_docs_sources.sh)
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DOCS_SOURCES_FILE="$ROOT_DIR/scripts/docs_sources.env"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+DOCS_SOURCES_FILE="$ROOT_DIR/scripts/docindex/docs_sources.env"
 OUT_DIR="$ROOT_DIR/internal/docindex/docs"
 MARKER_FILE="$OUT_DIR/.synced-commits.env"
 
@@ -36,7 +36,19 @@ mkdir -p "$OUT_DIR/routes_guide" "$OUT_DIR/lr_wiki/wiki" \
 find "$OUT_DIR/lr_wiki" "$OUT_DIR/lrc_wiki" -maxdepth 1 -type f -delete 2>/dev/null || true
 rm -rf "${OUT_DIR:?}/lr_wiki/local"
 
-# --- 1. Load pinned commits (source of truth: scripts/docs_sources.env) ---
+# --- 1. Auto-bump stale pins to their current remote branch tip, best-effort ---
+# Runs 3 parallel `git ls-remote` lookups (no cloning) and rewrites
+# docs_sources.env in place for anything that moved upstream - this is what
+# removes "an agent/human must remember to bump the pin" as a failure mode.
+# Never fails the build: offline, or GitHub unreachable, just means "keep
+# whatever's already pinned" (same as any other offline dev-server start).
+# Set SKIP_DOCS_SOURCES_CHECK=1 to skip this network step entirely.
+if [ "${SKIP_DOCS_SOURCES_CHECK:-}" != "1" ]; then
+  python3 "$ROOT_DIR/scripts/docindex/check_docs_sources.py" --auto || true
+fi
+
+# --- 2. Load pinned commits (source of truth: scripts/docindex/docs_sources.env,
+#         possibly just auto-bumped above) ---
 declare -A PINNED
 if [ -f "$DOCS_SOURCES_FILE" ]; then
   while IFS='=' read -r key value; do
@@ -45,7 +57,7 @@ if [ -f "$DOCS_SOURCES_FILE" ]; then
   done < "$DOCS_SOURCES_FILE"
 fi
 
-# --- 2. Load last-synced commits (what's actually embedded on disk right now) ---
+# --- 3. Load last-synced commits (what's actually embedded on disk right now) ---
 declare -A SYNCED
 if [ -f "$MARKER_FILE" ]; then
   while IFS='=' read -r key value; do

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Checks scripts/docs_sources.env (the pinned commit SHAs for the chatbot's
-RAG corpus - external sources baked into internal/docindex/docs/ via
-scripts/sync_docs_sources.sh) against each source's current branch tip on
-GitHub, and can update the file in place.
+Checks scripts/docindex/docs_sources.env (the pinned commit SHAs for the
+chatbot's RAG corpus - external sources baked into internal/docindex/docs/
+via scripts/docindex/sync_docs_sources.sh) against each source's current
+branch tip on GitHub, and can update the file in place.
 
 Unlike scripts/check_docker_deps.py this never clones anything - it uses
 `git ls-remote` to read a branch tip's commit SHA directly, one round-trip
@@ -12,24 +12,38 @@ per source, regardless of that source's repo size.
 See docs/docs-sources-pinning-plan.md for the full design.
 
 Usage:
-    scripts/check_docs_sources.py                 Interactive: shows a
+    scripts/docindex/check_docs_sources.py         Interactive: shows a
                                                     table, then asks per
                                                     outdated entry whether
                                                     to bump it.
                                                     (Auto-degrades to a
                                                     non-blocking report if
                                                     stdin isn't a TTY.)
-    scripts/check_docs_sources.py --check          Report only, never
+    scripts/docindex/check_docs_sources.py --check Report only, never
                                                     prompts, never writes.
                                                     Exits 1 if any pinned
                                                     source is behind - use
                                                     this in CI.
-    scripts/check_docs_sources.py --yes            Non-interactive: bumps
+    scripts/docindex/check_docs_sources.py --yes   Non-interactive: bumps
                                                     every outdated entry
                                                     automatically.
+    scripts/docindex/check_docs_sources.py --auto  Like --yes, but meant to
+                                                    run unattended on every
+                                                    build/dev-server start
+                                                    (wired into
+                                                    scripts/docindex/sync_docs_sources.sh):
+                                                    silent when everything's
+                                                    already current, and a
+                                                    lookup failure (offline,
+                                                    GitHub down) is a warning,
+                                                    not a build-breaking
+                                                    error - falls back to
+                                                    whatever's already
+                                                    pinned. Lookups run in
+                                                    parallel.
 
 Exit codes: 0 always, except --check mode, which exits 1 if any pinned
-source is behind its remote branch tip (0 otherwise).
+source is behind its remote branch tip (0 otherwise). --auto always exits 0.
 """
 
 import argparse
@@ -38,10 +52,11 @@ import re
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-DOCS_SOURCES_FILE = REPO_ROOT / 'scripts' / 'docs_sources.env'
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+DOCS_SOURCES_FILE = REPO_ROOT / 'scripts' / 'docindex' / 'docs_sources.env'
 
 TIMEOUT = 15
 
@@ -94,7 +109,7 @@ def load_docs_sources():
 
 
 def write_docs_source(key, new_value):
-    """Rewrite a single KEY=value line in scripts/docs_sources.env, preserving everything else.
+    """Rewrite a single KEY=value line in scripts/docindex/docs_sources.env, preserving everything else.
 
     Writes to a temp file in the same directory and os.replace()s it into
     place, so a crash mid-write can never leave the lockfile truncated.
@@ -117,33 +132,41 @@ def write_docs_source(key, new_value):
     return False
 
 
-def gather_results(pinned):
-    """Returns list of dicts: {key, label, current, latest, outdated, error}."""
-    results = []
-    for src in DOCS_SOURCES:
-        key = src['key']
-        current = pinned.get(key)
-        entry = {'key': key, 'label': src['label'], 'current': current, 'latest': None,
-                  'outdated': False, 'error': None}
-        if current is None:
-            entry['error'] = 'not set in docs_sources.env'
-            results.append(entry)
-            continue
-        try:
-            latest = ls_remote_sha(src['url'], src['branch'])
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
-            entry['error'] = f'lookup failed: {e}'
-            results.append(entry)
-            continue
+def _check_one(src, pinned):
+    """Looks up one source's remote tip. Runs in a worker thread - returns
+    the result dict rather than mutating shared state."""
+    key = src['key']
+    current = pinned.get(key)
+    entry = {'key': key, 'label': src['label'], 'current': current, 'latest': None,
+              'outdated': False, 'error': None}
+    if current is None:
+        entry['error'] = 'not set in docs_sources.env'
+        return entry
+    try:
+        latest = ls_remote_sha(src['url'], src['branch'])
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+        entry['error'] = f'lookup failed: {e}'
+        return entry
 
-        entry['latest'] = latest
-        entry['outdated'] = latest != current
-        results.append(entry)
-    return results
+    entry['latest'] = latest
+    entry['outdated'] = latest != current
+    return entry
+
+
+def gather_results(pinned):
+    """Returns list of dicts: {key, label, current, latest, outdated, error}.
+
+    Looks up all sources' remote tips concurrently (each is an independent
+    `git ls-remote` network round-trip, so there's no reason to serialize
+    them) - result order matches DOCS_SOURCES regardless of which finishes
+    first.
+    """
+    with ThreadPoolExecutor(max_workers=len(DOCS_SOURCES)) as pool:
+        return list(pool.map(lambda src: _check_one(src, pinned), DOCS_SOURCES))
 
 
 def print_report(results):
-    print('\nPinned docs source commits (scripts/docs_sources.env):\n')
+    print(f'\nPinned docs source commits ({DOCS_SOURCES_FILE.relative_to(REPO_ROOT)}):\n')
     width_label = max(len(r['label']) for r in results)
     for r in results:
         label = r['label'].ljust(width_label)
@@ -204,6 +227,24 @@ def run_interactive(outdated):
             print('Please answer y, n, a, or q.')
 
 
+def run_auto(pinned):
+    """Unattended mode for scripts/docindex/sync_docs_sources.sh: bump every
+    outdated pin, silently, unless something actually changed or a lookup
+    failed. Never fails the build - a network hiccup just means "keep
+    whatever's already pinned", same as any other offline dev-server start.
+    """
+    results = gather_results(pinned)
+    outdated = [r for r in results if r['outdated']]
+    errors = [r for r in results if r['error']]
+
+    for entry in outdated:
+        apply_update(entry)
+    if errors:
+        for e in errors:
+            print(f'  ⚠️  docs source check for {e["label"]} skipped: {e["error"]}')
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     mode = parser.add_mutually_exclusive_group()
@@ -211,6 +252,9 @@ def main():
                        help='Report only, never prompt or write. Exits 1 if any pinned source is behind.')
     mode.add_argument('--yes', '-y', action='store_true',
                        help='Non-interactive: bump every outdated entry automatically.')
+    mode.add_argument('--auto', action='store_true',
+                       help='Unattended, quiet-when-unchanged, network-failure-tolerant. '
+                            'For use from sync_docs_sources.sh, not interactively.')
     args = parser.parse_args()
 
     if not DOCS_SOURCES_FILE.exists():
@@ -218,6 +262,9 @@ def main():
         return 0
 
     pinned = load_docs_sources()
+
+    if args.auto:
+        return run_auto(pinned)
 
     print('Checking remote branch tips for docs sources (needs network access, no cloning)...')
     results = gather_results(pinned)
