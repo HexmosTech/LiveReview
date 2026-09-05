@@ -53,12 +53,18 @@ Thumbs.db
 *.swo
 *~
 
-# Test files and documentation
+# Test files and documentation. LiveReview's own top-level docs/ (engineering
+# plans, release notes, etc.) is internal-only and deliberately excluded from
+# the image - it is NOT part of the chatbot's RAG corpus (see
+# scripts/sync_docs_sources.sh); internal/docindex/docs/ is re-included below
+# since routes_guide/ there IS user-facing product doc content that needs to
+# ship in the binary.
 tests/
+docs/
+!docs/openapi.yaml
 examples/
 README.md
 *.md
-!docs/**/*.md
 !internal/docindex/docs/**/*.md
 
 # Scripts and tools: exclude known-large local-only artifacts, but keep the

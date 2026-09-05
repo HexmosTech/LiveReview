@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # Syncs the chatbot's RAG corpus at internal/docindex/docs/ (embedded via
-# `//go:embed docs` in internal/docindex/docs.go) from:
-#   - this repo's own docs/ subtree - no pin, no network, always current
-#   - git-lrc's docs/LRC_README.md, git-lrc's wiki, and LiveReview's wiki -
-#     each pinned to an exact commit in scripts/docs_sources.env, fetched
-#     ONLY when the pinned commit differs from what's already synced
-#     (internal/docindex/docs/.synced-commits.env), and even then only that
-#     one commit's needed subtree - never a full/branch clone.
+# `//go:embed docs` in internal/docindex/docs.go) from git-lrc's
+# docs/LRC_README.md, git-lrc's wiki, and LiveReview's wiki - each pinned to
+# an exact commit in scripts/docs_sources.env, fetched ONLY when the pinned
+# commit differs from what's already synced
+# (internal/docindex/docs/.synced-commits.env), and even then only that one
+# commit's needed subtree - never a full/branch clone.
+#
+# internal/docindex/docs/routes_guide/ (the hand/LLM-written per-UI-route
+# "how do I do X" docs) is NOT touched here - it's tracked directly in git
+# and needs no sync step. LiveReview's own top-level docs/ (engineering
+# plans, release notes, etc.) is deliberately NOT part of this corpus - it's
+# internal engineering documentation, not user-facing product docs, and has
+# no business being in the chatbot's RAG index.
 #
 # See docs/docs-sources-pinning-plan.md for the full design and rationale.
 #
@@ -18,28 +24,19 @@ DOCS_SOURCES_FILE="$ROOT_DIR/scripts/docs_sources.env"
 OUT_DIR="$ROOT_DIR/internal/docindex/docs"
 MARKER_FILE="$OUT_DIR/.synced-commits.env"
 
-mkdir -p "$OUT_DIR/routes_guide" "$OUT_DIR/lr_wiki/local" "$OUT_DIR/lr_wiki/wiki" \
+mkdir -p "$OUT_DIR/routes_guide" "$OUT_DIR/lr_wiki/wiki" \
          "$OUT_DIR/lrc_wiki/git-lrc" "$OUT_DIR/lrc_wiki/wiki"
 
-# One-time cleanup: older versions of this pipeline (scripts/prep_training_data.sh)
-# copied fetched content directly into lr_wiki/ and lrc_wiki/ rather than into
-# the local/wiki/git-lrc subfolders used now. Remove any such loose leftovers
-# so they don't get embedded twice.
+# One-time cleanup: older versions of this pipeline copied fetched content
+# directly into lr_wiki/ and lrc_wiki/ (scripts/prep_training_data.sh), or
+# into a since-removed lr_wiki/local/ (an earlier, wrong revision of this
+# very script that leaked LiveReview's own internal docs/ into the RAG
+# corpus - see AGENTS.md/docs/docs-sources-pinning-plan.md history). Remove
+# any such leftovers so they don't get embedded.
 find "$OUT_DIR/lr_wiki" "$OUT_DIR/lrc_wiki" -maxdepth 1 -type f -delete 2>/dev/null || true
+rm -rf "${OUT_DIR:?}/lr_wiki/local"
 
-# --- 1. This repo's own docs/ subtree: no pin, no network, always current ---
-rm -rf "${OUT_DIR:?}/lr_wiki/local"/*
-if [ -d "$ROOT_DIR/docs" ]; then
-  (cd "$ROOT_DIR/docs" && find . -type d \( -name .git -o -name node_modules -o -name vendor -o -name dist \) -prune -o \
-      -type f -name '*.md' -print) \
-    | while IFS= read -r relpath; do
-        mkdir -p "$OUT_DIR/lr_wiki/local/$(dirname "$relpath")"
-        cp "$ROOT_DIR/docs/$relpath" "$OUT_DIR/lr_wiki/local/$relpath"
-      done
-fi
-echo "==> LiveReview docs/ (local): copied from working tree, no network"
-
-# --- 2. Load pinned commits (source of truth: scripts/docs_sources.env) ---
+# --- 1. Load pinned commits (source of truth: scripts/docs_sources.env) ---
 declare -A PINNED
 if [ -f "$DOCS_SOURCES_FILE" ]; then
   while IFS='=' read -r key value; do
@@ -48,7 +45,7 @@ if [ -f "$DOCS_SOURCES_FILE" ]; then
   done < "$DOCS_SOURCES_FILE"
 fi
 
-# --- 3. Load last-synced commits (what's actually embedded on disk right now) ---
+# --- 2. Load last-synced commits (what's actually embedded on disk right now) ---
 declare -A SYNCED
 if [ -f "$MARKER_FILE" ]; then
   while IFS='=' read -r key value; do

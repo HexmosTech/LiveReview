@@ -90,11 +90,6 @@ RUN bash scripts/sync_docs_sources.sh
 # Copy source code
 COPY . .
 
-# Re-run the sync: the 3 external sources above are already cached (no
-# network), this pass only does the free local copy of this repo's own
-# docs/ (which didn't exist yet in this stage until the COPY above).
-RUN bash scripts/sync_docs_sources.sh
-
 # Copy built UI assets from previous stage
 COPY --from=ui-builder /app/ui/dist ./ui/dist
 
