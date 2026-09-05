@@ -2428,9 +2428,9 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues:                      config.RiverQueueConfig(),
 		Workers:                     workers,
-		CompletedJobRetentionPeriod: 365 * 24 * time.Hour,
-		CancelledJobRetentionPeriod: 365 * 24 * time.Hour,
-		DiscardedJobRetentionPeriod: 365 * 24 * time.Hour,
+		CompletedJobRetentionPeriod: 30 * 24 * time.Hour,
+		CancelledJobRetentionPeriod: 30 * 24 * time.Hour,
+		DiscardedJobRetentionPeriod: 30 * 24 * time.Hour,
 		PeriodicJobs: []*river.PeriodicJob{
 			river.NewPeriodicJob(
 				river.PeriodicInterval(coordinatorInterval),
