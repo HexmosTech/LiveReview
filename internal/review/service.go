@@ -595,11 +595,13 @@ func calculateBillableLOCFromDiffs(diffs []*models.CodeDiff) int64 {
 // 20260622180000_seed_enterprise_quota_policy.sql). Stage-level cost estimates use
 // these so the "Model Breakdown" panel is priced consistently with the deterministic
 // ledger total shown in the Accounting panel, instead of one flat rate for every provider.
+// gemini/googleai rate is Gemini 3.6 Flash's promotional rate, valid through
+// 2026-12-31 (db/migrations/20260905010000_update_gemini_flash_pricing.sql) — revisit after.
 var perMillionTokenRates = map[string][2]float64{
 	"default":    {5.0, 15.0},
 	"openai":     {5.0, 15.0},
-	"gemini":     {0.3, 2.5},
-	"googleai":   {0.3, 2.5},
+	"gemini":     {0.75, 3.75},
+	"googleai":   {0.75, 3.75},
 	"claude":     {15.0, 75.0},
 	"anthropic":  {15.0, 75.0},
 	"deepseek":   {1.0, 2.0},
@@ -609,12 +611,12 @@ var perMillionTokenRates = map[string][2]float64{
 	"atlas":      {1.0, 2.0},
 }
 
-// flashLiteRate is Gemini 2.5 Flash-Lite's own per-million-token rate
-// (db/migrations/20260702130000_fix_gemini_flash_lite_pricing.sql). The base
+// flashLiteRate is Gemini 3.5 Flash-Lite's own per-million-token rate
+// (db/migrations/20260905030000_update_gemini_flash_lite_pricing.sql). The base
 // "gemini"/"googleai" rows in perMillionTokenRates price Flash, not
-// Flash-Lite (roughly 3-6x more expensive per token than Flash-Lite), so a
-// Gemini/GoogleAI call also needs its model name checked to catch Flash-Lite.
-var flashLiteRate = [2]float64{0.10, 0.40}
+// Flash-Lite, so a Gemini/GoogleAI call also needs its model name checked to
+// catch Flash-Lite.
+var flashLiteRate = [2]float64{0.30, 2.50}
 
 func ratesPerTokenForProvider(provider, model string) (inputRate, outputRate float64) {
 	key := strings.ToLower(strings.TrimSpace(provider))
