@@ -366,6 +366,11 @@ Full docs: `docker/DOCKER-DEPS.md`. The rules an agent must follow:
      base image) - this is what makes the new dependency show up in
      `make check-docker-deps` / `update-docker-deps` and the automatic
      pre-build check, instead of silently drifting unmanaged.
+  4. Add the tool's `--version`/`--help` invocation to the `CHECKS` array in
+     `scripts/verify_docker_deps.sh`, then build a local image and run
+     `make verify-docker-deps` to confirm it's actually present and runnable
+     - `check-docker-deps` only validates version *numbers*, it never
+     builds or runs anything.
 
 - **Locking a dependency's version** (so `update-docker-deps`/
   `update-docker-deps-yes`/the pre-build check never touch it): add its KEY
@@ -386,8 +391,10 @@ Before releasing a new Docker image:
 2. [ ] Verify `/test-chat` excluded with `production` tag
 3. [ ] Verify `/chat-debug` gated by `LIVI_DEBUG_LOG`
 4. [ ] Test `make docker-multiarch-dry` output
-5. [ ] Verify all binaries present: `vl-convert`, `dbctx`, `alaws`, `codebase-memory-mcp`
-6. [ ] Run `make check-docker-deps` - see `docker/DOCKER-DEPS.md`
+5. [ ] Run `make check-docker-deps` - see `docker/DOCKER-DEPS.md`
+6. [ ] Run `make verify-docker-deps` against a built image to confirm
+   `vl-convert`, `dbctx`, `alaws`, `codebase-memory-mcp`, `dbmate`, `river`,
+   `riverui` are all present and actually invokable, not just downloaded
 
 ### Raw Deploy Safety
 

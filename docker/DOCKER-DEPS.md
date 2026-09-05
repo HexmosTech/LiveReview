@@ -28,6 +28,7 @@ directly rather than against GitHub releases.
 | `python3 scripts/check_docker_deps.py` | Same as `make update-docker-deps`, runnable directly/independently of `make`. |
 | `python3 scripts/check_docker_deps.py --check` | Same as `make check-docker-deps`. |
 | `python3 scripts/check_docker_deps.py --yes` | Same as `make update-docker-deps-yes`. |
+| `make verify-docker-deps [IMAGE=...]` | Smoke-tests that every pinned binary actually runs inside a *built* image (see below). |
 
 Each dependency is checked against its own real release channel: Docker Hub
 tags for the base images (node/golang: latest patch within the currently
@@ -53,6 +54,31 @@ To skip the check altogether (no network calls, no prompt):
 ```
 SKIP_DOCKER_DEPS_CHECK=1 make docker-multiarch-push
 ```
+
+## Smoke-testing the binaries in a built image
+
+`make check-docker-deps` only compares version *numbers* against upstream -
+it never builds or runs anything. To confirm the actual binaries in a built
+image are present and invokable (not just that the version string is
+current), build an image and run:
+
+```
+docker buildx build -f Dockerfile.crosscompile -t livereview:localtest --load .
+make verify-docker-deps
+```
+
+This runs `scripts/verify_docker_deps.sh`, which `docker run`s each pinned
+tool (`dbmate --version`, `river --help`, `riverui --help`,
+`vl-convert --version`, `codebase-memory-mcp --version`, `dbctx --help`,
+`alaws --help`) inside the image and reports pass/fail per tool, exiting
+non-zero if any of them fail to run. It defaults to the image tag
+`livereview:localtest`; point it at a different image with:
+
+```
+make verify-docker-deps IMAGE=ghcr.io/hexmostech/livereview:dev-abc123
+```
+
+or run it directly: `bash scripts/verify_docker_deps.sh <image>`.
 
 ## Locking (pinning) a dependency
 
