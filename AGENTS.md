@@ -347,9 +347,29 @@ Full docs: `docker/DOCKER-DEPS.md`. The rules an agent must follow:
   `releases/download/vX.Y.Z/...` URL straight into a Dockerfile, stop - add
   it to `docker/docker-deps.env` instead.
 
+- **`docker buildx build --check` only lints Dockerfile syntax - it never
+  executes any `RUN` step.** It will happily pass on a Dockerfile whose
+  install commands are broken (wrong URL, incompatible version pins,
+  network-dependent failures). It's a fast sanity check after editing a
+  Dockerfile, not proof anything works. The only real proof is an actual
+  build (`docker buildx build -f Dockerfile.crosscompile -t
+  livereview:localtest --load .`) followed by `make verify-docker-deps`.
+
+- **river and riverui must be built in separate temp Go modules, never
+  one shared module.** They're independent release trains - `RIVERUI_VERSION`
+  does not depend on the same underlying `github.com/riverqueue/river`
+  version as `RIVER_VERSION`/`go.mod`, and should not be forced to. Building
+  both via `go get` into one shared `go mod init` lets Go's
+  minimum-version-selection unify their transitive deps and silently pick
+  an incompatible mix, breaking the build with a confusing compile error
+  deep in an unrelated package. This exact bug happened once already after
+  pinning `RIVER_VERSION` to match `go.mod` - see `docker/DOCKER-DEPS.md`
+  for the full story. Both Dockerfiles now use two separate temp modules;
+  keep it that way.
+
 - **Adding a brand-new tool/binary dependency to the Docker image** (do all
-  three, and don't consider it done until `docker buildx build --check`
-  passes on both Dockerfiles):
+  four, and don't consider it done until a real local build + 
+  `make verify-docker-deps` passes):
   1. Add `SOME_TOOL_VERSION=vX.Y.Z` to `docker/docker-deps.env` (pick a
      real, current release - check the tool's GitHub releases page or
      Docker Hub tags first, the same way `scripts/check_docker_deps.py`

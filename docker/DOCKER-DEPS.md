@@ -13,10 +13,39 @@ in the Dockerfiles - both Dockerfiles declare a matching `ARG` per entry, and
 `scripts/lrops.py` injects every entry as a `--build-arg` for each real
 `docker`/`buildx` build it runs (single-arch and multiarch alike).
 
-`RIVER_VERSION` must match the `github.com/riverqueue/river` version pinned
-in `go.mod`, so the River CLI/UI tooling matches the library compiled into
-the binary - `scripts/check_docker_deps.py` checks it against `go.mod`
+`RIVER_VERSION` (the `river` CLI) must match the `github.com/riverqueue/river`
+version pinned in `go.mod`, so the CLI matches the library compiled into the
+main binary - `scripts/check_docker_deps.py` checks it against `go.mod`
 directly rather than against GitHub releases.
+
+`RIVERUI_VERSION` is a **separate, independently-released tool** (a
+standalone HTTP server, not linked into the main binary) and does not need
+to - and generally won't - depend on the same underlying `river` version as
+`RIVER_VERSION`/`go.mod`. Do not try to keep them in lockstep.
+
+### Why river and riverui are built in separate Go modules
+
+Both Dockerfiles cross-compile `river` and `riverui` in **two separate**
+temp Go modules (`go mod init` + `go get` + `go build`, run twice), not one
+shared module. This is deliberate, not incidental: if both tools are added
+to the *same* temp module (`go mod init` once, then two `go get`s), Go's
+minimum-version-selection unifies their two independent version
+requirements into a single build list. Since `river` and `riverui` are
+separate release trains, their pinned versions can depend on genuinely
+different (and incompatible) versions of shared transitive packages -
+concretely, `RIVERUI_VERSION`'s internal `river` dependency can be much
+newer than `RIVER_VERSION`. When unified into one module, MVS may pick an
+inconsistent mix and the build fails with a confusing compile error deep in
+an unrelated vendored package (e.g. a missing interface method on a
+database driver), giving no hint that the real cause is two Docker
+dependency versions colliding.
+
+This actually happened: pinning `RIVER_VERSION=v0.32.0` (to match `go.mod`)
+while `RIVERUI_VERSION=v0.19.0` (latest, depending on `river v0.45.0`)
+broke `Dockerfile.crosscompile`'s build once both were `go get` into one
+shared module - it had only worked before because both were unpinned
+`@latest`, which happened to self-select compatible versions. **If you ever
+touch the river/riverui build steps, keep them in separate temp modules.**
 
 ## Checking / updating Docker dependency versions
 
