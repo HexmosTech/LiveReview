@@ -11,14 +11,22 @@ import (
 )
 
 type SlackConfigHandler struct {
-	storage *slackbot.Storage
-	apiKeys *APIKeyManager
+	storage   *slackbot.Storage
+	apiKeys   *APIKeyManager
+	onSaved   func(orgID int64) // (re)connects the Slack bot for orgID live, no restart needed
+	onDeleted func(orgID int64) // disconnects the live Slack bot for orgID, if running
 }
 
-func NewSlackConfigHandler(db *sql.DB) *SlackConfigHandler {
+// NewSlackConfigHandler wires onSaved/onDeleted so that saving or deleting an
+// org's Slack config takes effect on the running server immediately -
+// without these, a config change only takes effect on the next server
+// restart (see (*Server).syncSlackBotForOrg / removeSlackBotForOrg).
+func NewSlackConfigHandler(db *sql.DB, onSaved, onDeleted func(orgID int64)) *SlackConfigHandler {
 	return &SlackConfigHandler{
-		storage: slackbot.NewStorage(db),
-		apiKeys: NewAPIKeyManager(db),
+		storage:   slackbot.NewStorage(db),
+		apiKeys:   NewAPIKeyManager(db),
+		onSaved:   onSaved,
+		onDeleted: onDeleted,
 	}
 }
 
@@ -105,6 +113,10 @@ func (h *SlackConfigHandler) PutSlackConfig(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to save slack config")
 	}
 
+	if h.onSaved != nil {
+		h.onSaved(orgID)
+	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		"configured": true,
 		"id":         cfg.ID,
@@ -140,6 +152,10 @@ func (h *SlackConfigHandler) DeleteSlackConfig(c echo.Context) error {
 
 	if err := h.storage.DeleteSlackConfig(c.Request().Context(), orgID); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to delete slack config")
+	}
+
+	if h.onDeleted != nil {
+		h.onDeleted(orgID)
 	}
 
 	return c.NoContent(http.StatusNoContent)

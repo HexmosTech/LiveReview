@@ -296,7 +296,7 @@ func (b *Bot) UpdateBotToken(orgID int64, newToken, appToken string) {
 					log.Printf("[SlackBot] Org %d: app token changed (%s -> %s), will be re-registered via AddOrg", orgID, maskAppToken(r.appToken), maskAppToken(appToken))
 					r.mu.Unlock()
 					b.mu.RUnlock()
-					b.removeOrg(orgID)
+					b.RemoveOrg(orgID)
 					return
 				}
 				oh.slackClient = slackClient
@@ -312,7 +312,10 @@ func (b *Bot) UpdateBotToken(orgID int64, newToken, appToken string) {
 	log.Printf("[SlackBot] Org %d: not found for immediate token update, will be set during AddOrg", orgID)
 }
 
-func (b *Bot) removeOrg(orgID int64) {
+// RemoveOrg unregisters an org from a running (or not-yet-started) bot,
+// closing out its socket runner if it was the last org on that app token.
+// Safe to call for an org that isn't currently registered (no-op).
+func (b *Bot) RemoveOrg(orgID int64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for i := 0; i < len(b.runners); {
