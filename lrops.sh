@@ -2913,44 +2913,45 @@ detect_db_container() {
     [[ -n "$name" ]] && echo "$name"
 }
 
-# Create a pre-update backup snapshot (config + DB dump)
-create_pre_update_backup() {
-    local target="$1"  # may be empty if user did not specify
-    if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
-        log_error "Installation directory not found for backup"
-        return 1
-    fi
-    local ts=$(_now_ts)
-    local current_version="unknown"
-    [[ -f "$LIVEREVIEW_INSTALL_DIR/.env" ]] && current_version=$(grep -E '^LIVEREVIEW_VERSION=' "$LIVEREVIEW_INSTALL_DIR/.env" | cut -d'=' -f2 | tr -d '\r' || echo "unknown")
-    local backup_root="$LIVEREVIEW_INSTALL_DIR/backups"
-    mkdir -p "$backup_root"
-    local dir_name="preupdate-${ts}-from-${current_version}"
-    [[ -n "$target" ]] && dir_name+="-to-${target}"
-    local backup_dir="$backup_root/$dir_name"
-    mkdir -p "$backup_dir"
-    log_info "Creating pre-update backup: $backup_dir"
+# Shared backup engine: config files, physical snapshot, app data, docker meta, logical dump.
+# Called by create_pre_update_backup (mode="") and create_backup_cmd (mode="extra").
+# Args: $1 = backup_dir, $2 = "extra" to also copy config/ + scripts/ dirs
+# Sets globals: _BACKUP_PHYSICAL_SNAPSHOT, _BACKUP_APP_DATA
+perform_backup_contents() {
+    local backup_dir="$1"
+    local mode="${2:-}"
+
     # Copy config files
     for f in .env docker-compose.yml; do
         if [[ -f "$LIVEREVIEW_INSTALL_DIR/$f" ]]; then
             cp "$LIVEREVIEW_INSTALL_DIR/$f" "$backup_dir/$f" || true
         fi
     done
+
+    # Copy config and scripts directories (manual backups only)
+    if [[ "$mode" == "extra" ]]; then
+        for d in config scripts; do
+            if [[ -d "$LIVEREVIEW_INSTALL_DIR/$d" ]]; then
+                cp -r "$LIVEREVIEW_INSTALL_DIR/$d" "$backup_dir/" || true
+            fi
+        done
+    fi
+
     # Attempt physical snapshot (compressed) of lrdata/postgres using sudo if needed
     local data_dir="$LIVEREVIEW_INSTALL_DIR/lrdata/postgres"
-    local physical_snapshot=false
+    _BACKUP_PHYSICAL_SNAPSHOT=false
     if [[ -d "$data_dir" ]]; then
         log_info "Creating compressed physical data snapshot (postgres directory)"
         local tar_target="$backup_dir/postgres-data.tgz"
-        if tar -czf "$tar_target" -C "$LIVEREVIEW_INSTALL_DIR/lrdata" postgres 2>/dev/null; then
-            physical_snapshot=true
+        if tar -czf "$tar_target" -C "$LIVEREVIEW_INSTALL_DIR/lrdata" postgres 2>"$backup_dir/physical_dump.stderr"; then
+            _BACKUP_PHYSICAL_SNAPSHOT=true
             log_success "Physical snapshot created (without sudo)"
         else
             # Retry with sudo
             if command -v sudo >/dev/null 2>&1; then
                 log_info "Retrying physical snapshot with sudo due to permission issues"
-                if sudo tar -czf "$tar_target" -C "$LIVEREVIEW_INSTALL_DIR/lrdata" postgres; then
-                    physical_snapshot=true
+                if sudo tar -czf "$tar_target" -C "$LIVEREVIEW_INSTALL_DIR/lrdata" postgres 2>>"$backup_dir/physical_dump.stderr"; then
+                    _BACKUP_PHYSICAL_SNAPSHOT=true
                     # Adjust ownership so invoking user can manipulate backup
                     sudo chown "${SUDO_UID:-$(id -u)}:${SUDO_GID:-$(id -g)}" "$tar_target" 2>/dev/null || true
                     log_success "Physical snapshot created with sudo"
@@ -2964,29 +2965,32 @@ create_pre_update_backup() {
     else
         log_info "No postgres data directory found (skipping physical snapshot)"
     fi
+
     # App data outside postgres (e.g. the local blob store at lrdata/blobs), compressed
     local app_data_dir="$LIVEREVIEW_INSTALL_DIR/lrdata"
-    local app_data_backup=false
+    _BACKUP_APP_DATA=false
     if [[ -d "$app_data_dir" ]]; then
         log_info "Creating compressed application data snapshot"
         local app_tar_target="$backup_dir/app-data.tgz"
         if tar -czf "$app_tar_target" --exclude='postgres*' -C "$app_data_dir" . 2>/dev/null; then
-            app_data_backup=true
+            _BACKUP_APP_DATA=true
         elif command -v sudo >/dev/null 2>&1; then
             if sudo tar -czf "$app_tar_target" --exclude='postgres*' -C "$app_data_dir" .; then
-                app_data_backup=true
+                _BACKUP_APP_DATA=true
                 sudo chown "${SUDO_UID:-$(id -u)}:${SUDO_GID:-$(id -g)}" "$app_tar_target" 2>/dev/null || true
             fi
         fi
-        if [[ "$app_data_backup" == "true" ]]; then
+        if [[ "$_BACKUP_APP_DATA" == "true" ]]; then
             log_success "Application data backed up"
         else
             log_warning "Could not back up application data"
         fi
     fi
+
     # Capture image + container metadata
     docker ps --no-trunc > "$backup_dir/docker-ps.txt" 2>/dev/null || true
     docker images --no-trunc | grep livereview > "$backup_dir/docker-images.txt" 2>/dev/null || true
+
     # Logical DB dump
     local db_container
     db_container=$(detect_db_container || true)
@@ -3008,6 +3012,26 @@ create_pre_update_backup() {
     else
         log_warning "Could not detect running DB container; skipping DB dump"
     fi
+}
+
+# Create a pre-update backup snapshot (config + DB dump)
+create_pre_update_backup() {
+    local target="$1"  # may be empty if user did not specify
+    if [[ ! -d "$LIVEREVIEW_INSTALL_DIR" ]]; then
+        log_error "Installation directory not found for backup"
+        return 1
+    fi
+    local ts=$(_now_ts)
+    local current_version="unknown"
+    [[ -f "$LIVEREVIEW_INSTALL_DIR/.env" ]] && current_version=$(grep -E '^LIVEREVIEW_VERSION=' "$LIVEREVIEW_INSTALL_DIR/.env" | cut -d'=' -f2 | tr -d '\r' || echo "unknown")
+    local backup_root="$LIVEREVIEW_INSTALL_DIR/backups"
+    mkdir -p "$backup_root"
+    local dir_name="preupdate-${ts}-from-${current_version}"
+    [[ -n "$target" ]] && dir_name+="-to-${target}"
+    local backup_dir="$backup_root/$dir_name"
+    mkdir -p "$backup_dir"
+    log_info "Creating pre-update backup: $backup_dir"
+    perform_backup_contents "$backup_dir"
     # Metadata JSON
     cat > "$backup_dir/metadata.json" <<EOF
 {
@@ -3015,9 +3039,9 @@ create_pre_update_backup() {
   "timestamp": "${ts}",
   "current_version": "${current_version}",
   "target_version": "${target}",
-  "has_physical_snapshot": ${physical_snapshot},
+  "has_physical_snapshot": ${_BACKUP_PHYSICAL_SNAPSHOT},
   "has_logical_dump": $( [[ -f "$backup_dir/db.sql.gz" ]] && echo true || echo false ),
-  "has_app_data": ${app_data_backup},
+  "has_app_data": ${_BACKUP_APP_DATA},
   "script_version": "${SCRIPT_VERSION}"
 }
 EOF
@@ -3146,6 +3170,7 @@ restore_backup_cmd() {
         fi
     fi
     local physical_archive="$target_dir/postgres-data.tgz"
+    local physical_ok=false
     if [[ -f "$physical_archive" ]]; then
         log_info "Restoring physical postgres data snapshot"
         # Stop DB container fully for physical restore
@@ -3182,8 +3207,16 @@ restore_backup_cmd() {
         # Start DB container again
         docker_compose up -d livereview-db || true
         sleep 5
-    elif [[ -f "$target_dir/db.sql.gz" || -f "$target_dir/db.sql" ]]; then
-        # Logical restore path (only if no physical archive present).
+        # Validate: tarball > 10 KB and extracted dir non-empty
+        local pgdir_check="$LIVEREVIEW_INSTALL_DIR/lrdata/postgres"
+        if [[ $(wc -c < "$physical_archive") -gt 10240 ]] && [[ -d "$pgdir_check" ]] && [[ -n "$(ls -A "$pgdir_check")" ]]; then
+            physical_ok=true
+        else
+            log_warning "Physical snapshot empty or invalid; falling back to logical dump"
+        fi
+    fi
+    if [[ "$physical_ok" == "false" ]] && [[ -f "$target_dir/db.sql.gz" || -f "$target_dir/db.sql" ]]; then
+        # Logical restore path.
         # db.sql.gz is the current format; plain db.sql is the older, uncompressed one.
         log_info "Restoring database from logical dump"
         local db_container
@@ -3211,7 +3244,7 @@ restore_backup_cmd() {
         else
             log_warning "Skipping logical DB restore (container or password missing)"
         fi
-    else
+    elif [[ "$physical_ok" == "false" ]]; then
         log_info "No database artifacts found in backup (physical or logical); skipping DB restore"
     fi
     # Start / recreate app
@@ -3301,97 +3334,7 @@ create_backup_cmd() {
     mkdir -p "$backup_dir"
     
     log_info "Creating backup in: $backup_dir"
-    
-    # Copy config files
-    for f in .env docker-compose.yml; do
-        if [[ -f "$LIVEREVIEW_INSTALL_DIR/$f" ]]; then
-            cp "$LIVEREVIEW_INSTALL_DIR/$f" "$backup_dir/$f" || true
-        fi
-    done
-    
-    # Copy config and scripts directories if they exist
-    for d in config scripts; do
-        if [[ -d "$LIVEREVIEW_INSTALL_DIR/$d" ]]; then
-            cp -r "$LIVEREVIEW_INSTALL_DIR/$d" "$backup_dir/" || true
-        fi
-    done
-    
-    # Attempt physical snapshot (compressed) of lrdata/postgres using sudo if needed
-    local data_dir="$LIVEREVIEW_INSTALL_DIR/lrdata/postgres"
-    local physical_snapshot=false
-    if [[ -d "$data_dir" ]]; then
-        log_info "Creating compressed physical data snapshot (postgres directory)"
-        local tar_target="$backup_dir/postgres-data.tgz"
-        if tar -czf "$tar_target" -C "$LIVEREVIEW_INSTALL_DIR/lrdata" postgres 2>/dev/null; then
-            physical_snapshot=true
-            log_success "Physical snapshot created (without sudo)"
-        else
-            # Retry with sudo
-            if command -v sudo >/dev/null 2>&1; then
-                log_info "Retrying physical snapshot with sudo due to permission issues"
-                if sudo tar -czf "$tar_target" -C "$LIVEREVIEW_INSTALL_DIR/lrdata" postgres; then
-                    physical_snapshot=true
-                    # Adjust ownership so invoking user can manipulate backup
-                    sudo chown "${SUDO_UID:-$(id -u)}:${SUDO_GID:-$(id -g)}" "$tar_target" 2>/dev/null || true
-                    log_success "Physical snapshot created with sudo"
-                else
-                    log_warning "Failed to create physical snapshot even with sudo; continuing"
-                fi
-            else
-                log_warning "sudo not available; skipping physical data snapshot"
-            fi
-        fi
-    else
-        log_info "No postgres data directory found (skipping physical snapshot)"
-    fi
-
-    # App data outside postgres (e.g. the local blob store at lrdata/blobs), compressed
-    local app_data_dir="$LIVEREVIEW_INSTALL_DIR/lrdata"
-    local app_data_backup=false
-    if [[ -d "$app_data_dir" ]]; then
-        log_info "Creating compressed application data snapshot"
-        local app_tar_target="$backup_dir/app-data.tgz"
-        if tar -czf "$app_tar_target" --exclude='postgres*' -C "$app_data_dir" . 2>/dev/null; then
-            app_data_backup=true
-        elif command -v sudo >/dev/null 2>&1; then
-            if sudo tar -czf "$app_tar_target" --exclude='postgres*' -C "$app_data_dir" .; then
-                app_data_backup=true
-                sudo chown "${SUDO_UID:-$(id -u)}:${SUDO_GID:-$(id -g)}" "$app_tar_target" 2>/dev/null || true
-            fi
-        fi
-        if [[ "$app_data_backup" == "true" ]]; then
-            log_success "Application data backed up"
-        else
-            log_warning "Could not back up application data"
-        fi
-    fi
-
-    # Capture image + container metadata
-    docker ps --no-trunc > "$backup_dir/docker-ps.txt" 2>/dev/null || true
-    docker images --no-trunc | grep livereview > "$backup_dir/docker-images.txt" 2>/dev/null || true
-    
-    # Logical DB dump
-    local db_container
-    db_container=$(detect_db_container || true)
-    if [[ -n "$db_container" ]]; then
-        # Extract DB password from env
-        local db_pass
-        db_pass=$(grep -E '^DB_PASSWORD=' "$LIVEREVIEW_INSTALL_DIR/.env" | cut -d'=' -f2 | tr -d '\r' || true)
-        if [[ -n "$db_pass" ]]; then
-            log_info "Creating compressed logical database dump from container $db_container"
-            if docker exec -e PGPASSWORD="$db_pass" "$db_container" pg_dump -U livereview -d livereview 2>"$backup_dir/db_dump.stderr" | gzip > "$backup_dir/db.sql.gz"; then
-                log_success "Database dump created"
-            else
-                log_warning "Database dump failed (see db_dump.stderr); continuing with config backup"
-                rm -f "$backup_dir/db.sql.gz" || true
-            fi
-        else
-            log_warning "DB_PASSWORD not found in .env; skipping DB dump"
-        fi
-    else
-        log_warning "Could not detect running DB container; skipping DB dump"
-    fi
-    
+    perform_backup_contents "$backup_dir" "extra"
     # Metadata JSON
     cat > "$backup_dir/metadata.json" <<EOF
 {
@@ -3399,9 +3342,9 @@ create_backup_cmd() {
   "name": "${backup_name}",
   "timestamp": "${ts}",
   "current_version": "${current_version}",
-  "has_physical_snapshot": ${physical_snapshot},
+  "has_physical_snapshot": ${_BACKUP_PHYSICAL_SNAPSHOT},
   "has_logical_dump": $( [[ -f "$backup_dir/db.sql.gz" ]] && echo true || echo false ),
-  "has_app_data": ${app_data_backup},
+  "has_app_data": ${_BACKUP_APP_DATA},
   "script_version": "${SCRIPT_VERSION}"
 }
 EOF
