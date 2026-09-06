@@ -97,7 +97,10 @@ func main() {
 			ORDER BY id ASC
 		`
 
-		rows, err := db.QueryContext(ctx, query)
+		queryCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+		defer cancel()
+
+		rows, err := db.QueryContext(queryCtx, query)
 		if err != nil {
 			log.Fatalf("[FATAL] Query failed: %v", err)
 		}
@@ -150,7 +153,7 @@ func main() {
 						}
 					}
 
-					updateQuery := `UPDATE reviews SET metadata = metadata - 'preloaded_changes' WHERE id = $1`
+					updateQuery := `UPDATE reviews SET metadata = metadata - 'preloaded_changes' WHERE id = $1 AND metadata ? 'preloaded_changes'`
 					if _, err := db.ExecContext(ctx, updateQuery, job.reviewID); err != nil {
 						log.Printf("[ERROR] [Worker %d] Failed to strip preloaded_changes from DB for review %d: %v", workerID, job.reviewID, err)
 						if mode == "full" {

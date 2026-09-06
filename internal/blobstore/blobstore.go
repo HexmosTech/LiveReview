@@ -50,7 +50,7 @@ const (
 const (
 	ArtifactPreloadedChanges = "preloaded_changes"
 	ArtifactBlastRadius      = "blast-radius"
-	MetaPreloadedChanges     = "preloaded_changes"
+	MetaPreloadedChanges     = ArtifactPreloadedChanges
 )
 
 // DefaultLocalDir is used when Backend is filesystem and LocalDir is unset.
@@ -268,10 +268,14 @@ func ReadArtifactWithBucket(ctx context.Context, bucket *blob.Bucket, orgID, rev
 		return nil, fmt.Errorf("blobstore: artifact %s size %d exceeds max limit %d", key, size, MaxArtifactSize)
 	}
 
+	if size == 0 {
+		return []byte{}, nil
+	}
+
 	if size > 0 {
 		buf := make([]byte, size)
-		if _, err := io.ReadFull(r, buf); err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-			return nil, fmt.Errorf("blobstore: failed to read artifact %s: %w", key, err)
+		if _, err := io.ReadFull(r, buf); err != nil {
+			return nil, fmt.Errorf("blobstore: failed to read complete artifact %s (%d bytes expected): %w", key, size, err)
 		}
 		return buf, nil
 	}
