@@ -1,15 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ColumnDef, useReactTable, getCoreRowModel } from '@tanstack/react-table';
+import { ColumnDef, useReactTable, getCoreRowModel, getFilteredRowModel, getSortedRowModel, getPaginationRowModel } from '@tanstack/react-table';
+import { LuSearch } from 'react-icons/lu';
 import apiClient from '../../api/apiClient';
 import { Button, Icons, Input, Badge } from '../../components/UIPrimitives';
 import { ClientTable } from '../../components/DataTable/ClientTable';
+import { SortIcon, SortableHeaderLabel, HeaderFilterPopover, TruncatedWithTooltip } from '../../components/DataTable/HeaderControls';
 import { useToast } from '../../components/NotificationToast';
 import { ConfirmModal } from '../../components/ConfirmModal';
 import { formatRelativeTime } from '../../api/reviews';
 import { CIRuleset, Breadcrumb } from './shared';
 
-const COLUMN_WIDTHS = ['22%', '24%', '24%', '12%', '18%'];
+const COLUMN_WIDTHS = ['26%', '26%', '22%', '12%', '14%'];
+const pageSizeOptions = [20, 50, 100];
+const TEXT_MAX = 80;
+
+const truncate = (text: string, max: number): string =>
+  text.length > max ? `${text.slice(0, max - 1)}…` : text;
 
 const CiRulesetsList: React.FC = () => {
   const navigate = useNavigate();
@@ -18,7 +25,6 @@ const CiRulesetsList: React.FC = () => {
   const [rulesets, setRulesets] = useState<CIRuleset[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<CIRuleset | null>(null);
 
   const loadRulesets = useCallback(async () => {
@@ -50,21 +56,45 @@ const CiRulesetsList: React.FC = () => {
     }
   };
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return rulesets;
-    return rulesets.filter((r) => r.name.toLowerCase().includes(q) || r.description.toLowerCase().includes(q) || r.jq_expr.toLowerCase().includes(q));
-  }, [rulesets, search]);
-
   const columns = useMemo<ColumnDef<CIRuleset>[]>(() => [
     {
       id: 'name',
-      header: () => <span className="font-semibold text-slate-300 uppercase tracking-wide text-xs">Ruleset</span>,
+      accessorFn: (r) => r.name,
+      // Searches name/description/jq expression together, one combined
+      // free-text search box, same convention as the Reviews list.
+      filterFn: (row, _columnId, filterValue: string) => {
+        const q = (filterValue || '').trim().toLowerCase();
+        if (!q) return true;
+        const r = row.original;
+        return [r.name, r.description, r.jq_expr]
+          .filter((v): v is string => Boolean(v))
+          .some((v) => v.toLowerCase().includes(q));
+      },
+      header: ({ column }) => (
+        <div className="flex items-center justify-between gap-2">
+          <SortableHeaderLabel label="Ruleset" onToggle={column.getToggleSortingHandler()} />
+          <div className="flex items-center gap-2">
+            <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+            <HeaderFilterPopover icon={LuSearch} label="Search rulesets">
+              <Input
+                placeholder="Search name, description, or jq..."
+                value={(column.getFilterValue() as string) ?? ''}
+                onChange={(e) => column.setFilterValue(e.target.value || undefined)}
+                icon={<Icons.Search />}
+                aria-label="Search rulesets"
+                className="text-sm"
+              />
+            </HeaderFilterPopover>
+          </div>
+        </div>
+      ),
       cell: ({ row }) => {
         const r = row.original;
         return (
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-white text-sm font-medium truncate">{r.name}</span>
+            <TruncatedWithTooltip text={r.name} max={TEXT_MAX}>
+              <span className="text-white text-sm font-semibold truncate">{truncate(r.name, TEXT_MAX)}</span>
+            </TruncatedWithTooltip>
             <Badge variant="info" className="text-xs flex-shrink-0">#{r.id}</Badge>
           </div>
         );
@@ -72,13 +102,29 @@ const CiRulesetsList: React.FC = () => {
     },
     {
       id: 'description',
-      header: () => <span className="font-semibold text-slate-300 uppercase tracking-wide text-xs">Description</span>,
-      cell: ({ row }) => (
-        <p className="text-sm text-slate-300 truncate">{row.original.description || <span className="text-slate-500">—</span>}</p>
+      accessorFn: (r) => r.description || '',
+      enableColumnFilter: false,
+      header: ({ column }) => (
+        <div className="flex items-center justify-between gap-2">
+          <SortableHeaderLabel label="Description" onToggle={column.getToggleSortingHandler()} />
+          <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+        </div>
       ),
+      cell: ({ row }) => {
+        const description = row.original.description || '';
+        if (!description) return <span className="text-slate-500 text-sm">—</span>;
+        return (
+          <TruncatedWithTooltip text={description} max={TEXT_MAX}>
+            <p className="text-sm text-slate-300 truncate">{truncate(description, TEXT_MAX)}</p>
+          </TruncatedWithTooltip>
+        );
+      },
     },
     {
       id: 'jq_expr',
+      accessorFn: (r) => r.jq_expr,
+      enableColumnFilter: false,
+      enableSorting: false,
       header: () => <span className="font-semibold text-slate-300 uppercase tracking-wide text-xs">jq expression</span>,
       cell: ({ row }) => (
         <code className="block text-xs bg-slate-900/70 border border-slate-700 rounded px-2 py-1 text-blue-200 font-mono truncate">
@@ -88,12 +134,20 @@ const CiRulesetsList: React.FC = () => {
     },
     {
       id: 'updated',
-      header: () => <span className="font-semibold text-slate-300 uppercase tracking-wide text-xs">Updated</span>,
+      accessorFn: (r) => r.updated_at,
+      enableColumnFilter: false,
+      header: ({ column }) => (
+        <div className="flex items-center justify-between gap-2">
+          <SortableHeaderLabel label="Updated" onToggle={column.getToggleSortingHandler()} />
+          <SortIcon sorted={column.getIsSorted()} onToggle={column.getToggleSortingHandler()} />
+        </div>
+      ),
       cell: ({ row }) => <span className="text-white text-sm">{formatRelativeTime(row.original.updated_at)}</span>,
     },
     {
       id: 'actions',
       enableSorting: false,
+      enableColumnFilter: false,
       header: () => <span className="font-semibold text-slate-300 uppercase tracking-wide text-xs">Actions</span>,
       cell: ({ row }) => {
         const r = row.original;
@@ -121,13 +175,15 @@ const CiRulesetsList: React.FC = () => {
   ], [navigate]);
 
   const table = useReactTable({
-    data: filtered,
+    data: rulesets,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    manualPagination: true,
-    pageCount: 1,
-    state: { pagination: { pageIndex: 0, pageSize: filtered.length || 1 } },
-    onPaginationChange: () => undefined,
+    getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    initialState: {
+      pagination: { pageSize: pageSizeOptions[0] },
+    },
   });
 
   return (
@@ -144,12 +200,6 @@ const CiRulesetsList: React.FC = () => {
         </Button>
       </div>
 
-      {rulesets.length > 0 && (
-        <div className="mb-4 max-w-sm">
-          <Input placeholder="Search rulesets…" value={search} onChange={(e) => setSearch(e.target.value)} icon={<Icons.Search />} />
-        </div>
-      )}
-
       <ClientTable
         table={table}
         columnWidths={COLUMN_WIDTHS}
@@ -163,9 +213,8 @@ const CiRulesetsList: React.FC = () => {
           description: 'Create one to start gating merges on review findings (e.g. block on any critical or security issue).',
           action: <Button as={Link} to="/ci-rulesets/new" variant="primary" icon={<Icons.Add />}>New Ruleset</Button>,
         }}
-        pageSizeOptions={[filtered.length || 1]}
+        pageSizeOptions={pageSizeOptions}
         onRowClick={(r) => navigate(`/ci-rulesets/${r.id}/edit`)}
-        manualTotal={filtered.length}
       />
 
       <ConfirmModal
