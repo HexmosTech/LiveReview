@@ -295,9 +295,6 @@ settings:
                                     </div>
                                     <ol className="list-decimal list-inside space-y-1.5" start={4}>
                                         <li>
-                                            Click <strong className="text-slate-200">Next</strong>, then <strong className="text-slate-200">Create</strong>.
-                                        </li>
-                                        <li>
                                             Go to <strong className="text-slate-200">Basic Information &gt; App-Level Tokens</strong>, click <strong className="text-slate-200">Generate Token and Scopes</strong>, add the <strong className="text-slate-200">connections:write</strong> scope, then click <strong className="text-slate-200">Generate</strong>. Copy it into the <strong className="text-slate-200">App-Level Token</strong> field below.
                                         </li>
                                     </ol>
@@ -311,7 +308,7 @@ settings:
                                             className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                         />
                                     </div>
-                                    <ol className="list-decimal list-inside space-y-1.5" start={6}>
+                                    <ol className="list-decimal list-inside space-y-1.5" start={5}>
                                         <li>
                                             Go to <strong className="text-slate-200">Install App</strong> in the sidebar and click <strong className="text-slate-200">Install to Workspace</strong>. When prompted <strong className="text-slate-200">Allow the "Livi" app to access Slack</strong>, click <strong className="text-slate-200">Allow</strong> to reveal the <strong className="text-slate-200">Bot Token</strong>. Copy it into the field below.
                                         </li>
@@ -326,7 +323,7 @@ settings:
                                             className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                         />
                                     </div>
-                                    <ol className="list-decimal list-inside space-y-1.5" start={7}>
+                                    <ol className="list-decimal list-inside space-y-1.5" start={6}>
                                         <li>
                                             Click <strong className="text-slate-200">Save</strong>.
                                         </li>
