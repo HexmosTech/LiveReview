@@ -1,9 +1,9 @@
 flowchart TD
-    LOCK["scripts/docs_sources.env\n(pinned commit SHAs, committed to git)"]
+    LOCK["scripts/docindex/docs_sources.env\n(pinned commit SHAs, committed to git)"]
     AGENT["Agent edits docs in\ngit-lrc / wikis"] -->|bumps pin, same commit| LOCK
 
     LOCK --> SYNC["make sync-docs-sources\n(compare pin vs local marker)"]
-    LOCAL["This repo's own docs/\n(always current, no pin needed)"] --> SYNC
+    ROUTES["internal/docindex/docs/routes_guide/\n(hand/LLM-written, tracked in git,\nno sync step needed)"] --> EMBED
 
     SYNC -->|"in sync: no-op"| EMBED
     SYNC -->|"out of sync: fetch only\nthat pinned commit"| FETCH["Fetch exact commit\n(subdir-only, no full clone)"]

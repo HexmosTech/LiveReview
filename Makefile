@@ -619,28 +619,28 @@ prep-dbctx:
 
 # Syncs internal/docindex/docs/ (RAG corpus for the chatbot, go:embed target)
 # from this repo's own docs/ (always, no network) plus git-lrc/git-lrc-wiki/
-# LiveReview-wiki (only when the pinned commit in scripts/docs_sources.env
+# LiveReview-wiki (only when the pinned commit in scripts/docindex/docs_sources.env
 # differs from what's already synced - pure local comparison, no cloning to
 # check). Wired as a prerequisite of the dev-server and build targets so the
 # corpus is never silently out of date, without recloning on every run. See
-# docs/docs-sources-pinning-plan.md and scripts/sync_docs_sources.sh.
+# docs/docs-sources-pinning-plan.md and scripts/docindex/sync_docs_sources.sh.
 sync-docs-sources:
-	@bash scripts/sync_docs_sources.sh
+	@bash scripts/docindex/sync_docs_sources.sh
 
-# Read-only: reports whether any pinned commit in scripts/docs_sources.env
+# Read-only: reports whether any pinned commit in scripts/docindex/docs_sources.env
 # has fallen behind its remote branch tip, via `git ls-remote` (no cloning).
 # Exits 1 if anything is behind - usable in CI.
 check-docs-sources:
-	@python3 scripts/check_docs_sources.py --check
+	@python3 scripts/docindex/check_docs_sources.py --check
 
 # Interactive: shows what's moved upstream, asks per-entry whether to bump
-# the pin in scripts/docs_sources.env.
+# the pin in scripts/docindex/docs_sources.env.
 update-docs-sources:
-	@python3 scripts/check_docs_sources.py
+	@python3 scripts/docindex/check_docs_sources.py
 
 # Non-interactive: bumps every outdated pin automatically.
 update-docs-sources-yes:
-	@python3 scripts/check_docs_sources.py --yes
+	@python3 scripts/docindex/check_docs_sources.py --yes
 
 # Generate a token-compact schema dump of the prod DB (public schema) for LLM context.
 .PHONY: compressed-schema

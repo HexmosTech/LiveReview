@@ -249,23 +249,26 @@ this folder in the same change.**
   Go source file. (This replaced an older, fetch-and-hash-based scheme; see
   `docs/docs-sources-pinning-plan.md` for why.)
 
-## Keeping `scripts/docs_sources.env` in Sync
+## Keeping `scripts/docindex/docs_sources.env` in Sync
 
 `internal/docindex/docs/{lr_wiki,lrc_wiki}/` (the rest of the chatbot's RAG
 corpus, alongside `routes_guide/` above) is synced from `git-lrc`, its wiki,
-and `LiveReview`'s wiki via `scripts/sync_docs_sources.sh`, pinned to exact
-commit SHAs in `scripts/docs_sources.env`. GitHub is the source of truth,
+and `LiveReview`'s wiki via `scripts/docindex/sync_docs_sources.sh`, pinned to exact
+commit SHAs in `scripts/docindex/docs_sources.env`. GitHub is the source of truth,
 not any one machine's local fetch — see `docs/docs-sources-pinning-plan.md`
 for the full design.
 
-**Rule: whenever you (as an agent) commit a documentation change to
-`git-lrc/docs/`, `git-lrc`'s wiki, or `LiveReview`'s wiki, bump the matching
-`*_COMMIT` line in `LiveReview/scripts/docs_sources.env` to the new commit
-SHA in that same task** — not as a separate follow-up. `make
-check-docs-sources` is a read-only backstop (reports/fails CI when a pin
-has fallen behind) for drift introduced outside agent-driven edits, but it
-is not a substitute for bumping the pin yourself when you're the one making
-the docs change.
+**You don't actually have to do this by hand anymore.** `sync-docs-sources`
+(a prerequisite of `run-fast`/`build`/etc.) runs
+`scripts/docindex/check_docs_sources.py --auto` first on every invocation —
+3 parallel `git ls-remote` lookups, no cloning — and auto-rewrites any pin
+that's fallen behind its remote branch tip before the fetch step even
+starts. A network hiccup just means "keep whatever's already pinned," never
+a build failure. Bumping the pin yourself in the same commit as a docs
+change (the old rule) is still fine and still slightly faster for whoever
+builds next, but it's no longer required for correctness. `make
+check-docs-sources` remains available as a read-only, CI-usable check
+(exits 1 if a pin is behind) for visibility.
 
 ## Chat UI (/chat and /chat-debug) Must Stay In Sync
 

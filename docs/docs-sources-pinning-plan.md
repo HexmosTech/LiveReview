@@ -1,5 +1,26 @@
 # Pin external docs sources to commit IDs, drop hash-based reclone
 
+> **Correction (post-merge):** the first implementation of this plan added a
+> "local copy" step that pulled LiveReview's own top-level `docs/`
+> (internal engineering plans, release notes, etc.) into the chatbot's RAG
+> corpus. That was wrong — `docs/` is internal engineering documentation,
+> not user-facing product content, and has no business in the RAG index.
+> It has been removed from `scripts/sync_docs_sources.sh`; the corpus is
+> now exactly: `internal/docindex/docs/routes_guide/` (hand/LLM-written
+> per-UI-route docs, tracked directly in git, untouched by any sync step)
+> plus the 3 pinned external sources (`git-lrc`, `git-lrc.wiki`,
+> `LiveReview.wiki`) described below. The "livereview docs/ subtree" source
+> mentioned throughout this document never should have existed - treat
+> every reference to it below as historical, not current behavior.
+>
+> **Second correction (path):** the lockfile and scripts described below as
+> `scripts/docs_sources.env` / `scripts/sync_docs_sources.sh` /
+> `scripts/check_docs_sources.py` actually live at
+> `scripts/docindex/docs_sources.env` / `scripts/docindex/sync_docs_sources.sh`
+> / `scripts/docindex/check_docs_sources.py` — grouped under a `docindex/`
+> subfolder since they exist purely to feed `internal/docindex/`. Every
+> `scripts/*.{env,sh,py}` path below should be read with that prefix.
+
 ## Context
 
 The chatbot's RAG corpus (`internal/docindex/docs/{lr_wiki,lrc_wiki}`, gitignored,

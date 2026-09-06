@@ -6,30 +6,39 @@ flowchart TD
     end
 
     subgraph LR["This repo (LiveReview)"]
-        OWNDOCS["docs/\n(this checkout's own tree)"]
+        ROUTES["internal/docindex/docs/routes_guide/\n(hand/LLM-written, tracked in git,\nNOT touched by any sync step)"]
 
         subgraph LOCKFILES["Pin + state files"]
-            LOCK["scripts/docs_sources.env\nGIT_LRC_COMMIT=sha\nGIT_LRC_WIKI_COMMIT=sha\nLIVEREVIEW_WIKI_COMMIT=sha\n(committed to git)"]
+            LOCK["scripts/docindex/docs_sources.env\nGIT_LRC_COMMIT=sha\nGIT_LRC_WIKI_COMMIT=sha\nLIVEREVIEW_WIKI_COMMIT=sha\n(committed to git)"]
             MARKER[".synced-commits.env\n(gitignored, records what's\ncurrently embedded on disk)"]
         end
 
-        subgraph AGENTFLOW["Keeping the pin current (parag 1b)"]
-            EDIT["Agent commits a docs change\nin git-lrc / a wiki repo"]
-            BUMP["Same task: git ls-remote\nnew SHA -> update matching\n*_COMMIT line in docs_sources.env"]
-            CHECK["make check-docs-sources\n(read-only backstop)\ngit ls-remote per source,\nNO clone - flags drift,\ne.g. in CI"]
-            EDIT --> BUMP --> LOCK
-            LOCK -.->|periodic / CI| CHECK
+        subgraph AUTOFLOW["Auto-bumping the pin (--auto)"]
+            AUTO["python3 check_docs_sources.py --auto\n3 parallel git ls-remote lookups,\nno cloning"]
+            AUTOOK{"remote tip !=\npinned SHA?"}
+            AUTOBUMP["Rewrite the matching\n*_COMMIT line in\ndocs_sources.env"]
+            AUTOFAIL["Network error?\nwarn + keep existing pin,\nnever fails the build"]
+            AUTO --> AUTOOK
+            AUTOOK -->|yes| AUTOBUMP --> LOCK
+            AUTOOK -->|no| SKIPAUTO["no-op"]
+            AUTO -.->|lookup failed| AUTOFAIL
         end
 
-        subgraph SYNCFLOW["scripts/sync_docs_sources.sh"]
+        subgraph AGENTFLOW["Manual backstop"]
+            EDIT["Agent commits a docs change\nin git-lrc / a wiki repo"]
+            BUMP["Optionally bump the pin\nitself in the same task"]
+            CHECK["make check-docs-sources\n(read-only, exits 1 if behind -\nusable in CI)"]
+            EDIT -.-> BUMP -.-> LOCK
+            LOCK -.->|CI| CHECK
+        end
+
+        subgraph SYNCFLOW["scripts/docindex/sync_docs_sources.sh"]
             direction TB
-            S0["Copy docs/ -> docindex\n(no pin, no network,\nalways current)"]
             S1{"For each of\ngit-lrc / git-lrc-wiki /\nlivereview-wiki:\npinned SHA == marker SHA?"}
             S2["Skip - zero network calls"]
             S3["git init tmp; remote add origin\nsparse-checkout set subdir\n(only for git-lrc: docs)\nfetch --depth 1 --filter=blob:none\norigin pinned-sha\ncheckout FETCH_HEAD"]
             S4["Copy fetched .md files into\ninternal/docindex/docs/\nlrc_wiki, lr_wiki\n(sanitize filenames)"]
             S5["Write synced SHA into\n.synced-commits.env"]
-            OWNDOCS --> S0
             LOCK --> S1
             MARKER --> S1
             S1 -->|match| S2
@@ -39,8 +48,10 @@ flowchart TD
             S5 --> MARKER
         end
 
+        AUTO ==>|runs first, every time| S1
+
         EMBEDDIR["internal/docindex/docs/\n(go:embed target,\ngo:embed docs\nin docs.go)"]
-        S0 --> EMBEDDIR
+        ROUTES --> EMBEDDIR
         S4 --> EMBEDDIR
         S2 --> EMBEDDIR
 
@@ -48,8 +59,8 @@ flowchart TD
             DEV["run-fast / run-debug /\ndevelop / develop-reflex"]
             BLD["build / build-prod /\nbuild-with-ui"]
         end
-        DEV --> S1
-        BLD --> S1
+        DEV --> AUTO
+        BLD --> AUTO
 
         subgraph DOCKERFLOW["Docker image build"]
             DCOPY["COPY docs_sources.env\nsync_docs_sources.sh"]
@@ -66,6 +77,9 @@ flowchart TD
     GLRC -.->|fetched only on mismatch,\nsubdir-restricted| S3
     GLRCWIKI -.->|fetched only on mismatch| S3
     LRWIKI -.->|fetched only on mismatch| S3
+    GLRC -.->|remote tip lookup| AUTO
+    GLRCWIKI -.->|remote tip lookup| AUTO
+    LRWIKI -.->|remote tip lookup| AUTO
 
     GOBUILD --> BIN1["livereview binary\n(dev)"]
     DBUILD --> BIN2["livereview binary\n(docker / production)\nnever fetches at runtime"]
