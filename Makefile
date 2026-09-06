@@ -1,5 +1,5 @@
 .PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned check-docker-deps update-docker-deps update-docker-deps-yes verify-docker-deps docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run-debug run-fast logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker prep-dbctx
-.PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi sync-docs-sources check-docs-sources update-docs-sources update-docs-sources-yes
+.PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi sync-docs-sources check-docs-sources
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging
 .PHONY: dev dev-up dev-down dev-restart dev-status dev-attach
@@ -618,29 +618,25 @@ prep-dbctx:
 	@echo "✅ dbctx index ready at $(HOME)/livereview.dtx"
 
 # Syncs internal/docindex/docs/ (RAG corpus for the chatbot, go:embed target)
-# from this repo's own docs/ (always, no network) plus git-lrc/git-lrc-wiki/
-# LiveReview-wiki (only when the pinned commit in scripts/docindex/docs_sources.env
-# differs from what's already synced - pure local comparison, no cloning to
-# check). Wired as a prerequisite of the dev-server and build targets so the
-# corpus is never silently out of date, without recloning on every run. See
+# from git-lrc, git-lrc's wiki, LiveReview's wiki, and hexmoshomepage's docs
+# site. Looks up each source's live branch tip (parallel `git ls-remote`,
+# no cloning) and fetches only the ones that have moved past what's
+# committed in internal/docindex/docs/.synced-commits.env. The fetched
+# content and that marker file are committed to git, so this is usually a
+# no-op self-heal check, not a real fetch - a fresh `git pull` already has
+# current content. Wired as a prerequisite of the dev-server and build
+# targets so the corpus is never silently out of date. See
 # docs/docs-sources-pinning-plan.md and scripts/docindex/sync_docs_sources.sh.
 sync-docs-sources:
 	@bash scripts/docindex/sync_docs_sources.sh
 
-# Read-only: reports whether any pinned commit in scripts/docindex/docs_sources.env
-# has fallen behind its remote branch tip, via `git ls-remote` (no cloning).
-# Exits 1 if anything is behind - usable in CI.
+# Read-only: reports whether any source committed in
+# internal/docindex/docs/.synced-commits.env has fallen behind its remote
+# branch tip, via `git ls-remote` (no cloning, no fetching, no writes).
+# Exits 1 if anything is behind - usable in CI, or just run
+# `make sync-docs-sources` to actually pull the update in.
 check-docs-sources:
-	@python3 scripts/docindex/check_docs_sources.py --check
-
-# Interactive: shows what's moved upstream, asks per-entry whether to bump
-# the pin in scripts/docindex/docs_sources.env.
-update-docs-sources:
 	@python3 scripts/docindex/check_docs_sources.py
-
-# Non-interactive: bumps every outdated pin automatically.
-update-docs-sources-yes:
-	@python3 scripts/docindex/check_docs_sources.py --yes
 
 # Generate a token-compact schema dump of the prod DB (public schema) for LLM context.
 .PHONY: compressed-schema

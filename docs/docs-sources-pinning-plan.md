@@ -13,13 +13,34 @@
 > mentioned throughout this document never should have existed - treat
 > every reference to it below as historical, not current behavior.
 >
-> **Second correction (path):** the lockfile and scripts described below as
+> **Second correction (path):** the scripts described below as
 > `scripts/docs_sources.env` / `scripts/sync_docs_sources.sh` /
 > `scripts/check_docs_sources.py` actually live at
-> `scripts/docindex/docs_sources.env` / `scripts/docindex/sync_docs_sources.sh`
-> / `scripts/docindex/check_docs_sources.py` — grouped under a `docindex/`
-> subfolder since they exist purely to feed `internal/docindex/`. Every
-> `scripts/*.{env,sh,py}` path below should be read with that prefix.
+> `scripts/docindex/sync_docs_sources.sh` / `scripts/docindex/check_docs_sources.py`
+> — grouped under a `docindex/` subfolder since they exist purely to feed
+> `internal/docindex/`.
+>
+> **Third correction (the lockfile is gone, and the content is committed):**
+> two things changed after further review. First, `scripts/docs_sources.env`
+> (the "pinned commit" lockfile this plan describes below) has been removed
+> entirely — it always ended up equal to `internal/docindex/docs/.synced-commits.env`
+> in steady state (content only ever changes together with that marker, via
+> an actual fetch), so keeping both was a redundant two-phase dance with no
+> real capability the marker alone doesn't already provide.
+> `scripts/docindex/check_docs_sources.py` now looks up each source's live
+> branch tip directly (`git ls-remote`, run in parallel) and
+> `scripts/docindex/sync_docs_sources.sh` compares that straight against the
+> committed marker — no intermediate file, no separate `--auto`/`--yes`/
+> interactive bump step. Second, the fetched content itself
+> (`internal/docindex/docs/{lr_wiki,lrc_wiki,hexmos_docs}/`) and
+> `.synced-commits.env` are now **committed to git**, not gitignored, so a
+> fresh `git pull` already has current RAG content with zero network calls.
+> A 4th source was also added: `hexmoshomepage`'s public docs site
+> (`pages/livereview/docs/`, what's published at hexmos.com/livereview/docs)
+> — see its own section below for why it uses `git archive --remote`
+> instead of the sparse-clone method the other 3 use. Every mention of
+> `scripts/docs_sources.env`, `PINNED`, or a "pin" below is historical -
+> read `internal/docindex/docs/.synced-commits.env` in its place.
 
 ## Context
 

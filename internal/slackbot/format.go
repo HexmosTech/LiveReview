@@ -58,7 +58,29 @@ var (
 	fieldRe     = regexp.MustCompile(`^\*{1,2}(.+?)\*{1,2}:\s*(.+)$`)
 	quoteRe     = regexp.MustCompile(`^>\s?(.*)$`)
 	statusRe    = regexp.MustCompile(`^([✅🟢🟡🔴❌⚠️🚀🎉📊📈📋🔍✨💡🏆⭐]+)\s*(.*)$`)
+
+	// Non-greedy `.` (never matches newline in RE2) rather than a character
+	// class excluding * / _ - the excluding version failed to match at all
+	// when the bolded span itself contained a literal * or _ (e.g.
+	// "**use *args here**" or "__my_var__"), since the class forbade the
+	// delimiter character from appearing anywhere inside the span.
+	mdBoldStarRe  = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	mdBoldUnderRe = regexp.MustCompile(`__(.+?)__`)
 )
+
+// toSlackMrkdwn converts standard Markdown bold into Slack's mrkdwn dialect.
+// Markdown uses **text** or __text__ for bold; Slack uses *text* - left
+// unconverted, Slack shows the literal asterisks instead of bolding, which
+// is what every "**Label:**"-style LLM response looked like before this.
+// Italics (_text_) and inline code (`text`) already use identical syntax in
+// both, so nothing else needs converting. Applied per-line, before the
+// header/bullet/field/etc. regexes above run, so those still match
+// regardless of whether the source used one or two asterisks.
+func toSlackMrkdwn(s string) string {
+	s = mdBoldStarRe.ReplaceAllString(s, "*$1*")
+	s = mdBoldUnderRe.ReplaceAllString(s, "*$1*")
+	return s
+}
 
 func parseRichText(text string) []slack.Block {
 	lines := strings.Split(text, "\n")
@@ -102,6 +124,7 @@ func parseRichText(text string) []slack.Block {
 			groups = append(groups, blockGroup{kind: blockEmptyLine})
 			continue
 		}
+		trimmed = toSlackMrkdwn(trimmed)
 
 		switch {
 		case headerRe.MatchString(trimmed):

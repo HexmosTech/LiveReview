@@ -1,0 +1,86 @@
+---
+title: Repository Rules (.lrc/)
+description: Scaffold and manage the .lrc/ directory to define repository-specific review rules for git-lrc.
+---
+
+# Repository Rules (.lrc/)
+
+`lrc config` manages the `.lrc/` directory, which holds repository-specific rules that LiveReview uses when reviewing your commits.
+
+```bash
+lrc config
+```
+
+```text
+NAME:
+   lrc config - Manage .lrc/ repository rules configuration
+
+USAGE:
+   lrc config [command options]
+
+COMMANDS:
+   init     Scaffold the .lrc/ directory structure
+   check    Validate .lrc/ rules and structure (offline)
+   preview  Show the rules bundle LiveReview will use (offline)
+   help, h  Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+## Scaffold `.lrc/`
+
+```bash
+lrc config init
+```
+
+Creates:
+
+```text
+.lrc/README.md
+.lrc/ignore
+.lrc/rules/INSTRUCTIONS.md
+.lrc/rules/design.md
+.lrc/rules/security.md
+.lrc/rules/style.md
+```
+
+- `.lrc/ignore` — paths to exclude from review, similar to `.gitignore`.
+- `.lrc/rules/` — one file per rule category. Add or remove `.md` files here to organize rules however fits your team.
+
+## Write Rules in `INSTRUCTIONS.md`
+
+`.lrc/rules/INSTRUCTIONS.md` sets the priorities and escalation policy git-lrc applies during review. Example:
+
+```markdown
+Critical areas: auth, payments, access control, migrations
+Always-review changes: permission checks, input validation, logging statements
+Escalate when: behavior changes without explicit intent notes
+Block until fixed: credential leakage, sensitive data logging
+```
+
+Use the other rule files (`design.md`, `security.md`, `style.md`, or your own) to capture more detailed, category-specific guidance referenced by `INSTRUCTIONS.md`.
+
+## Validate and Preview
+
+```bash
+lrc config check
+```
+
+Validates `.lrc/` structure and rule files offline, without contacting LiveReview.
+
+```bash
+lrc config preview
+```
+
+Shows the exact rules bundle LiveReview will use for reviews, so you can confirm your rules are picked up correctly before committing.
+
+## Repository Rules vs. Custom Prompts
+
+Repository Rules are per-repo — write down whatever your team needs, without affecting any other repo. [Custom Prompts](/livereview/docs/livereview/self-hosted/customize-livereview-to-your-teams-best-practices) are org-wide instead, applying to every repo LiveReview reviews. Most teams should start with Repository Rules, and only use Custom Prompts for the handful of standards that are genuinely universal across the org.
+
+## Related
+
+- [Set Review Rules](/livereview/docs/git-lrc/configure/set-review-rules)
+- [Integrations](/livereview/docs/git-lrc/configure/integrations)
+- [Customize LiveReview to Your Team's Best Practices](/livereview/docs/livereview/self-hosted/customize-livereview-to-your-teams-best-practices) (org-wide Custom Prompts)
