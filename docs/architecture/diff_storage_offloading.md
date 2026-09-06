@@ -1,26 +1,37 @@
-# Diff Storage Offloading Architecture
+# Database Storage Optimization and Diff Storage Offloading Architecture
 
-## Overview
+## Problem
 
-The review system stores code diffs in Blob Storage instead of PostgreSQL. 
 PostgreSQL stores review records in the reviews table. 
 The metadata column of the reviews table previously contained a JSON field named preloaded_changes. 
-Large diff strings in preloaded_changes created TOAST table bloat in PostgreSQL. 
-The diff storage offloading architecture moves preloaded_changes out of PostgreSQL TOAST storage into external Blob Storage.
+The preloaded_changes field stored raw Git code diff strings. 
+The preloaded_changes field used 791.30 megabytes in PostgreSQL, which accounted for 90.4 percent of the metadata column storage. 
+Large diff strings in preloaded_changes created TOAST table bloat in PostgreSQL and added 149.85 megabytes to backup files. 
+Storing raw source code diffs in PostgreSQL also created privacy concerns.
 
-## Terminology
+Additionally, completed background job records in the river_job table accumulated over time, consuming 263.5 megabytes in PostgreSQL and adding 79.09 megabytes to database backup files due to a default 365-day retention configuration.
 
-A review record is an entry in the reviews database table. 
-A code diff is a list of file changes for a review. 
-A blob key is the object path inside Blob Storage.
+```mermaid
+flowchart TD
+    A["Review Creation & Job Queue Execution"] --> B["Store raw diff in metadata JSONB"]
+    A --> C["Retain River Job records for 365 days"]
+    B --> D["PostgreSQL TOAST Table Bloat (791 MB)"]
+    C --> E["River Job Table Bloat (263 MB)"]
+    D --> F["Large Backup Files (314 MB)"]
+    E --> F
+```
 
-## System Architecture
+## Solution
 
-The diff storage offloading system contains three components.
+The review system moves code diffs out of PostgreSQL TOAST storage into external Blob Storage and configures River background job retention limits. 
+The system stores code diffs under the object key path org/<org_id>/review/<review_id>/artifacts/preloaded_changes.json. 
+The solution contains five components.
 
 1. Review Worker Offloading
-2. API Handler Fallback
-3. Database Migration Script
+2. API Handler Fallback Strategy
+3. Multi-Phase Database Migration Script
+4. River Job Queue Retention Strategy
+5. Security and Scoping
 
 ### Review Worker Offloading
 
@@ -30,7 +41,6 @@ The worker serializes the code diff list to JSON bytes.
 The worker calls the storage helper to save the JSON payload. 
 The storage helper writes the object to Blob Storage under the key path org/<org_id>/review/<review_id>/artifacts/preloaded_changes.json. 
 The artifact type name is preloaded_changes. 
-The artifact content contains the preloaded_changes data structure. 
 The worker removes the preloaded_changes key from the metadata map before saving the review record to PostgreSQL. 
 If the Blob Storage write fails, the worker preserves preloaded_changes inside the metadata map to prevent data loss.
 
@@ -132,7 +142,22 @@ flowchart TD
     F --> G["Step 7: Run VACUUM FULL reviews"]
 ```
 
-## Security and Scoping
+### River Job Queue Retention Strategy
+
+The background job queue system configures River job auto-cleaning to purge historical job records from PostgreSQL after 30 days. 
+The queue initialization configures `CompletedJobRetentionPeriod`, `CancelledJobRetentionPeriod`, and `DiscardedJobRetentionPeriod` to 30 days (`30 * 24 * time.Hour`) in `internal/jobqueue/jobqueue.go`. 
+This policy purges completed, cancelled, and discarded job records automatically, keeping `river_job` table storage below 1.0 megabyte without manual database maintenance.
+
+### Storage Reduction Results
+
+Running the migration, job retention configuration, and database cleanup procedure produces the following storage reductions.
+
+1. The `reviews` table size in PostgreSQL drops from 880 megabytes to 1.8 megabytes (99.8 percent reduction).
+2. The `reviews` table backup dump file drops from 165.72 megabytes to 15.87 megabytes (90.4 percent reduction).
+3. The `river_job` table size in PostgreSQL drops from 263 megabytes to under 1.0 megabyte (99.6 percent reduction).
+4. The total PostgreSQL database backup dump file size (`livereview.dump`) drops from 327.48 megabytes to under 98.50 megabytes (70.0 percent reduction).
+
+### Security and Scoping
 
 The system enforces organization scoping on all storage keys. 
 The storage key includes the organization identifier org_id. 
