@@ -610,6 +610,8 @@ func (s *Server) fetchPreloadedChanges(ctx context.Context, orgID, reviewID int6
 		var diffs []models.CodeDiff
 		if err := json.Unmarshal(rawBlob, &diffs); err == nil {
 			return diffs, nil
+		} else {
+			log.Printf("[WARN] Failed to unmarshal preloaded_changes blob for review %d (org %d): %v. Falling back to Postgres metadata.", reviewID, orgID, err)
 		}
 	}
 
