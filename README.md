@@ -51,6 +51,7 @@ LiveReview may add new signals over time. The two questions behind them stay the
 | Try LiveReview free in under 5 minutes | [Quick Start](#quick-start) |
 | Understand Blast-Radius scoring | [above ↑](#livereview-blast-radius-aware-ai-code-review-for-business-critical-systems) |
 | Enforce checks at commit / push / PR / CI | [Org-Wide Harness](#org-wide-harness) |
+| Write a precise, custom rule for blocking a merge | [CI/CD Gates](#cicd-gates) |
 
 **📊 See the Product In Action**
 
@@ -133,7 +134,7 @@ AI writes code faster than any human can review it by hand. LiveReview gives you
 | **Commit** | `git lrc review` checks your staged changes before the commit happens, right in your terminal. No context switch. |
 | **Before Push** | LiveReview catches issues one last time before code leaves your machine. Skips are explicit (`git lrc review --skip`) and stay in the git log, so nothing slips through silently. |
 | **MR / PR** | LiveReview posts a full AI review as comments on the pull or merge request. Every hunk gets a Blast Radius and Review Priority score. Works across GitHub, GitLab, Bitbucket, Gitea, and Azure DevOps. |
-| **CI / CD** | In production deployments, a webhook triggers a review on every push. Merges can wait on review completion instead of relying on someone to ask for one. See [Automate Code Reviews in CI/CD with LiveReview MCP](https://hexmos.com/livereview/demo?v=ar4B6IrDrqk). |
+| **CI / CD** | In production deployments, a webhook triggers a review on every push, and [CI/CD Gates](#cicd-gates) decide — with a jq rule you write — whether that review result blocks the merge or lets it through. |
 | **Scheduled Checks** | Periodic sweeps scan your repositories for drift and new hotspots, even in code nobody has touched recently. See [Scheduled Reviews](#scheduled-reviews) below, or watch it in action: [Automatically Review Your Production Code with Scheduled Reviews](https://hexmos.com/livereview/demo?v=45EfHmXe_Dw). |
 
 ### Pick the Right Review Depth Based on Your Need for Shipping Speed
@@ -152,6 +153,37 @@ Not every repo needs the same amount of scrutiny. Turn on more checkpoints where
 There's no single right answer, only the right trade-off for a given repository, team, or organization. Mix and match per repository, and change your mind any time.
 
 Setting up MR/PR reviews for your provider? See the step-by-step guides for [GitHub](https://hexmos.com/livereview/docs/livereview/self-hosted/github/), [GitLab](https://hexmos.com/livereview/docs/livereview/self-hosted/gitlab/), [Bitbucket](https://hexmos.com/livereview/docs/livereview/self-hosted/bitbucket/), [Gitea](https://hexmos.com/livereview/docs/livereview/self-hosted/gitea/), and [Azure DevOps](https://hexmos.com/livereview/docs/livereview/self-hosted/azure-devops/).
+
+<a id="cicd-gates"></a>
+## CI/CD Gates: Precise, Customized Merge Enforcement
+
+A generic "fail if severity is high" checkbox can't match how your team actually thinks about risk. **CI/CD Gates** let you write the exact condition — in [jq](https://jqlang.org/), against the real findings from a LiveReview review — and wire it into any pipeline as a single HTTP call. The pipeline doesn't run an AI model or interpret anything; it reads one URL's HTTP status.
+
+<p align="center">
+   <img src="./assets/screenshots/ci-cd-gates/ruleset-list.png" alt="CI/CD Gates: a list of named rulesets, each with its own jq expression" width="85%"/>
+</p>
+
+- **Works on any review source.** Web UI, `git-lrc` local reviews, CI/CD-triggered reviews, and API/MCP-triggered reviews all produce the same canonical findings document, so one gate covers every path code takes toward a merge.
+- **Full power of jq, no lock-in to preset severity buckets.** Combine severity, category, subcategory, and confidence however your repo actually needs it — not just "block on critical."
+- **A live expression editor**, with LLM help. Run your jq against a synthetic sample document and real past reviews as you type, see a `BLOCK`/`ALLOW` verdict update live, and reach for an "Ask LLM" helper (a ready-made prompt with your org's taxonomy and a sample document, for you to paste into ChatGPT, Gemini, or DeepSeek) when the condition gets complex.
+
+<p align="center">
+   <img src="./assets/screenshots/ci-cd-gates/jq-editor.png" alt="Live jq rule editor with presets, Ask LLM helper, and a live BLOCK/ALLOW preview against a sample review" width="85%"/>
+</p>
+
+Once a ruleset is saved, `GET /ci-rulesets/:id/evaluate` is the whole integration — call it from GitHub Actions, GitLab CI, Bitbucket Pipelines, Azure Pipelines, or any generic runner, and gate the job on its HTTP status.
+
+### Write the rule that matches how your team actually weighs risk
+
+| Team profile | What they care about | Example jq expression |
+|---|---|---|
+| **Security-conscious team** | Even one security finding is unacceptable, and so is any critical-severity bug elsewhere | `(.counts.by_category.security > 0) or (.counts.by_severity.critical > 0)` |
+| **Fast-moving startup** | Ship velocity matters most — block only on correctness and UX bugs that would actually hurt users or slow the team down, let architecture/style debt through for now | `[.findings[] \| select((.category=="correctness" or .category=="ui-ux" or .category=="developer-experience") and (.severity=="critical" or .severity=="warning"))] \| length > 0` |
+| **Mature enterprise** | Security is non-negotiable, but cost, scale, and architecture decisions matter just as much once you're operating at scale | `(.counts.by_category.security > 0) or ([.findings[] \| select((.category=="cost" or .category=="architecture" or .category=="scalability") and .severity=="critical")] \| length > 0)` |
+
+Every category above (`security`, `correctness`, `ui-ux`, `developer-experience`, `cost`, `architecture`, `scalability`, and more) comes from the same [10-category, 100+ risk taxonomy](#impact-report) LiveReview already tracks on every review — the gate is just a rule over data you're already generating.
+
+See it in action: [LiveReview CI/CD Gates: Control What Code Gets Merged from Your PR](https://www.youtube.com/watch?v=Gc9tz-ena30).
 
 <a id="impact-report"></a>
 ## Prevent Outages, Breaches, and Technical Debt Before They Happen
@@ -805,6 +837,9 @@ The [LiveReview Docs](https://hexmos.com/livereview/docs/) go far deeper than th
 
 **REST API** (for scripts, CI/CD, and custom integrations, no AI agent required)
 - [Full API Reference](https://hexmos.com/livereview/docs/livereview/api/): reviews, reports, learnings, billing, connectors, and more
+
+**CI/CD Gates**
+- [CI/CD Gates](#cicd-gates) above · Demo: [LiveReview CI/CD Gates: Control What Code Gets Merged from Your PR](https://www.youtube.com/watch?v=Gc9tz-ena30)
 
 **Video Library**
 - [hexmos.com/livereview/demo](https://hexmos.com/livereview/demo/) has dozens of short, focused demos, filterable by role (Developer, Engineering Manager, CTO, CEO): setup, every git and AI provider integration, review workflows, reporting and Slack/Teams automation, and team administration.
