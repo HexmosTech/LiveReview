@@ -68,3 +68,31 @@ func TestToSlackMrkdwn_BoldSpanContainingDelimiter(t *testing.T) {
 		})
 	}
 }
+
+// TestToSlackMrkdwn_StrikethroughAndLinks covers the other two Markdown-vs-
+// Slack differences that matter (found by cross-checking against
+// nicoespeon/md-to-slack and eritikass/githubmarkdownconvertergo): double
+// tilde -> single tilde, and [text](url) -> Slack's <url|text> link syntax.
+func TestToSlackMrkdwn_StrikethroughAndLinks(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"strikethrough", "~~deprecated~~", "~deprecated~"},
+		{"link", "See the [docs](https://example.com/docs) for details.", "See the <https://example.com/docs|docs> for details."},
+		{"bold link text", "[**Docs**](https://example.com)", "<https://example.com|*Docs*>"},
+		{"link plus bold elsewhere", "**Note:** see [here](https://x.test)", "*Note:* see <https://x.test|here>"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := toSlackMrkdwn(tc.input)
+			if strings.Contains(got, "**") || strings.Contains(got, "__") {
+				t.Errorf("toSlackMrkdwn(%q) = %q, still contains an unconverted Markdown bold delimiter", tc.input, got)
+			}
+			if got != tc.want {
+				t.Errorf("toSlackMrkdwn(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
