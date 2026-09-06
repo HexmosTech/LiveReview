@@ -1519,3 +1519,27 @@ dev-status:
 
 dev-attach:
 	@./dev attach
+
+# ============================================================================
+# CI/CD Gate demo (shrsv/claude-world) -- see demo/cicd/README.md
+# ============================================================================
+.PHONY: demo-cicd-setup demo-cicd-block demo-cicd-allow demo-cicd-reset
+
+# One-time (or whenever the ruleset/repo needs recreating): creates the
+# ruleset, saves its id to demo/cicd/.env, pushes the workflow + sample app
+# to claude-world, sets repo secrets, enables branch protection.
+demo-cicd-setup:
+	@LIVEREVIEW_RULESET_ID=$$(demo/cicd/create_ruleset.sh) && \
+	LIVEREVIEW_RULESET_ID=$$LIVEREVIEW_RULESET_ID demo/cicd/setup_repo.sh
+
+# Opens a PR that should get BLOCKED (SQL injection).
+demo-cicd-block:
+	@demo/cicd/make_blocked_pr.sh --wait
+
+# Opens a PR that should get ALLOWED (harmless logging change).
+demo-cicd-allow:
+	@demo/cicd/make_allowed_pr.sh --wait
+
+# Closes/deletes every demo PR and branch so the repo is clean for the next take.
+demo-cicd-reset:
+	@demo/cicd/reset_demo.sh
