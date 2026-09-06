@@ -93,7 +93,7 @@ const CiRulesetsList: React.FC = () => {
         return (
           <div className="flex items-center gap-2 min-w-0">
             <TruncatedWithTooltip text={r.name} max={TEXT_MAX}>
-              <span className="text-white text-sm font-semibold truncate">{truncate(r.name, TEXT_MAX)}</span>
+              <span className="text-white text-sm font-semibold truncate min-w-0">{truncate(r.name, TEXT_MAX)}</span>
             </TruncatedWithTooltip>
             <Badge variant="info" className="text-xs flex-shrink-0">#{r.id}</Badge>
           </div>
