@@ -1,0 +1,56 @@
+---
+title: Overview
+description: Core concepts behind commit-time review and policy checks.
+---
+
+# Overview
+
+git-lrc is designed around one idea: review at the moment of commitment.
+
+Instead of relying only on later review stages, it places an AI-assisted review decision near `git commit`, where developer intent and accountability are strongest.
+
+## Core Concepts
+
+### Commit-time guardrail
+
+The check runs before commit lands. This catches problems while context is fresh and before risky code spreads.
+
+### Review loop
+
+Developers iterate:
+
+1. Generate or edit code
+2. Run review
+3. Fix findings
+4. Repeat
+
+### Responsibility choices
+
+- `review`: run AI review
+- `vouch`: no AI run, explicit ownership
+- `skip`: bypass review and ownership attestation
+
+### Traceability in git log
+
+Each commit can include status metadata:
+
+- `ran (iter:N, coverage:X%)`
+- `vouched (iter:N, coverage:X%)`
+- `skipped`
+
+This gives teams visibility into review behavior over time.
+
+## Practical Difference vs IDE-only flows
+
+IDE integrations are useful but tool-specific. Git-level integration gives one review control point regardless of editor preference across a team.
+
+## Security-Oriented Framing
+
+The model is aimed at high-impact diff risks such as:
+
+- credential leakage
+- sensitive logging
+- behavior-changing logic removal
+- expensive cloud operation insertion
+
+For detailed risk categories, see [Threat Model](/livereview/docs/git-lrc/git-lrc-security).

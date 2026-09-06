@@ -1,5 +1,7 @@
 ui/assets/lrbot/lrbot-original.png
 ui/assets/lrbot/lrbot.png
+assets/screenshots/ci-cd-gates/ruleset-list.png
+assets/screenshots/ci-cd-gates/jq-editor.png
 
 internal/chatexport/assets/fonts/LiberationMono-Bold.ttf
 internal/chatexport/assets/fonts/LiberationMono-Regular.ttf

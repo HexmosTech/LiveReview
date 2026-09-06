@@ -3,16 +3,30 @@
 # `//go:embed docs` in internal/docindex/docs.go) from git-lrc's
 # docs/LRC_README.md, git-lrc's wiki, LiveReview's wiki, and the public
 # docs site (hexmoshomepage's pages/livereview/docs/ - what's published at
-# hexmos.com/livereview/docs) - each pinned to an exact commit in
-# scripts/docindex/docs_sources.env, fetched ONLY when the pinned commit
-# differs from what's already synced (internal/docindex/docs/.synced-commits.env),
-# and even then only that one commit's needed subtree - never a full/branch
-# clone.
+# hexmos.com/livereview/docs).
+#
+# There is no separate lockfile of "pinned" commits - the source of truth
+# for what SHOULD be synced is simply "whatever each source's branch tip
+# currently is" (looked up live, in parallel, via check_docs_sources.py
+# --print), and the source of truth for what IS currently synced is
+# internal/docindex/docs/.synced-commits.env. Both the fetched content and
+# that marker file are committed to git, so a fresh `git pull` already has
+# current content, and this script only does real fetch work when a live
+# branch tip has actually moved past what's committed - never a full/branch
+# clone even then, just that one commit's needed subtree.
+#
+# An earlier version of this kept a second, separately-committed lockfile
+# (scripts/docindex/docs_sources.env) as an intermediate "pinned" target
+# that a --auto step bumped before this script compared it against the
+# marker. That file always ended up equal to the marker in steady state
+# (content only ever changes together with the marker, via an actual
+# fetch), so it added a file and a two-phase dance without adding any real
+# capability - removed.
 #
 # hexmoshomepage is a PRIVATE repo (SSH-auth'd via git.apps.hexmos.com) -
 # unlike the 3 public GitHub sources, a machine without SSH access to it
-# just gets a "skipped: fetch failed" for that one source (see
-# fetch_commit()) and keeps whatever it last had, rather than failing the
+# just gets a "skipped: archive fetch failed" for that one source (see
+# fetch_archive()) and keeps whatever it last had, rather than failing the
 # build.
 #
 # internal/docindex/docs/routes_guide/ (the hand/LLM-written per-UI-route
@@ -28,7 +42,6 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-DOCS_SOURCES_FILE="$ROOT_DIR/scripts/docindex/docs_sources.env"
 OUT_DIR="$ROOT_DIR/internal/docindex/docs"
 MARKER_FILE="$OUT_DIR/.synced-commits.env"
 
@@ -45,28 +58,20 @@ mkdir -p "$OUT_DIR/routes_guide" "$OUT_DIR/lr_wiki/wiki" \
 find "$OUT_DIR/lr_wiki" "$OUT_DIR/lrc_wiki" -maxdepth 1 -type f -delete 2>/dev/null || true
 rm -rf "${OUT_DIR:?}/lr_wiki/local"
 
-# --- 1. Auto-bump stale pins to their current remote branch tip, best-effort ---
-# Runs 3 parallel `git ls-remote` lookups (no cloning) and rewrites
-# docs_sources.env in place for anything that moved upstream - this is what
-# removes "an agent/human must remember to bump the pin" as a failure mode.
-# Never fails the build: offline, or GitHub unreachable, just means "keep
-# whatever's already pinned" (same as any other offline dev-server start).
-# Set SKIP_DOCS_SOURCES_CHECK=1 to skip this network step entirely.
+# --- 1. Look up each source's live branch tip, in parallel, read-only ---
+# Never fails the build: offline, or a source unreachable, just means that
+# source keeps whatever's already committed (see sync_source() below).
+# Set SKIP_DOCS_SOURCES_CHECK=1 to skip this network step entirely - every
+# source then falls back to "already synced" against the committed marker.
+declare -A LIVE
 if [ "${SKIP_DOCS_SOURCES_CHECK:-}" != "1" ]; then
-  python3 "$ROOT_DIR/scripts/docindex/check_docs_sources.py" --auto || true
-fi
-
-# --- 2. Load pinned commits (source of truth: scripts/docindex/docs_sources.env,
-#         possibly just auto-bumped above) ---
-declare -A PINNED
-if [ -f "$DOCS_SOURCES_FILE" ]; then
   while IFS='=' read -r key value; do
     [[ -z "$key" || "$key" == \#* ]] && continue
-    PINNED["$key"]="$value"
-  done < "$DOCS_SOURCES_FILE"
+    LIVE["$key"]="$value"
+  done < <(python3 "$ROOT_DIR/scripts/docindex/check_docs_sources.py" --print)
 fi
 
-# --- 3. Load last-synced commits (what's actually embedded on disk right now) ---
+# --- 2. Load what's currently committed/synced on disk ---
 declare -A SYNCED
 if [ -f "$MARKER_FILE" ]; then
   while IFS='=' read -r key value; do
@@ -91,20 +96,9 @@ write_marker() {
 # no attached TTY, instead of failing fast. No effect on the HTTPS sources.
 export GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=10"
 
-# Fetches exactly one commit of $url into a fresh temp checkout, restricted
-# to $subdir when given (empty = whole repo, used for wiki repos where
-# everything is docs). Prints the temp dir path on success. Never performs
-# a full/branch clone - blobs outside $subdir are never downloaded at all.
-#
-# NOTE: this relies on the server supporting reachable-SHA1-in-want (true on
-# github.com) AND cheap on-demand blob fetch during the sparse checkout.
-# Self-hosted GitLab has been observed taking minutes for the latter on a
-# large repo even for a handful of files - see fetch_archive() below for the
-# alternative used for such sources.
 # Prints whatever git/tar actually said on stderr, indented, right under a
-# "skipped" line - the previous version threw this away (git archive's
-# stderr went to /dev/null), so a missing SSH key and an unreachable host
-# both just looked like "skipped: ..." with no way to tell them apart.
+# "skipped" line - so a missing SSH key and an unreachable host don't both
+# just look like an unexplained "skipped: ...".
 log_fetch_failure_reason() {
   local err_log="$1"
   if [ -s "$err_log" ]; then
@@ -115,6 +109,16 @@ log_fetch_failure_reason() {
   fi
 }
 
+# Fetches exactly one commit of $url into a fresh temp checkout, restricted
+# to $subdir when given (empty = whole repo, used for wiki repos where
+# everything is docs). Prints the temp dir path on success. Never performs
+# a full/branch clone - blobs outside $subdir are never downloaded at all.
+#
+# NOTE: this relies on the server supporting reachable-SHA1-in-want (true on
+# github.com) AND cheap on-demand blob fetch during the sparse checkout.
+# Self-hosted GitLab has been observed taking minutes for the latter on a
+# large repo even for a handful of files - see fetch_archive() below for the
+# alternative used for such sources.
 fetch_commit() {
   local url="$1" sha="$2" subdir="${3:-}" tmp err_log
   tmp="$(mktemp -d)"
@@ -140,13 +144,12 @@ fetch_commit() {
 # Fetches $subdir at the tip of $branch via `git archive --remote` - the
 # server extracts and streams just that subtree, no local clone/checkout,
 # no partial-clone lazy-blob-fetch involved at all. Used for sources whose
-# server doesn't support (or is too slow at) fetching an arbitrary pinned
-# commit SHA directly - notably self-hosted GitLab, which only serves
-# archives for named refs, not arbitrary SHAs ("no such ref" otherwise).
-# Trade-off: this always gets whatever $branch currently points to, not
-# necessarily the exact SHA in $pinned - acceptable here because --auto
-# (see above) keeps the pin tracking $branch's tip on every sync anyway, so
-# by the time this runs they're expected to already match.
+# server doesn't support (or is too slow at) fetching an arbitrary commit
+# SHA directly - notably self-hosted GitLab, which only serves archives for
+# named refs, not arbitrary SHAs ("no such ref" otherwise). This always
+# gets whatever $branch currently points to; sync_source() below already
+# looked that tip up moments earlier via the same `git ls-remote` mechanism
+# used everywhere else, so the two are expected to agree.
 fetch_archive() {
   local url="$1" branch="$2" subdir="$3" tmp err_log
   tmp="$(mktemp -d)"
@@ -164,25 +167,28 @@ fetch_archive() {
 
 # sync_source NAME KEY URL SUBDIR DEST_DIR [ONLY_FILE] [ARCHIVE_BRANCH]
 # ONLY_FILE (relative to SUBDIR, or repo root when SUBDIR is empty): copy
-# just that one file instead of every .md file under SUBDIR.
+# just that one file instead of every .md/.mdx file under SUBDIR.
 # ARCHIVE_BRANCH: when given, fetch via fetch_archive() (see above) instead
 # of fetch_commit() - use for servers that can't/won't serve an arbitrary
-# pinned SHA directly.
+# commit SHA directly.
 sync_source() {
   local name="$1" key="$2" url="$3" subdir="$4" dest_dir="$5" only_file="${6:-}" archive_branch="${7:-}"
-  local pinned="${PINNED[$key]:-}"
   local synced="${SYNCED[$key]:-}"
+  # Prefer the live tip; fall back to whatever's already committed if the
+  # lookup was skipped or failed - that's what makes an offline/unreachable
+  # source a no-op instead of a build failure.
+  local target="${LIVE[$key]:-$synced}"
 
-  if [ -z "$pinned" ]; then
-    echo "==> $name: no pinned commit in ${DOCS_SOURCES_FILE#$ROOT_DIR/}, skipping"
+  if [ -z "$target" ]; then
+    echo "==> $name: no commit known yet (lookup unavailable and nothing synced), skipping"
     return
   fi
-  if [ "$pinned" == "$synced" ]; then
-    echo "==> $name: already synced to $pinned"
+  if [ "$target" == "$synced" ]; then
+    echo "==> $name: already synced to $target"
     return
   fi
 
-  echo "==> $name: syncing ${synced:-<none>} -> $pinned"
+  echo "==> $name: syncing ${synced:-<none>} -> $target"
   local tmp src
   if [ -n "$archive_branch" ]; then
     if ! tmp="$(fetch_archive "$url" "$archive_branch" "$subdir")"; then
@@ -190,7 +196,7 @@ sync_source() {
     fi
     src="$tmp"
   else
-    if ! tmp="$(fetch_commit "$url" "$pinned" "$subdir")"; then
+    if ! tmp="$(fetch_commit "$url" "$target" "$subdir")"; then
       return
     fi
     src="$tmp"
@@ -205,7 +211,7 @@ sync_source() {
       cp "$src/$only_file" "$dest_dir/$(basename "$only_file")"
       echo "    synced $only_file to ${dest_dir#$ROOT_DIR/}"
     else
-      echo "    skipped: $only_file not found in $name at $pinned"
+      echo "    skipped: $only_file not found in $name at $target"
     fi
   elif [ -d "$src" ]; then
     (cd "$src" && find . -type d \( -name .git -o -name node_modules -o -name vendor -o -name dist \) -prune -o \
@@ -218,17 +224,17 @@ sync_source() {
     count=$(find "$dest_dir" -type f \( -name '*.md' -o -name '*.mdx' \) | wc -l | tr -d ' ')
     echo "    synced $count markdown file(s) to ${dest_dir#$ROOT_DIR/}"
   else
-    echo "    skipped: subdirectory '$subdir' not found in $name at $pinned"
+    echo "    skipped: subdirectory '$subdir' not found in $name at $target"
   fi
 
   rm -rf "$tmp"
-  write_marker "$key" "$pinned"
+  write_marker "$key" "$target"
 }
 
-sync_source "git-lrc"            GIT_LRC_COMMIT             "https://github.com/HexmosTech/git-lrc.git"                        "docs"                  "$OUT_DIR/lrc_wiki/git-lrc" "LRC_README.md"
-sync_source "git-lrc wiki"       GIT_LRC_WIKI_COMMIT        "https://github.com/HexmosTech/git-lrc.wiki.git"                   ""                      "$OUT_DIR/lrc_wiki/wiki"
-sync_source "LiveReview wiki"    LIVEREVIEW_WIKI_COMMIT     "https://github.com/HexmosTech/LiveReview.wiki.git"                ""                      "$OUT_DIR/lr_wiki/wiki"
-sync_source "hexmoshomepage docs" HEXMOSHOMEPAGE_DOCS_COMMIT "git@git.apps.hexmos.com:hexmos/frontend/hexmoshomepage.git"      "pages/livereview/docs" "$OUT_DIR/hexmos_docs" "" "main"
+sync_source "git-lrc"             GIT_LRC_COMMIT             "https://github.com/HexmosTech/git-lrc.git"                   "docs"                  "$OUT_DIR/lrc_wiki/git-lrc" "LRC_README.md"
+sync_source "git-lrc wiki"        GIT_LRC_WIKI_COMMIT        "https://github.com/HexmosTech/git-lrc.wiki.git"              ""                      "$OUT_DIR/lrc_wiki/wiki"
+sync_source "LiveReview wiki"     LIVEREVIEW_WIKI_COMMIT     "https://github.com/HexmosTech/LiveReview.wiki.git"           ""                      "$OUT_DIR/lr_wiki/wiki"
+sync_source "hexmoshomepage docs" HEXMOSHOMEPAGE_DOCS_COMMIT "git@git.apps.hexmos.com:hexmos/frontend/hexmoshomepage.git" "pages/livereview/docs" "$OUT_DIR/hexmos_docs"      "" "main"
 
 # Sanitize non-ASCII hyphens (U+2010) and commas in filenames - required for
 # Go embed, which rejects some Unicode punctuation in embedded paths.
