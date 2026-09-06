@@ -34,7 +34,7 @@ const slice = createSlice({
                         source: n.source,
                         actions: n.actions,
                         expiresAt: n.expiresAt,
-                        persistDismiss: n.persistDismiss,
+                        persistDismiss: existing.persistDismiss || n.persistDismiss,
                         toast: n.toast,
                         dedupeKey: n.dedupeKey,
                         read: resurfaced ? false : existing.read,
