@@ -101,20 +101,38 @@ export GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=10"
 # Self-hosted GitLab has been observed taking minutes for the latter on a
 # large repo even for a handful of files - see fetch_archive() below for the
 # alternative used for such sources.
+# Prints whatever git/tar actually said on stderr, indented, right under a
+# "skipped" line - the previous version threw this away (git archive's
+# stderr went to /dev/null), so a missing SSH key and an unreachable host
+# both just looked like "skipped: ..." with no way to tell them apart.
+log_fetch_failure_reason() {
+  local err_log="$1"
+  if [ -s "$err_log" ]; then
+    echo "    reason:" >&2
+    sed 's/^/      /' "$err_log" >&2
+  else
+    echo "    reason: (no output captured - command exited non-zero with nothing on stderr)" >&2
+  fi
+}
+
 fetch_commit() {
-  local url="$1" sha="$2" subdir="${3:-}" tmp
+  local url="$1" sha="$2" subdir="${3:-}" tmp err_log
   tmp="$(mktemp -d)"
+  err_log="$(mktemp)"
   git init -q "$tmp"
   git -C "$tmp" remote add origin "$url"
   if [ -n "$subdir" ]; then
     git -C "$tmp" config core.sparseCheckoutCone true
     git -C "$tmp" sparse-checkout set "$subdir"
   fi
-  if ! git -C "$tmp" fetch -q --depth 1 --filter=blob:none origin "$sha"; then
+  if ! git -C "$tmp" fetch -q --depth 1 --filter=blob:none origin "$sha" 2>"$err_log"; then
     echo "    skipped: fetch failed for $url @ $sha" >&2
+    log_fetch_failure_reason "$err_log"
     rm -rf "$tmp"
+    rm -f "$err_log"
     return 1
   fi
+  rm -f "$err_log"
   git -C "$tmp" checkout -q FETCH_HEAD
   echo "$tmp"
 }
@@ -130,13 +148,17 @@ fetch_commit() {
 # (see above) keeps the pin tracking $branch's tip on every sync anyway, so
 # by the time this runs they're expected to already match.
 fetch_archive() {
-  local url="$1" branch="$2" subdir="$3" tmp
+  local url="$1" branch="$2" subdir="$3" tmp err_log
   tmp="$(mktemp -d)"
-  if ! git archive --remote="$url" "$branch:$subdir" 2>/dev/null | tar -x -C "$tmp"; then
+  err_log="$(mktemp)"
+  if ! git archive --remote="$url" "$branch:$subdir" 2>"$err_log" | tar -x -C "$tmp" 2>>"$err_log"; then
     echo "    skipped: archive fetch failed for $url $branch:$subdir" >&2
+    log_fetch_failure_reason "$err_log"
     rm -rf "$tmp"
+    rm -f "$err_log"
     return 1
   fi
+  rm -f "$err_log"
   echo "$tmp"
 }
 

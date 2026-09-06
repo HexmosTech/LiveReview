@@ -19,7 +19,13 @@ import { parseMultiFilterValue } from '../UIPrimitives';
  * than a positioned popup. */
 export const TruncatedWithTooltip: React.FC<{ text: string; max: number; children: React.ReactNode }> = ({ text, max, children }) => {
   if (text.length <= max) return <>{children}</>;
-  return <div className="inline-block min-w-0" title={text}>{children}</div>;
+  // block + min-w-0 (not inline-block): inline-block sizes to its child's
+  // intrinsic content width, which under white-space:nowrap is the FULL
+  // untruncated text width - it ignores the table cell's fixed width
+  // entirely and the truncated text visually overflows into the next
+  // column. block+w-full forces it to stay inside the cell so the child's
+  // own truncate/ellipsis actually clips.
+  return <div className="block w-full min-w-0" title={text}>{children}</div>;
 };
 
 /** Sort indicator icon - distinct up/down arrows (FaArrowUpLong/FaArrowDownLong)

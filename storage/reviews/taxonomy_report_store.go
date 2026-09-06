@@ -21,6 +21,7 @@ func NewTaxonomyReportStore(db *sql.DB) *TaxonomyReportStore {
 // TaxonomyFilter holds query-time filter criteria. Zero values mean "no filter".
 type TaxonomyFilter struct {
 	OrgID       int64 // 0 = all orgs (super-admin only)
+	ReviewID    int64 // 0 = no filter; scopes to a single review (e.g. CI gate evaluation)
 	Since       time.Time
 	Until       time.Time
 	Repository  string
@@ -168,6 +169,12 @@ func (s *TaxonomyReportStore) buildWhereClause(f TaxonomyFilter, baseArg int) (s
 	if f.OrgID > 0 {
 		parts = append(parts, fmt.Sprintf("rc.org_id = $%d", idx))
 		args = append(args, f.OrgID)
+		idx++
+	}
+
+	if f.ReviewID > 0 {
+		parts = append(parts, fmt.Sprintf("rc.id = $%d", idx))
+		args = append(args, f.ReviewID)
 		idx++
 	}
 

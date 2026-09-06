@@ -131,31 +131,31 @@ func isMCPRequest(c echo.Context) bool {
 
 // Server represents the API server
 type Server struct {
-	echo                  *echo.Echo
-	port                  int
-	db                    *sql.DB
-	jobQueue              *jobqueue.JobQueue
-	dashboardManager         *DashboardManager
-	eventCompactionManager  *EventCompactionManager
-	autoWebhookInstaller  *AutoWebhookInstaller
-	versionInfo           *VersionInfo
-	deploymentConfig      *DeploymentConfig
-	authHandlers          *auth.AuthHandlers
-	tokenService          *auth.TokenService
-	userHandlers          *users.UserHandlers
-	userService           *users.UserService
-	profileHandlers       *users.ProfileHandlers
-	orgHandlers           *organizations.OrganizationHandlers
-	orgService            *organizations.OrganizationService
-	testHandlers          *TestHandlers
-	devMode               bool
-	_licenseSvc           interface{} // holds *license.Service lazily (typed in license.go)
-	licenseScheduler      *license.Scheduler
-	billingActionsCancel  context.CancelFunc
-	modelSyncCancel       context.CancelFunc
-	slackBotCancel        context.CancelFunc
-	scheduledReviewCancel context.CancelFunc
-	scheduledReviewWakeCh chan struct{}
+	echo                   *echo.Echo
+	port                   int
+	db                     *sql.DB
+	jobQueue               *jobqueue.JobQueue
+	dashboardManager       *DashboardManager
+	eventCompactionManager *EventCompactionManager
+	autoWebhookInstaller   *AutoWebhookInstaller
+	versionInfo            *VersionInfo
+	deploymentConfig       *DeploymentConfig
+	authHandlers           *auth.AuthHandlers
+	tokenService           *auth.TokenService
+	userHandlers           *users.UserHandlers
+	userService            *users.UserService
+	profileHandlers        *users.ProfileHandlers
+	orgHandlers            *organizations.OrganizationHandlers
+	orgService             *organizations.OrganizationService
+	testHandlers           *TestHandlers
+	devMode                bool
+	_licenseSvc            interface{} // holds *license.Service lazily (typed in license.go)
+	licenseScheduler       *license.Scheduler
+	billingActionsCancel   context.CancelFunc
+	modelSyncCancel        context.CancelFunc
+	slackBotCancel         context.CancelFunc
+	scheduledReviewCancel  context.CancelFunc
+	scheduledReviewWakeCh  chan struct{}
 
 	// V2 Webhook Providers
 	gitlabProviderV2      *gitlabprovider.GitLabV2Provider
@@ -342,25 +342,25 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	learningsSvc := learnings.NewService(learnings.NewPostgresStore(db))
 
 	server := &Server{
-		port:                 port,
-		db:                   db,
-		jobQueue:             jq,
-		dashboardManager:        dashboardManager,
-		eventCompactionManager:  eventCompactionManager,
-		autoWebhookInstaller: autoWebhookInstaller,
-		versionInfo:          versionInfo,
-		deploymentConfig:     deploymentConfig,
-		authHandlers:         authHandlers,
-		tokenService:         tokenService,
-		userHandlers:         userHandlers,
-		userService:          userService,
-		profileHandlers:      profileHandlers,
-		orgHandlers:          orgHandlers,
-		orgService:           orgService,
-		testHandlers:         testHandlers,
-		devMode:              devMode,
-		gitlabAuthService:    gitlabprovider.NewAuthService(db, triggerAutoInstall),
-		learningsService:     learningsSvc,
+		port:                   port,
+		db:                     db,
+		jobQueue:               jq,
+		dashboardManager:       dashboardManager,
+		eventCompactionManager: eventCompactionManager,
+		autoWebhookInstaller:   autoWebhookInstaller,
+		versionInfo:            versionInfo,
+		deploymentConfig:       deploymentConfig,
+		authHandlers:           authHandlers,
+		tokenService:           tokenService,
+		userHandlers:           userHandlers,
+		userService:            userService,
+		profileHandlers:        profileHandlers,
+		orgHandlers:            orgHandlers,
+		orgService:             orgService,
+		testHandlers:           testHandlers,
+		devMode:                devMode,
+		gitlabAuthService:      gitlabprovider.NewAuthService(db, triggerAutoInstall),
+		learningsService:       learningsSvc,
 	}
 
 	// Initialize V2 webhook providers
@@ -1212,6 +1212,25 @@ func (s *Server) setupRoutes() {
 	learningsGroup.DELETE("/:id", learningsHandler.Delete)
 	learningsGroup.POST("/apply-action-from-reply", learningsHandler.ApplyActionFromReply)
 
+	// CI/CD gate rulesets (organization-scoped): a saved jq expression run
+	// against a canonical per-review findings document. See
+	// internal/api/ci_rulesets_handler.go for the evaluate/preview contract.
+	ciRulesetsHandler := NewCIRulesetsHandler(s.db)
+	ciRulesetsGroup := v1.Group("/ci-rulesets")
+	ciRulesetsGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	ciRulesetsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	ciRulesetsGroup.Use(authMiddleware.ValidateOrgAccess())
+	ciRulesetsGroup.Use(authMiddleware.BuildPermissionContext())
+	ciRulesetsGroup.GET("", ciRulesetsHandler.List)
+	ciRulesetsGroup.POST("", ciRulesetsHandler.Create)
+	ciRulesetsGroup.GET("/sample-document", ciRulesetsHandler.SampleDocument)
+	ciRulesetsGroup.GET("/taxonomy", ciRulesetsHandler.Taxonomy)
+	ciRulesetsGroup.POST("/preview", ciRulesetsHandler.Preview)
+	ciRulesetsGroup.GET("/:id", ciRulesetsHandler.Get)
+	ciRulesetsGroup.PUT("/:id", ciRulesetsHandler.Update)
+	ciRulesetsGroup.DELETE("/:id", ciRulesetsHandler.Delete)
+	ciRulesetsGroup.GET("/:id/evaluate", ciRulesetsHandler.Evaluate)
+
 	// Development mode: Org-scoped and Admin test endpoints
 	if s.devMode {
 		// TEST: Org-scoped test endpoint
@@ -1761,7 +1780,6 @@ func (s *Server) Start() error {
 	// Start event compaction manager (daily log compaction for review_events > 30 days)
 	s.eventCompactionManager.Start()
 	fmt.Println("Event compaction manager started")
-
 
 	// Start server in a goroutine
 	go func() {

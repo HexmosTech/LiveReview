@@ -49,8 +49,9 @@ fi
 
 # Config for the "livereview" app
 PG_CONTAINER_NAME="livereview_pg"
-PG_VERSION="15"
-PG_VOLUME_NAME="livereview_pgdata"
+PG_VERSION="18"
+PG_VOLUME_NAME="livereview_pgdata_pg18"
+PG_DATA_MOUNT="/var/lib/postgresql"
 LEGACY_PG_DATA_DIR="./.livereview_pgdata"
 
 usage() {
@@ -87,7 +88,7 @@ is_pg_volume_empty() {
 }
 
 pg_data_mount_type() {
-  docker inspect --format '{{ range .Mounts }}{{ if eq .Destination "/var/lib/postgresql/data" }}{{ .Type }}{{ end }}{{ end }}' "$PG_CONTAINER_NAME"
+  docker inspect --format '{{ range .Mounts }}{{ if eq .Destination "'"$PG_DATA_MOUNT"'" }}{{ .Type }}{{ end }}{{ end }}' "$PG_CONTAINER_NAME"
 }
 
 start_pg() {
@@ -118,7 +119,7 @@ start_pg() {
       -e POSTGRES_USER="$PG_USER" \
       -e POSTGRES_PASSWORD="$PG_PASSWORD" \
       -e POSTGRES_DB="$PG_DB" \
-      -v "$PG_VOLUME_NAME":/var/lib/postgresql/data \
+      -v "$PG_VOLUME_NAME":"$PG_DATA_MOUNT" \
       -p "$PG_PORT":5432 \
       postgres:"$PG_VERSION"
   fi

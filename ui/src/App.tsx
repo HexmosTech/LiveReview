@@ -39,6 +39,7 @@ const TaxonomyReports = React.lazy(() => import('./pages/Reports/TaxonomyReports
 const OnboardingReport = React.lazy(() => import('./pages/Reports/OnboardingReport'));
 const ChatbotRoutes = React.lazy(() => import('./pages/Chatbot/ChatbotRoutes'));
 const ChatDebugRoutes = React.lazy(() => import('./pages/Chatbot/ChatDebugRoutes'));
+const CiRulesetsRoutes = React.lazy(() => import('./pages/CiRulesets/CiRulesetsRoutes'));
 // import { usePostHog } from '@posthog/react'
 
 const Footer = () => (
@@ -330,6 +331,7 @@ const AppContent: React.FC = () => {
                                 <Route path="/admin/billing-portfolio" element={<BillingPortfolio />} />
                                 <Route path="/reports/onboarding" element={<OnboardingReport />} />
                                 <Route path="/reports/*" element={<TaxonomyReports />} />
+                                <Route path="/ci-rulesets/*" element={<CiRulesetsRoutes />} />
                                 <Route path="/chat/*" element={<ChatbotRoutes />} />
                                 {isDebugMode() && <Route path="/chat-debug/*" element={<ChatDebugRoutes />} />}
                                 <Route path="/test-middleware" element={<MiddlewareTestPage />} />
