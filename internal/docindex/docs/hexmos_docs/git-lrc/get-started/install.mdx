@@ -1,0 +1,54 @@
+---
+title: Install
+description: Install git-lrc in one minute and activate local hooks.
+---
+
+# Install
+
+## Linux and macOS
+
+```bash
+curl -L https://hexmos.com/ipm-install | bash && ipm i HexmosTech/git-lrc
+```
+
+## Windows (PowerShell)
+
+```powershell
+iwr https://hexmos.com/ipm-install-ps | iex; ipm i HexmosTech/git-lrc
+```
+
+## One-Time Setup
+
+```bash
+git lrc setup
+```
+
+Setup opens browser-based steps:
+
+1. Authenticate for LiveReview coordinator access
+2. Add Gemini API key (or later configure other connectors)
+
+After setup, commit-time review is active across repositories on the machine.
+
+## Verify Installation
+
+```bash
+lrc version
+lrc hooks status
+```
+
+## Optional Global Hook Install
+
+```bash
+lrc hooks install
+```
+
+## Setup Walkthrough Video
+
+<video controls muted playsinline style={{ width: "100%", borderRadius: "12px" }}>
+	<source src="/livereview/git-lrc/setup-demo.mp4" type="video/mp4" />
+</video>
+
+## Next Step
+
+Continue to [Workflow](/livereview/docs/git-lrc/concepts/workflow).

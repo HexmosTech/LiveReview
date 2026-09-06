@@ -249,26 +249,28 @@ this folder in the same change.**
   Go source file. (This replaced an older, fetch-and-hash-based scheme; see
   `docs/docs-sources-pinning-plan.md` for why.)
 
-## Keeping `scripts/docindex/docs_sources.env` in Sync
+## Keeping `internal/docindex/docs/{lr_wiki,lrc_wiki,hexmos_docs}/` in Sync
 
-`internal/docindex/docs/{lr_wiki,lrc_wiki}/` (the rest of the chatbot's RAG
-corpus, alongside `routes_guide/` above) is synced from `git-lrc`, its wiki,
-and `LiveReview`'s wiki via `scripts/docindex/sync_docs_sources.sh`, pinned to exact
-commit SHAs in `scripts/docindex/docs_sources.env`. GitHub is the source of truth,
-not any one machine's local fetch — see `docs/docs-sources-pinning-plan.md`
-for the full design.
+The rest of the chatbot's RAG corpus (alongside `routes_guide/` above) is
+synced from `git-lrc`, its wiki, `LiveReview`'s wiki, and hexmoshomepage's
+public docs site via `scripts/docindex/sync_docs_sources.sh`. There's no
+separate pin/lockfile - the source of truth for "what should be synced" is
+each source's live branch tip on GitHub/GitLab, and the source of truth for
+"what is synced" is `internal/docindex/docs/.synced-commits.env`, which
+(like the fetched content itself) is committed to git - GitHub/GitLab, not
+any one machine's local fetch, decides what's current, and a fresh
+`git pull` already has it. See `docs/docs-sources-pinning-plan.md` for the
+full design.
 
-**You don't actually have to do this by hand anymore.** `sync-docs-sources`
-(a prerequisite of `run-fast`/`build`/etc.) runs
-`scripts/docindex/check_docs_sources.py --auto` first on every invocation —
-3 parallel `git ls-remote` lookups, no cloning — and auto-rewrites any pin
-that's fallen behind its remote branch tip before the fetch step even
-starts. A network hiccup just means "keep whatever's already pinned," never
-a build failure. Bumping the pin yourself in the same commit as a docs
-change (the old rule) is still fine and still slightly faster for whoever
-builds next, but it's no longer required for correctness. `make
-check-docs-sources` remains available as a read-only, CI-usable check
-(exits 1 if a pin is behind) for visibility.
+**You don't have to do this by hand.** `sync-docs-sources` (a prerequisite
+of `run-fast`/`build`/etc.) looks up all 4 sources' live branch tips in
+parallel (`git ls-remote`, no cloning) and fetches only the ones that moved
+past what's committed, updating `.synced-commits.env` to match. A network
+hiccup, or no access to a private source, just means "keep whatever's
+already committed" for that one source, never a build failure. `make
+check-docs-sources` is a read-only, CI-usable check (exits 1 if something's
+behind) that never fetches or writes anything, for visibility without
+triggering a sync.
 
 ## Chat UI (/chat and /chat-debug) Must Stay In Sync
 

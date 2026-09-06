@@ -1,0 +1,67 @@
+---
+title: Workflow
+description: Typical developer workflow with git-lrc enabled.
+---
+
+# Workflow
+
+## Option A: Automatic on Commit
+
+```bash
+git add .
+git commit -m "add payment validation"
+```
+
+Review launches before commit completes.
+
+## Option B: Manual Before Commit
+
+```bash
+git add .
+git lrc review
+# or: git lrc review --vouch
+# or: git lrc review --skip
+git commit -m "add payment validation"
+```
+
+## Iteration Loop
+
+Typical loop with AI-generated code:
+
+1. Generate changes with your coding assistant
+2. Run `git lrc review`
+3. Copy findings back into assistant
+4. Apply fixes
+5. Re-run review
+6. Use `--vouch` when satisfied
+7. Commit
+
+## Review UI Capabilities
+
+- Git-style diff rendering
+- Inline AI comments with severity
+- Staged file navigator
+- Diff summary by file
+- Copy-all-issues action
+- Issue-to-issue navigation
+- Event log and iteration tracking
+
+## Decision Outcomes
+
+| Action | Result |
+| --- | --- |
+| Commit | accept and commit reviewed changes |
+| Commit and Push | commit and push in one action |
+| Skip | abort commit and continue editing |
+
+## Trigger Demo
+
+<video controls muted playsinline style={{ width: "100%", borderRadius: "12px" }}>
+	<source src="/livereview/git-lrc/git-lrc-trigger.mp4" type="video/mp4" />
+</video>
+
+## Diff Viewer Demo
+
+<video controls muted playsinline style={{ width: "100%", borderRadius: "12px" }}>
+	<source src="/livereview/git-lrc/git-diff-viewer.mp4" type="video/mp4" />
+</video>

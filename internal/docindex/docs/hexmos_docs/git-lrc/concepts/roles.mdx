@@ -1,0 +1,38 @@
+---
+title: Roles
+description: Suggested role responsibilities for adopting git-lrc.
+---
+
+# Roles
+
+## Developer
+
+- Run review iterations during commit preparation
+- Resolve AI-flagged issues or document intent
+- Use `lrc --vouch` only when comfortable taking explicit responsibility
+
+## Reviewer or Tech Lead
+
+- Monitor patterns in review outcomes (`ran`, `vouched`, `skipped`)
+- Coach teams on risk-heavy diff patterns
+- Help define acceptable use for `--skip`
+
+## Security or Platform Owner
+
+- Define high-risk categories and escalation rules
+- Ensure hooks remain enabled in sensitive repositories
+- Pair local guardrails with CI policy
+
+## Engineering Manager
+
+- Set rollout targets (adoption, reduced incidents)
+- Track behavior-level metrics instead of just install counts
+- Ensure training on review loop usage
+
+## Suggested Decision Matrix
+
+| Situation | Recommended action |
+| --- | --- |
+| First pass on new diff | `lrc review` |
+| After 2–4 iterations | `lrc review --vouch` if clean |
+| Trivial non-critical commit | Use `--skip` only with team policy |

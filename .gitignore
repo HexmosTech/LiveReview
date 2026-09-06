@@ -22,14 +22,6 @@ livereview_pgdata/
 .livereview_pgdata/
 lrdata/postgres/
 
-# Fetched/synced RAG corpus for the chatbot (regenerate with
-# `make sync-docs-sources`); routes_guide/ is hand-written and stays
-# tracked. See docs/docs-sources-pinning-plan.md.
-/internal/docindex/docs/lr_wiki/
-/internal/docindex/docs/lrc_wiki/
-/internal/docindex/docs/hexmos_docs/
-/internal/docindex/docs/.synced-commits.env
-
 # Vendor prompts local artifacts (never commit)
 internal/prompts/vendor/keyring_gen.go
 internal/prompts/vendor/templates/*.enc

@@ -1,0 +1,52 @@
+
+<a id="mcp-server"></a>
+
+## Model Context Protocol (MCP) Server
+
+Integrate LiveReview natively into your favorite AI-powered IDEs and clients, including Claude, Codex, Cursor, Antigravity, Windsurf, VS Code, and more.
+
+### Getting your API Key
+
+1. Go to LiveReview
+2. Click on Settings
+![alt text](/mcp-docs/api-key-1-settings-button.png)
+3. Click on API Keys
+![alt text](/mcp-docs/api-key-2-api-keys-button.png)
+4. Click on Create New Key
+![alt text](/mcp-docs/api-key-3-create-new-key.png)
+5. Give it a name and click Create
+![alt text](/mcp-docs/api-key-4-label-and-create-key.png)
+6. Copy the API key
+![alt text](/mcp-docs/api-key-5-copy-api-key.png)
+
+
+
+
+### Configuration
+
+Add the following block to your MCP client's configuration file:
+
+- For eg: Claude Desktop: claude_desktop_config.json
+- Other clients: Check the client's documentation for the equivalent file.
+
+```json
+{
+  "mcpServers": {
+    "livereview": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://livereview.hexmos.com/api/mcp",
+        "--header",
+        "X-API-KEY: ${LIVEREVIEW_API_KEY}"
+      ],
+      "env": {  
+        "LIVEREVIEW_API_KEY": "<YOUR_LIVEREVIEW_API_KEY>"  
+      }                       
+    }
+  }
+}
+```
+
+Replace `<YOUR_LIVEREVIEW_API_KEY>` with your actual LiveReview API key.
