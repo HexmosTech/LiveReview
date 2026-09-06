@@ -26,4 +26,5 @@ Any authenticated org member.
 - [Review Detail](review-detail.md)
 - [New Review](new-review.md)
 - [Scheduled Reviews](scheduled-reviews.md)
+- [CI/CD Gates](ci-cd-gates.md)
 - [Dashboard](../dashboard.md)

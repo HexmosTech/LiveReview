@@ -1,0 +1,44 @@
+---
+title: Collaboration
+description: Team rollout patterns that keep adoption smooth and measurable.
+---
+
+# Collaboration
+
+## Rollout Model
+
+1. Start with one pilot squad
+2. Set a short baseline window (1 to 2 weeks)
+3. Gather issue quality and false-positive feedback
+4. Publish updated review playbook
+5. Expand to adjacent teams
+
+## Recommended Metrics
+
+- % commits with `ran`
+- % commits with `vouched`
+- % commits with `skipped`
+- average iteration count per reviewed commit
+- top repeated issue categories
+
+## Selected Launch Questions to Address Internally
+
+Community launch discussions frequently asked:
+
+- How configurable are checks?
+- How are huge diffs handled?
+- How does this differ from IDE-only or pre-commit checks?
+- What data is sent?
+
+Keep short internal answers ready in onboarding docs and team training.
+
+## Standard Team FAQ Answers
+
+- Git-level trigger gives cross-IDE consistency.
+- Large diffs should be batched when possible.
+- `skip` is permitted only by policy exception.
+- Only staged diff is sent for analysis based on project docs.
+
+## Communication Pattern
+
+Use commit message status and a shared dashboard or weekly summary to keep review hygiene visible without blocking day-to-day shipping.

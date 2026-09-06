@@ -1,0 +1,55 @@
+---
+title: Integrations
+description: Connect git-lrc checks to your existing developer tools.
+---
+
+# Integrations
+
+git-lrc is Git-level, so it fits across editor preferences and existing delivery pipelines.
+
+## AI Connector Management (BYOK)
+
+Supported connector families include:
+
+- Gemini (default path)
+- OpenAI
+- Claude
+- DeepSeek
+- OpenRouter
+
+Manage connectors with:
+
+```bash
+lrc ui
+```
+
+From UI you can:
+
+- re-authenticate
+- add or update connectors
+- reorder connector priority
+
+## Git and CI Layering
+
+Recommended layering:
+
+1. Local commit-time review with git-lrc
+2. Existing CI quality gates (tests, lint, security)
+3. PR review and merge checks
+
+This gives fast local feedback plus centralized enforcement.
+
+## Team-Level Standardization
+
+Because review triggers at Git level, teams can keep consistent review behavior regardless of IDE choice.
+
+## Editor Extensions
+
+Launch discussion references complementary LiveReview extensions for IDE workflows:
+
+- VS Code marketplace listing: https://marketplace.visualstudio.com/items?itemName=hexmos.livereview
+
+## Links
+
+- [Connector management screenshot in README](https://raw.githubusercontent.com/HexmosTech/git-lrc/refs/heads/main/gfx/git-lrc-ui.png)
+- [LiveReview for teams](https://hexmos.com/livereview)

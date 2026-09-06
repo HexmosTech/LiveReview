@@ -253,26 +253,6 @@ settings:
                             </div>
                         ) : (
                             <div className="mt-3 space-y-3">
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-400 mb-1">App-Level Token</label>
-                                    <input
-                                        type="password"
-                                        value={appToken}
-                                        onChange={(e) => setAppToken(e.target.value)}
-                                        placeholder="xapp-1-xxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                                        className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-400 mb-1">Bot Token</label>
-                                    <input
-                                        type="password"
-                                        value={botToken}
-                                        onChange={(e) => setBotToken(e.target.value)}
-                                        placeholder="xoxb-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx"
-                                        className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    />
-                                </div>
                                 <div className="text-xs text-slate-400 space-y-3">
                                     <ol className="list-decimal list-inside space-y-1.5">
                                         <li>
@@ -301,17 +281,52 @@ settings:
                                     </div>
                                     <ol className="list-decimal list-inside space-y-1.5" start={3}>
                                         <li>
-                                            Click <strong className="text-slate-200">"Next" &gt; "Create and Install"</strong>.
+                                            Download the Livi icon below, then in Slack go to <strong className="text-slate-200">Basic Information &gt; Display Information</strong>, upload it as the <strong className="text-slate-200">App icon</strong>, and click <strong className="text-slate-200">Save Changes</strong>.
+                                        </li>
+                                    </ol>
+                                    <div>
+                                        <a
+                                            href="/assets/lrbot/lrbot-original.png"
+                                            download="livi-icon.png"
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-600 text-slate-200 hover:border-slate-500 hover:bg-slate-700/50 rounded-lg transition-colors"
+                                        >
+                                            <Icons.Download /> Download Livi icon
+                                        </a>
+                                    </div>
+                                    <ol className="list-decimal list-inside space-y-1.5" start={4}>
+                                        <li>
+                                            Click <strong className="text-slate-200">Next</strong>, then <strong className="text-slate-200">Create</strong>.
                                         </li>
                                         <li>
-                                            When prompted <strong className="text-slate-200">Allow the "Livi" app to access Slack</strong>, click <strong className="text-slate-200">Allow</strong>.
+                                            Go to <strong className="text-slate-200">Basic Information &gt; App-Level Tokens</strong>, click <strong className="text-slate-200">Generate Token and Scopes</strong>, add the <strong className="text-slate-200">connections:write</strong> scope, then click <strong className="text-slate-200">Generate</strong>. Copy it into the <strong className="text-slate-200">App-Level Token</strong> field below.
                                         </li>
+                                    </ol>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-400 mb-1">App-Level Token</label>
+                                        <input
+                                            type="password"
+                                            value={appToken}
+                                            onChange={(e) => setAppToken(e.target.value)}
+                                            placeholder="xapp-1-xxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                                            className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        />
+                                    </div>
+                                    <ol className="list-decimal list-inside space-y-1.5" start={6}>
                                         <li>
-                                            Go to <strong className="text-slate-200">Basic Information &gt; App-Level Tokens</strong>, click <strong className="text-slate-200">Generate Token and Scopes</strong>, add the <strong className="text-slate-200">connections:write</strong> scope, then click <strong className="text-slate-200">Generate</strong>. Copy it into the <strong className="text-slate-200">App-Level Token</strong> field above.
+                                            Go to <strong className="text-slate-200">Install App</strong> in the sidebar and click <strong className="text-slate-200">Install to Workspace</strong>. When prompted <strong className="text-slate-200">Allow the "Livi" app to access Slack</strong>, click <strong className="text-slate-200">Allow</strong> to reveal the <strong className="text-slate-200">Bot Token</strong>. Copy it into the field below.
                                         </li>
-                                        <li>
-                                            Go to <strong className="text-slate-200">Install App</strong> in the sidebar and click <strong className="text-slate-200">Install to Workspace</strong> to reveal the <strong className="text-slate-200">Bot Token</strong>. Copy it into the field above.
-                                        </li>
+                                    </ol>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-400 mb-1">Bot Token</label>
+                                        <input
+                                            type="password"
+                                            value={botToken}
+                                            onChange={(e) => setBotToken(e.target.value)}
+                                            placeholder="xoxb-xxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxx"
+                                            className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        />
+                                    </div>
+                                    <ol className="list-decimal list-inside space-y-1.5" start={7}>
                                         <li>
                                             Click <strong className="text-slate-200">Save</strong>.
                                         </li>
@@ -855,29 +870,6 @@ const DiscordIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                             </div>
                         ) : (
                             <div className="mt-3 space-y-3">
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-400 mb-1">Bot Token</label>
-                                    <input
-                                        type="password"
-                                        value={botToken}
-                                        onChange={(e) => setBotToken(e.target.value)}
-                                        placeholder="Enter your Discord bot token"
-                                        className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-400 mb-1">Application ID</label>
-                                    <input
-                                        type="text"
-                                        value={appId}
-                                        onChange={(e) => setAppId(e.target.value)}
-                                        placeholder="e.g. 123456789012345678"
-                                        className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    />
-                                    <p className="text-xs text-slate-500 mt-1">
-                                        Found on the app's <strong className="text-slate-300">General Information</strong> tab in the Discord Developer Portal.
-                                    </p>
-                                </div>
                                 <div className="text-xs text-slate-400 space-y-2">
                                     <p className="font-medium text-slate-300">Step-by-step setup:</p>
                                     <ol className="list-decimal list-inside space-y-1.5">
@@ -888,9 +880,38 @@ const DiscordIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                             </a>
                                             {' '}and click <strong className="text-slate-200">New Application</strong>, Name it <strong className="text-slate-200">Livi</strong>, then click Create.
                                         </li>
+                                    </ol>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-400 mb-1">Application ID</label>
+                                        <input
+                                            type="text"
+                                            value={appId}
+                                            onChange={(e) => setAppId(e.target.value)}
+                                            placeholder="e.g. 123456789012345678"
+                                            className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        />
+                                        <p className="text-xs text-slate-500 mt-1">
+                                            Found on the app's <strong className="text-slate-300">General Information</strong> tab in the Discord Developer Portal.
+                                        </p>
+                                    </div>
+                                    <ol className="list-decimal list-inside space-y-1.5" start={2}>
                                         <li>
                                             Click <strong className="text-slate-200">Bot</strong> on the left sidebar.
                                         </li>
+                                        <li>
+                                            Download the Livi icon below and upload it as the bot's avatar on this <strong className="text-slate-200">Bot</strong> page.
+                                        </li>
+                                    </ol>
+                                    <div>
+                                        <a
+                                            href="/assets/lrbot/lrbot-original.png"
+                                            download="livi-icon.png"
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-600 text-slate-200 hover:border-slate-500 hover:bg-slate-700/50 rounded-lg transition-colors"
+                                        >
+                                            <Icons.Download /> Download Livi icon
+                                        </a>
+                                    </div>
+                                    <ol className="list-decimal list-inside space-y-1.5" start={4}>
                                         <li>
                                             Under the <strong className="text-slate-200">Privileged Gateway Intents</strong> section, enable the below and press save changes:
                                             <ul className="list-disc list-inside ml-4 mt-1 space-y-0.5 text-slate-500">
@@ -899,11 +920,20 @@ const DiscordIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                             </ul>
                                         </li>
                                         <li>
-                                            Click <strong className="text-slate-200">Reset Token</strong>, then paste the bot token above and click <strong className="text-slate-200">Save</strong>.
+                                            Click <strong className="text-slate-200">Reset Token</strong>, then paste the bot token below and click <strong className="text-slate-200">Save</strong>.
                                         </li>
-                                        <li>
-                                            Copy your <strong className="text-slate-200">Application ID</strong> from the <strong className="text-slate-200">General Information</strong> tab and paste it above.
-                                        </li>
+                                    </ol>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-400 mb-1">Bot Token</label>
+                                        <input
+                                            type="password"
+                                            value={botToken}
+                                            onChange={(e) => setBotToken(e.target.value)}
+                                            placeholder="Enter your Discord bot token"
+                                            className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        />
+                                    </div>
+                                    <ol className="list-decimal list-inside space-y-1.5" start={6}>
                                         <li>
                                             After saving, click <strong className="text-slate-200">Invite bot to your server</strong>, choose your server, and authorize.
                                         </li>

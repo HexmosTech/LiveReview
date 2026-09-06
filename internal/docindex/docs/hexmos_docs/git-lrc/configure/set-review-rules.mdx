@@ -1,0 +1,28 @@
+---
+title: Set Review Rules
+description: Define what git-lrc flags, how strict reviews are, and what changes require attention.
+---
+
+# Set Review Rules
+
+## What to Tune First
+
+1. Severity interpretation policy
+2. Sensitive pattern policy (credentials, secrets, PII)
+3. Cost-risk policy (cloud-heavy operations)
+4. Critical-path policy (auth, billing, migrations)
+
+## Practical Review Cadence
+
+- Small diffs: 1 to 2 iterations
+- Medium diffs: 2 to 4 iterations
+- Large diffs: split before final vouch when possible
+
+## Why This Matters
+
+Launch feedback repeatedly highlighted confidence and consistency concerns. A lightweight policy makes review output actionable and less subjective.
+
+## Related
+
+- [Repository Rules (.lrc/)](/livereview/docs/git-lrc/configure/repository-rules)
+- [Integrations](/livereview/docs/git-lrc/configure/integrations)

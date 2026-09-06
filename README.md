@@ -51,6 +51,7 @@ LiveReview may add new signals over time. The two questions behind them stay the
 | Try LiveReview free in under 5 minutes | [Quick Start](#quick-start) |
 | Understand Blast-Radius scoring | [above ↑](#livereview-blast-radius-aware-ai-code-review-for-business-critical-systems) |
 | Enforce checks at commit / push / PR / CI | [Org-Wide Harness](#org-wide-harness) |
+| Write a precise, custom rule for blocking a merge | [CI/CD Gates](#cicd-gates) |
 
 **📊 See the Product In Action**
 
@@ -133,7 +134,7 @@ AI writes code faster than any human can review it by hand. LiveReview gives you
 | **Commit** | `git lrc review` checks your staged changes before the commit happens, right in your terminal. No context switch. |
 | **Before Push** | LiveReview catches issues one last time before code leaves your machine. Skips are explicit (`git lrc review --skip`) and stay in the git log, so nothing slips through silently. |
 | **MR / PR** | LiveReview posts a full AI review as comments on the pull or merge request. Every hunk gets a Blast Radius and Review Priority score. Works across GitHub, GitLab, Bitbucket, Gitea, and Azure DevOps. |
-| **CI / CD** | In production deployments, a webhook triggers a review on every push. Merges can wait on review completion instead of relying on someone to ask for one. See [Automate Code Reviews in CI/CD with LiveReview MCP](https://hexmos.com/livereview/demo?v=ar4B6IrDrqk). |
+| **CI / CD** | In production deployments, a webhook triggers a review on every push, and [CI/CD Gates](#cicd-gates) (a jq rule you write) decide whether that review result blocks the merge or lets it through. |
 | **Scheduled Checks** | Periodic sweeps scan your repositories for drift and new hotspots, even in code nobody has touched recently. See [Scheduled Reviews](#scheduled-reviews) below, or watch it in action: [Automatically Review Your Production Code with Scheduled Reviews](https://hexmos.com/livereview/demo?v=45EfHmXe_Dw). |
 
 ### Pick the Right Review Depth Based on Your Need for Shipping Speed
@@ -318,6 +319,198 @@ Below is a sample of the questions different roles ask Livi. Each chart uses the
 </details>
 
 *Charts above use sample data, for illustration only. Try the fully interactive version, with live chart drill-down, at [hexmos.com/livereview](https://hexmos.com/livereview/#data-backed-decisions).*
+
+<a id="mcp-server"></a>
+## Get Actionable Engineering Intelligence with MCP and the REST API
+
+Every code review LiveReview performs adds to a growing source of **engineering intelligence**. LiveReview exposes this two separate ways, for two separate purposes:
+
+- **MCP Server** — for AI assistants and agents (Claude, Cursor, Windsurf) that need to ask questions and take action conversationally.
+- **REST API** — for scripts, CI/CD pipelines, and custom integrations that need direct HTTP calls with no AI agent in the loop.
+
+Both let you:
+
+- Generate custom reports
+- Identify your strongest contributors
+- Uncover quality and security trends
+- Drill into engineering activity in minutes, not hours
+
+Real use cases from teams already doing this: [Prevent Production Issues](https://hexmos.com/livereview/docs/livereview/mcp/usecases/prevent-production-issues/), [Turn Findings into Tickets](https://hexmos.com/livereview/docs/livereview/mcp/usecases/turn-findings-into-tickets/), [Keep Project Management in Sync](https://hexmos.com/livereview/docs/livereview/mcp/usecases/keep-project-management-in-sync/), and [Generate Release Notes](https://hexmos.com/livereview/docs/livereview/mcp/usecases/generate-release-notes/) — see the [full MCP use-case list](https://hexmos.com/livereview/docs/livereview/mcp/usecases/).
+
+### Getting your API Key
+
+The same key authenticates both the MCP server and the REST API.
+
+1. Go to LiveReview
+2. Click on Settings
+3. Navigate to API Keys
+4. Generate and copy a new API key
+
+<p align="center">
+   <img src="./assets/screenshots/2026-08-29/15-api-keys-slash-settings-api-keys.png" alt="Settings > API Keys: generate and manage keys for the lrc CLI and MCP server" width="80%"/>
+</p>
+
+Watch [Create and Manage API Keys](https://hexmos.com/livereview/demo?v=kW_Fhx4AJfk).
+
+### MCP Server
+
+For AI assistants and agents: Claude Desktop, Claude Code, Cursor, Windsurf, or anything else that speaks MCP.
+
+#### Configuration
+
+Add the following block to your MCP client's configuration file:
+
+- For eg: Claude Desktop: claude_desktop_config.json
+- Other clients: Check the client's documentation for the equivalent file.
+
+```json
+{
+  "mcpServers": {
+    "livereview": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://livereview.hexmos.com/api/mcp",
+        "--header",
+        "X-API-KEY: ${LIVEREVIEW_API_KEY}"
+      ],
+      "env": {  
+        "LIVEREVIEW_API_KEY": "<YOUR_LIVEREVIEW_API_KEY>"  
+      }                       
+    }
+  }
+}
+```
+
+Replace `<YOUR_LIVEREVIEW_API_KEY>` with your actual LiveReview API key. See the [MCP Configuration docs](https://hexmos.com/livereview/docs/livereview/mcp/mcp-configuration/), or watch [Connect LiveReview MCP Server to AI Coding Assistants](https://hexmos.com/livereview/demo?v=sUTU0qS73_4).
+
+Running an AI agent in your CI/CD pipeline instead of a chat assistant? The MCP server works there too: [Automate Code Reviews in CI/CD with LiveReview MCP](https://hexmos.com/livereview/demo?v=ar4B6IrDrqk).
+
+#### What you can do
+
+Once connected to the MCP server, you can ask your assistant to interact with LiveReview. Each MCP tool below wraps one REST API endpoint (its name follows the endpoint's method and path), but the tool itself is only reachable through the MCP server, not by calling the endpoint directly.
+
+#### Code Reviews
+| Tool | Description | Example Prompt |
+|------|-------------|----------------|
+| `post_api_v1_connectors_trigger-review` | Trigger a new code review for a repo URL | *"Trigger a review for https://github.com/user/repo/pull/123"* |
+| `get_api_v1_reviews` | List recent reviews | *"List our recent completed reviews"* |
+| `get_api_v1_reviews_id_summary` | Get the AI summary and insights for a specific review | *"Summarize the review ID xyz"* |
+| `get_api_v1_reviews_id_accounting` | Get the token and LOC accounting for a review | *"Show the token usage for review ID xyz"* |
+
+<details>
+<summary>Show all MCP tools (Learnings & Prompts, Billing & Quotas, Integrations)</summary>
+
+#### Learnings & Prompts
+| Tool | Description | Example Prompt |
+|------|-------------|----------------|
+| `get_api_v1_learnings` | List existing team learnings | *"List our team's active learnings"* |
+| `get_api_v1_learnings_id` | Get details of a specific learning | *"Show details for learning ID abc"* |
+| `put_api_v1_learnings_id` | Update an existing learning | *"Update learning ID abc to enforce snake_case"* |
+| `get_api_v1_prompts_catalog` | List available prompt catalogs | *"Show the catalog of prompt rules"* |
+| `get_api_v1_prompts_key_variables` | Get required variables for a prompt template | *"What variables does the base prompt need?"* |
+| `get_api_v1_prompts_key_render` | Render a prompt preview with provided variables | *"Render the prompt key 'system' with..."* |
+
+#### Billing & Quotas
+| Tool | Description | Example Prompt |
+|------|-------------|----------------|
+| `get_api_v1_billing_status` | Check current billing status of the organization | *"What is our current billing status?"* |
+| `get_api_v1_quota_status` | Check current LOC status and quota | *"How much LOC quota do we have left?"* |
+| `get_api_v1_billing_usage_summary` | Get billing usage summary | *"Show a summary of our billing usage"* |
+| `get_api_v1_billing_usage_operations` | Get recent billable review operations | *"List the most recent billable operations"* |
+| `get_api_v1_billing_usage_members` | Get member-wise LOC usage information | *"Show the usage broken down by team member"* |
+| `post_api_v1_billing_upgrade_preview` | Generate an upgrade preview for a target plan | *"Preview the cost of upgrading to team_32usd"* |
+
+#### Integrations
+| Tool | Description | Example Prompt |
+|------|-------------|----------------|
+| `get_api_v1_connectors` | List configured Git connectors | *"List our configured Git connectors"* |
+| `get_api_v1_aiconnectors` | List configured AI provider connections | *"Which AI providers are currently active?"* |
+
+</details>
+
+Full MCP reference: [MCP Usage docs](https://hexmos.com/livereview/docs/livereview/mcp/mcp-usage/)
+
+### REST API
+
+For scripts, CI/CD pipelines, and custom integrations that call LiveReview directly over HTTP, with no AI agent or MCP client involved. Same API key as above, sent as the `X-API-KEY` header. Covers reviews, reports, learnings, billing, connectors, and more.
+
+Full REST API reference: [hexmos.com/livereview/docs/livereview/api](https://hexmos.com/livereview/docs/livereview/api/)
+
+<a id="repository-rules"></a>
+## Enforce Your Team's Engineering Standards with Repository Rules
+
+A good reviewer knows your language and framework. A great reviewer also knows *your* repository: which patterns your team prefers, which dependencies are off-limits, and which files don't need a second look. Drop a `.lrc/` directory in your repo, and LiveReview reads it on every review.
+
+This is per-repo, and stacks on top of any org-wide [Custom Prompts](#features) — reach for Repository Rules first; it's how most teams should scope their standards, since each team keeps its own rules without affecting anyone else's repo.
+
+```
+.lrc/
+├── ignore               # files the reviewer never sees
+├── rules/
+│   ├── INSTRUCTIONS.md  # read first, every review
+│   ├── security.md
+│   └── style.md
+└── policy/
+    └── tools.toml       # which checks are allowed to run
+```
+
+| | |
+|---|---|
+| **Repository Rules** | Write down the decisions that come up in every review, such as "prefer direct SQL over ORM abstractions" or "avoid new infrastructure dependencies". LiveReview reads `INSTRUCTIONS.md` first, then every other `rules/*.md` file, in order. |
+| **Ignore File** | Point the reviewer away from generated code, vendored dependencies, and anything else that doesn't need a second look. Uses gitignore syntax, matched from your repo root. Ignored files don't count toward billable lines. |
+| **Policies** *(coming soon)* | Decide which tools and checks can run on this repo. Machine-readable settings that LiveReview reads directly. Never sent to the AI model. |
+| **Static Checks** *(coming soon)* | Pair AI review with static analyzers like semgrep and eslint. Authorized through policy, run as part of the same commit-time flow. |
+
+Full reference: [Repository Rules docs](https://hexmos.com/livereview/docs/git-lrc/configure/repository-rules/) · [Set Review Rules](https://hexmos.com/livereview/docs/git-lrc/configure/set-review-rules/)
+
+<a id="cicd-gates"></a>
+## CI/CD Gates: Precise, Customized Merge Enforcement
+
+A generic "fail if severity is high" checkbox can't match how your team actually thinks about risk. **CI/CD Gates** let you write the exact condition, in [jq](https://jqlang.org/), against the real findings from a LiveReview review, and wire it into any pipeline as a single HTTP call. The pipeline doesn't run an AI model or interpret anything; it reads one URL's HTTP status.
+
+<p align="center">
+   <img src="./assets/screenshots/ci-cd-gates/ruleset-list.png" alt="CI/CD Gates: a list of named rulesets, each with its own jq expression" width="85%"/>
+</p>
+
+- **Works on any review source.** Web UI, `git-lrc` local reviews, CI/CD-triggered reviews, and API/MCP-triggered reviews all produce the same canonical findings document, so one gate covers every path code takes toward a merge.
+- **Full power of jq, no lock-in to preset severity buckets.** Combine severity, category, subcategory, and confidence however your repo actually needs it, not just "block on critical."
+- **A live expression editor**, with LLM help. Run your jq against a synthetic sample document and real past reviews as you type, see a `BLOCK`/`ALLOW` verdict update live, and reach for an "Ask LLM" helper (a ready-made prompt with your org's taxonomy and a sample document, for you to paste into ChatGPT, Gemini, or DeepSeek) when the condition gets complex.
+
+<p align="center">
+   <img src="./assets/screenshots/ci-cd-gates/jq-editor.png" alt="Live jq rule editor with presets, Ask LLM helper, and a live BLOCK/ALLOW preview against a sample review" width="85%"/>
+</p>
+
+Once a ruleset is saved, `GET /ci-rulesets/:id/evaluate` is the whole integration: call it from GitHub Actions, GitLab CI, Bitbucket Pipelines, Azure Pipelines, or any generic runner, and gate the job on its HTTP status.
+
+### Write the rule that matches how your team actually weighs risk
+
+Different teams weigh the same findings differently. jq lets each team encode its own answer, not a preset severity bucket:
+
+|  | Security-conscious team | Fast-moving startup | Mature enterprise |
+|---|---|---|---|
+| **Cares about** | Even one security finding is unacceptable, and so is any critical-severity bug elsewhere | Ship velocity matters most: block only on correctness and UX bugs that would actually hurt users or slow the team down, let architecture/style debt through for now | Security is non-negotiable, but cost, scale, and architecture decisions matter just as much once you're operating at scale |
+| **Plain English** | Block if there's any security finding, or any critical-severity finding of any kind | Block only if there's a critical or warning-level finding in correctness, UX, or developer-experience | Block on any security finding, or on a critical finding in cost, architecture, or scalability |
+| **jq expression** | `(.counts.by_category.security > 0) or (.counts.by_severity.critical > 0)` | `[.findings[] \| select((.category=="correctness" or .category=="ui-ux" or .category=="developer-experience") and (.severity=="critical" or .severity=="warning"))] \| length > 0` | `(.counts.by_category.security > 0) or ([.findings[] \| select((.category=="cost" or .category=="architecture" or .category=="scalability") and .severity=="critical")] \| length > 0)` |
+
+Every category above (`security`, `correctness`, `ui-ux`, `developer-experience`, `cost`, `architecture`, `scalability`, and more) comes from the same [10-category, 100+ risk taxonomy](#impact-report) LiveReview already tracks on every review; the gate is just a rule over data you're already generating.
+
+See it in action: [LiveReview CI/CD Gates: Control What Code Gets Merged from Your PR](https://hexmos.com/livereview/demo/?v=Gc9tz-ena30).
+
+<a id="adaptive-reviews"></a>
+## Adaptive Reviews: Cut AI Review Costs by 50% Without Compromising Quality
+
+**Adaptive Reviews** uses two AI models instead of one: a powerful Leader Model finds complex issues, and a cost-efficient Helper Model explains them. Same review quality, at half the price.
+
+| | |
+|---|---|
+| **Reduce Costs by 40-50%** | A cost-efficient Helper Model writes the explanations, instead of one expensive model doing everything. |
+| **Double Review Volume** | Review up to 2x more code on the same budget. No need to monitor limits constantly. |
+| **Leader + Helper Architecture** | The Leader Model finds complex issues. The Helper Model expands those findings into detailed explanations. |
+| **Maintain Review Quality** | The high-end Leader Model still drives issue detection, so accuracy does not drop. |
+
+See it explained: [Adaptive Reviews: Cut AI Costs by 40-50%](https://hexmos.com/livereview/demo?v=6Kh4ieFj6s8).
 
 <a id="why-livereview"></a>
 ## Why LiveReview
@@ -547,165 +740,6 @@ Get AI code reviews without leaving your editor. Available for VSCode, Cursor, a
 | **Cursor** | [Open VSX Registry](https://open-vsx.org/extension/hexmos/livereview) |
 | **Antigravity** | [Open VSX Registry](https://open-vsx.org/extension/hexmos/livereview) |
 
-<a id="mcp-server"></a>
-## Get Actionable Engineering Intelligence with MCP and the REST API
-
-Every code review LiveReview performs adds to a growing source of **engineering intelligence**. LiveReview exposes this two separate ways, for two separate purposes:
-
-- **MCP Server** — for AI assistants and agents (Claude, Cursor, Windsurf) that need to ask questions and take action conversationally.
-- **REST API** — for scripts, CI/CD pipelines, and custom integrations that need direct HTTP calls with no AI agent in the loop.
-
-Both let you:
-
-- Generate custom reports
-- Identify your strongest contributors
-- Uncover quality and security trends
-- Drill into engineering activity in minutes, not hours
-
-Real use cases from teams already doing this: [Prevent Production Issues](https://hexmos.com/livereview/docs/livereview/mcp/usecases/prevent-production-issues/), [Turn Findings into Tickets](https://hexmos.com/livereview/docs/livereview/mcp/usecases/turn-findings-into-tickets/), [Keep Project Management in Sync](https://hexmos.com/livereview/docs/livereview/mcp/usecases/keep-project-management-in-sync/), and [Generate Release Notes](https://hexmos.com/livereview/docs/livereview/mcp/usecases/generate-release-notes/) — see the [full MCP use-case list](https://hexmos.com/livereview/docs/livereview/mcp/usecases/).
-
-### Getting your API Key
-
-The same key authenticates both the MCP server and the REST API.
-
-1. Go to LiveReview
-2. Click on Settings
-3. Navigate to API Keys
-4. Generate and copy a new API key
-
-<p align="center">
-   <img src="./assets/screenshots/2026-08-29/15-api-keys-slash-settings-api-keys.png" alt="Settings > API Keys: generate and manage keys for the lrc CLI and MCP server" width="80%"/>
-</p>
-
-Watch [Create and Manage API Keys](https://hexmos.com/livereview/demo?v=kW_Fhx4AJfk).
-
-### MCP Server
-
-For AI assistants and agents: Claude Desktop, Claude Code, Cursor, Windsurf, or anything else that speaks MCP.
-
-#### Configuration
-
-Add the following block to your MCP client's configuration file:
-
-- For eg: Claude Desktop: claude_desktop_config.json
-- Other clients: Check the client's documentation for the equivalent file.
-
-```json
-{
-  "mcpServers": {
-    "livereview": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "mcp-remote",
-        "https://livereview.hexmos.com/api/mcp",
-        "--header",
-        "X-API-KEY: ${LIVEREVIEW_API_KEY}"
-      ],
-      "env": {  
-        "LIVEREVIEW_API_KEY": "<YOUR_LIVEREVIEW_API_KEY>"  
-      }                       
-    }
-  }
-}
-```
-
-Replace `<YOUR_LIVEREVIEW_API_KEY>` with your actual LiveReview API key. See the [MCP Configuration docs](https://hexmos.com/livereview/docs/livereview/mcp/mcp-configuration/), or watch [Connect LiveReview MCP Server to AI Coding Assistants](https://hexmos.com/livereview/demo?v=sUTU0qS73_4).
-
-Running an AI agent in your CI/CD pipeline instead of a chat assistant? The MCP server works there too: [Automate Code Reviews in CI/CD with LiveReview MCP](https://hexmos.com/livereview/demo?v=ar4B6IrDrqk).
-
-#### What you can do
-
-Once connected to the MCP server, you can ask your assistant to interact with LiveReview. Each MCP tool below wraps one REST API endpoint (its name follows the endpoint's method and path), but the tool itself is only reachable through the MCP server, not by calling the endpoint directly.
-
-#### Code Reviews
-| Tool | Description | Example Prompt |
-|------|-------------|----------------|
-| `post_api_v1_connectors_trigger-review` | Trigger a new code review for a repo URL | *"Trigger a review for https://github.com/user/repo/pull/123"* |
-| `get_api_v1_reviews` | List recent reviews | *"List our recent completed reviews"* |
-| `get_api_v1_reviews_id_summary` | Get the AI summary and insights for a specific review | *"Summarize the review ID xyz"* |
-| `get_api_v1_reviews_id_accounting` | Get the token and LOC accounting for a review | *"Show the token usage for review ID xyz"* |
-
-<details>
-<summary>Show all MCP tools (Learnings & Prompts, Billing & Quotas, Integrations)</summary>
-
-#### Learnings & Prompts
-| Tool | Description | Example Prompt |
-|------|-------------|----------------|
-| `get_api_v1_learnings` | List existing team learnings | *"List our team's active learnings"* |
-| `get_api_v1_learnings_id` | Get details of a specific learning | *"Show details for learning ID abc"* |
-| `put_api_v1_learnings_id` | Update an existing learning | *"Update learning ID abc to enforce snake_case"* |
-| `get_api_v1_prompts_catalog` | List available prompt catalogs | *"Show the catalog of prompt rules"* |
-| `get_api_v1_prompts_key_variables` | Get required variables for a prompt template | *"What variables does the base prompt need?"* |
-| `get_api_v1_prompts_key_render` | Render a prompt preview with provided variables | *"Render the prompt key 'system' with..."* |
-
-#### Billing & Quotas
-| Tool | Description | Example Prompt |
-|------|-------------|----------------|
-| `get_api_v1_billing_status` | Check current billing status of the organization | *"What is our current billing status?"* |
-| `get_api_v1_quota_status` | Check current LOC status and quota | *"How much LOC quota do we have left?"* |
-| `get_api_v1_billing_usage_summary` | Get billing usage summary | *"Show a summary of our billing usage"* |
-| `get_api_v1_billing_usage_operations` | Get recent billable review operations | *"List the most recent billable operations"* |
-| `get_api_v1_billing_usage_members` | Get member-wise LOC usage information | *"Show the usage broken down by team member"* |
-| `post_api_v1_billing_upgrade_preview` | Generate an upgrade preview for a target plan | *"Preview the cost of upgrading to team_32usd"* |
-
-#### Integrations
-| Tool | Description | Example Prompt |
-|------|-------------|----------------|
-| `get_api_v1_connectors` | List configured Git connectors | *"List our configured Git connectors"* |
-| `get_api_v1_aiconnectors` | List configured AI provider connections | *"Which AI providers are currently active?"* |
-
-</details>
-
-Full MCP reference: [MCP Usage docs](https://hexmos.com/livereview/docs/livereview/mcp/mcp-usage/)
-
-### REST API
-
-For scripts, CI/CD pipelines, and custom integrations that call LiveReview directly over HTTP, with no AI agent or MCP client involved. Same API key as above, sent as the `X-API-KEY` header. Covers reviews, reports, learnings, billing, connectors, and more.
-
-Full REST API reference: [hexmos.com/livereview/docs/livereview/api](https://hexmos.com/livereview/docs/livereview/api/)
-
-<a id="repository-rules"></a>
-## Enforce Your Team's Engineering Standards with Repository Rules
-
-A good reviewer knows your language and framework. A great reviewer also knows *your* repository: which patterns your team prefers, which dependencies are off-limits, and which files don't need a second look. Drop a `.lrc/` directory in your repo, and LiveReview reads it on every review.
-
-This is per-repo, and stacks on top of any org-wide [Custom Prompts](#features) — reach for Repository Rules first; it's how most teams should scope their standards, since each team keeps its own rules without affecting anyone else's repo.
-
-```
-.lrc/
-├── ignore               # files the reviewer never sees
-├── rules/
-│   ├── INSTRUCTIONS.md  # read first, every review
-│   ├── security.md
-│   └── style.md
-└── policy/
-    └── tools.toml       # which checks are allowed to run
-```
-
-| | |
-|---|---|
-| **Repository Rules** | Write down the decisions that come up in every review, such as "prefer direct SQL over ORM abstractions" or "avoid new infrastructure dependencies". LiveReview reads `INSTRUCTIONS.md` first, then every other `rules/*.md` file, in order. |
-| **Ignore File** | Point the reviewer away from generated code, vendored dependencies, and anything else that doesn't need a second look. Uses gitignore syntax, matched from your repo root. Ignored files don't count toward billable lines. |
-| **Policies** *(coming soon)* | Decide which tools and checks can run on this repo. Machine-readable settings that LiveReview reads directly. Never sent to the AI model. |
-| **Static Checks** *(coming soon)* | Pair AI review with static analyzers like semgrep and eslint. Authorized through policy, run as part of the same commit-time flow. |
-
-Full reference: [Repository Rules docs](https://hexmos.com/livereview/docs/git-lrc/configure/repository-rules/) · [Set Review Rules](https://hexmos.com/livereview/docs/git-lrc/configure/set-review-rules/)
-
-<a id="adaptive-reviews"></a>
-## Adaptive Reviews: Cut AI Review Costs by 50% Without Compromising Quality
-
-**Adaptive Reviews** uses two AI models instead of one: a powerful Leader Model finds complex issues, and a cost-efficient Helper Model explains them. Same review quality, at half the price.
-
-| | |
-|---|---|
-| **Reduce Costs by 40-50%** | A cost-efficient Helper Model writes the explanations, instead of one expensive model doing everything. |
-| **Double Review Volume** | Review up to 2x more code on the same budget. No need to monitor limits constantly. |
-| **Leader + Helper Architecture** | The Leader Model finds complex issues. The Helper Model expands those findings into detailed explanations. |
-| **Maintain Review Quality** | The high-end Leader Model still drives issue detection, so accuracy does not drop. |
-
-See it explained: [Adaptive Reviews: Cut AI Costs by 40-50%](https://hexmos.com/livereview/demo?v=6Kh4ieFj6s8).
-
 <a id="self-hosted-tiers"></a>
 ## Pricing & Enterprise
 
@@ -805,6 +839,9 @@ The [LiveReview Docs](https://hexmos.com/livereview/docs/) go far deeper than th
 
 **REST API** (for scripts, CI/CD, and custom integrations, no AI agent required)
 - [Full API Reference](https://hexmos.com/livereview/docs/livereview/api/): reviews, reports, learnings, billing, connectors, and more
+
+**CI/CD Gates**
+- [CI/CD Gates](#cicd-gates) above · Demo: [LiveReview CI/CD Gates: Control What Code Gets Merged from Your PR](https://hexmos.com/livereview/demo/?v=Gc9tz-ena30)
 
 **Video Library**
 - [hexmos.com/livereview/demo](https://hexmos.com/livereview/demo/) has dozens of short, focused demos, filterable by role (Developer, Engineering Manager, CTO, CEO): setup, every git and AI provider integration, review workflows, reporting and Slack/Teams automation, and team administration.

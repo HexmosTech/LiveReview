@@ -27,7 +27,7 @@ func FormatSlackResponse(text string) []slack.Block {
 type lineBlock int
 
 const (
-	blockUnknown  lineBlock = iota
+	blockUnknown lineBlock = iota
 	blockHeader
 	blockDivider
 	blockBullet
@@ -48,17 +48,67 @@ type blockGroup struct {
 	kind  lineBlock
 	lines []string
 }
+
 // ---------------------------------------------------------------------------
 
 var (
-	headerRe    = regexp.MustCompile(`^(#{1,3})\s+(.+)$`)
-	dividerRe   = regexp.MustCompile(`^[-*_]{3,}$`)
-	bulletRe    = regexp.MustCompile(`^[\-\*•]\s+(.+)$`)
-	numberedRe  = regexp.MustCompile(`^\d+[.\)]\s+(.+)$`)
-	fieldRe     = regexp.MustCompile(`^\*{1,2}(.+?)\*{1,2}:\s*(.+)$`)
-	quoteRe     = regexp.MustCompile(`^>\s?(.*)$`)
-	statusRe    = regexp.MustCompile(`^([✅🟢🟡🔴❌⚠️🚀🎉📊📈📋🔍✨💡🏆⭐]+)\s*(.*)$`)
+	headerRe   = regexp.MustCompile(`^(#{1,3})\s+(.+)$`)
+	dividerRe  = regexp.MustCompile(`^[-*_]{3,}$`)
+	bulletRe   = regexp.MustCompile(`^[\-\*•]\s+(.+)$`)
+	numberedRe = regexp.MustCompile(`^\d+[.\)]\s+(.+)$`)
+	fieldRe    = regexp.MustCompile(`^\*{1,2}(.+?)\*{1,2}:\s*(.+)$`)
+	quoteRe    = regexp.MustCompile(`^>\s?(.*)$`)
+	statusRe   = regexp.MustCompile(`^([✅🟢🟡🔴❌⚠️🚀🎉📊📈📋🔍✨💡🏆⭐]+)\s*(.*)$`)
+
+	// Non-greedy `.` (never matches newline in RE2) rather than a character
+	// class excluding * / _ - the excluding version failed to match at all
+	// when the bolded span itself contained a literal * or _ (e.g.
+	// "**use *args here**" or "__my_var__"), since the class forbade the
+	// delimiter character from appearing anywhere inside the span.
+	mdBoldStarRe  = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	mdBoldUnderRe = regexp.MustCompile(`__(.+?)__`)
+	mdStrikeRe    = regexp.MustCompile(`~~(.+?)~~`)
+	mdLinkRe      = regexp.MustCompile(`\[([^\]\n]+)\]\(([^)\s]+)\)`)
 )
+
+// toSlackMrkdwn converts standard Markdown emphasis/links into Slack's
+// mrkdwn dialect - the differences that actually matter, cross-checked
+// against two independent reference converters
+// (github.com/nicoespeon/md-to-slack, github.com/eritikass/githubmarkdownconvertergo),
+// which agree on exactly these three and neither attempts the fourth below:
+//
+//   - Bold: **text**/__text__ -> *text* (Markdown vs Slack use a different
+//     character for bold - left unconverted, Slack shows literal asterisks
+//     instead of bolding, which is what every "**Label:**"-style LLM
+//     response looked like before this).
+//   - Strikethrough: ~~text~~ -> ~text~ (double tilde vs single).
+//   - Links: [text](url) -> <url|text> (Slack's own link syntax; the
+//     Markdown form is otherwise shown completely literally, brackets and
+//     all - the target and label are just as separately valuable as bold
+//     is, so this isn't a "nice to have" polish item on the same list).
+//
+// Deliberately NOT handled: disambiguating single-asterisk Markdown italic
+// (*text*) from Slack bold (which uses the exact same *text* syntax). A
+// regex can't tell "this * opened an italic span" from "this * opened a
+// bold span" without a real parser with an AST - both reference converters
+// above hit the same wall and don't attempt it either (the one converter
+// that does resolve it correctly, marked.js-based, only manages to because
+// it parses to a real syntax tree, not regex substitution). Single-asterisk
+// italic input renders as Slack bold instead of italic, a minor and
+// accepted inaccuracy. Underscore italic (_text_) and inline code
+// (`text`)/code blocks already use identical syntax in both dialects, so
+// they need no conversion.
+//
+// Applied per-line, before the header/bullet/field/etc. regexes in this
+// file run, so those still match regardless of whether the source used one
+// or two asterisks for bold.
+func toSlackMrkdwn(s string) string {
+	s = mdLinkRe.ReplaceAllString(s, "<$2|$1>")
+	s = mdStrikeRe.ReplaceAllString(s, "~$1~")
+	s = mdBoldStarRe.ReplaceAllString(s, "*$1*")
+	s = mdBoldUnderRe.ReplaceAllString(s, "*$1*")
+	return s
+}
 
 func parseRichText(text string) []slack.Block {
 	lines := strings.Split(text, "\n")
@@ -102,6 +152,7 @@ func parseRichText(text string) []slack.Block {
 			groups = append(groups, blockGroup{kind: blockEmptyLine})
 			continue
 		}
+		trimmed = toSlackMrkdwn(trimmed)
 
 		switch {
 		case headerRe.MatchString(trimmed):
@@ -389,5 +440,3 @@ func chunkString(s string, size int) []string {
 	}
 	return chunks
 }
-
-

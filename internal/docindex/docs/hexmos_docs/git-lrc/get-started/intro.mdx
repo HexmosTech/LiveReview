@@ -1,0 +1,40 @@
+---
+title: Intro
+description: Understand what git-lrc does and where it fits in your workflow.
+---
+
+# Intro
+
+git-lrc reviews commit diffs before they land.
+
+AI coding tools increase speed, but they also increase the risk of silent regressions. git-lrc adds a commit-time review gate that helps you catch risky changes while context is still fresh.
+
+## Why Teams Use It
+
+- AI agents can silently remove logic.
+- Review can happen too late when done only in PR.
+- Commit-time checks encourage consistent habits.
+- Git-level integration works across editors and IDEs.
+
+## What You Get
+
+- AI-powered inline review comments on diffs.
+- Review summary and issue navigation.
+- Review decisions tracked in git log (`ran`, `vouched`, `skipped`).
+- Iteration and coverage tracking for auditability.
+
+## Decision Modes
+
+| Mode | What happens | Typical use |
+| --- | --- | --- |
+| `review` | AI reviews staged changes | default path |
+| `vouch` | skip AI, take explicit responsibility | after enough iterations |
+| `skip` | skip AI and attestation | low-risk or exceptional commits |
+
+## What Data Is Sent
+
+Only the staged diff is analyzed. Full repository context is not uploaded for review, and diffs are not persisted after review according to project documentation.
+
+## Next Step
+
+Continue to [Install](/livereview/docs/git-lrc/get-started/install).
