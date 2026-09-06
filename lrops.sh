@@ -2892,6 +2892,16 @@ update_containers_cmd() {
 # Create a timestamped directory name
 _now_ts() { date +%Y%m%d_%H%M%S; }
 
+# Reject a backup archive whose entries could escape the extraction directory
+# (absolute paths or ../ components) before we ever run tar -x on it.
+_tar_archive_is_safe() {
+    local archive="$1"
+    if tar -tzf "$archive" 2>/dev/null | grep -qE '^/|(^|/)\.\.(/|$)'; then
+        return 1
+    fi
+    return 0
+}
+
 # Detect active DB container name (supports legacy naming differences)
 detect_db_container() {
     local name
@@ -2954,6 +2964,26 @@ create_pre_update_backup() {
     else
         log_info "No postgres data directory found (skipping physical snapshot)"
     fi
+    # App data outside postgres (e.g. the local blob store at lrdata/blobs), compressed
+    local app_data_dir="$LIVEREVIEW_INSTALL_DIR/lrdata"
+    local app_data_backup=false
+    if [[ -d "$app_data_dir" ]]; then
+        log_info "Creating compressed application data snapshot"
+        local app_tar_target="$backup_dir/app-data.tgz"
+        if tar -czf "$app_tar_target" --exclude='postgres*' -C "$app_data_dir" . 2>/dev/null; then
+            app_data_backup=true
+        elif command -v sudo >/dev/null 2>&1; then
+            if sudo tar -czf "$app_tar_target" --exclude='postgres*' -C "$app_data_dir" .; then
+                app_data_backup=true
+                sudo chown "${SUDO_UID:-$(id -u)}:${SUDO_GID:-$(id -g)}" "$app_tar_target" 2>/dev/null || true
+            fi
+        fi
+        if [[ "$app_data_backup" == "true" ]]; then
+            log_success "Application data backed up"
+        else
+            log_warning "Could not back up application data"
+        fi
+    fi
     # Capture image + container metadata
     docker ps --no-trunc > "$backup_dir/docker-ps.txt" 2>/dev/null || true
     docker images --no-trunc | grep livereview > "$backup_dir/docker-images.txt" 2>/dev/null || true
@@ -2965,12 +2995,12 @@ create_pre_update_backup() {
         local db_pass
         db_pass=$(grep -E '^DB_PASSWORD=' "$LIVEREVIEW_INSTALL_DIR/.env" | cut -d'=' -f2 | tr -d '\r' || true)
         if [[ -n "$db_pass" ]]; then
-            log_info "Creating logical database dump from container $db_container"
-            if docker exec -e PGPASSWORD="$db_pass" "$db_container" pg_dump -U livereview -d livereview > "$backup_dir/db.sql" 2>"$backup_dir/db_dump.stderr"; then
+            log_info "Creating compressed logical database dump from container $db_container"
+            if docker exec -e PGPASSWORD="$db_pass" "$db_container" pg_dump -U livereview -d livereview 2>"$backup_dir/db_dump.stderr" | gzip > "$backup_dir/db.sql.gz"; then
                 log_success "Database dump created"
             else
                 log_warning "Database dump failed (see db_dump.stderr); continuing with config backup"
-                rm -f "$backup_dir/db.sql" || true
+                rm -f "$backup_dir/db.sql.gz" || true
             fi
         else
             log_warning "DB_PASSWORD not found in .env; skipping DB dump"
@@ -2986,7 +3016,8 @@ create_pre_update_backup() {
   "current_version": "${current_version}",
   "target_version": "${target}",
   "has_physical_snapshot": ${physical_snapshot},
-  "has_logical_dump": $( [[ -f "$backup_dir/db.sql" ]] && echo true || echo false ),
+  "has_logical_dump": $( [[ -f "$backup_dir/db.sql.gz" ]] && echo true || echo false ),
+  "has_app_data": ${app_data_backup},
   "script_version": "${SCRIPT_VERSION}"
 }
 EOF
@@ -3026,7 +3057,7 @@ list_backups_cmd() {
     
     local entries
     # List both preupdate and manual backups
-    entries=$(find "$backup_root" -maxdepth 1 -type d \( -name 'preupdate-*' -o -name 'manual-*' -o -name 'quickbackup-*' \) | sort -r)
+    entries=$(find "$backup_root" -mindepth 1 -maxdepth 1 -type d | sort -r)
     if [[ -z "$entries" ]]; then
         log_info "No backups found"
         return 0
@@ -3059,7 +3090,7 @@ restore_backup_cmd() {
     local target_dir
     if [[ "$which" == "latest" ]]; then
         # Find latest backup of any type (preupdate, manual, quickbackup)
-        target_dir=$(find "$backup_root" -maxdepth 1 -type d \( -name 'preupdate-*' -o -name 'manual-*' -o -name 'quickbackup-*' \) | sort -r | head -1 || true)
+        target_dir=$(find "$backup_root" -mindepth 1 -maxdepth 1 -type d | sort -r | head -1 || true)
         if [[ -n "$target_dir" ]]; then
             log_info "Latest backup found: $(basename "$target_dir")"
         fi
@@ -3080,6 +3111,40 @@ restore_backup_cmd() {
             cp "$target_dir/$f" "$LIVEREVIEW_INSTALL_DIR/$f"
         fi
     done
+    # Restore app data outside postgres: app-data.tgz (current format), falling
+    # back to a plain lrdata/ dir (backups made before app data was compressed)
+    if [[ -f "$target_dir/app-data.tgz" ]]; then
+        if ! _tar_archive_is_safe "$target_dir/app-data.tgz"; then
+            log_error "app-data.tgz contains unsafe paths (absolute or ../) - refusing to extract"
+        else
+            log_info "Restoring compressed application data snapshot"
+            mkdir -p "$LIVEREVIEW_INSTALL_DIR/lrdata"
+            if tar -xzf "$target_dir/app-data.tgz" -C "$LIVEREVIEW_INSTALL_DIR/lrdata" 2>/dev/null; then
+                log_success "Application data restored"
+            elif command -v sudo >/dev/null 2>&1 && sudo tar -xzf "$target_dir/app-data.tgz" -C "$LIVEREVIEW_INSTALL_DIR/lrdata"; then
+                log_success "Application data restored with sudo"
+            else
+                log_warning "Could not restore application data"
+            fi
+        fi
+    elif [[ -d "$target_dir/lrdata" ]]; then
+        log_info "Restoring application data"
+        mkdir -p "$LIVEREVIEW_INSTALL_DIR/lrdata"
+        if command -v rsync >/dev/null 2>&1; then
+            rsync -a --exclude='postgres*' "$target_dir/lrdata/" "$LIVEREVIEW_INSTALL_DIR/lrdata/" 2>/dev/null \
+                && log_success "Application data restored" \
+                || log_warning "Could not restore application data"
+        else
+            for entry in "$target_dir/lrdata"/*; do
+                [[ -e "$entry" ]] || continue
+                case "$(basename "$entry")" in
+                    postgres*) continue ;;
+                esac
+                cp -r "$entry" "$LIVEREVIEW_INSTALL_DIR/lrdata/" 2>/dev/null
+            done
+            log_success "Application data restored"
+        fi
+    fi
     local physical_archive="$target_dir/postgres-data.tgz"
     if [[ -f "$physical_archive" ]]; then
         log_info "Restoring physical postgres data snapshot"
@@ -3100,7 +3165,9 @@ restore_backup_cmd() {
                 fi
             fi
         fi
-        if [[ -n "$physical_archive" ]]; then
+        if [[ -n "$physical_archive" ]] && ! _tar_archive_is_safe "$physical_archive"; then
+            log_error "postgres-data.tgz contains unsafe paths (absolute or ../) - refusing to extract"
+        elif [[ -n "$physical_archive" ]]; then
             mkdir -p "$LIVEREVIEW_INSTALL_DIR/lrdata"
             if tar -xzf "$physical_archive" -C "$LIVEREVIEW_INSTALL_DIR/lrdata" 2>/dev/null; then
                 log_success "Extracted physical snapshot"
@@ -3115,8 +3182,9 @@ restore_backup_cmd() {
         # Start DB container again
         docker_compose up -d livereview-db || true
         sleep 5
-    elif [[ -f "$target_dir/db.sql" ]]; then
-        # Logical restore path (only if no physical archive present)
+    elif [[ -f "$target_dir/db.sql.gz" || -f "$target_dir/db.sql" ]]; then
+        # Logical restore path (only if no physical archive present).
+        # db.sql.gz is the current format; plain db.sql is the older, uncompressed one.
         log_info "Restoring database from logical dump"
         local db_container
         db_container=$(detect_db_container || true)
@@ -3129,7 +3197,13 @@ restore_backup_cmd() {
         local db_pass
         db_pass=$(grep -E '^DB_PASSWORD=' "$LIVEREVIEW_INSTALL_DIR/.env" | cut -d'=' -f2 | tr -d '\r' || true)
         if [[ -n "$db_container" && -n "$db_pass" ]]; then
-            if cat "$target_dir/db.sql" | docker exec -i -e PGPASSWORD="$db_pass" "$db_container" psql -U livereview -d livereview >/dev/null 2>&1; then
+            local restore_ok=false
+            if [[ -f "$target_dir/db.sql.gz" ]]; then
+                gunzip -c "$target_dir/db.sql.gz" | docker exec -i -e PGPASSWORD="$db_pass" "$db_container" psql -U livereview -d livereview >/dev/null 2>&1 && restore_ok=true
+            else
+                cat "$target_dir/db.sql" | docker exec -i -e PGPASSWORD="$db_pass" "$db_container" psql -U livereview -d livereview >/dev/null 2>&1 && restore_ok=true
+            fi
+            if [[ "$restore_ok" == "true" ]]; then
                 log_success "Database restore (logical) completed"
             else
                 log_warning "Database logical restore encountered errors"
@@ -3270,7 +3344,28 @@ create_backup_cmd() {
     else
         log_info "No postgres data directory found (skipping physical snapshot)"
     fi
-    
+
+    # App data outside postgres (e.g. the local blob store at lrdata/blobs), compressed
+    local app_data_dir="$LIVEREVIEW_INSTALL_DIR/lrdata"
+    local app_data_backup=false
+    if [[ -d "$app_data_dir" ]]; then
+        log_info "Creating compressed application data snapshot"
+        local app_tar_target="$backup_dir/app-data.tgz"
+        if tar -czf "$app_tar_target" --exclude='postgres*' -C "$app_data_dir" . 2>/dev/null; then
+            app_data_backup=true
+        elif command -v sudo >/dev/null 2>&1; then
+            if sudo tar -czf "$app_tar_target" --exclude='postgres*' -C "$app_data_dir" .; then
+                app_data_backup=true
+                sudo chown "${SUDO_UID:-$(id -u)}:${SUDO_GID:-$(id -g)}" "$app_tar_target" 2>/dev/null || true
+            fi
+        fi
+        if [[ "$app_data_backup" == "true" ]]; then
+            log_success "Application data backed up"
+        else
+            log_warning "Could not back up application data"
+        fi
+    fi
+
     # Capture image + container metadata
     docker ps --no-trunc > "$backup_dir/docker-ps.txt" 2>/dev/null || true
     docker images --no-trunc | grep livereview > "$backup_dir/docker-images.txt" 2>/dev/null || true
@@ -3283,12 +3378,12 @@ create_backup_cmd() {
         local db_pass
         db_pass=$(grep -E '^DB_PASSWORD=' "$LIVEREVIEW_INSTALL_DIR/.env" | cut -d'=' -f2 | tr -d '\r' || true)
         if [[ -n "$db_pass" ]]; then
-            log_info "Creating logical database dump from container $db_container"
-            if docker exec -e PGPASSWORD="$db_pass" "$db_container" pg_dump -U livereview -d livereview > "$backup_dir/db.sql" 2>"$backup_dir/db_dump.stderr"; then
+            log_info "Creating compressed logical database dump from container $db_container"
+            if docker exec -e PGPASSWORD="$db_pass" "$db_container" pg_dump -U livereview -d livereview 2>"$backup_dir/db_dump.stderr" | gzip > "$backup_dir/db.sql.gz"; then
                 log_success "Database dump created"
             else
                 log_warning "Database dump failed (see db_dump.stderr); continuing with config backup"
-                rm -f "$backup_dir/db.sql" || true
+                rm -f "$backup_dir/db.sql.gz" || true
             fi
         else
             log_warning "DB_PASSWORD not found in .env; skipping DB dump"
@@ -3305,7 +3400,8 @@ create_backup_cmd() {
   "timestamp": "${ts}",
   "current_version": "${current_version}",
   "has_physical_snapshot": ${physical_snapshot},
-  "has_logical_dump": $( [[ -f "$backup_dir/db.sql" ]] && echo true || echo false ),
+  "has_logical_dump": $( [[ -f "$backup_dir/db.sql.gz" ]] && echo true || echo false ),
+  "has_app_data": ${app_data_backup},
   "script_version": "${SCRIPT_VERSION}"
 }
 EOF
@@ -3999,18 +4095,18 @@ Restore latest:      lrops.sh restore latest
 
 Set up daily automated backups:
 
-1. Copy cron template:
-   sudo cp "$LIVEREVIEW_INSTALL_DIR/config/backup-cron.example" /etc/cron.d/livereview-backup
+1. View the cron template:
+   cat "$LIVEREVIEW_INSTALL_DIR/config/backup-cron.example"
 
-2. Edit the schedule:
-   sudo nano /etc/cron.d/livereview-backup
+2. Add entries to your crontab:
+   crontab -e
 
 3. Example cron entries:
    # Daily backup at 2 AM
-   0 2 * * * lrops.sh backup daily-$(date +\%Y\%m\%d)
-   
-   # Weekly backup on Sundays at 3 AM to external drive  
-   0 3 * * 0 lrops.sh backup --backup-dir /mnt/backup weekly-$(date +\%Y\%U)
+   0 2 * * * /usr/local/bin/lrops.sh backup daily-$(date +\%Y\%m\%d)
+
+   # Weekly backup on Sundays at 3 AM to external drive
+   0 3 * * 0 /usr/local/bin/lrops.sh backup --backup-dir /mnt/backup weekly-$(date +\%Y\%U)
 
 ═══════════════════════════════════════════════════════════════════════════════
 ☁️  CLOUD/EXTERNAL STORAGE
@@ -4021,10 +4117,24 @@ Backup to external locations:
 1. Network drives:
    lrops.sh backup --backup-dir /mnt/nas/livereview
 
-2. Cloud sync with rclone:
-   # Install rclone: sudo apt install rclone
-   # Configure: rclone config
-   # Auto-sync: rclone sync "$LIVEREVIEW_INSTALL_DIR/backups/" mycloud:livereview-backups/
+2. Cloud sync with rclone (e.g. AWS S3):
+
+   a) Install rclone:
+      curl https://rclone.org/install.sh | sudo bash
+
+   b) Create a remote named 'livereview-s3' (matches config/backup-cron.example):
+      rclone config create livereview-s3 s3 \
+        provider AWS \
+        access_key_id YOUR_ACCESS_KEY \
+        secret_access_key YOUR_SECRET_KEY \
+        region YOUR_BUCKET_REGION
+
+   c) Verify it before relying on it:
+      rclone config show livereview-s3   # confirm provider/keys/region look right
+      rclone lsd livereview-s3:          # should list your bucket(s)
+
+   d) Sync backups up:
+      rclone sync "$LIVEREVIEW_INSTALL_DIR/backups/" livereview-s3:your-bucket/backups/livereview/
 
 3. USB/External drives:
    lrops.sh backup --backup-dir /media/usb-drive/backups
@@ -6531,7 +6641,7 @@ fi
 if [[ -d "$LIVEREVIEW_DIR/lrdata" ]]; then
     log_info "Backing up application data..."
     # Exclude postgres directory if we already handled it above
-    rsync -av --exclude='postgres' "$LIVEREVIEW_DIR/lrdata/" "$BACKUP_DIR/lrdata/" 2>/dev/null || {
+    rsync -av --exclude='postgres*' "$LIVEREVIEW_DIR/lrdata/" "$BACKUP_DIR/lrdata/" 2>/dev/null || {
         log_warning "rsync not available, using cp"
         cp -r "$LIVEREVIEW_DIR/lrdata" "$BACKUP_DIR/" 2>/dev/null || log_warning "Could not backup lrdata"
     }
@@ -6777,36 +6887,37 @@ log_info "Check status with: lrops.sh status"
 # Add these to your crontab with: crontab -e
 
 # Daily backup at 2 AM
-0 2 * * * cd "$LIVEREVIEW_INSTALL_DIR/scripts" && ./backup.sh daily_$(date +\%Y\%m\%d) >> /var/log/livereview-backup.log 2>&1
+0 2 * * * /usr/local/bin/lrops.sh backup daily_$(date +\%Y\%m\%d) >> /var/log/livereview-backup.log 2>&1
 
 # Weekly backup on Sundays at 3 AM
-0 3 * * 0 cd "$LIVEREVIEW_INSTALL_DIR/scripts" && ./backup.sh weekly_$(date +\%Y_week\%U) >> /var/log/livereview-backup.log 2>&1
+0 3 * * 0 /usr/local/bin/lrops.sh backup weekly_$(date +\%Y_week\%U) >> /var/log/livereview-backup.log 2>&1
 
 # Monthly backup on the 1st at 4 AM
-0 4 1 * * cd "$LIVEREVIEW_INSTALL_DIR/scripts" && ./backup.sh monthly_$(date +\%Y\%m) >> /var/log/livereview-backup.log 2>&1
+0 4 1 * * /usr/local/bin/lrops.sh backup monthly_$(date +\%Y\%m) >> /var/log/livereview-backup.log 2>&1
 
 # === Example with rclone S3 sync ===
 # Install rclone first: curl https://rclone.org/install.sh | sudo bash
 # Configure S3: rclone config (create remote named 'livereview-s3')
 
 # Daily backup + S3 sync at 2:30 AM
-30 2 * * * cd "$LIVEREVIEW_INSTALL_DIR/scripts" && ./backup.sh daily_$(date +\%Y\%m\%d) && rclone sync "$LIVEREVIEW_INSTALL_DIR/backups/" livereview-s3:backups/livereview/ --log-file=/var/log/livereview-s3-sync.log
+30 2 * * * /usr/local/bin/lrops.sh backup daily_$(date +\%Y\%m\%d) && rclone sync ~/livereview/backups/ livereview-s3:backups/livereview/ --log-file=/var/log/livereview-s3-sync.log
 
 # === Backup retention (cleanup old backups) ===
+
 # Keep only last 7 daily backups (run at 5 AM)
-0 5 * * * find /opt/livereview-backups -name "daily_*" -type f -mtime +7 -delete
+0 5 * * * find ~/livereview/backups -maxdepth 1 -name "daily_*" -type d -mtime +7 -exec rm -rf {} +
 
 # Keep only last 4 weekly backups
-0 5 * * 1 find "$LIVEREVIEW_INSTALL_DIR/backups" -name "weekly_*" -type f -mtime +28 -delete
+0 5 * * 1 find ~/livereview/backups -maxdepth 1 -name "weekly_*" -type d -mtime +28 -exec rm -rf {} +
 
 # Keep only last 12 monthly backups
-0 5 1 * * find "$LIVEREVIEW_INSTALL_DIR/backups" -name "monthly_*" -type f -mtime +365 -delete
+0 5 1 * * find ~/livereview/backups -maxdepth 1 -name "monthly_*" -type d -mtime +365 -exec rm -rf {} +
 
 # === Complete example crontab entry ===
 # # LiveReview automated backups
-# 0 2 * * * cd "$LIVEREVIEW_INSTALL_DIR/scripts" && ./backup.sh daily_$(date +\%Y\%m\%d) >> /var/log/livereview-backup.log 2>&1
-# 30 2 * * * rclone sync "$LIVEREVIEW_INSTALL_DIR/backups/" livereview-s3:backups/livereview/ --log-file=/var/log/livereview-s3-sync.log
-# 0 5 * * * find "$LIVEREVIEW_INSTALL_DIR/backups" -name "daily_*" -type f -mtime +7 -delete
+# 0 2 * * * /usr/local/bin/lrops.sh backup daily_$(date +\%Y\%m\%d) >> /var/log/livereview-backup.log 2>&1
+# 30 2 * * * rclone sync ~/livereview/backups/ livereview-s3:backups/livereview/ --log-file=/var/log/livereview-s3-sync.log
+# 0 5 * * * find ~/livereview/backups -maxdepth 1 -name "daily_*" -type d -mtime +7 -exec rm -rf {} +
 # === END:backup-cron.example ===
 
 # === DATA:setup-ssl.sh ===
