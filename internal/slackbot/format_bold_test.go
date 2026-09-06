@@ -40,3 +40,31 @@ func TestFormatSlackResponse_ConvertsMarkdownBold(t *testing.T) {
 		t.Errorf("expected '*Prepare a Bot User:*' in rendered text, got:\n%s", rendered)
 	}
 }
+
+// TestToSlackMrkdwn_BoldSpanContainingDelimiter guards against a regression
+// where the conversion regex's character class excluded the delimiter (* or
+// _) from appearing anywhere inside the bolded span, so "**foo*bar**" or
+// "__foo_bar__" failed to match at all and were left as literal, unconverted
+// Markdown.
+func TestToSlackMrkdwn_BoldSpanContainingDelimiter(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"star inside star-bold", "**use *args here**", "*use *args here*"},
+		{"underscore inside underscore-bold", "__my_var__", "*my_var*"},
+		{"two separate bold spans", "**alpha** and **beta**", "*alpha* and *beta*"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := toSlackMrkdwn(tc.input)
+			if strings.Contains(got, "**") || strings.Contains(got, "__") {
+				t.Errorf("toSlackMrkdwn(%q) = %q, still contains an unconverted Markdown bold delimiter", tc.input, got)
+			}
+			if got != tc.want {
+				t.Errorf("toSlackMrkdwn(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}

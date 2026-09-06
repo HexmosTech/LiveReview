@@ -175,9 +175,14 @@ type Server struct {
 
 	learningsService *learnings.Service
 
-	slackBots  []*slackbot.Bot
+	// slackBot is ONE *slackbot.Bot instance, but that type is itself
+	// multi-tenant: it owns a socket runner per distinct Slack app token,
+	// each of which can hold many orgs (see slackbot.Bot/New's grouping-by
+	// app-token logic in internal/slackbot/bot.go). "One field, one org" is
+	// NOT how to read this - every enabled org config, across every Slack
+	// app, lives inside this single value.
 	slackBot   *slackbot.Bot
-	slackBotMu sync.Mutex // guards slackBot/slackBots against concurrent PutSlackConfig/DeleteSlackConfig calls
+	slackBotMu sync.Mutex // guards slackBot against concurrent PutSlackConfig/DeleteSlackConfig calls
 
 	teamsHandler *teamsbot.Handler
 
@@ -541,13 +546,12 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Initialize org-scoped Slack bots (self-hosted only). Each org supplies its
 	// own bot + app tokens via the UI, so no server-level env vars are required.
 	if !server.deploymentConfig.IsCloud {
-		bots, err := startOrgSlackBots(server.db)
+		bot, err := startOrgSlackBots(server.db)
 		if err != nil {
 			fmt.Printf("Warning: Failed to initialize Slack bots: %v (Slack bot disabled)\n", err)
-		} else if len(bots) > 0 {
-			server.slackBots = bots
-			server.slackBot = bots[0]
-			fmt.Printf("Slack bots initialized for %d org(s) (will start with server)\n", len(bots))
+		} else if bot != nil {
+			server.slackBot = bot
+			fmt.Printf("Slack bot initialized (will start with server)\n")
 		}
 	}
 
@@ -602,6 +606,12 @@ func resolveMCPBaseURL(db *sql.DB) string {
 	return "https://livereview.hexmos.com/api/mcp"
 }
 
+// defaultSlackMaxAgentSteps caps how many tool-call steps the MCP agent can
+// take per Slack turn. Matches the Discord bot's default (see
+// startOrgDiscordBots's maxSteps), which is additionally overridable via
+// DISCORD_MAX_AGENT_STEPS; Slack has no such override today.
+const defaultSlackMaxAgentSteps = 20
+
 // buildOrgSlackConfig resolves the AI connector, MCP URL/headers, and org
 // name needed to construct a slackbot.OrgConfig for one org's stored Slack
 // config. Returns (nil, err) with a log-ready reason when the org should be
@@ -652,7 +662,7 @@ func buildOrgSlackConfig(db *sql.DB, cfg slackbot.SlackConfig) (*slackbot.OrgCon
 		MCPHeaders:    map[string]string{"X-API-Key": cfg.APIKey},
 		Connector:     connector,
 		Analytics:     storageanalytics.NewAdHocStore(db),
-		MaxAgentSteps: 20,
+		MaxAgentSteps: defaultSlackMaxAgentSteps,
 	}, nil
 }
 
@@ -660,7 +670,15 @@ func buildOrgSlackConfig(db *sql.DB, cfg slackbot.SlackConfig) (*slackbot.OrgCon
 // resolves each org's AI connector, and creates the multi-org Slack bot.
 // Each org supplies its own Slack bot + app-level tokens, so no server-level
 // Slack env vars are required.
-func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
+//
+// The single *slackbot.Bot returned here is NOT scoped to one org - every
+// org resolved from the DB is accumulated into orgCfgs and passed into one
+// slackbot.New(&slackbot.Config{Orgs: orgCfgs}, ...) call, which internally
+// fans them out across one socket runner per distinct Slack app token (see
+// slackbot.New in internal/slackbot/bot.go). A single Bot value already
+// serves however many orgs are configured; returning one *slackbot.Bot is
+// not a "one org" limitation.
+func startOrgSlackBots(db *sql.DB) (*slackbot.Bot, error) {
 	configStorage := slackbot.NewStorage(db)
 	configs, err := configStorage.GetAllEnabledConfigs(context.Background())
 	if err != nil {
@@ -693,7 +711,7 @@ func startOrgSlackBots(db *sql.DB) ([]*slackbot.Bot, error) {
 		return nil, err
 	}
 
-	return []*slackbot.Bot{bot}, nil
+	return bot, nil
 }
 
 // syncSlackBotForOrg (re)connects the Slack bot for a single org immediately
@@ -712,7 +730,7 @@ func (s *Server) syncSlackBotForOrg(orgID int64) {
 	}
 
 	cfg, err := slackbot.NewStorage(s.db).GetSlackConfig(context.Background(), orgID)
-	if err != nil || cfg == nil {
+	if err != nil {
 		log.Printf("[SlackBot] Org %d: config not found after save, cannot sync live: %v", orgID, err)
 		return
 	}
@@ -734,8 +752,14 @@ func (s *Server) syncSlackBotForOrg(orgID int64) {
 		return
 	}
 
-	// First-ever Slack config on this running server - build and start a
-	// fresh Bot, same shape as the boot-time path in appContext/Start().
+	// First-ever Slack config on this running server (s.slackBot == nil, per
+	// the check above) - build and start a fresh Bot for just this org. This
+	// does NOT drop any other org's connection: reaching this branch means
+	// no bot was running at all, so there was no other org being served to
+	// begin with. Every subsequent org's config lands in the s.slackBot
+	// branch above instead, which hot-adds it to this same Bot via AddOrg -
+	// so s.slackBot ends up holding every configured org, same as the
+	// boot-time path in startOrgSlackBots.
 	bot, err := slackbot.New(&slackbot.Config{Orgs: []slackbot.OrgConfig{*orgCfg}}, func(oid int64, teamID string) error {
 		return slackbot.NewStorage(s.db).UpdateTeamID(context.Background(), oid, teamID)
 	})
@@ -745,8 +769,14 @@ func (s *Server) syncSlackBotForOrg(orgID int64) {
 	}
 
 	s.slackBot = bot
-	s.slackBots = append(s.slackBots, bot)
 
+	// Defensive: cancel any previous Slack bot's context before overwriting
+	// slackBotCancel, so a stale goroutine can never be leaked even if
+	// slackBot is ever reset to nil and re-created (not possible today, but
+	// this keeps it safe if that changes).
+	if s.slackBotCancel != nil {
+		s.slackBotCancel()
+	}
 	slackCtx, cancel := context.WithCancel(context.Background())
 	s.slackBotCancel = cancel
 	go func() {
@@ -1894,19 +1924,17 @@ func (s *Server) Start() error {
 		fmt.Println("Scheduled review scheduler started")
 	}
 
-	// Start Slack bots if configured
-	if len(s.slackBots) > 0 {
+	// Start the Slack bot if configured
+	if s.slackBot != nil {
 		slackCtx, cancel := context.WithCancel(context.Background())
 		s.slackBotCancel = cancel
-		fmt.Printf("Starting %d Slack bot(s)...\n", len(s.slackBots))
-		for _, bot := range s.slackBots {
-			bot := bot
-			go func() {
-				if err := bot.Start(slackCtx); err != nil {
-					fmt.Printf("Slack bot failed: %v\n", err)
-				}
-			}()
-		}
+		fmt.Printf("Starting Slack bot...\n")
+		bot := s.slackBot
+		go func() {
+			if err := bot.Start(slackCtx); err != nil {
+				fmt.Printf("Slack bot failed: %v\n", err)
+			}
+		}()
 	}
 
 	// Start Teams bot if configured

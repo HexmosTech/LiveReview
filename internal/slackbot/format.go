@@ -59,8 +59,13 @@ var (
 	quoteRe     = regexp.MustCompile(`^>\s?(.*)$`)
 	statusRe    = regexp.MustCompile(`^([✅🟢🟡🔴❌⚠️🚀🎉📊📈📋🔍✨💡🏆⭐]+)\s*(.*)$`)
 
-	mdBoldStarRe  = regexp.MustCompile(`\*\*([^\n*]+?)\*\*`)
-	mdBoldUnderRe = regexp.MustCompile(`__([^\n_]+?)__`)
+	// Non-greedy `.` (never matches newline in RE2) rather than a character
+	// class excluding * / _ - the excluding version failed to match at all
+	// when the bolded span itself contained a literal * or _ (e.g.
+	// "**use *args here**" or "__my_var__"), since the class forbade the
+	// delimiter character from appearing anywhere inside the span.
+	mdBoldStarRe  = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	mdBoldUnderRe = regexp.MustCompile(`__(.+?)__`)
 )
 
 // toSlackMrkdwn converts standard Markdown bold into Slack's mrkdwn dialect.
