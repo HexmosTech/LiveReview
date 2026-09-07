@@ -1,0 +1,30 @@
+---
+title: Microsoft Teams
+description: Connect Livi to Microsoft Teams via an Azure Bot.
+---
+
+# Microsoft Teams
+
+Livi connects to Microsoft Teams through an **Azure Bot** resource. You'll need two things to paste into LiveReview's **Settings → Integrations → Microsoft Teams**: a **Bot App ID** and a **Bot Password (Client Secret)**.
+
+## Setup
+
+1. In the [Azure Portal](https://portal.azure.com), create a new **Azure Bot** resource (Azure AI services → Azure Bot, or search "Azure Bot" in the marketplace).
+2. During creation, choose **Multi Tenant** (or your organization's preferred app type) and let Azure create a new Microsoft App ID for you — this becomes your **Bot App ID**.
+3. Once created, go to the bot resource's **Configuration** page and set the **Messaging endpoint** to:
+
+   ```
+   https://<your-livereview-instance>/api/messages
+   ```
+
+   Replace `<your-livereview-instance>` with your LiveReview instance's actual hostname.
+
+4. Generate a **Client Secret** for the app registration backing the bot (Azure Portal → App registrations → your bot's app → **Certificates & secrets** → **New client secret**). Copy the secret value immediately — Azure only shows it once. This is your **Bot Password**.
+5. Under the bot resource's **Channels**, add the **Microsoft Teams** channel.
+6. In your LiveReview instance, go to **Settings → Integrations → Microsoft Teams**, paste the **Bot App ID** and **Bot Password (Client Secret)**, and click **Save**.
+
+## Using Livi in Teams
+
+Mention Livi in a channel it's been added to, or message it directly, with any request — for example `Trigger a review for <PR URL>` or a question about a past review.
+
+If Livi doesn't respond, double-check the messaging endpoint on the Azure Bot resource matches your LiveReview instance's public URL exactly (including `/api/messages`), and confirm with whoever manages your LiveReview instance that the saved Teams configuration has been picked up by the server.

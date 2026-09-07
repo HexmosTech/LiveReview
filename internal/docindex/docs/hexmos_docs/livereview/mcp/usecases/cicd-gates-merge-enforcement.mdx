@@ -1,0 +1,11 @@
+---
+title: "LiveReview CI/CD Gates: Control What Code Gets Merged from Your PR"
+description: Write a jq rule against a review's findings, save it, and call one URL from any CI/CD pipeline to block or allow the build.
+---
+
+import usecases from '../../../../../../data/usecases.json'
+import UsecaseDetail from '../../../../../../components/livereview/docs/UsecaseDetail'
+
+# LiveReview CI/CD Gates: Control What Code Gets Merged from Your PR
+
+<UsecaseDetail useCase={usecases.find(u => u.slug === "cicd-gates-merge-enforcement")} />
