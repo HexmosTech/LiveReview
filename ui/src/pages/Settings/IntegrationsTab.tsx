@@ -564,30 +564,64 @@ const TeamsIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                             </div>
                         ) : (
                             <div className="mt-3 space-y-3">
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-400 mb-1">Bot App ID</label>
-                                    <input
-                                        type="text"
-                                        value={form.bot_app_id}
-                                        onChange={(e) => setForm({ ...form, bot_app_id: e.target.value })}
-                                        placeholder="e.g. 12345678-1234-1234-1234-123456789012"
-                                        className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    />
+                                <div className="text-xs text-slate-400 space-y-2">
+                                    <p className="font-medium text-slate-300">Step-by-step setup:</p>
+                                    <ol className="list-decimal list-inside space-y-1.5">
+                                        <li>
+                                            In the <a href="https://portal.azure.com" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">Azure Portal</a>, create a new <strong className="text-slate-200">Azure Bot</strong> resource, name it <strong className="text-slate-200">Livi</strong>, and choose <strong className="text-slate-200">Multi Tenant</strong>. Copy the <strong className="text-slate-200">Microsoft App ID</strong> Azure generates for it into the field below.
+                                        </li>
+                                    </ol>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-400 mb-1">Bot App ID</label>
+                                        <input
+                                            type="text"
+                                            value={form.bot_app_id}
+                                            onChange={(e) => setForm({ ...form, bot_app_id: e.target.value })}
+                                            placeholder="e.g. 12345678-1234-1234-1234-123456789012"
+                                            className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        />
+                                    </div>
+                                    <ol className="list-decimal list-inside space-y-1.5" start={2}>
+                                        <li>
+                                            Download the Livi icon below and upload it as the bot's icon on the Azure Bot resource (<strong className="text-slate-200">Configuration &gt; Branding</strong>, or during creation).
+                                        </li>
+                                    </ol>
+                                    <div>
+                                        <a
+                                            href="/assets/lrbot/lrbot-original.png"
+                                            download="livi-icon.png"
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-600 text-slate-200 hover:border-slate-500 hover:bg-slate-700/50 rounded-lg transition-colors"
+                                        >
+                                            <Icons.Download /> Download Livi icon
+                                        </a>
+                                    </div>
+                                    <ol className="list-decimal list-inside space-y-1.5" start={3}>
+                                        <li>
+                                            On the bot resource's <strong className="text-slate-200">Configuration</strong> page, set the <strong className="text-slate-200">Messaging endpoint</strong> to <code className="px-1.5 py-0.5 bg-slate-900/60 border border-slate-600 text-slate-100 rounded">{window.location.origin}/api/messages</code>.
+                                        </li>
+                                        <li>
+                                            Generate a <strong className="text-slate-200">Client Secret</strong> (App registrations &gt; your bot's app &gt; <strong className="text-slate-200">Certificates &amp; secrets</strong> &gt; <strong className="text-slate-200">New client secret</strong>). Copy the value immediately — Azure only shows it once. Paste it into the field below.
+                                        </li>
+                                    </ol>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-400 mb-1">Bot Password (Client Secret)</label>
+                                        <input
+                                            type="password"
+                                            value={form.bot_password}
+                                            onChange={(e) => setForm({ ...form, bot_password: e.target.value })}
+                                            placeholder="Enter your bot client secret"
+                                            className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        />
+                                    </div>
+                                    <ol className="list-decimal list-inside space-y-1.5" start={6}>
+                                        <li>
+                                            Under the bot resource's <strong className="text-slate-200">Channels</strong>, add the <strong className="text-slate-200">Microsoft Teams</strong> channel.
+                                        </li>
+                                        <li>
+                                            Click <strong className="text-slate-200">Save</strong>.
+                                        </li>
+                                    </ol>
                                 </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-400 mb-1">Bot Password (Client Secret)</label>
-                                    <input
-                                        type="password"
-                                        value={form.bot_password}
-                                        onChange={(e) => setForm({ ...form, bot_password: e.target.value })}
-                                        placeholder="Enter your bot client secret"
-                                        className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    />
-                                </div>
-                                <p className="text-xs text-slate-500">
-                                    Create an Azure Bot in the Azure Portal, then paste the App ID and Client Secret here.
-                                    Set the messaging endpoint to <code className="px-1.5 py-0.5 bg-slate-900/60 border border-slate-600 text-slate-100 rounded">{window.location.origin}/api/messages</code>
-                                </p>
                                 <div className="flex items-center space-x-3">
                                     <Button
                                         size="sm"
