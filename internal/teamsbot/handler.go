@@ -53,10 +53,66 @@ func NewHandler(db *sql.DB) (*Handler, error) {
 	return &Handler{Bot: bot, db: db}, nil
 }
 
-func buildBot(db *sql.DB) (*Bot, error) {
-	mcpServerURL := resolveMCPBaseURL(db)
-	maxSteps := 20
+// BaseURL resolves the address the Teams bot uses for anything it needs to
+// hand back to Teams itself (e.g. chart image URLs) - TEAMS_BOT_BASE_URL if
+// set, else http://localhost:8888. Exported so a live sync path (adding one
+// org to an already-running bot, without a full server restart) can build a
+// BotConfig with the same base URL as the boot-time path below.
+func BaseURL() string {
+	if v := os.Getenv("TEAMS_BOT_BASE_URL"); v != "" {
+		return v
+	}
+	return "http://localhost:8888"
+}
 
+// BuildOrgConfig resolves the AI connector, MCP URL/headers, and org name
+// needed to construct a BotConfig for one org's stored Teams config. Returns
+// (nil, err) with a log-ready reason when the org should be skipped (no
+// usable AI connector, etc.) - shared by buildBot (boot-time, all orgs) and
+// the live-sync path in internal/api/server.go (one org, called right after
+// UpdateTeamsConfig saves).
+func BuildOrgConfig(db *sql.DB, cfg TeamsConfig) (*BotConfig, error) {
+	connectorStorage := aiconnectors.NewStorage(db)
+	connectors, err := connectorStorage.GetAllConnectors(context.Background(), cfg.OrgID)
+	if err != nil || len(connectors) == 0 {
+		return nil, fmt.Errorf("org %d: no AI connectors found", cfg.OrgID)
+	}
+
+	var connector *aiconnectors.Connector
+	for _, record := range connectors {
+		options := connectorStorage.GetConnectorOptions(context.Background(), record)
+		c, err := aiconnectors.NewConnector(context.Background(), options)
+		if err != nil {
+			log.Printf("Teams bot org %d: connector %q failed: %v", cfg.OrgID, record.ConnectorName, err)
+			continue
+		}
+		connector = c
+		log.Printf("Teams bot org %d: using connector %q (%s, model=%s)", cfg.OrgID, record.ConnectorName, record.ProviderName, options.ModelConfig.Model)
+		break
+	}
+	if connector == nil {
+		return nil, fmt.Errorf("org %d: all connectors failed to initialize", cfg.OrgID)
+	}
+
+	orgName, orgNameErr := orgname.OrgNameByID(context.Background(), db, cfg.OrgID)
+	if orgNameErr != nil {
+		log.Printf("Teams bot: failed to resolve org name for org %d: %v", cfg.OrgID, orgNameErr)
+	}
+
+	return &BotConfig{
+		OrgID:        cfg.OrgID,
+		OrgName:      orgName,
+		BotAppID:     cfg.BotAppID,
+		BotPassword:  cfg.BotPassword,
+		MCPServerURL: resolveMCPBaseURL(db),
+		MCPHeaders:   map[string]string{"X-API-Key": cfg.APIKey},
+		Connector:    connector,
+		Analytics:    storageanalytics.NewAdHocStore(db),
+		MaxSteps:     20,
+	}, nil
+}
+
+func buildBot(db *sql.DB) (*Bot, error) {
 	configStorage := NewStorage(db)
 	configs, err := configStorage.GetAllEnabledConfigs(context.Background())
 	if err != nil {
@@ -66,64 +122,21 @@ func buildBot(db *sql.DB) (*Bot, error) {
 		return nil, nil
 	}
 
-	connectorStorage := aiconnectors.NewStorage(db)
-	analyticsEngine := storageanalytics.NewAdHocStore(db)
-
 	var botCfgs []BotConfig
 	for _, cfg := range configs {
-		connectors, err := connectorStorage.GetAllConnectors(context.Background(), cfg.OrgID)
-		if err != nil || len(connectors) == 0 {
-			log.Printf("Teams bot org %d: no AI connectors found, skipping", cfg.OrgID)
+		botCfg, err := BuildOrgConfig(db, cfg)
+		if err != nil {
+			log.Printf("Teams bot: %v — skipping", err)
 			continue
 		}
-
-		var connector *aiconnectors.Connector
-		for _, record := range connectors {
-			options := connectorStorage.GetConnectorOptions(context.Background(), record)
-			c, err := aiconnectors.NewConnector(context.Background(), options)
-			if err != nil {
-				log.Printf("Teams bot org %d: connector %q failed: %v", cfg.OrgID, record.ConnectorName, err)
-				continue
-			}
-			connector = c
-			log.Printf("Teams bot org %d: using connector %q (%s, model=%s)", cfg.OrgID, record.ConnectorName, record.ProviderName, options.ModelConfig.Model)
-			break
-		}
-		if connector == nil {
-			log.Printf("Teams bot: all connectors for org %d failed to initialize — skipping", cfg.OrgID)
-			continue
-		}
-
-		mcpHeaders := map[string]string{"X-API-Key": cfg.APIKey}
-
-		orgName, orgNameErr := orgname.OrgNameByID(context.Background(), db, cfg.OrgID)
-		if orgNameErr != nil {
-			log.Printf("Teams bot: failed to resolve org name for org %d: %v", cfg.OrgID, orgNameErr)
-		}
-
-		botCfgs = append(botCfgs, BotConfig{
-			OrgID:        cfg.OrgID,
-			OrgName:      orgName,
-			BotAppID:     cfg.BotAppID,
-			BotPassword:  cfg.BotPassword,
-			MCPServerURL: mcpServerURL,
-			MCPHeaders:   mcpHeaders,
-			Connector:    connector,
-			Analytics:    analyticsEngine,
-			MaxSteps:     maxSteps,
-		})
+		botCfgs = append(botCfgs, *botCfg)
 	}
 
 	if len(botCfgs) == 0 {
 		return nil, fmt.Errorf("no orgs could be configured for Teams bot")
 	}
 
-	baseURL := os.Getenv("TEAMS_BOT_BASE_URL")
-	if baseURL == "" {
-		baseURL = "http://localhost:8888"
-	}
-
-	return NewBot(context.Background(), botCfgs, baseURL), nil
+	return NewBot(context.Background(), botCfgs, BaseURL()), nil
 }
 
 func (h *Handler) Start() {

@@ -14,12 +14,20 @@ import (
 type TeamsConfigHandler struct {
 	storage   *teamsbot.Storage
 	apiKeys   *APIKeyManager
+	onSaved   func(orgID int64) // (re)connects the Teams bot for orgID live, no restart needed
+	onDeleted func(orgID int64) // disconnects the live Teams bot for orgID, if running
 }
 
-func NewTeamsConfigHandler(db *sql.DB) *TeamsConfigHandler {
+// NewTeamsConfigHandler wires onSaved/onDeleted so that saving or deleting an
+// org's Teams config takes effect on the running server immediately -
+// without these, a config change only takes effect on the next server
+// restart (see (*Server).syncTeamsBotForOrg / removeTeamsBotForOrg).
+func NewTeamsConfigHandler(db *sql.DB, onSaved, onDeleted func(orgID int64)) *TeamsConfigHandler {
 	return &TeamsConfigHandler{
 		storage:   teamsbot.NewStorage(db),
 		apiKeys:   NewAPIKeyManager(db),
+		onSaved:   onSaved,
+		onDeleted: onDeleted,
 	}
 }
 
@@ -97,6 +105,10 @@ func (h *TeamsConfigHandler) UpdateTeamsConfig(c echo.Context) error {
 
 	log.Printf("[TeamsConfig] Org %d: Teams bot configured with app ID %s", permCtx.OrgID, req.BotAppID)
 
+	if h.onSaved != nil {
+		h.onSaved(permCtx.OrgID)
+	}
+
 	return c.JSON(http.StatusOK, TeamsConfigResponse{
 		Configured: true,
 		BotAppID:   cfg.BotAppID,
@@ -124,6 +136,10 @@ func (h *TeamsConfigHandler) DeleteTeamsConfig(c echo.Context) error {
 
 	if err := h.storage.DeleteTeamsConfig(ctx, permCtx.OrgID); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to delete Teams config")
+	}
+
+	if h.onDeleted != nil {
+		h.onDeleted(permCtx.OrgID)
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "deleted"})

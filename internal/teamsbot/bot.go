@@ -54,6 +54,7 @@ type Bot struct {
 	appID   string
 	baseURL string
 	client  *http.Client
+	tokens  *tokenCache
 }
 
 type BotConfig struct {
@@ -76,6 +77,7 @@ func NewBot(ctx context.Context, configs []BotConfig, baseURL string) *Bot {
 		cancel:  cancel,
 		baseURL: baseURL,
 		client:  &http.Client{Timeout: 30 * time.Second},
+		tokens:  newTokenCache(),
 	}
 	for _, cfg := range configs {
 		oh := &orgHandler{
@@ -126,6 +128,14 @@ func (b *Bot) AddOrg(cfg BotConfig) {
 	if b.appID == "" {
 		b.appID = cfg.BotAppID
 	}
+}
+
+// RemoveOrg unregisters an org from a running (or not-yet-started) bot.
+// Safe to call for an org that isn't currently registered (no-op).
+func (b *Bot) RemoveOrg(orgID int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.orgs, orgID)
 }
 
 func (b *Bot) GetAppID() string {
@@ -203,7 +213,7 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 	oh := b.findOrgByRecipient(activity.Recipient)
 	if oh == nil {
 		reply := b.buildReply("Teams bot is not fully configured yet. Please contact your admin.", activity, nil)
-		return b.postReply(ctx, activity, reply)
+		return b.postReply(ctx, activity, reply, nil)
 	}
 
 	if oh.connector != nil {
@@ -227,7 +237,7 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 	if err := oh.ensureAgent(ctx); err != nil {
 		log.Printf("[TeamsBot] Org %d: failed to initialize agent: %s", oh.orgID, err)
 		reply := b.buildReply("Sorry, I'm having trouble connecting. Please try again later.", activity, nil)
-		return b.postReply(ctx, activity, reply)
+		return b.postReply(ctx, activity, reply, oh)
 	}
 
 	tStart := time.Now()
@@ -236,7 +246,7 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 	if err != nil {
 		log.Printf("[TeamsBot] Org %d: agent error after %s: %s", oh.orgID, elapsed, err)
 		reply := b.buildReply("Sorry, I encountered an error processing your request.", activity, nil)
-		return b.postReply(ctx, activity, reply)
+		return b.postReply(ctx, activity, reply, oh)
 	}
 	log.Printf("[TeamsBot] Org %d: agent responded in %s (response len=%d)", oh.orgID, elapsed, len(response))
 
@@ -249,16 +259,16 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 		if len(replies) > 0 {
 			log.Printf("[TeamsBot] Rendered %d Vega-Lite charts for Teams", len(replies))
 			for _, cr := range replies {
-				if err := b.postReply(ctx, activity, b.buildReply("", activity, []Attachment{cr.Attachment})); err != nil {
+				if err := b.postReply(ctx, activity, b.buildReply("", activity, []Attachment{cr.Attachment}), oh); err != nil {
 					log.Printf("[TeamsBot] Failed to send chart image: %s", err)
 					continue
 				}
 				if cr.Text != "" {
-					b.postReply(ctx, activity, b.buildReply(cr.Text, activity, nil))
+					b.postReply(ctx, activity, b.buildReply(cr.Text, activity, nil), oh)
 				}
 			}
 			if leftoverText != "" {
-				b.postReply(ctx, activity, b.buildReply(leftoverText, activity, nil))
+				b.postReply(ctx, activity, b.buildReply(leftoverText, activity, nil), oh)
 			}
 			return nil
 		}
@@ -274,14 +284,14 @@ func (b *Bot) handleMessage(ctx context.Context, activity *Activity) error {
 				}
 				desc += detail
 			}
-			return b.postReply(ctx, activity, b.buildReply(desc, activity, nil))
+			return b.postReply(ctx, activity, b.buildReply(desc, activity, nil), oh)
 		}
 		log.Printf("[TeamsBot] Vega-Lite render failed after retries, sending friendly error")
-		return b.postReply(ctx, activity, b.buildReply("Having an issue generating the data, please try again.", activity, nil))
+		return b.postReply(ctx, activity, b.buildReply("Having an issue generating the data, please try again.", activity, nil), oh)
 	}
 
 	reply := b.buildReply(response, activity, nil)
-	return b.postReply(ctx, activity, reply)
+	return b.postReply(ctx, activity, reply, oh)
 }
 
 func (b *Bot) handleConversationUpdate(ctx context.Context, activity *Activity) {
@@ -306,13 +316,14 @@ func (b *Bot) handleConversationUpdate(ctx context.Context, activity *Activity) 
 		return
 	}
 
-	welcome := `Hi! I'm the LiveReview bot. I can help you review code, check billing, and more.`
+	welcome := `Hi! I'm Livi, your LiveReview assistant. I can help you review code, check billing, and more.`
 
 	if activity.Conversation.ConversationType == ConversationTypePersonal {
 		welcomeCtx, welcomeCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer welcomeCancel()
+		oh := b.findOrgByRecipient(activity.Recipient)
 		reply := b.buildReply(welcome, activity, nil)
-		if err := b.postReply(welcomeCtx, activity, reply); err != nil {
+		if err := b.postReply(welcomeCtx, activity, reply, oh); err != nil {
 			log.Printf("[TeamsBot] Failed to send welcome: %s", err)
 		}
 	}
@@ -395,7 +406,17 @@ func isTrustedBotFrameworkServiceURL(raw string) bool {
 
 // postReply sends an Activity to the Bot Framework Connector API via
 // POST {serviceUrl}/v3/conversations/{conversationId}/activities
-func (b *Bot) postReply(ctx context.Context, orig *Activity, reply *Activity) error {
+//
+// oh identifies which org's bot credentials to authenticate this outbound
+// call with (each org has its own Azure Bot App ID/secret) - pass nil only
+// when no org could be resolved at all (e.g. the "not configured" fallback
+// in handleMessage), in which case the reply is sent unauthenticated,
+// best-effort. Real Bot Framework channels (Teams, production) require this
+// Authorization header on every Connector API call; local test tools
+// (an emulator, or the 365 Agents Playground with auth disabled) don't
+// enforce it, so a failed/skipped token acquisition here degrades to
+// unauthenticated rather than aborting the reply.
+func (b *Bot) postReply(ctx context.Context, orig *Activity, reply *Activity, oh *orgHandler) error {
 	if orig.ServiceURL == "" {
 		return fmt.Errorf("no serviceUrl on incoming activity")
 	}
@@ -417,6 +438,11 @@ func (b *Bot) postReply(ctx context.Context, orig *Activity, reply *Activity) er
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if oh != nil {
+		if authz := b.tokens.authorizationHeader(ctx, oh.botAppID, oh.botPassword); authz != "" {
+			req.Header.Set("Authorization", authz)
+		}
+	}
 
 	resp, err := b.client.Do(req)
 	if err != nil {

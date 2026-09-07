@@ -184,7 +184,8 @@ type Server struct {
 	slackBot   *slackbot.Bot
 	slackBotMu sync.Mutex // guards slackBot against concurrent PutSlackConfig/DeleteSlackConfig calls
 
-	teamsHandler *teamsbot.Handler
+	teamsHandler   *teamsbot.Handler
+	teamsHandlerMu sync.Mutex // guards teamsHandler against concurrent UpdateTeamsConfig/DeleteTeamsConfig calls
 
 	discordBot       *discordbot.Bot
 	discordBotCancel context.CancelFunc
@@ -798,6 +799,61 @@ func (s *Server) removeSlackBotForOrg(orgID int64) {
 	}
 }
 
+// syncTeamsBotForOrg (re)connects the Teams bot for a single org immediately
+// after its config is saved via PUT /orgs/:org_id/teams-config, so - like
+// Slack's syncSlackBotForOrg above - the integration works live without
+// restarting the server. No-op in cloud mode, matching appContext's
+// boot-time gate (server.go's Teams init above). Unlike Slack, the Teams bot
+// holds no persistent per-org connection to open (it's pure webhook/HTTP,
+// no Socket Mode equivalent), so AddOrg alone - no separate "start" call -
+// is enough to make a newly-added org on an already-running bot immediately
+// functional.
+func (s *Server) syncTeamsBotForOrg(orgID int64) {
+	if s.deploymentConfig.IsCloud {
+		return
+	}
+
+	cfg, err := teamsbot.NewStorage(s.db).GetTeamsConfig(context.Background(), orgID)
+	if err != nil {
+		log.Printf("[TeamsBot] Org %d: config not found after save, cannot sync live: %v", orgID, err)
+		return
+	}
+
+	botCfg, err := teamsbot.BuildOrgConfig(s.db, *cfg)
+	if err != nil {
+		log.Printf("[TeamsBot] Org %d: cannot start bot live: %v", orgID, err)
+		return
+	}
+
+	s.teamsHandlerMu.Lock()
+	defer s.teamsHandlerMu.Unlock()
+
+	if s.teamsHandler != nil && s.teamsHandler.Bot != nil {
+		s.teamsHandler.Bot.AddOrg(*botCfg)
+		log.Printf("[TeamsBot] Org %d: added live, no restart needed", orgID)
+		return
+	}
+
+	// First-ever Teams config on this running server - build and start a
+	// fresh Handler, same shape as the boot-time path in appContext.
+	bot := teamsbot.NewBot(context.Background(), []teamsbot.BotConfig{*botCfg}, teamsbot.BaseURL())
+	handler := &teamsbot.Handler{Bot: bot}
+	handler.Start()
+	s.teamsHandler = handler
+	log.Printf("[TeamsBot] Org %d: started Teams bot live, no restart needed", orgID)
+}
+
+// removeTeamsBotForOrg unregisters an org from the running Teams bot right
+// after DELETE /orgs/:org_id/teams-config, so disconnecting also takes
+// effect immediately. No-op if no Teams bot is running.
+func (s *Server) removeTeamsBotForOrg(orgID int64) {
+	s.teamsHandlerMu.Lock()
+	defer s.teamsHandlerMu.Unlock()
+	if s.teamsHandler != nil && s.teamsHandler.Bot != nil {
+		s.teamsHandler.Bot.RemoveOrg(orgID)
+	}
+}
+
 // startOrgDiscordBots reads all enabled Discord bot configs from the DB,
 // resolves each org's AI connector, and creates the multi-org Discord bot.
 func startOrgDiscordBots(db *sql.DB) (*discordbot.Bot, error) {
@@ -1278,7 +1334,7 @@ func (s *Server) setupRoutes() {
 
 	// Teams bot configuration within org context (self-hosted only)
 	if !s.deploymentConfig.IsCloud {
-		teamsConfigHandler := NewTeamsConfigHandler(s.db)
+		teamsConfigHandler := NewTeamsConfigHandler(s.db, s.syncTeamsBotForOrg, s.removeTeamsBotForOrg)
 		orgGroup.GET("/teams-config", teamsConfigHandler.GetTeamsConfig)
 		orgGroup.PUT("/teams-config", teamsConfigHandler.UpdateTeamsConfig)
 		orgGroup.DELETE("/teams-config", teamsConfigHandler.DeleteTeamsConfig)
