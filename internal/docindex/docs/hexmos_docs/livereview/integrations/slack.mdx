@@ -1,0 +1,94 @@
+---
+title: Slack
+description: Connect Livi to your Slack workspace.
+---
+
+# Slack
+
+Livi connects to Slack over **Socket Mode** — a connection your LiveReview server opens outbound to Slack. There's no public webhook URL to configure, and nothing on the Slack side needs to know your LiveReview instance's address.
+
+## What you'll need
+
+You'll create a Slack app from a manifest, then generate two credentials to paste into LiveReview's **Settings → Integrations → Slack**:
+
+- An **App-Level Token** (used to open the Socket Mode connection)
+- A **Bot Token** (used to read/post messages)
+
+## Setup
+
+In your LiveReview instance, go to **Settings → Connect Integrations → Slack**:
+
+![Settings → Connect Integrations → Slack](/livereview/integrations/settings-slack-navigation.png)
+
+1. In [Slack API Apps](https://api.slack.com/apps), click **Create New App**, choose **From manifest**.
+2. Paste the manifest below and choose your workspace.
+
+```yaml
+display_information:
+  name: Livi
+  description: LiveReview Bot
+  background_color: "#001c5e"
+features:
+  bot_user:
+    display_name: Livi
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - channels:read
+      - app_mentions:read
+      - channels:history
+      - chat:write
+      - files:write
+      - groups:history
+      - im:history
+      - im:read
+      - im:write
+      - users:read
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - message.im
+  interactivity:
+    is_enabled: true
+  socket_mode_enabled: true
+  token_rotation_enabled: false
+```
+
+3. Download the Livi icon below, then in Slack go to **Basic Information → Display Information**, upload it as the **App icon**, and click **Save Changes**.
+
+<a
+  href="/livereview/lrbot/lrbot-original.png"
+  download="livi-icon.png"
+  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 no-underline"
+>
+  ⬇ Download Livi icon
+</a>
+
+4. Go to **Basic Information → App-Level Tokens**, click **Generate Token and Scopes**, add the **connections:write** scope, then click **Generate**. Copy it — this is your **App-Level Token**.
+
+   ![Basic Information → App-Level Tokens → Generate Token and Scopes → connections:write](/livereview/integrations/slack-app-level-token.png)
+
+5. Go to **Install App** in the sidebar and click **Install to Workspace**. When prompted **Allow the "Livi" app to access Slack**, click **Allow** to reveal the **Bot Token**. Copy it too.
+6. In your LiveReview instance, go to **Settings → Integrations → Slack**, paste the App-Level Token and Bot Token into their respective fields, and click **Save**.
+
+## Using Livi in Slack
+
+### In a channel
+
+Mention it: `@Livi Trigger a review for <PR URL>`.
+
+![Livi triggering a review from a Slack channel](/livereview/integrations/slack-trigger-review.png)
+
+You can also ask it for analytics, and it'll generate a chart right in the conversation:
+
+`@Livi Are engineers actually incorporating reviews into their daily workflow?`
+
+![Livi answering an analytics question with a generated chart in Slack](/livereview/integrations/slack-analytics-chart.png)
+
+### In a DM
+
+Just message it directly, no mention needed: `hi`, or any question.
+
+If Livi doesn't respond, check with whoever manages your LiveReview instance that the server has picked up the saved Slack configuration (recent versions connect immediately after saving; older versions may need the LiveReview process restarted once after the first save).

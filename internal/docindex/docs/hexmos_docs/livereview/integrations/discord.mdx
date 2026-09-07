@@ -1,0 +1,44 @@
+---
+title: Discord
+description: Connect Livi to your Discord server.
+---
+
+# Discord
+
+Livi connects to Discord using a bot application you create in the Discord Developer Portal. You'll need two things to paste into LiveReview's **Settings → Integrations → Discord**: an **Application ID** and a **Bot Token**.
+
+## Setup
+
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and click **New Application**, name it **Livi**, then click **Create**.
+
+   Copy the **Application ID** shown on the **General Information** tab — you'll paste this into LiveReview's **Application ID** field.
+
+2. Click **Bot** on the left sidebar.
+3. Download the Livi icon below and upload it as the bot's avatar on this **Bot** page.
+
+   <a
+     href="/livereview/lrbot/lrbot-original.png"
+     download="livi-icon.png"
+     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 no-underline"
+   >
+     ⬇ Download Livi icon
+   </a>
+
+4. Under the **Privileged Gateway Intents** section, enable both of the following and click **Save Changes**:
+   - **MESSAGE CONTENT INTENT** — required to read message content
+   - **SERVER MEMBERS INTENT** — required to see guild members
+5. Click **Reset Token**, then copy the bot token shown — you'll paste this into LiveReview's **Bot Token** field.
+6. In your LiveReview instance, go to **Settings → Integrations → Discord**, paste the **Application ID** and **Bot Token**, and click **Save**.
+7. After saving, click **Invite bot to your server** (shown once your Discord config is saved), choose your server, and authorize.
+
+## Using Livi in Discord
+
+### In a channel
+
+Mention it: `@Livi Trigger a review for <PR URL>`.
+
+### In a DM
+
+Message the bot directly with any question.
+
+If Livi doesn't respond, check with whoever manages your LiveReview instance that the server has picked up the saved Discord configuration.

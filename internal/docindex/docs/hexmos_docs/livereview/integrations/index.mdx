@@ -1,0 +1,60 @@
+---
+title: Integrations
+description: Bring Livi, LiveReview's AI agent, into Slack, Discord, and Microsoft Teams.
+---
+
+# Integrations
+
+LiveReview isn't only a dashboard. Connect **Slack**, **Discord**, or **Microsoft Teams** and your team gets **Livi**, LiveReview's AI agent, right inside the chat app you already use every day. Each integration is self-hosted only, with your own bot credentials running against your own LiveReview instance. No server-level configuration is needed beyond what you enter in **Settings → Integrations**.
+
+## What you can do with Livi in chat
+
+Mention Livi in a channel, or DM it directly, with plain-language requests.
+
+### Trigger a review
+
+Ask Livi to run a LiveReview code review against a pull or merge request straight from chat, no need to open the dashboard first.
+
+```
+@Livi Trigger a review for https://github.com/org/repo/pull/112
+```
+
+### Ask about review results
+
+Check the status, findings, or coverage of a review, or ask follow-up questions about what it flagged.
+
+### Get analytics and reports
+
+Ask things like "how many reviews did we run this week" or "show me our review coverage trend." Livi can generate a chart directly in the conversation.
+
+### Look up learnings, prompts, and account details
+
+The same tools available to LiveReview's [MCP server](/livereview/docs/livereview/mcp) are available to Livi in chat: learnings, prompt configuration, and billing/plan questions.
+
+### General Q&A
+
+Ask Livi anything about a review, a repository, or how a LiveReview feature works, and it'll use its available tools to answer.
+
+Livi keeps track of conversation context per thread (Slack/Discord) or per conversation (Teams), so you can have a back-and-forth instead of one-shot commands.
+
+## Choose your platform
+
+### Slack
+
+Create a Slack app from a manifest, install it to your workspace, and set Livi's profile picture.
+
+[Set up Slack →](/livereview/docs/livereview/integrations/slack)
+
+### Discord
+
+Create a Discord application, enable the required intents, and invite the bot to your server.
+
+[Set up Discord →](/livereview/docs/livereview/integrations/discord)
+
+### Microsoft Teams
+
+Register an Azure Bot and connect it to your LiveReview instance.
+
+[Set up Microsoft Teams →](/livereview/docs/livereview/integrations/teams)
+
+All three are configured the same way: open your LiveReview instance's **Settings → Integrations** tab, follow the platform-specific setup guide, and paste the resulting credentials into the matching fields.
