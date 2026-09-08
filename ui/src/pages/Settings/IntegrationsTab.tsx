@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Button, Alert, Icons } from '../../components/UIPrimitives';
-import apiClient from '../../api/apiClient';
+import apiClient, { authFetch } from '../../api/apiClient';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { isCloudMode } from '../../utils/deploymentMode';
 
@@ -25,6 +25,12 @@ interface DiscordConfig {
     guild_id?: string;
     application_id?: string;
 }
+
+// Azure App IDs and Tenant IDs are always GUIDs. Catches the field being
+// left with a browser-autofilled value (e.g. a saved email/username) that
+// was never actually replaced with the real Azure value before Save.
+const AZURE_GUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const isValidAzureGUID = (value: string) => AZURE_GUID_RE.test(value.trim());
 
 const IntegrationsTab: React.FC = () => {
     const { currentOrg } = useOrgContext();
@@ -423,7 +429,8 @@ const TeamsIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
     const [editMode, setEditMode] = useState(false);
-    const [form, setForm] = useState({ bot_app_id: '', bot_password: '' });
+    const [downloadingPackage, setDownloadingPackage] = useState(false);
+    const [form, setForm] = useState({ bot_app_id: '', bot_password: '', tenant_id: '' });
 
     const loadConfig = useCallback(async () => {
         if (!currentOrg) return;
@@ -433,7 +440,7 @@ const TeamsIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
             const response = await apiClient.get<TeamsConfig>(`/orgs/${currentOrg.id}/teams-config`);
             setConfig(response);
             if (response.configured) {
-                setForm({ bot_app_id: response.bot_app_id || '', bot_password: '' });
+                setForm({ bot_app_id: response.bot_app_id || '', bot_password: '', tenant_id: response.tenant_id || '' });
             }
         } catch {
             setConfig({ configured: false });
@@ -452,22 +459,56 @@ const TeamsIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
             setError('Both App ID and Password are required');
             return;
         }
+        if (!isValidAzureGUID(form.bot_app_id)) {
+            setError('Bot App ID must be a GUID from the Azure Bot resource, e.g. 12345678-1234-1234-1234-123456789012. Double check nothing else (like a saved email) got autofilled into this field.');
+            return;
+        }
+        if (form.tenant_id && !isValidAzureGUID(form.tenant_id)) {
+            setError('Tenant ID must be a GUID from the Azure Bot resource, e.g. 87654321-4321-4321-4321-210987654321.');
+            return;
+        }
         setSaving(true);
         setError(null);
         setSuccess(null);
         try {
             const response = await apiClient.put<TeamsConfig>(
                 `/orgs/${currentOrg.id}/teams-config`,
-                { bot_app_id: form.bot_app_id, bot_password: form.bot_password }
+                { bot_app_id: form.bot_app_id, bot_password: form.bot_password, tenant_id: form.tenant_id }
             );
             setConfig(response);
             setEditMode(false);
-            setForm({ bot_app_id: response.bot_app_id || '', bot_password: '' });
+            setForm({ bot_app_id: response.bot_app_id || '', bot_password: '', tenant_id: response.tenant_id || '' });
             setSuccess('Teams bot configured successfully.');
         } catch (err: any) {
             setError(err.message || 'Failed to save Teams configuration');
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleDownloadAppPackage = async () => {
+        if (!currentOrg) return;
+        setDownloadingPackage(true);
+        setError(null);
+        try {
+            const response = await authFetch(`/api/v1/orgs/${currentOrg.id}/teams-config/app-package`);
+            if (!response.ok) {
+                const text = await response.text().catch(() => '');
+                throw new Error(text || 'Failed to download Teams app package');
+            }
+            const blob = await response.blob();
+            const objectUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = objectUrl;
+            a.download = 'livi-teams-app.zip';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(objectUrl);
+        } catch (err: any) {
+            setError(err.message || 'Failed to download Teams app package');
+        } finally {
+            setDownloadingPackage(false);
         }
     };
 
@@ -545,21 +586,37 @@ const TeamsIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                 <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                             </div>
                         ) : config?.configured && !editMode ? (
-                            <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
-                                <div className="flex items-center space-x-3 flex-wrap gap-y-2">
-                                    {config.bot_app_id && (
-                                        <span className="text-xs text-slate-500">
-                                            App ID: <code className="px-1.5 py-0.5 bg-slate-900/60 border border-slate-600 text-slate-100 rounded">{config.bot_app_id}</code>
-                                        </span>
-                                    )}
+                            <div className="mt-3 space-y-3">
+                                <div className="flex items-center justify-between gap-3 flex-wrap">
+                                    <div className="flex items-center space-x-3 flex-wrap gap-y-2">
+                                        {config.bot_app_id && (
+                                            <span className="text-xs text-slate-500">
+                                                App ID: <code className="px-1.5 py-0.5 bg-slate-900/60 border border-slate-600 text-slate-100 rounded">{config.bot_app_id}</code>
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center space-x-3">
+                                        <Button size="sm" variant="outline" className="!px-2 !py-1 border-blue-500/60 text-blue-300 hover:border-blue-400 hover:bg-blue-500/10 hover:text-blue-200" onClick={() => setEditMode(true)}>
+                                            Edit
+                                        </Button>
+                                        <Button size="sm" variant="outline" className="!px-2 !py-1 border-red-500/60 text-red-300 hover:border-red-400 hover:bg-red-500/10 hover:text-red-200" onClick={handleDisconnect}>
+                                            Disconnect
+                                        </Button>
+                                    </div>
                                 </div>
-                                <div className="flex items-center space-x-3">
-                                    <Button size="sm" variant="outline" className="!px-2 !py-1 border-blue-500/60 text-blue-300 hover:border-blue-400 hover:bg-blue-500/10 hover:text-blue-200" onClick={() => setEditMode(true)}>
-                                        Edit
-                                    </Button>
-                                    <Button size="sm" variant="outline" className="!px-2 !py-1 border-red-500/60 text-red-300 hover:border-red-400 hover:bg-red-500/10 hover:text-red-200" onClick={handleDisconnect}>
-                                        Disconnect
-                                    </Button>
+                                <div className="text-xs text-slate-400">
+                                    <p>
+                                        Registering the bot in Azure isn't enough on its own — Teams only lets people find and add Livi through an installed app.
+                                        Download the Teams app package below and have a Teams admin upload it in the <a href="https://admin.teams.microsoft.com" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">Teams admin center</a> (not the general Microsoft 365 admin center) — <strong className="text-slate-200">Teams apps → Manage apps → Actions → Upload new app</strong> — to make Livi installable for your org.
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={handleDownloadAppPackage}
+                                        disabled={downloadingPackage}
+                                        className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-slate-600 text-slate-200 hover:border-slate-500 hover:bg-slate-700/50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        <Icons.Download /> {downloadingPackage ? 'Preparing…' : 'Download Livi Teams App'}
+                                    </button>
                                 </div>
                             </div>
                         ) : (
@@ -568,18 +625,44 @@ const TeamsIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                     <p className="font-medium text-slate-300">Step-by-step setup:</p>
                                     <ol className="list-decimal list-inside space-y-1.5">
                                         <li>
-                                            In the <a href="https://portal.azure.com" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">Azure Portal</a>, create a new <strong className="text-slate-200">Azure Bot</strong> resource, name it <strong className="text-slate-200">Livi</strong>, and choose <strong className="text-slate-200">Multi Tenant</strong>. Copy the <strong className="text-slate-200">Microsoft App ID</strong> Azure generates for it into the field below.
+                                            In the <a href="https://portal.azure.com" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">Azure Portal</a>, create a new <strong className="text-slate-200">Azure Bot</strong> resource, name it <strong className="text-slate-200">Livi</strong>, and choose <strong className="text-slate-200">Single Tenant</strong>. Copy the <strong className="text-slate-200">Microsoft App ID</strong> and <strong className="text-slate-200">Directory (tenant) ID</strong> Azure shows for it into the fields below.
                                         </li>
                                     </ol>
-                                    <div>
-                                        <label className="block text-xs font-medium text-slate-400 mb-1">Bot App ID</label>
-                                        <input
-                                            type="text"
-                                            value={form.bot_app_id}
-                                            onChange={(e) => setForm({ ...form, bot_app_id: e.target.value })}
-                                            placeholder="e.g. 12345678-1234-1234-1234-123456789012"
-                                            className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                        />
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="block text-xs font-medium text-slate-400 mb-1">Bot App ID</label>
+                                            <input
+                                                type="text"
+                                                name="teams_bot_app_id"
+                                                autoComplete="off"
+                                                value={form.bot_app_id}
+                                                onChange={(e) => setForm({ ...form, bot_app_id: e.target.value })}
+                                                placeholder="e.g. 12345678-1234-1234-1234-123456789012"
+                                                className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            />
+                                            {form.bot_app_id && !isValidAzureGUID(form.bot_app_id) && (
+                                                <p className="mt-1 text-xs text-amber-400">
+                                                    This doesn't look like a GUID (e.g. 12345678-1234-1234-1234-123456789012). Double check the Azure Portal didn't autofill an email or other saved value here.
+                                                </p>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-slate-400 mb-1">Tenant ID</label>
+                                            <input
+                                                type="text"
+                                                name="teams_tenant_id"
+                                                autoComplete="off"
+                                                value={form.tenant_id}
+                                                onChange={(e) => setForm({ ...form, tenant_id: e.target.value })}
+                                                placeholder="e.g. 87654321-4321-4321-4321-210987654321"
+                                                className="w-full px-3 py-2 text-sm bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            />
+                                            {form.tenant_id && !isValidAzureGUID(form.tenant_id) && (
+                                                <p className="mt-1 text-xs text-amber-400">
+                                                    This doesn't look like a GUID (e.g. 87654321-4321-4321-4321-210987654321).
+                                                </p>
+                                            )}
+                                        </div>
                                     </div>
                                     <ol className="list-decimal list-inside space-y-1.5" start={2}>
                                         <li>
@@ -607,6 +690,8 @@ const TeamsIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                         <label className="block text-xs font-medium text-slate-400 mb-1">Bot Password (Client Secret)</label>
                                         <input
                                             type="password"
+                                            name="teams_bot_password"
+                                            autoComplete="new-password"
                                             value={form.bot_password}
                                             onChange={(e) => setForm({ ...form, bot_password: e.target.value })}
                                             placeholder="Enter your bot client secret"
@@ -618,7 +703,10 @@ const TeamsIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                             Under the bot resource's <strong className="text-slate-200">Channels</strong>, add the <strong className="text-slate-200">Microsoft Teams</strong> channel.
                                         </li>
                                         <li>
-                                            Click <strong className="text-slate-200">Save</strong>.
+                                            Click <strong className="text-slate-200">Save</strong> below.
+                                        </li>
+                                        <li>
+                                            After saving, come back to this page and download the <strong className="text-slate-200">Livi Teams App</strong> package, then have a Teams admin upload it via <strong className="text-slate-200">Teams admin center → Teams apps → Manage apps → Upload new app</strong> — this is what actually makes Livi installable/usable in Teams, not just reachable.
                                         </li>
                                     </ol>
                                 </div>
@@ -627,7 +715,13 @@ const TeamsIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                         size="sm"
                                         variant="primary"
                                         onClick={handleSave}
-                                        disabled={saving || !form.bot_app_id || !form.bot_password}
+                                        disabled={
+                                            saving ||
+                                            !form.bot_app_id ||
+                                            !form.bot_password ||
+                                            !isValidAzureGUID(form.bot_app_id) ||
+                                            (!!form.tenant_id && !isValidAzureGUID(form.tenant_id))
+                                        }
                                         isLoading={saving}
                                     >
                                         Save
@@ -639,9 +733,9 @@ const TeamsIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                             onClick={() => {
                                                 setEditMode(false);
                                                 if (config?.configured) {
-                                                    setForm({ bot_app_id: config.bot_app_id || '', bot_password: '' });
+                                                    setForm({ bot_app_id: config.bot_app_id || '', bot_password: '', tenant_id: config.tenant_id || '' });
                                                 } else {
-                                                    setForm({ bot_app_id: '', bot_password: '' });
+                                                    setForm({ bot_app_id: '', bot_password: '', tenant_id: '' });
                                                 }
                                             }}
                                         >

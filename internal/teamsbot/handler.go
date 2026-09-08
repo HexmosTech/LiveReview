@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -54,15 +55,71 @@ func NewHandler(db *sql.DB) (*Handler, error) {
 }
 
 // BaseURL resolves the address the Teams bot uses for anything it needs to
-// hand back to Teams itself (e.g. chart image URLs) - TEAMS_BOT_BASE_URL if
-// set, else http://localhost:8888. Exported so a live sync path (adding one
-// org to an already-running bot, without a full server restart) can build a
-// BotConfig with the same base URL as the boot-time path below.
-func BaseURL() string {
+// hand back to Teams itself (e.g. chart image URLs): TEAMS_BOT_BASE_URL if
+// explicitly set, else the instance's own configured public URL (Settings ->
+// Instance -> Production URL), else http://localhost:8888 as a last-resort
+// local-dev default. Exported so a live sync path (adding one org to an
+// already-running bot, without a full server restart) can build a BotConfig
+// with the same base URL as the boot-time path below.
+//
+// Chart images embedded in Teams AdaptiveCards are fetched by Microsoft's
+// own cloud infrastructure, not the customer's browser - a URL pointing at
+// localhost (the old unconditional fallback here) is unreachable from
+// Teams and renders as a broken image in every real deployment that hasn't
+// separately set TEAMS_BOT_BASE_URL. Falling back to the same public URL
+// ResolveInstancePublicURL already resolves for the app manifest fixes that
+// for any self-hosted instance with a Production URL configured, with
+// localhost remaining the fallback only when neither is set (pure local
+// dev/testing, e.g. against the Bot Framework Emulator).
+func BaseURL(db *sql.DB) string {
 	if v := os.Getenv("TEAMS_BOT_BASE_URL"); v != "" {
 		return v
 	}
+	if db != nil {
+		if u, err := ResolveInstancePublicURL(db); err == nil {
+			return u
+		}
+	}
 	return "http://localhost:8888"
+}
+
+// isPublicHTTPSURL reports whether raw is a well-formed https:// URL with a
+// hostname that isn't localhost/loopback - the bar for "safe to ship inside
+// a Teams app package a real admin will upload to a real Teams tenant".
+func isPublicHTTPSURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
+		return false
+	}
+	switch strings.ToLower(u.Hostname()) {
+	case "localhost", "127.0.0.1", "::1":
+		return false
+	default:
+		return true
+	}
+}
+
+// ResolveInstancePublicURL returns this instance's own public HTTPS base
+// URL, for contexts that need a real customer-facing address rather than
+// whatever's convenient for local bot-to-Teams traffic (see BaseURL).
+// Prefers the admin-configured Production URL (Settings -> Instance ->
+// Production URL, stored as instance_details.livereview_prod_url) - that's
+// the field customers are actually told to set for exactly this purpose -
+// falling back to TEAMS_BOT_BASE_URL only if it happens to already be a
+// real public https URL. Returns an error (never a localhost/http URL) if
+// neither resolves, so callers can surface an actionable message instead of
+// silently shipping a broken URL to a customer.
+func ResolveInstancePublicURL(db *sql.DB) (string, error) {
+	var prodURL sql.NullString
+	if err := db.QueryRow("SELECT livereview_prod_url FROM instance_details LIMIT 1").Scan(&prodURL); err == nil && prodURL.Valid {
+		if u := strings.TrimSuffix(strings.TrimSpace(prodURL.String), "/"); isPublicHTTPSURL(u) {
+			return u, nil
+		}
+	}
+	if v := strings.TrimSuffix(strings.TrimSpace(os.Getenv("TEAMS_BOT_BASE_URL")), "/"); isPublicHTTPSURL(v) {
+		return v, nil
+	}
+	return "", fmt.Errorf("no public HTTPS instance URL configured - set it under Settings → Instance → Production URL")
 }
 
 // BuildOrgConfig resolves the AI connector, MCP URL/headers, and org name
@@ -104,6 +161,7 @@ func BuildOrgConfig(db *sql.DB, cfg TeamsConfig) (*BotConfig, error) {
 		OrgName:      orgName,
 		BotAppID:     cfg.BotAppID,
 		BotPassword:  cfg.BotPassword,
+		TenantID:     cfg.TenantID,
 		MCPServerURL: resolveMCPBaseURL(db),
 		MCPHeaders:   map[string]string{"X-API-Key": cfg.APIKey},
 		Connector:    connector,
@@ -136,7 +194,7 @@ func buildBot(db *sql.DB) (*Bot, error) {
 		return nil, fmt.Errorf("no orgs could be configured for Teams bot")
 	}
 
-	return NewBot(context.Background(), botCfgs, BaseURL()), nil
+	return NewBot(context.Background(), botCfgs, BaseURL(db)), nil
 }
 
 func (h *Handler) Start() {

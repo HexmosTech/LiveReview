@@ -836,7 +836,7 @@ func (s *Server) syncTeamsBotForOrg(orgID int64) {
 
 	// First-ever Teams config on this running server - build and start a
 	// fresh Handler, same shape as the boot-time path in appContext.
-	bot := teamsbot.NewBot(context.Background(), []teamsbot.BotConfig{*botCfg}, teamsbot.BaseURL())
+	bot := teamsbot.NewBot(context.Background(), []teamsbot.BotConfig{*botCfg}, teamsbot.BaseURL(s.db))
 	handler := &teamsbot.Handler{Bot: bot}
 	handler.Start()
 	s.teamsHandler = handler
@@ -1207,8 +1207,15 @@ func (s *Server) setupRoutes() {
 	})
 	fmt.Println("Teams bot messages endpoint registered")
 
-	// Serve chart images for Teams bot
-	s.echo.GET("/charts/:id", func(c echo.Context) error {
+	// Serve chart images for Teams bot. Must live under /api/ - that's the
+	// only path prefix self-hosted reverse-proxy configs (nginx/Caddy/Apache,
+	// see lrops.sh and config/*-ssl.conf.example) forward to this Go backend;
+	// anything outside /api/ falls through to the frontend's catch-all and
+	// gets served the SPA's index.html instead, which is exactly what broke
+	// Teams chart images in production (confirmed live: GET /charts/:id
+	// returned the frontend's HTML shell, content-type text/html, not the
+	// PNG) before this route was moved here.
+	s.echo.GET("/api/charts/:id", func(c echo.Context) error {
 		if s.teamsHandler == nil {
 			return c.NoContent(http.StatusInternalServerError)
 		}
@@ -1338,6 +1345,8 @@ func (s *Server) setupRoutes() {
 		orgGroup.GET("/teams-config", teamsConfigHandler.GetTeamsConfig)
 		orgGroup.PUT("/teams-config", teamsConfigHandler.UpdateTeamsConfig)
 		orgGroup.DELETE("/teams-config", teamsConfigHandler.DeleteTeamsConfig)
+		orgGroup.GET("/teams-config/app-package", teamsConfigHandler.DownloadAppPackage)
+		orgGroup.POST("/teams-config/validate", teamsConfigHandler.ValidateTeamsConfig)
 	}
 
 	// Discord bot configuration within org context (self-hosted only)

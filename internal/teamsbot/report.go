@@ -58,7 +58,7 @@ func buildChartRepliesFromVegaLite(ctx context.Context, baseURL string, text str
 		id := hex.EncodeToString(chartID)
 		pngPath := filepath.Join(r.PNGPath, "report.png")
 		RegisterChartFile(id, pngPath)
-		imgURL := fmt.Sprintf("%s/charts/%s", strings.TrimRight(baseURL, "/"), id)
+		imgURL := fmt.Sprintf("%s/api/charts/%s", strings.TrimRight(baseURL, "/"), id)
 
 		card := map[string]any{
 			"type":    "AdaptiveCard",
