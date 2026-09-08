@@ -42,16 +42,16 @@ func (s *Storage) GetTeamsConfig(ctx context.Context, orgID int64) (*TeamsConfig
 	return cfg, nil
 }
 
-func (s *Storage) UpsertTeamsConfig(ctx context.Context, orgID int64, botAppID, botPassword, apiKey string) (*TeamsConfig, error) {
+func (s *Storage) UpsertTeamsConfig(ctx context.Context, orgID int64, botAppID, botPassword, apiKey, tenantID string) (*TeamsConfig, error) {
 	query := `
-		INSERT INTO org_teams_configs (org_id, bot_app_id, bot_password, api_key, enabled, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, true, NOW(), NOW())
+		INSERT INTO org_teams_configs (org_id, bot_app_id, bot_password, api_key, tenant_id, enabled, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, true, NOW(), NOW())
 		ON CONFLICT (org_id)
-		DO UPDATE SET bot_app_id = $2, bot_password = $3, api_key = $4, enabled = true, updated_at = NOW()
+		DO UPDATE SET bot_app_id = $2, bot_password = $3, api_key = $4, tenant_id = $5, enabled = true, updated_at = NOW()
 		RETURNING id, org_id, bot_app_id, bot_password, api_key, tenant_id, enabled, created_at, updated_at`
 
 	cfg := &TeamsConfig{}
-	err := s.db.QueryRowContext(ctx, query, orgID, botAppID, botPassword, apiKey).Scan(
+	err := s.db.QueryRowContext(ctx, query, orgID, botAppID, botPassword, apiKey, tenantID).Scan(
 		&cfg.ID, &cfg.OrgID, &cfg.BotAppID, &cfg.BotPassword, &cfg.APIKey, &cfg.TenantID, &cfg.Enabled, &cfg.CreatedAt, &cfg.UpdatedAt,
 	)
 	if err != nil {

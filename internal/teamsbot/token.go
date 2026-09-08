@@ -12,14 +12,28 @@ import (
 	"time"
 )
 
-// botFrameworkTokenURL is the OAuth2 client-credentials endpoint bots use to
-// authenticate their own outbound calls to the Bot Framework Connector API
-// (posting replies back to Teams/Slack-style channels). This is Microsoft's
-// well-known multi-tenant "botframework.com" endpoint used for Connector API
-// auth specifically - distinct from a bot's own Azure AD tenant, and the
-// same regardless of whether the underlying Azure Bot app registration is
-// single- or multi-tenant.
-const botFrameworkTokenURL = "https://login.microsoftonline.com/botframework.com/oauth2/v2.0/token"
+// tokenURLFor returns the OAuth2 client-credentials endpoint a bot uses to
+// authenticate its own outbound calls to the Bot Framework Connector API
+// (posting replies back to Teams). Per Microsoft's Bot Framework Connector
+// authentication docs, this differs by the bot's Azure AD app type:
+//   - Multi-tenant (or a legacy config with no tenant ID on file): the
+//     fixed public "botframework.com" authority, regardless of the bot's
+//     own tenant.
+//   - Single-tenant: the bot's own tenant-specific authority
+//     (https://login.microsoftonline.com/<TenantID>/oauth2/v2.0/token) -
+//     the fixed botframework.com endpoint does NOT work for single-tenant
+//     bots.
+//
+// An empty tenantID (today's only case, and any pre-existing multi-tenant
+// config saved before Single Tenant support was added) keeps using the
+// fixed endpoint, so this is backward compatible with every config saved
+// before this function existed.
+func tokenURLFor(tenantID string) string {
+	if tenantID == "" {
+		return "https://login.microsoftonline.com/botframework.com/oauth2/v2.0/token"
+	}
+	return "https://login.microsoftonline.com/" + tenantID + "/oauth2/v2.0/token"
+}
 
 // botFrameworkTokenScope is the fixed audience/scope for Connector API
 // tokens - not tenant- or app-specific.
@@ -48,9 +62,12 @@ func newTokenCache() *tokenCache {
 	}
 }
 
-// token returns a valid Bearer token for the given App ID/secret pair,
+// token returns a valid Bearer token for the given org's bot credentials,
 // reusing a cached one if it still has more than a minute of validity left.
-func (tc *tokenCache) token(ctx context.Context, appID, appPassword string) (string, error) {
+// tenantID selects which token endpoint to use (see tokenURLFor) - it isn't
+// part of the cache key because an org's appID is already 1:1 with its bot,
+// and its tenantID doesn't change without the appID/password changing too.
+func (tc *tokenCache) token(ctx context.Context, appID, appPassword, tenantID string) (string, error) {
 	if appID == "" || appPassword == "" {
 		return "", fmt.Errorf("app ID/password not configured")
 	}
@@ -62,7 +79,7 @@ func (tc *tokenCache) token(ctx context.Context, appID, appPassword string) (str
 	}
 	tc.mu.Unlock()
 
-	accessToken, expiresIn, err := fetchBotFrameworkToken(ctx, tc.client, appID, appPassword)
+	accessToken, expiresIn, err := fetchBotFrameworkToken(ctx, tc.client, appID, appPassword, tenantID)
 	if err != nil {
 		return "", err
 	}
@@ -78,7 +95,7 @@ func (tc *tokenCache) token(ctx context.Context, appID, appPassword string) (str
 }
 
 // fetchBotFrameworkToken performs the OAuth2 client-credentials request.
-func fetchBotFrameworkToken(ctx context.Context, client *http.Client, appID, appPassword string) (string, int, error) {
+func fetchBotFrameworkToken(ctx context.Context, client *http.Client, appID, appPassword, tenantID string) (string, int, error) {
 	form := url.Values{
 		"grant_type":    {"client_credentials"},
 		"client_id":     {appID},
@@ -86,7 +103,7 @@ func fetchBotFrameworkToken(ctx context.Context, client *http.Client, appID, app
 		"scope":         {botFrameworkTokenScope},
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, botFrameworkTokenURL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURLFor(tenantID), strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", 0, fmt.Errorf("create token request: %w", err)
 	}
@@ -115,14 +132,27 @@ func fetchBotFrameworkToken(ctx context.Context, client *http.Client, appID, app
 	return body.AccessToken, body.ExpiresIn, nil
 }
 
+// ValidateCredentials performs a real OAuth2 client-credentials request
+// against Entra ID with the given App ID/Tenant ID/Secret, without caching
+// or persisting anything. Used to verify Teams bot credentials at save time
+// (before writing them to the DB) rather than discovering a typo only when
+// a real Teams message tries to route through them - see AADSTS7000215
+// (wrong secret) and AADSTS700016 (wrong tenant) class errors this caught
+// live. Returns a description of the specific Azure error on failure.
+func ValidateCredentials(ctx context.Context, appID, appPassword, tenantID string) error {
+	client := &http.Client{Timeout: 15 * time.Second}
+	_, _, err := fetchBotFrameworkToken(ctx, client, appID, appPassword, tenantID)
+	return err
+}
+
 // authorizationHeader returns "Bearer <token>" for the given org's bot
 // credentials, or "" if a token couldn't be acquired (missing/placeholder
 // credentials, network issue, etc.) - callers treat that as "send
 // unauthenticated, best-effort" rather than a hard failure, since local
 // testing tools (emulators, the 365 Agents Playground with auth disabled)
 // don't require it, only real Bot Framework channels do.
-func (tc *tokenCache) authorizationHeader(ctx context.Context, appID, appPassword string) string {
-	token, err := tc.token(ctx, appID, appPassword)
+func (tc *tokenCache) authorizationHeader(ctx context.Context, appID, appPassword, tenantID string) string {
+	token, err := tc.token(ctx, appID, appPassword, tenantID)
 	if err != nil {
 		log.Printf("[TeamsBot] Could not acquire outbound auth token for app %s, sending unauthenticated: %v", appID, err)
 		return ""

@@ -35,6 +35,7 @@ type orgHandler struct {
 	orgName       string
 	botAppID      string
 	botPassword   string
+	tenantID      string
 	agent         *mcpagent.Agent
 	conversations map[string]*conversation
 	mu            sync.Mutex
@@ -62,6 +63,7 @@ type BotConfig struct {
 	OrgName      string
 	BotAppID     string
 	BotPassword  string
+	TenantID     string
 	MCPServerURL string
 	MCPHeaders   map[string]string
 	Connector    *aiconnectors.Connector
@@ -85,6 +87,7 @@ func NewBot(ctx context.Context, configs []BotConfig, baseURL string) *Bot {
 			orgName:       cfg.OrgName,
 			botAppID:      cfg.BotAppID,
 			botPassword:   cfg.BotPassword,
+			tenantID:      cfg.TenantID,
 			conversations: make(map[string]*conversation),
 			mcpServerURL:  cfg.MCPServerURL,
 			mcpHeaders:    cfg.MCPHeaders,
@@ -165,7 +168,16 @@ func (b *Bot) UpdateBotToken(orgID int64, appID, password string) {
 // to the serviceUrl via the Connector API (async protocol).
 func (b *Bot) HandleActivity(ctx context.Context, activity *Activity, authHeader string) error {
 	if authHeader != "" && activity.Recipient != nil && activity.Recipient.ID != "" {
-		auth := NewAuthenticator(activity.Recipient.ID)
+		// Teams channel-account IDs are prefixed with a participant-type tag
+		// (e.g. "28:<botAppId>" for bots), but the inbound JWT's "aud" claim
+		// is the bare App ID with no prefix - strip it before comparing, or
+		// every real Teams message fails validation (only Playground/
+		// emulator testing without auth enabled ever exercised this path).
+		recipientAppID := activity.Recipient.ID
+		if idx := strings.Index(recipientAppID, ":"); idx != -1 {
+			recipientAppID = recipientAppID[idx+1:]
+		}
+		auth := NewAuthenticator(recipientAppID)
 		if err := auth.ValidateJWT(ctx, authHeader); err != nil {
 			return fmt.Errorf("JWT validation failed: %w", err)
 		}
@@ -439,7 +451,7 @@ func (b *Bot) postReply(ctx context.Context, orig *Activity, reply *Activity, oh
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if oh != nil {
-		if authz := b.tokens.authorizationHeader(ctx, oh.botAppID, oh.botPassword); authz != "" {
+		if authz := b.tokens.authorizationHeader(ctx, oh.botAppID, oh.botPassword, oh.tenantID); authz != "" {
 			req.Header.Set("Authorization", authz)
 		}
 	}
