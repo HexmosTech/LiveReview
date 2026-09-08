@@ -77,6 +77,29 @@ func (h *TeamsConfigHandler) GetTeamsConfig(c echo.Context) error {
 	})
 }
 
+// bindAndValidateTeamsConfigRequest binds the request body and runs the
+// format checks (required fields, GUID shape) shared by UpdateTeamsConfig
+// and ValidateTeamsConfig. It does NOT call teamsbot.ValidateCredentials -
+// callers do that themselves, since UpdateTeamsConfig treats a credential
+// failure as a hard error while ValidateTeamsConfig reports it as a normal
+// {valid: false} response instead of an HTTP error.
+func bindAndValidateTeamsConfigRequest(c echo.Context) (TeamsConfigUpdateRequest, error) {
+	var req TeamsConfigUpdateRequest
+	if err := c.Bind(&req); err != nil {
+		return req, echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+	if req.BotAppID == "" || req.BotPassword == "" {
+		return req, echo.NewHTTPError(http.StatusBadRequest, "bot_app_id and bot_password are required")
+	}
+	if !azureGUIDRe.MatchString(req.BotAppID) {
+		return req, echo.NewHTTPError(http.StatusBadRequest, "bot_app_id must be a GUID (the Azure Bot resource's Microsoft App ID)")
+	}
+	if req.TenantID != "" && !azureGUIDRe.MatchString(req.TenantID) {
+		return req, echo.NewHTTPError(http.StatusBadRequest, "tenant_id must be a GUID (the Azure Bot resource's Directory/Tenant ID)")
+	}
+	return req, nil
+}
+
 func (h *TeamsConfigHandler) UpdateTeamsConfig(c echo.Context) error {
 	permCtx := auth.GetPermissionContext(c)
 	if permCtx == nil {
@@ -87,18 +110,9 @@ func (h *TeamsConfigHandler) UpdateTeamsConfig(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusForbidden, "only owners can configure Teams integration")
 	}
 
-	var req TeamsConfigUpdateRequest
-	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
-	}
-	if req.BotAppID == "" || req.BotPassword == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "bot_app_id and bot_password are required")
-	}
-	if !azureGUIDRe.MatchString(req.BotAppID) {
-		return echo.NewHTTPError(http.StatusBadRequest, "bot_app_id must be a GUID (the Azure Bot resource's Microsoft App ID)")
-	}
-	if req.TenantID != "" && !azureGUIDRe.MatchString(req.TenantID) {
-		return echo.NewHTTPError(http.StatusBadRequest, "tenant_id must be a GUID (the Azure Bot resource's Directory/Tenant ID)")
+	req, err := bindAndValidateTeamsConfigRequest(c)
+	if err != nil {
+		return err
 	}
 
 	if err := teamsbot.ValidateCredentials(c.Request().Context(), req.BotAppID, req.BotPassword, req.TenantID); err != nil {
@@ -154,18 +168,9 @@ func (h *TeamsConfigHandler) ValidateTeamsConfig(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusForbidden, "only owners can configure Teams integration")
 	}
 
-	var req TeamsConfigUpdateRequest
-	if err := c.Bind(&req); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid request body")
-	}
-	if req.BotAppID == "" || req.BotPassword == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "bot_app_id and bot_password are required")
-	}
-	if !azureGUIDRe.MatchString(req.BotAppID) {
-		return echo.NewHTTPError(http.StatusBadRequest, "bot_app_id must be a GUID (the Azure Bot resource's Microsoft App ID)")
-	}
-	if req.TenantID != "" && !azureGUIDRe.MatchString(req.TenantID) {
-		return echo.NewHTTPError(http.StatusBadRequest, "tenant_id must be a GUID (the Azure Bot resource's Directory/Tenant ID)")
+	req, err := bindAndValidateTeamsConfigRequest(c)
+	if err != nil {
+		return err
 	}
 
 	if err := teamsbot.ValidateCredentials(c.Request().Context(), req.BotAppID, req.BotPassword, req.TenantID); err != nil {
