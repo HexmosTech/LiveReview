@@ -604,19 +604,25 @@ func (s *Server) fetchLiveDiffFromPR(ctx context.Context, connectorID int64, prM
 }
 
 func (s *Server) fetchPreloadedChanges(ctx context.Context, orgID, reviewID int64, meta map[string]interface{}) ([]models.CodeDiff, error) {
-	// 1. Try reading from Blob Storage first (org/<org_id>/review/<review_id>/artifacts/preloaded_changes.json)
+	// 1. Try reading from Postgres metadata first (for active reviews <= 30 days old)
+	if meta != nil {
+		if diffs, err := decodePreloadedChanges(meta); err == nil && len(diffs) > 0 {
+			return diffs, nil
+		}
+	}
+
+	// 2. Read from Blob Storage second (for offloaded reviews > 30 days old)
 	rawBlob, err := blobstore.ReadArtifact(ctx, s.db, orgID, reviewID, blobstore.ArtifactPreloadedChanges)
 	if err == nil && len(rawBlob) > 0 {
 		var diffs []models.CodeDiff
 		if err := json.Unmarshal(rawBlob, &diffs); err == nil {
 			return diffs, nil
 		} else {
-			log.Printf("[WARN] Failed to unmarshal preloaded_changes blob for review %d (org %d): %v. Falling back to Postgres metadata.", reviewID, orgID, err)
+			log.Printf("[WARN] Failed to unmarshal preloaded_changes blob for review %d (org %d): %v", reviewID, orgID, err)
 		}
 	}
 
-	// 2. Fall back to legacy metadata in Postgres (for reviews created before blob storage migration or if blob write failed)
-	return decodePreloadedChanges(meta)
+	return nil, fmt.Errorf("preloaded_changes unavailable for review %d", reviewID)
 }
 
 func decodePreloadedChanges(meta map[string]interface{}) ([]models.CodeDiff, error) {

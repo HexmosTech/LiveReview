@@ -106,6 +106,15 @@ type QueueConfig struct {
 
 	// Repository/PR sync Configuration
 	RepoSyncConfig RepoSyncConfig
+
+	// Diff Archival Configuration
+	DiffArchivalConfig DiffArchivalConfig
+}
+
+// DiffArchivalConfig controls the parallel diff archival worker pool concurrency.
+type DiffArchivalConfig struct {
+	// MaxWorkers is the concurrency of the "diff_archival" queue.
+	MaxWorkers int // default: 5
 }
 
 // RepoSyncConfig controls the periodic reconciliation sweep that catches PR/MR
@@ -214,6 +223,10 @@ func DefaultQueueConfig() *QueueConfig {
 		// Repository/PR sync configuration - overridable via env vars, see
 		// repoSyncConfigFromEnv.
 		RepoSyncConfig: repoSyncConfigFromEnv(),
+
+		// Diff archival configuration - overridable via env vars, see
+		// diffArchivalConfigFromEnv.
+		DiffArchivalConfig: diffArchivalConfigFromEnv(),
 	}
 }
 
@@ -238,6 +251,21 @@ func repoSyncConfigFromEnv() RepoSyncConfig {
 		}
 	}
 	if v := os.Getenv("LIVEREVIEW_REPO_SYNC_MAX_WORKERS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			config.MaxWorkers = n
+		}
+	}
+	return config
+}
+
+// diffArchivalConfigFromEnv builds DiffArchivalConfig from defaults, overridable via
+// LIVEREVIEW_DIFF_ARCHIVAL_MAX_WORKERS so archival worker concurrency can be tuned
+// per-deployment without a code change.
+func diffArchivalConfigFromEnv() DiffArchivalConfig {
+	config := DiffArchivalConfig{
+		MaxWorkers: 5,
+	}
+	if v := os.Getenv("LIVEREVIEW_DIFF_ARCHIVAL_MAX_WORKERS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			config.MaxWorkers = n
 		}
@@ -340,6 +368,11 @@ func (c *QueueConfig) RiverQueueConfig() map[string]river.QueueConfig {
 		repoSyncWorkers = 5
 	}
 
+	diffArchivalWorkers := c.DiffArchivalConfig.MaxWorkers
+	if diffArchivalWorkers <= 0 {
+		diffArchivalWorkers = 5
+	}
+
 	return map[string]river.QueueConfig{
 		river.QueueDefault: {
 			MaxWorkers: c.MaxWorkers,
@@ -351,6 +384,9 @@ func (c *QueueConfig) RiverQueueConfig() map[string]river.QueueConfig {
 		// never starve AI-review job concurrency on the "review" queue.
 		"repo_sync": {
 			MaxWorkers: repoSyncWorkers,
+		},
+		"diff_archival": {
+			MaxWorkers: diffArchivalWorkers,
 		},
 	}
 }

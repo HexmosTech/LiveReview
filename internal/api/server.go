@@ -138,6 +138,7 @@ type Server struct {
 	jobQueue               *jobqueue.JobQueue
 	dashboardManager       *DashboardManager
 	eventCompactionManager *EventCompactionManager
+	diffArchivalManager    *DiffArchivalManager
 	autoWebhookInstaller   *AutoWebhookInstaller
 	versionInfo            *VersionInfo
 	deploymentConfig       *DeploymentConfig
@@ -303,6 +304,9 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Initialize event compaction manager — one goroutine compacting review_events logs daily.
 	eventCompactionManager := NewEventCompactionManager(db)
 
+	// Initialize diff archival manager — background cron archiving preloaded_changes > 30 days to Blob Storage via River.
+	diffArchivalManager := NewDiffArchivalManager(db, jq)
+
 	// Initialize auto webhook installer
 	autoWebhookInstaller := NewAutoWebhookInstaller(db, nil, jq) // server will be set later
 
@@ -355,6 +359,7 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 		jobQueue:               jq,
 		dashboardManager:       dashboardManager,
 		eventCompactionManager: eventCompactionManager,
+		diffArchivalManager:    diffArchivalManager,
 		autoWebhookInstaller:   autoWebhookInstaller,
 		versionInfo:            versionInfo,
 		deploymentConfig:       deploymentConfig,
@@ -1318,6 +1323,11 @@ func (s *Server) setupRoutes() {
 	adminGroup.PUT("/settings/compaction", s.UpdateCompactionSettings)
 	adminGroup.POST("/settings/compaction/run", s.RunCompactionNow)
 
+	// Super admin diff archival settings endpoints
+	adminGroup.GET("/settings/diff-archival", s.GetDiffArchivalSettings)
+	adminGroup.PUT("/settings/diff-archival", s.UpdateDiffArchivalSettings)
+	adminGroup.POST("/settings/diff-archival/run", s.RunDiffArchivalNow)
+
 	// Organization management endpoints
 	// User organization access (get their orgs) - needs permission context to detect super admin
 	protectedOrgsGroup := protected.Group("")
@@ -1952,6 +1962,10 @@ func (s *Server) Start() error {
 	s.eventCompactionManager.Start()
 	fmt.Println("Event compaction manager started")
 
+	// Start diff archival manager (daily background cron archiving preloaded_changes > 30 days)
+	s.diffArchivalManager.Start()
+	fmt.Println("Diff archival manager started")
+
 	// Start server in a goroutine
 	go func() {
 		if err := s.echo.Start(bindAddress); err != nil && err != http.ErrServerClosed {
@@ -2059,6 +2073,12 @@ func (s *Server) Start() error {
 	if s.eventCompactionManager != nil {
 		s.eventCompactionManager.Stop()
 		fmt.Println("Event compaction manager stopped")
+	}
+
+	// Stop diff archival manager
+	if s.diffArchivalManager != nil {
+		s.diffArchivalManager.Stop()
+		fmt.Println("Diff archival manager stopped")
 	}
 
 	// Close database connection
