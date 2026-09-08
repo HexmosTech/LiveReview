@@ -3,6 +3,7 @@ import { Button, Input } from '../../components/UIPrimitives';
 import apiClient from '../../api/apiClient';
 import { notify } from '../../utils/notify';
 import CompactionSettingsTab from './CompactionSettingsTab';
+import DiffArchivalSettingsTab from './DiffArchivalSettingsTab';
 
 type Backend = 'filesystem' | 's3' | 'gcs' | 'azure';
 
@@ -311,6 +312,14 @@ const StorageSettingsTab: React.FC = () => {
             {/* Section 2: PostgreSQL Event Log Compaction & Retention */}
             <div id="log-compaction">
                 <CompactionSettingsTab />
+            </div>
+
+            {/* Divider */}
+            <div className="my-10 border-t border-slate-700/80"></div>
+
+            {/* Section 3: Diff Archival */}
+            <div id="diff-archival">
+                <DiffArchivalSettingsTab />
             </div>
         </div>
     );

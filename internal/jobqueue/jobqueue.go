@@ -2409,6 +2409,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	prStateSyncWorker := &PRStateSyncWorker{db: db, store: prStore}
 	reconciliationWorker := &ReconciliationSweepWorker{db: db, pool: pool, stalenessThreshold: config.RepoSyncConfig.StalenessThreshold}
 	scheduledReviewWorker := &ScheduledReviewWorker{db: db}
+	diffArchivalWorker := &DiffArchivalWorker{db: db, pool: pool}
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, diffWorker)
@@ -2419,6 +2420,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, repoPRSyncWorker)
 	river.AddWorker(workers, prStateSyncWorker)
 	river.AddWorker(workers, reconciliationWorker)
+	river.AddWorker(workers, diffArchivalWorker)
 
 	coordinatorInterval := config.RepoSyncConfig.CoordinatorInterval
 	if coordinatorInterval <= 0 {
@@ -2430,7 +2432,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 		Workers:                     workers,
 		CompletedJobRetentionPeriod: 30 * 24 * time.Hour,
 		CancelledJobRetentionPeriod: 30 * 24 * time.Hour,
-		DiscardedJobRetentionPeriod: 30 * 24 * time.Hour,
+		DiscardedJobRetentionPeriod: 7 * 24 * time.Hour,
 		PeriodicJobs: []*river.PeriodicJob{
 			river.NewPeriodicJob(
 				river.PeriodicInterval(coordinatorInterval),
@@ -2577,3 +2579,21 @@ func (jq *JobQueue) QueueUpdateOrgUsageJob(ctx context.Context, args UpdateOrgUs
 	}
 	return nil
 }
+
+// QueueDiffArchivalJobs enqueues a batch of diff archival jobs in a single database transaction.
+func (jq *JobQueue) QueueDiffArchivalJobs(ctx context.Context, jobs []DiffArchivalJobArgs) (int, error) {
+	if jq == nil || jq.client == nil || len(jobs) == 0 {
+		return 0, nil
+	}
+	params := make([]river.InsertManyParams, len(jobs))
+	for i, j := range jobs {
+		params[i] = river.InsertManyParams{Args: j}
+	}
+	res, err := jq.client.InsertMany(ctx, params)
+	if err != nil {
+		log.Printf("[ERROR] Failed to queue diff archival jobs: %v", err)
+		return 0, fmt.Errorf("failed to queue diff archival jobs: %w", err)
+	}
+	return len(res), nil
+}
+
