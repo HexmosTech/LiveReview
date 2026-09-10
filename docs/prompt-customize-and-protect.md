@@ -167,7 +167,7 @@ Notes:
 
 Migrations and verification:
 - Use dbmate to create timestamped migrations under `db/migrations/` and include seeding inside the `.up.sql`.
-- Apply with `dbmate up` (locally via `./pgctl.sh` helpers as needed) and verify with `./pgctl.sh shell` spot queries.
+- Apply with `dbmate up` (locally via `scripts/pgctl.sh` helpers as needed) and verify with `scripts/pgctl.sh shell` spot queries.
 
 ---
 

@@ -48,7 +48,7 @@ switch-env-selfhosted-local-sandbox:
 	@echo "Switched to selfhosted-local-sandbox (.env.selfhosted.local -> .env, DB: livereview_enterprise_sandbox)"
 
 reset-sandbox-db:
-	./pgctl.sh reset-sandbox-db
+	scripts/pgctl.sh reset-sandbox-db
 
 which-env:
 	@if [ ! -f .current-env ]; then \

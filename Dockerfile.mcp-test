@@ -31,7 +31,7 @@ RUN pip3 install --break-system-packages -r requirements.txt
 RUN make build
 
 # Copy runner script
-COPY run-mcp-test.sh /run-mcp-test.sh
+COPY scripts/run-mcp-test.sh /run-mcp-test.sh
 RUN chmod +x /run-mcp-test.sh
 
 

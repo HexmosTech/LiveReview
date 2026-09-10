@@ -33,7 +33,7 @@ Objective: Create tables for application context and prompt chunks as per the sp
 
 Tasks
 - [x] Ensure dbmate is available
-	- Use `./pgctl.sh migrations` (installs dbmate) if not already installed.
+	- Use `scripts/pgctl.sh migrations` (installs dbmate) if not already installed.
 - [x] Create migration via dbmate
 	- Run: `dbmate new create_prompt_context_and_chunks` (this creates timestamped `.up.sql` and `.down.sql` files under `db/migrations/`).
 	- Edit the generated `.up.sql` to:
@@ -42,16 +42,16 @@ Tasks
 		- [x] Seed default context per existing org: `INSERT INTO prompt_application_context (org_id) SELECT id FROM public.orgs;` (ensure idempotency with `ON CONFLICT DO NOTHING` if you add a unique key later).
 	- Edit the generated `.down.sql` to drop in reverse order: indexes, `prompt_chunks`, `prompt_application_context`.
 - [x] Apply migration
-	- Run: `dbmate up` (or `./pgctl.sh reset` which also applies migrations, if you want a clean reset).
+	- Run: `dbmate up` (or `scripts/pgctl.sh reset` which also applies migrations, if you want a clean reset).
 
 Spot checks
 - [x] Verify seeded rows exist:
-	- Using `./pgctl.sh shell -c "SELECT count(*) FROM prompt_application_context;"` returns ≥ number of rows in `public.orgs`.
+	- Using `scripts/pgctl.sh shell -c "SELECT count(*) FROM prompt_application_context;"` returns ≥ number of rows in `public.orgs`.
 - [x] Verify indexes exist:
-	- `./pgctl.sh shell -c "\di+ public.idx_pac_org"`
-	- `./pgctl.sh shell -c "\di+ public.idx_pac_targeting"`
-	- `./pgctl.sh shell -c "\di+ public.idx_chunks_prompt_var"`
-	- `./pgctl.sh shell -c "\di+ public.idx_chunks_appctx"`
+	- `scripts/pgctl.sh shell -c "\di+ public.idx_pac_org"`
+	- `scripts/pgctl.sh shell -c "\di+ public.idx_pac_targeting"`
+	- `scripts/pgctl.sh shell -c "\di+ public.idx_chunks_prompt_var"`
+	- `scripts/pgctl.sh shell -c "\di+ public.idx_chunks_appctx"`
 
 ---
 

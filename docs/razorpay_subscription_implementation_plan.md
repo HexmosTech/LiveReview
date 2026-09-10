@@ -735,17 +735,17 @@ dbmate status
 1. **Database Schema Verification** (CLI)
 ```bash
 # Check tables exist
-./pgctl.sh shell -c "\dt subscriptions"
-./pgctl.sh shell -c "\dt license_log"
+scripts/pgctl.sh shell -c "\dt subscriptions"
+scripts/pgctl.sh shell -c "\dt license_log"
 
 # Verify user_roles columns added
-./pgctl.sh shell -c "\d user_roles" | grep -E "plan_type|license_expires_at|active_subscription_id"
+scripts/pgctl.sh shell -c "\d user_roles" | grep -E "plan_type|license_expires_at|active_subscription_id"
 
 # Check indexes created
-./pgctl.sh shell -c "\di" | grep -E "idx_subscriptions|idx_user_roles_plan|idx_license_log"
+scripts/pgctl.sh shell -c "\di" | grep -E "idx_subscriptions|idx_user_roles_plan|idx_license_log"
 
 # Verify constraints
-./pgctl.sh shell -c "\d+ subscriptions" | grep -E "valid_quantity|valid_assigned_seats"
+scripts/pgctl.sh shell -c "\d+ subscriptions" | grep -E "valid_quantity|valid_assigned_seats"
 ```
 
 2. **Plan Definitions Test** (Code)
@@ -772,10 +772,10 @@ go test ./internal/api/middleware -run TestCheckReviewLimit -v
 5. **Integration Spot Check** (CLI)
 ```bash
 # Create a test free user in database
-./pgctl.sh shell -c "INSERT INTO user_roles (user_id, role_id, org_id, plan_type) VALUES (999, 1, 1, 'free') ON CONFLICT DO NOTHING;"
+scripts/pgctl.sh shell -c "INSERT INTO user_roles (user_id, role_id, org_id, plan_type) VALUES (999, 1, 1, 'free') ON CONFLICT DO NOTHING;"
 
 # Verify default plan is 'free'
-./pgctl.sh shell -c "SELECT user_id, org_id, plan_type, license_expires_at FROM user_roles WHERE user_id = 999;"
+scripts/pgctl.sh shell -c "SELECT user_id, org_id, plan_type, license_expires_at FROM user_roles WHERE user_id = 999;"
 
 # Expected output: plan_type = 'free', license_expires_at = NULL
 ```
@@ -855,7 +855,7 @@ curl -X POST http://localhost:8888/api/v1/subscriptions \
   -d '{"plan_type": "team_monthly", "quantity": 5}'
 
 # Verify subscription in database
-./pgctl.sh shell -c "SELECT id, owner_user_id, plan_type, quantity, status FROM subscriptions ORDER BY created_at DESC LIMIT 1;"
+scripts/pgctl.sh shell -c "SELECT id, owner_user_id, plan_type, quantity, status FROM subscriptions ORDER BY created_at DESC LIMIT 1;"
 # Expected: status = 'created', quantity = 5
 ```
 
@@ -867,14 +867,14 @@ curl -X POST http://localhost:8888/api/v1/webhooks/razorpay \
   -d '{"event": "subscription.activated", "payload": {...}}'
 
 # Check license_log for webhook entry
-./pgctl.sh shell -c "SELECT action, razorpay_event_id, processed FROM license_log WHERE action LIKE 'subscription.%' ORDER BY created_at DESC LIMIT 5;"
+scripts/pgctl.sh shell -c "SELECT action, razorpay_event_id, processed FROM license_log WHERE action LIKE 'subscription.%' ORDER BY created_at DESC LIMIT 5;"
 # Should see logged webhook events
 ```
 
 6. **Idempotency Check** (CLI)
 ```bash
 # Send same webhook twice
-./pgctl.sh shell -c "SELECT COUNT(*) FROM license_log WHERE razorpay_event_id = 'evt_test_123';"
+scripts/pgctl.sh shell -c "SELECT COUNT(*) FROM license_log WHERE razorpay_event_id = 'evt_test_123';"
 # Should return 1 (duplicate ignored via UNIQUE constraint)
 ```
 
@@ -936,7 +936,7 @@ go test ./internal/api -run TestGetUserLicenseEndpoint -v
 3. **License Assignment Flow** (CLI)
 ```bash
 # Create test subscription in DB
-./pgctl.sh shell -c "INSERT INTO subscriptions (owner_user_id, razorpay_subscription_id, plan_type, quantity, status) VALUES (1, 'sub_test_123', 'team_monthly', 10, 'active') RETURNING id;"
+scripts/pgctl.sh shell -c "INSERT INTO subscriptions (owner_user_id, razorpay_subscription_id, plan_type, quantity, status) VALUES (1, 'sub_test_123', 'team_monthly', 10, 'active') RETURNING id;"
 # Note the returned subscription ID
 
 # Assign license to user via API
@@ -946,25 +946,25 @@ curl -X POST http://localhost:8888/api/v1/subscriptions/1/licenses \
   -d '{"user_ids": [2, 3], "org_id": 1}'
 
 # Verify user_roles updated
-./pgctl.sh shell -c "SELECT user_id, org_id, plan_type, license_expires_at, active_subscription_id FROM user_roles WHERE user_id IN (2,3) AND org_id = 1;"
+scripts/pgctl.sh shell -c "SELECT user_id, org_id, plan_type, license_expires_at, active_subscription_id FROM user_roles WHERE user_id IN (2,3) AND org_id = 1;"
 # Expected: plan_type = 'team', active_subscription_id = 1
 
 # Verify assigned_seats counter incremented
-./pgctl.sh shell -c "SELECT quantity, assigned_seats FROM subscriptions WHERE id = 1;"
+scripts/pgctl.sh shell -c "SELECT quantity, assigned_seats FROM subscriptions WHERE id = 1;"
 # Expected: assigned_seats = 2
 ```
 
 4. **License Log Audit Trail** (CLI)
 ```bash
 # Check audit log for assignments
-./pgctl.sh shell -c "SELECT user_id, org_id, action, actor_id, created_at FROM license_log WHERE subscription_id = 1 ORDER BY created_at DESC;"
+scripts/pgctl.sh shell -c "SELECT user_id, org_id, action, actor_id, created_at FROM license_log WHERE subscription_id = 1 ORDER BY created_at DESC;"
 # Should show 'assigned' actions for users 2 and 3
 ```
 
 5. **Cross-Org Assignment Test** (CLI)
 ```bash
 # Verify owner can assign across multiple orgs they own
-./pgctl.sh shell -c "SELECT id, owner_id FROM orgs WHERE owner_id = 1;"
+scripts/pgctl.sh shell -c "SELECT id, owner_id FROM orgs WHERE owner_id = 1;"
 # Note multiple org IDs
 
 # Assign license in different org
@@ -972,7 +972,7 @@ curl -X POST http://localhost:8888/api/v1/subscriptions/1/licenses \
   -d '{"user_ids": [4], "org_id": 2}'
 
 # Verify assignment in org 2
-./pgctl.sh shell -c "SELECT user_id, org_id, plan_type FROM user_roles WHERE user_id = 4 AND org_id = 2;"
+scripts/pgctl.sh shell -c "SELECT user_id, org_id, plan_type FROM user_roles WHERE user_id = 4 AND org_id = 2;"
 # Expected: plan_type = 'team'
 ```
 
@@ -984,7 +984,7 @@ curl -X POST http://localhost:8888/api/v1/subscriptions/1/licenses \
 # Should fail with "no available seats" when quantity reached
 
 # Verify assigned_seats doesn't exceed quantity
-./pgctl.sh shell -c "SELECT quantity, assigned_seats, (quantity - assigned_seats) as available FROM subscriptions WHERE id = 1;"
+scripts/pgctl.sh shell -c "SELECT quantity, assigned_seats, (quantity - assigned_seats) as available FROM subscriptions WHERE id = 1;"
 ```
 
 7. **License Revocation** (CLI)
@@ -994,11 +994,11 @@ curl -X DELETE http://localhost:8888/api/v1/subscriptions/1/licenses/2 \
   -H "Authorization: Bearer <owner_jwt>"
 
 # Verify user_roles reverted to free
-./pgctl.sh shell -c "SELECT user_id, org_id, plan_type, license_expires_at FROM user_roles WHERE user_id = 2 AND org_id = 1;"
+scripts/pgctl.sh shell -c "SELECT user_id, org_id, plan_type, license_expires_at FROM user_roles WHERE user_id = 2 AND org_id = 1;"
 # Expected: plan_type = 'free', license_expires_at = NULL
 
 # Verify assigned_seats decremented
-./pgctl.sh shell -c "SELECT assigned_seats FROM subscriptions WHERE id = 1;"
+scripts/pgctl.sh shell -c "SELECT assigned_seats FROM subscriptions WHERE id = 1;"
 # Expected: assigned_seats decreased by 1
 ```
 
@@ -1197,19 +1197,19 @@ go test ./internal/notifications -run TestExpiryNotifications -v
 2. **Simulate License Expiration** (CLI)
 ```bash
 # Set license to expire soon
-./pgctl.sh shell -c "UPDATE user_roles SET license_expires_at = NOW() + INTERVAL '2 days' WHERE user_id = 3 AND org_id = 1;"
+scripts/pgctl.sh shell -c "UPDATE user_roles SET license_expires_at = NOW() + INTERVAL '2 days' WHERE user_id = 3 AND org_id = 1;"
 
 # Run expiration notification job
 go run ./cmd/jobs/notify_expiring_licenses.go
 
 # Check notifications sent
-./pgctl.sh shell -c "SELECT user_id, notification_type, sent_at FROM notifications WHERE notification_type = 'license_expiring' ORDER BY sent_at DESC LIMIT 5;"
+scripts/pgctl.sh shell -c "SELECT user_id, notification_type, sent_at FROM notifications WHERE notification_type = 'license_expiring' ORDER BY sent_at DESC LIMIT 5;"
 ```
 
 3. **Test Expiration Enforcement** (CLI)
 ```bash
 # Set license to expired
-./pgctl.sh shell -c "UPDATE user_roles SET license_expires_at = NOW() - INTERVAL '1 day' WHERE user_id = 3 AND org_id = 1;"
+scripts/pgctl.sh shell -c "UPDATE user_roles SET license_expires_at = NOW() - INTERVAL '1 day' WHERE user_id = 3 AND org_id = 1;"
 
 # Try to access with expired license (should fail)
 curl http://localhost:8888/api/v1/reviews \
@@ -1221,7 +1221,7 @@ curl http://localhost:8888/api/v1/reviews \
 4. **Grace Period Test** (CLI)
 ```bash
 # Set license expired but within grace period
-./pgctl.sh shell -c "UPDATE user_roles SET license_expires_at = NOW() - INTERVAL '3 days' WHERE user_id = 3;"
+scripts/pgctl.sh shell -c "UPDATE user_roles SET license_expires_at = NOW() - INTERVAL '3 days' WHERE user_id = 3;"
 
 # Check grace period status
 curl http://localhost:8888/api/v1/users/3/license
@@ -1234,11 +1234,11 @@ curl http://localhost:8888/api/v1/users/3/license
 go run ./cmd/jobs/downgrade_expired_licenses.go
 
 # Verify users downgraded to free
-./pgctl.sh shell -c "SELECT user_id, org_id, plan_type FROM user_roles WHERE license_expires_at < NOW() - INTERVAL '7 days' LIMIT 5;"
+scripts/pgctl.sh shell -c "SELECT user_id, org_id, plan_type FROM user_roles WHERE license_expires_at < NOW() - INTERVAL '7 days' LIMIT 5;"
 # Expected: plan_type = 'free' for expired licenses
 
 # Check license_log for downgrade actions
-./pgctl.sh shell -c "SELECT user_id, action, created_at FROM license_log WHERE action = 'expired' ORDER BY created_at DESC LIMIT 5;"
+scripts/pgctl.sh shell -c "SELECT user_id, action, created_at FROM license_log WHERE action = 'expired' ORDER BY created_at DESC LIMIT 5;"
 ```
 
 6. **Renewal Webhook Test** (CLI)
@@ -1254,7 +1254,7 @@ curl -X POST http://localhost:8888/api/v1/webhooks/razorpay \
   }'
 
 # Verify license_expires_at updated for assigned users
-./pgctl.sh shell -c "SELECT user_id, license_expires_at FROM user_roles WHERE active_subscription_id IN (SELECT id FROM subscriptions WHERE razorpay_subscription_id = 'sub_123');"
+scripts/pgctl.sh shell -c "SELECT user_id, license_expires_at FROM user_roles WHERE active_subscription_id IN (SELECT id FROM subscriptions WHERE razorpay_subscription_id = 'sub_123');"
 # Expected: license_expires_at extended to new period end
 ```
 
@@ -1266,11 +1266,11 @@ curl -X POST http://localhost:8888/api/v1/subscriptions/1/cancel \
   -d '{"cancel_at_cycle_end": true}'
 
 # Verify subscription status
-./pgctl.sh shell -c "SELECT id, status, cancelled_at, current_period_end FROM subscriptions WHERE id = 1;"
+scripts/pgctl.sh shell -c "SELECT id, status, cancelled_at, current_period_end FROM subscriptions WHERE id = 1;"
 # Expected: status = 'cancelled', current_period_end still in future
 
 # Verify users retain access until period end
-./pgctl.sh shell -c "SELECT plan_type, license_expires_at FROM user_roles WHERE active_subscription_id = 1;"
+scripts/pgctl.sh shell -c "SELECT plan_type, license_expires_at FROM user_roles WHERE active_subscription_id = 1;"
 # Expected: plan_type still 'team', expires_at = current_period_end
 ```
 
@@ -1281,10 +1281,10 @@ curl -X POST http://localhost:8888/api/v1/webhooks/razorpay \
   -d '{"event": "payment.failed", "payload": {...}}'
 
 # Check license_log for failure
-./pgctl.sh shell -c "SELECT action, payload FROM license_log WHERE action = 'payment.failed' ORDER BY created_at DESC LIMIT 1;"
+scripts/pgctl.sh shell -c "SELECT action, payload FROM license_log WHERE action = 'payment.failed' ORDER BY created_at DESC LIMIT 1;"
 
 # Verify subscription status updated
-./pgctl.sh shell -c "SELECT status FROM subscriptions WHERE razorpay_subscription_id = 'sub_with_failed_payment';"
+scripts/pgctl.sh shell -c "SELECT status FROM subscriptions WHERE razorpay_subscription_id = 'sub_with_failed_payment';"
 # Expected: status = 'halted' or 'past_due'
 ```
 
@@ -1395,8 +1395,8 @@ hey -n 100 -c 10 -m POST \
   http://localhost:8888/api/v1/subscriptions/1/licenses
 
 # Verify data integrity after load
-./pgctl.sh shell -c "SELECT COUNT(*) FROM license_log WHERE action = 'assigned';"
-./pgctl.sh shell -c "SELECT assigned_seats FROM subscriptions WHERE id = 1;"
+scripts/pgctl.sh shell -c "SELECT COUNT(*) FROM license_log WHERE action = 'assigned';"
+scripts/pgctl.sh shell -c "SELECT assigned_seats FROM subscriptions WHERE id = 1;"
 # assigned_seats should match license_log count
 ```
 
@@ -1411,14 +1411,14 @@ done
 wait
 
 # Verify only processed once
-./pgctl.sh shell -c "SELECT COUNT(*) FROM license_log WHERE razorpay_event_id = 'evt_duplicate_test';"
+scripts/pgctl.sh shell -c "SELECT COUNT(*) FROM license_log WHERE razorpay_event_id = 'evt_duplicate_test';"
 # Expected: 1 (duplicates rejected)
 ```
 
 5. **Data Consistency Checks** (CLI)
 ```bash
 # Verify assigned_seats matches actual assignments
-./pgctl.sh shell -c "
+scripts/pgctl.sh shell -c "
 SELECT 
   s.id,
   s.assigned_seats as counter,
@@ -1431,11 +1431,11 @@ GROUP BY s.id, s.assigned_seats;
 # All rows should show consistent = true
 
 # Verify no orphaned licenses
-./pgctl.sh shell -c "SELECT COUNT(*) FROM user_roles WHERE active_subscription_id IS NOT NULL AND active_subscription_id NOT IN (SELECT id FROM subscriptions);"
+scripts/pgctl.sh shell -c "SELECT COUNT(*) FROM user_roles WHERE active_subscription_id IS NOT NULL AND active_subscription_id NOT IN (SELECT id FROM subscriptions);"
 # Expected: 0
 
 # Verify license_log completeness
-./pgctl.sh shell -c "
+scripts/pgctl.sh shell -c "
 SELECT 
   action,
   COUNT(*) as count,
@@ -1453,14 +1453,14 @@ ORDER BY count DESC;
 go run ./cmd/admin/grant_license.go --user-id=99 --org-id=1 --plan=team --expires="2025-12-31"
 
 # Verify grant bypasses subscription
-./pgctl.sh shell -c "SELECT user_id, plan_type, active_subscription_id FROM user_roles WHERE user_id = 99;"
+scripts/pgctl.sh shell -c "SELECT user_id, plan_type, active_subscription_id FROM user_roles WHERE user_id = 99;"
 # Expected: plan_type = 'team', active_subscription_id = NULL (manual grant)
 
 # Test subscription override
 go run ./cmd/admin/override_subscription.go --subscription-id=1 --extend-days=30
 
 # Check audit log for admin actions
-./pgctl.sh shell -c "SELECT action, actor_id, payload FROM license_log WHERE action LIKE 'admin.%' ORDER BY created_at DESC LIMIT 5;"
+scripts/pgctl.sh shell -c "SELECT action, actor_id, payload FROM license_log WHERE action LIKE 'admin.%' ORDER BY created_at DESC LIMIT 5;"
 ```
 
 7. **Security Audit** (CLI)
@@ -1490,7 +1490,7 @@ go test ./internal/license -bench=BenchmarkAssignLicense -benchmem
 go test ./internal/api/middleware -bench=BenchmarkEnforcePlan -benchmem
 
 # Check slow query log
-./pgctl.sh shell -c "SELECT query, mean_exec_time, calls FROM pg_stat_statements WHERE mean_exec_time > 100 ORDER BY mean_exec_time DESC LIMIT 10;"
+scripts/pgctl.sh shell -c "SELECT query, mean_exec_time, calls FROM pg_stat_statements WHERE mean_exec_time > 100 ORDER BY mean_exec_time DESC LIMIT 10;"
 # Verify no subscription-related queries >100ms
 ```
 
@@ -1929,7 +1929,7 @@ OR (for free user):
 ### Before Starting Implementation
 - [ ] **Backup Database** - Create snapshot before migrations
   ```bash
-  ./pgctl.sh shell -c "pg_dump livereview > backup_$(date +%Y%m%d_%H%M%S).sql"
+  scripts/pgctl.sh shell -c "pg_dump livereview > backup_$(date +%Y%m%d_%H%M%S).sql"
   ```
 - [ ] **Create Razorpay Plans** - Run CreatePlan() to get plan IDs
   ```go
@@ -1984,7 +1984,7 @@ OR (for free user):
 ### Before Starting Implementation
 - [ ] **Backup Database** - Create snapshot before migrations
   ```bash
-  ./pgctl.sh shell -c "pg_dump livereview > backup_$(date +%Y%m%d_%H%M%S).sql"
+  scripts/pgctl.sh shell -c "pg_dump livereview > backup_$(date +%Y%m%d_%H%M%S).sql"
   ```
 - [ ] **Create Razorpay Plans** - Run CreatePlan() to get plan IDs
   ```go
@@ -2026,7 +2026,7 @@ This plan provides a complete, incremental path to implementing Razorpay subscri
 6. **Week 6**: Testing & polish (integration tests, edge cases)
 
 **First Steps:**
-1. Backup database: `./pgctl.sh shell -c "pg_dump livereview > backup.sql"`
+1. Backup database: `scripts/pgctl.sh shell -c "pg_dump livereview > backup.sql"`
 2. Create migration: `dbmate new add_subscription_tables`
 3. Write migration SQL (subscriptions, user_roles extension, license_log)
 4. Apply migration: `dbmate up`

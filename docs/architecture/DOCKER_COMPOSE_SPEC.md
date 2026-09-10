@@ -394,7 +394,7 @@ python3 lrops.py dev build       # Instead of: make build
 python3 lrops.py dev run         # Instead of: make develop  
 python3 lrops.py dev test        # Instead of: make test
 python3 lrops.py dev ui-dev      # Instead of: cd ui && npm start
-python3 lrops.py dev db-start    # Instead of: ./pgctl.sh start
+python3 lrops.py dev db-start    # Instead of: scripts/pgctl.sh start
 ```
 
 ### Build & Release Process

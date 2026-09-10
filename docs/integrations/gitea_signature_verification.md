@@ -107,7 +107,7 @@ CREATE TABLE webhook_registry (
 ### Valid Signature Test
 ```bash
 # Get webhook secret from database
-SECRET=$(./pgctl.sh shell -c "SELECT webhook_secret FROM webhook_registry WHERE integration_token_id = 123 LIMIT 1" -t)
+SECRET=$(scripts/pgctl.sh shell -c "SELECT webhook_secret FROM webhook_registry WHERE integration_token_id = 123 LIMIT 1" -t)
 
 # Generate signature
 PAYLOAD='{"action":"created","comment":{"body":"test"}}'

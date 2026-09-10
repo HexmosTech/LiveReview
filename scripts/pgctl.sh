@@ -2,6 +2,10 @@
 
 set -euo pipefail
 
+# Always run relative to the repo root regardless of caller's cwd, since this
+# script may live under scripts/ while .env/.env.prod live at repo root.
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 # Determine which env file to use
 ENV_FILE=".env"
 if [ "${1:-}" = "--prod" ]; then
@@ -99,7 +103,7 @@ start_pg() {
     mount_type="$(pg_data_mount_type)"
     if [ "$mount_type" != "volume" ]; then
       echo "ERROR: Existing container $PG_CONTAINER_NAME uses legacy non-volume storage ($mount_type)."
-      echo "Run './pgctl.sh migrate-legacy-data', then './pgctl.sh rm', then './pgctl.sh start'."
+      echo "Run 'scripts/pgctl.sh migrate-legacy-data', then 'scripts/pgctl.sh rm', then 'scripts/pgctl.sh start'."
       exit 1
     fi
 
@@ -109,7 +113,7 @@ start_pg() {
   else
     if [ -d "$LEGACY_PG_DATA_DIR" ] && is_pg_volume_empty; then
       echo "WARNING: Legacy data directory found at $LEGACY_PG_DATA_DIR"
-      echo "Run './pgctl.sh migrate-legacy-data' before start if you need existing local data."
+      echo "Run 'scripts/pgctl.sh migrate-legacy-data' before start if you need existing local data."
     fi
 
     echo "Creating and starting new PostgreSQL container for livereview..."
@@ -199,7 +203,7 @@ migrate_legacy_data() {
   fi
 
   if docker ps --format '{{.Names}}' | grep -qw "$PG_CONTAINER_NAME"; then
-    echo "ERROR: $PG_CONTAINER_NAME is running. Stop it first with './pgctl.sh stop'."
+    echo "ERROR: $PG_CONTAINER_NAME is running. Stop it first with 'scripts/pgctl.sh stop'."
     exit 1
   fi
 
@@ -207,7 +211,7 @@ migrate_legacy_data() {
 
   if ! is_pg_volume_empty; then
     echo "ERROR: Docker volume $PG_VOLUME_NAME is not empty."
-    echo "To replace existing volume data, run './pgctl.sh reset' and retry migration."
+    echo "To replace existing volume data, run 'scripts/pgctl.sh reset' and retry migration."
     exit 1
   fi
 
@@ -219,7 +223,7 @@ migrate_legacy_data() {
 
   docker run --rm -v "$PG_VOLUME_NAME":/to postgres:"$PG_VERSION" sh -c 'chown -R 999:999 /to && chmod 700 /to'
 
-  echo "Migration completed. Start PostgreSQL with './pgctl.sh start'."
+  echo "Migration completed. Start PostgreSQL with 'scripts/pgctl.sh start'."
 }
 
 setup_migrations() {
