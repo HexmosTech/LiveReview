@@ -5,26 +5,137 @@ description: Connect Livi to Microsoft Teams via an Azure Bot.
 
 # Microsoft Teams
 
-Livi connects to Microsoft Teams through an **Azure Bot** resource. You'll need two things to paste into LiveReview's **Settings → Integrations → Microsoft Teams**: a **Bot App ID** and a **Bot Password (Client Secret)**.
+Livi connects to Microsoft Teams through an **Azure Bot** resource, then needs to be packaged as a **Teams app** and uploaded to your organization before anyone can actually find and use it. Registering the bot in Azure alone is not enough — Teams only lets people discover, add, or @mention a bot through an installed app, so both parts below are required, not just the first one.
 
-## Setup
+You'll need three things to paste into LiveReview's **Settings → Integrations → Microsoft Teams**: a **Bot App ID**, a **Tenant ID**, and a **Bot Password (Client Secret)**.
 
-1. In the [Azure Portal](https://portal.azure.com), create a new **Azure Bot** resource (Azure AI services → Azure Bot, or search "Azure Bot" in the marketplace).
-2. During creation, choose **Multi Tenant** (or your organization's preferred app type) and let Azure create a new Microsoft App ID for you — this becomes your **Bot App ID**.
-3. Once created, go to the bot resource's **Configuration** page and set the **Messaging endpoint** to:
+## Video walkthrough
+
+<iframe
+  width="560"
+  height="315"
+  src="https://www.youtube.com/embed/YO12J9Wgvzc"
+  title="Connect LiveReview to Microsoft Teams"
+  frameBorder="0"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  allowFullScreen
+  style={{ maxWidth: "100%", aspectRatio: "16 / 9", height: "auto", marginTop: "1rem", borderRadius: "0.5rem" }}
+/>
+
+## Part 1: Register the bot in Azure
+
+1. In the [Azure Portal](https://portal.azure.com), search the marketplace for **azure bot**, select the **Azure Bot** card, and click **Create**.
+
+   ![Azure Portal Marketplace → search "azure bot" → Create](/livereview/integrations/teams-azure-marketplace-search.png)
+
+2. Fill in the **Create an Azure Bot** form: give it a **Bot handle** (e.g. `Livi`), pick your **Subscription** and **Resource group**, and under **Microsoft App ID** set **Type of App** to **Single Tenant** and **Creation type** to **Create new Microsoft App ID**. Click **Review + create**, then **Create**.
+
+   ![Create an Azure Bot form — Bot handle, Subscription, Resource group, Type of App = Single Tenant, Create new Microsoft App ID, Review + create](/livereview/integrations/teams-azure-bot-create-form.png)
+
+3. Once deployment finishes, click **Go to resource**.
+
+   ![Deployment complete → Go to resource](/livereview/integrations/teams-azure-deployment-complete.png)
+
+4. On the bot resource, search the sidebar for **Configuration** and open it. Copy the **Microsoft App ID** and **App Tenant ID** (**Directory (tenant) ID**) — these are your **Bot App ID** and **Tenant ID**.
+5. Download the Livi icon below and upload it as the bot's icon on the Azure Bot resource (**Configuration > Branding**, or during creation).
+
+   <a
+     href="/livereview/lrbot/lrbot-original.png"
+     download="livi-icon.png"
+     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 no-underline"
+   >
+     ⬇ Download Livi icon
+   </a>
+
+6. On the bot resource's **Configuration** page, set the **Messaging endpoint** to:
 
    ```
    https://<your-livereview-instance>/api/messages
    ```
 
-   Replace `<your-livereview-instance>` with your LiveReview instance's actual hostname.
+   Replace `<your-livereview-instance>` with your LiveReview instance's actual hostname. Leave **Enable Streaming Endpoint** unchecked — Livi replies over the standard Bot Framework Connector API, not streaming.
 
-4. Generate a **Client Secret** for the app registration backing the bot (Azure Portal → App registrations → your bot's app → **Certificates & secrets** → **New client secret**). Copy the secret value immediately — Azure only shows it once. This is your **Bot Password**.
-5. Under the bot resource's **Channels**, add the **Microsoft Teams** channel.
-6. In your LiveReview instance, go to **Settings → Integrations → Microsoft Teams**, paste the **Bot App ID** and **Bot Password (Client Secret)**, and click **Save**.
+   ![Azure Bot Configuration — Messaging endpoint, Bot Type (Single Tenant), Microsoft App ID, App Tenant ID](/livereview/integrations/teams-azure-bot-configuration.png)
+
+7. On the same Configuration page, click **Apply** to save the messaging endpoint. Then click **Manage Password** (the link next to **Microsoft App ID**) to jump to the app registration's **Certificates & secrets** page, and click **New client secret** to generate one.
+
+   Copy the **Value** column immediately — Azure only shows the full value once, right after creation; refresh or navigate away and it's masked forever (you'll need to create a new one if that happens). This is your **Bot Password (Client Secret)**. Ignore the **Secret ID** column — that's just an internal reference for this credential, not the secret itself.
+
+   ![Certificates & secrets — New client secret, the full Value to copy, and Secret ID (not the password)](/livereview/integrations/teams-azure-client-secret.png)
+
+   > **Known Azure quirk:** the Value sometimes doesn't render at all right after creating a secret (the row shows blank). If that happens, just click **+ New client secret** again to create another one — don't reuse the empty/broken row.
+8. On the bot resource, search the sidebar for **channel** and open **Channels**. Under **Available Channels**, click **Microsoft Teams**. Messaging is enabled by default — just click **Apply**.
+
+   ![Bot resource → Channels → Available Channels → Microsoft Teams](/livereview/integrations/teams-azure-add-channel.png)
+9. In your LiveReview instance, go to **Settings → Integrations → Microsoft Teams**, paste the **Bot App ID**, **Tenant ID**, and **Bot Password (Client Secret)**, and click **Save**.
+
+   ![Settings → Search "teams" → Microsoft Teams → paste Bot App ID and Client Secret → Save](/livereview/integrations/teams-settings-save.png)
+
+## Part 2: Install Livi as a Teams app
+
+Azure Bot Service registration only wires up the bot's backend — Teams itself doesn't know about it until an actual **Teams app** (a manifest + icons, packaged as a zip) is uploaded to your organization. LiveReview generates this package for you automatically once the bot is configured.
+
+1. After saving in Part 1, on the same **Settings → Integrations → Microsoft Teams** page, click **Download Livi Teams App**. This downloads a zip containing the app manifest and icons, pre-filled with your bot's App ID.
+2. Sign in to the [Teams admin center](https://admin.teams.microsoft.com) (not the general Microsoft 365 admin center) and go to **Teams apps → Manage apps**. Click **Actions → Upload new app**, then upload the zip. See Microsoft's [manage custom apps guide](https://learn.microsoft.com/en-us/microsoftteams/teams-custom-app-policies-and-settings) if your organization restricts custom app uploads — an admin may need to allow Livi through your org's app policies first.
+
+   ![Teams admin center → Teams apps → Manage apps → Actions → Upload new app](/livereview/integrations/teams-admin-center-upload.png)
+
+3. A **New app added** confirmation appears once the upload succeeds.
+
+   ![New app added confirmation after uploading the Livi Teams App zip](/livereview/integrations/teams-admin-center-app-added.png)
+
+4. Once uploaded, users can find and add Livi from the Teams Store, the app flyout (**More apps**), or by @mentioning it in a new chat.
 
 ## Using Livi in Teams
 
-Mention Livi in a channel it's been added to, or message it directly, with any request — for example `Trigger a review for <PR URL>` or a question about a past review.
+### Adding Livi to a channel
+
+In the channel's message box, type `@` and select **Add agent to the channel** from the suggestions.
+
+![Type @ in a channel → Add agent to the channel](/livereview/integrations/teams-add-agent-to-channel.png)
+
+Search for **Livi** and click it — you'll see it listed as "LiveReview's AI code review assistant", built for your organization.
+
+![Search "Livi" and select it to add](/livereview/integrations/teams-search-livi-add.png)
+
+### In a channel
+
+Mention Livi in a channel it's been added to: `@Livi Trigger a review for <PR URL>` or a question about a past review.
+
+### In a DM
+
+Message it directly, no mention needed: `Trigger a review for <PR URL>`.
+
+![Livi triggering a review from a Teams DM](/livereview/integrations/teams-trigger-review.png)
+
+You can also ask it for analytics, and it'll generate a chart right in the conversation:
+
+`Are engineers actually incorporating reviews into their daily workflow?`
+
+![Livi answering an analytics question with a generated chart in Teams](/livereview/integrations/teams-analytics-chart.png)
+
+Livi also knows LiveReview itself, so you can ask it how to do something in the product instead of hunting through the dashboard — it answers with the exact page and the steps to follow:
+
+`How do I add a new AI provider?`
+
+![Livi explaining how to add a new AI provider connector in LiveReview](/livereview/integrations/teams-ask-add-ai-provider.png)
 
 If Livi doesn't respond, double-check the messaging endpoint on the Azure Bot resource matches your LiveReview instance's public URL exactly (including `/api/messages`), and confirm with whoever manages your LiveReview instance that the saved Teams configuration has been picked up by the server.
+
+## Uninstalling Livi
+
+To fully remove Livi (for example, to redo the setup from scratch), tear things down in **reverse order of how you installed them** — team/channel first, then the org catalog entry, then Azure. Doing it out of order (deleting the Azure app registration or catalog entry before removing Livi from the team) can leave the team-level app stuck and unable to uninstall.
+
+1. **Remove Livi from the team.** In [Teams](https://teams.cloud.microsoft/), open the team it's installed in, go to the **Apps** tab (this is a team-wide install, not per-channel — removing it here removes it from every channel in that team), find **Livi**, click **···** next to it, and select **Remove**. Confirm the "Are you sure you want to remove Livi?" prompt.
+
+   > **Known issue:** if you've already deleted the Teams app catalog entry or the Azure app registration (steps 2–3 below) before doing this step, removal can fail here with *"There was an issue while trying to remove Livi. Please try again."* on every retry, even after a page reload. Do this step **first**, before touching anything in the Teams admin center or Azure Portal, to avoid it.
+
+2. **Delete the Teams app catalog entry.** In the [Teams admin center](https://admin.teams.microsoft.com) → **Teams apps → Manage apps**, search for **Livi**, open it, and use **Actions → Delete**. Confirm the "Do you want to delete this app?" dialog.
+
+3. **Delete the Azure AD app registration.** In the [Azure Portal](https://portal.azure.com) → **Microsoft Entra ID → App registrations → All applications**, find the app by its App ID (the same GUID you saved as **Bot App ID** in LiveReview), open it, and use **Overview → Delete**. This also immediately invalidates any client secrets for that app — you can't reuse the old **Bot Password** afterward even if you kept a copy of it.
+
+4. **Delete the Azure Bot resource.** In the [Azure Portal](https://portal.azure.com), find the **Azure Bot** resource itself (same App ID, visible under **Configuration**), open it, and use **Overview → Delete**. Confirm the irreversible-action prompt.
+
+5. **Disconnect in LiveReview.** In **Settings → Integrations → Microsoft Teams**, click **Disconnect** to clear the saved Bot App ID/Tenant ID/Bot Password from LiveReview and stop the live bot for your org.
+
+After all five steps, you're back to a clean slate — no leftover Azure resources, no stale Teams app entry, and nothing saved in LiveReview — ready to go through [Part 1](#part-1-register-the-bot-in-azure) again with a brand-new Azure Bot and app registration.
