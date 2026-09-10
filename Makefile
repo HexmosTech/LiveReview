@@ -1497,10 +1497,10 @@ razorpay-verify-plans-low-pricing:
 # ============================================================================
 
 dev dev-up:
-	@./dev up
+	@scripts/dev.sh up
 
 dev-down:
-	@./dev down
+	@scripts/dev.sh down
 
 # Usage: make dev-restart SVC=api   (or ui, worker, niceurl)
 dev-restart:
@@ -1508,13 +1508,13 @@ dev-restart:
 		echo "Usage: make dev-restart SVC=<api|ui|worker|niceurl>"; \
 		exit 1; \
 	fi
-	@./dev restart $(SVC)
+	@scripts/dev.sh restart $(SVC)
 
 dev-status:
-	@./dev status
+	@scripts/dev.sh status
 
 dev-attach:
-	@./dev attach
+	@scripts/dev.sh attach
 
 # ============================================================================
 # CI/CD Gate demo (shrsv/claude-world) -- see demo/cicd/README.md

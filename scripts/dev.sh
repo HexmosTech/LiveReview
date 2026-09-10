@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SESSION="lr"
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WIN_API="$ROOT_DIR/scripts/tmux-helpers/api.sh"
 WIN_UI="$ROOT_DIR/scripts/tmux-helpers/ui.sh"
 WIN_WORKER="$ROOT_DIR/scripts/tmux-helpers/worker.sh"
@@ -10,7 +10,7 @@ WIN_NICEURL="$ROOT_DIR/scripts/tmux-helpers/niceurl.sh"
 
 usage() {
   cat <<'EOF'
-Usage: ./dev [COMMAND]
+Usage: scripts/dev.sh [COMMAND]  (or: make dev / make dev-up / make dev-down / ...)
 
 Commands:
   up            Start all services in a tmux session (default)
@@ -23,11 +23,11 @@ Environment:
   NICEURL       niceurl target (default: niceurl2)
 
 Examples:
-  ./dev                     # start everything
-  ./dev up                  # same
-  ./dev restart api         # restart just the API (Air recompiles)
-  ./dev restart ui          # restart just the UI dev server
-  NICEURL=niceurl3 ./dev    # start with niceurl3 instead
+  scripts/dev.sh                     # start everything
+  scripts/dev.sh up                  # same
+  scripts/dev.sh restart api         # restart just the API (Air recompiles)
+  scripts/dev.sh restart ui          # restart just the UI dev server
+  NICEURL=niceurl3 scripts/dev.sh    # start with niceurl3 instead
 EOF
 }
 
@@ -105,7 +105,7 @@ cmd_up() {
   ensure_helpers
 
   if tmux has-session -t "$SESSION" 2>/dev/null; then
-    echo "Session '$SESSION' already exists. Use './dev attach' or './dev restart <svc>'."
+    echo "Session '$SESSION' already exists. Use 'scripts/dev.sh attach' or 'scripts/dev.sh restart <svc>'."
     exit 0
   fi
 
@@ -131,9 +131,9 @@ cmd_up() {
   echo ""
   echo "  Windows:  api | ui | worker | niceurl"
   echo ""
-  echo "  Attach:       ./dev attach"
-  echo "  Restart API:  ./dev restart api"
-  echo "  Kill all:     ./dev down"
+  echo "  Attach:       scripts/dev.sh attach"
+  echo "  Restart API:  scripts/dev.sh restart api"
+  echo "  Kill all:     scripts/dev.sh down"
   echo ""
   echo "  Inside tmux: prefix+n to switch windows, prefix+0-3 to jump"
   echo ""
@@ -151,12 +151,12 @@ cmd_down() {
 cmd_restart() {
   local svc="${1:-}"
   if [[ -z "$svc" ]]; then
-    echo "Usage: ./dev restart <api|ui|worker|niceurl>"
+    echo "Usage: scripts/dev.sh restart <api|ui|worker|niceurl>"
     exit 1
   fi
 
   if ! tmux has-session -t "$SESSION" 2>/dev/null; then
-    echo "No session '$SESSION' running. Start with './dev up' first."
+    echo "No session '$SESSION' running. Start with 'scripts/dev.sh up' first."
     exit 1
   fi
 
@@ -204,7 +204,7 @@ cmd_restart() {
       exit 1
       ;;
   esac
-  echo "Done. Watch './dev attach' to see it come back up."
+  echo "Done. Watch 'scripts/dev.sh attach' to see it come back up."
 }
 
 cmd_status() {
@@ -217,7 +217,7 @@ cmd_status() {
 
 cmd_attach() {
   if ! tmux has-session -t "$SESSION" 2>/dev/null; then
-    echo "No session '$SESSION' running. Start with './dev up' first."
+    echo "No session '$SESSION' running. Start with 'scripts/dev.sh up' first."
     exit 1
   fi
   tmux attach -t "$SESSION"
