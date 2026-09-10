@@ -1131,7 +1131,7 @@ raw-deploy: build-with-ui
 		exit 1; \
 	fi
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && mv ./livereview ./livereview.bak || true"
-	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh install-vl-convert.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
+	rsync -avz ./livereview scripts/db-ready.sh scripts/ecosystem.config.js scripts/deps.sh scripts/install-vl-convert.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
 	rsync -avz ./$(DEPLOY_ACTUAL_ENV_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/.env
 	ssh $(DEPLOY_HOST) "mkdir -p $(DEPLOY_PATH)/config"
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
@@ -1172,7 +1172,7 @@ raw-deploy-staging: build-staging-with-ui
 	@echo "🔄 Running database migrations from local machine..."
 	set -a && . ./$(DEPLOY_STAGING_ENV_FILE) && set +a && dbmate --url "$$DATABASE_URL" up && river migrate-up --database-url "$$DATABASE_URL"
 	ssh $(DEPLOY_STAGING_HOST) "mkdir -p $(DEPLOY_STAGING_PATH) && cd $(DEPLOY_STAGING_PATH) && mv ./livereview ./livereview.bak || true"
-	rsync -avz ./livereview deps.sh install-vl-convert.sh ecosystem.staging.config.js $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/
+	rsync -avz ./livereview scripts/deps.sh scripts/install-vl-convert.sh scripts/ecosystem.staging.config.js $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/
 	rsync -avz ./$(DEPLOY_STAGING_ENV_FILE) $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/.env
 	ssh $(DEPLOY_STAGING_HOST) "mkdir -p $(DEPLOY_STAGING_PATH)/config $(DEPLOY_STAGING_PATH)/internal/mockllm"
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_STAGING_HOST):$(DEPLOY_STAGING_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
@@ -1227,7 +1227,7 @@ raw-deploy-low-pricing: build-with-ui
 		exit 1; \
 	fi
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && mv ./livereview ./livereview.bak || true"
-	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh install-vl-convert.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
+	rsync -avz ./livereview scripts/db-ready.sh scripts/ecosystem.config.js scripts/deps.sh scripts/install-vl-convert.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
 	rsync -avz ./$(DEPLOY_LOW_PRICING_ENV_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/.env
 	ssh $(DEPLOY_HOST) "mkdir -p $(DEPLOY_PATH)/config"
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
@@ -1270,7 +1270,7 @@ raw-deploy-backend:
 		exit 1; \
 	fi
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && mv ./livereview ./livereview.bak || true"
-	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh install-vl-convert.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
+	rsync -avz ./livereview scripts/db-ready.sh scripts/ecosystem.config.js scripts/deps.sh scripts/install-vl-convert.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
 	rsync -avz ./$(DEPLOY_ACTUAL_ENV_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/.env
 	ssh $(DEPLOY_HOST) "mkdir -p $(DEPLOY_PATH)/config"
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
@@ -1321,7 +1321,7 @@ raw-deploy-backend-low-pricing:
 		exit 1; \
 	fi
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && mv ./livereview ./livereview.bak || true"
-	rsync -avz ./livereview db-ready.sh ecosystem.config.js deps.sh install-vl-convert.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
+	rsync -avz ./livereview scripts/db-ready.sh scripts/ecosystem.config.js scripts/deps.sh scripts/install-vl-convert.sh $(DEPLOY_HOST):$(DEPLOY_PATH)/
 	rsync -avz ./$(DEPLOY_LOW_PRICING_ENV_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/.env
 	ssh $(DEPLOY_HOST) "mkdir -p $(DEPLOY_PATH)/config"
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
