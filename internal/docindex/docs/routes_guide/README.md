@@ -13,6 +13,10 @@ not implementation detail.
   (`reviews/`, `explore/`, `git/`, `ai/`, `settings/`, `licenses/`,
   `reports/`, `chatbot/`, `auth/`). Top-level pages that don't belong to a
   group (dashboard, home) live directly in `ui/docs/training_data/lr_routes/`.
+- A small number of top-level files are **reference pages, not routes**
+  (e.g. `contact.md`), for cross-cutting questions the chatbot must answer
+  that no single page owns. Keep these rare and clearly marked as non-routes
+  at the top of the file.
 - Each file follows this shape:
   - **Route(s)** — path(s) and the component that renders them
   - **Purpose** — what the page is for, in plain language
