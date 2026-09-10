@@ -34,3 +34,7 @@ Every channel reaches the same engineers who set your instance up.
 
 [Settings -> License](settings/license.md),
 [Settings -> Integrations](settings/integrations.md)
+
+## Learn more (public docs)
+
+- [LiveReview documentation home](https://hexmos.com/livereview/docs)

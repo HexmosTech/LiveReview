@@ -55,3 +55,8 @@ Organization owners and super admins (gated in the mega menu by
 - [Reviews (list)](reviews-list.md)
 - [Review Detail](review-detail.md)
 - [Dashboard](../dashboard.md)
+
+## Learn more (public docs)
+
+- [CI/CD gates and merge enforcement — write a jq rule against findings and call one URL from any pipeline](https://hexmos.com/livereview/docs/livereview/mcp/usecases/cicd-gates-merge-enforcement)
+- [Prevent production issues — automated reviews in your CI/CD pipeline](https://hexmos.com/livereview/docs/livereview/mcp/usecases/prevent-production-issues)

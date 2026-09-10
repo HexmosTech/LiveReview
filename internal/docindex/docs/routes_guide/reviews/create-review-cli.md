@@ -36,3 +36,9 @@ Any authenticated org member. Free-plan orgs may see an upgrade dialog
 - [Dashboard](../dashboard.md)
 - [Create Review via MCP](create-review-mcp.md)
 - [New Review](new-review.md)
+
+## Learn more (public docs)
+
+- [Install git-lrc in one minute and activate local hooks](https://hexmos.com/livereview/docs/git-lrc/get-started/install)
+- [What git-lrc does and where it fits in your workflow](https://hexmos.com/livereview/docs/git-lrc/get-started/intro)
+- [Typical developer workflow with git-lrc enabled](https://hexmos.com/livereview/docs/git-lrc/concepts/workflow)

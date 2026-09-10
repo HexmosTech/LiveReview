@@ -75,3 +75,7 @@ Formats are **PDF** and **HTML** (`internal/onboardingreport/generate_pdf.go`,
 ## Related pages
 
 [Reports → Taxonomy Reports](taxonomy-reports.md), [Dashboard](../dashboard.md)
+
+## Learn more (public docs)
+
+- [Generate engineering reports](https://hexmos.com/livereview/docs/livereview/mcp/usecases/generate-engineering-reports)

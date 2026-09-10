@@ -29,3 +29,8 @@ License Assignment is part of onboarding someone.
 ## Related pages
 
 [Settings overview](settings-overview.md)
+
+## Learn more (public docs)
+
+- [Collaboration — team rollout patterns that keep adoption smooth](https://hexmos.com/livereview/docs/git-lrc/concepts/collaboration)
+- [Roles — suggested responsibilities when adopting LiveReview](https://hexmos.com/livereview/docs/git-lrc/concepts/roles)

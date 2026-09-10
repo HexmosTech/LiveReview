@@ -26,3 +26,9 @@ within those tools.
 ## Related pages
 
 [Settings overview](settings-overview.md), [Create Review via MCP](../reviews/create-review-mcp.md)
+
+## Learn more (public docs)
+
+- [MCP server overview](https://hexmos.com/livereview/docs/livereview/mcp)
+- [Configuring the MCP server](https://hexmos.com/livereview/docs/livereview/mcp/mcp-configuration)
+- [How to use the MCP server](https://hexmos.com/livereview/docs/livereview/mcp/mcp-usage)

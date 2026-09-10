@@ -79,3 +79,8 @@ per-repository/provider breakdown, and category↔subcategory relations.
 [Reports → Onboarding Report](onboarding-report.md),
 [Reviews list](../reviews/reviews-list.md),
 [Review detail](../reviews/review-detail.md)
+
+## Learn more (public docs)
+
+- [Generate engineering reports](https://hexmos.com/livereview/docs/livereview/mcp/usecases/generate-engineering-reports)
+- [Understand engineering decisions — query past reviews and spot recurring quality issues](https://hexmos.com/livereview/docs/livereview/mcp/usecases/understand-engineering-decisions)

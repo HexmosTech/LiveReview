@@ -19,3 +19,8 @@ that LiveReview's AI review pipeline takes into account (see
 ## Related pages
 
 [Settings overview](settings-overview.md)
+
+## Learn more (public docs)
+
+- [Set review rules — what gets flagged and how strict reviews are](https://hexmos.com/livereview/docs/git-lrc/configure/set-review-rules)
+- [Repository rules — the .lrc/ directory for repo-specific review rules](https://hexmos.com/livereview/docs/git-lrc/configure/repository-rules)

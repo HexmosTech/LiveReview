@@ -31,3 +31,7 @@ typically an owner/admin action (enforced server-side).
 
 - [New Review](../reviews/new-review.md)
 - [Settings](../settings/settings-overview.md)
+
+## Learn more (public docs)
+
+- [Integrations — AI connector management (BYOK): Gemini, OpenAI, Claude, DeepSeek, OpenRouter](https://hexmos.com/livereview/docs/git-lrc/configure/integrations)
