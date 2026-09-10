@@ -495,6 +495,36 @@ Docker/`gh` invocations beyond the one-time registry login in step 3.
    make docker-multiarch-dry           # sanity-check the plan first
    make docker-multiarch-push          # builds amd64+arm64, pushes :X.Y.Z and :latest
    ```
+   Bare `make docker-multiarch-push` auto-detects the version from the Git tag
+   and leaves the `latest` decision to auto-detection. To be fully explicit and
+   non-interactive - e.g. in a script, or when `HEAD` isn't the tagged commit -
+   pass the flags through `ARGS` (the Makefile forwards `$(ARGS)` to
+   `scripts/lrops.py build --docker --multiarch --push`):
+   ```
+   make docker-multiarch-push ARGS="--latest --version v1.0.4"
+   ```
+   `--no-latest` is the counterpart when publishing an older/backport tag that
+   must not move the `:latest` pointer.
+
+   There is also an **interactive** variant - `make docker-interactive-multiarch`
+   / `make docker-interactive-multiarch-push` (single-arch:
+   `make docker-interactive` / `-push` / `-dry`). It prompts for three things:
+   which existing tag to build, whether to also tag it `latest`, and whether to
+   go multi-arch. Both paths end in the same `build_docker_image()` call with
+   the same arguments, so the build and push themselves are identical - the
+   only difference is where those values come from.
+
+   Two behavioral gotchas worth knowing:
+   - Interactive runs `lrops.py docker` (flag: `--tag`), non-interactive runs
+     `lrops.py build --docker` (flag: `--version`).
+   - `lrops.py docker` **validates that the tag already exists** in the repo and
+     refuses otherwise; `build --docker` does not, so a typo'd `--version` will
+     happily build and push a tag that matches no commit.
+
+   **Rule for agents: do not pick between these two on your own.** Before
+   running any multi-arch build/push, ask the user which they want -
+   interactive or non-interactive with explicit `ARGS` - and run their choice.
+
    This uses the `gitlab-multiarch` buildx builder (a local `docker-container`
    driver builder - `scripts/lrops.py` creates it automatically on first use
    if missing; despite the name it has nothing to do with GitLab or a remote
@@ -509,6 +539,12 @@ Docker/`gh` invocations beyond the one-time registry login in step 3.
    Publishes/edits a GitHub release at the tag using
    `docs/releases/v1.0.4.md` as the notes body (`scripts/release_gh.py`).
    SBOM generation/attachment runs separately, from CI, off the pushed tag.
+
+**Gotcha - multi-arch builds are disk-hungry.** Building amd64+arm64 in one
+run materializes two full image trees plus the buildx cache. If the build dies
+with a confusing write/extract error, check free space on the build machine
+first (`df -h`, `docker system df`) and reclaim with `docker buildx prune` /
+`docker system prune` before assuming the Dockerfile is at fault.
 
 **Gotcha - the Docker build context is the raw repo directory (`.`), not a
 git archive.** `docker buildx build .` needs to traverse every directory
