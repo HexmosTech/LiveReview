@@ -114,7 +114,9 @@ type QueueConfig struct {
 // DiffArchivalConfig controls the parallel diff archival worker pool concurrency.
 type DiffArchivalConfig struct {
 	// MaxWorkers is the concurrency of the "diff_archival" queue.
-	MaxWorkers int // default: 5
+	MaxWorkers int // default: 10
+	// BatchSize is the number of reviews packaged into a single archival job.
+	BatchSize int // default: 10
 }
 
 // RepoSyncConfig controls the periodic reconciliation sweep that catches PR/MR
@@ -259,15 +261,21 @@ func repoSyncConfigFromEnv() RepoSyncConfig {
 }
 
 // diffArchivalConfigFromEnv builds DiffArchivalConfig from defaults, overridable via
-// LIVEREVIEW_DIFF_ARCHIVAL_MAX_WORKERS so archival worker concurrency can be tuned
-// per-deployment without a code change.
+// LIVEREVIEW_DIFF_ARCHIVAL_MAX_WORKERS / LIVEREVIEW_DIFF_ARCHIVAL_BATCH_SIZE so archival worker concurrency
+// and batch size can be tuned per-deployment without a code change.
 func diffArchivalConfigFromEnv() DiffArchivalConfig {
 	config := DiffArchivalConfig{
-		MaxWorkers: 5,
+		MaxWorkers: 10,
+		BatchSize:  10,
 	}
 	if v := os.Getenv("LIVEREVIEW_DIFF_ARCHIVAL_MAX_WORKERS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			config.MaxWorkers = n
+		}
+	}
+	if v := os.Getenv("LIVEREVIEW_DIFF_ARCHIVAL_BATCH_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			config.BatchSize = n
 		}
 	}
 	return config
@@ -370,7 +378,7 @@ func (c *QueueConfig) RiverQueueConfig() map[string]river.QueueConfig {
 
 	diffArchivalWorkers := c.DiffArchivalConfig.MaxWorkers
 	if diffArchivalWorkers <= 0 {
-		diffArchivalWorkers = 5
+		diffArchivalWorkers = 10
 	}
 
 	return map[string]river.QueueConfig{

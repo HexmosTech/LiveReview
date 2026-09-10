@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -219,6 +220,10 @@ func (m *DiffArchivalManager) runCycle() {
 }
 
 func (m *DiffArchivalManager) executeBulkArchival(ctx context.Context, retentionDays int, batchSize int, delayMs int) (archived int64, errs int) {
+	if batchSize <= 0 {
+		batchSize = 10
+	}
+
 	query := `
 		SELECT id, COALESCE(org_id, 0)
 		FROM reviews
@@ -235,11 +240,19 @@ func (m *DiffArchivalManager) executeBulkArchival(ctx context.Context, retention
 	}
 	defer rows.Close()
 
-	var jobs []jobqueue.DiffArchivalJobArgs
+	type reviewRecord struct {
+		id    int64
+		orgID int64
+	}
+
+	orgMap := make(map[int64][]int64)
+	var totalEligible int
+
 	for rows.Next() {
-		var j jobqueue.DiffArchivalJobArgs
-		if err := rows.Scan(&j.ReviewID, &j.OrgID); err == nil {
-			jobs = append(jobs, j)
+		var rec reviewRecord
+		if err := rows.Scan(&rec.id, &rec.orgID); err == nil {
+			orgMap[rec.orgID] = append(orgMap[rec.orgID], rec.id)
+			totalEligible++
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -247,31 +260,50 @@ func (m *DiffArchivalManager) executeBulkArchival(ctx context.Context, retention
 		return 0, 1
 	}
 
-	if len(jobs) == 0 {
+	if totalEligible == 0 {
 		log.Info().Msg("[diff_archival] no eligible reviews found for offloading")
 		return 0, 0
 	}
 
 	if m.jq != nil {
-		log.Info().Int("count", len(jobs)).Msg("[diff_archival] enqueuing diff archival jobs into River queue")
-		count, err := m.jq.QueueDiffArchivalJobs(ctx, jobs)
-		if err != nil {
-			log.Error().Err(err).Msg("[diff_archival] error enqueuing archival jobs")
-			return 0, 1
+		var totalArchivalJobs int
+		batchRunPrefix := fmt.Sprintf("batch-%d", time.Now().UnixNano())
+
+		for orgID, reviewIDs := range orgMap {
+			// 1 job per review — clean retry isolation per River design
+			archivalJobs := make([]jobqueue.DiffArchivalJobArgs, len(reviewIDs))
+			for i, id := range reviewIDs {
+				archivalJobs[i] = jobqueue.DiffArchivalJobArgs{
+					ReviewID: id,
+					OrgID:    orgID,
+				}
+			}
+
+			count, err := m.jq.QueueDiffArchivalJobs(ctx, archivalJobs)
+			if err != nil {
+				log.Error().Err(err).Int64("org_id", orgID).Msg("[diff_archival] error enqueuing archival jobs")
+				errs++
+				continue
+			}
+			totalArchivalJobs += count
+
+			// Enqueue single purge job for this org's batch run
+			batchRunID := fmt.Sprintf("%s-org-%d", batchRunPrefix, orgID)
+			purgeJob := jobqueue.DiffArchivalPurgeJobArgs{
+				BatchRunID: batchRunID,
+				ReviewIDs:  reviewIDs,
+				OrgID:      orgID,
+			}
+			if err := m.jq.QueueDiffArchivalPurgeJob(ctx, purgeJob); err != nil {
+				log.Error().Err(err).Int64("org_id", orgID).Msg("[diff_archival] error enqueuing archival purge job")
+				errs++
+			}
 		}
-		return int64(count), 0
+
+		log.Info().Int("total_eligible_reviews", totalEligible).Int("enqueued_archival_jobs", totalArchivalJobs).Msg("[diff_archival] enqueued diff archival jobs into River queue (1 job per review)")
+		return int64(totalEligible), errs
 	}
 
-	// Fallback for direct testing without active JobQueue instance
-	log.Warn().Msg("[diff_archival] JobQueue is nil, processing archival inline fallback")
-	var totalArchived int64 = 0
-	var totalErrs int = 0
-	for _, j := range jobs {
-		if err := jobqueue.ProcessDiffArchivalForReview(ctx, m.db, j.OrgID, j.ReviewID); err != nil {
-			totalErrs++
-		} else {
-			totalArchived++
-		}
-	}
-	return totalArchived, totalErrs
+	log.Warn().Msg("[diff_archival] JobQueue is nil, skipping archival")
+	return 0, 0
 }
