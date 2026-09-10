@@ -13,11 +13,11 @@ tabs. Which tabs are visible depends on the user's role
 
 | Tab | id | Who sees it |
 |---|---|---|
-| Instance | `instance` | super_admin only |
-| SMTP | `smtp` | super_admin, self-hosted only |
-| Storage | `storage` | super_admin only |
-| Deployment | `deployment` | super_admin only |
-| License | `license` | super_admin (cloud); super_admin or owner (self-hosted) |
+| Instance | `instance` | super_admin, or org owner (self-hosted only) |
+| SMTP | `smtp` | super_admin or org owner, self-hosted only |
+| Storage | `storage` | super_admin, or org owner (self-hosted only) |
+| Deployment | `deployment` | super_admin or org owner |
+| License | `license` | super_admin or org owner, self-hosted only (tab absent in cloud) |
 | Prompts | `prompts` | super_admin, or org owner/member |
 | Learnings | `learnings` | any org member |
 | API Keys | `api-keys` | any org member |

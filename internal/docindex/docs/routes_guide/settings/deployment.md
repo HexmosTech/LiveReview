@@ -1,7 +1,8 @@
 # Settings → Deployment
 
 **Route:** `/settings#deployment`
-**Who sees it:** super_admin only
+**Who sees it:** super_admin or org **owner** (`canManageCurrentOrg`), in both
+cloud and self-hosted mode.
 
 ## Purpose
 

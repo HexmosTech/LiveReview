@@ -1,7 +1,10 @@
 # Settings → Storage
 
 **Route:** `/settings#storage`
-**Who sees it:** super_admin only
+**Who sees it:** super_admin, or an org **owner** on a self-hosted instance
+(`canManageInstanceConfig` in `ui/src/pages/Settings/Settings.tsx`). In cloud
+mode the blob store is shared across every tenant, so it stays
+super_admin-only there.
 
 ## Purpose
 

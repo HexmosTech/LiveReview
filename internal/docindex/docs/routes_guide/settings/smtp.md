@@ -1,7 +1,8 @@
 # Settings → SMTP
 
 **Route:** `/settings#smtp`
-**Who sees it:** super_admin, self-hosted deployments only (hidden in cloud mode)
+**Who sees it:** super_admin or org **owner** (`canManageCurrentOrg`),
+self-hosted deployments only (hidden in cloud mode)
 
 ## Purpose
 
