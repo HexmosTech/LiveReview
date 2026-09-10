@@ -28,3 +28,7 @@ Any authenticated org member; the review must belong to their org
 
 - [Reviews list](reviews-list.md)
 - [New Review](new-review.md)
+
+## Learn more (public docs)
+
+- [Turn findings into tickets and follow-up tasks](https://hexmos.com/livereview/docs/livereview/mcp/usecases/turn-findings-into-tickets)

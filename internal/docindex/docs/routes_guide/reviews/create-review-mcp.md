@@ -31,3 +31,8 @@ Any authenticated org member.
 - [Dashboard](../dashboard.md)
 - [Create Review via CLI](create-review-cli.md)
 - [Settings → MCP Integration](../settings/mcp-integration.md)
+
+## Learn more (public docs)
+
+- [Configuring the MCP server — get your API key and connect your client](https://hexmos.com/livereview/docs/livereview/mcp/mcp-configuration)
+- [How to use the MCP server — available tools, with example prompts](https://hexmos.com/livereview/docs/livereview/mcp/mcp-usage)

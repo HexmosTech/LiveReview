@@ -17,3 +17,7 @@ Lets teams see and, where permitted, customize how reviews are prompted.
 ## Related pages
 
 [Settings overview](settings-overview.md), [AI Providers](../ai/ai-providers.md)
+
+## Learn more (public docs)
+
+- [Set review rules — tuning severity, sensitive patterns, and critical paths](https://hexmos.com/livereview/docs/git-lrc/configure/set-review-rules)

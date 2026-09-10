@@ -23,6 +23,21 @@ not implementation detail.
   - **Who can access it** — role/permission gating, if any
   - **Key actions** — what a user can do on this page
   - **Related pages** — where this page links to / is linked from
+  - **Learn more (public docs)** — optional; links to the matching page(s)
+    on the public docs site, when one exists
+
+## Linking to the public docs
+
+Where a page is also covered by the public documentation site, end the file
+with a **Learn more (public docs)** section linking to it. Base URL is
+`https://hexmos.com/livereview/docs/<path>`, where `<path>` mirrors the file
+layout under `../hexmos_docs/` (e.g. `livereview/integrations/slack.mdx` →
+`https://hexmos.com/livereview/docs/livereview/integrations/slack`, and an
+`index.mdx` drops the `/index`).
+
+Only link to pages that actually exist in `../hexmos_docs/` — that folder is
+synced from the live docs site, so it is the authority on what is publishable.
+Never guess a URL: a 404 in the chatbot's answer is worse than no link.
 
 ## Keeping this in sync
 

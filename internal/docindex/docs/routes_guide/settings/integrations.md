@@ -101,3 +101,10 @@ Livi through an installed app.
 
 [Settings overview](settings-overview.md), [Contact us](../contact.md),
 [Git Providers](../git/git-providers.md)
+
+## Learn more (public docs)
+
+- [Integrations overview — bringing Livi into Slack, Discord, and Microsoft Teams](https://hexmos.com/livereview/docs/livereview/integrations)
+- [Connect Livi to your Slack workspace](https://hexmos.com/livereview/docs/livereview/integrations/slack)
+- [Connect Livi to Microsoft Teams via an Azure Bot](https://hexmos.com/livereview/docs/livereview/integrations/teams)
+- [Connect Livi to your Discord server](https://hexmos.com/livereview/docs/livereview/integrations/discord)

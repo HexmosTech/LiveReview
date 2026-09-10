@@ -126,3 +126,7 @@ yet, not that something is wrong.
   MCP](reviews/create-review-mcp.md) — onboarding entry points sharing this
   page's onboarding data.
 - [Reviews](reviews/reviews-list.md)
+
+## Learn more (public docs)
+
+- [Generate engineering reports — ask for the report you need in plain English](https://hexmos.com/livereview/docs/livereview/mcp/usecases/generate-engineering-reports)

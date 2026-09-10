@@ -21,3 +21,7 @@ deactivation) — those require an active JWT session (see root `AGENTS.md`,
 ## Related pages
 
 [Settings overview](settings-overview.md), [Create Review via CLI](../reviews/create-review-cli.md)
+
+## Learn more (public docs)
+
+- [Configuring the MCP server — where your API key is used](https://hexmos.com/livereview/docs/livereview/mcp/mcp-configuration)
