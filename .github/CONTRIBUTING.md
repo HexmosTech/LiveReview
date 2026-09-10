@@ -4,7 +4,7 @@
 
 - Start with a Discussion if the work is not already agreed and clearly scoped.
 - Do not open direct PRs for unscoped work. The preferred flow is Discussion -> Issue -> PR.
-- Follow [Local-Setup-Guide.md](./Local-Setup-Guide.md) to get a local database and environment running, then `make build`.
+- Follow [Local-Setup-Guide.md](../docs/Local-Setup-Guide.md) to get a local database and environment running, then `make build`.
 - Run the most specific test that proves your change (`make test`, or `go test ./path/to/package/...`).
 - If your change touches UI, a GIF or video walkthrough is required in the PR. This is a hard requirement.
 - Private security reports should go through GitHub Security Advisories, not public issues. See [SECURITY.md](./SECURITY.md).
@@ -44,7 +44,7 @@ This keeps the project focused and avoids PRs that arrive before the problem has
 
 ## Getting Started Locally
 
-Follow [Local-Setup-Guide.md](./Local-Setup-Guide.md) to set up a local PostgreSQL database and the environment variables LiveReview needs.
+Follow [Local-Setup-Guide.md](../docs/Local-Setup-Guide.md) to set up a local PostgreSQL database and the environment variables LiveReview needs.
 
 Then build and run:
 
@@ -106,4 +106,4 @@ AI-assisted programming is fine, but UI changes still need to be tested and demo
 
 ## Contributor License Agreement
 
-If you contribute to LiveReview, you agree that you have read and accepted the terms in the [Contributor License Agreement](./CLA.md).
+If you contribute to LiveReview, you agree that you have read and accepted the terms in the [Contributor License Agreement](../docs/CLA.md).

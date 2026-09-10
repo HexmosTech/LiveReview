@@ -860,7 +860,7 @@ LiveReview documents the questions enterprise teams ask first: deployment model 
 - Explicit data handling: what leaves your network, when it happens, and retention/deletion expectations
 - Prompt-injection and unsafe-output mitigations, automated scanners, SBOM visibility, and transparent GitHub source with responsive disclosure policy
 
-[Open Security Page](https://hexmos.com/livereview/security) · [Read SECURITY.md](https://github.com/HexmosTech/LiveReview/blob/master/SECURITY.md) · [Report a Vulnerability](https://github.com/HexmosTech/LiveReview/security/advisories/new)
+[Open Security Page](https://hexmos.com/livereview/security) · [Read SECURITY.md](https://github.com/HexmosTech/LiveReview/blob/master/.github/SECURITY.md) · [Report a Vulnerability](https://github.com/HexmosTech/LiveReview/security/advisories/new)
 
 ### Security FAQ
 
@@ -880,7 +880,7 @@ Yes, generated automatically on every release using Syft, published to GitHub re
 **Is LiveReview SOC 2 Type II certified?**
 Not at this time. Security docs, scan history, SBOM, and source code are all public instead, so enterprise buyers can review the actual posture rather than take a certification on faith.
 
-For complete details, including local security scan commands and how to enable the gated-off scanning workflows, see [SECURITY.md](SECURITY.md). For pricing, LOC, and general product questions, see the [FAQ](#faq) below.
+For complete details, including local security scan commands and how to enable the gated-off scanning workflows, see [SECURITY.md](.github/SECURITY.md). For pricing, LOC, and general product questions, see the [FAQ](#faq) below.
 
 <a id="faq"></a>
 ## FAQ
