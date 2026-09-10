@@ -6,7 +6,7 @@ services:
       - "${LIVEREVIEW_BACKEND_PORT:-8888}:8888"  # Backend API
       - "${LIVEREVIEW_FRONTEND_PORT:-8081}:8081"  # Frontend UI
     env_file:
-      - .env
+      - ../.env
     environment:
       - LIVEREVIEW_VERSION=${LIVEREVIEW_VERSION:-production}
       - DATABASE_URL=${DATABASE_URL:-postgres://livereview:${DB_PASSWORD}@livereview-db:5432/livereview?sslmode=disable}
@@ -19,9 +19,9 @@ services:
         condition: service_healthy
     volumes:
       # Mount .env file as read-only
-      - ./.env:/app/.env:ro
+      - ../.env:/app/.env:ro
       # Mount entire lrdata directory for persistence
-      - ./lrdata:/app/lrdata
+      - ../lrdata:/app/lrdata
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8888/health"]
@@ -38,7 +38,7 @@ services:
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=livereview
     volumes:
-      - ./lrdata/postgres:/var/lib/postgresql
+      - ../lrdata/postgres:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U livereview -d livereview"]
       interval: 10s
