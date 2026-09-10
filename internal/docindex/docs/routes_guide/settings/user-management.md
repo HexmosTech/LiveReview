@@ -11,6 +11,11 @@
 Manage the org's user roster — invite new users, assign roles
 (`super_admin`/`owner`/`member`), deactivate users, force password resets.
 
+**This is the one and only place a new team member is added.** There is no
+seat to buy or assign first: per-seat licensing is deprecated and an owner can
+add unlimited users here. Nothing in Settings -> License, Team Checkout, or
+License Assignment is part of onboarding someone.
+
 ## Key actions
 
 - View org members and their roles.
