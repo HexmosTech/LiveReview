@@ -49,7 +49,7 @@ Teams needs an Azure Bot registration **and** an uploaded app package — the
 Azure side alone is not enough, because Teams only lets people find and add
 Livi through an installed app.
 
-1. In the [Azure Portal](https://portal.azure.com), create an **Azure Bot**
+1. In the [Azure Portal](https://portal.azure.com/), create an **Azure Bot**
    resource, name it **Livi**, choose **Single Tenant**. Copy the **Microsoft
    App ID** and **Directory (tenant) ID** into the **Bot App ID** and
    **Tenant ID** fields. Both must be GUIDs — the page warns if a value looks

@@ -625,7 +625,7 @@ const TeamsIntegration: React.FC<{ currentOrg: any }> = ({ currentOrg }) => {
                                     <p className="font-medium text-slate-300">Step-by-step setup:</p>
                                     <ol className="list-decimal list-inside space-y-1.5">
                                         <li>
-                                            In the <a href="https://portal.azure.com" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">Azure Portal</a>, create a new <strong className="text-slate-200">Azure Bot</strong> resource, name it <strong className="text-slate-200">Livi</strong>, and choose <strong className="text-slate-200">Single Tenant</strong>. Copy the <strong className="text-slate-200">Microsoft App ID</strong> and <strong className="text-slate-200">Directory (tenant) ID</strong> Azure shows for it into the fields below.
+                                            In the <a href="https://portal.azure.com/" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">Azure Portal</a>, create a new <strong className="text-slate-200">Azure Bot</strong> resource, name it <strong className="text-slate-200">Livi</strong>, and choose <strong className="text-slate-200">Single Tenant</strong>. Copy the <strong className="text-slate-200">Microsoft App ID</strong> and <strong className="text-slate-200">Directory (tenant) ID</strong> Azure shows for it into the fields below.
                                         </li>
                                     </ol>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
