@@ -107,6 +107,9 @@ export const Dashboard: React.FC = () => {
     const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
     const dispatch = useAppDispatch();
     const notificationItems = useAppSelector(state => state.Notifications.items);
+    const hydratedUserId = useAppSelector(state => state.Notifications.hydratedUserId);
+    // true once ToastBridge has loaded this user's localStorage dismissals
+    const notificationsHydrated = !!user?.id && hydratedUserId === user.id;
     const hideStepper = !!notificationItems.find(n => n.id === ONBOARDING_STEPPER_ID)?.dismissed;
 
     const isConnectorDismissed = (connectorId: number): boolean => {
@@ -137,12 +140,9 @@ export const Dashboard: React.FC = () => {
         }
     }, [user, notificationSent]);
 
-    // Register the onboarding stepper as a (session-visible, permanently
-    // dismissible) notification once dashboard data has loaded — deferring
-    // past the synchronous mount phase gives ToastBridge's hydrate() time to
-    // apply any prior "don't show again" dismissal before this first add().
+    // Register the onboarding stepper notification once data + hydration are ready
     useEffect(() => {
-        if (!dashboardData) return;
+        if (!dashboardData || !notificationsHydrated) return;
         dispatch(addNotification({
             dedupeKey: ONBOARDING_STEPPER_ID,
             severity: 'info',
@@ -151,7 +151,7 @@ export const Dashboard: React.FC = () => {
             toast: false,
             persistDismiss: false,
         }));
-    }, [dashboardData, dispatch]);
+    }, [dashboardData, notificationsHydrated, dispatch]);
 
     // Billing/quota/upgrade-status queries: shared with Navbar (and NewReview, TeamCheckout,
     // SubscriptionTab) via react-query's cache, so these fire once per refetch window instead of
@@ -257,10 +257,9 @@ export const Dashboard: React.FC = () => {
         }
     };
 
-    // Mirror connector setup progress into the Notifications store — gives the
-    // dismiss actions above an id to operate on, and surfaces setup issues in
-    // the global tray even after the banner itself is dismissed from the dashboard.
+    // Mirror connector setup progress into the Notifications store, once hydrated
     useEffect(() => {
+        if (!notificationsHydrated) return;
         const progress = dashboardData?.connector_setup_progress || [];
         progress.forEach((connector) => {
             dispatch(addNotification({
@@ -279,7 +278,7 @@ export const Dashboard: React.FC = () => {
             }));
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [dashboardData?.connector_setup_progress, dispatch]);
+    }, [dashboardData?.connector_setup_progress, notificationsHydrated, dispatch]);
 
     const handleNewReviewClick = () => {
         if (isFreePlan) {

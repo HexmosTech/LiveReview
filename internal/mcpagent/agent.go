@@ -220,7 +220,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 				}
 			}
 			if idx != nil {
-				docs, err := idx.Query(ctx, userText, 3)
+				docs, err := idx.Query(ctx, userText, 5)
 				if err != nil {
 					log.Warn().Err(err).Msg("failed to query docindex for product_guidance")
 				} else if len(docs) > 0 {

@@ -50,14 +50,17 @@ const slice = createSlice({
                 const persisted = state.persisted[n.id];
                 let read = n.read;
                 let dismissed = n.dismissed;
+                let persistDismissFlag = n.persistDismiss;
                 if (persisted) {
                     const resurfaced =
                         persisted.dismissed && n.expiresAt !== undefined && Date.now() >= n.expiresAt;
                     read = resurfaced ? false : persisted.read;
                     dismissed = resurfaced ? false : persisted.dismissed;
+                    // restore persistDismiss too, or the next save erases this record
+                    if (!resurfaced) persistDismissFlag = true;
                 }
 
-                state.items.unshift({ ...n, read, dismissed });
+                state.items.unshift({ ...n, read, dismissed, persistDismiss: persistDismissFlag });
                 if (n.toast && !dismissed) {
                     state.toastQueue.push(n.id);
                 }

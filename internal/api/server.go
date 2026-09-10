@@ -2912,9 +2912,17 @@ func (s *Server) getSystemInfo(c echo.Context) error {
 		currentURL = fmt.Sprintf("%s://%s", scheme, host)
 	}
 
+	// Production/reverse-proxy: the real API base is this same origin (matches
+	// what the frontend itself auto-detects, see apiClient.ts's getBaseUrl).
+	// Demo: the app is only ever reached directly at localhost:<port>.
+	apiURL := fmt.Sprintf("http://localhost:%d", deploymentConfig.BackendPort)
+	if deploymentConfig.ReverseProxy {
+		apiURL = currentURL
+	}
+
 	info := map[string]interface{}{
 		"deployment_mode": deploymentConfig.Mode,
-		"api_url":         fmt.Sprintf("http://localhost:%d", deploymentConfig.BackendPort),
+		"api_url":         apiURL,
 		"webhook_url":     webhookURL,
 		"current_url":     currentURL, // For frontend auto-population
 		"capabilities": map[string]interface{}{
