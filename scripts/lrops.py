@@ -47,17 +47,11 @@ class LiveReviewOps:
         if not (self.repo_root / '.git').exists():
             raise GitError(f"No Git repository found at {self.repo_root}")
     
-    def _run_command(self, cmd, cwd=None, capture_output=True, check=True, input_data=None):
-        """Run a shell command and return result.
-
-        input_data, when given, is raw bytes fed to the process's stdin (used to
-        stream a `git archive` tarball into `docker buildx build -` instead of
-        passing the working directory as the build context - see
-        _build_multiarch_image).
-        """
+    def _run_command(self, cmd, cwd=None, capture_output=True, check=True):
+        """Run a shell command and return result"""
         if isinstance(cmd, str):
             cmd = cmd.split()
-
+        
         # Always display the command prominently
         cmd_str = ' '.join(cmd)
         print(f"\n{'='*80}")
@@ -65,17 +59,16 @@ class LiveReviewOps:
         print(f"📁 Directory: {cwd or self.repo_root}")
         print(f"💻 Command: {cmd_str}")
         print(f"{'='*80}")
-
+        
         if self.verbose:
             print(f"Running: {cmd_str}")
-
+        
         try:
             result = subprocess.run(
                 cmd,
                 cwd=cwd or self.repo_root,
                 capture_output=capture_output,
-                text=(input_data is None),
-                input=input_data,
+                text=True,
                 check=check
             )
             
@@ -153,20 +146,20 @@ class LiveReviewOps:
         except OSError as e:
             print(f"⚠️  Could not run Docker dependency version check: {e}")
 
-    def _run_command_with_retries(self, cmd, max_retries=3, capture_output=True, check=True, cwd=None, input_data=None):
+    def _run_command_with_retries(self, cmd, max_retries=3, capture_output=True, check=True, cwd=None):
         """Run a shell command with retry logic for network operations"""
         import time
-
+        
         cmd_str = ' '.join(cmd)
-
+        
         for attempt in range(max_retries + 1):
             try:
                 if attempt > 0:
                     wait_time = 2 ** attempt  # Exponential backoff
                     print(f"🔄 Retry attempt {attempt}/{max_retries} after {wait_time}s...")
                     time.sleep(wait_time)
-
-                result = self._run_command(cmd, cwd=cwd, capture_output=capture_output, check=check, input_data=input_data)
+                
+                result = self._run_command(cmd, cwd=cwd, capture_output=capture_output, check=check)
                 return result
                 
             except GitError as e:
@@ -936,47 +929,22 @@ class LiveReviewOps:
         if go_tags:
             cmd += ['--build-arg', f'GO_BUILD_TAGS={" ".join(go_tags)}']
         cmd += self._docker_dep_build_args()
-
-        # Prefer streaming the build context from `git archive` instead of
-        # passing the working directory ('.') directly: buildx's context
-        # transfer walks every directory under the repo root even when
-        # .dockerignore excludes it, and local, root-owned state (e.g.
-        # .livereview_pgdata, locked to 700 by Postgres's own initdb) makes
-        # that walk fail with a permission error. `git archive` only ever
-        # contains tracked files, so it sidesteps the walk entirely - but it
-        # silently drops uncommitted changes, so only use it when the tree is
-        # clean (an intentionally dirty tree, e.g. local dev testing, keeps
-        # the old '.' context so those changes are still built).
-        archive_data = None
-        if self.check_working_directory_clean():
-            archive = subprocess.run(
-                ['git', 'archive', '--format=tar', 'HEAD'],
-                cwd=self.repo_root, capture_output=True, check=True,
-            )
-            archive_data = archive.stdout
-            cmd += [
-                *labels,
-                *tags,
-                *(['--push'] if push else []),
-                '-',
-            ]
-        else:
-            cmd += [
-                *labels,
-                *tags,
-                *(['--push'] if push else []),
-                '.',
-            ]
-
+        cmd += [
+            *labels,
+            *tags,
+            *(['--push'] if push else []),
+            '.'
+        ]
+        
         if not push:
             print(f"⚠️  Multi-arch build (no push): image will be built and cached in buildx builder")
             print(f"   To push to registry: make docker-multiarch-push")
-
+        
         # Run with retries for push operations (network can be flaky)
         if push:
-            self._run_command_with_retries(cmd, max_retries=3, capture_output=False, input_data=archive_data)
+            self._run_command_with_retries(cmd, max_retries=3, capture_output=False)
         else:
-            self._run_command(cmd, capture_output=False, input_data=archive_data)
+            self._run_command(cmd, capture_output=False)
         
         print(f"✅ Successfully built multi-architecture image with platforms: {platforms}")
         if make_latest and push:
