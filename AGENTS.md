@@ -440,4 +440,90 @@ Before releasing a new Docker image:
 The `/test-chat` endpoint (unauthenticated, hardcoded org access) is automatically
 excluded in production builds.
 
+## Release Process
+
+This is the full procedure for cutting a LiveReview release (patch, minor, or
+major) - a Git tag, a pushed multi-arch Docker image, and a published GitHub
+release with notes. Every step below is a `make` target; none require manual
+Docker/`gh` invocations beyond the one-time registry login in step 3.
+
+1. **Ensure a clean working tree.** `version-bump`/`version-patch`/
+   `version-minor`/`version-major` refuse to tag a dirty tree (use the
+   `*-dirty` variants only for local testing, never for a real release).
+
+2. **Tag the release**, on the commit you want to ship:
+   ```
+   make version-patch    # 1.0.3 -> 1.0.4 (bug fixes)
+   make version-minor    # 1.0.3 -> 1.1.0 (new features, backward compatible)
+   make version-major    # 1.0.3 -> 2.0.0 (breaking changes)
+   ```
+   This creates an annotated `vX.Y.Z` tag on `HEAD` and pushes it immediately
+   (see `scripts/lrops.py:cmd_bump`/`create_tag`). Dry-run first with
+   `make version-patch-dry` (etc.) to see what tag it would create.
+
+3. **Log Docker in to GHCR** (once per session/machine - the default `gh auth`
+   token does NOT have package-publish rights):
+   ```
+   gh auth refresh -h github.com -s write:packages   # one-time browser approval
+   gh auth token | docker login ghcr.io -u <your-gh-username> --password-stdin
+   ```
+
+4. **Write release notes**, then commit them:
+   ```
+   make release-notes-init VERSION=v1.0.4   # scaffolds docs/releases/v1.0.4.md
+   # hand-edit docs/releases/v1.0.4.md: Summary, Changes, Breaking Changes, Known Issues
+   git add docs/releases/v1.0.4.md && git commit -m "Add release notes for v1.0.4"
+   git push origin master
+   ```
+   This repo's convention is that a release's Git tag and its release-notes
+   commit are the **same commit** (see `v1.0.0`-`v1.0.3`). Since step 2 tagged
+   the commit *before* the notes existed, move the tag to match after
+   committing the notes:
+   ```
+   git tag -d v1.0.4 && git push origin :refs/tags/v1.0.4
+   git tag -a v1.0.4 -m "Release v1.0.4" && git push origin v1.0.4
+   ```
+   If you instead write release notes as part of the same commit you intend
+   to tag, skip this re-tagging dance entirely.
+
+5. **Validate the release notes**: `make release-preflight VERSION=v1.0.4`
+   (checks the file exists, is non-empty, and has the required `## Summary`
+   / `## Install and Update` / `## Changes` headings).
+
+6. **Build and push the multi-arch Docker image**:
+   ```
+   make docker-multiarch-dry           # sanity-check the plan first
+   make docker-multiarch-push          # builds amd64+arm64, pushes :X.Y.Z and :latest
+   ```
+   This uses the `gitlab-multiarch` buildx builder (a local `docker-container`
+   driver builder - `scripts/lrops.py` creates it automatically on first use
+   if missing; despite the name it has nothing to do with GitLab or a remote
+   `docker context`, and needs no context beyond the local, default one).
+   Verify the pushed manifest covers both platforms:
+   `docker manifest inspect ghcr.io/hexmostech/livereview:v1.0.4`.
+
+7. **Publish the GitHub release**:
+   ```
+   make release-gh VERSION=v1.0.4
+   ```
+   Publishes/edits a GitHub release at the tag using
+   `docs/releases/v1.0.4.md` as the notes body (`scripts/release_gh.py`).
+   SBOM generation/attachment runs separately, from CI, off the pushed tag.
+
+**Gotcha - the Docker build context is the raw repo directory (`.`), not a
+git archive.** `docker buildx build .` needs to traverse every directory
+under the repo root, even ones excluded by `.dockerignore` (that filtering
+happens after the walk, not before). If a local, non-repo directory ever
+ends up sitting in the repo root with restrictive permissions (e.g. a stray
+database data directory owned by a container's internal UID), the build
+context walk fails with a permission error unrelated to the actual build.
+The fix is to make sure no such directory exists under the repo root at
+all - e.g. local Postgres data lives in a Docker-managed named volume
+(`livereview_pgdata_pg18`, entirely outside the repo, see `scripts/pgctl.sh`),
+never a bind-mounted directory inside the working tree. Do not "fix" this by
+building from a `git archive` tarball instead - the Dockerfile also expects
+at least one required-but-gitignored file at the repo root (`.env.selfhosted`),
+which a git archive would silently omit, trading one hard-to-diagnose failure
+for another.
+
 
