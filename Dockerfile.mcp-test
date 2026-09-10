@@ -25,10 +25,14 @@ WORKDIR /app
 COPY . .
 
 # Install Python dependencies
-RUN pip3 install --break-system-packages -r requirements.txt
+RUN pip3 install --break-system-packages -r tests/mcp/requirements.txt
 
-# Build LiveReview
-RUN make build
+# Build LiveReview. Uses the raw `go build -tags=ci` invocation (matching
+# Makefile's build-ci target) rather than `make build`: Makefile* is
+# .dockerignore'd (same reason the production Dockerfiles call `go build`
+# directly), and the default build target embeds ui/dist/*, which this
+# Node-less image never produces.
+RUN SKIP_TYPED_GEN=1 go build -tags=ci -o livereview .
 
 # Copy runner script
 COPY scripts/run-mcp-test.sh /run-mcp-test.sh

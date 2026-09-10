@@ -61,7 +61,11 @@ Thumbs.db
 # content (routes_guide/, plus the synced lr_wiki/lrc_wiki/ .md files) that
 # needs to ship in the binary; *.mdx (hexmos_docs/) isn't matched by the
 # `*.md` pattern below anyway, so it needs no separate re-inclusion.
-tests/
+#
+# This file is Dockerfile.mcp-test's own override of the root .dockerignore
+# (buildx picks up "<dockerfile>.dockerignore" automatically): unlike the
+# production image, this one *is* the test harness, so tests/ must ship -
+# it needs tests/mcp/mcp-testcase.py and tests/mcp/requirements.txt.
 docs/
 !docs/openapi.yaml
 examples/
