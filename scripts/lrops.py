@@ -217,7 +217,7 @@ class LiveReviewOps:
                 
                 platforms = ','.join([f'linux/{arch}' for arch in (architectures or ['amd64', 'arm64'])])
                 build_cmd = [
-                    'docker', '--context', 'gitlab', 'buildx', 'build',
+                    'docker', 'buildx', 'build',
                     '--builder', 'gitlab-multiarch',
                     '--platform', platforms,
                     '--build-arg', f'VERSION={version}',
@@ -235,7 +235,7 @@ class LiveReviewOps:
                     print(f"   3️⃣  LATEST TAG CREATION PHASE:")
                     print(f"       🏷️  Tag as latest using buildx imagetools:")
                     latest_cmd = [
-                        'docker', '--context', 'gitlab', 'buildx', 'imagetools', 'create',
+                        'docker', 'buildx', 'imagetools', 'create',
                         '--tag', f"{registry}/{image_name}:latest",
                         f"{registry}/{image_name}:{docker_version}"
                     ]
@@ -244,7 +244,7 @@ class LiveReviewOps:
                 print(f"   2️⃣  SINGLE-ARCH DOCKER BUILD PHASE (cross-compile, reuse UI dist):")
                 version_tag = f"{registry}/{image_name}:{docker_version}"
                 build_cmd = [
-                    'docker', '--context', 'gitlab', 'buildx', 'build',
+                    'docker', 'buildx', 'build',
                     '--platform', 'linux/amd64',
                     '--build-arg', f'VERSION={version}',
                     '--build-arg', f'BUILD_TIME={build_time or "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}',
@@ -263,12 +263,12 @@ class LiveReviewOps:
                 
                 if push:
                     print(f"   3️⃣  DOCKER PUSH PHASE:")
-                    push_cmd = ['docker', '--context', 'gitlab', 'push', version_tag]
+                    push_cmd = ['docker', 'push', version_tag]
                     print(f"       📤 {' '.join(push_cmd)}")
                     
                     if make_latest:
                         latest_tag = f"{registry}/{image_name}:latest"
-                        latest_push_cmd = ['docker', '--context', 'gitlab', 'push', latest_tag]
+                        latest_push_cmd = ['docker', 'push', latest_tag]
                         print(f"       📤 {' '.join(latest_push_cmd)}")
         
         elif build_type == "binary":
@@ -301,7 +301,7 @@ class LiveReviewOps:
                     suffix = arch.replace('/', '')
                     arch_tag = f"{registry}/{image_name}:{docker_version}-{suffix}"
                     build_cmd = [
-                        'docker', '--context', 'gitlab', 'buildx', 'build',
+                        'docker', 'buildx', 'build',
                         '--platform', f'linux/{arch}',
                         '--build-arg', f'VERSION={version}',
                         '--build-arg', f'BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)',
@@ -321,7 +321,7 @@ class LiveReviewOps:
                 print(f"   # Single-arch Docker Build (cross-compile, reuse UI dist):")
                 version_tag = f"{registry}/{image_name}:{docker_version}"
                 build_cmd = [
-                    'docker', '--context', 'gitlab', 'buildx', 'build',
+                    'docker', 'buildx', 'build',
                     '--platform', 'linux/amd64',
                     '--build-arg', f'VERSION={version}',
                     '--build-arg', f'BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)',
@@ -842,7 +842,7 @@ class LiveReviewOps:
         ]
         
         cmd = [
-            'docker', '--context', 'gitlab', 'buildx', 'build',
+            'docker', 'buildx', 'build',
             '--platform', 'linux/amd64',
             '--build-arg', f'VERSION={version}',
             '--build-arg', f'BUILD_TIME={build_time}',
@@ -872,11 +872,11 @@ class LiveReviewOps:
         
         if push:
             print(f"Pushing Docker image: {version_tag}")
-            self._run_command(['docker', '--context', 'gitlab', 'push', version_tag], capture_output=False)
+            self._run_command(['docker', 'push', version_tag], capture_output=False)
 
             if make_latest:
                 print(f"Pushing Docker image: {latest_tag}")
-                self._run_command(['docker', '--context', 'gitlab', 'push', latest_tag], capture_output=False)
+                self._run_command(['docker', 'push', latest_tag], capture_output=False)
         
         return version_tag
     
@@ -916,7 +916,7 @@ class LiveReviewOps:
         if vendor:
             go_tags.append('vendor_prompts')
         cmd = [
-            'docker', '--context', 'gitlab', 'buildx', 'build',
+            'docker', 'buildx', 'build',
             '--builder', 'gitlab-multiarch',
             '--platform', platforms,
             '-f', 'Dockerfile.crosscompile',
@@ -999,7 +999,7 @@ class LiveReviewOps:
             # Remove existing manifest if it exists (GitLab can be picky about this)
             print(f"Removing existing manifest if present: {manifest_tag}")
             try:
-                self._run_command(['docker', '--context', 'gitlab', 'manifest', 'rm', manifest_tag], capture_output=True, check=False)
+                self._run_command(['docker', 'manifest', 'rm', manifest_tag], capture_output=True, check=False)
             except:
                 pass  # Ignore errors - manifest might not exist
             
@@ -1009,7 +1009,7 @@ class LiveReviewOps:
             
             # Create manifest list with --amend flag for GitLab compatibility
             print(f"Creating manifest list: {manifest_tag}")
-            cmd = ['docker', '--context', 'gitlab', 'manifest', 'create', '--amend', manifest_tag] + arch_tags
+            cmd = ['docker', 'manifest', 'create', '--amend', manifest_tag] + arch_tags
             self._run_command(cmd, capture_output=False)
             
             # Annotate each architecture in the manifest with explicit platform info
@@ -1019,7 +1019,7 @@ class LiveReviewOps:
                 if suffix == 'armv7':
                     print(f"Annotating manifest for arm/v7: {tag}")
                     self._run_command([
-                        'docker', '--context', 'gitlab', 'manifest', 'annotate',
+                        'docker', 'manifest', 'annotate',
                         manifest_tag, tag,
                         '--os', 'linux',
                         '--arch', 'arm', 
@@ -1028,7 +1028,7 @@ class LiveReviewOps:
                 elif suffix in ['amd64', 'arm64']:
                     print(f"Annotating manifest for {suffix}: {tag}")
                     self._run_command([
-                        'docker', '--context', 'gitlab', 'manifest', 'annotate',
+                        'docker', 'manifest', 'annotate',
                         manifest_tag, tag,
                         '--os', 'linux',
                         '--arch', suffix
@@ -1037,7 +1037,7 @@ class LiveReviewOps:
             # Push manifest list with --purge flag to ensure clean upload
             print(f"Pushing manifest list: {manifest_tag}")
             self._run_command_with_retries([
-                'docker', '--context', 'gitlab', 'manifest', 'push', 
+                'docker', 'manifest', 'push', 
                 '--purge', manifest_tag
             ], max_retries=3, capture_output=False)
             
