@@ -2410,6 +2410,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	reconciliationWorker := &ReconciliationSweepWorker{db: db, pool: pool, stalenessThreshold: config.RepoSyncConfig.StalenessThreshold}
 	scheduledReviewWorker := &ScheduledReviewWorker{db: db}
 	diffArchivalWorker := &DiffArchivalWorker{db: db, pool: pool}
+	diffArchivalPurgeWorker := &DiffArchivalPurgeWorker{db: db}
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, diffWorker)
@@ -2421,6 +2422,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, prStateSyncWorker)
 	river.AddWorker(workers, reconciliationWorker)
 	river.AddWorker(workers, diffArchivalWorker)
+	river.AddWorker(workers, diffArchivalPurgeWorker)
 
 	coordinatorInterval := config.RepoSyncConfig.CoordinatorInterval
 	if coordinatorInterval <= 0 {
@@ -2464,6 +2466,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	diffWorker.jq = jq
 	reconciliationWorker.jq = jq
 	scheduledReviewWorker.jq = jq
+	diffArchivalPurgeWorker.client = client
 
 	return jq, nil
 }
@@ -2597,3 +2600,15 @@ func (jq *JobQueue) QueueDiffArchivalJobs(ctx context.Context, jobs []DiffArchiv
 	return len(res), nil
 }
 
+// QueueDiffArchivalPurgeJob enqueues a purge job to finalize a batch run after all archival jobs complete.
+func (jq *JobQueue) QueueDiffArchivalPurgeJob(ctx context.Context, args DiffArchivalPurgeJobArgs) error {
+	if jq == nil || jq.client == nil {
+		return nil
+	}
+	_, err := jq.client.Insert(ctx, args, nil)
+	if err != nil {
+		log.Printf("[ERROR] Failed to queue diff archival purge job: %v", err)
+		return fmt.Errorf("failed to queue diff archival purge job: %w", err)
+	}
+	return nil
+}

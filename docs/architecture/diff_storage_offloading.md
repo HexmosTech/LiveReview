@@ -156,145 +156,96 @@ All Blob Storage artifact keys include the organization identifier org_id. The A
 
 ### Problem with Current Sequential Implementation
 
-The current `DiffArchivalManager` processes reviews sequentially — one upload per network roundtrip to Blob Storage. With an average network latency of 150ms per upload to Backblaze B2 US-East, uploading 30,000 review diffs takes approximately 75 minutes. This is unacceptable for large deployments.
+The current `DiffArchivalManager` processes reviews sequentially — one upload per network roundtrip to Blob Storage. With an average network latency of 150ms per upload to Backblaze B2 US-East, uploading 30,000 review diffs sequentially takes approximately 75 minutes.
 
-The root cause is that `gocloud.dev/blob` writes one file key per `WriteAll()` call. There is no multi-file bulk upload API in S3-compatible object storage. The only way to achieve throughput is to issue multiple `WriteAll()` calls in parallel over multiple HTTP connections simultaneously.
+The root cause is single-threaded network execution. The standard way to achieve high throughput with object storage is to issue multiple upload operations in parallel over multiple HTTP connections simultaneously.
 
-### Solution: River Job Queue with Parallel Workers
+### Solution: Single-Review River Jobs with Consumer-Side Parallelism
 
-The proposed architecture uses the existing River v0.32.0 job queue infrastructure in `internal/jobqueue/` to distribute upload work across parallel workers, with support for horizontal scaling across multiple LiveReview server instances.
+Rather than creating batch jobs containing multiple review IDs or running manual goroutine pools inside a worker, the system uses **1 River job per 1 review ID** (`DiffArchivalJobArgs{ReviewID int64, OrgID int64}`). 
 
-#### Three-Phase Design
+Parallelism is achieved on the **consumer side** via River's native worker pool concurrency (`MaxWorkers`). River automatically executes multiple single-review workers concurrently in separate background goroutines.
 
-**Phase 1 — Cron Enqueues Jobs (lightweight, API server)**
+#### Architecture & Execution Flow
 
-The existing `DiffArchivalManager` cron fires on schedule. Instead of running archival inline, it queries eligible review IDs and calls `river.InsertMany()` with one lightweight job per review. The cron returns immediately — no heavy upload work on the API server.
+**Phase 1 — Enqueueing (Producer Cron)**
 
-```
-DB calls: 2 (1 SELECT eligible IDs + 1 batch INSERT into river_job)
-```
+1. The `DiffArchivalManager` cron fires on schedule.
+2. It queries un-archived review IDs eligible for archival (`created_at < NOW() - retentionDays`):
+   ```sql
+   SELECT id, COALESCE(org_id, 0)
+   FROM reviews
+   WHERE created_at < NOW() - ($1 * INTERVAL '1 day')
+     AND trigger_type = 'cli_diff'
+     AND metadata ? 'preloaded_changes'
+   ORDER BY created_at ASC;
+   ```
+3. It calls `jq.QueueDiffArchivalJobs()` to enqueue 1 River job per review ID via `InsertMany()`.
+4. It enqueues a single `DiffArchivalPurgeWorker` job (`DiffArchivalPurgeJobArgs`) to monitor completion and execute the final bulk purge.
 
-**Phase 2 — Workers Upload in Parallel (worker server)**
+**Phase 2 — Parallel Execution (Consumer Workers)**
 
-Each River worker independently:
-1. Fetches `preloaded_changes` from `reviews WHERE id = ?`
-2. Uploads diff JSON to Blob Storage at `org/{org_id}/review/{review_id}/artifacts/preloaded_changes.json`
-3. On confirmed upload success, strips `preloaded_changes` from Postgres:
+1. River's worker engine executes `DiffArchivalWorker.Work()` concurrently across workers (`MaxWorkers`):
+   - Reads `metadata->'preloaded_changes'` from PostgreSQL for its single `ReviewID`.
+   - Uploads diff to Blob Storage (`org/:org_id/review/:review_id/artifacts/preloaded_changes.json`).
+   - **No DB write** during upload — individual workers return `nil` on success.
+
+**Phase 3 — Bulk Purge (Purge Worker)**
+
+1. `DiffArchivalPurgeWorker` monitors job states via `river_job`:
+   - Waits while any archival jobs in the batch remain active.
+   - Collects review IDs of all successfully completed jobs (`JobStateCompleted`).
+2. Executes **ONE bulk UPDATE** query in PostgreSQL:
    ```sql
    UPDATE reviews
    SET metadata = metadata - 'preloaded_changes'
-   WHERE id = $1 AND metadata ? 'preloaded_changes';
+   WHERE id = ANY($1::bigint[])
+     AND org_id = $2
+     AND metadata ? 'preloaded_changes';
    ```
-4. Returns nil — River marks the job complete via `BatchCompleter` (batches up to 5,000 completions per 50ms tick)
 
-**Phase 3 — Automatic Cleanup (River built-in)**
+```mermaid
+flowchart TD
+    A["DiffArchivalManager Cron Trigger"] --> B["SELECT eligible review IDs (id, org_id)"]
+    B --> C["riverClient.InsertMany — 1 River job per review ID + 1 Purge Job"]
+    C --> D["Cron returns — River Worker Pool takes over"]
 
-River's `JobCleaner` maintenance service automatically deletes finalized `river_job` rows in periodic batched `DELETE` queries. Default retention periods:
-- Completed jobs: **24 hours**
-- Cancelled jobs: **24 hours**
-- Discarded jobs (exhausted all retries): **7 days**
+    D --> E1["River Worker 1"]
+    D --> E2["River Worker 2"]
+    D --> E3["River Worker N"]
 
-The cleaner loops in sub-batches if there is a large backlog, so Phase 3 may issue more than one `DELETE` query during initial archival of a large backlog.
+    E1 --> F1["Fetch preloaded_changes for Review 1 -> Upload to B2 (No DB Write)"]
+    E2 --> F2["Fetch preloaded_changes for Review 2 -> Upload to B2 (No DB Write)"]
+    E3 --> F3["Fetch preloaded_changes for Review N -> Upload to B2 (No DB Write)"]
 
-#### DB Call Analysis for 1,000 Reviews
+    F1 --> G1{"Upload Succeeded?"}
+    G1 -- "Yes" --> H1["Mark job completed in River"]
+    G1 -- "No" --> I1["Return error — River retries ONLY Review 1"]
 
-| Operation | Queries |
-| :--- | :--- |
-| Phase 1: SELECT eligible review IDs | 1 |
-| Phase 1: InsertMany into `river_job` | 1 |
-| Phase 2: Batched job fetch (`FOR UPDATE SKIP LOCKED LIMIT MaxWorkers`) | ~10–50 |
-| Phase 2: SELECT `preloaded_changes` per review (app code, unavoidable) | 1,000 |
-| Phase 2: UPDATE reviews per review (app code, unavoidable) | 1,000 |
-| Phase 2: BatchCompleter marks jobs done (batched, ~1–20 total) | ~1–20 |
-| Phase 3: JobCleaner deletes completed jobs (may loop in sub-batches) | ~1–5 |
-| **Total** | **~2,053** |
+    H1 --> P["DiffArchivalPurgeWorker — Checks all batch jobs complete"]
+    P --> Q["ONE Bulk UPDATE: SET metadata = metadata - 'preloaded_changes' WHERE id = ANY(completedIDs)"]
 
-The 2,000 SELECT + UPDATE queries are inherent to the work itself and exist in any approach. River's own overhead is only ~53 extra batched queries.
-
-#### Horizontal Worker Scaling
-
-```
-LiveReview API Server               Shared Postgres DB
-┌─────────────────────┐            ┌──────────────────┐
-│ DiffArchivalManager │──INSERT──► │  river_job table  │
-│ Cron (enqueue only) │            └──────────────────┘
-└─────────────────────┘                    ▲
-                                           │ FOR UPDATE SKIP LOCKED
-                          ┌────────────────┴──────────────────┐
-              LR Worker 1 │                        LR Worker 2 │
-              ┌───────────────────┐        ┌───────────────────┐
-              │ Worker 1 ──► B2   │        │ Worker 1 ──► B2   │
-              │ Worker 2 ──► B2   │        │ Worker 2 ──► B2   │
-              │ Worker 3 ──► B2   │        │ Worker 3 ──► B2   │
-              │ Worker 4 ──► B2   │        │ Worker 4 ──► B2   │
-              │ Worker 5 ──► B2   │        │ Worker 5 ──► B2   │
-              └───────────────────┘        └───────────────────┘
-              5 concurrent uploads          5 concurrent uploads
-                          = 10 total concurrent uploads across cluster
+    J["River JobCleaner — runs every 30s"] --> K["Deletes river_job rows older than retention period automatically"]
 ```
 
-`FOR UPDATE SKIP LOCKED` in River's `JobGetAvailable` guarantees no two workers ever process the same review. Adding a third server automatically scales to 15 concurrent uploads with zero configuration changes.
+#### Database Call Count Breakdown for 1,000 Reviews
 
-#### Performance Estimate for 30,000 Reviews
-
-| Config | Concurrent Uploads | Estimated Time |
+| Operation | Query Type | Count |
 | :--- | :--- | :--- |
-| 1 LR server, 5 workers | 5 | ~17 minutes |
-| 2 LR servers, 5 workers each | 10 | ~8.5 minutes |
-| 3 LR servers, 5 workers each | 15 | ~6 minutes |
+| **Cron Query** | `SELECT id, org_id` for eligible reviews | **1** |
+| **Enqueue Archival Jobs** | `INSERT INTO river_job` (InsertMany for 1,000 jobs) | **1** |
+| **Enqueue Purge Job** | `INSERT INTO river_job` (1 purge job) | **1** |
+| **River Worker Job Fetch** | `SELECT ... FOR UPDATE SKIP LOCKED` on `river_job` (batch size ~20–50) | **~20–50** |
+| **Diff Data Fetch** | `SELECT metadata->'preloaded_changes'` per review | **1,000** |
+| **Purge Status Check** | `JobList()` queries on `river_job` checking batch completion | **~2–5** |
+| **Bulk Metadata Purge** | `UPDATE reviews SET metadata = metadata - 'preloaded_changes' WHERE id = ANY($1)` | **1** |
+| **TOTAL PostgreSQL Calls** | | **~1,026 – 1,059** |
 
-#### River Retry Behavior
+#### Safety & Performance Guarantees
 
-River's default `MaxAttempts` is **25**, not 5. The retry schedule uses `attempt^4` seconds (with jitter), not linear backoff:
-
-| Attempt | Retry After |
-| :--- | :--- |
-| 1 | 1 second |
-| 2 | 16 seconds |
-| 3 | 1 minute 21 seconds |
-| 4 | 4 minutes 16 seconds |
-| 5 | 10 minutes 25 seconds |
-| 6 | 21 minutes 36 seconds |
-| 10 | 2 hours 46 minutes |
-| 25 | ~3+ days |
-
-For diff archival, overriding to a lower `MaxAttempts` (e.g. 10) via `InsertOpts.MaxAttempts` or the job args `InsertOpts()` method is reasonable to avoid jobs retrying over days for what should be a fast file upload. This is a deliberate override of River's default.
-
-#### Uniqueness and Discard Behavior
-
-`UniqueOpts{ByArgs: true}` hashes all encoded args fields by default. Since `DiffArchivalJobArgs` contains both `ReviewID` and `OrgID`, both fields contribute to the uniqueness hash. This is correct because `OrgID` is fixed per `ReviewID`.
-
-`ByState` defaults to `{available, completed, pending, running, retryable, scheduled}`. Notably, **discarded and cancelled states are excluded from the default uniqueness check**. This means:
-- If a job for a review is discarded (exhausted all retries), the unique constraint no longer blocks re-insertion.
-- This is the desired behavior: a future admin "retry failed archival" action can re-enqueue discarded jobs without having to manually clear them first.
-
-#### Safety Guarantees
-
-| Risk | How It Is Handled |
-| :--- | :--- |
-| Server crash mid-upload | Job stays in `river_job` as `running`. River `JobRescuer` runs every 30 seconds and moves jobs stuck for **≥ 1 hour** (default `RescueStuckJobsAfter`) back to `retryable`. Total crash recovery time: up to ~1 hour. Tune `Config.RescueStuckJobsAfter` or worker `Timeout()` if faster recovery is needed. |
-| Duplicate processing | `UniqueOpts{ByArgs: true}` prevents enqueueing the same `review_id` twice while the job is in active states. |
-| Data loss if B2 upload fails | `UPDATE reviews` only runs after confirmed upload success. Diff remains in Postgres until confirmed. |
-| Two workers racing on same review | `WHERE metadata ? 'preloaded_changes'` in UPDATE is idempotent — second update matches 0 rows safely. |
-| B2 key collision on retry | Keys are deterministic: `org/{org_id}/review/{review_id}/...` — idempotent re-upload overwrites with identical data. |
-| Job discarded after max retries | Diff payload remains in Postgres metadata (never lost). Discarded state clears the unique constraint, so a future admin action can re-enqueue. If `MaxAttempts` is overridden to 10 (see Retry Behavior), discard happens at attempt 10 (≈2h46m into the retry schedule), not the default ~3 days (25 attempts). Decide based on acceptable SLA before admin intervention. |
-
-#### Files to Change
-
-| File | Change |
-| :--- | :--- |
-| `internal/api/diff_archival.go` | Replace inline upload loop with `riverClient.InsertMany()` call |
-| `internal/jobqueue/diff_archival_worker.go` | **New file** — `DiffArchivalJobArgs` + `DiffArchivalWorker` implementing River `Worker` interface |
-| `internal/jobqueue/queue_config.go` | Add `diff_archival` queue entry with `MaxWorkers: 5` (configurable via env) |
-| `internal/jobqueue/jobqueue.go` | Register `DiffArchivalWorker` with the River client |
-
-#### Completed Job Row Cleanup Strategy
-
-River intentionally keeps completed `river_job` rows for `JobList`/audit/observability and lets `JobCleaner` sweep them asynchronously. There is no built-in "delete on completion" path. Two options exist for faster cleanup:
-
-**Option 1 — Standard `CompletedJobRetentionPeriod` (chosen approach):** Set `CompletedJobRetentionPeriod` on the River `Client` config to `30 * 24 * time.Hour` (30 days). `JobCleaner` runs on its own tick `Interval` (default `JobCleanerIntervalDefault = 30s`) and deletes completed rows older than 30 days. Completed job history is preserved for 30 days for audit, debugging, and River UI visibility.
-
-**Option 2 — Manual deletion inside `Work()` (not used):** Calling `Client.JobDelete`/`JobDeleteTx` from inside `Work()` before returning `nil` would delete the row synchronously. However, deleting a `running` row while River's executor then calls `JobSetStateCompleted` on the now-gone row is undefined/untested behavior — even if it produces a benign no-op, it is not worth the risk.
-
-**Decision: Option 1.** Setting `CompletedJobRetentionPeriod: 30 * 24 * time.Hour` maintains full 30-day audit/debug history for all job types.
+* **Clean Retries:** If 1 out of 5,000 reviews fails to upload to Blob Storage, only that 1 review job is retried by River.
+* **1 Bulk Write:** PostgreSQL `metadata` is purged in **1 single SQL UPDATE** after all archival jobs finish, saving 999 DB writes.
+* **Low Memory Footprint:** Workers fetch `preloaded_changes` one review at a time right before upload.
+* **Controlled Concurrency:** Bound by River's `MaxWorkers` queue configuration.
+* **Automatic Job Cleanup:** Built-in River `JobCleaner` purges completed `river_job` rows automatically.
 
