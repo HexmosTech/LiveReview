@@ -8,7 +8,7 @@ import (
 
 	"github.com/livereview/cmd"
 )
-//go:generate typed -config typed.yaml
+//go:generate typed -config config/typed.yaml
 //go:generate go run ./internal/api/docs/spec.go
 
 // Version information (set by build-time ldflags)
