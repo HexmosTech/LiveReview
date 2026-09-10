@@ -6,17 +6,17 @@ This directory contains integration tests for the LiveReview pipeline that verif
 
 **Run all integration tests:**
 ```bash
-make -f Makefile.test test-all
+make -f config/Makefile.test test-all
 ```
 
 **Run specific tests:**
 ```bash
-make -f Makefile.test test-parser           # AI response parsing
-make -f Makefile.test test-prompt           # Prompt construction
-make -f Makefile.test test-api              # AI API calls
-make -f Makefile.test test-gitlab-mr        # GitLab MR fetching
-make -f Makefile.test test-gitlab-comments  # GitLab comment posting
-make -f Makefile.test test-pipeline         # Complete pipeline
+make -f config/Makefile.test test-parser           # AI response parsing
+make -f config/Makefile.test test-prompt           # Prompt construction
+make -f config/Makefile.test test-api              # AI API calls
+make -f config/Makefile.test test-gitlab-mr        # GitLab MR fetching
+make -f config/Makefile.test test-gitlab-comments  # GitLab comment posting
+make -f config/Makefile.test test-pipeline         # Complete pipeline
 ```
 
 **Run tests in this directory directly:**
