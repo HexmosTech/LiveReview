@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -55,3 +57,4 @@ func main_test_line_comment() {
 
 	fmt.Println("Comment posted successfully! Check GitLab to verify it's attached to the correct line.")
 }
+

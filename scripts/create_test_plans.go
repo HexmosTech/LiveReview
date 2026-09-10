@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -28,3 +30,4 @@ func main() {
 	fmt.Printf("  TeamMonthlyPlanIDTest = \"%s\"\n", monthlyPlan.ID)
 	fmt.Printf("  TeamYearlyPlanIDTest  = \"%s\"\n", yearlyPlan.ID)
 }
+

@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -49,3 +51,4 @@ func main() {
 	fmt.Println("\nAfter running the tests, implement the specific fix in http_client.go")
 	fmt.Println("based on which approach was most successful in posting line comments.")
 }
+
