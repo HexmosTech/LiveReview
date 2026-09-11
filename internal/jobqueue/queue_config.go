@@ -107,13 +107,13 @@ type QueueConfig struct {
 	// Repository/PR sync Configuration
 	RepoSyncConfig RepoSyncConfig
 
-	// Diff Archival Configuration
-	DiffArchivalConfig DiffArchivalConfig
+	// Preloaded Changes Archival Configuration
+	PreloadedChangesArchivalConfig PreloadedChangesArchivalConfig
 }
 
-// DiffArchivalConfig controls the parallel diff archival worker pool concurrency.
-type DiffArchivalConfig struct {
-	// MaxWorkers is the concurrency of the "diff_archival" queue.
+// PreloadedChangesArchivalConfig controls the parallel preloaded_changes archival worker pool concurrency.
+type PreloadedChangesArchivalConfig struct {
+	// MaxWorkers is the concurrency of the "preloaded_changes_archival" queue.
 	MaxWorkers int // default: 10
 	// BatchSize is the number of reviews packaged into a single archival job.
 	BatchSize int // default: 10
@@ -226,9 +226,9 @@ func DefaultQueueConfig() *QueueConfig {
 		// repoSyncConfigFromEnv.
 		RepoSyncConfig: repoSyncConfigFromEnv(),
 
-		// Diff archival configuration - overridable via env vars, see
-		// diffArchivalConfigFromEnv.
-		DiffArchivalConfig: diffArchivalConfigFromEnv(),
+		// Preloaded changes archival configuration - overridable via env vars, see
+		// preloadedChangesArchivalConfigFromEnv.
+		PreloadedChangesArchivalConfig: preloadedChangesArchivalConfigFromEnv(),
 	}
 }
 
@@ -260,20 +260,28 @@ func repoSyncConfigFromEnv() RepoSyncConfig {
 	return config
 }
 
-// diffArchivalConfigFromEnv builds DiffArchivalConfig from defaults, overridable via
-// LIVEREVIEW_DIFF_ARCHIVAL_MAX_WORKERS / LIVEREVIEW_DIFF_ARCHIVAL_BATCH_SIZE so archival worker concurrency
+// preloadedChangesArchivalConfigFromEnv builds PreloadedChangesArchivalConfig from defaults, overridable via
+// LIVEREVIEW_PRELOADED_CHANGES_ARCHIVAL_MAX_WORKERS (or LIVEREVIEW_DIFF_ARCHIVAL_MAX_WORKERS) so archival worker concurrency
 // and batch size can be tuned per-deployment without a code change.
-func diffArchivalConfigFromEnv() DiffArchivalConfig {
-	config := DiffArchivalConfig{
+func preloadedChangesArchivalConfigFromEnv() PreloadedChangesArchivalConfig {
+	config := PreloadedChangesArchivalConfig{
 		MaxWorkers: 10,
 		BatchSize:  10,
 	}
-	if v := os.Getenv("LIVEREVIEW_DIFF_ARCHIVAL_MAX_WORKERS"); v != "" {
+	if v := os.Getenv("LIVEREVIEW_PRELOADED_CHANGES_ARCHIVAL_MAX_WORKERS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			config.MaxWorkers = n
+		}
+	} else if v := os.Getenv("LIVEREVIEW_DIFF_ARCHIVAL_MAX_WORKERS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			config.MaxWorkers = n
 		}
 	}
-	if v := os.Getenv("LIVEREVIEW_DIFF_ARCHIVAL_BATCH_SIZE"); v != "" {
+	if v := os.Getenv("LIVEREVIEW_PRELOADED_CHANGES_ARCHIVAL_BATCH_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			config.BatchSize = n
+		}
+	} else if v := os.Getenv("LIVEREVIEW_DIFF_ARCHIVAL_BATCH_SIZE"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			config.BatchSize = n
 		}
@@ -376,9 +384,9 @@ func (c *QueueConfig) RiverQueueConfig() map[string]river.QueueConfig {
 		repoSyncWorkers = 5
 	}
 
-	diffArchivalWorkers := c.DiffArchivalConfig.MaxWorkers
-	if diffArchivalWorkers <= 0 {
-		diffArchivalWorkers = 10
+	preloadedChangesArchivalWorkers := c.PreloadedChangesArchivalConfig.MaxWorkers
+	if preloadedChangesArchivalWorkers <= 0 {
+		preloadedChangesArchivalWorkers = 10
 	}
 
 	return map[string]river.QueueConfig{
@@ -393,8 +401,8 @@ func (c *QueueConfig) RiverQueueConfig() map[string]river.QueueConfig {
 		"repo_sync": {
 			MaxWorkers: repoSyncWorkers,
 		},
-		"diff_archival": {
-			MaxWorkers: diffArchivalWorkers,
+		"preloaded_changes_archival": {
+			MaxWorkers: preloadedChangesArchivalWorkers,
 		},
 	}
 }

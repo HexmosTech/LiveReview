@@ -2409,8 +2409,8 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	prStateSyncWorker := &PRStateSyncWorker{db: db, store: prStore}
 	reconciliationWorker := &ReconciliationSweepWorker{db: db, pool: pool, stalenessThreshold: config.RepoSyncConfig.StalenessThreshold}
 	scheduledReviewWorker := &ScheduledReviewWorker{db: db}
-	diffArchivalWorker := &DiffArchivalWorker{db: db, pool: pool}
-	diffArchivalPurgeWorker := &DiffArchivalPurgeWorker{db: db}
+	preloadedChangesArchivalWorker := &PreloadedChangesArchivalWorker{db: db, pool: pool}
+	preloadedChangesArchivalPurgeWorker := &PreloadedChangesArchivalPurgeWorker{db: db}
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, diffWorker)
@@ -2421,8 +2421,8 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, repoPRSyncWorker)
 	river.AddWorker(workers, prStateSyncWorker)
 	river.AddWorker(workers, reconciliationWorker)
-	river.AddWorker(workers, diffArchivalWorker)
-	river.AddWorker(workers, diffArchivalPurgeWorker)
+	river.AddWorker(workers, preloadedChangesArchivalWorker)
+	river.AddWorker(workers, preloadedChangesArchivalPurgeWorker)
 
 	coordinatorInterval := config.RepoSyncConfig.CoordinatorInterval
 	if coordinatorInterval <= 0 {
@@ -2466,7 +2466,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	diffWorker.jq = jq
 	reconciliationWorker.jq = jq
 	scheduledReviewWorker.jq = jq
-	diffArchivalPurgeWorker.client = client
+	preloadedChangesArchivalPurgeWorker.client = client
 
 	return jq, nil
 }
@@ -2583,8 +2583,8 @@ func (jq *JobQueue) QueueUpdateOrgUsageJob(ctx context.Context, args UpdateOrgUs
 	return nil
 }
 
-// QueueDiffArchivalJobs enqueues a batch of diff archival jobs in a single database transaction.
-func (jq *JobQueue) QueueDiffArchivalJobs(ctx context.Context, jobs []DiffArchivalJobArgs) (int, error) {
+// QueuePreloadedChangesArchivalJobs enqueues a batch of preloaded_changes archival jobs in a single database transaction.
+func (jq *JobQueue) QueuePreloadedChangesArchivalJobs(ctx context.Context, jobs []PreloadedChangesArchivalJobArgs) (int, error) {
 	if jq == nil || jq.client == nil || len(jobs) == 0 {
 		return 0, nil
 	}
@@ -2594,21 +2594,21 @@ func (jq *JobQueue) QueueDiffArchivalJobs(ctx context.Context, jobs []DiffArchiv
 	}
 	res, err := jq.client.InsertMany(ctx, params)
 	if err != nil {
-		log.Printf("[ERROR] Failed to queue diff archival jobs: %v", err)
-		return 0, fmt.Errorf("failed to queue diff archival jobs: %w", err)
+		log.Printf("[ERROR] Failed to queue preloaded_changes archival jobs: %v", err)
+		return 0, fmt.Errorf("failed to queue preloaded_changes archival jobs: %w", err)
 	}
 	return len(res), nil
 }
 
-// QueueDiffArchivalPurgeJob enqueues a purge job to finalize a batch run after all archival jobs complete.
-func (jq *JobQueue) QueueDiffArchivalPurgeJob(ctx context.Context, args DiffArchivalPurgeJobArgs) error {
+// QueuePreloadedChangesArchivalPurgeJob enqueues a purge job to finalize a batch run after all archival jobs complete.
+func (jq *JobQueue) QueuePreloadedChangesArchivalPurgeJob(ctx context.Context, args PreloadedChangesArchivalPurgeJobArgs) error {
 	if jq == nil || jq.client == nil {
 		return nil
 	}
 	_, err := jq.client.Insert(ctx, args, nil)
 	if err != nil {
-		log.Printf("[ERROR] Failed to queue diff archival purge job: %v", err)
-		return fmt.Errorf("failed to queue diff archival purge job: %w", err)
+		log.Printf("[ERROR] Failed to queue preloaded_changes archival purge job: %v", err)
+		return fmt.Errorf("failed to queue preloaded_changes archival purge job: %w", err)
 	}
 	return nil
 }
