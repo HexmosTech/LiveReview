@@ -764,10 +764,13 @@ class LiveReviewOps:
         if vendor:
             go_build_tags.append('vendor_prompts')
 
-        # Preflight, before the plan is shown or confirmed: the context must
-        # exist (every docker command below uses it), and if we're pushing we
-        # must already be logged in - fail in seconds, not after a full build.
+        # Preflight, before the plan is shown or confirmed - fail in seconds,
+        # not after a full multi-arch build:
+        #   - the gitignored files the Dockerfile requires must exist,
+        #   - the context must exist (every docker command below uses it),
+        #   - if we're pushing we must already be logged in.
         if not dry_run:
+            self._ensure_build_inputs()
             self._ensure_docker_context()
             if push:
                 self._ensure_registry_login(registry)
@@ -975,6 +978,53 @@ class LiveReviewOps:
         
         return version_tag
     
+    # Files the Dockerfile needs from the repo root that are gitignored, so a
+    # fresh clone won't have them. Each entry: (filename, tracked example to
+    # copy from, why it matters). Checked up front because their absence
+    # otherwise surfaces deep inside the build - .env.selfhosted fails the
+    # ui-builder stage after a ~1 GB context transfer, and livereview.toml
+    # fails the very last COPY after the entire multi-arch compile.
+    REQUIRED_BUILD_INPUTS = [
+        ('.env.selfhosted', '.env.selfhosted.example',
+         'baked into the UI bundle by webpack (LIVEREVIEW_IS_CLOUD, LIVI_DEBUG_LOG)'),
+        ('livereview.toml', 'config/livereview.toml.example',
+         'copied into the image as /app/livereview.toml'),
+    ]
+
+    def _ensure_build_inputs(self):
+        """Fail fast if any gitignored file the Dockerfile requires is missing or unsafe."""
+        missing = [(f, ex, why) for f, ex, why in self.REQUIRED_BUILD_INPUTS
+                   if not (self.repo_root / f).exists()]
+        if missing:
+            lines = ["Missing file(s) the Docker build requires at the repo root "
+                     "(gitignored, so a fresh clone does not have them):"]
+            for f, ex, why in missing:
+                lines.append(f"  - {f}  <- {why}")
+                lines.append(f"      create it:  cp {ex} {f}")
+            raise GitError("\n".join(lines))
+
+        # .env.selfhosted values are compiled into the frontend, so wrong values
+        # ship to every customer. Enforce the two that matter for a release image.
+        env_path = self.repo_root / '.env.selfhosted'
+        values = {}
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                k, _, v = line.partition('=')
+                values[k.strip()] = v.strip().strip('"').strip("'")
+        problems = []
+        if values.get('LIVEREVIEW_IS_CLOUD', '').lower() != 'false':
+            problems.append("LIVEREVIEW_IS_CLOUD must be 'false' "
+                            f"(got {values.get('LIVEREVIEW_IS_CLOUD')!r}) - a self-hosted image built "
+                            "with cloud mode on shows billing/subscription UI that cannot work")
+        if values.get('LIVI_DEBUG_LOG', '').lower() != 'false':
+            problems.append("LIVI_DEBUG_LOG must be 'false' "
+                            f"(got {values.get('LIVI_DEBUG_LOG')!r}) - anything else ships the "
+                            "/chat-debug route to customers")
+        if problems:
+            raise GitError(".env.selfhosted has unsafe values for a release image:\n  - "
+                           + "\n  - ".join(problems))
+
     def _ensure_docker_context(self):
         """Ensure the dedicated DOCKER_CONTEXT exists, creating it from `default` if not.
 
