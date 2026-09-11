@@ -1,4 +1,4 @@
-.PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned check-docker-deps update-docker-deps update-docker-deps-yes verify-docker-deps docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run-debug run-fast logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker prep-dbctx
+.PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned check-docker-deps update-docker-deps update-docker-deps-yes verify-docker-deps docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-context-setup ghcr-login docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run-debug run-fast logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker prep-dbctx
 .PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi sync-docs-sources check-docs-sources
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging
@@ -727,6 +727,34 @@ prod-data-sync-enterprise-selfhosted:
 	@$(MAKE) prod-data-export
 	@$(MAKE) prod-data-import-enterprise-selfhosted
 	@$(MAKE) prod-data-transform-selfhosted
+
+# Dedicated Docker context for ALL image build/tag/push traffic. Never `default`:
+# on a shared or customer machine, `default` may be logged in to some unrelated
+# registry or pointed at another daemon. The name is fixed in scripts/lrops.py
+# (DOCKER_CONTEXT) and must match here.
+DOCKER_CONTEXT ?= livereview
+
+# Create the context if missing (same daemon endpoint as `default`). lrops.py
+# also does this automatically on first build; this is the explicit form.
+docker-context-setup:
+	@if docker context inspect $(DOCKER_CONTEXT) >/dev/null 2>&1; then \
+		echo "✅ Docker context '$(DOCKER_CONTEXT)' already exists"; \
+	else \
+		host=$$(docker context inspect default --format '{{.Endpoints.docker.Host}}'); \
+		docker context create $(DOCKER_CONTEXT) --docker "host=$$host" && \
+		echo "✅ Docker context '$(DOCKER_CONTEXT)' created (endpoint: $$host)"; \
+	fi
+
+# Log the dedicated context in to GHCR using the gh CLI token. The default
+# `gh auth` token lacks package-publish rights, so refresh with write:packages
+# first (one-time browser approval).
+ghcr-login: docker-context-setup
+	@gh auth status -h github.com >/dev/null 2>&1 || { echo "❌ Run 'gh auth login' first"; exit 1; }
+	@echo "🔑 Refreshing gh token with write:packages scope (browser approval if needed)..."
+	@gh auth refresh -h github.com -s write:packages
+	@user=$$(gh api user -q .login); \
+	echo "🔐 Logging '$$user' in to ghcr.io on docker context '$(DOCKER_CONTEXT)'..."; \
+	gh auth token | docker --context $(DOCKER_CONTEXT) login ghcr.io -u "$$user" --password-stdin
 
 # Multi-architecture Docker build targets
 docker-multiarch:

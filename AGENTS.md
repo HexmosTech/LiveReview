@@ -447,9 +447,15 @@ major) - a Git tag, a pushed multi-arch Docker image, and a published GitHub
 release with notes. Every step below is a `make` target; none require manual
 Docker/`gh` invocations beyond the one-time registry login in step 3.
 
-1. **Ensure a clean working tree.** `version-bump`/`version-patch`/
-   `version-minor`/`version-major` refuse to tag a dirty tree (use the
-   `*-dirty` variants only for local testing, never for a real release).
+1. **Ensure a clean working tree**, and that **`.env.selfhosted` exists at
+   the repo root** with `LIVEREVIEW_IS_CLOUD=false` and `LIVI_DEBUG_LOG=false`.
+   `version-bump`/`version-patch`/`version-minor`/`version-major` refuse to
+   tag a dirty tree (use the `*-dirty` variants only for local testing, never
+   for a real release). `.env.selfhosted` is gitignored, so a fresh clone
+   lacks it and the Docker build fails partway through (`"/.env.selfhosted":
+   not found`); copy `.env.selfhosted.example`. `LIVI_DEBUG_LOG` is baked into
+   the UI bundle and gates `/chat-debug` - it must be `false` in a release
+   image.
 
 2. **Tag the release**, on the commit you want to ship:
    ```
@@ -461,12 +467,23 @@ Docker/`gh` invocations beyond the one-time registry login in step 3.
    (see `scripts/lrops.py:cmd_bump`/`create_tag`). Dry-run first with
    `make version-patch-dry` (etc.) to see what tag it would create.
 
-3. **Log Docker in to GHCR** (once per session/machine - the default `gh auth`
-   token does NOT have package-publish rights):
+3. **Log Docker in to GHCR on the dedicated `livereview` context** (once per
+   machine):
    ```
-   gh auth refresh -h github.com -s write:packages   # one-time browser approval
-   gh auth token | docker login ghcr.io -u <your-gh-username> --password-stdin
+   make ghcr-login
    ```
+   This creates the `livereview` Docker context if it doesn't exist, refreshes
+   the `gh` token with the `write:packages` scope it lacks by default (one-time
+   browser approval), and runs `docker --context livereview login ghcr.io`.
+
+   **Why a named context, never `default`:** every image build/tag/push in
+   `scripts/lrops.py` runs `docker --context livereview ...` (the name is the
+   `DOCKER_CONTEXT` constant there and `DOCKER_CONTEXT` in the Makefile - keep
+   them identical). On a shared or customer machine, `default` may be logged in
+   to some unrelated registry or pointed at another daemon, and there's no way
+   to know. A fixed, explicit context gives all release traffic one known
+   target. It points at the same daemon endpoint as `default`; the point is the
+   name, not a different daemon.
 
 4. **Write release notes**, then commit them:
    ```
@@ -525,11 +542,10 @@ Docker/`gh` invocations beyond the one-time registry login in step 3.
    running any multi-arch build/push, ask the user which they want -
    interactive or non-interactive with explicit `ARGS` - and run their choice.
 
-   This uses the `gitlab-multiarch` buildx builder (a local `docker-container`
-   driver builder - `scripts/lrops.py` creates it automatically on first use
-   if missing; despite the name it has nothing to do with GitLab or a remote
-   `docker context`, and needs no context beyond the local, default one).
-   Verify the pushed manifest covers both platforms:
+   This uses the `livereview-multiarch` buildx builder (`BUILDX_BUILDER` in
+   `scripts/lrops.py`) - a `docker-container` driver builder created on the
+   `livereview` context automatically on first use. Verify the pushed manifest
+   covers both platforms:
    `docker manifest inspect ghcr.io/hexmostech/livereview:v1.0.4`.
 
 7. **Publish the GitHub release**:

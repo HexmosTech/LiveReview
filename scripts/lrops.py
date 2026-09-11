@@ -17,6 +17,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+# Every Docker operation that builds, tags, or publishes an image runs against
+# this NAMED context - never `default`. On a shared or customer machine,
+# `default` may be logged in to some unrelated registry or pointed at some other
+# daemon, and there is no way to know. A dedicated, fixed-name context gives
+# all release traffic one known target. It is created on first use by
+# _ensure_docker_context() (same daemon endpoint as `default`), and GHCR login
+# goes through it too:  make ghcr-login
+DOCKER_CONTEXT = 'livereview'
+
+# The buildx builder used for multi-arch builds. Lives on DOCKER_CONTEXT.
+BUILDX_BUILDER = 'livereview-multiarch'
+
+
 class GitError(Exception):
     """Git operation error"""
     pass
@@ -217,8 +230,8 @@ class LiveReviewOps:
                 
                 platforms = ','.join([f'linux/{arch}' for arch in (architectures or ['amd64', 'arm64'])])
                 build_cmd = [
-                    'docker', 'buildx', 'build',
-                    '--builder', 'gitlab-multiarch',
+                    'docker', '--context', DOCKER_CONTEXT, 'buildx', 'build',
+                    '--builder', BUILDX_BUILDER,
                     '--platform', platforms,
                     '--build-arg', f'VERSION={version}',
                     '--build-arg', f'BUILD_TIME={build_time or "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}',
@@ -235,7 +248,7 @@ class LiveReviewOps:
                     print(f"   3️⃣  LATEST TAG CREATION PHASE:")
                     print(f"       🏷️  Tag as latest using buildx imagetools:")
                     latest_cmd = [
-                        'docker', 'buildx', 'imagetools', 'create',
+                        'docker', '--context', DOCKER_CONTEXT, 'buildx', 'imagetools', 'create',
                         '--tag', f"{registry}/{image_name}:latest",
                         f"{registry}/{image_name}:{docker_version}"
                     ]
@@ -244,7 +257,7 @@ class LiveReviewOps:
                 print(f"   2️⃣  SINGLE-ARCH DOCKER BUILD PHASE (cross-compile, reuse UI dist):")
                 version_tag = f"{registry}/{image_name}:{docker_version}"
                 build_cmd = [
-                    'docker', 'buildx', 'build',
+                    'docker', '--context', DOCKER_CONTEXT, 'buildx', 'build',
                     '--platform', 'linux/amd64',
                     '--build-arg', f'VERSION={version}',
                     '--build-arg', f'BUILD_TIME={build_time or "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}',
@@ -258,17 +271,17 @@ class LiveReviewOps:
                 
                 if make_latest:
                     latest_tag = f"{registry}/{image_name}:latest"
-                    tag_cmd = ['docker', 'tag', version_tag, latest_tag]
+                    tag_cmd = ['docker', '--context', DOCKER_CONTEXT, 'tag', version_tag, latest_tag]
                     print(f"       🏷️  {' '.join(tag_cmd)}")
                 
                 if push:
                     print(f"   3️⃣  DOCKER PUSH PHASE:")
-                    push_cmd = ['docker', 'push', version_tag]
+                    push_cmd = ['docker', '--context', DOCKER_CONTEXT, 'push', version_tag]
                     print(f"       📤 {' '.join(push_cmd)}")
                     
                     if make_latest:
                         latest_tag = f"{registry}/{image_name}:latest"
-                        latest_push_cmd = ['docker', 'push', latest_tag]
+                        latest_push_cmd = ['docker', '--context', DOCKER_CONTEXT, 'push', latest_tag]
                         print(f"       📤 {' '.join(latest_push_cmd)}")
         
         elif build_type == "binary":
@@ -296,12 +309,12 @@ class LiveReviewOps:
             
             if multiarch:
                 print(f"   # Cross-compilation Multi-arch Docker Build (UI built once and reused):")
-                print(f"   docker buildx use multiplatform-builder")
+                print(f"   docker --context {DOCKER_CONTEXT} buildx use {BUILDX_BUILDER}")
                 for arch in architectures or ['amd64', 'arm64']:
                     suffix = arch.replace('/', '')
                     arch_tag = f"{registry}/{image_name}:{docker_version}-{suffix}"
                     build_cmd = [
-                        'docker', 'buildx', 'build',
+                        'docker', '--context', DOCKER_CONTEXT, 'buildx', 'build',
                         '--platform', f'linux/{arch}',
                         '--build-arg', f'VERSION={version}',
                         '--build-arg', f'BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)',
@@ -321,7 +334,7 @@ class LiveReviewOps:
                 print(f"   # Single-arch Docker Build (cross-compile, reuse UI dist):")
                 version_tag = f"{registry}/{image_name}:{docker_version}"
                 build_cmd = [
-                    'docker', 'buildx', 'build',
+                    'docker', '--context', DOCKER_CONTEXT, 'buildx', 'build',
                     '--platform', 'linux/amd64',
                     '--build-arg', f'VERSION={version}',
                     '--build-arg', f'BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)',
@@ -751,6 +764,14 @@ class LiveReviewOps:
         if vendor:
             go_build_tags.append('vendor_prompts')
 
+        # Preflight, before the plan is shown or confirmed: the context must
+        # exist (every docker command below uses it), and if we're pushing we
+        # must already be logged in - fail in seconds, not after a full build.
+        if not dry_run:
+            self._ensure_docker_context()
+            if push:
+                self._ensure_registry_login(registry)
+
         # Display build plan (augment output with build tags & vendor status)
         if not self._display_build_plan(
             build_type="docker",
@@ -842,7 +863,7 @@ class LiveReviewOps:
         ]
         
         cmd = [
-            'docker', 'buildx', 'build',
+            'docker', '--context', DOCKER_CONTEXT, 'buildx', 'build',
             '--platform', 'linux/amd64',
             '--build-arg', f'VERSION={version}',
             '--build-arg', f'BUILD_TIME={build_time}',
@@ -867,16 +888,16 @@ class LiveReviewOps:
         print(f"Successfully built Docker image: {version_tag}")
         if make_latest:
             # Tag locally after load
-            self._run_command(['docker', 'tag', version_tag, latest_tag], capture_output=False)
+            self._run_command(['docker', '--context', DOCKER_CONTEXT, 'tag', version_tag, latest_tag], capture_output=False)
             print(f"Also tagged as: {latest_tag}")
         
         if push:
             print(f"Pushing Docker image: {version_tag}")
-            self._run_command(['docker', 'push', version_tag], capture_output=False)
+            self._run_command(['docker', '--context', DOCKER_CONTEXT, 'push', version_tag], capture_output=False)
 
             if make_latest:
                 print(f"Pushing Docker image: {latest_tag}")
-                self._run_command(['docker', 'push', latest_tag], capture_output=False)
+                self._run_command(['docker', '--context', DOCKER_CONTEXT, 'push', latest_tag], capture_output=False)
         
         return version_tag
     
@@ -916,8 +937,8 @@ class LiveReviewOps:
         if vendor:
             go_tags.append('vendor_prompts')
         cmd = [
-            'docker', 'buildx', 'build',
-            '--builder', 'gitlab-multiarch',
+            'docker', '--context', DOCKER_CONTEXT, 'buildx', 'build',
+            '--builder', BUILDX_BUILDER,
             '--platform', platforms,
             '-f', 'Dockerfile.crosscompile',
             '--build-arg', f'VERSION={version}',
@@ -954,35 +975,93 @@ class LiveReviewOps:
         
         return version_tag
     
+    def _ensure_docker_context(self):
+        """Ensure the dedicated DOCKER_CONTEXT exists, creating it from `default` if not.
+
+        The context points at the same daemon endpoint as `default` - the point is
+        not a different daemon but a fixed, known name that release tooling and
+        the GHCR login both use, independent of whatever `default` is doing.
+        """
+        result = self._run_command(
+            ['docker', 'context', 'inspect', DOCKER_CONTEXT],
+            capture_output=True, check=False)
+        if result.returncode == 0:
+            return
+        print(f"🔧 Docker context '{DOCKER_CONTEXT}' not found - creating it...")
+        host = self._run_command(
+            ['docker', 'context', 'inspect', 'default', '--format', '{{.Endpoints.docker.Host}}'],
+            capture_output=True).stdout.strip()
+        if not host:
+            raise GitError("Could not read the docker endpoint from the 'default' context")
+        self._run_command(
+            ['docker', 'context', 'create', DOCKER_CONTEXT, '--docker', f'host={host}'],
+            capture_output=False)
+        print(f"✅ Docker context '{DOCKER_CONTEXT}' created (endpoint: {host})")
+        print(f"   Log in to GHCR on it with:  make ghcr-login")
+
+    def _ensure_registry_login(self, registry):
+        """Fail fast if there is no stored login for the registry we will push to.
+
+        Docker keeps logins in $DOCKER_CONFIG/config.json (default ~/.docker),
+        either inline under "auths" or, when a credential helper is configured
+        ("credsStore" / "credHelpers"), inside that helper. Checked before the
+        build so a missing login costs seconds, not a full multi-arch build.
+        """
+        host = registry.split('/')[0]
+        cfg_dir = Path(os.environ.get('DOCKER_CONFIG') or Path.home() / '.docker')
+        cfg_path = cfg_dir / 'config.json'
+        try:
+            cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+        except (OSError, ValueError):
+            cfg = {}
+
+        if host in (cfg.get('auths') or {}):
+            return
+
+        helper = (cfg.get('credHelpers') or {}).get(host) or cfg.get('credsStore')
+        if helper:
+            result = self._run_command(
+                [f'docker-credential-{helper}', 'list'],
+                capture_output=True, check=False)
+            if result.returncode == 0:
+                try:
+                    stored = json.loads(result.stdout or '{}')
+                except ValueError:
+                    stored = {}
+                if any(host in url for url in stored):
+                    return
+
+        raise GitError(
+            f"Not logged in to {host} on docker context '{DOCKER_CONTEXT}', but --push was requested.\n"
+            f"  Run:  make ghcr-login\n"
+            f"  (creates the '{DOCKER_CONTEXT}' context if needed and logs it in to {host} via the gh CLI)")
+
     def _ensure_buildx_builder(self):
         """Ensure buildx builder is available for multi-arch builds"""
+        self._ensure_docker_context()
         try:
-            # Check if the gitlab-multiarch builder is available
-            result = self._run_command(['docker', 'buildx', 'ls'], capture_output=True)
+            # Check if our builder is available
+            result = self._run_command(['docker', '--context', DOCKER_CONTEXT, 'buildx', 'ls'], capture_output=True)
             
-            if 'gitlab-multiarch' in result.stdout:
-                # Switch to the existing gitlab-multiarch builder
-                self._run_command(['docker', 'buildx', 'use', 'gitlab-multiarch'], capture_output=False)
-                print("✅ Switched to existing 'gitlab-multiarch' buildx builder")
-            elif 'multiarch' in result.stdout:
-                # Fallback to multiarch if available
-                self._run_command(['docker', 'buildx', 'use', 'multiarch'], capture_output=False)
-                print("✅ Switched to existing 'multiarch' buildx builder")
+            if BUILDX_BUILDER in result.stdout:
+                # Switch to the existing builder
+                self._run_command(['docker', '--context', DOCKER_CONTEXT, 'buildx', 'use', BUILDX_BUILDER], capture_output=False)
+                print(f"✅ Switched to existing '{BUILDX_BUILDER}' buildx builder")
             else:
                 print("🔧 Setting up buildx builder for multi-architecture builds...")
                 # Create and use a new builder with docker-container driver
                 self._run_command([
-                    'docker', 'buildx', 'create', 
+                    'docker', '--context', DOCKER_CONTEXT, 'buildx', 'create', 
                     '--driver', 'docker-container',
                     '--use', 
-                    '--name', 'gitlab-multiarch'
+                    '--name', BUILDX_BUILDER
                 ], capture_output=False)
-                print("✅ Buildx builder 'gitlab-multiarch' created with docker-container driver")
+                print(f"✅ Buildx builder '{BUILDX_BUILDER}' created on context '{DOCKER_CONTEXT}' with docker-container driver")
             
             # Bootstrap the builder to ensure it's ready
             print("🚀 Bootstrapping buildx builder...")
             self._run_command([
-                'docker', 'buildx', 'inspect', 
+                'docker', '--context', DOCKER_CONTEXT, 'buildx', 'inspect', 
                 '--bootstrap'
             ], capture_output=False)
             print("✅ Buildx builder is ready for multi-platform builds")
@@ -990,8 +1069,8 @@ class LiveReviewOps:
         except GitError as e:
             print(f"Warning: Could not set up buildx builder: {e}")
             print("You may need to manually run:")
-            print("  docker buildx use gitlab-multiarch")
-            print("  docker buildx inspect --bootstrap")
+            print(f"  docker --context {DOCKER_CONTEXT} buildx use {BUILDX_BUILDER}")
+            print(f"  docker --context {DOCKER_CONTEXT} buildx inspect --bootstrap")
     
     def _create_and_push_manifest(self, manifest_tag, arch_tags):
         """Create and push a Docker manifest list with GitLab registry compatibility"""
@@ -999,7 +1078,7 @@ class LiveReviewOps:
             # Remove existing manifest if it exists (GitLab can be picky about this)
             print(f"Removing existing manifest if present: {manifest_tag}")
             try:
-                self._run_command(['docker', 'manifest', 'rm', manifest_tag], capture_output=True, check=False)
+                self._run_command(['docker', '--context', DOCKER_CONTEXT, 'manifest', 'rm', manifest_tag], capture_output=True, check=False)
             except:
                 pass  # Ignore errors - manifest might not exist
             
@@ -1009,7 +1088,7 @@ class LiveReviewOps:
             
             # Create manifest list with --amend flag for GitLab compatibility
             print(f"Creating manifest list: {manifest_tag}")
-            cmd = ['docker', 'manifest', 'create', '--amend', manifest_tag] + arch_tags
+            cmd = ['docker', '--context', DOCKER_CONTEXT, 'manifest', 'create', '--amend', manifest_tag] + arch_tags
             self._run_command(cmd, capture_output=False)
             
             # Annotate each architecture in the manifest with explicit platform info
@@ -1019,7 +1098,7 @@ class LiveReviewOps:
                 if suffix == 'armv7':
                     print(f"Annotating manifest for arm/v7: {tag}")
                     self._run_command([
-                        'docker', 'manifest', 'annotate',
+                        'docker', '--context', DOCKER_CONTEXT, 'manifest', 'annotate',
                         manifest_tag, tag,
                         '--os', 'linux',
                         '--arch', 'arm', 
@@ -1028,7 +1107,7 @@ class LiveReviewOps:
                 elif suffix in ['amd64', 'arm64']:
                     print(f"Annotating manifest for {suffix}: {tag}")
                     self._run_command([
-                        'docker', 'manifest', 'annotate',
+                        'docker', '--context', DOCKER_CONTEXT, 'manifest', 'annotate',
                         manifest_tag, tag,
                         '--os', 'linux',
                         '--arch', suffix
@@ -1037,7 +1116,7 @@ class LiveReviewOps:
             # Push manifest list with --purge flag to ensure clean upload
             print(f"Pushing manifest list: {manifest_tag}")
             self._run_command_with_retries([
-                'docker', 'manifest', 'push', 
+                'docker', '--context', DOCKER_CONTEXT, 'manifest', 'push', 
                 '--purge', manifest_tag
             ], max_retries=3, capture_output=False)
             
