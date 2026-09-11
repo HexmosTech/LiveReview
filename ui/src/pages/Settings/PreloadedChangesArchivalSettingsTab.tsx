@@ -5,15 +5,15 @@ import { notify } from '../../utils/notify';
 import CronBuilder from '../../components/reviews/cronbuilder/CronBuilder';
 import { getLocalCronText, localTimeZoneName } from '../../components/reviews/cronbuilder/cronTimezone';
 
-interface DiffArchivalConfig {
+interface PreloadedChangesArchivalConfig {
     enabled: boolean;
     cron_expression: string;
     retention_days: number;
     schedule_human?: string;
 }
 
-const DiffArchivalSettingsTab: React.FC = () => {
-    const [settings, setSettings] = useState<DiffArchivalConfig | null>(null);
+const PreloadedChangesArchivalSettingsTab: React.FC = () => {
+    const [settings, setSettings] = useState<PreloadedChangesArchivalConfig | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [isRunning, setIsRunning] = useState(false);
@@ -30,10 +30,10 @@ const DiffArchivalSettingsTab: React.FC = () => {
     const loadConfig = async () => {
         setIsLoading(true);
         try {
-            const configData = await apiClient.get<DiffArchivalConfig>('/api/v1/admin/settings/diff-archival');
+            const configData = await apiClient.get<PreloadedChangesArchivalConfig>('/api/v1/admin/settings/preloaded-changes-archival');
             if (configData) setSettings(configData);
         } catch {
-            notify.error('Failed to load diff archival settings');
+            notify.error('Failed to load preloaded changes archival settings');
         } finally {
             setIsLoading(false);
         }
@@ -53,7 +53,7 @@ const DiffArchivalSettingsTab: React.FC = () => {
     const saveSettingsToBackend = async (silent = false) => {
         if (!settings) return;
         try {
-            await apiClient.put('/api/v1/admin/settings/diff-archival', {
+            await apiClient.put('/api/v1/admin/settings/preloaded-changes-archival', {
                 enabled: settings.enabled,
                 cron_expression: settings.cron_expression,
                 retention_days: Number(settings.retention_days),
@@ -81,8 +81,8 @@ const DiffArchivalSettingsTab: React.FC = () => {
         setIsDone(false);
         try {
             await saveSettingsToBackend(true);
-            await apiClient.post('/api/v1/admin/settings/diff-archival/run', {});
-            notify.success('Diff archival started in the background!');
+            await apiClient.post('/api/v1/admin/settings/preloaded-changes-archival/run', {});
+            notify.success('Preloaded changes archival started in the background!');
             setIsDone(true);
             setTimeout(() => setIsDone(false), 3000);
         } catch (error: any) {
@@ -117,8 +117,8 @@ const DiffArchivalSettingsTab: React.FC = () => {
                     </svg>
                 </div>
                 <div>
-                    <h3 className="text-lg font-semibold text-white">Diff Archival</h3>
-                    <p className="text-sm text-slate-400">Moves code diffs older than the retention window from PostgreSQL to Blob Storage</p>
+                    <h3 className="text-lg font-semibold text-white">Preloaded Changes Archival</h3>
+                    <p className="text-sm text-slate-400">Moves code diffs (preloaded changes) older than the retention window from PostgreSQL to Blob Storage</p>
                 </div>
             </div>
 
@@ -147,7 +147,7 @@ const DiffArchivalSettingsTab: React.FC = () => {
                 <div className="flex items-center justify-between pb-4 border-b border-slate-700/60">
                     <div>
                         <div className="flex items-center space-x-2">
-                            <span className="text-sm font-medium text-white">Enable Automatic Diff Archival</span>
+                            <span className="text-sm font-medium text-white">Enable Automatic Preloaded Changes Archival</span>
                             <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
                                 Recommended
                             </span>
@@ -161,7 +161,7 @@ const DiffArchivalSettingsTab: React.FC = () => {
                             type="checkbox"
                             className="sr-only peer"
                             checked={settings.enabled}
-                            onChange={(e) => setSettings(prev => ({ ...prev, enabled: e.target.checked }))}
+                            onChange={(e) => setSettings(prev => prev ? ({ ...prev, enabled: e.target.checked }) : null)}
                         />
                         <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-violet-600"></div>
                     </label>
@@ -232,10 +232,10 @@ const DiffArchivalSettingsTab: React.FC = () => {
                                             max={365}
                                             value={settings.retention_days}
                                             onChange={(e) =>
-                                                setSettings(prev => ({
+                                                setSettings(prev => prev ? ({
                                                     ...prev,
                                                     retention_days: Math.max(1, parseInt(e.target.value, 10) || 30),
-                                                }))
+                                                }) : null)
                                             }
                                             className="w-16 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-white font-bold text-sm text-center focus:outline-none focus:border-violet-500"
                                         />
@@ -252,7 +252,7 @@ const DiffArchivalSettingsTab: React.FC = () => {
                                     <CronBuilder
                                         defaultValue={settings.cron_expression || '30 21 * * *'}
                                         onChange={(newCron) => {
-                                            if (newCron) setSettings(prev => ({ ...prev, cron_expression: newCron }));
+                                            if (newCron) setSettings(prev => prev ? ({ ...prev, cron_expression: newCron }) : null);
                                         }}
                                     />
                                 </div>
@@ -311,4 +311,4 @@ const DiffArchivalSettingsTab: React.FC = () => {
     );
 };
 
-export default DiffArchivalSettingsTab;
+export default PreloadedChangesArchivalSettingsTab;

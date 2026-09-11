@@ -27,7 +27,7 @@ The system combines database reads for recent reviews with low PostgreSQL disk u
 ### Key Principles
 
 1. Newly generated code diffs remain stored in PostgreSQL for the first 30 days. This ensures that recent code reviews get high read speed and low query latency.
-2. A background scheduled cron manager named DiffOffloadingManager periodically scans PostgreSQL. It finds reviews older than 30 days that still hold preloaded_changes in database metadata.
+2. A background scheduled cron manager named PreloadedChangesArchivalManager periodically scans PostgreSQL. It finds reviews older than 30 days that still hold preloaded_changes in database metadata.
 3. For reviews older than 30 days, the cron job uploads the raw code diffs to Blob Storage under the key path org/org_id/review/review_id/artifacts/preloaded_changes.json. When the upload succeeds, the job removes preloaded_changes from reviews.metadata in PostgreSQL.
 4. The background manager operates with controlled batch sizes of 50 reviews per batch. It pauses for 50 milliseconds between batches. It uses streaming JSON serialization. This prevents CPU spikes, memory bloat, and database connection pool exhaustion.
 5. The API server inspects PostgreSQL metadata first for active diffs. If preloaded_changes is absent from metadata, the server reads the diff payload from Blob Storage.
@@ -57,9 +57,9 @@ flowchart TD
 
 ### Automated Background Offloading Cron
 
-The DiffOffloadingManager background scheduler runs at scheduled cron intervals. The default schedule runs daily at 2:30 AM IST.
+The PreloadedChangesArchivalManager background scheduler runs at scheduled cron intervals. The default schedule runs daily at 2:30 AM IST.
 
-The system loads configuration from system_settings. You can update configuration without restarting the server.
+The system loads configuration from system_settings (`preloaded_changes_archival_settings`). You can update configuration without restarting the server.
 
 The enabled configuration option enables or disables the offloading background manager.
 The cron_expression configuration option sets the schedule for running offloading cycles.
@@ -96,7 +96,7 @@ Fourth, if the Blob Storage upload fails for any review, the system keeps metada
 
 ```mermaid
 flowchart TD
-    A["DiffOffloadingManager Cron Trigger"] --> B{"Is Offloading Enabled?"}
+    A["PreloadedChangesArchivalManager Cron Trigger"] --> B{"Is Offloading Enabled?"}
     B -- "No" --> C["Skip Offloading Cycle"]
     B -- "Yes" --> D["Query Reviews older than 30 Days with preloaded_changes in DB"]
     D --> E{"Eligible Reviews Found?"}
@@ -156,13 +156,13 @@ All Blob Storage artifact keys include the organization identifier org_id. The A
 
 ### Problem with Current Sequential Implementation
 
-The current `DiffArchivalManager` processes reviews sequentially — one upload per network roundtrip to Blob Storage. With an average network latency of 150ms per upload to Backblaze B2 US-East, uploading 30,000 review diffs sequentially takes approximately 75 minutes.
+The current `PreloadedChangesArchivalManager` processes reviews sequentially — one upload per network roundtrip to Blob Storage. With an average network latency of 150ms per upload to Backblaze B2 US-East, uploading 30,000 review diffs sequentially takes approximately 75 minutes.
 
 The root cause is single-threaded network execution. The standard way to achieve high throughput with object storage is to issue multiple upload operations in parallel over multiple HTTP connections simultaneously.
 
 ### Solution: Single-Review River Jobs with Consumer-Side Parallelism
 
-Rather than creating batch jobs containing multiple review IDs or running manual goroutine pools inside a worker, the system uses **1 River job per 1 review ID** (`DiffArchivalJobArgs{ReviewID int64, OrgID int64}`). 
+Rather than creating batch jobs containing multiple review IDs or running manual goroutine pools inside a worker, the system uses **1 River job per 1 review ID** (`PreloadedChangesArchivalJobArgs{ReviewID int64, OrgID int64}`). 
 
 Parallelism is achieved on the **consumer side** via River's native worker pool concurrency (`MaxWorkers`). River automatically executes multiple single-review workers concurrently in separate background goroutines.
 
@@ -170,7 +170,7 @@ Parallelism is achieved on the **consumer side** via River's native worker pool 
 
 **Phase 1 — Enqueueing (Producer Cron)**
 
-1. The `DiffArchivalManager` cron fires on schedule.
+1. The `PreloadedChangesArchivalManager` cron fires on schedule.
 2. It queries un-archived review IDs eligible for archival (`created_at < NOW() - retentionDays`):
    ```sql
    SELECT id, COALESCE(org_id, 0)
@@ -180,19 +180,19 @@ Parallelism is achieved on the **consumer side** via River's native worker pool 
      AND metadata ? 'preloaded_changes'
    ORDER BY created_at ASC;
    ```
-3. It calls `jq.QueueDiffArchivalJobs()` to enqueue 1 River job per review ID via `InsertMany()`.
-4. It enqueues a single `DiffArchivalPurgeWorker` job (`DiffArchivalPurgeJobArgs`) to monitor completion and execute the final bulk purge.
+3. It calls `jq.QueuePreloadedChangesArchivalJobs()` to enqueue 1 River job per review ID via `InsertMany()`.
+4. It enqueues a single `PreloadedChangesArchivalPurgeWorker` job (`PreloadedChangesArchivalPurgeJobArgs`) to monitor completion and execute the final bulk purge.
 
 **Phase 2 — Parallel Execution (Consumer Workers)**
 
-1. River's worker engine executes `DiffArchivalWorker.Work()` concurrently across workers (`MaxWorkers`):
+1. River's worker engine executes `PreloadedChangesArchivalWorker.Work()` concurrently across workers (`MaxWorkers`):
    - Reads `metadata->'preloaded_changes'` from PostgreSQL for its single `ReviewID`.
    - Uploads diff to Blob Storage (`org/:org_id/review/:review_id/artifacts/preloaded_changes.json`).
    - **No DB write** during upload — individual workers return `nil` on success.
 
 **Phase 3 — Bulk Purge (Purge Worker)**
 
-1. `DiffArchivalPurgeWorker` monitors job states via `river_job`:
+1. `PreloadedChangesArchivalPurgeWorker` monitors job states via `river_job`:
    - Waits while any archival jobs in the batch remain active.
    - Collects review IDs of all successfully completed jobs (`JobStateCompleted`).
 2. Executes **ONE bulk UPDATE** query in PostgreSQL:
@@ -206,7 +206,7 @@ Parallelism is achieved on the **consumer side** via River's native worker pool 
 
 ```mermaid
 flowchart TD
-    A["DiffArchivalManager Cron Trigger"] --> B["SELECT eligible review IDs (id, org_id)"]
+    A["PreloadedChangesArchivalManager Cron Trigger"] --> B["SELECT eligible review IDs (id, org_id)"]
     B --> C["riverClient.InsertMany — 1 River job per review ID + 1 Purge Job"]
     C --> D["Cron returns — River Worker Pool takes over"]
 
@@ -222,7 +222,7 @@ flowchart TD
     G1 -- "Yes" --> H1["Mark job completed in River"]
     G1 -- "No" --> I1["Return error — River retries ONLY Review 1"]
 
-    H1 --> P["DiffArchivalPurgeWorker — Checks all batch jobs complete"]
+    H1 --> P["PreloadedChangesArchivalPurgeWorker — Checks all batch jobs complete"]
     P --> Q["ONE Bulk UPDATE: SET metadata = metadata - 'preloaded_changes' WHERE id = ANY(completedIDs)"]
 
     J["River JobCleaner — runs every 30s"] --> K["Deletes river_job rows older than retention period automatically"]

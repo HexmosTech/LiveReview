@@ -17,58 +17,59 @@ import (
 
 const stuckJobThreshold = 6 * time.Hour
 
-// DiffArchivalJobArgs represents arguments for offloading a single review diff to blob storage.
+// PreloadedChangesArchivalJobArgs represents arguments for offloading a single review diff to blob storage.
 // 1 River job = 1 review ID. Retry isolation is clean: if upload fails, only this review retries.
-type DiffArchivalJobArgs struct {
-	ReviewID int64 `json:"review_id"`
-	OrgID    int64 `json:"org_id"`
+type PreloadedChangesArchivalJobArgs struct {
+	ReviewID   int64  `json:"review_id"`
+	OrgID      int64  `json:"org_id"`
+	BatchRunID string `json:"batch_run_id,omitempty"`
 }
 
-func (DiffArchivalJobArgs) Kind() string {
-	return "diff_archival"
+func (PreloadedChangesArchivalJobArgs) Kind() string {
+	return "preloaded_changes_archival"
 }
 
-func (DiffArchivalJobArgs) InsertOpts() river.InsertOpts {
+func (PreloadedChangesArchivalJobArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
-		Queue:       "diff_archival",
+		Queue:       "preloaded_changes_archival",
 		MaxAttempts: 10,
 	}
 }
 
-// DiffArchivalPurgeJobArgs represents arguments for the purge job that fires after all
+// PreloadedChangesArchivalPurgeJobArgs represents arguments for the purge job that fires after all
 // archival jobs in a batch run complete. It executes ONE bulk UPDATE to remove
 // preloaded_changes from PostgreSQL metadata for all successfully uploaded reviews.
-type DiffArchivalPurgeJobArgs struct {
+type PreloadedChangesArchivalPurgeJobArgs struct {
 	BatchRunID string  `json:"batch_run_id"`
 	ReviewIDs  []int64 `json:"review_ids"`
 	OrgID      int64   `json:"org_id"`
 }
 
-func (DiffArchivalPurgeJobArgs) Kind() string {
-	return "diff_archival_purge"
+func (PreloadedChangesArchivalPurgeJobArgs) Kind() string {
+	return "preloaded_changes_archival_purge"
 }
 
-func (DiffArchivalPurgeJobArgs) InsertOpts() river.InsertOpts {
+func (PreloadedChangesArchivalPurgeJobArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
-		Queue:       "diff_archival",
+		Queue:       "preloaded_changes_archival",
 		MaxAttempts: 100,
 	}
 }
 
-// DiffArchivalWorker handles offloading a SINGLE review diff payload from Postgres metadata to Blob Storage.
-// It does NOT update reviews metadata — that is deferred to DiffArchivalPurgeWorker via one bulk UPDATE.
+// PreloadedChangesArchivalWorker handles offloading a SINGLE review diff payload from Postgres metadata to Blob Storage.
+// It does NOT update reviews metadata — that is deferred to PreloadedChangesArchivalPurgeWorker via one bulk UPDATE.
 // Parallelism comes from River's MaxWorkers running multiple workers concurrently (consumer-side).
-type DiffArchivalWorker struct {
-	river.WorkerDefaults[DiffArchivalJobArgs]
+type PreloadedChangesArchivalWorker struct {
+	river.WorkerDefaults[PreloadedChangesArchivalJobArgs]
 	db   *sql.DB
 	pool *pgxpool.Pool
 }
 
-func (w *DiffArchivalWorker) Timeout(job *river.Job[DiffArchivalJobArgs]) time.Duration {
+func (w *PreloadedChangesArchivalWorker) Timeout(job *river.Job[PreloadedChangesArchivalJobArgs]) time.Duration {
 	return 5 * time.Minute
 }
 
-func (w *DiffArchivalWorker) Work(ctx context.Context, job *river.Job[DiffArchivalJobArgs]) error {
+func (w *PreloadedChangesArchivalWorker) Work(ctx context.Context, job *river.Job[PreloadedChangesArchivalJobArgs]) error {
 	reviewID := job.Args.ReviewID
 	orgID := job.Args.OrgID
 
@@ -84,51 +85,51 @@ func (w *DiffArchivalWorker) Work(ctx context.Context, job *river.Job[DiffArchiv
 	err := w.db.QueryRowContext(ctx, query, reviewID, orgID).Scan(&rawDiff)
 	if err == sql.ErrNoRows {
 		// Already offloaded or does not exist — treat as success, nothing to do.
-		log.Info().Int64("review_id", reviewID).Int64("org_id", orgID).Msg("[diff_archival_worker] review already offloaded or not found, skipping")
+		log.Info().Int64("review_id", reviewID).Int64("org_id", orgID).Msg("[preloaded_changes_archival_worker] review already offloaded or not found, skipping")
 		return nil
 	}
 	if err != nil {
-		log.Error().Err(err).Int64("review_id", reviewID).Int64("org_id", orgID).Msg("[diff_archival_worker] failed to fetch preloaded_changes from DB")
+		log.Error().Err(err).Int64("review_id", reviewID).Int64("org_id", orgID).Msg("[preloaded_changes_archival_worker] failed to fetch preloaded_changes from DB")
 		return fmt.Errorf("failed to fetch preloaded_changes for review %d: %w", reviewID, err)
 	}
 
 	if len(rawDiff) == 0 || string(rawDiff) == "null" {
-		log.Info().Int64("review_id", reviewID).Int64("org_id", orgID).Msg("[diff_archival_worker] empty diff, skipping upload")
+		log.Info().Int64("review_id", reviewID).Int64("org_id", orgID).Msg("[preloaded_changes_archival_worker] empty diff, skipping upload")
 		return nil
 	}
 
-	// 2. Upload to Blob Storage. No DB UPDATE here — DiffArchivalPurgeWorker does the bulk UPDATE.
+	// 2. Upload to Blob Storage. No DB UPDATE here — PreloadedChangesArchivalPurgeWorker does the bulk UPDATE.
 	uploadErr := blobstore.SaveArtifact(ctx, w.db, orgID, reviewID, blobstore.ArtifactPreloadedChanges, rawDiff)
 	if uploadErr != nil {
-		log.Error().Err(uploadErr).Int64("review_id", reviewID).Int64("org_id", orgID).Msg("[diff_archival_worker] blob upload failed")
+		log.Error().Err(uploadErr).Int64("review_id", reviewID).Int64("org_id", orgID).Msg("[preloaded_changes_archival_worker] blob upload failed")
 		return fmt.Errorf("failed to upload diff for review %d: %w", reviewID, uploadErr)
 	}
 
-	log.Info().Int64("review_id", reviewID).Int64("org_id", orgID).Msg("[diff_archival_worker] blob upload succeeded")
+	log.Info().Int64("review_id", reviewID).Int64("org_id", orgID).Msg("[preloaded_changes_archival_worker] blob upload succeeded")
 	return nil
 }
 
-// DiffArchivalPurgeWorker waits for all archival jobs in a batch run to complete,
+// PreloadedChangesArchivalPurgeWorker waits for all archival jobs in a batch run to complete,
 // then executes ONE bulk UPDATE to remove preloaded_changes from PostgreSQL metadata.
 // It retries every 5 minutes until all archival jobs are done (or stuck > 6h).
-type DiffArchivalPurgeWorker struct {
-	river.WorkerDefaults[DiffArchivalPurgeJobArgs]
+type PreloadedChangesArchivalPurgeWorker struct {
+	river.WorkerDefaults[PreloadedChangesArchivalPurgeJobArgs]
 	db     *sql.DB
 	client *river.Client[pgx.Tx]
 }
 
-func (w *DiffArchivalPurgeWorker) Timeout(job *river.Job[DiffArchivalPurgeJobArgs]) time.Duration {
+func (w *PreloadedChangesArchivalPurgeWorker) Timeout(job *river.Job[PreloadedChangesArchivalPurgeJobArgs]) time.Duration {
 	return 2 * time.Minute
 }
 
-func (w *DiffArchivalPurgeWorker) NextRetry(job *river.Job[DiffArchivalPurgeJobArgs]) time.Time {
+func (w *PreloadedChangesArchivalPurgeWorker) NextRetry(job *river.Job[PreloadedChangesArchivalPurgeJobArgs]) time.Time {
 	return time.Now().Add(5 * time.Minute)
 }
 
-func (w *DiffArchivalPurgeWorker) Work(ctx context.Context, job *river.Job[DiffArchivalPurgeJobArgs]) error {
+func (w *PreloadedChangesArchivalPurgeWorker) Work(ctx context.Context, job *river.Job[PreloadedChangesArchivalPurgeJobArgs]) error {
 	if w.client == nil {
-		log.Error().Msg("[diff_archival_purge] river client is nil, cannot query job status")
-		return fmt.Errorf("diff_archival_purge worker: river client is nil")
+		log.Error().Msg("[preloaded_changes_archival_purge] river client is nil, cannot query job status")
+		return fmt.Errorf("preloaded_changes_archival_purge worker: river client is nil")
 	}
 
 	targetMap := make(map[int64]bool, len(job.Args.ReviewIDs))
@@ -136,7 +137,7 @@ func (w *DiffArchivalPurgeWorker) Work(ctx context.Context, job *river.Job[DiffA
 		targetMap[id] = true
 	}
 
-	// 1. Check for active (non-finalized) diff_archival jobs in this batch with full pagination
+	// 1. Check for active (non-finalized) preloaded_changes_archival jobs in this batch with full pagination
 	activeStates := []rivertype.JobState{
 		rivertype.JobStateAvailable,
 		rivertype.JobStateRunning,
@@ -151,7 +152,7 @@ func (w *DiffArchivalPurgeWorker) Work(ctx context.Context, job *river.Job[DiffA
 		var lastCursor *river.JobListCursor
 		for {
 			params := river.NewJobListParams().
-				Kinds("diff_archival").
+				Kinds("preloaded_changes_archival").
 				States(state).
 				First(1000)
 			if lastCursor != nil {
@@ -166,11 +167,14 @@ func (w *DiffArchivalPurgeWorker) Work(ctx context.Context, job *river.Job[DiffA
 			}
 			for _, j := range result.Jobs {
 				lastCursor = river.JobListCursorFromJob(j)
-				var args DiffArchivalJobArgs
+				var args PreloadedChangesArchivalJobArgs
 				if err := json.Unmarshal(j.EncodedArgs, &args); err != nil {
 					continue
 				}
 				if args.OrgID != job.Args.OrgID {
+					continue
+				}
+				if args.BatchRunID != "" && args.BatchRunID != job.Args.BatchRunID {
 					continue
 				}
 				if !targetMap[args.ReviewID] {
@@ -189,7 +193,7 @@ func (w *DiffArchivalPurgeWorker) Work(ctx context.Context, job *river.Job[DiffA
 	}
 
 	if stillActive > 0 {
-		log.Info().Int("still_active", stillActive).Int("stuck", stuckCount).Str("batch_run_id", job.Args.BatchRunID).Msg("[diff_archival_purge] active jobs remaining, retrying in 5m")
+		log.Info().Int("still_active", stillActive).Int("stuck", stuckCount).Str("batch_run_id", job.Args.BatchRunID).Msg("[preloaded_changes_archival_purge] active jobs remaining, retrying in 5m")
 		return fmt.Errorf("%d batch archival jobs still active", stillActive)
 	}
 
@@ -198,7 +202,7 @@ func (w *DiffArchivalPurgeWorker) Work(ctx context.Context, job *river.Job[DiffA
 	var lastCursor *river.JobListCursor
 	for {
 		params := river.NewJobListParams().
-			Kinds("diff_archival").
+			Kinds("preloaded_changes_archival").
 			States(rivertype.JobStateCompleted).
 			First(1000)
 		if lastCursor != nil {
@@ -213,11 +217,14 @@ func (w *DiffArchivalPurgeWorker) Work(ctx context.Context, job *river.Job[DiffA
 		}
 		for _, j := range result.Jobs {
 			lastCursor = river.JobListCursorFromJob(j)
-			var args DiffArchivalJobArgs
+			var args PreloadedChangesArchivalJobArgs
 			if err := json.Unmarshal(j.EncodedArgs, &args); err != nil {
 				continue
 			}
 			if args.OrgID != job.Args.OrgID {
+				continue
+			}
+			if args.BatchRunID != "" && args.BatchRunID != job.Args.BatchRunID {
 				continue
 			}
 			if targetMap[args.ReviewID] {
@@ -236,7 +243,7 @@ func (w *DiffArchivalPurgeWorker) Work(ctx context.Context, job *river.Job[DiffA
 
 	// Safe behavior: if 0 jobs completed, do NOT purge un-archived reviews from PostgreSQL
 	if len(purgeIDs) == 0 {
-		log.Info().Str("batch_run_id", job.Args.BatchRunID).Msg("[diff_archival_purge] 0 completed review diffs to purge, skipping DB UPDATE")
+		log.Info().Str("batch_run_id", job.Args.BatchRunID).Msg("[preloaded_changes_archival_purge] 0 completed review diffs to purge, skipping DB UPDATE")
 		return nil
 	}
 
@@ -250,7 +257,7 @@ func (w *DiffArchivalPurgeWorker) Work(ctx context.Context, job *river.Job[DiffA
 	`
 	res, err := w.db.ExecContext(ctx, updateQuery, purgeIDs, job.Args.OrgID)
 	if err != nil {
-		log.Error().Err(err).Int64("org_id", job.Args.OrgID).Int("count", len(purgeIDs)).Msg("[diff_archival_purge] failed bulk UPDATE reviews metadata")
+		log.Error().Err(err).Int64("org_id", job.Args.OrgID).Int("count", len(purgeIDs)).Msg("[preloaded_changes_archival_purge] failed bulk UPDATE reviews metadata")
 		return fmt.Errorf("failed bulk UPDATE reviews metadata: %w", err)
 	}
 
@@ -260,7 +267,7 @@ func (w *DiffArchivalPurgeWorker) Work(ctx context.Context, job *river.Job[DiffA
 		Int("purge_count", len(purgeIDs)).
 		Int("stuck_skipped", stuckCount).
 		Str("batch_run_id", job.Args.BatchRunID).
-		Msg("[diff_archival_purge] bulk metadata purge complete")
+		Msg("[preloaded_changes_archival_purge] bulk metadata purge complete")
 
 	return nil
 }

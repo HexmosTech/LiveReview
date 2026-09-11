@@ -3,7 +3,7 @@ import { Button, Input } from '../../components/UIPrimitives';
 import apiClient from '../../api/apiClient';
 import { notify } from '../../utils/notify';
 import CompactionSettingsTab from './CompactionSettingsTab';
-import DiffArchivalSettingsTab from './DiffArchivalSettingsTab';
+import PreloadedChangesArchivalSettingsTab from './PreloadedChangesArchivalSettingsTab';
 
 type Backend = 'filesystem' | 's3' | 'gcs' | 'azure';
 
@@ -317,9 +317,9 @@ const StorageSettingsTab: React.FC = () => {
             {/* Divider */}
             <div className="my-10 border-t border-slate-700/80"></div>
 
-            {/* Section 3: Diff Archival */}
-            <div id="diff-archival">
-                <DiffArchivalSettingsTab />
+            {/* Section 3: Preloaded Changes Archival */}
+            <div id="preloaded-changes-archival">
+                <PreloadedChangesArchivalSettingsTab />
             </div>
         </div>
     );
