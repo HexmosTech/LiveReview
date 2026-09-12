@@ -149,9 +149,11 @@ const CiRulesetIntegration: React.FC = () => {
                         {href ? (
                           <a href={href} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline text-xs break-all">{href}</a>
                         ) : (
-                          <code className="text-xs">{value}</code>
+                          <>
+                            <code className="text-xs">{value}</code>
+                            <CopyIconButton text={value} label={`${secret.key} value`} onCopy={copyToClipboard} />
+                          </>
                         )}
-                        <CopyIconButton text={href || value} label={`${secret.key} value`} onCopy={copyToClipboard} />
                       </div>
                     </TableCell>
                   </TableRow>
