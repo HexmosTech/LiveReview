@@ -658,10 +658,12 @@ func decodeReviewResult(meta map[string]interface{}) (DiffReviewResult, error) {
 		return res, nil
 	}
 
-	// Fallback: If standard unmarshal failed due to numeric confidence, normalize raw JSON map and retry
-	fallbackRes, fallbackErr := normalizeAndDecodeReviewResult(data)
-	if fallbackErr == nil {
-		return fallbackRes, nil
+	// Strictly trigger fallback ONLY if error is unmarshaling a number into a string field
+	if strings.Contains(err.Error(), "cannot unmarshal number") {
+		fallbackRes, fallbackErr := normalizeAndDecodeReviewResult(data)
+		if fallbackErr == nil {
+			return fallbackRes, nil
+		}
 	}
 
 	return DiffReviewResult{}, err

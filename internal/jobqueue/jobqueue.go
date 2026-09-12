@@ -2434,7 +2434,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 		Workers:                     workers,
 		CompletedJobRetentionPeriod: 30 * 24 * time.Hour,
 		CancelledJobRetentionPeriod: 30 * 24 * time.Hour,
-		DiscardedJobRetentionPeriod: 7 * 24 * time.Hour,
+		DiscardedJobRetentionPeriod: 30 * 24 * time.Hour,
 		PeriodicJobs: []*river.PeriodicJob{
 			river.NewPeriodicJob(
 				river.PeriodicInterval(coordinatorInterval),
