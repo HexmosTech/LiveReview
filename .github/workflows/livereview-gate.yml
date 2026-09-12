@@ -1,0 +1,80 @@
+name: LiveReview Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  livereview-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate LiveReview CI/CD ruleset
+        env:
+          LIVEREVIEW_API_KEY: ${{ secrets.LIVEREVIEW_API_KEY }}
+          ORG_ID: ${{ secrets.LIVEREVIEW_ORG_ID }}
+          RULESET_ID: ${{ secrets.LIVEREVIEW_RULESET_ID }}
+          BASE_URL: https://livereview.hexmos.com
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          echo "Triggering LiveReview review for $PR_URL (commit $HEAD_SHA)"
+          TRIGGER_RESP=$(curl -sf -H "X-API-Key: $LIVEREVIEW_API_KEY" -H "X-Org-Context: $ORG_ID" \
+            -H "Content-Type: application/json" \
+            -d "{\"url\":\"$PR_URL\"}" \
+            "$BASE_URL/api/v1/connectors/trigger-review")
+          REVIEW_ID=$(echo "$TRIGGER_RESP" | jq -r '.reviewId // empty')
+          if [ -z "$REVIEW_ID" ]; then
+            echo "Failed to trigger a LiveReview review: $TRIGGER_RESP"
+            exit 1
+          fi
+          echo "Triggered review $REVIEW_ID"
+
+          # Poll the SPECIFIC review we just triggered -- not a commit-SHA
+          # lookup, which would silently reuse a different PR's already-
+          # completed review of the same commit (e.g. a branch created
+          # without new commits) instead of this PR's own review.
+          # 90 attempts x 20s = 30 minutes, enough headroom for a large PR's diff.
+          MAX_ATTEMPTS=90
+          SLEEP_SECONDS=20
+          echo "Waiting for review $REVIEW_ID to complete and evaluating the gate..."
+          for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+            RESP=$(curl -s -w '\n%{http_code}' -H "X-API-Key: $LIVEREVIEW_API_KEY" -H "X-Org-Context: $ORG_ID" \
+              "$BASE_URL/api/v1/ci-rulesets/$RULESET_ID/evaluate?review_id=$REVIEW_ID")
+            CODE=$(echo "$RESP" | tail -1)
+            BODY=$(echo "$RESP" | sed '$d')
+
+            case "$CODE" in
+              200)
+                echo "LiveReview: ALLOW"
+                echo "$BODY"
+                exit 0
+                ;;
+              422)
+                echo "LiveReview: BLOCK -- a critical or security finding was found"
+                echo "$BODY"
+                exit 1
+                ;;
+              202)
+                echo "  [$attempt/$MAX_ATTEMPTS] review $REVIEW_ID still running, retrying in ${SLEEP_SECONDS}s..."
+                ;;
+              401|403)
+                echo "LiveReview: authentication failed (HTTP $CODE) -- check the LIVEREVIEW_API_KEY/LIVEREVIEW_ORG_ID secrets"
+                echo "$BODY"
+                exit 1
+                ;;
+              404)
+                echo "LiveReview: ruleset or review not found (HTTP 404) -- check the LIVEREVIEW_RULESET_ID secret"
+                echo "$BODY"
+                exit 1
+                ;;
+              *)
+                echo "  [$attempt/$MAX_ATTEMPTS] unexpected evaluate response ($CODE): $BODY"
+                ;;
+            esac
+            sleep "$SLEEP_SECONDS"
+          done
+
+          echo "Timed out waiting for the LiveReview review to complete."
+          exit 1
