@@ -231,10 +231,11 @@ func (manager *PreloadedChangesArchivalManager) executeBulkArchival(executionCtx
 		WHERE created_at < NOW() - ($1 * INTERVAL '1 day')
 		  AND trigger_type = 'cli_diff'
 		  AND metadata ? 'preloaded_changes'
-		ORDER BY created_at ASC;
+		ORDER BY created_at ASC
+		LIMIT $2;
 	`
 
-	rows, err := manager.database.QueryContext(executionCtx, query, retentionDays)
+	rows, err := manager.database.QueryContext(executionCtx, query, retentionDays, batchSize)
 	if err != nil {
 		log.Error().Err(err).Msg("[preloaded_changes_archival] failed to query eligible reviews for archival")
 		return 0, 1
@@ -304,6 +305,10 @@ func (manager *PreloadedChangesArchivalManager) executeBulkArchival(executionCtx
 		if err := manager.jobQueue.QueuePreloadedChangesArchivalPurgeJob(executionCtx, purgeJob); err != nil {
 			log.Error().Err(err).Int64("org_id", organizationID).Msg("[preloaded_changes_archival] error enqueuing archival purge job")
 			errorCount++
+		}
+
+		if delayMs > 0 {
+			time.Sleep(time.Duration(delayMs) * time.Millisecond)
 		}
 	}
 

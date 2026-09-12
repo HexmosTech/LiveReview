@@ -44,7 +44,7 @@ const PreloadedChangesArchivalSettingsTab: React.FC = () => {
             // Reuse the existing storage settings endpoint — if it returns a non-local type, blob is configured.
             const data = await apiClient.get<{ storage_type?: string }>('/api/v1/admin/settings/storage');
             const storageType = data?.storage_type ?? 'local_fs';
-            setBlobConfigured(storageType !== 'local_fs' && storageType !== '' && storageType != null);
+            setBlobConfigured(storageType !== 'local_fs' && storageType !== '');
         } catch {
             setBlobConfigured(false);
         }

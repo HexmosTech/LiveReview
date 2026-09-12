@@ -2409,7 +2409,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	prStateSyncWorker := &PRStateSyncWorker{db: db, store: prStore}
 	reconciliationWorker := &ReconciliationSweepWorker{db: db, pool: pool, stalenessThreshold: config.RepoSyncConfig.StalenessThreshold}
 	scheduledReviewWorker := &ScheduledReviewWorker{db: db}
-	preloadedChangesArchivalWorker := &PreloadedChangesArchivalWorker{db: db, pool: pool}
+	preloadedChangesArchivalWorker := &PreloadedChangesArchivalWorker{db: db}
 	preloadedChangesArchivalPurgeWorker := &PreloadedChangesArchivalPurgeWorker{db: db}
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
