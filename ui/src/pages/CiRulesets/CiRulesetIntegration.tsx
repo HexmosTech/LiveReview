@@ -54,6 +54,82 @@ const CopyIconButton: React.FC<{
     </Button>
 );
 
+const SecretsTable: React.FC<{
+    baseUrl: string;
+    ruleset: CIRuleset;
+    onCopy: (text: string, label: string) => void;
+    /** Restrict to these keys only (in GATE_SECRETS order); omit to show all. */
+    onlyKeys?: string[];
+}> = ({ baseUrl, ruleset, onCopy, onlyKeys }) => (
+    <div className="overflow-x-auto rounded border border-slate-700 inline-block">
+        <Table style={{ width: 'auto' }}>
+            <TableHead divided={false}>
+                <TableHeaderCell className="!pr-2">Key</TableHeaderCell>
+                <TableHeaderCell className="!pl-0 !pr-2" />
+                <TableHeaderCell className="!pr-2">Value</TableHeaderCell>
+                <TableHeaderCell className="!pl-0 !pr-2" />
+            </TableHead>
+            <TableBody>
+                {GATE_SECRETS.filter(
+                    (secret) => !onlyKeys || onlyKeys.includes(secret.key)
+                ).map((secret) => {
+                    const value = secret.describe(
+                        baseUrl,
+                        ruleset.id,
+                        ruleset.org_id
+                    );
+                    const href = secret.linkHref?.(baseUrl);
+                    return (
+                        <TableRow key={secret.key}>
+                            <TableCell className="!pr-2">
+                                <span className="text-xs font-medium text-slate-300">
+                                    {secret.key}
+                                </span>
+                            </TableCell>
+                            <TableCell className="!pl-0 !pr-2">
+                                <CopyIconButton
+                                    text={secret.key}
+                                    label={`${secret.key} key`}
+                                    onCopy={onCopy}
+                                />
+                            </TableCell>
+                            <TableCell className="!pr-2">
+                                {href ? (
+                                    <span className="text-sm text-slate-300">
+                                        {secret.linkPrefix}
+                                        <a
+                                            href={href}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-blue-400 hover:underline"
+                                        >
+                                            {secret.linkLabel}
+                                        </a>
+                                        {secret.linkSuffix}
+                                    </span>
+                                ) : (
+                                    <code className="text-green-400 font-mono text-sm">
+                                        {value}
+                                    </code>
+                                )}
+                            </TableCell>
+                            <TableCell className="!pl-0 !pr-2">
+                                {!href && (
+                                    <CopyIconButton
+                                        text={value}
+                                        label={`${secret.key} value`}
+                                        onCopy={onCopy}
+                                    />
+                                )}
+                            </TableCell>
+                        </TableRow>
+                    );
+                })}
+            </TableBody>
+        </Table>
+    </div>
+);
+
 const CiRulesetIntegration: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
@@ -167,6 +243,19 @@ const CiRulesetIntegration: React.FC = () => {
 
             {provider === 'curl' && (
                 <Card
+                    title="Environment variables"
+                    subtitle="Values already baked into the snippet below -- LIVEREVIEW_API_KEY is the only one you need to supply"
+                >
+                    <SecretsTable
+                        baseUrl={baseUrl}
+                        ruleset={ruleset}
+                        onCopy={copyToClipboard}
+                    />
+                </Card>
+            )}
+
+            {provider === 'curl' && (
+                <Card
                     title="cURL / Bash snippet"
                     subtitle="Drop this into any CI step that runs bash"
                 >
@@ -185,9 +274,11 @@ const CiRulesetIntegration: React.FC = () => {
                         </Button>
                     </div>
                     <p className="text-xs text-slate-500 mt-2">
-                        Set <code>LIVEREVIEW_API_KEY</code> as a CI secret.
-                        Requires <code>jq</code> to be installed on the CI
-                        runner.
+                        Set <code>LIVEREVIEW_API_KEY</code> as a CI secret,
+                        and set <code>PR_URL</code>/<code>COMMIT_SHA</code> to
+                        your pipeline's equivalents before running this.
+                        Requires <code>curl</code> and <code>jq</code> to be
+                        installed on the runner.
                     </p>
                 </Card>
             )}
@@ -226,76 +317,12 @@ const CiRulesetIntegration: React.FC = () => {
                             </ol>
                         </div>
                     )}
-                    <div className="overflow-x-auto rounded border border-slate-700 mt-4 inline-block">
-                        <Table style={{ width: 'auto' }}>
-                            <TableHead divided={false}>
-                                <TableHeaderCell className="!pr-2">
-                                    Key
-                                </TableHeaderCell>
-                                <TableHeaderCell className="!pl-0 !pr-2" />
-                                <TableHeaderCell className="!pr-2">
-                                    Value
-                                </TableHeaderCell>
-                                <TableHeaderCell className="!pl-0 !pr-2" />
-                            </TableHead>
-                            <TableBody>
-                                {GATE_SECRETS.map((secret) => {
-                                    const value = secret.describe(
-                                        baseUrl,
-                                        ruleset.id,
-                                        ruleset.org_id
-                                    );
-                                    const href = secret.linkHref?.(baseUrl);
-                                    return (
-                                        <TableRow key={secret.key}>
-                                            <TableCell className="!pr-2">
-                                                <span className="text-xs font-medium text-slate-300">
-                                                    {secret.key}
-                                                </span>
-                                            </TableCell>
-                                            <TableCell className="!pl-0 !pr-2">
-                                                <CopyIconButton
-                                                    text={secret.key}
-                                                    label={`${secret.key} key`}
-                                                    onCopy={copyToClipboard}
-                                                />
-                                            </TableCell>
-                                            <TableCell className="!pr-2">
-                                                {href ? (
-                                                    <span className="text-sm text-slate-300">
-                                                        {secret.linkPrefix}
-                                                        <a
-                                                            href={href}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            className="text-blue-400 hover:underline"
-                                                        >
-                                                            {secret.linkLabel}
-                                                        </a>
-                                                        {secret.linkSuffix}
-                                                    </span>
-                                                ) : (
-                                                    <code className="text-green-400 font-mono text-sm">
-                                                        {value}
-                                                    </code>
-                                                )}
-                                            </TableCell>
-                                            <TableCell className="!pl-0 !pr-2">
-                                                {!href && (
-                                                    <CopyIconButton
-                                                        text={value}
-                                                        label={`${secret.key} value`}
-                                                        onCopy={
-                                                            copyToClipboard
-                                                        }
-                                                    />
-                                                )}
-                                            </TableCell>
-                                        </TableRow>
-                                    );
-                                })}
-                            </TableBody>
-                        </Table>
+                    <div className="mt-4">
+                        <SecretsTable
+                            baseUrl={baseUrl}
+                            ruleset={ruleset}
+                            onCopy={copyToClipboard}
+                        />
                     </div>
                 </Card>
             )}
