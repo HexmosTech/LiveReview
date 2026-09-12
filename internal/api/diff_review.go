@@ -15,6 +15,7 @@ import (
 	"github.com/livereview/internal/blastradius"
 	"github.com/livereview/internal/blobstore"
 	"github.com/livereview/internal/jobqueue"
+	zlog "github.com/rs/zerolog/log"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/naming"
 	"github.com/livereview/internal/providers"
@@ -618,7 +619,7 @@ func (s *Server) fetchPreloadedChanges(ctx context.Context, orgID, reviewID int6
 		if err := json.Unmarshal(rawBlob, &diffs); err == nil {
 			return diffs, nil
 		} else {
-			log.Printf("[WARN] Failed to unmarshal preloaded_changes blob for review %d (org %d): %v", reviewID, orgID, err)
+			zlog.Warn().Err(err).Int64("review_id", reviewID).Int64("org_id", orgID).Msg("[diff_review] Failed to unmarshal preloaded_changes blob")
 		}
 	}
 

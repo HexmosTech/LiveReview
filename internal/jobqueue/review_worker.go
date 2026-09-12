@@ -20,6 +20,7 @@ import (
 	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/pkg/models"
 	"github.com/riverqueue/river"
+	zlog "github.com/rs/zerolog/log"
 )
 
 // WebhookReviewJobArgs represents the arguments for an asynchronous webhook review job.
@@ -207,13 +208,13 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	modelDiffsPayload, err := json.Marshal(modelDiffs)
 	savedToBlob := false
 	if err != nil {
-		log.Printf("[WARN] Failed to marshal diffs for review %d: %v", args.ReviewID, err)
+		zlog.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] Failed to marshal diffs")
 	} else {
 		if err := blobstore.SaveArtifact(ctx, w.db, args.OrgID, args.ReviewID, blobstore.ArtifactPreloadedChanges, modelDiffsPayload); err != nil {
-			log.Printf("[WARN] Failed to store diff artifact in blob storage for review %d (org %d): %v. Preserving %s in Postgres metadata fallback.", args.ReviewID, args.OrgID, err, blobstore.MetaPreloadedChanges)
+			zlog.Warn().Err(err).Int64("review_id", args.ReviewID).Int64("org_id", args.OrgID).Str("fallback_key", blobstore.MetaPreloadedChanges).Msg("[review_worker] Failed to store diff artifact in blob storage. Preserving in Postgres metadata fallback.")
 		} else {
 			savedToBlob = true
-			log.Printf("[INFO] Successfully persisted diff artifact to blob storage for review %d (org %d)", args.ReviewID, args.OrgID)
+			zlog.Info().Int64("review_id", args.ReviewID).Int64("org_id", args.OrgID).Msg("[review_worker] Successfully persisted diff artifact to blob storage")
 		}
 	}
 
@@ -228,7 +229,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 
 	rm := reviewprocessor.NewReviewManager(w.db)
 	if err := rm.MergeReviewMetadata(args.ReviewID, metaUpdates); err != nil {
-		log.Printf("[ERROR] Failed to persist review metadata for review %d: %v", args.ReviewID, err)
+		zlog.Error().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] Failed to persist review metadata")
 	}
 
 	// If .lrc/ignore excluded every changed file, there's nothing for the AI

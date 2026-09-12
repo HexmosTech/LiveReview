@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/livereview/internal/blobstore"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
@@ -61,8 +60,7 @@ func (PreloadedChangesArchivalPurgeJobArgs) InsertOpts() river.InsertOpts {
 // Parallelism comes from River's MaxWorkers running multiple workers concurrently (consumer-side).
 type PreloadedChangesArchivalWorker struct {
 	river.WorkerDefaults[PreloadedChangesArchivalJobArgs]
-	db   *sql.DB
-	pool *pgxpool.Pool
+	db *sql.DB
 }
 
 func (w *PreloadedChangesArchivalWorker) Timeout(job *river.Job[PreloadedChangesArchivalJobArgs]) time.Duration {
