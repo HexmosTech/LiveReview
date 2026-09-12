@@ -4,6 +4,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+# This job only calls the LiveReview API via curl -- it never checks out
+# the repo or writes back to it, so GITHUB_TOKEN needs no permissions.
+permissions: {}
+
 jobs:
   livereview-gate:
     runs-on: ubuntu-latest
