@@ -651,8 +651,52 @@ func decodeReviewResult(meta map[string]interface{}) (DiffReviewResult, error) {
 	if err != nil {
 		return DiffReviewResult{}, err
 	}
+
 	var res DiffReviewResult
-	if err := json.Unmarshal(data, &res); err != nil {
+	err = json.Unmarshal(data, &res)
+	if err == nil {
+		return res, nil
+	}
+
+	// Fallback: If standard unmarshal failed due to numeric confidence, normalize raw JSON map and retry
+	fallbackRes, fallbackErr := normalizeAndDecodeReviewResult(data)
+	if fallbackErr == nil {
+		return fallbackRes, nil
+	}
+
+	return DiffReviewResult{}, err
+}
+
+func normalizeAndDecodeReviewResult(data []byte) (DiffReviewResult, error) {
+	var rawMap map[string]interface{}
+	if err := json.Unmarshal(data, &rawMap); err != nil {
+		return DiffReviewResult{}, err
+	}
+
+	if comments, ok := rawMap["comments"].([]interface{}); ok {
+		for _, item := range comments {
+			if commentMap, ok := item.(map[string]interface{}); ok {
+				if conf, exists := commentMap["confidence"]; exists && conf != nil {
+					switch v := conf.(type) {
+					case float64:
+						commentMap["confidence"] = fmt.Sprintf("%g", v)
+					case int:
+						commentMap["confidence"] = fmt.Sprintf("%d", v)
+					case int64:
+						commentMap["confidence"] = fmt.Sprintf("%d", v)
+					}
+				}
+			}
+		}
+	}
+
+	normalizedData, err := json.Marshal(rawMap)
+	if err != nil {
+		return DiffReviewResult{}, err
+	}
+
+	var res DiffReviewResult
+	if err := json.Unmarshal(normalizedData, &res); err != nil {
 		return DiffReviewResult{}, err
 	}
 	return res, nil
