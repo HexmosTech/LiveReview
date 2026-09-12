@@ -3,7 +3,7 @@ import { Button } from '../../components/UIPrimitives';
 import apiClient from '../../api/apiClient';
 import { notify } from '../../utils/notify';
 import CronBuilder from '../../components/reviews/cronbuilder/CronBuilder';
-import { getLocalCronText, localTimeZoneName } from '../../components/reviews/cronbuilder/cronTimezone';
+import { getCronText } from '../../components/reviews/cronbuilder/cronUtils';
 
 interface PreloadedChangesArchivalConfig {
     enabled: boolean;
@@ -102,9 +102,8 @@ const PreloadedChangesArchivalSettingsTab: React.FC = () => {
 
     if (!settings) return null;
 
-    const cronTextObj = getLocalCronText(settings.cron_expression);
-    const humanSchedule = cronTextObj.status && cronTextObj.value ? cronTextObj.value : settings.cron_expression;
-    const tzName = localTimeZoneName();
+    const cronTextObj = getCronText(settings.cron_expression || '30 21 * * *');
+    const humanSchedule = cronTextObj.status && cronTextObj.value ? cronTextObj.value : (settings.schedule_human || settings.cron_expression);
 
     return (
         <div className="space-y-5">
@@ -186,7 +185,7 @@ const PreloadedChangesArchivalSettingsTab: React.FC = () => {
                                 {humanSchedule}
                             </div>
                             <p className="text-xs text-slate-500 mt-0.5">
-                                {tzName}
+                                UTC Standard Time
                             </p>
                         </div>
                     </div>
