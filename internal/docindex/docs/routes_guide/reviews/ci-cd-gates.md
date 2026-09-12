@@ -50,6 +50,48 @@ Organization owners and super admins (gated in the mega menu by
   pipeline wants to inspect the response body (the exit code alone is
   sufficient to gate the job).
 
+## Blocking the merge/approve button, not just the CI job
+
+A CI job returning a non-zero exit code only marks that one check as failed —
+it does **not**, by itself, grey out the platform's merge button. Each Git
+provider needs its own separate "require this check to pass before merging"
+setting enabled, or a developer can merge right past a failing/still-running
+gate:
+
+- **GitHub**: add a branch protection rule on the target branch (Settings ->
+  Branches -> Branch protection rules) with **Require status checks to pass
+  before merging**, and add the gate job's name (the `jobs.<id>` key in the
+  workflow YAML, e.g. `livereview-gate`, unless a `name:` overrides it) to the
+  required-checks list. Can be set via `gh api` too:
+  ```
+  gh api -X PUT repos/:owner/:repo/branches/:branch/protection \
+    --input - <<'EOF'
+  {
+    "required_status_checks": { "strict": false, "contexts": ["livereview-gate"] },
+    "enforce_admins": false,
+    "required_pull_request_reviews": null,
+    "restrictions": null
+  }
+  EOF
+  ```
+  Verify with `gh pr view <n> --json mergeStateStatus` — it reads `BLOCKED`
+  once a required check is failing/pending.
+- **GitLab**: by default GitLab lets you merge regardless of pipeline status
+  (it only shows the pipeline badge) — there is a real "Merge immediately"
+  button that bypasses a failing/running pipeline entirely. The setting that
+  actually gates it is under **Settings -> Merge requests -> Merge checks ->
+  "Pipelines must succeed"** on the project. Via API:
+  ```
+  curl --request PUT --header "PRIVATE-TOKEN: <token>" \
+    "https://gitlab.com/api/v4/projects/<id-or-url-encoded-path>" \
+    --data "only_allow_merge_if_pipeline_succeeds=true"
+  ```
+- **Bitbucket/Azure**: equivalent concepts exist (Bitbucket "Merge checks" /
+  branch restrictions; Azure "Branch policies" -> "Build validation") but
+  aren't yet exercised/documented here from a real setup — treat as
+  needing the same kind of explicit opt-in before assuming the gate blocks
+  merges on those platforms.
+
 ## Related pages
 
 - [Reviews (list)](reviews-list.md)
