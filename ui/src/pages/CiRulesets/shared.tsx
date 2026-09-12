@@ -358,6 +358,39 @@ export const PROVIDER_SECRET_INSTRUCTIONS: Record<ProviderKey, string[]> = {
   ],
 };
 
+// A CI job failing only marks that one check red -- it does NOT, by itself,
+// grey out the merge/approve button on any of these platforms. Each one
+// needs its own separate "require this to pass before merging" setting
+// enabled, discovered the hard way testing against real GitHub/GitLab repos.
+export const PROVIDER_MERGE_BLOCK_INSTRUCTIONS: Record<ProviderKey, string[] | null> = {
+  curl: null,
+  github: [
+    'Go to your repository -> Settings -> Branches -> Branch protection rules, and add (or edit) a rule for your target branch.',
+    'Enable "Require status checks to pass before merging".',
+    'Search for and add the gate job\'s check name (the jobs.<id> key in the workflow YAML, e.g. livereview-gate, unless a name: overrides it) to the required list, then Save.',
+    'The merge button is now disabled until that check passes -- verify with `gh pr view <n> --json mergeStateStatus` (reads BLOCKED while pending/failing).',
+  ],
+  gitlab: [
+    'Go to your project -> Settings -> Merge requests.',
+    'Scroll to the "Merge checks" section.',
+    'Check "Pipelines must succeed", then Save changes.',
+    'By default GitLab lets you merge regardless of pipeline status (including a "Merge immediately" button that bypasses a failing/running pipeline entirely) -- this setting is what actually makes the merge button wait on livereview-gate.',
+  ],
+  bitbucket: [
+    'Go to Repository settings -> Branch restrictions (or Merge checks, depending on your plan).',
+    'Add a restriction on your target branch requiring the build/pipeline status to be successful before merging.',
+    'Not yet verified against a real Bitbucket repo in this integration -- confirm the exact toggle name and behavior in your workspace before relying on it.',
+  ],
+  azure: [
+    'Go to Project Settings -> Repositories -> select your repo -> Policies, then open your target branch\'s branch policy.',
+    'Under Build Validation, add this pipeline as a required build.',
+    'Not yet verified against a real Azure DevOps repo in this integration -- confirm the exact toggle name and behavior in your organization before relying on it.',
+  ],
+  generic: [
+    'Look for a "required check" / "branch protection" / "merge gate" setting in your platform\'s branch or repository settings -- a red CI job on its own usually does not block merging without one.',
+  ],
+};
+
 export function buildCurlSnippet(baseUrl: string, rulesetId: number, orgId: number, provider: ProviderKey): string {
   const sha = PROVIDER_SHA_VARS[provider].shaVar;
   return [

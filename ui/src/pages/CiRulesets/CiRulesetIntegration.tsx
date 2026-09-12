@@ -22,6 +22,7 @@ import {
     ProviderKey,
     PROVIDER_SHA_VARS,
     PROVIDER_SECRET_INSTRUCTIONS,
+    PROVIDER_MERGE_BLOCK_INSTRUCTIONS,
     GATE_SECRETS,
     buildCurlSnippet,
     buildGithubActionsWorkflow,
@@ -324,6 +325,21 @@ const CiRulesetIntegration: React.FC = () => {
                             onCopy={copyToClipboard}
                         />
                     </div>
+                </Card>
+            )}
+
+            {PROVIDER_MERGE_BLOCK_INSTRUCTIONS[provider] && (
+                <Card
+                    title="Block the merge button, not just the CI job"
+                    subtitle={`A failing ${PROVIDER_SHA_VARS[provider].label} job does not, by itself, stop someone from merging`}
+                >
+                    <ol className="list-decimal list-inside text-sm text-slate-300 space-y-1.5">
+                        {PROVIDER_MERGE_BLOCK_INSTRUCTIONS[provider]?.map(
+                            (step, i) => (
+                                <li key={i}>{step}</li>
+                            )
+                        )}
+                    </ol>
                 </Card>
             )}
 
