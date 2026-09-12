@@ -64,12 +64,16 @@ func ProcessManualReview(
 	}
 
 	if result != nil && result.Success {
-		_ = rm.UpdateReviewStatus(reviewID, "completed")
 		if err := rm.MergeReviewMetadata(reviewID, buildQueuedReviewAIMetadata(&request, result)); err != nil {
 			log.Printf("[WARN] failed to persist AI stage metadata for review %d: %v", reviewID, err)
 		}
 
 		// Same review_result shape the CLI path writes (summary + comments, no diff content) — this is what the dashboard and taxonomy reports both read.
+		// Written BEFORE the status flips to "completed" below: a caller polling
+		// (e.g. the CI/CD gate's /evaluate endpoint) treats status=="completed" as
+		// the signal that findings are ready, so writing review_result first closes
+		// the race where a poll could see "completed" with no findings yet and
+		// wrongly allow a build that actually has critical findings.
 		if err := rm.MergeReviewMetadata(reviewID, map[string]interface{}{
 			"review_result": map[string]interface{}{
 				"summary":  result.Summary,
@@ -79,6 +83,8 @@ func ProcessManualReview(
 		}); err != nil {
 			log.Printf("[WARN] failed to persist review_result for review %d: %v", reviewID, err)
 		}
+
+		_ = rm.UpdateReviewStatus(reviewID, "completed")
 
 		if result.BillableLOC > 0 && onSuccess != nil {
 			extraMeta := buildQueuedReviewAIMetadata(&request, result)

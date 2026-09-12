@@ -18,9 +18,9 @@ export const Table: React.FC<{ children: ReactNode; className?: string; style?: 
   </table>
 );
 
-export const TableHead: React.FC<{ children: ReactNode }> = ({ children }) => (
+export const TableHead: React.FC<{ children: ReactNode; divided?: boolean }> = ({ children, divided = true }) => (
   <thead className="bg-[#2A3340]">
-    <tr className="divide-x divide-slate-600/60">{children}</tr>
+    <tr className={classNames(divided && 'divide-x divide-slate-600/60')}>{children}</tr>
   </thead>
 );
 
