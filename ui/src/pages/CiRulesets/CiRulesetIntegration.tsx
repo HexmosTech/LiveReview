@@ -1,11 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import apiClient from '../../api/apiClient';
-import { PageHeader, Card, Button, Spinner } from '../../components/UIPrimitives';
+import { PageHeader, Card, Button, Spinner, Icons } from '../../components/UIPrimitives';
+import { Table, TableHead, TableHeaderCell, TableBody, TableRow, TableCell } from '../../components/DataTable/SimpleTable';
 import { useToast } from '../../components/NotificationToast';
-import { CIRuleset, ProviderKey, PROVIDER_SHA_VARS, buildCurlSnippet, buildGithubActionsWorkflow, Breadcrumb } from './shared';
+import { CIRuleset, ProviderKey, PROVIDER_SHA_VARS, PROVIDER_SECRET_INSTRUCTIONS, GATE_SECRETS, buildCurlSnippet, buildGithubActionsWorkflow, Breadcrumb } from './shared';
 
-const PROVIDERS: ProviderKey[] = ['github', 'gitlab', 'bitbucket', 'azure', 'generic'];
+const PROVIDERS: ProviderKey[] = ['curl', 'github', 'gitlab', 'bitbucket', 'azure', 'generic'];
+
+const CopyIconButton: React.FC<{ text: string; label: string; onCopy: (text: string, label: string) => void }> = ({ text, label, onCopy }) => (
+  <button
+    type="button"
+    onClick={() => onCopy(text, label)}
+    title={`Copy ${label}`}
+    className="inline-flex items-center justify-center p-1 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-700"
+  >
+    <Icons.Copy />
+  </button>
+);
 
 const CiRulesetIntegration: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -15,6 +27,7 @@ const CiRulesetIntegration: React.FC = () => {
 
   const [ruleset, setRuleset] = useState<CIRuleset | null>(null);
   const [loading, setLoading] = useState(true);
+  const [instructionsOpen, setInstructionsOpen] = useState(false);
 
   const providerParam = searchParams.get('provider') as ProviderKey | null;
   const provider: ProviderKey = providerParam && PROVIDERS.includes(providerParam) ? providerParam : 'github';
@@ -68,7 +81,7 @@ const CiRulesetIntegration: React.FC = () => {
       <PageHeader title={`Integration code: ${ruleset.name}`} description="Drop this into your CI/CD job. The exit code alone is the whole gate." />
 
       <Card>
-        <div className="flex flex-wrap gap-2 mb-3">
+        <div className="flex flex-wrap gap-2">
           {PROVIDERS.map((p) => (
             <button
               key={p}
@@ -80,14 +93,75 @@ const CiRulesetIntegration: React.FC = () => {
             </button>
           ))}
         </div>
-        <pre className="text-xs bg-slate-900/70 border border-slate-700 rounded px-3 py-3 text-slate-200 overflow-x-auto">{curlSnippet}</pre>
-        <div className="flex justify-end mt-2">
-          <Button size="sm" variant="outline" onClick={() => copyToClipboard(curlSnippet, 'Snippet')}>Copy snippet</Button>
-        </div>
-        <p className="text-xs text-slate-500 mt-2">
-          Set <code>LIVEREVIEW_API_KEY</code> as a CI secret (Settings → API Keys). Requires <code>jq</code> to be installed on the CI runner.
-        </p>
       </Card>
+
+      {provider === 'curl' && (
+        <Card title="cURL / Bash snippet" subtitle="Drop this into any CI step that runs bash">
+          <pre className="text-xs bg-slate-900/70 border border-slate-700 rounded px-3 py-3 text-slate-200 overflow-x-auto">{curlSnippet}</pre>
+          <div className="flex justify-end mt-2">
+            <Button size="sm" variant="outline" onClick={() => copyToClipboard(curlSnippet, 'Snippet')}>Copy snippet</Button>
+          </div>
+          <p className="text-xs text-slate-500 mt-2">
+            Set <code>LIVEREVIEW_API_KEY</code> as a CI secret. Requires <code>jq</code> to be installed on the CI runner.
+          </p>
+        </Card>
+      )}
+
+      {provider !== 'curl' && (
+      <Card title="Environment variables" subtitle={`Secrets to add in ${PROVIDER_SHA_VARS[provider].label}`}>
+        <button
+          type="button"
+          onClick={() => setInstructionsOpen((v) => !v)}
+          className="w-full flex items-center justify-between text-left text-sm font-medium text-slate-200 bg-slate-900/50 border border-slate-700 rounded px-3 py-2 hover:bg-slate-900/70"
+        >
+          <span>Instructions to add CI/CD Secrets to your repository</span>
+          <span className={`text-slate-400 inline-flex transition-transform ${instructionsOpen ? 'rotate-180' : ''}`}><Icons.ChevronDown /></span>
+        </button>
+        {instructionsOpen && (
+          <div className="border border-t-0 border-slate-700 rounded-b px-3 py-3 -mt-px">
+            <ol className="list-decimal list-inside text-sm text-slate-300 space-y-1">
+              {PROVIDER_SECRET_INSTRUCTIONS[provider].map((step, i) => (
+                <li key={i}>{step}</li>
+              ))}
+            </ol>
+          </div>
+        )}
+        <div className="overflow-x-auto rounded border border-slate-700 mt-3">
+          <Table>
+            <TableHead>
+              <TableHeaderCell>Key</TableHeaderCell>
+              <TableHeaderCell>Value</TableHeaderCell>
+            </TableHead>
+            <TableBody>
+              {GATE_SECRETS.map((secret) => {
+                const value = secret.describe(baseUrl, ruleset.id, ruleset.org_id);
+                const href = secret.linkHref?.(baseUrl);
+                return (
+                  <TableRow key={secret.key}>
+                    <TableCell>
+                      <div className="flex items-center gap-1.5">
+                        <code className="text-xs">{secret.key}</code>
+                        <CopyIconButton text={secret.key} label={`${secret.key} key`} onCopy={copyToClipboard} />
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1.5">
+                        {href ? (
+                          <a href={href} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline text-xs break-all">{href}</a>
+                        ) : (
+                          <code className="text-xs">{value}</code>
+                        )}
+                        <CopyIconButton text={href || value} label={`${secret.key} value`} onCopy={copyToClipboard} />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+      )}
 
       {provider === 'github' && (
         <Card title="Full GitHub Actions workflow" subtitle="Drop this at .github/workflows/livereview-gate.yml">

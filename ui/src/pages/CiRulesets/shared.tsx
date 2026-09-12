@@ -297,14 +297,58 @@ export const ReferenceChip: React.FC<{ label: string; onClick: () => void; title
 
 // ---- integration snippet ----------------------------------------------------
 
-export type ProviderKey = 'github' | 'gitlab' | 'bitbucket' | 'azure' | 'generic';
+export type ProviderKey = 'curl' | 'github' | 'gitlab' | 'bitbucket' | 'azure' | 'generic';
 
 export const PROVIDER_SHA_VARS: Record<ProviderKey, { label: string; shaVar: string }> = {
+  curl: { label: 'cURL / Bash', shaVar: '$COMMIT_SHA' },
   github: { label: 'GitHub Actions', shaVar: '$GITHUB_SHA' },
   gitlab: { label: 'GitLab CI', shaVar: '$CI_COMMIT_SHA' },
   bitbucket: { label: 'Bitbucket Pipelines', shaVar: '$BITBUCKET_COMMIT' },
   azure: { label: 'Azure Pipelines', shaVar: '$(Build.SourceVersion)' },
   generic: { label: 'Generic / Jenkins', shaVar: '$COMMIT_SHA' },
+};
+
+// Where each CI platform's own docs put secret/variable management -- used
+// to render "how do I add these secrets" instructions per provider. Steps
+// are each platform's actual UI path, not a guess.
+export const PROVIDER_SECRET_INSTRUCTIONS: Record<ProviderKey, string[]> = {
+  // Not shown in the UI (the curl/bash tab has no "Environment variables"
+  // card -- it hardcodes org/ruleset ids inline), kept only for type coverage.
+  curl: [],
+  github: [
+    'Go to your repository on GitHub.',
+    'Click Settings.',
+    'In the left sidebar, click Secrets and variables -> Actions.',
+    'Select the Secrets tab, under Repository secrets.',
+    'Click New repository secret for each key below, paste the value, and click Add secret.',
+  ],
+  gitlab: [
+    'Go to your project on GitLab.',
+    'Click Settings -> CI/CD.',
+    'Expand the Variables section.',
+    'Click Add variable for each key below.',
+    'Paste the value, and check Mask variable (and Protect variable if this pipeline only runs on protected branches), then click Add variable.',
+  ],
+  bitbucket: [
+    'Go to your repository on Bitbucket.',
+    'Click Repository settings (bottom of the left sidebar).',
+    'Under Pipelines, click Repository variables.',
+    'Click Add variable for each key below.',
+    'Paste the value, check Secured for the API key, and click Add.',
+  ],
+  azure: [
+    'Go to your pipeline in Azure DevOps (Pipelines -> select your pipeline).',
+    'Click Edit, then Variables.',
+    'Click New variable for each key below.',
+    'Paste the value, check Keep this value secret for the API key, and click OK, then Save.',
+    'Alternatively, add them once as a Variable group under Pipelines -> Library and link the group to this pipeline.',
+  ],
+  generic: [
+    'Add each key below as a secret/credential in whatever your CI system uses '
+      + '(e.g. Jenkins: Manage Jenkins -> Credentials -> add a Secret text credential; '
+      + 'CircleCI: Project Settings -> Environment Variables; TeamCity: Project -> Parameters).',
+    'Expose each as an environment variable of the same name to the job that runs the gate script.',
+  ],
 };
 
 export function buildCurlSnippet(baseUrl: string, rulesetId: number, orgId: number, provider: ProviderKey): string {
@@ -338,31 +382,123 @@ export function buildCurlSnippet(baseUrl: string, rulesetId: number, orgId: numb
   ].join('\n');
 }
 
+// GATE_SECRETS is the source of truth for the "Environment variables"
+// instructions table in CiRulesetIntegration.tsx (same 3 keys regardless of
+// CI platform -- only the steps for *adding* them, in PROVIDER_SECRET_INSTRUCTIONS
+// above, differ per provider).
+export interface GateSecretSpec {
+  key: string;
+  describe: (baseUrl: string, rulesetId: number, orgId: number) => string;
+  /** If set, the value in the instructions table is a link instead of plain text. */
+  linkHref?: (baseUrl: string) => string;
+}
+
+export const GATE_SECRETS: GateSecretSpec[] = [
+  {
+    key: 'LIVEREVIEW_API_KEY',
+    describe: () => 'Create one under Settings -> API Keys',
+    linkHref: (baseUrl) => `${baseUrl}/#/settings#api-keys`,
+  },
+  {
+    key: 'LIVEREVIEW_ORG_ID',
+    describe: (_baseUrl, _rulesetId, orgId) => String(orgId),
+  },
+  {
+    key: 'LIVEREVIEW_RULESET_ID',
+    describe: (_baseUrl, rulesetId) => String(rulesetId),
+  },
+];
+
 export function buildGithubActionsWorkflow(baseUrl: string, rulesetId: number, orgId: number): string {
   return [
     'name: LiveReview Gate',
+    '',
     'on:',
     '  pull_request:',
+    '    types: [opened, synchronize, reopened]',
     '',
     'jobs:',
     '  livereview-gate:',
     '    runs-on: ubuntu-latest',
     '    steps:',
-    '      - name: Evaluate LiveReview ruleset',
+    '      - name: Evaluate LiveReview CI/CD ruleset',
     '        env:',
     '          LIVEREVIEW_API_KEY: ${{ secrets.LIVEREVIEW_API_KEY }}',
-    `          ORG_ID: "${orgId}"`,
+    '          ORG_ID: ${{ secrets.LIVEREVIEW_ORG_ID }}',
+    '          RULESET_ID: ${{ secrets.LIVEREVIEW_RULESET_ID }}',
+    `          BASE_URL: ${baseUrl}`,
+    '          PR_URL: ${{ github.event.pull_request.html_url }}',
+    '          HEAD_SHA: ${{ github.event.pull_request.head.sha }}',
     '        run: |',
-    '          REVIEW_ID=$(curl -sf -H "X-API-Key: $LIVEREVIEW_API_KEY" -H "X-Org-Context: $ORG_ID" \\',
+    '          set -euo pipefail',
+    '',
+    '          echo "Triggering LiveReview review for $PR_URL (commit $HEAD_SHA)"',
+    '          curl -s -H "X-API-Key: $LIVEREVIEW_API_KEY" -H "X-Org-Context: $ORG_ID" \\',
     '            -H "Content-Type: application/json" \\',
-    '            -d "{\\"commits\\":[\\"$GITHUB_SHA\\"]}" \\',
-    `            "${baseUrl}/api/v1/review-coverage" | jq -r '.reports[0].review_id // empty')`,
-    '          if [ -z "$REVIEW_ID" ]; then',
-    '            echo "No LiveReview review found for this commit yet; skipping gate."',
-    '            exit 0',
-    '          fi',
-    '          curl -sf -H "X-API-Key: $LIVEREVIEW_API_KEY" -H "X-Org-Context: $ORG_ID" \\',
-    `            "${baseUrl}/api/v1/ci-rulesets/${rulesetId}/evaluate?review_id=$REVIEW_ID" \\`,
-    '            || { echo "LiveReview gate blocked this build"; exit 1; }',
+    '            -d "{\\"url\\":\\"$PR_URL\\"}" \\',
+    '            "$BASE_URL/api/v1/connectors/trigger-review" || true',
+    '',
+    '          echo "Waiting for the review to complete and evaluating the gate..."',
+    '          for attempt in $(seq 1 30); do',
+    '            COVERAGE_RESP=$(curl -s -w \'\\n%{http_code}\' -H "X-API-Key: $LIVEREVIEW_API_KEY" -H "X-Org-Context: $ORG_ID" \\',
+    '              -H "Content-Type: application/json" \\',
+    '              -d "{\\"commits\\":[\\"$HEAD_SHA\\"]}" \\',
+    '              "$BASE_URL/api/v1/review-coverage")',
+    '            COVERAGE_CODE=$(echo "$COVERAGE_RESP" | tail -1)',
+    '            COVERAGE_BODY=$(echo "$COVERAGE_RESP" | sed \'$d\')',
+    '',
+    '            if [ "$COVERAGE_CODE" = "401" ] || [ "$COVERAGE_CODE" = "403" ]; then',
+    '              echo "LiveReview: authentication failed (HTTP $COVERAGE_CODE) -- check the LIVEREVIEW_API_KEY/LIVEREVIEW_ORG_ID secrets"',
+    '              echo "$COVERAGE_BODY"',
+    '              exit 1',
+    '            fi',
+    '',
+    '            REVIEW_ID=""',
+    '            if [ "$COVERAGE_CODE" = "200" ]; then',
+    '              REVIEW_ID=$(echo "$COVERAGE_BODY" | jq -r \'.reports[0].review_id // empty\')',
+    '            fi',
+    '',
+    '            if [ -n "$REVIEW_ID" ]; then',
+    '              RESP=$(curl -s -w \'\\n%{http_code}\' -H "X-API-Key: $LIVEREVIEW_API_KEY" -H "X-Org-Context: $ORG_ID" \\',
+    '                "$BASE_URL/api/v1/ci-rulesets/$RULESET_ID/evaluate?review_id=$REVIEW_ID")',
+    '              CODE=$(echo "$RESP" | tail -1)',
+    '              BODY=$(echo "$RESP" | sed \'$d\')',
+    '',
+    '              case "$CODE" in',
+    '                200)',
+    '                  echo "LiveReview: ALLOW"',
+    '                  echo "$BODY"',
+    '                  exit 0',
+    '                  ;;',
+    '                422)',
+    '                  echo "LiveReview: BLOCK -- a critical or security finding was found"',
+    '                  echo "$BODY"',
+    '                  exit 1',
+    '                  ;;',
+    '                202)',
+    '                  echo "  [$attempt/30] review $REVIEW_ID still running, retrying in 10s..."',
+    '                  ;;',
+    '                401|403)',
+    '                  echo "LiveReview: authentication failed (HTTP $CODE) -- check the LIVEREVIEW_API_KEY/LIVEREVIEW_ORG_ID secrets"',
+    '                  echo "$BODY"',
+    '                  exit 1',
+    '                  ;;',
+    '                404)',
+    '                  echo "LiveReview: ruleset or review not found (HTTP 404) -- check the LIVEREVIEW_RULESET_ID secret"',
+    '                  echo "$BODY"',
+    '                  exit 1',
+    '                  ;;',
+    '                *)',
+    '                  echo "  [$attempt/30] unexpected evaluate response ($CODE): $BODY"',
+    '                  ;;',
+    '              esac',
+    '            else',
+    '              echo "  [$attempt/30] no LiveReview review found yet for $HEAD_SHA, retrying in 10s..."',
+    '            fi',
+    '            sleep 10',
+    '          done',
+    '',
+    '          echo "Timed out waiting for the LiveReview review to complete."',
+    '          exit 1',
   ].join('\n');
 }
