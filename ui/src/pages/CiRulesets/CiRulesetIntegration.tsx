@@ -25,6 +25,7 @@ import {
     GATE_SECRETS,
     buildCurlSnippet,
     buildGithubActionsWorkflow,
+    buildGitlabCIWorkflow,
     Breadcrumb,
 } from './shared';
 
@@ -115,6 +116,11 @@ const CiRulesetIntegration: React.FC = () => {
         provider
     );
     const workflowYaml = buildGithubActionsWorkflow(
+        baseUrl,
+        ruleset.id,
+        ruleset.org_id
+    );
+    const gitlabYaml = buildGitlabCIWorkflow(
         baseUrl,
         ruleset.id,
         ruleset.org_id
@@ -313,6 +319,62 @@ const CiRulesetIntegration: React.FC = () => {
                             Copy workflow
                         </Button>
                     </div>
+                </Card>
+            )}
+
+            {provider === 'gitlab' && (
+                <Card
+                    title="Full GitLab CI pipeline"
+                    subtitle="Drop this job into your .gitlab-ci.yml"
+                >
+                    <pre className="text-xs bg-slate-900/70 border border-slate-700 rounded px-3 py-3 text-slate-200 overflow-x-auto">
+                        {gitlabYaml}
+                    </pre>
+                    <div className="flex justify-end mt-2">
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                                copyToClipboard(gitlabYaml, 'Pipeline')
+                            }
+                        >
+                            Copy pipeline
+                        </Button>
+                    </div>
+                </Card>
+            )}
+
+            {(provider === 'bitbucket' ||
+                provider === 'azure' ||
+                provider === 'generic') && (
+                <Card
+                    title={`Full ${PROVIDER_SHA_VARS[provider].label} config`}
+                    subtitle="Not available as a ready-made template yet"
+                >
+                    <p className="text-sm text-slate-300">
+                        We don't have a native{' '}
+                        {PROVIDER_SHA_VARS[provider].label} config template
+                        yet -- use the{' '}
+                        <button
+                            type="button"
+                            onClick={() => setProvider('curl')}
+                            className="text-blue-400 hover:underline"
+                        >
+                            cURL / Bash snippet
+                        </button>{' '}
+                        instead and drop it into your pipeline's script step.
+                    </p>
+                    <p className="text-sm text-slate-300 mt-2">
+                        Want a native {PROVIDER_SHA_VARS[provider].label}{' '}
+                        template added? Email{' '}
+                        <a
+                            href="mailto:info@hexmos.com"
+                            className="text-blue-400 hover:underline"
+                        >
+                            info@hexmos.com
+                        </a>{' '}
+                        and we'll add it.
+                    </p>
                 </Card>
             )}
 
