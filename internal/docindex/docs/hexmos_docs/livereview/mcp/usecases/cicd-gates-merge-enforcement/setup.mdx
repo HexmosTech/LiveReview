@@ -1,0 +1,139 @@
+---
+title: "CI/CD Gates Setup: GitHub, GitLab & Other Providers"
+description: Step-by-step setup for LiveReview's CI/CD gate on GitHub Actions, GitLab CI, and any other CI/CD system via a plain cURL/Bash snippet.
+---
+
+# CI/CD Gates Setup: GitHub, GitLab & Other Providers
+
+Every ruleset's **Integration** page in LiveReview (`/ci-rulesets/:id/integration`)
+generates the copy-paste snippet and secrets/variables table for whichever
+platform tab you pick — this page walks through the same setup, for reference.
+
+## GitHub Actions
+
+### 1. Add the workflow
+
+On the ruleset's Integration page, select the **GitHub Actions** tab and copy
+the generated workflow into your repo at `.github/workflows/livereview-gate.yml`.
+
+### 2. Add the secrets
+
+Go to your repository → **Settings** → **Secrets and variables** → **Actions**
+→ **Secrets** → **Repository secrets**, and add:
+
+- `LIVEREVIEW_API_KEY`
+- `LIVEREVIEW_ORG_ID`
+- `LIVEREVIEW_RULESET_ID`
+
+Add these as plain **Repository secrets**, not **Environment secrets** — an
+environment secret can require manual approval or restrict which branches can
+use it, which would block this gate from ever running.
+
+### 3. Watch out for fork pull requests
+
+If this repo accepts pull requests from forks: GitHub does not expose
+repository secrets to workflow runs triggered by a fork's `pull_request`
+event, by design. `LIVEREVIEW_API_KEY` will be empty for fork PRs unless you
+switch the trigger to `pull_request_target` (review GitHub's security
+guidance on that trigger first) or restrict this gate to same-repo PRs.
+
+### 4. Block the merge button
+
+A failing job on its own does **not** grey out the merge button. Go to
+**Settings** → **Branches** → **Branch protection rules**, enable **"Require
+status checks to pass before merging"**, and add the gate job's name (the
+`jobs.<id>` key in the workflow YAML, e.g. `livereview-gate`, unless a `name:`
+overrides it) to the required-checks list.
+
+Verify the block took effect with:
+
+```
+gh pr view <n> --json mergeStateStatus
+```
+
+It reads `BLOCKED` once a required check is failing or still pending.
+
+## GitLab CI
+
+### 1. Add the pipeline job
+
+On the ruleset's Integration page, select the **GitLab CI** tab and copy the
+generated job into your project's `.gitlab-ci.yml`.
+
+### 2. Add the CI/CD variables
+
+Go to your project → **Settings** → **CI/CD** → **Variables**, and add:
+
+- `LIVEREVIEW_API_KEY` — Visibility: **Masked** (or **Masked and hidden**).
+- `LIVEREVIEW_ORG_ID` and `LIVEREVIEW_RULESET_ID` — Visibility: **Visible**.
+  GitLab requires masked values to be at least 8 characters, and these are
+  short numbers, so **Masked** will be rejected for them.
+
+### 3. Don't protect the variables
+
+Leave **"Protect variable" unchecked** on all three. A protected variable is
+only exposed to pipelines running on a protected branch/tag, but this gate
+needs to run on every merge request, including unprotected feature branches
+— checking it will make the pipeline fail with `parameter not set` on any
+non-protected branch.
+
+### 4. Block the merge button
+
+By default, GitLab lets you merge regardless of pipeline status — it only
+shows the pipeline as a badge, and there's a real **"Merge immediately"**
+button that bypasses a failing/running pipeline entirely. Go to
+**Settings** → **Merge requests** → **Merge checks**, and enable
+**"Pipelines must succeed"** to actually gate the merge button on
+`livereview-gate`.
+
+Via the API instead of the UI:
+
+```
+curl --request PUT --header "PRIVATE-TOKEN: <token>" \
+  "https://gitlab.com/api/v4/projects/<id-or-url-encoded-path>" \
+  --data "only_allow_merge_if_pipeline_succeeds=true"
+```
+
+## Any other CI/CD system (cURL / Bash)
+
+Every ruleset also has a plain cURL/Bash snippet: it triggers a review, polls
+the *exact* review it just triggered until it completes, and exits `0`
+(allow) or `1` (block) based on the ruleset — the same trigger-then-poll
+pattern as the GitHub and GitLab templates, just CI-agnostic.
+
+### 1. Copy the snippet
+
+On the ruleset's Integration page, select the **cURL / Bash** tab and copy it.
+
+### 2. Set the environment variables
+
+- `LIVEREVIEW_API_KEY` — set as a secret/credential in whatever your CI system uses.
+- `PR_URL` — your pull/merge request's web URL.
+- `COMMIT_SHA` — the commit being tested.
+
+Both `PR_URL` and `COMMIT_SHA` need to be environment variables available to
+the step that runs this script.
+
+### 3. Requirements
+
+`curl` and `jq` must be installed on the runner.
+
+### 4. Check your platform's scoping rules
+
+Check whether your CI restricts secrets/credentials by branch, environment,
+or fork-originated pull requests (most do, in some form), and confirm your
+platform has an equivalent "required check before merge" setting — a red CI
+job on its own usually does not block merging without one.
+
+### Using a different Git provider?
+
+Bitbucket Pipelines, Azure Pipelines, Jenkins, CircleCI, etc. don't have a
+ready-made native template yet — take the cURL/Bash snippet above and hand it
+to a coding agent (Claude Code, GitHub Copilot, Cursor, etc.) with a prompt
+like *"build me a `<your platform>` pipeline config that runs this bash
+script as a gate, similar to how the GitHub Actions / GitLab CI version
+works"* — it can translate the same trigger-then-poll logic into your
+platform's native syntax.
+
+Want a template added natively instead? Email
+[info@hexmos.com](mailto:info@hexmos.com).
