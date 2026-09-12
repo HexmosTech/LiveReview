@@ -106,6 +106,17 @@ type QueueConfig struct {
 
 	// Repository/PR sync Configuration
 	RepoSyncConfig RepoSyncConfig
+
+	// Preloaded Changes Archival Configuration
+	PreloadedChangesArchivalConfig PreloadedChangesArchivalConfig
+}
+
+// PreloadedChangesArchivalConfig controls the parallel preloaded_changes archival worker pool concurrency.
+type PreloadedChangesArchivalConfig struct {
+	// MaxWorkers is the concurrency of the "preloaded_changes_archival" queue.
+	MaxWorkers int // default: 10
+	// BatchSize is the number of reviews packaged into a single archival job.
+	BatchSize int // default: 10
 }
 
 // RepoSyncConfig controls the periodic reconciliation sweep that catches PR/MR
@@ -214,6 +225,10 @@ func DefaultQueueConfig() *QueueConfig {
 		// Repository/PR sync configuration - overridable via env vars, see
 		// repoSyncConfigFromEnv.
 		RepoSyncConfig: repoSyncConfigFromEnv(),
+
+		// Preloaded changes archival configuration - overridable via env vars, see
+		// preloadedChangesArchivalConfigFromEnv.
+		PreloadedChangesArchivalConfig: preloadedChangesArchivalConfigFromEnv(),
 	}
 }
 
@@ -240,6 +255,35 @@ func repoSyncConfigFromEnv() RepoSyncConfig {
 	if v := os.Getenv("LIVEREVIEW_REPO_SYNC_MAX_WORKERS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			config.MaxWorkers = n
+		}
+	}
+	return config
+}
+
+// preloadedChangesArchivalConfigFromEnv builds PreloadedChangesArchivalConfig from defaults, overridable via
+// LIVEREVIEW_PRELOADED_CHANGES_ARCHIVAL_MAX_WORKERS (or LIVEREVIEW_DIFF_ARCHIVAL_MAX_WORKERS) so archival worker concurrency
+// and batch size can be tuned per-deployment without a code change.
+func preloadedChangesArchivalConfigFromEnv() PreloadedChangesArchivalConfig {
+	config := PreloadedChangesArchivalConfig{
+		MaxWorkers: 10,
+		BatchSize:  10,
+	}
+	if v := os.Getenv("LIVEREVIEW_PRELOADED_CHANGES_ARCHIVAL_MAX_WORKERS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			config.MaxWorkers = n
+		}
+	} else if v := os.Getenv("LIVEREVIEW_DIFF_ARCHIVAL_MAX_WORKERS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			config.MaxWorkers = n
+		}
+	}
+	if v := os.Getenv("LIVEREVIEW_PRELOADED_CHANGES_ARCHIVAL_BATCH_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			config.BatchSize = n
+		}
+	} else if v := os.Getenv("LIVEREVIEW_DIFF_ARCHIVAL_BATCH_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			config.BatchSize = n
 		}
 	}
 	return config
@@ -340,6 +384,11 @@ func (c *QueueConfig) RiverQueueConfig() map[string]river.QueueConfig {
 		repoSyncWorkers = 5
 	}
 
+	preloadedChangesArchivalWorkers := c.PreloadedChangesArchivalConfig.MaxWorkers
+	if preloadedChangesArchivalWorkers <= 0 {
+		preloadedChangesArchivalWorkers = 10
+	}
+
 	return map[string]river.QueueConfig{
 		river.QueueDefault: {
 			MaxWorkers: c.MaxWorkers,
@@ -351,6 +400,9 @@ func (c *QueueConfig) RiverQueueConfig() map[string]river.QueueConfig {
 		// never starve AI-review job concurrency on the "review" queue.
 		"repo_sync": {
 			MaxWorkers: repoSyncWorkers,
+		},
+		"preloaded_changes_archival": {
+			MaxWorkers: preloadedChangesArchivalWorkers,
 		},
 	}
 }

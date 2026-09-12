@@ -3,6 +3,7 @@ package jobqueue
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/livereview/internal/aiselection"
+	"github.com/livereview/internal/blobstore"
 	"github.com/livereview/internal/diffutil"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
@@ -18,6 +20,7 @@ import (
 	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/pkg/models"
 	"github.com/riverqueue/river"
+	zlog "github.com/rs/zerolog/log"
 )
 
 // WebhookReviewJobArgs represents the arguments for an asynchronous webhook review job.
@@ -200,15 +203,33 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	// 3. Calculate Lines of Code
 	billableLOC := diffutil.CalculateEffectiveDiffLOCFromLocalDiffs(localDiffs)
 
-	// 5. Convert diffs and persist preloaded_changes for UI polling
+	// 5. Convert diffs and persist to blob storage (blast radius pattern)
 	modelDiffs := diffutil.ConvertLocalDiffs(localDiffs)
-	rm := reviewprocessor.NewReviewManager(w.db)
-	if err := rm.MergeReviewMetadata(args.ReviewID, map[string]interface{}{
-		"preloaded_changes":      modelDiffs,
+	modelDiffsPayload, err := json.Marshal(modelDiffs)
+	savedToBlob := false
+	if err != nil {
+		zlog.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] Failed to marshal diffs")
+	} else {
+		if err := blobstore.SaveArtifact(ctx, w.db, args.OrgID, args.ReviewID, blobstore.ArtifactPreloadedChanges, modelDiffsPayload); err != nil {
+			zlog.Warn().Err(err).Int64("review_id", args.ReviewID).Int64("org_id", args.OrgID).Str("fallback_key", blobstore.MetaPreloadedChanges).Msg("[review_worker] Failed to store diff artifact in blob storage. Preserving in Postgres metadata fallback.")
+		} else {
+			savedToBlob = true
+			zlog.Info().Int64("review_id", args.ReviewID).Int64("org_id", args.OrgID).Msg("[review_worker] Successfully persisted diff artifact to blob storage")
+		}
+	}
+
+	metaUpdates := map[string]interface{}{
 		"operation_billable_loc": billableLOC,
 		"excluded_files":         excludedFiles,
-	}); err != nil {
-		log.Printf("[WARN] failed to store preloaded_changes for review %d: %v", args.ReviewID, err)
+	}
+	if !savedToBlob {
+		// Safety fallback: if blob storage write failed, preserve diff in metadata
+		metaUpdates[blobstore.MetaPreloadedChanges] = modelDiffs
+	}
+
+	rm := reviewprocessor.NewReviewManager(w.db)
+	if err := rm.MergeReviewMetadata(args.ReviewID, metaUpdates); err != nil {
+		zlog.Error().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] Failed to persist review metadata")
 	}
 
 	// If .lrc/ignore excluded every changed file, there's nothing for the AI
