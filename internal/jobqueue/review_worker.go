@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -20,7 +19,7 @@ import (
 	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/pkg/models"
 	"github.com/riverqueue/river"
-	zlog "github.com/rs/zerolog/log"
+	"github.com/rs/zerolog/log"
 )
 
 // WebhookReviewJobArgs represents the arguments for an asynchronous webhook review job.
@@ -51,7 +50,7 @@ func (w *WebhookReviewWorker) Timeout(job *river.Job[WebhookReviewJobArgs]) time
 func (w *WebhookReviewWorker) Work(ctx context.Context, job *river.Job[WebhookReviewJobArgs]) error {
 	args := job.Args
 	if w.jq == nil || w.jq.db == nil {
-		log.Printf("[ERROR] Database connection not available on JobQueue")
+		log.Error().Msg("[review_worker] Database connection not available on JobQueue")
 		return fmt.Errorf("database connection not available")
 	}
 	return reviewprocessor.ProcessWebhookReview(ctx, w.jq.db, args.OrgID, args.ConnectorID, args.EventJSON, args.ScenarioType)
@@ -87,7 +86,7 @@ func (w *ManualReviewWorker) Timeout(job *river.Job[ManualReviewJobArgs]) time.D
 func (w *ManualReviewWorker) Work(ctx context.Context, job *river.Job[ManualReviewJobArgs]) error {
 	args := job.Args
 	if w.jq == nil || w.jq.db == nil {
-		log.Printf("[ERROR] Database connection not available on JobQueue")
+		log.Error().Msg("[review_worker] Database connection not available on JobQueue")
 		return fmt.Errorf("database connection not available")
 	}
 	return reviewprocessor.ProcessManualReview(ctx, w.jq.db, args.OrgID, args.PlanCode, args.ActorUserID, args.ActorEmail, args.ReviewID, args.RequestJSON,
@@ -151,7 +150,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	// 1. Initialize logger with event sink for UI polling stream
 	logger, err := logging.StartReviewLoggingWithIDs(fmt.Sprintf("%d", args.ReviewID), args.ReviewID, args.OrgID)
 	if err != nil {
-		log.Printf("[ERROR] Failed to start logging for review %d: %v", args.ReviewID, err)
+		log.Error().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] Failed to start logging for review")
 	}
 
 	eventSink := reviewprocessor.NewDatabaseEventSink(w.db)
@@ -208,13 +207,13 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	modelDiffsPayload, err := json.Marshal(modelDiffs)
 	savedToBlob := false
 	if err != nil {
-		zlog.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] Failed to marshal diffs")
+		log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] Failed to marshal diffs")
 	} else {
 		if err := blobstore.SaveArtifact(ctx, w.db, args.OrgID, args.ReviewID, blobstore.ArtifactPreloadedChanges, modelDiffsPayload); err != nil {
-			zlog.Warn().Err(err).Int64("review_id", args.ReviewID).Int64("org_id", args.OrgID).Str("fallback_key", blobstore.MetaPreloadedChanges).Msg("[review_worker] Failed to store diff artifact in blob storage. Preserving in Postgres metadata fallback.")
+			log.Warn().Err(err).Int64("review_id", args.ReviewID).Int64("org_id", args.OrgID).Str("fallback_key", blobstore.MetaPreloadedChanges).Msg("[review_worker] Failed to store diff artifact in blob storage. Preserving in Postgres metadata fallback.")
 		} else {
 			savedToBlob = true
-			zlog.Info().Int64("review_id", args.ReviewID).Int64("org_id", args.OrgID).Msg("[review_worker] Successfully persisted diff artifact to blob storage")
+			log.Info().Int64("review_id", args.ReviewID).Int64("org_id", args.OrgID).Msg("[review_worker] Successfully persisted diff artifact to blob storage")
 		}
 	}
 
@@ -229,7 +228,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 
 	rm := reviewprocessor.NewReviewManager(w.db)
 	if err := rm.MergeReviewMetadata(args.ReviewID, metaUpdates); err != nil {
-		zlog.Error().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] Failed to persist review metadata")
+		log.Error().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] Failed to persist review metadata")
 	}
 
 	// If .lrc/ignore excluded every changed file, there's nothing for the AI
@@ -243,10 +242,10 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 				"comments": nil,
 			},
 		}); err != nil {
-			log.Printf("[WARN] failed to store review_result for review %d: %v", args.ReviewID, err)
+			log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to store review_result")
 		}
 		if err := rm.UpdateReviewStatus(args.ReviewID, "completed"); err != nil {
-			log.Printf("[WARN] failed to mark review %d completed: %v", args.ReviewID, err)
+			log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to mark review completed")
 		}
 		if logger != nil {
 			logger.Log("All files ignored. Completed review immediately.")
@@ -332,7 +331,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 		if result.Success {
 			status = "completed"
 			if err := rm.MergeReviewMetadata(args.ReviewID, buildQueuedReviewAIMetadata(&reviewRequest, result)); err != nil {
-				log.Printf("[WARN] failed to persist AI stage metadata for review %d: %v", args.ReviewID, err)
+				log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to persist AI stage metadata")
 			}
 			resolvedReviewID := args.ReviewID
 			operationID := fmt.Sprintf("diff-review:%d", args.ReviewID)
@@ -367,7 +366,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 				ExtraMeta: extraMeta,
 			})
 			if err != nil {
-				log.Printf("[WARN] failed to queue billing finalization for review %d: %v", args.ReviewID, err)
+				log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to queue billing finalization")
 			}
 
 			if logger != nil {
@@ -410,11 +409,11 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 		meta["failure_reason"] = failureReason
 	}
 	if err := rm.MergeReviewMetadata(args.ReviewID, meta); err != nil {
-		log.Printf("[WARN] failed to persist review_result for %d: %v", args.ReviewID, err)
+		log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to persist review_result")
 	}
 
 	if err := rm.UpdateReviewStatus(args.ReviewID, status); err != nil {
-		log.Printf("[WARN] failed to update review status for %d: %v", args.ReviewID, err)
+		log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to update review status")
 	}
 
 	// Persist AI summary title for later display
@@ -422,7 +421,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 		title := extractFirstHeading(summary)
 		if title != "" {
 			if err := rm.MergeReviewMetadata(args.ReviewID, map[string]interface{}{"ai_summary_title": title}); err != nil {
-				log.Printf("[WARN] failed to persist ai_summary_title for %d: %v", args.ReviewID, err)
+				log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to persist ai_summary_title")
 			}
 		}
 	}
