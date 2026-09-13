@@ -175,7 +175,7 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId }) => {
     return enrichedFiles;
   }, [enrichedFiles, sortMode, canSortByRisk]);
 
-  const facets = useMemo(() => buildFilterFacets(files, filters), [files, filters]);
+  const facets = useMemo(() => buildFilterFacets(enrichedFiles, filters), [enrichedFiles, filters]);
   const navComments = useMemo(() => buildVisibleCommentNav(files, filters), [files, filters]);
   const allExpanded = files.length > 0 && files.every((f) => expandedFiles[f.file_path]);
   // Sidebar always shows the real, unflattened file list (git-lrc's

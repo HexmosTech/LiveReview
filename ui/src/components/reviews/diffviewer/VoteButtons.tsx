@@ -1,27 +1,9 @@
-// Ported from git-lrc:internal/staticserve/static/components/FeedbackPopup.js (as of
-// the git-lrc HEAD current when this port was written) — full popup UX: impact stats,
-// downvote reason tags, free-text feedback, LinkedIn share overlay. The vote itself
-// calls LiveReview's real feedback API (internal/api/feedback_handler.go).
+// Ported from git-lrc:internal/staticserve/static/components/FeedbackPopup.js (as of HEAD)
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { FeedbackSourceType, getImpactStats, ImpactStat, retractFeedback, submitFeedback } from '../../../api/feedback';
+import { createPortal } from 'react-dom';
+import { FeedbackSourceType, retractFeedback, submitFeedback } from '../../../api/feedback';
 
 const DOWN_TAGS = ['False positive', 'Wrong severity', 'Missed something', 'Hard to act on'];
-
-function buildLinkedinText(stats: ImpactStat[] | null): string {
-  const v = (label: string) => { const s = (stats || []).find((x) => x.label === label); return s ? s.value : '-'; };
-  return `Shipping with confidence — here's my code review impact since Jan 2025:
-
-${v('Total Reviews')} reviews completed
-${v('Bugs Caught Pre-Prod')} bugs caught before production
-${v('Issues Found')} total issues found
-${v('Critical')} critical issues found
-${v('Errors')} errors caught
-${v('Warnings')} warnings flagged
-
-Using LiveReview to AI-review every commit before it lands.
-
-#CodeReview #DevOps #SoftwareEngineering #AI`;
-}
 
 interface VoteButtonsProps {
   reviewId: number;
@@ -38,7 +20,14 @@ type VoteState = 'up' | 'down' | null;
 type PopupMode = 'hover' | 'click' | 'submitted' | null;
 
 const VoteButtons: React.FC<VoteButtonsProps> = ({
-  reviewId, sourceType, aiCommentId, commentContent, codeExcerpt, filePath, severity, size = 'sm',
+  reviewId,
+  sourceType,
+  aiCommentId,
+  commentContent,
+  codeExcerpt,
+  filePath,
+  severity,
+  size = 'sm',
 }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
@@ -55,10 +44,6 @@ const VoteButtons: React.FC<VoteButtonsProps> = ({
 
   const [feedbackText, setFeedbackText] = useState('');
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
-  const [statsExpanded, setStatsExpanded] = useState(false);
-  const [impactStats, setImpactStats] = useState<ImpactStat[] | null>(null);
-  const [linkedinOpen, setLinkedinOpen] = useState(false);
-  const [snackbar, setSnackbar] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(false);
 
@@ -72,27 +57,6 @@ const VoteButtons: React.FC<VoteButtonsProps> = ({
 
   useEffect(() => clearTimers, [clearTimers]);
 
-  const isActive = vote === 'up' || vote === 'down';
-
-  const postFeedback = useCallback((extra: Record<string, unknown> = {}) => {
-    try {
-      const body: Record<string, unknown> = {
-        review_id: reviewId,
-        vote_type: vote!,
-        source_type: sourceType,
-        tags: [...selectedTags],
-        ...(commentContent && { comment_content: commentContent }),
-        ...(filePath && { file_path: filePath }),
-        ...(severity && { severity }),
-        ...(codeExcerpt && { code_excerpt: codeExcerpt }),
-        ...extra,
-      };
-      submitFeedback(body as any).then((res) => {
-        if (res?.id) setFeedbackId(res.id);
-      }).catch(() => {});
-    } catch {}
-  }, [reviewId, vote, sourceType, selectedTags, commentContent, filePath, severity, codeExcerpt]);
-
   const retract = useCallback(() => {
     if (feedbackId !== null) {
       retractFeedback(feedbackId).catch(() => {});
@@ -100,7 +64,33 @@ const VoteButtons: React.FC<VoteButtonsProps> = ({
     }
   }, [feedbackId]);
 
+  const calculatePos = (wrapperEl: HTMLElement, popupEl?: HTMLElement | null) => {
+    const r = wrapperEl.getBoundingClientRect();
+    const w = 400;
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+    const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+
+    let targetLeft = r.right - w;
+    if (targetLeft + w > viewportWidth - 16) {
+      targetLeft = viewportWidth - w - 16;
+    }
+    if (targetLeft < 16) {
+      targetLeft = 16;
+    }
+
+    const h = popupEl?.offsetHeight || 260;
+    let top = r.bottom + 4;
+    if (r.top >= viewportHeight / 2) {
+      top = Math.max(16, r.top - 4 - h);
+    }
+
+    return { top, left: targetLeft };
+  };
+
   const show = useCallback((mode: PopupMode) => {
+    if (wrapperRef.current) {
+      setPopupPos(calculatePos(wrapperRef.current, popupRef.current));
+    }
     setPopupVisible(true);
     setPopupMode(mode);
     setPopupAnim({ opacity: 0, shift: -6 });
@@ -111,24 +101,17 @@ const VoteButtons: React.FC<VoteButtonsProps> = ({
     window.setTimeout(() => {
       setPopupVisible(false);
       setPopupMode(null);
-      setStatsExpanded(false);
     }, 280);
   }, []);
 
-  const startAuto = useCallback((ms = 5000) => {
+  const startAuto = useCallback((ms = 6000) => {
     if (autoTimer.current) clearTimeout(autoTimer.current);
     autoTimer.current = window.setTimeout(hide, ms);
   }, [hide]);
 
   useEffect(() => {
-    if (!popupVisible || !popupRef.current || !wrapperRef.current) return;
-    const r = wrapperRef.current.getBoundingClientRect();
-    const w = 420;
-    const left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8));
-    const belowTop = r.bottom + 8;
-    const h = popupRef.current.offsetHeight;
-    const top = h > 0 && belowTop + h > window.innerHeight ? Math.max(8, r.top - h - 8) : belowTop;
-    setPopupPos({ top, left });
+    if (!popupVisible || !wrapperRef.current) return;
+    setPopupPos(calculatePos(wrapperRef.current, popupRef.current));
     if (popupAnim.opacity === 0) {
       requestAnimationFrame(() => requestAnimationFrame(() => {
         setPopupAnim({ opacity: 1, shift: 0 });
@@ -137,13 +120,32 @@ const VoteButtons: React.FC<VoteButtonsProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [popupVisible, popupMode]);
 
+  // Close popup on click outside
+  useEffect(() => {
+    if (!popupVisible) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        popupRef.current && !popupRef.current.contains(e.target as Node) &&
+        wrapperRef.current && !wrapperRef.current.contains(e.target as Node)
+      ) {
+        hide();
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [popupVisible, hide]);
+
   const cast = async (next: VoteState) => {
     if (busy) return;
     setBusy(true);
     setDenied(false);
     try {
       retract();
-      if (next === vote) { setVote(null); if (popupVisible) hide(); return; }
+      if (next === vote) {
+        setVote(null);
+        if (popupVisible) hide();
+        return;
+      }
       const res = await submitFeedback({
         review_id: reviewId,
         ai_comment_id: aiCommentId,
@@ -157,12 +159,10 @@ const VoteButtons: React.FC<VoteButtonsProps> = ({
       setFeedbackId(res.id);
       setVote(next);
       if (next === 'up') {
-        getImpactStats((stats) => setImpactStats(stats));
-        show('click');
-        startAuto();
+        if (popupVisible) hide();
       } else {
         show('click');
-        startAuto();
+        startAuto(10000);
       }
     } catch (err) {
       if ((err as any)?.status === 403) {
@@ -174,31 +174,30 @@ const VoteButtons: React.FC<VoteButtonsProps> = ({
     }
   };
 
-  const handleMouseEnter = () => {
+  const handleDislikeMouseEnter = () => {
     if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
     if (popupMode === 'click' || popupMode === 'submitted') return;
-    if (!popupVisible) {
-      getImpactStats((stats) => setImpactStats(stats));
+    if (vote === 'down' && (!popupVisible || popupMode !== 'hover')) {
       show('hover');
     }
   };
 
-  const handleMouseLeave = () => {
+  const handleDislikeMouseLeave = () => {
     if (popupMode === 'click' || popupMode === 'submitted') return;
     hoverTimer.current = window.setTimeout(() => {
       if (popupMode === 'hover') hide();
-    }, 80);
+    }, 300);
   };
 
   const onPopupEnter = () => {
-    clearTimers();
+    if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
   };
 
   const onPopupLeave = () => {
-    if (popupMode === 'click' || popupMode === 'submitted') hide();
-    else {
-      hoverTimer.current = window.setTimeout(() => { if (popupMode === 'hover') hide(); }, 80);
-    }
+    if (popupMode === 'click' || popupMode === 'submitted') return;
+    hoverTimer.current = window.setTimeout(() => {
+      if (popupMode === 'hover') hide();
+    }, 200);
   };
 
   const handleSubmit = async (e: React.MouseEvent) => {
@@ -209,7 +208,8 @@ const VoteButtons: React.FC<VoteButtonsProps> = ({
     try {
       await submitFeedback({
         review_id: reviewId,
-        vote_type: vote!,
+        ai_comment_id: aiCommentId,
+        vote_type: vote || 'down',
         source_type: sourceType,
         tags: [...selectedTags],
         feedback_text: feedbackText,
@@ -226,146 +226,111 @@ const VoteButtons: React.FC<VoteButtonsProps> = ({
     }
     setSubmitting(false);
     setPopupMode('submitted');
+    startAuto(3000);
   };
 
-  const btnSize = size === 'sm' ? 'text-xs px-1.5 py-0.5' : 'text-sm px-2 py-1';
+  const dimClass = size === 'sm' ? 'h-7 w-7' : 'h-8 w-8';
 
   if (denied) {
     return <span className="text-[11px] text-slate-600" title="Only the review's creator can leave feedback">Feedback unavailable</span>;
   }
 
-  const popupWidth = 420;
-
   return (
-    <div className="relative inline-flex items-center gap-1" ref={wrapperRef}>
+    <div className="relative inline-flex items-center gap-1.5 font-sans" ref={wrapperRef}>
+      {/* Upvote button (NO hover popup) */}
       <button
-        type="button" disabled={busy}
+        type="button"
+        disabled={busy}
         onClick={() => cast('up')}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-        title="This was helpful"
-        className={`rounded border ${btnSize} ${
+        title="Helpful"
+        className={`inline-flex ${dimClass} items-center justify-center rounded border transition-all ${
           vote === 'up'
-            ? 'border-emerald-600 bg-emerald-900/40 text-emerald-300'
-            : 'border-slate-700 text-slate-500 hover:text-slate-300'
+            ? 'border-emerald-500 bg-emerald-500/15 text-emerald-400'
+            : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-emerald-500/40 hover:bg-emerald-500/10 hover:text-emerald-300'
         }`}
-      >▲</button>
-      <button
-        type="button" disabled={busy}
-        onClick={() => cast('down')}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-        title="This wasn't helpful"
-        className={`rounded border ${btnSize} ${
-          vote === 'down'
-            ? 'border-red-600 bg-red-900/40 text-red-300'
-            : 'border-slate-700 text-slate-500 hover:text-slate-300'
-        }`}
-      >▼</button>
+      >
+        <svg width={size === 'sm' ? 13 : 15} height={size === 'sm' ? 13 : 15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z" />
+          <path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" />
+        </svg>
+      </button>
 
-      {popupVisible && (
-        <div
-          ref={popupRef}
-          className="fixed z-50 rounded-lg border border-slate-600 bg-slate-800 shadow-2xl"
-          style={{
-            top: popupPos.top, left: popupPos.left, width: popupWidth,
-            opacity: popupAnim.opacity, transform: `translateY(${popupAnim.shift}px)`,
-            transition: 'opacity 0.22s ease-out, transform 0.22s ease-out',
-          }}
-          onMouseEnter={onPopupEnter}
-          onMouseLeave={onPopupLeave}
-        >
-          {vote === 'up' ? (
-            // ── Upvote popup: impact stats + "like" text ──
-            <div className="p-4">
-              <p className="mb-3 text-sm font-medium text-slate-200">
-                {popupMode === 'submitted' ? 'Thanks for your feedback!' : 'This was helpful?'}
-              </p>
-              {impactStats && (
-                <div className="mb-3 rounded-md bg-slate-900/60 p-3">
+      {/* Downvote button (HAS hover popup) */}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => cast('down')}
+        onMouseEnter={handleDislikeMouseEnter}
+        onMouseLeave={handleDislikeMouseLeave}
+        title="Not helpful"
+        className={`inline-flex ${dimClass} items-center justify-center rounded border transition-all ${
+          vote === 'down'
+            ? 'border-red-500 bg-red-500/15 text-red-400'
+            : 'border-slate-700 bg-slate-800/40 text-slate-400 hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300'
+        }`}
+      >
+        <svg width={size === 'sm' ? 13 : 15} height={size === 'sm' ? 13 : 15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z" />
+          <path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17" />
+        </svg>
+      </button>
+
+      {/* Dislike Feedback Popup Box */}
+      {popupVisible &&
+        createPortal(
+          <div
+            ref={popupRef}
+            className="fixed z-[20000] w-[400px] rounded-xl border border-slate-700/80 bg-[#151f2e] p-4 text-slate-200 shadow-2xl font-sans"
+            style={{
+              top: popupPos.top,
+              left: popupPos.left,
+              opacity: popupAnim.opacity,
+              transform: `translateY(${popupAnim.shift}px)`,
+              transition: 'opacity 0.28s ease, transform 0.28s ease',
+            }}
+            onMouseEnter={onPopupEnter}
+            onMouseLeave={onPopupLeave}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {popupMode === 'submitted' ? (
+              <div className="flex items-center gap-2 py-1">
+                <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  <polyline points="9 11 12 14 22 4" />
+                </svg>
+                <span className="text-sm font-semibold text-slate-100">
+                  Thanks. We'll work on making it better.
+                </span>
+              </div>
+            ) : (
+              <div>
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="text-red-400">
+                      <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z" />
+                      <path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17" />
+                    </svg>
+                    <span className="text-sm font-semibold text-slate-100">
+                      We're sorry it didn't meet your expectations!
+                    </span>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => setStatsExpanded((v) => !v)}
-                    className="flex w-full items-center justify-between text-xs font-medium text-slate-400"
+                    onClick={hide}
+                    className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors"
+                    title="Close"
                   >
-                    <span>Your Impact</span>
-                    <span className="text-slate-500">{statsExpanded ? '▴' : '▾'}</span>
+                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
                   </button>
-                  {statsExpanded && (
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                      {impactStats.map((s) => (
-                        <div key={s.label} className="rounded bg-slate-800 px-2 py-1.5" title={s.tooltip}>
-                          <div className="text-lg font-semibold text-white">{s.value ?? '-'}</div>
-                          <div className="text-[10px] text-slate-500">{s.label}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
-              )}
-              {popupMode !== 'submitted' && (
-                <div className="space-y-3">
-                  <textarea
-                    value={feedbackText}
-                    onChange={(e) => setFeedbackText(e.target.value)}
-                    placeholder="What did you like? (optional)"
-                    rows={2}
-                    className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-600"
-                  />
-                  <div className="flex items-center justify-between gap-2">
-                    <button
-                      type="button" onClick={() => setLinkedinOpen(true)}
-                      className="rounded border border-sky-700 px-2 py-1 text-[11px] text-sky-400 hover:bg-sky-900/30"
-                    >
-                      Share on LinkedIn
-                    </button>
-                    <button
-                      type="button" onClick={handleSubmit}
-                      disabled={submitting}
-                      className="rounded bg-emerald-700 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-                    >
-                      {submitting ? 'Sending...' : 'Submit feedback'}
-                    </button>
+
+                <div className="mb-3">
+                  <div className="mb-2 text-[11px] font-bold tracking-wider text-slate-400 uppercase">
+                    What went wrong?
                   </div>
-                  {submitError && <p className="text-[11px] text-red-400">Failed to submit. Try again.</p>}
-                </div>
-              )}
-              {linkedinOpen && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60" onClick={() => setLinkedinOpen(false)}>
-                  <div className="max-h-[80vh] w-[520px] overflow-y-auto rounded-lg border border-slate-600 bg-slate-800 p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                    <h4 className="mb-3 text-sm font-medium text-white">Share on LinkedIn</h4>
-                    <textarea
-                      readOnly
-                      value={buildLinkedinText(impactStats)}
-                      className="mb-3 h-56 w-full resize-none rounded-md border border-slate-600 bg-slate-900 p-3 text-xs text-slate-200"
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(buildLinkedinText(impactStats)).then(() => {
-                            setSnackbar(true);
-                            window.setTimeout(() => setSnackbar(false), 2000);
-                          });
-                        }}
-                        className="rounded bg-slate-700 px-3 py-1.5 text-xs text-white hover:bg-slate-600"
-                      >
-                        {snackbar ? 'Copied!' : 'Copy to clipboard'}
-                      </button>
-                      <button type="button" onClick={() => setLinkedinOpen(false)} className="rounded border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-700">Close</button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            // ── Downvote popup: tag chips + feedback text ──
-            <div className="p-4">
-              <p className="mb-1 text-sm font-medium text-slate-200">
-                {popupMode === 'submitted' ? 'Thanks for your feedback!' : 'We\'re sorry — what went wrong?'}
-              </p>
-              {popupMode !== 'submitted' && (
-                <div className="space-y-3">
                   <div className="flex flex-wrap gap-1.5">
                     {DOWN_TAGS.map((tag) => {
                       const active = selectedTags.has(tag);
@@ -373,14 +338,19 @@ const VoteButtons: React.FC<VoteButtonsProps> = ({
                         <button
                           key={tag}
                           type="button"
-                          onClick={() => setSelectedTags((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(tag)) next.delete(tag);
-                            else next.add(tag);
-                            return next;
-                          })}
-                          className={`rounded-full border px-2.5 py-1 text-[11px] ${
-                            active ? 'border-red-600 bg-red-900/40 text-red-300' : 'border-slate-600 text-slate-400 hover:bg-slate-700'
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedTags((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(tag)) next.delete(tag);
+                              else next.add(tag);
+                              return next;
+                            });
+                          }}
+                          className={`rounded-full border px-3 py-1 text-xs transition-all ${
+                            active
+                              ? 'border-red-500/80 bg-red-500/20 text-red-300 font-medium'
+                              : 'border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-600 hover:bg-slate-800'
                           }`}
                         >
                           {tag}
@@ -388,37 +358,46 @@ const VoteButtons: React.FC<VoteButtonsProps> = ({
                       );
                     })}
                   </div>
-                  <textarea
-                    value={feedbackText}
-                    onChange={(e) => setFeedbackText(e.target.value)}
-                    placeholder="Anything else? (optional)"
-                    rows={2}
-                    className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-600"
-                  />
-                  <div className="flex justify-end">
-                    <button
-                      type="button" onClick={handleSubmit}
-                      disabled={submitting}
-                      className="rounded bg-slate-700 px-3 py-1 text-xs font-medium text-white hover:bg-slate-600 disabled:opacity-50"
-                    >
-                      {submitting ? 'Sending...' : 'Submit feedback'}
-                    </button>
-                  </div>
-                  {submitError && <p className="text-[11px] text-red-400">Failed to submit. Try again.</p>}
                 </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
-      {snackbar && (
-        <div className="fixed bottom-6 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-slate-700 px-4 py-2 text-xs text-white shadow-lg">
-          Copied to clipboard!
-        </div>
-      )}
+                <textarea
+                  value={feedbackText}
+                  onChange={(e) => setFeedbackText(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  placeholder="Tell us more... (optional)"
+                  rows={2}
+                  className="min-h-[64px] w-full resize-y rounded-md border border-slate-700 bg-slate-900/90 p-2.5 text-xs text-slate-200 outline-none placeholder:text-slate-500 focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
+                />
+
+                <div className="mt-2 text-[11px] leading-relaxed text-slate-400">
+                  This comment and the code block will be sent to Hexmos. A human will review it to understand and ship a fix.
+                </div>
+
+                {submitError && (
+                  <div className="mt-1.5 text-[11px] text-red-400">
+                    Failed to send — please try again.
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={submitting}
+                  className="mt-3 rounded-md bg-[#2d5be3] px-4 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-600 active:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  {submitting ? 'Sending…' : 'Submit More'}
+                </button>
+              </div>
+            )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 };
 
 export default VoteButtons;
+
+
+
+
