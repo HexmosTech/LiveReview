@@ -137,8 +137,9 @@ type Server struct {
 	db                     *sql.DB
 	jobQueue               *jobqueue.JobQueue
 	dashboardManager       *DashboardManager
-	eventCompactionManager *EventCompactionManager
-	autoWebhookInstaller   *AutoWebhookInstaller
+	eventCompactionManager          *EventCompactionManager
+	preloadedChangesArchivalManager *PreloadedChangesArchivalManager
+	autoWebhookInstaller            *AutoWebhookInstaller
 	versionInfo            *VersionInfo
 	deploymentConfig       *DeploymentConfig
 	authHandlers           *auth.AuthHandlers
@@ -303,6 +304,9 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Initialize event compaction manager — one goroutine compacting review_events logs daily.
 	eventCompactionManager := NewEventCompactionManager(db)
 
+	// Initialize preloaded_changes archival manager — background cron archiving preloaded_changes > 30 days to Blob Storage via River.
+	preloadedChangesArchivalManager := NewPreloadedChangesArchivalManager(db, jq)
+
 	// Initialize auto webhook installer
 	autoWebhookInstaller := NewAutoWebhookInstaller(db, nil, jq) // server will be set later
 
@@ -353,9 +357,10 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 		port:                   port,
 		db:                     db,
 		jobQueue:               jq,
-		dashboardManager:       dashboardManager,
-		eventCompactionManager: eventCompactionManager,
-		autoWebhookInstaller:   autoWebhookInstaller,
+		dashboardManager:                dashboardManager,
+		eventCompactionManager:          eventCompactionManager,
+		preloadedChangesArchivalManager: preloadedChangesArchivalManager,
+		autoWebhookInstaller:            autoWebhookInstaller,
 		versionInfo:            versionInfo,
 		deploymentConfig:       deploymentConfig,
 		authHandlers:           authHandlers,
@@ -1318,6 +1323,16 @@ func (s *Server) setupRoutes() {
 	adminGroup.PUT("/settings/compaction", s.UpdateCompactionSettings)
 	adminGroup.POST("/settings/compaction/run", s.RunCompactionNow)
 
+	// Super admin preloaded_changes archival settings endpoints
+	adminGroup.GET("/settings/preloaded-changes-archival", s.GetPreloadedChangesArchivalSettings)
+	adminGroup.PUT("/settings/preloaded-changes-archival", s.UpdatePreloadedChangesArchivalSettings)
+	adminGroup.POST("/settings/preloaded-changes-archival/run", s.RunPreloadedChangesArchivalNow)
+
+	// Backwards compatibility aliases for older UI / API clients
+	adminGroup.GET("/settings/diff-archival", s.GetPreloadedChangesArchivalSettings)
+	adminGroup.PUT("/settings/diff-archival", s.UpdatePreloadedChangesArchivalSettings)
+	adminGroup.POST("/settings/diff-archival/run", s.RunPreloadedChangesArchivalNow)
+
 	// Organization management endpoints
 	// User organization access (get their orgs) - needs permission context to detect super admin
 	protectedOrgsGroup := protected.Group("")
@@ -1952,6 +1967,12 @@ func (s *Server) Start() error {
 	s.eventCompactionManager.Start()
 	fmt.Println("Event compaction manager started")
 
+	// Start preloaded_changes archival manager (daily background cron archiving preloaded_changes > 30 days)
+	if s.preloadedChangesArchivalManager != nil {
+		s.preloadedChangesArchivalManager.Start()
+		fmt.Println("Preloaded changes archival manager started")
+	}
+
 	// Start server in a goroutine
 	go func() {
 		if err := s.echo.Start(bindAddress); err != nil && err != http.ErrServerClosed {
@@ -2059,6 +2080,12 @@ func (s *Server) Start() error {
 	if s.eventCompactionManager != nil {
 		s.eventCompactionManager.Stop()
 		fmt.Println("Event compaction manager stopped")
+	}
+
+	// Stop preloaded_changes archival manager
+	if s.preloadedChangesArchivalManager != nil {
+		s.preloadedChangesArchivalManager.Stop()
+		fmt.Println("Preloaded changes archival manager stopped")
 	}
 
 	// Close database connection

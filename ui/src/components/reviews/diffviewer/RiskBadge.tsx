@@ -59,13 +59,21 @@ const RiskBadge: React.FC<RiskBadgeProps> = ({ score, detail, size = 'small', on
       onClick={clickable ? (e) => { e.stopPropagation(); onOpen!(); } : undefined}
       aria-label={`Risk score ${Math.round(score)} out of 100`}
       className={classNames(
-        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-xs font-semibold',
+        'inline-flex h-7 items-center gap-1 rounded-full border px-2.5 font-mono text-xs font-semibold',
         TIER_CLASSES[tier],
         clickable && 'cursor-pointer hover:brightness-125',
         size === 'large' ? 'text-xs' : 'text-[11px]'
       )}
     >
-      {Math.round(score)}
+      <svg width={size === 'large' ? 12 : 10} height={size === 'large' ? 12 : 10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+        <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
+      </svg>
+      <span>{Math.round(score)}</span>
+      {clickable && (
+        <svg width={size === 'large' ? 10 : 8} height={size === 'large' ? 10 : 8} viewBox="0 0 24 24" fill="currentColor" stroke="none" className="shrink-0">
+          <path d="M9 18l6-6-6-6" />
+        </svg>
+      )}
     </button>
   );
 
