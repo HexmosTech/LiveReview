@@ -59,12 +59,43 @@ export function parseHunkLines(hunk: DiffReviewHunk): DiffLine[] {
 }
 
 /**
- * True when `comment` attaches to `line`. Backend comments are always
- * matched against a hunk's new-side line numbers (see lineWithinHunks in
- * internal/api/diff_review.go), so this only ever compares against newNum.
+ * True when `comment` attaches to `line`. Matches `line.newNum === comment.line`
+ * for added/context lines. For deleted lines (where `newNum` is null), matches
+ * `line.oldNum === comment.line` only if no line in `allHunkLines` matches `newNum`.
  */
-export function commentBelongsToLine(comment: DiffReviewComment, line: DiffLine): boolean {
-  return line.newNum !== null && comment.line === line.newNum;
+export function commentBelongsToLine(comment: DiffReviewComment, line: DiffLine, allHunkLines?: DiffLine[]): boolean {
+  if (line.newNum !== null && comment.line === line.newNum) {
+    return true;
+  }
+  if (line.oldNum !== null && comment.line === line.oldNum && line.newNum === null) {
+    if (allHunkLines) {
+      const hasNewNumMatch = allHunkLines.some((l) => l.newNum !== null && l.newNum === comment.line);
+      return !hasNewNumMatch;
+    }
+    return true;
+  }
+  return false;
+}
+
+/** Build contextual code excerpt for a comment line matching git-lrc utils.js */
+export function buildIssueCodeExcerpt(lines: DiffLine[], commentLineIndex: number, contextLines = 1): string {
+  if (!Array.isArray(lines) || lines.length === 0) return '';
+  if (commentLineIndex < 0 || commentLineIndex >= lines.length) return '';
+
+  const radius = contextLines >= 0 ? contextLines : 1;
+  const start = Math.max(0, commentLineIndex - radius);
+  const end = Math.min(lines.length - 1, commentLineIndex + radius);
+
+  const excerptLines: string[] = [];
+  for (let i = start; i <= end; i++) {
+    const l = lines[i];
+    if (!l) continue;
+    const lineNumber = l.newNum !== null ? l.newNum : l.oldNum !== null ? l.oldNum : '?';
+    const marker = i === commentLineIndex ? '>' : ' ';
+    excerptLines.push(`${marker} ${lineNumber}: ${l.content}`);
+  }
+
+  return excerptLines.join('\n');
 }
 
 /** Converts a file path into a DOM-safe id for scroll-to-file navigation. */

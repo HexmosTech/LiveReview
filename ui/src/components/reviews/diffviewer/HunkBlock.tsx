@@ -6,7 +6,7 @@
 import React, { useRef, useState } from 'react';
 import classNames from 'classnames';
 import { DiffReviewComment, DiffReviewHunk } from '../../../types/reviews';
-import { commentBelongsToLine, DiffLine, hunkDomId, parseHunkLines, scrollElementIntoViewBelowStickyBars } from './diffUtils';
+import { buildIssueCodeExcerpt, commentBelongsToLine, DiffLine, hunkDomId, parseHunkLines, scrollElementIntoViewBelowStickyBars } from './diffUtils';
 import { commentMatchesFilters, IssueFilters } from './issueFilters';
 import CommentThread from './CommentThread';
 import RiskBadge from './RiskBadge';
@@ -101,7 +101,7 @@ const HunkBlock: React.FC<HunkBlockProps> = ({ reviewId, filePath, navId, hunk, 
       <table className="w-full table-fixed border-collapse font-mono text-xs">
         <tbody>
           {lines.map((line, idx) => {
-            const lineComments = comments.filter(({ comment }) => commentBelongsToLine(comment, line) && commentMatchesFilters(comment, filters));
+            const lineComments = comments.filter(({ comment }) => commentBelongsToLine(comment, line, lines) && commentMatchesFilters(comment, filters));
             return (
               <React.Fragment key={idx}>
                 <tr className={classNames(lineClass(line.type))}>
@@ -114,12 +114,15 @@ const HunkBlock: React.FC<HunkBlockProps> = ({ reviewId, filePath, navId, hunk, 
                 </tr>
                 {lineComments.length > 0 && (
                   <tr>
-                    <td colSpan={3} className="p-0">
+                    <td className="w-10 border-r border-slate-800 p-0" />
+                    <td className="w-10 border-r border-slate-800 p-0" />
+                    <td className="p-0">
                       <CommentThread
                         reviewId={reviewId}
                         filePath={filePath}
                         comments={lineComments}
                         hunkBlastDetail={blastDetail}
+                        codeExcerpt={buildIssueCodeExcerpt(lines, idx, 1)}
                         onOpenBreakdown={openBreakdown}
                       />
                     </td>

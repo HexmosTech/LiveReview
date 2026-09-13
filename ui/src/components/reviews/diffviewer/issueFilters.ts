@@ -108,6 +108,33 @@ export function commentMatchesFilters(comment: DiffReviewComment, filters: Issue
   return true;
 }
 
+export function commentMatchesFiltersExcludingField(
+  comment: DiffReviewComment,
+  filters: IssueFilters,
+  excludedField: 'severity' | 'confidence' | 'type' | 'category' | 'subcategory' | 'classification'
+): boolean {
+  if (excludedField !== 'severity') {
+    if (filters.disabledSeverities.has(normalizeSeverity(comment.severity))) return false;
+  }
+  if (excludedField !== 'confidence') {
+    const confidence = (comment.confidence || '').toLowerCase();
+    if (confidence && filters.disabledConfidences.has(confidence)) return false;
+  }
+  if (excludedField !== 'type') {
+    const type = (comment.type || '').toLowerCase();
+    if (type && filters.disabledTypes.has(type)) return false;
+  }
+  if (excludedField !== 'category' && excludedField !== 'classification') {
+    const category = (comment.category || '').toLowerCase();
+    if (category && filters.disabledCategories.has(category)) return false;
+  }
+  if (excludedField !== 'subcategory' && excludedField !== 'classification') {
+    const subcategory = (comment.subcategory || '').toLowerCase();
+    if (subcategory && filters.disabledSubcategories.has(subcategory)) return false;
+  }
+  return true;
+}
+
 export interface FacetOption {
   value: string;
   label: string;
@@ -136,11 +163,9 @@ function sortByOrder(values: string[], preferredOrder: string[]): string[] {
   return [...values].sort((a, b) => {
     const ai = preferredOrder.indexOf(a);
     const bi = preferredOrder.indexOf(b);
-    if (ai !== -1 || bi !== -1) {
-      if (ai === -1) return 1;
-      if (bi === -1) return -1;
-      return ai - bi;
-    }
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
     return a.localeCompare(b);
   });
 }
@@ -157,32 +182,42 @@ export function buildFilterFacets(files: DiffReviewFile[], filters: IssueFilters
   files.forEach((file) => {
     (file.comments || []).forEach((comment) => {
       total++;
-      const severity = normalizeSeverity(comment.severity);
-      severityCounts.set(severity, (severityCounts.get(severity) || 0) + 1);
-
-      if (comment.confidence) {
-        const key = comment.confidence.toLowerCase();
-        confidenceCounts.set(key, (confidenceCounts.get(key) || 0) + 1);
-      }
-      if (comment.type) {
-        const key = comment.type.toLowerCase();
-        const existing = typeCounts.get(key);
-        typeCounts.set(key, { label: comment.type, count: (existing?.count || 0) + 1 });
-      }
-      if (comment.category) {
-        const catKey = comment.category.toLowerCase();
-        const catEntry = categoryMap.get(catKey) || { label: comment.category, count: 0, subcategories: new Map() };
-        catEntry.count += 1;
-        if (comment.subcategory) {
-          const subKey = comment.subcategory.toLowerCase();
-          const subEntry = catEntry.subcategories.get(subKey) || { label: comment.subcategory, count: 0 };
-          subEntry.count += 1;
-          catEntry.subcategories.set(subKey, subEntry);
-        }
-        categoryMap.set(catKey, catEntry);
-      }
-
       if (commentMatchesFilters(comment, filters)) visible++;
+
+      if (commentMatchesFiltersExcludingField(comment, filters, 'severity')) {
+        const severity = normalizeSeverity(comment.severity);
+        severityCounts.set(severity, (severityCounts.get(severity) || 0) + 1);
+      }
+
+      if (commentMatchesFiltersExcludingField(comment, filters, 'confidence')) {
+        if (comment.confidence) {
+          const key = comment.confidence.toLowerCase();
+          confidenceCounts.set(key, (confidenceCounts.get(key) || 0) + 1);
+        }
+      }
+
+      if (commentMatchesFiltersExcludingField(comment, filters, 'type')) {
+        if (comment.type) {
+          const key = comment.type.toLowerCase();
+          const existing = typeCounts.get(key);
+          typeCounts.set(key, { label: comment.type, count: (existing?.count || 0) + 1 });
+        }
+      }
+
+      if (commentMatchesFiltersExcludingField(comment, filters, 'classification')) {
+        if (comment.category) {
+          const catKey = comment.category.toLowerCase();
+          const catEntry = categoryMap.get(catKey) || { label: comment.category, count: 0, subcategories: new Map() };
+          catEntry.count += 1;
+          if (comment.subcategory) {
+            const subKey = comment.subcategory.toLowerCase();
+            const subEntry = catEntry.subcategories.get(subKey) || { label: comment.subcategory, count: 0 };
+            subEntry.count += 1;
+            catEntry.subcategories.set(subKey, subEntry);
+          }
+          categoryMap.set(catKey, catEntry);
+        }
+      }
     });
   });
 
