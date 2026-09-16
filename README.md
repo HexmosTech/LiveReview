@@ -42,6 +42,23 @@ LiveReview may add new signals over time. The two questions behind them stay the
    <i>Want a guided rollout?</i> <a href="#transformation-program">Join the 14-Day Transformation Program</a>
 </p>
 
+<a id="the-system"></a>
+## The System: LiveReview Is an Independent Inspection Layer
+
+LiveReview runs as an independent inspection layer on top of whatever writes your code: Claude, Copilot, Cursor, or anything else. AI can generate code far faster than any human can review it by hand — the leverage comes from an inspection layer that runs at the same speed AI writes, not from slowing the writing down. That independence is what turns engineering competence into business leverage: fewer regressions, less downtime, and fewer quality, performance, and security surprises.
+
+LiveReview organizes around five capabilities, each answering a question your team already asks. **Improve feeds straight back into Review**: the loop below runs continuously on every commit, not once at setup.
+
+| Pillar | Question it answers | What it covers |
+|---|---|---|
+| [**Review**](#org-wide-harness) | Can we get both speed and quality? | Multi-level review checkpoints (commit, push, MR/PR, CI/CD, scheduled), [Adaptive Reviews](#adaptive-reviews) |
+| [**Understand**](#features) | Can an engineer quickly understand what changed and what it means? | Summary decks, Issue Navigator, PR summaries, [Cognitive Coverage / PR Quizzes](#cognitive-coverage) |
+| [**Enforce**](#repository-rules) | Can we make our engineering standards and review policies actually happen? | [Repository Rules](#repository-rules), [CI/CD Gates](#cicd-gates), custom prompts, scheduled reviews |
+| [**Improve**](#impact-report) | How are we doing, and where should engineering improve? | [Impact Report](#impact-report), [Livi / Data-Backed Decisions](#data-backed-decisions) |
+| [**Connect**](#mcp-server) | Can we adopt this without disrupting how the team already works? | [MCP server & REST API](#mcp-server), [git-lrc / claude-lrc CLI](#cli), [IDE extensions](#ide-extensions) |
+
+The result: engineering becomes a business advantage. You stay ahead, your engineers build deep systems understanding, standards get enforced where the work actually happens, and you get speed and quality together.
+
 ## What Do You Need?
 
 **🚀 Get Started**
@@ -59,6 +76,7 @@ LiveReview may add new signals over time. The two questions behind them stay the
 |---|---|
 | See what risks LiveReview actually catches | [Prevent Outages, Breaches & Technical Debt](#impact-report) |
 | See what LiveReview's analytics can tell my team | [Data-Backed Decisions](#data-backed-decisions) |
+| Keep engineers accountable for AI-generated code they didn't write themselves | [Cognitive Coverage / PR Quizzes](#cognitive-coverage) |
 | Understand how LiveReview differs from other tools | [Why LiveReview](#why-livereview) |
 | See the full feature set | [Features](#features) |
 
@@ -124,8 +142,13 @@ For teams needing external access and webhooks, follow the [Productionization Gu
 | **Configuration** | Zero config required | Reverse proxy setup needed |
 | **Perfect for** | Development, testing, demos | Teams, production deployments |
 
+<a id="review"></a>
+## Review: Get Both Speed and Quality
+
+Some tools give you speed and sacrifice quality, or the reverse. Multi-level review checkpoints let you set policy per team and repo, at different gradations, so you get both.
+
 <a id="org-wide-harness"></a>
-## Org-Wide Harness: Enforce Your Standards on Every Line of AI-Generated Code
+### Org-Wide Harness: Enforce Your Standards on Every Line of AI-Generated Code
 
 AI writes code faster than any human can review it by hand. LiveReview gives you a checkpoint at every stage where that code could reach production. Turn on the stages that matter to you, per repository.
 
@@ -154,8 +177,211 @@ There's no single right answer, only the right trade-off for a given repository,
 
 Setting up MR/PR reviews for your provider? See the step-by-step guides for [GitHub](https://hexmos.com/livereview/docs/livereview/self-hosted/github/), [GitLab](https://hexmos.com/livereview/docs/livereview/self-hosted/gitlab/), [Bitbucket](https://hexmos.com/livereview/docs/livereview/self-hosted/bitbucket/), [Gitea](https://hexmos.com/livereview/docs/livereview/self-hosted/gitea/), and [Azure DevOps](https://hexmos.com/livereview/docs/livereview/self-hosted/azure-devops/).
 
+<a id="adaptive-reviews"></a>
+### Adaptive Reviews: Cut AI Review Costs by 50% Without Compromising Quality
+
+**Adaptive Reviews** uses two AI models instead of one: a powerful Leader Model finds complex issues, and a cost-efficient Helper Model explains them. Same review quality, at half the price.
+
+| | |
+|---|---|
+| **Reduce Costs by 40-50%** | A cost-efficient Helper Model writes the explanations, instead of one expensive model doing everything. |
+| **Double Review Volume** | Review up to 2x more code on the same budget. No need to monitor limits constantly. |
+| **Leader + Helper Architecture** | The Leader Model finds complex issues. The Helper Model expands those findings into detailed explanations. |
+| **Maintain Review Quality** | The high-end Leader Model still drives issue detection, so accuracy does not drop. |
+
+See it explained: [Adaptive Reviews: Cut AI Costs by 40-50%](https://hexmos.com/livereview/demo?v=6Kh4ieFj6s8).
+
+<a id="understand"></a>
+## Understand: Keep Engineers in Touch With What Changed
+
+Keep the business under your team's intellectual control, even as generative AI writes more of the code. AI can write a diff faster than anyone can read it — the goal here is real understanding that doesn't cost time or energy.
+
+<a id="cognitive-coverage"></a>
+### Cognitive Coverage via PR Quizzes
+
+AI can write a diff faster than you can read it. **LiveReview quizzes you on the PR before it gets committed**, so you stay in touch with the technical decisions baked into your codebase, instead of rubber-stamping code you never really understood.
+
+- **Auto-generated from the diff**: questions come straight from the actual changes, no manual quiz writing.
+- **Quick, before commit**: takes less than a minute, and runs before the diff gets committed, not after.
+- **Slides, text, or quiz mode**: pick the format that fits how you like to review.
+
+Cognitive Coverage is the same idea as [Blast-Radius scoring](#the-system) applied to people instead of code: know exactly how much of a change a human actually understood, not just whether an AI reviewed it.
+
+<a id="features"></a>
+### Powerful Features for Modern Engineering Teams
+
+<p align="center">
+   <img src="./assets/screenshots/2026-08-29/04-menu-actions.png" alt="LiveReview navigation: Reviews, Explore, Providers, Reports, Settings" width="80%"/>
+</p>
+
+#### Review Pipeline and Issue Distribution Charts
+See where reviews get stuck (Sankey flow from open to merged) and where issues cluster by category (treemap), pulled from your own review history.
+
+| Review pipeline, at a glance | Issue distribution by category |
+|:---:|:---:|
+| <img src="./assets/screenshots/2026-08-29/01-dashboard-sankey-slash.png" width="380"/> | <img src="./assets/screenshots/2026-08-29/02-dashboard-treemap-slash.png" width="380"/> |
+
+#### Fine-Tuned LiveReview AI Model
+LiveReview comes with its own fine-tuned AI model, ready from day one. Prefer your own provider? Bring your own key (BYOK) for Gemini, OpenAI, AWS Bedrock, a self-hosted Ollama model, or any other LLM. See the [AI Integration guide](https://hexmos.com/livereview/docs/livereview/self-hosted/add-ai-integration-to-livereview/), or watch [Connect Google Gemini and Gemini Enterprise](https://hexmos.com/livereview/demo?v=P0jRFmf_FKE), [Connect Amazon Bedrock](https://hexmos.com/livereview/demo?v=zVf2O9z_370), or [Connect DeepSeek, OpenRouter, OpenAI, and Ollama](https://hexmos.com/livereview/demo?v=omtGw_SIJKs).
+
+<p align="center">
+   <img src="./assets/screenshots/ai_providers.png" alt="AI Provider Configuration" width="80%"/>
+</p>
+
+#### Use Any Git Provider: GitHub, GitLab, Bitbucket, Gitea, Azure DevOps
+Connect a repository from GitHub, GitLab, Bitbucket, Gitea, or Azure DevOps, and LiveReview reviews it the same way, with the same Blast Radius scoring. Watch [Connect GitHub to LiveReview](https://hexmos.com/livereview/demo?v=zkWf98OvJQA) or [Connect Self-Hosted GitLab](https://hexmos.com/livereview/demo?v=6svc4MSnqjw), or see the full [Git Provider setup guide](https://hexmos.com/livereview/docs/livereview/self-hosted/adding-git-providers-to-livereview/).
+
+<p align="center">
+   <img src="./assets/screenshots/2026-08-29/12-git-providers-slash-git.png" alt="Git Provider Integration" width="80%"/>
+</p>
+
+#### Explore Every Repository and Pull Request, Across Every Provider
+Browse every repository and merge or pull request LiveReview can see, in one list, no matter which git provider it lives on. Trigger a review straight from that list — see [Trigger PR Reviews from the Dashboard](https://hexmos.com/livereview/demo?v=Dvm-ixzuO8E).
+
+| Every connected repository | Every merge/pull request |
+|:---:|:---:|
+| <img src="./assets/screenshots/2026-08-29/10-explore-slash-explore-repositories.png" width="380"/> | <img src="./assets/screenshots/2026-08-29/11-explore-slash-merge-requests.png" width="380"/> |
+
+<details id="scheduled-reviews">
+<summary>Show 7 more features (review list, progress tracking, custom prompts, team learnings, PR summaries, AI clarification, scheduled reviews)</summary>
+
+#### View All AI Reviews in One Place
+See every review's status, from queued to complete, and jump straight into the ones that need attention. See [Trigger Manual Pull Request Reviews](https://hexmos.com/livereview/demo?v=ReHJfGbeUCo).
+
+<p align="center">
+   <img src="./assets/screenshots/2026-08-29/06-list-reviews-slash-reviews.png" alt="LiveReview review list" width="80%"/>
+</p>
+
+#### Track Which Files Are Reviewed, Live
+Watch a review work through your diff file by file, so you know exactly what's covered and what's still queued.
+
+<p align="center">
+   <img src="./assets/screenshots/progress_tracker.png" alt="LiveReview Progress Tracker" width="80%"/>
+</p>
+
+#### Customize Review Prompts to Fit Your Team
+Custom Prompts apply org-wide, to every repo LiveReview reviews, so keep them to the handful of standards that really are universal across your org. *(Premium & Enterprise)* For anything specific to one repo, use [Repository Rules](#repository-rules) instead — most teams should start there. Watch [Customize AI Review Prompts for Your Team](https://hexmos.com/livereview/demo?v=PA0hQWo_6nE), or read [Customize LiveReview to Your Team's Best Practices](https://hexmos.com/livereview/docs/livereview/self-hosted/customize-livereview-to-your-teams-best-practices/).
+
+<p align="center">
+   <img src="./assets/screenshots/prompt_customization.png" alt="Customizing LiveReview's review prompts" width="80%"/>
+</p>
+
+#### Discuss with AI in MR and See it Learn Everyday
+Every discussion in a merge request becomes a stored "learning": a best practice, a recurring issue, or a team convention the AI applies to every future review. See it in [Improve Reviews with Organizational Learning](https://hexmos.com/livereview/demo?v=t78Fajj74ZI).
+
+<p align="center">
+   <img src="./assets/screenshots/learnings_management.png" alt="Managing team learnings in LiveReview" width="80%"/>
+</p>
+
+#### Sharp AI-Generated Pull Request Summaries
+Every pull request gets a summary of what changed, why it matters, and what risks were flagged, so reviewers don't have to read the whole diff to know where to look. See [Ask Questions About Code via Inline PR Comments](https://hexmos.com/livereview/demo?v=7BtjZ3VS8Mo).
+
+<p align="center">
+   <img src="./assets/screenshots/detailed_mr_summaries.png" alt="Detailed AI-generated MR/PR summaries" width="80%"/>
+</p>
+
+#### Ask AI for Clarification or Debate Code Changes
+Reply to any AI comment in the merge request to ask why it flagged something, or push back on it. The AI has the full diff context, not just the one line it commented on. Watch [Reply to AI Review Comments and Get Guidance](https://hexmos.com/livereview/demo?v=FX9nfubMh68), and [Auto-Fix Review Issues with Claude Code or AI Agents](https://hexmos.com/livereview/demo?v=DV2qt28TMmo).
+
+<p align="center">
+   <img src="./assets/screenshots/clarification_question.png" alt="Asking LiveReview's AI a clarification question in a merge request" width="80%"/>
+</p>
+
+#### Scheduled Reviews: A Safety Net for the Code Nobody Reviewed
+
+Not every change goes through a full review:
+
+- A hotfix might land straight on the main branch.
+- A dependency bump might merge on its own.
+
+For a small, fast-moving team, that's often the right call, you can't review every line by hand and still ship fast. **Scheduled Reviews** are the safety net for exactly that gap.
+
+- **Checks on its own schedule.** LiveReview reviews your default branch even when nobody asked it to, and catches anything that got in outside your normal commit, push, or PR checks.
+- **Per-repository control.** Turn it on with one toggle.
+- **Your own cadence.** Pick how often it runs, in plain cron syntax, or leave it blank and LiveReview checks once a day.
+- **Always visible.** See the last time it ran and the next time it will, right in the schedule list.
+- **Zero upkeep.** Runs by itself in the background, nobody has to remember to trigger it.
+
+> For most teams, once a day on the main branch is enough to keep quality high without slowing anyone down.
+
+| The schedule list, per repository | Editing a repository's schedule |
+|:---:|:---:|
+| <img src="./assets/screenshots/2026-08-29/08-scheduled-reviews-slash-reviews-scheduled.png" width="380"/> | <img src="./assets/screenshots/2026-08-29/09-scheduled-reviews-slash-reviews-scheduled-edit.png" width="380"/> |
+
+</details>
+
+<a id="enforce"></a>
+## Enforce: Turn Standards Into Things That Actually Happen
+
+Aspirations are easy to set. Real transformation lives in the depth and precision of implementation. LiveReview enforces and monitors at that level, so standards get lived, not just stated.
+
+<a id="repository-rules"></a>
+### Enforce Your Team's Engineering Standards with Repository Rules
+
+A good reviewer knows your language and framework. A great reviewer also knows *your* repository: which patterns your team prefers, which dependencies are off-limits, and which files don't need a second look. Drop a `.lrc/` directory in your repo, and LiveReview reads it on every review.
+
+This is per-repo, and stacks on top of any org-wide [Custom Prompts](#features) — reach for Repository Rules first; it's how most teams should scope their standards, since each team keeps its own rules without affecting anyone else's repo.
+
+```
+.lrc/
+├── ignore               # files the reviewer never sees
+├── rules/
+│   ├── INSTRUCTIONS.md  # read first, every review
+│   ├── security.md
+│   └── style.md
+└── policy/
+    └── tools.toml       # which checks are allowed to run
+```
+
+| | |
+|---|---|
+| **Repository Rules** | Write down the decisions that come up in every review, such as "prefer direct SQL over ORM abstractions" or "avoid new infrastructure dependencies". LiveReview reads `INSTRUCTIONS.md` first, then every other `rules/*.md` file, in order. |
+| **Ignore File** | Point the reviewer away from generated code, vendored dependencies, and anything else that doesn't need a second look. Uses gitignore syntax, matched from your repo root. Ignored files don't count toward billable lines. |
+| **Policies** *(coming soon)* | Decide which tools and checks can run on this repo. Machine-readable settings that LiveReview reads directly. Never sent to the AI model. |
+| **Static Checks** *(coming soon)* | Pair AI review with static analyzers like semgrep and eslint. Authorized through policy, run as part of the same commit-time flow. |
+
+Full reference: [Repository Rules docs](https://hexmos.com/livereview/docs/git-lrc/configure/repository-rules/) · [Set Review Rules](https://hexmos.com/livereview/docs/git-lrc/configure/set-review-rules/)
+
+<a id="cicd-gates"></a>
+### CI/CD Gates: Precise, Customized Merge Enforcement
+
+A generic "fail if severity is high" checkbox can't match how your team actually thinks about risk. **CI/CD Gates** let you write the exact condition, in [jq](https://jqlang.org/), against the real findings from a LiveReview review, and wire it into any pipeline as a single HTTP call. The pipeline doesn't run an AI model or interpret anything; it reads one URL's HTTP status.
+
+<p align="center">
+   <img src="./assets/screenshots/ci-cd-gates/ruleset-list.png" alt="CI/CD Gates: a list of named rulesets, each with its own jq expression" width="85%"/>
+</p>
+
+- **Works on any review source.** Web UI, `git-lrc` local reviews, CI/CD-triggered reviews, and API/MCP-triggered reviews all produce the same canonical findings document, so one gate covers every path code takes toward a merge.
+- **Full power of jq, no lock-in to preset severity buckets.** Combine severity, category, subcategory, and confidence however your repo actually needs it, not just "block on critical."
+- **A live expression editor**, with LLM help. Run your jq against a synthetic sample document and real past reviews as you type, see a `BLOCK`/`ALLOW` verdict update live, and reach for an "Ask LLM" helper (a ready-made prompt with your org's taxonomy and a sample document, for you to paste into ChatGPT, Gemini, or DeepSeek) when the condition gets complex.
+
+<p align="center">
+   <img src="./assets/screenshots/ci-cd-gates/jq-editor.png" alt="Live jq rule editor with presets, Ask LLM helper, and a live BLOCK/ALLOW preview against a sample review" width="85%"/>
+</p>
+
+Once a ruleset is saved, `GET /ci-rulesets/:id/evaluate` is the whole integration: call it from GitHub Actions, GitLab CI, Bitbucket Pipelines, Azure Pipelines, or any generic runner, and gate the job on its HTTP status.
+
+#### Write the rule that matches how your team actually weighs risk
+
+Different teams weigh the same findings differently. jq lets each team encode its own answer, not a preset severity bucket:
+
+|  | Security-conscious team | Fast-moving startup | Mature enterprise |
+|---|---|---|---|
+| **Cares about** | Even one security finding is unacceptable, and so is any critical-severity bug elsewhere | Ship velocity matters most: block only on correctness and UX bugs that would actually hurt users or slow the team down, let architecture/style debt through for now | Security is non-negotiable, but cost, scale, and architecture decisions matter just as much once you're operating at scale |
+| **Plain English** | Block if there's any security finding, or any critical-severity finding of any kind | Block only if there's a critical or warning-level finding in correctness, UX, or developer-experience | Block on any security finding, or on a critical finding in cost, architecture, or scalability |
+| **jq expression** | `(.counts.by_category.security > 0) or (.counts.by_severity.critical > 0)` | `[.findings[] \| select((.category=="correctness" or .category=="ui-ux" or .category=="developer-experience") and (.severity=="critical" or .severity=="warning"))] \| length > 0` | `(.counts.by_category.security > 0) or ([.findings[] \| select((.category=="cost" or .category=="architecture" or .category=="scalability") and .severity=="critical")] \| length > 0)` |
+
+Every category above (`security`, `correctness`, `ui-ux`, `developer-experience`, `cost`, `architecture`, `scalability`, and more) comes from the same [10-category, 100+ risk taxonomy](#impact-report) LiveReview already tracks on every review; the gate is just a rule over data you're already generating.
+
+See it in action: [LiveReview CI/CD Gates: Control What Code Gets Merged from Your PR](https://hexmos.com/livereview/demo/?v=Gc9tz-ena30).
+
+<a id="improve"></a>
+## Improve: Take the Guesswork Out of What to Fix Next
+
+An org with a higher learning rate beats one with a lower rate. LiveReview turns the day's activity into chat, charts, and reports, so you know what to fix, what to automate, and where to spend the next engineering hour, instead of guessing.
+
 <a id="impact-report"></a>
-## Prevent Outages, Breaches, and Technical Debt Before They Happen
+### Prevent Outages, Breaches, and Technical Debt Before They Happen
 
 Every commit git-lrc reviews gets checked against the same risk categories LiveReview tracks across production codebases:
 
@@ -169,7 +395,7 @@ Every commit git-lrc reviews gets checked against the same risk categories LiveR
 
 See it live: [Analyze Findings with the Impact Report](https://hexmos.com/livereview/demo?v=xjUISiSSKEk) and [Export Impact Reports as PDF or CSV](https://hexmos.com/livereview/demo?v=kN6o6lognxA).
 
-### 🔥 Outages: what takes down production, and impacts your on-call rotation
+#### 🔥 Outages: what takes down production, and impacts your on-call rotation
 
 > **Correctness → Business Rule Violations**
 > A discount, limit, or policy nobody approved gets applied automatically, at scale.
@@ -192,7 +418,7 @@ See it live: [Analyze Findings with the Impact Report](https://hexmos.com/livere
 
 </details>
 
-### 🛡️ Breaches: what ends up in a disclosure letter, and a board meeting
+#### 🛡️ Breaches: what ends up in a disclosure letter, and a board meeting
 
 > **Security → Authentication**
 > A weak login flow is an open door, and attackers check every door.
@@ -215,7 +441,7 @@ See it live: [Analyze Findings with the Impact Report](https://hexmos.com/livere
 
 </details>
 
-### 🧱 Technical Debt: what slows every future release until someone pays it down
+#### 🧱 Technical Debt: what slows every future release until someone pays it down
 
 > **Maintainability → Code Complexity**
 > Code only one person understands is a single point of failure with a name and a vacation schedule.
@@ -241,7 +467,7 @@ See it live: [Analyze Findings with the Impact Report](https://hexmos.com/livere
 </details>
 
 <a id="data-backed-decisions"></a>
-## Data-Backed Decisions: An AI Chatbot for Your Engineering Data
+### Data-Backed Decisions: An AI Chatbot for Your Engineering Data
 
 Ask **Livi** a product, engineering, or ops question in plain English. Livi answers with a chart pulled straight from your organization's own data. No dashboards to build, no SQL to write.
 
@@ -257,14 +483,14 @@ Livi's answers reach you where you already work: watch [Generate Engineering Rep
 
 Below is a sample of the questions different roles ask Livi. Each chart uses the same specs as the interactive demo on the live site.
 
-### Adoption & Growth
+#### Adoption & Growth
 
 | Persona | Question to Livi | Chart |
 |---|---|---|
 | Exec | "Is LiveReview adoption increasing across the org?" | <img src="./assets/screenshots/livi-charts/01-adoption-is-livereview-adoption-increasing-across.png" width="320"/> |
 | Exec | "Which repositories have adopted LiveReview the most?" | <img src="./assets/screenshots/livi-charts/02-adoption-which-repositories-have-adopted-liverevi.png" width="320"/> |
 
-### Repository Analysis
+#### Repository Analysis
 
 | Persona | Question to Livi | Chart |
 |---|---|---|
@@ -274,42 +500,42 @@ Below is a sample of the questions different roles ask Livi. Each chart uses the
 <details>
 <summary>Show 12 more examples (Engineer Analysis, Review Quality, Cost & Efficiency, Engagement & Trust, Summary & Comparison, Trace & Investigate)</summary>
 
-### Engineer Analysis
+#### Engineer Analysis
 
 | Persona | Question to Livi | Chart |
 |---|---|---|
 | Eng Manager | "Who are our top contributors by review volume?" | <img src="./assets/screenshots/livi-charts/05-engineers-who-are-our-top-contributors-by-review-v.png" width="320"/> |
 | Eng Manager | "How does each engineer trigger their reviews?" | <img src="./assets/screenshots/livi-charts/06-engineers-how-does-each-engineer-trigger-their-rev.png" width="320"/> |
 
-### Review Quality
+#### Review Quality
 
 | Persona | Question to Livi | Chart |
 |---|---|---|
 | Eng Manager | "What are the most concerning issue types this quarter?" | <img src="./assets/screenshots/livi-charts/07-quality-what-are-the-most-concerning-issue-types.png" width="320"/> |
 | Eng Manager | "Are engineers actually incorporating reviews into their daily workflow?" | <img src="./assets/screenshots/livi-charts/08-quality-are-engineers-actually-incorporating-rev.png" width="320"/> |
 
-### Cost & Efficiency
+#### Cost & Efficiency
 
 | Persona | Question to Livi | Chart |
 |---|---|---|
 | Exec | "How much does LiveReview cost us per day?" | <img src="./assets/screenshots/livi-charts/09-cost-how-much-does-livereview-cost-us-per-day.png" width="320"/> |
 | Product | "Which AI provider gives us the best value?" | <img src="./assets/screenshots/livi-charts/10-cost-which-ai-provider-gives-us-the-best-valu.png" width="320"/> |
 
-### Engagement & Trust
+#### Engagement & Trust
 
 | Persona | Question to Livi | Chart |
 |---|---|---|
 | Eng Manager | "Are people trusting the reviews LiveReview produces?" | <img src="./assets/screenshots/livi-charts/11-engagement-are-people-trusting-the-reviews-liverevi.png" width="320"/> |
 | Product | "Which engineers get the most value from LiveReview?" | <img src="./assets/screenshots/livi-charts/12-engagement-which-engineers-get-the-most-value-from-.png" width="320"/> |
 
-### Summary & Comparison
+#### Summary & Comparison
 
 | Persona | Question to Livi | Chart |
 |---|---|---|
 | Exec | "How does this week compare to last week?" | <img src="./assets/screenshots/livi-charts/13-summary-how-does-this-week-compare-to-last-week.png" width="320"/> |
 | Eng Manager | "What's the overall severity mix across all our findings?" | <img src="./assets/screenshots/livi-charts/14-summary-what-s-the-overall-severity-mix-across-a.png" width="320"/> |
 
-### Trace & Investigate
+#### Trace & Investigate
 
 | Persona | Question to Livi | Chart |
 |---|---|---|
@@ -320,8 +546,13 @@ Below is a sample of the questions different roles ask Livi. Each chart uses the
 
 *Charts above use sample data, for illustration only. Try the fully interactive version, with live chart drill-down, at [hexmos.com/livereview](https://hexmos.com/livereview/#data-backed-decisions).*
 
+<a id="connect"></a>
+## Connect: Adopt LiveReview Without Disrupting Your Team
+
+None of the above requires disruption. LiveReview works with the tools and systems you already run, so these outcomes are low-friction to reach, not a rebuild.
+
 <a id="mcp-server"></a>
-## Get Actionable Engineering Intelligence with MCP and the REST API
+### Get Actionable Engineering Intelligence with MCP and the REST API
 
 Every code review LiveReview performs adds to a growing source of **engineering intelligence**. LiveReview exposes this two separate ways, for two separate purposes:
 
@@ -337,7 +568,7 @@ Both let you:
 
 Real use cases from teams already doing this: [Prevent Production Issues](https://hexmos.com/livereview/docs/livereview/mcp/usecases/prevent-production-issues/), [Turn Findings into Tickets](https://hexmos.com/livereview/docs/livereview/mcp/usecases/turn-findings-into-tickets/), [Keep Project Management in Sync](https://hexmos.com/livereview/docs/livereview/mcp/usecases/keep-project-management-in-sync/), and [Generate Release Notes](https://hexmos.com/livereview/docs/livereview/mcp/usecases/generate-release-notes/) — see the [full MCP use-case list](https://hexmos.com/livereview/docs/livereview/mcp/usecases/).
 
-### Getting your API Key
+#### Getting your API Key
 
 The same key authenticates both the MCP server and the REST API.
 
@@ -352,11 +583,11 @@ The same key authenticates both the MCP server and the REST API.
 
 Watch [Create and Manage API Keys](https://hexmos.com/livereview/demo?v=kW_Fhx4AJfk).
 
-### MCP Server
+#### MCP Server
 
 For AI assistants and agents: Claude Desktop, Claude Code, Cursor, Windsurf, or anything else that speaks MCP.
 
-#### Configuration
+##### Configuration
 
 Add the following block to your MCP client's configuration file:
 
@@ -387,11 +618,11 @@ Replace `<YOUR_LIVEREVIEW_API_KEY>` with your actual LiveReview API key. See the
 
 Running an AI agent in your CI/CD pipeline instead of a chat assistant? The MCP server works there too: [Automate Code Reviews in CI/CD with LiveReview MCP](https://hexmos.com/livereview/demo?v=ar4B6IrDrqk).
 
-#### What you can do
+##### What you can do
 
 Once connected to the MCP server, you can ask your assistant to interact with LiveReview. Each MCP tool below wraps one REST API endpoint (its name follows the endpoint's method and path), but the tool itself is only reachable through the MCP server, not by calling the endpoint directly.
 
-#### Code Reviews
+##### Code Reviews
 | Tool | Description | Example Prompt |
 |------|-------------|----------------|
 | `post_api_v1_connectors_trigger-review` | Trigger a new code review for a repo URL | *"Trigger a review for https://github.com/user/repo/pull/123"* |
@@ -402,7 +633,7 @@ Once connected to the MCP server, you can ask your assistant to interact with Li
 <details>
 <summary>Show all MCP tools (Learnings & Prompts, Billing & Quotas, Integrations)</summary>
 
-#### Learnings & Prompts
+##### Learnings & Prompts
 | Tool | Description | Example Prompt |
 |------|-------------|----------------|
 | `get_api_v1_learnings` | List existing team learnings | *"List our team's active learnings"* |
@@ -412,7 +643,7 @@ Once connected to the MCP server, you can ask your assistant to interact with Li
 | `get_api_v1_prompts_key_variables` | Get required variables for a prompt template | *"What variables does the base prompt need?"* |
 | `get_api_v1_prompts_key_render` | Render a prompt preview with provided variables | *"Render the prompt key 'system' with..."* |
 
-#### Billing & Quotas
+##### Billing & Quotas
 | Tool | Description | Example Prompt |
 |------|-------------|----------------|
 | `get_api_v1_billing_status` | Check current billing status of the organization | *"What is our current billing status?"* |
@@ -422,7 +653,7 @@ Once connected to the MCP server, you can ask your assistant to interact with Li
 | `get_api_v1_billing_usage_members` | Get member-wise LOC usage information | *"Show the usage broken down by team member"* |
 | `post_api_v1_billing_upgrade_preview` | Generate an upgrade preview for a target plan | *"Preview the cost of upgrading to team_32usd"* |
 
-#### Integrations
+##### Integrations
 | Tool | Description | Example Prompt |
 |------|-------------|----------------|
 | `get_api_v1_connectors` | List configured Git connectors | *"List our configured Git connectors"* |
@@ -432,207 +663,14 @@ Once connected to the MCP server, you can ask your assistant to interact with Li
 
 Full MCP reference: [MCP Usage docs](https://hexmos.com/livereview/docs/livereview/mcp/mcp-usage/)
 
-### REST API
+#### REST API
 
 For scripts, CI/CD pipelines, and custom integrations that call LiveReview directly over HTTP, with no AI agent or MCP client involved. Same API key as above, sent as the `X-API-KEY` header. Covers reviews, reports, learnings, billing, connectors, and more.
 
 Full REST API reference: [hexmos.com/livereview/docs/livereview/api](https://hexmos.com/livereview/docs/livereview/api/)
 
-<a id="repository-rules"></a>
-## Enforce Your Team's Engineering Standards with Repository Rules
-
-A good reviewer knows your language and framework. A great reviewer also knows *your* repository: which patterns your team prefers, which dependencies are off-limits, and which files don't need a second look. Drop a `.lrc/` directory in your repo, and LiveReview reads it on every review.
-
-This is per-repo, and stacks on top of any org-wide [Custom Prompts](#features) — reach for Repository Rules first; it's how most teams should scope their standards, since each team keeps its own rules without affecting anyone else's repo.
-
-```
-.lrc/
-├── ignore               # files the reviewer never sees
-├── rules/
-│   ├── INSTRUCTIONS.md  # read first, every review
-│   ├── security.md
-│   └── style.md
-└── policy/
-    └── tools.toml       # which checks are allowed to run
-```
-
-| | |
-|---|---|
-| **Repository Rules** | Write down the decisions that come up in every review, such as "prefer direct SQL over ORM abstractions" or "avoid new infrastructure dependencies". LiveReview reads `INSTRUCTIONS.md` first, then every other `rules/*.md` file, in order. |
-| **Ignore File** | Point the reviewer away from generated code, vendored dependencies, and anything else that doesn't need a second look. Uses gitignore syntax, matched from your repo root. Ignored files don't count toward billable lines. |
-| **Policies** *(coming soon)* | Decide which tools and checks can run on this repo. Machine-readable settings that LiveReview reads directly. Never sent to the AI model. |
-| **Static Checks** *(coming soon)* | Pair AI review with static analyzers like semgrep and eslint. Authorized through policy, run as part of the same commit-time flow. |
-
-Full reference: [Repository Rules docs](https://hexmos.com/livereview/docs/git-lrc/configure/repository-rules/) · [Set Review Rules](https://hexmos.com/livereview/docs/git-lrc/configure/set-review-rules/)
-
-<a id="cicd-gates"></a>
-## CI/CD Gates: Precise, Customized Merge Enforcement
-
-A generic "fail if severity is high" checkbox can't match how your team actually thinks about risk. **CI/CD Gates** let you write the exact condition, in [jq](https://jqlang.org/), against the real findings from a LiveReview review, and wire it into any pipeline as a single HTTP call. The pipeline doesn't run an AI model or interpret anything; it reads one URL's HTTP status.
-
-<p align="center">
-   <img src="./assets/screenshots/ci-cd-gates/ruleset-list.png" alt="CI/CD Gates: a list of named rulesets, each with its own jq expression" width="85%"/>
-</p>
-
-- **Works on any review source.** Web UI, `git-lrc` local reviews, CI/CD-triggered reviews, and API/MCP-triggered reviews all produce the same canonical findings document, so one gate covers every path code takes toward a merge.
-- **Full power of jq, no lock-in to preset severity buckets.** Combine severity, category, subcategory, and confidence however your repo actually needs it, not just "block on critical."
-- **A live expression editor**, with LLM help. Run your jq against a synthetic sample document and real past reviews as you type, see a `BLOCK`/`ALLOW` verdict update live, and reach for an "Ask LLM" helper (a ready-made prompt with your org's taxonomy and a sample document, for you to paste into ChatGPT, Gemini, or DeepSeek) when the condition gets complex.
-
-<p align="center">
-   <img src="./assets/screenshots/ci-cd-gates/jq-editor.png" alt="Live jq rule editor with presets, Ask LLM helper, and a live BLOCK/ALLOW preview against a sample review" width="85%"/>
-</p>
-
-Once a ruleset is saved, `GET /ci-rulesets/:id/evaluate` is the whole integration: call it from GitHub Actions, GitLab CI, Bitbucket Pipelines, Azure Pipelines, or any generic runner, and gate the job on its HTTP status.
-
-### Write the rule that matches how your team actually weighs risk
-
-Different teams weigh the same findings differently. jq lets each team encode its own answer, not a preset severity bucket:
-
-|  | Security-conscious team | Fast-moving startup | Mature enterprise |
-|---|---|---|---|
-| **Cares about** | Even one security finding is unacceptable, and so is any critical-severity bug elsewhere | Ship velocity matters most: block only on correctness and UX bugs that would actually hurt users or slow the team down, let architecture/style debt through for now | Security is non-negotiable, but cost, scale, and architecture decisions matter just as much once you're operating at scale |
-| **Plain English** | Block if there's any security finding, or any critical-severity finding of any kind | Block only if there's a critical or warning-level finding in correctness, UX, or developer-experience | Block on any security finding, or on a critical finding in cost, architecture, or scalability |
-| **jq expression** | `(.counts.by_category.security > 0) or (.counts.by_severity.critical > 0)` | `[.findings[] \| select((.category=="correctness" or .category=="ui-ux" or .category=="developer-experience") and (.severity=="critical" or .severity=="warning"))] \| length > 0` | `(.counts.by_category.security > 0) or ([.findings[] \| select((.category=="cost" or .category=="architecture" or .category=="scalability") and .severity=="critical")] \| length > 0)` |
-
-Every category above (`security`, `correctness`, `ui-ux`, `developer-experience`, `cost`, `architecture`, `scalability`, and more) comes from the same [10-category, 100+ risk taxonomy](#impact-report) LiveReview already tracks on every review; the gate is just a rule over data you're already generating.
-
-See it in action: [LiveReview CI/CD Gates: Control What Code Gets Merged from Your PR](https://hexmos.com/livereview/demo/?v=Gc9tz-ena30).
-
-<a id="adaptive-reviews"></a>
-## Adaptive Reviews: Cut AI Review Costs by 50% Without Compromising Quality
-
-**Adaptive Reviews** uses two AI models instead of one: a powerful Leader Model finds complex issues, and a cost-efficient Helper Model explains them. Same review quality, at half the price.
-
-| | |
-|---|---|
-| **Reduce Costs by 40-50%** | A cost-efficient Helper Model writes the explanations, instead of one expensive model doing everything. |
-| **Double Review Volume** | Review up to 2x more code on the same budget. No need to monitor limits constantly. |
-| **Leader + Helper Architecture** | The Leader Model finds complex issues. The Helper Model expands those findings into detailed explanations. |
-| **Maintain Review Quality** | The high-end Leader Model still drives issue detection, so accuracy does not drop. |
-
-See it explained: [Adaptive Reviews: Cut AI Costs by 40-50%](https://hexmos.com/livereview/demo?v=6Kh4ieFj6s8).
-
-<a id="why-livereview"></a>
-## Why LiveReview
-
-Most AI review tools flag style nits and treat every line the same. LiveReview is built around three things most tools skip:
-
-- **Blast-Radius scoring**: every hunk is ranked by how much of the system it can actually break, so reviewers spend their limited time on the change that could take down production, not the one that renamed a variable.
-- **A named taxonomy of 104 failure patterns** across Reliability, Correctness, Security, Compliance, Maintainability, and Cost (see [Prevent Outages, Breaches, and Technical Debt](#impact-report)), checked on every commit, not just at PR time.
-- **Livi, an AI chatbot for your engineering data**: ask any question in plain English — adoption, cost, quality, who's actually incorporating review feedback — and get a data-backed chart back, not a guess. See [Data-Backed Decisions](#data-backed-decisions).
-
-Blast-Radius scoring and the failure taxonomy change what gets reviewed. Livi changes what gets *decided*: every rollout, staffing, or process call is backed by real numbers pulled from your own review history, not gut feel. That combination is what leads teams to keep it turned on:
-
-- **Accelerate Delivery Cycles**: Cut PR review time from hours to minutes, because reviewers see what matters first instead of reading top to bottom.
-- **Save Senior Engineering Time**: Free senior developers from routine reviews. Let them focus on mentorship and high-impact architecture work.
-- **Drive Quality Excellence**: Track metrics that show improvements in code standards, fewer defects, and better development efficiency.
-- **Decide with Confidence, Not Guesswork**: Ask Livi instead of guessing. Every engineering, staffing, or process decision gets a chart pulled from real review history behind it.
-
-<a id="features"></a>
-## Powerful Features for Modern Engineering Teams
-
-<p align="center">
-   <img src="./assets/screenshots/2026-08-29/04-menu-actions.png" alt="LiveReview navigation: Reviews, Explore, Providers, Reports, Settings" width="80%"/>
-</p>
-
-### Review Pipeline and Issue Distribution Charts
-See where reviews get stuck (Sankey flow from open to merged) and where issues cluster by category (treemap), pulled from your own review history.
-
-| Review pipeline, at a glance | Issue distribution by category |
-|:---:|:---:|
-| <img src="./assets/screenshots/2026-08-29/01-dashboard-sankey-slash.png" width="380"/> | <img src="./assets/screenshots/2026-08-29/02-dashboard-treemap-slash.png" width="380"/> |
-
-### Fine-Tuned LiveReview AI Model
-LiveReview comes with its own fine-tuned AI model, ready from day one. Prefer your own provider? Bring your own key (BYOK) for Gemini, OpenAI, AWS Bedrock, a self-hosted Ollama model, or any other LLM. See the [AI Integration guide](https://hexmos.com/livereview/docs/livereview/self-hosted/add-ai-integration-to-livereview/), or watch [Connect Google Gemini and Gemini Enterprise](https://hexmos.com/livereview/demo?v=P0jRFmf_FKE), [Connect Amazon Bedrock](https://hexmos.com/livereview/demo?v=zVf2O9z_370), or [Connect DeepSeek, OpenRouter, OpenAI, and Ollama](https://hexmos.com/livereview/demo?v=omtGw_SIJKs).
-
-<p align="center">
-   <img src="./assets/screenshots/ai_providers.png" alt="AI Provider Configuration" width="80%"/>
-</p>
-
-### Use Any Git Provider: GitHub, GitLab, Bitbucket, Gitea, Azure DevOps
-Connect a repository from GitHub, GitLab, Bitbucket, Gitea, or Azure DevOps, and LiveReview reviews it the same way, with the same Blast Radius scoring. Watch [Connect GitHub to LiveReview](https://hexmos.com/livereview/demo?v=zkWf98OvJQA) or [Connect Self-Hosted GitLab](https://hexmos.com/livereview/demo?v=6svc4MSnqjw), or see the full [Git Provider setup guide](https://hexmos.com/livereview/docs/livereview/self-hosted/adding-git-providers-to-livereview/).
-
-<p align="center">
-   <img src="./assets/screenshots/2026-08-29/12-git-providers-slash-git.png" alt="Git Provider Integration" width="80%"/>
-</p>
-
-### Explore Every Repository and Pull Request, Across Every Provider
-Browse every repository and merge or pull request LiveReview can see, in one list, no matter which git provider it lives on. Trigger a review straight from that list — see [Trigger PR Reviews from the Dashboard](https://hexmos.com/livereview/demo?v=Dvm-ixzuO8E).
-
-| Every connected repository | Every merge/pull request |
-|:---:|:---:|
-| <img src="./assets/screenshots/2026-08-29/10-explore-slash-explore-repositories.png" width="380"/> | <img src="./assets/screenshots/2026-08-29/11-explore-slash-merge-requests.png" width="380"/> |
-
-<details id="scheduled-reviews">
-<summary>Show 7 more features (review list, progress tracking, custom prompts, team learnings, PR summaries, AI clarification, scheduled reviews)</summary>
-
-### View All AI Reviews in One Place
-See every review's status, from queued to complete, and jump straight into the ones that need attention. See [Trigger Manual Pull Request Reviews](https://hexmos.com/livereview/demo?v=ReHJfGbeUCo).
-
-<p align="center">
-   <img src="./assets/screenshots/2026-08-29/06-list-reviews-slash-reviews.png" alt="LiveReview review list" width="80%"/>
-</p>
-
-### Track Which Files Are Reviewed, Live
-Watch a review work through your diff file by file, so you know exactly what's covered and what's still queued.
-
-<p align="center">
-   <img src="./assets/screenshots/progress_tracker.png" alt="LiveReview Progress Tracker" width="80%"/>
-</p>
-
-### Customize Review Prompts to Fit Your Team
-Custom Prompts apply org-wide, to every repo LiveReview reviews, so keep them to the handful of standards that really are universal across your org. *(Premium & Enterprise)* For anything specific to one repo, use [Repository Rules](#repository-rules) instead — most teams should start there. Watch [Customize AI Review Prompts for Your Team](https://hexmos.com/livereview/demo?v=PA0hQWo_6nE), or read [Customize LiveReview to Your Team's Best Practices](https://hexmos.com/livereview/docs/livereview/self-hosted/customize-livereview-to-your-teams-best-practices/).
-
-<p align="center">
-   <img src="./assets/screenshots/prompt_customization.png" alt="Customizing LiveReview's review prompts" width="80%"/>
-</p>
-
-### Discuss with AI in MR and See it Learn Everyday
-Every discussion in a merge request becomes a stored "learning": a best practice, a recurring issue, or a team convention the AI applies to every future review. See it in [Improve Reviews with Organizational Learning](https://hexmos.com/livereview/demo?v=t78Fajj74ZI).
-
-<p align="center">
-   <img src="./assets/screenshots/learnings_management.png" alt="Managing team learnings in LiveReview" width="80%"/>
-</p>
-
-### Sharp AI-Generated Pull Request Summaries
-Every pull request gets a summary of what changed, why it matters, and what risks were flagged, so reviewers don't have to read the whole diff to know where to look. See [Ask Questions About Code via Inline PR Comments](https://hexmos.com/livereview/demo?v=7BtjZ3VS8Mo).
-
-<p align="center">
-   <img src="./assets/screenshots/detailed_mr_summaries.png" alt="Detailed AI-generated MR/PR summaries" width="80%"/>
-</p>
-
-### Ask AI for Clarification or Debate Code Changes
-Reply to any AI comment in the merge request to ask why it flagged something, or push back on it. The AI has the full diff context, not just the one line it commented on. Watch [Reply to AI Review Comments and Get Guidance](https://hexmos.com/livereview/demo?v=FX9nfubMh68), and [Auto-Fix Review Issues with Claude Code or AI Agents](https://hexmos.com/livereview/demo?v=DV2qt28TMmo).
-
-<p align="center">
-   <img src="./assets/screenshots/clarification_question.png" alt="Asking LiveReview's AI a clarification question in a merge request" width="80%"/>
-</p>
-
-### Scheduled Reviews: A Safety Net for the Code Nobody Reviewed
-
-Not every change goes through a full review:
-
-- A hotfix might land straight on the main branch.
-- A dependency bump might merge on its own.
-
-For a small, fast-moving team, that's often the right call, you can't review every line by hand and still ship fast. **Scheduled Reviews** are the safety net for exactly that gap.
-
-- **Checks on its own schedule.** LiveReview reviews your default branch even when nobody asked it to, and catches anything that got in outside your normal commit, push, or PR checks.
-- **Per-repository control.** Turn it on with one toggle.
-- **Your own cadence.** Pick how often it runs, in plain cron syntax, or leave it blank and LiveReview checks once a day.
-- **Always visible.** See the last time it ran and the next time it will, right in the schedule list.
-- **Zero upkeep.** Runs by itself in the background, nobody has to remember to trigger it.
-
-> For most teams, once a day on the main branch is enough to keep quality high without slowing anyone down.
-
-| The schedule list, per repository | Editing a repository's schedule |
-|:---:|:---:|
-| <img src="./assets/screenshots/2026-08-29/08-scheduled-reviews-slash-reviews-scheduled.png" width="380"/> | <img src="./assets/screenshots/2026-08-29/09-scheduled-reviews-slash-reviews-scheduled-edit.png" width="380"/> |
-
-</details>
-
 <a id="cli"></a>
-## Two CLI Tools. One LiveReview Backend.
+### Two CLI Tools. One LiveReview Backend.
 
 Install `git-lrc` for commit-time reviews in any terminal. Use `claude-lrc` when you build inside Claude Code. Both tools share the same AI review engine and the same monthly LOC quota.
 
@@ -658,7 +696,7 @@ git commit -m "message"
 
 Full CLI docs: [Getting Started](https://hexmos.com/livereview/docs/git-lrc/get-started/intro/) · [Reviewer Workflow](https://hexmos.com/livereview/docs/git-lrc/concepts/workflow/) · [Repository Rules](https://hexmos.com/livereview/docs/git-lrc/configure/repository-rules/) · [Security](https://hexmos.com/livereview/docs/git-lrc/git-lrc-security/)
 
-### Quick Install
+#### Quick Install
 
 **Linux/macOS:**
 ```bash
@@ -672,7 +710,7 @@ iwr -useb https://hexmos.com/lrc-install.ps1 | iex
 
 Watch the [One-Line Installer for LiveReview Self-Hosted](https://hexmos.com/livereview/demo?v=E1UBI_NtSKU) demo, or follow the full [install guide](https://hexmos.com/livereview/docs/git-lrc/get-started/install/).
 
-### Prefer the Web UI? Paste a URL Instead
+#### Prefer the Web UI? Paste a URL Instead
 
 No local setup needed. Paste a merge or pull request URL into LiveReview and it runs the same review, with the same Blast Radius scoring.
 
@@ -680,7 +718,7 @@ No local setup needed. Paste a merge or pull request URL into LiveReview and it 
    <img src="./assets/screenshots/2026-08-29/03-new-review-slash-reviews-new.png" alt="Trigger a review by pasting a merge or pull request URL" width="80%"/>
 </p>
 
-### git-lrc and claude-lrc in Action
+#### git-lrc and claude-lrc in Action
 
 `git-lrc` and `claude-lrc` are the two CLI tools above, in motion. Both plug into the same LiveReview backend.
 
@@ -730,7 +768,7 @@ https://github.com/user-attachments/assets/b579d7c6-bdf6-458b-b446-006ca41fe47d
 </details>
 
 <a id="ide-extensions"></a>
-## IDE Extensions
+### IDE Extensions
 
 Get AI code reviews without leaving your editor. Available for VSCode, Cursor, and Antigravity.
 
@@ -739,6 +777,22 @@ Get AI code reviews without leaving your editor. Available for VSCode, Cursor, a
 | **VSCode** | [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=Hexmos.livereview) |
 | **Cursor** | [Open VSX Registry](https://open-vsx.org/extension/hexmos/livereview) |
 | **Antigravity** | [Open VSX Registry](https://open-vsx.org/extension/hexmos/livereview) |
+
+<a id="why-livereview"></a>
+## Why LiveReview
+
+Most AI review tools flag style nits and treat every line the same. LiveReview is built around three things most tools skip:
+
+- **Blast-Radius scoring**: every hunk is ranked by how much of the system it can actually break, so reviewers spend their limited time on the change that could take down production, not the one that renamed a variable.
+- **A named taxonomy of 104 failure patterns** across Reliability, Correctness, Security, Compliance, Maintainability, and Cost (see [Prevent Outages, Breaches, and Technical Debt](#impact-report)), checked on every commit, not just at PR time.
+- **Livi, an AI chatbot for your engineering data**: ask any question in plain English — adoption, cost, quality, who's actually incorporating review feedback — and get a data-backed chart back, not a guess. See [Data-Backed Decisions](#data-backed-decisions).
+
+LiveReview runs as an independent inspection layer on top of whatever writes your code — Claude, Copilot, Cursor, or anything else — rather than as part of the tool doing the writing. Blast-Radius scoring and the failure taxonomy change what gets reviewed. Livi changes what gets *decided*: every rollout, staffing, or process call is backed by real numbers pulled from your own review history, not gut feel. That combination is what leads teams to keep it turned on:
+
+- **Accelerate Delivery Cycles**: Cut PR review time from hours to minutes, because reviewers see what matters first instead of reading top to bottom.
+- **Save Senior Engineering Time**: Free senior developers from routine reviews. Let them focus on mentorship and high-impact architecture work.
+- **Drive Quality Excellence**: Track metrics that show improvements in code standards, fewer defects, and better development efficiency.
+- **Decide with Confidence, Not Guesswork**: Ask Livi instead of guessing. Every engineering, staffing, or process decision gets a chart pulled from real review history behind it.
 
 <a id="self-hosted-tiers"></a>
 ## Pricing & Enterprise
