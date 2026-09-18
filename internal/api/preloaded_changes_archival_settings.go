@@ -92,8 +92,6 @@ func (server *Server) UpdatePreloadedChangesArchivalSettings(echoContext echo.Co
 			request.Enabled,
 			request.CronExpression,
 			request.RetentionDays,
-			defaultArchivalBatchSize,
-			defaultArchivalInterBatchDelayMs,
 		)
 	}
 

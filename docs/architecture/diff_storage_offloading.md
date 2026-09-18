@@ -152,100 +152,85 @@ All Blob Storage artifact keys include the organization identifier org_id. The A
 
 ---
 
-## Proposed Enhancement: River-based Parallel Upload Architecture
+## Architecture: 5-Step River-based Archival Flow
 
-### Problem with Current Sequential Implementation
+The diff offloading system executes via an automated, distributed 5-step pipeline managed by River job queue. Both scheduled periodic sweeps and manual UI triggers execute the exact same 5-step flow.
 
-The current `PreloadedChangesArchivalManager` processes reviews sequentially — one upload per network roundtrip to Blob Storage. With an average network latency of 150ms per upload to Backblaze B2 US-East, uploading 30,000 review diffs sequentially takes approximately 75 minutes.
+### Step 1: Read Eligible Review IDs in 1 Single Query
+When `PreloadedChangesArchivalSweepWorker` runs (triggered periodically by River or manually via `TriggerManualCycle()`), it executes a single query to discover all review records eligible for offloading (`created_at < NOW() - retentionDays` and containing `preloaded_changes` in metadata):
 
-The root cause is single-threaded network execution. The standard way to achieve high throughput with object storage is to issue multiple upload operations in parallel over multiple HTTP connections simultaneously.
+```sql
+SELECT id, COALESCE(org_id, 0)
+FROM reviews
+WHERE created_at < NOW() - ($1 * INTERVAL '1 day')
+  AND trigger_type = 'cli_diff'
+  AND metadata ? 'preloaded_changes'
+ORDER BY created_at ASC;
+```
 
-### Solution: Single-Review River Jobs with Consumer-Side Parallelism
+### Step 2: Bulk Insert with Exponential Retry Mechanism
+The sweep worker generates a unique `batch_run_id` (e.g. `batch_<timestamp>`), creates `PreloadedChangesArchivalJobArgs` for each review ID, and bulk inserts them into River queue using `jq.client.InsertMany()`:
+- Each upload job includes exponential retry backoff (`NextRetry` up to 10 attempts).
+- The worker also enqueues 1 `PreloadedChangesArchivalPurgeJobArgs` coordinator job for the batch.
 
-Rather than creating batch jobs containing multiple review IDs or running manual goroutine pools inside a worker, the system uses **1 River job per 1 review ID** (`PreloadedChangesArchivalJobArgs{ReviewID int64, OrgID int64}`). 
+### Step 3: Independent Upload & River Completion
+River worker pool processes `PreloadedChangesArchivalWorker` jobs in parallel across workers:
+- Each worker fetches `metadata->'preloaded_changes'` for its single `ReviewID`.
+- Uploads the diff payload to Blob Storage at `org/<org_id>/review/<review_id>/artifacts/preloaded_changes.json`.
+- **No DB write** during upload — on success, the worker returns `nil` and River marks the individual job as `completed`.
+- If an upload fails, River retries only that specific failed job using exponential backoff.
 
-Parallelism is achieved on the **consumer side** via River's native worker pool concurrency (`MaxWorkers`). River automatically executes multiple single-review workers concurrently in separate background goroutines.
+### Step 4: Single-Query Metadata Purge on Full Completion
+`PreloadedChangesArchivalPurgeWorker` monitors `river_job` for `batch_run_id`:
+- Waits while any upload jobs for `batch_run_id` remain pending or retrying.
+- Once **ALL** upload jobs in the batch reach `completed` state, it executes **ONE single SQL UPDATE** query to strip `preloaded_changes` from PostgreSQL metadata:
 
-#### Architecture & Execution Flow
+```sql
+UPDATE reviews
+SET metadata = metadata - 'preloaded_changes'
+WHERE created_at < NOW() - ($1 * INTERVAL '1 day')
+  AND trigger_type = 'cli_diff'
+  AND metadata ? 'preloaded_changes';
+```
 
-**Phase 1 — Enqueueing (Producer Cron)**
+### Step 5: Job Cleanup
+After the single-query metadata purge succeeds, the purge worker clears all job records created for that batch from the database:
 
-1. The `PreloadedChangesArchivalManager` cron fires on schedule.
-2. It queries un-archived review IDs eligible for archival (`created_at < NOW() - retentionDays`):
-   ```sql
-   SELECT id, COALESCE(org_id, 0)
-   FROM reviews
-   WHERE created_at < NOW() - ($1 * INTERVAL '1 day')
-     AND trigger_type = 'cli_diff'
-     AND metadata ? 'preloaded_changes'
-   ORDER BY created_at ASC;
-   ```
-3. It calls `jq.QueuePreloadedChangesArchivalJobs()` to enqueue 1 River job per review ID via `InsertMany()`.
-4. It enqueues a single `PreloadedChangesArchivalPurgeWorker` job (`PreloadedChangesArchivalPurgeJobArgs`) to monitor completion and execute the final bulk purge.
-
-**Phase 2 — Parallel Execution (Consumer Workers)**
-
-1. River's worker engine executes `PreloadedChangesArchivalWorker.Work()` concurrently across workers (`MaxWorkers`):
-   - Reads `metadata->'preloaded_changes'` from PostgreSQL for its single `ReviewID`.
-   - Uploads diff to Blob Storage (`org/:org_id/review/:review_id/artifacts/preloaded_changes.json`).
-   - **No DB write** during upload — individual workers return `nil` on success.
-
-**Phase 3 — Bulk Purge (Purge Worker)**
-
-1. `PreloadedChangesArchivalPurgeWorker` monitors job states via `river_job`:
-   - Waits while any archival jobs in the batch remain active.
-   - Collects review IDs of all successfully completed jobs (`JobStateCompleted`).
-2. Executes **ONE bulk UPDATE** query in PostgreSQL:
-   ```sql
-   UPDATE reviews
-   SET metadata = metadata - 'preloaded_changes'
-   WHERE id = ANY($1::bigint[])
-     AND org_id = $2
-     AND metadata ? 'preloaded_changes';
-   ```
+```sql
+DELETE FROM river_job
+WHERE args->>'batch_run_id' = $1;
+```
 
 ```mermaid
 flowchart TD
-    A["PreloadedChangesArchivalManager Cron Trigger"] --> B["SELECT eligible review IDs (id, org_id)"]
-    B --> C["riverClient.InsertMany — 1 River job per review ID + 1 Purge Job"]
-    C --> D["Cron returns — River Worker Pool takes over"]
+    A["Periodic Schedule or Manual Trigger"] --> B["Step 1: SELECT all eligible review IDs in 1 query"]
+    B --> C["Step 2: InsertMany all upload jobs with batch_run_id + 1 Purge Job into River Queue"]
+    C --> D["River Worker Pool (Parallel execution)"]
 
-    D --> E1["River Worker 1"]
-    D --> E2["River Worker 2"]
-    D --> E3["River Worker N"]
+    D --> E1["Worker 1"]
+    D --> E2["Worker 2"]
+    D --> E3["Worker N"]
 
-    E1 --> F1["Fetch preloaded_changes for Review 1 -> Upload to B2 (No DB Write)"]
-    E2 --> F2["Fetch preloaded_changes for Review 2 -> Upload to B2 (No DB Write)"]
-    E3 --> F3["Fetch preloaded_changes for Review N -> Upload to B2 (No DB Write)"]
+    E1 --> F1["Step 3: Upload Review 1 diff to Blob Storage (Independent)"]
+    E2 --> F2["Step 3: Upload Review 2 diff to Blob Storage (Independent)"]
+    E3 --> F3["Step 3: Upload Review N diff to Blob Storage (Independent)"]
 
-    F1 --> G1{"Upload Succeeded?"}
+    F1 --> G1{"Upload Success?"}
     G1 -- "Yes" --> H1["Mark job completed in River"]
-    G1 -- "No" --> I1["Return error — River retries ONLY Review 1"]
+    G1 -- "No" --> I1["Exponential retry ONLY Review 1"]
 
-    H1 --> P["PreloadedChangesArchivalPurgeWorker — Checks all batch jobs complete"]
-    P --> Q["ONE Bulk UPDATE: SET metadata = metadata - 'preloaded_changes' WHERE id = ANY(completedIDs)"]
-
-    J["River JobCleaner — runs every 30s"] --> K["Deletes river_job rows older than retention period automatically"]
+    H1 --> P["PreloadedChangesArchivalPurgeWorker"]
+    P --> Q{"All jobs in batch completed?"}
+    Q -- "No" --> R["Retry purge check in 15s"]
+    Q -- "Yes" --> S["Step 4: ONE Single SQL UPDATE to delete preloaded_changes from DB metadata"]
+    S --> T["Step 5: DELETE FROM river_job WHERE args->>'batch_run_id' = batch_id"]
 ```
-
-#### Database Call Count Breakdown for 1,000 Reviews
-
-| Operation | Query Type | Count |
-| :--- | :--- | :--- |
-| **Cron Query** | `SELECT id, org_id` for eligible reviews | **1** |
-| **Enqueue Archival Jobs** | `INSERT INTO river_job` (InsertMany for 1,000 jobs) | **1** |
-| **Enqueue Purge Job** | `INSERT INTO river_job` (1 purge job) | **1** |
-| **River Worker Job Fetch** | `SELECT ... FOR UPDATE SKIP LOCKED` on `river_job` (batch size ~20–50) | **~20–50** |
-| **Diff Data Fetch** | `SELECT metadata->'preloaded_changes'` per review | **1,000** |
-| **Purge Status Check** | `JobList()` queries on `river_job` checking batch completion | **~2–5** |
-| **Bulk Metadata Purge** | `UPDATE reviews SET metadata = metadata - 'preloaded_changes' WHERE id = ANY($1)` | **1** |
-| **TOTAL PostgreSQL Calls** | | **~1,026 – 1,059** |
 
 #### Safety & Performance Guarantees
 
-* **Clean Retries:** If 1 out of 5,000 reviews fails to upload to Blob Storage, only that 1 review job is retried by River.
-* **1 Bulk Write:** PostgreSQL `metadata` is purged in **1 single SQL UPDATE** after all archival jobs finish, saving 999 DB writes.
-* **Low Memory Footprint:** Workers fetch `preloaded_changes` one review at a time right before upload.
-* **Controlled Concurrency:** Bound by River's `MaxWorkers` queue configuration.
-* **Automatic Job Cleanup:** Built-in River `JobCleaner` purges completed `river_job` rows automatically.
+* **Unified Pipeline:** Manual triggers ("Run Now") and scheduled periodic sweeps run through the exact same 5-step flow.
+* **Granular Retries:** Upload failures on individual review diffs retry independently with exponential backoff without blocking or rolling back other reviews.
+* **1 Bulk Database Write:** PostgreSQL metadata is purged in **1 single SQL UPDATE** after all archival uploads finish.
+* **Zero Job Accumulation:** Completed batch jobs in `river_job` are automatically purged upon batch completion.
+
 

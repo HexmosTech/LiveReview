@@ -12,8 +12,14 @@ interface PreloadedChangesArchivalConfig {
     schedule_human?: string;
 }
 
+const DEFAULT_CONFIG: PreloadedChangesArchivalConfig = {
+    enabled: true,
+    cron_expression: '30 21 * * *',
+    retention_days: 30,
+};
+
 const PreloadedChangesArchivalSettingsTab: React.FC = () => {
-    const [settings, setSettings] = useState<PreloadedChangesArchivalConfig | null>(null);
+    const [settings, setSettings] = useState<PreloadedChangesArchivalConfig>(DEFAULT_CONFIG);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [isRunning, setIsRunning] = useState(false);
@@ -31,9 +37,11 @@ const PreloadedChangesArchivalSettingsTab: React.FC = () => {
         setIsLoading(true);
         try {
             const configData = await apiClient.get<PreloadedChangesArchivalConfig>('/api/v1/admin/settings/preloaded-changes-archival');
-            if (configData) setSettings(configData);
+            if (configData && typeof configData.enabled === 'boolean') {
+                setSettings(configData);
+            }
         } catch {
-            notify.error('Failed to load preloaded changes archival settings');
+            // Keep DEFAULT_CONFIG fallback
         } finally {
             setIsLoading(false);
         }
@@ -42,9 +50,9 @@ const PreloadedChangesArchivalSettingsTab: React.FC = () => {
     const checkBlobStorage = async () => {
         try {
             // Reuse the existing storage settings endpoint — if it returns a non-local type, blob is configured.
-            const data = await apiClient.get<{ storage_type?: string }>('/api/v1/admin/settings/storage');
-            const storageType = data?.storage_type ?? 'local_fs';
-            setBlobConfigured(storageType !== 'local_fs' && storageType !== '');
+            const data = await apiClient.get<{ backend?: string; storage_type?: string }>('/api/v1/admin/settings/storage');
+            const storageType = data?.backend ?? data?.storage_type ?? 'filesystem';
+            setBlobConfigured(storageType !== 'filesystem' && storageType !== 'local_fs' && storageType !== '');
         } catch {
             setBlobConfigured(false);
         }
@@ -102,8 +110,15 @@ const PreloadedChangesArchivalSettingsTab: React.FC = () => {
 
     if (!settings) return null;
 
-    const cronTextObj = getCronText(settings.cron_expression || '30 21 * * *');
-    const humanSchedule = cronTextObj.status && cronTextObj.value ? cronTextObj.value : (settings.schedule_human || settings.cron_expression);
+    let cronExprToParse = settings.cron_expression || '30 21 * * *';
+    let tzDisplay = 'Asia/Kolkata';
+    if (cronExprToParse.startsWith('CRON_TZ=')) {
+        const parts = cronExprToParse.split(' ');
+        tzDisplay = parts[0].replace('CRON_TZ=', '');
+        cronExprToParse = parts.slice(1).join(' ');
+    }
+    const cronTextObj = getCronText(cronExprToParse);
+    const humanSchedule = cronTextObj.status && cronTextObj.value ? cronTextObj.value : cronExprToParse;
 
     return (
         <div className="space-y-5">
@@ -185,7 +200,7 @@ const PreloadedChangesArchivalSettingsTab: React.FC = () => {
                                 {humanSchedule}
                             </div>
                             <p className="text-xs text-slate-500 mt-0.5">
-                                UTC Standard Time
+                                {tzDisplay}
                             </p>
                         </div>
                     </div>

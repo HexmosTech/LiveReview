@@ -5,6 +5,9 @@ import { notify } from '../../utils/notify';
 import CompactionSettingsTab from './CompactionSettingsTab';
 import PreloadedChangesArchivalSettingsTab from './PreloadedChangesArchivalSettingsTab';
 
+import { isCloudMode } from '../../utils/deploymentMode';
+import { useOrgContext } from '../../hooks/useOrgContext';
+
 type Backend = 'filesystem' | 's3' | 'gcs' | 'azure';
 
 interface StorageSettings {
@@ -39,6 +42,8 @@ const DEFAULT_SETTINGS: StorageSettings = {
 // remaining backends cover S3-compatible storage (real AWS S3 or Backblaze
 // B2, over a custom endpoint), Google Cloud Storage, and Azure Blob Storage.
 const StorageSettingsTab: React.FC = () => {
+    const { isSuperAdmin, currentOrg } = useOrgContext();
+    const canManageInstanceConfig = isSuperAdmin || (currentOrg?.role === 'owner' && !isCloudMode());
     const [settings, setSettings] = useState<StorageSettings>(DEFAULT_SETTINGS);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -306,21 +311,26 @@ const StorageSettingsTab: React.FC = () => {
                 </div>
             </div>
 
-            {/* Divider */}
-            <div className="my-10 border-t border-slate-700/80"></div>
+            {/* Instance Owner / Admin Only: Log Compaction & Preloaded Changes Archival */}
+            {canManageInstanceConfig && (
+                <>
+                    {/* Divider */}
+                    <div className="my-10 border-t border-slate-700/80"></div>
 
-            {/* Section 2: PostgreSQL Event Log Compaction & Retention */}
-            <div id="log-compaction">
-                <CompactionSettingsTab />
-            </div>
+                    {/* Section 2: PostgreSQL Event Log Compaction & Retention */}
+                    <div id="log-compaction">
+                        <CompactionSettingsTab />
+                    </div>
 
-            {/* Divider */}
-            <div className="my-10 border-t border-slate-700/80"></div>
+                    {/* Divider */}
+                    <div className="my-10 border-t border-slate-700/80"></div>
 
-            {/* Section 3: Preloaded Changes Archival */}
-            <div id="preloaded-changes-archival">
-                <PreloadedChangesArchivalSettingsTab />
-            </div>
+                    {/* Section 3: Preloaded Changes Archival */}
+                    <div id="preloaded-changes-archival">
+                        <PreloadedChangesArchivalSettingsTab />
+                    </div>
+                </>
+            )}
         </div>
     );
 };
