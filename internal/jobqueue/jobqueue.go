@@ -38,10 +38,13 @@ import (
 	"github.com/livereview/internal/providers/gitea"
 	networkjobqueue "github.com/livereview/network/jobqueue"
 	storagejobqueue "github.com/livereview/storage/jobqueue"
+	"github.com/robfig/cron/v3"
 	"github.com/livereview/storage/providers/pullrequests"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivermigrate"
 )
+
 
 // GitLab API response structures
 type GitLabProject struct {
@@ -2378,6 +2381,14 @@ type JobQueue struct {
 	config *QueueConfig
 }
 
+func mustParseCron(expr string) river.PeriodicSchedule {
+	s, err := cron.ParseStandard(expr)
+	if err != nil {
+		return river.PeriodicInterval(24 * time.Hour)
+	}
+	return s
+}
+
 // NewJobQueue creates a new job queue instance
 func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	// Get configuration with database-sourced webhook endpoint
@@ -2410,6 +2421,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	reconciliationWorker := &ReconciliationSweepWorker{db: db, pool: pool, stalenessThreshold: config.RepoSyncConfig.StalenessThreshold}
 	scheduledReviewWorker := &ScheduledReviewWorker{db: db}
 	preloadedChangesArchivalWorker := &PreloadedChangesArchivalWorker{db: db}
+	preloadedChangesArchivalSweepWorker := &PreloadedChangesArchivalSweepWorker{db: db}
 	preloadedChangesArchivalPurgeWorker := &PreloadedChangesArchivalPurgeWorker{db: db}
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
@@ -2422,11 +2434,60 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, prStateSyncWorker)
 	river.AddWorker(workers, reconciliationWorker)
 	river.AddWorker(workers, preloadedChangesArchivalWorker)
+	river.AddWorker(workers, preloadedChangesArchivalSweepWorker)
 	river.AddWorker(workers, preloadedChangesArchivalPurgeWorker)
 
 	coordinatorInterval := config.RepoSyncConfig.CoordinatorInterval
 	if coordinatorInterval <= 0 {
 		coordinatorInterval = 15 * time.Minute
+	}
+
+	effectiveCronExpr := "30 21 * * *"
+	var archivalRetentionDays int = 30
+
+	if db != nil {
+		var data []byte
+		err := db.QueryRow("SELECT data FROM system_settings WHERE name = 'preloaded_changes_archival_settings'").Scan(&data)
+		if err == nil && len(data) > 0 {
+			var cfg struct {
+				CronExpression string `json:"cron_expression"`
+				RetentionDays  int    `json:"retention_days"`
+			}
+			if json.Unmarshal(data, &cfg) == nil {
+				if cfg.RetentionDays > 0 {
+					archivalRetentionDays = cfg.RetentionDays
+				}
+				if strings.TrimSpace(cfg.CronExpression) != "" {
+					effectiveCronExpr = strings.TrimSpace(cfg.CronExpression)
+				}
+			}
+		}
+	}
+
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+	archivalSchedule, parseErr := parser.Parse(effectiveCronExpr)
+	if parseErr != nil {
+		log.Printf("[jobqueue] failed to parse archival cron %q: %v, falling back to default 24h interval", effectiveCronExpr, parseErr)
+		archivalSchedule = river.PeriodicInterval(24 * time.Hour)
+	} else {
+		nextRun := archivalSchedule.Next(time.Now())
+		log.Printf("[jobqueue] preloaded_changes archival cron=%q next_run=%s retention_days=%d", effectiveCronExpr, nextRun.Format("2006-01-02 15:04:05 MST"), archivalRetentionDays)
+	}
+
+	// Verification 1: Ensure River database schema matches the River Go library version
+	// Note to future developers: The River version is locked in `go.mod` and `docker/docker-deps.env`.
+	// If you upgrade the River library version in those files, this validation check will intentionally
+	// crash the application on startup if the corresponding database migrations haven't been applied.
+	// This prevents silent data corruption. Please ensure db/schema.sql is updated alongside any library bumps.
+	migrator, mgrErr := rivermigrate.New(riverpgxv5.New(pool), nil)
+	if mgrErr != nil {
+		return nil, fmt.Errorf("failed to create river migrator for startup validation: %w", mgrErr)
+	}
+	if validateRes, validateErr := migrator.Validate(context.Background()); validateErr != nil {
+		return nil, fmt.Errorf("failed to check River migration schema: %w", validateErr)
+	} else if !validateRes.OK {
+		// Return an error instead of using log.Fatalf to allow graceful shutdown
+		return nil, fmt.Errorf("River database schema does NOT match River Go library version! Errors: %v Please run migrations.", validateRes.Messages)
 	}
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
@@ -2449,6 +2510,22 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 				},
 				&river.PeriodicJobOpts{RunOnStart: false},
 			),
+			river.NewPeriodicJob(
+				archivalSchedule,
+				func() (river.JobArgs, *river.InsertOpts) {
+					return PreloadedChangesArchivalSweepJobArgs{
+						RetentionDays: archivalRetentionDays,
+						BatchSize:     0,
+					}, &river.InsertOpts{
+						Queue:       "preloaded_changes_archival_sweep",
+						MaxAttempts: 3,
+					}
+				},
+				&river.PeriodicJobOpts{
+					ID:         "preloaded_changes_archival_sweep",
+					RunOnStart: true,
+				},
+			),
 		},
 	})
 	if err != nil {
@@ -2463,10 +2540,10 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	}
 	webhookWorker.jq = jq
 	manualWorker.jq = jq
+	preloadedChangesArchivalSweepWorker.jq = jq
 	diffWorker.jq = jq
 	reconciliationWorker.jq = jq
 	scheduledReviewWorker.jq = jq
-	preloadedChangesArchivalPurgeWorker.client = client
 
 	return jq, nil
 }
@@ -2583,14 +2660,22 @@ func (jq *JobQueue) QueueUpdateOrgUsageJob(ctx context.Context, args UpdateOrgUs
 	return nil
 }
 
-// QueuePreloadedChangesArchivalJobs enqueues a batch of preloaded_changes archival jobs in a single database transaction.
+// QueuePreloadedChangesArchivalJobs enqueues preloaded_changes archival jobs with deduplication.
 func (jq *JobQueue) QueuePreloadedChangesArchivalJobs(ctx context.Context, jobs []PreloadedChangesArchivalJobArgs) (int, error) {
 	if jq == nil || jq.client == nil || len(jobs) == 0 {
 		return 0, nil
 	}
 	params := make([]river.InsertManyParams, len(jobs))
 	for i, j := range jobs {
-		params[i] = river.InsertManyParams{Args: j}
+		params[i] = river.InsertManyParams{
+			Args: j,
+			InsertOpts: &river.InsertOpts{
+				Queue: "preloaded_changes_archival",
+				UniqueOpts: river.UniqueOpts{
+					ByArgs: true,
+				},
+			},
+		}
 	}
 	res, err := jq.client.InsertMany(ctx, params)
 	if err != nil {
@@ -2600,15 +2685,46 @@ func (jq *JobQueue) QueuePreloadedChangesArchivalJobs(ctx context.Context, jobs 
 	return len(res), nil
 }
 
-// QueuePreloadedChangesArchivalPurgeJob enqueues a purge job to finalize a batch run after all archival jobs complete.
-func (jq *JobQueue) QueuePreloadedChangesArchivalPurgeJob(ctx context.Context, args PreloadedChangesArchivalPurgeJobArgs) error {
+// EnqueuePreloadedChangesArchivalSweep enqueues a sweep job into River queue.
+func (jq *JobQueue) EnqueuePreloadedChangesArchivalSweep(ctx context.Context, retentionDays int) error {
+	if jq == nil || jq.client == nil {
+		return fmt.Errorf("job queue client is nil")
+	}
+	_, err := jq.client.Insert(ctx, PreloadedChangesArchivalSweepJobArgs{
+		RetentionDays: retentionDays,
+	}, nil)
+	return err
+}
+
+// UpdateArchivalSchedule dynamically updates the River periodic schedule for preloaded_changes archival.
+func (jq *JobQueue) UpdateArchivalSchedule(cronExpr string) error {
 	if jq == nil || jq.client == nil {
 		return nil
 	}
-	_, err := jq.client.Insert(ctx, args, nil)
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+	schedule, err := parser.Parse(cronExpr)
 	if err != nil {
-		log.Printf("[ERROR] Failed to queue preloaded_changes archival purge job: %v", err)
-		return fmt.Errorf("failed to queue preloaded_changes archival purge job: %w", err)
+		return fmt.Errorf("invalid cron expression %q: %w", cronExpr, err)
 	}
+	// Remove any existing schedule for this job before adding the new one dynamically
+	jq.client.PeriodicJobs().RemoveByID("preloaded_changes_archival_sweep")
+
+	jq.client.PeriodicJobs().Add(
+		river.NewPeriodicJob(
+			schedule,
+			func() (river.JobArgs, *river.InsertOpts) {
+				return PreloadedChangesArchivalSweepJobArgs{
+					RetentionDays: 30, // Using default here; the sweep worker fetches the live value dynamically
+				}, &river.InsertOpts{
+					Queue:       "preloaded_changes_archival_sweep",
+					MaxAttempts: 3,
+				}
+			},
+			&river.PeriodicJobOpts{
+				ID:         "preloaded_changes_archival_sweep",
+				RunOnStart: true,
+			},
+		),
+	)
 	return nil
 }

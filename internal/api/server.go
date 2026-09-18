@@ -1318,20 +1318,20 @@ func (s *Server) setupRoutes() {
 	adminOrOwnerGroup.PUT("/settings/storage", s.UpdateStorageSettings)
 	adminOrOwnerGroup.POST("/settings/storage/test", s.TestStorageSettings)
 
-	// Super admin log compaction settings endpoints
-	adminGroup.GET("/settings/compaction", s.GetCompactionSettings)
-	adminGroup.PUT("/settings/compaction", s.UpdateCompactionSettings)
-	adminGroup.POST("/settings/compaction/run", s.RunCompactionNow)
+	// Log compaction settings endpoints (same instance-owner access as production-url and storage)
+	adminOrOwnerGroup.GET("/settings/compaction", s.GetCompactionSettings)
+	adminOrOwnerGroup.PUT("/settings/compaction", s.UpdateCompactionSettings)
+	adminOrOwnerGroup.POST("/settings/compaction/run", s.RunCompactionNow)
 
-	// Super admin preloaded_changes archival settings endpoints
-	adminGroup.GET("/settings/preloaded-changes-archival", s.GetPreloadedChangesArchivalSettings)
-	adminGroup.PUT("/settings/preloaded-changes-archival", s.UpdatePreloadedChangesArchivalSettings)
-	adminGroup.POST("/settings/preloaded-changes-archival/run", s.RunPreloadedChangesArchivalNow)
+	// Preloaded_changes archival settings endpoints (same instance-owner access as production-url and storage)
+	adminOrOwnerGroup.GET("/settings/preloaded-changes-archival", s.GetPreloadedChangesArchivalSettings)
+	adminOrOwnerGroup.PUT("/settings/preloaded-changes-archival", s.UpdatePreloadedChangesArchivalSettings)
+	adminOrOwnerGroup.POST("/settings/preloaded-changes-archival/run", s.RunPreloadedChangesArchivalNow)
 
 	// Backwards compatibility aliases for older UI / API clients
-	adminGroup.GET("/settings/diff-archival", s.GetPreloadedChangesArchivalSettings)
-	adminGroup.PUT("/settings/diff-archival", s.UpdatePreloadedChangesArchivalSettings)
-	adminGroup.POST("/settings/diff-archival/run", s.RunPreloadedChangesArchivalNow)
+	adminOrOwnerGroup.GET("/settings/diff-archival", s.GetPreloadedChangesArchivalSettings)
+	adminOrOwnerGroup.PUT("/settings/diff-archival", s.UpdatePreloadedChangesArchivalSettings)
+	adminOrOwnerGroup.POST("/settings/diff-archival/run", s.RunPreloadedChangesArchivalNow)
 
 	// Organization management endpoints
 	// User organization access (get their orgs) - needs permission context to detect super admin
