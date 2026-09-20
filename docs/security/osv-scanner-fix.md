@@ -57,7 +57,7 @@ Ideally, the report should be empty.
 
 ## Verify the fix
 
-If all vulnerabilities are fixed, the `make security-osv` command will not find any vulnerabilities and the report will be empty.
+If all vulnerabilities are perfectly resolved by upgrading packages, the `make security-osv` command will pass (exit code 0) and the report will be empty:
 
 ```json
 {
@@ -70,6 +70,19 @@ If all vulnerabilities are fixed, the `make security-osv` command will not find 
   }
 }
 ```
+
+**Note on Ignored Vulnerabilities:**
+If a vulnerability cannot be fixed because of an upstream database error or false positive, it can be suppressed in `config/osv-scanner.toml`. In this case, `make security-osv` will successfully pass, but the `security_issues/osv-scanner-latest.json` report will **still contain the vulnerability data** for audit purposes. This is expected behavior and ensures suppressed vulnerabilities remain visible in the raw logs.
+
+> [!WARNING]
+> **Strict Policy on Ignoring Vulnerabilities**
+> 1. **Never arbitrarily update the ignore list (`config/osv-scanner.toml`).**
+> 2. **Investigate the true impact.** Before doing anything, research the vulnerability. Search the codebase to see exactly how and where the vulnerable library is implemented. Determine if the vulnerable execution path is actually reachable in our context to gain a full understanding of the risk.
+> 3. **Always ask for permission.** Only add a vulnerability to the ignore list if the user has manually viewed the report, thoroughly inspected the exact impact on the codebase, and explicitly asked you to proceed.
+> 4. **Explore all alternatives first.** Before resorting to an ignore rule, see if there are other options to fix the issue:
+>    - Try downgrading the affected package to a known stable, secure version if upgrading isn't working.
+>    - Verify that the codebase builds correctly and all tests pass with the alternative version.
+> 5. **Always document the reason.** If authorized to ignore, the rule must include a detailed `reason` explaining exactly why it is safe, and note when the rule should be removed.
 
 Now Verify by running ui, server and extension.
 This is for local verification wheather the change in package.json or go.mod is correct or not.
