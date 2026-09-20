@@ -223,7 +223,7 @@ func (w *PreloadedChangesArchivalWorker) Work(ctx context.Context, job *river.Jo
 // ⚠️ ATTENTION FUTURE DEVELOPERS / AI AGENTS ⚠️
 // This worker does NOT use `MaxAttempts` hacking or error backoffs.
 // It uses River's native `JobSnooze` to check if jobs are pending, and cleanly sleep for 30 minutes.
-// If 6 hours pass since the batch started, it gives up on stragglers and purges whatever completed.
+// If 6 hours pass since the batch started, it checks one last time and cancels if jobs are still pending (no data deleted).
 // ⚠️ --------------------------------------- ⚠️
 type PreloadedChangesArchivalPurgeWorker struct {
 	river.WorkerDefaults[PreloadedChangesArchivalPurgeJobArgs]
@@ -241,9 +241,26 @@ func (w *PreloadedChangesArchivalPurgeWorker) Timeout(job *river.Job[PreloadedCh
 func (w *PreloadedChangesArchivalPurgeWorker) Work(ctx context.Context, job *river.Job[PreloadedChangesArchivalPurgeJobArgs]) error {
 	batchRunID := job.Args.BatchRunID
 
-	// If 6 hours have passed since the Sweep started the batch, we STOP waiting for stragglers.
+	// If 6 hours have passed since the Sweep started the batch, check one last time.
+	// If jobs are still pending, give up and discard — never force-purge incomplete batches.
 	if time.Since(job.CreatedAt) >= 6*time.Hour {
-		log.Warn().Str("batch_run_id", batchRunID).Msg("[preloaded_changes_purge_worker] 6 hours have passed! Ignoring remaining pending jobs and executing purge for completed jobs.")
+		var pendingCount int
+		timeoutQuery := `
+			SELECT COUNT(*)
+			FROM river_job
+			WHERE args->>'batch_run_id' = $1
+			  AND kind = 'preloaded_changes_archival'
+			  AND state NOT IN ('completed', 'discarded');
+		`
+		if err := w.db.QueryRowContext(ctx, timeoutQuery, batchRunID).Scan(&pendingCount); err != nil {
+			log.Error().Err(err).Str("batch_run_id", batchRunID).Msg("[preloaded_changes_purge_worker] failed to query pending jobs at 6h timeout")
+			return fmt.Errorf("failed to query pending jobs for batch %s: %w", batchRunID, err)
+		}
+		if pendingCount > 0 {
+			log.Warn().Str("batch_run_id", batchRunID).Int("pending", pendingCount).Msg("[preloaded_changes_purge_worker] 6 hours passed with jobs still pending — discarding purge job (no data deleted)")
+			return river.JobCancel(fmt.Errorf("batch %s timed out with %d pending upload jobs after 6 hours", batchRunID, pendingCount))
+		}
+		log.Info().Str("batch_run_id", batchRunID).Msg("[preloaded_changes_purge_worker] 6 hours passed but all jobs completed — proceeding with purge")
 	} else {
 		// 1. O(1) check for pending jobs in Postgres
 		var pendingCount int
@@ -261,10 +278,33 @@ func (w *PreloadedChangesArchivalPurgeWorker) Work(ctx context.Context, job *riv
 		}
 
 		if pendingCount > 0 {
-			log.Info().Str("batch_run_id", batchRunID).Int("pending", pendingCount).Msg("[preloaded_changes_purge_worker] jobs still pending, snoozing for 30 minutes...")
-			// JobSnooze safely reschedules the job without counting it as a failure, 
+			// Two-phase exponential backoff within the 6-hour window:
+			//   Phase 1 (first ~1h): 1m, 2m, 4m, 8m, 16m, 30m  — catches fast completions quickly
+			//   Phase 2 (1h–6h):     1h, 2h                     — avoids excessive DB polling
+			//   At 6h:               force-purge (handled above)
+			elapsed := time.Since(job.CreatedAt)
+			var snoozeDuration time.Duration
+			if elapsed < 1*time.Hour {
+				// Phase 1: minute-level exponential backoff
+				attempt := job.Attempt
+				if attempt < 1 {
+					attempt = 1
+				}
+				snoozeDuration = time.Duration(1<<(attempt-1)) * time.Minute
+				if snoozeDuration > 30*time.Minute {
+					snoozeDuration = 30 * time.Minute
+				}
+			} else if elapsed < 3*time.Hour {
+				// Phase 2: check again in 1 hour
+				snoozeDuration = 1 * time.Hour
+			} else {
+				// Phase 2: check again in 2 hours (final check before 6h cutoff)
+				snoozeDuration = 2 * time.Hour
+			}
+			log.Info().Str("batch_run_id", batchRunID).Int("pending", pendingCount).Str("snooze", snoozeDuration.String()).Str("elapsed", elapsed.Round(time.Second).String()).Msg("[preloaded_changes_purge_worker] jobs still pending, snoozing with exponential backoff...")
+			// JobSnooze safely reschedules the job without counting it as a failure,
 			// and automatically extends MaxAttempts so it never permanently dies from snoozing.
-			return river.JobSnooze(30 * time.Minute)
+			return river.JobSnooze(snoozeDuration)
 		}
 		
 		log.Info().Str("batch_run_id", batchRunID).Msg("[preloaded_changes_purge_worker] ALL upload jobs done! Executing Step 4: single DB metadata purge")

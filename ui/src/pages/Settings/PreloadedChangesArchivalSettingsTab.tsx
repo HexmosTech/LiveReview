@@ -4,6 +4,7 @@ import apiClient from '../../api/apiClient';
 import { notify } from '../../utils/notify';
 import CronBuilder from '../../components/reviews/cronbuilder/CronBuilder';
 import { getCronText } from '../../components/reviews/cronbuilder/cronUtils';
+import { getLocalCronText, localTimeZoneName } from '../../components/reviews/cronbuilder/cronTimezone';
 
 interface PreloadedChangesArchivalConfig {
     enabled: boolean;
@@ -111,13 +112,19 @@ const PreloadedChangesArchivalSettingsTab: React.FC = () => {
     if (!settings) return null;
 
     let cronExprToParse = settings.cron_expression || '30 21 * * *';
-    let tzDisplay = 'Asia/Kolkata';
+    let tzDisplay = localTimeZoneName();
+    let isExplicitTz = false;
+    
     if (cronExprToParse.startsWith('CRON_TZ=')) {
         const parts = cronExprToParse.split(' ');
         tzDisplay = parts[0].replace('CRON_TZ=', '');
         cronExprToParse = parts.slice(1).join(' ');
+        isExplicitTz = true;
     }
-    const cronTextObj = getCronText(cronExprToParse);
+    
+    // If there is an explicit CRON_TZ, the string is already pinned to that timezone.
+    // Otherwise, the backend processes it as UTC, so we must translate it to the user's local time for display.
+    const cronTextObj = isExplicitTz ? getCronText(cronExprToParse) : getLocalCronText(cronExprToParse);
     const humanSchedule = cronTextObj.status && cronTextObj.value ? cronTextObj.value : cronExprToParse;
 
     return (

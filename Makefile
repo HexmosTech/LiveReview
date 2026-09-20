@@ -81,6 +81,9 @@ docker-local-rebuild:
 docker-local-stop:
 	docker compose down
 
+# Python executable mapping (works out-of-the-box on Ubuntu where python3 is present but python is not)
+PYTHON ?= $(shell command -v python3 2>/dev/null || echo python)
+
 # Go parameters
 GOENV=env -u GOROOT
 GOCMD=$(GOENV) go
@@ -151,48 +154,48 @@ email-preview:
 
 # Version management targets
 version:
-	@python scripts/lrops.py version
+	@$(PYTHON) scripts/lrops.py version
 
 version-bump:
-	@python scripts/lrops.py bump $(ARGS)
+	@$(PYTHON) scripts/lrops.py bump $(ARGS)
 
 version-patch:
-	@python scripts/lrops.py bump --type patch $(ARGS)
+	@$(PYTHON) scripts/lrops.py bump --type patch $(ARGS)
 
 version-minor:
-	@python scripts/lrops.py bump --type minor $(ARGS)
+	@$(PYTHON) scripts/lrops.py bump --type minor $(ARGS)
 
 version-major:
-	@python scripts/lrops.py bump --type major $(ARGS)
+	@$(PYTHON) scripts/lrops.py bump --type major $(ARGS)
 
 # Version management targets that allow dirty working directory
 version-bump-dirty:
-	@python scripts/lrops.py bump --allow-dirty
+	@$(PYTHON) scripts/lrops.py bump --allow-dirty
 
 version-patch-dirty:
-	@python scripts/lrops.py bump --type patch --allow-dirty
+	@$(PYTHON) scripts/lrops.py bump --type patch --allow-dirty
 
 version-minor-dirty:
-	@python scripts/lrops.py bump --type minor --allow-dirty
+	@$(PYTHON) scripts/lrops.py bump --type minor --allow-dirty
 
 version-major-dirty:
-	@python scripts/lrops.py bump --type major --allow-dirty
+	@$(PYTHON) scripts/lrops.py bump --type major --allow-dirty
 
 # Dry-run version targets
 version-bump-dry:
-	@python scripts/lrops.py bump --dry-run --allow-dirty
+	@$(PYTHON) scripts/lrops.py bump --dry-run --allow-dirty
 
 version-patch-dry:
-	@python scripts/lrops.py bump --type patch --dry-run --allow-dirty
+	@$(PYTHON) scripts/lrops.py bump --type patch --dry-run --allow-dirty
 
 version-minor-dry:
-	@python scripts/lrops.py bump --type minor --dry-run --allow-dirty
+	@$(PYTHON) scripts/lrops.py bump --type minor --dry-run --allow-dirty
 
 version-major-dry:
-	@python scripts/lrops.py bump --type major --dry-run --allow-dirty
+	@$(PYTHON) scripts/lrops.py bump --type major --dry-run --allow-dirty
 
 build-versioned:
-	@python scripts/lrops.py build
+	@$(PYTHON) scripts/lrops.py build
 
 # ============================================================================
 # Frozen DOCKER DEPENDENCY versions (docker/docker-deps.env)
@@ -222,15 +225,15 @@ build-versioned:
 # shows up in the report when it falls behind, it's just never auto-applied
 # by update-docker-deps/update-docker-deps-yes or the pre-build check.
 # Override for one run with:
-#   python3 scripts/check_docker_deps.py --include-pinned [--yes]
+#   $(PYTHON) scripts/check_docker_deps.py --include-pinned [--yes]
 check-docker-deps:
-	@python3 scripts/check_docker_deps.py --check
+	@$(PYTHON) scripts/check_docker_deps.py --check
 
 update-docker-deps:
-	@python3 scripts/check_docker_deps.py
+	@$(PYTHON) scripts/check_docker_deps.py
 
 update-docker-deps-yes:
-	@python3 scripts/check_docker_deps.py --yes
+	@$(PYTHON) scripts/check_docker_deps.py --yes
 
 # Smoke-test that every pinned Docker dependency binary is actually present
 # and invokable INSIDE a built image (dbmate, river, riverui, vl-convert,
@@ -257,7 +260,7 @@ verify-docker-deps:
 #   8. Interactive confirmation prompt before build execution
 # Files: scripts/lrops.py (lines 634-826), Dockerfile (multi-stage), ui/package.json
 docker-build:
-	@python scripts/lrops.py build --docker $(ARGS)
+	@$(PYTHON) scripts/lrops.py build --docker $(ARGS)
 
 # DOCKER-BUILD-PUSH: Same as docker-build but automatically pushes to registry
 # Implementation: scripts/lrops.py:cmd_build() with push=True flag
@@ -270,21 +273,21 @@ docker-build:
 # Registry: Configurable via --registry, defaults to GitLab Container Registry
 # Tags: <registry>/<image>:<version> and optionally <registry>/<image>:latest
 docker-build-push:
-	@python scripts/lrops.py build --docker --push $(ARGS)
+	@$(PYTHON) scripts/lrops.py build --docker --push $(ARGS)
 
 # Interactive Docker build with tag selection
 docker-interactive:
-	@python scripts/lrops.py docker
+	@$(PYTHON) scripts/lrops.py docker
 
 docker-interactive-push:
-	@python scripts/lrops.py docker --push $(ARGS)
+	@$(PYTHON) scripts/lrops.py docker --push $(ARGS)
 
 # Dry-run Docker targets
 docker-build-dry:
-	@python scripts/lrops.py build --docker --dry-run $(ARGS)
+	@$(PYTHON) scripts/lrops.py build --docker --dry-run $(ARGS)
 
 docker-interactive-dry:
-	@python scripts/lrops.py docker --dry-run
+	@$(PYTHON) scripts/lrops.py docker --dry-run
 
 # Legacy build-push for backward compatibility (now uses versioning)
 build-push: docker-build-push
@@ -501,7 +504,7 @@ security-gh-secret-scanning:
 
 # Regenerate machine-readable and markdown triage artifacts from the latest OSV report.
 security-triage: security-osv
-	@python3 scripts/extract_osv_report.py \
+	@$(PYTHON) scripts/extract_osv_report.py \
 		--input security_issues/osv-scanner-latest.json \
 		--csv security_issues/osv-triage-latest.csv \
 		--md security_issues/osv-triage-latest.md
@@ -636,7 +639,7 @@ sync-docs-sources:
 # Exits 1 if anything is behind - usable in CI, or just run
 # `make sync-docs-sources` to actually pull the update in.
 check-docs-sources:
-	@python3 scripts/docindex/check_docs_sources.py
+	@$(PYTHON) scripts/docindex/check_docs_sources.py
 
 # Generate a token-compact schema dump of the prod DB (public schema) for LLM context.
 .PHONY: compressed-schema
@@ -646,7 +649,7 @@ compressed-schema:
 		exit 1; \
 	fi
 	@mkdir -p db
-	@set -a && . ./.env.prod && set +a && python3 scripts/llm-schema.py db/schema-compressed.txt
+	@set -a && . ./.env.prod && set +a && $(PYTHON) scripts/llm-schema.py db/schema-compressed.txt
 	@echo "✅ Wrote db/schema-compressed.txt"
 
 # Export a full snapshot of the prod DB (schema + data) using .env.prod's
@@ -758,10 +761,10 @@ ghcr-login: docker-context-setup
 
 # Multi-architecture Docker build targets
 docker-multiarch:
-	@python scripts/lrops.py build --docker --multiarch $(ARGS)
+	@$(PYTHON) scripts/lrops.py build --docker --multiarch $(ARGS)
 
 docker-multiarch-push:
-	@python scripts/lrops.py build --docker --multiarch --push $(ARGS)
+	@$(PYTHON) scripts/lrops.py build --docker --multiarch --push $(ARGS)
 	@echo "ℹ️  Optional GitHub release publish: make release-gh"
 	@echo "   Optional explicit override: make release-gh VERSION=$$(git describe --tags --abbrev=0 2>/dev/null || true)"
 
@@ -771,41 +774,41 @@ release-gh:
 	@python3 $(RELEASE_GH_SCRIPT) --repo $(GH_REPO) $(if $(VERSION),--version $(VERSION),)
 
 docker-multiarch-dry:
-	@python scripts/lrops.py build --docker --multiarch --dry-run $(ARGS)
+	@$(PYTHON) scripts/lrops.py build --docker --multiarch --dry-run $(ARGS)
 
 # Vendor multi-arch dry run (Phase 9 validation)
 vendor-docker-multiarch-dry:
-	@python scripts/lrops.py build --docker --multiarch --dry-run --vendor-prompts $(ARGS)
+	@$(PYTHON) scripts/lrops.py build --docker --multiarch --dry-run --vendor-prompts $(ARGS)
 
 # Vendor single-arch builds
 vendor-docker-build-dry:
-	@python scripts/lrops.py build --docker --dry-run --vendor-prompts $(ARGS)
+	@$(PYTHON) scripts/lrops.py build --docker --dry-run --vendor-prompts $(ARGS)
 
 vendor-docker-build:
-	@python scripts/lrops.py build --docker --vendor-prompts $(ARGS)
+	@$(PYTHON) scripts/lrops.py build --docker --vendor-prompts $(ARGS)
 
 vendor-docker-build-push:
-	@python scripts/lrops.py build --docker --push --vendor-prompts $(ARGS)
+	@$(PYTHON) scripts/lrops.py build --docker --push --vendor-prompts $(ARGS)
 
 # Vendor multi-arch push (with optional latest tagging via ARGS="--latest")
 vendor-docker-multiarch-push:
-	@python scripts/lrops.py build --docker --multiarch --push --vendor-prompts $(ARGS)
+	@$(PYTHON) scripts/lrops.py build --docker --multiarch --push --vendor-prompts $(ARGS)
 
 # Cross-compilation Docker build targets (faster ARM builds)
 docker-multiarch-cross:
 	@echo "🚀 Building multi-arch images using cross-compilation for faster ARM builds"
-	@python scripts/lrops.py build --docker --multiarch $(ARGS)
+	@$(PYTHON) scripts/lrops.py build --docker --multiarch $(ARGS)
 
 docker-multiarch-cross-push:
 	@echo "🚀 Building and pushing multi-arch images using cross-compilation"
-	@python scripts/lrops.py build --docker --multiarch --push $(ARGS)
+	@$(PYTHON) scripts/lrops.py build --docker --multiarch --push $(ARGS)
 
 # Interactive multi-architecture Docker build
 docker-interactive-multiarch:
-	@python scripts/lrops.py docker --multiarch
+	@$(PYTHON) scripts/lrops.py docker --multiarch
 
 docker-interactive-multiarch-push:
-	@python scripts/lrops.py docker --multiarch --push
+	@$(PYTHON) scripts/lrops.py docker --multiarch --push
 
 cplrops:
 	@cp lrops.sh ../gh/LiveReview/
@@ -1121,7 +1124,7 @@ docs/openapi.yaml internal/api/docs/spec.go: $(API_SPEC_INPUTS) typed-install
 	@chmod 755 docs internal/api/docs
 	@PATH="$(TYPED_BIN_DIR):$$PATH" typed -config config/typed.yaml > /tmp/lr_typed_build.log 2>&1 || (echo "❌ Typed generation failed. Logs:" && cat /tmp/lr_typed_build.log && exit 1)
 	@$(GOCMD) run internal/api/docs/spec.go > /tmp/lr_spec_build.log 2>&1 || (echo "❌ OpenAPI spec generation failed. Logs:" && cat /tmp/lr_spec_build.log && exit 1)
-	@python3 scripts/openapi/fix-openapi-spec.py docs/openapi.yaml
+	@$(PYTHON) scripts/openapi/fix-openapi-spec.py docs/openapi.yaml
 
 
 generate-openapi: docs/openapi.yaml
@@ -1503,7 +1506,7 @@ razorpay-webhook-ensure:
 	fi
 	@MODE_VALUE="$(MODE)"; \
 	if [ -z "$$MODE_VALUE" ]; then MODE_VALUE="$${RAZORPAY_MODE:-live}"; fi; \
-	python3 scripts/razorpay_webhook_ensure.py --base-url "$(BASE_URL)" --mode "$$MODE_VALUE" $(ARGS)
+	$(PYTHON) scripts/razorpay_webhook_ensure.py --base-url "$(BASE_URL)" --mode "$$MODE_VALUE" $(ARGS)
 
 razorpay-webhook-ensure-dry:
 	@if [ -z "$(BASE_URL)" ]; then \
@@ -1512,7 +1515,7 @@ razorpay-webhook-ensure-dry:
 	fi
 	@MODE_VALUE="$(MODE)"; \
 	if [ -z "$$MODE_VALUE" ]; then MODE_VALUE="$${RAZORPAY_MODE:-live}"; fi; \
-	python3 scripts/razorpay_webhook_ensure.py --base-url "$(BASE_URL)" --mode "$$MODE_VALUE" --dry-run $(ARGS)
+	$(PYTHON) scripts/razorpay_webhook_ensure.py --base-url "$(BASE_URL)" --mode "$$MODE_VALUE" --dry-run $(ARGS)
 
 razorpay-verify-plans:
 	@bash ./scripts/verify-razorpay-plans.sh $(DEPLOY_ACTUAL_ENV_FILE)

@@ -5,7 +5,9 @@ echo "🚀 Starting LiveReview application..."
 
 # Ensure blob storage directory exists (runs as root)
 mkdir -p /app/lrdata/blobs
-chown -R livereview:livereview /app/lrdata/blobs
+# Local dev only: chown may fail under Docker Desktop / rootless Docker / seccomp.
+# Production (lrops.sh) runs standard Docker where this always succeeds — no || true needed there.
+chown -R livereview:livereview /app/lrdata/blobs 2>/dev/null || true
 
 # Function to wait for PostgreSQL to be ready
 wait_for_postgres() {
