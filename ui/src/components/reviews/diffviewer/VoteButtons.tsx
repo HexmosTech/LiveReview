@@ -209,7 +209,7 @@ const VoteButtons: React.FC<VoteButtonsProps> = ({
       await submitFeedback({
         review_id: reviewId,
         ai_comment_id: aiCommentId,
-        vote_type: vote || 'down',
+        vote_type: 'down',
         source_type: sourceType,
         tags: [...selectedTags],
         feedback_text: feedbackText,

@@ -161,7 +161,7 @@ function extractTrailingDataDetails(text: string): { body: string; details: { la
   return { body: lines.slice(0, end).join('\n'), details };
 }
 
-function formatText(rawText: string, isUser: boolean = false): React.ReactNode[] {
+function formatText(rawText: string): React.ReactNode[] {
   const { body: text, details } = extractTrailingDataDetails(rawText);
   const parts: React.ReactNode[] = [];
   const lines = text.split('\n');
@@ -200,7 +200,7 @@ function formatText(rawText: string, isUser: boolean = false): React.ReactNode[]
       parts.push(
         <h3 key={`h3-${lineIdx++}`} className="text-base font-semibold text-slate-100 mt-4 mb-1.5 flex items-center gap-2">
           <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 inline-block" />
-          {formatLine(line.slice(4), isUser)}
+          {formatLine(line.slice(4))}
         </h3>
       );
       continue;
@@ -208,7 +208,7 @@ function formatText(rawText: string, isUser: boolean = false): React.ReactNode[]
     if (line.startsWith('## ')) {
       parts.push(
         <h2 key={`h2-${lineIdx++}`} className="text-lg font-bold text-slate-100 mt-5 mb-2 border-b border-slate-700/60 pb-1.5">
-          {formatLine(line.slice(3), isUser)}
+          {formatLine(line.slice(3))}
         </h2>
       );
       continue;
@@ -216,7 +216,7 @@ function formatText(rawText: string, isUser: boolean = false): React.ReactNode[]
     if (line.startsWith('# ')) {
       parts.push(
         <h1 key={`h1-${lineIdx++}`} className="text-xl font-bold text-white mt-6 mb-3">
-          {formatLine(line.slice(2), isUser)}
+          {formatLine(line.slice(2))}
         </h1>
       );
       continue;
@@ -229,7 +229,7 @@ function formatText(rawText: string, isUser: boolean = false): React.ReactNode[]
       parts.push(
         <div key={`list-${lineIdx++}`} className="flex items-start gap-2.5 my-1 pl-2 text-slate-200">
           <span className="text-indigo-400 select-none mt-1 text-xs">•</span>
-          <div className="flex-1 leading-relaxed">{formatLine(content, isUser)}</div>
+          <div className="flex-1 leading-relaxed">{formatLine(content)}</div>
         </div>
       );
       continue;
@@ -241,13 +241,13 @@ function formatText(rawText: string, isUser: boolean = false): React.ReactNode[]
       parts.push(
         <div key={`numlist-${lineIdx++}`} className="flex items-start gap-2.5 my-1 pl-2 text-slate-200">
           <span className="font-semibold text-indigo-400 select-none text-sm">{numMatch[1]}.</span>
-          <div className="flex-1 leading-relaxed">{formatLine(numMatch[2], isUser)}</div>
+          <div className="flex-1 leading-relaxed">{formatLine(numMatch[2])}</div>
         </div>
       );
       continue;
     }
 
-    const formattedLine = formatLine(line, isUser);
+    const formattedLine = formatLine(line);
     parts.push(<div key={`line-${lineIdx++}`} className="mb-1 leading-relaxed">{formattedLine}</div>);
   }
 
@@ -293,7 +293,7 @@ function toSafeHref(rawUrl: string): string | null {
   return null;
 }
 
-function formatLine(line: string, isUser: boolean = false): React.ReactNode {
+function formatLine(line: string): React.ReactNode {
   const parts: React.ReactNode[] = [];
   let i = 0;
   let partIdx = 0;
@@ -350,11 +350,8 @@ function formatLine(line: string, isUser: boolean = false): React.ReactNode {
     if (line[i] === '`') {
       const end = line.indexOf('`', i + 1);
       if (end >= 0) {
-        const codeClass = isUser 
-          ? "bg-indigo-700 text-indigo-100 px-1.5 py-0.5 rounded-md text-[11px] font-mono"
-          : "bg-slate-800/60 text-slate-200 px-1.5 py-0.5 rounded-md text-[11px] font-mono";
         parts.push(
-          <code key={`c-${partIdx++}`} className={codeClass}>
+          <code key={`c-${partIdx++}`} className="bg-slate-800/40 text-slate-200 px-1.5 py-0.5 rounded-md text-xs font-mono">
             {line.slice(i + 1, end)}
           </code>
         );
@@ -366,7 +363,7 @@ function formatLine(line: string, isUser: boolean = false): React.ReactNode {
       const rest = line.slice(i + 1).trim();
       parts.push(
         <blockquote key={`q-${partIdx++}`} className="border-l-2 border-indigo-400 pl-3 text-slate-300 italic my-1">
-          {formatLine(rest, isUser)}
+          {formatLine(rest)}
         </blockquote>
       );
       i = line.length;
@@ -1101,7 +1098,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                 msg.role === 'user' ? (
                   <div key={msg.id} className="flex items-start justify-end">
                     <div className="bg-indigo-600 text-white rounded-2xl rounded-br-md px-4 py-2 max-w-[75%] whitespace-pre-wrap break-words text-base">
-                      {formatText(msg.text, true)}
+                      {formatText(msg.text)}
                     </div>
                   </div>
                 ) : (

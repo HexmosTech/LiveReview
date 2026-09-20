@@ -6,4 +6,3 @@ reason = "False positive — golang.org/x/crypto/openpgp sub-package is never im
 [[ignoredVulns]]
 id = "GO-2026-6452"
 reason = "TODO: Once OSV DB fixes the missing 'fixed' semver range, this should be removed. We are on patched v2.11.0, and the vulnerable parsing path is never called because we only write spreadsheets, never read them."
-

@@ -111,13 +111,14 @@ func (w *PreloadedChangesArchivalSweepWorker) Work(ctx context.Context, job *riv
 	var archivalJobs []PreloadedChangesArchivalJobArgs
 	for rows.Next() {
 		var reviewID, orgID int64
-		if err := rows.Scan(&reviewID, &orgID); err == nil {
-			archivalJobs = append(archivalJobs, PreloadedChangesArchivalJobArgs{
-				ReviewID:   reviewID,
-				OrgID:      orgID,
-				BatchRunID: batchRunID,
-			})
+		if err := rows.Scan(&reviewID, &orgID); err != nil {
+			return fmt.Errorf("failed to scan preloaded_changes_archival row: %w", err)
 		}
+		archivalJobs = append(archivalJobs, PreloadedChangesArchivalJobArgs{
+			ReviewID:   reviewID,
+			OrgID:      orgID,
+			BatchRunID: batchRunID,
+		})
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("rows iteration error: %w", err)
