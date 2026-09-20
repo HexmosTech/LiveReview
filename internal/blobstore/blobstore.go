@@ -268,18 +268,6 @@ func ReadArtifactWithBucket(ctx context.Context, bucket *blob.Bucket, orgID, rev
 		return nil, fmt.Errorf("blobstore: artifact %s size %d exceeds max limit %d", key, size, MaxArtifactSize)
 	}
 
-	if size == 0 {
-		return []byte{}, nil
-	}
-
-	if size > 0 {
-		buf := make([]byte, size)
-		if _, err := io.ReadFull(r, buf); err != nil {
-			return nil, fmt.Errorf("blobstore: failed to read complete artifact %s (%d bytes expected): %w", key, size, err)
-		}
-		return buf, nil
-	}
-
 	lr := io.LimitReader(r, MaxArtifactSize+1)
 	data, err := io.ReadAll(lr)
 	if err != nil {
