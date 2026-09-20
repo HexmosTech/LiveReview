@@ -180,9 +180,9 @@ RUN echo "👤 Creating non-root user..." && \
     useradd -u 1001 -r -g livereview -d /app -s /sbin/nologin livereview && \
     echo "User 'livereview' created successfully"
 
-# Create directories
+# Create directories (including lrdata/blobs for local blob storage)
 RUN echo "📁 Creating application directories..." && \
-    mkdir -p /app/db/migrations /app/data /app/logs && \
+    mkdir -p /app/db/migrations /app/data /app/logs /app/lrdata/blobs && \
     chown -R livereview:livereview /app && \
     echo "Directories created and permissions set"
 

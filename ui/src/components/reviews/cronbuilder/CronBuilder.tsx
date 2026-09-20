@@ -258,16 +258,107 @@ export function CronBuilder({ onChange, defaultValue, className }: CronBuilderPr
     setHours((prev) => (prev.includes(hour) ? prev.filter((h) => h !== hour) : [...prev, hour]));
   }, []);
 
-  const renderHoursGrid = () => (
-    <div className="flex flex-col gap-2">
-      <label className="text-xs font-medium text-slate-300">Hours</label>
-      <div className="grid grid-cols-6 gap-1 w-fit">
-        {HOURS.map((hour) => (
-          <GridButton key={hour} value={hour} isSelected={hours.includes(hour)} onClick={handleHourToggle} />
-        ))}
+  const [use12h, setUse12h] = useState(true);
+  const [amPm, setAmPm] = useState<'AM' | 'PM'>(() => {
+    // Default to the period of the first selected hour
+    const firstHour = hours[0] ?? 9;
+    return firstHour >= 12 ? 'PM' : 'AM';
+  });
+
+  // When switching AM/PM, remap all currently selected hours to the new period
+  const handleAmPmSwitch = useCallback((newPeriod: 'AM' | 'PM') => {
+    setAmPm(newPeriod);
+    setHours((prev) => prev.map((h) => {
+      const h12 = h % 12; // 0-11
+      return newPeriod === 'PM' ? (h12 === 0 ? 12 : h12 + 12) : h12;
+    }));
+  }, []);
+
+  const HOURS_12 = Array.from({ length: 12 }, (_, i) => i); // 0..11 (display as 12,1,2..11)
+
+  const renderHoursGrid = () => {
+    if (!use12h) {
+      // 24-hour mode (original)
+      return (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-slate-300">Hours</label>
+            <button
+              type="button"
+              onClick={() => setUse12h(true)}
+              className="rounded border border-slate-600 px-1.5 text-[10px] text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+            >
+              12h
+            </button>
+          </div>
+          <div className="grid grid-cols-6 gap-1 w-fit">
+            {HOURS.map((hour) => (
+              <GridButton key={hour} value={hour} isSelected={hours.includes(hour)} onClick={handleHourToggle} />
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // 12-hour AM/PM mode
+    const offset = amPm === 'PM' ? 12 : 0;
+    const display12 = (h12: number) => {
+      if (h12 === 0) return '12';
+      return h12.toString();
+    };
+
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium text-slate-300">Hours</label>
+          <button
+            type="button"
+            onClick={() => setUse12h(false)}
+            className="rounded border border-slate-600 px-1.5 text-[10px] text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+          >
+            24h
+          </button>
+        </div>
+
+        {/* AM / PM toggle */}
+        <div className="inline-flex items-center rounded-lg border border-slate-700 bg-slate-900/40 p-0.5 w-fit">
+          {(['AM', 'PM'] as const).map((period) => (
+            <button
+              key={period}
+              type="button"
+              onClick={() => handleAmPmSwitch(period)}
+              className={classNames(
+                'px-3 py-1 text-xs font-medium rounded-md transition-colors',
+                amPm === period
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-400 hover:bg-slate-700 hover:text-white'
+              )}
+            >
+              {period}
+            </button>
+          ))}
+        </div>
+
+        {/* 12-hour grid: 12, 1, 2, 3 ... 11 */}
+        <div className="grid grid-cols-6 gap-1 w-fit">
+          {HOURS_12.map((h12) => {
+            const h24 = h12 === 0 ? offset : h12 + offset; // 12AM=0, 1AM=1...11AM=11, 12PM=12, 1PM=13...11PM=23
+            const isSelected = hours.includes(h24 === 24 ? 12 : h24); // handle edge: 12+12=24 shouldn't happen since offset is 0 or 12
+            return (
+              <button
+                key={h12}
+                type="button"
+                onClick={() => handleHourToggle(h24)}
+                className={gridButtonClass(isSelected)}
+              >
+                {display12(h12)}
+              </button>
+            );
+          })}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const handleMinuteToggle = useCallback((minute: number) => {
     setMinutes((prev) => (prev.includes(minute) ? prev.filter((m) => m !== minute) : [...prev, minute]));
