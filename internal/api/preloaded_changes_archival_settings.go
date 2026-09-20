@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -21,7 +22,6 @@ type PreloadedChangesArchivalSettingsResponse struct {
 	PreloadedChangesArchivalSettingsConfig
 	ScheduleHuman string `json:"schedule_human"`
 }
-
 
 func defaultPreloadedChangesArchivalSettingsConfig() PreloadedChangesArchivalSettingsConfig {
 	return PreloadedChangesArchivalSettingsConfig{
@@ -62,7 +62,7 @@ func (server *Server) GetPreloadedChangesArchivalSettings(echoContext echo.Conte
 func (server *Server) UpdatePreloadedChangesArchivalSettings(echoContext echo.Context) error {
 	var request PreloadedChangesArchivalSettingsConfig
 	if err := echoContext.Bind(&request); err != nil {
-		return echoContext.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		return echoContext.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("Invalid request body: %v", err)})
 	}
 
 	if request.RetentionDays <= 0 {

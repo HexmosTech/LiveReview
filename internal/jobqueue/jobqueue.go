@@ -2384,6 +2384,7 @@ type JobQueue struct {
 func parseCronOrDefault(expr string) river.PeriodicSchedule {
 	s, err := cron.ParseStandard(expr)
 	if err != nil {
+		log.Printf("[jobqueue] failed to parse cron %q: %v. Falling back to 24h interval", expr, err)
 		return river.PeriodicInterval(24 * time.Hour)
 	}
 	return s
