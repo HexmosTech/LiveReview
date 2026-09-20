@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 export type DashboardPeriod = 'day' | 'week' | 'month' | 'all';
 
@@ -8,6 +8,30 @@ export const PERIOD_LABELS: Record<DashboardPeriod, string> = {
     month: 'This Month',
     all: 'All Time',
 };
+
+const DEFAULT_PERIOD: DashboardPeriod = 'all';
+
+// Matches the `lr_<feature>_${user.id}` localStorage convention already used by
+// the dashboard layout and notifications (see useDashboardLayout.ts).
+const storageKeyFor = (userId?: number | string): string =>
+    userId ? `lr_dashboard_period_${userId}` : 'lr_dashboard_period';
+
+function loadStoredPeriod(key: string): DashboardPeriod | null {
+    try {
+        const raw = localStorage.getItem(key);
+        return raw && raw in PERIOD_LABELS ? (raw as DashboardPeriod) : null;
+    } catch {
+        return null;
+    }
+}
+
+function saveStoredPeriod(key: string, period: DashboardPeriod): void {
+    try {
+        localStorage.setItem(key, period);
+    } catch {
+        // no-op: keep the dashboard functional when localStorage is unavailable
+    }
+}
 
 // The mock volume numbers elsewhere in this feature represent a ~1 month baseline.
 // These multipliers rescale them for the other period options so the selector
@@ -28,8 +52,26 @@ interface DashboardPeriodContextValue {
 
 const DashboardPeriodContext = createContext<DashboardPeriodContextValue | null>(null);
 
-export const DashboardPeriodProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [period, setPeriod] = useState<DashboardPeriod>('month');
+interface DashboardPeriodProviderProps {
+    children: React.ReactNode;
+    userId?: number | string;
+}
+
+export const DashboardPeriodProvider: React.FC<DashboardPeriodProviderProps> = ({ children, userId }) => {
+    const storageKey = storageKeyFor(userId);
+    const [period, setPeriodState] = useState<DashboardPeriod>(() => loadStoredPeriod(storageKey) ?? DEFAULT_PERIOD);
+
+    // userId is undefined until /auth/me resolves, so re-read once the real
+    // per-user key is known - otherwise the saved range is never restored.
+    useEffect(() => {
+        setPeriodState(loadStoredPeriod(storageKey) ?? DEFAULT_PERIOD);
+    }, [storageKey]);
+
+    // Persist on every change so the selected range survives a refresh.
+    const setPeriod = useCallback((next: DashboardPeriod) => {
+        setPeriodState(next);
+        saveStoredPeriod(storageKey, next);
+    }, [storageKey]);
 
     // Memoized so this only produces a new object when `period` actually changes - otherwise
     // every unrelated re-render higher up the tree (e.g. DashboardGrid's ResizeObserver-driven
@@ -42,7 +84,7 @@ export const DashboardPeriodProvider: React.FC<{ children: React.ReactNode }> = 
         setPeriod,
         label: PERIOD_LABELS[period],
         scale: (monthlyValue: number) => Math.max(0, Math.round(monthlyValue * PERIOD_MULTIPLIERS[period])),
-    }), [period]);
+    }), [period, setPeriod]);
 
     return (
         <DashboardPeriodContext.Provider value={value}>

@@ -24,6 +24,10 @@ interface DashboardGridProps {
     userId?: number | string;
 }
 
+// Height of the sticky header a section scrolls under. Tailwind needs a literal
+// class, so the anchors below repeat it as `scroll-mt-[140px]` - keep both in sync.
+const SECTION_ANCHOR_OFFSET = 140;
+
 // Rendered inside all three providers (not DashboardGrid itself) so it sits alongside the
 // widgets it refreshes. The dashboard query itself is a plain cheap GET (see useDashboardQuery
 // in api/dashboard.ts) - this button is the explicit, user-triggered path to the expensive
@@ -104,7 +108,45 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
         return () => window.clearTimeout(timer);
     }, [activeSection]);
 
+    // Which section's pill is lit. Driven by scroll position so it tracks the
+    // grid as you move through it, not just when a pill is clicked.
+    const [visibleCategory, setVisibleCategory] = useState<WidgetCategory | null>(null);
+
+    // orderedCategories is a fresh array every render (activeWidgets isn't memoized),
+    // so key the effect on its contents to avoid rebinding listeners each render.
+    const categoryKey = orderedCategories.join(',');
+    useEffect(() => {
+        if (!categoryKey) return;
+        const categories = categoryKey.split(',') as WidgetCategory[];
+        let frame = 0;
+        const update = () => {
+            frame = 0;
+            let current = categories[0];
+            for (const category of categories) {
+                const el = document.getElementById(`dash-section-${category}`);
+                // Rounded so a sub-pixel scroll position can't leave a section
+                // sitting exactly at the offset unselected.
+                if (el && Math.round(el.getBoundingClientRect().top) <= SECTION_ANCHOR_OFFSET) current = category;
+            }
+            setVisibleCategory(current);
+        };
+        const onScroll = () => {
+            if (frame) return;
+            frame = window.requestAnimationFrame(update);
+        };
+        update();
+        window.addEventListener('scroll', onScroll, { passive: true });
+        window.addEventListener('resize', onScroll);
+        return () => {
+            if (frame) window.cancelAnimationFrame(frame);
+            window.removeEventListener('scroll', onScroll);
+            window.removeEventListener('resize', onScroll);
+        };
+    }, [categoryKey]);
+
     const goToSection = (category: WidgetCategory) => {
+        // Light it immediately - the smooth scroll takes ~half a second to arrive.
+        setVisibleCategory(category);
         setSearchParams((prev) => {
             const next = new URLSearchParams(prev);
             next.set('section', category);
@@ -126,7 +168,7 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
     }, []);
 
     return (
-        <DashboardPeriodProvider>
+        <DashboardPeriodProvider userId={userId}>
         <ReviewLayersProvider>
         <SystemOverviewProvider>
         <PeopleProvider>
@@ -137,19 +179,25 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
                     <PeriodSelector />
                     {orderedCategories.length > 0 && (
                         <div className="flex flex-wrap items-center gap-1.5">
-                            {orderedCategories.map((category) => (
-                                <button
-                                    key={category}
-                                    type="button"
-                                    onClick={() => goToSection(category)}
-                                    className={classNames(
-                                        'rounded-full px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide transition-opacity hover:opacity-75',
-                                        CATEGORY_BADGE_CLASSES[category]
-                                    )}
-                                >
-                                    {CATEGORY_LABELS[category]}
-                                </button>
-                            ))}
+                            {orderedCategories.map((category) => {
+                                const isActive = visibleCategory === category;
+                                return (
+                                    <button
+                                        key={category}
+                                        type="button"
+                                        onClick={() => goToSection(category)}
+                                        aria-current={isActive ? 'true' : undefined}
+                                        className={classNames(
+                                            'rounded-full px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide transition-colors',
+                                            isActive
+                                                ? CATEGORY_BADGE_CLASSES[category]
+                                                : 'border border-transparent text-slate-400 hover:text-slate-200'
+                                        )}
+                                    >
+                                        {CATEGORY_LABELS[category]}
+                                    </button>
+                                );
+                            })}
                         </div>
                     )}
                 </div>

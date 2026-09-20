@@ -25,9 +25,10 @@ organization.
 ## The period selector
 
 One control at the top of the grid sets the window for **every** widget:
-**Today**, **This Week**, **This Month** (default), or **All Time**. Each
+**Today**, **This Week**, **This Month**, or **All Time** (default). Each
 widget receives values already scoped to that period by the backend, so
-changing it rewrites the whole grid at once.
+changing it rewrites the whole grid at once. Your choice is saved in the
+browser, so it carries over to your next visit.
 
 ## Customizing the grid
 
@@ -111,6 +112,9 @@ yet, not that something is wrong.
 ## Key actions
 
 - Switch the dashboard period (Today / This Week / This Month / All Time).
+- Jump to a section with the Review Layers / System Overview / People pills
+  next to the period selector; the pill for the section you are looking at
+  stays highlighted as you scroll.
 - Add, remove, drag, resize, or reset widgets.
 - Click any chart to drill into the matching filtered view.
 - Work through the onboarding checklist.
