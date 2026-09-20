@@ -205,16 +205,17 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	// 5. Convert diffs and persist to blob storage (blast radius pattern)
 	modelDiffs := diffutil.ConvertLocalDiffs(localDiffs)
 	modelDiffsPayload, err := json.Marshal(modelDiffs)
-	savedToBlob := false
 	if err != nil {
-		log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] Failed to marshal diffs")
+		w.handleFailure(ctx, args, logger, eventSink, fmt.Sprintf("failed to marshal diffs: %v", err), "failed_to_marshal_diffs")
+		return nil
+	}
+
+	savedToBlob := false
+	if err := blobstore.SaveArtifact(ctx, w.db, args.OrgID, args.ReviewID, blobstore.ArtifactPreloadedChanges, modelDiffsPayload); err != nil {
+		log.Warn().Err(err).Int64("review_id", args.ReviewID).Int64("org_id", args.OrgID).Str("fallback_key", blobstore.MetaPreloadedChanges).Msg("[review_worker] Failed to store diff artifact in blob storage. Preserving in Postgres metadata fallback.")
 	} else {
-		if err := blobstore.SaveArtifact(ctx, w.db, args.OrgID, args.ReviewID, blobstore.ArtifactPreloadedChanges, modelDiffsPayload); err != nil {
-			log.Warn().Err(err).Int64("review_id", args.ReviewID).Int64("org_id", args.OrgID).Str("fallback_key", blobstore.MetaPreloadedChanges).Msg("[review_worker] Failed to store diff artifact in blob storage. Preserving in Postgres metadata fallback.")
-		} else {
-			savedToBlob = true
-			log.Info().Int64("review_id", args.ReviewID).Int64("org_id", args.OrgID).Msg("[review_worker] Successfully persisted diff artifact to blob storage")
-		}
+		savedToBlob = true
+		log.Info().Int64("review_id", args.ReviewID).Int64("org_id", args.OrgID).Msg("[review_worker] Successfully persisted diff artifact to blob storage")
 	}
 
 	metaUpdates := map[string]interface{}{
