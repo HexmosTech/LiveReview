@@ -61,7 +61,9 @@ func (manager *PreloadedChangesArchivalManager) loadSettingsFromDB() {
 			CronExpression string `json:"cron_expression"`
 			RetentionDays  int    `json:"retention_days"`
 		}
-		if json.Unmarshal(data, &config) == nil {
+		if err := json.Unmarshal(data, &config); err != nil {
+			log.Warn().Err(err).Msg("[preloaded_changes_archival] failed to unmarshal settings from DB")
+		} else {
 			if config.Enabled != nil {
 				manager.enabled = *config.Enabled
 			}

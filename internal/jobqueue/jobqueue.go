@@ -2381,7 +2381,7 @@ type JobQueue struct {
 	config *QueueConfig
 }
 
-func mustParseCron(expr string) river.PeriodicSchedule {
+func parseCronOrDefault(expr string) river.PeriodicSchedule {
 	s, err := cron.ParseStandard(expr)
 	if err != nil {
 		return river.PeriodicInterval(24 * time.Hour)
@@ -2453,7 +2453,9 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 				CronExpression string `json:"cron_expression"`
 				RetentionDays  int    `json:"retention_days"`
 			}
-			if json.Unmarshal(data, &cfg) == nil {
+			if unmarshalErr := json.Unmarshal(data, &cfg); unmarshalErr != nil {
+				log.Printf("[jobqueue] failed to unmarshal archival settings from DB: %v", unmarshalErr)
+			} else {
 				if cfg.RetentionDays > 0 {
 					archivalRetentionDays = cfg.RetentionDays
 				}
