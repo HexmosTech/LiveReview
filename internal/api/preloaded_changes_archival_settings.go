@@ -22,6 +22,7 @@ type PreloadedChangesArchivalSettingsResponse struct {
 	ScheduleHuman string `json:"schedule_human"`
 }
 
+
 func defaultPreloadedChangesArchivalSettingsConfig() PreloadedChangesArchivalSettingsConfig {
 	return PreloadedChangesArchivalSettingsConfig{
 		Enabled:        true,
