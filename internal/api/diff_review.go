@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -607,8 +609,11 @@ func (s *Server) fetchLiveDiffFromPR(ctx context.Context, connectorID int64, prM
 func (s *Server) fetchPreloadedChanges(ctx context.Context, orgID, reviewID int64, meta map[string]interface{}) ([]models.CodeDiff, error) {
 	// 1. Try reading from Postgres metadata first (for active reviews <= 30 days old)
 	if meta != nil {
-		if diffs, err := decodePreloadedChanges(meta); err == nil && len(diffs) > 0 {
+		diffs, err := decodePreloadedChanges(meta)
+		if err == nil && len(diffs) > 0 {
 			return diffs, nil
+		} else if err != nil && err.Error() != fmt.Sprintf("%s missing", blobstore.MetaPreloadedChanges) {
+			zlog.Warn().Err(err).Int64("review_id", reviewID).Int64("org_id", orgID).Msg("[diff_review] Failed to decode preloaded_changes from PostgreSQL metadata")
 		}
 	}
 
@@ -659,7 +664,8 @@ func decodeReviewResult(meta map[string]interface{}) (DiffReviewResult, error) {
 	}
 
 	// Strictly trigger fallback ONLY if error is unmarshaling a number into a string field
-	if strings.Contains(err.Error(), "cannot unmarshal number") {
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) && typeErr.Value == "number" && typeErr.Type.Kind() == reflect.String {
 		fallbackRes, fallbackErr := normalizeAndDecodeReviewResult(data)
 		if fallbackErr == nil {
 			return fallbackRes, nil
