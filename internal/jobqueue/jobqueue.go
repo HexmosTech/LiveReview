@@ -2447,7 +2447,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 
 	if db != nil {
 		var data []byte
-		err := db.QueryRow("SELECT data FROM system_settings WHERE name = 'preloaded_changes_archival_settings'").Scan(&data)
+		err := db.QueryRowContext(context.Background(), "SELECT data FROM system_settings WHERE name = 'preloaded_changes_archival_settings'").Scan(&data)
 		if err == nil && len(data) > 0 {
 			var cfg struct {
 				CronExpression string `json:"cron_expression"`
