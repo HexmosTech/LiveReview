@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/livereview/internal/blobstore"
@@ -93,9 +94,10 @@ func (w *PreloadedChangesArchivalSweepWorker) Work(ctx context.Context, job *riv
 
 	// Step 1: Read all eligible review IDs in ONE single query from DB
 	query := `
-		SELECT id, COALESCE(org_id, 0)
+		SELECT id, org_id
 		FROM reviews
-		WHERE created_at < NOW() - make_interval(days => $1)
+		WHERE org_id IS NOT NULL
+		  AND created_at < NOW() - make_interval(days => $1)
 		  AND metadata ? 'preloaded_changes'
 		ORDER BY created_at ASC;
 	`
@@ -137,14 +139,14 @@ func (w *PreloadedChangesArchivalSweepWorker) Work(ctx context.Context, job *riv
 		return fmt.Errorf("failed to bulk insert archival jobs: %w", err)
 	}
 
-	// Enqueue the purge coordinator job to run exactly 30 minutes from now.
-	// It will sweep up whatever successfully completed and ignore the rest.
+	// Enqueue the purge coordinator job.
+	// It will wait for all upload jobs to complete (up to 6 hours with exponential backoff),
+	// then perform a bulk DB metadata purge.
 	_, err = w.jq.client.Insert(ctx, PreloadedChangesArchivalPurgeJobArgs{
 		BatchRunID:    batchRunID,
 		RetentionDays: retentionDays,
 	}, &river.InsertOpts{
-		ScheduledAt: time.Now().Add(30 * time.Minute),
-		MaxAttempts: 3,
+		MaxAttempts: 100,
 	})
 	if err != nil {
 		log.Error().Err(err).Str("batch_run_id", batchRunID).Msg("[preloaded_changes_archival_sweep] failed to enqueue purge coordinator job")
@@ -210,6 +212,13 @@ func (w *PreloadedChangesArchivalWorker) Work(ctx context.Context, job *river.Jo
 	uploadErr := blobstore.SaveArtifact(ctx, w.db, orgID, reviewID, blobstore.ArtifactPreloadedChanges, rawDiff)
 	if uploadErr != nil {
 		log.Error().Err(uploadErr).Int64("review_id", reviewID).Msg("[preloaded_changes_archival_worker] blob upload failed")
+		
+		// If it's a fatal write permission error, cancel the job permanently so it doesn't infinitely retry
+		if strings.Contains(strings.ToLower(uploadErr.Error()), "permission denied") {
+			return river.JobCancel(fmt.Errorf("fatal permission error on blob storage: %w", uploadErr))
+		}
+		
+		// Otherwise (e.g. rate limit, network drop), return normal error to trigger River's exponential retry
 		return fmt.Errorf("failed to upload diff for review %d: %w", reviewID, uploadErr)
 	}
 
@@ -314,8 +323,8 @@ func (w *PreloadedChangesArchivalPurgeWorker) Work(ctx context.Context, job *riv
 	purgeQuery := `
 		UPDATE reviews
 		SET metadata = metadata - 'preloaded_changes'
-		WHERE id IN (
-			SELECT (args->>'review_id')::bigint
+		WHERE (id, org_id) IN (
+			SELECT (args->>'review_id')::bigint, (args->>'org_id')::bigint
 			FROM river_job
 			WHERE args->>'batch_run_id' = $1
 			  AND kind = 'preloaded_changes_archival'

@@ -69,47 +69,8 @@ The inter_batch_delay_ms configuration option sets the pause duration between ba
 
 ### Blob Storage Transfer and PostgreSQL Pruning Workflow
 
-The offloading cycle runs four steps.
-
-First, query PostgreSQL for reviews created more than 30 days ago that still have preloaded_changes in metadata.
-
-```sql
-SELECT id, org_id, metadata->'preloaded_changes'
-FROM reviews
-WHERE created_at < NOW() - ($1 * INTERVAL '1 day')
-  AND metadata ? 'preloaded_changes'
-ORDER BY created_at ASC
-LIMIT $2;
-```
-
-Second, for each review in the batch, write the preloaded_changes payload to Blob Storage under the key path org/org_id/review/review_id/artifacts/preloaded_changes.json.
-
-Third, when the upload succeeds, remove the preloaded_changes key from PostgreSQL metadata.
-
-```sql
-UPDATE reviews
-SET metadata = metadata - 'preloaded_changes'
-WHERE id = $1 AND org_id = $2;
-```
-
-Fourth, if the Blob Storage upload fails for any review, the system keeps metadata unchanged in PostgreSQL. The system logs the error and retries the upload during the next scheduled cycle.
-
-```mermaid
-flowchart TD
-    A["PreloadedChangesArchivalManager Cron Trigger"] --> B{"Is Offloading Enabled?"}
-    B -- "No" --> C["Skip Offloading Cycle"]
-    B -- "Yes" --> D["Query Reviews older than 30 Days with preloaded_changes in DB"]
-    D --> E{"Eligible Reviews Found?"}
-    E -- "No" --> F["Cycle Complete"]
-    E -- "Yes" --> G["Fetch Batch of 50 Reviews"]
-    G --> H["Upload preloaded_changes to Blob Storage org/org_id/review/review_id/artifacts/preloaded_changes.json"]
-    H --> I{"Upload Successful?"}
-    I -- "Yes" --> J["Prune: UPDATE reviews SET metadata = metadata - 'preloaded_changes'"]
-    I -- "No" --> K["Log Error & Retain in DB Metadata for Next Cycle"]
-    J --> L["Pause 50ms Between Batches"]
-    K --> L
-    L --> G
-```
+The offloading cycle operates via an automated, distributed 5-step pipeline managed by the River job queue. 
+See the **5-Step River-based Archival Flow** section below for a detailed breakdown of the execution strategy.
 
 ### API Handler Fallback Strategy
 
@@ -188,8 +149,13 @@ River worker pool processes `PreloadedChangesArchivalWorker` jobs in parallel ac
 ```sql
 UPDATE reviews
 SET metadata = metadata - 'preloaded_changes'
-WHERE created_at < NOW() - ($1 * INTERVAL '1 day')
-  AND trigger_type = 'cli_diff'
+WHERE (id, org_id) IN (
+    SELECT (args->>'review_id')::bigint, (args->>'org_id')::bigint
+    FROM river_job
+    WHERE args->>'batch_run_id' = $1
+      AND kind = 'preloaded_changes_archival'
+      AND state = 'completed'
+)
   AND metadata ? 'preloaded_changes';
 ```
 
