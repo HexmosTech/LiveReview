@@ -110,7 +110,7 @@ const VoteButtons: React.FC<VoteButtonsProps> = ({
   }, [hide]);
 
   useEffect(() => {
-    if (!popupVisible || !wrapperRef.current) return;
+    if (!popupVisible || !wrapperRef.current || !popupRef.current) return;
     setPopupPos(calculatePos(wrapperRef.current, popupRef.current));
     if (popupAnim.opacity === 0) {
       requestAnimationFrame(() => requestAnimationFrame(() => {

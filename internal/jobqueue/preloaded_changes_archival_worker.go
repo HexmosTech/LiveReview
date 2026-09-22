@@ -74,6 +74,9 @@ func (w *PreloadedChangesArchivalSweepWorker) Timeout(job *river.Job[PreloadedCh
 
 func (w *PreloadedChangesArchivalSweepWorker) NextRetry(job *river.Job[PreloadedChangesArchivalSweepJobArgs]) time.Time {
 	shift := job.Attempt - 1
+	if shift < 0 {
+		shift = 0
+	}
 	if shift > 10 {
 		shift = 10
 	}
@@ -171,6 +174,9 @@ func (w *PreloadedChangesArchivalWorker) Timeout(job *river.Job[PreloadedChanges
 
 func (w *PreloadedChangesArchivalWorker) NextRetry(job *river.Job[PreloadedChangesArchivalJobArgs]) time.Time {
 	shift := job.Attempt - 1
+	if shift < 0 {
+		shift = 0
+	}
 	if shift > 10 {
 		shift = 10
 	}
