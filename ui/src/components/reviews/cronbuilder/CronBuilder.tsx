@@ -343,7 +343,7 @@ export function CronBuilder({ onChange, defaultValue, className }: CronBuilderPr
         <div className="grid grid-cols-6 gap-1 w-fit">
           {HOURS_12.map((h12) => {
             const h24 = h12 === 0 ? offset : h12 + offset; // 12AM=0, 1AM=1...11AM=11, 12PM=12, 1PM=13...11PM=23
-            const isSelected = hours.includes(h24 === 24 ? 12 : h24); // handle edge: 12+12=24 shouldn't happen since offset is 0 or 12
+            const isSelected = hours.includes(h24); // h24 is guaranteed to be 0-23
             return (
               <button
                 key={h12}
