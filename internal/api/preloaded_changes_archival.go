@@ -84,7 +84,7 @@ func (manager *PreloadedChangesArchivalManager) Start() {
 
 	if manager.jobQueue != nil && manager.cronExpr != "" {
 		if err := manager.jobQueue.UpdateArchivalSchedule(manager.cronExpr); err != nil {
-			log.Error().Err(err).Str("cron_expr", manager.cronExpr).Msg("[preloaded_changes_archival] failed to apply River periodic schedule")
+			log.Fatal().Err(err).Str("cron_expr", manager.cronExpr).Msg("[preloaded_changes_archival] failed to apply River periodic schedule — archival will not run")
 		}
 	}
 
