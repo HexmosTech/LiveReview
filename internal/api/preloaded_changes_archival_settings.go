@@ -1,12 +1,14 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v4"
+	"github.com/robfig/cron/v3"
 	"github.com/rs/zerolog/log"
 )
 
@@ -42,6 +44,8 @@ func (server *Server) GetPreloadedChangesArchivalSettings(echoContext echo.Conte
 		if unmarshalErr := json.Unmarshal(data, &config); unmarshalErr != nil {
 			log.Warn().Err(unmarshalErr).Msg("[api] failed to unmarshal preloaded_changes_archival_settings from DB")
 		}
+	} else if err != nil && err != sql.ErrNoRows {
+		log.Error().Err(err).Msg("[api] database error fetching preloaded_changes_archival_settings")
 	}
 
 	if config.RetentionDays <= 0 {
@@ -70,6 +74,10 @@ func (server *Server) UpdatePreloadedChangesArchivalSettings(echoContext echo.Co
 	}
 	if strings.TrimSpace(request.CronExpression) == "" {
 		request.CronExpression = defaultArchivalCronExpr
+	}
+
+	if _, err := cron.ParseStandard(request.CronExpression); err != nil {
+		return echoContext.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("Invalid cron expression: %v", err)})
 	}
 
 	// Persist only the user-facing fields; internal tuning params (batch_size, delay_ms) are left untouched.

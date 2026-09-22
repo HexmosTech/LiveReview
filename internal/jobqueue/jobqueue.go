@@ -2455,7 +2455,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 				RetentionDays  int    `json:"retention_days"`
 			}
 			if unmarshalErr := json.Unmarshal(data, &cfg); unmarshalErr != nil {
-				log.Printf("[jobqueue] failed to unmarshal archival settings from DB: %v", unmarshalErr)
+				log.Printf("[jobqueue] failed to unmarshal 'preloaded_changes_archival_settings' from DB: %v", unmarshalErr)
 			} else {
 				if cfg.RetentionDays > 0 {
 					archivalRetentionDays = cfg.RetentionDays
@@ -2464,6 +2464,8 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 					effectiveCronExpr = strings.TrimSpace(cfg.CronExpression)
 				}
 			}
+		} else if err != nil && err != sql.ErrNoRows {
+			log.Printf("[jobqueue] database error fetching 'preloaded_changes_archival_settings': %v", err)
 		}
 	}
 
