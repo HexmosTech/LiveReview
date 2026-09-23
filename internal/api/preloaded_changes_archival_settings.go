@@ -41,7 +41,10 @@ func (server *Server) GetPreloadedChangesArchivalSettings(echoContext echo.Conte
 	var data []byte
 	err := server.db.QueryRowContext(requestContext, "SELECT data FROM system_settings WHERE name = 'preloaded_changes_archival_settings'").Scan(&data)
 	if err == nil && len(data) > 0 {
-		if unmarshalErr := json.Unmarshal(data, &config); unmarshalErr != nil {
+		var tempConfig PreloadedChangesArchivalSettingsConfig
+		if unmarshalErr := json.Unmarshal(data, &tempConfig); unmarshalErr == nil {
+			config = tempConfig
+		} else {
 			log.Warn().Err(unmarshalErr).Msg("[api] failed to unmarshal preloaded_changes_archival_settings from DB")
 		}
 	} else if err != nil && err != sql.ErrNoRows {

@@ -50,7 +50,6 @@ const (
 const (
 	ArtifactPreloadedChanges = "preloaded_changes"
 	ArtifactBlastRadius      = "blast-radius"
-	MetaPreloadedChanges     = ArtifactPreloadedChanges
 )
 
 // DefaultLocalDir is used when Backend is filesystem and LocalDir is unset.
@@ -264,7 +263,7 @@ func ReadArtifactWithBucket(ctx context.Context, bucket *blob.Bucket, orgID, rev
 	defer r.Close()
 
 	size := r.Size()
-	if size > MaxArtifactSize {
+	if size != -1 && size > MaxArtifactSize {
 		return nil, fmt.Errorf("blobstore: artifact %s size %d exceeds max limit %d", key, size, MaxArtifactSize)
 	}
 
