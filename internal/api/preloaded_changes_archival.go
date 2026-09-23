@@ -11,7 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const defaultArchivalCronExpr = "30 21 * * *" // Daily at 9:00 PM IST (local time)
+const defaultArchivalCronExpr = "30 21 * * *" // 21:30 UTC = exactly 3:00 AM IST
 const defaultArchivalRetentionDays = 30
 
 // PreloadedChangesArchivalManager manages settings and manual triggers for preloaded_changes archival.

@@ -229,7 +229,6 @@ func (m *EventCompactionManager) executeBulkCompaction(ctx context.Context, rete
 			SELECT ctid FROM public.review_events
 			WHERE ts < NOW() - ($1 * INTERVAL '1 day')
 			  AND event_type = 'log'
-			  AND COALESCE(level, 'info') NOT IN ('error', 'warn')
 			  AND (data->>'compacted')::boolean IS NOT TRUE
 			  AND data->>'message' NOT ILIKE '%started%'
 			  AND data->>'message' NOT ILIKE '%completed%'

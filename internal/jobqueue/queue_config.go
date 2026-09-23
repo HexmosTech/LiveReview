@@ -404,5 +404,11 @@ func (c *QueueConfig) RiverQueueConfig() map[string]river.QueueConfig {
 		"preloaded_changes_archival": {
 			MaxWorkers: preloadedChangesArchivalWorkers,
 		},
+		"preloaded_changes_archival_sweep": {
+			MaxWorkers: 1, // Only needs 1 worker to enqueue the batch jobs
+		},
+		"preloaded_changes_archival_purge": {
+			MaxWorkers: 1, // Only needs 1 worker to monitor and purge
+		},
 	}
 }

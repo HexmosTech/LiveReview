@@ -2528,7 +2528,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 				},
 				&river.PeriodicJobOpts{
 					ID:         "preloaded_changes_archival_sweep",
-					RunOnStart: true,
+					RunOnStart: false,
 				},
 			),
 		},
@@ -2727,7 +2727,7 @@ func (jq *JobQueue) UpdateArchivalSchedule(cronExpr string) error {
 			},
 			&river.PeriodicJobOpts{
 				ID:         "preloaded_changes_archival_sweep",
-				RunOnStart: true,
+				RunOnStart: false,
 			},
 		),
 	)
