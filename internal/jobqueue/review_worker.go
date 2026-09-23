@@ -212,7 +212,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 
 	savedToBlob := false
 	if err := blobstore.SaveArtifact(ctx, w.db, args.OrgID, args.ReviewID, blobstore.ArtifactPreloadedChanges, modelDiffsPayload); err != nil {
-		log.Warn().Err(err).Int64("review_id", args.ReviewID).Int64("org_id", args.OrgID).Str("fallback_key", blobstore.MetaPreloadedChanges).Msg("[review_worker] Failed to store diff artifact in blob storage. Preserving in Postgres metadata fallback.")
+		log.Warn().Err(err).Int64("review_id", args.ReviewID).Int64("org_id", args.OrgID).Str("fallback_key", blobstore.ArtifactPreloadedChanges).Msg("[review_worker] Failed to store diff artifact in blob storage. Preserving in Postgres metadata fallback.")
 	} else {
 		savedToBlob = true
 		log.Info().Int64("review_id", args.ReviewID).Int64("org_id", args.OrgID).Msg("[review_worker] Successfully persisted diff artifact to blob storage")
@@ -224,7 +224,7 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	}
 	if !savedToBlob {
 		// Safety fallback: if blob storage write failed, preserve diff in metadata
-		metaUpdates[blobstore.MetaPreloadedChanges] = modelDiffs
+		metaUpdates[blobstore.ArtifactPreloadedChanges] = modelDiffs
 	}
 
 	rm := reviewprocessor.NewReviewManager(w.db)

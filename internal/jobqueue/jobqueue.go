@@ -2448,14 +2448,16 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 
 	if db != nil {
 		var data []byte
-		err := db.QueryRowContext(context.Background(), "SELECT data FROM system_settings WHERE name = 'preloaded_changes_archival_settings'").Scan(&data)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := db.QueryRowContext(ctx, "SELECT data FROM system_settings WHERE name = 'preloaded_changes_archival_settings'").Scan(&data)
+		cancel()
 		if err == nil && len(data) > 0 {
 			var cfg struct {
 				CronExpression string `json:"cron_expression"`
 				RetentionDays  int    `json:"retention_days"`
 			}
 			if unmarshalErr := json.Unmarshal(data, &cfg); unmarshalErr != nil {
-				log.Printf("[jobqueue] failed to unmarshal 'preloaded_changes_archival_settings' from DB: %v", unmarshalErr)
+				log.Printf("[ERROR] [jobqueue] failed to unmarshal 'preloaded_changes_archival_settings' from DB: %v", unmarshalErr)
 			} else {
 				if cfg.RetentionDays > 0 {
 					archivalRetentionDays = cfg.RetentionDays
@@ -2465,14 +2467,14 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 				}
 			}
 		} else if err != nil && err != sql.ErrNoRows {
-			log.Printf("[jobqueue] database error fetching 'preloaded_changes_archival_settings': %v", err)
+			log.Printf("[ERROR] [jobqueue] database error fetching 'preloaded_changes_archival_settings': %v", err)
 		}
 	}
 
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 	archivalSchedule, parseErr := parser.Parse(effectiveCronExpr)
 	if parseErr != nil {
-		log.Printf("[jobqueue] failed to parse archival cron %q: %v, falling back to default 24h interval", effectiveCronExpr, parseErr)
+		log.Printf("[ERROR] [jobqueue] failed to parse archival cron %q: %v, falling back to default 24h interval", effectiveCronExpr, parseErr)
 		archivalSchedule = river.PeriodicInterval(24 * time.Hour)
 	} else {
 		nextRun := archivalSchedule.Next(time.Now())
@@ -2520,7 +2522,6 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 				func() (river.JobArgs, *river.InsertOpts) {
 					return PreloadedChangesArchivalSweepJobArgs{
 						RetentionDays: archivalRetentionDays,
-						BatchSize:     0,
 					}, &river.InsertOpts{
 						Queue:       "preloaded_changes_archival_sweep",
 						MaxAttempts: 3,
@@ -2684,7 +2685,7 @@ func (jq *JobQueue) QueuePreloadedChangesArchivalJobs(ctx context.Context, jobs 
 	}
 	res, err := jq.client.InsertMany(ctx, params)
 	if err != nil {
-		log.Printf("[ERROR] Failed to queue preloaded_changes archival jobs: %v", err)
+		log.Printf("[ERROR] [jobqueue] failed to queue preloaded_changes archival jobs: %v", err)
 		return 0, fmt.Errorf("failed to queue preloaded_changes archival jobs: %w", err)
 	}
 	return len(res), nil

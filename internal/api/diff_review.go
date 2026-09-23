@@ -612,7 +612,7 @@ func (s *Server) fetchPreloadedChanges(ctx context.Context, orgID, reviewID int6
 		diffs, err := decodePreloadedChanges(meta)
 		if err == nil && len(diffs) > 0 {
 			return diffs, nil
-		} else if err != nil && err.Error() != fmt.Sprintf("%s missing", blobstore.MetaPreloadedChanges) {
+		} else if err != nil && err.Error() != fmt.Sprintf("%s missing", blobstore.ArtifactPreloadedChanges) {
 			zlog.Warn().Err(err).Int64("review_id", reviewID).Int64("org_id", orgID).Msg("[diff_review] Failed to decode preloaded_changes from PostgreSQL metadata")
 		}
 	}
@@ -632,9 +632,9 @@ func (s *Server) fetchPreloadedChanges(ctx context.Context, orgID, reviewID int6
 }
 
 func decodePreloadedChanges(meta map[string]interface{}) ([]models.CodeDiff, error) {
-	raw, ok := meta[blobstore.MetaPreloadedChanges]
+	raw, ok := meta[blobstore.ArtifactPreloadedChanges]
 	if !ok {
-		return nil, fmt.Errorf("%s missing", blobstore.MetaPreloadedChanges)
+		return nil, fmt.Errorf("%s missing", blobstore.ArtifactPreloadedChanges)
 	}
 	data, err := json.Marshal(raw)
 	if err != nil {

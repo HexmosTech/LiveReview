@@ -1,6 +1,7 @@
 package jobqueue
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/livereview/internal/blobstore"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 	"github.com/rs/zerolog/log"
 )
 
@@ -33,11 +35,20 @@ func (PreloadedChangesArchivalJobArgs) InsertOpts() river.InsertOpts {
 // PreloadedChangesArchivalSweepJobArgs represents arguments for periodic or manual background sweep of eligible reviews.
 type PreloadedChangesArchivalSweepJobArgs struct {
 	RetentionDays int `json:"retention_days,omitempty"`
-	BatchSize     int `json:"batch_size,omitempty"`
 }
 
 func (PreloadedChangesArchivalSweepJobArgs) Kind() string {
 	return "preloaded_changes_archival_sweep"
+}
+
+func (PreloadedChangesArchivalSweepJobArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		Queue: "preloaded_changes_archival_sweep",
+		UniqueOpts: river.UniqueOpts{
+			ByArgs:   true,
+			ByState:  []rivertype.JobState{rivertype.JobStateAvailable, rivertype.JobStateRunning, rivertype.JobStateRetryable, rivertype.JobStateScheduled},
+		},
+	}
 }
 
 
@@ -111,36 +122,50 @@ func (w *PreloadedChangesArchivalSweepWorker) Work(ctx context.Context, job *riv
 	}
 	defer rows.Close()
 
-	var archivalJobs []PreloadedChangesArchivalJobArgs
+	var totalEnqueued int
+	var chunk []PreloadedChangesArchivalJobArgs
+
 	for rows.Next() {
 		var reviewID, orgID int64
 		if err := rows.Scan(&reviewID, &orgID); err != nil {
 			return fmt.Errorf("failed to scan preloaded_changes_archival row: %w", err)
 		}
-		archivalJobs = append(archivalJobs, PreloadedChangesArchivalJobArgs{
+		chunk = append(chunk, PreloadedChangesArchivalJobArgs{
 			ReviewID:   reviewID,
 			OrgID:      orgID,
 			BatchRunID: batchRunID,
 		})
+
+		if len(chunk) >= 10000 {
+			if w.jq == nil {
+				return fmt.Errorf("job queue reference is nil")
+			}
+			if _, err := w.jq.QueuePreloadedChangesArchivalJobs(ctx, chunk); err != nil {
+				log.Error().Err(err).Msg("[preloaded_changes_archival_sweep] error bulk inserting archival jobs chunk")
+				return fmt.Errorf("failed to bulk insert archival jobs chunk: %w", err)
+			}
+			totalEnqueued += len(chunk)
+			chunk = nil
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("rows iteration error: %w", err)
 	}
 
-	if len(archivalJobs) == 0 {
+	if len(chunk) > 0 {
+		if w.jq == nil {
+			return fmt.Errorf("job queue reference is nil")
+		}
+		if _, err := w.jq.QueuePreloadedChangesArchivalJobs(ctx, chunk); err != nil {
+			log.Error().Err(err).Msg("[preloaded_changes_archival_sweep] error bulk inserting archival jobs final chunk")
+			return fmt.Errorf("failed to bulk insert archival jobs final chunk: %w", err)
+		}
+		totalEnqueued += len(chunk)
+	}
+
+	if totalEnqueued == 0 {
 		log.Info().Msg("[preloaded_changes_archival_sweep] 0 eligible reviews found, sweep complete")
 		return nil
-	}
-
-	if w.jq == nil {
-		return fmt.Errorf("job queue reference is nil")
-	}
-
-	// Step 2: Bulk insert all upload jobs into River with exponential retry mechanism
-	count, err := w.jq.QueuePreloadedChangesArchivalJobs(ctx, archivalJobs)
-	if err != nil {
-		log.Error().Err(err).Msg("[preloaded_changes_archival_sweep] error bulk inserting archival jobs")
-		return fmt.Errorf("failed to bulk insert archival jobs: %w", err)
 	}
 
 	// Enqueue the purge coordinator job.
@@ -157,7 +182,7 @@ func (w *PreloadedChangesArchivalSweepWorker) Work(ctx context.Context, job *riv
 		return fmt.Errorf("failed to enqueue purge coordinator job: %w", err)
 	}
 
-	log.Info().Str("batch_run_id", batchRunID).Int("eligible", len(archivalJobs)).Int("enqueued", count).Msg("[preloaded_changes_archival_sweep] bulk insert complete, purge coordinator enqueued")
+	log.Info().Str("batch_run_id", batchRunID).Int("eligible", totalEnqueued).Int("enqueued", totalEnqueued).Msg("[preloaded_changes_archival_sweep] bulk insert complete, purge coordinator enqueued")
 	return nil
 }
 
@@ -210,7 +235,7 @@ func (w *PreloadedChangesArchivalWorker) Work(ctx context.Context, job *river.Jo
 		return fmt.Errorf("failed to fetch preloaded_changes for review %d: %w", reviewID, err)
 	}
 
-	if len(rawDiff) == 0 || string(rawDiff) == "null" {
+	if len(rawDiff) == 0 || bytes.Equal(rawDiff, []byte("null")) {
 		log.Info().Int64("review_id", reviewID).Msg("[preloaded_changes_archival_worker] empty diff, marking completed")
 		return nil
 	}
@@ -264,7 +289,7 @@ func (w *PreloadedChangesArchivalPurgeWorker) Work(ctx context.Context, job *riv
 		timeoutQuery := `
 			SELECT COUNT(*)
 			FROM river_job
-			WHERE args->>'batch_run_id' = $1
+			WHERE args @> jsonb_build_object('batch_run_id', $1::text)
 			  AND kind = 'preloaded_changes_archival'
 			  AND state NOT IN ('completed', 'discarded');
 		`
@@ -283,7 +308,7 @@ func (w *PreloadedChangesArchivalPurgeWorker) Work(ctx context.Context, job *riv
 		checkQuery := `
 			SELECT COUNT(*)
 			FROM river_job
-			WHERE args->>'batch_run_id' = $1
+			WHERE args @> jsonb_build_object('batch_run_id', $1::text)
 			  AND kind = 'preloaded_changes_archival'
 			  AND state NOT IN ('completed', 'discarded');
 		`
@@ -333,7 +358,7 @@ func (w *PreloadedChangesArchivalPurgeWorker) Work(ctx context.Context, job *riv
 		WHERE (id, org_id) IN (
 			SELECT (args->>'review_id')::bigint, (args->>'org_id')::bigint
 			FROM river_job
-			WHERE args->>'batch_run_id' = $1
+			WHERE args @> jsonb_build_object('batch_run_id', $1::text)
 			  AND kind = 'preloaded_changes_archival'
 			  AND state = 'completed'
 		)
@@ -350,7 +375,7 @@ func (w *PreloadedChangesArchivalPurgeWorker) Work(ctx context.Context, job *riv
 	// 3. O(1) Cleanup of river_job so no junk is left
 	cleanupQuery := `
 		DELETE FROM river_job 
-		WHERE args->>'batch_run_id' = $1 
+		WHERE args @> jsonb_build_object('batch_run_id', $1::text)
 		  AND kind != 'preloaded_changes_archival_purge';
 	`
 	cleanupRes, cleanupErr := w.db.ExecContext(ctx, cleanupQuery, batchRunID)
