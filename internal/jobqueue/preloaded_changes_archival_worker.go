@@ -10,7 +10,6 @@ import (
 
 	"github.com/livereview/internal/blobstore"
 	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/rivertype"
 	"github.com/rs/zerolog/log"
 )
 
@@ -45,8 +44,7 @@ func (PreloadedChangesArchivalSweepJobArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
 		Queue: "preloaded_changes_archival_sweep",
 		UniqueOpts: river.UniqueOpts{
-			ByArgs:   true,
-			ByState:  []rivertype.JobState{rivertype.JobStateAvailable, rivertype.JobStateRunning, rivertype.JobStateRetryable, rivertype.JobStateScheduled},
+			ByArgs: true,
 		},
 	}
 }

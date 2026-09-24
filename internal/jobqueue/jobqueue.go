@@ -43,7 +43,6 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
-	"github.com/riverqueue/river/rivertype"
 )
 
 // GitLab API response structures
@@ -2704,8 +2703,10 @@ func (jq *JobQueue) EnqueuePreloadedChangesArchivalSweep(ctx context.Context, re
 	}, &river.InsertOpts{
 		Queue: "preloaded_changes_archival_sweep",
 		UniqueOpts: river.UniqueOpts{
-			ByArgs:  true,
-			ByState: []rivertype.JobState{rivertype.JobStateAvailable, rivertype.JobStateRunning, rivertype.JobStateRetryable},
+			// Explicitly empty to disable River's job-level uniqueness for manual triggers.
+			// The API handler already uses IsArchivalCycleActive to prevent duplicates.
+			// If we try to use UniqueOpts here, River forces us to check 'scheduled' jobs,
+			// which would cause the manual trigger to conflict with the periodic cron job.
 		},
 	})
 	return err
