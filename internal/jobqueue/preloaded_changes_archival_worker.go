@@ -99,6 +99,18 @@ func (w *PreloadedChangesArchivalSweepWorker) NextRetry(job *river.Job[Preloaded
 }
 
 func (w *PreloadedChangesArchivalSweepWorker) Work(ctx context.Context, job *river.Job[PreloadedChangesArchivalSweepJobArgs]) error {
+	// Defense-in-depth: if the worker runs, but another archival cycle is STILL somehow active
+	// (e.g. upload/purge from a previous run), cancel itself immediately to prevent interleaving.
+	isActive, err := w.jq.IsArchivalCycleActive(ctx, job.ID)
+	if err != nil {
+		log.Error().Err(err).Msg("[preloaded_changes_archival_sweep] failed to check active cycle status")
+		return fmt.Errorf("failed to check active cycle status: %w", err)
+	}
+	if isActive {
+		log.Warn().Int64("job_id", job.ID).Msg("[preloaded_changes_archival_sweep] another archival cycle is currently active; cancelling this sweep to prevent interleaving")
+		return river.JobCancel(fmt.Errorf("another archival cycle is already active"))
+	}
+
 	retentionDays := job.Args.RetentionDays
 	if retentionDays <= 0 {
 		retentionDays = 30
