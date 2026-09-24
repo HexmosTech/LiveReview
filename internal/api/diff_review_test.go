@@ -831,3 +831,35 @@ func TestDiffReviewArtifactBlobKeyIsScopedPerOrgAndReview(t *testing.T) {
 		seen[key] = true
 	}
 }
+
+func TestNormalizeAndDecodeReviewResult_ConfidenceTypes(t *testing.T) {
+	// 1. Test original format (string)
+	jsonStr := []byte(`{"summary":"sum","comments":[{"Confidence":"0.95"}]}`)
+	resStr, err := normalizeAndDecodeReviewResult(jsonStr)
+	if err != nil {
+		t.Fatalf("unexpected error for string confidence: %v", err)
+	}
+	if len(resStr.Comments) != 1 || resStr.Comments[0].Confidence != "0.95" {
+		t.Fatalf("expected 0.95 string confidence, got %v", resStr.Comments[0].Confidence)
+	}
+
+	// 2. Test fallback format (float)
+	jsonFloat := []byte(`{"summary":"sum","comments":[{"Confidence":0.88}]}`)
+	resFloat, err := normalizeAndDecodeReviewResult(jsonFloat)
+	if err != nil {
+		t.Fatalf("unexpected error for float confidence: %v", err)
+	}
+	if len(resFloat.Comments) != 1 || resFloat.Comments[0].Confidence != "0.88" {
+		t.Fatalf("expected 0.88 string confidence, got %v", resFloat.Comments[0].Confidence)
+	}
+
+	// 3. Test fallback format (int)
+	jsonInt := []byte(`{"summary":"sum","comments":[{"Confidence":1}]}`)
+	resInt, err := normalizeAndDecodeReviewResult(jsonInt)
+	if err != nil {
+		t.Fatalf("unexpected error for int confidence: %v", err)
+	}
+	if len(resInt.Comments) != 1 || resInt.Comments[0].Confidence != "1" {
+		t.Fatalf("expected 1 string confidence, got %v", resInt.Comments[0].Confidence)
+	}
+}
