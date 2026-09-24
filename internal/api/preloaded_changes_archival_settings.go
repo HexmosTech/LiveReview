@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -120,7 +121,7 @@ func (server *Server) RunPreloadedChangesArchivalNow(echoContext echo.Context) e
 
 	err := server.preloadedChangesArchivalManager.TriggerManualCycle()
 	if err != nil {
-		if strings.Contains(err.Error(), "already actively running") {
+		if errors.Is(err, ErrCycleAlreadyRunning) {
 			return echoContext.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
 		}
 		return echoContext.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to trigger archival cycle"})
