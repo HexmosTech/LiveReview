@@ -685,14 +685,28 @@ func normalizeAndDecodeReviewResult(data []byte) (DiffReviewResult, error) {
 		for _, item := range comments {
 			if commentMap, ok := item.(map[string]interface{}); ok {
 				// ReviewComment struct doesn't have json tags, so it exports as "Confidence" (capital C)
-				if conf, exists := commentMap["Confidence"]; exists && conf != nil {
+				// We check both lowercase and uppercase to satisfy linters and accommodate both shapes
+				conf, exists := commentMap["confidence"]
+				if !exists {
+					conf, exists = commentMap["Confidence"]
+				}
+				if exists && conf != nil {
+					var strConf string
 					switch v := conf.(type) {
 					case float64:
-						commentMap["Confidence"] = fmt.Sprintf("%g", v)
+						strConf = fmt.Sprintf("%g", v)
 					case int:
-						commentMap["Confidence"] = fmt.Sprintf("%d", v)
+						strConf = fmt.Sprintf("%d", v)
 					case int64:
-						commentMap["Confidence"] = fmt.Sprintf("%d", v)
+						strConf = fmt.Sprintf("%d", v)
+					case string:
+						strConf = v
+					}
+					if strConf != "" {
+						commentMap["confidence"] = strConf
+						if _, hasUpper := commentMap["Confidence"]; hasUpper {
+							delete(commentMap, "Confidence")
+						}
 					}
 				}
 			}
