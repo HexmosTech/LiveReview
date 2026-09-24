@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/mail"
 	"os"
 	"strings"
 	"time"
@@ -63,11 +64,22 @@ type LoginResponse struct {
 type UserInfo struct {
 	ID               int64      `json:"id"`
 	Email            string     `json:"email"`
+	Name             string     `json:"name,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
 	PlanType         string     `json:"plan_type,omitempty"`
 	LicenseExpiresAt *time.Time `json:"license_expires_at,omitempty"`
 	DefaultOrgID     *int64     `json:"default_org_id,omitempty"`
+}
+
+// userName returns "first last" from the users table, or "" when no name is set.
+func (h *AuthHandlers) userName(userID int64) string {
+	var first, last sql.NullString
+	err := h.db.QueryRow(`SELECT first_name, last_name FROM users WHERE id = $1`, userID).Scan(&first, &last)
+	if err != nil && err != sql.ErrNoRows {
+		log.Printf("[auth] failed to load name for user %d: %v", userID, err)
+	}
+	return strings.TrimSpace(first.String + " " + last.String)
 }
 
 // OrgInfo represents organization information for the user
@@ -177,6 +189,7 @@ func (h *AuthHandlers) Login(c echo.Context) error {
 		User: &UserInfo{
 			ID:               user.ID,
 			Email:            user.Email,
+			Name:             h.userName(user.ID),
 			CreatedAt:        user.CreatedAt,
 			UpdatedAt:        user.UpdatedAt,
 			PlanType:         planType,
@@ -301,6 +314,7 @@ func (h *AuthHandlers) Me(c echo.Context) error {
 		User: &UserInfo{
 			ID:               user.ID,
 			Email:            user.Email,
+			Name:             h.userName(user.ID),
 			CreatedAt:        user.CreatedAt,
 			UpdatedAt:        user.UpdatedAt,
 			PlanType:         planType,
@@ -843,6 +857,7 @@ func (h *AuthHandlers) EnsureCloudUser(c echo.Context) error {
 		"user": &UserInfo{
 			ID:           userID,
 			Email:        req.Email,
+			Name:         h.userName(userID),
 			DefaultOrgID: dbDefaultOrgID,
 			CreatedAt:    user.CreatedAt,
 			UpdatedAt:    user.UpdatedAt,
@@ -867,24 +882,101 @@ func sendSignupDiscordNotification(email, source string) {
 	content := fmt.Sprintf("🆕 **New signup** — `%s` (via %s) at %s",
 		email, source, time.Now().UTC().Format(time.RFC3339))
 
-	payload, err := json.Marshal(map[string]string{"content": content})
-	if err != nil {
-		log.Printf("[discord-notify] failed to marshal payload: %v", err)
-		return
-	}
-
 	go func() {
-		client := &http.Client{Timeout: 10 * time.Second}
-		resp, err := client.Post(webhookURL, "application/json", bytes.NewReader(payload))
-		if err != nil {
-			log.Printf("[discord-notify] failed to send: %v", err)
-			return
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode >= 300 {
-			log.Printf("[discord-notify] unexpected status: %d", resp.StatusCode)
+		if err := postDiscordWebhook(webhookURL, map[string]string{"content": content}); err != nil {
+			log.Printf("[discord-notify] %v", err)
 		}
 	}()
+}
+
+// postDiscordWebhook sends a JSON payload to a Discord webhook and reports any failure.
+func postDiscordWebhook(webhookURL string, payload any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Post(webhookURL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to send: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// EnterpriseEnquiryRequest is the "Get Enterprise" form from the dashboard navbar.
+type EnterpriseEnquiryRequest struct {
+	Name       string `json:"name"`
+	Company    string `json:"company"`
+	Email      string `json:"email"`
+	JobTitle   string `json:"job_title"`
+	Developers string `json:"developers"`
+	Country    string `json:"country"`
+	Message    string `json:"message"`
+}
+
+// EnterpriseEnquiry posts the enquiry to the signup Discord channel, in the hexmos.com pricing-form format.
+func (h *AuthHandlers) EnterpriseEnquiry(c echo.Context) error {
+	webhookURL := os.Getenv("DISCORD_SIGNUP_WEBHOOK_URL")
+	if webhookURL == "" {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "Enquiries are not configured"})
+	}
+
+	var req EnterpriseEnquiryRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	}
+
+	// Discord rejects embed field values longer than 1024 characters.
+	clip := func(v string) string {
+		v = strings.TrimSpace(v)
+		if r := []rune(v); len(r) > 1024 {
+			return string(r[:1021]) + "..."
+		}
+		return v
+	}
+	required := []struct{ name, value string }{
+		{"Name", clip(req.Name)},
+		{"Company", clip(req.Company)},
+		{"Work Email", clip(req.Email)},
+		{"Job Title", clip(req.JobTitle)},
+		{"Number of Developers", clip(req.Developers)},
+	}
+	fields := []map[string]any{}
+	for _, f := range required {
+		if f.value == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Please fill in all the required fields"})
+		}
+		fields = append(fields, map[string]any{"name": f.name, "value": f.value, "inline": true})
+	}
+	if addr, err := mail.ParseAddress(req.Email); err != nil || addr.Address != strings.TrimSpace(req.Email) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Please enter a valid work email address"})
+	}
+	if country := clip(req.Country); country != "" {
+		fields = append(fields, map[string]any{"name": "Country", "value": country, "inline": true})
+	}
+	if message := clip(req.Message); message != "" {
+		fields = append(fields, map[string]any{"name": "How Can We Help", "value": message, "inline": false})
+	}
+	fields = append(fields, map[string]any{"name": "Source", "value": "LiveReview dashboard", "inline": false})
+
+	payload := map[string]any{
+		"username": "LiveReview Pricing",
+		"embeds": []map[string]any{{
+			"title":  "New Enterprise Enquiry",
+			"color":  0x8b5cf6,
+			"fields": fields,
+			"footer": map[string]string{"text": "Submitted " + time.Now().UTC().Format("2006-01-02 15:04:05 UTC")},
+		}},
+	}
+	if err := postDiscordWebhook(webhookURL, payload); err != nil {
+		log.Printf("[enterprise-enquiry] %v", err)
+		return c.JSON(http.StatusBadGateway, map[string]string{"error": "Could not send your enquiry"})
+	}
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // Note: Onboarding API keys are now created using the standard APIKeyManager from the api package

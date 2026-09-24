@@ -188,7 +188,7 @@ export const Card: React.FC<CardProps> = ({
 
 // ===== INPUT COMPONENTS =====
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
-  label?: string;
+  label?: ReactNode;
   error?: string;
   icon?: ReactNode;
   iconPosition?: 'left' | 'right';
@@ -252,7 +252,7 @@ export const Input: React.FC<InputProps> = ({
 
 // ===== SELECT COMPONENT =====
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
-  label?: string;
+  label?: ReactNode;
   error?: string;
   helperText?: string;
   options: { value: string; label: string }[];
@@ -1446,22 +1446,30 @@ interface SingleSelectFieldProps {
    * "All X" state doesn't make sense - every option is mutually exclusive
    * and one is always active. Defaults to true (shows "All {label}"). */
   allowClear?: boolean;
+  /** Text shown when nothing is selected, instead of "All {label}". */
+  placeholder?: string;
+  /** Show a search box at the top of the list, for long option lists. */
+  searchable?: boolean;
 }
 
 // Same button/panel chrome as MultiSelectField above, but single-select (no
 // checkboxes) - for filters whose options are mutually exclusive rather than
 // combinable (e.g. Any/Has open PRs/No open PRs).
-export const SingleSelectField: React.FC<SingleSelectFieldProps> = ({ label, options, value, onChange, allowClear = true }) => {
+export const SingleSelectField: React.FC<SingleSelectFieldProps> = ({ label, options, value, onChange, allowClear = true, placeholder, searchable = false }) => {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement | null>(null);
   const current = options.find((o) => o.value === value);
-  const summary = current ? current.label : `All ${label}`;
+  const summary = current ? current.label : placeholder ?? `All ${label}`;
+  const visibleOptions = query
+    ? options.filter((o) => o.label.toLowerCase().includes(query.trim().toLowerCase()))
+    : options;
 
   useEffect(() => {
     if (!open) return;
     const onClickOutside = (ev: MouseEvent) => {
       if (!rootRef.current) return;
-      if (!rootRef.current.contains(ev.target as Node)) setOpen(false);
+      if (!rootRef.current.contains(ev.target as Node)) { setOpen(false); setQuery(''); }
     };
     document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
@@ -1470,6 +1478,7 @@ export const SingleSelectField: React.FC<SingleSelectFieldProps> = ({ label, opt
   const select = (next: string) => {
     onChange(next);
     setOpen(false);
+    setQuery('');
   };
 
   return (
@@ -1481,12 +1490,29 @@ export const SingleSelectField: React.FC<SingleSelectFieldProps> = ({ label, opt
         className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2.5 text-left text-sm text-white hover:border-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-400"
       >
         <span className="flex items-center justify-between gap-2">
-          <span className="truncate">{summary}</span>
+          <span className={current || !placeholder ? 'truncate' : 'truncate text-slate-400'}>{summary}</span>
           <span className="text-slate-400">▾</span>
         </span>
       </button>
       {open && (
-        <div className="absolute z-30 mt-1 w-full min-w-[14rem] rounded-lg border border-slate-600 bg-slate-800 shadow-xl p-2 space-y-1">
+        <div className="absolute z-30 mt-1 w-full min-w-[14rem] max-h-64 overflow-y-auto rounded-lg border border-slate-600 bg-slate-800 shadow-xl p-2 space-y-1">
+          {searchable && (
+            <input
+              autoFocus
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              // Enter picks the first match instead of submitting a surrounding form.
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                if (visibleOptions[0]) select(visibleOptions[0].value);
+              }}
+              placeholder="Search..."
+              aria-label={`Search ${label}`}
+              className="sticky top-0 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500/50 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+            />
+          )}
           {allowClear && (
             <button
               type="button"
@@ -1496,7 +1522,7 @@ export const SingleSelectField: React.FC<SingleSelectFieldProps> = ({ label, opt
               All {label}
             </button>
           )}
-          {options.map((o) => (
+          {visibleOptions.map((o) => (
             <button
               key={o.value}
               type="button"
@@ -1506,6 +1532,7 @@ export const SingleSelectField: React.FC<SingleSelectFieldProps> = ({ label, opt
               {o.label}
             </button>
           ))}
+          {visibleOptions.length === 0 && <p className="px-2 py-1.5 text-sm text-slate-400">No matches</p>}
         </div>
       )}
     </div>

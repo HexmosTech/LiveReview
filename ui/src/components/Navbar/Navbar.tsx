@@ -17,6 +17,7 @@ import {
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { buildMegaMenuSections, filterMegaMenuSection, MegaMenuContext } from './megaMenuData';
 import { NavMegaMenu } from './NavMegaMenu';
+import { EnterpriseModal } from './EnterpriseModal';
 import { shortcutKeyLabel } from '../../utils/platform';
 import { NotificationBell } from '../Notifications/NotificationBell';
 import { add as addNotification, dismiss as dismissNotification } from '../../store/Notifications/slice';
@@ -604,6 +605,7 @@ const testNavLink: NavLink = {
 export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard', onNavigate, onLogout }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [isMegaMenuOpen, setIsMegaMenuOpen] = useState(false);
+    const [showEnterprise, setShowEnterprise] = useState(false);
     const [hoveredNavKey, setHoveredNavKey] = useState<string | null>(null);
     const [searchFocusToken, setSearchFocusToken] = useState(0);
     const megaMenuCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -788,7 +790,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
             style={activePage === 'chat' ? { marginLeft: chatSidebarWidth } : undefined}
         >
             <div className="container mx-auto px-4 py-3 flex justify-between items-center">
-                <div ref={logoRef} className="flex items-center">
+                <div ref={logoRef} className="flex items-center shrink-0">
                     <Link
                         to="/"
                         onClick={() => handleNavClick('dashboard')}
@@ -796,7 +798,9 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         role="button"
                         aria-label="Go to home"
                     >
-                        <img src="assets/logo-horizontal.svg" alt="LiveReview Logo" className="h-10 w-auto mr-3" />
+                        {/* Icon-only logo on smaller laptops, full wordmark from 2xl up. */}
+                        <img src="assets/logo.svg" alt="LiveReview Logo" className="h-9 w-9 mr-3 2xl:hidden" />
+                        <img src="assets/logo-horizontal.svg" alt="LiveReview Logo" className="hidden 2xl:block h-10 w-auto mr-3" />
                     </Link>
                 </div>
 
@@ -843,7 +847,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                                     onFocus={() => { if (link.path) prefetchRoute(link.path); }}
                                     icon={activePage === link.key ? link.icon : <span className="text-slate-400">{link.icon}</span>}
                                     className={classNames(
-                                        'relative !px-2.5 2xl:!px-4 text-sm font-medium transition-all duration-200 focus:!ring-0 focus:!ring-offset-0',
+                                        'relative !px-2.5 2xl:!px-3 text-sm font-medium transition-all duration-200 focus:!ring-0 focus:!ring-offset-0',
                                         activePage === link.key
                                             ? 'text-white font-semibold hover:bg-transparent'
                                             : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
@@ -874,7 +878,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         }}
                         icon={<span className="text-slate-400"><Icons.Search /></span>}
                         aria-label="Search"
-                        className="!px-2.5 2xl:!px-4 text-sm font-medium transition-all duration-200 text-slate-300 hover:text-white hover:bg-slate-700/60 focus:!ring-0 focus:!ring-offset-0"
+                        className="!px-2 text-sm font-medium transition-all duration-200 text-slate-300 hover:text-white hover:bg-slate-700/60 focus:!ring-0 focus:!ring-offset-0"
                     >
                         Search
                         <span className="ml-2 2xl:ml-2.5 whitespace-nowrap font-mono text-[11px] text-slate-500" style={{ letterSpacing: '0.02em' }}>
@@ -887,25 +891,36 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                     <OrganizationSelector
                         position="navbar"
                         size="sm"
-                        className="ml-2 2xl:ml-4"
+                        className="ml-1 2xl:ml-2"
                     />
 
                     <BillingChip />
+
+                    {isCloudMode() && (
+                        <button
+                            type="button"
+                            onClick={() => setShowEnterprise(true)}
+                            className="whitespace-nowrap px-2 py-1.5 2xl:px-3 2xl:py-2 rounded-lg border text-xs font-semibold transition-colors bg-violet-900/25 border-violet-500/40 text-violet-100 hover:bg-violet-900/40"
+                        >
+                            Get Enterprise
+                        </button>
+                    )}
 
                     <NotificationBell />
 
                     {/* Logout button */}
                     {onLogout && (
-                        <Button
-                            variant="ghost"
+                        <button
+                            type="button"
                             onClick={onLogout}
-                            className="!px-2.5 2xl:!px-4 ml-1 2xl:ml-3 text-slate-300 hover:text-red-300 hover:bg-red-900/20 transition-colors"
-                            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                            </svg>}
+                            aria-label="Logout"
+                            title="Logout"
+                            className="ml-2 text-slate-300 hover:text-red-400 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
                         >
-                            Logout
-                        </Button>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                            </svg>
+                        </button>
                     )}
                 </div>
             </div>
@@ -926,6 +941,15 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                     <div className="mb-3">
                         <NotificationBell />
                     </div>
+                    {isCloudMode() && (
+                        <Button
+                            variant="ghost"
+                            onClick={() => { setShowEnterprise(true); setIsOpen(false); }}
+                            className="w-full justify-start text-sm font-medium text-violet-200 hover:bg-violet-900/30"
+                        >
+                            Get Enterprise
+                        </Button>
+                    )}
 
                     {navLinks.map(link => (
                         <Button
@@ -963,6 +987,8 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                     )}
                 </div>
             )}
+
+            <EnterpriseModal show={showEnterprise} onClose={() => setShowEnterprise(false)} />
 
             <div ref={megaMenuPanelRef}>
                 <NavMegaMenu

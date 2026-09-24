@@ -1239,6 +1239,7 @@ func (s *Server) setupRoutes() {
 	protected.GET("/auth/me", s.authHandlers.Me)
 	protected.POST("/auth/logout", s.authHandlers.Logout)
 	protected.POST("/auth/change-password", s.authHandlers.ChangePassword)
+	protected.POST("/enterprise-enquiry", s.authHandlers.EnterpriseEnquiry)
 
 	// Clear onboarding API key
 	protected.POST("/onboarding/clear-api-key", s.ClearOnboardingAPIKey)
