@@ -19,6 +19,16 @@ Every channel reaches the same engineers who set your instance up.
 - **Microsoft Teams:** supported the same way as Slack - invite us into a
   shared channel.
 
+## Enterprise / self-hosting enquiries
+
+On LiveReview Cloud, the violet **Get Enterprise** button in the top navbar
+(next to the billing chip, and in the mobile menu) opens a
+contact form: name, company, work email, job title, number of developers,
+and optionally country and "How can we help?". Submitting it with **Talk to
+Our Team** sends the enquiry to the Hexmos team. The form also has a link
+to DM the founder on LinkedIn. The button is hidden on self-hosted
+instances.
+
 ## When to use which
 
 - **General questions, sales enquiries, anything else** - email
