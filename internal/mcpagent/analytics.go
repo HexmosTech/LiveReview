@@ -1401,6 +1401,18 @@ var DefaultNoDataSuggestedQuestions = []SuggestedQuestionCategory{
 	},
 }
 
+var DefaultAIErrorSuggestedQuestions = []SuggestedQuestionCategory{
+	{
+		Category: "AI Configuration Guidance",
+		Questions: []string{
+			"How do I fix an expired AI API key?",
+			"Where do I get an AI API key?",
+			"Which AI models are supported?",
+			"How do I switch to a different AI provider?",
+		},
+	},
+}
+
 // assembleAnalyticsResponse produces the string RunTurn returns. Charts go into
 // the existing {"reports":[...]} envelope that every surface already renders;
 // plain notes are returned as prose when there is nothing to draw. hasArtifacts
@@ -1640,6 +1652,11 @@ func (a *Agent) runMultiInterpret(
 	raw, err := a.completeOnce(ctx, clog, 2, "interpret", "multi", 1, system, userMsg)
 	if err != nil {
 		log.Error().Err(err).Msg("multi-interpret LLM call failed")
+		if isProviderAuthOrModelError(err) {
+			msg := fmt.Sprintf("> ⚠️ **Action Required: AI Provider Issue**\n> \n> The existing **%s**'s key seems expired/revoked or the model is no longer available.\n\nPlease configure a valid provider to continue: [btn:Configure AI Provider](/settings#ai)", a.provider.Describe())
+			clog.FinalResponse(msg + " (stopped after provider auth/model error)")
+			return msg, nil, debug, nil
+		}
 		return "I had trouble understanding that question. Please try rephrasing.", nil, debug, err
 	}
 	debug.LLMRawResponse = raw

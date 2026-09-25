@@ -164,7 +164,9 @@ function extractTrailingDataDetails(text: string): { body: string; details: { la
 function formatText(rawText: string): React.ReactNode[] {
   const { body: text, details } = extractTrailingDataDetails(rawText);
   const parts: React.ReactNode[] = [];
-  const lines = text.split('\n');
+  // Ensure buttons are always inline with the preceding text by stripping newlines before them
+  const processedText = text.replace(/\n+\[btn:/g, ' [btn:');
+  const lines = processedText.split('\n');
   let inCodeBlock = false;
   let codeContent = '';
   let lineIdx = 0;
@@ -192,6 +194,49 @@ function formatText(rawText: string): React.ReactNode[] {
 
     if (line.trim() === '') {
       parts.push(<div key={`empty-${lineIdx++}`} className="h-2" />);
+      continue;
+    }
+
+    // Blockquotes
+    if (line.startsWith('> ') || line === '>') {
+      const blockquoteLines: string[] = [];
+      let currI = i;
+      while (currI < lines.length && (lines[currI].startsWith('> ') || lines[currI] === '>')) {
+        const bLine = lines[currI];
+        const rest = bLine.startsWith('> ') ? bLine.slice(2).trim() : '';
+        blockquoteLines.push(rest);
+        currI++;
+      }
+      i = currI - 1;
+      
+      const isError = blockquoteLines.length > 0 && blockquoteLines[0].includes('Action Required:');
+      
+      if (isError) {
+        parts.push(
+          <div key={`q-${lineIdx++}`} className="flex flex-col mb-4 mt-1 rounded-md overflow-hidden">
+            <div className="border-l-2 border-red-500 bg-red-500/10 text-slate-200 pl-3 pr-3 py-2 font-bold">
+              {formatLine(blockquoteLines[0])}
+            </div>
+            <div className="border-l-2 border-indigo-400 bg-slate-800/40 text-slate-300 pl-3 pr-3 py-2 italic">
+              {blockquoteLines.slice(1).map((bLine, bIdx) => (
+                <div key={bIdx} className={bLine.trim() === '' ? 'h-2' : 'mb-1 leading-relaxed [&>*:first-child]:mt-0'}>
+                  {formatLine(bLine)}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      } else {
+        parts.push(
+          <blockquote key={`q-${lineIdx++}`} className="border-l-2 border-indigo-400 text-slate-300 pl-3 pr-3 pt-0 pb-2 rounded-r-md italic mb-2 mt-1">
+            {blockquoteLines.map((bLine, bIdx) => (
+              <div key={bIdx} className={bLine.trim() === '' ? 'h-2' : 'mb-1 leading-relaxed [&>*:first-child]:mt-0'}>
+                {formatLine(bLine)}
+              </div>
+            ))}
+          </blockquote>
+        );
+      }
       continue;
     }
 
@@ -309,15 +354,20 @@ function formatLine(line: string): React.ReactNode {
           const url = line.slice(labelEnd + 2, urlEnd);
           const safeHref = toSafeHref(url);
           if (safeHref) {
+            const isBtn = label.startsWith('btn:');
+            const displayLabel = isBtn ? label.slice(4) : label;
             parts.push(
               <a
                 key={`link-${partIdx++}`}
                 href={safeHref}
                 target={safeHref.startsWith('/') || safeHref.startsWith('#') ? '_self' : '_blank'}
                 rel="noopener noreferrer"
-                className="text-indigo-400 hover:text-indigo-300 underline underline-offset-2 font-medium transition-colors"
+                className={isBtn
+                  ? "inline-block ml-2 px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-md shadow-sm transition-all duration-200 no-underline align-middle"
+                  : "text-indigo-400 hover:text-indigo-300 underline underline-offset-2 font-medium transition-colors"
+                }
               >
-                {label}
+                {displayLabel}
               </a>
             );
           } else {
@@ -359,16 +409,7 @@ function formatLine(line: string): React.ReactNode {
         continue;
       }
     }
-    if (line[i] === '>' && (i === 0 || line[i - 1] === ' ')) {
-      const rest = line.slice(i + 1).trim();
-      parts.push(
-        <blockquote key={`q-${partIdx++}`} className="border-l-2 border-indigo-400 pl-3 text-slate-300 italic my-1">
-          {formatLine(rest)}
-        </blockquote>
-      );
-      i = line.length;
-      continue;
-    }
+
 
     let segEnd = findNextSpecial(line, i);
     if (segEnd === i) segEnd = i + 1;
@@ -974,8 +1015,8 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
   const debugModalMsg = debugModalMsgId ? messages.find((m) => m.id === debugModalMsgId) : undefined;
 
   return (
-    <div className="h-full flex flex-col bg-slate-900">
-      <div className="flex-none px-4 py-2">
+    <div className="h-full flex flex-col bg-slate-900 relative">
+      <div className="flex-none px-4 py-2 relative z-10">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
             <img src="/assets/lrbot/lrbot.png" alt="Bot" width={20} height={20} decoding="async" className="w-5 h-5 rounded-full opacity-80" />
@@ -1102,8 +1143,8 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                     </div>
                   </div>
                 ) : (
-                  <div key={msg.id} className="relative flex items-start">
-                    <div className="absolute -left-16 bottom-0 w-16 flex justify-end pr-2">
+                  <div key={msg.id} className="flex items-end gap-4">
+                    <div className="w-8 flex-shrink-0 mb-0.5">
                       <img src="/assets/lrbot/lrbot.png" alt="Bot" width={32} height={32} decoding="async" className="w-8 h-8 rounded-full" />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -1367,7 +1408,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                         </div>
                       )}
                       {msg.text && (
-                        <div className={`${(msg.charts && msg.charts.length > 0) || (msg.files && msg.files.length > 0) ? 'mt-6' : ''} text-base leading-snug whitespace-pre-wrap break-words text-slate-200`}>
+                        <div className={`${(msg.charts && msg.charts.length > 0) || (msg.files && msg.files.length > 0) ? 'mt-6' : ''} text-base leading-snug whitespace-pre-wrap break-words text-slate-200 [&>*:first-child]:mt-0`}>
                           {formatText(msg.text)}
                         </div>
                       )}
@@ -1406,11 +1447,13 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
           )}
 
           {isLoading && (
-            <div className="relative flex items-start mt-4">
-              <div className="absolute -left-16 top-1/2 -translate-y-1/2 w-16 flex justify-end pr-2">
+            <div className="flex items-center gap-4 mt-4">
+              <div className="w-8 flex-shrink-0">
                 <img src="/assets/lrbot/lrbot.png" alt="Bot" width={32} height={32} decoding="async" className="w-8 h-8 rounded-full" />
               </div>
-              <ThinkingIndicator />
+              <div className="min-w-0 flex-1">
+                <ThinkingIndicator />
+              </div>
             </div>
           )}
           <div ref={messagesEndRef} />
@@ -1427,8 +1470,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ask for insights or get things done — reviews, trends, billing, and more..."
-              disabled={isLoading}
-              className="w-full bg-slate-700 text-slate-100 placeholder-slate-400 rounded-full pl-5 pr-14 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 border border-slate-600 disabled:opacity-50"
+              className="w-full bg-slate-700 text-slate-100 placeholder-slate-400 rounded-full pl-4 pr-14 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 border border-slate-600 disabled:opacity-50"
             />
             <button
               onClick={handleSend}
