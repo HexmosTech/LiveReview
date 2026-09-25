@@ -641,7 +641,13 @@ func isProviderAuthOrModelError(err error) bool {
 
 	// 4. Fallback for non-HTTP API responses indicating model unavailability
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "deprecated") || strings.Contains(msg, "model not found")
+	return strings.Contains(msg, "deprecated") || 
+		strings.Contains(msg, "model not found") ||
+		strings.Contains(msg, "status code: 401") ||
+		strings.Contains(msg, "status code: 403") ||
+		strings.Contains(msg, "status code: 404") ||
+		strings.Contains(msg, "unauthorized") ||
+		strings.Contains(msg, "forbidden")
 }
 
 // isAuthError reports whether a tool result signals an expired/invalid
