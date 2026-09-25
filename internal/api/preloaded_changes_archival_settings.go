@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -118,7 +119,13 @@ func (server *Server) RunPreloadedChangesArchivalNow(echoContext echo.Context) e
 		return echoContext.JSON(http.StatusBadRequest, map[string]string{"error": "Preloaded changes archival manager is not initialized"})
 	}
 
-	go server.preloadedChangesArchivalManager.TriggerManualCycle()
+	err := server.preloadedChangesArchivalManager.TriggerManualCycle()
+	if err != nil {
+		if errors.Is(err, ErrCycleAlreadyRunning) {
+			return echoContext.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
+		}
+		return echoContext.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to trigger archival cycle"})
+	}
 
 	return echoContext.JSON(http.StatusOK, map[string]string{"message": "Preloaded changes archival started in the background"})
 }

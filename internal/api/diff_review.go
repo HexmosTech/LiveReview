@@ -17,7 +17,6 @@ import (
 	"github.com/livereview/internal/blastradius"
 	"github.com/livereview/internal/blobstore"
 	"github.com/livereview/internal/jobqueue"
-	zlog "github.com/rs/zerolog/log"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/naming"
 	"github.com/livereview/internal/providers"
@@ -26,6 +25,7 @@ import (
 	"github.com/livereview/pkg/models"
 	"github.com/livereview/storage/archive"
 	storageblastradius "github.com/livereview/storage/blastradius"
+	zlog "github.com/rs/zerolog/log"
 	"gocloud.dev/blob"
 )
 
@@ -684,14 +684,29 @@ func normalizeAndDecodeReviewResult(data []byte) (DiffReviewResult, error) {
 	if comments, ok := rawMap["comments"].([]interface{}); ok {
 		for _, item := range comments {
 			if commentMap, ok := item.(map[string]interface{}); ok {
-				if conf, exists := commentMap["confidence"]; exists && conf != nil {
+				// ReviewComment struct doesn't have json tags, so it exports as "Confidence" (capital C)
+				// We check both lowercase and uppercase to satisfy linters and accommodate both shapes
+				conf, exists := commentMap["confidence"]
+				if !exists {
+					conf, exists = commentMap["Confidence"]
+				}
+				if exists && conf != nil {
+					var strConf string
 					switch v := conf.(type) {
 					case float64:
-						commentMap["confidence"] = fmt.Sprintf("%g", v)
+						strConf = fmt.Sprintf("%g", v)
 					case int:
-						commentMap["confidence"] = fmt.Sprintf("%d", v)
+						strConf = fmt.Sprintf("%d", v)
 					case int64:
-						commentMap["confidence"] = fmt.Sprintf("%d", v)
+						strConf = fmt.Sprintf("%d", v)
+					case string:
+						strConf = v
+					}
+					if strConf != "" {
+						commentMap["confidence"] = strConf
+						if _, hasUpper := commentMap["Confidence"]; hasUpper {
+							delete(commentMap, "Confidence")
+						}
 					}
 				}
 			}

@@ -45,7 +45,6 @@ import (
 	"github.com/riverqueue/river/rivermigrate"
 )
 
-
 // GitLab API response structures
 type GitLabProject struct {
 	ID                int    `json:"id"`
@@ -2696,10 +2695,39 @@ func (jq *JobQueue) EnqueuePreloadedChangesArchivalSweep(ctx context.Context, re
 	if jq == nil || jq.client == nil {
 		return fmt.Errorf("job queue client is nil")
 	}
+	// Pass explicit InsertOpts to override the job struct's default UniqueOpts.
+	// Since the periodic scheduler always has a job queued with ByArgs: true,
+	// a manual insert with the exact same args would otherwise be silently ignored.
 	_, err := jq.client.Insert(ctx, PreloadedChangesArchivalSweepJobArgs{
 		RetentionDays: retentionDays,
-	}, nil)
+	}, &river.InsertOpts{
+		Queue: "preloaded_changes_archival_sweep",
+		UniqueOpts: river.UniqueOpts{
+			// Explicitly empty to disable River's job-level uniqueness for manual triggers.
+			// The API handler already uses IsArchivalCycleActive to prevent duplicates.
+			// If we try to use UniqueOpts here, River forces us to check 'scheduled' jobs,
+			// which would cause the manual trigger to conflict with the periodic cron job.
+		},
+	})
 	return err
+}
+
+// IsArchivalCycleActive checks if ANY archival-related job is currently active.
+// excludeJobID can be 0 (to check all) or a specific job ID to exclude it from the count.
+func (jq *JobQueue) IsArchivalCycleActive(ctx context.Context, excludeJobID int64) (bool, error) {
+	var count int
+	query := `
+		SELECT COUNT(*) 
+		FROM river_job 
+		WHERE kind IN ('preloaded_changes_archival_sweep', 'preloaded_changes_archival', 'preloaded_changes_archival_purge') 
+		  AND state IN ('available', 'running', 'retryable')
+		  AND ($1::bigint = 0 OR id != $1::bigint)
+	`
+	err := jq.pool.QueryRow(ctx, query, excludeJobID).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // UpdateArchivalSchedule dynamically updates the River periodic schedule for preloaded_changes archival.

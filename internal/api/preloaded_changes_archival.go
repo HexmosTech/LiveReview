@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -13,6 +15,11 @@ import (
 
 const defaultArchivalCronExpr = "30 21 * * *" // 21:30 UTC = exactly 3:00 AM IST
 const defaultArchivalRetentionDays = 30
+
+var (
+	ErrJobQueueNil         = errors.New("Job queue is nil")
+	ErrCycleAlreadyRunning = errors.New("An archival cycle is already actively running")
+)
 
 // PreloadedChangesArchivalManager manages settings and manual triggers for preloaded_changes archival.
 // Automated periodic sweeps are executed by River job queue (River PeriodicJobs).
@@ -122,16 +129,37 @@ func (manager *PreloadedChangesArchivalManager) UpdateConfig(enabled bool, cronE
 	log.Info().Bool("enabled", manager.enabled).Str("schedule", manager.cronExpr).Int("retention_days", manager.retentionDays).Msg("[preloaded_changes_archival] config updated")
 }
 
-// TriggerManualCycle enqueues a sweep job into River queue, ensuring manual triggers follow the exact same 5-step flow as scheduled periodic sweeps.
-func (manager *PreloadedChangesArchivalManager) TriggerManualCycle() {
+// IsArchivalCycleRunning checks if ANY archival-related job is currently active.
+func (manager *PreloadedChangesArchivalManager) IsArchivalCycleRunning() (bool, error) {
+	if manager.jobQueue != nil {
+		return manager.jobQueue.IsArchivalCycleActive(manager.context, 0)
+	}
+	return false, ErrJobQueueNil
+}
+
+// TriggerManualCycle enqueues a sweep job into River queue, ensuring manual triggers follow the exact same flow.
+func (manager *PreloadedChangesArchivalManager) TriggerManualCycle() error {
+	isRunning, err := manager.IsArchivalCycleRunning()
+	if err != nil {
+		log.Error().Err(err).Msg("[preloaded_changes_archival] failed to check if archival cycle is running")
+		return err
+	}
+	if isRunning {
+		log.Warn().Msg("[preloaded_changes_archival] manual trigger ignored: an archival cycle is already running")
+		return ErrCycleAlreadyRunning
+	}
+
 	log.Info().Msg("[preloaded_changes_archival] manual cycle triggered (enqueuing sweep job to River)")
 	if manager.jobQueue != nil {
 		err := manager.jobQueue.EnqueuePreloadedChangesArchivalSweep(manager.context, manager.retentionDays)
 		if err != nil {
 			log.Error().Err(err).Msg("[preloaded_changes_archival] failed to enqueue manual sweep job to River")
+			return fmt.Errorf("failed to enqueue manual sweep job to River: %w", err)
 		}
-	} else {
-		log.Error().Msg("[preloaded_changes_archival] job queue is nil, cannot enqueue sweep job")
+		return nil
 	}
+	
+	log.Error().Msg("[preloaded_changes_archival] job queue is nil, cannot enqueue sweep job")
+	return ErrJobQueueNil
 }
 
