@@ -32,10 +32,15 @@ func getParseAppID() string {
 	return "impressionserver"
 }
 
+// UsesCloudInvitationDelivery reports whether invitations go through the hosted Parse
+// userInvitation function (cloud) instead of SMTP (self-hosted/enterprise).
+func UsesCloudInvitationDelivery() bool {
+	return strings.ToLower(os.Getenv("LIVEREVIEW_IS_CLOUD")) == "true"
+}
+
 // SendInvitationEmail sends an invitation email. It uses SMTP for self-hosted/enterprise deployments
 func SendInvitationEmail(db *sql.DB, params InvitationParams) error {
-	isCloud := strings.ToLower(os.Getenv("LIVEREVIEW_IS_CLOUD")) == "true"
-	if !isCloud {
+	if !UsesCloudInvitationDelivery() {
 		// First try fetching from database system_settings
 		var data []byte
 		
