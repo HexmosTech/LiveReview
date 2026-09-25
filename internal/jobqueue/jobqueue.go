@@ -36,6 +36,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/gitea"
+	"github.com/livereview/internal/seed_demo"
 	networkjobqueue "github.com/livereview/network/jobqueue"
 	storagejobqueue "github.com/livereview/storage/jobqueue"
 	"github.com/robfig/cron/v3"
@@ -2381,6 +2382,13 @@ type JobQueue struct {
 	config *QueueConfig
 }
 
+// envBoolTrue matches internal/api's getEnvBool convention: "true" or "1" (case
+// insensitive after trimming), everything else (including unset) is false.
+func envBoolTrue(v string) bool {
+	v = strings.ToLower(strings.TrimSpace(v))
+	return v == "true" || v == "1"
+}
+
 func parseCronOrDefault(expr string) river.PeriodicSchedule {
 	s, err := cron.ParseStandard(expr)
 	if err != nil {
@@ -2424,6 +2432,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	preloadedChangesArchivalWorker := &PreloadedChangesArchivalWorker{db: db}
 	preloadedChangesArchivalSweepWorker := &PreloadedChangesArchivalSweepWorker{db: db}
 	preloadedChangesArchivalPurgeWorker := &PreloadedChangesArchivalPurgeWorker{db: db}
+	seedDemoWorker := &seed_demo.Worker{DB: db}
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, diffWorker)
@@ -2437,6 +2446,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, preloadedChangesArchivalWorker)
 	river.AddWorker(workers, preloadedChangesArchivalSweepWorker)
 	river.AddWorker(workers, preloadedChangesArchivalPurgeWorker)
+	river.AddWorker(workers, seedDemoWorker)
 
 	coordinatorInterval := config.RepoSyncConfig.CoordinatorInterval
 	if coordinatorInterval <= 0 {
@@ -2497,13 +2507,38 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 		return nil, fmt.Errorf("River database schema does NOT match River Go library version! Errors: %v Please run migrations.", validateRes.Messages)
 	}
 
+	periodicJobs := []*river.PeriodicJob{}
+
+	// Gated on two conditions, both required:
+	//   1. LIVEREVIEW_IS_CLOUD=true - this only ever fires on our own hosted cloud
+	//      deployment, never a self-hosted customer install (default is self-hosted,
+	//      matching internal/api's isCloudMode/getEnvBool default of false).
+	//   2. SEED_DEMO_ENABLED=true - an explicit second switch, off by default even in
+	//      cloud, so turning this on is a deliberate act, not a side effect of flipping
+	//      LIVEREVIEW_IS_CLOUD for unrelated reasons.
+	// The org is never configurable - seed_demo.DemoOrgID hardcodes it to the Ostrelle
+	// Systems demo account (see internal/seed_demo for what the job does), so this can
+	// never fire against a real customer's org even via a config mistake.
+	if envBoolTrue(os.Getenv("LIVEREVIEW_IS_CLOUD")) && envBoolTrue(os.Getenv("SEED_DEMO_ENABLED")) {
+		// 13:00 UTC = 18:30 IST daily.
+		seedDemoSchedule := parseCronOrDefault("0 13 * * *")
+		log.Printf("[jobqueue] seed_demo_activity scheduled for org_id=%d next_run=%s", seed_demo.DemoOrgID, seedDemoSchedule.Next(time.Now()).Format("2006-01-02 15:04:05 MST"))
+		periodicJobs = append(periodicJobs, river.NewPeriodicJob(
+			seedDemoSchedule,
+			func() (river.JobArgs, *river.InsertOpts) {
+				return seed_demo.JobArgs{OrgID: seed_demo.DemoOrgID}, nil
+			},
+			&river.PeriodicJobOpts{ID: "seed_demo_activity", RunOnStart: false},
+		))
+	}
+
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues:                      config.RiverQueueConfig(),
 		Workers:                     workers,
 		CompletedJobRetentionPeriod: 30 * 24 * time.Hour,
 		CancelledJobRetentionPeriod: 30 * 24 * time.Hour,
 		DiscardedJobRetentionPeriod: 30 * 24 * time.Hour,
-		PeriodicJobs: []*river.PeriodicJob{
+		PeriodicJobs: append(periodicJobs,
 			river.NewPeriodicJob(
 				river.PeriodicInterval(coordinatorInterval),
 				func() (river.JobArgs, *river.InsertOpts) {
@@ -2532,7 +2567,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 					RunOnStart: false,
 				},
 			),
-		},
+		),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create River client: %w", err)

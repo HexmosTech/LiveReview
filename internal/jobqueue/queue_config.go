@@ -410,5 +410,8 @@ func (c *QueueConfig) RiverQueueConfig() map[string]river.QueueConfig {
 		"preloaded_changes_archival_purge": {
 			MaxWorkers: 1, // Only needs 1 worker to monitor and purge
 		},
+		"seed_demo_activity": {
+			MaxWorkers: 1, // Low-volume, at most a few jobs a day
+		},
 	}
 }
