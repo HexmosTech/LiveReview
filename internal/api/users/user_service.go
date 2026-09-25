@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -25,7 +26,9 @@ func (us *UserService) getProductionURL() string {
 	return strings.TrimSpace(url.String)
 }
 
-// checkInvitationPrerequisites verifies that production URL and SMTP are configured
+// checkInvitationPrerequisites verifies that the production URL and the invitation
+// email transport are configured. Self-hosted sends invites via SMTP (system_settings);
+// cloud sends them via the hosted Parse userInvitation function (FW_PARSE_BASE_URL).
 func (us *UserService) checkInvitationPrerequisites() error {
 	var missing []string
 
@@ -33,6 +36,17 @@ func (us *UserService) checkInvitationPrerequisites() error {
 	prodURL := us.getProductionURL()
 	if prodURL == "" {
 		missing = append(missing, "Production URL (Settings → Instance)")
+	}
+
+	if email.UsesCloudInvitationDelivery() {
+		if strings.TrimSpace(os.Getenv("FW_PARSE_BASE_URL")) == "" {
+			log.Error().Msg("[Invitation] Cloud mode: FW_PARSE_BASE_URL not set, invitations are blocked")
+			missing = append(missing, "Invitation email service — contact support")
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("invitations require the following to be configured: %s", strings.Join(missing, ", "))
+		}
+		return nil
 	}
 
 	// Check SMTP settings

@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { notify } from '../../utils/notify';
+import { isCloudMode } from '../../utils/deploymentMode';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import apiClient from '../../api/apiClient';
 import {
@@ -473,16 +474,20 @@ const UserForm: React.FC = () => {
                 missing.push('Production URL (Settings → Instance)');
             }
             
-            // Check SMTP settings
-            try {
-                const smtpResponse = await apiClient.get<{ host: string }>('/api/v1/admin/settings/smtp');
-                if (smtpResponse?.host) {
-                    smtpOk = true;
-                } else {
+            // Check SMTP settings (self-hosted only; cloud sends invites via the hosted email service)
+            if (isCloudMode()) {
+                smtpOk = true;
+            } else {
+                try {
+                    const smtpResponse = await apiClient.get<{ host: string }>('/api/v1/admin/settings/smtp');
+                    if (smtpResponse?.host) {
+                        smtpOk = true;
+                    } else {
+                        missing.push('SMTP settings (Settings → SMTP)');
+                    }
+                } catch (error) {
                     missing.push('SMTP settings (Settings → SMTP)');
                 }
-            } catch (error) {
-                missing.push('SMTP settings (Settings → SMTP)');
             }
             
             setPrerequisiteStatus({ productionUrl: productionUrlOk, smtp: smtpOk });
@@ -647,14 +652,16 @@ const UserForm: React.FC = () => {
                                 )}
                                 <a href="/#/settings#instance" className="underline">Settings → Instance</a>
                             </div>
-                            <div className="flex items-center gap-2">
-                                {prerequisiteStatus?.smtp ? (
-                                    <Icons.Success />
-                                ) : (
-                                    <span className="text-amber-500">○</span>
-                                )}
-                                <a href="/#/settings#smtp" className="underline">Settings → SMTP</a>
-                            </div>
+                            {!isCloudMode() && (
+                                <div className="flex items-center gap-2">
+                                    {prerequisiteStatus?.smtp ? (
+                                        <Icons.Success />
+                                    ) : (
+                                        <span className="text-amber-500">○</span>
+                                    )}
+                                    <a href="/#/settings#smtp" className="underline">Settings → SMTP</a>
+                                </div>
+                            )}
                         </div>
                     </Alert>
                 )}
