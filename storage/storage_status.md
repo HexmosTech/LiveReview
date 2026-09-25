@@ -174,3 +174,8 @@ Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB
 | analytics.Count                                        | added   | [Count](analytics/adhoc_store.go#L67)                                                 |
 | analytics.Query                                        | added   | [Query](analytics/adhoc_store.go#L89)                                                 |
 | analytics.Ping                                         | added   | [Ping](analytics/adhoc_store.go#L186)                                                 |
+| seed_demo.NewStore                                     | added   | [NewStore](seed_demo/store.go#L50)                                                    |
+| seed_demo.LoadSourcePool                               | added   | [LoadSourcePool](seed_demo/store.go#L64)                                              |
+| seed_demo.CloneReview                                  | added   | [CloneReview](seed_demo/store.go#L158)                                                |
+| seed_demo.DeleteReview                                 | added   | [DeleteReview](seed_demo/store.go#L220)                                               |
+| seed_demo.CurrentPlan                                  | added   | [CurrentPlan](seed_demo/store.go#L243)                                                |
