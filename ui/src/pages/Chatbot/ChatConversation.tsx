@@ -65,6 +65,14 @@ const ContextDetails: React.FC<{ context: ChartContext }> = ({ context }) => (
   </div>
 );
 
+// Unified logo wrapper to ensure the 16px visual right gap and 8px visual left gap
+// stay mathematically synchronized across the header, chat messages, and loading states.
+const LiviLogo: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <div className={`w-12 flex-shrink-0 flex justify-center ${className}`}>
+    <img src="/assets/lrbot/lrbot.png" alt="Bot" width={32} height={32} decoding="async" className="w-8 h-8 rounded-full" />
+  </div>
+);
+
 // Debug artifacts (SQL, CSV, Vega spec, schema context, system prompt, raw
 // LLM exchange) - present on every turn's response, but only surfaced in the
 // UI when `surface === 'chat_debug'` (see DebugTrigger usage below).
@@ -1018,8 +1026,8 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
     <div className="h-full flex flex-col bg-slate-900 relative">
       <div className="flex-none px-4 py-2 relative z-10">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <img src="/assets/lrbot/lrbot.png" alt="Bot" width={20} height={20} decoding="async" className="w-5 h-5 rounded-full opacity-80" />
+          <div className="flex items-center">
+            <LiviLogo className="mr-2" />
             <h1 className="text-sm font-medium text-slate-400">Chat with Livi</h1>
           </div>
           <div className="flex items-center gap-2">
@@ -1143,10 +1151,8 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                     </div>
                   </div>
                 ) : (
-                  <div key={msg.id} className="flex items-end gap-4">
-                    <div className="w-8 flex-shrink-0 mb-0.5">
-                      <img src="/assets/lrbot/lrbot.png" alt="Bot" width={32} height={32} decoding="async" className="w-8 h-8 rounded-full" />
-                    </div>
+                  <div key={msg.id} className="flex items-end">
+                    <LiviLogo className="mb-0.5 mr-2" />
                     <div className="min-w-0 flex-1">
                       {msg.charts && msg.charts.length > 0 && (
                         <div className="space-y-6">
@@ -1407,11 +1413,34 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                           ))}
                         </div>
                       )}
-                      {msg.text && (
-                        <div className={`${(msg.charts && msg.charts.length > 0) || (msg.files && msg.files.length > 0) ? 'mt-6' : ''} text-base leading-snug whitespace-pre-wrap break-words text-slate-200 [&>*:first-child]:mt-0`}>
-                          {formatText(msg.text)}
-                        </div>
-                      )}
+                      {msg.text && (() => {
+                        const isAiError = msg.text.includes('Action Required: AI Provider Issue');
+                        const displayText = isAiError 
+                          ? msg.text.replace(/Please configure a valid provider to continue:[\s\S]*/, '').trim() 
+                          : msg.text;
+                        
+                        return (
+                          <>
+                            <div className={`${(msg.charts && msg.charts.length > 0) || (msg.files && msg.files.length > 0) ? 'mt-6' : ''} text-base leading-snug whitespace-pre-wrap break-words text-slate-200 [&>*:first-child]:mt-0`}>
+                              {formatText(displayText)}
+                            </div>
+                            {isAiError && (
+                              <div className="mt-4 flex items-center justify-between gap-3 p-3 sm:px-4 bg-slate-800/30 border border-slate-700 rounded-lg w-full">
+                                <div>
+                                  <h4 className="text-sm font-semibold text-slate-200">Configuration Required</h4>
+                                  <p className="text-xs text-slate-400 mt-0.5">Please edit the current AI provider model to continue.</p>
+                                </div>
+                                <button
+                                  onClick={() => navigate('/ai')}
+                                  className="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer whitespace-nowrap flex-shrink-0"
+                                >
+                                  Configure AI Provider
+                                </button>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                       {msg.suggestedQuestions && msg.suggestedQuestions.length > 0 && (
                         <div className="mt-4 space-y-4">
                           {msg.suggestedQuestions.map((cat: SuggestedQuestionCategory, catIdx: number) => (
@@ -1447,10 +1476,8 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
           )}
 
           {isLoading && (
-            <div className="flex items-center gap-4 mt-4">
-              <div className="w-8 flex-shrink-0">
-                <img src="/assets/lrbot/lrbot.png" alt="Bot" width={32} height={32} decoding="async" className="w-8 h-8 rounded-full" />
-              </div>
+            <div className="flex items-end mt-4">
+              <LiviLogo className="mb-0.5 mr-2" />
               <div className="min-w-0 flex-1">
                 <ThinkingIndicator />
               </div>
