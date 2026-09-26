@@ -1,7 +1,7 @@
 .PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned check-docker-deps update-docker-deps update-docker-deps-yes verify-docker-deps docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-context-setup ghcr-login docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run-debug run-fast logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker prep-dbctx
 .PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi sync-docs-sources check-docs-sources
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
-.PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging
+.PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging ensure-seed-demo-env
 .PHONY: dev dev-up dev-down dev-restart dev-status dev-attach
 
 # ============================================================================
@@ -1129,7 +1129,17 @@ docs/openapi.yaml internal/api/docs/spec.go: $(API_SPEC_INPUTS) typed-install
 
 generate-openapi: docs/openapi.yaml
 
-raw-deploy: build-with-ui
+# Adds SEED_DEMO_ENABLED=true (demo-org activity seeder, internal/seed_demo) to
+# .env.prod if the key is absent, so nobody has to add it by hand. An existing value,
+# including an explicit false, is left alone. Skips if .env.prod doesn't exist so it
+# never creates a near-empty one; the deploy targets fail on that themselves.
+ensure-seed-demo-env:
+	@if [ -f $(DEPLOY_ACTUAL_ENV_FILE) ] && ! grep -q '^SEED_DEMO_ENABLED=' $(DEPLOY_ACTUAL_ENV_FILE); then \
+		printf '\n# Demo-org activity seeder (internal/seed_demo) - daily synthetic reviews for the Ostrelle Systems demo org\nSEED_DEMO_ENABLED=true\n' >> $(DEPLOY_ACTUAL_ENV_FILE); \
+		echo "➕ Added SEED_DEMO_ENABLED=true to $(DEPLOY_ACTUAL_ENV_FILE)"; \
+	fi
+
+raw-deploy: build-with-ui ensure-seed-demo-env
 	@echo "🚀 Deploying to production server..."
 	@if [ ! -f ./livereview ]; then \
 		echo "❌ ERROR: livereview binary not found! Run 'make build-with-ui' first."; \
@@ -1267,7 +1277,7 @@ raw-deploy-low-pricing: build-with-ui
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
-raw-deploy-backend:
+raw-deploy-backend: ensure-seed-demo-env
 	@echo "🚀 Deploying to production server..."
 	$(GOBUILD) -tags production livereview.go
 	@if [ ! -f ./livereview ]; then \

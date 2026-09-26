@@ -13,28 +13,23 @@
 // reviews per PR). Synthetic rows are tagged metadata.seed_demo=true so the source
 // pool never re-clones its own output, and so synthetic rows stay identifiable/wipeable.
 //
-// Restricted to the one demo org (seed_demo.DemoOrgID, Ostrelle Systems) and to cloud
-// deployments only (LIVEREVIEW_IS_CLOUD=true) - this is a cosmetic fix for one specific
-// hosted demo account, never something a self-hosted customer's install should run.
+// Restricted to the one demo org (seed_demo.DemoOrgID, Ostrelle Systems) and gated by
+// seed_demo.Enabled (LIVEREVIEW_IS_CLOUD=true and SEED_DEMO_ENABLED=true), the same rule
+// the daily River job uses. The daily job is the normal path; this tool is for manual
+// backfills, where both env vars must be passed explicitly.
 //
 // See internal/seed_demo for the implementation.
 //
 // Usage:
 //
-//	go run ./cmd/seed-demo-activity -org-id=677              # 1-3 random reviews (default)
-//	go run ./cmd/seed-demo-activity -org-id=677 -count=2      # exactly 2
-//	go run ./cmd/seed-demo-activity -org-id=677 -count=3 -days-ago=1   # backfill yesterday
-//
-// Intended to be invoked a few times a day via cron on the server this org's demo
-// account lives on, at staggered times, so activity doesn't cluster at one instant.
+//	LIVEREVIEW_IS_CLOUD=true SEED_DEMO_ENABLED=true go run ./cmd/seed-demo-activity -org-id=677
+//	LIVEREVIEW_IS_CLOUD=true SEED_DEMO_ENABLED=true go run ./cmd/seed-demo-activity -org-id=677 -count=3 -days-ago=1
 package main
 
 import (
 	"context"
 	"flag"
 	"log"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/livereview/internal/database"
@@ -43,7 +38,7 @@ import (
 
 func main() {
 	orgID := flag.Int64("org-id", 0, "Org ID to seed demo activity for (required, and must equal seed_demo.DemoOrgID - typed explicitly so this is never run against the wrong org by accident)")
-	count := flag.Int("count", 0, "Number of synthetic reviews to create this run (0 = random 1-3)")
+	count := flag.Int("count", 0, "Number of synthetic reviews to create this run (0 = random 1-7)")
 	daysAgo := flag.Int("days-ago", 0, "Backdate the synthetic reviews this many days (0 = today, 1 = yesterday, etc.)")
 	flag.Parse()
 
@@ -53,8 +48,8 @@ func main() {
 	if *daysAgo < 0 {
 		log.Fatalf("-days-ago must be non-negative")
 	}
-	if !isCloudMode() {
-		log.Fatalf("seed-demo-activity only runs against cloud deployments (LIVEREVIEW_IS_CLOUD=true); refusing on a self-hosted install")
+	if ok, reason := seed_demo.Enabled(); !ok {
+		log.Fatalf("seed-demo-activity refusing to run: %s", reason)
 	}
 
 	n := *count
@@ -76,12 +71,4 @@ func main() {
 	if err := seed_demo.RunForDay(context.Background(), db, *orgID, n, day); err != nil {
 		log.Fatalf("seed demo activity failed: %v", err)
 	}
-}
-
-// isCloudMode mirrors internal/api's isCloudMode/getEnvBool - "true" or "1" (case
-// insensitive after trimming). Duplicated rather than imported: internal/api can't be
-// imported here without pulling in the entire API server, and this is a two-line check.
-func isCloudMode() bool {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv("LIVEREVIEW_IS_CLOUD")))
-	return v == "true" || v == "1"
 }
