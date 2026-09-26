@@ -2382,13 +2382,6 @@ type JobQueue struct {
 	config *QueueConfig
 }
 
-// envBoolTrue matches internal/api's getEnvBool convention: "true" or "1" (case
-// insensitive after trimming), everything else (including unset) is false.
-func envBoolTrue(v string) bool {
-	v = strings.ToLower(strings.TrimSpace(v))
-	return v == "true" || v == "1"
-}
-
 func parseCronOrDefault(expr string) river.PeriodicSchedule {
 	s, err := cron.ParseStandard(expr)
 	if err != nil {
@@ -2509,17 +2502,13 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 
 	periodicJobs := []*river.PeriodicJob{}
 
-	// Gated on two conditions, both required:
-	//   1. LIVEREVIEW_IS_CLOUD=true - this only ever fires on our own hosted cloud
-	//      deployment, never a self-hosted customer install (default is self-hosted,
-	//      matching internal/api's isCloudMode/getEnvBool default of false).
-	//   2. SEED_DEMO_ENABLED=true - an explicit second switch, off by default even in
-	//      cloud, so turning this on is a deliberate act, not a side effect of flipping
-	//      LIVEREVIEW_IS_CLOUD for unrelated reasons.
-	// The org is never configurable - seed_demo.DemoOrgID hardcodes it to the Ostrelle
-	// Systems demo account (see internal/seed_demo for what the job does), so this can
-	// never fire against a real customer's org even via a config mistake.
-	if envBoolTrue(os.Getenv("LIVEREVIEW_IS_CLOUD")) && envBoolTrue(os.Getenv("SEED_DEMO_ENABLED")) {
+	// Only registered on the production cloud deploy - see seed_demo.Enabled for the
+	// gating rules. The org is never configurable (seed_demo.DemoOrgID).
+	if ok, reason := seed_demo.Enabled(); !ok {
+		if strings.TrimSpace(os.Getenv("SEED_DEMO_ENABLED")) != "" {
+			log.Printf("[jobqueue] seed_demo_activity not scheduled: %s", reason)
+		}
+	} else {
 		// 13:00 UTC = 18:30 IST daily.
 		seedDemoSchedule := parseCronOrDefault("0 13 * * *")
 		log.Printf("[jobqueue] seed_demo_activity scheduled for org_id=%d next_run=%s", seed_demo.DemoOrgID, seedDemoSchedule.Next(time.Now()).Format("2006-01-02 15:04:05 MST"))

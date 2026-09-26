@@ -73,8 +73,12 @@ USER_AGENT = 'LiveReview-docker-deps-checker'
 
 
 def _http_json(url):
+    # Callers only build URLs from hardcoded https:// API prefixes; refuse anything
+    # else (e.g. file://) outright rather than trusting that.
+    if not url.startswith('https://'):
+        raise ValueError(f'refusing non-https URL: {url}')
     req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT, 'Accept': 'application/json'})
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- scheme enforced to https above
         return json.loads(resp.read().decode('utf-8'))
 
 

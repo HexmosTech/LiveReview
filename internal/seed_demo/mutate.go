@@ -3,6 +3,7 @@ package seed_demo
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"math/big"
 	"time"
 )
@@ -17,17 +18,34 @@ func randomCommitSHA() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-// randomTimeToday returns a random instant within the given day (local time), keeping
-// hour-of-day within a plausible working window (7am-11pm) so activity looks organic
-// rather than clustered at the exact minute the cron job happened to fire.
-func randomTimeToday(day time.Time) (time.Time, error) {
-	startOfDay := time.Date(day.Year(), day.Month(), day.Day(), 7, 0, 0, 0, day.Location())
-	const windowSeconds = 16 * 60 * 60 // 7am-11pm
-	n, err := rand.Int(rand.Reader, big.NewInt(windowSeconds))
+// futureBuffer keeps a seeded review's completed_at (created_at + up to ~93s, see
+// cloneOne) from landing after the moment the seeder runs.
+const futureBuffer = 2 * time.Minute
+
+// randomTimeInDay returns a random instant on the given day (in day's location) within
+// a plausible working window (7am-11pm), so activity looks organic rather than clustered
+// at the minute the job fired. The window is capped at now-futureBuffer so a review is
+// never timestamped in the future; if that leaves nothing after 7am (run early in the
+// day), the window starts at midnight instead.
+func randomTimeInDay(day, now time.Time) (time.Time, error) {
+	start := time.Date(day.Year(), day.Month(), day.Day(), 7, 0, 0, 0, day.Location())
+	end := time.Date(day.Year(), day.Month(), day.Day(), 23, 0, 0, 0, day.Location())
+	if limit := now.Add(-futureBuffer); limit.Before(end) {
+		end = limit
+	}
+	if !end.After(start) {
+		start = time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location())
+	}
+	secs := int64(end.Sub(start) / time.Second)
+	if secs <= 0 {
+		return time.Time{}, fmt.Errorf("no past time left on %s to seed into", day.Format("2006-01-02"))
+	}
+
+	n, err := rand.Int(rand.Reader, big.NewInt(secs))
 	if err != nil {
 		return time.Time{}, err
 	}
-	return startOfDay.Add(time.Duration(n.Int64()) * time.Second), nil
+	return start.Add(time.Duration(n.Int64()) * time.Second), nil
 }
 
 // jitterInt64 scales v by a random factor in [1-pct, 1+pct], keeping it at least 1 when v > 0.

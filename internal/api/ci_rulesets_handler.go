@@ -182,6 +182,7 @@ func runJQBool(expr string, doc interface{}) (blocked bool, result interface{}, 
 	if err != nil {
 		return false, nil, fmt.Errorf("marshaling document: %w", err)
 	}
+	// nosemgrep: go.lang.security.deserialization.unsafe-deserialization-interface.go-unsafe-deserialization-interface -- raw is our own json.Marshal output from just above; gojq requires generic map/slice/scalar input, and encoding/json into interface{} can only produce those, never arbitrary types.
 	var input interface{}
 	if err := json.Unmarshal(raw, &input); err != nil {
 		return false, nil, fmt.Errorf("unmarshaling document: %w", err)

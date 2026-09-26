@@ -23,10 +23,10 @@ import (
 // customer's data, even by a config typo.
 const DemoOrgID int64 = 677
 
-// DefaultCount returns a random 1-3, the default number of synthetic reviews per run
+// DefaultCount returns a random 1-7, the default number of synthetic reviews per run
 // when the caller doesn't specify an explicit count.
 func DefaultCount() (int, error) {
-	return randomCount(1, 3)
+	return randomCount(1, 7)
 }
 
 // Run clones `count` randomly-picked historical reviews for orgID into new synthetic
@@ -38,7 +38,7 @@ func Run(ctx context.Context, db *sql.DB, orgID int64, count int) error {
 
 // RunForDay is Run, but dating the synthetic reviews to the given day instead of today -
 // e.g. to backfill a day or two of activity that was missed. day's time-of-day component
-// is ignored; only its calendar date is used (see randomTimeToday).
+// is ignored; only its calendar date is used (see randomTimeInDay).
 func RunForDay(ctx context.Context, db *sql.DB, orgID int64, count int, day time.Time) error {
 	if orgID != DemoOrgID {
 		return fmt.Errorf("seed_demo is restricted to org %d (Ostrelle Systems demo), got %d", DemoOrgID, orgID)

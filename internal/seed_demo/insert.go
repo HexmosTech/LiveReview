@@ -23,7 +23,7 @@ func cloneOne(ctx context.Context, store *storageseeddemo.Store, db *sql.DB, org
 	if err != nil {
 		return fmt.Errorf("generate commit sha: %w", err)
 	}
-	createdAt, err := randomTimeToday(day)
+	createdAt, err := randomTimeInDay(day, time.Now())
 	if err != nil {
 		return fmt.Errorf("pick created_at: %w", err)
 	}
