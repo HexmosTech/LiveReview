@@ -1415,8 +1415,8 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                       )}
                       {msg.text && (() => {
                         const isAiError = msg.text.includes('Action Required: AI Provider Issue');
-                        const displayText = isAiError 
-                          ? msg.text.replace(/Please configure a valid provider to continue:[\s\S]*/, '').trim() 
+                        const displayText = isAiError && msg.text.includes('Please configure a valid provider to continue:')
+                          ? msg.text.split('Please configure a valid provider to continue:')[0].trim()
                           : msg.text;
                         
                         return (

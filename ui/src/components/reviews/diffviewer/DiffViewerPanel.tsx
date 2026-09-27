@@ -86,10 +86,12 @@ function buildHunkNav(flatFiles: DiffReviewFile[], filters: IssueFilters): HunkN
 
 function buildCopyText(files: DiffReviewFile[], filters: IssueFilters): string {
   const lines: string[] = [];
+  let counter = 1;
   files.forEach((file) => {
     (file.comments || []).forEach((comment) => {
       if (!commentMatchesFilters(comment, filters)) return;
-      lines.push(`${file.file_path}:${comment.line} [${(comment.severity || 'info').toUpperCase()}] ${comment.content}`);
+      lines.push(`${counter}. ${file.file_path}:${comment.line} [${(comment.severity || 'info').toUpperCase()}] ${comment.content}`);
+      counter++;
     });
   });
   return lines.join('\n\n');
