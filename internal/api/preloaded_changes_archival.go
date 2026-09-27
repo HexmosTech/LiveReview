@@ -227,14 +227,14 @@ func (manager *PreloadedChangesArchivalManager) runCycleCore(isManual bool) erro
 	ctx := manager.context
 	manager.mutex.Unlock()
 
-	if jobQueue != nil {
-		err := jobQueue.EnqueuePreloadedChangesArchivalSweep(ctx, retentionDays)
-		if err != nil {
-			return fmt.Errorf("failed to enqueue sweep job to River: %w", err)
-		}
-		return nil
+	if jobQueue == nil {
+		return ErrJobQueueNil
 	}
-	
-	return ErrJobQueueNil
+
+	err = jobQueue.EnqueuePreloadedChangesArchivalSweep(ctx, retentionDays)
+	if err != nil {
+		return fmt.Errorf("failed to enqueue sweep job to River: %w", err)
+	}
+	return nil
 }
 
