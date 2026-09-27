@@ -2726,12 +2726,6 @@ func (jq *JobQueue) EnqueuePreloadedChangesArchivalSweep(ctx context.Context, re
 		RetentionDays: retentionDays,
 	}, &river.InsertOpts{
 		Queue: "preloaded_changes_archival_sweep",
-		UniqueOpts: river.UniqueOpts{
-			// Explicitly empty to disable River's job-level uniqueness for manual triggers.
-			// The API handler already uses IsArchivalCycleActive to prevent duplicates.
-			// If we try to use UniqueOpts here, River forces us to check 'scheduled' jobs,
-			// which would cause the manual trigger to conflict with the periodic cron job.
-		},
 	})
 	return err
 }
@@ -2755,34 +2749,3 @@ func (jq *JobQueue) IsArchivalCycleActive(ctx context.Context, excludeJobID int6
 }
 
 // UpdateArchivalSchedule dynamically updates the River periodic schedule for preloaded_changes archival.
-func (jq *JobQueue) UpdateArchivalSchedule(cronExpr string) error {
-	if jq == nil || jq.client == nil {
-		return nil
-	}
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
-	schedule, err := parser.Parse(cronExpr)
-	if err != nil {
-		return fmt.Errorf("invalid cron expression %q: %w", cronExpr, err)
-	}
-	// Remove any existing schedule for this job before adding the new one dynamically
-	jq.client.PeriodicJobs().RemoveByID("preloaded_changes_archival_sweep")
-
-	jq.client.PeriodicJobs().Add(
-		river.NewPeriodicJob(
-			schedule,
-			func() (river.JobArgs, *river.InsertOpts) {
-				return PreloadedChangesArchivalSweepJobArgs{
-					RetentionDays: 30, // Using default here; the sweep worker fetches the live value dynamically
-				}, &river.InsertOpts{
-					Queue:       "preloaded_changes_archival_sweep",
-					MaxAttempts: 3,
-				}
-			},
-			&river.PeriodicJobOpts{
-				ID:         "preloaded_changes_archival_sweep",
-				RunOnStart: false,
-			},
-		),
-	)
-	return nil
-}
