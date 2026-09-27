@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/livereview/internal/jobqueue"
+	"github.com/robfig/cron/v3"
 	"github.com/rs/zerolog/log"
 )
 
@@ -22,7 +24,7 @@ var (
 )
 
 // PreloadedChangesArchivalManager manages settings and manual triggers for preloaded_changes archival.
-// Automated periodic sweeps are executed by River job queue (River PeriodicJobs).
+// Automated periodic sweeps are executed by an in-memory cron runner that enqueues a sweep job to River.
 type PreloadedChangesArchivalManager struct {
 	database      *sql.DB
 	jobQueue      *jobqueue.JobQueue
@@ -30,6 +32,8 @@ type PreloadedChangesArchivalManager struct {
 	enabled       bool
 	cronExpr      string
 	retentionDays int
+	cronRunner    *cron.Cron
+	entryID       cron.EntryID
 	context       context.Context
 	cancel        context.CancelFunc
 }
@@ -84,26 +88,45 @@ func (manager *PreloadedChangesArchivalManager) loadSettingsFromDB() {
 	}
 }
 
-// Start logs that manager is active and applies the configured schedule to River.
+// Start launches the background cron runner.
 func (manager *PreloadedChangesArchivalManager) Start() {
 	manager.mutex.Lock()
 	defer manager.mutex.Unlock()
 
-	if manager.jobQueue != nil && manager.cronExpr != "" {
-		if err := manager.jobQueue.UpdateArchivalSchedule(manager.cronExpr); err != nil {
-			log.Error().Err(err).Str("cron_expr", manager.cronExpr).Msg("[preloaded_changes_archival] failed to apply River periodic schedule")
+	manager.cronRunner = cron.New(cron.WithLocation(time.UTC))
+	entryID, err := manager.cronRunner.AddFunc(manager.cronExpr, func() {
+		manager.runCycle()
+	})
+	if err != nil {
+		log.Warn().Str("bad_cron_expr", manager.cronExpr).Err(err).Str("fallback", defaultArchivalCronExpr).Msg("[preloaded_changes_archival] invalid cron expression in settings, falling back to default")
+		manager.cronExpr = defaultArchivalCronExpr
+		entryID, err = manager.cronRunner.AddFunc(manager.cronExpr, func() {
+			manager.runCycle()
+		})
+		if err != nil {
+			log.Error().Err(err).Msg("[preloaded_changes_archival] failed to schedule even with default cron expression")
+			return
 		}
 	}
-
-	log.Info().Str("schedule", manager.cronExpr).Bool("enabled", manager.enabled).Int("retention_days", manager.retentionDays).Msg("[preloaded_changes_archival] manager started (periodic execution handled by River)")
+	manager.entryID = entryID
+	manager.cronRunner.Start()
+	nextRun := manager.cronRunner.Entry(manager.entryID).Next
+	log.Info().Str("schedule", manager.cronExpr).Bool("enabled", manager.enabled).Int("retention_days", manager.retentionDays).Time("next_run", nextRun).Msg("[preloaded_changes_archival] manager started")
 }
 
-// Stop gracefully shuts down context.
+// Stop gracefully shuts down context and cron runner.
 func (manager *PreloadedChangesArchivalManager) Stop() {
 	manager.mutex.Lock()
 	defer manager.mutex.Unlock()
 
 	log.Info().Msg("[preloaded_changes_archival] manager stopping")
+	if manager.cronRunner != nil {
+		ctx := manager.cronRunner.Stop()
+		select {
+		case <-ctx.Done():
+		case <-time.After(5 * time.Second):
+		}
+	}
 	manager.cancel()
 }
 
@@ -118,48 +141,100 @@ func (manager *PreloadedChangesArchivalManager) UpdateConfig(enabled bool, cronE
 	if strings.TrimSpace(cronExpr) == "" {
 		cronExpr = defaultArchivalCronExpr
 	}
-	manager.cronExpr = cronExpr
 
-	if manager.jobQueue != nil {
-		if err := manager.jobQueue.UpdateArchivalSchedule(cronExpr); err != nil {
-			log.Error().Err(err).Str("cron_expr", cronExpr).Msg("[preloaded_changes_archival] failed to update River periodic schedule")
+	if manager.cronExpr != cronExpr || manager.cronRunner == nil {
+		if manager.cronRunner != nil {
+			manager.cronRunner.Stop()
+			manager.cronRunner = nil
+		}
+		newRunner := cron.New(cron.WithLocation(time.UTC))
+		entryID, err := newRunner.AddFunc(cronExpr, func() {
+			manager.runCycle()
+		})
+		if err == nil {
+			manager.cronRunner = newRunner
+			manager.entryID = entryID
+			manager.cronRunner.Start()
+			manager.cronExpr = cronExpr
+		} else {
+			log.Error().Str("cron_expr", cronExpr).Err(err).Msg("[preloaded_changes_archival] invalid cron expression")
+			manager.cronExpr = ""
 		}
 	}
 
-	log.Info().Bool("enabled", manager.enabled).Str("schedule", manager.cronExpr).Int("retention_days", manager.retentionDays).Msg("[preloaded_changes_archival] config updated")
+	nextRun := time.Time{}
+	if manager.cronRunner != nil {
+		nextRun = manager.cronRunner.Entry(manager.entryID).Next
+	}
+	log.Info().Bool("enabled", manager.enabled).Str("schedule", manager.cronExpr).Int("retention_days", manager.retentionDays).Time("next_run", nextRun).Msg("[preloaded_changes_archival] config updated")
 }
 
 // IsArchivalCycleRunning checks if ANY archival-related job is currently active.
 func (manager *PreloadedChangesArchivalManager) IsArchivalCycleRunning() (bool, error) {
-	if manager.jobQueue != nil {
-		return manager.jobQueue.IsArchivalCycleActive(manager.context, 0)
+	manager.mutex.Lock()
+	jobQueue := manager.jobQueue
+	ctx := manager.context
+	manager.mutex.Unlock()
+
+	if jobQueue != nil {
+		return jobQueue.IsArchivalCycleActive(ctx, 0)
 	}
 	return false, ErrJobQueueNil
 }
 
-// TriggerManualCycle enqueues a sweep job into River queue, ensuring manual triggers follow the exact same flow.
+// TriggerManualCycle enqueues a sweep job into River queue.
 func (manager *PreloadedChangesArchivalManager) TriggerManualCycle() error {
+	log.Info().Msg("[preloaded_changes_archival] manual cycle triggered (enqueuing sweep job to River)")
+	return manager.runCycleCore(true)
+}
+
+func (manager *PreloadedChangesArchivalManager) runCycle() {
+	manager.mutex.Lock()
+	enabled := manager.enabled
+	manager.mutex.Unlock()
+
+	if !enabled {
+		log.Info().Msg("[preloaded_changes_archival] skipping periodic sweep — feature is disabled in settings")
+		return
+	}
+
+	log.Info().Msg("[preloaded_changes_archival] periodic cycle triggered (enqueuing sweep job to River)")
+	if err := manager.runCycleCore(false); err != nil {
+		log.Error().Err(err).Msg("[preloaded_changes_archival] failed to enqueue periodic sweep job")
+	}
+}
+
+func (manager *PreloadedChangesArchivalManager) runCycleCore(isManual bool) error {
 	isRunning, err := manager.IsArchivalCycleRunning()
 	if err != nil {
-		log.Error().Err(err).Msg("[preloaded_changes_archival] failed to check if archival cycle is running")
+		if isManual {
+			log.Error().Err(err).Msg("[preloaded_changes_archival] failed to check if archival cycle is running")
+		}
 		return err
 	}
 	if isRunning {
-		log.Warn().Msg("[preloaded_changes_archival] manual trigger ignored: an archival cycle is already running")
+		if isManual {
+			log.Warn().Msg("[preloaded_changes_archival] manual trigger ignored: an archival cycle is already running")
+		} else {
+			log.Warn().Msg("[preloaded_changes_archival] periodic trigger ignored: an archival cycle is already running")
+		}
 		return ErrCycleAlreadyRunning
 	}
 
-	log.Info().Msg("[preloaded_changes_archival] manual cycle triggered (enqueuing sweep job to River)")
-	if manager.jobQueue != nil {
-		err := manager.jobQueue.EnqueuePreloadedChangesArchivalSweep(manager.context, manager.retentionDays)
+	manager.mutex.Lock()
+	retentionDays := manager.retentionDays
+	jobQueue := manager.jobQueue
+	ctx := manager.context
+	manager.mutex.Unlock()
+
+	if jobQueue != nil {
+		err := jobQueue.EnqueuePreloadedChangesArchivalSweep(ctx, retentionDays)
 		if err != nil {
-			log.Error().Err(err).Msg("[preloaded_changes_archival] failed to enqueue manual sweep job to River")
-			return fmt.Errorf("failed to enqueue manual sweep job to River: %w", err)
+			return fmt.Errorf("failed to enqueue sweep job to River: %w", err)
 		}
 		return nil
 	}
 	
-	log.Error().Msg("[preloaded_changes_archival] job queue is nil, cannot enqueue sweep job")
 	return ErrJobQueueNil
 }
 
