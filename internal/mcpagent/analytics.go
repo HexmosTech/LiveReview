@@ -1648,7 +1648,6 @@ func (a *Agent) runMultiInterpret(
 
 	// Compose the full request text sent to the LLM for debug visibility.
 	debug.FullRequest = system + "\n---\n" + userMsg
-
 	raw, err := a.completeOnce(ctx, clog, 2, "interpret", "multi", 1, system, userMsg)
 	if err != nil {
 		log.Error().Err(err).Msg("multi-interpret LLM call failed")
@@ -1657,7 +1656,10 @@ func (a *Agent) runMultiInterpret(
 			clog.FinalResponse(msg + " (stopped after provider auth/model error)")
 			return msg, nil, debug, nil
 		}
-		return "I had trouble understanding that question. Please try rephrasing.", nil, debug, err
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return "The analysis took longer than expected. Please try asking a narrower or more specific question.", nil, debug, nil //nolint:nilerr
+		}
+		return "I had trouble understanding that question. Please try rephrasing.", nil, debug, nil //nolint:nilerr
 	}
 	debug.LLMRawResponse = raw
 

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { View } from 'vega';
 import { sendChatMessage, ChatFile, ChatChart, ChartContext, SuggestedQuestionCategory } from '../../api/chatbot';
-import { basePathForSurface, createConversation, getConversation, type ChatSurface } from '../../api/chatConversations';
+import { basePathForSurface, createConversation, getConversation, type ChatSurface, type ConversationDetail } from '../../api/chatConversations';
 import { BASE_URL, authFetch } from '../../api/apiClient';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -899,6 +899,14 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
   // catches up - see handleSend. Cleared whenever the route's conversationId
   // changes (a genuine switch, not our own pending creation).
   const pendingConversationIdRef = useRef<number | undefined>(undefined);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     pendingConversationIdRef.current = undefined;
   }, [conversationId]);
@@ -967,6 +975,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         });
         navigate(`${basePath}/${activeConversationId}`, { replace: true });
       }
+      setIsLoading(false);
     } catch (err: any) {
       const errMsg = err?.response?.data?.error || err?.message || 'Request failed';
       if (errMsg.toLowerCase().includes('ai connector')) {
@@ -979,17 +988,67 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
             text: 'No AI provider is configured for this organization yet. Add one below to start chatting.',
           },
         ]);
+        setIsLoading(false);
         return;
       }
+
+      // If it's a network error (like a 60s load balancer timeout), the backend
+      // might still be processing the request in the background. Auto-poll silently.
+      const activeConversationId = conversationId ?? pendingConversationIdRef.current;
+      const isNetworkDrop = !err?.response;
+      const isTimeoutStatus = err?.response?.status === 504 || err?.response?.status === 503;
+      
+      if ((isNetworkDrop || isTimeoutStatus) && activeConversationId !== undefined) {
+        let attempts = 0;
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = setInterval(async () => {
+          attempts++;
+          
+          let freshData: ConversationDetail | undefined;
+          try {
+            freshData = await queryClient.fetchQuery<ConversationDetail>({ 
+              queryKey: ['chat', 'conversation', activeConversationId],
+              queryFn: () => getConversation(activeConversationId)
+            });
+          } catch (e) {
+            // Ignore temporary fetch errors during polling
+          }
+          
+          if (freshData && freshData.messages && freshData.messages.length > 0) {
+            const lastServerMsg = freshData.messages[freshData.messages.length - 1];
+            // If the server has an assistant reply that we haven't seen yet, it finished!
+            if (lastServerMsg.role === 'assistant') {
+              clearInterval(pollIntervalRef.current);
+              setIsLoading(false);
+              return;
+            }
+          }
+          
+          if (attempts >= 18) { // Give up after 90 seconds (18 * 5s)
+            clearInterval(pollIntervalRef.current);
+            setIsLoading(false);
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: generateId(),
+                role: 'assistant',
+                text: 'I am sorry, but I ran into an issue while thinking about that. Please try asking again.',
+              },
+            ]);
+          }
+        }, 5000);
+
+        return; // Keep isLoading true while polling
+      }
+
       setMessages((prev) => [
         ...prev,
         {
           id: generateId(),
           role: 'assistant',
-          text: `Error: ${errMsg}`,
+          text: 'I am sorry, but I ran into an issue while thinking about that. Please try asking again.',
         },
       ]);
-    } finally {
       setIsLoading(false);
     }
   };
