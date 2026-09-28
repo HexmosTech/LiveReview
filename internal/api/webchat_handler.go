@@ -97,7 +97,10 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	}
 	orgID := pc.OrgID
 	userID := pc.User.ID
-	ctx := c.Request().Context()
+	// We use context.WithoutCancel to intentionally detach DB/LLM operations from the HTTP request 
+	// lifecycle. This ensures that if the load balancer cuts the connection (e.g. 60s timeout), 
+	// the long-running analysis completes in the background and the UI can fetch it via polling.
+	ctx := context.WithoutCancel(c.Request().Context())
 	chatStore := storagechat.NewStore(s.db)
 
 	// Resolve (or create) the conversation this turn belongs to, and load its
