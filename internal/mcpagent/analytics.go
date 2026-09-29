@@ -1657,6 +1657,8 @@ func (a *Agent) runMultiInterpret(
 			return msg, nil, debug, nil
 		}
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			// Intentionally return nil error here so the agent caller treats this turn as a success
+			// and persists the friendly timeout message to the database, rather than throwing it away.
 			return "The analysis took longer than expected. Please try asking a narrower or more specific question.", nil, debug, nil //nolint:nilerr
 		}
 		return "I had trouble understanding that question. Please try rephrasing.", nil, debug, nil //nolint:nilerr
