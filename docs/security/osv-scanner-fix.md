@@ -50,10 +50,21 @@ Ideally, the report should be empty.
 ## How to fix vulnerabilities
 
 1. Select the osv-scanner report.
-2. Add to AI prompt and ask to fix the vulnerabilities.
-3. AI will fix the vulnerabilities by updating the dependencies.
-4. Run `make security-osv` again to verify that the vulnerabilities are fixed.
-5. If vulnerabilities are still present, repeat the process by actually looking into each vulnerability and fix it manually.
+2. Identify the specific vulnerable libraries (especially transitive dependencies).
+
+### For Node Modules (`package.json`)
+3. **Be Surgical:** Never run a blind `npm audit fix --force`, and **never** delete `package-lock.json` before running `npm install`. Doing so will rewrite thousands of lines in the lockfile and introduce massive risk.
+4. Instead, use the `overrides` section in `package.json` (or update direct `dependencies`) to pin the exact libraries and versions that need bumping.
+5. Run `npm install` *without* deleting the lockfile. This ensures only your targeted packages are bumped.
+
+### For Go Modules (`go.mod`)
+3. Use `go get <package_name>@<fixed_version>` (or `@latest`) to bump the vulnerable dependency.
+4. If it's a deeply nested transitive dependency that refuses to update, use the `replace` directive in `go.mod` to force the patched version: `replace example.com/vuln/pkg => example.com/vuln/pkg v1.2.3`
+5. Always run `go mod tidy` afterward to clean up the module graph.
+
+### Final Steps
+6. Run `make security-osv` again to verify that the vulnerabilities are fixed.
+7. If vulnerabilities are still present, repeat the process by looking into each vulnerability and fixing it manually.
 
 ## Verify the fix
 
@@ -84,6 +95,10 @@ If a vulnerability cannot be fixed because of an upstream database error or fals
 >    - Verify that the codebase builds correctly and all tests pass with the alternative version.
 > 5. **Always document the reason.** If authorized to ignore, the rule must include a detailed `reason` explaining exactly why it is safe, and note when the rule should be removed.
 
-Now Verify by running ui, server and extension.
-This is for local verification wheather the change in package.json or go.mod is correct or not.
+Now verify the fix by building the affected workspaces:
+- **UI**: `cd ui && npm run build`
+- **Extension**: `cd extension/livereview && npm run compile`
+- **Server**: `make build`
+
+This step is mandatory. Never commit a dependency bump without verifying that the build still succeeds locally.
 
