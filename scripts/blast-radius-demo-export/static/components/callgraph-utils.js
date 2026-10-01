@@ -15,7 +15,7 @@ export function loadD3() {
     if (d3LoadPromise) return d3LoadPromise;
     d3LoadPromise = new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = '/static/vendor/d3.v7.min.js';
+        s.src = 'static/vendor/d3.v7.min.js';
         s.onload = () => resolve(window.d3);
         s.onerror = (e) => { d3LoadPromise = null; reject(e); };
         document.head.appendChild(s);
