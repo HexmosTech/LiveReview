@@ -10,7 +10,7 @@ import {
     reconcileCommentNavState,
     resolveNextIndex,
     resolvePrevIndex
-} from './comment_nav_state.mjs';
+} from './comment_nav_state.js';
 
 export async function createCommentNav() {
     const { html, useState, useEffect, useCallback, useRef } = await waitForPreact();

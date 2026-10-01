@@ -1,5 +1,5 @@
 import { waitForPreact } from './utils.js';
-import { hasActiveIssueFilters } from './issue_filter_state.mjs';
+import { hasActiveIssueFilters } from './issue_filter_state.js';
 import { getFeedbackPopup } from './FeedbackPopup.js';
 import { getSendToAgentButton } from './SendToAgentButton.js';
 import { renderIcon } from './icons.js';

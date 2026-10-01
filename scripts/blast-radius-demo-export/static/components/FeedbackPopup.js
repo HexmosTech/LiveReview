@@ -1,7 +1,7 @@
 // FeedbackPopup — rich feedback UX for vote buttons
 import { waitForPreact, copyToClipboard } from "./utils.js";
 import { renderIcon } from "./icons.js";
-import { getReviewMeta } from "./reviewMeta.mjs";
+import { getReviewMeta } from "./reviewMeta.js";
 
 const SESSION_REVIEW_ID = new URLSearchParams(window.location.search).get('r') || '';
 

@@ -1,8 +1,8 @@
 // Sidebar component
 import { renderIcon } from './icons.js';
 import { waitForPreact, filePathToId } from './utils.js';
-import { countFileVisibleIssues } from './issue_filter_state.mjs';
-import { blastRadiusTier } from './blast_radius_sort_state.mjs';
+import { countFileVisibleIssues } from './issue_filter_state.js';
+import { blastRadiusTier } from './blast_radius_sort_state.js';
 
 export async function createSidebar() {
     const preact = await waitForPreact();

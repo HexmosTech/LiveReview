@@ -1,4 +1,4 @@
-import { formatResetAt, isEnterpriseSelfhostedPlan, normalizeUsagePayload, planLabel, usageTone } from './usage_chip_model.mjs';
+import { formatResetAt, isEnterpriseSelfhostedPlan, normalizeUsagePayload, planLabel, usageTone } from './usage_chip_model.js';
 
 const { html, useEffect, useMemo, useRef, useState } = window.preact;
 

@@ -41,7 +41,7 @@ export function verifyChartRender(svgEl, selector, expectedCount) {
     return true;
 }
 
-// The pure half of this module lives in callgraph_model.mjs so it can be unit
+// The pure half of this module lives in callgraph_model.js so it can be unit
 // tested under `node --test`; re-exported here so chart components keep a
 // single import site.
 export {
@@ -50,7 +50,7 @@ export {
     emptyCallGraphMessage,
     groupCallers,
     callerGroupLabel,
-} from './callgraph_model.mjs';
+} from './callgraph_model.js';
 
 export const DEPTH_COLORS = {
     0: { base: '#990000', light: '#e60000' },

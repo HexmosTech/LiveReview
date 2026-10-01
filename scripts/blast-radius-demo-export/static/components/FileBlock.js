@@ -1,6 +1,6 @@
 // FileBlock component - collapsible file with diff
 import { waitForPreact, filePathToId } from './utils.js';
-import { countFileVisibleIssues } from './issue_filter_state.mjs';
+import { countFileVisibleIssues } from './issue_filter_state.js';
 import { getDiffTable } from './DiffTable.js';
 
 export async function createFileBlock() {

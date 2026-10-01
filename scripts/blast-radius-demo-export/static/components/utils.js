@@ -1,6 +1,6 @@
 // Utility functions for LiveReview UI
 
-import { buildCommentVisibilityKey } from './issue_filter_state.mjs';
+import { buildCommentVisibilityKey } from './issue_filter_state.js';
 
 // Wait for preact to be available
 export function waitForPreact() {

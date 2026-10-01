@@ -10,8 +10,8 @@
 //        └─ selected symbol: signals, metrics, caller groups, packages
 import { waitForPreact } from './utils.js';
 import { renderIcon } from './icons.js';
-import { blastRadiusTier, allSignals } from './blast_radius_sort_state.mjs';
-import { callerGroupLabel, groupCallers } from './callgraph_model.mjs';
+import { blastRadiusTier, allSignals } from './blast_radius_sort_state.js';
+import { callerGroupLabel, groupCallers } from './callgraph_model.js';
 import { getSunburstChart } from './SunburstChart.js';
 import { getFlameGraph } from './FlameGraph.js';
 
@@ -72,7 +72,7 @@ function sortedSignals(signals) {
 // Convention: a Signal object carries `_symbolName` (the symbol it came
 // from) only when it was sourced from a SymbolContribution's own Signals -
 // hunk-level signals (file coupling, arch role) never get one. This field
-// is added client-side by allSignals() in blast_radius_sort_state.mjs (the
+// is added client-side by allSignals() in blast_radius_sort_state.js (the
 // one place that flattens hunk + symbol signals together) and is not part
 // of the server's Signal JSON shape - every consumer here relies on that
 // same convention rather than re-deriving it.

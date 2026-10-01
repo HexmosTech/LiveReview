@@ -1,4 +1,4 @@
-import { normalizeUsagePayload } from './usage_chip_model.mjs';
+import { normalizeUsagePayload } from './usage_chip_model.js';
 import { renderIcon } from './icons.js';
 
 const { html, useEffect, useState } = window.preact;

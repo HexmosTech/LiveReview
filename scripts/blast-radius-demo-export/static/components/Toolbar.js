@@ -1,7 +1,7 @@
 // Toolbar component - tabs and action buttons
 import { renderIcon } from './icons.js';
 import { waitForPreact } from './utils.js';
-import { SORT_MODE_DIFF, SORT_MODE_RISK_FILE, SORT_MODE_RISK_FLAT } from './blast_radius_sort_state.mjs';
+import { SORT_MODE_DIFF, SORT_MODE_RISK_FILE, SORT_MODE_RISK_FLAT } from './blast_radius_sort_state.js';
 
 const SORT_MODE_OPTIONS = [
     { mode: SORT_MODE_RISK_FLAT, label: 'Score: Whole', title: 'One ranked stream: every hunk across the whole diff ordered by risk score, highest first' },

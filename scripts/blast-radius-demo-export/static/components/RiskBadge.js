@@ -14,7 +14,7 @@
 // score and comment are always assessed together.
 import { waitForPreact } from './utils.js';
 import { renderIcon } from './icons.js';
-import { blastRadiusTier, blastRadiusTierLabel, summarizeRiskDetail } from './blast_radius_sort_state.mjs';
+import { blastRadiusTier, blastRadiusTierLabel, summarizeRiskDetail } from './blast_radius_sort_state.js';
 
 const CARD_WIDTH = 300;
 const CARD_EST_HEIGHT = 330; // used only for the above/below flip decision

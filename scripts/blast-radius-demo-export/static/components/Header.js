@@ -3,7 +3,7 @@ import { renderIcon } from './icons.js';
 import { waitForPreact, LOGO_DATA_URI } from './utils.js';
 import { UsageChip } from './UsageChip.js';
 import { fetchImpactStats, buildLinkedinText } from './FeedbackPopup.js';
-import { getReviewMeta } from './reviewMeta.mjs';
+import { getReviewMeta } from './reviewMeta.js';
 
 const SESSION_REVIEW_ID = new URLSearchParams(window.location.search).get('r') || '';
 

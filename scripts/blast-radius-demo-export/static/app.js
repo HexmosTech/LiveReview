@@ -2,9 +2,9 @@
 // Fetches data from /api/review and updates reactively
 
 import { waitForPreact, filePathToId, transformEvent, getBadgeClass, formatIssueForCopy, getCommentVisibilityKey } from './components/utils.js';
-import { buildIssueCategoryGroups, buildIssueFacetOptions, buildIssueFilterUniverse, countFileVisibleIssues, countIssuesByFilters, createDefaultIssueFilters, DEFAULT_SEVERITIES, getCommentFilterValue, getIssueFilterSummary, matchesIssueFilters, resetIssueFilters, toggleIssueFilterValue } from './components/issue_filter_state.mjs';
-import { appendStreamedCommentsToFiles, buildEventsURL, extractExternalCommentsFromEvents, extractNewEvents, inferReviewStatusFromEvents } from './components/review_stream_state.mjs';
-import { attachBlastData, buildBlastLookup, flattenFilesByRisk, hasBlastRadiusData, sortFilesByBlastRadius, SORT_MODE_DIFF, SORT_MODE_RISK_FILE, SORT_MODE_RISK_FLAT } from './components/blast_radius_sort_state.mjs';
+import { buildIssueCategoryGroups, buildIssueFacetOptions, buildIssueFilterUniverse, countFileVisibleIssues, countIssuesByFilters, createDefaultIssueFilters, DEFAULT_SEVERITIES, getCommentFilterValue, getIssueFilterSummary, matchesIssueFilters, resetIssueFilters, toggleIssueFilterValue } from './components/issue_filter_state.js';
+import { appendStreamedCommentsToFiles, buildEventsURL, extractExternalCommentsFromEvents, extractNewEvents, inferReviewStatusFromEvents } from './components/review_stream_state.js';
+import { attachBlastData, buildBlastLookup, flattenFilesByRisk, hasBlastRadiusData, sortFilesByBlastRadius, SORT_MODE_DIFF, SORT_MODE_RISK_FILE, SORT_MODE_RISK_FLAT } from './components/blast_radius_sort_state.js';
 import { getHeader } from './components/Header.js';
 import { getSidebar } from './components/Sidebar.js';
 import { getSummary } from './components/Summary.js';
@@ -21,9 +21,9 @@ import { UsageBanner } from './components/UsageBanner.js';
 import { renderIcon } from './components/icons.js';
 import { getSummarySlideshow } from './components/SummarySlideshow/SummarySlideshow.js';
 import { evaluateSummarySlidesEligibility } from './components/SummarySlideshow/slideshowParser.js';
-import { buildPerformanceSnapshot, getFirstRenderTime, getLoadingActivityMessage, getPerformanceNow, recordFirstRenderTime } from './components/review_performance_state.mjs';
-import { shouldShowAllClear } from './components/review_outcome_state.mjs';
-import { setReviewMeta } from './components/reviewMeta.mjs';
+import { buildPerformanceSnapshot, getFirstRenderTime, getLoadingActivityMessage, getPerformanceNow, recordFirstRenderTime } from './components/review_performance_state.js';
+import { shouldShowAllClear } from './components/review_outcome_state.js';
+import { setReviewMeta } from './components/reviewMeta.js';
 
 let domReadyStartMs = null;
 

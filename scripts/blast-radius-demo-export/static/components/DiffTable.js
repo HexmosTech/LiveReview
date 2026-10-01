@@ -1,10 +1,10 @@
 // DiffTable component - renders diff hunks with lines and comments
 import { waitForPreact, filePathToId, getCommentVisibilityKey, buildIssueCodeExcerpt } from './utils.js';
-import { matchesIssueFilters } from './issue_filter_state.mjs';
+import { matchesIssueFilters } from './issue_filter_state.js';
 import { getComment } from './Comment.js';
 import { getBlastRadiusPanel } from './BlastRadiusPanel.js';
 import { getRiskBadge } from './RiskBadge.js';
-import { getCommentRenderLabel } from './review_performance_state.mjs';
+import { getCommentRenderLabel } from './review_performance_state.js';
 
 export async function createDiffTable() {
     const preact = await waitForPreact();

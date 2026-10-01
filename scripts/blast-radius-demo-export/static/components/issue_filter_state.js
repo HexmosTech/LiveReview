@@ -14,7 +14,7 @@ import {
     normalizeIssueFilters,
     sortValues,
     toggleIssueFilterValue,
-} from './issue_filter_model.mjs';
+} from './issue_filter_model.js';
 
 function selectionMatches(disabledSet, normalizedValue) {
     if (!normalizedValue) {
