@@ -42,7 +42,7 @@ const (
 
 	// analyticsTurnTimeout bounds the whole fan-out regardless of per-query
 	// timeouts, so a slow model cannot hold a request open indefinitely.
-	analyticsTurnTimeout = 90 * time.Second
+	analyticsTurnTimeout = 300 * time.Second
 )
 
 // AnalyticsEngine executes guard-rewritten SQL. Declared here rather than
@@ -1651,16 +1651,13 @@ func (a *Agent) runMultiInterpret(
 	raw, err := a.completeOnce(ctx, clog, 2, "interpret", "multi", 1, system, userMsg)
 	if err != nil {
 		log.Error().Err(err).Msg("multi-interpret LLM call failed")
-		if isProviderAuthOrModelError(err) {
-			msg := fmt.Sprintf("> ⚠️ **Action Required: AI Provider Issue**\n> \n> The existing **%s**'s key seems expired/revoked or the model is no longer available.\n\nPlease configure a valid provider to continue: [btn:Configure AI Provider](/settings#ai)", a.provider.Describe())
-			clog.FinalResponse(msg + " (stopped after provider auth/model error)")
+		cat := CategorizeLLMError(err)
+		msg := GetLLMFallbackMessage(cat)
+		if msg != "" {
+			clog.FinalResponse(msg + " (stopped after " + string(cat) + ")")
 			return msg, nil, debug, nil
 		}
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			// Intentionally return nil error here so the agent caller treats this turn as a success
-			// and persists the friendly timeout message to the database, rather than throwing it away.
-			return "The analysis took longer than expected. Please try asking a narrower or more specific question.", nil, debug, nil //nolint:nilerr
-		}
+
 		return "I had trouble understanding that question. Please try rephrasing.", nil, debug, nil //nolint:nilerr
 	}
 	debug.LLMRawResponse = raw
