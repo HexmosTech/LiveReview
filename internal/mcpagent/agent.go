@@ -3,7 +3,6 @@ package mcpagent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -13,7 +12,6 @@ import (
 	"github.com/livereview/internal/vlrender"
 	"github.com/rs/zerolog/log"
 	"github.com/tmc/langchaingo/llms"
-	"google.golang.org/api/googleapi"
 )
 
 const (
@@ -295,27 +293,27 @@ func (a *Agent) runStepLoop(
 		if jsonMode {
 			completeOpts = append(completeOpts, llms.WithJSONMode())
 		}
+		
 		response, usage, err := a.provider.Complete(ctx, history, tools, completeOpts...)
 		aiElapsed := time.Since(aiStart)
 		if err != nil {
-			log.Error().Err(err).Int("step", step).Msg("LLM completion failed")
+			errCategory := CategorizeLLMError(err)
+			log.Error().Err(err).Int("step", step).Str("category", string(errCategory)).Msg("LLM completion failed")
 			clog.AIError(callNumber, step, aiElapsed, err)
 
-			if isProviderAuthOrModelError(err) {
-				msg := fmt.Sprintf("> ⚠️ **Action Required: AI Provider Issue**\n> \n> The existing **%s**'s key seems expired/revoked or the model is no longer available.\n\nPlease configure a valid provider to continue: [btn:Configure AI Provider](/settings#ai)", a.provider.Describe())
-				clog.FinalResponse(msg + " (stopped after provider auth/model error)")
-				
-				history = append(history, HistoryEntry{
-					"role":                "assistant",
-					"content":             msg,
-					"text":                msg,
-					"suggested_questions": DefaultAIErrorSuggestedQuestions,
-				})
-				
-				return msg, history, nil, nil, nil
+			msg := GetLLMFallbackMessage(errCategory)
+			if msg == "" {
+				return "", history, nil, nil, fmt.Errorf("llm completion step %d: %w", step, err)
 			}
 
-			return "", history, nil, nil, fmt.Errorf("llm completion step %d: %w", step, err)
+			clog.FinalResponse(msg + " (stopped after " + string(errCategory) + ")")
+			history = append(history, HistoryEntry{
+				"role":                "assistant",
+				"content":             msg,
+				"text":                msg,
+				"suggested_questions": DefaultAIErrorSuggestedQuestions,
+			})
+			return msg, history, nil, nil, nil
 		}
 		log.Debug().Int("step", step).Int("response_len", len(response)).Msg("LLM call succeeded")
 		clog.AIResponse(callNumber, step, aiElapsed, usage.InputTokens, usage.OutputTokens, response)
@@ -599,56 +597,9 @@ func (a *Agent) interpretUserMessage(clog *logging.ChatTurnLogger, userText stri
 	return msg, nil
 }
 
-// isProviderAuthOrModelError reports whether an LLM completion error is caused
-// by a revoked/expired AI provider key or a deprecated/unavailable model.
-func isProviderAuthOrModelError(err error) bool {
-	if err == nil {
-		return false
-	}
 
-	// 1. Check langchaingo standardized errors
-	var llmsErr *llms.Error
-	if errors.As(err, &llmsErr) {
-		if llmsErr.Code == llms.ErrCodeAuthentication || llmsErr.Code == llms.ErrCodeResourceNotFound {
-			return true
-		}
-	}
 
-	// 2. Check Google API typed errors
-	var gErr *googleapi.Error
-	if errors.As(err, &gErr) {
-		if gErr.Code == 401 || gErr.Code == 403 || gErr.Code == 404 {
-			return true
-		}
-	}
 
-	// 3. Check generic interface methods for HTTP status codes (used by OpenAI client wrapper, etc.)
-	var scErr interface{ StatusCode() int }
-	if errors.As(err, &scErr) {
-		code := scErr.StatusCode()
-		if code == 401 || code == 403 || code == 404 {
-			return true
-		}
-	}
-
-	var hscErr interface{ HTTPStatusCode() int }
-	if errors.As(err, &hscErr) {
-		code := hscErr.HTTPStatusCode()
-		if code == 401 || code == 403 || code == 404 {
-			return true
-		}
-	}
-
-	// 4. Fallback for non-HTTP API responses indicating model unavailability
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "deprecated") || 
-		strings.Contains(msg, "model not found") ||
-		strings.Contains(msg, "status code: 401") ||
-		strings.Contains(msg, "status code: 403") ||
-		strings.Contains(msg, "status code: 404") ||
-		strings.Contains(msg, "unauthorized") ||
-		strings.Contains(msg, "forbidden")
-}
 
 // isAuthError reports whether a tool result signals an expired/invalid
 // session token or missing auth - the exact messages LiveReview's own auth
