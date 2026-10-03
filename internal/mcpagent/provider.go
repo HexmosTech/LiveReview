@@ -199,7 +199,7 @@ type LLMErrorTemplate struct {
 // hardcoded display logic.
 var LLMErrorTemplates = map[aiconnectors.LLMErrorCategory]LLMErrorTemplate{
 	aiconnectors.ErrCategoryAuth: {
-		Message: "**Action Required: AI Provider Issue**\n\nThe AI Provider's API key is invalid or the model is missing. Please configure a valid provider in settings to continue.",
+		Message: "> **Action Required: AI Provider Issue**\n> \n> The AI Provider's API key is invalid or the model is missing. Please configure a valid provider in settings to continue.",
 		ActionCard: ActionCard{
 			Title:       "Configuration Required",
 			Description: "Please edit the current AI provider configuration to continue.",
@@ -208,7 +208,7 @@ var LLMErrorTemplates = map[aiconnectors.LLMErrorCategory]LLMErrorTemplate{
 		},
 	},
 	aiconnectors.ErrCategoryOverload: {
-		Message: "**AI Provider is Busy**\n\nThe selected model is currently experiencing high traffic. If you continue to see this issue, please edit your configuration to change to a different model or provider.",
+		Message: "> **AI Provider is Busy**\n> \n> The selected model is currently experiencing high traffic. If you continue to see this issue, please edit your configuration to change to a different model or provider.",
 		ActionCard: ActionCard{
 			Title:       "High Traffic Detected",
 			Description: "Please select a different model in settings.",
@@ -217,7 +217,7 @@ var LLMErrorTemplates = map[aiconnectors.LLMErrorCategory]LLMErrorTemplate{
 		},
 	},
 	aiconnectors.ErrCategoryDeprecated: {
-		Message: "**Model No Longer Available**\n\nThe selected AI model has been deprecated or removed by the provider. Please update your AI provider configuration to use a different model.",
+		Message: "> **Model No Longer Available**\n> \n> The selected AI model has been deprecated or removed by the provider. Please update your AI provider configuration to use a different model.",
 		ActionCard: ActionCard{
 			Title:       "Model No Longer Available",
 			Description: "The selected model has been deprecated. Please update your AI provider configuration.",
@@ -226,7 +226,7 @@ var LLMErrorTemplates = map[aiconnectors.LLMErrorCategory]LLMErrorTemplate{
 		},
 	},
 	aiconnectors.ErrCategoryTimeout: {
-		Message: "**Analysis Took Too Long**\n\nThe AI took too long to generate your response and timed out. Try asking a narrower or more specific question.",
+		Message: "> **Analysis Took Too Long**\n> \n> The AI took too long to generate your response and timed out. Try asking a narrower or more specific question.",
 		ActionCard: ActionCard{
 			Title:       "Timeout Error",
 			Description: "The request took too long to complete.",

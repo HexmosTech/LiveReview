@@ -105,6 +105,7 @@ interface DebugArtifacts {
       repaired_sql?: string;
     }>;
   }>;
+  raw_llm_error?: string;
 }
 
 interface ChatEntry {
@@ -1488,17 +1489,29 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                         </div>
                       )}
                       {msg.actionCard && (
-                        <div className="mt-4 flex items-center justify-between gap-3 p-3 sm:px-4 bg-slate-800/30 border border-slate-700 rounded-lg w-full">
-                          <div>
-                            <h4 className="text-sm font-semibold text-slate-200">{msg.actionCard.title}</h4>
-                            <p className="text-xs text-slate-400 mt-0.5">{msg.actionCard.description}</p>
+                        <div className="mt-4 flex flex-col gap-2 w-full">
+                          <div className="flex items-center justify-between gap-3 p-3 sm:px-4 bg-slate-800/30 border border-slate-700 rounded-lg w-full">
+                            <div>
+                              <h4 className="text-sm font-semibold text-slate-200">{msg.actionCard.title}</h4>
+                              <p className="text-xs text-slate-400 mt-0.5">{msg.actionCard.description}</p>
+                            </div>
+                            <button
+                              onClick={() => navigate(msg.actionCard!.action_url)}
+                              className="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer whitespace-nowrap flex-shrink-0"
+                            >
+                              {msg.actionCard.button_text}
+                            </button>
                           </div>
-                          <button
-                            onClick={() => navigate(msg.actionCard!.action_url)}
-                            className="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer whitespace-nowrap flex-shrink-0"
-                          >
-                            {msg.actionCard.button_text}
-                          </button>
+                          {msg.debugArtifacts?.raw_llm_error && (
+                            <details className="group px-1">
+                              <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
+                                Debug logs
+                              </summary>
+                              <pre className="mt-1.5 p-3 rounded-lg bg-slate-950/50 border border-slate-800/80 text-[11px] font-mono text-rose-400/80 whitespace-pre-wrap break-words">
+                                {msg.debugArtifacts.raw_llm_error}
+                              </pre>
+                            </details>
+                          )}
                         </div>
                       )}
                       {msg.suggestedQuestions && msg.suggestedQuestions.length > 0 && (

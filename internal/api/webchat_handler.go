@@ -268,6 +268,11 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 				log.Error().Err(err).Msg("WebChat: failed to marshal rawCard")
 			}
 		}
+		if rawDebug, ok := entry["debug_artifacts"]; ok && rawDebug != nil && resp.DebugArtifacts == nil {
+			if b, err := json.Marshal(rawDebug); err == nil {
+				resp.DebugArtifacts = b
+			}
+		}
 		if sq, ok := entry["suggested_questions"].([]mcpagent.SuggestedQuestionCategory); ok && len(sq) > 0 {
 			resp.SuggestedQuestions = sq
 			break

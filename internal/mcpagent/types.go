@@ -117,6 +117,7 @@ type DebugArtifacts struct {
 	FullRequest     string              `json:"full_request"` // system_prompt + schema_context sent to LLM
 	Interpretations []Interpretation    `json:"interpretations"`
 	Results         []DebugResultEntry  `json:"results"`
+	RawLLMError     string              `json:"raw_llm_error,omitempty"`
 }
 
 // DebugResultEntry is one interpretation's outcome for the debug view.
