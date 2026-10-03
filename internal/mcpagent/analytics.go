@@ -1688,7 +1688,8 @@ func (a *Agent) runMultiInterpret(
 	interps, ok := parseInterpretations(raw)
 	if !ok {
 		log.Warn().Str("raw_preview", truncateContent(raw, 200)).Msg("could not parse interpretations from LLM response")
-		return "I wasn't able to generate an answer this time. Please try rephrasing your question.", nil, debug, nil
+		formatMsg := "> **Model Output Error**\n> \n> The AI returned data in an unexpected format. Please try rephrasing your question."
+		return formatMsg, nil, debug, nil
 	}
 	debug.Interpretations = interps
 

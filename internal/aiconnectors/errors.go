@@ -24,6 +24,8 @@ func CategorizeLLMError(err error) LLMErrorCategory {
 		return ErrCategoryUnknown
 	}
 
+
+
 	// 1. Langchain-Go normalized errors
 	var llmsErr *llms.Error
 	if errors.As(err, &llmsErr) {
@@ -60,6 +62,12 @@ func CategorizeLLMError(err error) LLMErrorCategory {
 
 	// 3. Fallback string matching
 	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "deprecated") || strings.Contains(msg, "model not found") ||
+		strings.Contains(msg, "model_not_found") || strings.Contains(msg, "no such model") ||
+		strings.Contains(msg, "no longer available") {
+		return ErrCategoryDeprecated
+	}
+	
 	if strings.Contains(msg, "context deadline") || strings.Contains(msg, "timeout") {
 		return ErrCategoryTimeout
 	}
@@ -69,10 +77,6 @@ func CategorizeLLMError(err error) LLMErrorCategory {
 		strings.Contains(msg, "service unavailable") || strings.Contains(msg, "bad gateway") ||
 		strings.Contains(msg, "high demand") {
 		return ErrCategoryOverload
-	}
-	if strings.Contains(msg, "deprecated") || strings.Contains(msg, "model not found") ||
-		strings.Contains(msg, "model_not_found") || strings.Contains(msg, "no such model") {
-		return ErrCategoryDeprecated
 	}
 	if strings.Contains(msg, "status code: 401") || strings.Contains(msg, "status code: 403") ||
 		strings.Contains(msg, "status code: 404") || strings.Contains(msg, "unauthorized") ||
