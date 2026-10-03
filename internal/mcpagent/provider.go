@@ -234,4 +234,13 @@ var LLMErrorTemplates = map[aiconnectors.LLMErrorCategory]LLMErrorTemplate{
 			ActionURL:   "/chat",
 		},
 	},
+	aiconnectors.ErrCategoryUnknown: {
+		Message: "> **Unexpected Error**\n> \n> An unexpected error occurred while communicating with the AI provider. Please check the debug logs for more details.",
+		ActionCard: ActionCard{
+			Title:       "Unexpected Error",
+			Description: "An unknown error occurred during processing.",
+			ButtonText:  "Try Again",
+			ActionURL:   "/chat",
+		},
+	},
 }

@@ -72,8 +72,11 @@ func CategorizeLLMError(err error) LLMErrorCategory {
 		return ErrCategoryTimeout
 	}
 	if strings.Contains(msg, "rate limit") || strings.Contains(msg, "too many requests") ||
-		strings.Contains(msg, "status code: 429") || strings.Contains(msg, "status code: 50") ||
-		strings.Contains(msg, "error 429") || strings.Contains(msg, "error 50") ||
+		strings.Contains(msg, "status code: 429") || strings.Contains(msg, "status code: 500") ||
+		strings.Contains(msg, "status code: 502") || strings.Contains(msg, "status code: 503") ||
+		strings.Contains(msg, "status code: 504") || strings.Contains(msg, "error 429") ||
+		strings.Contains(msg, "error 500") || strings.Contains(msg, "error 502") ||
+		strings.Contains(msg, "error 503") || strings.Contains(msg, "error 504") ||
 		strings.Contains(msg, "service unavailable") || strings.Contains(msg, "bad gateway") ||
 		strings.Contains(msg, "high demand") {
 		return ErrCategoryOverload

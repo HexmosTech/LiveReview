@@ -43,7 +43,7 @@ const (
 
 	// analyticsTurnTimeout bounds the whole fan-out regardless of per-query
 	// timeouts, so a slow model cannot hold a request open indefinitely.
-	analyticsTurnTimeout = 300 * time.Second
+	analyticsTurnTimeout = 90 * time.Second
 )
 
 // AnalyticsEngine executes guard-rewritten SQL. Declared here rather than
