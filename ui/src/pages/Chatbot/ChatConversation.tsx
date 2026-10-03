@@ -222,22 +222,29 @@ function formatText(rawText: string): React.ReactNode[] {
       }
       i = currI - 1;
       
-      const isError = blockquoteLines.length > 0 && blockquoteLines[0].includes('Action Required:');
+      const errorPhrases = [
+        'Action Required:',
+        'AI Provider is Busy',
+        'Model No Longer Available',
+        'Analysis Took Too Long',
+        'AI Tools Unavailable'
+      ];
+      const isError = blockquoteLines.length > 0 && errorPhrases.some(phrase => blockquoteLines[0].includes(phrase));
       
       if (isError) {
         parts.push(
-          <div key={`q-${lineIdx++}`} className="flex flex-col mb-4 mt-1 rounded-md overflow-hidden">
-            <div className="border-l-2 border-red-500 bg-red-500/10 text-slate-200 pl-3 pr-3 py-2 font-bold">
+          <blockquote key={`q-${lineIdx++}`} className="border-l-2 border-indigo-500 text-slate-300 pl-3 pr-3 pt-0 pb-2 rounded-r-md mb-2 mt-1">
+            <div className="text-indigo-400 font-bold mb-1">
               {formatLine(blockquoteLines[0])}
             </div>
-            <div className="border-l-2 border-indigo-400 bg-slate-800/40 text-slate-300 pl-3 pr-3 py-2 italic">
+            <div className="italic">
               {blockquoteLines.slice(1).map((bLine, bIdx) => (
                 <div key={bIdx} className={bLine.trim() === '' ? 'h-2' : 'mb-1 leading-relaxed [&>*:first-child]:mt-0'}>
                   {formatLine(bLine)}
                 </div>
               ))}
             </div>
-          </div>
+          </blockquote>
         );
       } else {
         parts.push(
@@ -1222,7 +1229,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                   </div>
                 ) : (
                   <div key={msg.id} className="flex items-end">
-                    <LiviLogo className="mb-0.5 mr-2" />
+                    <LiviLogo className="mb-0.5 mr-4" />
                     <div className="min-w-0 flex-1">
                       {msg.charts && msg.charts.length > 0 && (
                         <div className="space-y-6">
@@ -1550,7 +1557,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
 
           {isLoading && (
             <div className="flex items-end mt-4">
-              <LiviLogo className="mb-0.5 mr-2" />
+              <LiviLogo className="mb-0.5 mr-4" />
               <div className="min-w-0 flex-1">
                 <ThinkingIndicator />
               </div>
