@@ -164,37 +164,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 		res, err := a.classify(ctx, history, userText, clog)
 		shape := res.Shape
 		if err != nil {
-			errCategory := aiconnectors.CategorizeLLMError(err)
-			msg := ""
-			var card *ActionCard
-			if tpl, ok := LLMErrorTemplates[errCategory]; ok {
-				msg = tpl.Message
-				card = &tpl.ActionCard
-			}
-			if msg != "" {
-				log.Warn().Err(err).Str("category", string(errCategory)).Msg("call #0 classify failed with provider error; short-circuiting turn")
-				clog.FinalResponse(msg + " (stopped after " + string(errCategory) + ")")
-				history = append(history, HistoryEntry{"role": "user", "content": userText})
-				if card != nil {
-					history = append(history, HistoryEntry{
-						"role":                "assistant",
-						"content":             msg,
-						"text":                msg,
-						"suggested_questions": DefaultAIErrorSuggestedQuestions,
-						"action_card":         card,
-						"debug_artifacts":     &DebugArtifacts{RawLLMError: err.Error()},
-					})
-				} else {
-					history = append(history, HistoryEntry{
-						"role":                "assistant",
-						"content":             msg,
-						"text":                msg,
-						"suggested_questions": DefaultAIErrorSuggestedQuestions,
-					})
-				}
-				return msg, history, nil, &DebugArtifacts{RawLLMError: err.Error()}, nil
-			}
-			log.Warn().Err(err).Msg("call #0 classify failed with unparseable or unknown error; degrading to product_guidance for this turn")
+			log.Warn().Err(err).Str("category", string(aiconnectors.CategorizeLLMError(err))).Msg("call #0 classify failed; degrading to product_guidance for this turn")
 			shape = shapeProductGuidance
 		}
 
@@ -227,6 +197,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 					entry["action_card"] = tpl.ActionCard
 				}
 			}
+
 			history = append(history, entry)
 			return text, history, artifacts, debugArt, nil
 		}
@@ -287,7 +258,8 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 		}
 		clog.BranchSelected(string(shape), len(systemPrompt), len(tools))
 
-		return a.runStepLoop(ctx, history, userText, systemPrompt, tools, callNumber, jsonMode, planRetried, "", clog)
+		text, history, artifacts, debugArt, err := a.runStepLoop(ctx, history, userText, systemPrompt, tools, callNumber, jsonMode, planRetried, "", clog)
+		return text, history, artifacts, debugArt, err
 	}
 
 	// Non-analytics path (plain tool-only agent).
@@ -342,7 +314,7 @@ func (a *Agent) runStepLoop(
 		if jsonMode {
 			completeOpts = append(completeOpts, llms.WithJSONMode())
 		}
-		
+
 		response, usage, err := a.provider.Complete(ctx, history, tools, completeOpts...)
 		aiElapsed := time.Since(aiStart)
 		if err != nil {
@@ -361,23 +333,18 @@ func (a *Agent) runStepLoop(
 			}
 
 			clog.FinalResponse(msg + " (stopped after " + string(errCategory) + ")")
-			if card != nil {
-				history = append(history, HistoryEntry{
-					"role":                "assistant",
-					"content":             msg,
-					"text":                msg,
-					"suggested_questions": DefaultAIErrorSuggestedQuestions,
-					"action_card":         card,
-					"debug_artifacts":     &DebugArtifacts{RawLLMError: err.Error()},
-				})
-			} else {
-				history = append(history, HistoryEntry{
-					"role":                "assistant",
-					"content":             msg,
-					"text":                msg,
-					"suggested_questions": DefaultAIErrorSuggestedQuestions,
-				})
+			entry := HistoryEntry{
+				"role":                "assistant",
+				"content":             msg,
+				"text":                msg,
+				"suggested_questions": DefaultAIErrorSuggestedQuestions,
 			}
+			if card != nil {
+				entry["action_card"] = card
+				entry["debug_artifacts"] = &DebugArtifacts{RawLLMError: err.Error()}
+			}
+
+			history = append(history, entry)
 			return msg, history, nil, nil, nil
 		}
 		log.Debug().Int("step", step).Int("response_len", len(response)).Msg("LLM call succeeded")
@@ -661,10 +628,6 @@ func (a *Agent) interpretUserMessage(clog *logging.ChatTurnLogger, userText stri
 	)
 	return msg, nil
 }
-
-
-
-
 
 // isAuthError reports whether a tool result signals an expired/invalid
 // session token or missing auth - the exact messages LiveReview's own auth
