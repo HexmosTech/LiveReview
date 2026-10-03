@@ -181,18 +181,13 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			if text == NoDataAnalyticsResponseText {
 				entry["suggested_questions"] = DefaultNoDataSuggestedQuestions
 			} else {
-			for _, tpl := range LLMErrorTemplates {
-				if strings.HasPrefix(text, tpl.Message) {
-					entry["suggested_questions"] = DefaultAIErrorSuggestedQuestions
-					card := tpl.ActionCard // copy
-					entry["action_card"] = &card
-					entry["debug_artifacts"] = debugArt
-					break
-				}
-			}
-			
-			// Also check for format errors, which are hallucinations, not provider errors
-			if strings.Contains(text, "Model Output Error") {
+			if tpl, ok := MatchErrorTemplateByText(text); ok {
+				entry["suggested_questions"] = DefaultAIErrorSuggestedQuestions
+				card := tpl.ActionCard // copy
+				entry["action_card"] = &card
+				entry["debug_artifacts"] = debugArt
+			} else if strings.Contains(text, ModelOutputErrorText) {
+				// Also check for format errors, which are hallucinations, not provider errors
 				entry["suggested_questions"] = DefaultAIErrorSuggestedQuestions
 				entry["action_card"] = &ActionCard{
 					Title:       "Formatting Error",
@@ -330,7 +325,7 @@ func (a *Agent) runStepLoop(
 
 			msg := ""
 			var card *ActionCard
-			if tpl, ok := LLMErrorTemplates[errCategory]; ok {
+			if tpl, ok := LookupErrorTemplate(errCategory); ok {
 				msg = tpl.Message
 				card = &tpl.ActionCard
 			}

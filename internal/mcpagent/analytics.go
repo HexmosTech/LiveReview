@@ -1672,7 +1672,7 @@ func (a *Agent) runMultiInterpret(
 		log.Error().Err(err).Msg("multi-interpret LLM call failed")
 		cat := aiconnectors.CategorizeLLMError(err)
 		msg := ""
-		if tpl, ok := LLMErrorTemplates[cat]; ok {
+		if tpl, ok := LookupErrorTemplate(cat); ok {
 			msg = tpl.Message
 		}
 		if msg != "" {
