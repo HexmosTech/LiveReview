@@ -207,7 +207,7 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 			SessionID:      sessionID,
 			ConversationID: convID,
 		}
-		return c.JSON(http.StatusOK, resp)
+		return c.JSON(http.StatusBadGateway, resp)
 	}
 
 	if pc.CurrentOrg != nil && pc.CurrentOrg.Name != "" {
