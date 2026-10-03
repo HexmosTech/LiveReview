@@ -1668,6 +1668,7 @@ func (a *Agent) runMultiInterpret(
 	debug.FullRequest = system + "\n---\n" + userMsg
 	raw, err := a.completeOnce(ctx, clog, 2, "interpret", "multi", 1, system, userMsg)
 	if err != nil {
+		debug.RawLLMError = err.Error()
 		log.Error().Err(err).Msg("multi-interpret LLM call failed")
 		cat := aiconnectors.CategorizeLLMError(err)
 		msg := ""

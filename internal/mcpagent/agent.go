@@ -182,6 +182,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 						"text":                msg,
 						"suggested_questions": DefaultAIErrorSuggestedQuestions,
 						"action_card":         card,
+						"debug_artifacts":     &DebugArtifacts{RawLLMError: err.Error()},
 					})
 				} else {
 					history = append(history, HistoryEntry{
@@ -191,7 +192,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 						"suggested_questions": DefaultAIErrorSuggestedQuestions,
 					})
 				}
-				return msg, history, nil, nil, nil
+				return msg, history, nil, &DebugArtifacts{RawLLMError: err.Error()}, nil
 			}
 			log.Warn().Err(err).Msg("call #0 classify failed with unparseable or unknown error; degrading to product_guidance for this turn")
 			shape = shapeProductGuidance
@@ -367,6 +368,7 @@ func (a *Agent) runStepLoop(
 					"text":                msg,
 					"suggested_questions": DefaultAIErrorSuggestedQuestions,
 					"action_card":         card,
+					"debug_artifacts":     &DebugArtifacts{RawLLMError: err.Error()},
 				})
 			} else {
 				history = append(history, HistoryEntry{
