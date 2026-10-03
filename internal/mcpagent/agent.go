@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/docindex"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/vlrender"
@@ -151,6 +152,8 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 		}
 		log.Warn().Str("failure_reason", schemaIndexFailureReason()).Msg("schema index not ready; refusing the turn before any LLM call")
 		clog.FinalResponse(msg)
+		history = append(history, HistoryEntry{"role": "user", "content": userText})
+		history = append(history, HistoryEntry{"role": "assistant", "content": msg, "text": msg})
 		return msg, history, nil, nil, nil
 	}
 
@@ -161,7 +164,36 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 		res, err := a.classify(ctx, history, userText, clog)
 		shape := res.Shape
 		if err != nil {
-			log.Warn().Err(err).Msg("call #0 classify failed; degrading to product_guidance for this turn")
+			errCategory := aiconnectors.CategorizeLLMError(err)
+			msg := ""
+			var card *ActionCard
+			if tpl, ok := LLMErrorTemplates[errCategory]; ok {
+				msg = tpl.Message
+				card = &tpl.ActionCard
+			}
+			if msg != "" {
+				log.Warn().Err(err).Str("category", string(errCategory)).Msg("call #0 classify failed with provider error; short-circuiting turn")
+				clog.FinalResponse(msg + " (stopped after " + string(errCategory) + ")")
+				history = append(history, HistoryEntry{"role": "user", "content": userText})
+				if card != nil {
+					history = append(history, HistoryEntry{
+						"role":                "assistant",
+						"content":             msg,
+						"text":                msg,
+						"suggested_questions": DefaultAIErrorSuggestedQuestions,
+						"action_card":         card,
+					})
+				} else {
+					history = append(history, HistoryEntry{
+						"role":                "assistant",
+						"content":             msg,
+						"text":                msg,
+						"suggested_questions": DefaultAIErrorSuggestedQuestions,
+					})
+				}
+				return msg, history, nil, nil, nil
+			}
+			log.Warn().Err(err).Msg("call #0 classify failed with unparseable or unknown error; degrading to product_guidance for this turn")
 			shape = shapeProductGuidance
 		}
 
@@ -175,8 +207,24 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 				return text, history, artifacts, debugArt, err
 			}
 			entry := HistoryEntry{"role": "assistant", "content": text, "text": text}
-			if text == NoDataAnalyticsResponseText {
+			switch {
+			case text == NoDataAnalyticsResponseText:
 				entry["suggested_questions"] = DefaultNoDataSuggestedQuestions
+			case strings.Contains(text, "Action Required: AI Provider Issue"):
+				entry["suggested_questions"] = DefaultAIErrorSuggestedQuestions
+				if tpl, ok := LLMErrorTemplates[aiconnectors.ErrCategoryAuth]; ok {
+					entry["action_card"] = tpl.ActionCard
+				}
+			case strings.Contains(text, "AI Provider is Busy"):
+				entry["suggested_questions"] = DefaultAIErrorSuggestedQuestions
+				if tpl, ok := LLMErrorTemplates[aiconnectors.ErrCategoryOverload]; ok {
+					entry["action_card"] = tpl.ActionCard
+				}
+			case strings.Contains(text, "Model No Longer Available"):
+				entry["suggested_questions"] = DefaultAIErrorSuggestedQuestions
+				if tpl, ok := LLMErrorTemplates[aiconnectors.ErrCategoryDeprecated]; ok {
+					entry["action_card"] = tpl.ActionCard
+				}
 			}
 			history = append(history, entry)
 			return text, history, artifacts, debugArt, nil
@@ -297,22 +345,37 @@ func (a *Agent) runStepLoop(
 		response, usage, err := a.provider.Complete(ctx, history, tools, completeOpts...)
 		aiElapsed := time.Since(aiStart)
 		if err != nil {
-			errCategory := CategorizeLLMError(err)
+			errCategory := aiconnectors.CategorizeLLMError(err)
 			log.Error().Err(err).Int("step", step).Str("category", string(errCategory)).Msg("LLM completion failed")
 			clog.AIError(callNumber, step, aiElapsed, err)
 
-			msg := GetLLMFallbackMessage(errCategory)
+			msg := ""
+			var card *ActionCard
+			if tpl, ok := LLMErrorTemplates[errCategory]; ok {
+				msg = tpl.Message
+				card = &tpl.ActionCard
+			}
 			if msg == "" {
 				return "", history, nil, nil, fmt.Errorf("llm completion step %d: %w", step, err)
 			}
 
 			clog.FinalResponse(msg + " (stopped after " + string(errCategory) + ")")
-			history = append(history, HistoryEntry{
-				"role":                "assistant",
-				"content":             msg,
-				"text":                msg,
-				"suggested_questions": DefaultAIErrorSuggestedQuestions,
-			})
+			if card != nil {
+				history = append(history, HistoryEntry{
+					"role":                "assistant",
+					"content":             msg,
+					"text":                msg,
+					"suggested_questions": DefaultAIErrorSuggestedQuestions,
+					"action_card":         card,
+				})
+			} else {
+				history = append(history, HistoryEntry{
+					"role":                "assistant",
+					"content":             msg,
+					"text":                msg,
+					"suggested_questions": DefaultAIErrorSuggestedQuestions,
+				})
+			}
 			return msg, history, nil, nil, nil
 		}
 		log.Debug().Int("step", step).Int("response_len", len(response)).Msg("LLM call succeeded")
@@ -591,7 +654,7 @@ func (a *Agent) interpretUserMessage(clog *logging.ChatTurnLogger, userText stri
 		return "", err
 	}
 	msg := fmt.Sprintf(
-		"User query: %s\nOrg context: org_id = %d (%s)\n\n--- dbctx schema context ---\n%s\n\n--- available chart types ---\n%s",
+		"User query: %s\nOrg context: org_id = %d (%s)\n\n--- dbctx schema context ---\n%s\n\n--- available chart types ---\n%s\n\nNow, generate the JSON object containing the interpretations as requested. Do NOT output any markdown, reasoning, or text outside of the JSON object.",
 		userText, orgID, orgName, tableText, a.chartTypes,
 	)
 	return msg, nil
