@@ -1418,7 +1418,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                               )}
                               {(chart.query || chart.time_range || chart.granularity || chart.context) && (
                                 <details className="group mt-1">
-                                  <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
+                                  <summary className="w-fit text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
                                     Data details
                                   </summary>
                                   <div className="mt-1.5 space-y-1 text-xs text-slate-400 italic">
@@ -1469,7 +1469,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                               )}
                               {(file.query || file.time_range || file.granularity || file.context) && (
                                 <details className="group mt-1">
-                                  <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
+                                  <summary className="w-fit text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
                                     Data details
                                   </summary>
                                   <div className="mt-1.5 space-y-1 text-xs text-slate-400 italic">
@@ -1511,7 +1511,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                           </div>
                           {msg.debugArtifacts?.raw_llm_error && (
                             <details className="group px-1">
-                              <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
+                              <summary className="w-fit text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
                                 Debug logs
                               </summary>
                               <pre className="mt-1.5 p-3 rounded-lg bg-slate-950/50 border border-slate-800/80 text-[11px] font-mono text-rose-400/80 whitespace-pre-wrap break-words">

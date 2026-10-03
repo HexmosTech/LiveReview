@@ -178,25 +178,31 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 				return text, history, artifacts, debugArt, err
 			}
 			entry := HistoryEntry{"role": "assistant", "content": text, "text": text}
-			switch {
-			case text == NoDataAnalyticsResponseText:
+			if text == NoDataAnalyticsResponseText {
 				entry["suggested_questions"] = DefaultNoDataSuggestedQuestions
-			case strings.Contains(text, "Action Required: AI Provider Issue"):
-				entry["suggested_questions"] = DefaultAIErrorSuggestedQuestions
-				if tpl, ok := LLMErrorTemplates[aiconnectors.ErrCategoryAuth]; ok {
-					entry["action_card"] = tpl.ActionCard
-				}
-			case strings.Contains(text, "AI Provider is Busy"):
-				entry["suggested_questions"] = DefaultAIErrorSuggestedQuestions
-				if tpl, ok := LLMErrorTemplates[aiconnectors.ErrCategoryOverload]; ok {
-					entry["action_card"] = tpl.ActionCard
-				}
-			case strings.Contains(text, "Model No Longer Available"):
-				entry["suggested_questions"] = DefaultAIErrorSuggestedQuestions
-				if tpl, ok := LLMErrorTemplates[aiconnectors.ErrCategoryDeprecated]; ok {
-					entry["action_card"] = tpl.ActionCard
+			} else {
+			for _, tpl := range LLMErrorTemplates {
+				if strings.HasPrefix(text, tpl.Message) {
+					entry["suggested_questions"] = DefaultAIErrorSuggestedQuestions
+					card := tpl.ActionCard // copy
+					entry["action_card"] = &card
+					entry["debug_artifacts"] = debugArt
+					break
 				}
 			}
+			
+			// Also check for format errors, which are hallucinations, not provider errors
+			if strings.Contains(text, "Model Output Error") {
+				entry["suggested_questions"] = DefaultAIErrorSuggestedQuestions
+				entry["action_card"] = &ActionCard{
+					Title:       "Formatting Error",
+					Description: "The model failed to format the response correctly.",
+					ButtonText:  "Try Again",
+					ActionURL:   "/chat",
+				}
+				entry["debug_artifacts"] = debugArt
+			}
+			} // close else block
 
 			history = append(history, entry)
 			return text, history, artifacts, debugArt, nil
@@ -339,13 +345,15 @@ func (a *Agent) runStepLoop(
 				"text":                msg,
 				"suggested_questions": DefaultAIErrorSuggestedQuestions,
 			}
+			var debugArt *DebugArtifacts
 			if card != nil {
 				entry["action_card"] = card
-				entry["debug_artifacts"] = &DebugArtifacts{RawLLMError: err.Error()}
+				debugArt = &DebugArtifacts{RawLLMError: err.Error()}
+				entry["debug_artifacts"] = debugArt
 			}
 
 			history = append(history, entry)
-			return msg, history, nil, nil, nil
+			return msg, history, nil, debugArt, nil
 		}
 		log.Debug().Int("step", step).Int("response_len", len(response)).Msg("LLM call succeeded")
 		clog.AIResponse(callNumber, step, aiElapsed, usage.InputTokens, usage.OutputTokens, response)
