@@ -1503,7 +1503,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                               <p className="text-xs text-slate-400 mt-0.5">{msg.actionCard.description}</p>
                             </div>
                             <button
-                              onClick={() => navigate(msg.actionCard!.action_url)}
+                              onClick={() => { if (msg.actionCard?.action_url) navigate(msg.actionCard.action_url); }}
                               className="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer whitespace-nowrap flex-shrink-0"
                             >
                               {msg.actionCard.button_text}
