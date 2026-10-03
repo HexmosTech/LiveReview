@@ -68,9 +68,7 @@ const ContextDetails: React.FC<{ context: ChartContext }> = ({ context }) => (
 // Unified logo wrapper to ensure the 16px visual right gap and 8px visual left gap
 // stay mathematically synchronized across the header, chat messages, and loading states.
 const LiviLogo: React.FC<{ className?: string }> = ({ className = '' }) => (
-  <div className={`w-12 flex-shrink-0 flex justify-center ${className}`}>
-    <img src="/assets/lrbot/lrbot.png" alt="Bot" width={32} height={32} decoding="async" className="w-8 h-8 rounded-full" />
-  </div>
+  <img src="/assets/lrbot/lrbot.png" alt="Bot" width={32} height={32} decoding="async" className={`w-8 h-8 rounded-full flex-shrink-0 ${className}`} />
 );
 
 // Debug artifacts (SQL, CSV, Vega spec, schema context, system prompt, raw
@@ -1091,8 +1089,11 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
   const debugModalMsg = debugModalMsgId ? messages.find((m) => m.id === debugModalMsgId) : undefined;
 
   return (
-    <div className="h-full flex flex-col bg-slate-900 relative overflow-y-auto overflow-x-hidden" id="chat-messages-container">
-      <div className="flex-none px-4 py-2 sticky top-0 z-20 bg-slate-900/95 backdrop-blur-sm border-b border-slate-800/60">
+    <div className="h-full flex flex-col bg-slate-900 overflow-hidden">
+      {/* Header: pl-4 pr-6 instead of px-4 so max-w-4xl mx-auto centers identically
+          to the messages section which has scrollbar-gutter:stable (8px) on the right.
+          Math: header right=24px, messages right=16px(px-4)+8px(gutter)=24px → same. */}
+      <div className="flex-none pl-4 pr-6 py-2 relative z-10">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center">
             <LiviLogo className="mr-2" />
@@ -1151,7 +1152,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         </div>
       </div>
 
-      <div className="flex-1 px-4 py-6">
+      <div className="flex-1 overflow-y-auto px-4 py-6" style={{scrollbarGutter: 'stable'}}>
         <div className="max-w-4xl mx-auto w-full min-h-full flex flex-col relative">
           {isSuperAdmin && !dismissedProdUrlWarning && (
             <ProductionUrlWarning floating onClose={() => setDismissedProdUrlWarning(true)} />
@@ -1546,7 +1547,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         </div>
       </div>
 
-      <div className="flex-none px-4 py-4 sticky bottom-0 z-20 bg-slate-900 border-t border-slate-800/60">
+      <div className="flex-none pl-4 pr-6 pb-4">
         <div className="max-w-4xl mx-auto">
           <div className="relative flex items-center">
             <input

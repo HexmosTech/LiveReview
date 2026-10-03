@@ -356,7 +356,7 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		resp.Files = append(resp.Files, chatFileFromArtifact(art, fileIDs[i]))
 	}
 
-	log.Info().Interface("finalResp", resp).Msg("WebChat: returning response to client")
+	// log.Info().Interface("finalResp", resp).Msg("WebChat: returning response to client")
 	return c.JSON(http.StatusOK, resp)
 }
 
