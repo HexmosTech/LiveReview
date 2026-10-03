@@ -27,13 +27,14 @@ type ChatConversationSummary struct {
 // ChatMessageOut is one persisted message, with any charts and file exports
 // it produced.
 type ChatMessageOut struct {
-	ID                 int64                             `json:"id"`
-	Role               string                            `json:"role"`
-	Content            string                            `json:"content"`
-	Charts             []WebChatChart                    `json:"charts,omitempty"`
-	Files              []WebChatFile                     `json:"files,omitempty"`
+	ID                 int64                                `json:"id"`
+	Role               string                               `json:"role"`
+	Content            string                               `json:"content"`
+	Charts             []WebChatChart                       `json:"charts,omitempty"`
+	Files              []WebChatFile                        `json:"files,omitempty"`
 	SuggestedQuestions []mcpagent.SuggestedQuestionCategory `json:"suggested_questions,omitempty"`
-	DebugArtifacts     json.RawMessage                   `json:"debug_artifacts,omitempty"`
+	DebugArtifacts     json.RawMessage                      `json:"debug_artifacts,omitempty"`
+	ActionCard         *mcpagent.ActionCard                 `json:"action_card,omitempty"`
 }
 
 // ChatConversationDetail is a full conversation with its message history, for
@@ -201,18 +202,28 @@ func (s *Server) GetConversation(c echo.Context) error {
 			})
 		}
 		var suggestedQuestions []mcpagent.SuggestedQuestionCategory
+		var actionCard *mcpagent.ActionCard
 		for _, entry := range m.RawHistoryEntries {
-			if sq, ok := entry["suggested_questions"].([]mcpagent.SuggestedQuestionCategory); ok && len(sq) > 0 {
-				suggestedQuestions = sq
-				break
-			} else if rawSq, ok := entry["suggested_questions"]; ok && rawSq != nil {
-				if b, err := json.Marshal(rawSq); err == nil {
-					if err := json.Unmarshal(b, &suggestedQuestions); err != nil {
-						log.Warn().Err(err).Msg("failed to unmarshal raw suggested_questions")
-					} else if len(suggestedQuestions) > 0 {
-						break
-					}
+			// After JSONB round-trip from Postgres, all values come back as
+			// generic types ([]interface{}, map[string]interface{}, etc.),
+			// not as typed Go structs. Re-marshal each entry and read the
+			// fields we care about from a plain map so type assertions are safe.
+			entryBytes, err := json.Marshal(entry)
+			if err != nil {
+				continue
+			}
+			var plain map[string]json.RawMessage
+			if err := json.Unmarshal(entryBytes, &plain); err != nil {
+				continue
+			}
+			if ac, ok := plain["action_card"]; ok && actionCard == nil {
+				var card mcpagent.ActionCard
+				if err := json.Unmarshal(ac, &card); err == nil {
+					actionCard = &card
 				}
+			}
+			if sq, ok := plain["suggested_questions"]; ok && len(suggestedQuestions) == 0 {
+				_ = json.Unmarshal(sq, &suggestedQuestions)
 			}
 		}
 		out.Messages = append(out.Messages, ChatMessageOut{
@@ -223,6 +234,7 @@ func (s *Server) GetConversation(c echo.Context) error {
 			Files:              files,
 			SuggestedQuestions: suggestedQuestions,
 			DebugArtifacts:     m.DebugArtifacts,
+			ActionCard:         actionCard,
 		})
 	}
 	return c.JSON(http.StatusOK, out)

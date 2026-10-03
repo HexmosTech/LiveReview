@@ -27,6 +27,12 @@ export interface ConversationMessage {
   files?: ChatFile[];
   suggested_questions?: SuggestedQuestionCategory[];
   debug_artifacts?: unknown;
+  action_card?: {
+    title: string;
+    description: string;
+    button_text: string;
+    action_url: string;
+  };
 }
 
 export interface ConversationDetail {

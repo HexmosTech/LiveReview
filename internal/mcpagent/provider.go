@@ -3,14 +3,11 @@ package mcpagent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/rs/zerolog/log"
 	"github.com/tmc/langchaingo/llms"
-	"google.golang.org/api/googleapi"
 )
 
 type Provider struct {
@@ -190,99 +187,51 @@ func (p *Provider) historyToMessages(history []HistoryEntry) []llms.MessageConte
 	return messages
 }
 
-type LLMErrorCategory string
-
-const (
-	ErrCategoryAuth     LLMErrorCategory = "auth_failed"
-	ErrCategoryOverload LLMErrorCategory = "overloaded"
-	ErrCategoryTimeout  LLMErrorCategory = "timeout"
-	ErrCategoryUnknown  LLMErrorCategory = "unknown"
-)
-
-// CategorizeLLMError maps raw SDK errors from Langchain or underlying clients
-// into our standard failure categories for consistent UI fallback rendering.
-func CategorizeLLMError(err error) LLMErrorCategory {
-	if err == nil {
-		return ErrCategoryUnknown
-	}
-
-	// 1. Langchain-Go normalized errors
-	var llmsErr *llms.Error
-	if errors.As(err, &llmsErr) {
-		if llmsErr.Code == llms.ErrCodeAuthentication || llmsErr.Code == llms.ErrCodeResourceNotFound {
-			return ErrCategoryAuth
-		}
-		if llmsErr.Code == llms.ErrCodeRateLimit {
-			return ErrCategoryOverload
-		}
-	}
-
-	// 2. Raw Google API errors (often leaked by langchaingo)
-	var gErr *googleapi.Error
-	if errors.As(err, &gErr) {
-		if gErr.Code == 401 || gErr.Code == 403 || gErr.Code == 404 {
-			return ErrCategoryAuth
-		}
-		if gErr.Code == 429 || gErr.Code == 500 || gErr.Code == 502 || gErr.Code == 503 || gErr.Code == 504 {
-			return ErrCategoryOverload
-		}
-	}
-
-	// 3. Generic HTTP status codes
-	var scErr interface{ StatusCode() int }
-	if errors.As(err, &scErr) {
-		code := scErr.StatusCode()
-		if code == 401 || code == 403 || code == 404 {
-			return ErrCategoryAuth
-		}
-		if code == 429 || code == 500 || code == 502 || code == 503 || code == 504 {
-			return ErrCategoryOverload
-		}
-	}
-
-	var hscErr interface{ HTTPStatusCode() int }
-	if errors.As(err, &hscErr) {
-		code := hscErr.HTTPStatusCode()
-		if code == 401 || code == 403 || code == 404 {
-			return ErrCategoryAuth
-		}
-		if code == 429 || code == 500 || code == 502 || code == 503 || code == 504 {
-			return ErrCategoryOverload
-		}
-	}
-
-	// 4. Fallback string matching
-	msg := strings.ToLower(err.Error())
-	if strings.Contains(msg, "context deadline") || strings.Contains(msg, "timeout") {
-		return ErrCategoryTimeout
-	}
-	if strings.Contains(msg, "rate limit") || strings.Contains(msg, "too many requests") ||
-		strings.Contains(msg, "status code: 429") || strings.Contains(msg, "status code: 50") ||
-		strings.Contains(msg, "service unavailable") || strings.Contains(msg, "bad gateway") ||
-		strings.Contains(msg, "high demand") {
-		return ErrCategoryOverload
-	}
-	if strings.Contains(msg, "deprecated") || strings.Contains(msg, "model not found") ||
-		strings.Contains(msg, "status code: 401") || strings.Contains(msg, "status code: 403") ||
-		strings.Contains(msg, "status code: 404") || strings.Contains(msg, "unauthorized") ||
-		strings.Contains(msg, "forbidden") {
-		return ErrCategoryAuth
-	}
-
-	return ErrCategoryUnknown
+// LLMErrorTemplate defines the UI representation of an LLM error,
+// including both the chat message text and the Action Card to render.
+type LLMErrorTemplate struct {
+	Message    string
+	ActionCard ActionCard
 }
 
-// GetLLMFallbackMessage returns a safe, beautiful UI response for the client
-// based on the categorized LLM error. Returns empty string for unknown errors.
-func GetLLMFallbackMessage(cat LLMErrorCategory) string {
-	switch cat {
-	case ErrCategoryAuth:
-		return "> **Action Required: AI Provider Issue**\n> \n> The AI Provider's API key is invalid or the model is missing. Please configure a valid provider in settings to continue.\n> \n> [btn:Configure AI Provider](/settings#ai)"
-	case ErrCategoryOverload:
-		return "> **AI Provider is Busy**\n> \n> The AI provider is currently experiencing high traffic. If you continue to see this issue, we suggest changing to a different model or provider."
-	case ErrCategoryTimeout:
-		return "> **Analysis Took Too Long**\n> \n> The AI took too long to generate your response and timed out. Try asking a narrower or more specific question."
-	default:
-		return ""
-	}
+// LLMErrorTemplates stores the fallback configurations for various LLM errors.
+// This allows the frontend to automatically render the correct box without
+// hardcoded display logic.
+var LLMErrorTemplates = map[aiconnectors.LLMErrorCategory]LLMErrorTemplate{
+	aiconnectors.ErrCategoryAuth: {
+		Message: "**Action Required: AI Provider Issue**\n\nThe AI Provider's API key is invalid or the model is missing. Please configure a valid provider in settings to continue.",
+		ActionCard: ActionCard{
+			Title:       "Configuration Required",
+			Description: "Please edit the current AI provider configuration to continue.",
+			ButtonText:  "Configure AI Provider",
+			ActionURL:   "/ai",
+		},
+	},
+	aiconnectors.ErrCategoryOverload: {
+		Message: "**AI Provider is Busy**\n\nThe selected model is currently experiencing high traffic. If you continue to see this issue, please edit your configuration to change to a different model or provider.",
+		ActionCard: ActionCard{
+			Title:       "High Traffic Detected",
+			Description: "Please select a different model in settings.",
+			ButtonText:  "Configure AI Provider",
+			ActionURL:   "/ai",
+		},
+	},
+	aiconnectors.ErrCategoryDeprecated: {
+		Message: "**Model No Longer Available**\n\nThe selected AI model has been deprecated or removed by the provider. Please update your AI provider configuration to use a different model.",
+		ActionCard: ActionCard{
+			Title:       "Model No Longer Available",
+			Description: "The selected model has been deprecated. Please update your AI provider configuration.",
+			ButtonText:  "Configure AI Provider",
+			ActionURL:   "/ai",
+		},
+	},
+	aiconnectors.ErrCategoryTimeout: {
+		Message: "**Analysis Took Too Long**\n\nThe AI took too long to generate your response and timed out. Try asking a narrower or more specific question.",
+		ActionCard: ActionCard{
+			Title:       "Timeout Error",
+			Description: "The request took too long to complete.",
+			ButtonText:  "Try Again",
+			ActionURL:   "/chat",
+		},
+	},
 }

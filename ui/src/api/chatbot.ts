@@ -142,6 +142,13 @@ export interface ChatResponse {
   debug_artifacts?: unknown;
   sessionId?: string;
   conversationId: number;
+  /** 'ai_auth' | 'ai_busy' — set only when the backend hit a provider error. */
+  action_card?: {
+    title: string;
+    description: string;
+    button_text: string;
+    action_url: string;
+  };
 }
 
 // The backend now owns conversation history: it loads prior turns by

@@ -117,6 +117,12 @@ interface ChatEntry {
   files?: ChatFile[];
   suggestedQuestions?: SuggestedQuestionCategory[];
   debugArtifacts?: DebugArtifacts | null;
+  actionCard?: {
+    title: string;
+    description: string;
+    button_text: string;
+    action_url: string;
+  };
 }
 
 function formatRowCount(rows?: number): string {
@@ -891,6 +897,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         files: m.files && m.files.length > 0 ? m.files : undefined,
         suggestedQuestions: m.suggested_questions,
         debugArtifacts: m.debug_artifacts as DebugArtifacts | undefined,
+        actionCard: m.action_card,
       })),
     );
   }, [conversationDetail]);
@@ -933,6 +940,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
       }
 
       const result = await sendChatMessage(text, activeConversationId);
+      console.log("LIVE API RESPONSE:", result);
 
       const assistantEntry: ChatEntry = {
         id: generateId(),
@@ -942,6 +950,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         files: result.files && result.files.length > 0 ? result.files : undefined,
         suggestedQuestions: result.suggested_questions,
         debugArtifacts: result.debug_artifacts as DebugArtifacts | undefined,
+        actionCard: result.action_card,
       };
       setMessages((prev) => [...prev, assistantEntry]);
       queryClient.invalidateQueries({ queryKey: CONVERSATIONS_QUERY_KEY });
@@ -1082,8 +1091,8 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
   const debugModalMsg = debugModalMsgId ? messages.find((m) => m.id === debugModalMsgId) : undefined;
 
   return (
-    <div className="h-full flex flex-col bg-slate-900 relative">
-      <div className="flex-none px-4 py-2 relative z-10">
+    <div className="h-full flex flex-col bg-slate-900 relative overflow-y-auto overflow-x-hidden" id="chat-messages-container">
+      <div className="flex-none px-4 py-2 sticky top-0 z-20 bg-slate-900/95 backdrop-blur-sm border-b border-slate-800/60">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center">
             <LiviLogo className="mr-2" />
@@ -1142,7 +1151,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-6">
+      <div className="flex-1 px-4 py-6">
         <div className="max-w-4xl mx-auto w-full min-h-full flex flex-col relative">
           {isSuperAdmin && !dismissedProdUrlWarning && (
             <ProductionUrlWarning floating onClose={() => setDismissedProdUrlWarning(true)} />
@@ -1472,34 +1481,25 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                           ))}
                         </div>
                       )}
-                      {msg.text && (() => {
-                        const isAiError = msg.text.includes('Action Required: AI Provider Issue');
-                        const displayText = isAiError && msg.text.includes('Please configure a valid provider to continue:')
-                          ? msg.text.split('Please configure a valid provider to continue:')[0].trim()
-                          : msg.text;
-                        
-                        return (
-                          <>
-                            <div className={`${(msg.charts && msg.charts.length > 0) || (msg.files && msg.files.length > 0) ? 'mt-6' : ''} text-base leading-snug whitespace-pre-wrap break-words text-slate-200 [&>*:first-child]:mt-0`}>
-                              {formatText(displayText)}
-                            </div>
-                            {isAiError && (
-                              <div className="mt-4 flex items-center justify-between gap-3 p-3 sm:px-4 bg-slate-800/30 border border-slate-700 rounded-lg w-full">
-                                <div>
-                                  <h4 className="text-sm font-semibold text-slate-200">Configuration Required</h4>
-                                  <p className="text-xs text-slate-400 mt-0.5">Please edit the current AI provider model to continue.</p>
-                                </div>
-                                <button
-                                  onClick={() => navigate('/ai')}
-                                  className="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer whitespace-nowrap flex-shrink-0"
-                                >
-                                  Configure AI Provider
-                                </button>
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
+                      {msg.text && (
+                        <div className={`${(msg.charts && msg.charts.length > 0) || (msg.files && msg.files.length > 0) ? 'mt-6' : ''} text-base leading-snug whitespace-pre-wrap break-words text-slate-200 [&>*:first-child]:mt-0`}>
+                          {formatText(msg.text)}
+                        </div>
+                      )}
+                      {msg.actionCard && (
+                        <div className="mt-4 flex items-center justify-between gap-3 p-3 sm:px-4 bg-slate-800/30 border border-slate-700 rounded-lg w-full">
+                          <div>
+                            <h4 className="text-sm font-semibold text-slate-200">{msg.actionCard.title}</h4>
+                            <p className="text-xs text-slate-400 mt-0.5">{msg.actionCard.description}</p>
+                          </div>
+                          <button
+                            onClick={() => navigate(msg.actionCard!.action_url)}
+                            className="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer whitespace-nowrap flex-shrink-0"
+                          >
+                            {msg.actionCard.button_text}
+                          </button>
+                        </div>
+                      )}
                       {msg.suggestedQuestions && msg.suggestedQuestions.length > 0 && (
                         <div className="mt-4 space-y-4">
                           {msg.suggestedQuestions.map((cat: SuggestedQuestionCategory, catIdx: number) => (
@@ -1546,7 +1546,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         </div>
       </div>
 
-      <div className="flex-none px-4 pb-4">
+      <div className="flex-none px-4 py-4 sticky bottom-0 z-20 bg-slate-900 border-t border-slate-800/60">
         <div className="max-w-4xl mx-auto">
           <div className="relative flex items-center">
             <input

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/chatstats"
 	"github.com/livereview/internal/livisql"
 	"github.com/livereview/internal/logging"
@@ -1569,12 +1570,27 @@ type interpretEnvelope struct {
 func parseInterpretations(text string) ([]Interpretation, bool) {
 	body := strings.TrimSpace(vlrender.ExtractJSONBlock(text))
 	if body == "" {
+		log.Warn().Msg("parseInterpretations: ExtractJSONBlock returned empty string")
 		return nil, false
 	}
 
 	var env interpretEnvelope
-	if err := json.Unmarshal([]byte(body), &env); err == nil && len(env.Interpretations) > 0 {
-		return normalizeInterpretations(env.Interpretations)
+	if err := json.Unmarshal([]byte(body), &env); err == nil {
+		log.Debug().Int("interpretations_count", len(env.Interpretations)).Msg("parseInterpretations: envelope parsed")
+		if len(env.Interpretations) > 0 {
+			// Log first entry for debugging.
+			first := env.Interpretations[0]
+			log.Debug().
+				Str("name", first.Name).
+				Str("chart_type", first.ChartType).
+				Int("sql_len", len(strings.TrimSpace(first.SQL))).
+				Msg("parseInterpretations: first interpretation")
+			return normalizeInterpretations(env.Interpretations)
+		}
+		log.Warn().Str("body_prefix", truncateContent(body, 300)).Msg("parseInterpretations: envelope parsed but interpretations array is empty")
+		return nil, false
+	} else {
+		log.Warn().Err(err).Str("body_prefix", truncateContent(body, 300)).Msg("parseInterpretations: envelope unmarshal failed")
 	}
 
 	// Bare array fallback.
@@ -1590,8 +1606,9 @@ func parseInterpretations(text string) ([]Interpretation, bool) {
 
 func normalizeInterpretations(in []Interpretation) ([]Interpretation, bool) {
 	out := make([]Interpretation, 0, len(in))
-	for _, interp := range in {
+	for i, interp := range in {
 		if strings.TrimSpace(interp.SQL) == "" {
+			log.Warn().Int("index", i).Str("name", interp.Name).Str("chart_type", interp.ChartType).Msg("normalizeInterpretations: skipping interpretation with empty sql")
 			continue
 		}
 		if strings.TrimSpace(interp.ChartType) == "" {
@@ -1604,6 +1621,7 @@ func normalizeInterpretations(in []Interpretation) ([]Interpretation, bool) {
 		if strings.TrimSpace(interp.Title) == "" {
 			interp.Title = interp.ChartType + " chart"
 		}
+		log.Debug().Int("index", i).Str("name", interp.Name).Str("chart_type", interp.ChartType).Int("sql_len", len(interp.SQL)).Msg("normalizeInterpretations: accepted")
 		out = append(out, interp)
 		if len(out) >= maxInterpretations {
 			break
@@ -1651,21 +1669,25 @@ func (a *Agent) runMultiInterpret(
 	raw, err := a.completeOnce(ctx, clog, 2, "interpret", "multi", 1, system, userMsg)
 	if err != nil {
 		log.Error().Err(err).Msg("multi-interpret LLM call failed")
-		cat := CategorizeLLMError(err)
-		msg := GetLLMFallbackMessage(cat)
+		cat := aiconnectors.CategorizeLLMError(err)
+		msg := ""
+		if tpl, ok := LLMErrorTemplates[cat]; ok {
+			msg = tpl.Message
+		}
 		if msg != "" {
 			clog.FinalResponse(msg + " (stopped after " + string(cat) + ")")
 			return msg, nil, debug, nil
 		}
 
-		return "I had trouble understanding that question. Please try rephrasing.", nil, debug, nil //nolint:nilerr
+		log.Warn().Err(err).Str("category", string(cat)).Msg("multi-interpret LLM call failed; no known fallback")
+		return "I wasn't able to generate an answer this time. Please try rephrasing your question.", nil, debug, nil //nolint:nilerr
 	}
 	debug.LLMRawResponse = raw
 
 	interps, ok := parseInterpretations(raw)
 	if !ok {
 		log.Warn().Str("raw_preview", truncateContent(raw, 200)).Msg("could not parse interpretations from LLM response")
-		return "I could not produce a valid analysis plan. Please try rephrasing.", nil, debug, nil
+		return "I wasn't able to generate an answer this time. Please try rephrasing your question.", nil, debug, nil
 	}
 	debug.Interpretations = interps
 
