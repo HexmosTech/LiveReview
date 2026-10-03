@@ -3,17 +3,16 @@ package mcpagent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/docindex"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/vlrender"
 	"github.com/rs/zerolog/log"
 	"github.com/tmc/langchaingo/llms"
-	"google.golang.org/api/googleapi"
 )
 
 const (
@@ -153,6 +152,8 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 		}
 		log.Warn().Str("failure_reason", schemaIndexFailureReason()).Msg("schema index not ready; refusing the turn before any LLM call")
 		clog.FinalResponse(msg)
+		history = append(history, HistoryEntry{"role": "user", "content": userText})
+		history = append(history, HistoryEntry{"role": "assistant", "content": msg, "text": msg})
 		return msg, history, nil, nil, nil
 	}
 
@@ -163,7 +164,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 		res, err := a.classify(ctx, history, userText, clog)
 		shape := res.Shape
 		if err != nil {
-			log.Warn().Err(err).Msg("call #0 classify failed; degrading to product_guidance for this turn")
+			log.Warn().Err(err).Str("category", string(aiconnectors.CategorizeLLMError(err))).Msg("call #0 classify failed; degrading to product_guidance for this turn")
 			shape = shapeProductGuidance
 		}
 
@@ -179,7 +180,25 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			entry := HistoryEntry{"role": "assistant", "content": text, "text": text}
 			if text == NoDataAnalyticsResponseText {
 				entry["suggested_questions"] = DefaultNoDataSuggestedQuestions
+			} else {
+			if tpl, ok := MatchErrorTemplateByText(text); ok {
+				entry["suggested_questions"] = DefaultAIErrorSuggestedQuestions
+				card := tpl.ActionCard // copy
+				entry["action_card"] = &card
+				entry["debug_artifacts"] = debugArt
+			} else if strings.Contains(text, ModelOutputErrorText) {
+				// Also check for format errors, which are hallucinations, not provider errors
+				entry["suggested_questions"] = DefaultAIErrorSuggestedQuestions
+				entry["action_card"] = &ActionCard{
+					Title:       "Formatting Error",
+					Description: "The model failed to format the response correctly.",
+					ButtonText:  "Try Again",
+					ActionURL:   "/chat",
+				}
+				entry["debug_artifacts"] = debugArt
 			}
+			} // close else block
+
 			history = append(history, entry)
 			return text, history, artifacts, debugArt, nil
 		}
@@ -240,7 +259,8 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 		}
 		clog.BranchSelected(string(shape), len(systemPrompt), len(tools))
 
-		return a.runStepLoop(ctx, history, userText, systemPrompt, tools, callNumber, jsonMode, planRetried, "", clog)
+		text, history, artifacts, debugArt, err := a.runStepLoop(ctx, history, userText, systemPrompt, tools, callNumber, jsonMode, planRetried, "", clog)
+		return text, history, artifacts, debugArt, err
 	}
 
 	// Non-analytics path (plain tool-only agent).
@@ -295,27 +315,40 @@ func (a *Agent) runStepLoop(
 		if jsonMode {
 			completeOpts = append(completeOpts, llms.WithJSONMode())
 		}
+
 		response, usage, err := a.provider.Complete(ctx, history, tools, completeOpts...)
 		aiElapsed := time.Since(aiStart)
 		if err != nil {
-			log.Error().Err(err).Int("step", step).Msg("LLM completion failed")
+			errCategory := aiconnectors.CategorizeLLMError(err)
+			log.Error().Err(err).Int("step", step).Str("category", string(errCategory)).Msg("LLM completion failed")
 			clog.AIError(callNumber, step, aiElapsed, err)
 
-			if isProviderAuthOrModelError(err) {
-				msg := fmt.Sprintf("> ⚠️ **Action Required: AI Provider Issue**\n> \n> The existing **%s**'s key seems expired/revoked or the model is no longer available.\n\nPlease configure a valid provider to continue: [btn:Configure AI Provider](/settings#ai)", a.provider.Describe())
-				clog.FinalResponse(msg + " (stopped after provider auth/model error)")
-				
-				history = append(history, HistoryEntry{
-					"role":                "assistant",
-					"content":             msg,
-					"text":                msg,
-					"suggested_questions": DefaultAIErrorSuggestedQuestions,
-				})
-				
-				return msg, history, nil, nil, nil
+			msg := ""
+			var card *ActionCard
+			if tpl, ok := LookupErrorTemplate(errCategory); ok {
+				msg = tpl.Message
+				card = &tpl.ActionCard
+			}
+			if msg == "" {
+				return "", history, nil, nil, fmt.Errorf("llm completion step %d: %w", step, err)
 			}
 
-			return "", history, nil, nil, fmt.Errorf("llm completion step %d: %w", step, err)
+			clog.FinalResponse(msg + " (stopped after " + string(errCategory) + ")")
+			entry := HistoryEntry{
+				"role":                "assistant",
+				"content":             msg,
+				"text":                msg,
+				"suggested_questions": DefaultAIErrorSuggestedQuestions,
+			}
+			var debugArt *DebugArtifacts
+			if card != nil {
+				entry["action_card"] = card
+				debugArt = &DebugArtifacts{RawLLMError: err.Error()}
+				entry["debug_artifacts"] = debugArt
+			}
+
+			history = append(history, entry)
+			return msg, history, nil, debugArt, nil
 		}
 		log.Debug().Int("step", step).Int("response_len", len(response)).Msg("LLM call succeeded")
 		clog.AIResponse(callNumber, step, aiElapsed, usage.InputTokens, usage.OutputTokens, response)
@@ -593,61 +626,10 @@ func (a *Agent) interpretUserMessage(clog *logging.ChatTurnLogger, userText stri
 		return "", err
 	}
 	msg := fmt.Sprintf(
-		"User query: %s\nOrg context: org_id = %d (%s)\n\n--- dbctx schema context ---\n%s\n\n--- available chart types ---\n%s",
+		"User query: %s\nOrg context: org_id = %d (%s)\n\n--- dbctx schema context ---\n%s\n\n--- available chart types ---\n%s\n\nNow, generate the JSON object containing the interpretations as requested. Do NOT output any markdown, reasoning, or text outside of the JSON object.",
 		userText, orgID, orgName, tableText, a.chartTypes,
 	)
 	return msg, nil
-}
-
-// isProviderAuthOrModelError reports whether an LLM completion error is caused
-// by a revoked/expired AI provider key or a deprecated/unavailable model.
-func isProviderAuthOrModelError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	// 1. Check langchaingo standardized errors
-	var llmsErr *llms.Error
-	if errors.As(err, &llmsErr) {
-		if llmsErr.Code == llms.ErrCodeAuthentication || llmsErr.Code == llms.ErrCodeResourceNotFound {
-			return true
-		}
-	}
-
-	// 2. Check Google API typed errors
-	var gErr *googleapi.Error
-	if errors.As(err, &gErr) {
-		if gErr.Code == 401 || gErr.Code == 403 || gErr.Code == 404 {
-			return true
-		}
-	}
-
-	// 3. Check generic interface methods for HTTP status codes (used by OpenAI client wrapper, etc.)
-	var scErr interface{ StatusCode() int }
-	if errors.As(err, &scErr) {
-		code := scErr.StatusCode()
-		if code == 401 || code == 403 || code == 404 {
-			return true
-		}
-	}
-
-	var hscErr interface{ HTTPStatusCode() int }
-	if errors.As(err, &hscErr) {
-		code := hscErr.HTTPStatusCode()
-		if code == 401 || code == 403 || code == 404 {
-			return true
-		}
-	}
-
-	// 4. Fallback for non-HTTP API responses indicating model unavailability
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "deprecated") || 
-		strings.Contains(msg, "model not found") ||
-		strings.Contains(msg, "status code: 401") ||
-		strings.Contains(msg, "status code: 403") ||
-		strings.Contains(msg, "status code: 404") ||
-		strings.Contains(msg, "unauthorized") ||
-		strings.Contains(msg, "forbidden")
 }
 
 // isAuthError reports whether a tool result signals an expired/invalid

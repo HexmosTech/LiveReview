@@ -117,6 +117,7 @@ type DebugArtifacts struct {
 	FullRequest     string              `json:"full_request"` // system_prompt + schema_context sent to LLM
 	Interpretations []Interpretation    `json:"interpretations"`
 	Results         []DebugResultEntry  `json:"results"`
+	RawLLMError     string              `json:"raw_llm_error,omitempty"`
 }
 
 // DebugResultEntry is one interpretation's outcome for the debug view.
@@ -133,4 +134,13 @@ type DebugResultEntry struct {
 	VegaSpec   string      `json:"vega_spec,omitempty"`  // rendered chart spec JSON
 	RetryCount int         `json:"retry_count,omitempty"`
 	Retries    []RetryInfo `json:"retries,omitempty"`
+}
+
+// ActionCard represents an actionable message for the UI to render as a card
+// instead of plain text, like when a configuration change is required.
+type ActionCard struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	ButtonText  string `json:"button_text"`
+	ActionURL   string `json:"action_url"`
 }

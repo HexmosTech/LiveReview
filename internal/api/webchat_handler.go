@@ -52,13 +52,16 @@ type WebChatChart struct {
 }
 
 type WebChatResponse struct {
-	Response           string                            `json:"response"`
-	Charts             []WebChatChart                    `json:"charts,omitempty"`
-	Files              []WebChatFile                     `json:"files,omitempty"`
+	Response           string                               `json:"response"`
+	Charts             []WebChatChart                       `json:"charts,omitempty"`
+	Files              []WebChatFile                        `json:"files,omitempty"`
 	SuggestedQuestions []mcpagent.SuggestedQuestionCategory `json:"suggested_questions,omitempty"`
-	DebugArtifacts     json.RawMessage                   `json:"debug_artifacts,omitempty"`
-	SessionID          string                            `json:"sessionId,omitempty"`
-	ConversationID     int64                             `json:"conversationId"`
+	DebugArtifacts     json.RawMessage                      `json:"debug_artifacts,omitempty"`
+	SessionID          string                               `json:"sessionId,omitempty"`
+	ConversationID     int64                                `json:"conversationId"`
+	// ActionCard provides structured data for the frontend to render an action card
+	// (e.g. "Configuration Required") without hardcoding string matching in the UI.
+	ActionCard *mcpagent.ActionCard `json:"action_card,omitempty"`
 }
 
 // analyticsRoleFor maps permissions onto the SQL catalog's roles. Super admins
@@ -197,9 +200,14 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	mcpSession, err := mcpagent.ConnectMCP(ctx, mcpURL, mcpHeaders)
 	if err != nil {
 		log.Error().Err(err).Str("url", mcpURL).Msg("WebChat: failed to connect to MCP server")
-		errText := fmt.Sprintf("Internal AI Service Error: Unable to connect to MCP tools (%s).", err.Error())
-		persistReply(errText, nil, nil, nil, "", nil)
-		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": errText})
+		userFriendlyErr := "> **AI Tools Unavailable**\n> \n> I am having trouble connecting to my internal data tools right now. Please try your request again in a few moments."
+		persistReply(userFriendlyErr, nil, nil, nil, "", nil)
+		resp := WebChatResponse{
+			Response:       userFriendlyErr,
+			SessionID:      sessionID,
+			ConversationID: convID,
+		}
+		return c.JSON(http.StatusBadGateway, resp)
 	}
 
 	if pc.CurrentOrg != nil && pc.CurrentOrg.Name != "" {
@@ -221,9 +229,14 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	responseText, updatedHistory, artifacts, debugArt, err := agent.RunTurnWithArtifacts(ctx, history, req.Message, sessionID, "livi")
 	if err != nil {
 		log.Error().Err(err).Msg("WebChat: agent loop failed")
-		errText := fmt.Sprintf("Agent loop failed: %s", err.Error())
-		persistReply(errText, nil, nil, nil, "", nil)
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": errText})
+		userFriendlyErr := "> **AI Processing Error**\n> \n> I encountered an unexpected error while processing your request. Please try asking again."
+		persistReply(userFriendlyErr, nil, nil, nil, "", nil)
+		resp := WebChatResponse{
+			Response:       userFriendlyErr,
+			SessionID:      sessionID,
+			ConversationID: convID,
+		}
+		return c.JSON(http.StatusOK, resp)
 	}
 	// Whatever RunTurnWithArtifacts appended on top of the history we fed it
 	// (possibly including a freshly swapped-in system prompt entry - see
@@ -240,6 +253,26 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	}
 
 	for _, entry := range turnEntries {
+		if rawCard, ok := entry["action_card"]; ok && rawCard != nil && resp.ActionCard == nil {
+			log.Info().Interface("rawCard", rawCard).Msg("WebChat: found action_card in turnEntries")
+			if b, err := json.Marshal(rawCard); err == nil {
+				var ac mcpagent.ActionCard
+				if err := json.Unmarshal(b, &ac); err == nil {
+					acCopy := ac
+					resp.ActionCard = &acCopy
+					log.Info().Interface("actionCard", acCopy).Msg("WebChat: successfully unmarshaled action_card")
+				} else {
+					log.Error().Err(err).Msg("WebChat: failed to unmarshal action_card")
+				}
+			} else {
+				log.Error().Err(err).Msg("WebChat: failed to marshal rawCard")
+			}
+		}
+		if rawDebug, ok := entry["debug_artifacts"]; ok && rawDebug != nil && resp.DebugArtifacts == nil {
+			if b, err := json.Marshal(rawDebug); err == nil {
+				resp.DebugArtifacts = b
+			}
+		}
 		if sq, ok := entry["suggested_questions"].([]mcpagent.SuggestedQuestionCategory); ok && len(sq) > 0 {
 			resp.SuggestedQuestions = sq
 			break
@@ -252,6 +285,10 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 				}
 			}
 		}
+	}
+	// If we have an action_card but no suggested questions were attached, add defaults.
+	if resp.ActionCard != nil && len(resp.SuggestedQuestions) == 0 {
+		resp.SuggestedQuestions = mcpagent.DefaultAIErrorSuggestedQuestions
 	}
 
 	if vlrender.HasVegaLiteSpec(responseText) {
@@ -324,6 +361,7 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		resp.Files = append(resp.Files, chatFileFromArtifact(art, fileIDs[i]))
 	}
 
+	// log.Info().Interface("finalResp", resp).Msg("WebChat: returning response to client")
 	return c.JSON(http.StatusOK, resp)
 }
 
@@ -356,12 +394,17 @@ func titleFromFirstMessage(message string) string {
 // (agent.go:148-166), so replaying persisted history without it is safe, and
 // simpler than tracking which prompt variant was live on a given turn.
 func persistAssistantMessage(ctx context.Context, chatStore *storagechat.Store, convID int64, userText, assistantText string, turnEntries []mcpagent.HistoryEntry, charts []WebChatChart, artifacts []mcpagent.Artifact, rawLLMOutput string, debugArtifacts json.RawMessage) ([]int64, error) {
-	assistantEntries := []mcpagent.HistoryEntry{{"role": "assistant", "content": assistantText}}
+	assistantEntries := turnEntries
+	hasUser := false
 	for i, e := range turnEntries {
 		if role, _ := e["role"].(string); role == "user" {
 			assistantEntries = turnEntries[i+1:]
+			hasUser = true
 			break
 		}
+	}
+	if !hasUser && len(assistantEntries) == 0 {
+		assistantEntries = []mcpagent.HistoryEntry{{"role": "assistant", "content": assistantText}}
 	}
 
 	chartInputs := make([]storagechat.ChartInput, 0, len(charts))

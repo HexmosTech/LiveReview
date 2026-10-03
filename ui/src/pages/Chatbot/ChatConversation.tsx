@@ -68,9 +68,7 @@ const ContextDetails: React.FC<{ context: ChartContext }> = ({ context }) => (
 // Unified logo wrapper to ensure the 16px visual right gap and 8px visual left gap
 // stay mathematically synchronized across the header, chat messages, and loading states.
 const LiviLogo: React.FC<{ className?: string }> = ({ className = '' }) => (
-  <div className={`w-12 flex-shrink-0 flex justify-center ${className}`}>
-    <img src="/assets/lrbot/lrbot.png" alt="Bot" width={32} height={32} decoding="async" className="w-8 h-8 rounded-full" />
-  </div>
+  <img src="/assets/lrbot/lrbot.png" alt="Bot" width={32} height={32} decoding="async" className={`w-8 h-8 rounded-full flex-shrink-0 ${className}`} />
 );
 
 // Debug artifacts (SQL, CSV, Vega spec, schema context, system prompt, raw
@@ -107,6 +105,7 @@ interface DebugArtifacts {
       repaired_sql?: string;
     }>;
   }>;
+  raw_llm_error?: string;
 }
 
 interface ChatEntry {
@@ -117,6 +116,12 @@ interface ChatEntry {
   files?: ChatFile[];
   suggestedQuestions?: SuggestedQuestionCategory[];
   debugArtifacts?: DebugArtifacts | null;
+  actionCard?: {
+    title: string;
+    description: string;
+    button_text: string;
+    action_url: string;
+  };
 }
 
 function formatRowCount(rows?: number): string {
@@ -217,22 +222,29 @@ function formatText(rawText: string): React.ReactNode[] {
       }
       i = currI - 1;
       
-      const isError = blockquoteLines.length > 0 && blockquoteLines[0].includes('Action Required:');
+      const errorPhrases = [
+        'Action Required:',
+        'AI Provider is Busy',
+        'Model No Longer Available',
+        'Analysis Took Too Long',
+        'AI Tools Unavailable'
+      ];
+      const isError = blockquoteLines.length > 0 && errorPhrases.some(phrase => blockquoteLines[0].includes(phrase));
       
       if (isError) {
         parts.push(
-          <div key={`q-${lineIdx++}`} className="flex flex-col mb-4 mt-1 rounded-md overflow-hidden">
-            <div className="border-l-2 border-red-500 bg-red-500/10 text-slate-200 pl-3 pr-3 py-2 font-bold">
+          <blockquote key={`q-${lineIdx++}`} className="border-l-2 border-indigo-500 text-slate-300 pl-3 pr-3 pt-0 pb-2 rounded-r-md mb-2 mt-1">
+            <div className="text-indigo-400 font-bold mb-1">
               {formatLine(blockquoteLines[0])}
             </div>
-            <div className="border-l-2 border-indigo-400 bg-slate-800/40 text-slate-300 pl-3 pr-3 py-2 italic">
+            <div className="italic">
               {blockquoteLines.slice(1).map((bLine, bIdx) => (
                 <div key={bIdx} className={bLine.trim() === '' ? 'h-2' : 'mb-1 leading-relaxed [&>*:first-child]:mt-0'}>
                   {formatLine(bLine)}
                 </div>
               ))}
             </div>
-          </div>
+          </blockquote>
         );
       } else {
         parts.push(
@@ -891,6 +903,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         files: m.files && m.files.length > 0 ? m.files : undefined,
         suggestedQuestions: m.suggested_questions,
         debugArtifacts: m.debug_artifacts as DebugArtifacts | undefined,
+        actionCard: m.action_card,
       })),
     );
   }, [conversationDetail]);
@@ -942,6 +955,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         files: result.files && result.files.length > 0 ? result.files : undefined,
         suggestedQuestions: result.suggested_questions,
         debugArtifacts: result.debug_artifacts as DebugArtifacts | undefined,
+        actionCard: result.action_card,
       };
       setMessages((prev) => [...prev, assistantEntry]);
       queryClient.invalidateQueries({ queryKey: CONVERSATIONS_QUERY_KEY });
@@ -1082,8 +1096,11 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
   const debugModalMsg = debugModalMsgId ? messages.find((m) => m.id === debugModalMsgId) : undefined;
 
   return (
-    <div className="h-full flex flex-col bg-slate-900 relative">
-      <div className="flex-none px-4 py-2 relative z-10">
+    <div className="h-full flex flex-col bg-slate-900 overflow-hidden">
+      {/* Header: pl-4 pr-6 instead of px-4 so max-w-4xl mx-auto centers identically
+          to the messages section which has scrollbar-gutter:stable (8px) on the right.
+          Math: header right=24px, messages right=16px(px-4)+8px(gutter)=24px → same. */}
+      <div className="flex-none pl-4 pr-6 py-2 relative z-10">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center">
             <LiviLogo className="mr-2" />
@@ -1142,7 +1159,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-6">
+      <div className="flex-1 overflow-y-auto px-4 py-6" style={{scrollbarGutter: 'stable'}}>
         <div className="max-w-4xl mx-auto w-full min-h-full flex flex-col relative">
           {isSuperAdmin && !dismissedProdUrlWarning && (
             <ProductionUrlWarning floating onClose={() => setDismissedProdUrlWarning(true)} />
@@ -1211,7 +1228,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                   </div>
                 ) : (
                   <div key={msg.id} className="flex items-end">
-                    <LiviLogo className="mb-0.5 mr-2" />
+                    <LiviLogo className="mb-0.5 mr-4" />
                     <div className="min-w-0 flex-1">
                       {msg.charts && msg.charts.length > 0 && (
                         <div className="space-y-6">
@@ -1400,7 +1417,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                               )}
                               {(chart.query || chart.time_range || chart.granularity || chart.context) && (
                                 <details className="group mt-1">
-                                  <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
+                                  <summary className="w-fit text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
                                     Data details
                                   </summary>
                                   <div className="mt-1.5 space-y-1 text-xs text-slate-400 italic">
@@ -1451,7 +1468,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                               )}
                               {(file.query || file.time_range || file.granularity || file.context) && (
                                 <details className="group mt-1">
-                                  <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
+                                  <summary className="w-fit text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
                                     Data details
                                   </summary>
                                   <div className="mt-1.5 space-y-1 text-xs text-slate-400 italic">
@@ -1472,34 +1489,42 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                           ))}
                         </div>
                       )}
-                      {msg.text && (() => {
-                        const isAiError = msg.text.includes('Action Required: AI Provider Issue');
-                        const displayText = isAiError && msg.text.includes('Please configure a valid provider to continue:')
-                          ? msg.text.split('Please configure a valid provider to continue:')[0].trim()
-                          : msg.text;
-                        
-                        return (
-                          <>
-                            <div className={`${(msg.charts && msg.charts.length > 0) || (msg.files && msg.files.length > 0) ? 'mt-6' : ''} text-base leading-snug whitespace-pre-wrap break-words text-slate-200 [&>*:first-child]:mt-0`}>
-                              {formatText(displayText)}
+                      {msg.text && (
+                        <div className={`${(msg.charts && msg.charts.length > 0) || (msg.files && msg.files.length > 0) ? 'mt-6' : ''} text-base leading-snug whitespace-pre-wrap break-words text-slate-200 [&>*:first-child]:mt-0`}>
+                          {formatText(msg.text)}
+                        </div>
+                      )}
+                      {msg.actionCard && (
+                        <div className="mt-4 flex flex-col gap-2 w-full">
+                          <div className="flex items-center justify-between gap-3 p-3 sm:px-4 bg-slate-800/30 border border-slate-700 rounded-lg w-full">
+                            <div>
+                              <h4 className="text-sm font-semibold text-slate-200">{msg.actionCard.title}</h4>
+                              <p className="text-xs text-slate-400 mt-0.5">{msg.actionCard.description}</p>
                             </div>
-                            {isAiError && (
-                              <div className="mt-4 flex items-center justify-between gap-3 p-3 sm:px-4 bg-slate-800/30 border border-slate-700 rounded-lg w-full">
-                                <div>
-                                  <h4 className="text-sm font-semibold text-slate-200">Configuration Required</h4>
-                                  <p className="text-xs text-slate-400 mt-0.5">Please edit the current AI provider model to continue.</p>
-                                </div>
-                                <button
-                                  onClick={() => navigate('/ai')}
-                                  className="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer whitespace-nowrap flex-shrink-0"
-                                >
-                                  Configure AI Provider
-                                </button>
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
+                            <button
+                              onClick={() => {
+                                const url = msg.actionCard?.action_url;
+                                if (url && url.startsWith('/')) {
+                                  navigate(url);
+                                }
+                              }}
+                              className="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer whitespace-nowrap flex-shrink-0"
+                            >
+                              {msg.actionCard.button_text}
+                            </button>
+                          </div>
+                          {msg.debugArtifacts?.raw_llm_error && (
+                            <details className="group px-1">
+                              <summary className="w-fit text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
+                                Debug logs
+                              </summary>
+                              <pre className="mt-1.5 p-3 rounded-lg bg-slate-950/50 border border-slate-800/80 text-[11px] font-mono text-rose-400/80 whitespace-pre-wrap break-words">
+                                {msg.debugArtifacts.raw_llm_error}
+                              </pre>
+                            </details>
+                          )}
+                        </div>
+                      )}
                       {msg.suggestedQuestions && msg.suggestedQuestions.length > 0 && (
                         <div className="mt-4 space-y-4">
                           {msg.suggestedQuestions.map((cat: SuggestedQuestionCategory, catIdx: number) => (
@@ -1536,7 +1561,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
 
           {isLoading && (
             <div className="flex items-end mt-4">
-              <LiviLogo className="mb-0.5 mr-2" />
+              <LiviLogo className="mb-0.5 mr-4" />
               <div className="min-w-0 flex-1">
                 <ThinkingIndicator />
               </div>
@@ -1546,7 +1571,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         </div>
       </div>
 
-      <div className="flex-none px-4 pb-4">
+      <div className="flex-none pl-4 pr-6 pb-4">
         <div className="max-w-4xl mx-auto">
           <div className="relative flex items-center">
             <input

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import { ConversationSidebar } from './ConversationSidebar';
 import { useChatSidebarReservedWidth, useChatSidebarResizing } from '../../store/chatSidebar';
@@ -15,6 +15,16 @@ import { useChatSidebarReservedWidth, useChatSidebarResizing } from '../../store
 export const ChatLayout: React.FC = () => {
   const reservedWidth = useChatSidebarReservedWidth();
   const resizing = useChatSidebarResizing();
+
+  useEffect(() => {
+    // Disable body scrolling on the chat layout to prevent a double scrollbar
+    // caused by subpixel layout overflows or banners pushing the layout down.
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, []);
 
   return (
     <div className="h-[calc(100vh-4rem)] bg-slate-900 relative">

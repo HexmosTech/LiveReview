@@ -91,13 +91,7 @@ function countWords(text) {
 
 function extractPlainText(html) {
   const raw = html || '';
-  if (typeof document === 'undefined') {
-    return raw.replace(/<[^>]+>/g, ' ');
-  }
-
-  const container = document.createElement('div');
-  container.innerHTML = raw;
-  return container.textContent || '';
+  return raw.replace(/<[^>]+>/g, ' ');
 }
 
 function estimateReadTimeSeconds(text, title) {
