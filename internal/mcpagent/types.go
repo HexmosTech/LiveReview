@@ -134,3 +134,12 @@ type DebugResultEntry struct {
 	RetryCount int         `json:"retry_count,omitempty"`
 	Retries    []RetryInfo `json:"retries,omitempty"`
 }
+
+// ActionCard represents an actionable message for the UI to render as a card
+// instead of plain text, like when a configuration change is required.
+type ActionCard struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	ButtonText  string `json:"button_text"`
+	ActionURL   string `json:"action_url"`
+}
