@@ -1,0 +1,7 @@
+[[IgnoredVulns]]
+id = "GHSA-vfj7-8cjw-p6xm"
+reason = "braces DoS CVE is a dev dependency with no fix currently available. Safe to ignore."
+
+[[IgnoredVulns]]
+id = "CVE-2026-93687"
+reason = "braces DoS CVE is a dev dependency with no fix currently available. Safe to ignore."

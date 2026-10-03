@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/rs/zerolog/log"
@@ -243,4 +244,22 @@ var LLMErrorTemplates = map[aiconnectors.LLMErrorCategory]LLMErrorTemplate{
 			ActionURL:   "/chat",
 		},
 	},
+}
+
+const ModelOutputErrorText = "Model Output Error"
+
+// LookupErrorTemplate returns the error template for a given category.
+func LookupErrorTemplate(category aiconnectors.LLMErrorCategory) (LLMErrorTemplate, bool) {
+	tpl, ok := LLMErrorTemplates[category]
+	return tpl, ok
+}
+
+// MatchErrorTemplateByText returns the error template matching the provided response text.
+func MatchErrorTemplateByText(text string) (LLMErrorTemplate, bool) {
+	for _, tpl := range LLMErrorTemplates {
+		if strings.HasPrefix(text, tpl.Message) {
+			return tpl, true
+		}
+	}
+	return LLMErrorTemplate{}, false
 }
