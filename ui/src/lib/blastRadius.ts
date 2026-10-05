@@ -31,6 +31,55 @@ export function blastRadiusTierLabel(score: number): string {
   return 'Minimal risk';
 }
 
+// ===== Severity-aware blending =====
+// The structural blast-radius score (Combined) is blind to the severity of
+// the LLM findings attached to a hunk. A critical security bug in a
+// low-blast-radius hunk must outrank a trivial typo in a slightly-higher
+// one, so the sort score blends Combined with the hunk's most severe finding
+// at SEVERITY_WEIGHT (default 10%): sortScore = 0.9 * Combined + 0.1 * severity.
+export const SEVERITY_SCORE: Record<string, number> = { critical: 100, warning: 25, info: 5 };
+export const SEVERITY_WEIGHT = 0.1;
+
+export type FindingSeverityLabel = 'critical' | 'warning' | 'info';
+
+export interface HunkSeverityInfo {
+  score: number;
+  label: FindingSeverityLabel | null;
+  counts: Record<FindingSeverityLabel, number>;
+}
+
+// hunkSeverityInfo maps a hunk's most severe finding to a 0-100 value, plus
+// its label and per-level counts. LiveReview keeps comments file-level
+// (unlike git-lrc, which attaches them to hunk lines), so the match uses the
+// same new-side line-range predicate flattenFilesByRisk already uses for the
+// comment badge.
+export function hunkSeverityInfo(file: DiffReviewFile, hunk: DiffReviewHunk): HunkSeverityInfo {
+  let score = 0;
+  let label: FindingSeverityLabel | null = null;
+  const counts: Record<FindingSeverityLabel, number> = { critical: 0, warning: 0, info: 0 };
+  (file.comments || []).forEach((c) => {
+    if (c.line < hunk.new_start_line || c.line >= hunk.new_start_line + hunk.new_line_count) return;
+    const key = (c.severity || '').toLowerCase();
+    if (!(key in SEVERITY_SCORE)) return;
+    const sevKey = key as FindingSeverityLabel;
+    counts[sevKey] += 1;
+    const value = SEVERITY_SCORE[key];
+    if (value > score) {
+      score = value;
+      label = sevKey;
+    }
+  });
+  return { score, label, counts };
+}
+
+// blendRiskScore mixes a structural 0-100 Combined score with a severity
+// score at SEVERITY_WEIGHT. Missing Combined is treated as 0.
+export function blendRiskScore(combined: number | null | undefined, severity: number): number {
+  const c = typeof combined === 'number' && Number.isFinite(combined) ? combined : 0;
+  const s = typeof severity === 'number' && Number.isFinite(severity) ? severity : 0;
+  return (1 - SEVERITY_WEIGHT) * c + SEVERITY_WEIGHT * s;
+}
+
 /**
  * Flattens a report hunk into every Signal that contributed to it — the
  * hunk's own (file coupling, arch role) plus every touched symbol's —
@@ -87,7 +136,22 @@ export function attachBlastData(files: DiffReviewFile[], lookup: Map<string, Bla
     hunks: (file.hunks || []).map((hunk) => {
       const detail = lookupBlastDetail(lookup, file.file_path, hunk);
       if (!detail) return hunk;
-      return { ...hunk, BlastRadius: detail.Combined, BlastDetail: detail };
+      // BlastRadius drives both the sort order and the hunk's headline risk
+      // badge. Blend the structural Combined with the hunk's most severe
+      // finding so ordering and the displayed number stay in sync; BlastDetail
+      // keeps the full structural breakdown plus the severity breakdown
+      // (FindingSeverity*) for the detail panel.
+      const severity = hunkSeverityInfo(file, hunk);
+      return {
+        ...hunk,
+        BlastRadius: blendRiskScore(detail.Combined, severity.score),
+        BlastDetail: {
+          ...detail,
+          FindingSeverity: severity.score,
+          FindingSeverityLabel: severity.label,
+          FindingSeverityCounts: severity.counts,
+        },
+      };
     }),
   }));
 }

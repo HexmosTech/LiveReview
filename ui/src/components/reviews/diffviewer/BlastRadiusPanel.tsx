@@ -15,9 +15,11 @@ import {
 import {
   allSignals,
   blastRadiusTier,
+  blendRiskScore,
   callerGroupLabel,
   CallerGroup as CallerGroupType,
   groupCallers,
+  SEVERITY_WEIGHT,
   shortName,
 } from '../../../lib/blastRadius';
 import SunburstChart from './SunburstChart';
@@ -47,6 +49,10 @@ const SCORE_HINTS: Record<string, { title: string; body: string }> = {
     title: 'File co-change coupling bonus',
     body: 'Files that changed together in git history get a small bonus. Captures hidden coupling when no code reference connects them.',
   },
+  severity: {
+    title: 'Finding severity: the most serious issue this hunk introduces',
+    body: 'Critical, warning, and info findings add points on top of the structural score (default 10% weight) so a critical security bug outranks a trivial one.',
+  },
 };
 
 const METHODOLOGY_PARAGRAPHS = [
@@ -54,7 +60,10 @@ const METHODOLOGY_PARAGRAPHS = [
   'Blast radius measures how far the change can reach. Inputs: callers up to 3 hops, HTTP routes, repository hotspots, architectural layers, interface implementations, cross-package callers, and file paths near auth, persistence, config, build, or schema.',
   'Review priority measures how much attention this hunk needs. Main inputs: a near-duplicate function in another file, and missing direct tests. Secondary inputs: cyclomatic complexity, loop depth, and fan-out.',
   'File co-change coupling adds a small bonus to Blast Radius when git history shows files that change together. Hygiene signals (formatting, comments, generated code, logging, test-only files, dead code) multiply the Combined score down.',
+  'Finding severity adds a third dimension: the most serious issue the hunk introduces. Critical findings add the most, warnings less, info least — blended in at 10 percent weight so a critical security bug in a small change still outranks a trivial one in a big change.',
 ];
+
+const SEVERITY_LABELS: Record<string, string> = { critical: 'Critical', warning: 'Warning', info: 'Info' };
 
 const BLAST_CATEGORIES = new Set(['architecture', 'graph']);
 const PRIORITY_CATEGORIES = new Set(['duplication', 'code-metrics']);
@@ -216,6 +225,46 @@ const DimensionCard: React.FC<{ title: string; norm: number; raw: number; max: n
   </div>
 );
 
+// SeverityCard is the third "dimension" next to Blast Radius and Review
+// Priority, but simpler: severity is already a direct 0-100 value
+// (critical=100, warning=25, info=5), so there's no raw -> norm scaling to
+// spell out — just the finding counts and the points they add.
+const SeverityCard: React.FC<{
+  severityScore: number;
+  severityLabel: string | null | undefined;
+  severityCounts: { critical: number; warning: number; info: number };
+}> = ({ severityScore, severityLabel, severityCounts }) => {
+  const points = SEVERITY_WEIGHT * severityScore;
+  const parts: string[] = [];
+  if (severityCounts.critical > 0) parts.push(`${severityCounts.critical} critical`);
+  if (severityCounts.warning > 0) parts.push(`${severityCounts.warning} warning`);
+  if (severityCounts.info > 0) parts.push(`${severityCounts.info} info`);
+  const detailText = severityLabel
+    ? `${parts.join(', ')} — severity adds ${Math.round(SEVERITY_WEIGHT * 100)}% of its 0-100 score to the final rank`
+    : 'No findings on this hunk — severity adds nothing';
+  return (
+    <div className="rounded-lg border border-slate-700 bg-slate-900 p-3">
+      <div className="mb-2">
+        <div className="text-sm font-semibold text-slate-200">Finding Severity</div>
+        <div className="text-xs text-slate-500">
+          {severityLabel ? `most severe: ${SEVERITY_LABELS[severityLabel]} → ${severityScore}/100` : 'no findings → 0/100'}
+        </div>
+      </div>
+      <ul className="space-y-0.5">
+        <li className="flex items-start gap-2 py-0.5 text-xs">
+          <span className={classNames('w-12 shrink-0 font-mono', severityLabel ? 'text-emerald-400' : 'text-slate-600')}>
+            {severityLabel ? `+${points.toFixed(1)}` : '+0.0'}
+          </span>
+          <span className={classNames('flex-1', severityLabel ? 'text-slate-300' : 'text-slate-600')}>
+            Finding severity
+            <span className="ml-1 text-slate-500">— {detailText}</span>
+          </span>
+        </li>
+      </ul>
+    </div>
+  );
+};
+
 function fileBaseName(path?: string): string {
   return (path || '').split('/').pop() || path || '';
 }
@@ -323,9 +372,24 @@ const MathModeView: React.FC<{ detail: BlastRadiusHunkReport }> = ({ detail }) =
   const blastShare = weights.BlastRadius * blastNorm;
   const priorityShare = weights.ReviewPriority * priorityNorm;
   const blended = blastShare + priorityShare;
-  const final = blended * hygiene;
+  const structural = blended * hygiene; // == detail.Combined (the pre-severity score)
+  const severityScore = typeof detail.FindingSeverity === 'number' ? detail.FindingSeverity : 0;
+  const severityLabel = detail.FindingSeverityLabel || null;
+  const severityCounts = detail.FindingSeverityCounts || { critical: 0, warning: 0, info: 0 };
+  const severityShare = SEVERITY_WEIGHT * severityScore;
+  const final = blendRiskScore(structural, severityScore);
   const stepBlend = afterPriority;
   const stepHygiene = afterPriority + 1;
+  const stepSeverity = afterPriority + 2;
+  const stepFinalBlend = afterPriority + 3;
+
+  const sevParts: string[] = [];
+  if (severityCounts.critical > 0) sevParts.push(`${severityCounts.critical} critical`);
+  if (severityCounts.warning > 0) sevParts.push(`${severityCounts.warning} warning`);
+  if (severityCounts.info > 0) sevParts.push(`${severityCounts.info} info`);
+  const sevDetail = severityLabel
+    ? `${sevParts.join(', ')} — most severe maps to ${severityScore.toFixed(0)}/100`
+    : 'no findings on this hunk';
 
   return (
     <div className="flex flex-col gap-3.5">
@@ -341,14 +405,24 @@ const MathModeView: React.FC<{ detail: BlastRadiusHunkReport }> = ({ detail }) =
         </div>
         <div className="mb-2.5">
           <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {stepHygiene} — apply the hygiene multiplier</div>
-          <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">{blended.toFixed(1)} × {hygiene} = <strong className="text-slate-100">{final.toFixed(1)}</strong></div>
+          <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">{blended.toFixed(1)} × {hygiene} = <strong className="text-slate-100">{structural.toFixed(1)}</strong></div>
+        </div>
+        <div className="mb-2.5">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {stepSeverity} — score the finding severity</div>
+          <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">{sevDetail} = <strong className="text-slate-100">{severityScore.toFixed(1)}</strong></div>
+        </div>
+        <div className="mb-2.5">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-sky-400">Step {stepFinalBlend} — blend in finding severity ({Math.round((1 - SEVERITY_WEIGHT) * 100)}% structure, {Math.round(SEVERITY_WEIGHT * 100)}% severity)</div>
+          <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">
+            ({(1 - SEVERITY_WEIGHT).toFixed(2)} × {structural.toFixed(1)}) + ({SEVERITY_WEIGHT.toFixed(2)} × {severityScore.toFixed(1)}) = {((1 - SEVERITY_WEIGHT) * structural).toFixed(1)} + {severityShare.toFixed(1)} = <strong className="text-slate-100">{final.toFixed(1)}</strong>
+          </div>
         </div>
         {/* .math-step.final — top border + larger blue final number, distinct
             from the other steps above it. */}
         <div className="border-t border-slate-700 pt-2.5">
           <div className="mb-1 text-xs font-bold text-slate-200">Final Score</div>
           <div className="pl-1 font-mono text-xs leading-relaxed text-slate-300">
-            Rounded to the nearest whole number: <strong className="text-base text-sky-400">{Math.round(detail.Combined || 0)}</strong> out of 100
+            Rounded to the nearest whole number: <strong className="text-base text-sky-400">{Math.round(final)}</strong> out of 100
           </div>
         </div>
       </div>
@@ -471,6 +545,11 @@ interface BlastRadiusPanelProps {
 const BlastRadiusPanel: React.FC<BlastRadiusPanelProps> = ({ detail }) => {
   const hygieneMult = typeof detail.HygieneMultiplier === 'number' ? detail.HygieneMultiplier : 1.0;
   const couplingVal = typeof detail.FileCouplingBonus === 'number' ? detail.FileCouplingBonus : 0;
+  const severityScore = typeof detail.FindingSeverity === 'number' ? detail.FindingSeverity : 0;
+  const severityLabel = detail.FindingSeverityLabel || null;
+  const severityCounts = detail.FindingSeverityCounts || { critical: 0, warning: 0, info: 0 };
+  const severityPoints = SEVERITY_WEIGHT * severityScore;
+  const sortScore = blendRiskScore(detail.Combined || 0, severityScore);
   const symbols = useMemo(
     () => [...(detail.Symbols || [])].sort((a, b) => (b.BlastRadiusRaw || 0) - (a.BlastRadiusRaw || 0)),
     [detail.Symbols]
@@ -493,13 +572,13 @@ const BlastRadiusPanel: React.FC<BlastRadiusPanelProps> = ({ detail }) => {
     return { ...sym, Callers: (sym.Callers || []).filter((c) => !c.PreRename) };
   }, [symbols, selectedIdx]);
 
-  const tier = blastRadiusTier(detail.Combined || 0);
+  const tier = blastRadiusTier(sortScore);
 
   return (
     <div className="space-y-4 rounded-lg border border-slate-700 bg-slate-800/60 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <ScoreChip hintKey="combined" className={classNames('font-semibold', tier === 'blast-radius-high' ? 'border-red-700 text-red-300' : tier === 'blast-radius-medium' ? 'border-amber-700 text-amber-300' : 'border-slate-600 text-slate-300')}>
-          Score {Math.round(detail.Combined || 0)}
+          Score {Math.round(sortScore)}
         </ScoreChip>
         <ScoreChip hintKey="blast" className="border-slate-600 text-slate-300">Blast {Math.round(detail.BlastRadiusNorm || 0)}</ScoreChip>
         <ScoreChip hintKey="priority" className="border-slate-600 text-slate-300">Priority {Math.round(detail.ReviewPriorityNorm || 0)}</ScoreChip>
@@ -508,6 +587,14 @@ const BlastRadiusPanel: React.FC<BlastRadiusPanelProps> = ({ detail }) => {
         </ScoreChip>
         <ScoreChip hintKey="coupling" className={couplingVal > 0 ? 'border-slate-600 text-slate-300' : 'border-slate-700 text-slate-600'}>
           {couplingVal > 0 ? `Coupling +${couplingVal.toFixed(1)}` : 'Coupling +0'}
+        </ScoreChip>
+        <ScoreChip
+          hintKey="severity"
+          className={severityLabel
+            ? severityLabel === 'critical' ? 'border-red-700 text-red-300' : severityLabel === 'warning' ? 'border-amber-700 text-amber-300' : 'border-sky-700 text-sky-300'
+            : 'border-slate-700 text-slate-600'}
+        >
+          {severityLabel ? `${SEVERITY_LABELS[severityLabel]} +${severityPoints.toFixed(1)}` : 'Severity +0'}
         </ScoreChip>
         <MethodologyTooltip />
       </div>
@@ -525,6 +612,7 @@ const BlastRadiusPanel: React.FC<BlastRadiusPanelProps> = ({ detail }) => {
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <DimensionCard title="Blast Radius" norm={detail.BlastRadiusNorm} raw={detail.BlastRadiusRaw} max={detail.MaxBlastRadiusRaw} signals={blastSignals} />
           <DimensionCard title="Review Priority" norm={detail.ReviewPriorityNorm} raw={detail.ReviewPriorityRaw} max={detail.MaxReviewPriorityRaw} signals={prioritySignals} />
+          <SeverityCard severityScore={severityScore} severityLabel={severityLabel} severityCounts={severityCounts} />
         </div>
       )}
 

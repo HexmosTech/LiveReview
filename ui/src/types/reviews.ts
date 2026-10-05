@@ -325,6 +325,13 @@ export interface BlastRadiusHunkReport {
   Symbols?: BlastRadiusSymbolContribution[];
   ImpactedPackages?: string[];
   FileCouplingBonus?: number;
+  // Client-side only — attached by lib/blastRadius.ts's attachBlastData()
+  // when blending LLM finding severity into the sort score; never part of
+  // git-lrc's raw artifact. Mirrors the FindingSeverity* fields git-lrc's
+  // attachBlastData adds to BlastDetail.
+  FindingSeverity?: number;
+  FindingSeverityLabel?: 'critical' | 'warning' | 'info' | null;
+  FindingSeverityCounts?: { critical: number; warning: number; info: number };
 }
 
 export interface BlastRadiusFileReport {
