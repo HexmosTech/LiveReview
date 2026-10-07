@@ -201,24 +201,14 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	mcpSession, err := mcpagent.ConnectMCP(ctx, mcpURL, mcpHeaders)
 	if err != nil {
 		log.Error().Err(err).Str("url", mcpURL).Msg("WebChat: failed to connect to MCP server")
-		userFriendlyErr := "> **Something went wrong on our end**\n> \n> I am having trouble connecting to my internal data tools right now. The technical details have been attached below for troubleshooting. Please try your request again in a few moments."
-		
-		debugLog := fmt.Sprintf("MCP Connection Failed: %s\nURL: %s", err.Error(), mcpURL)
-		debugArt := &mcpagent.DebugArtifacts{RawLLMError: debugLog}
+		userFriendlyErr, card, debugArt := mcpagent.NewMCPOfflineError(err, mcpURL)
 		debugArtJSON, _ := json.Marshal(debugArt)
-		
-		card := &mcpagent.ActionCard{
-			Title:       "MCP Server Offline",
-			Description: "The internal data server is unreachable (502 Bad Gateway).",
-			ButtonText:  "Try Again",
-			ActionURL:   "#retry",
-		}
 		
 		entry := mcpagent.HistoryEntry{
 			"role":            "assistant",
 			"content":         userFriendlyErr,
 			"text":            userFriendlyErr,
-			"action_card":     card,
+			"action_card":     &card,
 			"debug_artifacts": debugArt,
 			"is_error":        true,
 		}
@@ -228,7 +218,7 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 			SessionID:      sessionID,
 			ConversationID: convID,
 			IsError:        true,
-			ActionCard:     card,
+			ActionCard:     &card,
 			DebugArtifacts: debugArtJSON,
 		}
 		// Return 200 OK so the frontend renders the action card and debug logs instead of a raw network error

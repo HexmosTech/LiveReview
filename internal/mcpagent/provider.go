@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
-
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/rs/zerolog/log"
 	"github.com/tmc/langchaingo/llms"
@@ -188,78 +186,3 @@ func (p *Provider) historyToMessages(history []HistoryEntry) []llms.MessageConte
 	return messages
 }
 
-// LLMErrorTemplate defines the UI representation of an LLM error,
-// including both the chat message text and the Action Card to render.
-type LLMErrorTemplate struct {
-	Message    string
-	ActionCard ActionCard
-}
-
-// LLMErrorTemplates stores the fallback configurations for various LLM errors.
-// This allows the frontend to automatically render the correct box without
-// hardcoded display logic.
-var LLMErrorTemplates = map[aiconnectors.LLMErrorCategory]LLMErrorTemplate{
-	aiconnectors.ErrCategoryAuth: {
-		Message: "> **Action Required: AI Provider Issue**\n> \n> The AI Provider's API key is invalid or the model is missing. Please configure a valid provider in settings to continue.",
-		ActionCard: ActionCard{
-			Title:       "Configuration Required",
-			Description: "Please edit the current AI provider configuration to continue.",
-			ButtonText:  "Configure AI Provider",
-			ActionURL:   "/ai",
-		},
-	},
-	aiconnectors.ErrCategoryOverload: {
-		Message: "> **AI Provider is Busy**\n> \n> The selected model is currently experiencing high traffic. If you continue to see this issue, please edit your configuration to change to a different model or provider.",
-		ActionCard: ActionCard{
-			Title:       "High Traffic Detected",
-			Description: "Please select a different model in settings.",
-			ButtonText:  "Configure AI Provider",
-			ActionURL:   "/ai",
-		},
-	},
-	aiconnectors.ErrCategoryDeprecated: {
-		Message: "> **Model No Longer Available**\n> \n> The selected AI model has been deprecated or removed by the provider. Please update your AI provider configuration to use a different model.",
-		ActionCard: ActionCard{
-			Title:       "Model No Longer Available",
-			Description: "The selected model has been deprecated. Please update your AI provider configuration.",
-			ButtonText:  "Configure AI Provider",
-			ActionURL:   "/ai",
-		},
-	},
-	aiconnectors.ErrCategoryTimeout: {
-		Message: "> **Analysis Took Too Long**\n> \n> The AI took too long to generate your response and timed out. Try asking a narrower or more specific question.",
-		ActionCard: ActionCard{
-			Title:       "Timeout Error",
-			Description: "The request took too long to complete.",
-			ButtonText:  "Try Again",
-			ActionURL:   "#retry",
-		},
-	},
-	aiconnectors.ErrCategoryUnknown: {
-		Message: "> **Unexpected Error**\n> \n> An unexpected error occurred while communicating with the AI provider. The technical details have been attached below for troubleshooting.",
-		ActionCard: ActionCard{
-			Title:       "Unexpected Error",
-			Description: "An unknown error occurred during processing.",
-			ButtonText:  "Try Again",
-			ActionURL:   "#retry",
-		},
-	},
-}
-
-const ModelOutputErrorText = "Model Output Error"
-
-// LookupErrorTemplate returns the error template for a given category.
-func LookupErrorTemplate(category aiconnectors.LLMErrorCategory) (LLMErrorTemplate, bool) {
-	tpl, ok := LLMErrorTemplates[category]
-	return tpl, ok
-}
-
-// MatchErrorTemplateByText returns the error template matching the provided response text.
-func MatchErrorTemplateByText(text string) (LLMErrorTemplate, bool) {
-	for _, tpl := range LLMErrorTemplates {
-		if strings.HasPrefix(text, tpl.Message) {
-			return tpl, true
-		}
-	}
-	return LLMErrorTemplate{}, false
-}
