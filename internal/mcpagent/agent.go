@@ -183,25 +183,8 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			if text == NoDataAnalyticsResponseText {
 				entry["suggested_questions"] = DefaultNoDataSuggestedQuestions
 			} else {
-			if tpl, ok := MatchErrorTemplateByText(text); ok {
-				entry["suggested_questions"] = DefaultAIErrorSuggestedQuestions
-				card := tpl.ActionCard // copy
-				entry["action_card"] = &card
-				entry["debug_artifacts"] = debugArt
-				entry["is_error"] = true
-			} else if strings.Contains(text, ModelOutputErrorText) {
-				// Also check for format errors, which are hallucinations, not provider errors
-				entry["suggested_questions"] = DefaultAIErrorSuggestedQuestions
-				entry["action_card"] = &ActionCard{
-					Title:       "Formatting Error",
-					Description: "The model failed to format the response correctly.",
-					ButtonText:  "Try Again",
-					ActionURL:   "#retry",
-				}
-				entry["debug_artifacts"] = debugArt
-				entry["is_error"] = true
+				InjectErrorState(entry, text, debugArt)
 			}
-			} // close else block
 
 			history = append(history, entry)
 			return text, history, artifacts, debugArt, nil
@@ -293,7 +276,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 					history[lastIdx]["content"] = newFallbackText
 
 					// 3. Insert the error entry before the fallback guidance entry
-					newHistory := make([]HistoryEntry, 0, len(history)+1)
+					var newHistory []HistoryEntry
 					newHistory = append(newHistory, history[:lastIdx]...)
 					newHistory = append(newHistory, errorEntry)
 					newHistory = append(newHistory, history[lastIdx])

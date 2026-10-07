@@ -1688,6 +1688,7 @@ func (a *Agent) runMultiInterpret(
 	interps, ok := parseInterpretations(raw)
 	if !ok {
 		log.Warn().Str("raw_preview", truncateContent(raw, 200)).Msg("could not parse interpretations from LLM response")
+		debug.RawLLMError = "Failed to parse LLM output as JSON (often caused by max token limits). Raw output:\n" + raw
 		formatMsg := "> **Model Output Error**\n> \n> The AI returned data in an unexpected format. Please try rephrasing your question."
 		return formatMsg, nil, debug, nil
 	}

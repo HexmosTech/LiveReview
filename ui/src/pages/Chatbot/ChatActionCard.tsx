@@ -9,6 +9,8 @@ interface ChatActionCardProps {
   handleSend: (text: string) => void;
 }
 
+const ACTION_RETRY = '#retry';
+
 export function ChatActionCard({ msg, idx, messages, handleSend }: ChatActionCardProps) {
   const navigate = useNavigate();
 
@@ -24,16 +26,15 @@ export function ChatActionCard({ msg, idx, messages, handleSend }: ChatActionCar
         <button
           onClick={() => {
             const url = msg.actionCard?.action_url;
-            if (url === '#retry') {
-              let prevUserText = '';
-              for (let i = idx - 1; i >= 0; i--) {
-                if (messages[i].role === 'user') {
-                  prevUserText = messages[i].text;
-                  break;
-                }
-              }
-              if (prevUserText) {
-                handleSend(prevUserText);
+            if (url === ACTION_RETRY) {
+              // Find the most recent user message before this error
+              const prevUserMsg = messages
+                .slice(0, idx)
+                .reverse()
+                .find((m) => m.role === 'user');
+              
+              if (prevUserMsg?.text) {
+                handleSend(prevUserMsg.text);
               }
             } else if (url && url.startsWith('/')) {
               navigate(url);
