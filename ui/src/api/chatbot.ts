@@ -140,6 +140,7 @@ export interface ChatResponse {
   files?: ChatFile[];
   suggested_questions?: SuggestedQuestionCategory[];
   debug_artifacts?: unknown;
+  is_error?: boolean;
   sessionId?: string;
   conversationId: number;
   /** 'ai_auth' | 'ai_busy' — set only when the backend hit a provider error. */

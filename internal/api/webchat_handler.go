@@ -59,6 +59,7 @@ type WebChatResponse struct {
 	DebugArtifacts     json.RawMessage                      `json:"debug_artifacts,omitempty"`
 	SessionID          string                               `json:"sessionId,omitempty"`
 	ConversationID     int64                                `json:"conversationId"`
+	IsError            bool                                 `json:"is_error,omitempty"`
 	// ActionCard provides structured data for the frontend to render an action card
 	// (e.g. "Configuration Required") without hardcoding string matching in the UI.
 	ActionCard *mcpagent.ActionCard `json:"action_card,omitempty"`
@@ -200,14 +201,38 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	mcpSession, err := mcpagent.ConnectMCP(ctx, mcpURL, mcpHeaders)
 	if err != nil {
 		log.Error().Err(err).Str("url", mcpURL).Msg("WebChat: failed to connect to MCP server")
-		userFriendlyErr := "> **AI Tools Unavailable**\n> \n> I am having trouble connecting to my internal data tools right now. Please try your request again in a few moments."
-		persistReply(userFriendlyErr, nil, nil, nil, "", nil)
+		userFriendlyErr := "> **Something went wrong on our end**\n> \n> I am having trouble connecting to my internal data tools right now. The technical details have been attached below for troubleshooting. Please try your request again in a few moments."
+		
+		debugLog := fmt.Sprintf("MCP Connection Failed: %s\nURL: %s", err.Error(), mcpURL)
+		debugArt := &mcpagent.DebugArtifacts{RawLLMError: debugLog}
+		debugArtJSON, _ := json.Marshal(debugArt)
+		
+		card := &mcpagent.ActionCard{
+			Title:       "MCP Server Offline",
+			Description: "The internal data server is unreachable (502 Bad Gateway).",
+			ButtonText:  "Try Again",
+			ActionURL:   "#retry",
+		}
+		
+		entry := mcpagent.HistoryEntry{
+			"role":            "assistant",
+			"content":         userFriendlyErr,
+			"text":            userFriendlyErr,
+			"action_card":     card,
+			"debug_artifacts": debugArt,
+			"is_error":        true,
+		}
+		persistReply(userFriendlyErr, nil, nil, []mcpagent.HistoryEntry{entry}, string(debugArtJSON), debugArt)
 		resp := WebChatResponse{
 			Response:       userFriendlyErr,
 			SessionID:      sessionID,
 			ConversationID: convID,
+			IsError:        true,
+			ActionCard:     card,
+			DebugArtifacts: debugArtJSON,
 		}
-		return c.JSON(http.StatusBadGateway, resp)
+		// Return 200 OK so the frontend renders the action card and debug logs instead of a raw network error
+		return c.JSON(http.StatusOK, resp)
 	}
 
 	if pc.CurrentOrg != nil && pc.CurrentOrg.Name != "" {
@@ -267,6 +292,9 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 			} else {
 				log.Error().Err(err).Msg("WebChat: failed to marshal rawCard")
 			}
+		}
+		if isError, ok := entry["is_error"].(bool); ok && isError {
+			resp.IsError = true
 		}
 		if rawDebug, ok := entry["debug_artifacts"]; ok && rawDebug != nil && resp.DebugArtifacts == nil {
 			if b, err := json.Marshal(rawDebug); err == nil {
