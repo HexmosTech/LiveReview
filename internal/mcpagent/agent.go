@@ -163,8 +163,10 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 	if a.analyticsEnabled() {
 		res, err := a.classify(ctx, history, userText, clog)
 		shape := res.Shape
+		var classifyErr error
 		if err != nil {
 			log.Warn().Err(err).Str("category", string(aiconnectors.CategorizeLLMError(err))).Msg("call #0 classify failed; degrading to product_guidance for this turn")
+			classifyErr = err
 			shape = shapeProductGuidance
 		}
 
@@ -186,6 +188,7 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 				card := tpl.ActionCard // copy
 				entry["action_card"] = &card
 				entry["debug_artifacts"] = debugArt
+				entry["is_error"] = true
 			} else if strings.Contains(text, ModelOutputErrorText) {
 				// Also check for format errors, which are hallucinations, not provider errors
 				entry["suggested_questions"] = DefaultAIErrorSuggestedQuestions
@@ -193,9 +196,10 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 					Title:       "Formatting Error",
 					Description: "The model failed to format the response correctly.",
 					ButtonText:  "Try Again",
-					ActionURL:   "/chat",
+					ActionURL:   "#retry",
 				}
 				entry["debug_artifacts"] = debugArt
+				entry["is_error"] = true
 			}
 			} // close else block
 
@@ -260,6 +264,46 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 		clog.BranchSelected(string(shape), len(systemPrompt), len(tools))
 
 		text, history, artifacts, debugArt, err := a.runStepLoop(ctx, history, userText, systemPrompt, tools, callNumber, jsonMode, planRetried, "", clog)
+
+		if classifyErr != nil && err == nil {
+			category := aiconnectors.CategorizeLLMError(classifyErr)
+			if tpl, ok := LookupErrorTemplate(category); ok {
+				if len(history) > 0 {
+					lastIdx := len(history) - 1
+					fallbackText, _ := history[lastIdx]["text"].(string)
+
+					// 1. Create the error entry with the Action Card and Debug Logs
+					errorEntry := HistoryEntry{
+						"role":    "assistant",
+						"text":    tpl.Message,
+						"content": tpl.Message,
+					}
+					card := tpl.ActionCard
+					errorEntry["action_card"] = &card
+
+					if debugArt == nil {
+						debugArt = &DebugArtifacts{}
+					}
+					debugArt.RawLLMError = classifyErr.Error()
+					errorEntry["debug_artifacts"] = debugArt
+
+					// 2. Modify the last entry (the fallback guidance)
+					newFallbackText := "However, here is some general product guidance:\n\n---\n\n" + fallbackText
+					history[lastIdx]["text"] = newFallbackText
+					history[lastIdx]["content"] = newFallbackText
+
+					// 3. Insert the error entry before the fallback guidance entry
+					newHistory := make([]HistoryEntry, 0, len(history)+1)
+					newHistory = append(newHistory, history[:lastIdx]...)
+					newHistory = append(newHistory, errorEntry)
+					newHistory = append(newHistory, history[lastIdx])
+					history = newHistory
+
+					text = tpl.Message + "\n\n" + newFallbackText
+				}
+			}
+		}
+
 		return text, history, artifacts, debugArt, err
 	}
 

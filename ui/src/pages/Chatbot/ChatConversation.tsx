@@ -13,6 +13,8 @@ import { CONVERSATIONS_QUERY_KEY } from './ConversationSidebar';
 import { isDailyTrendChart, buildTrendSpec, formatAxisDate, Granularity } from './rebucketChart';
 import { buildJsonExport, downloadJsonExport } from './jsonExport';
 import ProductionUrlWarning from '../../components/ProductionUrlWarning';
+import { ChatActionCard } from './ChatActionCard';
+import { ChatErrorBlockquote } from './ChatErrorHandling';
 
 const GRANULARITY_OPTIONS: { value: Granularity; label: string }[] = [
   { value: 'day', label: 'Day' },
@@ -108,7 +110,7 @@ interface DebugArtifacts {
   raw_llm_error?: string;
 }
 
-interface ChatEntry {
+export interface ChatEntry {
   id: string;
   role: 'user' | 'assistant';
   text: string;
@@ -116,6 +118,7 @@ interface ChatEntry {
   files?: ChatFile[];
   suggestedQuestions?: SuggestedQuestionCategory[];
   debugArtifacts?: DebugArtifacts | null;
+  isError?: boolean;
   actionCard?: {
     title: string;
     description: string;
@@ -174,7 +177,7 @@ function extractTrailingDataDetails(text: string): { body: string; details: { la
   return { body: lines.slice(0, end).join('\n'), details };
 }
 
-function formatText(rawText: string): React.ReactNode[] {
+function formatText(rawText: string, isErrorMsg: boolean = false): React.ReactNode[] {
   const { body: text, details } = extractTrailingDataDetails(rawText);
   const parts: React.ReactNode[] = [];
   // Ensure buttons are always inline with the preceding text by stripping newlines before them
@@ -222,29 +225,13 @@ function formatText(rawText: string): React.ReactNode[] {
       }
       i = currI - 1;
       
-      const errorPhrases = [
-        'Action Required:',
-        'AI Provider is Busy',
-        'Model No Longer Available',
-        'Analysis Took Too Long',
-        'AI Tools Unavailable'
-      ];
-      const isError = blockquoteLines.length > 0 && errorPhrases.some(phrase => blockquoteLines[0].includes(phrase));
-      
-      if (isError) {
+      if (isErrorMsg) {
         parts.push(
-          <blockquote key={`q-${lineIdx++}`} className="border-l-2 border-indigo-500 text-slate-300 pl-3 pr-3 pt-0 pb-2 rounded-r-md mb-2 mt-1">
-            <div className="text-indigo-400 font-bold mb-1">
-              {formatLine(blockquoteLines[0])}
-            </div>
-            <div className="italic">
-              {blockquoteLines.slice(1).map((bLine, bIdx) => (
-                <div key={bIdx} className={bLine.trim() === '' ? 'h-2' : 'mb-1 leading-relaxed [&>*:first-child]:mt-0'}>
-                  {formatLine(bLine)}
-                </div>
-              ))}
-            </div>
-          </blockquote>
+          <ChatErrorBlockquote 
+            key={`q-${lineIdx++}`} 
+            lines={blockquoteLines} 
+            formatLine={formatLine} 
+          />
         );
       } else {
         parts.push(
@@ -903,6 +890,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         files: m.files && m.files.length > 0 ? m.files : undefined,
         suggestedQuestions: m.suggested_questions,
         debugArtifacts: m.debug_artifacts as DebugArtifacts | undefined,
+        isError: m.is_error,
         actionCard: m.action_card,
       })),
     );
@@ -924,10 +912,13 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
     pendingConversationIdRef.current = undefined;
   }, [conversationId]);
 
-  const handleSend = async () => {
-    const text = input.trim();
+  const handleSend = async (overrideText?: string | React.SyntheticEvent) => {
+    const isString = typeof overrideText === 'string';
+    const text = (isString ? overrideText : input).trim();
     if (!text || isLoading) return;
-    setInput('');
+    if (!isString) {
+      setInput('');
+    }
 
     const userEntry: ChatEntry = { id: generateId(), role: 'user', text };
     setMessages((prev) => [...prev, userEntry]);
@@ -955,6 +946,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         files: result.files && result.files.length > 0 ? result.files : undefined,
         suggestedQuestions: result.suggested_questions,
         debugArtifacts: result.debug_artifacts as DebugArtifacts | undefined,
+        isError: result.is_error,
         actionCard: result.action_card,
       };
       setMessages((prev) => [...prev, assistantEntry]);
@@ -1219,7 +1211,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
             </div>
           ) : (
             <div className="space-y-6 py-2">
-              {messages.map((msg) =>
+              {messages.map((msg, idx) =>
                 msg.role === 'user' ? (
                   <div key={msg.id} className="flex items-start justify-end">
                     <div className="bg-indigo-600 text-white rounded-2xl rounded-br-md px-4 py-2 max-w-[75%] whitespace-pre-wrap break-words text-base">
@@ -1491,39 +1483,11 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
                       )}
                       {msg.text && (
                         <div className={`${(msg.charts && msg.charts.length > 0) || (msg.files && msg.files.length > 0) ? 'mt-6' : ''} text-base leading-snug whitespace-pre-wrap break-words text-slate-200 [&>*:first-child]:mt-0`}>
-                          {formatText(msg.text)}
+                          {formatText(msg.text, msg.isError)}
                         </div>
                       )}
                       {msg.actionCard && (
-                        <div className="mt-4 flex flex-col gap-2 w-full">
-                          <div className="flex items-center justify-between gap-3 p-3 sm:px-4 bg-slate-800/30 border border-slate-700 rounded-lg w-full">
-                            <div>
-                              <h4 className="text-sm font-semibold text-slate-200">{msg.actionCard.title}</h4>
-                              <p className="text-xs text-slate-400 mt-0.5">{msg.actionCard.description}</p>
-                            </div>
-                            <button
-                              onClick={() => {
-                                const url = msg.actionCard?.action_url;
-                                if (url && url.startsWith('/')) {
-                                  navigate(url);
-                                }
-                              }}
-                              className="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer whitespace-nowrap flex-shrink-0"
-                            >
-                              {msg.actionCard.button_text}
-                            </button>
-                          </div>
-                          {msg.debugArtifacts?.raw_llm_error && (
-                            <details className="group px-1">
-                              <summary className="w-fit text-xs text-slate-500 cursor-pointer hover:text-slate-400 select-none">
-                                Debug logs
-                              </summary>
-                              <pre className="mt-1.5 p-3 rounded-lg bg-slate-950/50 border border-slate-800/80 text-[11px] font-mono text-rose-400/80 whitespace-pre-wrap break-words">
-                                {msg.debugArtifacts.raw_llm_error}
-                              </pre>
-                            </details>
-                          )}
-                        </div>
+                        <ChatActionCard msg={msg} idx={idx} messages={messages} handleSend={handleSend} />
                       )}
                       {msg.suggestedQuestions && msg.suggestedQuestions.length > 0 && (
                         <div className="mt-4 space-y-4">

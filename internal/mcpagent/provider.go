@@ -232,16 +232,16 @@ var LLMErrorTemplates = map[aiconnectors.LLMErrorCategory]LLMErrorTemplate{
 			Title:       "Timeout Error",
 			Description: "The request took too long to complete.",
 			ButtonText:  "Try Again",
-			ActionURL:   "/chat",
+			ActionURL:   "#retry",
 		},
 	},
 	aiconnectors.ErrCategoryUnknown: {
-		Message: "> **Unexpected Error**\n> \n> An unexpected error occurred while communicating with the AI provider. Please check the debug logs for more details.",
+		Message: "> **Unexpected Error**\n> \n> An unexpected error occurred while communicating with the AI provider. The technical details have been attached below for troubleshooting.",
 		ActionCard: ActionCard{
 			Title:       "Unexpected Error",
 			Description: "An unknown error occurred during processing.",
 			ButtonText:  "Try Again",
-			ActionURL:   "/chat",
+			ActionURL:   "#retry",
 		},
 	},
 }
