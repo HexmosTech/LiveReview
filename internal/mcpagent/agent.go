@@ -253,12 +253,10 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			if tpl, ok := LookupErrorTemplate(category); ok {
 				lastIdx := len(history) - 1
 				if lastIdx >= 0 {
-					lastEntry := history[lastIdx]
-					if lastEntry == nil {
-						lastEntry = make(HistoryEntry)
-						history[lastIdx] = lastEntry
+					if history[lastIdx] == nil {
+						history[lastIdx] = make(HistoryEntry)
 					}
-					fallbackText, _ := lastEntry["text"].(string)
+					fallbackText, _ := history[lastIdx]["text"].(string)
 
 					// 1. Create the error entry with the Action Card and Debug Logs
 					errorEntry := HistoryEntry{
@@ -277,8 +275,8 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 
 					// 2. Modify the last entry (the fallback guidance)
 					newFallbackText := "However, here is some general product guidance:\n\n---\n\n" + fallbackText
-					lastEntry["text"] = newFallbackText
-					lastEntry["content"] = newFallbackText
+					history[lastIdx]["text"] = newFallbackText
+					history[lastIdx]["content"] = newFallbackText
 
 					// 3. Insert the error entry before the fallback guidance entry
 					var newHistory []HistoryEntry
