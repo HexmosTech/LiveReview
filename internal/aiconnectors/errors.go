@@ -1,7 +1,9 @@
 package aiconnectors
 
 import (
+	"context"
 	"errors"
+	"net"
 	"strings"
 
 	"github.com/tmc/langchaingo/llms"
@@ -17,78 +19,75 @@ const (
 	ErrCategoryUnknown    LLMErrorCategory = "unknown"
 )
 
-// CategorizeLLMError maps raw SDK errors from Langchain or underlying clients
-// into our standard failure categories for consistent UI fallback rendering.
+// CategorizeLLMError maps raw SDK errors into stable UI fallback categories.
 func CategorizeLLMError(err error) LLMErrorCategory {
 	if err == nil {
 		return ErrCategoryUnknown
 	}
 
-
-
-	// 1. Langchain-Go normalized errors
-	var llmsErr *llms.Error
-	if errors.As(err, &llmsErr) {
-		if llmsErr.Code == llms.ErrCodeAuthentication || llmsErr.Code == llms.ErrCodeResourceNotFound {
+	// 1. langchaingo normalized errors.
+	var e *llms.Error
+	if errors.As(err, &e) {
+		switch e.Code {
+		case llms.ErrCodeAuthentication:
 			return ErrCategoryAuth
-		}
-		if llmsErr.Code == llms.ErrCodeRateLimit {
+		case llms.ErrCodeRateLimit, llms.ErrCodeQuotaExceeded, llms.ErrCodeProviderUnavailable:
 			return ErrCategoryOverload
+		case llms.ErrCodeTimeout, llms.ErrCodeCanceled:
+			return ErrCategoryTimeout
+		case llms.ErrCodeResourceNotFound:
+			if strings.Contains(strings.ToLower(e.Message), "model") {
+				return ErrCategoryDeprecated
+			}
+			return ErrCategoryUnknown
 		}
 	}
 
-	// 2. Generic HTTP status codes
-	var scErr interface{ StatusCode() int }
-	if errors.As(err, &scErr) {
-		code := scErr.StatusCode()
-		if code == 401 || code == 403 || code == 404 {
-			return ErrCategoryAuth
-		}
-		if code == 429 || code == 500 || code == 502 || code == 503 || code == 504 {
-			return ErrCategoryOverload
-		}
-	}
-
-	var hscErr interface{ HTTPStatusCode() int }
-	if errors.As(err, &hscErr) {
-		code := hscErr.HTTPStatusCode()
-		if code == 401 || code == 403 || code == 404 {
-			return ErrCategoryAuth
-		}
-		if code == 429 || code == 500 || code == 502 || code == 503 || code == 504 {
-			return ErrCategoryOverload
-		}
-	}
-
-	// 3. Fallback string matching
-	msg := strings.ToLower(err.Error())
-	if strings.Contains(msg, "deprecated") || strings.Contains(msg, "model not found") ||
-		strings.Contains(msg, "model_not_found") || strings.Contains(msg, "no such model") ||
-		strings.Contains(msg, "no longer available") {
-		return ErrCategoryDeprecated
-	}
-	
-	if strings.Contains(msg, "context deadline") || strings.Contains(msg, "timeout") {
+	// 2. Context and network timeouts.
+	if errors.Is(err, context.DeadlineExceeded) {
 		return ErrCategoryTimeout
 	}
-	if strings.Contains(msg, "rate limit") || strings.Contains(msg, "too many requests") ||
-		strings.Contains(msg, "status code: 429") || strings.Contains(msg, "status code: 500") ||
-		strings.Contains(msg, "status code: 502") || strings.Contains(msg, "status code: 503") ||
-		strings.Contains(msg, "status code: 504") || strings.Contains(msg, "error 429") ||
-		strings.Contains(msg, "error 500") || strings.Contains(msg, "error 502") ||
-		strings.Contains(msg, "error 503") || strings.Contains(msg, "error 504") ||
-		strings.Contains(msg, "service unavailable") || strings.Contains(msg, "bad gateway") ||
-		strings.Contains(msg, "high demand") {
-		return ErrCategoryOverload
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return ErrCategoryTimeout
 	}
-	if strings.Contains(msg, "status code: 401") || strings.Contains(msg, "status code: 403") ||
-		strings.Contains(msg, "status code: 404") || strings.Contains(msg, "unauthorized") ||
-		strings.Contains(msg, "error 401") || strings.Contains(msg, "error 403") ||
-		strings.Contains(msg, "error 404") || strings.Contains(msg, "forbidden") {
+
+	// 3. Raw HTTP status codes from unwrapped provider clients.
+	var scErr interface{ StatusCode() int }
+	if errors.As(err, &scErr) {
+		switch scErr.StatusCode() {
+		case 401, 403:
+			return ErrCategoryAuth
+		case 429, 500, 502, 503, 504:
+			return ErrCategoryOverload
+		}
+	}
+	var hscErr interface{ HTTPStatusCode() int }
+	if errors.As(err, &hscErr) {
+		switch hscErr.HTTPStatusCode() {
+		case 401, 403:
+			return ErrCategoryAuth
+		case 429, 500, 502, 503, 504:
+			return ErrCategoryOverload
+		}
+	}
+
+	// 4. String fallback for untyped provider errors.
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "deprecated"), strings.Contains(msg, "model not found"),
+		strings.Contains(msg, "model_not_found"), strings.Contains(msg, "no such model"),
+		strings.Contains(msg, "no longer available"):
+		return ErrCategoryDeprecated
+	case strings.Contains(msg, "rate limit"), strings.Contains(msg, "too many requests"),
+		strings.Contains(msg, "service unavailable"), strings.Contains(msg, "bad gateway"),
+		strings.Contains(msg, "high demand"), strings.Contains(msg, "quota"):
+		return ErrCategoryOverload
+	case strings.Contains(msg, "unauthorized"), strings.Contains(msg, "forbidden"),
+		strings.Contains(msg, "api key"), strings.Contains(msg, "x-api-key"),
+		strings.Contains(msg, "permission denied"), strings.Contains(msg, "do not have access"):
 		return ErrCategoryAuth
 	}
 
 	return ErrCategoryUnknown
 }
-
-
