@@ -202,7 +202,10 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	if err != nil {
 		log.Error().Err(err).Str("url", mcpURL).Msg("WebChat: failed to connect to MCP server")
 		userFriendlyErr, card, debugArt := mcpagent.NewMCPOfflineError(err, mcpURL)
-		debugArtJSON, _ := json.Marshal(debugArt)
+		debugArtJSON, marshalErr := json.Marshal(debugArt)
+		if marshalErr != nil {
+			log.Warn().Err(marshalErr).Msg("WebChat: failed to marshal debug artifacts")
+		}
 		
 		entry := mcpagent.HistoryEntry{
 			"role":            "assistant",

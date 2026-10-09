@@ -15,22 +15,22 @@ func TestLLMErrorTemplates(t *testing.T) {
 		{
 			name:     "Auth Error",
 			category: aiconnectors.ErrCategoryAuth,
-			want:     "**Action Required: AI Provider Issue**\n\nThe AI Provider's API key is invalid or the model is missing. Please configure a valid provider in settings to continue.",
+			want:     "> **Action Required: AI Provider Issue**\n> \n> The AI Provider's API key is invalid or the model is missing. Please configure a valid provider in settings to continue.",
 		},
 		{
 			name:     "Overload Error",
 			category: aiconnectors.ErrCategoryOverload,
-			want:     "**AI Provider is Busy**\n\nThe selected model is currently experiencing high traffic. If you continue to see this issue, please edit your configuration to change to a different model or provider.",
+			want:     "> **AI Provider is Busy**\n> \n> The selected model is currently experiencing high traffic. If you continue to see this issue, please edit your configuration to change to a different model or provider.",
 		},
 		{
 			name:     "Timeout Error",
 			category: aiconnectors.ErrCategoryTimeout,
-			want:     "**Analysis Took Too Long**\n\nThe AI took too long to generate your response and timed out. Try asking a narrower or more specific question.",
+			want:     "> **Analysis Took Too Long**\n> \n> The AI took too long to generate your response and timed out. Try asking a narrower or more specific question.",
 		},
 		{
 			name:     "Unknown Error",
 			category: aiconnectors.ErrCategoryUnknown,
-			want:     "",
+			want:     "> **Unexpected Error**\n> \n> An unexpected error occurred while communicating with the AI provider. The technical details have been attached below for troubleshooting.",
 		},
 		{
 			name:     "Unmapped Category",

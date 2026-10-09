@@ -977,6 +977,13 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
             files: entry.files,
             suggested_questions: entry.suggestedQuestions,
             debug_artifacts: entry.debugArtifacts,
+            // Must mirror what GetConversation returns per message. The
+            // remount below re-hydrates from this cache, so anything dropped
+            // here disappears from the reply the user just received — an
+            // action card silently vanishes on a brand-new conversation and
+            // only comes back on refresh.
+            action_card: entry.actionCard,
+            is_error: entry.isError,
           })),
         });
         navigate(`${basePath}/${activeConversationId}`, { replace: true });
@@ -1038,7 +1045,14 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
               {
                 id: generateId(),
                 role: 'assistant',
-                text: 'I am sorry, but I ran into an issue while thinking about that. Please try asking again.',
+                text: '> **Analysis Took Too Long**\n> \n> We lost connection to the server or the request timed out. Please try asking again.',
+                isError: true,
+                actionCard: {
+                  title: 'Timeout Error',
+                  description: 'The request took too long to complete.',
+                  button_text: 'Try Again',
+                  action_url: '#retry'
+                }
               },
             ]);
           }
@@ -1052,7 +1066,14 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
         {
           id: generateId(),
           role: 'assistant',
-          text: 'I am sorry, but I ran into an issue while thinking about that. Please try asking again.',
+          text: '> **Network Error**\n> \n> We lost connection to the server or the request failed. Please check your network and try again.',
+          isError: true,
+          actionCard: {
+            title: 'Network Error',
+            description: 'The connection failed.',
+            button_text: 'Try Again',
+            action_url: '#retry'
+          }
         },
       ]);
       setIsLoading(false);
