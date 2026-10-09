@@ -1318,6 +1318,8 @@ func (s *Server) setupRoutes() {
 	adminOrOwnerGroup.GET("/settings/storage", s.GetStorageSettings)
 	adminOrOwnerGroup.PUT("/settings/storage", s.UpdateStorageSettings)
 	adminOrOwnerGroup.POST("/settings/storage/test", s.TestStorageSettings)
+	adminOrOwnerGroup.GET("/settings/blast-radius-cache", s.GetBlastRadiusCacheSettings)
+	adminOrOwnerGroup.PUT("/settings/blast-radius-cache", s.UpdateBlastRadiusCacheSettings)
 
 	// Log compaction settings endpoints (same instance-owner access as production-url and storage)
 	adminOrOwnerGroup.GET("/settings/compaction", s.GetCompactionSettings)

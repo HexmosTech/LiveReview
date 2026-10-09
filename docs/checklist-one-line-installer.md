@@ -531,7 +531,8 @@ lrops.sh logs --tail=5 && echo "✅ Logs accessible"
 ### External Dependencies
 - GitHub Container Registry access for Docker images
 - Internet connectivity for downloads
-- Sufficient disk space for Docker images and data
+- Sufficient disk space for Docker images and data, plus at least 5 GB free on the
+  `lrdata` volume for the blast radius repo cache (Settings → Storage)
 
 ## Success Criteria
 

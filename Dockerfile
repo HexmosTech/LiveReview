@@ -4,7 +4,7 @@
 # Frozen Docker dependency versions - see docker/docker-deps.env (single source of truth).
 # scripts/lrops.py injects these as --build-arg for every build.
 ARG NODE_IMAGE_TAG=20.20.2-alpine
-ARG GOLANG_IMAGE_TAG=1.26.8-bookworm
+ARG GOLANG_IMAGE_TAG=1.26.9-bookworm
 ARG DEBIAN_IMAGE_TAG=trixie-20260824-slim
 
 # Stage 1: Build React UI
@@ -121,7 +121,7 @@ LABEL description="LiveReview - AI-powered code review tool"
 
 # Frozen Docker dependency versions - see docker/docker-deps.env
 ARG VLCONVERT_VERSION=v1.9.0
-ARG CODEBASE_MEMORY_MCP_VERSION=v0.10.8
+ARG CODEBASE_MEMORY_MCP_VERSION=v0.9.0
 ARG DBCTX_VERSION=v0.1.0
 ARG ALAWS_VERSION=v0.1.0
 
@@ -130,6 +130,7 @@ RUN echo "🔧 Installing runtime dependencies..." && \
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    git \
     postgresql-client \
     tzdata \
     unzip \

@@ -12,10 +12,12 @@
 // Back/Forward buttons via the router's normal history subscription.
 import React, { useEffect, useMemo, useState } from 'react';
 import classNames from 'classnames';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Button, EmptyState, Icons, Spinner } from '../../UIPrimitives';
 import { getBlastRadiusReport, getDiffReview } from '../../../api/reviews';
-import { BlastRadiusHunkReport, DiffReviewFile, DiffReviewStatusResponse } from '../../../types/reviews';
+import { BlastRadiusHunkReport, BlastRadiusSkipped, DiffReviewFile, DiffReviewStatusResponse, isBlastRadiusSkipped } from '../../../types/reviews';
+import { useOrgContext } from '../../../hooks/useOrgContext';
+import { isCloudMode } from '../../../utils/deploymentMode';
 import { attachBlastData, buildBlastLookup, flattenFilesByRisk, hasBlastRadiusData, sortFilesByBlastRadius } from '../../../lib/blastRadius';
 import { commentDomId, fileNavId, scrollElementIntoViewBelowStickyBars } from './diffUtils';
 import {
@@ -109,6 +111,7 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [blastLookup, setBlastLookup] = useState<Map<string, BlastRadiusHunkReport> | undefined>(undefined);
+  const [blastSkipped, setBlastSkipped] = useState<BlastRadiusSkipped | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('risk-flat');
   const [expandedFiles, setExpandedFiles] = useState<Record<string, boolean>>({});
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
@@ -148,19 +151,31 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId }) => {
   }, [reviewId]);
 
   useEffect(() => {
-    // Blast radius is opportunistic — only reviews run via `git lrc review`
-    // ever have one. A 404 here is the common case, not an error; leave
-    // blastLookup undefined so hunks simply render without a RiskBadge.
+    // Blast radius comes from `git lrc review` or the server-side job, which runs alongside the
+    // review; until it lands (404), re-check every 30s for up to its 15 min timeout.
     let cancelled = false;
-    getBlastRadiusReport(reviewId)
-      .then((report) => {
-        if (!cancelled) setBlastLookup(buildBlastLookup(report));
-      })
-      .catch(() => {
-        if (!cancelled) setBlastLookup(undefined);
-      });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+    setBlastSkipped(null);
+    setBlastLookup(undefined);
+    const load = () => {
+      getBlastRadiusReport(reviewId)
+        .then((report) => {
+          if (cancelled) return;
+          if (isBlastRadiusSkipped(report)) {
+            setBlastSkipped(report);
+          } else {
+            setBlastLookup(buildBlastLookup(report));
+          }
+        })
+        .catch(() => {
+          if (!cancelled && ++attempts < 30) timer = setTimeout(load, 30000);
+        });
+    };
+    load();
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [reviewId]);
 
@@ -309,6 +324,8 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId }) => {
       <div className="min-w-0 flex-1 space-y-4">
         <SummaryPanel reviewId={reviewId} summary={data.summary} files={files} quiz={quiz} onOpenFile={jumpToFileByPath} />
 
+        {blastSkipped && <BlastSkippedNotice skipped={blastSkipped} />}
+
         {/* Toolbar row (sort mode + Expand All) — NOT sticky, matching
             git-lrc: only IssueFilterBar itself is sticky (styles.css:4969),
             the Toolbar above it just scrolls away normally. */}
@@ -367,6 +384,40 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId }) => {
         </div>
       </div>
       <CommentNav comments={navComments} active onNavigate={jumpToComment} />
+    </div>
+  );
+};
+
+// Why server-side blast radius didn't run, with a way to fix it for whoever can.
+const BlastSkippedNotice: React.FC<{ skipped: BlastRadiusSkipped }> = ({ skipped }) => {
+  // Same gate as Settings → Storage (Settings.tsx canManageInstanceConfig).
+  const { isSuperAdmin, currentOrg } = useOrgContext();
+  const canManageCache = isSuperAdmin || (currentOrg?.role === 'owner' && !isCloudMode());
+  const why =
+    skipped.reason === 'repo_too_large'
+      ? `This repo (${skipped.repo_gb} GB) is larger than the blast radius cache (${skipped.max_gb} GB).`
+      : skipped.reason === 'low_disk'
+        ? 'The server was low on disk space when this review ran.'
+        : 'Blast radius could not run for this review.';
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm">
+      <span className="mt-0.5 flex-shrink-0 text-amber-400">
+        <Icons.Warning />
+      </span>
+      <div>
+        <p className="font-medium text-amber-300">No blast radius for this review</p>
+        <p className="mt-0.5 text-amber-200/80">
+          {why}{' '}
+          {skipped.reason === 'repo_too_large' &&
+            (canManageCache ? (
+              <Link to="/settings#storage" className="font-semibold text-amber-300 underline hover:text-amber-200">
+                Increase cache size
+              </Link>
+            ) : (
+              'Ask an admin to increase the cache size in Settings → Storage.'
+            ))}
+        </p>
+      </div>
     </div>
   );
 };

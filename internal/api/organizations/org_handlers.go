@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/blastradius/repocache"
 )
 
 type OrganizationHandlers struct {
@@ -216,6 +217,9 @@ func (h *OrganizationHandlers) DeactivateOrganization(c echo.Context) error {
 		h.logger.Printf("Error deactivating organization: %v", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to deactivate organization")
 	}
+
+	// Drop the org's cached blast-radius clones; best-effort, in the background.
+	go repocache.RemoveScope(repocache.DefaultRoot, orgID, 0)
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message": "Organization deactivated successfully",

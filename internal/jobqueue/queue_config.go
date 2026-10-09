@@ -413,5 +413,9 @@ func (c *QueueConfig) RiverQueueConfig() map[string]river.QueueConfig {
 		"seed_demo_activity": {
 			MaxWorkers: 1, // Low-volume, at most a few jobs a day
 		},
+		// One at a time: indexing a big repo is CPU/RAM heavy and must not starve reviews.
+		"blast_radius": {
+			MaxWorkers: 1,
+		},
 	}
 }

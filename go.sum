@@ -75,6 +75,12 @@ github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapp
 github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.55.0/go.mod h1:Mf6O40IAyB9zR/1J8nGDDPirZQQPbYJni8Yisy7NTMc=
 github.com/HexmosTech/deidentify v1.0.0 h1:yC+CMoFdkyGNgSU4gEyB/AAJbJ3KLjqNuNe3Km/LCDA=
 github.com/HexmosTech/deidentify v1.0.0/go.mod h1:1+fAOPPy8g/7KoF+OOY673j+3BxAs8xTzjlkNKgMWjU=
+github.com/HexmosTech/git-lrc/blastradius v0.0.0-20261009104557-0cc6cb4e1a6c h1:ARY/iCSKMhvEWX3nG5OJVKQEsKc97l/rAsHUICmbozQ=
+github.com/HexmosTech/git-lrc/blastradius v0.0.0-20261009104557-0cc6cb4e1a6c/go.mod h1:uAX2wgGb22UPGzmXVs6b8rKRzZnEkfFlnhxiv/ewp9M=
+github.com/HexmosTech/git-lrc/blastradius v0.0.0-20261009151730-cb9fce8104d0 h1:4RTFP63IZ6cJJ+ibkAQ9m9sQbCa4Kxu0lkuiKw2++bQ=
+github.com/HexmosTech/git-lrc/blastradius v0.0.0-20261009151730-cb9fce8104d0/go.mod h1:uAX2wgGb22UPGzmXVs6b8rKRzZnEkfFlnhxiv/ewp9M=
+github.com/HexmosTech/git-lrc/blastradius v0.1.0 h1:fiykl9PI7plYe6cnKYT6uojVlzr8/EJb3sZ5Om+W4L8=
+github.com/HexmosTech/git-lrc/blastradius v0.1.0/go.mod h1:uAX2wgGb22UPGzmXVs6b8rKRzZnEkfFlnhxiv/ewp9M=
 github.com/KyleBanks/depth v1.2.1 h1:5h8fQADFrWtarTdtDudMmGsC7GPbOAu6RVB3ffsVFHc=
 github.com/KyleBanks/depth v1.2.1/go.mod h1:jzSb9d0L43HxTQfT+oSA1EEp2q+ne2uh6XgeJcm8brE=
 github.com/Masterminds/goutils v1.1.1 h1:5nUrii3FMTL5diU80unEVvNevw1nH4+ZV4DSLVJLSYI=

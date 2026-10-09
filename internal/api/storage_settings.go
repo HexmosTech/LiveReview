@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/livereview/internal/blastradius/repocache"
 	"github.com/livereview/internal/blobstore"
 	"github.com/rs/zerolog/log"
 )
@@ -129,4 +131,42 @@ func (s *Server) TestStorageSettings(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"message": "Storage connection succeeded"})
+}
+
+// blastRadiusCacheResponse is the Settings → Storage "Blast Radius Repo Cache" section.
+type blastRadiusCacheResponse struct {
+	repocache.Settings
+	MinGB int `json:"min_gb"`
+	repocache.Usage
+}
+
+// GetBlastRadiusCacheSettings returns the cache on/off switch, size limit and current usage.
+func (s *Server) GetBlastRadiusCacheSettings(c echo.Context) error {
+	settings, err := repocache.LoadSettings(c.Request().Context(), s.db)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to load blast radius cache settings")
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to load blast radius cache settings"})
+	}
+	return c.JSON(http.StatusOK, blastRadiusCacheResponse{settings, repocache.MinGB, repocache.GetUsage(repocache.DefaultRoot)})
+}
+
+// UpdateBlastRadiusCacheSettings saves the switch and size limit; a lower limit evicts right away.
+func (s *Server) UpdateBlastRadiusCacheSettings(c echo.Context) error {
+	// Shrinking the cache deletes cached repos for every org, so require a real session (CLAUDE.md session-only gating).
+	if authMethod, _ := c.Get(authMethodContextKey).(string); authMethod == authMethodAPIKey {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "This setting can only be changed from a signed-in session, not an API key"})
+	}
+	var req repocache.Settings
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request payload"})
+	}
+	if req.MaxGB < repocache.MinGB || req.MaxGB > 10000 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("Cache size must be between %d and 10000 GB", repocache.MinGB)})
+	}
+	if err := repocache.SaveSettings(c.Request().Context(), s.db, req); err != nil {
+		log.Error().Err(err).Msg("Failed to save blast radius cache settings")
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to save blast radius cache settings"})
+	}
+	go repocache.Evict(repocache.DefaultRoot, req.MaxBytes())
+	return c.JSON(http.StatusOK, map[string]string{"message": "Blast radius cache settings updated successfully"})
 }

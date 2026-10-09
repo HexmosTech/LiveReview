@@ -400,3 +400,15 @@ export interface BlastRadiusReport {
   Files: BlastRadiusFileReport[];
   ImpactedPackages?: BlastRadiusPackageImpact[];
 }
+
+// Stored instead of a report when the server-side job couldn't run
+// (internal/jobqueue/blast_radius_worker.go saveSkipped).
+export interface BlastRadiusSkipped {
+  status: 'skipped';
+  reason: 'repo_too_large' | 'low_disk' | string;
+  repo_gb: number;
+  max_gb: number;
+}
+
+export const isBlastRadiusSkipped = (r: BlastRadiusReport | BlastRadiusSkipped): r is BlastRadiusSkipped =>
+  (r as BlastRadiusSkipped).status === 'skipped';

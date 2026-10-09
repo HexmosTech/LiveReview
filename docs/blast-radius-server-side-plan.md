@@ -1,6 +1,6 @@
 # Server-side blast radius scoring
 
-## Status: proposal — not implemented
+## Status: implemented on branch `blast-radius` (phases 0–5), not yet tested end to end
 
 ## Problem
 
@@ -156,39 +156,41 @@ Optional later: tag releases as `blastradius/vX.Y.Z` in git-lrc (Go's convention
      Pass the token through a credential helper / env, never in a logged URL or in `repo/.git/config`. SSH is not used: it would need a key registered per repo (GitHub deploy keys can't be shared across repos) or a machine-user account, plus `known_hosts` per git host, while every connector already has a token.
 
 2. **Graph index**
-   - Use the `codebase-memory-mcp` binary already in the Docker image (`docker/docker-deps.env`, v0.10.8). git-lrc is tested against v0.9.0 — confirm query output still matches with one real run.
-   - Confirm where it stores its index and point it inside the per-org repo cache dir, so indexes are tenant-isolated and incremental.
+   - The Docker image's `codebase-memory-mcp` is pinned to **v0.9.0** (same as git-lrc's `graphengine.PinnedVersion`) and locked in `PINNED_DOCKER_DEPS`. v0.10.x prints `query_graph` results as text even with `--json`, which the engine can't parse (checked with v0.10.8). Bump only together with git-lrc.
+   - Indexes go to `/app/lrdata/blastradius/index/` via `CBM_CACHE_DIR`; each index file is named after the repo's full cache path (which includes org and connector), so they never collide across tenants. Indexes are big (prometheus: 126 MB index vs 44 MB repo), so `max_gb` and eviction (step 6) must count and delete them together with the repo.
 
 3. **Scoring engine** — Option B above: `go get github.com/HexmosTech/git-lrc/blastradius@<commit>`, call `blastradius.ScoreHunks`.
 
 4. **Job** — `internal/jobqueue/blast_radius_worker.go`
-   - `BlastRadiusJobArgs{OrgID, ReviewID}`, `Kind() = "blast_radius"`, registered like the other workers in `jobqueue.go`.
-   - Enqueued **in the same place the review job is enqueued** (`internal/jobqueue/jobqueue.go`, alongside the webhook/manual review job), so both run in parallel. It has no dependency on the review job.
-   - Not enqueued for `cli_diff` reviews — git-lrc uploads its own report (its local graph is the better source).
-   - Diff source: fetch the PR diff with the same provider call the UI uses (`fetchLiveDiffFromPR` / `fetchLiveDiffFromMetadata` — move these out of `internal/api` so the worker can call them). Webhook/manual reviews never persist their diff (only `cli_diff` stores `preloaded_changes`), and the UI joins on `file:new_start:new_lines`, so scoring the same provider diff the UI renders is what keeps the keys matching.
-   - Take `head_sha` from the same MR details call, so the checkout matches the diff being scored.
-   - Save via `blobstore.SaveArtifact` + `replicateBlastRadiusToPostgres` (move the latter out of `internal/api` so the worker can call it).
-   - Best-effort: timeout (~15 min, same as the CLI), low concurrency (1–2), failures logged, never retried in a loop, never affects the review.
+   - `BlastRadiusJobArgs{OrgID, ReviewID}`, `Kind() = "blast_radius"`, on its own `blast_radius` River queue with 1 worker, so indexing never takes a review worker.
+   - Enqueued inside `QueueManualReviewJob`, right after the review job, so both run in parallel. Every PR review that creates a review row goes through it: the UI "review this PR" button, the API/MCP trigger and the PR list trigger. Comment-triggered webhook reviews create no review row, so they have nothing to attach a report to.
+   - Skipped (logged, nothing saved): `cli_diff` reviews (git-lrc uploads its own report), scheduled reviews (no PR, `pr_mr_url` is empty), reviews without a connector, Bitbucket PRs whose source branch isn't known.
+   - Repo and PR come from the review row, all queries scoped by `org_id`: `pr_mr_url` gives the clone URL and PR number for every provider; the connector (`integration_tokens`) gives the token, using the same PAT-vs-OAuth choice as `buildProviderConfig`; `pull_requests` (when linked) gives the base and source branch. The token is only ever sent to the connector's own host.
+   - Diff source: `git diff -M <merge-base> <head>` from the cached checkout (repocache), no provider API.
+   - Save via `blobstore.SaveArtifact` + `storageblastradius.Store.ReplaceFromReport` (moved out of `internal/api`; the CLI upload handler uses it too).
+   - Best-effort: 15 min timeout, `MaxAttempts: 1`, every failure logged and the job returns success, never affects the review.
+   - **Repo too large for the cache** (phase 5, needs `max_gb`): 5 GB covers almost every repo without blobs. After the clone + index, if the repo alone is bigger than `max_gb`, delete it, write a `<owner>__<repo>.too_large` marker with the measured size, and save a small `blast-radius` artifact `{ "status": "skipped", "reason": "repo_too_large", "repo_gb": 7.2, "max_gb": 5 }` instead of a report. Later reviews of that repo skip straight away (no re-clone) until `max_gb` is raised above the recorded size. The skipped artifact ships together with the UI that renders it, since today's panel expects a full report.
 
 5. **Settings — Settings → Storage → "Blast Radius Repo Cache"**
    - Stored as one `system_settings` row (`blast_radius_cache`): `{ "enabled": true, "max_gb": 5 }`. Read fresh on every job/sweep, like `blob_storage`, so changes apply without a restart.
    - **Enabled by default.** Instance-wide; a per-org toggle can come later.
-   - **Cache size** is set in the UI: minimum **5 GB** (default), admins can raise it (10 GB, 15 GB, ...) to keep more repos warm. The API rejects values below 5.
+   - **Cache size** is set in the UI: default **5 GB**, minimum **1 GB**; admins can raise it (10 GB, 15 GB, ...) to keep more repos warm. The API rejects values below 1.
    - The section shows current cache usage (used / max GB, number of cached repos) so admins can see when to raise the limit.
    - Same access as the rest of the Storage tab: `adminOrOwnerGroup` (`/settings/storage/...` in `server.go`) — self-hosted owners and super admins; super-admin only in cloud.
    - Mega menu: add a `link('Blast Radius Repo Cache', ..., '/settings#storage', ...)` next to the existing Storage / Log Compaction / Preloaded Changes Archival entries in `megaMenuData.ts`, with the same predicate as `Storage`.
-   - **Install requirement**: document "at least 5 GB free disk on the `lrdata` volume" in the self-hosted install docs. If free space on the volume drops below the configured `max_gb`, the job still runs but the section shows a warning.
+   - **Install requirement**: document "at least 5 GB free disk on the `lrdata` volume" in the self-hosted install docs. If free space on the volume is too low for a clone, the job is skipped with the same notice as a too-large repo (step 4).
 
-6. **Cache eviction (least-recently-used, size-based)** — a periodic River job plus a check after every clone/fetch, no new tables.
-   - Measure total size of `/app/lrdata/blastradius/`. While it's over `max_gb`, delete the repo dir with the oldest `.lastused`. Repos that are reviewed often keep getting touched, so they stay; rarely used repos are removed first.
-   - Never evict a repo whose `.lock` is held (a job is using it).
-   - Run `git gc --prune=now` on the repos that remain.
-   - Delete the `<connector_id>/` dir when its connector is removed, and the `<org_id>/` dir when the org is deactivated.
-   - No separate age limit: size-based eviction already removes idle repos once space is needed.
+6. **Cache eviction (least-recently-used, size-based)** — at the end of every job, plus right away when an admin saves a lower cache size. No periodic job: the cache only grows when a job runs. No new tables.
+   - Size of a cached repo = its folder + its graph index files (`index/<project>.db*`, named in the repo's `.index` file). While the whole cache is over `max_gb`, delete the repo with the oldest `.lastused`, together with its index. Repos that are reviewed often keep getting touched, so they stay; rarely used repos are removed first.
+   - Never evict a repo a job is using right now (its in-process lock is held).
+   - If the repo the job just used is itself bigger than `max_gb`: its report is still saved this time, then the repo is deleted and a `<owner>__<repo>.too_large` marker records its size. Later reviews of that repo save a "skipped: repo too large" notice without cloning, until `max_gb` is raised above the recorded size.
+   - Under 1 GB free disk on the volume: the job saves a "skipped: low disk" notice instead of cloning.
+   - A connector's cached repos are deleted when the connector is deleted; an org's when the org is deactivated.
+   - No separate age limit and no `git gc` for now: size-based eviction already removes idle repos once space is needed.
 
 7. **Docs**
    - CLAUDE.md "Artifact sync channel": note the server can now compute blast radius for webhook/UI reviews.
-   - `internal/docindex/docs/routes_guide/reviews/review-detail.md`: blast radius is no longer CLI-only.
+   - `internal/docindex/docs/routes_guide/reviews/review-detail.md`: blast radius is no longer CLI-only; explain the "repo too large" notice and where to raise the cache size.
    - `internal/docindex/docs/routes_guide/settings/storage.md`: the new Blast Radius Repo Cache section (toggle, size, usage).
    - Self-hosted install docs: at least 5 GB free on the `lrdata` volume.
 
@@ -196,11 +198,13 @@ Optional later: tag releases as `blastradius/vX.Y.Z` in git-lrc (Go's convention
 
 - All providers from the start. Both provider-facing parts are already provider-agnostic: the clone is one HTTPS implementation (step 1, only the username differs), and the PR diff + `head_sha` come from `fetchLiveDiffFromPR`, which goes through the existing provider factory (GitHub, GitLab, Bitbucket, Gitea, Azure DevOps). Test GitHub end to end first, then verify the others.
 - Fork PRs need the provider's PR ref (`refs/pull/<n>/head` on GitHub, `refs/merge-requests/<n>/head` on GitLab); providers without such a ref (e.g. Bitbucket Cloud) are skipped for fork PRs in v1.
-- Only UI change: the Blast Radius Repo Cache section in Settings → Storage (plus its mega-menu link). The review page itself is unchanged.
+- UI changes:
+  - The Blast Radius Repo Cache section in Settings → Storage (plus its mega-menu link).
+  - Review page: when the artifact says `skipped`, the Blast Radius panel shows why, e.g. "This repo (7.2 GB) is larger than the blast radius cache (5 GB)." Owners/admins get a link "Increase cache size" → `/settings#storage`; members see "Ask an admin to increase the cache size in Settings → Storage" (they can't open that tab).
 
 ## Risks / open questions
 
-- **Disk**: roughly one source tree + ~1 year of commit metadata + graph index per repo, capped by the admin-set `max_gb` (min 5 GB, step 5). If one repo is bigger than `max_gb`, it is evicted after every job and re-cloned each time; the usage display should make that visible.
+- **Disk**: roughly one source tree + ~1 year of commit metadata + graph index per repo, capped by the admin-set `max_gb` (default 5 GB, min 1 GB, step 5). A repo bigger than `max_gb` is skipped and the review page says so, with a link to raise the limit (step 4).
 - **Rename detection off**: with `diff.renames=false`, a renamed file shows up under both its old and new name in co-change data. Small effect; turn it back on if it matters (costs a one-time lazy download).
 - **Engine history window** (`--since="1 year ago"`) is read from the v0.9.0 binary; re-check it for v0.10.8 and keep `--shallow-since` a month wider.
 - **CPU/RAM**: first index of a large repo takes minutes; concurrency must stay low so it doesn't starve review workers.

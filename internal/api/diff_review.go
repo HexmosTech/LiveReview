@@ -14,7 +14,6 @@ import (
 
 	"github.com/labstack/echo/v4"
 	apimiddleware "github.com/livereview/internal/api/middleware"
-	"github.com/livereview/internal/blastradius"
 	"github.com/livereview/internal/blobstore"
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/license"
@@ -467,18 +466,8 @@ func (s *Server) PutDiffReviewArtifact(c echo.Context) error {
 // storage/blastradius.Store.ReplaceHunksForReview for why this is a
 // delete-then-insert, not an upsert.
 func (s *Server) replicateBlastRadiusToPostgres(ctx context.Context, orgID, reviewID int64, payload json.RawMessage) {
-	var report blastradius.Report
-	if err := json.Unmarshal(payload, &report); err != nil {
-		log.Printf("blast radius: failed to parse artifact for review %d, skipping Postgres replication: %v", reviewID, err)
-		return
-	}
-	var hunks []blastradius.HunkReport
-	for _, f := range report.Files {
-		hunks = append(hunks, f.Hunks...)
-	}
-	store := storageblastradius.NewStore(s.db)
-	if err := store.ReplaceHunksForReview(ctx, orgID, reviewID, hunks); err != nil {
-		log.Printf("blast radius: failed to replicate %d hunks to Postgres for review %d: %v", len(hunks), reviewID, err)
+	if err := storageblastradius.NewStore(s.db).ReplaceFromReport(ctx, orgID, reviewID, payload); err != nil {
+		log.Printf("blast radius: failed to replicate artifact to Postgres for review %d: %v", reviewID, err)
 	}
 }
 
