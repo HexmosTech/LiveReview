@@ -204,7 +204,7 @@ func (s *Server) GetConversation(c echo.Context) error {
 		var suggestedQuestions []mcpagent.SuggestedQuestionCategory
 		var actionCard *mcpagent.ActionCard
 		for _, entry := range m.RawHistoryEntries {
-			if ac, ok := entry["action_card"]; ok && ac != nil && actionCard == nil {
+			if ac, ok := entry["action_card"]; ok && ac != nil {
 				if b, err := json.Marshal(ac); err == nil {
 					var card mcpagent.ActionCard
 					if err := json.Unmarshal(b, &card); err == nil {
@@ -212,7 +212,7 @@ func (s *Server) GetConversation(c echo.Context) error {
 					}
 				}
 			}
-			if sq, ok := entry["suggested_questions"]; ok && sq != nil && len(suggestedQuestions) == 0 {
+			if sq, ok := entry["suggested_questions"]; ok && sq != nil {
 				if b, err := json.Marshal(sq); err == nil {
 					var cats []mcpagent.SuggestedQuestionCategory
 					if err := json.Unmarshal(b, &cats); err == nil {
