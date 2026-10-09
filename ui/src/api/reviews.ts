@@ -8,6 +8,7 @@ import {
   ReviewAccounting,
   DiffReviewStatusResponse,
   BlastRadiusReport,
+  BlastRadiusSkipped,
   ReviewCommitsResponse
 } from '../types/reviews';
 
@@ -176,16 +177,14 @@ export const getDiffReview = async (reviewId: number): Promise<DiffReviewStatusR
 };
 
 /**
- * Get the blast-radius report git-lrc uploaded for a review, if any. Most
- * reviews won't have one (only ones actually run via `git lrc review` with
- * a local codebase-memory-mcp graph do) — callers should treat a 404 as
- * "nothing to show", not an error.
+ * Get the blast-radius report for a review (uploaded by git-lrc or computed by
+ * the server-side job), or a "skipped" notice. A 404 means "nothing to show".
  * @param reviewId The ID of the review
  * @returns Promise with the blast radius report
  */
-export const getBlastRadiusReport = async (reviewId: number): Promise<BlastRadiusReport> => {
+export const getBlastRadiusReport = async (reviewId: number): Promise<BlastRadiusReport | BlastRadiusSkipped> => {
   try {
-    return await apiClient.get<BlastRadiusReport>(`/api/v1/diff-review/${reviewId}/artifacts/blast-radius`);
+    return await apiClient.get<BlastRadiusReport | BlastRadiusSkipped>(`/api/v1/diff-review/${reviewId}/artifacts/blast-radius`);
   } catch (error) {
     console.error('Error fetching blast radius report:', error);
     throw error;

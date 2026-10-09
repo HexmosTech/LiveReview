@@ -2439,6 +2439,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, preloadedChangesArchivalSweepWorker)
 	river.AddWorker(workers, preloadedChangesArchivalPurgeWorker)
 	river.AddWorker(workers, seedDemoWorker)
+	river.AddWorker(workers, &BlastRadiusWorker{db: db})
 
 	coordinatorInterval := config.RepoSyncConfig.CoordinatorInterval
 	if coordinatorInterval <= 0 {
@@ -2664,6 +2665,10 @@ func (jq *JobQueue) QueueManualReviewJob(ctx context.Context, orgID int64, planC
 	if err != nil {
 		log.Printf("[ERROR] Failed to queue manual review job: %v", err)
 		return fmt.Errorf("failed to queue manual review job: %w", err)
+	}
+	// Blast radius runs in parallel with the review; it's best-effort, so a queue error never fails the review.
+	if _, err := jq.client.Insert(ctx, BlastRadiusJobArgs{OrgID: orgID, ReviewID: reviewID}, &river.InsertOpts{Queue: "blast_radius", MaxAttempts: 1}); err != nil {
+		log.Printf("[WARN] Failed to queue blast radius job for review %d: %v", reviewID, err)
 	}
 	return nil
 }

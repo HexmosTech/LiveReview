@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/livereview/internal/blastradius/repocache"
 	giteaprovider "github.com/livereview/internal/provider_input/gitea"
 	githubprovider "github.com/livereview/internal/provider_input/github"
 	gitlabprovider "github.com/livereview/internal/provider_input/gitlab"
@@ -480,7 +481,8 @@ func (s *Server) DeleteConnector(c echo.Context) error {
 	}
 
 	// Validate connector ownership
-	if _, err := s.validateConnectorOwnership(c, id); err != nil {
+	connectorOrgID, err := s.validateConnectorOwnership(c, id)
+	if err != nil {
 		return err
 	}
 
@@ -549,6 +551,9 @@ func (s *Server) DeleteConnector(c echo.Context) error {
 			Error: "Connector not found",
 		})
 	}
+
+	// Drop this connector's cached blast-radius clones; best-effort, in the background.
+	go repocache.RemoveScope(repocache.DefaultRoot, connectorOrgID, int64(id))
 
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": "Connector deleted successfully",

@@ -26,7 +26,10 @@ Any authenticated org member; the review must belong to their org
 
 ## Blast-radius scoring and ordering
 
-For reviews run through the git-lrc CLI with blast radius, the diff viewer
+Reviews run through the git-lrc CLI upload their own blast-radius report. PR
+reviews started from LiveReview (UI, API, MCP, the PR list) get one from a
+server-side job that runs alongside the AI review, so the scores can appear a
+little after the findings. When either exists, the diff viewer
 (`DiffViewerPanel`) orders hunks by a risk score instead of plain diff order.
 The score blends three dimensions:
 
@@ -42,6 +45,15 @@ The "Score: Whole" / "Score: Per file" / "Diff order" control switches between
 the whole-diff ranking, per-file ranking, and original diff order. Each hunk's
 breakdown panel (Summary and Math Mode tabs) shows the exact math behind its
 score, including the finding-severity contribution.
+
+If the server couldn't compute blast radius, the page shows a "No blast radius
+for this review" notice saying why:
+
+- **Repo too large for the cache** — the repo (shallow clone + code graph) is
+  bigger than the Blast Radius Repo Cache size. Owners/super admins get an
+  "Increase cache size" link to Settings → Storage; members are told to ask an
+  admin. Reviews after the size is raised get blast radius again.
+- **Low disk space** — the server had under 1 GB free when the review ran.
 
 ## Related pages
 

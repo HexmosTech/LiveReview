@@ -19,6 +19,14 @@ switching backends or rotating credentials needs no redeploy. See
 - Choose and configure the storage backend: local filesystem, S3-compatible
   (AWS S3, Backblaze B2), Google Cloud Storage, or Azure Blob Storage.
 - Enter/rotate credentials for the selected backend.
+- **Blast Radius Repo Cache** section: turn server-side blast radius on/off
+  (on by default) and set the cache size (default 5 GB, minimum 1 GB). The
+  server keeps a shallow clone + code graph of each reviewed repo under
+  `lrdata/blastradius/` and removes the least-recently-used repos when the
+  cache is full. Shows how much is used and how many repos are cached. Raise
+  the size when a review says its repo is too large for the cache. Backed by
+  the `system_settings` row `blast_radius_cache`
+  (`/api/v1/admin/settings/blast-radius-cache`).
 
 ## Related pages
 

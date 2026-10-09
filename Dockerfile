@@ -121,7 +121,7 @@ LABEL description="LiveReview - AI-powered code review tool"
 
 # Frozen Docker dependency versions - see docker/docker-deps.env
 ARG VLCONVERT_VERSION=v1.9.0
-ARG CODEBASE_MEMORY_MCP_VERSION=v0.10.8
+ARG CODEBASE_MEMORY_MCP_VERSION=v0.9.0
 ARG DBCTX_VERSION=v0.1.0
 ARG ALAWS_VERSION=v0.1.0
 
@@ -130,6 +130,7 @@ RUN echo "🔧 Installing runtime dependencies..." && \
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    git \
     postgresql-client \
     tzdata \
     unzip \

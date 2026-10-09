@@ -4,6 +4,7 @@ import apiClient from '../../api/apiClient';
 import { notify } from '../../utils/notify';
 import CompactionSettingsTab from './CompactionSettingsTab';
 import PreloadedChangesArchivalSettingsTab from './PreloadedChangesArchivalSettingsTab';
+import BlastRadiusCacheSettingsTab from './BlastRadiusCacheSettingsTab';
 
 import { isCloudMode } from '../../utils/deploymentMode';
 import { useOrgContext } from '../../hooks/useOrgContext';
@@ -328,6 +329,14 @@ const StorageSettingsTab: React.FC = () => {
                     {/* Section 3: Preloaded Changes Archival */}
                     <div id="preloaded-changes-archival">
                         <PreloadedChangesArchivalSettingsTab />
+                    </div>
+
+                    {/* Divider */}
+                    <div className="my-10 border-t border-slate-700/80"></div>
+
+                    {/* Section 4: Blast Radius Repo Cache */}
+                    <div id="blast-radius-cache">
+                        <BlastRadiusCacheSettingsTab />
                     </div>
                 </>
             )}

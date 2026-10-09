@@ -35,6 +35,7 @@ CHECKS=(
     "riverui|riverui --help"
     "vl-convert|vl-convert --version"
     "codebase-memory-mcp|codebase-memory-mcp --version"
+    "git|git --version"
     "dbctx|dbctx --help"
     "alaws|alaws --help"
 )

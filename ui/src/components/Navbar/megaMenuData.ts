@@ -245,6 +245,7 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
                 link('Storage', React.createElement(Icons.Folder), '/settings#storage', (ctx) => ctx.isSuperAdmin || (ctx.orgRole === 'owner' && !isCloudMode())),
                 link('Log Compaction', React.createElement(Icons.Clock), '/settings#storage', (ctx) => ctx.isSuperAdmin),
                 link('Preloaded Changes Archival', React.createElement(Icons.Folder), '/settings#storage', (ctx) => ctx.isSuperAdmin || (ctx.orgRole === 'owner' && !isCloudMode())),
+                link('Blast Radius Repo Cache', React.createElement(Icons.Folder), '/settings#storage', (ctx) => ctx.isSuperAdmin || (ctx.orgRole === 'owner' && !isCloudMode())),
             ], React.createElement(Icons.Settings)),
         ],
     },

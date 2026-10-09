@@ -38,6 +38,20 @@ func HunkKey(filePath string, newStart, newLines int) string {
 	return fmt.Sprintf("%s:%d:%d", filePath, newStart, newLines)
 }
 
+// ReplaceFromReport parses a blast-radius artifact (git-lrc upload or server job)
+// and replaces reviewID's rows with its hunks.
+func (s *Store) ReplaceFromReport(ctx context.Context, orgID, reviewID int64, payload []byte) error {
+	var report blastradius.Report
+	if err := json.Unmarshal(payload, &report); err != nil {
+		return fmt.Errorf("parse blast-radius report: %w", err)
+	}
+	var hunks []blastradius.HunkReport
+	for _, f := range report.Files {
+		hunks = append(hunks, f.Hunks...)
+	}
+	return s.ReplaceHunksForReview(ctx, orgID, reviewID, hunks)
+}
+
 // ReplaceHunksForReview computes MathMode+Tier for every hunk (via
 // internal/blastradius.ComputeMathMode/Tier) and atomically replaces
 // reviewID's rows. A delete-then-insert, not an upsert: a re-uploaded
