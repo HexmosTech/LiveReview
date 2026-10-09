@@ -70,3 +70,5 @@ The `/api/v1/chat/send` endpoint returns a structured JSON payload (`WebChatResp
 ```
 
 By passing `is_error: true`, the React frontend (`ChatConversation.tsx`) automatically wraps the response in a red error blockquote and displays the provided `action_card`.
+
+
