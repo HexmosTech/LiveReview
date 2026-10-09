@@ -91,6 +91,9 @@ function countWords(text) {
 
 function extractPlainText(html) {
   const raw = html || '';
+  if (typeof DOMParser !== 'undefined') {
+    return new DOMParser().parseFromString(raw, 'text/html').body.textContent || '';
+  }
   return raw.replace(/<[^>]+>/g, ' ');
 }
 
