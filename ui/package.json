@@ -118,7 +118,6 @@
     "react-vega": "^8.0.0",
     "redux": "^5.0.1",
     "redux-thunk": "^3.1.0",
-    "shell-quote": "^1.9.0",
     "thinking-orbs": "^0.2.0",
     "vega": "^6.3.1",
     "vega-embed": "^7.1.0",
@@ -174,6 +173,11 @@
     "@opentelemetry/core": "^2.8.0",
     "dompurify": "^3.4.16",
     "undici": "^6.29.0",
+    "compression": "1.8.2",
+    "postcss-selector-parser": "7.1.6",
+    "proxy-addr": "2.0.8",
+    "shell-quote": "1.12.0",
+    "source-map-js": "1.2.2",
     "body-parser": "2.3.0"
   }
 }
