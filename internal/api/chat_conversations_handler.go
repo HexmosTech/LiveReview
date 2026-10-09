@@ -201,14 +201,14 @@ func (s *Server) GetConversation(c echo.Context) error {
 				Rows:        f.Rows,
 			})
 		}
-		var suggestedQuestions []mcpagent.SuggestedQuestionCategory
-		var actionCard *mcpagent.ActionCard
+		var actionCards []mcpagent.ActionCard
+		var suggestedQuestionsList [][]mcpagent.SuggestedQuestionCategory
 		for _, entry := range m.RawHistoryEntries {
 			if ac, ok := entry["action_card"]; ok && ac != nil {
 				if b, err := json.Marshal(ac); err == nil {
 					var card mcpagent.ActionCard
 					if err := json.Unmarshal(b, &card); err == nil {
-						actionCard = &card
+						actionCards = append(actionCards, card)
 					}
 				}
 			}
@@ -216,10 +216,19 @@ func (s *Server) GetConversation(c echo.Context) error {
 				if b, err := json.Marshal(sq); err == nil {
 					var cats []mcpagent.SuggestedQuestionCategory
 					if err := json.Unmarshal(b, &cats); err == nil {
-						suggestedQuestions = cats
+						suggestedQuestionsList = append(suggestedQuestionsList, cats)
 					}
 				}
 			}
+		}
+
+		var actionCard *mcpagent.ActionCard
+		if len(actionCards) > 0 {
+			actionCard = &actionCards[len(actionCards)-1]
+		}
+		var suggestedQuestions []mcpagent.SuggestedQuestionCategory
+		if len(suggestedQuestionsList) > 0 {
+			suggestedQuestions = suggestedQuestionsList[len(suggestedQuestionsList)-1]
 		}
 		out.Messages = append(out.Messages, ChatMessageOut{
 			ID:                 m.ID,

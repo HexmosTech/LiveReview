@@ -91,10 +91,16 @@ function countWords(text) {
 
 function extractPlainText(html) {
   const raw = html || '';
-  if (typeof DOMParser !== 'undefined') {
-    return new DOMParser().parseFromString(raw, 'text/html').body.textContent || ''; // lgtm[js/xss-through-dom]
-  }
-  return raw.replace(/<[^>]+>/g, ' ');
+  const withoutTags = raw.replace(/<[^>]+>/g, ' ');
+  return withoutTags
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function estimateReadTimeSeconds(text, title) {
