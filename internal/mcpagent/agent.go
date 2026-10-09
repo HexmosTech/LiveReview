@@ -251,9 +251,14 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 		if classifyErr != nil && err == nil {
 			category := aiconnectors.CategorizeLLMError(classifyErr)
 			if tpl, ok := LookupErrorTemplate(category); ok {
-				if len(history) > 0 {
-					lastIdx := len(history) - 1
-					fallbackText, _ := history[lastIdx]["text"].(string)
+				lastIdx := len(history) - 1
+				if lastIdx >= 0 {
+					lastEntry := history[lastIdx]
+					if lastEntry == nil {
+						lastEntry = make(HistoryEntry)
+						history[lastIdx] = lastEntry
+					}
+					fallbackText, _ := lastEntry["text"].(string)
 
 					// 1. Create the error entry with the Action Card and Debug Logs
 					errorEntry := HistoryEntry{
@@ -272,8 +277,8 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 
 					// 2. Modify the last entry (the fallback guidance)
 					newFallbackText := "However, here is some general product guidance:\n\n---\n\n" + fallbackText
-					history[lastIdx]["text"] = newFallbackText
-					history[lastIdx]["content"] = newFallbackText
+					lastEntry["text"] = newFallbackText
+					lastEntry["content"] = newFallbackText
 
 					// 3. Insert the error entry before the fallback guidance entry
 					var newHistory []HistoryEntry

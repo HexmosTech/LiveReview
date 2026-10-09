@@ -204,26 +204,21 @@ func (s *Server) GetConversation(c echo.Context) error {
 		var suggestedQuestions []mcpagent.SuggestedQuestionCategory
 		var actionCard *mcpagent.ActionCard
 		for _, entry := range m.RawHistoryEntries {
-			// After JSONB round-trip from Postgres, all values come back as
-			// generic types ([]interface{}, map[string]interface{}, etc.),
-			// not as typed Go structs. Re-marshal each entry and read the
-			// fields we care about from a plain map so type assertions are safe.
-			entryBytes, err := json.Marshal(entry)
-			if err != nil {
-				continue
-			}
-			var plain map[string]json.RawMessage
-			if err := json.Unmarshal(entryBytes, &plain); err != nil {
-				continue
-			}
-			if ac, ok := plain["action_card"]; ok && actionCard == nil {
-				var card mcpagent.ActionCard
-				if err := json.Unmarshal(ac, &card); err == nil {
-					actionCard = &card
+			if ac, ok := entry["action_card"]; ok && ac != nil && actionCard == nil {
+				if b, err := json.Marshal(ac); err == nil {
+					var card mcpagent.ActionCard
+					if err := json.Unmarshal(b, &card); err == nil {
+						actionCard = &card
+					}
 				}
 			}
-			if sq, ok := plain["suggested_questions"]; ok && len(suggestedQuestions) == 0 {
-				_ = json.Unmarshal(sq, &suggestedQuestions)
+			if sq, ok := entry["suggested_questions"]; ok && sq != nil && len(suggestedQuestions) == 0 {
+				if b, err := json.Marshal(sq); err == nil {
+					var cats []mcpagent.SuggestedQuestionCategory
+					if err := json.Unmarshal(b, &cats); err == nil {
+						suggestedQuestions = cats
+					}
+				}
 			}
 		}
 		out.Messages = append(out.Messages, ChatMessageOut{

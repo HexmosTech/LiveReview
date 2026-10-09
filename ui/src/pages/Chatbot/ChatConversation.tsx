@@ -912,7 +912,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
     pendingConversationIdRef.current = undefined;
   }, [conversationId]);
 
-  const handleSend = async (overrideText?: string | React.SyntheticEvent) => {
+  const handleSend = async (overrideText?: string) => {
     const isString = typeof overrideText === 'string';
     const text = (isString ? overrideText : input).trim();
     if (!text || isLoading) return;
