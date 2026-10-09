@@ -15,7 +15,7 @@ export function ChatErrorBlockquote({ lines, formatLine }: ChatErrorBlockquotePr
       </div>
       <div className="italic">
         {lines.slice(1).map((bLine, bIdx) => (
-          <div key={bIdx} className={bLine.trim() === '' ? 'h-2' : 'mb-1 leading-relaxed [&>*:first-child]:mt-0'}>
+          <div key={`${bIdx}-${bLine}`} className={bLine.trim() === '' ? 'h-2' : 'mb-1 leading-relaxed [&>*:first-child]:mt-0'}>
             {formatLine(bLine)}
           </div>
         ))}
