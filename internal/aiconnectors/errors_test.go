@@ -1,7 +1,9 @@
 package aiconnectors
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -54,8 +56,8 @@ func TestCategorizeLLMError(t *testing.T) {
 			want: ErrCategoryOverload,
 		},
 		{
-			name: "String Match: context deadline",
-			err:  errors.New("operation failed: context deadline exceeded"),
+			name: "Timeout: context deadline",
+			err:  fmt.Errorf("operation failed: %w", context.DeadlineExceeded),
 			want: ErrCategoryTimeout,
 		},
 		{
@@ -74,9 +76,9 @@ func TestCategorizeLLMError(t *testing.T) {
 			want: ErrCategoryDeprecated,
 		},
 		{
-			name: "String Match: error 404",
-			err:  errors.New("error 404: resource not found"),
-			want: ErrCategoryAuth,
+			name: "HTTP 404 via StatusCode()",
+			err:  &mockHTTPError{code: http.StatusNotFound, msg: "resource not found"},
+			want: ErrCategoryUnknown,
 		},
 		{
 			name: "String Match: error 502",
