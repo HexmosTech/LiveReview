@@ -6,10 +6,9 @@ import (
 	"io"
 	"net/http"
 	neturl "net/url"
-	"regexp"
-	"strconv"
 	"strings"
 
+	"github.com/livereview/internal/diffutil"
 	"github.com/livereview/pkg/models"
 	"github.com/pmezard/go-difflib/difflib"
 )
@@ -77,7 +76,7 @@ func buildCodeDiff(entry changeEntry, oldContent, newContent string) *models.Cod
 		Context:  3,
 	}
 	unified, _ := difflib.GetUnifiedDiffString(diff)
-	hunks := parseHunksFromUnifiedDiff(unified)
+	hunks := diffutil.ParseUnifiedHunks(unified)
 
 	return &models.CodeDiff{
 		FilePath:    path,
@@ -88,59 +87,6 @@ func buildCodeDiff(entry changeEntry, oldContent, newContent string) *models.Cod
 		OldFilePath: oldPath,
 		Hunks:       hunks,
 	}
-}
-
-var hunkHeaderRegex = regexp.MustCompile(`^@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@`)
-
-// parseHunksFromUnifiedDiff splits a single-file unified diff (as produced by
-// go-difflib) into DiffHunks, one per "@@ ... @@" section.
-func parseHunksFromUnifiedDiff(patch string) []models.DiffHunk {
-	if patch == "" {
-		return nil
-	}
-
-	lines := strings.Split(patch, "\n")
-	var hunks []models.DiffHunk
-	var currentHunk *models.DiffHunk
-	var hunkContent strings.Builder
-
-	for _, line := range lines {
-		if match := hunkHeaderRegex.FindStringSubmatch(line); match != nil {
-			if currentHunk != nil {
-				currentHunk.Content = strings.TrimSuffix(hunkContent.String(), "\n")
-				hunks = append(hunks, *currentHunk)
-				hunkContent.Reset()
-			}
-
-			oldStart, _ := strconv.Atoi(match[1])
-			oldCount := 1
-			if match[2] != "" {
-				oldCount, _ = strconv.Atoi(match[2])
-			}
-			newStart, _ := strconv.Atoi(match[3])
-			newCount := 1
-			if match[4] != "" {
-				newCount, _ = strconv.Atoi(match[4])
-			}
-
-			currentHunk = &models.DiffHunk{
-				OldStartLine: oldStart,
-				OldLineCount: oldCount,
-				NewStartLine: newStart,
-				NewLineCount: newCount,
-			}
-			hunkContent.WriteString(line + "\n")
-		} else if currentHunk != nil {
-			hunkContent.WriteString(line + "\n")
-		}
-	}
-
-	if currentHunk != nil {
-		currentHunk.Content = strings.TrimSuffix(hunkContent.String(), "\n")
-		hunks = append(hunks, *currentHunk)
-	}
-
-	return hunks
 }
 
 func getFileType(filename string) string {

@@ -10,6 +10,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/livereview/cmd/mrmodel/lib"
@@ -280,4 +282,57 @@ func ConvertLocalHunk(h lib.LocalDiffHunk) models.DiffHunk {
 		NewLineCount: h.NewLineCount,
 		Content:      content,
 	}
+}
+
+var hunkHeaderRegex = regexp.MustCompile(`^@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@`)
+
+// ParseUnifiedHunks splits a single-file unified diff into DiffHunks, one per
+// "@@ ... @@" section (moved from the Azure DevOps provider for reuse).
+func ParseUnifiedHunks(patch string) []models.DiffHunk {
+	if patch == "" {
+		return nil
+	}
+
+	lines := strings.Split(patch, "\n")
+	var hunks []models.DiffHunk
+	var currentHunk *models.DiffHunk
+	var hunkContent strings.Builder
+
+	for _, line := range lines {
+		if match := hunkHeaderRegex.FindStringSubmatch(line); match != nil {
+			if currentHunk != nil {
+				currentHunk.Content = strings.TrimSuffix(hunkContent.String(), "\n")
+				hunks = append(hunks, *currentHunk)
+				hunkContent.Reset()
+			}
+
+			oldStart, _ := strconv.Atoi(match[1])
+			oldCount := 1
+			if match[2] != "" {
+				oldCount, _ = strconv.Atoi(match[2])
+			}
+			newStart, _ := strconv.Atoi(match[3])
+			newCount := 1
+			if match[4] != "" {
+				newCount, _ = strconv.Atoi(match[4])
+			}
+
+			currentHunk = &models.DiffHunk{
+				OldStartLine: oldStart,
+				OldLineCount: oldCount,
+				NewStartLine: newStart,
+				NewLineCount: newCount,
+			}
+			hunkContent.WriteString(line + "\n")
+		} else if currentHunk != nil {
+			hunkContent.WriteString(line + "\n")
+		}
+	}
+
+	if currentHunk != nil {
+		currentHunk.Content = strings.TrimSuffix(hunkContent.String(), "\n")
+		hunks = append(hunks, *currentHunk)
+	}
+
+	return hunks
 }
