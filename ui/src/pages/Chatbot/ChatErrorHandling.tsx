@@ -8,6 +8,8 @@ interface ChatErrorBlockquoteProps {
 }
 
 export function ChatErrorBlockquote({ lines, formatLine }: ChatErrorBlockquoteProps) {
+  if (!lines || lines.length === 0) return null;
+  
   return (
     <blockquote className="border-l-2 border-indigo-500 text-slate-300 pl-3 pr-3 pt-0 pb-2 rounded-r-md mb-2 mt-1">
       <div className="text-indigo-400 font-bold mb-1">

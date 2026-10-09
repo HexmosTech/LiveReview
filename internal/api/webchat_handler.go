@@ -272,18 +272,22 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 
 	for _, entry := range turnEntries {
 		if rawCard, ok := entry["action_card"]; ok && rawCard != nil && resp.ActionCard == nil {
-			log.Info().Interface("rawCard", rawCard).Msg("WebChat: found action_card in turnEntries")
-			if b, err := json.Marshal(rawCard); err == nil {
-				var ac mcpagent.ActionCard
-				if err := json.Unmarshal(b, &ac); err == nil {
-					acCopy := ac
-					resp.ActionCard = &acCopy
-					log.Info().Interface("actionCard", acCopy).Msg("WebChat: successfully unmarshaled action_card")
-				} else {
-					log.Error().Err(err).Msg("WebChat: failed to unmarshal action_card")
-				}
+			if acPtr, ok := rawCard.(*mcpagent.ActionCard); ok {
+				acCopy := *acPtr
+				resp.ActionCard = &acCopy
+			} else if acVal, ok := rawCard.(mcpagent.ActionCard); ok {
+				resp.ActionCard = &acVal
 			} else {
-				log.Error().Err(err).Msg("WebChat: failed to marshal rawCard")
+				if b, err := json.Marshal(rawCard); err == nil {
+					var ac mcpagent.ActionCard
+					if err := json.Unmarshal(b, &ac); err == nil {
+						resp.ActionCard = &ac
+					} else {
+						log.Error().Err(err).Msg("WebChat: failed to unmarshal action_card fallback")
+					}
+				} else {
+					log.Error().Err(err).Msg("WebChat: failed to marshal rawCard fallback")
+				}
 			}
 		}
 		if isError, ok := entry["is_error"].(bool); ok && isError {

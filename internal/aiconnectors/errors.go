@@ -53,23 +53,20 @@ func CategorizeLLMError(err error) LLMErrorCategory {
 	}
 
 	// 3. Raw HTTP status codes from unwrapped provider clients.
-	var scErr interface{ StatusCode() int }
-	if errors.As(err, &scErr) {
-		switch scErr.StatusCode() {
-		case 401, 403:
-			return ErrCategoryAuth
-		case 429, 500, 502, 503, 504:
-			return ErrCategoryOverload
-		}
-	}
+	var code int
 	var hscErr interface{ HTTPStatusCode() int }
+	var scErr interface{ StatusCode() int }
 	if errors.As(err, &hscErr) {
-		switch hscErr.HTTPStatusCode() {
-		case 401, 403:
-			return ErrCategoryAuth
-		case 429, 500, 502, 503, 504:
-			return ErrCategoryOverload
-		}
+		code = hscErr.HTTPStatusCode()
+	} else if errors.As(err, &scErr) {
+		code = scErr.StatusCode()
+	}
+	
+	switch code {
+	case 401, 403:
+		return ErrCategoryAuth
+	case 429, 500, 502, 503, 504:
+		return ErrCategoryOverload
 	}
 
 	// 4. String fallback for untyped provider errors.
