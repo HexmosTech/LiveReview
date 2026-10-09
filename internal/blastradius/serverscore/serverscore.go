@@ -11,18 +11,31 @@ import (
 
 	"github.com/HexmosTech/git-lrc/blastradius"
 	"github.com/HexmosTech/git-lrc/blastradius/client"
+	"github.com/livereview/internal/blastradius/repocache"
 )
 
 const engineBinary = "codebase-memory-mcp"
 
+// indexDir keeps graph indexes on the lrdata volume next to the repo cache, not in ~/.cache.
+var indexDir = filepath.Join(repocache.DefaultRoot, "index")
+
+// The engine client has no per-call env, so CBM_CACHE_DIR is set once here, at program
+// start before any job runs, and never changed afterwards.
+func init() {
+	if abs, err := filepath.Abs(indexDir); err == nil {
+		indexDir = abs
+	}
+	_ = os.Setenv("CBM_CACHE_DIR", indexDir)
+}
+
 // Score refreshes the graph index for repoDir (incremental after the first run) and scores
-// diff against it. Indexes live under <root>/index; project is the index's name.
-func Score(ctx context.Context, root, repoDir string, diff []byte) (report *blastradius.Report, project string, err error) {
+// diff against it; project is the index's name.
+func Score(ctx context.Context, repoDir string, diff []byte) (report *blastradius.Report, project string, err error) {
 	binary, err := exec.LookPath(engineBinary)
 	if err != nil {
 		return nil, "", fmt.Errorf("serverscore: %s not found on PATH: %w", engineBinary, err)
 	}
-	if err := useIndexDir(root); err != nil {
+	if err := os.MkdirAll(indexDir, 0o755); err != nil {
 		return nil, "", err
 	}
 
@@ -34,17 +47,4 @@ func Score(ctx context.Context, root, repoDir string, diff []byte) (report *blas
 	opts.Binary = binary
 	report, err = blastradius.ScoreDiff(ctx, diff, project, opts)
 	return report, project, err
-}
-
-// useIndexDir points the engine's index store at the volume, not ~/.cache.
-// ponytail: process-wide env (the engine client has no per-call env); fine while only this package runs the engine.
-func useIndexDir(root string) error {
-	dir, err := filepath.Abs(filepath.Join(root, "index"))
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	return os.Setenv("CBM_CACHE_DIR", dir)
 }

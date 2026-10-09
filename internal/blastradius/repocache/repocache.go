@@ -47,7 +47,9 @@ type Checkout struct {
 	env     []string
 }
 
-var repoLocks sync.Map // dir -> *sync.Mutex
+// repoLocks: <entry>/repo -> *sync.Mutex. Bounded by the cached repos: a key is deleted
+// when its repo leaves the cache (removeIfIdle, MarkTooLarge).
+var repoLocks sync.Map
 
 // Prepare clones on first use, fetches the PR head + base branch and checks out the head
 // detached; call unlock when done. ponytail: in-process lock; use flock for multi-process workers.

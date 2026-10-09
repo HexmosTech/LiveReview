@@ -134,7 +134,7 @@ func TooLarge(root string, r Repo) (int64, bool) {
 func MarkTooLarge(root string, c *Checkout, size int64) error {
 	entry := filepath.Dir(c.Dir)
 	removeEntry(root, entry)
-	repoLocks.Delete(c.Dir)
+	repoLocks.Delete(filepath.Join(entry, "repo")) // same key as Prepare/removeIfIdle (== c.Dir)
 	return os.WriteFile(entry+".too_large", []byte(strconv.FormatInt(size, 10)), 0o644)
 }
 

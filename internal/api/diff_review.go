@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo/v4"
 	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/blobstore"
+	"github.com/livereview/internal/diffutil"
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/naming"
@@ -589,10 +590,22 @@ func (s *Server) fetchLiveDiffFromPR(ctx context.Context, connectorID int64, prM
 	out := make([]models.CodeDiff, 0, len(diffs))
 	for _, d := range diffs {
 		if d != nil {
-			out = append(out, *d)
+			out = append(out, splitUnnumberedHunks(*d))
 		}
 	}
 	return out, nil
+}
+
+// splitUnnumberedHunks re-splits a file whose provider returned its whole diff as one hunk
+// without line numbers (GitLab), so the page can place comments and blast-radius scores.
+func splitUnnumberedHunks(d models.CodeDiff) models.CodeDiff {
+	if len(d.Hunks) != 1 || d.Hunks[0].NewStartLine != 0 || !strings.Contains(d.Hunks[0].Content, "@@") {
+		return d
+	}
+	if hunks := diffutil.ParseUnifiedHunks(d.Hunks[0].Content); len(hunks) > 0 {
+		d.Hunks = hunks
+	}
+	return d
 }
 
 func (s *Server) fetchPreloadedChanges(ctx context.Context, orgID, reviewID int64, meta map[string]interface{}) ([]models.CodeDiff, error) {

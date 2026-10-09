@@ -113,7 +113,7 @@ func (w *BlastRadiusWorker) Work(ctx context.Context, job *river.Job[BlastRadius
 		return nil
 	}
 
-	report, project, err := serverscore.Score(ctx, blastRadiusRoot, checkout.Dir, diff)
+	report, project, err := serverscore.Score(ctx, checkout.Dir, diff)
 	if project != "" {
 		_ = checkout.RecordIndex(project)
 	}
