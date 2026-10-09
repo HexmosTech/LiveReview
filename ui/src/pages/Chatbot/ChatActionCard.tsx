@@ -41,6 +41,8 @@ export function ChatActionCard({ msg, idx, messages, handleSend }: ChatActionCar
               }
             } else if (url && url.startsWith('/')) {
               navigate(url);
+            } else if (url) {
+              window.open(url, '_blank', 'noopener,noreferrer');
             }
           }}
           className="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors cursor-pointer whitespace-nowrap flex-shrink-0"

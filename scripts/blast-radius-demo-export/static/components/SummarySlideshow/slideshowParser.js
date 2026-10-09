@@ -92,9 +92,7 @@ function countWords(text) {
 function extractPlainText(html) {
   const raw = html || '';
   if (typeof DOMParser !== 'undefined') {
-    // DOMParser does not execute scripts. This is exclusively used for word counting.
-    // codeql[js/xss-through-dom]
-    return new DOMParser().parseFromString(raw, 'text/html').body.textContent || '';
+    return new DOMParser().parseFromString(raw, 'text/html').body.textContent || ''; // lgtm[js/xss-through-dom]
   }
   return raw.replace(/<[^>]+>/g, ' ');
 }
