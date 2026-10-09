@@ -28,10 +28,13 @@ export function ChatActionCard({ msg, idx, messages, handleSend }: ChatActionCar
             const url = msg.actionCard?.action_url;
             if (url === ACTION_RETRY) {
               // Find the most recent user message before this error
-              const prevUserMsg = messages
-                .slice(0, idx)
-                .reverse()
-                .find((m) => m.role === 'user');
+              let prevUserMsg = undefined;
+              for (let i = idx - 1; i >= 0; i--) {
+                if (messages[i].role === 'user') {
+                  prevUserMsg = messages[i];
+                  break;
+                }
+              }
               
               if (prevUserMsg?.text) {
                 handleSend(prevUserMsg.text);
