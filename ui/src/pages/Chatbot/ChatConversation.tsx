@@ -1569,7 +1569,7 @@ export const ChatConversation: React.FC<{ surface: ChatSurface }> = ({ surface }
               className="w-full bg-slate-700 text-slate-100 placeholder-slate-400 rounded-full pl-4 pr-14 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 border border-slate-600 disabled:opacity-50"
             />
             <button
-              onClick={handleSend}
+              onClick={() => handleSend()}
               disabled={isLoading || !input.trim()}
               className="absolute right-2 top-1/2 -translate-y-1/2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-full p-2 transition-colors disabled:opacity-50"
             >

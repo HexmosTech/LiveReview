@@ -71,7 +71,7 @@ func TestCategorizeLLMError(t *testing.T) {
 		{
 			name: "String Match: model not found",
 			err:  errors.New("model not found or deprecated"),
-			want: ErrCategoryAuth,
+			want: ErrCategoryDeprecated,
 		},
 		{
 			name: "String Match: error 404",
