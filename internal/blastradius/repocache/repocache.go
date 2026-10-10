@@ -159,11 +159,12 @@ func (c *Checkout) ensureClone(ctx context.Context, cloneURL string) error {
 	return nil
 }
 
-// shallowFallback runs fn with --shallow-since; an inactive repo has no commit that
-// recent (git: "error processing shallow info"), so retry with a fixed depth instead.
+// shallowFallback runs fn with --shallow-since and retries with a fixed depth when that fails:
+// inactive repos ("shallow info") and hosts without it, e.g. Azure DevOps ("does not support").
 func shallowFallback(fn func(limit string) error) error {
 	err := fn("--shallow-since=" + shallowSince)
-	if err != nil && strings.Contains(err.Error(), "shallow info") {
+	if err != nil && (strings.Contains(err.Error(), "shallow info") ||
+		strings.Contains(err.Error(), "does not support --shallow-since")) {
 		err = fn("--depth=200")
 	}
 	return err
