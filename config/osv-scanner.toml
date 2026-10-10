@@ -3,3 +3,89 @@
 id = "GO-2026-5932"
 reason = "False positive — golang.org/x/crypto/openpgp sub-package is never imported by this project; only golang.org/x/crypto/bcrypt is used."
 
+
+# --- Accepted risks, re-check by the ignoreUntil date ---
+[[ignoredVulns]]
+id = "GHSA-2j4c-ffch-9f23"
+ignoreUntil = 2027-01-08T00:00:00Z
+reason = "Accepted risk (2026-10-10): github.com/xuri/excelize/v2 2.11.0 has no tagged release with this fix yet (only unreleased commits). Only used write-only (excelize.NewFile in internal/api/taxonomy_report_handler.go) to build the taxonomy report export; it never opens or parses uploaded spreadsheets. Upgrade to the next tagged excelize release, then remove this entry."
+
+[[ignoredVulns]]
+id = "GHSA-5h23-36rv-pm65"
+ignoreUntil = 2027-01-08T00:00:00Z
+reason = "Accepted risk (2026-10-10): github.com/xuri/excelize/v2 2.11.0 has no tagged release with this fix yet (only unreleased commits). Only used write-only (excelize.NewFile in internal/api/taxonomy_report_handler.go) to build the taxonomy report export; it never opens or parses uploaded spreadsheets. Upgrade to the next tagged excelize release, then remove this entry."
+
+[[ignoredVulns]]
+id = "GHSA-8jjq-8j9w-m2v6"
+ignoreUntil = 2027-01-08T00:00:00Z
+reason = "Accepted risk (2026-10-10): github.com/xuri/excelize/v2 2.11.0 has no tagged release with this fix yet (only unreleased commits). Only used write-only (excelize.NewFile in internal/api/taxonomy_report_handler.go) to build the taxonomy report export; it never opens or parses uploaded spreadsheets. Upgrade to the next tagged excelize release, then remove this entry."
+
+[[ignoredVulns]]
+id = "GHSA-8mcq-6wmr-jrjv"
+ignoreUntil = 2027-01-08T00:00:00Z
+reason = "Accepted risk (2026-10-10): github.com/xuri/excelize/v2 2.11.0 has no tagged release with this fix yet (only unreleased commits). Only used write-only (excelize.NewFile in internal/api/taxonomy_report_handler.go) to build the taxonomy report export; it never opens or parses uploaded spreadsheets. Upgrade to the next tagged excelize release, then remove this entry."
+
+[[ignoredVulns]]
+id = "GHSA-c85p-xxjj-2r75"
+ignoreUntil = 2027-01-08T00:00:00Z
+reason = "Accepted risk (2026-10-10): github.com/xuri/excelize/v2 2.11.0 has no tagged release with this fix yet (only unreleased commits). Only used write-only (excelize.NewFile in internal/api/taxonomy_report_handler.go) to build the taxonomy report export; it never opens or parses uploaded spreadsheets. Upgrade to the next tagged excelize release, then remove this entry."
+
+[[ignoredVulns]]
+id = "GHSA-fq3v-74gv-27gm"
+ignoreUntil = 2027-01-08T00:00:00Z
+reason = "Accepted risk (2026-10-10): github.com/xuri/excelize/v2 2.11.0 has no tagged release with this fix yet (only unreleased commits). Only used write-only (excelize.NewFile in internal/api/taxonomy_report_handler.go) to build the taxonomy report export; it never opens or parses uploaded spreadsheets. Upgrade to the next tagged excelize release, then remove this entry."
+
+[[ignoredVulns]]
+id = "GHSA-fw94-4wwp-w8pw"
+ignoreUntil = 2027-01-08T00:00:00Z
+reason = "Accepted risk (2026-10-10): github.com/xuri/excelize/v2 2.11.0 has no tagged release with this fix yet (only unreleased commits). Only used write-only (excelize.NewFile in internal/api/taxonomy_report_handler.go) to build the taxonomy report export; it never opens or parses uploaded spreadsheets. Upgrade to the next tagged excelize release, then remove this entry."
+
+[[ignoredVulns]]
+id = "GHSA-g27h-8qhm-6pff"
+ignoreUntil = 2027-01-08T00:00:00Z
+reason = "Accepted risk (2026-10-10): github.com/xuri/excelize/v2 2.11.0 has no tagged release with this fix yet (only unreleased commits). Only used write-only (excelize.NewFile in internal/api/taxonomy_report_handler.go) to build the taxonomy report export; it never opens or parses uploaded spreadsheets. Upgrade to the next tagged excelize release, then remove this entry."
+
+[[ignoredVulns]]
+id = "GHSA-jrfj-fhj2-jjvm"
+ignoreUntil = 2027-01-08T00:00:00Z
+reason = "Accepted risk (2026-10-10): github.com/xuri/excelize/v2 2.11.0 has no tagged release with this fix yet (only unreleased commits). Only used write-only (excelize.NewFile in internal/api/taxonomy_report_handler.go) to build the taxonomy report export; it never opens or parses uploaded spreadsheets. Upgrade to the next tagged excelize release, then remove this entry."
+
+[[ignoredVulns]]
+id = "GHSA-jw42-f3rr-4cc3"
+ignoreUntil = 2027-01-08T00:00:00Z
+reason = "Accepted risk (2026-10-10): github.com/xuri/excelize/v2 2.11.0 has no tagged release with this fix yet (only unreleased commits). Only used write-only (excelize.NewFile in internal/api/taxonomy_report_handler.go) to build the taxonomy report export; it never opens or parses uploaded spreadsheets. Upgrade to the next tagged excelize release, then remove this entry."
+
+[[ignoredVulns]]
+id = "GHSA-mx22-3794-2vpv"
+ignoreUntil = 2027-01-08T00:00:00Z
+reason = "Accepted risk (2026-10-10): github.com/xuri/excelize/v2 2.11.0 has no tagged release with this fix yet (only unreleased commits). Only used write-only (excelize.NewFile in internal/api/taxonomy_report_handler.go) to build the taxonomy report export; it never opens or parses uploaded spreadsheets. Upgrade to the next tagged excelize release, then remove this entry."
+
+[[ignoredVulns]]
+id = "GHSA-r7x5-4969-99p7"
+ignoreUntil = 2027-01-08T00:00:00Z
+reason = "Accepted risk (2026-10-10): github.com/xuri/excelize/v2 2.11.0 has no tagged release with this fix yet (only unreleased commits). Only used write-only (excelize.NewFile in internal/api/taxonomy_report_handler.go) to build the taxonomy report export; it never opens or parses uploaded spreadsheets. Upgrade to the next tagged excelize release, then remove this entry."
+
+[[ignoredVulns]]
+id = "GHSA-rxcj-4pj5-74gr"
+ignoreUntil = 2027-01-08T00:00:00Z
+reason = "Accepted risk (2026-10-10): github.com/xuri/excelize/v2 2.11.0 has no tagged release with this fix yet (only unreleased commits). Only used write-only (excelize.NewFile in internal/api/taxonomy_report_handler.go) to build the taxonomy report export; it never opens or parses uploaded spreadsheets. Upgrade to the next tagged excelize release, then remove this entry."
+
+[[ignoredVulns]]
+id = "GHSA-wp2g-vpjj-g53r"
+ignoreUntil = 2027-01-08T00:00:00Z
+reason = "Accepted risk (2026-10-10): github.com/xuri/excelize/v2 2.11.0 has no tagged release with this fix yet (only unreleased commits). Only used write-only (excelize.NewFile in internal/api/taxonomy_report_handler.go) to build the taxonomy report export; it never opens or parses uploaded spreadsheets. Upgrade to the next tagged excelize release, then remove this entry."
+
+[[ignoredVulns]]
+id = "GHSA-x2q3-8cjh-766f"
+ignoreUntil = 2027-01-08T00:00:00Z
+reason = "Accepted risk (2026-10-10): github.com/xuri/excelize/v2 2.11.0 has no tagged release with this fix yet (only unreleased commits). Only used write-only (excelize.NewFile in internal/api/taxonomy_report_handler.go) to build the taxonomy report export; it never opens or parses uploaded spreadsheets. Upgrade to the next tagged excelize release, then remove this entry."
+
+[[ignoredVulns]]
+id = "GHSA-vfj7-8cjw-p6xm"
+ignoreUntil = 2027-01-08T00:00:00Z
+reason = "Accepted risk (2026-10-10): braces 3.0.3 is a dev-only build dependency (ui/, extension/) and no fixed version exists yet. Not shipped in the server binary or UI bundle."
+
+[[ignoredVulns]]
+id = "GHSA-rj75-hqrm-r3gf"
+ignoreUntil = 2027-01-08T00:00:00Z
+reason = "Accepted risk (2026-10-10): top-level postcss-selector-parser is fixed (7.1.6); remaining 6.1.4 copies are nested under tailwindcss/postcss plugins pinned to ^6 (dev-only CSS tooling). Clears when those tools move to postcss-selector-parser 7."
