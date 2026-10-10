@@ -92,13 +92,16 @@ function countWords(text) {
 function extractPlainText(html) {
   const raw = html || '';
   const withoutTags = raw.replace(/<[^>]+>/g, ' ');
+  
   return withoutTags
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
+    .replace(/&[a-z]+;/gi, (match) => {
+      const entities = {
+        '&nbsp;': ' ', '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'"
+      };
+      return entities[match.toLowerCase()] || match;
+    })
+    .replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec))
+    .replace(/&#x([0-9a-f]+);/gi, (match, hex) => String.fromCharCode(parseInt(hex, 16)))
     .replace(/\s+/g, ' ')
     .trim();
 }
