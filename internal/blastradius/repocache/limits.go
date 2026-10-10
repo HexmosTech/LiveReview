@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -133,7 +132,6 @@ func TooLarge(root string, r Repo) (int64, bool) {
 func MarkTooLarge(root string, c *Checkout, size int64) error {
 	entry := filepath.Dir(c.Dir)
 	removeEntry(root, entry)
-	repoLocks.Delete(filepath.Join(entry, "repo")) // same key as Prepare/removeIfIdle (== c.Dir)
 	return os.WriteFile(entry+".too_large", []byte(strconv.FormatInt(size, 10)), 0o644)
 }
 
@@ -194,7 +192,7 @@ func removeOrphanIndexes(root string) {
 }
 
 // entries lists cache folders <root>/<org_id>/<connector_id>/<owner>__<repo>, as absolute
-// paths so they match the lock keys Prepare uses.
+// paths so they match the lock files Prepare uses.
 func entries(root string) []string {
 	root, _ = filepath.Abs(root)
 	matches, _ := filepath.Glob(filepath.Join(root, "*", "*", "*"))
@@ -212,15 +210,15 @@ func entries(root string) []string {
 	return out
 }
 
+// removeIfIdle deletes entry unless a job in any process is using it right now.
 func removeIfIdle(root, entry string) bool {
-	key := filepath.Join(entry, "repo")
-	mu, _ := repoLocks.LoadOrStore(key, &sync.Mutex{})
-	if !mu.(*sync.Mutex).TryLock() {
+	unlock, ok, _ := lockEntry(context.Background(), entry, false)
+	if !ok {
 		return false
 	}
-	defer mu.(*sync.Mutex).Unlock()
+	defer unlock()
 	removeEntry(root, entry)
-	repoLocks.Delete(key) // the map only holds cached repos; a new job gets a fresh lock
+	_ = os.Remove(entry + ".lock") // a job waiting on it re-locks the new file (see lockEntry)
 	return true
 }
 

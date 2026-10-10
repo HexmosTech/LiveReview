@@ -182,7 +182,7 @@ Optional later: tag releases as `blastradius/vX.Y.Z` in git-lrc (Go's convention
 
 6. **Cache eviction (least-recently-used, size-based)** — at the end of every job, plus right away when an admin saves a lower cache size. No periodic job: the cache only grows when a job runs. No new tables.
    - Size of a cached repo = its folder + its graph index files (`index/<project>.db*`, named in the repo's `.index` file). While the whole cache is over `max_gb`, delete the repo with the oldest `.lastused`, together with its index. Repos that are reviewed often keep getting touched, so they stay; rarely used repos are removed first.
-   - Never evict a repo a job is using right now (its in-process lock is held).
+   - Never evict a repo a job is using right now (its `<repo>.lock` file lock, shared by every worker and the API server, is held).
    - If the repo the job just used is itself bigger than `max_gb`: its report is still saved this time, then the repo is deleted and a `<owner>__<repo>.too_large` marker records its size. Later reviews of that repo save a "skipped: repo too large" notice without cloning, until `max_gb` is raised above the recorded size.
    - Under 1 GB free disk on the volume: the job saves a "skipped: low disk" notice instead of cloning.
    - A connector's cached repos are deleted when the connector is deleted; an org's when the org is deactivated.

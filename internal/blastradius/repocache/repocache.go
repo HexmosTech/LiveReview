@@ -15,7 +15,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 // shallowSince is one month wider than codebase-memory-mcp's 1-year
@@ -47,12 +46,8 @@ type Checkout struct {
 	env     []string
 }
 
-// repoLocks: <entry>/repo -> *sync.Mutex. Bounded by the cached repos: a key is deleted
-// when its repo leaves the cache (removeIfIdle, MarkTooLarge).
-var repoLocks sync.Map
-
 // Prepare clones on first use, fetches the PR head + base branch and checks out the head
-// detached; call unlock when done. ponytail: in-process lock; use flock for multi-process workers.
+// detached; call unlock when done. A job on the same repo in any process waits for it.
 func Prepare(ctx context.Context, root string, r Repo) (c *Checkout, unlock func(), err error) {
 	prRef, err := prRef(r)
 	if err != nil {
@@ -64,9 +59,10 @@ func Prepare(ctx context.Context, root string, r Repo) (c *Checkout, unlock func
 	}
 	dir := filepath.Join(base, "repo")
 
-	mu, _ := repoLocks.LoadOrStore(dir, &sync.Mutex{})
-	mu.(*sync.Mutex).Lock()
-	release := mu.(*sync.Mutex).Unlock
+	release, _, err := lockEntry(ctx, base, true)
+	if err != nil {
+		return nil, nil, err
+	}
 	defer func() {
 		if err != nil {
 			release()
