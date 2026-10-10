@@ -626,7 +626,8 @@ const ReviewDetail: React.FC = () => {
 
             {activeTab === 'findings' && (
                 <div className="mb-6">
-                    <DiffViewerPanel reviewId={reviewId} />
+                    {/* Keyed on status so the findings reload once the review finishes. */}
+                    <DiffViewerPanel key={review?.status} reviewId={reviewId} />
                 </div>
             )}
 
