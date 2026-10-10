@@ -21,7 +21,7 @@ import (
 )
 
 // DefaultModel is the Gemini model used when no model is configured.
-const DefaultModel = "gemini-3.6-flash"
+const DefaultModel = "gemini-3.8-flash"
 
 type GeminiProvider struct {
 	TestableFields
@@ -32,7 +32,6 @@ type GeminiProvider struct {
 type GeminiConfig struct {
 	APIKey            string  `koanf:"api_key"`
 	Model             string  `koanf:"model"`
-	Temperature       float64 `koanf:"temperature"`
 	MaxTokensPerBatch int     `koanf:"max_tokens_per_batch"`
 }
 
@@ -40,7 +39,6 @@ type GeminiConfig struct {
 type TestableFields struct {
 	APIKey            string
 	Model             string
-	Temperature       float64
 	MaxTokensPerBatch int
 	HTTPClient        *http.Client
 }
@@ -58,10 +56,6 @@ func New(config GeminiConfig) (*GeminiProvider, error) {
 		config.Model = DefaultModel
 	}
 
-	if config.Temperature == 0 {
-		config.Temperature = 0.4 // Increased from 0.2 to encourage more thorough analysis
-	}
-
 	if config.MaxTokensPerBatch == 0 {
 		config.MaxTokensPerBatch = 10000
 	}
@@ -72,7 +66,6 @@ func New(config GeminiConfig) (*GeminiProvider, error) {
 		TestableFields: TestableFields{
 			APIKey:            config.APIKey,
 			Model:             config.Model,
-			Temperature:       config.Temperature,
 			MaxTokensPerBatch: config.MaxTokensPerBatch,
 			HTTPClient:        &http.Client{},
 		},
@@ -106,10 +99,7 @@ type safetySettings struct {
 }
 
 type generationConfig struct {
-	Temperature     float64 `json:"temperature"`
-	MaxOutputTokens int     `json:"maxOutputTokens"`
-	TopK            int     `json:"topK"`
-	TopP            float64 `json:"topP"`
+	MaxOutputTokens int `json:"maxOutputTokens"`
 }
 
 // reviewResponse represents a response from the Gemini API
@@ -201,10 +191,7 @@ func (p *GeminiProvider) callGeminiAPI(ctx context.Context, prompt string) (stri
 			},
 		},
 		GenerationConfig: generationConfig{
-			Temperature:     p.Temperature,
 			MaxOutputTokens: 8192, // Increased from 4096 to allow for more detailed reviews
-			TopK:            40,
-			TopP:            0.95,
 		},
 	}
 
@@ -1437,10 +1424,6 @@ func (p *GeminiProvider) Configure(config map[string]interface{}) error {
 		p.TestableFields.Model = model
 	}
 
-	if temp, ok := config["temperature"].(float64); ok && temp > 0 {
-		p.TestableFields.Temperature = temp
-	}
-
 	if maxTokens, ok := config["max_tokens_per_batch"].(int); ok && maxTokens > 0 {
 		p.TestableFields.MaxTokensPerBatch = maxTokens
 	} else if maxTokens, ok := config["max_tokens_per_batch"].(float64); ok && maxTokens > 0 {
@@ -1481,7 +1464,6 @@ func (p *GeminiProvider) logRequestAndResponse(prompt string, reqJSON []byte, re
 		fmt.Fprintf(f, "=== GEMINI API REQUEST LOG ===\n")
 		fmt.Fprintf(f, "Timestamp: %s\n", fmt.Sprintf("%d", os.Getpid()))
 		fmt.Fprintf(f, "Model: %s\n", p.Model)
-		fmt.Fprintf(f, "Temperature: %f\n", p.Temperature)
 		fmt.Fprintf(f, "\n--- PROMPT ---\n")
 		fmt.Fprintf(f, "%s\n", prompt)
 		fmt.Fprintf(f, "\n--- REQUEST JSON ---\n")
