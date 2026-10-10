@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -194,18 +193,6 @@ func removeOrphanIndexes(root string) {
 	}
 }
 
-// FreeBytes is the free space on the volume holding root.
-func FreeBytes(root string) (uint64, error) {
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return 0, err
-	}
-	var st syscall.Statfs_t
-	if err := syscall.Statfs(root, &st); err != nil {
-		return 0, err
-	}
-	return uint64(st.Bavail) * uint64(st.Bsize), nil
-}
-
 // entries lists cache folders <root>/<org_id>/<connector_id>/<owner>__<repo>, as absolute
 // paths so they match the lock keys Prepare uses.
 func entries(root string) []string {
@@ -264,10 +251,12 @@ func lastUsed(entry string) time.Time {
 	return st.ModTime()
 }
 
+// dirSize sums regular files only. WalkDir never follows symlinks, and links (e.g. from
+// a cloned repo) are skipped explicitly, so nothing outside dir is ever counted.
 func dirSize(dir string) int64 {
 	var size int64
 	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
-		if err == nil && !d.IsDir() {
+		if err == nil && d.Type().IsRegular() {
 			if info, err := d.Info(); err == nil {
 				size += info.Size()
 			}
