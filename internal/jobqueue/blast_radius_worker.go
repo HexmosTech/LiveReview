@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -22,6 +23,9 @@ import (
 )
 
 const blastRadiusRoot = repocache.DefaultRoot
+
+// skipCLI: git-lrc uploads its own report for CLI reviews, so the job writes nothing.
+const skipCLI = "cli"
 
 // minFreeBytes: below this much free disk a clone could fill the volume Postgres shares.
 // ponytail: fixed 1 GB guess; make it relative to the repo's last known size if it misfires.
@@ -45,7 +49,7 @@ func (w *BlastRadiusWorker) Timeout(job *river.Job[BlastRadiusJobArgs]) time.Dur
 	return 15 * time.Minute
 }
 
-// Work is best-effort: a skip or failure is logged and never retried or surfaced on the review.
+// Work is best-effort and never retried; a skip or failure saves a reason code the review page shows.
 func (w *BlastRadiusWorker) Work(ctx context.Context, job *river.Job[BlastRadiusJobArgs]) error {
 	orgID, reviewID := job.Args.OrgID, job.Args.ReviewID
 	logger := log.With().Int64("org_id", orgID).Int64("review_id", reviewID).Logger()
@@ -56,17 +60,28 @@ func (w *BlastRadiusWorker) Work(ctx context.Context, job *river.Job[BlastRadius
 		logger.Warn().Err(err).Msg("[blast_radius] cannot read settings")
 		return nil
 	}
+	// fail logs err and saves a short reason code for the review page (never the raw error).
+	fail := func(reason, msg string, err error) {
+		if ctx.Err() != nil {
+			reason = "timeout"
+		}
+		logger.Warn().Err(err).Str("reason", reason).Msg("[blast_radius] " + msg)
+		w.saveSkipped(ctx, orgID, reviewID, reason, 0, settings)
+	}
+	repo, skip, err := w.loadRepo(ctx, orgID, reviewID)
+	if skip == skipCLI {
+		return nil // git-lrc uploads its own report
+	}
 	if !settings.Enabled {
+		w.saveSkipped(ctx, orgID, reviewID, "disabled", 0, settings)
 		return nil
 	}
-
-	repo, skip, err := w.loadRepo(ctx, orgID, reviewID)
 	if err != nil {
-		logger.Warn().Err(err).Msg("[blast_radius] cannot resolve repo for review")
+		fail("repo_lookup_failed", "cannot resolve repo for review", err)
 		return nil
 	}
 	if skip != "" {
-		logger.Info().Str("reason", skip).Msg("[blast_radius] skipped")
+		w.saveSkipped(ctx, orgID, reviewID, skip, 0, settings)
 		return nil
 	}
 
@@ -84,11 +99,11 @@ func (w *BlastRadiusWorker) Work(ctx context.Context, job *river.Job[BlastRadius
 
 	checkout, unlock, err := repocache.Prepare(ctx, blastRadiusRoot, repo)
 	if errors.Is(err, repocache.ErrBaseTooOld) {
-		logger.Info().Msg("[blast_radius] skipped: PR base is older than the cached history window")
+		w.saveSkipped(ctx, orgID, reviewID, "base_too_old", 0, settings)
 		return nil
 	}
 	if err != nil {
-		logger.Warn().Err(err).Msg("[blast_radius] repo checkout failed")
+		fail("repo_access_failed", "repo checkout failed", err)
 		return nil
 	}
 	defer unlock()
@@ -105,11 +120,11 @@ func (w *BlastRadiusWorker) Work(ctx context.Context, job *river.Job[BlastRadius
 
 	diff, err := checkout.Diff(ctx)
 	if err != nil {
-		logger.Warn().Err(err).Msg("[blast_radius] git diff failed")
+		fail("diff_failed", "git diff failed", err)
 		return nil
 	}
 	if len(diff) == 0 {
-		logger.Info().Msg("[blast_radius] skipped: empty diff")
+		w.saveSkipped(ctx, orgID, reviewID, "empty_diff", 0, settings)
 		return nil
 	}
 
@@ -117,8 +132,12 @@ func (w *BlastRadiusWorker) Work(ctx context.Context, job *river.Job[BlastRadius
 	if project != "" {
 		_ = checkout.RecordIndex(project)
 	}
+	if errors.Is(err, exec.ErrNotFound) {
+		fail("engine_missing", "scoring engine not installed", err)
+		return nil
+	}
 	if err != nil {
-		logger.Warn().Err(err).Msg("[blast_radius] scoring failed")
+		fail("scoring_failed", "scoring failed", err)
 		return nil
 	}
 	payload, err := json.Marshal(report)
@@ -146,6 +165,8 @@ func (w *BlastRadiusWorker) saveSkipped(ctx context.Context, orgID, reviewID int
 		"repo_gb": math.Round(float64(repoBytes)/(1<<30)*10) / 10,
 		"max_gb":  s.MaxGB,
 	})
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second) // still saves after a timeout
+	defer cancel()
 	if err := blobstore.SaveArtifact(ctx, w.db, orgID, reviewID, blobstore.ArtifactBlastRadius, payload); err != nil {
 		log.Warn().Err(err).Int64("review_id", reviewID).Msg("[blast_radius] saving skipped notice failed")
 	}
@@ -165,10 +186,10 @@ func (w *BlastRadiusWorker) loadRepo(ctx context.Context, orgID, reviewID int64)
 		return r, "", fmt.Errorf("load review: %w", err)
 	}
 	if triggerType == "cli_diff" {
-		return r, "cli review (git-lrc uploads its own report)", nil
+		return r, skipCLI, nil
 	}
 	if prURL == "" || !connectorID.Valid {
-		return r, "not a PR review", nil
+		return r, "not_pr", nil
 	}
 
 	var provider, providerURL, accessToken, tokenType, patToken string
@@ -213,7 +234,7 @@ func (w *BlastRadiusWorker) loadRepo(ctx context.Context, orgID, reviewID int64)
 		r.SourceBranch = reviewBranch
 	}
 	if strings.HasPrefix(provider, "bitbucket") && r.SourceBranch == "" {
-		return r, "bitbucket PR without a known source branch", nil
+		return r, "no_source_branch", nil
 	}
 	return r, "", nil
 }

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ProviderIcon from '../../components/ProviderIcon';
 import { useNavigate } from 'react-router-dom';
 import {
   ColumnDef,
@@ -11,7 +12,6 @@ import {
 } from '@tanstack/react-table';
 import { notify } from '../../utils/notify';
 import { LuSearch } from 'react-icons/lu';
-import { SiGitlab } from 'react-icons/si';
 import { Button, Icons, Tooltip, Input, MultiSelectPanel } from '../../components/UIPrimitives';
 import { ClientTable } from '../../components/DataTable/ClientTable';
 import { SortIcon, SortableHeaderLabel, HeaderFilterPopover, multiSelectFilterFn, TruncatedWithTooltip } from '../../components/DataTable/HeaderControls';
@@ -50,20 +50,6 @@ const providerLabel = (provider: string): string => {
     case 'azuredevops': return 'Azure DevOps';
     default: return provider;
   }
-};
-
-const ProviderIcon: React.FC<{ provider: string }> = ({ provider }) => {
-  const normalized = provider.toLowerCase();
-  if (normalized.startsWith('github')) return <Icons.GitHub />;
-  // GitLab's own brand icon (Icons.GitLab) renders monochrome, inheriting
-  // whatever text color its container uses - rendered directly here with
-  // GitLab's actual brand orange instead, scoped to this page rather than
-  // recoloring the shared Icons.GitLab (used monochrome elsewhere in the app).
-  if (normalized.startsWith('gitlab')) return <SiGitlab className="w-5 h-5" style={{ color: '#FC6D26' }} />;
-  if (normalized.startsWith('bitbucket')) return <Icons.Bitbucket />;
-  if (normalized.startsWith('gitea')) return <Icons.Gitea />;
-  if (normalized.startsWith('azuredevops')) return <Icons.AzureDevOps />;
-  return null;
 };
 
 // Plain hex/rgba values, applied via inline style rather than Tailwind

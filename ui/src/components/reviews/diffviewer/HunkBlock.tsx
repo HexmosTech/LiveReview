@@ -122,6 +122,7 @@ const HunkBlock: React.FC<HunkBlockProps> = ({ reviewId, filePath, navId, hunk, 
                         filePath={filePath}
                         comments={lineComments}
                         hunkBlastDetail={blastDetail}
+                        hunkRiskScore={hunk.BlastRadius}
                         codeExcerpt={buildIssueCodeExcerpt(lines, idx, 1)}
                         onOpenBreakdown={openBreakdown}
                       />

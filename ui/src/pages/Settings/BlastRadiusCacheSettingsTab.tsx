@@ -80,7 +80,7 @@ const BlastRadiusCacheSettingsTab: React.FC = () => {
                     <div>
                         <span className="text-sm font-medium text-white">Enable server-side blast radius</span>
                         <p className="text-xs text-slate-400 mt-1">
-                            Scores PR reviews started from LiveReview. Reviews run with <code>git lrc review</code> always upload their own report.
+                            Scores PR reviews started from LiveReview.
                         </p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer flex-shrink-0 ml-4">
@@ -99,7 +99,7 @@ const BlastRadiusCacheSettingsTab: React.FC = () => {
                     <div>
                         <h4 className="text-sm font-semibold text-white">Cache size</h4>
                         <p className="text-xs text-slate-400 mt-0.5">
-                            Minimum {settings.min_gb} GB. Raise it to keep more repos warm, or if a review says its repo is too large for the cache.
+                            Minimum {settings.min_gb} GB. Raise it to keep more repos warm.
                         </p>
                     </div>
                     <div className="flex items-center space-x-3 bg-slate-900/80 border border-slate-700 rounded-lg px-4 py-2">

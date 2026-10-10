@@ -19,6 +19,8 @@ interface CommentThreadProps {
   filePath: string;
   comments: { comment: DiffReviewComment; idx: number }[];
   hunkBlastDetail?: BlastRadiusHunkReport;
+  // The hunk header badge's score (structural blended with findings), as git-lrc's DiffTable.js passes.
+  hunkRiskScore?: number;
   codeExcerpt?: string;
   // Opens the same BlastRadiusPanel the hunk header's own RiskBadge opens —
   // git-lrc repeats the hunk's risk pill on every comment's action row "so
@@ -59,9 +61,10 @@ function buildCopyText(filePath: string, comment: DiffReviewComment, codeExcerpt
 const CommentCard: React.FC<{
   id: string; reviewId: number; filePath: string; comment: DiffReviewComment;
   hunkBlastDetail?: BlastRadiusHunkReport;
+  hunkRiskScore?: number;
   codeExcerpt?: string;
   onOpenBreakdown?: () => void;
-}> = ({ id, reviewId, filePath, comment, hunkBlastDetail, codeExcerpt, onOpenBreakdown }) => {
+}> = ({ id, reviewId, filePath, comment, hunkBlastDetail, hunkRiskScore, codeExcerpt, onOpenBreakdown }) => {
   const [hidden, setHidden] = useState(false);
   const [copyLabel, setCopyLabel] = useState<string | null>(null);
 
@@ -110,8 +113,8 @@ const CommentCard: React.FC<{
           <span className="font-mono text-xs text-slate-500">{filePath}:{comment.line}</span>
         </div>
         <div className="flex items-center gap-1.5">
-          {hunkBlastDetail && typeof hunkBlastDetail.Combined === 'number' && (
-            <RiskBadge score={hunkBlastDetail.Combined} detail={hunkBlastDetail} size="small" onOpen={onOpenBreakdown} />
+          {hunkBlastDetail && typeof hunkRiskScore === 'number' && (
+            <RiskBadge score={hunkRiskScore} detail={hunkBlastDetail} size="small" onOpen={onOpenBreakdown} />
           )}
           <VoteButtons
             reviewId={reviewId}
@@ -176,7 +179,7 @@ const CommentCard: React.FC<{
   );
 };
 
-const CommentThread: React.FC<CommentThreadProps> = ({ reviewId, filePath, comments, hunkBlastDetail, codeExcerpt, onOpenBreakdown }) => {
+const CommentThread: React.FC<CommentThreadProps> = ({ reviewId, filePath, comments, hunkBlastDetail, hunkRiskScore, codeExcerpt, onOpenBreakdown }) => {
   if (!comments.length) return null;
   return (
     <div className="space-y-3 px-3 py-3">
@@ -188,6 +191,7 @@ const CommentThread: React.FC<CommentThreadProps> = ({ reviewId, filePath, comme
           filePath={filePath}
           comment={comment}
           hunkBlastDetail={hunkBlastDetail}
+          hunkRiskScore={hunkRiskScore}
           codeExcerpt={codeExcerpt}
           onOpenBreakdown={onOpenBreakdown}
         />

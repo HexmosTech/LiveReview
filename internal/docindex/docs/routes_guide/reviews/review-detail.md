@@ -47,14 +47,34 @@ the whole-diff ranking, per-file ranking, and original diff order. Each hunk's
 breakdown panel (Summary and Math Mode tabs) shows the exact math behind its
 score, including the finding-severity contribution.
 
-If the server couldn't compute blast radius, the page shows a "No blast radius
-for this review" notice saying why:
+### Risk assessment
 
-- **Repo too large for the cache** — the repo (shallow clone + code graph) is
-  bigger than the Blast Radius Repo Cache size. Owners/super admins get an
-  "Increase cache size" link to Settings → Storage; members are told to ask an
-  admin. Reviews after the size is raised get blast radius again.
-- **Low disk space** — the server had under 1 GB free when the review ran.
+The grey info bar under the title has a **Risk assessment** stat, coloured by
+level like the per-change risk badges in Findings: **High risk** / **Moderate
+risk** / **Low risk** / **Minimal risk** (from the highest risk score across the
+changed code), **Calculating...** while the server is still scoring (it
+updates on its own), **Failed** (red), **Skipped** (amber), or **Not
+available** (grey).
+
+Click the bar (or rest the pointer on it for 2 seconds) to expand it. The
+**Risk assessment** column then shows:
+
+- **When ready** — the highest score, how many changes and files were scored,
+  the count of changes per level (High / Moderate / Low / Minimal), and the
+  riskiest files (when more than one file was scored).
+- **When failed or skipped** — the reason in plain words and how to fix it:
+  - Repo too large for the cache, or risk assessment turned off → owners/super
+    admins get an "Open Repo Cache settings" link (Settings → Storage → Repo
+    Cache).
+  - Couldn't access the repository (e.g. expired connector token) → a "Check
+    connector" link.
+  - Scoring engine not installed, scoring failed, diff failed, or took longer
+    than 15 minutes → admins check the worker logs.
+  - Low disk space on the server.
+  Members are told to ask an admin.
+- **When not available** — why: not a PR/MR review, the PR's base is older
+  than the 13 months of history kept, the PR has no changes, or no result
+  arrived within 15 minutes.
 
 ## Related pages
 

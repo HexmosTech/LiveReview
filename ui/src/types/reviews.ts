@@ -405,7 +405,7 @@ export interface BlastRadiusReport {
 // (internal/jobqueue/blast_radius_worker.go saveSkipped).
 export interface BlastRadiusSkipped {
   status: 'skipped';
-  reason: 'repo_too_large' | 'low_disk' | string;
+  reason: string; // code from blast_radius_worker.go, mapped to text in components/reviews/RiskAssessment.tsx
   repo_gb: number;
   max_gb: number;
 }

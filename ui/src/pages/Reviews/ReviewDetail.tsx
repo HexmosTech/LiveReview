@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import { LuArrowLeft, LuExternalLink, LuGitBranch } from 'react-icons/lu';
+import ProviderIcon from '../../components/ProviderIcon';
+import { riskAssessment, RiskAssessmentDetails, RiskScore } from '../../components/reviews/RiskAssessment';
+import { reviewStatusBadge } from '../../utils/reviewDisplay';
 import { Button, Icons, Tabs } from '../../components/UIPrimitives';
 import { ReviewEventsPage, DiffViewerPanel } from '../../components/reviews';
 import {
@@ -8,8 +12,8 @@ import {
   getReviewSummary,
     getReviewAccounting,
     getReviewCommits,
+    getBlastRadiusReport,
   formatRelativeTime,
-  getStatusColor,
   getStatusText
 } from '../../api/reviews';
 import {
@@ -20,13 +24,16 @@ import {
     ReviewAccountingStage,
     ReviewCommit,
   ReviewEventLevel,
-  ReviewEventType
+  ReviewEventType,
+    BlastRadiusReport,
+    BlastRadiusSkipped,
+    isBlastRadiusSkipped
 } from '../../types/reviews';
 
 const ACCOUNTING_REFRESH_INTERVAL_MS = 15000;
 const COMMITS_PREVIEW_LIMIT = 5;
 
-const HeaderStat: React.FC<{ label: string; value: string; className?: string }> = ({ label, value, className }) => (
+const HeaderStat: React.FC<{ label: string; value: React.ReactNode; className?: string }> = ({ label, value, className }) => (
     <div className="shrink-0">
         <p className="text-[11px] text-slate-400 whitespace-nowrap">{label}</p>
         <p className={`text-sm text-white whitespace-nowrap ${className || ''}`}>{value}</p>
@@ -65,6 +72,8 @@ const ReviewDetail: React.FC = () => {
     const [commits, setCommits] = useState<ReviewCommit[]>([]);
     const [allCommitsShown, setAllCommitsShown] = useState(false);
     const [detailsExpanded, setDetailsExpanded] = useState(false);
+    const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    useEffect(() => () => clearTimeout(hoverTimerRef.current), []);
     const [commitsLoaded, setCommitsLoaded] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -73,10 +82,43 @@ const ReviewDetail: React.FC = () => {
     const [typeFilter, setTypeFilter] = useState<ReviewEventType | ''>('');
     const [lastEventTime, setLastEventTime] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'findings' | 'accounting' | 'events'>('findings');
+    const [blastReport, setBlastReport] = useState<BlastRadiusReport | BlastRadiusSkipped | null>(null);
+    const [blastPoll, setBlastPoll] = useState<'checking' | 'waiting' | 'gave_up'>('checking');
+    const [riskScores, setRiskScores] = useState<RiskScore[]>([]);
+
+    useEffect(() => {
+        // Blast radius comes from `git lrc review` or the server-side job, which runs alongside the
+        // review; until it lands (404), re-check every 30s for up to its 15 min timeout.
+        let cancelled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let attempts = 0;
+        setBlastReport(null);
+        setBlastPoll('checking');
+        setRiskScores([]);
+        const load = () => {
+            getBlastRadiusReport(reviewId)
+                .then((report) => {
+                    if (!cancelled) setBlastReport(report);
+                })
+                .catch(() => {
+                    if (cancelled) return;
+                    if (++attempts < 30) {
+                        setBlastPoll('waiting');
+                        timer = setTimeout(load, 30000);
+                    } else {
+                        setBlastPoll('gave_up');
+                    }
+                });
+        };
+        load();
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
+    }, [reviewId]);
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
     const defaultedTabForReviewRef = useRef<number | null>(null);
 
-    // Status colors are imported via getStatusColor from ../../api/reviews
 
     const getEventIcon = (type: string, level?: string) => {
         switch (type) {
@@ -431,6 +473,9 @@ const ReviewDetail: React.FC = () => {
         return [leaderAIExecutionMode, leaderAIExecutionSource].filter(Boolean).join(' via ');
     };
 
+    const statusBadge = reviewStatusBadge(review.status);
+    const risk = riskAssessment(blastReport, blastPoll, !!review.prMrUrl, riskScores);
+
     const accountingBannerClass = accountingErrorTone === 'warning'
         ? 'mb-4 rounded-md border border-amber-700 bg-amber-900/30 p-3 text-xs text-amber-200'
         : 'mb-4 rounded-md border border-sky-700 bg-sky-900/30 p-3 text-xs text-sky-200';
@@ -446,32 +491,41 @@ const ReviewDetail: React.FC = () => {
                         variant="ghost"
                         className="mr-4"
                     >
-                        ← Back
+                        <LuArrowLeft className="w-4 h-4 mr-1.5" />
+                        Back
                     </Button>
                     <div>
                         <h1 className="text-3xl font-bold text-white">
                             {review.repository.split('/').pop() || review.repository}
+                            <span className="ml-3 text-lg font-normal text-slate-400">#{review.id}</span>
                         </h1>
-                        <p className="text-slate-300">
-                            {review.branch && `${review.branch}`}
-                            {review.prMrUrl && (
-                                <span className="ml-2">
-                                    <a 
-                                        href={review.prMrUrl} 
-                                        target="_blank" 
-                                        rel="noopener noreferrer"
-                                        className="text-blue-400 hover:text-blue-300"
-                                    >
-                                        View PR/MR
-                                    </a>
+                        <p className="flex items-center gap-3 text-slate-300">
+                            {review.branch && (
+                                <span className="inline-flex items-center gap-1.5">
+                                    <LuGitBranch className="w-4 h-4 text-slate-400" />
+                                    {review.branch}
                                 </span>
+                            )}
+                            {review.prMrUrl && (
+                                <a
+                                    href={review.prMrUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300"
+                                >
+                                    View PR/MR
+                                    <LuExternalLink className="w-3.5 h-3.5" />
+                                </a>
                             )}
                         </p>
                     </div>
                 </div>
                 <div className="flex items-center space-x-4">
-                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-white ${getStatusColor(review.status)}`}>
-                        {review.status.replace('_', ' ').toUpperCase()}
+                    <span
+                        className="inline-flex items-center rounded-md px-2 py-0.5 text-sm font-medium"
+                        style={{ color: statusBadge.color, border: `1px solid ${statusBadge.borderColor}` }}
+                    >
+                        {getStatusText(review.status)}
                     </span>
                     {/* Polling control moved to ReviewEventsPage for consistency */}
                 </div>
@@ -484,28 +538,28 @@ const ReviewDetail: React.FC = () => {
                 <button
                     type="button"
                     onClick={() => setDetailsExpanded((v) => !v)}
+                    onMouseEnter={() => { hoverTimerRef.current = setTimeout(() => setDetailsExpanded(true), 2000); }}
+                    onMouseLeave={() => clearTimeout(hoverTimerRef.current)}
                     className="w-full flex items-center gap-6 px-4 py-3 text-left overflow-x-auto"
                     aria-expanded={detailsExpanded}
                 >
-                    <div className="flex items-center gap-2 shrink-0">
-                        <div className="text-slate-400"><Icons.Git /></div>
-                        <div>
-                            <p className="text-sm font-semibold text-white max-w-[180px] truncate">
-                                {review.repository.split('/').pop() || review.repository}
-                            </p>
-                            <p className="text-xs text-slate-400">#{review.id}</p>
-                        </div>
-                    </div>
-                    <HeaderStat label="Provider" value={review.provider || '-'} className="capitalize" />
-                    <HeaderStat label="Branch" value={review.branch || '-'} />
+                    <HeaderStat
+                        label="Provider"
+                        value={review.provider ? (
+                            <span className="inline-flex items-center gap-1.5">
+                                <span className="inline-flex [&>svg]:h-3.5 [&>svg]:w-3.5">
+                                    <ProviderIcon provider={review.provider} />
+                                </span>
+                                {review.provider}
+                            </span>
+                        ) : '-'}
+                        className="capitalize"
+                    />
                     <HeaderStat label="Commits" value={commitsLoaded ? String(commits.length) : '...'} />
                     <HeaderStat label="Last activity" value={formatRelativeTime(review.completedAt || review.startedAt || review.createdAt)} />
                     <HeaderStat label="Events" value={eventCount !== undefined && eventCount > 0 ? String(eventCount) : String(Object.values(summary?.eventCounts || {}).reduce((a: number, b: number) => a + b, 0))} />
-                    <HeaderStat label="Batches" value={String(summary?.batchCount ?? 0)} />
+                    <HeaderStat label="Risk assessment" value={risk.value} className={risk.tone} />
                     <div className="ml-auto flex items-center gap-3 shrink-0">
-                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium text-white ${getStatusColor(review.status)}`}>
-                            {review.status.replace('_', ' ').toUpperCase()}
-                        </span>
                         <span className="flex items-center gap-1 text-xs text-slate-300">
                             {detailsExpanded ? 'Less' : 'More'}
                             {detailsExpanded ? <Icons.ChevronDown /> : <Icons.ChevronRight />}
@@ -514,7 +568,7 @@ const ReviewDetail: React.FC = () => {
                 </button>
 
                 {detailsExpanded && (
-                    <div className="border-t border-slate-700 px-4 py-4 grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                    <div className="border-t border-slate-700 px-4 py-4 grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
                         <div>
                             <h3 className="text-xs font-semibold text-white uppercase tracking-wide mb-2">
                                 Commits{commitsLoaded && ` (${commits.length})`}
@@ -531,7 +585,7 @@ const ReviewDetail: React.FC = () => {
                                 <>
                                     <ul className={`space-y-2 ${allCommitsShown && commits.length > COMMITS_PREVIEW_LIMIT ? 'max-h-64 overflow-y-auto pr-1' : ''}`}>
                                         {(allCommitsShown ? commits : commits.slice(0, COMMITS_PREVIEW_LIMIT)).map((commit) => (
-                                            <li key={commit.ref} className="flex items-center justify-between gap-3 text-xs">
+                                            <li key={commit.ref} className="flex items-center gap-3 text-xs">
                                                 <div className="flex items-center gap-2 min-w-0">
                                                     {commit.refType === 'commit' && githubBaseUrl ? (
                                                         <a
@@ -572,27 +626,27 @@ const ReviewDetail: React.FC = () => {
 
                         <div>
                             <h3 className="text-xs font-semibold text-white uppercase tracking-wide mb-2">Review details</h3>
-                            <dl className="space-y-1 text-xs">
-                                <div className="flex justify-between gap-4">
+                            <dl className="grid grid-cols-[6.5rem_1fr] gap-x-3 gap-y-1 text-xs">
+                                <div className="contents">
                                     <dt className="text-slate-400">Created by</dt>
-                                    <dd className="text-white text-right">{review.userEmail || '-'}</dd>
+                                    <dd className="text-white">{review.userEmail || '-'}</dd>
                                 </div>
-                                <div className="flex justify-between gap-4">
+                                <div className="contents">
                                     <dt className="text-slate-400">Created</dt>
-                                    <dd className="text-white text-right">{new Date(review.createdAt).toLocaleString()}</dd>
+                                    <dd className="text-white">{new Date(review.createdAt).toLocaleString()}</dd>
                                 </div>
-                                <div className="flex justify-between gap-4">
+                                <div className="contents">
                                     <dt className="text-slate-400">Batches</dt>
-                                    <dd className="text-white text-right">{summary?.batchCount ?? 0}</dd>
+                                    <dd className="text-white">{summary?.batchCount ?? 0}</dd>
                                 </div>
                                 {formatDuration(review.startedAt, review.completedAt) && (
-                                    <div className="flex justify-between gap-4">
+                                    <div className="contents">
                                         <dt className="text-slate-400">Duration</dt>
-                                        <dd className="text-white text-right">{formatDuration(review.startedAt, review.completedAt)}</dd>
+                                        <dd className="text-white">{formatDuration(review.startedAt, review.completedAt)}</dd>
                                     </div>
                                 )}
                             </dl>
-                            <div className="mt-3">
+                            <div className="mt-4">
                                 <p className="text-xs text-slate-400 mb-1">Events by severity</p>
                                 <div className="flex gap-4 text-xs">
                                     <span className="text-red-400">High {eventSeverityCounts.high}</span>
@@ -603,10 +657,17 @@ const ReviewDetail: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setActiveTab('events')}
-                                className="mt-3 text-xs text-blue-400 hover:text-blue-300"
+                                className="mt-4 text-xs text-blue-400 hover:text-blue-300"
                             >
                                 View all events →
                             </button>
+                        </div>
+
+                        <div>
+                            <h3 className="text-xs font-semibold text-white uppercase tracking-wide mb-2">Risk assessment</h3>
+                            <div className="text-xs">
+                                <RiskAssessmentDetails risk={risk} connectorId={review.connectorId} />
+                            </div>
                         </div>
                     </div>
                 )}
@@ -627,7 +688,12 @@ const ReviewDetail: React.FC = () => {
             {activeTab === 'findings' && (
                 <div className="mb-6">
                     {/* Keyed on status so the findings reload once the review finishes. */}
-                    <DiffViewerPanel key={review?.status} reviewId={reviewId} />
+                    <DiffViewerPanel
+                        key={review?.status}
+                        reviewId={reviewId}
+                        blastReport={blastReport && !isBlastRadiusSkipped(blastReport) ? blastReport : undefined}
+                        onRiskScores={setRiskScores}
+                    />
                 </div>
             )}
 
