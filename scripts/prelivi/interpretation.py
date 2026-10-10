@@ -200,7 +200,6 @@ def call_gemini(api_keys: list[str], user_message: str) -> tuple[dict, dict]:
         "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
         "contents": [{"role": "user", "parts": [{"text": user_message}]}],
         "generationConfig": {
-            "temperature": 0.2,
             "maxOutputTokens": 8192,
             "responseMimeType": "application/json"
         }

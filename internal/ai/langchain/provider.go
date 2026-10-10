@@ -300,6 +300,23 @@ func (p *LangchainProvider) effectiveTemperature() float64 {
 	return normalizeTemperature(p.temperature, p.temperatureSet)
 }
 
+// buildCallOptions creates a slice of CallOption with the provider's default model configuration.
+func (p *LangchainProvider) buildCallOptions(extra ...llms.CallOption) []llms.CallOption {
+	var opts []llms.CallOption
+	
+	isGemini := false
+	switch strings.ToLower(p.providerType) {
+	case "gemini", "googleai", "gemini-enterprise", "vertex":
+		isGemini = true
+	}
+
+	if !isGemini {
+		opts = append(opts, llms.WithTemperature(p.effectiveTemperature()))
+	}
+	opts = append(opts, extra...)
+	return opts
+}
+
 func isOpenAISeriesModel(model string) bool {
 	model = strings.TrimSpace(strings.ToLower(model))
 	if len(model) < 2 || model[0] != 'o' {
@@ -1151,7 +1168,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 				timeoutCtx,
 				p.llm,
 				prompt,
-				llms.WithTemperature(effectiveTemp),
+				p.buildCallOptions()...,
 			)
 			if callErr == nil {
 				responseBuilder.WriteString(out)
@@ -1208,8 +1225,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 			timeoutCtx,
 			p.llm,
 			prompt,
-			llms.WithTemperature(effectiveTemp),
-			llms.WithStreamingFunc(streamingFunc),
+			p.buildCallOptions(llms.WithStreamingFunc(streamingFunc))...,
 		)
 		fmt.Printf("[STREAM DEBUG] GenerateFromSinglePrompt returned, err=%v\n", err)
 	}
@@ -1270,7 +1286,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 				fbCtx,
 				p.llm,
 				prompt,
-				llms.WithTemperature(effectiveTemp),
+				p.buildCallOptions()...,
 			)
 			close(waitingDone)
 
@@ -1470,7 +1486,7 @@ func (p *LangchainProvider) ReviewCodeWithBatching(ctx context.Context, diffs []
 		ctx,
 		p.llm,
 		successfulBatches,
-		llms.WithTemperature(p.effectiveTemperature()),
+		p.buildCallOptions()...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to aggregate results from %d successful batches: %w", len(successfulBatches), err)
