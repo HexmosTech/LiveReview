@@ -223,12 +223,13 @@ func (s *Server) GetConversation(c echo.Context) error {
 		}
 
 		var actionCard *mcpagent.ActionCard
-		if len(actionCards) > 0 {
-			actionCard = &actionCards[len(actionCards)-1]
+		if n := len(actionCards); n > 0 {
+			last := actionCards[n-1]
+			actionCard = &last
 		}
 		var suggestedQuestions []mcpagent.SuggestedQuestionCategory
-		if len(suggestedQuestionsList) > 0 {
-			suggestedQuestions = suggestedQuestionsList[len(suggestedQuestionsList)-1]
+		if n := len(suggestedQuestionsList); n > 0 {
+			suggestedQuestions = suggestedQuestionsList[n-1]
 		}
 		out.Messages = append(out.Messages, ChatMessageOut{
 			ID:                 m.ID,
