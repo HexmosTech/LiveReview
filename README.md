@@ -2,7 +2,7 @@
 
 <a href="https://github.com/HexmosTech/LiveReview/actions/workflows/gitleaks.yml" target="_blank" rel="noopener noreferrer"><img alt="gitleaks.yml" title="gitleaks.yml: Secret scanning workflow" src="https://github.com/HexmosTech/LiveReview/actions/workflows/gitleaks.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/osv-scanner.yml" target="_blank" rel="noopener noreferrer"><img alt="osv-scanner.yml" title="osv-scanner.yml: Dependency vulnerability scan" src="https://github.com/HexmosTech/LiveReview/actions/workflows/osv-scanner.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/govulncheck.yml" target="_blank" rel="noopener noreferrer"><img alt="govulncheck.yml" title="govulncheck.yml: Go vulnerability check" src="https://github.com/HexmosTech/LiveReview/actions/workflows/govulncheck.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/semgrep.yml" target="_blank" rel="noopener noreferrer"><img alt="semgrep.yml" title="semgrep.yml: Static analysis security scan" src="https://github.com/HexmosTech/LiveReview/actions/workflows/semgrep.yml/badge.svg"></a>&nbsp;<img alt="dependabot-enabled" title="dependabot-enabled: Automated dependency updates are enabled" src="./assets/gfx/dependabot-enabled.svg">&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/mcp-testcases.yml" target="_blank" rel="noopener noreferrer"><img alt="mcp-testcases.yml" title="mcp-testcases.yml: MCP integration test suite" src="https://github.com/HexmosTech/LiveReview/actions/workflows/mcp-testcases.yml/badge.svg"></a>
 
-# LiveReview: Blast-Radius Aware AI Code Review for Business-Critical Systems
+# LiveReview: Risk-Aware AI Code Review for Business-Critical Systems
 
 LiveReview is an AI code reviewer that scores every hunk of a diff by **blast radius**: how far a change reaches through your call graph, how much persistent state it touches, and how well-tested it is. A 3-line change to a shared auth check can outrank a 300-line UI tweak. Your team's attention goes to the highest-risk code first, not spread evenly across every diff.
 
@@ -66,7 +66,7 @@ The result: engineering becomes a business advantage. You stay ahead, your engin
 | I want to... | Go to |
 |---|---|
 | Try LiveReview free in under 5 minutes | [Quick Start](#quick-start) |
-| Understand Blast-Radius scoring | [above ↑](#livereview-blast-radius-aware-ai-code-review-for-business-critical-systems) |
+| Understand Blast-Radius scoring | [above ↑](#livereview-risk-aware-ai-code-review-for-business-critical-systems) |
 | Enforce checks at commit / push / PR / CI | [Org-Wide Harness](#org-wide-harness) |
 | Write a precise, custom rule for blocking a merge | [CI/CD Gates](#cicd-gates) |
 
