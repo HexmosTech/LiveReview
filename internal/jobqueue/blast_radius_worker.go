@@ -155,12 +155,12 @@ func (w *BlastRadiusWorker) saveSkipped(ctx context.Context, orgID, reviewID int
 // loadRepo builds the repocache.Repo for a review; skip is non-empty when the
 // review isn't a PR review blast radius can run on.
 func (w *BlastRadiusWorker) loadRepo(ctx context.Context, orgID, reviewID int64) (r repocache.Repo, skip string, err error) {
-	var prURL, triggerType string
+	var prURL, triggerType, reviewBranch string
 	var connectorID, pullRequestID sql.NullInt64
 	err = w.db.QueryRowContext(ctx,
-		`SELECT COALESCE(pr_mr_url, ''), connector_id, pull_request_id, trigger_type FROM reviews WHERE id = $1 AND org_id = $2`,
+		`SELECT COALESCE(pr_mr_url, ''), connector_id, pull_request_id, trigger_type, COALESCE(branch, '') FROM reviews WHERE id = $1 AND org_id = $2`,
 		reviewID, orgID,
-	).Scan(&prURL, &connectorID, &pullRequestID, &triggerType)
+	).Scan(&prURL, &connectorID, &pullRequestID, &triggerType, &reviewBranch)
 	if err != nil {
 		return r, "", fmt.Errorf("load review: %w", err)
 	}
@@ -207,6 +207,10 @@ func (w *BlastRadiusWorker) loadRepo(ctx context.Context, orgID, reviewID int64)
 		if err != nil && err != sql.ErrNoRows {
 			return r, "", fmt.Errorf("load pull request: %w", err)
 		}
+	}
+	// No linked PR record: the review row holds the PR's source branch (set before this job is queued).
+	if r.SourceBranch == "" {
+		r.SourceBranch = reviewBranch
 	}
 	if strings.HasPrefix(provider, "bitbucket") && r.SourceBranch == "" {
 		return r, "bitbucket PR without a known source branch", nil

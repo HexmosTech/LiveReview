@@ -306,6 +306,10 @@ const ReviewDetail: React.FC = () => {
 
         pollingIntervalRef.current = setInterval(() => {
             void fetchAccountingDetails(currentReviewId, review?.status);
+            // Refresh the review itself too, so the status badge flips once the review finishes.
+            if (review?.status === 'created' || review?.status === 'in_progress') {
+                getReview(currentReviewId).then(setReview).catch(() => {});
+            }
         }, ACCOUNTING_REFRESH_INTERVAL_MS);
 
         return () => {

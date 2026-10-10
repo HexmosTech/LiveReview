@@ -7,8 +7,9 @@
 
 Full detail view of a single code review: status, timeline of review events,
 AI-generated findings/summary, diff viewer, commit list, and accounting
-(cost/token usage per stage, refreshed every 15s while a review is
-in-flight).
+(cost/token usage per stage). While a review is in-flight, accounting and the
+review status badge refresh every 15s, so the badge flips to Completed without
+a page reload.
 
 ## Who can access it
 
