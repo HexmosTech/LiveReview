@@ -367,6 +367,7 @@ test:
 TEST_PACKAGES := $(shell find . \
 	-path './livereview_pgdata' -prune -o \
 	-path './lrdata' -prune -o \
+	-path './.lrdata' -prune -o \
 	-path './vendor' -prune -o \
 	-path './debug' -prune -o \
 	-path './tests' -prune -o \

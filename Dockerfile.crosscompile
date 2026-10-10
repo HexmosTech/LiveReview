@@ -5,7 +5,7 @@
 # Frozen Docker dependency versions - see docker/docker-deps.env (single source of truth).
 # scripts/lrops.py injects these as --build-arg for every build.
 ARG NODE_IMAGE_TAG=20.20.2-alpine
-ARG GOLANG_IMAGE_TAG=1.26.8-bookworm
+ARG GOLANG_IMAGE_TAG=1.26.9-bookworm
 ARG DEBIAN_IMAGE_TAG=trixie-20260824-slim
 
 # Stage 1: Build React UI once (architecture-agnostic)
