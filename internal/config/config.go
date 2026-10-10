@@ -88,7 +88,6 @@ token = "your-gitlab-token"
 [ai.gemini]
 api_key = "your-gemini-api-key"
 model = "%s"
-temperature = 0.2
 `, gemini.DefaultModel)
 
 	return os.WriteFile(configPath, []byte(sampleConfig), 0644)

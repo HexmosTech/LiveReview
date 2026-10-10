@@ -44,9 +44,9 @@ url = "https://gitea.example.com"
 [ai.langchain]
 # Model name (varies by provider)
 # Ollama: "llama3.2", "codellama", "mistral", etc.
-# Google: "gemini-2.0-flash", "gemini-2.5-pro", etc.
+# Google: "gemini-3.8-flash", "gemini-3.5-pro", etc.
 # OpenAI: "gpt-4", "gpt-3.5-turbo", etc.
-model = "gemini-2.0-flash"
+model = "gemini-3.8-flash"
 
 # Provider type: "ollama", "google", "openai", "anthropic"
 # provider_type = "ollama"
@@ -54,9 +54,6 @@ model = "gemini-2.0-flash"
 # Base URL for Ollama (only needed for Ollama provider)
 # Default: http://localhost:11434
 # base_url = "http://localhost:11434"
-
-# Temperature for generation (0.0 = deterministic, 1.0 = creative)
-temperature = 0.2
 
 # Maximum tokens per batch for processing
 max_tokens_per_batch = 8000

@@ -596,19 +596,26 @@ func (t *atlasLoggingTransport) RoundTrip(req *http.Request) (*http.Response, er
 // buildCallOptions creates a slice of llms.CallOption with the connector's
 // default model configuration, appending any extra options.
 func (c *Connector) buildCallOptions(options ...llms.CallOption) []llms.CallOption {
-	callOptions := []llms.CallOption{
-		llms.WithTemperature(c.options.ModelConfig.Temperature),
+	var callOptions []llms.CallOption
+	
+	// Google AI Studio deprecated sampling parameters for Gemini 3.x models.
+	// Sending them will soon return a 400 INVALID_ARGUMENT error.
+	isGemini := c.provider == ProviderGemini || c.provider == ProviderGeminiEnterprise
+	
+	if !isGemini {
+		callOptions = append(callOptions, llms.WithTemperature(c.options.ModelConfig.Temperature))
 	}
+
 	if c.options.ModelConfig.Model != "" {
 		callOptions = append(callOptions, llms.WithModel(c.options.ModelConfig.Model))
 	}
 	if c.options.ModelConfig.MaxTokens > 0 {
 		callOptions = append(callOptions, llms.WithMaxTokens(c.options.ModelConfig.MaxTokens))
 	}
-	if c.options.ModelConfig.TopP > 0 {
+	if c.options.ModelConfig.TopP > 0 && !isGemini {
 		callOptions = append(callOptions, llms.WithTopP(c.options.ModelConfig.TopP))
 	}
-	if c.options.ModelConfig.TopK > 0 {
+	if c.options.ModelConfig.TopK > 0 && !isGemini {
 		callOptions = append(callOptions, llms.WithTopK(int(c.options.ModelConfig.TopK)))
 	}
 	callOptions = append(callOptions, options...)
