@@ -410,11 +410,11 @@ const BlastSkippedNotice: React.FC<{ skipped: BlastRadiusSkipped }> = ({ skipped
           {why}{' '}
           {skipped.reason === 'repo_too_large' &&
             (canManageCache ? (
-              <Link to="/settings#storage" className="font-semibold text-amber-300 underline hover:text-amber-200">
+              <Link to="/settings?section=repo-cache#storage" className="font-semibold text-amber-300 underline hover:text-amber-200">
                 Increase cache size
               </Link>
             ) : (
-              'Ask an admin to increase the cache size in Settings → Storage.'
+              'Ask an admin to increase the cache size in Settings → Storage → Repo Cache.'
             ))}
         </p>
       </div>

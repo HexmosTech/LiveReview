@@ -68,7 +68,7 @@ const BlastRadiusCacheSettingsTab: React.FC = () => {
                     </svg>
                 </div>
                 <div>
-                    <h3 className="text-lg font-semibold text-white">Blast Radius Repo Cache</h3>
+                    <h3 className="text-lg font-semibold text-white">Repo Cache</h3>
                     <p className="text-sm text-slate-400">
                         Keeps a shallow clone and code graph of each reviewed repo so PR reviews get blast-radius risk scores. Least-recently-used repos are removed when the cache is full.
                     </p>

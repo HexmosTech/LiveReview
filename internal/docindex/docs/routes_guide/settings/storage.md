@@ -14,12 +14,22 @@ artifacts (diffs, blast-radius data, etc. synced from `lrc`). Backed by a
 switching backends or rotating credentials needs no redeploy. See
 `internal/api/storage_settings.go`.
 
+## Layout
+
+The page has four sub-tabs, each with its own Save button. The selected one
+is kept in the URL (`/settings?section=<id>#storage`), so links open it directly:
+
+- **Blob Storage** (`section=blob`, the default)
+- **Log Compaction** (`section=log-compaction`)
+- **Preloaded Changes Archival** (`section=archival`)
+- **Repo Cache** (`section=repo-cache`)
+
 ## Key actions
 
 - Choose and configure the storage backend: local filesystem, S3-compatible
   (AWS S3, Backblaze B2), Google Cloud Storage, or Azure Blob Storage.
 - Enter/rotate credentials for the selected backend.
-- **Blast Radius Repo Cache** section: turn server-side blast radius on/off
+- **Repo Cache** sub-tab: turn server-side blast radius on/off
   (on by default) and set the cache size (default 5 GB, minimum 1 GB). The
   server keeps a shallow clone + code graph of each reviewed repo under
   `lrdata/blastradius/` and removes the least-recently-used repos when the

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Input } from '../../components/UIPrimitives';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Button, Input, Tabs } from '../../components/UIPrimitives';
 import apiClient from '../../api/apiClient';
 import { notify } from '../../utils/notify';
 import CompactionSettingsTab from './CompactionSettingsTab';
@@ -49,6 +50,20 @@ const StorageSettingsTab: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [isTesting, setIsTesting] = useState(false);
+    const location = useLocation();
+    const navigate = useNavigate();
+    const sections = [
+        { id: 'blob', label: 'Blob Storage' },
+        ...(canManageInstanceConfig ? [
+            { id: 'log-compaction', label: 'Log Compaction' },
+            { id: 'archival', label: 'Preloaded Changes Archival' },
+            { id: 'repo-cache', label: 'Repo Cache' },
+        ] : []),
+    ];
+    const requested = new URLSearchParams(location.search).get('section');
+    const section = sections.some((t) => t.id === requested) ? requested : 'blob';
+    // Keep the main tab's #storage hash; the sub-tab lives in ?section= so links can land on it.
+    const selectSection = (id: string) => navigate({ search: `?section=${id}`, hash: location.hash }, { replace: true });
 
     useEffect(() => {
         fetchSettings();
@@ -141,25 +156,21 @@ const StorageSettingsTab: React.FC = () => {
         }
     };
 
-    if (isLoading) {
-        return (
-            <div className="flex justify-center p-8">
-                <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-            </div>
-        );
-    }
-
-    return (
-        <div>
-            <div className="flex items-center mb-6">
-                <div className="text-indigo-400 mr-3">
-                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    const blobSection = isLoading ? (
+        <div className="flex justify-center p-8">
+            <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+    ) : (
+        <div className="space-y-5">
+            <div className="flex items-center space-x-3">
+                <div className="p-2 bg-indigo-500/10 border border-indigo-500/20 rounded-lg text-indigo-400">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0H4m8-9v9" />
                     </svg>
                 </div>
                 <div>
-                    <h3 className="font-medium text-white">Blob Storage</h3>
-                    <p className="text-sm text-slate-300">Where git-lrc review artifacts (e.g. blast-radius reports) are stored</p>
+                    <h3 className="text-lg font-semibold text-white">Blob Storage</h3>
+                    <p className="text-sm text-slate-400">Where git-lrc review artifacts (e.g. blast-radius reports) are stored</p>
                 </div>
             </div>
 
@@ -311,35 +322,18 @@ const StorageSettingsTab: React.FC = () => {
                     </Button>
                 </div>
             </div>
+        </div>
+    );
 
-            {/* Instance Owner / Admin Only: Log Compaction & Preloaded Changes Archival */}
-            {canManageInstanceConfig && (
-                <>
-                    {/* Divider */}
-                    <div className="my-10 border-t border-slate-700/80"></div>
-
-                    {/* Section 2: PostgreSQL Event Log Compaction & Retention */}
-                    <div id="log-compaction">
-                        <CompactionSettingsTab />
-                    </div>
-
-                    {/* Divider */}
-                    <div className="my-10 border-t border-slate-700/80"></div>
-
-                    {/* Section 3: Preloaded Changes Archival */}
-                    <div id="preloaded-changes-archival">
-                        <PreloadedChangesArchivalSettingsTab />
-                    </div>
-
-                    {/* Divider */}
-                    <div className="my-10 border-t border-slate-700/80"></div>
-
-                    {/* Section 4: Blast Radius Repo Cache */}
-                    <div id="blast-radius-cache">
-                        <BlastRadiusCacheSettingsTab />
-                    </div>
-                </>
+    return (
+        <div>
+            {sections.length > 1 && (
+                <Tabs className="mb-6" tabs={sections} activeTab={section} onChange={selectSection} />
             )}
+            {section === 'blob' && blobSection}
+            {section === 'log-compaction' && <CompactionSettingsTab />}
+            {section === 'archival' && <PreloadedChangesArchivalSettingsTab />}
+            {section === 'repo-cache' && <BlastRadiusCacheSettingsTab />}
         </div>
     );
 };
