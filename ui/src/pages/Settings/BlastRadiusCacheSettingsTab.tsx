@@ -56,6 +56,9 @@ const BlastRadiusCacheSettingsTab: React.FC = () => {
 
     const usedGB = settings.used_bytes / GB;
     const usedPct = Math.min(100, (usedGB / Math.max(settings.max_gb, 1)) * 100);
+    // Small caches would round to "0.0 GB" / "0%", so show MB and "<1%" below those.
+    const usedLabel = usedGB >= 1 ? `${usedGB.toFixed(1)} GB` : `${Math.max(1, Math.round(settings.used_bytes / 2 ** 20))} MB`;
+    const pctLabel = settings.used_bytes > 0 && usedPct < 1 ? '<1%' : `${usedPct.toFixed(0)}%`;
     const tooSmall = settings.max_gb < settings.min_gb;
 
     return (
@@ -119,12 +122,12 @@ const BlastRadiusCacheSettingsTab: React.FC = () => {
                 <div>
                     <div className="flex justify-between text-xs text-slate-400 mb-1.5">
                         <span>
-                            Used {usedGB.toFixed(1)} GB of {settings.max_gb} GB · {settings.repos} {settings.repos === 1 ? 'repo' : 'repos'} cached
+                            Used {settings.used_bytes > 0 ? usedLabel : '0 GB'} of {settings.max_gb} GB · {settings.repos} {settings.repos === 1 ? 'repo' : 'repos'} cached
                         </span>
-                        <span>{usedPct.toFixed(0)}%</span>
+                        <span>{pctLabel}</span>
                     </div>
                     <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-                        <div className="h-full bg-violet-500" style={{ width: `${usedPct}%` }} />
+                        <div className="h-full bg-violet-500" style={{ width: `${settings.used_bytes > 0 ? Math.max(usedPct, 0.5) : 0}%` }} />
                     </div>
                 </div>
             </div>
