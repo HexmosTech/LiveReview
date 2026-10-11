@@ -66,7 +66,7 @@ var defaultProviderModels = map[string]string{
 	"gemini":     gemini.DefaultModel,
 	"deepseek":   "deepseek-v4-flash",
 	"cohere":     "command-a",
-	"openrouter": "deepseek/deepseek-v4-flash",
+	"openrouter": "deepseek/deepseek-pro-v4",
 	"atlas":      "deepseek-ai/deepseek-v4-flash",
 }
 

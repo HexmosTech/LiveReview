@@ -56,7 +56,7 @@ require (
 	github.com/slack-go/slack v0.27.0
 	github.com/stephenafamo/goldmark-pdf v0.4.2
 	github.com/stretchr/testify v1.12.1
-	github.com/tmc/langchaingo v0.1.14
+	github.com/tmc/langchaingo v0.1.15
 	github.com/wasilibs/go-pgquery v0.0.0-20260728010200-155ebad2880e
 	github.com/xuri/excelize/v2 v2.11.1-0.20261009041834-958cda5363be
 	github.com/yalue/onnxruntime_go v1.32.1
