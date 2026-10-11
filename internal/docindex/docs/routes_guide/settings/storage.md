@@ -32,7 +32,7 @@ is kept in the URL (`/settings?section=<id>#storage`), so links open it directly
 - **Repo Cache** sub-tab: turn server-side blast radius on/off
   (on by default) and set the cache size (default 5 GB, minimum 1 GB). The
   server keeps a shallow clone + code graph of each reviewed repo under
-  `lrdata/blastradius/` and removes the least-recently-used repos when the
+  `lrdata/repo_cache/` and removes the least-recently-used repos when the
   cache is full. Shows how much is used and how many repos are cached. Raise
   the size when a review says its repo is too large for the cache. Backed by
   the `system_settings` row `blast_radius_cache`

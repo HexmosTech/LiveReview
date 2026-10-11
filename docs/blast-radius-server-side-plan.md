@@ -78,7 +78,7 @@ Optional later: tag releases as `blastradius/vX.Y.Z` in git-lrc (Go's convention
    **Folder layout** (`./lrdata` is already the persistent volume in `docker-compose.yml`):
 
    ```
-   /app/lrdata/blastradius/
+   /app/lrdata/repo_cache/
      <org_id>/                     # tenant boundary - never shared across orgs
        <connector_id>/
          <owner>__<repo>/
@@ -157,7 +157,7 @@ Optional later: tag releases as `blastradius/vX.Y.Z` in git-lrc (Go's convention
 
 2. **Graph index**
    - The Docker image's `codebase-memory-mcp` is pinned to **v0.9.0** (same as git-lrc's `graphengine.PinnedVersion`) and locked in `PINNED_DOCKER_DEPS`. v0.10.x prints `query_graph` results as text even with `--json`, which the engine can't parse (checked with v0.10.8). Bump only together with git-lrc.
-   - Indexes go to `/app/lrdata/blastradius/index/` via `CBM_CACHE_DIR`; each index file is named after the repo's full cache path (which includes org and connector), so they never collide across tenants. Indexes are big (prometheus: 126 MB index vs 44 MB repo), so `max_gb` and eviction (step 6) must count and delete them together with the repo.
+   - Indexes go to `/app/lrdata/repo_cache/index/` via `CBM_CACHE_DIR`; each index file is named after the repo's full cache path (which includes org and connector), so they never collide across tenants. Indexes are big (prometheus: 126 MB index vs 44 MB repo), so `max_gb` and eviction (step 6) must count and delete them together with the repo.
 
 3. **Scoring engine** — Option B above: `go get github.com/HexmosTech/git-lrc/blastradius@<commit>`, call `blastradius.ScoreHunks`.
 

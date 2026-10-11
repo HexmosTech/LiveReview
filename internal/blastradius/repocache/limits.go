@@ -14,7 +14,7 @@ import (
 )
 
 // DefaultRoot holds the repo cache and graph indexes, next to the local blob store.
-const DefaultRoot = "./lrdata/blastradius"
+const DefaultRoot = "./lrdata/repo_cache"
 
 // MinGB is the smallest cache size admins can set; DefaultGB applies until they change it.
 const (

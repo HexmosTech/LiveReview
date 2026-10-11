@@ -150,7 +150,7 @@ run through `git lrc review` will have them, and that's expected, not an error.
 **Blast radius is the exception:** PR reviews started from LiveReview also get it from
 a server-side River job (`internal/jobqueue/blast_radius_worker.go`, queued in
 `QueueManualReviewJob`). It keeps a blobless ~13-month clone + `codebase-memory-mcp`
-index per repo under `lrdata/blastradius/` (`internal/blastradius/repocache`), scores
+index per repo under `lrdata/repo_cache/` (`internal/blastradius/repocache`), scores
 with git-lrc's engine imported as a Go module (`github.com/HexmosTech/git-lrc/blastradius`,
 via `internal/blastradius/serverscore`), and saves through the same artifact path below.
 `codebase-memory-mcp` is pinned to v0.9.0 to match git-lrc — bump both together. Cache
