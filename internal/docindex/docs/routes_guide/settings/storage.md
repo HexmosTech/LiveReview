@@ -34,7 +34,11 @@ is kept in the URL (`/settings?section=<id>#storage`), so links open it directly
   server keeps a shallow clone + code graph of each reviewed repo under
   `lrdata/repo_cache/` and removes the least-recently-used repos when the
   cache is full. Shows how much is used and how many repos are cached. Raise
-  the size when a review says its repo is too large for the cache. Backed by
+  the size when a review says its repo is too large for the cache. **Clear
+  cache** deletes every cached repo on the server (all orgs, after a
+  confirmation); repos a review is using right now are skipped. To clear one
+  repo, use its [repository settings](../explore/repository-settings.md).
+  Backed by
   the `system_settings` row `blast_radius_cache`
   (`/api/v1/admin/settings/blast-radius-cache`).
 

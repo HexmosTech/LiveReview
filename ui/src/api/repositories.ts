@@ -43,3 +43,20 @@ export const syncRepositoryPullRequests = async (repoId: number): Promise<{ stat
 export const syncConnectorRepositories = async (connectorId: string): Promise<{ status: string; connector_id: number }> => {
   return apiClient.post<{ status: string; connector_id: number }>(`/api/v1/connectors/${connectorId}/repositories/sync`, {});
 };
+
+export interface RepositoryCache {
+  enabled: boolean;
+  cached: boolean;
+  bytes: number;
+  last_used?: string;
+}
+
+/** GET /api/v1/repositories/:repoId/cache - this repo's server-side repo cache entry. */
+export const getRepositoryCache = async (repoId: number): Promise<RepositoryCache> => {
+  return apiClient.get<RepositoryCache>(`/api/v1/repositories/${repoId}/cache`);
+};
+
+/** DELETE /api/v1/repositories/:repoId/cache - clears it (owners/super admins; 409 while a review uses it). */
+export const clearRepositoryCache = async (repoId: number): Promise<{ message: string }> => {
+  return apiClient.delete<{ message: string }>(`/api/v1/repositories/${repoId}/cache`);
+};

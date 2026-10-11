@@ -21,9 +21,12 @@ Any authenticated org member.
   (`syncConnectorRepositories`).
 - Navigate to a repo's [Scheduled Reviews](../reviews/scheduled-reviews.md)
   runs.
+- Open a repo's [settings](repository-settings.md) (gear icon in the Actions
+  column), e.g. to see or clear its repo cache.
 
 ## Related pages
 
 - [Explore → Merge Requests](merge-requests.md)
+- [Repository settings](repository-settings.md)
 - [Git Providers](../git/git-providers.md)
 - [Scheduled Reviews](../reviews/scheduled-reviews.md)

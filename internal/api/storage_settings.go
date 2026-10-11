@@ -170,3 +170,13 @@ func (s *Server) UpdateBlastRadiusCacheSettings(c echo.Context) error {
 	go repocache.Evict(repocache.DefaultRoot, req.MaxBytes())
 	return c.JSON(http.StatusOK, map[string]string{"message": "Blast radius cache settings updated successfully"})
 }
+
+// ClearBlastRadiusCache deletes every cached repo (instance-wide, like shrinking the size); repos in use are skipped.
+func (s *Server) ClearBlastRadiusCache(c echo.Context) error {
+	if authMethod, _ := c.Get(authMethodContextKey).(string); authMethod == authMethodAPIKey {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "The repo cache can only be cleared from a signed-in session, not an API key"})
+	}
+	cleared, busy := repocache.ClearAll(repocache.DefaultRoot)
+	log.Info().Int("cleared", cleared).Int("busy", busy).Msg("[repo_cache] cleared all")
+	return c.JSON(http.StatusOK, map[string]int{"cleared": cleared, "busy": busy})
+}

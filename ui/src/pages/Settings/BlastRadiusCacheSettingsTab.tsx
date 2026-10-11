@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Button } from '../../components/UIPrimitives';
 import apiClient from '../../api/apiClient';
 import { notify } from '../../utils/notify';
+import { ConfirmModal } from '../../components/ConfirmModal';
 
 interface BlastRadiusCacheSettings {
     enabled: boolean;
@@ -19,6 +20,24 @@ const GB = 1024 ** 3;
 const BlastRadiusCacheSettingsTab: React.FC = () => {
     const [settings, setSettings] = useState<BlastRadiusCacheSettings | null>(null);
     const [isSaving, setIsSaving] = useState(false);
+    const [confirmClear, setConfirmClear] = useState(false);
+    const [isClearing, setIsClearing] = useState(false);
+
+    // Deletes every cached repo; each is cloned again on its next PR review.
+    const handleClear = async () => {
+        setConfirmClear(false);
+        setIsClearing(true);
+        try {
+            const res = await apiClient.post<{ cleared: number; busy: number }>(`${ENDPOINT}/clear`, {});
+            const skipped = res.busy > 0 ? ` (${res.busy} in use by a running review, skipped)` : '';
+            notify.success(`Cleared ${res.cleared} cached ${res.cleared === 1 ? 'repo' : 'repos'}${skipped}`);
+            await load();
+        } catch (error: any) {
+            notify.error(error?.message || 'Failed to clear the repo cache');
+        } finally {
+            setIsClearing(false);
+        }
+    };
 
     const load = async () => {
         try {
@@ -129,6 +148,17 @@ const BlastRadiusCacheSettingsTab: React.FC = () => {
                     <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
                         <div className="h-full bg-violet-500" style={{ width: `${settings.used_bytes > 0 ? Math.max(usedPct, 0.5) : 0}%` }} />
                     </div>
+                    <div className="flex justify-end mt-3">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setConfirmClear(true)}
+                            isLoading={isClearing}
+                            disabled={isClearing || settings.repos === 0}
+                        >
+                            Clear cache
+                        </Button>
+                    </div>
                 </div>
             </div>
 
@@ -137,6 +167,15 @@ const BlastRadiusCacheSettingsTab: React.FC = () => {
                     Save Settings
                 </Button>
             </div>
+            <ConfirmModal
+                show={confirmClear}
+                type="danger"
+                title="Clear the whole repo cache?"
+                message="Every cached repo is deleted, for all organizations on this server. Each one is cloned again on its next PR review. Repos a review is using right now are skipped."
+                confirmText="Clear cache"
+                onConfirm={handleClear}
+                onCancel={() => setConfirmClear(false)}
+            />
         </div>
     );
 };

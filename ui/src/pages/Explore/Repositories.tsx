@@ -437,13 +437,16 @@ const Repositories: React.FC = () => {
                 <span className={isSyncing ? 'animate-spin' : ''}><Icons.Refresh /></span>
               </Button>
             </Tooltip>
-            <Tooltip content="Repository settings (coming soon)">
+            <Tooltip content="Repository settings">
               <Button
                 variant="ghost"
                 size="sm"
-                disabled
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/explore/repositories/${repo.id}/settings`);
+                }}
                 aria-label="Repository settings"
-                className="text-slate-500 px-2 cursor-not-allowed text-sm"
+                className="text-slate-500 hover:text-slate-300 px-2 cursor-pointer text-sm"
               >
                 <Icons.Settings />
               </Button>

@@ -142,6 +142,60 @@ func ClearTooLarge(root string, r Repo) {
 	}
 }
 
+// CachedRepo is one repo's cache entry as shown in the UI.
+type CachedRepo struct {
+	Cached   bool       `json:"cached"`
+	Bytes    int64      `json:"bytes"`
+	LastUsed *time.Time `json:"last_used,omitempty"`
+}
+
+// Inspect reports r's cache entry (repo + code graph), or Cached=false when it has none.
+func Inspect(root string, r Repo) CachedRepo {
+	entry, err := EntryDir(root, r)
+	if err != nil {
+		return CachedRepo{}
+	}
+	if st, err := os.Stat(entry); err != nil || !st.IsDir() {
+		return CachedRepo{}
+	}
+	c := CachedRepo{Cached: true, Bytes: EntrySize(root, entry)}
+	if t := lastUsed(entry); !t.IsZero() {
+		c.LastUsed = &t
+	}
+	return c
+}
+
+// Clear deletes r's cache entry and too-large marker; ok=false means a review is using it right now.
+func Clear(root string, r Repo) (ok bool, err error) {
+	entry, err := EntryDir(root, r)
+	if err != nil {
+		return false, err
+	}
+	_ = os.Remove(entry + ".too_large")
+	if _, err := os.Stat(entry); err != nil {
+		return true, nil // nothing cached
+	}
+	return removeIfIdle(root, entry), nil
+}
+
+// ClearAll deletes every idle cached repo and every too-large marker; busy counts repos in use.
+func ClearAll(root string) (cleared, busy int) {
+	for _, e := range entries(root) {
+		if removeIfIdle(root, e) {
+			cleared++
+		} else {
+			busy++
+		}
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		markers, _ := filepath.Glob(filepath.Join(abs, "*", "*", "*.too_large"))
+		for _, m := range markers {
+			_ = os.Remove(m)
+		}
+	}
+	return cleared, busy
+}
+
 // RemoveScope deletes every cached repo of a connector (connectorID > 0) or a whole org.
 func RemoveScope(root string, orgID, connectorID int64) {
 	abs, err := filepath.Abs(root)

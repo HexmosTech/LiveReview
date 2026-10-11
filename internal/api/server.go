@@ -1320,6 +1320,7 @@ func (s *Server) setupRoutes() {
 	adminOrOwnerGroup.POST("/settings/storage/test", s.TestStorageSettings)
 	adminOrOwnerGroup.GET("/settings/blast-radius-cache", s.GetBlastRadiusCacheSettings)
 	adminOrOwnerGroup.PUT("/settings/blast-radius-cache", s.UpdateBlastRadiusCacheSettings)
+	adminOrOwnerGroup.POST("/settings/blast-radius-cache/clear", s.ClearBlastRadiusCache)
 
 	// Log compaction settings endpoints (same instance-owner access as production-url and storage)
 	adminOrOwnerGroup.GET("/settings/compaction", s.GetCompactionSettings)
@@ -1491,6 +1492,8 @@ func (s *Server) setupRoutes() {
 	repositoriesGroup.GET("", s.ListRepositories)
 	repositoriesGroup.GET("/:repoId", s.GetRepository)
 	repositoriesGroup.POST("/:repoId/sync", s.TriggerRepositoryPRSync)
+	repositoriesGroup.GET("/:repoId/cache", s.GetRepositoryCache)
+	repositoriesGroup.DELETE("/:repoId/cache", s.ClearRepositoryCache)
 	repositoriesGroup.GET("/:repoId/pull-requests", s.ListPullRequestsForRepo)
 	repositoriesGroup.GET("/:repoId/pull-requests/:prId", s.GetPullRequest)
 	repositoriesGroup.GET("/:repoId/scheduled-review-runs", s.GetScheduledReviewRuns)
