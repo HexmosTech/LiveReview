@@ -71,10 +71,11 @@ const providerUIMetadata: AIProvider[] = [
         id: 'openrouter',
         name: 'OpenRouter',
         url: 'https://openrouter.ai/',
-        description: 'Bring your own key and choose any OpenRouter model. Defaults to the free DeepSeek route.',
+        description: 'Bring your own key and choose any OpenRouter model. Defaults to DeepSeek Pro v4.',
         icon: <Icons.OpenRouter />,
         apiKeyPlaceholder: 'sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        baseURLPlaceholder: 'https://openrouter.ai/api/v1'
+        baseURLPlaceholder: 'https://openrouter.ai/api/v1',
+        defaultModel: 'deepseek/deepseek-pro-v4'
     },
     {
         id: 'ollama',
