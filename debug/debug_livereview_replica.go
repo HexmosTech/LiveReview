@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 import (
@@ -168,3 +170,4 @@ func main() {
 		fmt.Printf("ERROR: %v\n", err)
 	}
 }
+
