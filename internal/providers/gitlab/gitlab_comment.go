@@ -157,6 +157,28 @@ func (c *GitLabHTTPClient) CreateMRGeneralComment(projectID string, mrIID int, c
 	return nil
 }
 
+// ApproveMR approves a merge request as the token's user (POST /merge_requests/:iid/approve).
+func (c *GitLabHTTPClient) ApproveMR(projectID string, mrIID int) error {
+	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/approve", c.baseURL, url.PathEscape(projectID), mrIID)
+	req, err := http.NewRequest("POST", requestURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Add("PRIVATE-TOKEN", c.token)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("approve request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
 // Enhanced implementation of CreateMRLineComment that uses the GitLab API documentation approach
 // This overrides the implementation in http_client.go
 func (c *GitLabHTTPClient) CreateMRLineComment(projectID string, mrIID int, filePath string, lineNum int, comment string, isDeletedLine ...bool) error {

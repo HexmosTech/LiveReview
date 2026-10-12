@@ -133,4 +133,5 @@ export interface CreateReviewFromPullRequestResponse {
   url: string;
   reviewId: string;
   pull_request_id: number;
+  reused?: boolean;
 }

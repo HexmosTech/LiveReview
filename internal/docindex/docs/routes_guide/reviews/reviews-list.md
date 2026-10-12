@@ -20,10 +20,15 @@ Any authenticated org member.
 - Click a row to open [Review Detail](review-detail.md).
 - Start a new review via "New Review" (`/reviews/new`).
 - Navigate to scheduled reviews (`/reviews/scheduled`).
+- View one pull request's review history: `/reviews?pull_request_id=<id>`
+  (the "View review history" link LiveReview comments on new GitHub/GitLab
+  PRs). Switches to the PR's org if needed. A "Filtered to one pull request"
+  chip shows above the table; click **Clear** to see all reviews again.
 
 ## Related pages
 
 - [Review Detail](review-detail.md)
+- [PR Review Link](pr-review-link.md)
 - [New Review](new-review.md)
 - [Scheduled Reviews](scheduled-reviews.md)
 - [CI/CD Gates](ci-cd-gates.md)

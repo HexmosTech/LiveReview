@@ -48,6 +48,7 @@ import {
     getStatusText,
 } from '../../api/reviews';
 import { Review, ReviewsFilters, ReviewsSort } from '../../types/reviews';
+import { useSwitchToPullRequestOrg, PR_NOT_FOUND_MESSAGE } from '../../hooks/useSwitchToPullRequestOrg';
 
 const pageSizeOptions = [20, 50, 100];
 
@@ -87,6 +88,7 @@ const initialColumnFiltersFromURL = (params: URLSearchParams): ColumnFiltersStat
 const Reviews: React.FC = () => {
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
+    const switchToPullRequestOrg = useSwitchToPullRequestOrg();
 
     const [reviews, setReviews] = useState<Review[]>([]);
     const [total, setTotal] = useState(0);
@@ -106,6 +108,13 @@ const Reviews: React.FC = () => {
     const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
         null
     );
+
+    // Set by the PR comment's "View review history" link; kept apart from column filters
+    // since there's no PR column. The ref lets the stable fetch helpers read it.
+    const [pullRequestId, setPullRequestId] = useState<number | undefined>(
+        () => Number(searchParams.get('pull_request_id')) || undefined
+    );
+    const pullRequestIdRef = useRef(pullRequestId);
 
     // Mirrors of the three state values above, read by refetchCurrent (used by
     // the 15s auto-refresh poll) so that callback can stay stable rather than
@@ -139,6 +148,7 @@ const Reviews: React.FC = () => {
             provider: getFilter('source') || undefined,
             sort: sortEntry ? (sortEntry.id as ReviewsSort) : undefined,
             order: sortEntry ? (sortEntry.desc ? 'desc' : 'asc') : undefined,
+            pullRequestId: pullRequestIdRef.current,
         };
     };
 
@@ -160,9 +170,22 @@ const Reviews: React.FC = () => {
         }
     }, []);
 
-    // Initial load.
+    // Initial load. A PR history link may point at another org, so switch to it first.
     useEffect(() => {
-        fetchReviews(buildFetchParams(sorting, columnFilters, pagination));
+        (async () => {
+            if (pullRequestId) {
+                try {
+                    await switchToPullRequestOrg(pullRequestId);
+                } catch (err: any) {
+                    setLoading(false);
+                    setError(err?.status === 404
+                        ? PR_NOT_FOUND_MESSAGE
+                        : err?.message || 'Failed to open pull request history');
+                    return;
+                }
+            }
+            fetchReviews(buildFetchParams(sorting, columnFilters, pagination));
+        })();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -204,7 +227,17 @@ const Reviews: React.FC = () => {
         if (search) next.set('search', search);
         if (source) next.set('source', source);
         if (status) next.set('status', status);
+        if (pullRequestIdRef.current) next.set('pull_request_id', String(pullRequestIdRef.current));
         setSearchParams(next, { replace: true });
+    };
+
+    const clearPullRequestFilter = () => {
+        pullRequestIdRef.current = undefined;
+        setPullRequestId(undefined);
+        syncFiltersToURL(columnFilters);
+        const nextPagination = { ...pagination, pageIndex: 0 };
+        setPagination(nextPagination);
+        fetchReviews(buildFetchParams(sorting, columnFilters, nextPagination));
     };
 
     const handleColumnFiltersChange: OnChangeFn<ColumnFiltersState> = (
@@ -670,6 +703,19 @@ const Reviews: React.FC = () => {
                 </Button>
             </div>
 
+            {pullRequestId && (
+                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800 px-3 py-1 text-sm text-slate-200">
+                    <span>Filtered to one pull request</span>
+                    <button
+                        type="button"
+                        onClick={clearPullRequestFilter}
+                        className="text-blue-300 hover:text-blue-200 underline cursor-pointer"
+                    >
+                        Clear
+                    </button>
+                </div>
+            )}
+
             <ClientTable
                 table={table}
                 columnWidths={REVIEWS_COLUMN_WIDTHS}
@@ -678,7 +724,7 @@ const Reviews: React.FC = () => {
                 error={error}
                 onRetry={refetchCurrent}
                 // Don't hide the search/filter controls when a filter causes zero results.
-                isEmpty={total === 0 && columnFilters.length === 0}
+                isEmpty={total === 0 && columnFilters.length === 0 && !pullRequestId}
                 empty={{
                     title: 'No review previews found',
                     description:

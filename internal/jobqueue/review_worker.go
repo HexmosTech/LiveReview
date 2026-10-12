@@ -89,7 +89,7 @@ func (w *ManualReviewWorker) Work(ctx context.Context, job *river.Job[ManualRevi
 		log.Error().Msg("[review_worker] Database connection not available on JobQueue")
 		return fmt.Errorf("database connection not available")
 	}
-	return reviewprocessor.ProcessManualReview(ctx, w.jq.db, args.OrgID, args.PlanCode, args.ActorUserID, args.ActorEmail, args.ReviewID, args.RequestJSON,
+	err := reviewprocessor.ProcessManualReview(ctx, w.jq.db, args.OrgID, args.PlanCode, args.ActorUserID, args.ActorEmail, args.ReviewID, args.RequestJSON,
 		func(ctx context.Context, model string, batch license.QuotaBatchInput, extraMeta map[string]interface{}) error {
 			operationID := fmt.Sprintf("manual-review:%d", args.ReviewID)
 			idempotencyKey := operationID
@@ -109,6 +109,12 @@ func (w *ManualReviewWorker) Work(ctx context.Context, job *river.Job[ManualRevi
 			})
 		},
 	)
+	if err == nil {
+		if qErr := w.jq.QueuePRPolicyCheckIfFlagged(ctx, args.OrgID, args.ReviewID); qErr != nil {
+			log.Warn().Err(qErr).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to queue PR policy check")
+		}
+	}
+	return err
 }
 
 // DiffReviewJobArgs represents the arguments for an asynchronous diff review job.

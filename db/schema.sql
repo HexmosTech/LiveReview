@@ -1652,6 +1652,7 @@ CREATE TABLE public.pull_requests (
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    links_comment_posted_at timestamp with time zone,
     CONSTRAINT pull_requests_last_synced_source_check CHECK ((last_synced_source = ANY (ARRAY['webhook'::text, 'poll'::text, 'backfill'::text]))),
     CONSTRAINT pull_requests_state_check CHECK ((state = ANY (ARRAY['open'::text, 'closed'::text, 'merged'::text])))
 );
@@ -6081,7 +6082,7 @@ ALTER TABLE ONLY public.review_commits
 --
 
 ALTER TABLE ONLY public.review_commits
-    ADD CONSTRAINT review_commits_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES public.repositories(id);
+    ADD CONSTRAINT review_commits_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES public.repositories(id) ON DELETE SET NULL;
 
 
 --
@@ -6548,4 +6549,6 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260824190000'),
     ('20260825140000'),
     ('20260825190000'),
-    ('20260905090000');
+    ('20260905090000'),
+    ('20261012090000'),
+    ('20261012100000');

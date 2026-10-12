@@ -22,6 +22,7 @@ const AIProviders = React.lazy(() => import('./pages/AIProviders/AIProviders'));
 const Settings = React.lazy(() => import('./pages/Settings/Settings'));
 const ReviewsRoutes = React.lazy(() => import('./pages/Reviews/ReviewsRoutes'));
 const ExploreRoutes = React.lazy(() => import('./pages/Explore/ExploreRoutes'));
+const PullRequestReviewTrigger = React.lazy(() => import('./pages/Reviews/PullRequestReviewTrigger'));
 const Login = React.lazy(() => import('./pages/Auth/Login'));
 const SelfHosted = React.lazy(() => import('./pages/Auth/SelfHosted'));
 const Setup = React.lazy(() => import('./pages/Setup/Setup'));
@@ -314,6 +315,7 @@ const AppContent: React.FC = () => {
                                 <Route path="/subscribe/subscriptions/:id/assign" element={<LicenseAssignment />} />
                                 <Route path="/checkout/team" element={<TeamCheckout />} />
                                 <Route path="/reviews/*" element={<ReviewsRoutes />} />
+                                <Route path="/pr/:id/review" element={<PullRequestReviewTrigger />} />
                                 <Route path="/explore/*" element={<ExploreRoutes />} />
                                 <Route path="/git/*" element={<GitProviders />} />
                                 <Route path="/ai" element={<AIProviders />} />
