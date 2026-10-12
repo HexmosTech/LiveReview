@@ -159,6 +159,8 @@ export interface ReviewsFilters {
   order?: 'asc' | 'desc';
   page?: number;
   perPage?: number;
+  /** Internal pull_requests.id; limits the list to that PR's reviews. */
+  pullRequestId?: number;
 }
 
 export interface CreateReviewRequest {

@@ -1509,6 +1509,10 @@ func (s *Server) setupRoutes() {
 	pullRequestsGroup.Use(apimiddleware.BuildPlanContext())
 	pullRequestsGroup.GET("", s.ListPullRequests)
 
+	// Resolves a PR's org for the PR comment's "Start a review" link; the org isn't known
+	// yet, so this is auth-only and the handler checks org membership itself.
+	v1.GET("/pull-requests/:id/org", s.getPullRequestOrg, authMiddleware.RequireAuth())
+
 	// GitLab profile validation endpoint
 	v1.POST("/gitlab/validate-profile", s.ValidateGitLabProfile)
 
@@ -2160,6 +2164,8 @@ type ReviewsQuery struct {
 	Order    string `form:"order" query:"order" json:"order,omitempty" jsonschema:"description=Sort direction: asc or desc (default desc)"`
 	DateFrom string `form:"date_from" query:"date_from" json:"date_from,omitempty" jsonschema:"description=Only include reviews with last activity (completed/started/created) on or after this date. Accepts YYYY-MM-DD or RFC3339"`
 	DateTo   string `form:"date_to" query:"date_to" json:"date_to,omitempty" jsonschema:"description=Only include reviews with last activity (completed/started/created) on or before this date (inclusive of the whole day if bare YYYY-MM-DD). Accepts YYYY-MM-DD or RFC3339"`
+
+	PullRequestID int64 `form:"pull_request_id" query:"pull_request_id" json:"pull_request_id,omitempty" jsonschema:"description=Only include reviews of this pull/merge request (internal pull_requests.id)"`
 }
 
 type ReviewsListResponse struct {
@@ -2333,6 +2339,18 @@ func (s *Server) getReviews(c echo.Context) error {
 	if clause := reviewSourceFilterClause(c.QueryParam("provider"), &args, &argIndex); clause != "" {
 		baseQuery += clause
 		countQuery += clause
+	}
+
+	if v := c.QueryParam("pull_request_id"); v != "" {
+		prID, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "Invalid pull_request_id")
+		}
+		clause := fmt.Sprintf(" AND pull_request_id = $%d", argIndex)
+		baseQuery += clause
+		countQuery += clause
+		args = append(args, prID)
+		argIndex++
 	}
 
 	// Add search functionality

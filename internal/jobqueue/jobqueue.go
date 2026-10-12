@@ -2418,7 +2418,8 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	diffWorker := &DiffReviewWorker{db: db, pool: pool}
 	prStore := pullrequests.NewStore(db)
 	repoPRSyncWorker := &RepoPRSyncWorker{db: db, store: prStore}
-	prStateSyncWorker := &PRStateSyncWorker{db: db, store: prStore}
+	prStateSyncWorker := &PRStateSyncWorker{db: db, store: prStore, webhookStore: store}
+	prPolicyCheckWorker := &PRPolicyCheckWorker{db: db, webhookStore: store}
 	reconciliationWorker := &ReconciliationSweepWorker{db: db, pool: pool, stalenessThreshold: config.RepoSyncConfig.StalenessThreshold}
 	scheduledReviewWorker := &ScheduledReviewWorker{db: db}
 	preloadedChangesArchivalWorker := &PreloadedChangesArchivalWorker{db: db}
@@ -2434,6 +2435,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, &UpdateOrgUsageWorker{db: db, pool: pool})
 	river.AddWorker(workers, repoPRSyncWorker)
 	river.AddWorker(workers, prStateSyncWorker)
+	river.AddWorker(workers, prPolicyCheckWorker)
 	river.AddWorker(workers, reconciliationWorker)
 	river.AddWorker(workers, preloadedChangesArchivalWorker)
 	river.AddWorker(workers, preloadedChangesArchivalSweepWorker)

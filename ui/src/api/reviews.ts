@@ -54,6 +54,7 @@ export const getReviews = async (filters: ReviewsFilters = {}): Promise<ReviewsL
     if (filters.order) params.append('order', filters.order);
     if (filters.page) params.append('page', filters.page.toString());
     if (filters.perPage) params.append('per_page', filters.perPage.toString());
+    if (filters.pullRequestId) params.append('pull_request_id', filters.pullRequestId.toString());
 
     const queryString = params.toString();
     const endpoint = `/api/v1/reviews${queryString ? `?${queryString}` : ''}`;

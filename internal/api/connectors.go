@@ -506,7 +506,9 @@ func (s *Server) DeleteConnector(c echo.Context) error {
 		})
 	}
 
-	// Fetch projects to queue webhook removal
+	// Look up projects now (needs the connector row), but only queue webhook removal
+	// after the delete succeeds, so a failed delete leaves webhooks untouched.
+	var projectsToUnhook []string
 	repositoryData, err := s.fetchAndCacheRepositoryData(id, false, false)
 	if err != nil {
 		log.Printf("Failed to fetch repository data for connector %d during deletion: %v", id, err)
@@ -515,13 +517,7 @@ func (s *Server) DeleteConnector(c echo.Context) error {
 		log.Printf("Repository access error during deletion of connector %d: %s", id, repositoryData.Error)
 		// Again, proceed to delete the connector
 	} else {
-		// Queue webhook removal jobs for each project
-		ctx := c.Request().Context()
-		for _, projectPath := range repositoryData.Projects {
-			if err := s.jobQueue.QueueWebhookRemovalJob(ctx, id, projectPath, provider, providerURL, patToken, true); err != nil {
-				log.Printf("Failed to queue webhook removal job for %s: %v", projectPath, err)
-			}
-		}
+		projectsToUnhook = repositoryData.Projects
 	}
 
 	// Execute the delete query
@@ -550,6 +546,13 @@ func (s *Server) DeleteConnector(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, ErrorResponse{
 			Error: "Connector not found",
 		})
+	}
+
+	ctx := c.Request().Context()
+	for _, projectPath := range projectsToUnhook {
+		if err := s.jobQueue.QueueWebhookRemovalJob(ctx, id, projectPath, provider, providerURL, patToken, true); err != nil {
+			log.Printf("Failed to queue webhook removal job for %s: %v", projectPath, err)
+		}
 	}
 
 	// Drop this connector's cached blast-radius clones; best-effort, in the background.

@@ -59,6 +59,25 @@ export const triggerReviewForPullRequest = async (pullRequestId: number): Promis
 };
 
 /**
+ * Resolve which org a PR belongs to (404 if missing or the user isn't a member).
+ * Used by the PR comment's "Start a review" link before the org is known.
+ */
+export const getPullRequestOrg = async (pullRequestId: number): Promise<{ org_id: number }> => {
+  return apiClient.get<{ org_id: number }>(`/api/v1/pull-requests/${pullRequestId}/org`);
+};
+
+/**
+ * Start a review from the PR comment link: reuses one still running from the last
+ * 10 minutes, and runs the approval policy check when it finishes.
+ */
+export const startOrReuseReviewForPullRequest = async (pullRequestId: number): Promise<CreateReviewFromPullRequestResponse> => {
+  return apiClient.post<CreateReviewFromPullRequestResponse>('/api/v1/reviews', {
+    pull_request_id: pullRequestId,
+    from_pr_link: true,
+  });
+};
+
+/**
  * Human-friendly label for a PR/MR state.
  */
 export function getPRStateText(state: string): string {

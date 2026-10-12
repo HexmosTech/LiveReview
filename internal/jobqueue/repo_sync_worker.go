@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -13,6 +14,7 @@ import (
 	providergithub "github.com/livereview/internal/providers/github"
 	providergitlab "github.com/livereview/internal/providers/gitlab"
 	"github.com/livereview/internal/prsync"
+	storagejobqueue "github.com/livereview/storage/jobqueue"
 	"github.com/livereview/storage/providers/pullrequests"
 	"github.com/riverqueue/river"
 )
@@ -196,8 +198,9 @@ func (PRStateSyncJobArgs) Kind() string { return "pr_state_sync" }
 
 type PRStateSyncWorker struct {
 	river.WorkerDefaults[PRStateSyncJobArgs]
-	db    *sql.DB
-	store *pullrequests.Store
+	db           *sql.DB
+	store        *pullrequests.Store
+	webhookStore *storagejobqueue.WebhookStore
 }
 
 func (w *PRStateSyncWorker) Work(ctx context.Context, job *river.Job[PRStateSyncJobArgs]) error {
@@ -228,7 +231,7 @@ func (w *PRStateSyncWorker) Work(ctx context.Context, job *river.Job[PRStateSync
 			args.ConnectorID, event.RepositoryProviderID, err)
 	}
 
-	_, err = w.store.UpsertPullRequest(pullrequests.PullRequestUpsert{
+	pullRequestID, err := w.store.UpsertPullRequest(pullrequests.PullRequestUpsert{
 		RepositoryID:      repositoryID,
 		OrgID:             args.OrgID,
 		Provider:          args.Provider,
@@ -252,7 +255,69 @@ func (w *PRStateSyncWorker) Work(ctx context.Context, job *river.Job[PRStateSync
 	if err != nil {
 		return fmt.Errorf("failed to upsert pull request from webhook event: %w", err)
 	}
+
+	if action, _ := event.Metadata["action"].(string); action == "opened" || action == "open" {
+		return w.postLinksComment(ctx, repositoryID, pullRequestID, event.Number)
+	}
 	return nil
+}
+
+// postLinksComment posts the "Start a review / View review history" comment once per new PR/MR.
+// The links_comment_posted_at claim stops duplicate webhook deliveries from posting it twice.
+func (w *PRStateSyncWorker) postLinksComment(ctx context.Context, repositoryID, pullRequestID int64, number int) error {
+	host, err := w.webhookStore.GetWebhookPublicEndpoint(ctx)
+	if err != nil || host == "" {
+		log.Printf("[WARN] pr links comment: skipping pull_request_id=%d, public URL not configured: %v", pullRequestID, err)
+		return nil
+	}
+
+	res, err := w.db.ExecContext(ctx,
+		`UPDATE pull_requests SET links_comment_posted_at = now() WHERE id = $1 AND links_comment_posted_at IS NULL`,
+		pullRequestID)
+	if err != nil {
+		return fmt.Errorf("failed to claim links comment for pull_request_id=%d: %w", pullRequestID, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil
+	}
+
+	info, err := loadRepositoryConnectorInfo(w.db, repositoryID)
+	if err == nil {
+		body := buildPRLinksComment(host, pullRequestID)
+		switch info.Provider {
+		case "github", "github-com", "github-enterprise":
+			err = providergithub.PostIssueComment(ctx, info.ProviderURL, info.token(), info.FullName, number, body)
+		case "gitlab", "gitlab-com", "gitlab-self-hosted":
+			err = providergitlab.NewHTTPClient(info.ProviderURL, info.token()).CreateMRGeneralComment(info.ProviderRepoID, number, body)
+		default:
+			return nil
+		}
+	}
+	if err != nil {
+		// Release the claim so River's retry can post it.
+		if _, resetErr := w.db.ExecContext(ctx, `UPDATE pull_requests SET links_comment_posted_at = NULL WHERE id = $1`, pullRequestID); resetErr != nil {
+			log.Printf("[WARN] pr links comment: failed to release claim for pull_request_id=%d: %v", pullRequestID, resetErr)
+		}
+		return fmt.Errorf("failed to post links comment for pull_request_id=%d: %w", pullRequestID, err)
+	}
+	return nil
+}
+
+func buildPRLinksComment(host string, pullRequestID int64) string {
+	host = strings.TrimSuffix(host, "/")
+	return fmt.Sprintf(`## 🔍 LiveReview is ready for this PR
+
+Run an AI code review on these changes. Findings appear in LiveReview and as comments on this PR.
+
+| Action | What it does |
+|---|---|
+| ▶️ **[Start a review](%s/#/pr/%d/review)** | Reviews all changes in this PR against its target branch |
+| 📜 **[Review history](%s/#/reviews?pull_request_id=%d)** | All past reviews of this PR |
+
+**Auto-approval policy:** this PR is approved automatically when a review started from the link above finds no critical issues.
+
+<sub>Links need a LiveReview login.</sub>
+`, host, pullRequestID, host, pullRequestID)
 }
 
 // ReconciliationSweepJobArgs is the periodic coordinator job: it finds
