@@ -28,17 +28,29 @@ const AnchorLambda = 1.0
 // and is anchored back to.
 func Prior() Weights {
 	w := make(Weights, FeatureCount()+1)
-	w[0] = -0.5 // bias: slight default toward "safe"
-	w[1] = 0.02 // br_sum (0-100)
-	w[2] = 0.01 // br_max
-	w[3] = 0.01 // br_weighted_avg
-	w[4] = 0.20 // br_high_count
-	w[5] = 0.90 // critical_count  (dominates)
-	w[6] = 0.18 // warning_count
-	w[7] = 0.55 // security_count  (weighted up)
-	w[8] = 0.10 // files_changed (log1p)
-	w[9] = 0.05 // lines_added   (log1p)
+	w[0] = -0.5  // bias: slight default toward "safe"
+	w[1] = 0.02  // br_sum (0-100)
+	w[2] = 0.01  // br_max
+	w[3] = 0.01  // br_weighted_avg
+	w[4] = 0.20  // br_high_count
+	w[5] = 0.90  // critical_count  (dominates)
+	w[6] = 0.18  // warning_count
+	w[7] = 0.55  // security_count  (weighted up)
+	w[8] = 0.10  // files_changed (log1p)
+	w[9] = 0.05  // lines_added   (log1p)
 	w[10] = 0.30 // llm_class_risk
+	// Per-taxonomy-category counts: correctness/reliability findings matter
+	// almost as much as security, performance next, the rest start modest —
+	// the same ladder the UI's default category multipliers (below) express.
+	w[11] = 0.30 // reliability_count
+	w[12] = 0.30 // correctness_count
+	w[13] = 0.20 // performance_count
+	w[14] = 0.12 // scalability_count
+	w[15] = 0.12 // compliance_governance_count
+	w[16] = 0.10 // maintainability_count
+	w[17] = 0.10 // architecture_count
+	w[18] = 0.10 // developer_experience_count
+	w[19] = 0.10 // cost_count
 	return w
 }
 
@@ -57,20 +69,41 @@ func sigmoid(z float64) float64 {
 	return zExp / (1 + zExp)
 }
 
+// DefaultCategoryMultiplier is the starting weight-multiplier for a finding
+// category before an org has set its own override: security is weighted up a
+// bit since teams tend to take it most seriously, correctness and
+// reliability next, performance next, and everything else neutral (1x). An
+// explicit risk_factor_overrides row always takes priority over this.
+func DefaultCategoryMultiplier(category string) float64 {
+	switch category {
+	case "security":
+		return 1.5
+	case "correctness", "reliability":
+		return 1.25
+	case "performance":
+		return 1.1
+	default:
+		return 1
+	}
+}
+
 // categoryOverride returns the multiplier for a weight index (0 = bias, no
-// category), defaulting to 1.0 when no override is set.
+// category), falling back to DefaultCategoryMultiplier when no explicit
+// override is set.
 func categoryOverride(overrides map[string]float64, weightIndex int) float64 {
-	if overrides == nil || weightIndex == 0 {
+	if weightIndex == 0 {
 		return 1
 	}
 	spec := FeatureSpecs[weightIndex-1]
 	if spec.Category == "" {
 		return 1
 	}
-	if m, ok := overrides[spec.Category]; ok && m > 0 {
-		return m
+	if overrides != nil {
+		if m, ok := overrides[spec.Category]; ok && m > 0 {
+			return m
+		}
 	}
-	return 1
+	return DefaultCategoryMultiplier(spec.Category)
 }
 
 // Score computes sigmoid(bias + Σ effective_w_i * x_i), where

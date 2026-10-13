@@ -34,10 +34,42 @@ var FeatureSpecs = []FeatureSpec{
 	{"br_high_count", "blast_radius"},
 	{"critical_count", "critical_findings"},
 	{"warning_count", ""},
-	{"security_count", "security_findings"},
+	{"security_count", "security"},
 	{"files_changed", "diff_size"},
 	{"lines_added", "diff_size"},
 	{"llm_class_risk", ""},
+	// Per-taxonomy-category finding counts (internal/prompts/templates.go's
+	// TaxonomyClassificationRules is the canonical 10-category list; "security"
+	// above already covers that category, these add the other 9). Appended
+	// rather than inserted so old model_versions rows keep scoring correctly
+	// (Score/scoreRaw/OnlineStep all stop at len(w), reading a historical,
+	// shorter weight vector as if these simply weren't there yet).
+	{"reliability_count", "reliability"},
+	{"correctness_count", "correctness"},
+	{"performance_count", "performance"},
+	{"scalability_count", "scalability"},
+	{"compliance_governance_count", "compliance_governance"},
+	{"maintainability_count", "maintainability"},
+	{"architecture_count", "architecture"},
+	{"developer_experience_count", "developer_experience"},
+	{"cost_count", "cost"},
+}
+
+// OverrideCategories returns every distinct non-empty category string used by
+// FeatureSpecs — i.e. every category a Settings UI slider can target — in
+// FeatureSpecs order with duplicates removed. Single source of truth so the
+// API/UI never drifts from what scoring actually applies overrides to.
+func OverrideCategories() []string {
+	seen := make(map[string]bool, len(FeatureSpecs))
+	out := make([]string, 0, len(FeatureSpecs))
+	for _, f := range FeatureSpecs {
+		if f.Category == "" || seen[f.Category] {
+			continue
+		}
+		seen[f.Category] = true
+		out = append(out, f.Category)
+	}
+	return out
 }
 
 // FeatureCount returns the number of model features (excluding goml's bias).
@@ -97,6 +129,18 @@ func ExtractFeatures(br BlastStats, doc *canonicaldoc.ReviewDoc) []float64 {
 	f[8] = math.Log1p(float64(br.LinesAdded))
 	if doc != nil {
 		f[9] = classRisk(doc.DiffClassification)
+		// doc.Counts.ByCategory keys are the taxonomy labels lower-cased as-is
+		// (canonicaldoc.Build), so "Compliance & Governance"/"Developer
+		// Experience" keep their space/"&" rather than becoming snake_case.
+		f[10] = float64(doc.Counts.ByCategory["reliability"])
+		f[11] = float64(doc.Counts.ByCategory["correctness"])
+		f[12] = float64(doc.Counts.ByCategory["performance"])
+		f[13] = float64(doc.Counts.ByCategory["scalability"])
+		f[14] = float64(doc.Counts.ByCategory["compliance & governance"])
+		f[15] = float64(doc.Counts.ByCategory["maintainability"])
+		f[16] = float64(doc.Counts.ByCategory["architecture"])
+		f[17] = float64(doc.Counts.ByCategory["developer experience"])
+		f[18] = float64(doc.Counts.ByCategory["cost"])
 	}
 	return f
 }

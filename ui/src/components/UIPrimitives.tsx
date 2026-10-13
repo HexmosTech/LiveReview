@@ -1242,7 +1242,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
         <div
           ref={tipRef}
           className={classNames(
-            'fixed z-[9999] px-2 py-1 text-xs font-medium text-white bg-gray-900 rounded shadow-lg whitespace-normal break-words w-max max-w-[min(80vw,24rem)] pointer-events-none',
+            'fixed z-[9999] px-3 py-2 text-xs font-medium leading-relaxed text-white bg-gray-900 rounded shadow-lg whitespace-normal break-words w-max max-w-[min(85vw,22rem)] pointer-events-none',
             className
           )}
           style={{ top: coords.top, left: coords.left }}
