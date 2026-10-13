@@ -42,11 +42,11 @@ type Counts struct {
 
 // ReviewDoc is the canonical document shape jq rulesets evaluate against.
 type ReviewDoc struct {
-	ReviewID   int64    `json:"review_id"`
-	OrgID      int64    `json:"org_id"`
-	Repository string   `json:"repository"`
-	Provider   string   `json:"provider"`
-	Status     string   `json:"status"`
+	ReviewID   int64     `json:"review_id"`
+	OrgID      int64     `json:"org_id"`
+	Repository string    `json:"repository"`
+	Provider   string    `json:"provider"`
+	Status     string    `json:"status"`
 	Findings   []Finding `json:"findings"`
 	Counts     Counts    `json:"counts"`
 	// DiffClassification is surfaced (when present) so jq rules can reference the
@@ -137,7 +137,7 @@ func loadDiffClassification(ctx context.Context, db *sql.DB, orgID, reviewID int
 	err := db.QueryRowContext(ctx,
 		`SELECT metadata->'review_result'->'diffClassification' FROM reviews WHERE id = $1 AND org_id = $2`,
 		reviewID, orgID).Scan(&raw)
-	if err != nil || len(raw) == 0 {
+	if err != nil || len(raw) == 0 || string(raw) == "null" {
 		return nil
 	}
 	var dc models.DiffClassification

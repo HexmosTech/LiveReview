@@ -202,6 +202,8 @@ func cloneReviewResult(result *models.ReviewResult) *models.ReviewResult {
 		Comments:         make([]*models.ReviewComment, 0, len(result.Comments)),
 		InternalComments: make([]*models.ReviewComment, 0, len(result.InternalComments)),
 		Quiz:             append([]models.QuizQuestion(nil), result.Quiz...),
+		// Keep the leader's diff classification; the helper only rewrites comments.
+		DiffClassification: result.DiffClassification,
 	}
 
 	for _, comment := range result.Comments {

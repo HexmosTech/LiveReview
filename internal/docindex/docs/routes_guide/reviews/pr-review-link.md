@@ -1,4 +1,4 @@
-# PR Review Link (start a review from a PR comment)
+# PR Review Link (start a review from a PR description link)
 
 **Route:** `/pr/:id/review`
 **Component:** `ui/src/pages/Reviews/PullRequestReviewTrigger.tsx`
@@ -6,15 +6,15 @@
 ## Purpose
 
 When a new pull/merge request is opened on GitHub or GitLab in a repo with the
-LiveReview webhook installed, LiveReview posts one comment on it with two links:
+LiveReview webhook installed, LiveReview adds a section with two links to the end of its description:
 
 - **Start a review** → this page. It starts a LiveReview review of that PR and
   opens the review's detail page.
-- **View review history** → the [Reviews list](reviews-list.md) filtered to that
+- **Review history** → the [Reviews list](reviews-list.md) filtered to that
   PR (`/reviews?pull_request_id=<id>`).
 
 `:id` is LiveReview's internal pull request id, not the GitHub/GitLab PR number.
-The comment is posted once per PR, only when it's opened (not for PRs that
+The section is added once per PR, only when it's opened (not for PRs that
 already existed, reopens, or pushes).
 
 ## Who can access it

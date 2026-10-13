@@ -2,7 +2,7 @@
 
 ## Goal
 
-When a new PR/MR is opened, LiveReview posts one bot comment on it with two links:
+When a new PR/MR is opened, LiveReview adds a section with two links to the end of its description:
 
 1. **Start a review** — opens LiveReview, triggers a review for that PR, and redirects to the
    review details page.
@@ -21,8 +21,8 @@ built on CI/CD Gates jq rulesets) remain a later feature.
 | Providers | GitHub and GitLab only (first phase) |
 | Which repos | Every repo with the LiveReview webhook installed |
 | Which PRs | Only newly opened PRs (GitHub action `opened`, GitLab action `open`). Existing open PRs, reopen, push, and edit events are ignored. |
-| Where links go | One bot comment on the PR, posted once and never edited |
-| Duplicate webhooks | Guarded by a "comment posted" flag on the `pull_requests` row |
+| Where links go | A section appended to the PR description, added once (marker `<!-- livereview:links -->`). Replaced the earlier bot comment. |
+| Duplicate webhooks | Guarded by a "links added" flag (`links_comment_posted_at`) on the `pull_requests` row |
 | Auth | Both links require a LiveReview login. Logged-out users log in and are sent back to the link (existing `redirectAfterLogin` flow). |
 | Org | The user is switched to the PR's org automatically. Non-members get "not found". |
 | Trigger behavior | Opening the trigger link starts the review immediately (no confirm page, for now) |
@@ -43,9 +43,9 @@ The UI uses hash routing, so links look like:
   provider PR number. It is unique across providers, repos, and orgs, so a GitHub #123 and a
   GitLab !123 never collide.
 - `<host>` comes from the `livereview_prod_url` setting (the same public URL webhooks are
-  installed against). If it is not set, the comment is skipped with a logged warning.
+  installed against). If it is not set, the section is skipped with a logged warning.
 
-## Comment text
+## Section text (end of the PR description)
 
 ```
 🔍 LiveReview
@@ -60,25 +60,25 @@ The UI uses hash routing, so links look like:
 - Add `links_comment_posted_at TIMESTAMPTZ` (nullable) to `pull_requests`.
 - Regenerate `db/schema.sql`.
 
-### 2. Post the comment — `internal/jobqueue/repo_sync_worker.go` (`PRStateSyncWorker.Work`)
+### 2. Add the links section — `internal/jobqueue/repo_sync_worker.go` (`PRStateSyncWorker.Work`)
 
 After `UpsertPullRequest` returns the PR row id:
 
 1. Skip unless `event.Metadata["action"]` is `opened` (GitHub) or `open` (GitLab).
 2. Claim the post atomically:
    `UPDATE pull_requests SET links_comment_posted_at = now() WHERE id = $1 AND links_comment_posted_at IS NULL`.
-   If no row changed, the comment was already posted — skip.
+   If no row changed, the section was already added — skip.
 3. Load the repo token via the existing `repositoryConnectorInfo` lookup.
 4. Read the public URL via the webhook store's `GetWebhookPublicEndpoint` (inject the store
    into the worker in `jobqueue.go`).
-5. Post the comment. On failure, reset `links_comment_posted_at` to `NULL` and return the
+5. Read the description, append the section if the marker is missing, and save it. On failure, reset `links_comment_posted_at` to `NULL` and return the
    error so River retries.
 
-### 3. Comment helpers
+### 3. Description helpers
 
-- `internal/providers/github/pr_comment.go` — `PostIssueComment(ctx, baseURL, token, ownerRepo, number, body)`,
+- `internal/providers/github/pr_comment.go` — `AppendToPRBody(ctx, baseURL, token, ownerRepo, number, marker, section)` (GET then PATCH the PR body),
   using the existing `apiBaseURL` (works for GitHub Enterprise).
-- GitLab: reuses the existing `NewHTTPClient(baseURL, token).CreateMRGeneralComment(projectID, iid, body)`.
+- GitLab: `NewHTTPClient(baseURL, token).AppendToMRDescription(projectID, iid, marker, section)` (reuses `GetMergeRequest`, then PUTs `description`).
 
 Not reusing `GitHubProvider.PostComment`: it hardcodes `api.github.com` and formats text as a
 review finding.
@@ -133,7 +133,7 @@ message. Use a ref guard so React StrictMode doesn't fire the POST twice in dev.
 
 - **Routes guide:** add `internal/docindex/docs/routes_guide/reviews/pr-review-link.md`, and
   update the Reviews list doc for the `pull_request_id` filter.
-- **Mega menu:** no entry. The trigger page is only reached from the PR comment, and the
+- **Mega menu:** no entry. The trigger page is only reached from the PR description link, and the
   filter is an option on the existing Reviews page.
 
 ## Known limitations

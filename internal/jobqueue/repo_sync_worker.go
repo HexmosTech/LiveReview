@@ -262,12 +262,15 @@ func (w *PRStateSyncWorker) Work(ctx context.Context, job *river.Job[PRStateSync
 	return nil
 }
 
-// postLinksComment posts the "Start a review / View review history" comment once per new PR/MR.
-// The links_comment_posted_at claim stops duplicate webhook deliveries from posting it twice.
+// prLinksMarker tags the LiveReview section in a PR description so it's only added once.
+const prLinksMarker = "<!-- livereview:links -->"
+
+// postLinksComment adds the "Start a review / Review history" links to the end of a new PR/MR's description.
+// The links_comment_posted_at claim stops duplicate webhook deliveries from adding it twice.
 func (w *PRStateSyncWorker) postLinksComment(ctx context.Context, repositoryID, pullRequestID int64, number int) error {
 	host, err := w.webhookStore.GetWebhookPublicEndpoint(ctx)
 	if err != nil || host == "" {
-		log.Printf("[WARN] pr links comment: skipping pull_request_id=%d, public URL not configured: %v", pullRequestID, err)
+		log.Printf("[WARN] pr links: skipping pull_request_id=%d, public URL not configured: %v", pullRequestID, err)
 		return nil
 	}
 
@@ -275,7 +278,7 @@ func (w *PRStateSyncWorker) postLinksComment(ctx context.Context, repositoryID, 
 		`UPDATE pull_requests SET links_comment_posted_at = now() WHERE id = $1 AND links_comment_posted_at IS NULL`,
 		pullRequestID)
 	if err != nil {
-		return fmt.Errorf("failed to claim links comment for pull_request_id=%d: %w", pullRequestID, err)
+		return fmt.Errorf("failed to claim pr links for pull_request_id=%d: %w", pullRequestID, err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return nil
@@ -283,41 +286,39 @@ func (w *PRStateSyncWorker) postLinksComment(ctx context.Context, repositoryID, 
 
 	info, err := loadRepositoryConnectorInfo(w.db, repositoryID)
 	if err == nil {
-		body := buildPRLinksComment(host, pullRequestID)
+		section := buildPRLinksSection(host, pullRequestID)
 		switch info.Provider {
 		case "github", "github-com", "github-enterprise":
-			err = providergithub.PostIssueComment(ctx, info.ProviderURL, info.token(), info.FullName, number, body)
+			err = providergithub.AppendToPRBody(ctx, info.ProviderURL, info.token(), info.FullName, number, prLinksMarker, section)
 		case "gitlab", "gitlab-com", "gitlab-self-hosted":
-			err = providergitlab.NewHTTPClient(info.ProviderURL, info.token()).CreateMRGeneralComment(info.ProviderRepoID, number, body)
+			err = providergitlab.NewHTTPClient(info.ProviderURL, info.token()).AppendToMRDescription(info.ProviderRepoID, number, prLinksMarker, section)
 		default:
 			return nil
 		}
 	}
 	if err != nil {
-		// Release the claim so River's retry can post it.
+		// Release the claim so River's retry can add it.
 		if _, resetErr := w.db.ExecContext(ctx, `UPDATE pull_requests SET links_comment_posted_at = NULL WHERE id = $1`, pullRequestID); resetErr != nil {
-			log.Printf("[WARN] pr links comment: failed to release claim for pull_request_id=%d: %v", pullRequestID, resetErr)
+			log.Printf("[WARN] pr links: failed to release claim for pull_request_id=%d: %v", pullRequestID, resetErr)
 		}
-		return fmt.Errorf("failed to post links comment for pull_request_id=%d: %w", pullRequestID, err)
+		return fmt.Errorf("failed to add pr links for pull_request_id=%d: %w", pullRequestID, err)
 	}
 	return nil
 }
 
-func buildPRLinksComment(host string, pullRequestID int64) string {
+func buildPRLinksSection(host string, pullRequestID int64) string {
 	host = strings.TrimSuffix(host, "/")
-	return fmt.Sprintf(`## 🔍 LiveReview is ready for this PR
-
-Run an AI code review on these changes. Findings appear in LiveReview and as comments on this PR.
+	return fmt.Sprintf(`%s
+---
+### 🔍 LiveReview
 
 | Action | What it does |
 |---|---|
 | ▶️ **[Start a review](%s/#/pr/%d/review)** | Reviews all changes in this PR against its target branch |
 | 📜 **[Review history](%s/#/reviews?pull_request_id=%d)** | All past reviews of this PR |
 
-**Auto-approval policy:** this PR is approved automatically when a review started from the link above finds no critical issues.
-
 <sub>Links need a LiveReview login.</sub>
-`, host, pullRequestID, host, pullRequestID)
+`, prLinksMarker, host, pullRequestID, host, pullRequestID)
 }
 
 // ReconciliationSweepJobArgs is the periodic coordinator job: it finds

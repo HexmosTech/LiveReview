@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -24,13 +25,41 @@ func SubmitPullRequestReview(ctx context.Context, baseURL, pat, ownerRepo string
 	return postGitHubJSON(ctx, baseURL, pat, path, map[string]string{"event": event, "body": body})
 }
 
+// AppendToPRBody adds section to the end of the PR description, unless marker is already in it.
+func AppendToPRBody(ctx context.Context, baseURL, pat, ownerRepo string, number int, marker, section string) error {
+	path := fmt.Sprintf("/repos/%s/pulls/%d", ownerRepo, number)
+	var pr struct {
+		Body string `json:"body"`
+	}
+	if err := doGitHubJSON(ctx, http.MethodGet, baseURL, pat, path, nil, &pr); err != nil {
+		return err
+	}
+	if strings.Contains(pr.Body, marker) {
+		return nil
+	}
+	body := section
+	if strings.TrimSpace(pr.Body) != "" {
+		body = strings.TrimRight(pr.Body, "\n") + "\n\n" + section
+	}
+	return doGitHubJSON(ctx, http.MethodPatch, baseURL, pat, path, map[string]string{"body": body}, nil)
+}
+
 func postGitHubJSON(ctx context.Context, baseURL, pat, path string, payload interface{}) error {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to encode request: %w", err)
+	return doGitHubJSON(ctx, http.MethodPost, baseURL, pat, path, payload, nil)
+}
+
+// doGitHubJSON sends payload (if any) and decodes the response into out (if non-nil).
+func doGitHubJSON(ctx context.Context, method, baseURL, pat, path string, payload, out interface{}) error {
+	var reqBody io.Reader
+	if payload != nil {
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("failed to encode request: %w", err)
+		}
+		reqBody = bytes.NewReader(data)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBaseURL(baseURL)+path, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, method, apiBaseURL(baseURL)+path, reqBody)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -49,6 +78,9 @@ func postGitHubJSON(ctx context.Context, baseURL, pat, path string, payload inte
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("GitHub request %s failed with status %d: %s", path, resp.StatusCode, string(respBody))
+	}
+	if out != nil {
+		return json.NewDecoder(resp.Body).Decode(out)
 	}
 	return nil
 }
