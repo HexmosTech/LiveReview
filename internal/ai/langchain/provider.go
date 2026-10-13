@@ -1339,6 +1339,7 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 		FileSummary:        legacySummary,
 		TechnicalSummaries: result.TechnicalSummaries,
 		Comments:           result.Comments,
+		DiffClassification: result.DiffClassification,
 		Error:              nil,
 		BatchID:            batchId,
 	}, nil
@@ -1515,6 +1516,9 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 		FileSummaries []aiResponseFileSummary `json:"fileSummaries"`
 		FileSummary   string                  `json:"fileSummary"` // legacy fallback
 		Comments      []Comment               `json:"comments"`
+		// DiffClassification is the diff-level semantic classification
+		// (docs/risk-policy-engine.md §5).
+		DiffClassification *models.DiffClassification `json:"diffClassification"`
 	}
 
 	// Try to extract JSON from the response
@@ -1589,14 +1593,16 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 	}
 
 	return &ParsedResult{
-		TechnicalSummaries: summaries,
-		Comments:           comments,
+		TechnicalSummaries:  summaries,
+		Comments:            comments,
+		DiffClassification:  resp.DiffClassification,
 	}, nil
 }
 
 type ParsedResult struct {
-	TechnicalSummaries []prompts.TechnicalSummary
-	Comments           []*models.ReviewComment
+	TechnicalSummaries  []prompts.TechnicalSummary
+	Comments            []*models.ReviewComment
+	DiffClassification  *models.DiffClassification
 }
 
 // fallbackParsedResult builds a minimal, user-visible result when the model response is empty/invalid

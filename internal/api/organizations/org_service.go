@@ -491,7 +491,8 @@ func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset 
 		       obs.billing_period_end as license_expires_at,
 		       ur.active_subscription_id,
 		       s.razorpay_subscription_id,
-		       u.onboarding_api_key
+		       u.onboarding_api_key,
+		       u.review_level
 		FROM users u
 		INNER JOIN user_roles ur ON u.id = ur.user_id
 		INNER JOIN roles r ON ur.role_id = r.id
@@ -538,6 +539,7 @@ func (s *OrganizationService) GetOrganizationMembers(orgID int64, limit, offset 
 			&activeSubscriptionID,
 			&razorpaySubscriptionID,
 			&onboardingKey,
+			&user.ReviewLevel,
 		)
 		if err != nil {
 			s.logger.Printf("Error scanning member row: %v", err)

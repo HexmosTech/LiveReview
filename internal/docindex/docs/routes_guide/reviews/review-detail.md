@@ -25,6 +25,17 @@ Any authenticated org member; the review must belong to their org
 - View the commits included in this review (up to a preview limit, expandable).
 - Navigate back to the reviews list.
 
+## Auto Approve tab
+
+Reviews started from a PR/MR "Start a review" link show an **Auto Approve** tab
+that renders the risk-policy funnel stage-by-stage (eligibility → static rules
+→ risk score → LLM classification → final decision), each with its pass/fail
+reason. For a blocked review, owners/admins (or users at/above the policy's
+`force_approve_min_level`) can **force approve** with a reason — recorded in the
+audit log and posted to the PR/MR. Any member can **mark a production outcome**
+(revert / incident / confirmed-safe) with a reason, which feeds the risk model.
+See [Settings → Auto Approve](../settings/auto-approve.md).
+
 ## Blast-radius scoring and ordering
 
 Reviews run through the git-lrc CLI upload their own blast-radius report. PR

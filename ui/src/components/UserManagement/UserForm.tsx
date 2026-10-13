@@ -22,6 +22,7 @@ import { useAppDispatch } from '../../store/configureStore';
 import { loadUserOrganizations } from '../../store/Organizations/reducer';
 import { UpgradePromptModal } from '../Subscriptions';
 import { UserOnboardingDetails } from './UserOnboardingDetails';
+import UserIdentitiesEditor from './UserIdentitiesEditor';
 import { Table, TableHead, TableHeaderCell, TableBody, TableRow, TableCell } from '../DataTable/SimpleTable';
 import { BulkOnboardingDetails, BulkOnboardingRow } from './BulkOnboardingDetails';
 import { parseUserInviteCsv } from './bulkInviteCsv';
@@ -52,6 +53,7 @@ const baseSchema = z.object({
     role: z.enum(['member', 'owner', 'super_admin']),
     password: z.string().optional(),
     password_confirmation: z.string().optional(),
+    reviewLevel: z.number().int().min(0).max(10).optional(),
 });
 
 type UserFormData = z.infer<typeof baseSchema>;
@@ -439,6 +441,7 @@ const UserForm: React.FC = () => {
                                 | 'member'
                                 | 'owner'
                                 | 'super_admin') || 'member',
+                        reviewLevel: userData.review_level ?? 1,
                     });
                 })
                 .catch((err) => {
@@ -547,6 +550,9 @@ const UserForm: React.FC = () => {
                     last_name: data.lastName,
                     role_id: roleNameToId(data.role),
                 };
+                if (data.reviewLevel !== undefined) {
+                    payload.review_level = data.reviewLevel;
+                }
                 if (data.password) {
                     payload.password = data.password;
                 }
@@ -1293,6 +1299,19 @@ const UserForm: React.FC = () => {
                                         disabled={!!prerequisiteError}
                                     />
 
+                                    {isEditMode && (
+                                        <Input
+                                            label="Review level (auto-approve eligibility)"
+                                            id="reviewLevel"
+                                            type="number"
+                                            min={0}
+                                            max={10}
+                                            {...register('reviewLevel', { valueAsNumber: true })}
+                                            error={errors.reviewLevel?.message}
+                                            helperText="Minimum author level required for auto-approve. Unmapped authors default to 1."
+                                        />
+                                    )}
+
                                     {(!isEditMode && !existsGlobally) ||
                                     (isEditMode &&
                                         currentUserRole === 'super_admin') ? (
@@ -1420,6 +1439,10 @@ const UserForm: React.FC = () => {
                                         </Button>
                                     </div>
                                 </form>
+                            )}
+
+                            {isEditMode && user && currentOrgId && (
+                                <UserIdentitiesEditor orgId={currentOrgId} userId={user.id} />
                             )}
                         </div>
                     </div>

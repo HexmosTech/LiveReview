@@ -4,18 +4,22 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
+	"github.com/livereview/internal/policyengine"
 	providergithub "github.com/livereview/internal/providers/github"
 	providergitlab "github.com/livereview/internal/providers/gitlab"
 	storagejobqueue "github.com/livereview/storage/jobqueue"
 	"github.com/riverqueue/river"
 )
 
-// PRPolicyCheckJobArgs runs the approval policy on a finished review that was started
-// from the PR comment's "Start a review" link (metadata.pr_link_policy).
+// PRPolicyCheckJobArgs runs the risk-based approval policy on a finished review
+// that was started from the PR comment's "Start a review" link
+// (metadata.pr_link_policy). See docs/risk-policy-engine.md.
 type PRPolicyCheckJobArgs struct {
 	OrgID    int64 `json:"org_id"`
 	ReviewID int64 `json:"review_id"`
@@ -27,27 +31,9 @@ type PRPolicyCheckWorker struct {
 	river.WorkerDefaults[PRPolicyCheckJobArgs]
 	db           *sql.DB
 	webhookStore *storagejobqueue.WebhookStore
+	engine       *policyengine.Engine
+	jq           *JobQueue
 }
-
-// policyFinding is the subset of models.ReviewComment (stored without JSON tags) the policy reads.
-type policyFinding struct {
-	FilePath   string
-	Line       int
-	Content    string
-	Severity   string
-	IsInternal bool
-}
-
-type policyResult struct {
-	Policy   string `json:"policy"`
-	Approved bool   `json:"approved"`
-	Critical int    `json:"critical"`
-	Warning  int    `json:"warning"`
-	Info     int    `json:"info"`
-}
-
-// ponytail: one static policy (no critical findings); swap for org-defined policies later.
-const staticPolicyName = "No critical findings"
 
 func (w *PRPolicyCheckWorker) Work(ctx context.Context, job *river.Job[PRPolicyCheckJobArgs]) error {
 	args := job.Args
@@ -55,14 +41,12 @@ func (w *PRPolicyCheckWorker) Work(ctx context.Context, job *river.Job[PRPolicyC
 	var status string
 	var pullRequestID sql.NullInt64
 	var flagged bool
-	var commentsJSON []byte
 	err := w.db.QueryRowContext(ctx, `
 		SELECT status, pull_request_id,
-		       COALESCE((metadata->>'pr_link_policy')::boolean, false),
-		       COALESCE(metadata->'review_result'->'comments', '[]'::jsonb)
+		       COALESCE((metadata->>'pr_link_policy')::boolean, false)
 		FROM reviews WHERE id = $1 AND org_id = $2`,
 		args.ReviewID, args.OrgID,
-	).Scan(&status, &pullRequestID, &flagged, &commentsJSON)
+	).Scan(&status, &pullRequestID, &flagged)
 	if err == sql.ErrNoRows {
 		return nil
 	}
@@ -73,52 +57,81 @@ func (w *PRPolicyCheckWorker) Work(ctx context.Context, job *river.Job[PRPolicyC
 		return nil
 	}
 
-	var findings []policyFinding
-	if err := json.Unmarshal(commentsJSON, &findings); err != nil {
-		return fmt.Errorf("failed to parse findings for review %d: %w", args.ReviewID, err)
-	}
-	result := policyResult{Policy: staticPolicyName}
-	var critical []policyFinding
-	for _, f := range findings {
-		if f.IsInternal {
-			continue
-		}
-		switch strings.ToLower(f.Severity) {
-		case "critical":
-			result.Critical++
-			critical = append(critical, f)
-		case "warning":
-			result.Warning++
-		default:
-			result.Info++
-		}
-	}
-	result.Approved = result.Critical == 0
-
-	// Store the result first; it doubles as a claim so River retries never approve twice.
-	resultJSON, _ := json.Marshal(result)
-	res, err := w.db.ExecContext(ctx,
+	// Claim: the policy_result key doubles as an idempotency guard so River
+	// retries never evaluate (or approve) twice.
+	claim := `{"status":"evaluating"}`
+	res0, err := w.db.ExecContext(ctx,
 		`UPDATE reviews SET metadata = metadata || jsonb_build_object('policy_result', $2::jsonb)
 		 WHERE id = $1 AND NOT (metadata ? 'policy_result')`,
-		args.ReviewID, string(resultJSON))
+		args.ReviewID, claim)
 	if err != nil {
+		return fmt.Errorf("failed to claim policy check for review %d: %w", args.ReviewID, err)
+	}
+	if n, _ := res0.RowsAffected(); n == 0 {
+		return nil // already evaluated
+	}
+	release := func() {
+		if _, e := w.db.ExecContext(ctx, `UPDATE reviews SET metadata = metadata - 'policy_result' WHERE id = $1`, args.ReviewID); e != nil {
+			log.Printf("[WARN] pr policy: failed to release claim for review %d: %v", args.ReviewID, e)
+		}
+	}
+
+	res, err := w.engine.Run(ctx, args.OrgID, args.ReviewID, false)
+	if errors.Is(err, policyengine.ErrPolicyDisabled) {
+		release()
+		return nil // feature off; nothing to post
+	}
+	if err != nil {
+		release()
+		return fmt.Errorf("policy evaluation failed for review %d: %w", args.ReviewID, err)
+	}
+
+	// Persist the funnel result (the policy-log table is the rendering source of
+	// truth; this JSON is what the landing-delay publish job re-reads).
+	resultJSON, _ := json.Marshal(res)
+	if _, err := w.db.ExecContext(ctx,
+		`UPDATE reviews SET metadata = metadata || jsonb_build_object('policy_result', $2::jsonb) WHERE id = $1`,
+		args.ReviewID, string(resultJSON)); err != nil {
+		release()
 		return fmt.Errorf("failed to store policy result for review %d: %w", args.ReviewID, err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+
+	// Landing delay: instead of publishing immediately, queue a follow-up publish
+	// job scheduled after the human-rejection window.
+	if res.Approved && res.LandingDelaySeconds > 0 {
+		if err := w.queuePublish(ctx, args.OrgID, args.ReviewID, time.Duration(res.LandingDelaySeconds)*time.Second); err != nil {
+			release()
+			return err
+		}
 		return nil
 	}
 
-	if err := w.publish(ctx, args, pullRequestID.Int64, result, critical); err != nil {
-		if _, resetErr := w.db.ExecContext(ctx, `UPDATE reviews SET metadata = metadata - 'policy_result' WHERE id = $1`, args.ReviewID); resetErr != nil {
-			log.Printf("[WARN] pr policy: failed to release claim for review %d: %v", args.ReviewID, resetErr)
-		}
+	if err := w.publish(ctx, args, pullRequestID.Int64, res); err != nil {
+		release()
 		return err
 	}
 	return nil
 }
 
+// queuePublish enqueues the landing-delay publish follow-up.
+func (w *PRPolicyCheckWorker) queuePublish(ctx context.Context, orgID, reviewID int64, delay time.Duration) error {
+	if w.jq == nil {
+		return fmt.Errorf("job queue unavailable for landing-delay publish")
+	}
+	_, err := w.jq.client.Insert(ctx, PRPolicyPublishJobArgs{OrgID: orgID, ReviewID: reviewID},
+		&river.InsertOpts{
+			Queue:       "repo_sync",
+			MaxAttempts: 5,
+			ScheduledAt: time.Now().Add(delay),
+		})
+	if err != nil {
+		return fmt.Errorf("failed to queue landing-delay publish: %w", err)
+	}
+	return nil
+}
+
 // publish posts the policy comment and approves (or requests changes on) the PR/MR.
-func (w *PRPolicyCheckWorker) publish(ctx context.Context, args PRPolicyCheckJobArgs, pullRequestID int64, result policyResult, critical []policyFinding) error {
+func (w *PRPolicyCheckWorker) publish(ctx context.Context, args PRPolicyCheckJobArgs, pullRequestID int64, res *policyengine.FunnelResult) error {
 	var repositoryID int64
 	var number int
 	if err := w.db.QueryRowContext(ctx,
@@ -135,12 +148,12 @@ func (w *PRPolicyCheckWorker) publish(ctx context.Context, args PRPolicyCheckJob
 	if err != nil {
 		log.Printf("[WARN] pr policy: public URL not configured, posting without review link: %v", err)
 	}
-	body := buildPolicyComment(host, args.ReviewID, result, critical)
+	body := buildPolicyComment(host, args.ReviewID, res)
 
 	switch info.Provider {
 	case "github", "github-com", "github-enterprise":
 		event := "REQUEST_CHANGES"
-		if result.Approved {
+		if res.Approved {
 			event = "APPROVE"
 		}
 		if err := providergithub.SubmitPullRequestReview(ctx, info.ProviderURL, info.token(), info.FullName, number, event, body); err != nil {
@@ -155,7 +168,7 @@ func (w *PRPolicyCheckWorker) publish(ctx context.Context, args PRPolicyCheckJob
 			return err
 		}
 		// GitLab Free has no "request changes", so a failed policy is comment-only.
-		if result.Approved {
+		if res.Approved {
 			if err := client.ApproveMR(info.ProviderRepoID, number); err != nil {
 				log.Printf("[WARN] pr policy: approve failed for review %d: %v", args.ReviewID, err)
 			}
@@ -166,48 +179,111 @@ func (w *PRPolicyCheckWorker) publish(ctx context.Context, args PRPolicyCheckJob
 	}
 }
 
-const maxListedCriticalFindings = 5
+// PRPolicyPublishJobArgs re-publishes the policy comment after the landing delay.
+type PRPolicyPublishJobArgs struct {
+	OrgID    int64 `json:"org_id"`
+	ReviewID int64 `json:"review_id"`
+}
 
-func buildPolicyComment(host string, reviewID int64, result policyResult, critical []policyFinding) string {
+func (PRPolicyPublishJobArgs) Kind() string { return "pr_policy_publish" }
+
+type PRPolicyPublishWorker struct {
+	river.WorkerDefaults[PRPolicyPublishJobArgs]
+	db           *sql.DB
+	webhookStore *storagejobqueue.WebhookStore
+}
+
+func (w *PRPolicyPublishWorker) Work(ctx context.Context, job *river.Job[PRPolicyPublishJobArgs]) error {
+	args := job.Args
+
+	// Guard against double-posting.
+	res0, err := w.db.ExecContext(ctx,
+		`UPDATE reviews SET metadata = metadata || jsonb_build_object('policy_published_at', now())
+		 WHERE id = $1 AND org_id = $2 AND NOT (metadata ? 'policy_published_at')`,
+		args.ReviewID, args.OrgID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res0.RowsAffected(); n == 0 {
+		return nil // already published
+	}
+	release := func() {
+		_, _ = w.db.ExecContext(ctx, `UPDATE reviews SET metadata = metadata - 'policy_published_at' WHERE id = $1`, args.ReviewID)
+	}
+
+	var pullRequestID sql.NullInt64
+	var resultJSON []byte
+	if err := w.db.QueryRowContext(ctx,
+		`SELECT pull_request_id, COALESCE(metadata->'policy_result', '{}'::jsonb) FROM reviews WHERE id = $1 AND org_id = $2`,
+		args.ReviewID, args.OrgID).Scan(&pullRequestID, &resultJSON); err != nil {
+		release()
+		return err
+	}
+	if !pullRequestID.Valid {
+		release()
+		return nil
+	}
+	var res policyengine.FunnelResult
+	if err := json.Unmarshal(resultJSON, &res); err != nil {
+		release()
+		return fmt.Errorf("failed to decode policy result for review %d: %w", args.ReviewID, err)
+	}
+
+	checker := &PRPolicyCheckWorker{db: w.db, webhookStore: w.webhookStore}
+	if err := checker.publish(ctx, PRPolicyCheckJobArgs{OrgID: args.OrgID, ReviewID: args.ReviewID}, pullRequestID.Int64, &res); err != nil {
+		release()
+		return err
+	}
+	return nil
+}
+
+// buildPolicyComment renders the funnel stage-by-stage so the posted comment
+// shows *why* the policy reached its verdict, not just the verdict.
+func buildPolicyComment(host string, reviewID int64, res *policyengine.FunnelResult) string {
 	var b strings.Builder
-	if result.Approved {
+	if res.Approved {
 		b.WriteString("## ✅ LiveReview policy: Approved\n\n")
 	} else {
 		b.WriteString("## ❌ LiveReview policy: Changes requested\n\n")
 	}
-	fmt.Fprintf(&b, "Review #%d · %d critical · %d warning · %d info\n\n", reviewID, result.Critical, result.Warning, result.Info)
-	b.WriteString("| Policy | Result |\n|---|---|\n")
-	if result.Approved {
-		fmt.Fprintf(&b, "| %s | ✅ Passed |\n", result.Policy)
-	} else {
-		fmt.Fprintf(&b, "| %s | ❌ %d critical |\n\n", result.Policy, result.Critical)
-		for i, f := range critical {
-			if i == maxListedCriticalFindings {
-				fmt.Fprintf(&b, "- …and %d more\n", len(critical)-maxListedCriticalFindings)
-				break
-			}
-			fmt.Fprintf(&b, "- `%s:%d` — %s\n", f.FilePath, f.Line, firstLine(f.Content, 120))
+	fmt.Fprintf(&b, "Review #%d\n\n", reviewID)
+
+	b.WriteString("| Stage | Result | Detail |\n|---|---|---|\n")
+	for _, st := range res.Stages {
+		icon := "✅"
+		if st.Verdict == "fail" {
+			icon = "❌"
+		} else if st.Verdict == "skip" {
+			icon = "⏭️"
 		}
+		reason := ""
+		if r, ok := st.Detail["reason"].(string); ok {
+			reason = r
+		}
+		fmt.Fprintf(&b, "| %s | %s | %s |\n", titleCaseStage(st.Stage), icon, reason)
 	}
+
 	if host != "" {
 		fmt.Fprintf(&b, "\n[View full review](%s/#/reviews/%d)\n", strings.TrimSuffix(host, "/"), reviewID)
 	}
 	return b.String()
 }
 
-// firstLine returns the first non-empty line of s, cut to limit runes.
-func firstLine(s string, limit int) string {
-	for _, line := range strings.Split(s, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if r := []rune(line); len(r) > limit {
-			return string(r[:limit]) + "…"
-		}
-		return line
+func titleCaseStage(s string) string {
+	switch s {
+	case "eligibility":
+		return "Eligibility"
+	case "static":
+		return "Static rules"
+	case "risk":
+		return "Risk score"
+	case "llm":
+		return "LLM classification"
+	case "final":
+		return "Final decision"
+	default:
+		return s
 	}
-	return ""
 }
 
 // QueuePRPolicyCheckIfFlagged enqueues the policy check only for reviews started from the PR link.

@@ -106,6 +106,7 @@ type UserWithRole struct {
 	RoleID                int64      `json:"role_id"`
 	OrgID                 int64      `json:"org_id"`
 	OnboardingAPIKey      string     `json:"onboarding_api_key,omitempty"`
+	ReviewLevel           int        `json:"review_level"`
 }
 
 // CreateUserRequest represents the request to create a new user
@@ -119,11 +120,12 @@ type CreateUserRequest struct {
 
 // UpdateUserRequest represents the request to update a user
 type UpdateUserRequest struct {
-	FirstName *string `json:"first_name"`
-	LastName  *string `json:"last_name"`
-	IsActive  *bool   `json:"is_active"`
-	RoleID    *int64  `json:"role_id"`
-	Password  *string `json:"password,omitempty"`
+	FirstName   *string `json:"first_name"`
+	LastName    *string `json:"last_name"`
+	IsActive    *bool   `json:"is_active"`
+	RoleID      *int64  `json:"role_id"`
+	Password    *string `json:"password,omitempty"`
+	ReviewLevel *int    `json:"review_level"`
 }
 
 // CreateUserInOrg creates a new user in the specified organization
@@ -654,7 +656,7 @@ func (us *UserService) GetUserInOrg(orgID, userID int64) (*UserWithRole, error) 
 		SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.last_login_at,
 		       u.created_at, u.updated_at, u.created_by_user_id, u.deactivated_at,
 		       u.deactivated_by_user_id, u.password_reset_required,
-		       r.name as role, r.id as role_id, ur.org_id, u.onboarding_api_key
+		       r.name as role, r.id as role_id, ur.org_id, u.onboarding_api_key, u.review_level
 		FROM users u
 		JOIN user_roles ur ON u.id = ur.user_id
 		JOIN roles r ON ur.role_id = r.id
@@ -663,7 +665,7 @@ func (us *UserService) GetUserInOrg(orgID, userID int64) (*UserWithRole, error) 
 		&user.ID, &user.Email, &user.FirstName, &user.LastName, &user.IsActive,
 		&user.LastLoginAt, &user.CreatedAt, &user.UpdatedAt, &user.CreatedByUserID,
 		&user.DeactivatedAt, &user.DeactivatedByUserID, &user.PasswordResetRequired,
-		&user.Role, &user.RoleID, &user.OrgID, &onboardingKey,
+		&user.Role, &user.RoleID, &user.OrgID, &onboardingKey, &user.ReviewLevel,
 	)
 
 	if err != nil {
@@ -700,7 +702,7 @@ func (us *UserService) ListUsersInOrg(orgID int64, offset, limit int) ([]*UserWi
 		SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.last_login_at,
 		       u.created_at, u.updated_at, u.created_by_user_id, u.deactivated_at,
 		       u.deactivated_by_user_id, u.password_reset_required,
-		       r.name as role, r.id as role_id, ur.org_id, u.onboarding_api_key
+		       r.name as role, r.id as role_id, ur.org_id, u.onboarding_api_key, u.review_level
 		FROM users u
 		JOIN user_roles ur ON u.id = ur.user_id
 		JOIN roles r ON ur.role_id = r.id
@@ -722,7 +724,7 @@ func (us *UserService) ListUsersInOrg(orgID int64, offset, limit int) ([]*UserWi
 			&user.ID, &user.Email, &user.FirstName, &user.LastName, &user.IsActive,
 			&user.LastLoginAt, &user.CreatedAt, &user.UpdatedAt, &user.CreatedByUserID,
 			&user.DeactivatedAt, &user.DeactivatedByUserID, &user.PasswordResetRequired,
-			&user.Role, &user.RoleID, &user.OrgID, &onboardingKey,
+			&user.Role, &user.RoleID, &user.OrgID, &onboardingKey, &user.ReviewLevel,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to scan user: %w", err)
@@ -770,6 +772,13 @@ func (us *UserService) UpdateUserInOrg(orgID, userID, updatedByUserID int64, req
 			args = append(args, updatedByUserID)
 			argIndex++
 		}
+	}
+
+	if req.ReviewLevel != nil {
+		setParts = append(setParts, fmt.Sprintf("review_level = $%d", argIndex))
+		args = append(args, *req.ReviewLevel)
+		auditDetails["review_level"] = *req.ReviewLevel
+		argIndex++
 	}
 
 	if req.Password != nil && *req.Password != "" {

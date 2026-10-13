@@ -36,6 +36,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/gitea"
+	"github.com/livereview/internal/policyengine"
 	"github.com/livereview/internal/seed_demo"
 	networkjobqueue "github.com/livereview/network/jobqueue"
 	storagejobqueue "github.com/livereview/storage/jobqueue"
@@ -2419,7 +2420,8 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	prStore := pullrequests.NewStore(db)
 	repoPRSyncWorker := &RepoPRSyncWorker{db: db, store: prStore}
 	prStateSyncWorker := &PRStateSyncWorker{db: db, store: prStore, webhookStore: store}
-	prPolicyCheckWorker := &PRPolicyCheckWorker{db: db, webhookStore: store}
+	prPolicyCheckWorker := &PRPolicyCheckWorker{db: db, webhookStore: store, engine: policyengine.NewEngine(db)}
+	prPolicyPublishWorker := &PRPolicyPublishWorker{db: db, webhookStore: store}
 	reconciliationWorker := &ReconciliationSweepWorker{db: db, pool: pool, stalenessThreshold: config.RepoSyncConfig.StalenessThreshold}
 	scheduledReviewWorker := &ScheduledReviewWorker{db: db}
 	preloadedChangesArchivalWorker := &PreloadedChangesArchivalWorker{db: db}
@@ -2436,12 +2438,15 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, repoPRSyncWorker)
 	river.AddWorker(workers, prStateSyncWorker)
 	river.AddWorker(workers, prPolicyCheckWorker)
+	river.AddWorker(workers, prPolicyPublishWorker)
+	river.AddWorker(workers, &PRPolicyForceApproveWorker{db: db, webhookStore: store})
 	river.AddWorker(workers, reconciliationWorker)
 	river.AddWorker(workers, preloadedChangesArchivalWorker)
 	river.AddWorker(workers, preloadedChangesArchivalSweepWorker)
 	river.AddWorker(workers, preloadedChangesArchivalPurgeWorker)
 	river.AddWorker(workers, seedDemoWorker)
 	river.AddWorker(workers, &BlastRadiusWorker{db: db})
+	river.AddWorker(workers, &RiskModelRefitWorker{db: db})
 
 	coordinatorInterval := config.RepoSyncConfig.CoordinatorInterval
 	if coordinatorInterval <= 0 {
@@ -2544,6 +2549,13 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 				&river.PeriodicJobOpts{RunOnStart: false},
 			),
 			river.NewPeriodicJob(
+				river.PeriodicInterval(24*time.Hour),
+				func() (river.JobArgs, *river.InsertOpts) {
+					return RiskModelRefitJobArgs{}, &river.InsertOpts{Queue: "repo_sync", MaxAttempts: 3}
+				},
+				&river.PeriodicJobOpts{ID: "risk_model_refit", RunOnStart: false},
+			),
+			river.NewPeriodicJob(
 				archivalSchedule,
 				func() (river.JobArgs, *river.InsertOpts) {
 					return PreloadedChangesArchivalSweepJobArgs{
@@ -2576,6 +2588,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	diffWorker.jq = jq
 	reconciliationWorker.jq = jq
 	scheduledReviewWorker.jq = jq
+	prPolicyCheckWorker.jq = jq
 
 	return jq, nil
 }

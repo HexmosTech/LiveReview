@@ -99,6 +99,7 @@ type ReviewResult struct {
 	CommentsCount  int
 	Comments       []*models.ReviewComment // Added to track actual comment details
 	Quiz           []models.QuizQuestion   // Optional comprehension quiz for this review, nil if none generated
+	DiffClassification *models.DiffClassification // Diff-level semantic classification (docs/risk-policy-engine.md §5)
 	BillableLOC    int64
 	Provider       string
 	Model          string
@@ -346,6 +347,7 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	result.CommentsCount = len(reviewData.Result.Comments)
 	result.Comments = reviewData.Result.Comments // Include actual comment details
 	result.Quiz = reviewData.Result.Quiz
+	result.DiffClassification = reviewData.Result.DiffClassification
 	result.BillableLOC = reviewData.BillableLOC
 	providerName := strings.TrimSpace(request.AI.Type)
 	if configuredProvider, ok := request.AI.Config["provider_name"].(string); ok && strings.TrimSpace(configuredProvider) != "" {

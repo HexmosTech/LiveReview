@@ -6,6 +6,7 @@ import { riskAssessment, RiskAssessmentDetails, RiskScore } from '../../componen
 import { reviewStatusBadge } from '../../utils/reviewDisplay';
 import { Button, Icons, Tabs } from '../../components/UIPrimitives';
 import { ReviewEventsPage, DiffViewerPanel } from '../../components/reviews';
+import AutoApprovePanel from '../../components/reviews/AutoApprovePanel';
 import {
   getReview,
   getReviewEvents,
@@ -81,7 +82,7 @@ const ReviewDetail: React.FC = () => {
     const [levelFilter, setLevelFilter] = useState<ReviewEventLevel | ''>('');
     const [typeFilter, setTypeFilter] = useState<ReviewEventType | ''>('');
     const [lastEventTime, setLastEventTime] = useState<string | null>(null);
-    const [activeTab, setActiveTab] = useState<'findings' | 'accounting' | 'events'>('findings');
+    const [activeTab, setActiveTab] = useState<'findings' | 'accounting' | 'events' | 'auto-approve'>('findings');
     const [blastReport, setBlastReport] = useState<BlastRadiusReport | BlastRadiusSkipped | null>(null);
     const [blastPoll, setBlastPoll] = useState<'checking' | 'waiting' | 'gave_up'>('checking');
     const [riskScores, setRiskScores] = useState<RiskScore[]>([]);
@@ -682,8 +683,15 @@ const ReviewDetail: React.FC = () => {
                     { id: 'findings', label: 'Findings' },
                     { id: 'accounting', label: 'Accounting' },
                     { id: 'events', label: 'Events' },
+                    ...(review.metadata?.pr_link_policy ? [{ id: 'auto-approve', label: 'Auto Approve' }] : []),
                 ]}
             />
+
+            {activeTab === 'auto-approve' && review.metadata?.pr_link_policy && (
+                <div className="mb-6">
+                    <AutoApprovePanel reviewId={reviewId} />
+                </div>
+            )}
 
             {activeTab === 'findings' && (
                 <div className="mb-6">

@@ -55,6 +55,9 @@ type User struct {
 	CreatedByUserID       *int64     `json:"created_by_user_id,omitempty" db:"created_by_user_id"`
 	PasswordResetRequired bool       `json:"password_reset_required" db:"password_reset_required"`
 	DefaultOrgID          *int64     `json:"default_org_id,omitempty" db:"default_org_id"`
+	// ReviewLevel is the seniority dial gating auto-approve eligibility
+	// (docs/risk-policy-engine.md §1). Default 1; owners bump it per user.
+	ReviewLevel           int        `json:"review_level" db:"review_level"`
 }
 
 // FullName returns the user's display name (first + last name), falling back to
@@ -164,6 +167,18 @@ type ReviewResult struct {
 	Comments         []*ReviewComment // External comments to be posted to the platform
 	InternalComments []*ReviewComment // Internal comments used for synthesis only
 	Quiz             []QuizQuestion   // Optional: 5-question comprehension quiz for this PR, nil if none was generated
+	// DiffClassification is the diff-level semantic classification the review
+	// LLM emits alongside findings (docs/risk-policy-engine.md §5). Nil for
+	// CLI/legacy reviews and for degraded responses where the field was absent.
+	DiffClassification *DiffClassification
+}
+
+// DiffClassification is the closed-taxonomy diff-level classification used by
+// the auto-approve policy's LLM gate: Class is one of the values enumerated in
+// prompts.DiffClassificationTaxonomy, Confidence is 0-10.
+type DiffClassification struct {
+	Class      string `json:"class"`
+	Confidence int    `json:"confidence"`
 }
 
 // QuizQuestion is one multiple-choice question in a review's comprehension

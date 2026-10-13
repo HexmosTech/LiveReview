@@ -351,8 +351,9 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 			}
 
 			type GeminiResponse struct {
-				FileSummary string          `json:"fileSummary"`
-				Comments    []GeminiComment `json:"comments"`
+				FileSummary       string                    `json:"fileSummary"`
+				Comments          []GeminiComment           `json:"comments"`
+				DiffClassification *models.DiffClassification `json:"diffClassification"`
 			}
 
 			// Try to parse the JSON
@@ -444,8 +445,9 @@ func (p *GeminiProvider) parseResponse(response string, diffs []*models.CodeDiff
 
 				// Create the result
 				result := &models.ReviewResult{
-					Summary:  jsonResponse.FileSummary, // Store fileSummary temporarily in Summary field
-					Comments: []*models.ReviewComment{},
+					Summary:            jsonResponse.FileSummary, // Store fileSummary temporarily in Summary field
+					Comments:           []*models.ReviewComment{},
+					DiffClassification: jsonResponse.DiffClassification,
 				}
 
 				// Convert comments

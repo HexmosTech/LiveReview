@@ -23,6 +23,9 @@ admin.
   next PR review. If a review is using it right now, clearing is refused until
   it finishes. When the repo cache is turned off for the server, the section
   says so and admins get a link to Settings → Storage → Repo Cache.
+- **Auto Approve** (`#auto-approve`) — override this repository's auto-approve
+  policy (inherit the org default, or set a repo-specific mode and risk
+  threshold percentile). See [Settings → Auto Approve](../settings/auto-approve.md).
 
 ## Related pages
 

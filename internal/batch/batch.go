@@ -361,6 +361,7 @@ type BatchResult struct {
 	FileSummary        string // New: file-level summary if present
 	TechnicalSummaries []prompts.TechnicalSummary
 	Comments           []*models.ReviewComment
+	DiffClassification *models.DiffClassification // diff-level semantic classification (per-batch)
 	Error              error
 	BatchID            string
 }
@@ -497,11 +498,44 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 
 	// Output: one general summary, only EXTERNAL comments for posting
 	return &models.ReviewResult{
-		Summary:          generalSummary,
-		Comments:         externalComments,
-		InternalComments: internalComments,
-		Quiz:             quiz,
+		Summary:            generalSummary,
+		Comments:           externalComments,
+		InternalComments:   internalComments,
+		Quiz:               quiz,
+		DiffClassification: pickDiffClassification(results),
 	}, nil
+}
+
+// pickDiffClassification reduces per-batch diff classifications to a single
+// review-level one: highest confidence wins, ties broken toward the riskier
+// class. Returns nil when no batch produced one.
+func pickDiffClassification(results []*BatchResult) *models.DiffClassification {
+	var best *models.DiffClassification
+	for _, r := range results {
+		if r == nil || r.DiffClassification == nil {
+			continue
+		}
+		dc := r.DiffClassification
+		if best == nil || dc.Confidence > best.Confidence ||
+			(dc.Confidence == best.Confidence && classRiskOrder(dc.Class) > classRiskOrder(best.Class)) {
+			best = dc
+		}
+	}
+	return best
+}
+
+// classRiskOrder ranks diff classes by risk for tie-breaking (higher = riskier).
+func classRiskOrder(class string) int {
+	switch class {
+	case "security-sensitive":
+		return 3
+	case "logic-change":
+		return 2
+	case "config-change", "dependency-change", "data-migration":
+		return 1
+	default:
+		return 0
+	}
 }
 
 // quizJSONStart/quizJSONEnd are the exact sentinel lines the "quiz" prompt

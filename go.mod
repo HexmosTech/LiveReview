@@ -69,6 +69,8 @@ require (
 	google.golang.org/api v0.272.0
 )
 
+require github.com/cdipaolo/goml v0.0.0-20220715001353-00e0c845ae1c // indirect
+
 require (
 	cel.dev/expr v0.25.2 // indirect
 	cloud.google.com/go v0.123.0 // indirect

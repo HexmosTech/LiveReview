@@ -1283,6 +1283,12 @@ func (s *Server) setupRoutes() {
 	orgGroup.PUT("/users/:user_id/role", s.userHandlers.ChangeUserRole)
 	orgGroup.POST("/users/:user_id/force-password-reset", s.userHandlers.ForcePasswordReset)
 	orgGroup.GET("/users/:user_id/audit-log", s.userHandlers.GetUserAuditLog)
+	orgGroup.POST("/review-outcomes", s.orgReviewOutcome)
+	orgGroup.GET("/review-outcomes", s.listReviewOutcomes)
+	orgGroup.GET("/users/:user_id/identities", s.listUserIdentities)
+	orgGroup.POST("/users/:user_id/identities", s.addUserIdentity)
+	orgGroup.DELETE("/users/:user_id/identities/:id", s.removeUserIdentity)
+	orgGroup.GET("/identities", s.listOrgIdentities)
 
 	// Super admin routes - Production
 	adminGroup := v1.Group("/admin")
@@ -1420,6 +1426,33 @@ func (s *Server) setupRoutes() {
 	ciRulesetsGroup.PUT("/:id", ciRulesetsHandler.Update)
 	ciRulesetsGroup.DELETE("/:id", ciRulesetsHandler.Delete)
 	ciRulesetsGroup.GET("/:id/evaluate", ciRulesetsHandler.Evaluate)
+
+	// Auto-approve policy (organization-scoped) — the risk-based policy engine
+	// (docs/risk-policy-engine.md). Reuses ci_rulesets as blocking gates.
+	autoApprovePoliciesHandler := NewAutoApprovePoliciesHandler(s.db)
+	autoApproveGroup := v1.Group("/auto-approve-policies")
+	autoApproveGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	autoApproveGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	autoApproveGroup.Use(authMiddleware.ValidateOrgAccess())
+	autoApproveGroup.Use(authMiddleware.BuildPermissionContext())
+	autoApproveGroup.GET("", autoApprovePoliciesHandler.List)
+	autoApproveGroup.POST("", autoApprovePoliciesHandler.Create)
+	autoApproveGroup.GET("/resolved", autoApprovePoliciesHandler.Resolved)
+	autoApproveGroup.POST("/simulate", autoApprovePoliciesHandler.Simulate)
+	autoApproveGroup.GET("/:id", autoApprovePoliciesHandler.Get)
+	autoApproveGroup.PUT("/:id", autoApprovePoliciesHandler.Update)
+	autoApproveGroup.DELETE("/:id", autoApprovePoliciesHandler.Delete)
+
+	// Risk model (org-wide classifier): read info/calibration, set category
+	// overrides, trigger an on-demand refit.
+	riskModelGroup := v1.Group("/risk-model")
+	riskModelGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	riskModelGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	riskModelGroup.Use(authMiddleware.ValidateOrgAccess())
+	riskModelGroup.Use(authMiddleware.BuildPermissionContext())
+	riskModelGroup.GET("", s.getRiskModel)
+	riskModelGroup.PUT("/overrides", s.putRiskModelOverrides)
+	riskModelGroup.POST("/retrain", s.retrainRiskModel)
 
 	// Development mode: Org-scoped and Admin test endpoints
 	if s.devMode {
@@ -1678,6 +1711,9 @@ func (s *Server) setupRoutes() {
 	reviewsGroup.GET("/:id/summary", reviewEventsHandler.GetReviewSummary)
 	reviewsGroup.GET("/:id/accounting", reviewEventsHandler.GetReviewAccounting)
 	reviewsGroup.GET("/:id/commits", s.GetReviewCommits)
+	reviewsGroup.GET("/:id/policy-log", s.getReviewPolicyLog)
+	reviewsGroup.POST("/:id/force-approve", s.forceApproveReview)
+	reviewsGroup.POST("/:id/outcomes", s.markReviewOutcome)
 
 	// Subscription endpoints (organization scoped)
 	subscriptionsHandler := NewSubscriptionsHandler(s.db)

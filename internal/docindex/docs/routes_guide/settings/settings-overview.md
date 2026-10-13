@@ -19,6 +19,7 @@ tabs. Which tabs are visible depends on the user's role
 | Deployment | `deployment` | super_admin or org owner |
 | License | `license` | super_admin or org owner, self-hosted only (tab absent in cloud) |
 | Prompts | `prompts` | super_admin, or org owner/member |
+| Auto Approve | `auto-approve` | org owner (or super_admin) |
 | Learnings | `learnings` | any org member |
 | API Keys | `api-keys` | any org member |
 | MCP Integration | `mcp` | any org member |
@@ -35,7 +36,8 @@ the `subscriptions` tab.
 
 Each tab has its own file in this folder: [Instance](instance.md),
 [SMTP](smtp.md), [Storage](storage.md), [Deployment](deployment.md),
-[License](license.md), [Prompts](prompts.md), [Learnings](learnings.md),
+[License](license.md), [Prompts](prompts.md), [Auto Approve](auto-approve.md),
+[Learnings](learnings.md),
 [API Keys](api-keys.md), [MCP Integration](mcp-integration.md),
 [User Management](user-management.md), [Integrations](integrations.md),
 [Plan & Usage](plan-and-usage.md).
