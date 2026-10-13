@@ -226,7 +226,7 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
             group('Customize AI', [
                 link('Edit Prompts', React.createElement(Icons.Settings), '/settings#prompts', (ctx) => ctx.isSuperAdmin || (ctx.hasOrg && ['owner', 'member'].includes(ctx.orgRole || ''))),
                 link('View Learnings', React.createElement(Icons.List), '/settings#learnings', (ctx) => ctx.isSuperAdmin || ctx.hasOrg),
-                link('Auto Approve Policies', React.createElement(Icons.Success), '/settings#auto-approve', (ctx) => ctx.orgRole === 'owner'),
+                link('Auto Approve Policies', React.createElement(Icons.Success), '/settings#auto-approve', (ctx) => ctx.isSuperAdmin || ctx.orgRole === 'owner'),
             ], React.createElement(Icons.AI)),
             group('Manage API Access', [
                 link('Manage API Keys', React.createElement(Icons.Settings), '/settings#api-keys', (ctx) => ctx.isSuperAdmin || ctx.hasOrg),
