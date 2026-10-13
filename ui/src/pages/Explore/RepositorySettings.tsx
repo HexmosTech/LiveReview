@@ -3,11 +3,15 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { LuArrowLeft, LuDatabase } from 'react-icons/lu';
 import { Button, Card, EmptyState, Icons, PageHeader, Spinner } from '../../components/UIPrimitives';
 import RepoCacheSection from '../../components/Explore/RepoCacheSection';
+import RepoAutoApproveSection from '../../components/Explore/RepoAutoApproveSection';
 import { getRepository } from '../../api/repositories';
 import { Repository } from '../../types/explore';
 
 // Per-repository settings, laid out like the main Settings page: sections on the left, the selected one on the right.
-const SECTIONS = [{ id: 'repo-cache', name: 'Repo cache', icon: <LuDatabase className="w-4 h-4" /> }];
+const SECTIONS = [
+  { id: 'repo-cache', name: 'Repo cache', icon: <LuDatabase className="w-4 h-4" /> },
+  { id: 'auto-approve', name: 'Auto Approve', icon: <Icons.Success /> },
+];
 
 const RepositorySettings: React.FC = () => {
   const { repoId } = useParams<{ repoId: string }>();
@@ -65,7 +69,10 @@ const RepositorySettings: React.FC = () => {
           </Card>
         </div>
         <div className="md:col-span-3">
-          <Card>{active === 'repo-cache' && <RepoCacheSection repo={repo} />}</Card>
+          <Card>
+            {active === 'repo-cache' && <RepoCacheSection repo={repo} />}
+            {active === 'auto-approve' && <RepoAutoApproveSection repositoryId={repo.id} />}
+          </Card>
         </div>
       </div>
     </div>

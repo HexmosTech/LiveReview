@@ -11,6 +11,7 @@ import IntegrationsTab from './IntegrationsTab';
 import SMTPSettingsTab from './SMTPSettingsTab';
 import StorageSettingsTab from './StorageSettingsTab';
 import CompactionSettingsTab from './CompactionSettingsTab';
+import AutoApprovePolicyTab from './AutoApprovePolicyTab';
 import { UserManagement } from '../../components/UserManagement';
 import LicenseManagement from '../Licenses/LicenseManagement';
 import { useOrgContext } from '../../hooks/useOrgContext';
@@ -327,6 +328,12 @@ const Settings = () => {
             </svg>
         ) }] : []),
         ...(canAccessPrompts ? [{ id: 'prompts', name: 'Prompts', icon: <Icons.AI /> }] : []),
+        // Auto Approve: risk-based approval policy (owner-managed)
+        ...(canManageCurrentOrg ? [{ id: 'auto-approve', name: 'Auto Approve', icon: (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        ) }] : []),
         // Learnings tab visible to all org members
         ...((isSuperAdmin || currentOrg) ? [{ id: 'learnings', name: 'Learnings', icon: <Icons.List /> }] : []),
         // API Keys tab visible to all org members
@@ -789,6 +796,10 @@ const Settings = () => {
                         <Card>
                             <LearningsTab />
                         </Card>
+                    )}
+
+                    {activeTab === 'auto-approve' && canManageCurrentOrg && (
+                        <AutoApprovePolicyTab />
                     )}
 
                     {/* AI Configuration, UI Preferences, Global Admin temporarily hidden */}

@@ -160,6 +160,7 @@ func (p *GeminiProvider) ReviewCodeBatch(
 		FileSummary:        trimmedSummary,
 		TechnicalSummaries: summaries,
 		Comments:           result.Comments,
+		DiffClassification: result.DiffClassification,
 		Error:              nil,
 	}, nil
 }

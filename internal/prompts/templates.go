@@ -87,7 +87,11 @@ const (
 			"suggestions": ["Specific improvement suggestion 1", "Specific improvement suggestion 2"],
 			"isInternal": false
 		}
-	]
+	],
+	"diffClassification": {
+		"class": "one of the classes from DIFF CLASSIFICATION RULES",
+		"confidence": 8
+	}
 }
 ` + "```"
 )
@@ -121,7 +125,27 @@ TAXONOMY (category -> allowed subcategories):
 ` + "```"
 )
 
-// Issue detection checklist
+// Diff classification rules
+const (
+	// DiffClassificationRules is a closed, fixed taxonomy for the diff-level
+	// semantic classification used by the auto-approve policy's LLM gate
+	// (docs/risk-policy-engine.md §5). "class" MUST be exactly one of these
+	// values, verbatim; "confidence" is an integer 0-10 expressing how sure the
+	// model is. This rides inside the same review JSON (no second LLM call).
+	DiffClassificationRules = `DIFF CLASSIFICATION RULES:
+- After reviewing the whole diff, classify it with exactly one "class" from the closed list below, verbatim (no other values):
+  "refactor-only" (behavior-preserving rename/extract/cleanup; no logic change)
+  "dead-code-removal" (removing unused code/imports with no behavior change)
+  "docs-only" (documentation/comments/changelog changes only)
+  "test-only" (test additions or changes only)
+  "config-change" (build/dependency/CI/feature-flag or other configuration change)
+  "dependency-change" (adding/removing/upgrading third-party dependencies)
+  "data-migration" (schema or data migration changes)
+  "logic-change" (changes to runtime behavior, control flow, or business logic)
+  "security-sensitive" (changes touching auth, permissions, secrets, cryptography, input validation, or data exposure)
+- "confidence" is an integer 0-10: how confident you are in the chosen class. Use 0 when genuinely unsure, 10 when unambiguous.
+- Pick the single most dominant class for the whole diff. If the diff spans multiple concerns, choose the highest-risk one that applies.`
+)
 const (
 	// IssueDetectionChecklist enumerates the categories and specific issues the reviewer must watch for
 	IssueDetectionChecklist = `ISSUE DETECTION FOCUS AREAS:

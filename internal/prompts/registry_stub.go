@@ -13,6 +13,7 @@ func PlaintextTemplates() []PlaintextTemplate {
 			CommentRequirements + "\n\n" +
 			JSONStructureExample + "\n\n" +
 			TaxonomyClassificationRules + "\n\n" +
+			DiffClassificationRules + "\n\n" +
 			CommentClassification + "\n\n" +
 			LineNumberInstructions + "\n\n" +
 			"{{VAR:style_guide}}\n\n{{VAR:security_guidelines}}"},

@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -13,6 +12,7 @@ import (
 	"github.com/itchyny/gojq"
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/canonicaldoc"
 	storagereviews "github.com/livereview/storage/reviews"
 )
 
@@ -54,157 +54,22 @@ type upsertCIRulesetRequest struct {
 
 // ---- canonical review document ----
 
-// canonicalFinding is one row of the "findings" array in the canonical doc.
-type canonicalFinding struct {
-	Severity    string `json:"severity"`
-	Confidence  string `json:"confidence"`
-	Category    string `json:"category"`
-	Subcategory string `json:"subcategory"`
-	Type        string `json:"type"`
-	FilePath    string `json:"file_path,omitempty"`
-	LineNumber  *int   `json:"line_number,omitempty"`
-}
+// The canonical document types and jq evaluation are shared with the
+// risk-policy engine's static gate stage via internal/canonicaldoc, so there
+// is exactly one rule engine (see docs/risk-policy-engine.md §4). These
+// aliases keep the existing handler API and its tests unchanged.
+type canonicalFinding = canonicaldoc.Finding
+type canonicalReviewDoc = canonicaldoc.ReviewDoc
+type canonicalReviewDocCounts = canonicaldoc.Counts
 
-// canonicalReviewDoc is the stable, provider-agnostic document every jq
-// ruleset is evaluated against, regardless of whether the review was
-// triggered by a webhook, `lrc`, or the web UI.
-type canonicalReviewDoc struct {
-	ReviewID   int64                    `json:"review_id"`
-	OrgID      int64                    `json:"org_id"`
-	Repository string                   `json:"repository"`
-	Provider   string                   `json:"provider"`
-	Status     string                   `json:"status"`
-	Findings   []canonicalFinding       `json:"findings"`
-	Counts     canonicalReviewDocCounts `json:"counts"`
-}
+var knownSeverities = canonicaldoc.KnownSeverities
+var runJQBool = canonicaldoc.RunJQBool
 
-type canonicalReviewDocCounts struct {
-	BySeverity map[string]int `json:"by_severity"`
-	ByCategory map[string]int `json:"by_category"`
-	Total      int            `json:"total"`
-}
-
-// reviewGateHeader is the minimal review row needed to build the canonical
-// doc's header fields (everything but findings).
-type reviewGateHeader struct {
-	ID         int64
-	Repository string
-	Provider   string
-	Status     string
-}
-
-// getReviewGateHeader fetches a review scoped strictly to orgID -- never
-// trust a caller-supplied review_id without confirming org ownership first.
-func (h *CIRulesetsHandler) getReviewGateHeader(ctx context.Context, orgID, reviewID int64) (*reviewGateHeader, error) {
-	var r reviewGateHeader
-	var provider sql.NullString
-	err := h.db.QueryRowContext(ctx, `
-		SELECT id, repository, provider, status
-		FROM reviews
-		WHERE id = $1 AND org_id = $2`, reviewID, orgID).Scan(&r.ID, &r.Repository, &provider, &r.Status)
-	if err != nil {
-		return nil, err
-	}
-	r.Provider = provider.String
-	return &r, nil
-}
-
-// knownSeverities seeds counts.by_severity with zero values so jq
-// expressions like `.counts.by_severity.critical > 0` never fail with "null
-// cannot be compared" on a clean review -- they just see 0. This is the
-// actual 3-value severity model the AI review prompt emits (see
-// internal/prompts/templates.go's "info|warning|critical" schema) -- not a
-// generic 5-level guess.
-var knownSeverities = []string{"critical", "warning", "info"}
-
+// buildCanonicalReviewDoc delegates to internal/canonicaldoc.Build, scoping the
+// review strictly to orgID -- never trust a caller-supplied review_id without
+// confirming org ownership first.
 func (h *CIRulesetsHandler) buildCanonicalReviewDoc(ctx context.Context, orgID, reviewID int64) (*canonicalReviewDoc, error) {
-	header, err := h.getReviewGateHeader(ctx, orgID, reviewID)
-	if err != nil {
-		return nil, err
-	}
-
-	doc := &canonicalReviewDoc{
-		ReviewID:   header.ID,
-		OrgID:      orgID,
-		Repository: header.Repository,
-		Provider:   header.Provider,
-		Status:     header.Status,
-		Findings:   []canonicalFinding{},
-		Counts: canonicalReviewDocCounts{
-			BySeverity: map[string]int{},
-			ByCategory: map[string]int{},
-		},
-	}
-	for _, sev := range knownSeverities {
-		doc.Counts.BySeverity[sev] = 0
-	}
-
-	rows, _, err := h.taxonomy.ListFindings(ctx, storagereviews.TaxonomyFilter{OrgID: orgID, ReviewID: reviewID}, 500, 0, storagereviews.TaxonomyFindingsOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("loading findings: %w", err)
-	}
-	for _, r := range rows {
-		sev := strings.ToLower(r.Severity)
-		cat := strings.ToLower(r.Category)
-		f := canonicalFinding{
-			Severity:    sev,
-			Confidence:  strings.ToLower(r.Confidence),
-			Category:    cat,
-			Subcategory: strings.ToLower(r.Subcategory),
-			Type:        strings.ToLower(r.IssueType),
-			LineNumber:  r.LineNumber,
-		}
-		if r.FilePath != nil {
-			f.FilePath = *r.FilePath
-		}
-		doc.Findings = append(doc.Findings, f)
-		doc.Counts.BySeverity[sev]++
-		if cat != "" {
-			doc.Counts.ByCategory[cat]++
-		}
-		doc.Counts.Total++
-	}
-	return doc, nil
-}
-
-// runJQBool evaluates expr against doc and returns whether the first
-// produced value is truthy (jq truthiness: everything except false/null).
-// It also returns the raw first result for display/debugging.
-func runJQBool(expr string, doc interface{}) (blocked bool, result interface{}, err error) {
-	query, err := gojq.Parse(expr)
-	if err != nil {
-		return false, nil, fmt.Errorf("invalid jq expression: %w", err)
-	}
-
-	// Round-trip through JSON so the doc matches what gojq expects
-	// (map[string]interface{}/[]interface{}/plain scalars).
-	raw, err := json.Marshal(doc)
-	if err != nil {
-		return false, nil, fmt.Errorf("marshaling document: %w", err)
-	}
-	// nosemgrep: go.lang.security.deserialization.unsafe-deserialization-interface.go-unsafe-deserialization-interface -- raw is our own json.Marshal output from just above; gojq requires generic map/slice/scalar input, and encoding/json into interface{} can only produce those, never arbitrary types.
-	var input interface{}
-	if err := json.Unmarshal(raw, &input); err != nil {
-		return false, nil, fmt.Errorf("unmarshaling document: %w", err)
-	}
-
-	iter := query.Run(input)
-	v, ok := iter.Next()
-	if !ok {
-		return false, nil, fmt.Errorf("jq expression produced no output")
-	}
-	if e, ok := v.(error); ok {
-		return false, nil, fmt.Errorf("jq evaluation error: %w", e)
-	}
-	switch t := v.(type) {
-	case bool:
-		blocked = t
-	case nil:
-		blocked = false
-	default:
-		blocked = true
-	}
-	return blocked, v, nil
+	return canonicaldoc.Build(ctx, h.db, orgID, reviewID)
 }
 
 // ---- CRUD ----

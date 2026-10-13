@@ -81,6 +81,7 @@ export interface Member {
   role_id: number;
   org_id: number;
   onboarding_api_key?: string;
+  review_level?: number;
 }
 
 export interface FetchUsersResponse {

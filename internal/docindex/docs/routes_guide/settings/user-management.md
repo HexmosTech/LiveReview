@@ -22,7 +22,10 @@ License Assignment is part of onboarding someone.
 - Add a single user (`/settings/users/add`) or bulk-import users
   (`/settings/users/add/bulk`) — owner action.
 - Edit a user's role or details (`/settings/users/edit/:userId`) — owner
-  action.
+  action, including the user's **review level** (their seniority dial for
+  auto-approve eligibility; unmapped authors default to 1) and their
+  **alternative identities** (Git usernames/emails that map their provider
+  account to this LiveReview user).
 - Deactivate a user or force a password reset — owner action.
 - Non-owners see the roster read-only.
 
