@@ -48,7 +48,8 @@ const providerUIMetadata: AIProvider[] = [
         url: 'https://ai.google.dev/',
         description: 'High quality, multimodal reasoning with balanced cost and performance.',
         icon: <Icons.Google />,
-        apiKeyPlaceholder: 'gemini-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+        apiKeyPlaceholder: 'gemini-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        defaultModel: 'gemini-3.6-flash'
     },
     {
         id: 'gemini-enterprise',
@@ -56,7 +57,8 @@ const providerUIMetadata: AIProvider[] = [
         url: 'https://cloud.google.com/vertex-ai',
         description: 'Enterprise-grade LLM services via GCP Vertex AI with IAM authentication.',
         icon: <Icons.Google />,
-        apiKeyPlaceholder: 'Paste Service Account JSON content here'
+        apiKeyPlaceholder: 'Paste Service Account JSON content here',
+        defaultModel: 'gemini-3.6-flash'
     },
     {
         id: 'deepseek',

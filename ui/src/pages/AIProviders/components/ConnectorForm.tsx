@@ -244,12 +244,31 @@ const ConnectorForm: React.FC<ConnectorFormProps> = ({
     const usesCustomModel = !!currentModelValue && !providerModels.includes(currentModelValue);
     const shouldShowCustomModelInput = customModelMode || usesCustomModel;
 
+    // For Gemini providers, strip out deprecated/preview/batch/experimental models.
+    // Only show stable production models (gemini-3.6+). Users can still type any model
+    // manually via "Custom model…".
+    const isGeminiProvider = currentProvider === 'gemini' || currentProvider === 'gemini-enterprise';
+    const stableModels = React.useMemo(() => {
+        if (!isGeminiProvider) return providerModels;
+        return providerModels.filter((model: string) => {
+            const m = model.toLowerCase();
+            // Drop preview, batch, experimental, thinking-exp variants
+            if (m.includes('preview') || m.includes(':batch') || m.includes('experimental') || m.includes('-exp')) return false;
+            // Drop gemini-1.x and gemini-2.x entirely
+            if (/^gemini-[12][\.\-]/.test(m)) return false;
+            // Drop gemini-3.x below 3.6 (3.0, 3.1, 3.2, 3.3, 3.4, 3.5)
+            const sub = m.match(/^gemini-3\.(\d+)/);
+            if (sub && parseInt(sub[1], 10) < 6) return false;
+            return true;
+        });
+    }, [isGeminiProvider, providerModels]);
+
     const filteredModels = React.useMemo(() => {
-        if (!searchQuery) return providerModels;
-        return providerModels.filter((model: string) =>
+        if (!searchQuery) return stableModels;
+        return stableModels.filter((model: string) =>
             model.toLowerCase().includes(searchQuery.toLowerCase())
         );
-    }, [providerModels, searchQuery]);
+    }, [stableModels, searchQuery]);
 
     // Sync custom mode when provider changes or model becomes valid
     React.useEffect(() => {
