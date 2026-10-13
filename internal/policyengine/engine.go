@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/livereview/internal/canonicaldoc"
 	"github.com/livereview/internal/riskscore"
@@ -160,26 +161,35 @@ func (e *Engine) runWithPolicy(ctx context.Context, orgID, reviewID int64, p *Po
 		res.Stages = append(res.Stages, skipStage(StageStatic))
 	}
 
-	// risk
-	if !blocked && docErr == nil {
+	// risk + llm: both are cheap checks against the diff's already-persisted
+	// findings/classification (the risk score's own feature vector already
+	// folds in doc.DiffClassification — see riskscore.ExtractFeatures), so
+	// neither needs to gate the other the way eligibility/static do. Run both
+	// once eligibility+static pass, so a failing risk score never hides what
+	// the LLM classification gate would have said, and vice versa.
+	gateOK := !blocked && docErr == nil
+	riskFailed, llmFailed := false, false
+
+	if gateOK {
 		rt := e.riskStage(ctx, orgID, reviewID, p, doc, dryRun)
 		res.Stages = append(res.Stages, rt.StageResult)
 		res.Score = rt.Score
 		res.Percentile = rt.Percentile
 		res.ThresholdCutoff = rt.Cutoff
-		blocked = rt.Verdict == VerdictFail
+		riskFailed = rt.Verdict == VerdictFail
 	} else {
 		res.Stages = append(res.Stages, skipStage(StageRisk))
 	}
 
-	// llm
-	if !blocked && docErr == nil {
+	if gateOK {
 		lt := e.llmStage(p, doc)
 		res.Stages = append(res.Stages, lt)
-		blocked = lt.Verdict == VerdictFail
+		llmFailed = lt.Verdict == VerdictFail
 	} else {
 		res.Stages = append(res.Stages, skipStage(StageLLM))
 	}
+
+	blocked = blocked || riskFailed || llmFailed
 
 	// daily approve cap (only affects approval, recorded on the final stage)
 	finalReason := "approved"
@@ -204,14 +214,20 @@ func (e *Engine) runWithPolicy(ctx context.Context, orgID, reviewID int64, p *Po
 	return res, nil
 }
 
-// blockReason walks the stages for the first failing stage's reason.
+// blockReason joins every failing stage's reason — risk and llm can now both
+// fail independently (see runWithPolicy), so a single-stage summary would
+// silently drop whichever one didn't happen to be first.
 func (e *Engine) blockReason(stages []StageResult) string {
+	var reasons []string
 	for _, st := range stages {
 		if st.Verdict == VerdictFail {
-			return fmt.Sprintf("%s: %s", st.Stage, e.reason(st))
+			reasons = append(reasons, fmt.Sprintf("%s: %s", st.Stage, e.reason(st)))
 		}
 	}
-	return "blocked"
+	if len(reasons) == 0 {
+		return "blocked"
+	}
+	return strings.Join(reasons, "; ")
 }
 
 // riskStageResult is the risk stage's outcome plus the score fields surfaced on
@@ -315,11 +331,11 @@ func (e *Engine) riskStage(ctx context.Context, orgID, reviewID int64, p *Policy
 	}
 
 	detail := map[string]interface{}{
-		"score":       score,
-		"percentile":  pct,
-		"cutoff":      cutoff,
-		"threshold":   p.RiskThresholdPercentile,
-		"features":    featureTable(features),
+		"score":      score,
+		"percentile": pct,
+		"cutoff":     cutoff,
+		"threshold":  p.RiskThresholdPercentile,
+		"features":   featureTable(features),
 	}
 	if score >= cutoff {
 		detail["reason"] = fmt.Sprintf("risk score %.2f (P%d) >= threshold P%d (cutoff %.2f)", score, pct, p.RiskThresholdPercentile, cutoff)
