@@ -28,6 +28,15 @@ func (s *Server) getRiskModel(c echo.Context) error {
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to load overrides: "+err.Error())
 	}
+	// Fill in categories the org hasn't explicitly overridden with their
+	// starting default so the UI's sliders render at the real effective
+	// value (e.g. Security pre-set to 1.5x) rather than always showing 1x
+	// until someone saves a row.
+	for _, cat := range riskscore.OverrideCategories() {
+		if _, ok := overrides[cat]; !ok {
+			overrides[cat] = riskscore.DefaultCategoryMultiplier(cat)
+		}
+	}
 	scores, err := riskscore.LoadRecentScores(c.Request().Context(), s.db, orgID, 2000)
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to load calibration: "+err.Error())

@@ -7,7 +7,15 @@ import { Tooltip, Icons } from '../UIPrimitives';
 // English (ASD-STE100 style): short sentences, one idea per sentence, plain
 // words, active voice, and a concrete example wherever possible.
 export const InfoHint: React.FC<{ text: React.ReactNode; className?: string }> = ({ text, className }) => (
-  <Tooltip content={<span>{text}</span>} position="auto">
+  <Tooltip
+    content={
+      // whitespace-pre-line so a "\n\n" in the hint text (paragraph break) or
+      // "\n" (list line) actually renders as a line break — plain strings
+      // otherwise collapse to one dense run-on block.
+      <div className="whitespace-pre-line text-left">{text}</div>
+    }
+    position="auto"
+  >
     <span
       className={className ?? 'inline-flex items-center text-slate-400 hover:text-blue-300 cursor-help [&_svg]:w-3.5 [&_svg]:h-3.5'}
       aria-label="Help"

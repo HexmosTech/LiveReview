@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { Alert, Button, Card, Spinner, Tabs } from '../../components/UIPrimitives';
 import {
@@ -21,11 +21,19 @@ import apiClient from '../../api/apiClient';
 import { StaticRulesFields, EligibilityFields, GeneralFields } from '../../components/AutoApprove/PolicyFieldsEditor';
 import { FieldLabel, InfoHint } from '../../components/AutoApprove/InfoHint';
 import { HELP } from '../../components/AutoApprove/helpText';
+import { TAXONOMY_CATEGORIES, categoryHint } from '../../components/AutoApprove/taxonomyHelp';
 
-const CATEGORIES = [
+// The 10 finding categories (internal/prompts/templates.go's
+// TaxonomyClassificationRules) — every finding the reviewer produces is
+// classified into exactly one of these, so these are the main weight dials.
+const CATEGORIES = TAXONOMY_CATEGORIES.map((c) => ({ key: c.key, label: c.label, hint: categoryHint(c) }));
+
+// Structural signals that aren't a finding category (how far a change's
+// blast radius reaches, how big the diff is, and an any-category "critical"
+// catch-all) — same slider mechanism, shown as a secondary group.
+const OTHER_SIGNALS = [
   { key: 'blast_radius', label: 'Blast radius', hint: HELP.categoryBlastRadius },
-  { key: 'security_findings', label: 'Security findings', hint: HELP.categorySecurityFindings },
-  { key: 'critical_findings', label: 'Critical findings', hint: HELP.categoryCriticalFindings },
+  { key: 'critical_findings', label: 'Critical findings (any category)', hint: HELP.categoryCriticalFindings },
   { key: 'diff_size', label: 'Diff size', hint: HELP.categoryDiffSize },
 ];
 
@@ -52,8 +60,14 @@ const AutoApprovePolicyTab: React.FC = () => {
   const [draft, setDraft] = useState<AutoApprovePolicyUpsert>(DEFAULT_POLICY);
   const [rulesets, setRulesets] = useState<CIRuleset[]>([]);
   const [model, setModel] = useState<RiskModelResponse | null>(null);
+  // Local, instantly-updated slider positions, decoupled from `model` so a
+  // drag never visibly jumps while a save is still in flight — previously
+  // every tick re-fetched the whole model and rebound the slider to it,
+  // which is what made dragging feel laggy/buggy.
+  const [overrideDraft, setOverrideDraft] = useState<Record<string, number>>({});
+  const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [outcomes, setOutcomes] = useState<OutcomeRow[]>([]);
-  const [subtab, setSubtab] = useState('risk-model');
+  const [subtab, setSubtab] = useState('general');
   const [simRows, setSimRows] = useState<SimulateRow[] | null>(null);
 
   const orgId = currentOrgId ?? 0;
@@ -88,6 +102,7 @@ const AutoApprovePolicyTab: React.FC = () => {
           });
         }
         setModel(modelRes);
+        setOverrideDraft(modelRes.overrides);
         setRulesets(rsRes.rows || []);
         setOutcomes(outRes.rows || []);
       })
@@ -97,6 +112,14 @@ const AutoApprovePolicyTab: React.FC = () => {
       cancelled = true;
     };
   }, [orgId]);
+
+  // Flush any pending debounced slider saves if the tab unmounts mid-drag.
+  useEffect(() => {
+    const timers = saveTimers.current;
+    return () => {
+      Object.values(timers).forEach((t) => clearTimeout(t));
+    };
+  }, []);
 
   const patch = (partial: Partial<AutoApprovePolicyUpsert>) => setDraft((d) => ({ ...d, ...partial }));
 
@@ -119,15 +142,18 @@ const AutoApprovePolicyTab: React.FC = () => {
     }
   };
 
-  const saveOverrides = async (key: string, value: number) => {
-    setError('');
-    try {
-      await putRiskModelOverrides({ [key]: value });
-      const m = await getRiskModel();
-      setModel(m);
-    } catch (e: any) {
-      setError(String(e?.message || e));
-    }
+  // Updates the slider instantly (local state only — no network round trip
+  // on every tick of a drag), then saves after a short pause once the user
+  // stops moving it. Dragging back and forth before the pause elapses just
+  // resets the timer, so a single drag gesture sends one request, not one
+  // per pixel.
+  const onCategorySlide = (key: string, value: number) => {
+    setOverrideDraft((d) => ({ ...d, [key]: value }));
+    if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
+    saveTimers.current[key] = setTimeout(() => {
+      delete saveTimers.current[key];
+      putRiskModelOverrides({ [key]: value }).catch((e: any) => setError(String(e?.message || e)));
+    }, 300);
   };
 
   const runRetrain = async () => {
@@ -136,6 +162,7 @@ const AutoApprovePolicyTab: React.FC = () => {
       await retrainRiskModel();
       const m = await getRiskModel();
       setModel(m);
+      setOverrideDraft(m.overrides);
     } catch (e: any) {
       setError(String(e?.message || e));
     }
@@ -160,10 +187,10 @@ const AutoApprovePolicyTab: React.FC = () => {
   }
 
   const subtabs = [
+    { id: 'general', label: 'General' },
     { id: 'risk-model', label: 'Risk Model' },
     { id: 'static-rules', label: 'Static Rules' },
     { id: 'eligibility', label: 'Eligibility' },
-    { id: 'general', label: 'General' },
     { id: 'feedback', label: 'Production Feedback' },
   ];
 
@@ -204,26 +231,61 @@ const AutoApprovePolicyTab: React.FC = () => {
               <span>Category weight overrides</span>
               <InfoHint text={HELP.categoryOverrideIntro} />
             </p>
-            {CATEGORIES.map((c) => (
-              <div key={c.key}>
-                <label className="block text-sm font-medium text-slate-300 mb-1">
-                  <FieldLabel label={`${c.label} weight override`} hint={c.hint} />
-                </label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="range"
-                    min="0"
-                    max="10"
-                    step="0.1"
-                    className="flex-1"
-                    value={model?.overrides[c.key] ?? 1}
-                    onChange={(e) => saveOverrides(c.key, parseFloat(e.target.value))}
-                    disabled={readOnly}
-                  />
-                  <span className="w-10 text-right text-sm text-white">{model?.overrides[c.key] ?? 1}×</span>
+            <div className="space-y-3">
+              {CATEGORIES.map((c) => (
+                <div key={c.key}>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">
+                    <FieldLabel label={`${c.label} weight`} hint={c.hint} />
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min="0"
+                      max="10"
+                      step="0.1"
+                      className="flex-1 accent-blue-500"
+                      value={overrideDraft[c.key] ?? 1}
+                      onChange={(e) => onCategorySlide(c.key, parseFloat(e.target.value))}
+                      disabled={readOnly}
+                    />
+                    <span className="w-12 text-right text-sm text-white tabular-nums">
+                      {(overrideDraft[c.key] ?? 1).toFixed(1)}×
+                    </span>
+                  </div>
                 </div>
+              ))}
+            </div>
+
+            <details className="pt-1">
+              <summary className="text-xs text-slate-500 cursor-pointer select-none hover:text-slate-400">
+                Other risk signals (not a finding category)
+              </summary>
+              <div className="space-y-3 mt-3">
+                {OTHER_SIGNALS.map((c) => (
+                  <div key={c.key}>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">
+                      <FieldLabel label={`${c.label} weight`} hint={c.hint} />
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range"
+                        min="0"
+                        max="10"
+                        step="0.1"
+                        className="flex-1 accent-blue-500"
+                        value={overrideDraft[c.key] ?? 1}
+                        onChange={(e) => onCategorySlide(c.key, parseFloat(e.target.value))}
+                        disabled={readOnly}
+                      />
+                      <span className="w-12 text-right text-sm text-white tabular-nums">
+                        {(overrideDraft[c.key] ?? 1).toFixed(1)}×
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            </details>
+
             <div className="flex items-center gap-3 pt-2">
               <span className="inline-flex items-center gap-1.5">
                 <Button variant="secondary" onClick={runRetrain} disabled={readOnly}>Refit model now</Button>
@@ -272,7 +334,15 @@ const AutoApprovePolicyTab: React.FC = () => {
               <code className="block bg-slate-700 rounded p-2 text-xs text-slate-200 break-all">
                 POST {window.location.origin}/api/v1/orgs/{orgId}/review-outcomes
               </code>
-              <p className="text-xs text-slate-500 mt-1">Body: {'{ review_id, outcome_type: "revert" | "incident" | "confirmed_safe", reason, source?: "webhook" | "ci" }'}</p>
+              <p className="text-xs text-slate-500 mt-2 mb-1">Request body:</p>
+              <pre className="bg-slate-700 rounded p-2 text-xs text-slate-200 overflow-x-auto">
+{`{
+  "review_id": 12345,
+  "outcome_type": "revert" | "incident" | "confirmed_safe",
+  "reason": "why this was reported",
+  "source": "webhook" | "ci"   // optional
+}`}
+              </pre>
             </div>
             <div className="text-sm text-slate-300 flex items-center gap-1.5">
               <span>Outcomes reported in the last 30 days: <span className="text-white font-medium">{outcomes.length}</span></span>
