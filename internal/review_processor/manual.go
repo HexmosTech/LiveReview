@@ -79,6 +79,8 @@ func ProcessManualReview(
 				"summary":  result.Summary,
 				"comments": result.Comments,
 				"quiz":     result.Quiz,
+				// Read by the auto-approve policy's LLM classification stage.
+				"diffClassification": result.DiffClassification,
 			},
 		}); err != nil {
 			log.Printf("[WARN] failed to persist review_result for review %d: %v", reviewID, err)

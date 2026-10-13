@@ -1,6 +1,7 @@
 package gitlab
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -506,5 +507,44 @@ func (c *GitLabHTTPClient) tryFormBasedLineComment(projectID string, mrIID int, 
 		return fmt.Errorf("form-based API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
+	return nil
+}
+
+// AppendToMRDescription adds section to the end of the MR description, unless marker is already in it.
+func (c *GitLabHTTPClient) AppendToMRDescription(projectID string, mrIID int, marker, section string) error {
+	mr, err := c.GetMergeRequest(projectID, mrIID)
+	if err != nil {
+		return err
+	}
+	if strings.Contains(mr.Description, marker) {
+		return nil
+	}
+	description := section
+	if strings.TrimSpace(mr.Description) != "" {
+		description = strings.TrimRight(mr.Description, "\n") + "\n\n" + section
+	}
+	data, err := json.Marshal(map[string]string{"description": description})
+	if err != nil {
+		return fmt.Errorf("failed to encode request: %w", err)
+	}
+
+	requestURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d", c.baseURL, url.PathEscape(projectID), mrIID)
+	req, err := http.NewRequest("PUT", requestURL, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Add("PRIVATE-TOKEN", c.token)
+	req.Header.Add("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("update MR description failed with status %d: %s", resp.StatusCode, string(body))
+	}
 	return nil
 }
