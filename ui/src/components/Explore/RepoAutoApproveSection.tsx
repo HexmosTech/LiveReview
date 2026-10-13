@@ -11,6 +11,8 @@ import {
 import { CIRuleset } from '../../pages/CiRulesets/shared';
 import apiClient from '../../api/apiClient';
 import { StaticRulesFields, EligibilityFields, GeneralFields } from '../AutoApprove/PolicyFieldsEditor';
+import { FieldLabel, InfoHint } from '../AutoApprove/InfoHint';
+import { HELP } from '../AutoApprove/helpText';
 
 // Draft fields a repo can customize — everything on auto_approve_policies
 // except the trained risk model itself (weights/category overrides stay
@@ -113,13 +115,16 @@ const RepoAutoApproveSection: React.FC<{ repositoryId: number }> = ({ repository
         Effective: <span className="text-white font-medium">{effective ? effective.mode : 'off'}</span>
         {!effective && ' (no organization policy configured — visit Settings → Auto Approve)'}
       </div>
-      <p className="text-xs text-slate-500">
-        The trained risk model (weights, category overrides, retraining) always stays the one org-wide classifier —
-        only the threshold compared against its score, and everything below, can differ per repository.
+      <p className="text-xs text-slate-500 flex items-start gap-1.5">
+        <span>
+          The trained risk model (weights, category overrides, retraining) always stays the one org-wide classifier —
+          only the threshold compared against its score, and everything below, can differ per repository.
+        </span>
+        <InfoHint text={HELP.repoSharedModel} />
       </p>
 
       <Select
-        label="Mode"
+        label={<FieldLabel label="Mode" hint={HELP.repoMode} />}
         value={mode}
         onChange={(e) => onModeChange(e.target.value as any)}
         disabled={readOnly}

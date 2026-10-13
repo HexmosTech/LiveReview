@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Button, Card, Spinner } from '../UIPrimitives';
 import { getReviewPolicyLog, forceApproveReview, markReviewOutcome, PolicyLogResponse } from '../../api/riskPolicy';
+import { InfoHint } from '../AutoApprove/InfoHint';
+import { HELP } from '../AutoApprove/helpText';
 
 const STAGE_LABEL: Record<string, string> = {
   eligibility: 'Eligibility',
@@ -8,6 +10,14 @@ const STAGE_LABEL: Record<string, string> = {
   risk: 'Risk score',
   llm: 'LLM classification',
   final: 'Final decision',
+};
+
+const STAGE_HINT: Record<string, string> = {
+  eligibility: HELP.stageEligibility,
+  static: HELP.stageStatic,
+  risk: HELP.stageRisk,
+  llm: HELP.stageLLM,
+  final: HELP.stageFinal,
 };
 
 const verdictIcon = (v: string) => (v === 'pass' ? '✅' : v === 'fail' ? '❌' : '⏭️');
@@ -92,7 +102,10 @@ const AutoApprovePanel: React.FC<{ reviewId: number }> = ({ reviewId }) => {
           {log.stages.map((st) => (
             <div key={st.stage} className="flex items-start gap-3 text-sm">
               <span className="shrink-0">{verdictIcon(st.verdict)}</span>
-              <span className="w-36 shrink-0 text-slate-300">{STAGE_LABEL[st.stage] || st.stage}</span>
+              <span className="w-36 shrink-0 text-slate-300 inline-flex items-center gap-1.5">
+                {STAGE_LABEL[st.stage] || st.stage}
+                {STAGE_HINT[st.stage] && <InfoHint text={STAGE_HINT[st.stage]} />}
+              </span>
               <span className={st.verdict === 'fail' ? 'text-red-300' : 'text-slate-400'}>
                 {String((st.detail as any)?.reason ?? '')}
               </span>
@@ -103,7 +116,10 @@ const AutoApprovePanel: React.FC<{ reviewId: number }> = ({ reviewId }) => {
 
       {log.blocked && (
         <Card className="p-4">
-          <h3 className="text-sm font-semibold text-white mb-2">Force approve</h3>
+          <h3 className="text-sm font-semibold text-white mb-2 inline-flex items-center gap-1.5">
+            Force approve
+            <InfoHint text={HELP.forceApproveSection} />
+          </h3>
           <p className="text-xs text-slate-400 mb-3">
             Requires review level ≥ {log.force_approve_min_level} or owner/admin. Recorded in the audit log.
           </p>
@@ -121,7 +137,10 @@ const AutoApprovePanel: React.FC<{ reviewId: number }> = ({ reviewId }) => {
       )}
 
       <Card className="p-4">
-        <h3 className="text-sm font-semibold text-white mb-2">Mark production outcome</h3>
+        <h3 className="text-sm font-semibold text-white mb-2 inline-flex items-center gap-1.5">
+          Mark production outcome
+          <InfoHint text={HELP.markOutcomeSection} />
+        </h3>
         <div className="flex flex-wrap items-center gap-2 mb-2">
           {(['revert', 'incident', 'confirmed_safe'] as const).map((t) => (
             <label key={t} className="flex items-center gap-1 text-xs text-slate-300">

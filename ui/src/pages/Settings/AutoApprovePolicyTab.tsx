@@ -19,12 +19,14 @@ import {
 import { CIRuleset } from '../CiRulesets/shared';
 import apiClient from '../../api/apiClient';
 import { StaticRulesFields, EligibilityFields, GeneralFields } from '../../components/AutoApprove/PolicyFieldsEditor';
+import { FieldLabel, InfoHint } from '../../components/AutoApprove/InfoHint';
+import { HELP } from '../../components/AutoApprove/helpText';
 
 const CATEGORIES = [
-  { key: 'blast_radius', label: 'Blast radius' },
-  { key: 'security_findings', label: 'Security findings' },
-  { key: 'critical_findings', label: 'Critical findings' },
-  { key: 'diff_size', label: 'Diff size' },
+  { key: 'blast_radius', label: 'Blast radius', hint: HELP.categoryBlastRadius },
+  { key: 'security_findings', label: 'Security findings', hint: HELP.categorySecurityFindings },
+  { key: 'critical_findings', label: 'Critical findings', hint: HELP.categoryCriticalFindings },
+  { key: 'diff_size', label: 'Diff size', hint: HELP.categoryDiffSize },
 ];
 
 const DEFAULT_POLICY: AutoApprovePolicyUpsert = {
@@ -188,16 +190,25 @@ const AutoApprovePolicyTab: React.FC = () => {
         {subtab === 'risk-model' && (
           <div className="space-y-4">
             {model && (
-              <div className="text-sm text-slate-400">
-                Active model: <span className="text-white">v{model.model.version}</span>
-                {model.model.is_seed
-                  ? ' · common-sense seed (no outcomes yet)'
-                  : ` · trained on ${model.model.training_samples} outcomes`}
+              <div className="text-sm text-slate-400 flex items-center gap-1.5">
+                <span>
+                  Active model: <span className="text-white">v{model.model.version}</span>
+                  {model.model.is_seed
+                    ? ' · common-sense seed (no outcomes yet)'
+                    : ` · trained on ${model.model.training_samples} outcomes`}
+                </span>
+                <InfoHint text={HELP.activeModel} />
               </div>
             )}
+            <p className="text-xs text-slate-500 flex items-start gap-1.5">
+              <span>Category weight overrides</span>
+              <InfoHint text={HELP.categoryOverrideIntro} />
+            </p>
             {CATEGORIES.map((c) => (
               <div key={c.key}>
-                <label className="block text-sm font-medium text-slate-300 mb-1">{c.label} weight override</label>
+                <label className="block text-sm font-medium text-slate-300 mb-1">
+                  <FieldLabel label={`${c.label} weight override`} hint={c.hint} />
+                </label>
                 <div className="flex items-center gap-3">
                   <input
                     type="range"
@@ -214,8 +225,14 @@ const AutoApprovePolicyTab: React.FC = () => {
               </div>
             ))}
             <div className="flex items-center gap-3 pt-2">
-              <Button variant="secondary" onClick={runRetrain} disabled={readOnly}>Refit model now</Button>
-              <Button variant="secondary" onClick={runSimulate}>Simulate on recent reviews</Button>
+              <span className="inline-flex items-center gap-1.5">
+                <Button variant="secondary" onClick={runRetrain} disabled={readOnly}>Refit model now</Button>
+                <InfoHint text={HELP.retrainNow} />
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Button variant="secondary" onClick={runSimulate}>Simulate on recent reviews</Button>
+                <InfoHint text={HELP.simulate} />
+              </span>
             </div>
             {simRows && (
               <div className="space-y-1">
@@ -249,14 +266,17 @@ const AutoApprovePolicyTab: React.FC = () => {
         {subtab === 'feedback' && (
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">Outcome webhook</label>
+              <label className="block text-sm font-medium text-slate-300 mb-1">
+                <FieldLabel label="Outcome webhook" hint={HELP.outcomeWebhook} />
+              </label>
               <code className="block bg-slate-700 rounded p-2 text-xs text-slate-200 break-all">
                 POST {window.location.origin}/api/v1/orgs/{orgId}/review-outcomes
               </code>
               <p className="text-xs text-slate-500 mt-1">Body: {'{ review_id, outcome_type: "revert" | "incident" | "confirmed_safe", reason, source?: "webhook" | "ci" }'}</p>
             </div>
-            <div className="text-sm text-slate-300">
-              Outcomes reported in the last 30 days: <span className="text-white font-medium">{outcomes.length}</span>
+            <div className="text-sm text-slate-300 flex items-center gap-1.5">
+              <span>Outcomes reported in the last 30 days: <span className="text-white font-medium">{outcomes.length}</span></span>
+              <InfoHint text={HELP.outcomeCounter} />
             </div>
           </div>
         )}
