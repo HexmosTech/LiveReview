@@ -23,16 +23,18 @@ import { FieldLabel, InfoHint } from '../../components/AutoApprove/InfoHint';
 import { HELP } from '../../components/AutoApprove/helpText';
 import { TAXONOMY_CATEGORIES, categoryHint } from '../../components/AutoApprove/taxonomyHelp';
 
-// The 10 finding categories (internal/prompts/templates.go's
-// TaxonomyClassificationRules) — every finding the reviewer produces is
-// classified into exactly one of these, so these are the main weight dials.
-const CATEGORIES = TAXONOMY_CATEGORIES.map((c) => ({ key: c.key, label: c.label, hint: categoryHint(c) }));
-
-// Structural signals that aren't a finding category (how far a change's
-// blast radius reaches, how big the diff is, and an any-category "critical"
-// catch-all) — same slider mechanism, shown as a secondary group.
-const OTHER_SIGNALS = [
+// All weight dials shown on the Risk Model tab, in the order they're
+// rendered. Blast radius leads — how far a change's effects reach is the
+// single strongest signal the model has, so it gets the highest default
+// weight of any slider (see DefaultCategoryMultiplier in
+// internal/riskscore/model.go) and is never hidden behind a collapsed
+// section. The 10 finding-taxonomy categories follow (every finding the
+// reviewer produces is classified into exactly one of these), then the two
+// remaining structural signals (an any-category "critical" catch-all and
+// raw diff size).
+const CATEGORIES = [
   { key: 'blast_radius', label: 'Blast radius', hint: HELP.categoryBlastRadius },
+  ...TAXONOMY_CATEGORIES.map((c) => ({ key: c.key, label: c.label, hint: categoryHint(c) })),
   { key: 'critical_findings', label: 'Critical findings (any category)', hint: HELP.categoryCriticalFindings },
   { key: 'diff_size', label: 'Diff size', hint: HELP.categoryDiffSize },
 ];
@@ -255,36 +257,6 @@ const AutoApprovePolicyTab: React.FC = () => {
                 </div>
               ))}
             </div>
-
-            <details className="pt-1">
-              <summary className="text-xs text-slate-500 cursor-pointer select-none hover:text-slate-400">
-                Other risk signals (not a finding category)
-              </summary>
-              <div className="space-y-3 mt-3">
-                {OTHER_SIGNALS.map((c) => (
-                  <div key={c.key}>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">
-                      <FieldLabel label={`${c.label} weight`} hint={c.hint} />
-                    </label>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="range"
-                        min="0"
-                        max="10"
-                        step="0.1"
-                        className="flex-1 accent-blue-500"
-                        value={overrideDraft[c.key] ?? 1}
-                        onChange={(e) => onCategorySlide(c.key, parseFloat(e.target.value))}
-                        disabled={readOnly}
-                      />
-                      <span className="w-12 text-right text-sm text-white tabular-nums">
-                        {(overrideDraft[c.key] ?? 1).toFixed(1)}×
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </details>
 
             <div className="flex items-center gap-3 pt-2">
               <span className="inline-flex items-center gap-1.5">

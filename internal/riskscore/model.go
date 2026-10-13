@@ -70,12 +70,17 @@ func sigmoid(z float64) float64 {
 }
 
 // DefaultCategoryMultiplier is the starting weight-multiplier for a finding
-// category before an org has set its own override: security is weighted up a
-// bit since teams tend to take it most seriously, correctness and
-// reliability next, performance next, and everything else neutral (1x). An
-// explicit risk_factor_overrides row always takes priority over this.
+// category before an org has set its own override: blast radius is weighted
+// highest of all, since how far a change's effects reach is the strongest
+// single risk signal the model has — it applies regardless of finding
+// category and often catches what per-category counts miss. Security is
+// weighted up next since teams tend to take it most seriously, correctness
+// and reliability next, performance next, and everything else neutral (1x).
+// An explicit risk_factor_overrides row always takes priority over this.
 func DefaultCategoryMultiplier(category string) float64 {
 	switch category {
+	case "blast_radius":
+		return 2.0
 	case "security":
 		return 1.5
 	case "correctness", "reliability":
