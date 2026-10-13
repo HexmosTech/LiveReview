@@ -2,6 +2,8 @@ import React from 'react';
 import { Input, Toggle } from '../UIPrimitives';
 import { AutoApprovePolicyUpsert } from '../../api/riskPolicy';
 import { CIRuleset } from '../../pages/CiRulesets/shared';
+import { FieldLabel, InfoHint } from './InfoHint';
+import { HELP } from './helpText';
 
 // Shared field groups for the auto-approve policy editor, used both by the
 // org-wide Settings tab (AutoApprovePolicyTab.tsx) and a repository's
@@ -16,9 +18,12 @@ export interface PolicyFieldsProps {
 
 export const StaticRulesFields: React.FC<PolicyFieldsProps & { rulesets: CIRuleset[] }> = ({ draft, patch, readOnly, rulesets }) => (
   <div className="space-y-2">
-    <p className="text-sm text-slate-400">
-      Blocking rulesets always run (even under "always approve"). Manage them under{' '}
-      <a href="#/ci-rulesets" className="text-blue-400">CI Rulesets</a>.
+    <p className="text-sm text-slate-400 flex items-start gap-1.5">
+      <span>
+        Blocking rulesets always run (even under "always approve"). Manage them under{' '}
+        <a href="#/ci-rulesets" className="text-blue-400">CI Rulesets</a>.
+      </span>
+      <InfoHint text={HELP.staticRules} />
     </p>
     {rulesets.length === 0 && <p className="text-sm text-slate-500">No rulesets defined yet.</p>}
     {rulesets.map((r) => {
@@ -45,7 +50,7 @@ export const EligibilityFields: React.FC<PolicyFieldsProps> = ({ draft, patch, r
   <div className="space-y-4">
     <Input
       type="number"
-      label="Minimum author review level"
+      label={<FieldLabel label="Minimum author review level" hint={HELP.minAuthorLevel} />}
       value={String(draft.min_author_level ?? 1)}
       onChange={(e) => patch({ min_author_level: parseInt(e.target.value, 10) || 0 })}
       disabled={readOnly}
@@ -53,7 +58,7 @@ export const EligibilityFields: React.FC<PolicyFieldsProps> = ({ draft, patch, r
     />
     <Input
       type="number"
-      label="Force-approve minimum level"
+      label={<FieldLabel label="Force-approve minimum level" hint={HELP.forceApproveMinLevel} />}
       value={String(draft.force_approve_min_level ?? 3)}
       onChange={(e) => patch({ force_approve_min_level: parseInt(e.target.value, 10) || 0 })}
       disabled={readOnly}
@@ -65,7 +70,9 @@ export const EligibilityFields: React.FC<PolicyFieldsProps> = ({ draft, patch, r
 export const GeneralFields: React.FC<PolicyFieldsProps> = ({ draft, patch, readOnly }) => (
   <div className="space-y-4">
     <div>
-      <label className="block text-sm font-medium text-slate-300 mb-1">Risk threshold percentile</label>
+      <label className="block text-sm font-medium text-slate-300 mb-1">
+        <FieldLabel label="Risk threshold percentile" hint={HELP.riskThresholdPercentile} />
+      </label>
       <div className="flex items-center gap-3">
         <input
           type="range"
@@ -81,14 +88,14 @@ export const GeneralFields: React.FC<PolicyFieldsProps> = ({ draft, patch, readO
     </div>
     <Input
       type="number"
-      label="Required LLM confidence (0-10)"
+      label={<FieldLabel label="Required LLM confidence (0-10)" hint={HELP.requireLLMConfidence} />}
       value={String(draft.require_llm_confidence ?? 8)}
       onChange={(e) => patch({ require_llm_confidence: parseInt(e.target.value, 10) || 0 })}
       disabled={readOnly}
     />
     <Input
       type="number"
-      label="Landing delay (seconds)"
+      label={<FieldLabel label="Landing delay (seconds)" hint={HELP.landingDelaySeconds} />}
       value={String(draft.landing_delay_seconds ?? 0)}
       onChange={(e) => patch({ landing_delay_seconds: parseInt(e.target.value, 10) || 0 })}
       disabled={readOnly}
@@ -96,7 +103,7 @@ export const GeneralFields: React.FC<PolicyFieldsProps> = ({ draft, patch, readO
     />
     <Input
       type="number"
-      label="Daily approve cap (blank = unlimited)"
+      label={<FieldLabel label="Daily approve cap (blank = unlimited)" hint={HELP.dailyApproveCap} />}
       value={draft.daily_approve_cap == null ? '' : String(draft.daily_approve_cap)}
       onChange={(e) => {
         const v = e.target.value === '' ? undefined : parseInt(e.target.value, 10);
@@ -110,7 +117,7 @@ export const GeneralFields: React.FC<PolicyFieldsProps> = ({ draft, patch, readO
         onChange={(v) => patch({ restrict_outcome_reporting_to_admins: v })}
         disabled={readOnly}
       />
-      Restrict in-app outcome reporting to admins
+      <FieldLabel label="Restrict in-app outcome reporting to admins" hint={HELP.restrictOutcomeReporting} />
     </label>
   </div>
 );
