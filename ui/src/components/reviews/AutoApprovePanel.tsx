@@ -22,10 +22,51 @@ const STAGE_HINT: Record<string, string> = {
 
 const verdictIcon = (v: string) => (v === 'pass' ? '✅' : v === 'fail' ? '❌' : '⏭️');
 
+// Every stage's detail blob carries more than the one-line reason already
+// shown inline (risk's full feature-by-feature breakdown, llm's class +
+// confidence, static's matched ruleset, etc.) — this renders whatever else
+// is in it so "why" is fully inspectable, not just the summary line.
+const StageDetail: React.FC<{ detail: Record<string, unknown> }> = ({ detail }) => {
+  const features = Array.isArray(detail.features) ? (detail.features as { feature: string; value: unknown }[]) : null;
+  const entries = Object.entries(detail).filter(([k]) => k !== 'reason' && k !== 'features');
+  if (!features && entries.length === 0) return null;
+  return (
+    <div className="mt-1 ml-9 text-xs text-slate-400 space-y-1 border-l border-slate-700 pl-3">
+      {entries.map(([k, v]) => (
+        <div key={k}>
+          <span className="text-slate-500">{k.replace(/_/g, ' ')}:</span>{' '}
+          <span className="text-slate-300">{typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v)}</span>
+        </div>
+      ))}
+      {features && features.length > 0 && (
+        <table className="mt-1">
+          <thead>
+            <tr className="text-slate-500">
+              <th className="text-left font-normal pr-4">Feature</th>
+              <th className="text-left font-normal">Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {features.map((f) => (
+              <tr key={f.feature}>
+                <td className="pr-4 text-slate-400">{f.feature}</td>
+                <td className="text-slate-300">{typeof f.value === 'number' ? f.value.toFixed(3) : String(f.value)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+};
+
+const hasExpandableDetail = (detail: Record<string, unknown>) => Object.keys(detail).some((k) => k !== 'reason');
+
 const AutoApprovePanel: React.FC<{ reviewId: number }> = ({ reviewId }) => {
   const [log, setLog] = useState<PolicyLogResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const [forceReason, setForceReason] = useState('');
   const [forceBusy, setForceBusy] = useState(false);
@@ -99,18 +140,37 @@ const AutoApprovePanel: React.FC<{ reviewId: number }> = ({ reviewId }) => {
 
       <Card className="p-4">
         <div className="space-y-2">
-          {log.stages.map((st) => (
-            <div key={st.stage} className="flex items-start gap-3 text-sm">
-              <span className="shrink-0">{verdictIcon(st.verdict)}</span>
-              <span className="w-36 shrink-0 text-slate-300 inline-flex items-center gap-1.5">
-                {STAGE_LABEL[st.stage] || st.stage}
-                {STAGE_HINT[st.stage] && <InfoHint text={STAGE_HINT[st.stage]} />}
-              </span>
-              <span className={st.verdict === 'fail' ? 'text-red-300' : 'text-slate-400'}>
-                {String((st.detail as any)?.reason ?? '')}
-              </span>
-            </div>
-          ))}
+          {log.stages.map((st) => {
+            const canExpand = hasExpandableDetail(st.detail || {});
+            const isOpen = expanded.has(st.stage);
+            return (
+              <div key={st.stage}>
+                <div
+                  className={`flex items-start gap-3 text-sm ${canExpand ? 'cursor-pointer' : ''}`}
+                  onClick={() => {
+                    if (!canExpand) return;
+                    setExpanded((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(st.stage)) next.delete(st.stage);
+                      else next.add(st.stage);
+                      return next;
+                    });
+                  }}
+                >
+                  <span className="shrink-0">{verdictIcon(st.verdict)}</span>
+                  <span className="w-36 shrink-0 text-slate-300 inline-flex items-center gap-1.5">
+                    {STAGE_LABEL[st.stage] || st.stage}
+                    {STAGE_HINT[st.stage] && <InfoHint text={STAGE_HINT[st.stage]} />}
+                  </span>
+                  <span className={st.verdict === 'fail' ? 'text-red-300' : 'text-slate-400'}>
+                    {String((st.detail as any)?.reason ?? '')}
+                  </span>
+                  {canExpand && <span className="text-slate-500 text-xs shrink-0">{isOpen ? '▾ hide details' : '▸ show details'}</span>}
+                </div>
+                {isOpen && <StageDetail detail={st.detail || {}} />}
+              </div>
+            );
+          })}
         </div>
       </Card>
 
