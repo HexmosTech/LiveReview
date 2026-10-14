@@ -381,6 +381,10 @@ SECURITY_GOVULN_PACKAGES := $(filter-out ./scripts ./cmd/onboarding-pdf,$(TEST_P
 testall:
 	$(GOTEST) -count=1 $(TEST_PACKAGES)
 
+.PHONY: regen-risk-report
+regen-risk-report:
+	python3 scripts/regen_risk_report.py
+
 .PHONY: security-govulncheck security-govulncheck-json security-osv security-gitleaks security-semgrep security-dependabot security-gh-secret-scanning security-triage
 
 # Run Go vulnerability analysis for reachable vulnerabilities.

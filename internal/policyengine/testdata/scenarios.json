@@ -1,0 +1,1190 @@
+[
+  {
+    "name": "readme-only-edit",
+    "rationale": "Docs-only change, no code risk surface at all. Should approve with a low score.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "docs-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 1,
+      "lines_added": 8
+    },
+    "author_level": 2,
+    "want": {
+      "approve": true
+    },
+    "bucket": "baseline-shape"
+  },
+  {
+    "name": "formatting-only-change",
+    "rationale": "Whitespace/formatting-only diff across a few files, no findings. Should approve.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 3,
+      "lines_added": 15
+    },
+    "author_level": 2,
+    "want": {
+      "approve": true
+    },
+    "bucket": "baseline-shape"
+  },
+  {
+    "name": "test-only-change-with-lockfile-bump",
+    "rationale": "A moderately sized but low-risk-shape diff (tests + a dependency lockfile bump), no findings. Diff size alone should not block.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "test-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 4,
+      "lines_added": 120
+    },
+    "author_level": 2,
+    "want": {
+      "approve": true
+    },
+    "bucket": "baseline-shape"
+  },
+  {
+    "name": "huge-refactor-critical-security-finding",
+    "rationale": "Large diff, high blast radius, and a critical security finding. Every signal says risky; must block at the risk stage.",
+    "blast_hunks": [
+      {
+        "combined": 80,
+        "new_lines": 300,
+        "file_path": "a/core.go"
+      }
+    ],
+    "findings": [
+      {
+        "severity": "critical",
+        "category": "security",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "logic-change",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 15,
+      "lines_added": 300
+    },
+    "author_level": 2,
+    "want": {
+      "approve": false,
+      "blocked_at": "risk"
+    },
+    "bucket": "baseline-shape"
+  },
+  {
+    "name": "high-blast-radius-silent-landmine-no-findings",
+    "rationale": "Zero findings (the LLM reviewer missed it, or there's nothing to flag line-by-line), but blast radius alone is very high. The silent-landmine case: blast radius must catch what findings miss.",
+    "blast_hunks": [
+      {
+        "combined": 90,
+        "new_lines": 50,
+        "file_path": "a/core.go"
+      }
+    ],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 3,
+      "lines_added": 50
+    },
+    "author_level": 2,
+    "want": {
+      "approve": false,
+      "blocked_at": "risk"
+    },
+    "bucket": "baseline-shape"
+  },
+  {
+    "name": "two-warnings-no-criticals-stays-safe",
+    "rationale": "A couple of warning-level findings and no criticals, small diff. Should still approve: non-critical findings alone shouldn't dominate the score.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "warning",
+        "category": "maintainability",
+        "count": 2
+      }
+    ],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 1,
+      "lines_added": 2
+    },
+    "author_level": 2,
+    "want": {
+      "approve": true
+    },
+    "bucket": "baseline-shape"
+  },
+  {
+    "name": "conflicting-low-blast-critical-finding-blocks",
+    "rationale": "Blast radius is zero (a tiny, localized diff) but one finding is a critical security issue. A strong finding-level signal should block even when blast radius says nothing.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "critical",
+        "category": "security",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "security-sensitive-but-confident",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 1,
+      "lines_added": 1
+    },
+    "author_level": 2,
+    "want": {
+      "approve": false,
+      "blocked_at": "risk"
+    },
+    "bucket": "baseline-shape"
+  },
+  {
+    "name": "author-below-min-level-blocked",
+    "rationale": "Author is below the policy's min_author_level and not whitelisted. Everything else about the diff is safe, isolating eligibility as the actual blocker.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 1,
+      "lines_added": 1
+    },
+    "author_level": 2,
+    "policy": {
+      "min_author_level": 3
+    },
+    "want": {
+      "approve": false,
+      "blocked_at": "eligibility"
+    },
+    "bucket": "eligibility"
+  },
+  {
+    "name": "author-at-min-level-passes",
+    "rationale": "Author's level exactly equals min_author_level. The boundary itself (>=) should pass, not just levels strictly above it.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 1,
+      "lines_added": 1
+    },
+    "author_level": 2,
+    "policy": {
+      "min_author_level": 2
+    },
+    "want": {
+      "approve": true
+    },
+    "bucket": "eligibility"
+  },
+  {
+    "name": "bot-author-blocked",
+    "rationale": "An unmapped bot login (e.g. a dependency-update bot) defaults to review level 0, below any realistic min_author_level, and is not whitelisted.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "dependency-change",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 1,
+      "lines_added": 5
+    },
+    "author_is_bot": true,
+    "bot_username": "renovate[bot]",
+    "policy": {
+      "min_author_level": 1
+    },
+    "want": {
+      "approve": false,
+      "blocked_at": "eligibility"
+    },
+    "bucket": "eligibility"
+  },
+  {
+    "name": "whitelisted-low-level-author-passes",
+    "rationale": "Author is well below min_author_level, but explicitly whitelisted. The whitelist must bypass the level gate entirely.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 1,
+      "lines_added": 1
+    },
+    "author_level": 1,
+    "whitelisted": true,
+    "policy": {
+      "min_author_level": 5
+    },
+    "want": {
+      "approve": true
+    },
+    "bucket": "eligibility"
+  },
+  {
+    "name": "llm-missing-classification-blocks",
+    "rationale": "No diff-level LLM classification was produced at all (legacy/CLI review). The LLM gate must fail closed rather than silently pass.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": null,
+    "diff": {
+      "file_count": 1,
+      "lines_added": 1
+    },
+    "author_level": 2,
+    "want": {
+      "approve": false,
+      "blocked_at": "llm"
+    },
+    "bucket": "llm-gate"
+  },
+  {
+    "name": "llm-low-confidence-blocks",
+    "rationale": "A classification exists but its confidence is below the policy's required threshold. Must fail the confidence gate regardless of how safe the class itself looks.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 3
+    },
+    "diff": {
+      "file_count": 1,
+      "lines_added": 1
+    },
+    "author_level": 2,
+    "policy": {
+      "require_llm_confidence": 8
+    },
+    "want": {
+      "approve": false,
+      "blocked_at": "llm"
+    },
+    "bucket": "llm-gate"
+  },
+  {
+    "name": "llm-disqualifying-class-high-confidence-blocks",
+    "rationale": "The model is confident, but the class itself (security-sensitive) always disqualifies, per RADAR's 'any risk signal disqualifies' rule - confidence cannot buy its way past a disqualifying class.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "security-sensitive",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 1,
+      "lines_added": 1
+    },
+    "author_level": 2,
+    "want": {
+      "approve": false,
+      "blocked_at": "llm"
+    },
+    "bucket": "llm-gate"
+  },
+  {
+    "name": "llm-safe-class-high-confidence-passes",
+    "rationale": "Sanity check that the LLM gate isn't overly strict: a confident, non-disqualifying classification on an otherwise clean diff should pass.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 1,
+      "lines_added": 1
+    },
+    "author_level": 2,
+    "want": {
+      "approve": true
+    },
+    "bucket": "llm-gate"
+  },
+  {
+    "name": "always-approve-mode-overrides-risk-and-eligibility",
+    "rationale": "mode=always_approve must skip eligibility/risk/llm entirely (even for a low-level author and a risky-looking diff) - only the static jq gate still runs, and with no blocking rulesets configured it passes.",
+    "blast_hunks": [
+      {
+        "combined": 90,
+        "new_lines": 50,
+        "file_path": "a/core.go"
+      }
+    ],
+    "findings": [
+      {
+        "severity": "critical",
+        "category": "security",
+        "count": 1
+      }
+    ],
+    "llm_class": null,
+    "diff": {
+      "file_count": 10,
+      "lines_added": 50
+    },
+    "author_level": 1,
+    "policy": {
+      "mode": "always_approve",
+      "min_author_level": 5
+    },
+    "want": {
+      "approve": true
+    },
+    "bucket": "mode-shortcut"
+  },
+  {
+    "name": "never-approve-mode-always-blocks",
+    "rationale": "mode=never_approve must block unconditionally, even for an entirely clean diff that would otherwise sail through every stage.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 1,
+      "lines_added": 1
+    },
+    "author_level": 2,
+    "policy": {
+      "mode": "never_approve"
+    },
+    "want": {
+      "approve": false,
+      "blocked_at": "mode_override",
+      "reason_contains": "never_approve"
+    },
+    "bucket": "mode-shortcut"
+  },
+  {
+    "name": "threshold-p80-lenient-approves-borderline-score",
+    "rationale": "A moderately risky score (~0.55-0.6) against a lenient P80 org calibration (seeded from a realistic recent-score distribution): the cutoff sits above this score, so it approves. Proves risk_threshold_percentile actually moves the decision, not just the raw score.",
+    "blast_hunks": [
+      {
+        "combined": 8,
+        "new_lines": 10,
+        "file_path": "a/mod.go"
+      }
+    ],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 1,
+      "lines_added": 10
+    },
+    "author_level": 2,
+    "policy": {
+      "risk_threshold_percentile": 80
+    },
+    "seed_recent_scores": [
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.65,
+      0.7,
+      0.8,
+      0.9
+    ],
+    "want": {
+      "approve": true
+    },
+    "bucket": "threshold-dial"
+  },
+  {
+    "name": "threshold-p10-strict-blocks-same-score",
+    "rationale": "The exact same underlying review and score as threshold-p80-lenient-approves-borderline-score, but under a strict P10 org calibration: the cutoff sits below this score, so it blocks. Same model, same score, different dial setting, different outcome.",
+    "blast_hunks": [
+      {
+        "combined": 8,
+        "new_lines": 10,
+        "file_path": "a/mod.go"
+      }
+    ],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 1,
+      "lines_added": 10
+    },
+    "author_level": 2,
+    "policy": {
+      "risk_threshold_percentile": 10
+    },
+    "seed_recent_scores": [
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.65,
+      0.7,
+      0.8,
+      0.9
+    ],
+    "want": {
+      "approve": false,
+      "blocked_at": "risk"
+    },
+    "bucket": "threshold-dial"
+  },
+  {
+    "name": "daily-cap-exceeded-blocks-otherwise-approvable",
+    "rationale": "An entirely clean, otherwise-approvable review, but the org's daily_approve_cap was already reached today. The cap must still block even though every funnel stage individually passed.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 1,
+      "lines_added": 1
+    },
+    "author_level": 2,
+    "policy": {
+      "daily_approve_cap": 2
+    },
+    "seed_approvals_today": 2,
+    "want": {
+      "approve": false,
+      "blocked_at": "mode_override",
+      "reason_contains": "daily approve cap"
+    },
+    "bucket": "caps-timing"
+  },
+  {
+    "name": "critical-finding-in-security-blocks",
+    "rationale": "A single critical-severity finding categorized as 'security', otherwise a clean diff. Isolates that category's weight path: critical severity plus its category-specific weight together are enough to block, for every taxonomy category, not just security.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "critical",
+        "category": "security",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "want": {
+      "approve": false,
+      "blocked_at": "risk"
+    },
+    "bucket": "taxonomy-critical"
+  },
+  {
+    "name": "critical-finding-in-reliability-blocks",
+    "rationale": "A single critical-severity finding categorized as 'reliability', otherwise a clean diff. Isolates that category's weight path: critical severity plus its category-specific weight together are enough to block, for every taxonomy category, not just security.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "critical",
+        "category": "reliability",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "want": {
+      "approve": false,
+      "blocked_at": "risk"
+    },
+    "bucket": "taxonomy-critical"
+  },
+  {
+    "name": "critical-finding-in-correctness-blocks",
+    "rationale": "A single critical-severity finding categorized as 'correctness', otherwise a clean diff. Isolates that category's weight path: critical severity plus its category-specific weight together are enough to block, for every taxonomy category, not just security.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "critical",
+        "category": "correctness",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "want": {
+      "approve": false,
+      "blocked_at": "risk"
+    },
+    "bucket": "taxonomy-critical"
+  },
+  {
+    "name": "critical-finding-in-performance-blocks",
+    "rationale": "A single critical-severity finding categorized as 'performance', otherwise a clean diff. Isolates that category's weight path: critical severity plus its category-specific weight together are enough to block, for every taxonomy category, not just security.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "critical",
+        "category": "performance",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "want": {
+      "approve": false,
+      "blocked_at": "risk"
+    },
+    "bucket": "taxonomy-critical"
+  },
+  {
+    "name": "critical-finding-in-scalability-blocks",
+    "rationale": "A single critical-severity finding categorized as 'scalability', otherwise a clean diff. Isolates that category's weight path: critical severity plus its category-specific weight together are enough to block, for every taxonomy category, not just security.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "critical",
+        "category": "scalability",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "want": {
+      "approve": false,
+      "blocked_at": "risk"
+    },
+    "bucket": "taxonomy-critical"
+  },
+  {
+    "name": "critical-finding-in-compliance-and-governance-blocks",
+    "rationale": "A single critical-severity finding categorized as 'compliance & governance', otherwise a clean diff. Isolates that category's weight path: critical severity plus its category-specific weight together are enough to block, for every taxonomy category, not just security.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "critical",
+        "category": "compliance & governance",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "want": {
+      "approve": false,
+      "blocked_at": "risk"
+    },
+    "bucket": "taxonomy-critical"
+  },
+  {
+    "name": "critical-finding-in-maintainability-blocks",
+    "rationale": "A single critical-severity finding categorized as 'maintainability', otherwise a clean diff. Isolates that category's weight path: critical severity plus its category-specific weight together are enough to block, for every taxonomy category, not just security.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "critical",
+        "category": "maintainability",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "want": {
+      "approve": false,
+      "blocked_at": "risk"
+    },
+    "bucket": "taxonomy-critical"
+  },
+  {
+    "name": "critical-finding-in-architecture-blocks",
+    "rationale": "A single critical-severity finding categorized as 'architecture', otherwise a clean diff. Isolates that category's weight path: critical severity plus its category-specific weight together are enough to block, for every taxonomy category, not just security.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "critical",
+        "category": "architecture",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "want": {
+      "approve": false,
+      "blocked_at": "risk"
+    },
+    "bucket": "taxonomy-critical"
+  },
+  {
+    "name": "critical-finding-in-developer-experience-blocks",
+    "rationale": "A single critical-severity finding categorized as 'developer experience', otherwise a clean diff. Isolates that category's weight path: critical severity plus its category-specific weight together are enough to block, for every taxonomy category, not just security.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "critical",
+        "category": "developer experience",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "want": {
+      "approve": false,
+      "blocked_at": "risk"
+    },
+    "bucket": "taxonomy-critical"
+  },
+  {
+    "name": "critical-finding-in-cost-blocks",
+    "rationale": "A single critical-severity finding categorized as 'cost', otherwise a clean diff. Isolates that category's weight path: critical severity plus its category-specific weight together are enough to block, for every taxonomy category, not just security.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "critical",
+        "category": "cost",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "want": {
+      "approve": false,
+      "blocked_at": "risk"
+    },
+    "bucket": "taxonomy-critical"
+  },
+  {
+    "name": "warning-finding-in-maintainability-stays-safe",
+    "rationale": "A single warning-severity 'maintainability' finding, clean diff otherwise. Low-weight categories should not block on a single non-critical finding, contrasting with the critical-severity version of this same category above.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "warning",
+        "category": "maintainability",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "want": {
+      "approve": true
+    },
+    "bucket": "taxonomy-warning"
+  },
+  {
+    "name": "warning-finding-in-architecture-stays-safe",
+    "rationale": "A single warning-severity 'architecture' finding, clean diff otherwise. Low-weight categories should not block on a single non-critical finding, contrasting with the critical-severity version of this same category above.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "warning",
+        "category": "architecture",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "want": {
+      "approve": true
+    },
+    "bucket": "taxonomy-warning"
+  },
+  {
+    "name": "warning-finding-in-developer-experience-stays-safe",
+    "rationale": "A single warning-severity 'developer experience' finding, clean diff otherwise. Low-weight categories should not block on a single non-critical finding, contrasting with the critical-severity version of this same category above.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "warning",
+        "category": "developer experience",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "want": {
+      "approve": true
+    },
+    "bucket": "taxonomy-warning"
+  },
+  {
+    "name": "warning-finding-in-cost-stays-safe",
+    "rationale": "A single warning-severity 'cost' finding, clean diff otherwise. Low-weight categories should not block on a single non-critical finding, contrasting with the critical-severity version of this same category above.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "warning",
+        "category": "cost",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "want": {
+      "approve": true
+    },
+    "bucket": "taxonomy-warning"
+  },
+  {
+    "name": "static-gate-blocks-on-tripped-ruleset",
+    "rationale": "A blocking ruleset's jq expression matches a finding in this review (a hardcoded-secret type). Risk/eligibility/llm are all otherwise safe, isolating the static gate as the blocker.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "critical",
+        "category": "security",
+        "type": "hardcoded-secret",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "rulesets": [
+      {
+        "name": "no-secrets",
+        "jq_expr": "[.findings[] | select(.type == \"hardcoded-secret\")] | length > 0"
+      }
+    ],
+    "policy": {
+      "blocking_rulesets": [
+        "no-secrets"
+      ]
+    },
+    "want": {
+      "approve": false,
+      "blocked_at": "static"
+    },
+    "bucket": "static-gate"
+  },
+  {
+    "name": "static-gate-passes-when-rule-not-tripped",
+    "rationale": "The same no-secrets ruleset is attached, but this review has no matching finding -- the static gate should pass, not block defensively just because a ruleset exists.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "rulesets": [
+      {
+        "name": "no-secrets",
+        "jq_expr": "[.findings[] | select(.type == \"hardcoded-secret\")] | length > 0"
+      }
+    ],
+    "policy": {
+      "blocking_rulesets": [
+        "no-secrets"
+      ]
+    },
+    "want": {
+      "approve": true
+    },
+    "bucket": "static-gate"
+  },
+  {
+    "name": "static-gate-multiple-rulesets-only-one-trips",
+    "rationale": "Two blocking rulesets are attached; only the second one's condition is actually met. The gate must still block, and the reason should name the ruleset that actually tripped.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "rulesets": [
+      {
+        "name": "always-false",
+        "jq_expr": "false"
+      },
+      {
+        "name": "always-true",
+        "jq_expr": "true"
+      }
+    ],
+    "policy": {
+      "blocking_rulesets": [
+        "always-false",
+        "always-true"
+      ]
+    },
+    "want": {
+      "approve": false,
+      "blocked_at": "static",
+      "reason_contains": "always-true"
+    },
+    "bucket": "static-gate"
+  },
+  {
+    "name": "static-gate-runs-even-under-always-approve",
+    "rationale": "mode=always_approve is a repo-wide 'trust this repo' shortcut, but the static jq gate must still run and still block on a tripped ruleset -- trust in a repo must never silently become 'ignore a secrets-leak detector'.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": null,
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 1,
+    "rulesets": [
+      {
+        "name": "always-true-2",
+        "jq_expr": "true"
+      }
+    ],
+    "policy": {
+      "mode": "always_approve",
+      "blocking_rulesets": [
+        "always-true-2"
+      ]
+    },
+    "want": {
+      "approve": false,
+      "blocked_at": "static"
+    },
+    "bucket": "static-gate"
+  },
+  {
+    "name": "static-gate-passes-under-always-approve-when-rule-not-tripped",
+    "rationale": "mode=always_approve with a blocking ruleset attached that does not trip: the mode override approves, since the one gate that still runs under this mode passed.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": null,
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 1,
+    "rulesets": [
+      {
+        "name": "always-false-2",
+        "jq_expr": "false"
+      }
+    ],
+    "policy": {
+      "mode": "always_approve",
+      "blocking_rulesets": [
+        "always-false-2"
+      ]
+    },
+    "want": {
+      "approve": true
+    },
+    "bucket": "static-gate"
+  },
+  {
+    "name": "static-gate-no-rulesets-configured-passes-trivially",
+    "rationale": "No blocking rulesets configured at all: the static stage should pass trivially rather than erroring or defensively blocking on an empty configuration.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "want": {
+      "approve": true
+    },
+    "bucket": "static-gate"
+  },
+  {
+    "name": "unmapped-author-default-level-passes-at-min-level-1",
+    "rationale": "The PR author has no user_identities mapping at all (never invited, or a brand-new contributor). Unmapped non-bot authors default to review level 1 -- this should be enough to pass the default min_author_level=1.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_unmapped": true,
+    "policy": {
+      "min_author_level": 1
+    },
+    "want": {
+      "approve": true
+    },
+    "bucket": "eligibility"
+  },
+  {
+    "name": "unmapped-author-default-level-blocked-at-min-level-2",
+    "rationale": "Same unmapped author (default level 1), but the policy requires level 2. The fail-closed default should not accidentally satisfy a higher bar.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_unmapped": true,
+    "policy": {
+      "min_author_level": 2
+    },
+    "want": {
+      "approve": false,
+      "blocked_at": "eligibility"
+    },
+    "bucket": "eligibility"
+  },
+  {
+    "name": "llm-confidence-exactly-at-required-passes",
+    "rationale": "Classification confidence is exactly equal to require_llm_confidence, not above it. The gate's check is confidence < required, so an exact match must pass, not fail.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 8
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "policy": {
+      "require_llm_confidence": 8
+    },
+    "want": {
+      "approve": true
+    },
+    "bucket": "llm-gate"
+  },
+  {
+    "name": "two-critical-security-findings-compounds",
+    "rationale": "Two critical security findings instead of one. Should block at least as decisively as the single-finding version -- more risk signal should never look safer.",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "critical",
+        "category": "security",
+        "count": 2
+      }
+    ],
+    "llm_class": {
+      "class": "security-sensitive-but-confident",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "want": {
+      "approve": false,
+      "blocked_at": "risk"
+    },
+    "bucket": "compounding"
+  },
+  {
+    "name": "mixed-low-weight-category-info-findings-stays-safe",
+    "rationale": "Several different taxonomy categories each contribute one info-severity finding, all low-weight categories. Info-severity findings carry no severity weight of their own (only 'critical' and 'warning' do) -- variety across categories at info level should not be treated as risk. (An earlier version of this scenario used warning severity and was corrected after this test run showed 3 warnings' severity weight alone was enough to tip the score -- see two-warnings-no-criticals-stays-safe for where that line sits.)",
+    "blast_hunks": [],
+    "findings": [
+      {
+        "severity": "info",
+        "category": "maintainability",
+        "count": 1
+      },
+      {
+        "severity": "info",
+        "category": "architecture",
+        "count": 1
+      },
+      {
+        "severity": "info",
+        "category": "cost",
+        "count": 1
+      }
+    ],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "want": {
+      "approve": true
+    },
+    "bucket": "taxonomy-warning"
+  },
+  {
+    "name": "landing-delay-passes-through-on-approval",
+    "rationale": "A nonzero landing_delay_seconds is configured. The engine itself doesn't enforce the delay (the worker does, by queuing a follow-up job), but it must carry the configured value through on the result so the worker can act on it.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "policy": {},
+    "want": {
+      "approve": true
+    },
+    "bucket": "caps-timing"
+  }
+]
