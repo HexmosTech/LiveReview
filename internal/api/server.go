@@ -1443,6 +1443,18 @@ func (s *Server) setupRoutes() {
 	autoApproveGroup.PUT("/:id", autoApprovePoliciesHandler.Update)
 	autoApproveGroup.DELETE("/:id", autoApprovePoliciesHandler.Delete)
 
+	// Auto-approve insights: score distribution, decision counts, and outcome
+	// calibration over a selectable window — the "is this behaving
+	// reasonably" view (Reports → Auto Approve), as opposed to the
+	// per-review explain view or the policy config above.
+	autoApproveInsightsHandler := NewAutoApproveInsightsHandler(s.db)
+	autoApproveInsightsGroup := v1.Group("/auto-approve-insights")
+	autoApproveInsightsGroup.Use(RequireAuthOrAPIKey(s.tokenService, s.db))
+	autoApproveInsightsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
+	autoApproveInsightsGroup.Use(authMiddleware.ValidateOrgAccess())
+	autoApproveInsightsGroup.Use(authMiddleware.BuildPermissionContext())
+	autoApproveInsightsGroup.GET("", autoApproveInsightsHandler.Insights)
+
 	// Risk model (org-wide classifier): read info/calibration, set category
 	// overrides, trigger an on-demand refit.
 	riskModelGroup := v1.Group("/risk-model")

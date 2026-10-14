@@ -77,6 +77,7 @@ per-repository/provider breakdown, and category↔subcategory relations.
 ## Related pages
 
 [Reports → Onboarding Report](onboarding-report.md),
+[Reports → Auto Approve](auto-approve.md),
 [Reviews list](../reviews/reviews-list.md),
 [Review detail](../reviews/review-detail.md)
 

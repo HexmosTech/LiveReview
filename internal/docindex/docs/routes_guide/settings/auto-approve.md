@@ -62,4 +62,6 @@ Five sub-tabs:
 [Settings overview](settings-overview.md) ·
 [CI Rulesets](../reviews/ci-cd-gates.md) ·
 [Repository settings](../explore/repository-settings.md) ·
-[Review detail](../reviews/review-detail.md)
+[Review detail](../reviews/review-detail.md) ·
+[Reports → Auto Approve](../reports/auto-approve.md) (score distribution,
+decision counts, and outcome calibration for this policy, over time)

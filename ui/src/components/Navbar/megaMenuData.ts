@@ -210,6 +210,7 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
             ], React.createElement(Icons.List)),
             link('Download Report', React.createElement(Icons.Download), '/reports?export=pdf'),
             link('Custom Reports', React.createElement(Icons.Dashboard), '/reports?mode=custom'),
+            link('Auto Approve', React.createElement(Icons.List), '/reports/auto-approve'),
         ],
     },
     {
