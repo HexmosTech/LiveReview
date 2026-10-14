@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { Alert, Button, Card, Spinner, Tabs } from '../../components/UIPrimitives';
 import {
@@ -319,6 +320,11 @@ const AutoApprovePolicyTab: React.FC = () => {
             <div className="text-sm text-slate-300 flex items-center gap-1.5">
               <span>Outcomes reported in the last 30 days: <span className="text-white font-medium">{outcomes.length}</span></span>
               <InfoHint text={HELP.outcomeCounter} />
+            </div>
+            <div className="text-sm">
+              <Link to="/reports/auto-approve" className="text-blue-400 hover:text-blue-300 underline">
+                View full report: score distribution, decision rate, outcome calibration &rarr;
+              </Link>
             </div>
           </div>
         )}

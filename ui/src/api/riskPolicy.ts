@@ -83,6 +83,57 @@ export interface SimulateRow {
   score?: number;
 }
 
+export interface ScoreHistogramBucket {
+  range_start: number;
+  range_end: number;
+  count: number;
+}
+
+export interface ScoreDistribution {
+  buckets: ScoreHistogramBucket[];
+  cutoff: number;
+  percentile: number;
+  total_scored: number;
+}
+
+export interface DecisionTrendPoint {
+  day: string;
+  approved: number;
+  blocked: number;
+}
+
+export interface DecisionsSummary {
+  approved: number;
+  blocked_at_eligibility: number;
+  blocked_at_static: number;
+  blocked_at_risk: number;
+  blocked_at_llm: number;
+  overridden: number;
+  total_decided: number;
+  override_rate: number;
+  trend: DecisionTrendPoint[];
+}
+
+export interface CalibrationCell {
+  decision: 'approved' | 'blocked';
+  outcome_type: 'revert' | 'incident' | 'confirmed_safe';
+  count: number;
+}
+
+export interface Calibration {
+  cells: CalibrationCell[];
+  total_outcomes: number;
+  false_approve_rate?: number;
+  low_volume_warning: boolean;
+}
+
+export interface AutoApproveInsights {
+  window_days: number;
+  score_distribution: ScoreDistribution;
+  decisions: DecisionsSummary;
+  calibration: Calibration;
+}
+
 // ---- auto-approve policy CRUD ----------------------------------------------
 
 export const listAutoApprovePolicies = (): Promise<{ rows: AutoApprovePolicy[] }> =>
@@ -127,6 +178,11 @@ export const putRiskModelOverrides = (overrides: Record<string, number>): Promis
 
 export const retrainRiskModel = (): Promise<{ result: { promoted: boolean; training_count: number; holdout_auc: number; reason: string } }> =>
   apiClient.post('/risk-model/retrain', {});
+
+// ---- auto-approve insights (Reports -> Auto Approve) -----------------------
+
+export const getAutoApproveInsights = (windowDays: 7 | 30 | 90 = 30): Promise<{ insights: AutoApproveInsights }> =>
+  apiClient.get(`/auto-approve-insights?window=${windowDays}`);
 
 // ---- outcomes --------------------------------------------------------------
 
