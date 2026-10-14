@@ -2,6 +2,7 @@ package riskscore
 
 import (
 	"math"
+	"math/rand"
 	"testing"
 )
 
@@ -115,6 +116,116 @@ func TestPercentileOf(t *testing.T) {
 	}
 	if got := PercentileOf(1.0, scores); got != 100 {
 		t.Fatalf("PercentileOf(1.0) = %d, want 100", got)
+	}
+}
+
+// --- categoryOverride: explicit override vs default, and the two indices
+// (bias, empty-category) that must never be scaled by either. ---
+
+func TestCategoryOverrideExplicitBeatsDefault(t *testing.T) {
+	// weightIndex 1 -> FeatureSpecs[0] = br_sum, category "blast_radius".
+	if got := categoryOverride(map[string]float64{"blast_radius": 5}, 1); got != 5 {
+		t.Fatalf("explicit override should win over the default multiplier: got %v, want 5", got)
+	}
+}
+
+func TestCategoryOverrideFallsBackToDefaultWhenUnset(t *testing.T) {
+	// weightIndex 7 -> FeatureSpecs[6] = security_count, category "security".
+	want := DefaultCategoryMultiplier("security")
+	if got := categoryOverride(nil, 7); got != want {
+		t.Fatalf("got %v, want default multiplier %v", got, want)
+	}
+	if got := categoryOverride(map[string]float64{}, 7); got != want {
+		t.Fatalf("empty (not nil) overrides map should also fall back to default: got %v, want %v", got, want)
+	}
+}
+
+func TestCategoryOverrideBiasNeverScaled(t *testing.T) {
+	if got := categoryOverride(map[string]float64{"blast_radius": 99}, 0); got != 1 {
+		t.Fatalf("the bias term (weightIndex 0) must never be scaled by any override, got %v", got)
+	}
+}
+
+func TestCategoryOverrideEmptyCategoryNeverScaled(t *testing.T) {
+	// weightIndex 6 -> FeatureSpecs[5] = warning_count, category "" (no override applies).
+	if got := categoryOverride(map[string]float64{"security": 99}, 6); got != 1 {
+		t.Fatalf("a feature with no category must never be scaled, got %v", got)
+	}
+}
+
+// --- Formal-ish property tests over the seed prior: every weight the prior
+// ships with is non-negative, so the common-sense model must never consider
+// "more of any single risk signal" to be safer. A random, fixed-seed sweep
+// catches a future hand-edit to Prior() that introduces a wrong-signed
+// weight, which a handful of hand-picked example points would not. ---
+
+func TestPriorAllFeatureWeightsNonNegative(t *testing.T) {
+	prior := Prior()
+	for i := 1; i < len(prior); i++ {
+		if prior[i] < 0 {
+			t.Fatalf("prior weight %d (%s) is negative (%v): this would make the seed model non-monotonic in that feature",
+				i, FeatureSpecs[i-1].Name, prior[i])
+		}
+	}
+}
+
+func TestPriorScoreMonotonicInEachFeature(t *testing.T) {
+	prior := Prior()
+	rng := rand.New(rand.NewSource(42))
+	for trial := 0; trial < 20; trial++ {
+		base := make([]float64, FeatureCount())
+		for i := range base {
+			base[i] = rng.Float64() * 10
+		}
+		baseScore := Score(prior, base, nil)
+		for i := range base {
+			bumped := append([]float64{}, base...)
+			bumped[i] += rng.Float64()*10 + 0.1 // strictly positive delta
+			bumpedScore := Score(prior, bumped, nil)
+			if bumpedScore < baseScore-1e-12 {
+				t.Fatalf("trial %d, feature %d (%s): increasing this feature (holding others fixed) decreased the seed model's score (%v -> %v)",
+					trial, i, FeatureSpecs[i].Name, baseScore, bumpedScore)
+			}
+		}
+	}
+}
+
+func TestAnchorStrengthMonotonicallyDecreasing(t *testing.T) {
+	prev := AnchorStrength(0)
+	if prev != 1.0 {
+		t.Fatalf("AnchorStrength(0) = %v, want 1.0", prev)
+	}
+	for _, n := range []int{1, 5, 10, 50, 100, 500, 1000, 5000} {
+		cur := AnchorStrength(n)
+		if cur >= prev {
+			t.Fatalf("AnchorStrength(%d) = %v should be strictly less than the previous sample count's %v", n, cur, prev)
+		}
+		prev = cur
+	}
+}
+
+// TestOnlineStepRegularizationWeakensAsSampleCountGrows isolates the
+// prior-anchor term from the gradient term (by choosing y so err=0: y is set
+// to exactly what the model already predicts, so the only thing OnlineStep
+// does is pull w[5] back toward the prior) and sweeps sampleCount, confirming
+// that pull shrinks as an org accumulates more labeled outcomes -- ties
+// model.go's documented shrink = AnchorLambda/(1+sampleCount) formula to an
+// actual behavioral assertion, not just a comment.
+func TestOnlineStepRegularizationWeakensAsSampleCountGrows(t *testing.T) {
+	prior := Prior()
+	w := cloneWeights(prior)
+	w[5] = prior[5] + 5 // perturb one weight far from the prior
+	x := make([]float64, FeatureCount())
+	y := sigmoid(w[0]) // makes err = y - scoreRaw(w, x) == 0
+
+	prevMove := math.Inf(1)
+	for _, n := range []int{0, 10, 100, 1000} {
+		next := OnlineStep(w, x, y, prior, n, 0.1)
+		move := math.Abs(next[5] - w[5])
+		if move >= prevMove {
+			t.Fatalf("sampleCount %d: regularization pull %v should be smaller than at a lower sample count (%v)", n, move, prevMove)
+		}
+		prevMove = move
 	}
 }
 
