@@ -38,7 +38,8 @@ Five sub-tabs:
   **Simulate on recent reviews** replay of the draft policy.
 - **Static Rules** — pick which CI rulesets are blocking gates.
 - **Eligibility** — `min_author_level` and `force_approve_min_level`.
-- **General** — `risk_threshold_percentile`, required LLM confidence, landing
+- **General** — risk threshold (Conservative = safest 20%, Balanced = 50%,
+  Aggressive = 80%, or Custom for any other number), required LLM confidence, landing
   delay (human-rejection window), daily approve cap, and the
   "restrict outcome reporting to admins" switch.
 - **Production Feedback** — the outcome webhook URL and the last-30-days

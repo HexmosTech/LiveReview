@@ -34,8 +34,8 @@ export const HELP = {
     'This sets how strict the risk check is.\n\n' +
     'The system scores every review from 0 (safe) to 100 (risky). ' +
     "It compares each new score to your team's recent scores.\n\n" +
-    'Example: P20 approves only the safest 20 out of 100 reviews.\n\n' +
-    'A lower number is stricter. A higher number allows more auto-approvals.',
+    'Conservative approves only the safest 20 out of 100 reviews, Balanced 50, Aggressive 80.\n\n' +
+    'Pick Custom to set any other number. A lower number is stricter.',
 
   requireLLMConfidence:
     'The AI reviewer also labels the type of change, for example "refactor-only" or "security-sensitive".\n\n' +

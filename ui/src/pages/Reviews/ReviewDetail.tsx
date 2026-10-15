@@ -7,6 +7,7 @@ import { reviewStatusBadge } from '../../utils/reviewDisplay';
 import { Button, Icons, Tabs } from '../../components/UIPrimitives';
 import { ReviewEventsPage, DiffViewerPanel } from '../../components/reviews';
 import AutoApprovePanel from '../../components/reviews/AutoApprovePanel';
+import { getReviewPolicyLog } from '../../api/riskPolicy';
 import {
   getReview,
   getReviewEvents,
@@ -280,19 +281,39 @@ const ReviewDetail: React.FC = () => {
         }
     }, [review]);
 
-    // When a PR-link review finishes while the page is open, jump to its Auto Approve result.
+    // When a review finishes while the page is open, jump to Findings and flag the Auto Approve tab.
     const lastStatusRef = useRef<string | undefined>(undefined);
+    const [autoApproveAttention, setAutoApproveAttention] = useState(false);
     useEffect(() => {
         const prev = lastStatusRef.current;
         lastStatusRef.current = review?.status;
-        if (
-            (prev === 'created' || prev === 'in_progress') &&
-            review?.status === 'completed' &&
-            review.metadata?.pr_link_policy
-        ) {
-            setActiveTab('auto-approve');
+        if ((prev === 'created' || prev === 'in_progress') && review?.status === 'completed') {
+            setActiveTab('findings');
+            if (review.metadata?.pr_link_policy) setAutoApproveAttention(true);
         }
     }, [review?.status, review?.metadata?.pr_link_policy]);
+    useEffect(() => {
+        if (activeTab === 'auto-approve') setAutoApproveAttention(false);
+    }, [activeTab]);
+
+    // Auto-approve outcome for PR-link reviews; retried briefly since the policy runs just after the review.
+    const [policyApproved, setPolicyApproved] = useState<boolean | null>(null);
+    useEffect(() => {
+        if (!review?.metadata?.pr_link_policy || review.status !== 'completed') return;
+        let cancelled = false;
+        let tries = 0;
+        const load = () => {
+            getReviewPolicyLog(reviewId)
+                .then((log) => {
+                    if (cancelled) return;
+                    if (log.stages.length) setPolicyApproved(!log.blocked);
+                    else if (++tries < 12) setTimeout(load, 5000);
+                })
+                .catch(() => {});
+        };
+        load();
+        return () => { cancelled = true; };
+    }, [reviewId, review?.status, review?.metadata?.pr_link_policy]);
 
     const githubBaseUrl = useMemo(() => {
         if (!review || !review.provider?.toLowerCase().startsWith('github')) return null;
@@ -574,6 +595,13 @@ const ReviewDetail: React.FC = () => {
                     <HeaderStat label="Last activity" value={formatRelativeTime(review.completedAt || review.startedAt || review.createdAt)} />
                     <HeaderStat label="Events" value={eventCount !== undefined && eventCount > 0 ? String(eventCount) : String(Object.values(summary?.eventCounts || {}).reduce((a: number, b: number) => a + b, 0))} />
                     <HeaderStat label="Risk assessment" value={risk.value} className={risk.tone} />
+                    {review.metadata?.pr_link_policy && (
+                        <HeaderStat
+                            label="Auto-approve"
+                            value={policyApproved === null ? 'Pending' : policyApproved ? 'Approved' : 'Not approved'}
+                            className={policyApproved === null ? '!text-slate-400' : policyApproved ? '!text-green-400' : '!text-red-400'}
+                        />
+                    )}
                     <div className="ml-auto flex items-center gap-3 shrink-0">
                         <span className="flex items-center gap-1 text-xs text-slate-300">
                             {detailsExpanded ? 'Less' : 'More'}
@@ -697,7 +725,20 @@ const ReviewDetail: React.FC = () => {
                     { id: 'findings', label: 'Findings' },
                     { id: 'accounting', label: 'Accounting' },
                     { id: 'events', label: 'Events' },
-                    ...(review.metadata?.pr_link_policy ? [{ id: 'auto-approve', label: 'Auto Approve' }] : []),
+                    ...(review.metadata?.pr_link_policy ? [{
+                        id: 'auto-approve',
+                        label: (
+                            <span className="inline-flex items-center gap-2">
+                                Auto Approve
+                                {autoApproveAttention && (
+                                    <span className="relative inline-flex h-2.5 w-2.5">
+                                        <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping ${policyApproved === false ? 'bg-red-400' : 'bg-green-400'}`} />
+                                        <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${policyApproved === false ? 'bg-red-500' : 'bg-green-500'}`} />
+                                    </span>
+                                )}
+                            </span>
+                        ),
+                    }] : []),
                 ]}
             />
 

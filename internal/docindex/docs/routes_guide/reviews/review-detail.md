@@ -30,8 +30,10 @@ Any authenticated org member; the review must belong to their org
 Reviews started from a PR/MR "Start a review" link show an **Auto Approve** tab
 that renders the risk-policy funnel stage-by-stage (eligibility → static rules
 → risk score → LLM classification → final decision), each with its pass/fail
-reason. If the page is open when such a review finishes, it switches to this
-tab automatically. For a blocked review, owners/admins (or users at/above the policy's
+reason. If the page is open when a review finishes, it switches to Findings and
+a pulsing dot (green = approved, red = not approved) appears on this tab until
+you open it. The info bar also shows an **Auto-approve** stat next to Risk
+assessment: Approved, Not approved, or Pending. For a blocked review, owners/admins (or users at/above the policy's
 `force_approve_min_level`) can **force approve** with a reason — recorded in the
 audit log and posted to the PR/MR. Any member can **mark a production outcome**
 (revert / incident / confirmed-safe) with a reason, which feeds the risk model.

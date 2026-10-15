@@ -10,6 +10,80 @@ import { HELP } from './helpText';
 // "Customize" override (RepoAutoApproveSection.tsx), so the two never drift
 // out of sync — only the save target (org default vs. repository_id) differs.
 
+// Named presets for the risk threshold; the stored value stays a plain percentile.
+export const THRESHOLD_PRESETS = [
+  { value: 20, name: 'Conservative' },
+  { value: 50, name: 'Balanced' },
+  { value: 80, name: 'Aggressive' },
+];
+
+export const thresholdLabel = (v: number) =>
+  `${THRESHOLD_PRESETS.find((p) => p.value === v)?.name ?? 'Custom'} (safest ${v}%)`;
+
+const ThresholdPicker: React.FC<{ value: number; onChange: (v: number) => void; readOnly: boolean }> = ({ value, onChange, readOnly }) => {
+  const [custom, setCustom] = React.useState(!THRESHOLD_PRESETS.some((p) => p.value === value));
+  const btn = (active: boolean) =>
+    `px-3 py-1.5 rounded-md text-sm border ${active ? 'bg-blue-600 border-blue-500 text-white' : 'border-slate-600 text-slate-300 hover:bg-slate-700'} disabled:opacity-50`;
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">
+        {THRESHOLD_PRESETS.map((p) => (
+          <button
+            key={p.value}
+            type="button"
+            disabled={readOnly}
+            className={btn(!custom && value === p.value)}
+            onClick={() => { setCustom(false); onChange(p.value); }}
+          >
+            {p.name}
+          </button>
+        ))}
+        <button type="button" disabled={readOnly} className={btn(custom)} onClick={() => setCustom(true)}>
+          Custom
+        </button>
+      </div>
+      <p className="text-sm text-slate-200 border-l-2 border-blue-500 pl-3">
+        Approves the safest <span className="font-semibold text-white">{value}</span> out of 100 PRs.
+      </p>
+      {custom && (
+        <div className="flex items-start gap-3">
+          <div className="flex-1">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              list="threshold-presets"
+              className="w-full"
+              value={value}
+              onChange={(e) => onChange(parseInt(e.target.value, 10))}
+              disabled={readOnly}
+            />
+            <datalist id="threshold-presets">
+              {THRESHOLD_PRESETS.map((p) => <option key={p.value} value={p.value} />)}
+            </datalist>
+            {/* Preset names under the slider, placed at their percent positions. */}
+            <div className="relative h-4 text-[11px] text-slate-400">
+              {THRESHOLD_PRESETS.map((p) => (
+                <button
+                  key={p.value}
+                  type="button"
+                  disabled={readOnly}
+                  className="absolute -translate-x-1/2 hover:text-white"
+                  style={{ left: `${p.value}%` }}
+                  onClick={() => onChange(p.value)}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          </div>
+          <span className="w-12 text-right text-sm text-white">P{value}</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export interface PolicyFieldsProps {
   draft: AutoApprovePolicyUpsert;
   patch: (partial: Partial<AutoApprovePolicyUpsert>) => void;
@@ -71,20 +145,9 @@ export const GeneralFields: React.FC<PolicyFieldsProps> = ({ draft, patch, readO
   <div className="space-y-4">
     <div>
       <label className="block text-sm font-medium text-slate-300 mb-1">
-        <FieldLabel label="Risk threshold percentile" hint={HELP.riskThresholdPercentile} />
+        <FieldLabel label="Risk threshold" hint={HELP.riskThresholdPercentile} />
       </label>
-      <div className="flex items-center gap-3">
-        <input
-          type="range"
-          min="0"
-          max="100"
-          className="flex-1"
-          value={draft.risk_threshold_percentile ?? 20}
-          onChange={(e) => patch({ risk_threshold_percentile: parseInt(e.target.value, 10) })}
-          disabled={readOnly}
-        />
-        <span className="w-12 text-right text-sm text-white">P{draft.risk_threshold_percentile ?? 20}</span>
-      </div>
+      <ThresholdPicker value={draft.risk_threshold_percentile ?? 20} onChange={(v) => patch({ risk_threshold_percentile: v })} readOnly={readOnly} />
     </div>
     <Input
       type="number"

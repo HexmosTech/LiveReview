@@ -25,7 +25,7 @@ admin.
   says so and admins get a link to Settings → Storage → Repo Cache.
 - **Auto Approve** (`#auto-approve`) — override this repository's auto-approve
   policy (inherit the org default, or set a repo-specific mode and risk
-  threshold percentile). See [Settings → Auto Approve](../settings/auto-approve.md).
+  threshold: Conservative, Balanced, Aggressive or Custom). See [Settings → Auto Approve](../settings/auto-approve.md).
 
 ## Related pages
 
