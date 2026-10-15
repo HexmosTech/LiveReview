@@ -4,8 +4,18 @@
 
 # LiveReview: Risk-Aware AI Code Review for Business-Critical Systems
 
+LiveReview is the org-wide risk-aware harness for AI-written code. It covers two different jobs: deciding which pull requests are safe to skip entirely, and prioritizing what's risky inside the ones that still need a human.
+
 <a id="auto-approve"></a>
-**Auto-Approve Upto 50% of Your Pull Requests, Safely.** Risk scoring decides which MRs/PRs are safe enough to ship without a human, so your team only spends review time on risky and critical changes. The risk score blends three signals:
+## Auto-Approve: Ship the Safe 50% Without a Human
+
+**Auto-Approve Upto 50% of Your Pull Requests, Safely.** Risk scoring decides which MRs/PRs are safe enough to ship without a human, so your team only spends review time on risky and critical changes.
+
+[![Watch the Auto-Approve demo](./assets/screenshots/auto-approve/poster.webp)](./assets/screenshots/auto-approve/demo.mp4)
+
+<p align="center"><i>LiveReview auto-approving a low-risk change while routing a risky change to a human reviewer. Click to play.</i></p>
+
+The risk score blends three signals:
 
 - Semantic LLM analysis
 - A custom ML model trained on your production risk signals
@@ -20,7 +30,10 @@ How it works:
 3. **Automate selectively** - auto-approve the lowest-risk 30-50% of changes. Choose a conservative, balanced, or aggressive policy. Risky or uncertain changes still go to a human.
 4. **Keep improving** - track incidents, false approvals, and overrides, and tighten or loosen the policy as real data comes in.
 
-LiveReview is also an AI code reviewer that scores every hunk of a diff by **blast radius**: how far a change reaches through your call graph, how much persistent state it touches, and how well-tested it is. A 3-line change to a shared auth check can outrank a 300-line UI tweak. Your team's attention goes to the highest-risk code first, not spread evenly across every diff.
+<a id="blast-radius-scoring"></a>
+## Within-Diff Prioritization: Blast Radius & Review Priority
+
+For everything that still goes to a human, LiveReview scores every hunk of a diff by **blast radius**: how far a change reaches through your call graph, how much persistent state it touches, and how well-tested it is. A 3-line change to a shared auth check can outrank a 300-line UI tweak. Your team's attention goes to the highest-risk code first, not spread evenly across every diff.
 
 https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 
@@ -83,7 +96,7 @@ The result: engineering becomes a business advantage. You stay ahead, your engin
 |---|---|
 | Try LiveReview free in under 5 minutes | [Quick Start](#quick-start) |
 | Auto-approve low-risk pull requests safely | [Auto-Approve](#auto-approve) |
-| Understand Blast-Radius scoring | [above ↑](#livereview-risk-aware-ai-code-review-for-business-critical-systems) |
+| Understand Blast-Radius scoring | [Within-Diff Prioritization](#blast-radius-scoring) |
 | Enforce checks at commit / push / PR / CI | [Org-Wide Harness](#org-wide-harness) |
 | Write a precise, custom rule for blocking a merge | [CI/CD Gates](#cicd-gates) |
 
