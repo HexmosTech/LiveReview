@@ -121,7 +121,9 @@ const ManualBitbucketConnector: React.FC = () => {
                                         </p>
                                         <ul className="text-xs text-slate-300 list-disc pl-4 space-y-1">
                                             <li>Generate at: <code className="text-green-400 bg-slate-700 px-1 rounded text-xs">id.atlassian.com</code></li>
-                                            <li>Grant repo read + pull request read permissions</li>
+                                            <li>
+                                                Grant scopes: <code className="text-green-400 bg-slate-700 px-1 rounded text-xs">read:user</code>, <code className="text-green-400 bg-slate-700 px-1 rounded text-xs">read:workspace</code>, <code className="text-green-400 bg-slate-700 px-1 rounded text-xs">read:repository</code>, <code className="text-green-400 bg-slate-700 px-1 rounded text-xs">read:pullrequest</code>, <code className="text-green-400 bg-slate-700 px-1 rounded text-xs">write:pullrequest</code>, <code className="text-green-400 bg-slate-700 px-1 rounded text-xs">read:webhook</code>, <code className="text-green-400 bg-slate-700 px-1 rounded text-xs">write:webhook</code>, <code className="text-green-400 bg-slate-700 px-1 rounded text-xs">delete:webhook</code>
+                                            </li>
                                             <li>Use a dedicated service user (recommended)</li>
                                         </ul>
                                         <div className="pt-1">

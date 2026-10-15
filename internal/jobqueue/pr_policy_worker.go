@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/livereview/internal/policyengine"
+	providerbitbucket "github.com/livereview/internal/providers/bitbucket"
+	providergitea "github.com/livereview/internal/providers/gitea"
 	providergithub "github.com/livereview/internal/providers/github"
 	providergitlab "github.com/livereview/internal/providers/gitlab"
 	storagejobqueue "github.com/livereview/storage/jobqueue"
@@ -148,7 +150,13 @@ func (w *PRPolicyCheckWorker) publish(ctx context.Context, args PRPolicyCheckJob
 	if err != nil {
 		log.Printf("[WARN] pr policy: public URL not configured, posting without review link: %v", err)
 	}
-	body := buildPolicyComment(host, args.ReviewID, res)
+	body := buildPolicySummary(res) + "\n\n" + buildPolicyDetails(host, args.ReviewID, res)
+	if host != "" {
+		// The description's review history table is a convenience; don't fail the publish over it.
+		if err := refreshPRSection(ctx, w.db, info, host, pullRequestID, number); err != nil {
+			log.Printf("[WARN] pr policy: failed to update PR description for review %d: %v", args.ReviewID, err)
+		}
+	}
 
 	switch info.Provider {
 	case "github", "github-com", "github-enterprise":
@@ -172,6 +180,37 @@ func (w *PRPolicyCheckWorker) publish(ctx context.Context, args PRPolicyCheckJob
 			if err := client.ApproveMR(info.ProviderRepoID, number); err != nil {
 				log.Printf("[WARN] pr policy: approve failed for review %d: %v", args.ReviewID, err)
 			}
+		}
+		return nil
+	case "gitea":
+		event := "REQUEST_CHANGES"
+		if res.Approved {
+			event = "APPROVED"
+		}
+		if err := providergitea.SubmitPullRequestReview(ctx, info.ProviderURL, info.token(), info.FullName, number, event, body); err != nil {
+			// Gitea refuses reviews on the bot's own PRs; still show the result.
+			log.Printf("[WARN] pr policy: %s failed for review %d, posting as comment: %v", event, args.ReviewID, err)
+			return providergitea.PostIssueComment(ctx, info.ProviderURL, info.token(), info.FullName, number, body)
+		}
+		return nil
+	case "bitbucket":
+		if err := providerbitbucket.PostPRComment(ctx, info.Email, info.token(), info.FullName, number, body); err != nil {
+			return err
+		}
+		if err := providerbitbucket.SetPRVerdict(ctx, info.Email, info.token(), info.FullName, number, res.Approved); err != nil {
+			log.Printf("[WARN] pr policy: bitbucket verdict failed for review %d: %v", args.ReviewID, err)
+		}
+		return nil
+	case "azuredevops":
+		client, err := azureClient(info)
+		if err != nil {
+			return err
+		}
+		if err := client.PostPRThread(ctx, info.FullName, number, body); err != nil {
+			return err
+		}
+		if err := client.SetPRVote(ctx, info.FullName, number, res.Approved); err != nil {
+			log.Printf("[WARN] pr policy: azure devops vote failed for review %d: %v", args.ReviewID, err)
 		}
 		return nil
 	default:
@@ -237,36 +276,53 @@ func (w *PRPolicyPublishWorker) Work(ctx context.Context, job *river.Job[PRPolic
 	return nil
 }
 
-// buildPolicyComment renders the funnel stage-by-stage so the posted comment
-// shows *why* the policy reached its verdict, not just the verdict.
-func buildPolicyComment(host string, reviewID int64, res *policyengine.FunnelResult) string {
-	var b strings.Builder
+// buildPolicySummary is the one-line verdict used as the approve / request-changes review text.
+func buildPolicySummary(res *policyengine.FunnelResult) string {
 	if res.Approved {
-		b.WriteString("## ✅ LiveReview policy: Approved\n\n")
-	} else {
-		b.WriteString("## ❌ LiveReview policy: Changes requested\n\n")
+		return "✅ **LiveReview policy: Approved.**"
 	}
-	fmt.Fprintf(&b, "Review #%d\n\n", reviewID)
+	for _, st := range res.Stages {
+		if st.Verdict == policyengine.VerdictFail {
+			return fmt.Sprintf("❌ **LiveReview policy: Changes requested** (blocked at %s).", titleCaseStage(st.Stage))
+		}
+	}
+	return "❌ **LiveReview policy: Changes requested.**"
+}
+
+// buildPolicyDetails renders the funnel stage by stage for the policy comment, so it shows *why* the policy decided.
+func buildPolicyDetails(host string, reviewID int64, res *policyengine.FunnelResult) string {
+	var b strings.Builder
+	verdict := "❌ Policy: Changes requested"
+	if res.Approved {
+		verdict = "✅ Policy: Approved"
+	}
+	review := fmt.Sprintf("Review #%d", reviewID)
+	if host != "" {
+		review = fmt.Sprintf("[Review #%d](%s/#/reviews/%d)", reviewID, strings.TrimSuffix(host, "/"), reviewID)
+	}
+	fmt.Fprintf(&b, "#### %s · %s\n\n", verdict, review)
 
 	b.WriteString("| Stage | Result | Detail |\n|---|---|---|\n")
 	for _, st := range res.Stages {
-		icon := "✅"
-		if st.Verdict == "fail" {
-			icon = "❌"
-		} else if st.Verdict == "skip" {
-			icon = "⏭️"
-		}
 		reason := ""
 		if r, ok := st.Detail["reason"].(string); ok {
-			reason = r
+			reason = strings.ReplaceAll(r, "|", "\\|")
 		}
-		fmt.Fprintf(&b, "| %s | %s | %s |\n", titleCaseStage(st.Stage), icon, reason)
+		fmt.Fprintf(&b, "| %s | %s | %s |\n", titleCaseStage(st.Stage), stageIcon(st.Verdict), reason)
 	}
-
-	if host != "" {
-		fmt.Fprintf(&b, "\n[View full review](%s/#/reviews/%d)\n", strings.TrimSuffix(host, "/"), reviewID)
-	}
+	b.WriteString("\n")
 	return b.String()
+}
+
+func stageIcon(verdict string) string {
+	switch verdict {
+	case policyengine.VerdictFail, policyengine.FinalBlocked:
+		return "❌"
+	case policyengine.VerdictSkip:
+		return "⏭️"
+	default:
+		return "✅"
+	}
 }
 
 func titleCaseStage(s string) string {

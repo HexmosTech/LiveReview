@@ -510,19 +510,8 @@ func (c *GitLabHTTPClient) tryFormBasedLineComment(projectID string, mrIID int, 
 	return nil
 }
 
-// AppendToMRDescription adds section to the end of the MR description, unless marker is already in it.
-func (c *GitLabHTTPClient) AppendToMRDescription(projectID string, mrIID int, marker, section string) error {
-	mr, err := c.GetMergeRequest(projectID, mrIID)
-	if err != nil {
-		return err
-	}
-	if strings.Contains(mr.Description, marker) {
-		return nil
-	}
-	description := section
-	if strings.TrimSpace(mr.Description) != "" {
-		description = strings.TrimRight(mr.Description, "\n") + "\n\n" + section
-	}
+// UpdateMRDescription replaces the MR description.
+func (c *GitLabHTTPClient) UpdateMRDescription(projectID string, mrIID int, description string) error {
 	data, err := json.Marshal(map[string]string{"description": description})
 	if err != nil {
 		return fmt.Errorf("failed to encode request: %w", err)

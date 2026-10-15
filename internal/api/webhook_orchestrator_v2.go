@@ -99,6 +99,11 @@ type prStateConverter interface {
 	ConvertPullRequestStateEvent(headers map[string]string, body []byte) (*prsync.PullRequestStateEvent, bool, error)
 }
 
+// prStateEventAlsoUnified lists providers whose PR state events must also run the normal flow after the sync is queued.
+// Only Bitbucket needs it (reviewer assignment); for Azure and Gitea that flow rejects PR events with a 422,
+// which makes Azure put the Service Hook on probation.
+var prStateEventAlsoUnified = map[string]bool{"bitbucket": true}
+
 // ProcessWebhookEvent is the main entry point for webhook processing (replaces individual handlers)
 func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 	startTime := time.Now()
@@ -174,11 +179,14 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 				log.Printf("[ERROR] Failed to queue PR state sync job: %v", err)
 				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to queue pr state sync"})
 			}
-			return c.JSON(http.StatusOK, map[string]string{
-				"status":     "accepted",
-				"provider":   providerName,
-				"event_type": "pr_state_sync",
-			})
+			// These providers' PR events also feed the normal flow (e.g. reviewer assignment), so keep going.
+			if !prStateEventAlsoUnified[providerName] {
+				return c.JSON(http.StatusOK, map[string]string{
+					"status":     "accepted",
+					"provider":   providerName,
+					"event_type": "pr_state_sync",
+				})
+			}
 		}
 	}
 

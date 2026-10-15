@@ -1,7 +1,7 @@
 \restrict dbmate
 
--- Dumped from database version 15.17 (Debian 15.17-1.pgdg13+1)
--- Dumped by pg_dump version 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
+-- Dumped from database version 15.18
+-- Dumped by pg_dump version 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -520,6 +520,50 @@ ALTER SEQUENCE public.auth_tokens_id_seq OWNED BY public.auth_tokens.id;
 
 
 --
+-- Name: auto_approve_policies; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.auto_approve_policies (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    repository_id bigint,
+    mode text DEFAULT 'custom'::text NOT NULL,
+    min_author_level integer DEFAULT 1 NOT NULL,
+    eligibility_whitelist_user_ids bigint[] DEFAULT '{}'::bigint[] NOT NULL,
+    risk_threshold_percentile integer DEFAULT 20 NOT NULL,
+    require_llm_confidence integer DEFAULT 8 NOT NULL,
+    blocking_ruleset_ids bigint[] DEFAULT '{}'::bigint[] NOT NULL,
+    landing_delay_seconds integer DEFAULT 0 NOT NULL,
+    daily_approve_cap integer,
+    restrict_outcome_reporting_to_admins boolean DEFAULT false NOT NULL,
+    force_approve_min_level integer DEFAULT 3 NOT NULL,
+    created_by bigint,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT auto_approve_policies_mode_check CHECK ((mode = ANY (ARRAY['inherit'::text, 'custom'::text, 'always_approve'::text, 'never_approve'::text])))
+);
+
+
+--
+-- Name: auto_approve_policies_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.auto_approve_policies_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: auto_approve_policies_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.auto_approve_policies_id_seq OWNED BY public.auto_approve_policies.id;
+
+
+--
 -- Name: billing_notification_outbox; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -651,7 +695,7 @@ CREATE TABLE public.chat_charts (
     vega_spec jsonb NOT NULL,
     raw_llm_output text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    context text[],
+    context jsonb,
     stats jsonb
 );
 
@@ -730,7 +774,7 @@ CREATE TABLE public.chat_files (
     rows integer,
     data bytea NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    context text[]
+    context jsonb
 );
 
 
@@ -767,7 +811,7 @@ CREATE TABLE public.chat_messages (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     search_vector tsvector,
     debug_artifacts jsonb,
-    CONSTRAINT chat_messages_role_check CHECK (((role)::text = ANY (ARRAY[('user'::character varying)::text, ('assistant'::character varying)::text])))
+    CONSTRAINT chat_messages_role_check CHECK (((role)::text = ANY ((ARRAY['user'::character varying, 'assistant'::character varying])::text[])))
 );
 
 
@@ -1653,6 +1697,7 @@ CREATE TABLE public.pull_requests (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     links_comment_posted_at timestamp with time zone,
+    author_email text,
     CONSTRAINT pull_requests_last_synced_source_check CHECK ((last_synced_source = ANY (ARRAY['webhook'::text, 'poll'::text, 'backfill'::text]))),
     CONSTRAINT pull_requests_state_check CHECK ((state = ANY (ARRAY['open'::text, 'closed'::text, 'merged'::text])))
 );
@@ -2041,22 +2086,6 @@ ALTER SEQUENCE public.review_commits_id_seq OWNED BY public.review_commits.id;
 
 
 --
--- Name: review_events; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.review_events (
-    id bigint NOT NULL,
-    review_id bigint NOT NULL,
-    org_id bigint NOT NULL,
-    ts timestamp with time zone DEFAULT now() NOT NULL,
-    event_type text NOT NULL,
-    level text,
-    batch_id text,
-    data jsonb NOT NULL
-);
-
-
---
 -- Name: review_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -2069,22 +2098,19 @@ CREATE SEQUENCE public.review_events_id_seq
 
 
 --
--- Name: review_events_id_seq1; Type: SEQUENCE; Schema: public; Owner: -
+-- Name: review_events; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE SEQUENCE public.review_events_id_seq1
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: review_events_id_seq1; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.review_events_id_seq1 OWNED BY public.review_events.id;
+CREATE TABLE public.review_events (
+    id bigint DEFAULT nextval('public.review_events_id_seq'::regclass) NOT NULL,
+    review_id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    ts timestamp with time zone DEFAULT now() NOT NULL,
+    event_type text NOT NULL,
+    level text,
+    batch_id text,
+    data jsonb NOT NULL
+);
 
 
 --
@@ -2129,6 +2155,113 @@ CREATE SEQUENCE public.review_feedback_id_seq
 --
 
 ALTER SEQUENCE public.review_feedback_id_seq OWNED BY public.review_feedback.id;
+
+
+--
+-- Name: review_outcomes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.review_outcomes (
+    id bigint NOT NULL,
+    review_id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    reported_by_user_id bigint,
+    outcome_type text NOT NULL,
+    source text NOT NULL,
+    reason text NOT NULL,
+    detail jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT review_outcomes_outcome_type_check CHECK ((outcome_type = ANY (ARRAY['revert'::text, 'incident'::text, 'confirmed_safe'::text]))),
+    CONSTRAINT review_outcomes_source_check CHECK ((source = ANY (ARRAY['webhook'::text, 'manual'::text, 'ci'::text, 'test'::text])))
+);
+
+
+--
+-- Name: review_outcomes_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.review_outcomes_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: review_outcomes_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.review_outcomes_id_seq OWNED BY public.review_outcomes.id;
+
+
+--
+-- Name: review_policy_log; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.review_policy_log (
+    id bigint NOT NULL,
+    review_id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    stage text NOT NULL,
+    verdict text NOT NULL,
+    detail jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: review_policy_log_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.review_policy_log_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: review_policy_log_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.review_policy_log_id_seq OWNED BY public.review_policy_log.id;
+
+
+--
+-- Name: review_policy_overrides; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.review_policy_overrides (
+    id bigint NOT NULL,
+    review_id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    actor_user_id bigint NOT NULL,
+    original_verdict text NOT NULL,
+    forced_verdict text NOT NULL,
+    reason text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: review_policy_overrides_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.review_policy_overrides_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: review_policy_overrides_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.review_policy_overrides_id_seq OWNED BY public.review_policy_overrides.id;
 
 
 --
@@ -2198,6 +2331,109 @@ ALTER SEQUENCE public.reviews_id_seq OWNED BY public.reviews.id;
 
 
 --
+-- Name: risk_factor_overrides; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.risk_factor_overrides (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    feature_category text NOT NULL,
+    multiplier double precision DEFAULT 1.0 NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: risk_factor_overrides_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.risk_factor_overrides_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: risk_factor_overrides_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.risk_factor_overrides_id_seq OWNED BY public.risk_factor_overrides.id;
+
+
+--
+-- Name: risk_feature_snapshots; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.risk_feature_snapshots (
+    id bigint NOT NULL,
+    review_id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    model_version integer NOT NULL,
+    features jsonb NOT NULL,
+    score double precision NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: risk_feature_snapshots_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.risk_feature_snapshots_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: risk_feature_snapshots_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.risk_feature_snapshots_id_seq OWNED BY public.risk_feature_snapshots.id;
+
+
+--
+-- Name: risk_model_versions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.risk_model_versions (
+    id bigint NOT NULL,
+    org_id bigint,
+    version integer NOT NULL,
+    weights_json jsonb NOT NULL,
+    trained_at timestamp with time zone DEFAULT now() NOT NULL,
+    training_sample_count integer DEFAULT 0 NOT NULL,
+    holdout_auc double precision,
+    update_kind text NOT NULL,
+    is_active boolean DEFAULT false NOT NULL,
+    CONSTRAINT risk_model_versions_update_kind_check CHECK ((update_kind = ANY (ARRAY['seed'::text, 'online_update'::text, 'batch_refit'::text])))
+);
+
+
+--
+-- Name: risk_model_versions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.risk_model_versions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: risk_model_versions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.risk_model_versions_id_seq OWNED BY public.risk_model_versions.id;
+
+
+--
 -- Name: river_client; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2248,23 +2484,28 @@ CREATE SEQUENCE public.river_job_id_seq
 
 CREATE TABLE public.river_job (
     id bigint DEFAULT nextval('public.river_job_id_seq'::regclass) NOT NULL,
-    args jsonb DEFAULT '{}'::jsonb NOT NULL,
-    attempt smallint DEFAULT 0 NOT NULL,
-    attempted_at timestamp with time zone,
-    attempted_by text[],
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    errors jsonb[],
-    finalized_at timestamp with time zone,
-    kind text NOT NULL,
-    max_attempts smallint DEFAULT 3 NOT NULL,
-    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    priority smallint DEFAULT 1 NOT NULL,
-    queue text DEFAULT 'default'::text NOT NULL,
     state public.river_job_state DEFAULT 'available'::public.river_job_state NOT NULL,
+    attempt smallint DEFAULT 0 NOT NULL,
+    max_attempts smallint NOT NULL,
+    attempted_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    finalized_at timestamp with time zone,
     scheduled_at timestamp with time zone DEFAULT now() NOT NULL,
-    tags character varying(255)[] DEFAULT '{}'::character varying[],
+    priority smallint DEFAULT 1 NOT NULL,
+    args jsonb NOT NULL,
+    attempted_by text[],
+    errors jsonb[],
+    kind text NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    queue text DEFAULT 'default'::text NOT NULL,
+    tags character varying(255)[] DEFAULT '{}'::character varying[] NOT NULL,
     unique_key bytea,
-    unique_states bit(8)
+    unique_states bit(8),
+    CONSTRAINT finalized_or_finalized_at_null CHECK ((((finalized_at IS NULL) AND (state <> ALL (ARRAY['cancelled'::public.river_job_state, 'completed'::public.river_job_state, 'discarded'::public.river_job_state]))) OR ((finalized_at IS NOT NULL) AND (state = ANY (ARRAY['cancelled'::public.river_job_state, 'completed'::public.river_job_state, 'discarded'::public.river_job_state]))))),
+    CONSTRAINT kind_length CHECK (((char_length(kind) > 0) AND (char_length(kind) < 128))),
+    CONSTRAINT max_attempts_is_positive CHECK ((max_attempts > 0)),
+    CONSTRAINT priority_in_range CHECK (((priority >= 1) AND (priority <= 4))),
+    CONSTRAINT queue_length CHECK (((char_length(queue) > 0) AND (char_length(queue) < 128)))
 );
 
 
@@ -2841,6 +3082,24 @@ CREATE SEQUENCE public.upgrade_request_events_id_seq
 
 
 --
+-- Name: upgrade_request_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.upgrade_request_events (
+    id bigint DEFAULT nextval('public.upgrade_request_events_id_seq'::regclass) NOT NULL,
+    upgrade_request_id character varying(36) NOT NULL,
+    org_id bigint NOT NULL,
+    event_source character varying(64) NOT NULL,
+    event_type character varying(64) NOT NULL,
+    from_status character varying(64),
+    to_status character varying(64),
+    event_payload jsonb,
+    event_time timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: upgrade_requests; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2897,6 +3156,42 @@ CREATE SEQUENCE public.upgrade_requests_id_seq
 --
 
 ALTER SEQUENCE public.upgrade_requests_id_seq OWNED BY public.upgrade_requests.id;
+
+
+--
+-- Name: user_identities; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.user_identities (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    kind text NOT NULL,
+    value text NOT NULL,
+    created_by bigint,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT user_identities_kind_check CHECK ((kind = ANY (ARRAY['email'::text, 'username'::text])))
+);
+
+
+--
+-- Name: user_identities_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.user_identities_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: user_identities_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.user_identities_id_seq OWNED BY public.user_identities.id;
 
 
 --
@@ -3004,7 +3299,8 @@ CREATE TABLE public.users (
     password_reset_required boolean DEFAULT false NOT NULL,
     onboarding_api_key text,
     last_cli_used_at timestamp with time zone,
-    default_org_id bigint
+    default_org_id bigint,
+    review_level integer DEFAULT 1 NOT NULL
 );
 
 
@@ -3104,6 +3400,13 @@ ALTER TABLE ONLY public.api_keys ALTER COLUMN id SET DEFAULT nextval('public.api
 --
 
 ALTER TABLE ONLY public.auth_tokens ALTER COLUMN id SET DEFAULT nextval('public.auth_tokens_id_seq'::regclass);
+
+
+--
+-- Name: auto_approve_policies id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auto_approve_policies ALTER COLUMN id SET DEFAULT nextval('public.auto_approve_policies_id_seq'::regclass);
 
 
 --
@@ -3310,13 +3613,6 @@ ALTER TABLE ONLY public.review_commits ALTER COLUMN id SET DEFAULT nextval('publ
 
 
 --
--- Name: review_events id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.review_events ALTER COLUMN id SET DEFAULT nextval('public.review_events_id_seq1'::regclass);
-
-
---
 -- Name: review_feedback id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3324,10 +3620,52 @@ ALTER TABLE ONLY public.review_feedback ALTER COLUMN id SET DEFAULT nextval('pub
 
 
 --
+-- Name: review_outcomes id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_outcomes ALTER COLUMN id SET DEFAULT nextval('public.review_outcomes_id_seq'::regclass);
+
+
+--
+-- Name: review_policy_log id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_policy_log ALTER COLUMN id SET DEFAULT nextval('public.review_policy_log_id_seq'::regclass);
+
+
+--
+-- Name: review_policy_overrides id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_policy_overrides ALTER COLUMN id SET DEFAULT nextval('public.review_policy_overrides_id_seq'::regclass);
+
+
+--
 -- Name: reviews id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.reviews ALTER COLUMN id SET DEFAULT nextval('public.reviews_id_seq'::regclass);
+
+
+--
+-- Name: risk_factor_overrides id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.risk_factor_overrides ALTER COLUMN id SET DEFAULT nextval('public.risk_factor_overrides_id_seq'::regclass);
+
+
+--
+-- Name: risk_feature_snapshots id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.risk_feature_snapshots ALTER COLUMN id SET DEFAULT nextval('public.risk_feature_snapshots_id_seq'::regclass);
+
+
+--
+-- Name: risk_model_versions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.risk_model_versions ALTER COLUMN id SET DEFAULT nextval('public.risk_model_versions_id_seq'::regclass);
 
 
 --
@@ -3398,6 +3736,13 @@ ALTER TABLE ONLY public.upgrade_replacement_cutovers ALTER COLUMN id SET DEFAULT
 --
 
 ALTER TABLE ONLY public.upgrade_requests ALTER COLUMN id SET DEFAULT nextval('public.upgrade_requests_id_seq'::regclass);
+
+
+--
+-- Name: user_identities id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_identities ALTER COLUMN id SET DEFAULT nextval('public.user_identities_id_seq'::regclass);
 
 
 --
@@ -3482,6 +3827,14 @@ ALTER TABLE ONLY public.api_keys
 
 ALTER TABLE ONLY public.auth_tokens
     ADD CONSTRAINT auth_tokens_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: auto_approve_policies auto_approve_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auto_approve_policies
+    ADD CONSTRAINT auto_approve_policies_pkey PRIMARY KEY (id);
 
 
 --
@@ -3845,11 +4198,67 @@ ALTER TABLE ONLY public.review_feedback
 
 
 --
+-- Name: review_outcomes review_outcomes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_outcomes
+    ADD CONSTRAINT review_outcomes_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: review_policy_log review_policy_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_policy_log
+    ADD CONSTRAINT review_policy_log_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: review_policy_overrides review_policy_overrides_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_policy_overrides
+    ADD CONSTRAINT review_policy_overrides_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: reviews reviews_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.reviews
     ADD CONSTRAINT reviews_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: risk_factor_overrides risk_factor_overrides_org_id_feature_category_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.risk_factor_overrides
+    ADD CONSTRAINT risk_factor_overrides_org_id_feature_category_key UNIQUE (org_id, feature_category);
+
+
+--
+-- Name: risk_factor_overrides risk_factor_overrides_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.risk_factor_overrides
+    ADD CONSTRAINT risk_factor_overrides_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: risk_feature_snapshots risk_feature_snapshots_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.risk_feature_snapshots
+    ADD CONSTRAINT risk_feature_snapshots_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: risk_model_versions risk_model_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.risk_model_versions
+    ADD CONSTRAINT risk_model_versions_pkey PRIMARY KEY (id);
 
 
 --
@@ -4053,6 +4462,14 @@ ALTER TABLE ONLY public.upgrade_replacement_cutovers
 
 
 --
+-- Name: upgrade_request_events upgrade_request_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_request_events
+    ADD CONSTRAINT upgrade_request_events_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: upgrade_requests upgrade_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4146,6 +4563,22 @@ ALTER TABLE ONLY public.repositories
 
 ALTER TABLE ONLY public.review_commits
     ADD CONSTRAINT uq_review_commits_review_ref UNIQUE (review_id, ref);
+
+
+--
+-- Name: user_identities user_identities_org_id_kind_value_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_identities
+    ADD CONSTRAINT user_identities_org_id_kind_value_key UNIQUE (org_id, kind, value);
+
+
+--
+-- Name: user_identities user_identities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_identities
+    ADD CONSTRAINT user_identities_pkey PRIMARY KEY (id);
 
 
 --
@@ -4383,6 +4816,27 @@ CREATE INDEX idx_auth_tokens_type_user ON public.auth_tokens USING btree (token_
 --
 
 CREATE INDEX idx_auth_tokens_user_id ON public.auth_tokens USING btree (user_id);
+
+
+--
+-- Name: idx_auto_approve_policies_org; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_auto_approve_policies_org ON public.auto_approve_policies USING btree (org_id);
+
+
+--
+-- Name: idx_auto_approve_policies_org_default; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_auto_approve_policies_org_default ON public.auto_approve_policies USING btree (org_id) WHERE (repository_id IS NULL);
+
+
+--
+-- Name: idx_auto_approve_policies_org_repo; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_auto_approve_policies_org_repo ON public.auto_approve_policies USING btree (org_id, repository_id) WHERE (repository_id IS NOT NULL);
 
 
 --
@@ -5002,6 +5456,48 @@ CREATE INDEX idx_review_feedback_vote_type ON public.review_feedback USING btree
 
 
 --
+-- Name: idx_review_outcomes_org_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_outcomes_org_created ON public.review_outcomes USING btree (org_id, created_at DESC);
+
+
+--
+-- Name: idx_review_outcomes_review; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_outcomes_review ON public.review_outcomes USING btree (review_id);
+
+
+--
+-- Name: idx_review_policy_log_org; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_policy_log_org ON public.review_policy_log USING btree (org_id, created_at DESC);
+
+
+--
+-- Name: idx_review_policy_log_review; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_policy_log_review ON public.review_policy_log USING btree (review_id);
+
+
+--
+-- Name: idx_review_policy_overrides_org; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_policy_overrides_org ON public.review_policy_overrides USING btree (org_id, created_at DESC);
+
+
+--
+-- Name: idx_review_policy_overrides_review; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_review_policy_overrides_review ON public.review_policy_overrides USING btree (review_id);
+
+
+--
 -- Name: idx_reviews_connector_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5069,6 +5565,27 @@ CREATE INDEX idx_reviews_repository ON public.reviews USING btree (repository);
 --
 
 CREATE INDEX idx_reviews_status ON public.reviews USING btree (status);
+
+
+--
+-- Name: idx_risk_feature_snapshots_org; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_risk_feature_snapshots_org ON public.risk_feature_snapshots USING btree (org_id, created_at DESC);
+
+
+--
+-- Name: idx_risk_feature_snapshots_review; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_risk_feature_snapshots_review ON public.risk_feature_snapshots USING btree (review_id);
+
+
+--
+-- Name: idx_risk_model_versions_org_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_risk_model_versions_org_active ON public.risk_model_versions USING btree (org_id) WHERE is_active;
 
 
 --
@@ -5254,6 +5771,20 @@ CREATE INDEX idx_upgrade_replacement_cutovers_org_status ON public.upgrade_repla
 
 
 --
+-- Name: idx_upgrade_request_events_org_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_request_events_org_time ON public.upgrade_request_events USING btree (org_id, event_time DESC);
+
+
+--
+-- Name: idx_upgrade_request_events_request_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_upgrade_request_events_request_time ON public.upgrade_request_events USING btree (upgrade_request_id, event_time DESC);
+
+
+--
 -- Name: idx_upgrade_requests_customer_state; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5300,6 +5831,20 @@ CREATE INDEX idx_upgrade_requests_pending_apply ON public.upgrade_requests USING
 --
 
 CREATE INDEX idx_upgrade_requests_subscription ON public.upgrade_requests USING btree (razorpay_subscription_id) WHERE (razorpay_subscription_id IS NOT NULL);
+
+
+--
+-- Name: idx_user_identities_lookup; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_identities_lookup ON public.user_identities USING btree (org_id, kind, value);
+
+
+--
+-- Name: idx_user_identities_org_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_user_identities_org_user ON public.user_identities USING btree (org_id, user_id);
 
 
 --
@@ -5446,7 +5991,7 @@ CREATE INDEX idx_webhook_registry_provider_project ON public.webhook_registry US
 -- Name: river_job_args_index; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX river_job_args_index ON public.river_job USING gin (args jsonb_path_ops);
+CREATE INDEX river_job_args_index ON public.river_job USING gin (args);
 
 
 --
@@ -5457,10 +6002,10 @@ CREATE INDEX river_job_kind ON public.river_job USING btree (kind);
 
 
 --
--- Name: river_job_kind_unique_key_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: river_job_metadata_index; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX river_job_kind_unique_key_idx ON public.river_job USING btree (kind, unique_key) WHERE (unique_key IS NOT NULL);
+CREATE INDEX river_job_metadata_index ON public.river_job USING gin (metadata);
 
 
 --
@@ -5468,13 +6013,6 @@ CREATE UNIQUE INDEX river_job_kind_unique_key_idx ON public.river_job USING btre
 --
 
 CREATE INDEX river_job_prioritized_fetching_index ON public.river_job USING btree (state, queue, priority, scheduled_at, id);
-
-
---
--- Name: river_job_scheduled_at_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX river_job_scheduled_at_index ON public.river_job USING btree (scheduled_at) WHERE (state = 'scheduled'::public.river_job_state);
 
 
 --
@@ -5488,7 +6026,7 @@ CREATE INDEX river_job_state_and_finalized_at_index ON public.river_job USING bt
 -- Name: river_job_unique_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX river_job_unique_idx ON public.river_job USING btree (kind, ((args ->> 'unique_key'::text))) WHERE ((state = 'available'::public.river_job_state) OR (state = 'scheduled'::public.river_job_state) OR (state = 'retryable'::public.river_job_state));
+CREATE UNIQUE INDEX river_job_unique_idx ON public.river_job USING btree (unique_key) WHERE ((unique_key IS NOT NULL) AND (unique_states IS NOT NULL) AND public.river_job_state_in_bitmask(unique_states, state));
 
 
 --
@@ -5635,6 +6173,22 @@ ALTER TABLE ONLY public.api_keys
 
 ALTER TABLE ONLY public.auth_tokens
     ADD CONSTRAINT auth_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: auto_approve_policies auto_approve_policies_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auto_approve_policies
+    ADD CONSTRAINT auto_approve_policies_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: auto_approve_policies auto_approve_policies_repository_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auto_approve_policies
+    ADD CONSTRAINT auto_approve_policies_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES public.repositories(id);
 
 
 --
@@ -6126,6 +6680,62 @@ ALTER TABLE ONLY public.review_feedback
 
 
 --
+-- Name: review_outcomes review_outcomes_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_outcomes
+    ADD CONSTRAINT review_outcomes_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: review_outcomes review_outcomes_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_outcomes
+    ADD CONSTRAINT review_outcomes_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id);
+
+
+--
+-- Name: review_policy_log review_policy_log_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_policy_log
+    ADD CONSTRAINT review_policy_log_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: review_policy_log review_policy_log_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_policy_log
+    ADD CONSTRAINT review_policy_log_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id);
+
+
+--
+-- Name: review_policy_overrides review_policy_overrides_actor_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_policy_overrides
+    ADD CONSTRAINT review_policy_overrides_actor_user_id_fkey FOREIGN KEY (actor_user_id) REFERENCES public.users(id);
+
+
+--
+-- Name: review_policy_overrides review_policy_overrides_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_policy_overrides
+    ADD CONSTRAINT review_policy_overrides_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: review_policy_overrides review_policy_overrides_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_policy_overrides
+    ADD CONSTRAINT review_policy_overrides_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id);
+
+
+--
 -- Name: reviews reviews_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6139,6 +6749,38 @@ ALTER TABLE ONLY public.reviews
 
 ALTER TABLE ONLY public.reviews
     ADD CONSTRAINT reviews_pull_request_id_fkey FOREIGN KEY (pull_request_id) REFERENCES public.pull_requests(id) ON DELETE SET NULL;
+
+
+--
+-- Name: risk_factor_overrides risk_factor_overrides_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.risk_factor_overrides
+    ADD CONSTRAINT risk_factor_overrides_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: risk_feature_snapshots risk_feature_snapshots_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.risk_feature_snapshots
+    ADD CONSTRAINT risk_feature_snapshots_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: risk_feature_snapshots risk_feature_snapshots_review_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.risk_feature_snapshots
+    ADD CONSTRAINT risk_feature_snapshots_review_id_fkey FOREIGN KEY (review_id) REFERENCES public.reviews(id);
+
+
+--
+-- Name: risk_model_versions risk_model_versions_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.risk_model_versions
+    ADD CONSTRAINT risk_model_versions_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
 
 
 --
@@ -6286,6 +6928,22 @@ ALTER TABLE ONLY public.upgrade_replacement_cutovers
 
 
 --
+-- Name: upgrade_request_events upgrade_request_events_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_request_events
+    ADD CONSTRAINT upgrade_request_events_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: upgrade_request_events upgrade_request_events_upgrade_request_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.upgrade_request_events
+    ADD CONSTRAINT upgrade_request_events_upgrade_request_id_fkey FOREIGN KEY (upgrade_request_id) REFERENCES public.upgrade_requests(upgrade_request_id) ON DELETE CASCADE;
+
+
+--
 -- Name: upgrade_requests upgrade_requests_actor_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6307,6 +6965,22 @@ ALTER TABLE ONLY public.upgrade_requests
 
 ALTER TABLE ONLY public.upgrade_requests
     ADD CONSTRAINT upgrade_requests_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: user_identities user_identities_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_identities
+    ADD CONSTRAINT user_identities_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: user_identities user_identities_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_identities
+    ADD CONSTRAINT user_identities_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
 
 
 --
@@ -6549,6 +7223,11 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260824190000'),
     ('20260825140000'),
     ('20260825190000'),
+    ('20260905000000'),
+    ('20260905010000'),
+    ('20260905020000'),
+    ('20260905030000'),
     ('20260905090000'),
     ('20261012090000'),
-    ('20261012100000');
+    ('20261012100000'),
+    ('20261013090000');

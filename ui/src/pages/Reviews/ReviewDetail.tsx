@@ -280,6 +280,20 @@ const ReviewDetail: React.FC = () => {
         }
     }, [review]);
 
+    // When a PR-link review finishes while the page is open, jump to its Auto Approve result.
+    const lastStatusRef = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        const prev = lastStatusRef.current;
+        lastStatusRef.current = review?.status;
+        if (
+            (prev === 'created' || prev === 'in_progress') &&
+            review?.status === 'completed' &&
+            review.metadata?.pr_link_policy
+        ) {
+            setActiveTab('auto-approve');
+        }
+    }, [review?.status, review?.metadata?.pr_link_policy]);
+
     const githubBaseUrl = useMemo(() => {
         if (!review || !review.provider?.toLowerCase().startsWith('github')) return null;
         return `https://github.com/${review.repository}`;

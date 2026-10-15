@@ -18,10 +18,10 @@ built on CI/CD Gates jq rulesets) remain a later feature.
 
 | Topic | Decision |
 |---|---|
-| Providers | GitHub and GitLab only (first phase) |
+| Providers | GitHub, GitLab, Bitbucket, Gitea, Azure DevOps |
 | Which repos | Every repo with the LiveReview webhook installed |
 | Which PRs | Only newly opened PRs (GitHub action `opened`, GitLab action `open`). Existing open PRs, reopen, push, and edit events are ignored. |
-| Where links go | A section appended to the PR description, added once (marker `<!-- livereview:links -->`). Replaced the earlier bot comment. |
+| Where links go | A section at the end of the PR description, between the markdown-comment markers `[//]: # (livereview:links)` and `[//]: # (livereview:end)` (HTML comments show as text on Bitbucket; the old `<!-- … -->` markers are still recognised). Added at PR open; rewritten in place after each link-started review with an "Auto-approval decisions" table (one row per review, latest first: Review, Decision, Reason). The stage-by-stage policy breakdown is a separate PR comment. Replaced the earlier bot comment. |
 | Duplicate webhooks | Guarded by a "links added" flag (`links_comment_posted_at`) on the `pull_requests` row |
 | Auth | Both links require a LiveReview login. Logged-out users log in and are sent back to the link (existing `redirectAfterLogin` flow). |
 | Org | The user is switched to the PR's org automatically. Non-members get "not found". |
@@ -141,5 +141,7 @@ message. Use a ref guard so React StrictMode doesn't fire the POST twice in dev.
 - Opening the trigger link starts a review, so chat/email link previewers (for a logged-in
   user) could start reviews. The 10-minute ongoing-review reuse limits this. Revisit with a
   confirm page if it becomes a problem.
-- Only GitHub and GitLab. Bitbucket, Gitea, and Azure DevOps don't sync PR state into
-  `pull_requests` yet.
+- Bitbucket, Gitea, and Azure DevOps sync PRs into `pull_requests` from webhooks only (no
+  periodic list sync), so PRs opened before the webhook was installed get no links.
+- The description decisions table keeps the last 10 reviews (Azure DevOps caps descriptions
+  at 4000 characters).

@@ -3,6 +3,7 @@ package jobqueue
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -10,7 +11,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/livereview/internal/policyengine"
 	"github.com/livereview/internal/providers"
+	providerazure "github.com/livereview/internal/providers/azuredevops"
+	providerbitbucket "github.com/livereview/internal/providers/bitbucket"
+	providergitea "github.com/livereview/internal/providers/gitea"
 	providergithub "github.com/livereview/internal/providers/github"
 	providergitlab "github.com/livereview/internal/providers/gitlab"
 	"github.com/livereview/internal/prsync"
@@ -32,6 +37,7 @@ type repositoryConnectorInfo struct {
 	ProviderURL    string
 	PATToken       string
 	AccessToken    string
+	Email          string // Bitbucket basic-auth user, from connector metadata
 }
 
 func (info repositoryConnectorInfo) token() string {
@@ -45,12 +51,12 @@ func loadRepositoryConnectorInfo(db *sql.DB, repositoryID int64) (*repositoryCon
 	var info repositoryConnectorInfo
 	err := db.QueryRow(`
 		SELECT r.id, r.org_id, r.connector_id, r.provider, r.provider_repo_id, r.full_name, r.last_synced_at,
-		       i.provider_url, COALESCE(i.pat_token, ''), COALESCE(i.access_token, '')
+		       i.provider_url, COALESCE(i.pat_token, ''), COALESCE(i.access_token, ''), COALESCE(i.metadata->>'email', '')
 		FROM repositories r
 		JOIN integration_tokens i ON i.id = r.connector_id
 		WHERE r.id = $1
 	`, repositoryID).Scan(&info.RepositoryID, &info.OrgID, &info.ConnectorID, &info.Provider, &info.ProviderRepoID,
-		&info.FullName, &info.LastSyncedAt, &info.ProviderURL, &info.PATToken, &info.AccessToken)
+		&info.FullName, &info.LastSyncedAt, &info.ProviderURL, &info.PATToken, &info.AccessToken, &info.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -262,8 +268,15 @@ func (w *PRStateSyncWorker) Work(ctx context.Context, job *river.Job[PRStateSync
 	return nil
 }
 
-// prLinksMarker tags the LiveReview section in a PR description so it's only added once.
-const prLinksMarker = "<!-- livereview:links -->"
+// The LiveReview section in a PR description sits between these markers so it can be replaced in place.
+// They are markdown comments, which every provider hides (Bitbucket shows HTML comments as text).
+const (
+	prSectionStart = "[//]: # (livereview:links)"
+	prSectionEnd   = "[//]: # (livereview:end)"
+	// Markers used before the switch, still matched so older sections get replaced.
+	legacySectionStart = "<!-- livereview:links -->"
+	legacySectionEnd   = "<!-- livereview:end -->"
+)
 
 // postLinksComment adds the "Start a review / Review history" links to the end of a new PR/MR's description.
 // The links_comment_posted_at claim stops duplicate webhook deliveries from adding it twice.
@@ -286,15 +299,7 @@ func (w *PRStateSyncWorker) postLinksComment(ctx context.Context, repositoryID, 
 
 	info, err := loadRepositoryConnectorInfo(w.db, repositoryID)
 	if err == nil {
-		section := buildPRLinksSection(host, pullRequestID)
-		switch info.Provider {
-		case "github", "github-com", "github-enterprise":
-			err = providergithub.AppendToPRBody(ctx, info.ProviderURL, info.token(), info.FullName, number, prLinksMarker, section)
-		case "gitlab", "gitlab-com", "gitlab-self-hosted":
-			err = providergitlab.NewHTTPClient(info.ProviderURL, info.token()).AppendToMRDescription(info.ProviderRepoID, number, prLinksMarker, section)
-		default:
-			return nil
-		}
+		err = writePRSection(ctx, info, number, buildPRLinksSection(host, pullRequestID, ""))
 	}
 	if err != nil {
 		// Release the claim so River's retry can add it.
@@ -306,19 +311,171 @@ func (w *PRStateSyncWorker) postLinksComment(ctx context.Context, repositoryID, 
 	return nil
 }
 
-func buildPRLinksSection(host string, pullRequestID int64) string {
+// buildPRLinksSection renders the LiveReview section; history is the review history table, or "".
+func buildPRLinksSection(host string, pullRequestID int64, history string) string {
 	host = strings.TrimSuffix(host, "/")
 	return fmt.Sprintf(`%s
+
 ---
 ### 🔍 LiveReview
 
-| Action | What it does |
-|---|---|
-| ▶️ **[Start a review](%s/#/pr/%d/review)** | Reviews all changes in this PR against its target branch |
-| 📜 **[Review history](%s/#/reviews?pull_request_id=%d)** | All past reviews of this PR |
+- ▶️ **[Start a review](%s/#/pr/%d/review)**: reviews all changes in this PR against its target branch
+- 📜 **[Review history](%s/#/reviews?pull_request_id=%d)**: all past reviews of this PR
 
-<sub>Links need a LiveReview login.</sub>
-`, prLinksMarker, host, pullRequestID, host, pullRequestID)
+%s%s
+`, prSectionStart, host, pullRequestID, host, pullRequestID, history, prSectionEnd)
+}
+
+// refreshPRSection rewrites the LiveReview section with one history row per policy-checked review of this PR.
+// Rows are rebuilt from the DB each time, so retries never duplicate them.
+func refreshPRSection(ctx context.Context, db *sql.DB, info *repositoryConnectorInfo, host string, pullRequestID int64, number int) error {
+	rows, err := db.QueryContext(ctx,
+		// ponytail: only the last 10 rows, so the table stays under description size limits (Azure DevOps: 4000 chars).
+		`SELECT id, policy FROM (
+		   SELECT id, metadata->'policy_result' AS policy FROM reviews
+		   WHERE pull_request_id = $1 AND metadata ? 'policy_result' ORDER BY id DESC LIMIT 10
+		 ) recent ORDER BY id DESC`, pullRequestID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	host = strings.TrimSuffix(host, "/")
+	var b strings.Builder
+	b.WriteString("#### Auto-approval decisions\n\n| Review | Decision | Reason |\n|---|---|---|\n")
+	for rows.Next() {
+		var reviewID int64
+		var raw []byte
+		if err := rows.Scan(&reviewID, &raw); err != nil {
+			return err
+		}
+		var res policyengine.FunnelResult
+		if err := json.Unmarshal(raw, &res); err != nil {
+			continue
+		}
+		decision := "✅ Approved"
+		if !res.Approved {
+			decision = "❌ Changes requested"
+		}
+		fmt.Fprintf(&b, "| [#%d](%s/#/reviews/%d) | %s | %s |\n", reviewID, host, reviewID, decision, strings.ReplaceAll(decisionReason(&res), "|", "\\|"))
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	b.WriteString("\n")
+	return writePRSection(ctx, info, number, buildPRLinksSection(host, pullRequestID, b.String()))
+}
+
+// decisionReason is the readable "why" for one decision row: each failing stage's reason, or that all passed.
+func decisionReason(res *policyengine.FunnelResult) string {
+	if res.Approved {
+		return "All policy checks passed"
+	}
+	var parts []string
+	for _, st := range res.Stages {
+		if st.Verdict != policyengine.VerdictFail {
+			continue
+		}
+		reason, _ := st.Detail["reason"].(string)
+		if reason != "" {
+			reason = strings.ToUpper(reason[:1]) + reason[1:]
+		}
+		parts = append(parts, reason)
+	}
+	if len(parts) == 0 {
+		// Mode overrides (e.g. never_approve) block in the final stage only.
+		for _, st := range res.Stages {
+			if st.Stage == policyengine.StageFinal {
+				reason, _ := st.Detail["reason"].(string)
+				return reason
+			}
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+// upsertPRSection swaps the old LiveReview section in body for section, or appends section if there is none.
+// Sections from before the end marker existed were always last, so they are replaced up to the end of body.
+func upsertPRSection(body, section string) string {
+	startMarker, endMarker := prSectionStart, prSectionEnd
+	start := strings.Index(body, startMarker)
+	if start < 0 {
+		startMarker, endMarker = legacySectionStart, legacySectionEnd
+		start = strings.Index(body, startMarker)
+	}
+	if start < 0 {
+		if strings.TrimSpace(body) == "" {
+			return section
+		}
+		return strings.TrimRight(body, "\n") + "\n\n" + section
+	}
+	rest := ""
+	if end := strings.Index(body[start:], endMarker); end >= 0 {
+		rest = body[start+end+len(endMarker):]
+		section = strings.TrimRight(section, "\n")
+	}
+	return body[:start] + section + rest
+}
+
+// writePRSection reads the PR/MR description and saves it with the LiveReview section updated.
+func writePRSection(ctx context.Context, info *repositoryConnectorInfo, number int, section string) error {
+	var get func() (string, error)
+	var set func(string) error
+	switch info.Provider {
+	case "github", "github-com", "github-enterprise":
+		get = func() (string, error) {
+			return providergithub.GetPRBody(ctx, info.ProviderURL, info.token(), info.FullName, number)
+		}
+		set = func(b string) error {
+			return providergithub.SetPRBody(ctx, info.ProviderURL, info.token(), info.FullName, number, b)
+		}
+	case "gitlab", "gitlab-com", "gitlab-self-hosted":
+		client := providergitlab.NewHTTPClient(info.ProviderURL, info.token())
+		get = func() (string, error) {
+			mr, err := client.GetMergeRequest(info.ProviderRepoID, number)
+			if err != nil {
+				return "", err
+			}
+			return mr.Description, nil
+		}
+		set = func(b string) error { return client.UpdateMRDescription(info.ProviderRepoID, number, b) }
+	case "gitea":
+		get = func() (string, error) {
+			return providergitea.GetPRBody(ctx, info.ProviderURL, info.token(), info.FullName, number)
+		}
+		set = func(b string) error {
+			return providergitea.SetPRBody(ctx, info.ProviderURL, info.token(), info.FullName, number, b)
+		}
+	case "bitbucket":
+		get = func() (string, error) {
+			return providerbitbucket.GetPRBody(ctx, info.Email, info.token(), info.FullName, number)
+		}
+		set = func(b string) error {
+			return providerbitbucket.SetPRBody(ctx, info.Email, info.token(), info.FullName, number, b)
+		}
+	case "azuredevops":
+		client, err := azureClient(info)
+		if err != nil {
+			return err
+		}
+		get = func() (string, error) { return client.GetPRDescription(ctx, info.FullName, number) }
+		set = func(b string) error { return client.SetPRDescription(ctx, info.FullName, number, b) }
+	default:
+		return nil
+	}
+
+	body, err := get()
+	if err != nil {
+		return err
+	}
+	if next := upsertPRSection(body, section); next != body {
+		return set(next)
+	}
+	return nil
+}
+
+func azureClient(info *repositoryConnectorInfo) (*providerazure.Provider, error) {
+	return providerazure.NewProvider(providerazure.Config{BaseURL: info.ProviderURL, Token: info.token()})
 }
 
 // ReconciliationSweepJobArgs is the periodic coordinator job: it finds

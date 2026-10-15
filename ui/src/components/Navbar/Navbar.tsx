@@ -887,13 +887,6 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                     </Button>
                     </div>
 
-                    {/* Organization Selector */}
-                    <OrganizationSelector
-                        position="navbar"
-                        size="sm"
-                        className="ml-1 2xl:ml-2"
-                    />
-
                     <BillingChip />
 
                     {isCloudMode() && (
@@ -907,6 +900,13 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                     )}
 
                     <NotificationBell />
+
+                    {/* Organization Selector */}
+                    <OrganizationSelector
+                        position="navbar"
+                        size="sm"
+                        className="ml-1 2xl:ml-2"
+                    />
 
                     {/* Logout button */}
                     {onLogout && (
