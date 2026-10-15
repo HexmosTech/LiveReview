@@ -821,7 +821,9 @@ const ConnectorDetails: React.FC = () => {
                                                 {connector.type === 'bitbucket' && (
                                                     <>
                                                         <li>Generate API Token (replaces App Password)</li>
-                                                        <li>Grant repo read + pull request read</li>
+                                                        <li>
+                                                            Grant scopes: <code className="text-green-400">read:user</code>, <code className="text-green-400">read:workspace</code>, <code className="text-green-400">read:repository</code>, <code className="text-green-400">read:pullrequest</code>, <code className="text-green-400">write:pullrequest</code>, <code className="text-green-400">read:webhook</code>, <code className="text-green-400">write:webhook</code>, <code className="text-green-400">delete:webhook</code>
+                                                        </li>
                                                     </>
                                                 )}
                                             </ul>

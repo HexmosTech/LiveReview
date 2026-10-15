@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -25,22 +24,18 @@ func SubmitPullRequestReview(ctx context.Context, baseURL, pat, ownerRepo string
 	return postGitHubJSON(ctx, baseURL, pat, path, map[string]string{"event": event, "body": body})
 }
 
-// AppendToPRBody adds section to the end of the PR description, unless marker is already in it.
-func AppendToPRBody(ctx context.Context, baseURL, pat, ownerRepo string, number int, marker, section string) error {
-	path := fmt.Sprintf("/repos/%s/pulls/%d", ownerRepo, number)
+// GetPRBody returns the PR description.
+func GetPRBody(ctx context.Context, baseURL, pat, ownerRepo string, number int) (string, error) {
 	var pr struct {
 		Body string `json:"body"`
 	}
-	if err := doGitHubJSON(ctx, http.MethodGet, baseURL, pat, path, nil, &pr); err != nil {
-		return err
-	}
-	if strings.Contains(pr.Body, marker) {
-		return nil
-	}
-	body := section
-	if strings.TrimSpace(pr.Body) != "" {
-		body = strings.TrimRight(pr.Body, "\n") + "\n\n" + section
-	}
+	err := doGitHubJSON(ctx, http.MethodGet, baseURL, pat, fmt.Sprintf("/repos/%s/pulls/%d", ownerRepo, number), nil, &pr)
+	return pr.Body, err
+}
+
+// SetPRBody replaces the PR description.
+func SetPRBody(ctx context.Context, baseURL, pat, ownerRepo string, number int, body string) error {
+	path := fmt.Sprintf("/repos/%s/pulls/%d", ownerRepo, number)
 	return doGitHubJSON(ctx, http.MethodPatch, baseURL, pat, path, map[string]string{"body": body}, nil)
 }
 

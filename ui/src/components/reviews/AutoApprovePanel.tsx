@@ -20,7 +20,8 @@ const STAGE_HINT: Record<string, string> = {
   final: HELP.stageFinal,
 };
 
-const verdictIcon = (v: string) => (v === 'pass' ? '✅' : v === 'fail' ? '❌' : '⏭️');
+const verdictIcon = (v: string) =>
+  v === 'pass' || v === 'approved' ? '✅' : v === 'fail' || v === 'blocked' ? '❌' : '⏭️';
 
 // Every stage's detail blob carries more than the one-line reason already
 // shown inline (risk's full feature-by-feature breakdown, llm's class +

@@ -5,7 +5,7 @@
 
 ## Purpose
 
-When a new pull/merge request is opened on GitHub or GitLab in a repo with the
+When a new pull/merge request is opened on GitHub, GitLab, Bitbucket, Gitea, or Azure DevOps in a repo with the
 LiveReview webhook installed, LiveReview adds a section with two links to the end of its description:
 
 - **Start a review** → this page. It starts a LiveReview review of that PR and
@@ -30,14 +30,23 @@ aren't members of that org see "pull request wasn't found".
 - If a review of the same PR started less than 10 minutes ago and is still
   running, the link opens that review instead of starting another one.
 - Each later click starts a new review (counts against the org's review quota).
-- When a review started from this link finishes, LiveReview checks it against a
-  fixed approval policy: **no critical findings**. It posts a policy comment on
-  the PR (counts of critical/warning/info findings, plus up to 5 critical
-  findings) and then:
-  - GitHub: approves the PR, or submits "Request changes" if it failed. If
-    GitHub refuses (e.g. the bot account authored the PR), only the comment is
-    posted.
-  - GitLab: approves the MR when it passes; a failure is comment-only.
+- When a review started from this link finishes, LiveReview runs the org's
+  [auto-approve policy](../settings/auto-approve.md) on it. The result is shown
+  in two places:
+  - **PR description:** under the two links, an "Auto-approval decisions"
+    table with one row per policy-checked review, latest first: Review (link),
+    Decision (✅ Approved / ❌ Changes requested), and Reason (the failing
+    stage and why, or "All policy checks passed").
+  - **Separate PR comment:** the verdict plus a stage-by-stage breakdown
+    (eligibility, static rules, risk score, LLM classification, final decision).
+    How the verdict is applied depends on the provider:
+    - GitHub / Gitea: an approve or "Request changes" review (a plain comment
+      if the provider refuses, e.g. the bot authored the PR).
+    - GitLab: a comment; the MR is approved when it passes.
+    - Bitbucket: a comment, then Approve or "Request changes".
+    - Azure DevOps: a comment thread, then the bot votes Approved or
+      "Waiting for author".
+  - The decisions table shows the last 10 policy-checked reviews.
 - Reviews started any other way (reviewer assignment, @mentions, Explore) don't
   run the policy check.
 

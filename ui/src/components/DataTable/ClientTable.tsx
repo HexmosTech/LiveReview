@@ -63,7 +63,8 @@ export function ClientTable<TData>({
   onRowClick,
   manualTotal,
 }: ClientTableProps<TData>) {
-  if (loading && isEmpty) {
+  // Show loading until the first rows arrive, even when filters keep isEmpty false.
+  if (loading && (isEmpty || table.getRowModel().rows.length === 0)) {
     return (
       <div className="flex items-center justify-center py-24">
         <div className="text-center">
