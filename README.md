@@ -11,7 +11,7 @@ LiveReview is the org-wide risk-aware harness for AI-written code. It covers two
 
 **Auto-Approve Upto 50% of Your Pull Requests, Safely.** Risk scoring decides which MRs/PRs are safe enough to ship without a human, so your team only spends review time on risky and critical changes.
 
-[![Watch the Auto-Approve demo](./assets/screenshots/auto-approve/poster.webp)](./assets/screenshots/auto-approve/demo.mp4)
+https://github.com/user-attachments/assets/7ebae4b8-22ed-4572-bcfe-d938a8d13ca7
 
 <p align="center"><i>LiveReview auto-approving a low-risk change while routing a risky change to a human reviewer. Click to play.</i></p>
 
