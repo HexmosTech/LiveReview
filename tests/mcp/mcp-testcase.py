@@ -222,6 +222,13 @@ async def execute_tool_call(
         session if tool_name in livereview_tool_names else filesystem_session
     )
 
+    # A tool call "fails" only when the underlying call raises (e.g. a timeout).
+    # We track that explicitly rather than scanning the tool output text for
+    # error-looking substrings. The agent may legitimately read back files (this
+    # very script included) whose contents happen to contain words like "failed",
+    # which would otherwise be misclassified as a genuine tool failure.
+    failed = False
+
     try:
         mcp_result = await asyncio.wait_for(
             target_session.call_tool(tool_name, arguments=tool_args), timeout=30
@@ -229,12 +236,18 @@ async def execute_tool_call(
 
         tool_output = extract_tool_output(mcp_result)
 
+    except TimeoutError:
+        failed = True
+        tool_output = "Tool execution failed: timed out after 30s"
+
     except Exception as e:
-        tool_output = f"Tool execution failed: " f"{str(e)}"
+        failed = True
+        tool_output = f"Tool execution failed: {str(e)}"
 
     return {
         "tool_name": tool_name,
         "tool_output": tool_output,
+        "failed": failed,
         "tool_message": {
             "role": "tool",
             "tool_call_id": tool_call.id,
@@ -433,6 +446,7 @@ async def execute_agent_loop(
     hello_mode,
 ):
     tool_outputs_log = []
+    failed_tool_calls = []
     aborted = False
 
     for iteration in range(MAX_TOOL_ITERATIONS):
@@ -481,6 +495,9 @@ async def execute_agent_loop(
                 f"=== TOOL: {tool_result['tool_name']} ===\n{tool_result['tool_output']}\n"
             )
 
+            if tool_result["failed"]:
+                failed_tool_calls.append(tool_result)
+
             messages.append(tool_result["tool_message"])
 
 
@@ -489,6 +506,7 @@ async def execute_agent_loop(
     return {
         "aborted": aborted,
         "tool_outputs_log": tool_outputs_log,
+        "failed_tool_calls": failed_tool_calls,
     }
 
 
@@ -501,11 +519,15 @@ async def execute_agent_loop(
 def build_test_result(
     file_path,
     tool_outputs_log,
+    failed_tool_calls,
 ):
-    has_error = any(
-        "tool execution failed:" in out.lower() or "tool_timeout" in out.lower()
-        for out in tool_outputs_log
-    )
+    has_error = bool(failed_tool_calls)
+
+    if has_error:
+        failed_names = sorted({t["tool_name"] for t in failed_tool_calls})
+        error_message = "Tools reported errors or failures: " + ", ".join(failed_names)
+    else:
+        error_message = None
 
     return {
         "id": (
@@ -516,7 +538,7 @@ def build_test_result(
         "file_name": Path(file_path).name,
         "test_name": (Path(file_path).name.replace("_", " ").replace(".md", "")),
         "passed": not has_error,
-        "error_message": ("Tools reported errors or failures" if has_error else None),
+        "error_message": error_message,
         "detailed_execution_report": "\n".join(tool_outputs_log),
     }
 
@@ -555,6 +577,8 @@ async def run_single_testcase(file_path, context):
 
     tool_outputs_log = agent_result["tool_outputs_log"]
 
+    failed_tool_calls = agent_result["failed_tool_calls"]
+
     if aborted:
         return None
 
@@ -570,6 +594,7 @@ async def run_single_testcase(file_path, context):
         return build_test_result(
             file_path=file_path,
             tool_outputs_log=tool_outputs_log,
+            failed_tool_calls=failed_tool_calls,
         )
     else:
         return None
