@@ -1,7 +1,7 @@
 \restrict dbmate
 
--- Dumped from database version 15.18
--- Dumped by pg_dump version 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)
+-- Dumped from database version 15.17 (Debian 15.17-1.pgdg13+1)
+-- Dumped by pg_dump version 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -811,7 +811,7 @@ CREATE TABLE public.chat_messages (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     search_vector tsvector,
     debug_artifacts jsonb,
-    CONSTRAINT chat_messages_role_check CHECK (((role)::text = ANY ((ARRAY['user'::character varying, 'assistant'::character varying])::text[])))
+    CONSTRAINT chat_messages_role_check CHECK (((role)::text = ANY (ARRAY[('user'::character varying)::text, ('assistant'::character varying)::text])))
 );
 
 
@@ -2098,11 +2098,30 @@ CREATE SEQUENCE public.review_events_id_seq
 
 
 --
+-- Name: review_events_id_seq1; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.review_events_id_seq1
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: review_events_id_seq1; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.review_events_id_seq1 OWNED BY public.review_events.id;
+
+
+--
 -- Name: review_events; Type: TABLE; Schema: public; Owner: -
 --
 
 CREATE TABLE public.review_events (
-    id bigint DEFAULT nextval('public.review_events_id_seq'::regclass) NOT NULL,
+    id bigint NOT NULL,
     review_id bigint NOT NULL,
     org_id bigint NOT NULL,
     ts timestamp with time zone DEFAULT now() NOT NULL,
@@ -2484,28 +2503,23 @@ CREATE SEQUENCE public.river_job_id_seq
 
 CREATE TABLE public.river_job (
     id bigint DEFAULT nextval('public.river_job_id_seq'::regclass) NOT NULL,
-    state public.river_job_state DEFAULT 'available'::public.river_job_state NOT NULL,
+    args jsonb DEFAULT '{}'::jsonb NOT NULL,
     attempt smallint DEFAULT 0 NOT NULL,
-    max_attempts smallint NOT NULL,
     attempted_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    finalized_at timestamp with time zone,
-    scheduled_at timestamp with time zone DEFAULT now() NOT NULL,
-    priority smallint DEFAULT 1 NOT NULL,
-    args jsonb NOT NULL,
     attempted_by text[],
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
     errors jsonb[],
+    finalized_at timestamp with time zone,
     kind text NOT NULL,
+    max_attempts smallint DEFAULT 3 NOT NULL,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    priority smallint DEFAULT 1 NOT NULL,
     queue text DEFAULT 'default'::text NOT NULL,
-    tags character varying(255)[] DEFAULT '{}'::character varying[] NOT NULL,
+    state public.river_job_state DEFAULT 'available'::public.river_job_state NOT NULL,
+    scheduled_at timestamp with time zone DEFAULT now() NOT NULL,
+    tags character varying(255)[] DEFAULT '{}'::character varying[],
     unique_key bytea,
-    unique_states bit(8),
-    CONSTRAINT finalized_or_finalized_at_null CHECK ((((finalized_at IS NULL) AND (state <> ALL (ARRAY['cancelled'::public.river_job_state, 'completed'::public.river_job_state, 'discarded'::public.river_job_state]))) OR ((finalized_at IS NOT NULL) AND (state = ANY (ARRAY['cancelled'::public.river_job_state, 'completed'::public.river_job_state, 'discarded'::public.river_job_state]))))),
-    CONSTRAINT kind_length CHECK (((char_length(kind) > 0) AND (char_length(kind) < 128))),
-    CONSTRAINT max_attempts_is_positive CHECK ((max_attempts > 0)),
-    CONSTRAINT priority_in_range CHECK (((priority >= 1) AND (priority <= 4))),
-    CONSTRAINT queue_length CHECK (((char_length(queue) > 0) AND (char_length(queue) < 128)))
+    unique_states bit(8)
 );
 
 
@@ -3610,6 +3624,13 @@ ALTER TABLE ONLY public.repositories ALTER COLUMN id SET DEFAULT nextval('public
 --
 
 ALTER TABLE ONLY public.review_commits ALTER COLUMN id SET DEFAULT nextval('public.review_commits_id_seq'::regclass);
+
+
+--
+-- Name: review_events id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.review_events ALTER COLUMN id SET DEFAULT nextval('public.review_events_id_seq1'::regclass);
 
 
 --
@@ -5991,7 +6012,7 @@ CREATE INDEX idx_webhook_registry_provider_project ON public.webhook_registry US
 -- Name: river_job_args_index; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX river_job_args_index ON public.river_job USING gin (args);
+CREATE INDEX river_job_args_index ON public.river_job USING gin (args jsonb_path_ops);
 
 
 --
@@ -6002,10 +6023,10 @@ CREATE INDEX river_job_kind ON public.river_job USING btree (kind);
 
 
 --
--- Name: river_job_metadata_index; Type: INDEX; Schema: public; Owner: -
+-- Name: river_job_kind_unique_key_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX river_job_metadata_index ON public.river_job USING gin (metadata);
+CREATE UNIQUE INDEX river_job_kind_unique_key_idx ON public.river_job USING btree (kind, unique_key) WHERE (unique_key IS NOT NULL);
 
 
 --
@@ -6013,6 +6034,13 @@ CREATE INDEX river_job_metadata_index ON public.river_job USING gin (metadata);
 --
 
 CREATE INDEX river_job_prioritized_fetching_index ON public.river_job USING btree (state, queue, priority, scheduled_at, id);
+
+
+--
+-- Name: river_job_scheduled_at_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX river_job_scheduled_at_index ON public.river_job USING btree (scheduled_at) WHERE (state = 'scheduled'::public.river_job_state);
 
 
 --
@@ -6026,7 +6054,7 @@ CREATE INDEX river_job_state_and_finalized_at_index ON public.river_job USING bt
 -- Name: river_job_unique_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX river_job_unique_idx ON public.river_job USING btree (unique_key) WHERE ((unique_key IS NOT NULL) AND (unique_states IS NOT NULL) AND public.river_job_state_in_bitmask(unique_states, state));
+CREATE INDEX river_job_unique_idx ON public.river_job USING btree (kind, ((args ->> 'unique_key'::text))) WHERE ((state = 'available'::public.river_job_state) OR (state = 'scheduled'::public.river_job_state) OR (state = 'retryable'::public.river_job_state));
 
 
 --
