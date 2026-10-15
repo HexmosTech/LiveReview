@@ -189,7 +189,6 @@ func (h *AutoApproveInsightsHandler) decisions(ctx context.Context, orgID int64,
 
 	type dayCounts struct{ approved, blocked int }
 	byDay := map[string]*dayCounts{}
-	var reviewIDs []int64
 	blockedIDs := map[int64]bool{}
 
 	for finalRows.Next() {
@@ -199,7 +198,6 @@ func (h *AutoApproveInsightsHandler) decisions(ctx context.Context, orgID int64,
 		if err := finalRows.Scan(&reviewID, &verdict, &createdAt); err != nil {
 			return nil, err
 		}
-		reviewIDs = append(reviewIDs, reviewID)
 		day := createdAt.Format("2006-01-02")
 		if byDay[day] == nil {
 			byDay[day] = &dayCounts{}
