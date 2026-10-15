@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -151,7 +152,11 @@ func (h *AutoApprovePoliciesHandler) Create(c echo.Context) error {
 		ForceApproveMinLevel:    policyIntPtr(3),
 	}
 	if body.RepositoryID != nil {
-		if orgDefault, err := loadOrgDefaultPolicy(c.Request().Context(), h.db, orgID); err == nil && orgDefault != nil {
+		orgDefault, err := loadOrgDefaultPolicy(c.Request().Context(), h.db, orgID)
+		if err != nil {
+			return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to load org default policy")
+		}
+		if orgDefault != nil {
 			defaults = policyUpsertRequest{
 				MinAuthorLevel:                   &orgDefault.MinAuthorLevel,
 				EligibilityWhitelistUserIDs:      orgDefault.EligibilityWhitelistUserIDs,
@@ -381,6 +386,7 @@ func (h *AutoApprovePoliciesHandler) Simulate(c echo.Context) error {
 	for _, rid := range reviewIDs {
 		res, err := h.engine.RunWithPolicy(c.Request().Context(), orgID, rid, draft, true)
 		if err != nil {
+			log.Printf("auto-approve simulate: review %d skipped: %v", rid, err)
 			continue
 		}
 		row := simRow{ReviewID: rid, Approved: res.Approved, Score: res.Score, Stages: res.Stages}
