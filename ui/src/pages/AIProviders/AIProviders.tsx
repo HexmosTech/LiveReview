@@ -49,7 +49,7 @@ const providerUIMetadata: AIProvider[] = [
         description: 'High quality, multimodal reasoning with balanced cost and performance.',
         icon: <Icons.Google />,
         apiKeyPlaceholder: 'gemini-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        defaultModel: 'gemini-3.6-flash'
+        defaultModel: 'gemini-3.8-flash'
     },
     {
         id: 'gemini-enterprise',
@@ -58,7 +58,7 @@ const providerUIMetadata: AIProvider[] = [
         description: 'Enterprise-grade LLM services via GCP Vertex AI with IAM authentication.',
         icon: <Icons.Google />,
         apiKeyPlaceholder: 'Paste Service Account JSON content here',
-        defaultModel: 'gemini-3.6-flash'
+        defaultModel: 'gemini-3.8-flash'
     },
     {
         id: 'deepseek',
@@ -73,11 +73,10 @@ const providerUIMetadata: AIProvider[] = [
         id: 'openrouter',
         name: 'OpenRouter',
         url: 'https://openrouter.ai/',
-        description: 'Bring your own key and choose any OpenRouter model. Defaults to DeepSeek Pro v4.',
+        description: 'Bring your own key and choose any OpenRouter model.',
         icon: <Icons.OpenRouter />,
         apiKeyPlaceholder: 'sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        baseURLPlaceholder: 'https://openrouter.ai/api/v1',
-        defaultModel: 'deepseek/deepseek-pro-v4'
+        baseURLPlaceholder: 'https://openrouter.ai/api/v1'
     },
     {
         id: 'ollama',
