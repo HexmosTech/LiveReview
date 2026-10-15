@@ -13,12 +13,12 @@ on:
 
 jobs:
   govulncheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       statuses: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Read Go toolchain version
         id: go-version
         shell: bash
@@ -36,7 +36,7 @@ jobs:
           fi
 
           echo "version=$TOOLCHAIN" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version: ${{ steps.go-version.outputs.version }}
           check-latest: true

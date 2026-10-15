@@ -13,13 +13,13 @@ on:
 
 jobs:
   osv-scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       statuses: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
       - name: Install osv-scanner
@@ -29,7 +29,7 @@ jobs:
           osv-scanner --version
       - run: mkdir -p security_issues
       - run: osv-scanner scan source --recursive --format json --config config/osv-scanner.toml --no-call-analysis=go --experimental-exclude=debug --experimental-exclude=scripts --experimental-exclude=tests --experimental-exclude=.livereview_pgdata --experimental-exclude=.lrdata --experimental-exclude=livereview_pgdata --experimental-exclude=lrdata . > security_issues/osv-scanner-ci.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: osv-scanner-ci-report
