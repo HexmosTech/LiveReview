@@ -4,7 +4,23 @@
 
 # LiveReview: Risk-Aware AI Code Review for Business-Critical Systems
 
-LiveReview is an AI code reviewer that scores every hunk of a diff by **blast radius**: how far a change reaches through your call graph, how much persistent state it touches, and how well-tested it is. A 3-line change to a shared auth check can outrank a 300-line UI tweak. Your team's attention goes to the highest-risk code first, not spread evenly across every diff.
+<a id="auto-approve"></a>
+**Auto-Approve Upto 50% of Your Pull Requests, Safely.** Risk scoring decides which MRs/PRs are safe enough to ship without a human, so your team only spends review time on risky and critical changes. The risk score blends three signals:
+
+- Semantic LLM analysis
+- A custom ML model trained on your production risk signals
+- Static graph-based codebase analysis
+
+Inspired by Meta's RADAR paper: **50x** fewer production incidents, **3x** fewer rollbacks, **35%** faster reviews.
+
+How it works:
+
+1. **Track outcomes** - trace production incidents and rollbacks back to the commits and reviews behind them.
+2. **Learn from the data** - combine those outcomes with LLM analysis, static checks, and ML signals into a risk score per change.
+3. **Automate selectively** - auto-approve the lowest-risk 30-50% of changes. Choose a conservative, balanced, or aggressive policy. Risky or uncertain changes still go to a human.
+4. **Keep improving** - track incidents, false approvals, and overrides, and tighten or loosen the policy as real data comes in.
+
+LiveReview is also an AI code reviewer that scores every hunk of a diff by **blast radius**: how far a change reaches through your call graph, how much persistent state it touches, and how well-tested it is. A 3-line change to a shared auth check can outrank a 300-line UI tweak. Your team's attention goes to the highest-risk code first, not spread evenly across every diff.
 
 https://github.com/user-attachments/assets/b7663ad5-e792-4d24-8452-18bbb9b958a0
 
@@ -51,7 +67,7 @@ LiveReview organizes around five capabilities, each answering a question your te
 
 | Pillar | Question it answers | What it covers |
 |---|---|---|
-| [**Review**](#org-wide-harness) | Can we get both speed and quality? | Multi-level review checkpoints (commit, push, MR/PR, CI/CD, scheduled), [Adaptive Reviews](#adaptive-reviews) |
+| [**Review**](#org-wide-harness) | Can we get both speed and quality? | Multi-level review checkpoints (commit, push, MR/PR, CI/CD, scheduled), [Auto-Approve](#auto-approve), [Adaptive Reviews](#adaptive-reviews) |
 | [**Understand**](#features) | Can an engineer quickly understand what changed and what it means? | Summary decks, Issue Navigator, PR summaries, [Cognitive Coverage / PR Quizzes](#cognitive-coverage) |
 | [**Enforce**](#repository-rules) | Can we make our engineering standards and review policies actually happen? | [Repository Rules](#repository-rules), [CI/CD Gates](#cicd-gates), custom prompts, scheduled reviews |
 | [**Improve**](#impact-report) | How are we doing, and where should engineering improve? | [Impact Report](#impact-report), [Livi / Data-Backed Decisions](#data-backed-decisions) |
@@ -66,6 +82,7 @@ The result: engineering becomes a business advantage. You stay ahead, your engin
 | I want to... | Go to |
 |---|---|
 | Try LiveReview free in under 5 minutes | [Quick Start](#quick-start) |
+| Auto-approve low-risk pull requests safely | [Auto-Approve](#auto-approve) |
 | Understand Blast-Radius scoring | [above ↑](#livereview-risk-aware-ai-code-review-for-business-critical-systems) |
 | Enforce checks at commit / push / PR / CI | [Org-Wide Harness](#org-wide-harness) |
 | Write a precise, custom rule for blocking a merge | [CI/CD Gates](#cicd-gates) |
