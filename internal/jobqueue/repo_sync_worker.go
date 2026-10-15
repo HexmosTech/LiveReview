@@ -355,7 +355,7 @@ func refreshPRSection(ctx context.Context, db *sql.DB, info *repositoryConnector
 		}
 		decision := "✅ Approved"
 		if !res.Approved {
-			decision = "❌ Changes requested"
+			decision = "❌ Not approved"
 		}
 		fmt.Fprintf(&b, "| [#%d](%s/#/reviews/%d) | %s | %s |\n", reviewID, host, reviewID, decision, strings.ReplaceAll(decisionReason(&res), "|", "\\|"))
 	}

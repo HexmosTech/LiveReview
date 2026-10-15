@@ -338,10 +338,10 @@ func (e *Engine) riskStage(ctx context.Context, orgID, reviewID int64, p *Policy
 		"features":   featureTable(features),
 	}
 	if score >= cutoff {
-		detail["reason"] = fmt.Sprintf("risk score %.2f (P%d) >= threshold P%d (cutoff %.2f)", score, pct, p.RiskThresholdPercentile, cutoff)
+		detail["reason"] = fmt.Sprintf("Risk score %.2f (P%d) is above the threshold of %.2f (P%d)", score, pct, cutoff, p.RiskThresholdPercentile)
 		return riskStageResult{StageResult: StageResult{Stage: StageRisk, Verdict: VerdictFail, Detail: detail}, Score: score, Percentile: pct, Cutoff: cutoff}
 	}
-	detail["reason"] = fmt.Sprintf("risk score %.2f (P%d) < threshold P%d (cutoff %.2f)", score, pct, p.RiskThresholdPercentile, cutoff)
+	detail["reason"] = fmt.Sprintf("Risk score %.2f (P%d) is within the threshold of %.2f (P%d)", score, pct, cutoff, p.RiskThresholdPercentile)
 	return riskStageResult{StageResult: StageResult{Stage: StageRisk, Verdict: VerdictPass, Detail: detail}, Score: score, Percentile: pct, Cutoff: cutoff}
 }
 

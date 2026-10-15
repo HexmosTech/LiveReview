@@ -5,6 +5,7 @@ import { useChartResize } from '../../components/Dashboard/widgets/useChartResiz
 import { Alert, Card, Spinner } from '../../components/UIPrimitives';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { AutoApproveInsights, getAutoApproveInsights } from '../../api/riskPolicy';
+import { thresholdLabel } from '../../components/AutoApprove/PolicyFieldsEditor';
 
 // The "is this behaving reasonably" view the auto-approve policy engine
 // never had: where an org's real review scores land relative to the
@@ -48,7 +49,7 @@ const ScoreHistogram: React.FC<{ insights: AutoApproveInsights }> = ({ insights 
   return (
     <div className="space-y-2">
       <p className="text-xs text-slate-400">
-        Current cutoff for a P{dist.percentile} threshold: <span className="text-amber-400 font-medium">{dist.cutoff.toFixed(3)}</span>
+        Current cutoff for {thresholdLabel(dist.percentile)}: <span className="text-amber-400 font-medium">{dist.cutoff.toFixed(3)}</span>
         {' '}(highlighted bar). {dist.total_scored} reviews scored in this window.
       </p>
       <div className="w-full rounded bg-slate-900/50 border border-slate-700 p-2" style={{ height: 180 }}>

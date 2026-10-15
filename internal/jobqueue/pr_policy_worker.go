@@ -283,16 +283,16 @@ func buildPolicySummary(res *policyengine.FunnelResult) string {
 	}
 	for _, st := range res.Stages {
 		if st.Verdict == policyengine.VerdictFail {
-			return fmt.Sprintf("❌ **LiveReview policy: Changes requested** (blocked at %s).", titleCaseStage(st.Stage))
+			return fmt.Sprintf("❌ **LiveReview policy: Not approved** (blocked at %s).", titleCaseStage(st.Stage))
 		}
 	}
-	return "❌ **LiveReview policy: Changes requested.**"
+	return "❌ **LiveReview policy: Not approved.**"
 }
 
 // buildPolicyDetails renders the funnel stage by stage for the policy comment, so it shows *why* the policy decided.
 func buildPolicyDetails(host string, reviewID int64, res *policyengine.FunnelResult) string {
 	var b strings.Builder
-	verdict := "❌ Policy: Changes requested"
+	verdict := "❌ Policy: Not approved"
 	if res.Approved {
 		verdict = "✅ Policy: Approved"
 	}

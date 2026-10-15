@@ -35,7 +35,7 @@ aren't members of that org see "pull request wasn't found".
   in two places:
   - **PR description:** under the two links, an "Auto-approval decisions"
     table with one row per policy-checked review, latest first: Review (link),
-    Decision (✅ Approved / ❌ Changes requested), and Reason (the failing
+    Decision (✅ Approved / ❌ Not approved), and Reason (the failing
     stage and why, or "All policy checks passed").
   - **Separate PR comment:** the verdict plus a stage-by-stage breakdown
     (eligibility, static rules, risk score, LLM classification, final decision).
