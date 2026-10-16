@@ -87,6 +87,15 @@ func (w *PRPolicyForceApproveWorker) Work(ctx context.Context, job *river.Job[PR
 		"**Reason:** %s\n\n"+
 		"<sub>This override is recorded in LiveReview's audit log.</sub>\n", actorName, args.Reason)
 
+	// Show the override in the PR's decisions table; never fail the approval over it.
+	if w.webhookStore != nil {
+		if host, err := w.webhookStore.GetWebhookPublicEndpoint(ctx); err == nil && host != "" {
+			if err := refreshPRSection(ctx, w.db, info, host, pullRequestID.Int64, number); err != nil {
+				log.Printf("[WARN] pr policy force-approve: failed to update PR description for review %d: %v", args.ReviewID, err)
+			}
+		}
+	}
+
 	switch info.Provider {
 	case "github", "github-com", "github-enterprise":
 		if err := providergithub.SubmitPullRequestReview(ctx, info.ProviderURL, info.token(), info.FullName, number, "APPROVE", body); err != nil {

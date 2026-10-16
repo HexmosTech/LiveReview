@@ -35,8 +35,10 @@ aren't members of that org see "pull request wasn't found".
   in two places:
   - **PR description:** under the two links, an "Auto-approval decisions"
     table with one row per policy-checked review, latest first: Review (link),
-    Decision (✅ Approved / ❌ Not approved), and Reason (the failing
-    stage and why, or "All policy checks passed").
+    Decision (✅ Approved / ❌ Not approved / ⚠️ Force-approved), and Reason
+    (the failing stage and why, the repo mode override such as
+    "mode override: always_approve", the force-approve reason, or "All policy
+    checks passed").
   - **Separate PR comment:** the verdict plus a stage-by-stage breakdown
     (eligibility, static rules, risk score, LLM classification, final decision).
     How the verdict is applied depends on the provider:

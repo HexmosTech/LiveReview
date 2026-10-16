@@ -331,9 +331,12 @@ func buildPRLinksSection(host string, pullRequestID int64, history string) strin
 func refreshPRSection(ctx context.Context, db *sql.DB, info *repositoryConnectorInfo, host string, pullRequestID int64, number int) error {
 	rows, err := db.QueryContext(ctx,
 		// ponytail: only the last 10 rows, so the table stays under description size limits (Azure DevOps: 4000 chars).
-		`SELECT id, policy FROM (
-		   SELECT id, metadata->'policy_result' AS policy FROM reviews
-		   WHERE pull_request_id = $1 AND metadata ? 'policy_result' ORDER BY id DESC LIMIT 10
+		`SELECT id, policy, forced_reason FROM (
+		   SELECT r.id, r.metadata->'policy_result' AS policy,
+		     (SELECT o.reason FROM review_policy_overrides o
+		      WHERE o.review_id = r.id AND o.org_id = r.org_id ORDER BY o.created_at DESC LIMIT 1) AS forced_reason
+		   FROM reviews r
+		   WHERE r.pull_request_id = $1 AND r.metadata ? 'policy_result' ORDER BY r.id DESC LIMIT 10
 		 ) recent ORDER BY id DESC`, pullRequestID)
 	if err != nil {
 		return err
@@ -346,18 +349,21 @@ func refreshPRSection(ctx context.Context, db *sql.DB, info *repositoryConnector
 	for rows.Next() {
 		var reviewID int64
 		var raw []byte
-		if err := rows.Scan(&reviewID, &raw); err != nil {
+		var forcedReason sql.NullString
+		if err := rows.Scan(&reviewID, &raw, &forcedReason); err != nil {
 			return err
 		}
 		var res policyengine.FunnelResult
 		if err := json.Unmarshal(raw, &res); err != nil {
 			continue
 		}
-		decision := "✅ Approved"
-		if !res.Approved {
+		decision, reason := "✅ Approved", decisionReason(&res)
+		if forcedReason.Valid {
+			decision, reason = "⚠️ Force-approved", forcedReason.String
+		} else if !res.Approved {
 			decision = "❌ Not approved"
 		}
-		fmt.Fprintf(&b, "| [#%d](%s/#/reviews/%d) | %s | %s |\n", reviewID, host, reviewID, decision, strings.ReplaceAll(decisionReason(&res), "|", "\\|"))
+		fmt.Fprintf(&b, "| [#%d](%s/#/reviews/%d) | %s | %s |\n", reviewID, host, reviewID, decision, strings.ReplaceAll(reason, "|", "\\|"))
 	}
 	if err := rows.Err(); err != nil {
 		return err
@@ -368,7 +374,8 @@ func refreshPRSection(ctx context.Context, db *sql.DB, info *repositoryConnector
 
 // decisionReason is the readable "why" for one decision row: each failing stage's reason, or that all passed.
 func decisionReason(res *policyengine.FunnelResult) string {
-	if res.Approved {
+	// Mode overrides skip the checks, so they fall through to the final stage's reason.
+	if res.Approved && !res.ModeOverride {
 		return "All policy checks passed"
 	}
 	var parts []string
