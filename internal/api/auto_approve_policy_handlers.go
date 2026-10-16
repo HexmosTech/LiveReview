@@ -246,10 +246,10 @@ func (h *AutoApprovePoliciesHandler) Update(c echo.Context) error {
 		UPDATE auto_approve_policies SET
 			mode = COALESCE($1, mode),
 			min_author_level = COALESCE($2, min_author_level),
-			eligibility_whitelist_user_ids = $3,
+			eligibility_whitelist_user_ids = COALESCE($3, eligibility_whitelist_user_ids),
 			risk_threshold_percentile = COALESCE($4, risk_threshold_percentile),
 			require_llm_confidence = COALESCE($5, require_llm_confidence),
-			blocking_ruleset_ids = $6,
+			blocking_ruleset_ids = COALESCE($6, blocking_ruleset_ids),
 			landing_delay_seconds = COALESCE($7, landing_delay_seconds),
 			daily_approve_cap = $8,
 			restrict_outcome_reporting_to_admins = COALESCE($9, restrict_outcome_reporting_to_admins),

@@ -78,7 +78,7 @@ const RepoAutoApproveSection: React.FC<{ repositoryId: number }> = ({ repository
     setSaving(true);
     setError('');
     try {
-      const body: AutoApprovePolicyUpsert = { mode, ...(mode === 'custom' ? draft : { risk_threshold_percentile: draft.risk_threshold_percentile }) };
+      const body: AutoApprovePolicyUpsert = { mode, ...(mode === 'custom' ? draft : { risk_threshold_percentile: draft.risk_threshold_percentile, daily_approve_cap: draft.daily_approve_cap }) };
       if (repoPolicy) {
         const res = await updateAutoApprovePolicy(repoPolicy.id, body);
         setRepoPolicy(res.policy);

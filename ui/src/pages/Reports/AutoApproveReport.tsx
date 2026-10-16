@@ -185,14 +185,14 @@ const AutoApproveReport: React.FC = () => {
 
   if (!canManageCurrentOrg) {
     return (
-      <div className="p-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <Alert variant="warning">Only org owners and admins can view auto-approve insights.</Alert>
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-4 max-w-5xl">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-xl font-semibold text-white">Auto Approve</h1>
