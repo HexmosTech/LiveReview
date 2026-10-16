@@ -4,7 +4,14 @@
 
 # LiveReview: Risk-Aware AI Code Review for Business-Critical Systems
 
-LiveReview is the org-wide risk-aware harness for AI-written code. It covers two different jobs: deciding which pull requests are safe to skip entirely, and prioritizing what's risky inside the ones that still need a human.
+LiveReview is built for engineering teams that ship often, but also care about keeping production stable for customers. It approves some 40-50% of low-risk changes automatically, and it gives your team the tools to handle the rest:
+
+- Understand risky changes faster.
+- Fix problems in those changes, with human attention directed to the work that needs it.
+- Enforce your engineering standards.
+- Learn from production outcomes, such as incidents, rollbacks, and queue wait times.
+- Improve the review process over time and make it more efficient.
+- Connect to the major engineering tools that your team already uses.
 
 <a id="auto-approve"></a>
 ## Auto-Approve: Ship the Safe 50% Without a Human
