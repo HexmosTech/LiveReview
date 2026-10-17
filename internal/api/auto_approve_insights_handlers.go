@@ -177,7 +177,7 @@ func (h *AutoApproveInsightsHandler) scoreDistribution(ctx context.Context, orgI
 // "latest decided in the window") plus which earlier stage blocked it, and
 // the override rate from review_policy_overrides.
 func (h *AutoApproveInsightsHandler) decisions(ctx context.Context, orgID int64, since time.Time) (*decisionsDTO, error) {
-	out := &decisionsDTO{}
+	out := &decisionsDTO{Trend: []decisionTrendPoint{}}
 
 	finalRows, err := h.db.QueryContext(ctx, `
 		SELECT review_id, verdict, created_at FROM review_policy_log
@@ -287,7 +287,7 @@ func (h *AutoApproveInsightsHandler) calibration(ctx context.Context, orgID int6
 	}
 	defer rows.Close()
 
-	out := &calibrationDTO{}
+	out := &calibrationDTO{Cells: []calibrationCell{}}
 	var approvedWithOutcome, approvedBad int
 	for rows.Next() {
 		var verdict, outcomeType string
