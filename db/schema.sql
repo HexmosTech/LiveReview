@@ -114,6 +114,20 @@ $$;
 
 
 --
+-- Name: create_default_auto_approve_policy(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.create_default_auto_approve_policy() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    INSERT INTO auto_approve_policies (org_id) VALUES (NEW.id);
+    RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: license_seat_assignments_set_updated_at(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -6121,6 +6135,13 @@ CREATE TRIGGER trg_org_billing_state_updated_at BEFORE UPDATE ON public.org_bill
 
 
 --
+-- Name: orgs orgs_default_auto_approve_policy; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER orgs_default_auto_approve_policy AFTER INSERT ON public.orgs FOR EACH ROW EXECUTE FUNCTION public.create_default_auto_approve_policy();
+
+
+--
 -- Name: plan_catalog trg_plan_catalog_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -6216,7 +6237,7 @@ ALTER TABLE ONLY public.auto_approve_policies
 --
 
 ALTER TABLE ONLY public.auto_approve_policies
-    ADD CONSTRAINT auto_approve_policies_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES public.repositories(id);
+    ADD CONSTRAINT auto_approve_policies_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES public.repositories(id) ON DELETE CASCADE;
 
 
 --
@@ -7258,4 +7279,6 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260905090000'),
     ('20261012090000'),
     ('20261012100000'),
-    ('20261013090000');
+    ('20261013090000'),
+    ('20261017090000'),
+    ('20261017100000');
