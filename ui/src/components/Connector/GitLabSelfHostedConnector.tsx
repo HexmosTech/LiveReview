@@ -42,7 +42,7 @@ const GitLabSelfHostedConnector: React.FC = () => {
     return (
         <div className="space-y-4">
             <div className="flex items-center">
-                <Button variant="ghost" icon={<Icons.Add />} onClick={() => navigate('/git')} iconPosition="left" className="text-sm">
+                <Button variant="ghost" icon={<Icons.Back />} onClick={() => navigate('/git')} iconPosition="left" className="text-sm -ml-4">
                     Back to providers
                 </Button>
             </div>

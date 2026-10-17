@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Card,
@@ -8,13 +8,16 @@ import {
   Icons,
   Alert,
   Spinner,
-  EmptyState
+  EmptyState,
+  Tooltip
 } from '../../components/UIPrimitives';
-import { triggerReview, TriggerReviewRequest } from '../../api/reviews';
+import ProviderIcon from '../../components/ProviderIcon';
+import { triggerReview, formatRelativeTime } from '../../api/reviews';
+import { getPullRequests, triggerReviewForPullRequest } from '../../api/pullRequests';
+import { PullRequestWithRepo } from '../../types/explore';
 import { getConnectors, ConnectorResponse } from '../../api/connectors';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { UpgradePromptModal } from '../../components/Subscriptions';
-import { SafetyBanner } from '../../components/SafetyBanner/SafetyBanner';
 import { useQuotaStatusQuery, useBillingStatusQuery } from '../../api/billing';
 import { QuotaExhaustedBanner } from '../../components/Dashboard/QuotaExhaustedBanner';
 import { QuotaWarningBanner } from '../../components/Dashboard/QuotaWarningBanner';
@@ -69,6 +72,17 @@ const trialDaysRemaining = (value?: string | null): number | null => {
   return Math.max(1, Math.ceil(diffMs / (24 * 60 * 60 * 1000)));
 };
 
+// URL formats shown as provider chips.
+const URL_EXAMPLES = [
+  { provider: 'github', label: 'GitHub', url: 'https://github.com/owner/repo/pull/123' },
+  { provider: 'gitlab', label: 'GitLab', url: 'https://gitlab.com/group/project/-/merge_requests/123' },
+  { provider: 'bitbucket', label: 'Bitbucket', url: 'https://bitbucket.org/workspace/repo/pull-requests/123' },
+  { provider: 'gitea', label: 'Gitea', url: 'https://gitea.example.com/owner/repo/pulls/123' },
+  { provider: 'azuredevops', label: 'Azure DevOps', url: 'https://dev.azure.com/org/project/_git/repo/pullrequest/123' },
+];
+
+const isUrlLike = (value: string) => /^https?:\/\//i.test(value.trim());
+
 const NewReview: React.FC = () => {
   const navigate = useNavigate();
   const { isFreePlan, isSuperAdmin } = useOrgContext();
@@ -78,7 +92,11 @@ const NewReview: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [loadingConnectors, setLoadingConnectors] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<PullRequestWithRepo[]>([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [showOnPRSteps, setShowOnPRSteps] = useState(false);
+  const suggestRequestRef = useRef(0);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState<'DAILY_LIMIT' | 'NOT_ORG_CREATOR'>('DAILY_LIMIT');
   const [limitInfo, setLimitInfo] = useState<{ used: number; limit: number }>({ used: 3, limit: 3 });
@@ -131,38 +149,41 @@ const NewReview: React.FC = () => {
     );
   };
 
-  // Handle form submission
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Provider of the connector matching the typed URL, for the input icon.
+  const detectedProvider = (() => {
+    const baseUrl = extractBaseUrl(url);
+    if (!baseUrl) return '';
+    return connectors.find((c) => c.provider_url && c.provider_url.includes(baseUrl))?.provider || '';
+  })();
+
+  // Open PRs matching the typed text (repo, title or author).
+  useEffect(() => {
+    if (isUrlLike(url) || !url.trim()) {
+      setSuggestions([]);
+      return;
+    }
+    const requestId = ++suggestRequestRef.current;
+    const timer = setTimeout(() => {
+      getPullRequests({ state: 'open', search: url.trim(), perPage: 8 })
+        .then((res) => {
+          if (requestId !== suggestRequestRef.current) return;
+          setSuggestions(res.pull_requests || []);
+          setActiveIndex(0);
+        })
+        .catch(() => {
+          if (requestId === suggestRequestRef.current) setSuggestions([]);
+        });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [url]);
+
+  // Shared plan/quota gating and error handling for both ways of starting a review.
+  const startReview = async (run: () => Promise<{ reviewId: string }>) => {
     if (isReadOnly) {
       setShowPlanUpgradeDialog(true);
       return;
     }
     setError(null);
-    setSuccess(null);
-
-    // Validate URL
-    if (!url) {
-      setError('Please enter a URL');
-      return;
-    }
-
-    try {
-      // Validate URL format
-      new URL(url);
-    } catch (err) {
-      setError('Please enter a valid URL');
-      return;
-    }
-
-    // Check if URL is from a supported provider
-    if (!isUrlSupported(url)) {
-      setError(
-        'This URL is not from a connected Git provider. Please connect the appropriate Git provider first.'
-      );
-      return;
-    }
-
     if (quotaStatus?.envelope?.trial_readonly) {
       setError('Trial is read-only for this organization. Upgrade your plan to resume review creation.');
       return;
@@ -173,19 +194,9 @@ const NewReview: React.FC = () => {
     }
 
     setLoading(true);
-
     try {
-      const request: TriggerReviewRequest = { url };
-      const response = await triggerReview(request);
-
-      setSuccess(`Review successfully triggered! Review ID: ${response.reviewId}`);
-      setUrl('');
-
-      // Navigate directly to the new review's detail page
-      setTimeout(() => {
-        navigate(`/reviews/${response.reviewId}`);
-      }, 1500);
-
+      const response = await run();
+      navigate(`/reviews/${response.reviewId}`);
     } catch (err: any) {
       console.error('Error triggering review:', err);
 
@@ -226,26 +237,78 @@ const NewReview: React.FC = () => {
     }
   };
 
+  const startForPullRequest = (pr: PullRequestWithRepo) => {
+    setSuggestOpen(false);
+    startReview(() => triggerReviewForPullRequest(pr.id));
+  };
+
+  // Handle form submission: a pasted URL, or the highlighted suggestion.
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    if (!url.trim()) {
+      setError('Paste a pull request URL, or type a repository or PR title.');
+      return;
+    }
+    if (!isUrlLike(url)) {
+      const pick = suggestions[activeIndex];
+      if (pick) startForPullRequest(pick);
+      else setError('No open pull requests match. Paste the PR URL instead.');
+      return;
+    }
+
+    try {
+      new URL(url);
+    } catch (err) {
+      setError('Please enter a valid URL');
+      return;
+    }
+
+    // Check if URL is from a supported provider
+    if (!isUrlSupported(url)) {
+      setError(
+        'This URL is not from a connected Git provider. Please connect the appropriate Git provider first.'
+      );
+      return;
+    }
+
+    startReview(() => triggerReview({ url }));
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!suggestOpen || suggestions.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveIndex((i) => (i + 1) % suggestions.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveIndex((i) => (i - 1 + suggestions.length) % suggestions.length);
+    } else if (e.key === 'Escape') {
+      setSuggestOpen(false);
+    }
+  };
+
+  const submitBlocked =
+    loading ||
+    !url.trim() ||
+    Boolean(quotaStatus?.envelope?.blocked) ||
+    Boolean(quotaStatus?.envelope?.trial_readonly) ||
+    (quotaStatus?.envelope?.usage_percent ?? 0) >= 100 ||
+    quotaStatus?.can_trigger_reviews === false;
+
   return (
     <ErrorBoundary>
-      <div className="container mx-auto px-4 py-8">
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        <Button variant="ghost" onClick={() => navigate(-1)} icon={<Icons.Back />} className="-ml-4 mb-2">
+          Back
+        </Button>
         <PageHeader
           title="New Review"
-          description="Run an AI-powered code review on any pull request or merge request"
-          actions={
-            <Button
-              variant="outline"
-              onClick={() => navigate(-1)}
-              icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>}
-            >
-              Back
-            </Button>
-          }
+          description="Review any pull or merge request."
         />
 
-        <Card className="max-w-3xl mx-auto mt-8">
+        <Card className="mt-6">
           {loadingConnectors ? (
             <div className="flex justify-center items-center py-12">
               <Spinner size="lg" />
@@ -267,11 +330,6 @@ const NewReview: React.FC = () => {
             />
           ) : (
             <form onSubmit={handleSubmit}>
-              {/* Safety Banner */}
-              <SafetyBanner variant="detailed" className="mb-6" />
-
-              <h3 className="text-lg font-medium text-white mb-4">Enter Merge/Pull Request URL</h3>
-
               {/* LOC 90% Warning Banner */}
               {/* LOC 100% Exhausted Banner */}
               {!quotaStatus?.envelope?.blocked && !quotaStatus?.envelope?.trial_readonly && (quotaStatus?.envelope?.usage_percent ?? 0) >= 100 && (
@@ -343,82 +401,140 @@ const NewReview: React.FC = () => {
               )}
 
               {error && (
-                <Alert
-                  variant="error"
-                  className="mb-4"
-                  icon={<Icons.Error />}
-                >
+                <Alert variant="error" className="mb-4" icon={<Icons.Error />}>
                   {error}
                 </Alert>
               )}
 
-              {success && (
-                <Alert
-                  variant="success"
-                  className="mb-4"
-                  icon={<Icons.Success />}
-                >
-                  <div>
-                    <div>{success}</div>
-                    <div className="text-sm mt-1">Redirecting to reviews list...</div>
-                  </div>
-                </Alert>
-              )}
-
-              <div className="mb-4">
-                <Input
-                  label="URL"
-                  placeholder="https://gitlab.com/your-group/your-project/-/merge_requests/123"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  disabled={loading}
-                  icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                  </svg>}
-                  helperText="Enter the URL of the merge/pull request to start a review"
-                />
-              </div>
-
-              {/* URL Examples */}
-              <div className="mb-6 p-4 bg-slate-700 rounded-lg">
-                <h4 className="text-sm font-medium text-white mb-2">Supported URL Examples:</h4>
-                <div className="space-y-1 text-xs text-slate-300">
-                  <div>• GitLab: https://gitlab.com/group/project/-/merge_requests/123</div>
-                  <div>• GitHub: https://github.com/owner/repo/pull/123</div>
-                  <div>• Bitbucket: https://bitbucket.org/workspace/repo/pull-requests/123</div>
-                  <div>• Azure DevOps: https://dev.azure.com/org/project/_git/repo/pullrequest/123</div>
+              <label htmlFor="pr-search" className="block text-sm font-medium text-slate-200 mb-2">
+                Pull request URL, repository or title
+              </label>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Input
+                    id="pr-search"
+                    role="combobox"
+                    aria-expanded={suggestOpen && suggestions.length > 0}
+                    aria-controls="pr-suggestions"
+                    aria-activedescendant={suggestOpen && suggestions[activeIndex] ? `pr-suggestion-${suggestions[activeIndex].id}` : undefined}
+                    placeholder="Paste a PR URL, or type a repo or PR title"
+                    value={url}
+                    onChange={(e) => { setUrl(e.target.value); setSuggestOpen(e.target.value.trim() !== ''); }}
+                    onFocus={() => setSuggestOpen(url.trim() !== '')}
+                    onBlur={() => setTimeout(() => setSuggestOpen(false), 150)}
+                    onKeyDown={handleKeyDown}
+                    disabled={loading}
+                    autoFocus
+                    icon={detectedProvider ? <ProviderIcon provider={detectedProvider} /> : <Icons.Search />}
+                  />
+                  {suggestOpen && suggestions.length > 0 && (
+                    <ul
+                      id="pr-suggestions"
+                      role="listbox"
+                      className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-slate-600 bg-slate-800 shadow-xl"
+                    >
+                      <li className="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide text-slate-500">
+                        Matching open pull requests
+                      </li>
+                      {suggestions.map((pr, i) => (
+                        <li
+                          key={pr.id}
+                          id={`pr-suggestion-${pr.id}`}
+                          role="option"
+                          aria-selected={i === activeIndex}
+                          onMouseDown={(e) => { e.preventDefault(); startForPullRequest(pr); }}
+                          onMouseEnter={() => setActiveIndex(i)}
+                          className={`flex items-start gap-3 px-3 py-2 cursor-pointer ${i === activeIndex ? 'bg-slate-700' : ''}`}
+                        >
+                          <span className="mt-0.5 shrink-0 [&_svg]:w-4 [&_svg]:h-4"><ProviderIcon provider={pr.provider} /></span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm text-white">
+                              <span className="text-slate-300">{pr.repository_full_name.split('/').pop()}</span>
+                              <span className="text-slate-500"> #{pr.number}</span>
+                              {'  '}{pr.title}
+                            </span>
+                            <span className="block text-xs text-slate-400">
+                              {pr.author_name || pr.author_username || 'unknown'} · {formatRelativeTime(pr.provider_updated_at || pr.last_synced_at)}
+                            </span>
+                          </span>
+                        </li>
+                      ))}
+                      <li className="border-t border-slate-700 px-3 py-2 text-right">
+                        <button
+                          type="button"
+                          onMouseDown={(e) => { e.preventDefault(); navigate('/explore/merge-requests'); }}
+                          className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 [&_svg]:w-3.5 [&_svg]:h-3.5"
+                        >
+                          See all in Merge Requests <Icons.ChevronRight />
+                        </button>
+                      </li>
+                    </ul>
+                  )}
                 </div>
-                
+                <Button type="submit" variant="primary" disabled={submitBlocked} isLoading={loading}>
+                  Start review
+                </Button>
               </div>
 
-              <div className="flex justify-end space-x-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => navigate('/reviews')}
-                  disabled={loading}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  disabled={
-                    loading ||
-                    !url.trim() ||
-                    Boolean(quotaStatus?.envelope?.blocked) ||
-                    Boolean(quotaStatus?.envelope?.trial_readonly) ||
-                    (quotaStatus?.envelope?.usage_percent ?? 0) >= 100 ||
-                    quotaStatus?.can_trigger_reviews === false
-                  }
-                  isLoading={loading}
-                >
-                  Start Review
-                </Button>
+              <div className="mt-5 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-slate-400 mr-1">Supported:</span>
+                {URL_EXAMPLES.map((ex) => (
+                  <Tooltip key={ex.provider} content={ex.url}>
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-600 bg-slate-800 px-2.5 py-1 text-xs text-slate-200">
+                      <span className="[&_svg]:w-3.5 [&_svg]:h-3.5"><ProviderIcon provider={ex.provider} /></span>
+                      {ex.label}
+                    </span>
+                  </Tooltip>
+                ))}
               </div>
             </form>
           )}
         </Card>
+
+        <h2 className="mt-10 mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Other ways to review</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-white">
+              <span className="text-slate-400 [&_svg]:w-4 [&_svg]:h-4"><Icons.Git /></span>
+              On the PR
+            </div>
+            <p className="mt-1 text-xs text-slate-400">Start a review from the pull request itself.</p>
+            <button
+              type="button"
+              onClick={() => setShowOnPRSteps((v) => !v)}
+              aria-expanded={showOnPRSteps}
+              className="mt-3 inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 [&_svg]:w-3.5 [&_svg]:h-3.5"
+            >
+              {showOnPRSteps ? 'Hide steps' : 'How it works'}
+              <span className={showOnPRSteps ? 'rotate-180' : ''}><Icons.ChevronDown /></span>
+            </button>
+            {showOnPRSteps && (
+              <ol className="mt-2 list-decimal pl-4 space-y-1 text-xs text-slate-300">
+                <li>Assign the LiveReview bot as a reviewer.</li>
+                <li>Or @mention the bot in a PR comment.</li>
+                <li>Or click <span className="text-white">Start a review</span> in the PR description.</li>
+              </ol>
+            )}
+          </div>
+          {[
+            { icon: <Icons.Download />, title: 'Pre-commit CLI', text: 'Review staged changes before you commit with git-lrc.', link: 'Install the CLI', to: '/reviews/create-cli' },
+            { icon: <Icons.AI />, title: 'IDE / MCP', text: 'Ask your AI coding agent to review changes through LiveReview\'s MCP server.', link: 'See setup details', to: '/reviews/create-mcp' },
+            { icon: <Icons.Ready />, title: 'CI/CD & API', text: 'Gate merges in CI, or start reviews from your own scripts with an API key.', link: 'Set up CI rulesets', to: '/ci-rulesets' },
+            { icon: <Icons.Chat />, title: 'Chatbot', text: 'Ask Livi to review a pull request in plain language.', link: 'Open the chat', to: '/chat?prefill=' + encodeURIComponent('Trigger a review for <paste PR link here>') },
+            { icon: <Icons.Clock />, title: 'Scheduled', text: 'Review whole repositories on a regular schedule.', link: 'Set up a schedule', to: '/reviews/scheduled' },
+          ].map((way) => (
+            <div key={way.to} className="rounded-lg border border-slate-700 bg-slate-800/60 p-4">
+              <div className="flex items-center gap-2 text-sm font-medium text-white">
+                <span className="text-slate-400 [&_svg]:w-4 [&_svg]:h-4">{way.icon}</span>
+                {way.title}
+              </div>
+              <p className="mt-1 text-xs text-slate-400">{way.text}</p>
+              <button type="button" onClick={() => navigate(way.to)} className="mt-3 inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 [&_svg]:w-3.5 [&_svg]:h-3.5">
+                {way.link} <Icons.ChevronRight />
+              </button>
+            </div>
+          ))}
+        </div>
 
         {/* Upgrade Modal */}
         <UpgradePromptModal
