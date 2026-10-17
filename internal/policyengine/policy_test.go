@@ -38,6 +38,7 @@ func seedOrg(t *testing.T, db *sql.DB, name string) int64 {
 		// already inserted a row for this org by the time the test ends; its FK
 		// has no cascade, so it must be cleared first or the org delete leaks.
 		_, _ = db.Exec(`DELETE FROM dashboard_cache WHERE org_id = $1`, orgID)
+		_, _ = db.Exec(`DELETE FROM auto_approve_policies WHERE org_id = $1`, orgID)
 		_, _ = db.Exec(`DELETE FROM orgs WHERE id = $1`, orgID)
 	})
 	return orgID
@@ -45,6 +46,15 @@ func seedOrg(t *testing.T, db *sql.DB, name string) int64 {
 
 func insertPolicy(t *testing.T, db *sql.DB, orgID int64, repoID *int64, mode string, minLevel int) int64 {
 	var id int64
+	if repoID == nil {
+		// Every new org already gets a default org-level row from a trigger; reuse it.
+		if err := db.QueryRow(`
+			UPDATE auto_approve_policies SET mode = $2, min_author_level = $3
+			WHERE org_id = $1 AND repository_id IS NULL RETURNING id`, orgID, mode, minLevel).Scan(&id); err != nil {
+			t.Fatalf("update default policy: %v", err)
+		}
+		return id
+	}
 	if err := db.QueryRow(`
 		INSERT INTO auto_approve_policies (org_id, repository_id, mode, min_author_level)
 		VALUES ($1, $2, $3, $4) RETURNING id`, orgID, repoID, mode, minLevel).Scan(&id); err != nil {
@@ -62,6 +72,10 @@ func insertPolicy(t *testing.T, db *sql.DB, orgID int64, repoID *int64, mode str
 func TestResolvePolicyNoneConfigured(t *testing.T) {
 	db := testDB(t)
 	orgID := seedOrg(t, db, "policy-resolve-none")
+	// Drop the default row the org-insert trigger created.
+	if _, err := db.Exec(`DELETE FROM auto_approve_policies WHERE org_id = $1`, orgID); err != nil {
+		t.Fatalf("delete default policy: %v", err)
+	}
 
 	_, found, err := ResolvePolicy(context.Background(), db, orgID, 0)
 	if err != nil {
