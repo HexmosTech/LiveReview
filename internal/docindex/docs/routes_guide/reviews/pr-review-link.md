@@ -6,12 +6,19 @@
 ## Purpose
 
 When a new pull/merge request is opened on GitHub, GitLab, Bitbucket, Gitea, or Azure DevOps in a repo with the
-LiveReview webhook installed, LiveReview adds a section with two links to the end of its description:
+LiveReview webhook installed, LiveReview adds a section to the end of its description:
 
 - **Start a review** → this page. It starts a LiveReview review of that PR and
   opens the review's detail page.
 - **Review history** → the [Reviews list](reviews-list.md) filtered to that
   PR (`/reviews?pull_request_id=<id>`).
+- A line under the auto-approval decisions (or under the two links before any
+  decision): "Customize risk-based approval policy for **this repository** or
+  **your organization**". The repository link opens the repo's settings page,
+  Auto Approve section (`/explore/repositories/<repo id>/settings#auto-approve`);
+  the organization link opens [Settings → Auto Approve Policies](../settings/auto-approve.md)
+  (`/settings#auto-approve`). Both pages are for org owners and admins, and
+  open in the user's current org.
 
 `:id` is LiveReview's internal pull request id, not the GitHub/GitLab PR number.
 The section is added once per PR, only when it's opened (not for PRs that
@@ -49,8 +56,9 @@ aren't members of that org see "pull request wasn't found".
     - Azure DevOps: a comment thread, then the bot votes Approved or
       "Waiting for author".
   - The decisions table shows the last 10 policy-checked reviews.
-- Reviews started any other way (reviewer assignment, @mentions, Explore) don't
-  run the policy check.
+- Reviews started by hand for a known PR also run the policy check and get the
+  Auto Approve tab: pasting the PR URL on New Review, or Start review in the
+  Explore PR table. Reviewer assignment and @mention reviews don't.
 
 ## Related pages
 

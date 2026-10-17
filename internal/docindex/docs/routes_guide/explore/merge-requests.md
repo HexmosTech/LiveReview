@@ -16,7 +16,8 @@ Any authenticated org member.
 
 - Search/filter/sort PRs by provider, repo, state, etc.
 - Trigger a review directly for a specific pull request
-  (`triggerReviewForPullRequest`).
+  (`triggerReviewForPullRequest`). It opens the new review's page right away,
+  and the review runs the auto-approve policy check when it finishes.
 
 ## Related pages
 
