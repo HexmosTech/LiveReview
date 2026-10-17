@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, PageHeader, Spinner } from '../../components/UIPrimitives';
+import { Button, Card, Icons, PageHeader, Spinner } from '../../components/UIPrimitives';
 import { useDashboardQuery } from '../../api/dashboard';
 import { OnboardingSteps } from '../../components/Dashboard/OnboardingSteps';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
@@ -37,6 +37,9 @@ const CreateReviewCLI: React.FC = () => {
   return (
     <ErrorBoundary>
       <div className="container mx-auto px-4 py-8">
+        <Button variant="ghost" onClick={() => navigate(-1)} icon={<Icons.Back />} className="-ml-4 mb-2">
+          Back
+        </Button>
         <PageHeader
           title="Create a Review with CLI"
           description="Install git-lrc and trigger a review straight from your terminal under 2 minutes."

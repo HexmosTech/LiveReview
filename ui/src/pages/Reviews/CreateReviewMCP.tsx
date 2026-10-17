@@ -1,5 +1,6 @@
 import React from 'react';
-import { PageHeader, Icons } from '../../components/UIPrimitives';
+import { useNavigate } from 'react-router-dom';
+import { Button, PageHeader, Icons } from '../../components/UIPrimitives';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import MCPIntegrationTab from '../Settings/MCPIntegrationTab';
 
@@ -31,9 +32,13 @@ const DOC_LINKS = [
 // component shown at /settings#mcp so both stay in sync, with added context (supported
 // platforms, docs links) that doesn't belong in the settings tab itself.
 const CreateReviewMCP: React.FC = () => {
+  const navigate = useNavigate();
   return (
     <ErrorBoundary>
       <div className="container mx-auto px-4 py-8">
+        <Button variant="ghost" onClick={() => navigate(-1)} icon={<Icons.Back />} className="-ml-4 mb-2">
+          Back
+        </Button>
         <PageHeader
           title="Create a Review with MCP"
           description="Connect LiveReview to your AI coding assistant over MCP and trigger reviews without leaving your editor."

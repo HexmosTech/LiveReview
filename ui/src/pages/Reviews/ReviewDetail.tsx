@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { LuArrowLeft, LuExternalLink, LuGitBranch } from 'react-icons/lu';
+import { LuExternalLink, LuGitBranch } from 'react-icons/lu';
 import ProviderIcon from '../../components/ProviderIcon';
 import { riskAssessment, RiskAssessmentDetails, RiskScore } from '../../components/reviews/RiskAssessment';
 import { reviewStatusBadge } from '../../utils/reviewDisplay';
@@ -425,6 +425,7 @@ const ReviewDetail: React.FC = () => {
                             as={Link}
                             to="/reviews"
                             variant="outline"
+                            icon={<Icons.Back />}
                         >
                             Back to Reviews
                         </Button>
@@ -519,17 +520,17 @@ const ReviewDetail: React.FC = () => {
     return (
         <div className="container mx-auto px-4 py-8">
             {/* Header */}
+            <Button
+                as={Link}
+                to="/reviews"
+                variant="ghost"
+                icon={<Icons.Back />}
+                className="-ml-4 mb-2"
+            >
+                Back to Reviews
+            </Button>
             <div className="flex items-center justify-between mb-8">
                 <div className="flex items-center">
-                    <Button
-                        as={Link}
-                        to="/reviews"
-                        variant="ghost"
-                        className="mr-4"
-                    >
-                        <LuArrowLeft className="w-4 h-4 mr-1.5" />
-                        Back
-                    </Button>
                     <div>
                         <h1 className="text-3xl font-bold text-white">
                             {review.repository.split('/').pop() || review.repository}

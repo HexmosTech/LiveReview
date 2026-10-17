@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Icons } from '../../components/UIPrimitives';
 import { useNavigate, useParams } from 'react-router-dom';
 import moment from 'moment-timezone';
 import { useOrgContext } from '../../hooks/useOrgContext';
@@ -315,9 +316,7 @@ const LicenseAssignment: React.FC = () => {
                         onClick={() => navigate('/subscribe/manage')}
                         className="inline-flex items-center text-slate-400 hover:text-white mb-4 transition-colors"
                     >
-                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                        </svg>
+                        <span className="mr-2"><Icons.Back /></span>
                         Back to Subscriptions
                     </button>
                     <div className="flex items-center justify-between">

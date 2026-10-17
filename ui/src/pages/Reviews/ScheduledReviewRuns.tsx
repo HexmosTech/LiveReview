@@ -328,8 +328,8 @@ const ScheduledReviewRuns: React.FC = () => {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-4">
-        <Button variant="ghost" onClick={() => navigate('/reviews/scheduled')}>
-          ← Back
+        <Button variant="ghost" icon={<Icons.Back />} onClick={() => navigate('/reviews/scheduled')} className="-ml-4">
+          Back to Scheduled Reviews
         </Button>
       </div>
 

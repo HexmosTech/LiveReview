@@ -424,6 +424,7 @@ const CiRulesetIntegration: React.FC = () => {
             <div className="flex justify-end">
                 <Button
                     variant="ghost"
+                    icon={<Icons.Back />}
                     onClick={() => navigate('/ci-rulesets')}
                 >
                     Back to rulesets

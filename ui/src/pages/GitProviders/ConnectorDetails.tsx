@@ -667,10 +667,10 @@ const ConnectorDetails: React.FC = () => {
                 <div className="flex items-center mb-6">
                     <Button 
                         variant="ghost" 
-                        icon={<Icons.Dashboard />} 
+                        icon={<Icons.Back />} 
                         onClick={() => navigate('/git')} 
                         iconPosition="left" 
-                        className="text-sm"
+                        className="text-sm -ml-4"
                     >
                         Back to Git Providers
                     </Button>
@@ -691,10 +691,10 @@ const ConnectorDetails: React.FC = () => {
             <div className="flex items-center mb-6">
                 <Button 
                     variant="ghost" 
-                    icon={<Icons.Dashboard />} 
+                    icon={<Icons.Back />} 
                     onClick={() => navigate('/git')} 
                     iconPosition="left" 
-                    className="text-sm"
+                    className="text-sm -ml-4"
                 >
                     Back to Git Providers
                 </Button>

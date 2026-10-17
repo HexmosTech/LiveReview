@@ -564,6 +564,9 @@ const ScheduledReviews: React.FC = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      <Button variant="ghost" onClick={() => navigate(-1)} icon={<Icons.Back />} className="-ml-4 mb-2">
+        Back
+      </Button>
       <PageHeader
         title="Scheduled Reviews"
         description="Automatically review a repository's default branch on a schedule you set."

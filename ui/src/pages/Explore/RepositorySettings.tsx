@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { LuArrowLeft, LuDatabase } from 'react-icons/lu';
+import { LuDatabase } from 'react-icons/lu';
 import { Button, Card, EmptyState, Icons, PageHeader, Spinner } from '../../components/UIPrimitives';
 import RepoCacheSection from '../../components/Explore/RepoCacheSection';
 import RepoAutoApproveSection from '../../components/Explore/RepoAutoApproveSection';
@@ -28,9 +28,9 @@ const RepositorySettings: React.FC = () => {
   }, [repoId]);
 
   const back = (
-    <Link to="/explore/repositories" className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-300 hover:text-white">
-      <LuArrowLeft className="w-4 h-4" /> Back to Repositories
-    </Link>
+    <Button as={Link} to="/explore/repositories" variant="ghost" icon={<Icons.Back />} className="mb-4 -ml-4 text-sm">
+      Back to Repositories
+    </Button>
   );
 
   if (error) {
