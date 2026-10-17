@@ -46,7 +46,7 @@ export interface ReviewEvent {
   data: ReviewEventData;
 }
 
-export type ReviewEventType = 'status' | 'log' | 'batch' | 'artifact' | 'completion';
+export type ReviewEventType = 'status' | 'log' | 'batch' | 'artifact' | 'completion' | 'tool_dispatch' | 'tool_result';
 export type ReviewEventLevel = 'info' | 'warn' | 'error' | 'debug';
 
 export interface ReviewEventData {
@@ -87,12 +87,32 @@ export interface ReviewEventsResponse {
   };
 }
 
+export interface SeverityCounts {
+  high: number;
+  medium: number;
+  low: number;
+}
+
+export interface ToolSummary {
+  toolsExecuted: number;
+  totalCommentsGenerated: number;
+  totalCostUsd?: number;
+  toolBreakdown: {
+    toolName: string;
+    creditsUsed: number;
+    commentsGenerated: number;
+    status: 'pending' | 'running' | 'clean' | 'completed' | 'failed' | string;
+  }[];
+}
+
 export interface ReviewSummary {
   reviewId: number;
   currentStatus: string;
   lastActivity: string;
   eventCounts: Record<string, number>;
   batchCount: number;
+  severityCounts?: SeverityCounts;
+  toolSummary?: ToolSummary;
 }
 
 export interface ReviewAccountingOperation {

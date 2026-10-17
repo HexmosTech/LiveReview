@@ -4,6 +4,7 @@ import { SystemKpiRow } from './SystemKpiRow';
 import { ConnectedProviders } from './ConnectedProviders';
 import { AverageReviewsStat } from './AverageReviewsStat';
 import { TopReviewersLeaderboard } from './TopReviewersLeaderboard';
+import { ToolsUsageWidget } from './ToolsUsageWidget';
 
 // The 7 echarts-based widgets are lazy-loaded (not statically imported like the ones above):
 // registry.ts is itself statically imported by DashboardGrid.tsx, which Dashboard.tsx statically
@@ -128,6 +129,15 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
         defaultLayout: { x: 7, y: 59, w: 5, h: 10 },
         minW: 4, minH: 6,
         component: ConnectedProviders,
+    },
+    {
+        id: 'tools-usage-widget',
+        title: 'Third-Party Static Analysis Tools',
+        category: 'system',
+        description: 'Enabled third-party static analysis security and linting tools.',
+        defaultLayout: { x: 0, y: 91, w: 12, h: 6 },
+        minW: 4, minH: 5,
+        component: ToolsUsageWidget,
     },
     {
         id: 'coverage-gauge',

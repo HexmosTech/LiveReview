@@ -1301,6 +1301,10 @@ func (s *Server) setupRoutes() {
 	adminGroup.PUT("/users/:user_id/org", s.userHandlers.TransferUserToOrg)
 	adminGroup.GET("/analytics/users", s.userHandlers.GetUserAnalytics)
 
+	// Super admin tools catalog endpoints (called by lr-tools deployer after Lambda deployment)
+	adminGroup.POST("/tools", s.UpsertAvailableTool)
+	adminGroup.GET("/tools", s.ListAvailableTools)
+
 	// Instance-wide config (SMTP, blob storage, production URL): self-hosted org
 	// owners may also manage it, but in cloud mode this config is shared across
 	// every tenant, so it stays super-admin-only there.
@@ -1387,6 +1391,10 @@ func (s *Server) setupRoutes() {
 	orgGroup.GET("/api-keys", s.ListAPIKeysHandler)
 	orgGroup.POST("/api-keys/:id/revoke", s.RevokeAPIKeyHandler)
 	orgGroup.DELETE("/api-keys/:id", s.DeleteAPIKeyHandler)
+
+	// Third-party tools endpoints within org context
+	orgGroup.GET("/tools", s.ListOrgTools)
+	orgGroup.PUT("/tools/:tool_id", s.UpdateOrgTool)
 
 	// Organization creation - available to all authenticated users
 	protectedOrgsGroup.POST("/organizations", s.orgHandlers.CreateOrganization)

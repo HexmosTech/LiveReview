@@ -191,3 +191,11 @@ func (p PlanType) IsValid() bool {
 func (p PlanType) String() string {
 	return string(p)
 }
+
+// IsToolsEligible returns true if the plan type is eligible for static analysis tool credit deduction.
+func IsToolsEligible(p PlanType) bool {
+	if p == PlanType("") {
+		return true
+	}
+	return p.IsValid()
+}

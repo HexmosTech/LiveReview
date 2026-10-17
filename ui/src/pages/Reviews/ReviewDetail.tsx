@@ -7,6 +7,9 @@ import { reviewStatusBadge } from '../../utils/reviewDisplay';
 import { Button, Icons, Tabs } from '../../components/UIPrimitives';
 import { ReviewEventsPage, DiffViewerPanel } from '../../components/reviews';
 import AutoApprovePanel from '../../components/reviews/AutoApprovePanel';
+import { ToolAnalysisCard, ToolAccountingData, ToolBreakdownItem } from '../../components/reviews/ToolAnalysisCard';
+import apiClient from '../../api/apiClient';
+import { useOrgContext } from '../../hooks/useOrgContext';
 import { getReviewPolicyLog } from '../../api/riskPolicy';
 import {
   getReview,
@@ -87,6 +90,127 @@ const ReviewDetail: React.FC = () => {
     const [blastReport, setBlastReport] = useState<BlastRadiusReport | BlastRadiusSkipped | null>(null);
     const [blastPoll, setBlastPoll] = useState<'checking' | 'waiting' | 'gave_up'>('checking');
     const [riskScores, setRiskScores] = useState<RiskScore[]>([]);
+
+    // ── Third-party static analysis tools ──────────────────────────────────
+    // Tool execution is reported as tool_dispatch / tool_result events; derive
+    // the accounting card from them so it renders without a separate fetch.
+    const { currentOrg } = useOrgContext();
+    const [dbToolMultipliers, setDbToolMultipliers] = useState<Record<string, number>>({});
+
+    useEffect(() => {
+        if (!currentOrg?.id) return;
+        apiClient
+            .get<{ tools?: Array<{ name: string; multiplier: number }> }>(`/orgs/${currentOrg.id}/tools`)
+            .then((res) => {
+                const multMap: Record<string, number> = {};
+                (res.tools || []).forEach((t) => {
+                    if (t.name && typeof t.multiplier === 'number') {
+                        multMap[t.name.toLowerCase()] = t.multiplier;
+                    }
+                });
+                setDbToolMultipliers(multMap);
+            })
+            .catch(() => {
+                // Fall back to the default multipliers when the endpoint is unavailable.
+            });
+    }, [currentOrg?.id]);
+
+    const DEFAULT_TOOL_MULTIPLIERS: Record<string, number> = useMemo(() => ({
+        ruff: 1.0,
+        bandit: 1.0,
+        gitleaks: 1.0,
+        eslint: 2.0,
+        semgrep: 3.0,
+        hadolint: 0.5,
+        actionlint: 0.5,
+        shellcheck: 0.5,
+        trufflehog: 2.0,
+        trivy: 2.5,
+        spectral: 1.0,
+        brakeman: 1.5,
+        kubescape: 2.0,
+        zizmor: 1.0,
+        openapi: 0.5,
+    }), []);
+
+    const effectiveToolAccounting = useMemo<ToolAccountingData | null>(() => {
+        const toolEvents = events.filter(
+            (e) => (e.type as string) === 'tool_dispatch' || (e.type as string) === 'tool_result',
+        );
+        if (toolEvents.length === 0) return null;
+
+        const dispatchedMap = new Map<string, string>();
+        const resultsMap = new Map<string, { exitCode: number; findingsCount: number; creditsUsed?: number }>();
+        const order: string[] = [];
+
+        toolEvents.forEach((e) => {
+            try {
+                const raw = e.data as unknown;
+                const data: any = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                if (!data) return;
+                const toolName: string | undefined = data.tool_name || data.toolName;
+                if (!toolName) return;
+
+                if ((e.type as string) === 'tool_dispatch') {
+                    if (!dispatchedMap.has(toolName)) {
+                        dispatchedMap.set(toolName, data.status || 'pending');
+                        order.push(toolName);
+                    }
+                } else {
+                    if (!dispatchedMap.has(toolName)) {
+                        dispatchedMap.set(toolName, 'completed');
+                        order.push(toolName);
+                    }
+                    const findings = Array.isArray(data.findings) ? data.findings : [];
+                    const creditsUsed =
+                        typeof data.credits_used === 'number' ? data.credits_used
+                            : typeof data.credits === 'number' ? data.credits
+                                : typeof data.cost === 'number' ? data.cost
+                                    : typeof data.multiplier === 'number' ? data.multiplier
+                                        : (dbToolMultipliers[toolName.toLowerCase()] ?? DEFAULT_TOOL_MULTIPLIERS[toolName.toLowerCase()] ?? 1.0);
+                    resultsMap.set(toolName, {
+                        exitCode: typeof data.exit_code === 'number' ? data.exit_code : 0,
+                        findingsCount: findings.length,
+                        creditsUsed,
+                    });
+                }
+            } catch (err) {
+                console.warn('Error parsing tool event data:', err);
+            }
+        });
+
+        if (order.length === 0) return null;
+
+        let totalComments = 0;
+        let toolsExecuted = 0;
+        let totalCredits = 0;
+        const toolBreakdown: ToolBreakdownItem[] = order.map((toolName) => {
+            const res = resultsMap.get(toolName);
+            if (res) {
+                toolsExecuted++;
+                totalComments += res.findingsCount;
+                const credits = res.creditsUsed ?? dbToolMultipliers[toolName.toLowerCase()] ?? DEFAULT_TOOL_MULTIPLIERS[toolName.toLowerCase()] ?? 1.0;
+                totalCredits += credits;
+                let status = 'clean';
+                if (res.exitCode !== 0) status = 'failed';
+                else if (res.findingsCount > 0) status = 'completed';
+                return { toolName, creditsUsed: credits, commentsGenerated: res.findingsCount, status };
+            }
+            return {
+                toolName,
+                creditsUsed: 0,
+                commentsGenerated: 0,
+                status: dispatchedMap.get(toolName) || 'pending',
+            };
+        });
+
+        return {
+            totalToolCredits: totalCredits,
+            toolsExecuted: toolsExecuted || toolBreakdown.length,
+            totalCommentsGenerated: totalComments,
+            toolBreakdown,
+        };
+    }, [events, dbToolMultipliers, DEFAULT_TOOL_MULTIPLIERS]);
 
     useEffect(() => {
         // Blast radius comes from `git lrc review` or the server-side job, which runs alongside the
@@ -338,9 +462,14 @@ const ReviewDetail: React.FC = () => {
     const eventSeverityCounts = useMemo(() => {
         let high = 0, medium = 0, low = 0;
         events.forEach(e => {
-            if (e.level === 'error') high++;
-            else if (e.level === 'warn') medium++;
-            else low++;
+            const dataAny = e.data as any;
+            const sev = (dataAny?.severity || '').toLowerCase();
+            if (e.level === 'error' || sev === 'critical' || sev === 'high') high++;
+            else if (e.level === 'warn' || sev === 'warning' || sev === 'medium') medium++;
+            else if (sev === 'info' || sev === 'low' || (e.level === 'info' && e.type === 'tool_result')) low++;
+            else if (e.level === 'info' && e.type === 'tool_dispatch') {
+                // Ignore dispatch log events
+            } else if (sev === 'info' || e.level === 'info') low++;
         });
         return { high, medium, low };
     }, [events]);
@@ -716,6 +845,14 @@ const ReviewDetail: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            {/* Third-party static analysis tools, derived from tool_dispatch / tool_result events */}
+            {effectiveToolAccounting && effectiveToolAccounting.toolBreakdown.length > 0 && (
+                <div className="mb-6">
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white">Static analysis tools</h3>
+                    <ToolAnalysisCard data={effectiveToolAccounting} />
+                </div>
+            )}
 
             {/* Findings / Accounting / Events */}
             <Tabs

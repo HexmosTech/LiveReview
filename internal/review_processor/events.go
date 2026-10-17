@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -554,6 +555,236 @@ func (s *PollingEventService) CreateCompletionEvent(ctx context.Context, reviewI
 	return s.repo.createTypedEvent(ctx, reviewID, orgID, "completion", "info", nil, data)
 }
 
+// SeverityCounts provides counts of events by severity level
+type SeverityCounts struct {
+	High   int `json:"high"`
+	Medium int `json:"medium"`
+	Low    int `json:"low"`
+}
+
+// ToolBreakdownItem represents status and findings for an individual tool
+type ToolBreakdownItem struct {
+	ToolName          string  `json:"toolName"`
+	CreditsUsed       float64 `json:"creditsUsed"`
+	CommentsGenerated int     `json:"commentsGenerated"`
+	Status            string  `json:"status"` // pending, running, clean, completed, failed
+}
+
+// ToolSummary provides summary metrics and breakdown for tool execution
+type ToolSummary struct {
+	ToolsExecuted          int                 `json:"toolsExecuted"`
+	TotalCommentsGenerated int                 `json:"totalCommentsGenerated"`
+	TotalCostUsd           *float64            `json:"totalCostUsd,omitempty"`
+	ToolBreakdown          []ToolBreakdownItem `json:"toolBreakdown"`
+}
+
+// GetSeverityCounts queries public.ai_comments (and review_events fallback) to count High, Medium, and Low severity issues
+func (r *ReviewEventsRepo) GetSeverityCounts(ctx context.Context, reviewID, orgID int64) (SeverityCounts, error) {
+	var counts SeverityCounts
+	query := `
+		SELECT COALESCE(content->>'severity', 'warning') as sev, COUNT(*)
+		FROM public.ai_comments
+		WHERE review_id = $1 AND org_id = $2
+		GROUP BY COALESCE(content->>'severity', 'warning')
+	`
+	rows, err := r.db.QueryContext(ctx, query, reviewID, orgID)
+	if err == nil {
+		defer rows.Close()
+		hasComments := false
+		for rows.Next() {
+			hasComments = true
+			var sev string
+			var cnt int
+			if err := rows.Scan(&sev, &cnt); err == nil {
+				switch strings.ToLower(strings.TrimSpace(sev)) {
+				case "critical", "high", "error":
+					counts.High += cnt
+				case "warning", "medium", "warn":
+					counts.Medium += cnt
+				case "info", "low":
+					counts.Low += cnt
+				}
+			}
+		}
+		if hasComments {
+			return counts, nil
+		}
+	}
+
+	queryEvents := `
+		SELECT COALESCE(data->>'severity', level) as sev, COUNT(*)
+		FROM public.review_events
+		WHERE review_id = $1 AND org_id = $2 AND (data->>'severity' IS NOT NULL OR level IN ('error', 'warn'))
+		GROUP BY COALESCE(data->>'severity', level)
+	`
+	eventRows, eventErr := r.db.QueryContext(ctx, queryEvents, reviewID, orgID)
+	if eventErr != nil {
+		log.Printf("[WARN] Failed to query review_events for severity counts (review_id=%d, org_id=%d): %v", reviewID, orgID, eventErr)
+		return counts, fmt.Errorf("failed to query review_events for severity counts: %w", eventErr)
+	}
+	defer eventRows.Close()
+
+	for eventRows.Next() {
+		var sev string
+		var cnt int
+		if err := eventRows.Scan(&sev, &cnt); err == nil {
+			switch strings.ToLower(strings.TrimSpace(sev)) {
+			case "critical", "high", "error":
+				counts.High += cnt
+			case "warning", "medium", "warn":
+				counts.Medium += cnt
+			case "info", "low":
+				counts.Low += cnt
+			}
+		}
+	}
+	return counts, nil
+}
+
+type rawToolEvent struct {
+	EventType string
+	Data      json.RawMessage
+	CreatedAt time.Time
+}
+
+// GetToolSummary queries tool_dispatch and tool_result events to build ToolSummary
+func (r *ReviewEventsRepo) GetToolSummary(ctx context.Context, reviewID, orgID int64) (*ToolSummary, error) {
+	query := `
+		SELECT event_type, data, ts
+		FROM public.review_events
+		WHERE review_id = $1 AND org_id = $2 AND event_type IN ('tool_dispatch', 'tool_result')
+		ORDER BY ts ASC
+	`
+	rows, err := r.db.QueryContext(ctx, query, reviewID, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query tool summary: %w", err)
+	}
+	defer rows.Close()
+
+	var toolEvents []rawToolEvent
+	for rows.Next() {
+		var ev rawToolEvent
+		if err := rows.Scan(&ev.EventType, &ev.Data, &ev.CreatedAt); err != nil {
+			return nil, err
+		}
+		toolEvents = append(toolEvents, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(toolEvents) == 0 {
+		return nil, nil
+	}
+
+	type toolDispatchData struct {
+		ToolID   int64  `json:"tool_id"`
+		ToolName string `json:"tool_name"`
+		Status   string `json:"status"`
+	}
+	type toolFinding struct {
+		File    string `json:"file"`
+		Line    int    `json:"line"`
+		Message string `json:"message"`
+	}
+	type toolResultData struct {
+		ToolID      int64         `json:"tool_id"`
+		ToolName    string        `json:"tool_name"`
+		ExitCode    int           `json:"exit_code"`
+		Findings    []toolFinding `json:"findings"`
+		LinesOfCode int           `json:"lines_of_code"`
+		Stderr      string        `json:"stderr"`
+	}
+
+	dispatchedMap := make(map[string]time.Time)
+	dispatchedOrder := make([]string, 0)
+	resultsMap := make(map[string]toolResultData)
+
+	for _, ev := range toolEvents {
+		if ev.EventType == "tool_dispatch" {
+			var d toolDispatchData
+			if err := json.Unmarshal(ev.Data, &d); err == nil && d.ToolName != "" {
+				if _, exists := dispatchedMap[d.ToolName]; !exists {
+					dispatchedMap[d.ToolName] = ev.CreatedAt
+					dispatchedOrder = append(dispatchedOrder, d.ToolName)
+				}
+			}
+		} else if ev.EventType == "tool_result" {
+			var res toolResultData
+			if err := json.Unmarshal(ev.Data, &res); err == nil && res.ToolName != "" {
+				resultsMap[res.ToolName] = res
+				if _, exists := dispatchedMap[res.ToolName]; !exists {
+					dispatchedMap[res.ToolName] = ev.CreatedAt
+					dispatchedOrder = append(dispatchedOrder, res.ToolName)
+				}
+			}
+		}
+	}
+
+	// Fetch multipliers from available_tools table in database
+	multiplierMap := make(map[string]float64)
+	if tRows, tErr := r.db.QueryContext(ctx, `SELECT name, multiplier FROM public.available_tools`); tErr == nil {
+		defer tRows.Close()
+		for tRows.Next() {
+			var tName string
+			var mult float64
+			if err := tRows.Scan(&tName, &mult); err == nil {
+				multiplierMap[strings.ToLower(tName)] = mult
+			}
+		}
+	}
+
+	toolBreakdown := make([]ToolBreakdownItem, 0, len(dispatchedOrder))
+	totalComments := 0
+	toolsExecuted := 0
+	totalCostUSD := 0.0
+
+	for _, toolName := range dispatchedOrder {
+		res, hasResult := resultsMap[toolName]
+		dispatchTime := dispatchedMap[toolName]
+
+		mult, exists := multiplierMap[strings.ToLower(toolName)]
+		if !exists || mult <= 0 {
+			mult = 1.0
+		}
+		totalCostUSD += mult
+
+		item := ToolBreakdownItem{
+			ToolName:    toolName,
+			CreditsUsed: mult,
+		}
+
+		if hasResult {
+			toolsExecuted++
+			commentCount := len(res.Findings)
+			item.CommentsGenerated = commentCount
+			totalComments += commentCount
+
+			if res.ExitCode != 0 {
+				item.Status = "failed"
+			} else if commentCount > 0 {
+				item.Status = "completed"
+			} else {
+				item.Status = "clean"
+			}
+		} else {
+			if time.Since(dispatchTime) > 10*time.Second {
+				item.Status = "running"
+			} else {
+				item.Status = "pending"
+			}
+		}
+		toolBreakdown = append(toolBreakdown, item)
+	}
+
+	return &ToolSummary{
+		ToolsExecuted:          toolsExecuted,
+		TotalCommentsGenerated: totalComments,
+		TotalCostUsd:           &totalCostUSD,
+		ToolBreakdown:          toolBreakdown,
+	}, nil
+}
+
 // GetReviewSummary creates a summary of recent review activity for display
 func (s *PollingEventService) GetReviewSummary(ctx context.Context, reviewID, orgID int64) (*ReviewSummary, error) {
 	latestStatus, err := s.GetLatestStatus(ctx, reviewID, orgID)
@@ -570,11 +801,25 @@ func (s *PollingEventService) GetReviewSummary(ctx context.Context, reviewID, or
 	if err != nil {
 		return nil, fmt.Errorf("failed to count batch IDs: %w", err)
 	}
+
+	sevCounts, err := s.repo.GetSeverityCounts(ctx, reviewID, orgID)
+	if err != nil {
+		// Log or ignore non-critical severity error
+		sevCounts = SeverityCounts{}
+	}
+
+	toolSum, err := s.repo.GetToolSummary(ctx, reviewID, orgID)
+	if err != nil {
+		toolSum = nil
+	}
+
 	summary := &ReviewSummary{
-		ReviewID:     reviewID,
-		LastActivity: time.Now(),
-		EventCounts:  counts,
-		BatchCount:   batchCount,
+		ReviewID:       reviewID,
+		LastActivity:   time.Now(),
+		EventCounts:    counts,
+		BatchCount:     batchCount,
+		SeverityCounts: sevCounts,
+		ToolSummary:    toolSum,
 	}
 
 	if latestStatus != nil {
@@ -590,11 +835,13 @@ func (s *PollingEventService) GetReviewSummary(ctx context.Context, reviewID, or
 
 // ReviewSummary provides a quick overview of review progress
 type ReviewSummary struct {
-	ReviewID      int64          `json:"reviewId"`
-	CurrentStatus string         `json:"currentStatus"`
-	LastActivity  time.Time      `json:"lastActivity"`
-	EventCounts   map[string]int `json:"eventCounts"`
-	BatchCount    int            `json:"batchCount"`
+	ReviewID       int64          `json:"reviewId"`
+	CurrentStatus  string         `json:"currentStatus"`
+	LastActivity   time.Time      `json:"lastActivity"`
+	EventCounts    map[string]int `json:"eventCounts"`
+	BatchCount     int            `json:"batchCount"`
+	SeverityCounts SeverityCounts `json:"severityCounts"`
+	ToolSummary    *ToolSummary   `json:"toolSummary,omitempty"`
 }
 
 // DatabaseEventSink implements ReviewEventSink using our PollingEventService
