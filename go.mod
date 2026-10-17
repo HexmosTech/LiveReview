@@ -31,7 +31,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.102.2
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/d1vbyz3r0/typed v0.2.3
-	github.com/getkin/kin-openapi v0.145.0
+	github.com/getkin/kin-openapi v0.151.0
 	github.com/go-co-op/gocron/v2 v2.22.0
 	github.com/go-swiss/fonts v0.0.0-20230807175105-90067c2f5042
 	github.com/golang-jwt/jwt/v5 v5.3.1
@@ -69,7 +69,7 @@ require (
 	google.golang.org/api v0.272.0
 )
 
-require github.com/cdipaolo/goml v0.0.0-20220715001353-00e0c845ae1c // indirect
+require github.com/cdipaolo/goml v0.0.0-20220715001353-00e0c845ae1c
 
 require (
 	cel.dev/expr v0.25.2 // indirect
@@ -212,7 +212,7 @@ require (
 	github.com/sagikazarmark/locafero v0.7.0 // indirect
 	github.com/sagikazarmark/slog-shim v0.1.0 // indirect
 	github.com/sahilm/fuzzy v0.1.3 // indirect
-	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/sorairolake/lzip-go v0.3.8 // indirect
