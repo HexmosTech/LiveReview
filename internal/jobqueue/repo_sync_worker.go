@@ -278,7 +278,7 @@ const (
 	legacySectionEnd   = "<!-- livereview:end -->"
 )
 
-// postLinksComment adds the "Start a review / Review history" links to the end of a new PR/MR's description.
+// postLinksComment adds the LiveReview links (review, history, repo/org policy) to the end of a new PR/MR's description.
 // The links_comment_posted_at claim stops duplicate webhook deliveries from adding it twice.
 func (w *PRStateSyncWorker) postLinksComment(ctx context.Context, repositoryID, pullRequestID int64, number int) error {
 	host, err := w.webhookStore.GetWebhookPublicEndpoint(ctx)
@@ -299,7 +299,7 @@ func (w *PRStateSyncWorker) postLinksComment(ctx context.Context, repositoryID, 
 
 	info, err := loadRepositoryConnectorInfo(w.db, repositoryID)
 	if err == nil {
-		err = writePRSection(ctx, info, number, buildPRLinksSection(host, pullRequestID, ""))
+		err = writePRSection(ctx, info, number, buildPRLinksSection(host, pullRequestID, repositoryID, ""))
 	}
 	if err != nil {
 		// Release the claim so River's retry can add it.
@@ -312,7 +312,7 @@ func (w *PRStateSyncWorker) postLinksComment(ctx context.Context, repositoryID, 
 }
 
 // buildPRLinksSection renders the LiveReview section; history is the review history table, or "".
-func buildPRLinksSection(host string, pullRequestID int64, history string) string {
+func buildPRLinksSection(host string, pullRequestID, repositoryID int64, history string) string {
 	host = strings.TrimSuffix(host, "/")
 	return fmt.Sprintf(`%s
 
@@ -322,8 +322,10 @@ func buildPRLinksSection(host string, pullRequestID int64, history string) strin
 - ▶️ **[Start a review](%s/#/pr/%d/review)**: reviews all changes in this PR against its target branch
 - 📜 **[Review history](%s/#/reviews?pull_request_id=%d)**: all past reviews of this PR
 
-%s%s
-`, prSectionStart, host, pullRequestID, host, pullRequestID, history, prSectionEnd)
+%s⚙️ Customize risk-based approval policy for [this repository](%s/#/explore/repositories/%d/settings#auto-approve) or [your organization](%s/#/settings#auto-approve).
+
+%s
+`, prSectionStart, host, pullRequestID, host, pullRequestID, history, host, repositoryID, host, prSectionEnd)
 }
 
 // refreshPRSection rewrites the LiveReview section with one history row per policy-checked review of this PR.
@@ -369,7 +371,7 @@ func refreshPRSection(ctx context.Context, db *sql.DB, info *repositoryConnector
 		return err
 	}
 	b.WriteString("\n")
-	return writePRSection(ctx, info, number, buildPRLinksSection(host, pullRequestID, b.String()))
+	return writePRSection(ctx, info, number, buildPRLinksSection(host, pullRequestID, info.RepositoryID, b.String()))
 }
 
 // decisionReason is the readable "why" for one decision row: each failing stage's reason, or that all passed.

@@ -138,6 +138,7 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 
 	// Phase 4: Enrich metadata (fetch MR details, update DB)
 	s.enrichMetadata(ctx)
+	s.markForPolicyCheck(ctx.review.ID, ctx.orgID)
 
 	// Phase 5: Track activity (log the trigger event)
 	s.trackActivity(ctx)

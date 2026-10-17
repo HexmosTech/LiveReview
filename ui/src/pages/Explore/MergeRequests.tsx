@@ -96,7 +96,6 @@ const MergeRequests: React.FC = () => {
   // In-memory only (not persisted) - reverts to "Trigger Review" on a page
   // refresh or re-visit, since we have no reliable way to know a triggered
   // review's live status from here.
-  const [triggeredReviewIds, setTriggeredReviewIds] = useState<Record<number, string>>({});
   const [repositoryFilterName, setRepositoryFilterName] = useState<string | null>(null);
 
   // repository_id stays a server-side fetch scope (driven by the URL, e.g.
@@ -140,8 +139,7 @@ const MergeRequests: React.FC = () => {
     setTriggeringId(pr.id);
     try {
       const response = await triggerReviewForPullRequest(pr.id);
-      setTriggeredReviewIds((prev) => ({ ...prev, [pr.id]: response.reviewId }));
-      notify.success(`Review triggered for #${pr.number}`);
+      navigate(`/reviews/${response.reviewId}`);
     } catch (err) {
       console.error('Failed to trigger review:', err);
       notify.error(err instanceof Error ? err.message : 'Failed to trigger review');
@@ -316,22 +314,6 @@ const MergeRequests: React.FC = () => {
       header: () => <span className="font-semibold text-slate-300 uppercase tracking-wide text-xs">Actions</span>,
       cell: ({ row }) => {
         const pr = row.original;
-        const triggeredReviewId = triggeredReviewIds[pr.id];
-        if (triggeredReviewId) {
-          return (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate(`/reviews/${triggeredReviewId}`);
-              }}
-              className="border-slate-400 text-white hover:bg-white/10 hover:border-white text-sm cursor-pointer"
-            >
-              See Logs
-            </Button>
-          );
-        }
         return (
           <Button
             variant="outline"
@@ -346,7 +328,7 @@ const MergeRequests: React.FC = () => {
       },
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [triggeringId, triggeredReviewIds, navigate]);
+  ], [triggeringId, navigate]);
 
   const table = useReactTable({
     data: pullRequests,

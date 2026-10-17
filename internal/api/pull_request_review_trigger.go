@@ -98,15 +98,7 @@ func (s *Server) createReview(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 	}
 	s.enrichMetadata(ctx)
-	if req.FromPRLink {
-		// Marks the review so the worker runs the approval policy check once it completes.
-		if _, err := s.db.Exec(
-			`UPDATE reviews SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"pr_link_policy": true}'::jsonb WHERE id = $1 AND org_id = $2`,
-			ctx.review.ID, orgID,
-		); err != nil {
-			log.Printf("[WARN] createReview: failed to mark review %d for policy check: %v", ctx.review.ID, err)
-		}
-	}
+	s.markForPolicyCheck(ctx.review.ID, orgID)
 	s.trackActivity(ctx)
 	if err := s.launchBackgroundProcessing(ctx); err != nil {
 		log.Printf("[ERROR] createReview: Failed to queue manual review: %v", err)
@@ -151,4 +143,16 @@ func (s *Server) getPullRequestOrg(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "failed to look up pull request"})
 	}
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{"org_id": orgID})
+}
+
+// markForPolicyCheck flags a manual PR review so the worker runs the approval policy check once it completes.
+// Reviews not linked to a known PR are left alone.
+func (s *Server) markForPolicyCheck(reviewID, orgID int64) {
+	if _, err := s.db.Exec(
+		`UPDATE reviews SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"pr_link_policy": true}'::jsonb
+		 WHERE id = $1 AND org_id = $2 AND pull_request_id IS NOT NULL`,
+		reviewID, orgID,
+	); err != nil {
+		log.Printf("[WARN] failed to mark review %d for policy check: %v", reviewID, err)
+	}
 }
