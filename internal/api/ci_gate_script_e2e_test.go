@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	_ "github.com/lib/pq"
@@ -63,13 +64,20 @@ func TestCIGateGeneratedScriptE2E(t *testing.T) {
 	if err := db.QueryRow(`INSERT INTO orgs (name) VALUES ('ci-gate-e2e-org') RETURNING id`).Scan(&orgID); err != nil {
 		t.Fatalf("insert org: %v", err)
 	}
-	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM orgs WHERE id = $1`, orgID) })
-
 	var userID int64
-	if err := db.QueryRow(`INSERT INTO users (email, password_hash) VALUES ('ci-gate-e2e@example.com', 'x') RETURNING id`).Scan(&userID); err != nil {
+	// Delete children before parents, or the user and org rows are left behind.
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM api_keys WHERE org_id = $1`, orgID)
+		_, _ = db.Exec(`DELETE FROM user_roles WHERE org_id = $1`, orgID)
+		_, _ = db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+		_, _ = db.Exec(`DELETE FROM dashboard_cache WHERE org_id = $1`, orgID)
+		_, _ = db.Exec(`DELETE FROM orgs WHERE id = $1`, orgID)
+	})
+
+	email := "ci-gate-e2e-" + strconv.FormatInt(time.Now().UnixNano(), 10) + "@example.com"
+	if err := db.QueryRow(`INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`, email).Scan(&userID); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
-	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM users WHERE id = $1`, userID) })
 
 	const ownerRoleID = 2 // seeded fixed row, see roles table
 	if _, err := db.Exec(`INSERT INTO user_roles (user_id, org_id, role_id) VALUES ($1, $2, $3)`, userID, orgID, ownerRoleID); err != nil {
