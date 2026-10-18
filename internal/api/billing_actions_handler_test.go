@@ -117,7 +117,7 @@ func TestComputeRemainingCycleFractionUsesActualCycleWindow(t *testing.T) {
 }
 
 func TestComputeTargetProratedChargeCentsTargetBased(t *testing.T) {
-	got := computeTargetProratedChargeCents(64, 8.0/30.0)
+	got := computeTargetProratedChargeCents(6400, 8.0/30.0)
 	if got != 1707 {
 		t.Fatalf("expected target-based prorated charge 1707 cents, got %d", got)
 	}

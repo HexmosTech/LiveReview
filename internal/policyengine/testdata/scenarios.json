@@ -1186,5 +1186,74 @@
       "approve": true
     },
     "bucket": "caps-timing"
+  },
+  {
+    "name": "bot-author-passes-at-min-level-0",
+    "rationale": "An unmapped bot counts as level 0. With min_author_level set to 0, 0 >= 0 passes, so the bot is eligible and a safe docs change approves. Pins down that a minimum of 0 lets every bot through.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "docs-only",
+      "confidence": 9
+    },
+    "diff": {
+      "file_count": 1,
+      "lines_added": 8
+    },
+    "author_is_bot": true,
+    "bot_username": "renovate[bot]",
+    "policy": {
+      "min_author_level": 0
+    },
+    "want": {
+      "approve": true
+    },
+    "bucket": "eligibility"
+  },
+  {
+    "name": "llm-required-confidence-zero-accepts-zero-confidence",
+    "rationale": "With require_llm_confidence set to 0, even a classification with confidence 0 passes the gate (0 < 0 is false), so a safe refactor approves.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "refactor-only",
+      "confidence": 0
+    },
+    "diff": {
+      "file_count": 0,
+      "lines_added": 0
+    },
+    "author_level": 2,
+    "policy": {
+      "require_llm_confidence": 0
+    },
+    "want": {
+      "approve": true
+    },
+    "bucket": "llm-gate"
+  },
+  {
+    "name": "llm-security-sensitive-low-confidence-reports-confidence",
+    "rationale": "A security-sensitive class with confidence below the required level fails on confidence first, so the reason names the confidence, not the class. Either way it must block.",
+    "blast_hunks": [],
+    "findings": [],
+    "llm_class": {
+      "class": "security-sensitive",
+      "confidence": 3
+    },
+    "diff": {
+      "file_count": 1,
+      "lines_added": 1
+    },
+    "author_level": 2,
+    "policy": {
+      "require_llm_confidence": 8
+    },
+    "want": {
+      "approve": false,
+      "blocked_at": "llm",
+      "reason_contains": "classification confidence 3 < required 8"
+    },
+    "bucket": "llm-gate"
   }
 ]
