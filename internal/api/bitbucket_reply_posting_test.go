@@ -100,6 +100,10 @@ func TestBitbucketCommentReplyPostingFromCapture(t *testing.T) {
 	}
 	expectedReply := responseEvent.Comment.Body
 
+	// The provider looks up a token before posting, so seed one for the captured repo.
+	tokenID := insertIntegrationToken(t, server.db, "bitbucket-cloud", "https://api.bitbucket.org", "pat-reply", map[string]interface{}{"email": "bot@example.com"})
+	insertBitbucketWebhook(t, server.db, "contorted/fb_backends", tokenID)
+
 	stubOutput := &capturingBitbucketOutput{}
 	provider := bitbucketprovider.NewBitbucketV2Provider(server.DB(), stubOutput)
 	server.bitbucketProviderV2 = provider
