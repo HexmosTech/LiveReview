@@ -16,14 +16,7 @@ import (
 func TestFetchRelevantLearningsAndPromptIntegration(t *testing.T) {
 	t.Helper()
 
-	env, err := loadEnvFile("../../.env")
-	require.NoError(t, err)
-
-	dbURL, ok := env["DATABASE_URL"]
-	require.True(t, ok, "DATABASE_URL not found in .env")
-	require.NotEmpty(t, dbURL, "DATABASE_URL is empty")
-
-	db, err := sql.Open("postgres", dbURL)
+	db, err := sql.Open("postgres", testDatabaseURL())
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		db.Close()

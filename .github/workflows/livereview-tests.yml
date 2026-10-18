@@ -27,6 +27,8 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgres://livereview:livereview_password_123@localhost:5432/livereview?sslmode=disable
+      # Dummy value: tests that build the API server need one to start.
+      JWT_SECRET: ci-test-only-jwt-secret
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
@@ -40,6 +42,11 @@ jobs:
       # Fails the job if the database isn't up, so DB tests can't silently skip.
       - name: Run migrations
         run: dbmate --url "$DATABASE_URL" --no-dump-schema up
+
+      - name: Run River job queue migrations
+        run: |
+          . docker/docker-deps.env
+          go run "github.com/riverqueue/river/cmd/river@${RIVER_VERSION}" migrate-up --database-url "$DATABASE_URL"
 
       - name: Run Go tests
         run: make testall

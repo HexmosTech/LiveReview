@@ -94,6 +94,8 @@ type Scenario struct {
 	SeedRecentScores   []float64               `json:"seed_recent_scores"`
 	SeedApprovalsToday int                     `json:"seed_approvals_today"`
 	Want               scenarioWant            `json:"want"`
+	// Skip, when set, is why this scenario is skipped for now.
+	Skip string `json:"skip"`
 }
 
 func loadScenarios(t *testing.T) []Scenario {
@@ -579,6 +581,9 @@ func TestScenarios(t *testing.T) {
 	for _, sc := range loadScenarios(t) {
 		sc := sc
 		t.Run(sc.Name, func(t *testing.T) {
+			if sc.Skip != "" {
+				t.Skip(sc.Skip)
+			}
 			res := runScenario(t, db, orgID, sc)
 
 			gotApprove := res.Approved

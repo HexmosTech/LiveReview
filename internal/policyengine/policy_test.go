@@ -44,6 +44,25 @@ func seedOrg(t *testing.T, db *sql.DB, name string) int64 {
 	return orgID
 }
 
+// seedRepo creates a connector and repository in orgID, so repo-scoped policy
+// rows have a real repository to point at.
+func seedRepo(t *testing.T, db *sql.DB, orgID int64, name string) int64 {
+	var connectorID, repoID int64
+	if err := db.QueryRow(`
+		INSERT INTO integration_tokens (provider, provider_app_id, access_token, connection_name, provider_url, org_id)
+		VALUES ('github', 'test-app', 'na', $1, 'https://example.test', $2) RETURNING id`, name, orgID).Scan(&connectorID); err != nil {
+		t.Fatalf("insert connector: %v", err)
+	}
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM integration_tokens WHERE id = $1`, connectorID) })
+	if err := db.QueryRow(`
+		INSERT INTO repositories (org_id, connector_id, provider, provider_repo_id, full_name, name, web_url)
+		VALUES ($1, $2, 'github', $3, 'acme/'||$3, $3, 'https://github.com/acme/'||$3) RETURNING id`, orgID, connectorID, name).Scan(&repoID); err != nil {
+		t.Fatalf("insert repository: %v", err)
+	}
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM repositories WHERE id = $1`, repoID) })
+	return repoID
+}
+
 func insertPolicy(t *testing.T, db *sql.DB, orgID int64, repoID *int64, mode string, minLevel int) int64 {
 	var id int64
 	if repoID == nil {
@@ -113,7 +132,7 @@ func TestResolvePolicyInheritDefersToOrgDefault(t *testing.T) {
 	db := testDB(t)
 	orgID := seedOrg(t, db, "policy-resolve-inherit")
 	insertPolicy(t, db, orgID, nil, ModeCustom, 3)
-	repoID := int64(42)
+	repoID := seedRepo(t, db, orgID, "policy-resolve-inherit-repo")
 	insertPolicy(t, db, orgID, &repoID, ModeInherit, 1)
 
 	p, found, err := ResolvePolicy(context.Background(), db, orgID, repoID)
@@ -136,7 +155,7 @@ func TestResolvePolicyCustomRepoRowWins(t *testing.T) {
 	db := testDB(t)
 	orgID := seedOrg(t, db, "policy-resolve-custom-repo")
 	insertPolicy(t, db, orgID, nil, ModeCustom, 1)
-	repoID := int64(43)
+	repoID := seedRepo(t, db, orgID, "policy-resolve-custom-repo")
 	insertPolicy(t, db, orgID, &repoID, ModeCustom, 5)
 
 	p, found, err := ResolvePolicy(context.Background(), db, orgID, repoID)
