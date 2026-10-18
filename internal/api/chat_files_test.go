@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/labstack/echo/v4"
@@ -120,12 +121,15 @@ func insertChatOrgUser(t *testing.T, ctx context.Context, db *sql.DB) (int64, in
 		RETURNING id
 	`).Scan(&orgID))
 	var userID int64
+	// Unique email per run, so rows left by an earlier failed run can't collide.
+	email := "chat-files-test-owner-" + strconv.FormatInt(time.Now().UnixNano(), 10) + "@example.com"
 	require.NoError(t, db.QueryRowContext(ctx, `
-		INSERT INTO users (email, password_hash, is_active) VALUES ('chat-files-test-owner@example.com', 'x', true)
+		INSERT INTO users (email, password_hash, is_active) VALUES ($1, 'x', true)
 		RETURNING id
-	`).Scan(&userID))
+	`, email).Scan(&userID))
 	t.Cleanup(func() {
 		_, _ = db.ExecContext(ctx, "DELETE FROM users WHERE id = $1", userID)
+		_, _ = db.ExecContext(ctx, "DELETE FROM dashboard_cache WHERE org_id = $1", orgID)
 		_, _ = db.ExecContext(ctx, "DELETE FROM orgs WHERE id = $1", orgID)
 	})
 	return orgID, userID

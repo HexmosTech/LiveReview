@@ -43,10 +43,9 @@ func TestCallGeminiAPI(t *testing.T) {
 	// Create a provider with our mock server and client
 	provider := &gemini.GeminiProvider{
 		TestableFields: gemini.TestableFields{
-			APIKey:      "test-key",
-			Model:       "gemini-pro",
-			Temperature: 0.2,
-			HTTPClient:  httpClient,
+			APIKey:     "test-key",
+			Model:      "gemini-pro",
+			HTTPClient: httpClient,
 		},
 	}
 
