@@ -17,7 +17,7 @@ func TestDatabaseEventSink(t *testing.T) {
 	}
 
 	// Connect to test database
-	db, err := sql.Open("postgres", "postgres://livereview:livereview_password_123@localhost:5432/livereview?sslmode=disable")
+	db, err := sql.Open("postgres", testDatabaseURL())
 	require.NoError(t, err)
 	defer db.Close()
 

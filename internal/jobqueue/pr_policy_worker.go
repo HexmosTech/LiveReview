@@ -150,7 +150,7 @@ func (w *PRPolicyCheckWorker) publish(ctx context.Context, args PRPolicyCheckJob
 	if err != nil {
 		log.Printf("[WARN] pr policy: public URL not configured, posting without review link: %v", err)
 	}
-	body := buildPolicySummary(res) + "\n\n" + buildPolicyDetails(host, args.ReviewID, res)
+	body := buildPolicySummary(res) + " · " + policyReviewLink(host, args.ReviewID) + "\n\n" + buildPolicyDetails(res)
 	if host != "" {
 		// The description's review history table is a convenience; don't fail the publish over it.
 		if err := refreshPRSection(ctx, w.db, info, host, pullRequestID, number); err != nil {
@@ -279,29 +279,27 @@ func (w *PRPolicyPublishWorker) Work(ctx context.Context, job *river.Job[PRPolic
 // buildPolicySummary is the one-line verdict used as the approve / request-changes review text.
 func buildPolicySummary(res *policyengine.FunnelResult) string {
 	if res.Approved {
-		return "✅ **LiveReview policy: Approved.**"
+		return "✅ **LiveReview policy: Approved**"
 	}
 	for _, st := range res.Stages {
 		if st.Verdict == policyengine.VerdictFail {
-			return fmt.Sprintf("❌ **LiveReview policy: Not approved** (blocked at %s).", titleCaseStage(st.Stage))
+			return fmt.Sprintf("❌ **LiveReview policy: Not approved** (blocked at %s)", titleCaseStage(st.Stage))
 		}
 	}
-	return "❌ **LiveReview policy: Not approved.**"
+	return "❌ **LiveReview policy: Not approved**"
+}
+
+// policyReviewLink links the review on LiveReview, or names it when the host is unknown.
+func policyReviewLink(host string, reviewID int64) string {
+	if host == "" {
+		return fmt.Sprintf("Review #%d", reviewID)
+	}
+	return fmt.Sprintf("[Review #%d](%s/#/reviews/%d)", reviewID, strings.TrimSuffix(host, "/"), reviewID)
 }
 
 // buildPolicyDetails renders the funnel stage by stage for the policy comment, so it shows *why* the policy decided.
-func buildPolicyDetails(host string, reviewID int64, res *policyengine.FunnelResult) string {
+func buildPolicyDetails(res *policyengine.FunnelResult) string {
 	var b strings.Builder
-	verdict := "❌ Policy: Not approved"
-	if res.Approved {
-		verdict = "✅ Policy: Approved"
-	}
-	review := fmt.Sprintf("Review #%d", reviewID)
-	if host != "" {
-		review = fmt.Sprintf("[Review #%d](%s/#/reviews/%d)", reviewID, strings.TrimSuffix(host, "/"), reviewID)
-	}
-	fmt.Fprintf(&b, "#### %s · %s\n\n", verdict, review)
-
 	b.WriteString("| Stage | Result | Detail |\n|---|---|---|\n")
 	for _, st := range res.Stages {
 		reason := ""

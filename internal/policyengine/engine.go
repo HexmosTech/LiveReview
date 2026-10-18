@@ -337,12 +337,25 @@ func (e *Engine) riskStage(ctx context.Context, orgID, reviewID int64, p *Policy
 		"threshold":  p.RiskThresholdPercentile,
 		"features":   featureTable(features),
 	}
+	detail["reason"] = riskReason(score, cutoff, pct, p.RiskThresholdPercentile, len(scores) > 0)
 	if score >= cutoff {
-		detail["reason"] = fmt.Sprintf("Risk score %.2f (P%d) is above the threshold of %.2f (P%d)", score, pct, cutoff, p.RiskThresholdPercentile)
 		return riskStageResult{StageResult: StageResult{Stage: StageRisk, Verdict: VerdictFail, Detail: detail}, Score: score, Percentile: pct, Cutoff: cutoff}
 	}
-	detail["reason"] = fmt.Sprintf("Risk score %.2f (P%d) is within the threshold of %.2f (P%d)", score, pct, cutoff, p.RiskThresholdPercentile)
 	return riskStageResult{StageResult: StageResult{Stage: StageRisk, Verdict: VerdictPass, Detail: detail}, Score: score, Percentile: pct, Cutoff: cutoff}
+}
+
+// riskReason builds the risk stage message. P numbers only mean something
+// when there are past scores to rank against, so they're left out otherwise.
+func riskReason(score, cutoff float64, pct, threshold int, hasHistory bool) string {
+	scoreLabel, cutoffLabel := fmt.Sprintf("%.2f", score), fmt.Sprintf("%.2f", cutoff)
+	if hasHistory {
+		scoreLabel += fmt.Sprintf(" (P%d)", pct)
+		cutoffLabel += fmt.Sprintf(" (P%d)", threshold)
+	}
+	if score >= cutoff {
+		return fmt.Sprintf("Risk score %s is above the cutoff of %s", scoreLabel, cutoffLabel)
+	}
+	return fmt.Sprintf("Risk score %s is below the cutoff of %s", scoreLabel, cutoffLabel)
 }
 
 // featureTable renders the feature vector as a human-readable list for the UI's

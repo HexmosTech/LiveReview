@@ -1,0 +1,47 @@
+name: livereview-tests
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  livereview-tests:
+    runs-on: ubuntu-24.04
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+
+      # The DB tests skip when the database is unreachable, so fail here instead of passing silently.
+      - name: Check staging database is reachable
+        run: psql "$DATABASE_URL" -c 'select 1' > /dev/null
+
+      - name: Install dbmate
+        run: sudo npm install -g dbmate
+
+      - name: Run staging migrations
+        run: dbmate --url "$DATABASE_URL" up
+
+      - name: Run Go tests
+        run: make testall
+
+      - name: Report status to commit SHA
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STATE: ${{ job.status == 'success' && 'success' || 'failure' }}
+        run: |
+          gh api \
+            --method POST \
+            repos/${{ github.repository }}/statuses/${{ github.sha }} \
+            -f state="$STATE" \
+            -f context="livereview-tests" \
+            -f description="LiveReview tests completed with status: $STATE" \
+            -f target_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"

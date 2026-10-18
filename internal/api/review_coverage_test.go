@@ -21,7 +21,7 @@ func TestReviewCoverage(t *testing.T) {
 		t.Skip("Skipping database integration test")
 	}
 
-	db, err := sql.Open("postgres", "postgres://livereview:livereview_password_123@localhost:5432/livereview?sslmode=disable")
+	db, err := sql.Open("postgres", testDatabaseURL())
 	require.NoError(t, err)
 	// Registered via t.Cleanup (not `defer`) so it runs *after* the delete
 	// cleanup below: function-local defers unwind before t.Cleanup callbacks
@@ -150,7 +150,7 @@ func TestInsertReviewCommits(t *testing.T) {
 		t.Skip("Skipping database integration test")
 	}
 
-	db, err := sql.Open("postgres", "postgres://livereview:livereview_password_123@localhost:5432/livereview?sslmode=disable")
+	db, err := sql.Open("postgres", testDatabaseURL())
 	require.NoError(t, err)
 	// Registered via t.Cleanup (not `defer`) so it runs *after* the delete
 	// cleanup below: function-local defers unwind before t.Cleanup callbacks
