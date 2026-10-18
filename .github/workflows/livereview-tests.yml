@@ -10,8 +10,23 @@ permissions:
 jobs:
   livereview-tests:
     runs-on: ubuntu-24.04
+    # Throwaway database per run, so tests never touch staging or collide with other runs.
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: livereview
+          POSTGRES_PASSWORD: livereview_password_123
+          POSTGRES_DB: livereview
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U livereview"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATABASE_URL: postgres://livereview:livereview_password_123@localhost:5432/livereview?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
@@ -19,15 +34,12 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # The DB tests skip when the database is unreachable, so fail here instead of passing silently.
-      - name: Check staging database is reachable
-        run: psql "$DATABASE_URL" -c 'select 1' > /dev/null
-
       - name: Install dbmate
         run: sudo npm install -g dbmate
 
-      - name: Run staging migrations
-        run: dbmate --url "$DATABASE_URL" up
+      # Fails the job if the database isn't up, so DB tests can't silently skip.
+      - name: Run migrations
+        run: dbmate --url "$DATABASE_URL" --no-dump-schema up
 
       - name: Run Go tests
         run: make testall
