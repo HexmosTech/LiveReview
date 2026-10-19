@@ -162,8 +162,6 @@ curl -fsSL https://raw.githubusercontent.com/HexmosTech/LiveReview/master/lrops.
 - Docker (with `docker-compose` or `docker compose`)
 - `jq`
 
-You'll need a **Free Licence** to get started. Follow the guide [here](https://hexmos.com/livereview/docs/livereview/self-hosted/get-a-livereview-licence/).
-
 **Access your installation:**
 - Web UI: http://localhost:8081/
 - API: http://localhost:8888/api
