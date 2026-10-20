@@ -146,11 +146,12 @@ func (s *Server) getPullRequestOrg(c echo.Context) error {
 }
 
 // markForPolicyCheck flags a manual PR review so the worker runs the approval policy check once it completes.
-// Reviews not linked to a known PR are left alone.
+// Any review that points at a PR/MR by URL is eligible; the engine falls back to the review's
+// own author fields when the PR itself was never synced into `pull_requests`.
 func (s *Server) markForPolicyCheck(reviewID, orgID int64) {
 	if _, err := s.db.Exec(
 		`UPDATE reviews SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"pr_link_policy": true}'::jsonb
-		 WHERE id = $1 AND org_id = $2 AND pull_request_id IS NOT NULL`,
+		 WHERE id = $1 AND org_id = $2 AND (pull_request_id IS NOT NULL OR pr_mr_url IS NOT NULL)`,
 		reviewID, orgID,
 	); err != nil {
 		log.Printf("[WARN] failed to mark review %d for policy check: %v", reviewID, err)

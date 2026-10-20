@@ -184,9 +184,12 @@ export const getDiffReview = async (reviewId: number): Promise<DiffReviewStatusR
  * @param reviewId The ID of the review
  * @returns Promise with the blast radius report
  */
-export const getBlastRadiusReport = async (reviewId: number): Promise<BlastRadiusReport | BlastRadiusSkipped> => {
+export const getBlastRadiusReport = async (
+  reviewId: number,
+  signal?: AbortSignal,
+): Promise<BlastRadiusReport | BlastRadiusSkipped> => {
   try {
-    return await apiClient.get<BlastRadiusReport | BlastRadiusSkipped>(`/api/v1/diff-review/${reviewId}/artifacts/blast-radius`);
+    return await apiClient.get<BlastRadiusReport | BlastRadiusSkipped>(`/api/v1/diff-review/${reviewId}/artifacts/blast-radius`, { signal });
   } catch (error) {
     console.error('Error fetching blast radius report:', error);
     throw error;

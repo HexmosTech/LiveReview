@@ -388,7 +388,8 @@ const Settings = () => {
             )
         }] : []),
         // Third-Party Tools tab visible only in cloud mode for org owners
-        ...(isCloudMode() && currentOrg?.role === 'owner' ? [{
+        // (super admins may access every owner surface — mirrors RequireOrgOwner)
+        ...(isCloudMode() && (isSuperAdmin || currentOrg?.role === 'owner') ? [{
             id: 'third-party-tools',
             name: 'Third-Party Tools',
             icon: <Icons.Tools />
@@ -841,12 +842,12 @@ const Settings = () => {
                         </Card>
                     )}
 
-                    {activeTab === 'third-party-tools' && isCloudMode() && currentOrg?.role === 'owner' && (
+                    {activeTab === 'third-party-tools' && isCloudMode() && (isSuperAdmin || currentOrg?.role === 'owner') && (
                         <Card>
                             <ThirdPartyToolsTab />
                         </Card>
                     )}
-                    {activeTab === 'third-party-tools' && isCloudMode() && currentOrg?.role !== 'owner' && (
+                    {activeTab === 'third-party-tools' && isCloudMode() && !(isSuperAdmin || currentOrg?.role === 'owner') && (
                         <Card>
                             <div className="p-4 text-sm text-red-300">
                                 Tool configuration is only available to organization owners.

@@ -22,7 +22,7 @@ Welcome to LiveReview docs, here you can find resources on how to make the best 
 1. [SMTP Configuration](SMTP-Configuration)
 1. [Customize LiveReview to Your Team's Best Practices](Customize-LiveReview-to-Your-Teams-Best-Practices)
 1. [Productionize LiveReview](Productionize-LiveReview)
-    1. [Get Demo Mode Running](Productionize-LiveReview#get-demo-mode-running)
+    1. [Get Production Mode Running](Productionize-LiveReview#get-production-mode-running)
     1. [Update Configuration](Productionize-LiveReview#update-configuration)
     1. [Setup Reverse Proxy](Productionize-LiveReview#setup-reverse-proxy)
         1. [Apache Reverse Proxy Setup](Apache-Reverse-Proxy-Setup)

@@ -72,7 +72,7 @@ export function riskAssessment(
     return { kind: 'ready', value: blastRadiusTierLabel(top), tone: TIER_TONE[blastRadiusTier(top)], text, report: ready, scores, top };
   }
   if (poll === 'gave_up') {
-    return { kind: 'unavailable', value: 'Not available', tone: '!text-slate-400', text: 'No result arrived within 15 minutes.', scores: none, top: 0 };
+    return { kind: 'unavailable', value: 'Not available', tone: '!text-slate-400', text: 'No risk report is available for this review.', scores: none, top: 0 };
   }
   if (poll === 'waiting') {
     return isPR

@@ -20,8 +20,35 @@ const STAGE_HINT: Record<string, string> = {
   final: HELP.stageFinal,
 };
 
-const verdictIcon = (v: string) =>
-  v === 'pass' || v === 'approved' ? '✅' : v === 'fail' || v === 'blocked' ? '❌' : '⏭️';
+const VerdictIcon: React.FC<{ verdict: string }> = ({ verdict }) => {
+  const pass = verdict === 'pass' || verdict === 'approved';
+  const fail = verdict === 'fail' || verdict === 'blocked';
+  // 16px icon nudged to the cap height of the 14px row text, so icon, label and reason share one baseline.
+  const cls = 'w-4 h-4 mt-[3px] shrink-0';
+  const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  if (pass) {
+    return (
+      <svg className={`${cls} text-green-400`} viewBox="0 0 24 24" role="img" aria-label="passed" {...stroke}>
+        <circle cx="12" cy="12" r="9" />
+        <path d="m8.5 12.4 2.4 2.4 4.6-5" />
+      </svg>
+    );
+  }
+  if (fail) {
+    return (
+      <svg className={`${cls} text-red-400`} viewBox="0 0 24 24" role="img" aria-label="failed" {...stroke}>
+        <circle cx="12" cy="12" r="9" />
+        <path d="m9 9 6 6M15 9l-6 6" />
+      </svg>
+    );
+  }
+  return (
+    <svg className={`${cls} text-slate-400`} viewBox="0 0 24 24" role="img" aria-label="skipped" {...stroke}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8 12h8" />
+    </svg>
+  );
+};
 
 // Every stage's detail blob carries more than the one-line reason already
 // shown inline (risk's full feature-by-feature breakdown, llm's class +
@@ -158,7 +185,7 @@ const AutoApprovePanel: React.FC<{ reviewId: number }> = ({ reviewId }) => {
                     });
                   }}
                 >
-                  <span className="shrink-0">{verdictIcon(st.verdict)}</span>
+                  <span className="shrink-0"><VerdictIcon verdict={st.verdict} /></span>
                   <span className="w-36 shrink-0 text-slate-300 inline-flex items-center gap-1.5">
                     {STAGE_LABEL[st.stage] || st.stage}
                     {STAGE_HINT[st.stage] && <InfoHint text={STAGE_HINT[st.stage]} />}
