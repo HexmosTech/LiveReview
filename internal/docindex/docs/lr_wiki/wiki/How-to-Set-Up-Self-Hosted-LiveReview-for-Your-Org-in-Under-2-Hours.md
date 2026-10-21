@@ -82,32 +82,9 @@ When you log in for the first time, you will need to set up your organization wo
 
 <img width="100%" height="auto" alt="bf7de477-804e-4ea2-b5d4-4cbce997ac67" src="https://github.com/user-attachments/assets/fb2f9562-edf3-4cc5-b705-4f20fe9b1ee6" />
 
+> Your organization is ready. It comes with **30k LOC per month**. For unlimited LOC, [upgrade to a paid plan](https://hexmos.com/livereview/selfhosted-access/).
 
-To activate your self-hosted deployment, you need a valid license key.
-
-1. Click the **Have a license** option on the dashboard.
-2. Click **Get a License** from the modal.
-
-<img width="100%" height="auto" alt="0f004cd9-fcf2-4dcb-a848-c883a0b15ab5" src="https://github.com/user-attachments/assets/04532782-3532-44f7-9d9e-31647a33488c" />
-
-3. Sign in to Hexmos.
-
-<img width="100%" height="auto" alt="39a3bb47-7a54-4127-b90a-d1de88315267" src="https://github.com/user-attachments/assets/2626b052-e91f-4708-b00a-971122cbe14a" />
-
-4. Click the **Regenerate Token** button.
-
-<img width="100%" height="auto" alt="ac2bc261-6ffe-4beb-b60a-2b335b8ad852" src="https://github.com/user-attachments/assets/ace9bee6-277f-48b5-a449-0ffbc0036871" />
-
-5. Copy the LiveReview access token.
-
-<img width="100%" height="auto" alt="938a44d2-e0bc-4255-89a8-978bebe16653" src="https://github.com/user-attachments/assets/5b500197-b5ea-4819-9c3c-5e4da20cf3c4" />
-
-6. Paste the token into the modal on the dashboard.
-
-<img width="100%" height="auto" alt="8ba039e5-4698-4bb6-8702-85c8cf7a1639" src="https://github.com/user-attachments/assets/c6e20f51-a517-471b-ac56-f0a66e072660" />
-
-
-### Step 9: Add an AI Provider
+### Step 8: Add an AI Provider
 LiveReview requires an AI provider (like OpenAI, Anthropic, or Gemini) to generate reviews.
 
 1. Click **AI Providers** from the Navbar.
@@ -116,7 +93,7 @@ LiveReview requires an AI provider (like OpenAI, Anthropic, or Gemini) to genera
 
 <img width="100%" height="auto" alt="5ed8e93f-5024-449f-8138-6381ab62b8f6" src="https://github.com/user-attachments/assets/1c9a63c8-752a-40ff-b8b7-a627f154d410" />
 
-### Step 10: Invite Team Members
+### Step 9: Invite Team Members
 Finally, invite your colleagues so they can start reviewing code.
 
 1. Navigate to **Settings > User Management**.

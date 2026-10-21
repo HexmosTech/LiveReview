@@ -26,15 +26,7 @@ You can usually access the UI at `http://localhost:8081` as follows - enter the 
 
 <img width="950" height="470" alt="image" src="https://github.com/user-attachments/assets/3ff5de0b-00ab-46b9-8928-4c31654f750c" />
 
-On first login - you'll get a notice on "Demo Mode". What this means is - the app provides basic review facilities, but some special webhook related features won't be available. Don't worry about it now - you can productionize app later. For now - close that window.
+On first login - you'll get a notice on "Demo Mode". What this means is - the app provides basic review facilities, but some special webhook related features won't be available. Don't worry about it now - you can [productionize the app](Productionize-LiveReview) later. For now - close that window.
 
 <img width="950" height="435" alt="image" src="https://github.com/user-attachments/assets/979fdea1-dd14-4174-b4c7-b66cf060af1a" />
-
-You should see the license window - you can paste the Licence [from previous step](Get-a-LiveReview-Licence) here (or click "Get Licence" link there to get a License)
-
-<img width="810" height="538" alt="image" src="https://github.com/user-attachments/assets/4c32b9b8-65d6-47e1-8e5e-a9e098538048" />
-
-Enter the license and hit save - you'll get something like this:
-
-<img width="850" height="435" alt="image" src="https://github.com/user-attachments/assets/57fdcdce-0ea9-4bc7-81c6-e66d9aa8673c" />
 
