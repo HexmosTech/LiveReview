@@ -220,6 +220,7 @@ func (s *Server) redirectToGitHub(c echo.Context, src, mode string, targetID int
 	}
 
 	// Lax, not Strict: the return trip from GitHub is a cross-site top-level GET, which Strict would drop.
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure -- Secure is set whenever the request is HTTPS (plain HTTP only happens in local development)
 	c.SetCookie(&http.Cookie{
 		Name: ghStateCookieName, Value: nonce, Path: "/api/v1/auth/github-app",
 		MaxAge: int(ghStateTTL.Seconds()), HttpOnly: true, Secure: c.Scheme() == "https", SameSite: http.SameSiteLaxMode,
@@ -262,7 +263,8 @@ func (s *Server) GitHubAppCallback(c echo.Context) error {
 	// 1. state: signed, unexpired, and bound to this browser by the cookie nonce.
 	state, err := verifyGHState(c.QueryParam("state"), s.githubAppSecret, time.Now())
 	cookie, cookieErr := c.Cookie(ghStateCookieName)
-	c.SetCookie(&http.Cookie{Name: ghStateCookieName, Value: "", Path: "/api/v1/auth/github-app", MaxAge: -1, HttpOnly: true})
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure -- expiring cookie; Secure matches how it was set (HTTPS only outside local development)
+	c.SetCookie(&http.Cookie{Name: ghStateCookieName, Value: "", Path: "/api/v1/auth/github-app", MaxAge: -1, HttpOnly: true, Secure: c.Scheme() == "https", SameSite: http.SameSiteLaxMode})
 	if err != nil || cookieErr != nil || !hmac.Equal([]byte(cookie.Value), []byte(state.Nonce)) {
 		return s.githubAppErrorPage(c, http.StatusBadRequest, "This sign-in link expired or was opened in a different browser. Please start again.")
 	}
@@ -398,6 +400,7 @@ func (s *Server) GitHubAppCallback(c echo.Context) error {
 	// A user can belong to several LiveReview orgs and the UI opens whichever one it last used. Tell it which org the
 	// installation(s) were connected to (read and cleared by ui/src/index.tsx); otherwise get-started asks the wrong
 	// org, finds no GitHub connection and sends the user back to GitHub. Not a secret, so not HttpOnly.
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure, go.lang.security.audit.net.cookie-missing-httponly.cookie-missing-httponly -- the UI must read it from JS (index.tsx); holds only an org id; Secure whenever HTTPS
 	c.SetCookie(&http.Cookie{
 		Name: ghOrgCookieName, Value: strconv.FormatInt(provisioned.OrgID, 10), Path: "/",
 		MaxAge: 300, Secure: c.Scheme() == "https", SameSite: http.SameSiteLaxMode,
@@ -405,6 +408,7 @@ func (s *Server) GitHubAppCallback(c echo.Context) error {
 	// A returning user (plain GitHub sign-in, nothing new installed, their org and connection already existed) has
 	// finished onboarding: send them to the GitHub App card on Git Providers, where their accounts are managed, instead of get-started.
 	if state.Mode == ghModeSignin && !explicit && alreadyConnected && !provisioned.CreatedOrg {
+		// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure, go.lang.security.audit.net.cookie-missing-httponly.cookie-missing-httponly -- the UI must read it from JS (index.tsx); holds only a page hint; Secure whenever HTTPS
 		c.SetCookie(&http.Cookie{
 			Name: ghNextCookieName, Value: ghNextGitProviders, Path: "/",
 			MaxAge: 300, Secure: c.Scheme() == "https", SameSite: http.SameSiteLaxMode,

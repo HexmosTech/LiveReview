@@ -13,7 +13,7 @@ package referencemix
 
 import (
 	"math"
-	"math/rand"
+	"math/rand" // nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used -- seeded on purpose: the reference mix must be reproducible test data, not random
 )
 
 // Example is one synthetic review: an optional human-readable label (empty
