@@ -23,6 +23,7 @@ import { NotificationBell } from '../Notifications/NotificationBell';
 import { add as addNotification, dismiss as dismissNotification } from '../../store/Notifications/slice';
 import { prefetchRoute } from '../../utils/routePrefetch';
 import { triggerNavigationProgress } from '../NavigationProgressBar';
+import { useGitHubAppConnected } from '../../hooks/useGitHubAppConnected';
 
 type NavbarBillingStatusResponse = {
     billing: {
@@ -618,6 +619,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
     const megaMenuPanelRef = useRef<HTMLDivElement>(null);
     const wasMegaMenuOpenRef = useRef(false);
     const { isDevMode } = useSystemInfo();
+    const hasGitHubApp = useGitHubAppConnected();
     // On the chat page the sidebar is a fixed rail sitting in front of the
     // navbar's own left edge - inset the navbar's content by the sidebar's
     // current width so the logo is never physically covered by it, instead
@@ -649,6 +651,7 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
         hasOrg: Boolean(currentOrg),
         orgRole: currentOrg?.role,
         isDevMode,
+        hasGitHubApp,
     };
 
     const filteredMegaMenuSections = buildMegaMenuSections()

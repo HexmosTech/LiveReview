@@ -14,6 +14,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	apimiddleware "github.com/livereview/internal/api/middleware"
+	"github.com/livereview/internal/githubapp"
 	"github.com/livereview/internal/blobstore"
 	"github.com/livereview/internal/diffutil"
 	"github.com/livereview/internal/jobqueue"
@@ -282,6 +283,9 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	if liveFetch {
 		response["live_fetch"] = true
 	}
+	if _, ok := meta["comments_not_posted"]; ok {
+		response["comments_not_posted"] = s.commentsNotPostedNotice(reviewRecord.PrMrURL)
+	}
 
 	if excluded, ok := meta["excluded_files"].([]interface{}); ok && len(excluded) > 0 {
 		response["excluded_files"] = excluded
@@ -539,8 +543,8 @@ func (s *Server) fetchLiveDiffFromMetadata(ctx context.Context, meta map[string]
 	}
 	owner, repo := parts[0], parts[1]
 
-	var provider, patToken string
-	err := s.db.QueryRowContext(ctx, `SELECT provider, pat_token FROM integration_tokens WHERE id = $1`, connectorID).Scan(&provider, &patToken)
+	var provider, patToken, tokenType string
+	err := s.db.QueryRowContext(ctx, `SELECT provider, pat_token, COALESCE(token_type, '') FROM integration_tokens WHERE id = $1`, connectorID).Scan(&provider, &patToken, &tokenType)
 	if err != nil {
 		return nil, true, fmt.Errorf("failed to load integration token %d: %w", connectorID, err)
 	}
@@ -548,6 +552,9 @@ func (s *Server) fetchLiveDiffFromMetadata(ctx context.Context, meta map[string]
 		return nil, true, fmt.Errorf("live diff fetch not supported for provider %q", provider)
 	}
 
+	if patToken, err = githubapp.ResolveIfApp(ctx, s.db, connectorID, tokenType, patToken); err != nil {
+		return nil, true, fmt.Errorf("failed to resolve GitHub token for connector %d: %w", connectorID, err)
+	}
 	ghProvider := githubprovider.NewGitHubProvider(patToken)
 	diffs, _, err := ghProvider.GetCompareChanges(ctx, owner, repo, baseSHA, headSHA)
 	if err != nil {
@@ -568,6 +575,9 @@ func (s *Server) fetchLiveDiffFromPR(ctx context.Context, connectorID int64, prM
 	token, err := s.loadIntegrationTokenByID(connectorID)
 	if err != nil {
 		return nil, err
+	}
+	if err := s.resolveGitHubAppToken(ctx, token); err != nil {
+		return nil, fmt.Errorf("failed to resolve GitHub App token: %w", err)
 	}
 
 	providerConfig := buildProviderConfig(token, prMrURL, token.AccessToken)
@@ -908,4 +918,22 @@ func readBoolMeta(meta map[string]interface{}, key string) (bool, bool) {
 	}
 	b, ok := v.(bool)
 	return b, ok
+}
+
+// commentsNotPostedNotice explains, for the Findings tab, why a finished review put nothing on the PR/MR: the
+// provider refused the comments for lack of permission. For GitHub it also says whether the user can fix that by
+// installing the LiveReview GitHub App (shown as an "Install now" button).
+func (s *Server) commentsNotPostedNotice(prMrURL string) map[string]interface{} {
+	repo := githubPullRepo(prMrURL)
+	if repo == "" {
+		return map[string]interface{}{
+			"message":     "Comments weren't posted to the pull request because the connection has no permission to comment on this repository. The findings are shown here.",
+			"can_install": false,
+		}
+	}
+	return map[string]interface{}{
+		"message":     fmt.Sprintf("Comments weren't posted to GitHub because the LiveReview GitHub App isn't installed on %s. The findings are shown here.", repo),
+		"repository":  repo,
+		"can_install": s.githubApp != nil,
+	}
 }

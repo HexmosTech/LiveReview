@@ -35,6 +35,9 @@ type AIConnectorKeyValidationResponse struct {
 }
 
 // ValidateAIConnectorKey handles requests to validate an AI provider API key
+// aiKeyValidationTimeout stays under the typical 60s reverse-proxy timeout.
+const aiKeyValidationTimeout = 45 * time.Second
+
 func (s *Server) ValidateAIConnectorKey(c echo.Context) error {
 	var req AIConnectorKeyValidationRequest
 	if err := c.Bind(&req); err != nil {
@@ -72,9 +75,12 @@ func (s *Server) ValidateAIConnectorKey(c echo.Context) error {
 		Str("provider", req.Provider).
 		Msg("Validating AI provider API key")
 
-	// Validate the API key
+	// Validate the API key. Bounded so a slow or stalled model answers with a clear message instead of the
+	// reverse proxy's 504 (nginx gives up at about 60s).
+	validateCtx, cancelValidate := context.WithTimeout(c.Request().Context(), aiKeyValidationTimeout)
+	defer cancelValidate()
 	valid, err := aiconnectors.ValidateAPIKey(
-		context.Background(),
+		validateCtx,
 		s.db,
 		aiconnectors.Provider(req.Provider),
 		req.APIKey,
@@ -85,6 +91,16 @@ func (s *Server) ValidateAIConnectorKey(c echo.Context) error {
 		strings.TrimSpace(req.AWSAccessKeyID),
 		strings.TrimSpace(req.AWSRegion),
 	)
+
+	// A timeout looks like "invalid key" to ValidateAPIKey (it returns false, nil on any call error), which would
+	// send the user hunting for a key problem. Say what actually happened.
+	if validateCtx.Err() == context.DeadlineExceeded {
+		log.Warn().Str("provider", req.Provider).Str("model", req.Model).Msg("API key validation timed out")
+		return c.JSON(http.StatusOK, AIConnectorKeyValidationResponse{
+			Valid:   false,
+			Message: fmt.Sprintf("The model did not respond within %d seconds, so the key could not be checked. Try a different model (for example a Flash model) or try again.", int(aiKeyValidationTimeout.Seconds())),
+		})
+	}
 
 	if err != nil {
 		log.Error().Err(err).Msg("Error validating API key")

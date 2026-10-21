@@ -92,9 +92,11 @@ func (s *Server) createReview(c echo.Context) error {
 	}
 
 	if err := s.prepareAuthentication(ctx); err != nil {
+		s.failReviewSetup(ctx, err)
 		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 	}
 	if err := s.createReviewRequest(ctx); err != nil {
+		s.failReviewSetup(ctx, err)
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 	}
 	s.enrichMetadata(ctx)

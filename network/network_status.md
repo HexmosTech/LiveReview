@@ -71,3 +71,15 @@ Latest milestone batch note (MF-051, MF-059, MF-073, MF-074, MF-076, MF-083, MF-
 | api.selectLeaderAIConfig | added | [selectLeaderAIConfig](../internal/api/reviews_api.go#L378) |
 | api.selectHelperAIConfig | added | [selectHelperAIConfig](../internal/api/reviews_api.go#L414) |
 | api.GetReviewAccounting | updated | [GetReviewAccounting](../internal/api/review_events_endpoints.go#L207) |
+| providersgithub.MintAppJWT | added | [MintAppJWT](providers/github/app.go#L101) |
+| providersgithub.CreateInstallationToken | added | [CreateInstallationToken](providers/github/app.go#L116) |
+| providersgithub.ExchangeUserCode | added | [ExchangeUserCode](providers/github/app.go#L137) |
+| providersgithub.ListUserEmails | added | [ListUserEmails](providers/github/app.go#L167) |
+| providersgithub.GetAuthenticatedUser | added | [GetAuthenticatedUser](providers/github/app.go#L183) |
+| providersgithub.ListUserInstallations | added | [ListUserInstallations](providers/github/app.go#L201) |
+| providersgithub.ListInstallationRepositories | added | [ListInstallationRepositories](providers/github/app.go#L246) |
+| providersgithub.DeleteInstallation | added | [DeleteInstallation](providers/github/app.go#L310) |
+| providersgithub.ListOpenPulls | added | [ListOpenPulls](providers/github/app.go#L269) |
+| providersgithub.GetUserByLogin | added | [GetUserByLogin](providers/github/app.go#L299) |
+| hexmos.ExternalProviderSignup | added | [ExternalProviderSignup](hexmos/parse_client.go#L42) |
+| hexmos.ParseAppID | added | [ParseAppID](hexmos/parse_client.go#L17) |

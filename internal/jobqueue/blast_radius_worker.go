@@ -17,7 +17,9 @@ import (
 	"github.com/livereview/internal/blastradius/repocache"
 	"github.com/livereview/internal/blastradius/serverscore"
 	"github.com/livereview/internal/blobstore"
+	"github.com/livereview/internal/githubapp"
 	storageblastradius "github.com/livereview/storage/blastradius"
+	storagegithub "github.com/livereview/storage/providers/github"
 	"github.com/riverqueue/river"
 	"github.com/rs/zerolog/log"
 )
@@ -218,6 +220,19 @@ func (w *BlastRadiusWorker) loadRepo(ctx context.Context, orgID, reviewID int64)
 		CloneURL:    cloneURL,
 		PRNumber:    prNumber,
 	}
+	if tokenType == "GITHUB_APP" {
+		// The cached installation token expires after an hour; resolve a usable one (mints a new one if needed).
+		store := storagegithub.NewTokenStore(w.db)
+		rec, recErr := store.GetGitHubTokenByConnectorID(connectorID.Int64)
+		if recErr != nil || rec == nil || rec.OrgID != orgID {
+			return r, "", fmt.Errorf("load GitHub App connector %d: %v", connectorID.Int64, recErr)
+		}
+		fresh, tokErr := githubapp.ConnectorToken(ctx, store, rec)
+		if tokErr != nil {
+			return r, "", fmt.Errorf("GitHub App token for connector %d: %w", connectorID.Int64, tokErr)
+		}
+		patToken = fresh
+	}
 	r.Username, r.Token = gitCredentials(provider, accessToken, tokenType, patToken)
 
 	if pullRequestID.Valid {
@@ -287,7 +302,8 @@ func sameHost(a, providerURL string) bool {
 // internal/api buildProviderConfig): the PAT when present, else the OAuth token.
 func gitCredentials(provider, accessToken, tokenType, patToken string) (username, token string) {
 	token = accessToken
-	if tokenType == "PAT" && patToken != "" {
+	// GitHub App rows keep their (hourly) installation token in pat_token and leave access_token empty.
+	if (tokenType == "PAT" || tokenType == "GITHUB_APP") && patToken != "" {
 		token = patToken
 	}
 	switch {

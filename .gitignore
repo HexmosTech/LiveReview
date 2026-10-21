@@ -96,3 +96,6 @@ scripts/prelivi/.venv/
 email-preview
 email-preview.html
 livereview.dtx
+
+# GitHub App private key (GITHUB_APP_PRIVATE_KEY)
+*.pem

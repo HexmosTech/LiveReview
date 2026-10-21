@@ -25,7 +25,11 @@ type githubContentEntry struct {
 // repoFullName is "owner/repo". ref is the branch name (e.g. "main").
 // Returns (nil, false, nil) when .lrc/ does not exist on the repo.
 func (p *GitHubV2Provider) GetRepoConfigFiles(ctx context.Context, repoFullName, ref string) (map[string][]byte, bool, error) {
-	token, err := FindIntegrationTokenForGitHubRepo(p.db, repoFullName)
+	connectorID, ok := connectorIDFromContext(ctx)
+	if !ok {
+		return nil, false, fmt.Errorf("github lrc: no connector in context for %s", repoFullName)
+	}
+	token, err := FindIntegrationTokenForGitHubConnector(p.db, connectorID)
 	if err != nil {
 		return nil, false, fmt.Errorf("github lrc: no token for %s: %w", repoFullName, err)
 	}

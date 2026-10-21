@@ -21,6 +21,7 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/githubapp"
 	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/api/organizations"
 	"github.com/livereview/internal/api/users"
@@ -143,6 +144,8 @@ type Server struct {
 	versionInfo            *VersionInfo
 	deploymentConfig       *DeploymentConfig
 	authHandlers           *auth.AuthHandlers
+	githubApp              *githubapp.Config // nil unless GITHUB_APP_* is configured
+	githubAppSecret        []byte            // HMAC key for the GitHub App OAuth state
 	tokenService           *auth.TokenService
 	userHandlers           *users.UserHandlers
 	userService            *users.UserService
@@ -364,6 +367,8 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 		versionInfo:            versionInfo,
 		deploymentConfig:       deploymentConfig,
 		authHandlers:           authHandlers,
+		githubApp:              githubapp.Load(),
+		githubAppSecret:        []byte(jwtSecret),
 		tokenService:           tokenService,
 		userHandlers:           userHandlers,
 		userService:            userService,
@@ -1202,6 +1207,11 @@ func (s *Server) setupRoutes() {
 
 	// Cloud user ensure endpoint (now public; handler performs CLOUD_JWT_SECRET validation)
 	public.POST("/auth/ensure-cloud-user", s.authHandlers.EnsureCloudUser)
+
+	// GitHub App sign-in/install ("Continue with GitHub"); only registered when the App is configured.
+	if s.githubApp != nil {
+		s.registerGitHubAppRoutes(public, v1, authMiddleware)
+	}
 
 	// Teams bot messages endpoint (public — Bot Framework sends activities here)
 	s.echo.POST("/api/messages", func(c echo.Context) error {
@@ -2847,6 +2857,9 @@ func (s *Server) EnableManualTriggerForAllProjects(c echo.Context) error {
 	if _, err := s.validateConnectorOwnership(c, connectorId); err != nil {
 		return err
 	}
+	if s.isGitHubAppConnector(connectorId) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": githubAppManagedMessage})
+	}
 
 	// Get repository access data for this connector
 	repositoryData, err := s.fetchAndCacheRepositoryData(connectorId, false, false)
@@ -2920,6 +2933,9 @@ func (s *Server) DisableManualTriggerForAllProjects(c echo.Context) error {
 	// Validate connector ownership
 	if _, err := s.validateConnectorOwnership(c, connectorId); err != nil {
 		return err
+	}
+	if s.isGitHubAppConnector(connectorId) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": githubAppManagedMessage})
 	}
 
 	// Get repository access data for this connector
@@ -3050,6 +3066,11 @@ func (s *Server) getUIConfig(c echo.Context) error {
 		"version":        s.versionInfo.Version,
 		"mode":           s.deploymentConfig.Mode,
 		"isAtlasEnabled": s.deploymentConfig.AtlasEnabled,
+		// The UI shows "Continue with GitHub" only when the App is configured; it holds no App ids or URLs itself.
+		"githubAppEnabled": s.githubApp != nil,
+	}
+	if s.githubApp != nil {
+		config["githubAppBaseUrl"] = s.githubApp.BaseURL
 	}
 	return c.JSON(http.StatusOK, config)
 }

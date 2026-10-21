@@ -20,6 +20,7 @@ import { getApiUrl } from '../../utils/apiUrl';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { isCloudMode } from '../../utils/deploymentMode';
 import { useOrgContext } from '../../hooks/useOrgContext';
+import { useGitHubAppConnected } from '../../hooks/useGitHubAppConnected';
 import LicenseUpgradeDialog from '../License/LicenseUpgradeDialog';
 import {
     add as addNotification,
@@ -209,6 +210,7 @@ export const Dashboard: React.FC = () => {
     const hasCLI = dashboardData?.cli_installed || false;
     const hasAIProvider = aiConnectors > 0;
     const hasRunReview = codeReviews > 0;
+    const hasGitHubApp = useGitHubAppConnected();
 
     // Build install commands with API key
     const apiKey = dashboardData?.onboarding_api_key || '';
@@ -382,6 +384,18 @@ export const Dashboard: React.FC = () => {
                         usagePct={billingInsight.usagePct}
                         onUpgrade={isCloudMode() ? () => navigate('/settings-subscriptions-overview') : undefined}
                     />
+                )}
+
+                {/* Orgs connected through the GitHub App keep a nudge to the guided first review until one has run */}
+                {hasGitHubApp && !hasRunReview && (
+                    <Alert variant="info" title="Finish setup" className="mb-6">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <span>Your GitHub repositories are connected. Review your first pull request to see LiveReview in action.</span>
+                            <Button size="sm" onClick={() => navigate('/get-started/github')} className="flex-shrink-0">
+                                Review your first PR
+                            </Button>
+                        </div>
+                    </Alert>
                 )}
 
                 {/* Header with aligned content and prominent CTA */}

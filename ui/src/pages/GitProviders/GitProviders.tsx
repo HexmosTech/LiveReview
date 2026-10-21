@@ -336,7 +336,7 @@ const GitProvidersList: React.FC = () => {
                                                                 size="sm" 
                                                                 className="ml-2"
                                                             >
-                                                                {formatConnectorType(connector.type)}
+                                                                {connector.metadata?.github_app ? 'GitHub App' : formatConnectorType(connector.type)}
                                                             </Badge>
                                                         </div>
                                                         <p className="text-sm text-slate-300">

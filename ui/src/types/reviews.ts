@@ -250,6 +250,9 @@ export interface DiffReviewStatusResponse {
   excluded_files?: string[];
   ai_summary_title?: string;
   quiz?: DiffReviewQuizQuestion[];
+  // Set when the review finished but the provider refused the comments (no permission on the repository), so
+  // the findings only exist here. can_install: the user can fix it by installing the LiveReview GitHub App.
+  comments_not_posted?: { message: string; repository?: string; can_install: boolean };
 }
 
 // ===== Blast radius artifact (GET /api/v1/diff-review/:review_id/artifacts/blast-radius) =====

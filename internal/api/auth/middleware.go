@@ -356,41 +356,52 @@ func (am *AuthMiddleware) BuildOrgContextFromConnector() echo.MiddlewareFunc {
 				return echo.NewHTTPError(http.StatusBadRequest, "Invalid connector ID")
 			}
 
-			// Query integration_tokens to get org_id for this connector
-			var orgID int64
-			err = am.db.QueryRow(`
-				SELECT org_id FROM integration_tokens WHERE id = $1
-			`, connectorID).Scan(&orgID)
-
-			if err != nil {
-				if err == sql.ErrNoRows {
-					return echo.NewHTTPError(http.StatusNotFound, "Connector not found")
-				}
-				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to fetch connector")
+			if err := am.SetConnectorOrgContext(c, connectorID); err != nil {
+				return err
 			}
-
-			// Validate that the organization exists and is active
-			org := &models.Org{}
-			err = am.db.QueryRow(`
-				SELECT id, name, description, created_at, updated_at
-				FROM orgs WHERE id = $1
-			`, orgID).Scan(&org.ID, &org.Name, &org.Description, &org.CreatedAt, &org.UpdatedAt)
-
-			if err != nil {
-				if err == sql.ErrNoRows {
-					return echo.NewHTTPError(http.StatusNotFound, "Organization not found for this connector")
-				}
-				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to fetch organization")
-			}
-
-			// Store both connector_id and org context for downstream handlers
-			c.Set("connector_id", connectorID)
-			c.Set(string(OrgContextKey), org)
-			c.Set("org_id", org.ID)
 
 			return next(c)
 		}
 	}
+}
+
+// SetConnectorOrgContext looks up the org that owns the connector and stores connector_id, the org and org_id
+// in the request context, exactly as BuildOrgContextFromConnector does for a URL-addressed connector. It is
+// exported for handlers that learn the connector some other way (e.g. the GitHub App webhook, which maps an
+// installation id to its connector). The returned error is an *echo.HTTPError.
+func (am *AuthMiddleware) SetConnectorOrgContext(c echo.Context, connectorID int64) error {
+	// Query integration_tokens to get org_id for this connector
+	var orgID int64
+	err := am.db.QueryRow(`
+		SELECT org_id FROM integration_tokens WHERE id = $1
+	`, connectorID).Scan(&orgID)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return echo.NewHTTPError(http.StatusNotFound, "Connector not found")
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to fetch connector")
+	}
+
+	// Validate that the organization exists and is active
+	org := &models.Org{}
+	err = am.db.QueryRow(`
+		SELECT id, name, description, created_at, updated_at
+		FROM orgs WHERE id = $1
+	`, orgID).Scan(&org.ID, &org.Name, &org.Description, &org.CreatedAt, &org.UpdatedAt)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return echo.NewHTTPError(http.StatusNotFound, "Organization not found for this connector")
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to fetch organization")
+	}
+
+	// Store both connector_id and org context for downstream handlers
+	c.Set("connector_id", connectorID)
+	c.Set(string(OrgContextKey), org)
+	c.Set("org_id", org.ID)
+	return nil
 }
 
 // BuildOrgContext middleware extracts org_id from URL and validates org exists

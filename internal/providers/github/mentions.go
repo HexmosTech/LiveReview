@@ -18,6 +18,13 @@ func DetectDirectMention(commentBody string, botInfo *coreprocessor.UnifiedBotUs
 		return false
 	}
 
-	mentionPattern := "@" + strings.ToLower(username)
-	return strings.Contains(strings.ToLower(commentBody), mentionPattern)
+	body := strings.ToLower(commentBody)
+	if strings.Contains(body, "@"+strings.ToLower(username)) {
+		return true
+	}
+	// A GitHub App's bot account is "<slug>[bot]", but people mention it as plain "@<slug>".
+	if slug := strings.TrimSuffix(strings.ToLower(username), "[bot]"); slug != strings.ToLower(username) && slug != "" {
+		return strings.Contains(body, "@"+slug)
+	}
+	return false
 }

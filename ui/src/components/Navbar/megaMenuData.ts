@@ -7,6 +7,8 @@ export type MegaMenuContext = {
     hasOrg: boolean;
     orgRole?: string;
     isDevMode: boolean;
+    // The org has a LiveReview GitHub App connection (Cloud "Continue with GitHub").
+    hasGitHubApp?: boolean;
 };
 
 export type MegaMenuLinkNode = {
@@ -142,6 +144,7 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
         items: [
             link('List Reviews', React.createElement(Icons.List), '/reviews'),
             link('Create Review', React.createElement(Icons.Add), '/reviews/new'),
+            link('Get Started with GitHub', React.createElement(Icons.GitHub), '/get-started/github', (ctx) => Boolean(ctx.hasGitHubApp)),
             link('Create via Chatbot', React.createElement(Icons.Chat), '/chat?prefill=' + encodeURIComponent('Trigger a review for <paste PR link here>')),
             link('Chat Debug', React.createElement(Icons.Chat), '/chat-debug', (ctx) => ctx.isDevMode),
             link('Create via CLI', React.createElement(Icons.Download), '/reviews/create-cli'),
