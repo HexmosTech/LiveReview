@@ -1,5 +1,5 @@
 
-## Get Demo Mode Running
+## Get Production Mode Running
 
 You can follow the article for [Demo Mode](Download,-Install-and-Run-LiveReview) and make sure the software is running first in your target server.
 
