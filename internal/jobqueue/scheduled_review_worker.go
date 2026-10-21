@@ -12,6 +12,7 @@ import (
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/naming"
+	"github.com/livereview/internal/githubapp"
 	githubprovider "github.com/livereview/internal/providers/github"
 	"github.com/livereview/internal/review"
 	reviewprocessor "github.com/livereview/internal/review_processor"
@@ -76,9 +77,9 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 		return nil // needs a user fix via the API, not a retry
 	}
 
-	var provider, providerURL, patToken string
-	err = w.db.QueryRowContext(ctx, `SELECT provider, provider_url, pat_token FROM integration_tokens WHERE id = $1`, cfg.ConnectorID).
-		Scan(&provider, &providerURL, &patToken)
+	var provider, providerURL, patToken, tokenType string
+	err = w.db.QueryRowContext(ctx, `SELECT provider, provider_url, pat_token, COALESCE(token_type, '') FROM integration_tokens WHERE id = $1`, cfg.ConnectorID).
+		Scan(&provider, &providerURL, &patToken, &tokenType)
 	if err != nil {
 		log.Printf("[ERROR] ScheduledReviewWorker: failed to load integration token %d for config %d: %v", cfg.ConnectorID, cfg.ID, err)
 		run.ErrorMessage = err.Error()
@@ -103,6 +104,11 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 	}
 	owner, repo := parts[0], parts[1]
 
+	// GitHub App connectors cache an installation token that lasts an hour; resolve a valid one for this run.
+	if patToken, err = githubapp.ResolveIfApp(ctx, w.db, cfg.ConnectorID, tokenType, patToken); err != nil {
+		run.ErrorMessage = err.Error()
+		return fmt.Errorf("failed to resolve GitHub token for connector %d: %w", cfg.ConnectorID, err)
+	}
 	ghProvider := githubprovider.NewGitHubProvider(patToken)
 
 	branch := cfg.DefaultBranch.String

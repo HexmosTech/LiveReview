@@ -23,6 +23,9 @@ import { QuotaExhaustedBanner } from '../../components/Dashboard/QuotaExhaustedB
 import { QuotaWarningBanner } from '../../components/Dashboard/QuotaWarningBanner';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import LicenseUpgradeDialog from '../../components/License/LicenseUpgradeDialog';
+import GitHubAppNotInstalledModal from '../../components/GitHubApp/GitHubAppNotInstalledModal';
+import { getGitHubAppInstallCheck, githubAppStartUrl } from '../../api/githubApp';
+import { useGitHubAppEnabled } from '../../hooks/useGitHubAppEnabled';
 
 type QuotaStatusResponse = {
   can_trigger_reviews: boolean;
@@ -104,6 +107,10 @@ const NewReview: React.FC = () => {
   const { data: quotaStatus = null } = useQuotaStatusQuery<QuotaStatusResponse>();
   const { data: trialBilling = null } = useBillingStatusQuery<TrialBillingStatusResponse>();
   const [showPlanUpgradeDialog, setShowPlanUpgradeDialog] = useState(false);
+
+  // A pasted GitHub PR URL whose repository the LiveReview GitHub App can't post to: ask before starting the review.
+  const githubAppEnabled = useGitHubAppEnabled();
+  const [notInstalled, setNotInstalled] = useState<{ owner: string; repository: string; targetId?: number } | null>(null);
 
   // Load connectors when component mounts
   useEffect(() => {
@@ -271,6 +278,23 @@ const NewReview: React.FC = () => {
         'This URL is not from a connected Git provider. Please connect the appropriate Git provider first.'
       );
       return;
+    }
+
+    if (githubAppEnabled) {
+      setLoading(true);
+      let check;
+      try {
+        check = await getGitHubAppInstallCheck({ url: url.trim() });
+      } catch (err) {
+        // Only a hint: if it can't be answered, the review itself still reports what is wrong.
+        console.error('GitHub App install check failed:', err);
+      } finally {
+        setLoading(false);
+      }
+      if (check?.applicable && !check.installed && check.owner && check.repository) {
+        setNotInstalled({ owner: check.owner, repository: check.repository, targetId: check.target_id });
+        return;
+      }
     }
 
     startReview(() => triggerReview({ url }));
@@ -545,6 +569,46 @@ const NewReview: React.FC = () => {
           limit={limitInfo.limit}
         />
         
+        {notInstalled && (
+          <GitHubAppNotInstalledModal
+            owner={notInstalled.owner}
+            repository={notInstalled.repository}
+            continueBusy={loading}
+            installUrl={githubAppStartUrl('install', 'new-review', notInstalled.targetId)}
+            onInstall={() => {
+              // The GitHub round trip ends in a sign-in, so it runs in its own tab and this page keeps the review
+              // being set up. A tab opened this way starts with a copy of sessionStorage: it lands on the connected
+              // GitHub accounts after signing in (this tab's own value is removed right away).
+              try {
+                sessionStorage.setItem('redirectAfterLogin', '#/git/github-app');
+              } catch {
+                // The new tab then lands on the dashboard.
+              }
+              const tab = window.open(githubAppStartUrl('install', 'new-review', notInstalled.targetId), '_blank');
+              try {
+                sessionStorage.removeItem('redirectAfterLogin');
+              } catch {
+                // ignore
+              }
+              // A tab opened this way can reach back to this page through window.opener; cut that link.
+              if (tab) tab.opener = null;
+              return tab !== null;
+            }}
+            onInstalled={async () => {
+              const check = await getGitHubAppInstallCheck({ url: url.trim() });
+              if (!check.installed) return false;
+              setNotInstalled(null);
+              startReview(() => triggerReview({ url }));
+              return true;
+            }}
+            onContinue={async () => {
+              await startReview(() => triggerReview({ url }));
+              setNotInstalled(null);
+            }}
+            onCancel={() => setNotInstalled(null)}
+          />
+        )}
+
         {/* Plan Upgrade Dialog */}
         <LicenseUpgradeDialog
           open={showPlanUpgradeDialog}

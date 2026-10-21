@@ -11,3 +11,6 @@ func apiBaseURL(baseURL string) string {
 	}
 	return strings.TrimSuffix(baseURL, "/") + "/api/v3"
 }
+
+// APIBaseURL is the exported form of apiBaseURL for callers outside this package.
+func APIBaseURL(baseURL string) string { return apiBaseURL(baseURL) }

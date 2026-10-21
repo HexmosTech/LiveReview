@@ -1120,32 +1120,39 @@ const ConnectorDetails: React.FC = () => {
                                                 <p className="text-xs text-slate-500">(Coming Soon)</p>
                                             </div>
                                         </div>
-                                        <div className="flex items-center space-x-2">
-                                            <Button
-                                                variant={connectorStatus === 'unconnected' ? 'primary' : 'outline'}
-                                                size="sm"
-                                                onClick={handleEnableManualTrigger}
-                                                disabled={isEnablingManualTrigger || connectorStatus === 'manual'}
-                                                icon={isEnablingManualTrigger ? <Spinner size="sm" /> : <Icons.Settings />}
-                                                iconPosition="left"
-                                                className={connectorStatus === 'unconnected' ? '' : 'text-xs'}
-                                            >
-                                                {isEnablingManualTrigger ? 'Enabling...' : 
-                                                 connectorStatus === 'unconnected' ? 'Enable Manual Trigger for All Projects' : 'Re-enable Manual Trigger'}
-                                            </Button>
-                                            
-                                            <Button
-                                                variant="outline" 
-                                                size="sm"
-                                                onClick={handleDisableManualTrigger}
-                                                disabled={isDisablingManualTrigger || (statusCounts.manual + statusCounts.automatic) === 0}
-                                                icon={isDisablingManualTrigger ? <Spinner size="sm" /> : <Icons.Warning />}
-                                                iconPosition="left"
-                                                className="text-xs !text-red-400 hover:!text-red-300 hover:!border-red-400"
-                                            >
-                                                {isDisablingManualTrigger ? 'Disabling...' : 'Disable Manual Trigger for All Projects'}
-                                            </Button>
+                                        {connector?.metadata?.github_app ? (
+                                            <p className="text-sm text-slate-300">
+                                                This connection is managed by the LiveReview GitHub App, so no webhooks need to be set up
+                                                here. To add or remove repositories, manage the installation on GitHub.
+                                            </p>
+                                        ) : (
+                                            <div className="flex items-center space-x-2">
+                                                <Button
+                                                    variant={connectorStatus === 'unconnected' ? 'primary' : 'outline'}
+                                                    size="sm"
+                                                    onClick={handleEnableManualTrigger}
+                                                    disabled={isEnablingManualTrigger || connectorStatus === 'manual'}
+                                                    icon={isEnablingManualTrigger ? <Spinner size="sm" /> : <Icons.Settings />}
+                                                    iconPosition="left"
+                                                    className={connectorStatus === 'unconnected' ? '' : 'text-xs'}
+                                                >
+                                                    {isEnablingManualTrigger ? 'Enabling...' : 
+                                                     connectorStatus === 'unconnected' ? 'Enable Manual Trigger for All Projects' : 'Re-enable Manual Trigger'}
+                                                </Button>
+                                                
+                                                <Button
+                                                    variant="outline" 
+                                                    size="sm"
+                                                    onClick={handleDisableManualTrigger}
+                                                    disabled={isDisablingManualTrigger || (statusCounts.manual + statusCounts.automatic) === 0}
+                                                    icon={isDisablingManualTrigger ? <Spinner size="sm" /> : <Icons.Warning />}
+                                                    iconPosition="left"
+                                                    className="text-xs !text-red-400 hover:!text-red-300 hover:!border-red-400"
+                                                >
+                                                    {isDisablingManualTrigger ? 'Disabling...' : 'Disable Manual Trigger for All Projects'}
+                                                </Button>
                                         </div>
+                                        )}
                                     </div>
                                 </div>
 

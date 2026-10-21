@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	storagegithub "github.com/livereview/storage/providers/github"
+	"github.com/livereview/internal/githubapp"
 	"github.com/livereview/internal/blastradius/repocache"
 	giteaprovider "github.com/livereview/internal/provider_input/gitea"
 	githubprovider "github.com/livereview/internal/provider_input/github"
@@ -487,13 +489,13 @@ func (s *Server) DeleteConnector(c echo.Context) error {
 	}
 
 	// Fetch connector details for webhook removal
-	var provider, providerURL, patToken string
+	var provider, providerURL, patToken, deleteTokenType string
 	query := `
-		SELECT provider, provider_url, pat_token
+		SELECT provider, provider_url, pat_token, COALESCE(token_type, '')
 		FROM integration_tokens
 		WHERE id = $1
 	`
-	err = s.db.QueryRow(query, id).Scan(&provider, &providerURL, &patToken)
+	err = s.db.QueryRow(query, id).Scan(&provider, &providerURL, &patToken, &deleteTokenType)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return c.JSON(http.StatusNotFound, ErrorResponse{
@@ -549,6 +551,10 @@ func (s *Server) DeleteConnector(c echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
+	if deleteTokenType == storagegithub.TokenTypeGitHubApp {
+		// App webhooks are app-wide; there are no per-repository hooks to remove.
+		projectsToUnhook = nil
+	}
 	for _, projectPath := range projectsToUnhook {
 		if err := s.jobQueue.QueueWebhookRemovalJob(ctx, id, projectPath, provider, providerURL, patToken, true); err != nil {
 			log.Printf("Failed to queue webhook removal job for %s: %v", projectPath, err)
@@ -670,6 +676,30 @@ func (s *Server) TestConnectorConnection(c echo.Context) error {
 			return c.JSON(http.StatusNotFound, ErrorResponse{Error: "Connector not found"})
 		}
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to load connector"})
+	}
+
+	// A GitHub App connector's token is an installation token, which GitHub rejects on the /user endpoint used
+	// below ("Resource not accessible by integration"). Prove the installation is reachable by minting a new
+	// installation token instead.
+	if tokenType == storagegithub.TokenTypeGitHubApp {
+		store := storagegithub.NewTokenStore(s.db)
+		rec, recErr := store.GetGitHubTokenByConnectorID(int64(id))
+		var refreshErr error
+		if recErr != nil {
+			refreshErr = recErr
+		} else {
+			_, refreshErr = githubapp.RefreshConnectorToken(c.Request().Context(), store, rec)
+		}
+		if refreshErr != nil {
+			return c.JSON(http.StatusOK, map[string]interface{}{
+				"valid":   false,
+				"message": fmt.Sprintf("Connection failed: the LiveReview GitHub App installation is not reachable (%s)", refreshErr.Error()),
+			})
+		}
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"valid":   true,
+			"message": "Connection is working",
+		})
 	}
 
 	// Determine which credential to use for validation

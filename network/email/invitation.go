@@ -12,6 +12,7 @@ import (
 	"time"
 	
 	"github.com/rs/zerolog/log"
+	"github.com/livereview/network/hexmos"
 	"github.com/livereview/pkg/models"
 )
 
@@ -26,10 +27,7 @@ type InvitationParams struct {
 }
 
 func getParseAppID() string {
-	if id := os.Getenv("FW_PARSE_APP_ID"); id != "" {
-		return id
-	}
-	return "impressionserver"
+	return hexmos.ParseAppID()
 }
 
 // UsesCloudInvitationDelivery reports whether invitations go through the hosted Parse

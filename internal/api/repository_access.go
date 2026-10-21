@@ -16,6 +16,8 @@ import (
 	"github.com/livereview/internal/providers/gitea"
 	"github.com/livereview/internal/providers/github"
 	"github.com/livereview/internal/providers/gitlab"
+	storagegithub "github.com/livereview/storage/providers/github"
+	"github.com/livereview/storage/providers/pullrequests"
 )
 
 // ProjectWithStatus represents a project with its webhook status
@@ -58,17 +60,17 @@ type CachedProjectData struct {
 //   - error: Any error that occurred during the process
 func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool, shouldCache bool) (*RepositoryAccessResponse, error) {
 	// Query the database for the connector information
-	var provider, providerURL, patToken string
+	var provider, providerURL, patToken, tokenType string
 	var cachedDataJSON sql.NullString
 	var metadataBytes []byte
 
 	query := `
-		SELECT provider, provider_url, pat_token, projects_cache, COALESCE(metadata, '{}')
+		SELECT provider, provider_url, pat_token, projects_cache, COALESCE(metadata, '{}'), COALESCE(token_type, '')
 		FROM integration_tokens
 		WHERE id = $1
 	`
 
-	err := s.db.QueryRow(query, connectorID).Scan(&provider, &providerURL, &patToken, &cachedDataJSON, &metadataBytes)
+	err := s.db.QueryRow(query, connectorID).Scan(&provider, &providerURL, &patToken, &cachedDataJSON, &metadataBytes, &tokenType)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -96,6 +98,24 @@ func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool,
 		ProjectsWithStatus: []ProjectWithStatus{}, // Initialize as empty array
 		ProjectCount:       0,
 		UpdatedAt:          time.Now(),
+	}
+
+	// GitHub App connectors: the repositories are exactly what the installation grants (kept in the
+	// repositories table by the sync and the installation_repositories webhook), and /user/repos does not
+	// work with installation tokens. Webhooks are app-wide, so every repo counts as automatically connected.
+	if tokenType == storagegithub.TokenTypeGitHubApp {
+		names, err := pullrequests.NewStore(s.db).ListRepositoryFullNamesByConnector(int64(connectorID))
+		if err != nil {
+			return nil, fmt.Errorf("database error: %w", err)
+		}
+		response.Projects = names
+		response.ProjectCount = len(names)
+		for _, n := range names {
+			response.ProjectsWithStatus = append(response.ProjectsWithStatus, ProjectWithStatus{
+				ProjectPath: n, WebhookStatus: "automatic", UpdatedAt: time.Now(),
+			})
+		}
+		return response, nil
 	}
 
 	// Check if we have cached data and not forcing refresh

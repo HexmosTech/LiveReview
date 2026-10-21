@@ -98,6 +98,10 @@ type ReviewResult struct {
 	Summary        string
 	CommentsCount  int
 	Comments       []*models.ReviewComment // Added to track actual comment details
+	// CommentsNotPosted is set when the review itself succeeded but the provider refused the comments for lack of
+	// permission (e.g. the GitHub App is not installed on a public repo that was reviewed by URL). The findings are
+	// still returned and stored so they can be shown in LiveReview; it holds the provider's reason.
+	CommentsNotPosted string
 	Quiz           []models.QuizQuestion   // Optional comprehension quiz for this review, nil if none generated
 	DiffClassification *models.DiffClassification // Diff-level semantic classification (docs/risk-policy-engine.md §5)
 	BillableLOC    int64
@@ -318,6 +322,16 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 		postCtx, postCancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer postCancel()
 		err = s.postReviewResults(postCtx, provider, postingID, reviewData.Result)
+		if err != nil && isPostingPermissionError(err) {
+			// The review is done; only delivery to the PR was refused. Keep the findings (shown in LiveReview) instead
+			// of throwing the whole review away as failed.
+			result.CommentsNotPosted = err.Error()
+			if s.logger != nil {
+				s.logger.Log("⚠ Comments were not posted to the merge request: %v", err)
+				s.logger.EmitStageCompleted("Artifact Generation", "Comments not posted: no permission to comment on this repository. Findings are available in LiveReview.")
+			}
+			err = nil
+		}
 		if err != nil {
 			if s.logger != nil {
 				s.logger.LogError("Failed to post results", err)
@@ -845,4 +859,15 @@ func extractRepoFullName(rawURL string) string {
 		return ""
 	}
 	return path
+}
+
+// isPostingPermissionError reports whether the provider refused to accept comments because the token has no
+// permission on the repository (HTTP 403 Forbidden, or GitHub's "Resource not accessible by integration"). Other
+// failures (network, 5xx, bad request) still fail the review: they are worth retrying or fixing.
+func isPostingPermissionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "403 forbidden") || strings.Contains(msg, "resource not accessible by integration")
 }

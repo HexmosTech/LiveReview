@@ -20,9 +20,11 @@ import (
 	"github.com/livereview/internal/lrcconfig"
 	"github.com/livereview/internal/lrcfetch"
 	"github.com/livereview/internal/prompts"
+	githubinput "github.com/livereview/internal/provider_input/github"
 	gitlabinput "github.com/livereview/internal/provider_input/gitlab"
 	"github.com/livereview/internal/prsync"
 	storagelicense "github.com/livereview/storage/license"
+	storagegithub "github.com/livereview/storage/providers/github"
 )
 
 // Phase 8: Webhook Orchestrator for coordinating provider and processing layers
@@ -211,6 +213,36 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 
 	log.Printf("[INFO] Unified event created: type=%s, provider=%s", event.EventType, event.Provider)
 
+	// Stamp the receiving connector on the event before anything looks up a provider token: the
+	// bot-info and reply-detection lookups below resolve their token from this connector.
+	connectorID, ok := auth.GetConnectorIDFromContext(c)
+	if !ok {
+		log.Printf("[ERROR] Connector ID not found in context - webhook route configuration error")
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "internal_error",
+		})
+	}
+	stampConnectorID(event, connectorID)
+
+	orgID, ok := auth.GetOrgIDFromContext(c)
+	if !ok {
+		log.Printf("[ERROR] Org ID not found in context - middleware configuration error")
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "internal_error",
+		})
+	}
+
+	// Overlap rule: when the org's GitHub App also covers this repository, the App's webhook delivers the same
+	// event, so the PAT connector's copy is dropped to avoid reviewing and replying twice.
+	if wo.supersededByGitHubApp(event, connectorID, orgID) {
+		log.Printf("[INFO] Ignoring PAT webhook for %s: repository is covered by the org's GitHub App (connector_id=%d)", event.Repository.FullName, connectorID)
+		return c.JSON(http.StatusOK, map[string]string{
+			"status":   "ignored",
+			"provider": providerName,
+			"reason":   "superseded_by_github_app",
+		})
+	}
+
 	// Phase 3: Response Warrant Check
 	botInfo, err := wo.getBotUserInfo(event)
 	if err != nil {
@@ -250,22 +282,6 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 
 	log.Printf("[INFO] Response warranted: scenario=%s", scenario.Type)
 
-	// Extract org ID and connector ID from context (set by BuildOrgContextFromConnector middleware)
-	connectorID, ok := auth.GetConnectorIDFromContext(c)
-	if !ok {
-		log.Printf("[ERROR] Connector ID not found in context - webhook route configuration error")
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "internal_error",
-		})
-	}
-	orgID, ok := auth.GetOrgIDFromContext(c)
-	if !ok {
-		log.Printf("[ERROR] Org ID not found in context - middleware configuration error")
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "internal_error",
-		})
-	}
-
 	// Webhook signature validation (if provider supports it)
 	type signatureValidator interface {
 		ValidateWebhookSignature(connectorID int64, headers map[string]string, body []byte) bool
@@ -282,18 +298,8 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 	}
 
 	log.Printf("[DEBUG] Processing webhook for connector_id=%d, org_id=%d", connectorID, orgID)
-	if event.Repository.Metadata == nil {
-		event.Repository.Metadata = map[string]interface{}{}
-	}
-	event.Repository.Metadata["connector_id"] = connectorID
-	if event.MergeRequest != nil {
-		if event.MergeRequest.Metadata == nil {
-			event.MergeRequest.Metadata = map[string]interface{}{}
-		}
-		event.MergeRequest.Metadata["connector_id"] = connectorID
-		if strings.TrimSpace(event.Repository.ID) != "" {
-			event.MergeRequest.Metadata["repository_id"] = strings.TrimSpace(event.Repository.ID)
-		}
+	if event.MergeRequest != nil && strings.TrimSpace(event.Repository.ID) != "" {
+		event.MergeRequest.Metadata["repository_id"] = strings.TrimSpace(event.Repository.ID)
 	}
 
 	// Serialize the event to JSON
@@ -326,6 +332,38 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 	})
 }
 
+// supersededByGitHubApp reports whether a GitHub event received through a non-App connector is for a repository
+// that a GitHub App connector of the same org also serves.
+func (wo *WebhookOrchestratorV2) supersededByGitHubApp(event *UnifiedWebhookEventV2, connectorID, orgID int64) bool {
+	if wo.server == nil || wo.server.db == nil || !strings.EqualFold(event.Provider, "github") || event.Repository.FullName == "" {
+		return false
+	}
+	if wo.server.isGitHubAppConnector(int(connectorID)) {
+		return false
+	}
+	has, err := storagegithub.NewTokenStore(wo.server.db).HasAppConnectorForRepo(orgID, event.Repository.FullName)
+	if err != nil {
+		log.Printf("[WARN] GitHub App overlap check failed for %s: %v", event.Repository.FullName, err)
+		return false
+	}
+	return has
+}
+
+// stampConnectorID records the receiving connector on the event's repository and merge request
+// metadata, which is where provider code resolves its token from.
+func stampConnectorID(event *UnifiedWebhookEventV2, connectorID int64) {
+	if event.Repository.Metadata == nil {
+		event.Repository.Metadata = map[string]interface{}{}
+	}
+	event.Repository.Metadata["connector_id"] = connectorID
+	if event.MergeRequest != nil {
+		if event.MergeRequest.Metadata == nil {
+			event.MergeRequest.Metadata = map[string]interface{}{}
+		}
+		event.MergeRequest.Metadata["connector_id"] = connectorID
+	}
+}
+
 // ProcessAsync implements jobqueue.WebhookProcessor interface.
 func (wo *WebhookOrchestratorV2) ProcessAsync(ctx context.Context, orgID int64, connectorID int64, eventJSON string, scenarioType string) error {
 	var event UnifiedWebhookEventV2
@@ -333,6 +371,9 @@ func (wo *WebhookOrchestratorV2) ProcessAsync(ctx context.Context, orgID int64, 
 		log.Printf("[ERROR] Failed to unmarshal webhook event in job queue worker: %v", err)
 		return fmt.Errorf("unmarshal webhook event: %w", err)
 	}
+
+	// The queued JSON may predate connector stamping, and numbers come back as float64 - re-stamp from the job's own connector.
+	stampConnectorID(&event, connectorID)
 
 	provider, ok := wo.providerRegistry.providers[event.Provider]
 	if !ok {
@@ -1078,6 +1119,13 @@ func injectLRCRules(ctx context.Context, provider WebhookProviderV2, event *Unif
 		instanceURL := gitlabinput.ExtractGitLabInstanceURL(event.Repository.WebURL)
 		if instanceURL != "" {
 			ctx = gitlabinput.WithInstanceURL(ctx, instanceURL)
+		}
+	}
+
+	// For GitHub, inject the receiving connector so the provider resolves that connector's token.
+	if strings.EqualFold(event.Provider, "github") {
+		if id, ok := event.Repository.Metadata["connector_id"].(int64); ok {
+			ctx = githubinput.WithConnectorID(ctx, id)
 		}
 	}
 

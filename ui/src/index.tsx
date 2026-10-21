@@ -10,12 +10,48 @@ import { QueryClientProvider } from '@tanstack/react-query';
 // import posthog from 'posthog-js';
 // import 'posthog-js/dist/posthog-recorder';
 
+import './utils/dropSessionOnLoginReturn';
 import configureAppStore, { getPreloadedState } from './store/configureStore';
 import AppContextProvider from './contexts/AppContextProvider';
 import App from './App';
 import { queryClient } from './api/queryClient';
 import { injectStore } from './api/apiClient';
 import { injectStore as injectNotifyStore } from './utils/notify';
+
+// /gh-login is a shareable path ("Continue with GitHub"), but the app is a HashRouter: move it into the hash,
+// keeping the query string (src). The Go UI server and the webpack dev server both already serve index.html
+// for this path.
+if (typeof window !== 'undefined' && /^\/gh-login\/?$/.test(window.location.pathname)) {
+    window.location.replace('/#/gh-login' + window.location.search);
+}
+
+// A returning GitHub sign-in is sent to the GitHub App card on Git Providers (where their connected accounts are managed) rather than
+// the first-run get-started page: the callback says so with a short-lived cookie, which overrides the destination
+// that /gh-login stored before leaving for GitHub.
+if (typeof document !== 'undefined') {
+    try {
+        if (/(?:^|; )lr_gh_next=git(?:;|$)/.test(document.cookie)) {
+            sessionStorage.setItem('redirectAfterLogin', '#/git/github-app');
+            document.cookie = 'lr_gh_next=; Max-Age=0; Path=/';
+        }
+    } catch {
+        // Cookies or sessionStorage unavailable: the user lands on the page /gh-login chose.
+    }
+}
+
+// The GitHub App callback names the org it connected the installation(s) to. A user can belong to several orgs and
+// the app opens the last one used, so switch to that org before the store loads (the server sets and we clear it).
+if (typeof document !== 'undefined') {
+    try {
+        const match = document.cookie.match(/(?:^|; )lr_gh_org=(\d+)/);
+        if (match) {
+            localStorage.setItem('currentOrgId', match[1]);
+            document.cookie = 'lr_gh_org=; Max-Age=0; Path=/';
+        }
+    } catch {
+        // Cookies or localStorage unavailable: the user keeps their last-used org.
+    }
+}
 
 type ClarityFunction = ((...args: unknown[]) => void) & {
     q?: IArguments[];

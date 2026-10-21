@@ -11,6 +11,8 @@ export interface ConfirmModalProps {
   confirmText?: string;
   cancelText?: string;
   type?: 'warning' | 'danger';
+  // Disables both buttons (and backdrop dismissal) and spins the confirm button while the action runs.
+  loading?: boolean;
 }
 
 export const ConfirmModal: React.FC<ConfirmModalProps> = ({
@@ -22,12 +24,13 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   confirmText = 'Continue',
   cancelText = 'Cancel',
   type = 'warning',
+  loading = false,
 }) => {
   if (!show) return null;
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onCancel} />
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={loading ? undefined : onCancel} />
       <div className="relative bg-slate-800 rounded-lg border border-slate-600 shadow-2xl max-w-md w-full">
         <div className="p-6">
           <div className="flex items-center mb-4">
@@ -42,12 +45,14 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             <p className="text-sm text-slate-300">{message}</p>
           </div>
           <div className="flex justify-end space-x-3">
-            <Button variant="outline" onClick={onCancel}>
+            <Button variant="outline" onClick={onCancel} disabled={loading}>
               {cancelText}
             </Button>
             <Button
               variant={type === 'danger' ? 'danger' : 'primary'}
               onClick={onConfirm}
+              isLoading={loading}
+              disabled={loading}
             >
               {confirmText}
             </Button>

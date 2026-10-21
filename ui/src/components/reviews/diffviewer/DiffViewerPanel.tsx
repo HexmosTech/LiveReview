@@ -13,8 +13,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import classNames from 'classnames';
 import { useSearchParams } from 'react-router-dom';
-import { Button, EmptyState, Icons, Spinner } from '../../UIPrimitives';
+import { Alert, Button, EmptyState, Icons, Spinner } from '../../UIPrimitives';
 import { getDiffReview } from '../../../api/reviews';
+import { getGitHubAppInstallCheck, githubAppStartUrl } from '../../../api/githubApp';
+import { showRedirectOverlay } from '../../../utils/redirectOverlay';
 import { BlastRadiusReport, DiffReviewFile, DiffReviewStatusResponse } from '../../../types/reviews';
 import type { RiskScore } from '../RiskAssessment';
 import { attachBlastData, buildBlastLookup, flattenFilesByRisk, hasBlastRadiusData, sortFilesByBlastRadius } from '../../../lib/blastRadius';
@@ -120,6 +122,30 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
   const [filters, setFilters] = useState<IssueFilters>(createDefaultIssueFilters());
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle');
   const [searchParams, setSearchParams] = useSearchParams();
+  const [installing, setInstalling] = useState(false);
+
+  // "Install now": leave for GitHub and come back to this review through the normal login (the same hand-off the
+  // get-started page uses). The session is kept until the sign-in actually returns.
+  const installNow = async () => {
+    setInstalling(true);
+    // Open GitHub's install page already on the repository's owner; without the id it lists the accounts instead.
+    let targetId: number | undefined;
+    const repository = data?.comments_not_posted?.repository;
+    if (repository) {
+      try {
+        targetId = (await getGitHubAppInstallCheck({ repo: repository })).target_id;
+      } catch (err) {
+        console.error('GitHub App install check failed:', err);
+      }
+    }
+    showRedirectOverlay('Taking you to GitHub…');
+    try {
+      sessionStorage.setItem('redirectAfterLogin', window.location.hash || `#/reviews/${reviewId}`);
+    } catch {
+      // Falls back to the dashboard after login.
+    }
+    window.location.assign(githubAppStartUrl('install', 'review', targetId));
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -270,6 +296,16 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
     );
   }
 
+  if (data && data.status === 'failed') {
+    return (
+      <EmptyState
+        icon={<Icons.Error />}
+        title="This review failed"
+        description={data.message || 'The review did not complete, so there are no findings to show. The Events tab has the details.'}
+      />
+    );
+  }
+
   if (!data || data.status !== 'completed' || !data.files) {
     return (
       <EmptyState
@@ -301,6 +337,16 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
         onHunkClick={jumpToHunk}
       />
       <div className="min-w-0 flex-1 space-y-4">
+        {data.comments_not_posted && (
+          <Alert variant="warning" title="Comments weren't posted to the pull request" icon={<Icons.Warning />}>
+            <p className="text-sm">{data.comments_not_posted.message}</p>
+            {data.comments_not_posted.can_install && (
+              <Button className="mt-3" size="sm" icon={<Icons.GitHub />} onClick={installNow} isLoading={installing}>
+                Install now
+              </Button>
+            )}
+          </Alert>
+        )}
         <SummaryPanel reviewId={reviewId} summary={data.summary} files={files} quiz={quiz} onOpenFile={jumpToFileByPath} />
 
         {/* Toolbar row (sort mode + Expand All) — NOT sticky, matching

@@ -12,6 +12,7 @@ import (
 
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/prsync"
+	networkgithub "github.com/livereview/network/providers/github"
 )
 
 // gitHubRepositoryListItem mirrors the fields needed from GET /user/repos to
@@ -110,4 +111,28 @@ func checkGitHubRateLimit(resp *http.Response) error {
 		}
 	}
 	return &providers.RateLimitedError{Provider: "github", RetryAfter: retryAfter}
+}
+
+// ListInstallationRepositoriesPage fetches one page of the repositories a GitHub App installation token can
+// see (GET /installation/repositories). It is the App counterpart of ListRepositories, which needs a user PAT.
+func ListInstallationRepositoriesPage(ctx context.Context, baseURL, installationToken, cursor string) (*providers.RepositoryPage, error) {
+	items, next, err := networkgithub.ListInstallationRepositories(ctx, apiBaseURL(baseURL), installationToken, cursor)
+	if err != nil {
+		return nil, err
+	}
+	page := &providers.RepositoryPage{NextCursor: next}
+	for _, item := range items {
+		page.Repositories = append(page.Repositories, prsync.RepositorySummary{
+			ProviderRepoID: strconv.FormatInt(item.ID, 10),
+			FullName:       item.FullName,
+			Name:           item.Name,
+			WebURL:         item.HTMLURL,
+			CloneURL:       item.CloneURL,
+			SSHURL:         item.SSHURL,
+			DefaultBranch:  item.DefaultBranch,
+			IsPrivate:      item.Private,
+			Description:    item.Description,
+		})
+	}
+	return page, nil
 }

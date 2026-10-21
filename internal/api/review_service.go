@@ -128,11 +128,13 @@ func (s *Server) TriggerReviewV2(c echo.Context) error {
 
 	// Phase 2: Prepare authentication (URL validation, token lookup, OAuth refresh)
 	if err := s.prepareAuthentication(ctx); err != nil {
+		s.failReviewSetup(ctx, err)
 		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 	}
 
 	// Phase 3: Create review request (build review service & request objects)
 	if err := s.createReviewRequest(ctx); err != nil {
+		s.failReviewSetup(ctx, err)
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 	}
 
@@ -369,12 +371,22 @@ func (s *Server) prepareAuthentication(ctx *reviewSetupContext) error {
 		ctx.logger.LogSection("INTEGRATION TOKEN")
 		ctx.logger.Log("Finding integration token...")
 	}
-	token, err := s.findIntegrationToken(baseURL, ctx.orgID)
-	if err != nil {
-		if ctx.logger != nil {
-			ctx.logger.LogError("Failed to find integration token", err)
+	token := s.preferredGitHubConnector(ctx.requestURL, baseURL, ctx.orgID)
+	if token == nil {
+		var err error
+		token, err = s.findIntegrationToken(baseURL, ctx.orgID)
+		if err != nil {
+			if ctx.logger != nil {
+				ctx.logger.LogError("Failed to find integration token", err)
+			}
+			return err
 		}
-		return err
+	}
+	if err := s.resolveGitHubAppToken(context.Background(), token); err != nil {
+		if ctx.logger != nil {
+			ctx.logger.LogError("GitHub App token unavailable", err)
+		}
+		return fmt.Errorf("the GitHub App connection for this repository is not usable: %v", err)
 	}
 	ctx.token = token
 	if ctx.logger != nil {
@@ -424,6 +436,18 @@ func (s *Server) prepareAuthentication(ctx *reviewSetupContext) error {
 	}
 
 	return nil
+}
+
+// failReviewSetup marks the review row failed when setup stops before the review is queued (no AI provider, bad
+// token, ...). setupReviewContext has already created the row as "created"; left alone it looks like a running
+// review, so the UI shows it stuck at the first stage and "reuse a running review" hands it back for 10 minutes.
+func (s *Server) failReviewSetup(ctx *reviewSetupContext, cause error) {
+	if ctx == nil || ctx.review == nil {
+		return
+	}
+	if err := NewReviewManager(s.db).UpdateReviewStatus(ctx.review.ID, "failed"); err != nil {
+		log.Printf("[WARN] review %d: could not mark failed after setup error (%v): %v", ctx.review.ID, cause, err)
+	}
 }
 
 // createReviewRequest builds the review service and request objects

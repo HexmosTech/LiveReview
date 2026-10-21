@@ -87,6 +87,7 @@ func (s *Server) findIntegrationToken(baseURL string, orgID int64) (*Integration
 		SELECT id, provider, access_token, refresh_token, expires_at, provider_app_id, client_secret, provider_url, token_type, pat_token, COALESCE(metadata, '{}')
 		FROM integration_tokens
 		WHERE provider_url LIKE '%' || $1 || '%' AND org_id = $2
+		  AND COALESCE(metadata->>'removed', 'false') <> 'true'
 		ORDER BY created_at DESC
 		LIMIT 1
 	`
@@ -261,7 +262,7 @@ func validateProvider(provider string) error {
 // ensureValidToken ensures we have a valid token, falling back to config file if needed
 func ensureValidToken(token *IntegrationToken) string {
 	// Handle GitHub PAT tokens
-	if strings.HasPrefix(token.Provider, "github") && token.TokenType == "PAT" {
+	if strings.HasPrefix(token.Provider, "github") && (token.TokenType == "PAT" || token.TokenType == "GITHUB_APP") {
 		log.Printf("[DEBUG] ensureValidToken: Using GitHub PAT from database: %s", maskToken(token.PatToken))
 		return token.PatToken
 	}
@@ -406,7 +407,7 @@ func (s *Server) buildReviewRequest(
 func buildProviderConfig(token *IntegrationToken, requestURL, accessToken string) review.ProviderConfig {
 	providerToken := accessToken
 	providerConfigMap := map[string]interface{}{}
-	if token.TokenType == "PAT" && token.PatToken != "" {
+	if (token.TokenType == "PAT" || token.TokenType == "GITHUB_APP") && token.PatToken != "" {
 		if strings.HasPrefix(token.Provider, "github") {
 			providerToken = token.PatToken
 			providerConfigMap["pat_token"] = token.PatToken

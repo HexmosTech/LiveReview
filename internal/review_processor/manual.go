@@ -74,6 +74,14 @@ func ProcessManualReview(
 		// the signal that findings are ready, so writing review_result first closes
 		// the race where a poll could see "completed" with no findings yet and
 		// wrongly allow a build that actually has critical findings.
+		if result.CommentsNotPosted != "" {
+			// The findings are stored below and shown in LiveReview; this tells the UI why nothing is on the PR.
+			if err := rm.MergeReviewMetadata(reviewID, map[string]interface{}{
+				"comments_not_posted": map[string]interface{}{"reason": result.CommentsNotPosted},
+			}); err != nil {
+				log.Printf("[WARN] failed to persist comments_not_posted for review %d: %v", reviewID, err)
+			}
+		}
 		if err := rm.MergeReviewMetadata(reviewID, map[string]interface{}{
 			"review_result": map[string]interface{}{
 				"summary":  result.Summary,

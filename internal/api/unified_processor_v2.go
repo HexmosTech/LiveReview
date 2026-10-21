@@ -732,7 +732,7 @@ func (p *UnifiedProcessorV2Impl) checkGitHubParentCommentAuthor(event UnifiedWeb
 		return false, fmt.Errorf("missing repository full name for GitHub reply detection")
 	}
 
-	token, err := p.server.githubProviderV2.FindIntegrationTokenForRepo(repoFullName)
+	token, err := p.server.githubProviderV2.FindIntegrationTokenForEvent(&event)
 	if err != nil || token == nil {
 		return false, fmt.Errorf("failed to find GitHub token: %w", err)
 	}
@@ -1509,19 +1509,19 @@ func (p *UnifiedProcessorV2Impl) buildGitHubArtifactFromEvent(ctx context.Contex
 
 	log.Printf("[DEBUG] Extracted GitHub PR info: owner=%s, repo=%s, pr=%s, org_id=%d", owner, repo, prNumber, orgID)
 
-	// Look up GitHub PAT from integration_tokens table, filtered by org_id
-	query := `SELECT pat_token FROM integration_tokens 
-	          WHERE provider IN ('github', 'GitHub') 
-	          AND org_id = $1
-	          LIMIT 1`
-
-	var patToken string
-	err := p.server.DB().QueryRow(query, orgID).Scan(&patToken)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find GitHub PAT for org %d: %w", orgID, err)
+	// Use the connector that received this event (never "some GitHub connector of the org": an org can have
+	// several, e.g. two GitHub App installations, and only one can see this repository). For a GitHub App
+	// connector the token is a valid installation token.
+	if p.server == nil || p.server.githubProviderV2 == nil {
+		return nil, fmt.Errorf("github provider unavailable for artifact build")
 	}
+	integrationToken, err := p.server.githubProviderV2.FindIntegrationTokenForEvent(&event)
+	if err != nil || integrationToken == nil {
+		return nil, fmt.Errorf("failed to find GitHub connector for org %d: %w", orgID, err)
+	}
+	patToken := integrationToken.PatToken
 
-	log.Printf("[DEBUG] Found GitHub PAT")
+	log.Printf("[DEBUG] Found GitHub token for connector %d", integrationToken.ID)
 
 	// Create mrModel instance
 	mrModel := &mrmodel.MrModelImpl{}

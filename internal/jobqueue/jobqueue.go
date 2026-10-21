@@ -34,6 +34,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/livereview/internal/githubapp"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/gitea"
 	"github.com/livereview/internal/policyengine"
@@ -2428,6 +2429,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	preloadedChangesArchivalSweepWorker := &PreloadedChangesArchivalSweepWorker{db: db}
 	preloadedChangesArchivalPurgeWorker := &PreloadedChangesArchivalPurgeWorker{db: db}
 	seedDemoWorker := &seed_demo.Worker{DB: db}
+	river.AddWorker(workers, &GitHubAppTokenRefreshWorker{db: db})
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, diffWorker)
@@ -2525,6 +2527,17 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 				return seed_demo.JobArgs{OrgID: seed_demo.DemoOrgID}, nil
 			},
 			&river.PeriodicJobOpts{ID: "seed_demo_activity", RunOnStart: false},
+		))
+	}
+
+	// Only when the GitHub App is configured (GITHUB_APP_ID and friends set).
+	if githubapp.Load() != nil {
+		periodicJobs = append(periodicJobs, river.NewPeriodicJob(
+			river.PeriodicInterval(githubAppTokenRefreshInterval),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return GitHubAppTokenRefreshJobArgs{}, &river.InsertOpts{Queue: "repo_sync", MaxAttempts: 3}
+			},
+			&river.PeriodicJobOpts{ID: "github_app_token_refresh", RunOnStart: true},
 		))
 	}
 

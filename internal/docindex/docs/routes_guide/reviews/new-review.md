@@ -24,6 +24,18 @@ self-hosted license limits.
 - Or paste a PR/MR URL and click **Start review**. Either way the new review's
   page opens right away, and for a PR LiveReview already synced the org's
   auto-approve policy runs when the review finishes.
+- On LiveReview Cloud, if the pasted URL is a GitHub pull request in a repository
+  the org's LiveReview GitHub App connections don't cover, a dialog asks first:
+  **Install GitHub App on `<owner>`** or **Continue review without posting
+  comments** (runs the review and shows the findings in LiveReview without
+  posting to the pull request). Installing opens GitHub's install page, already
+  on that owner, in a new tab, so this page and the review being set up stay
+  put; the other tab signs in again and lands on the connected GitHub accounts.
+  The collapsible **Finished installing on
+  GitHub?** section appears under the button right away (the button shows "Opening GitHub…" for two seconds before the tab actually opens), with a highlighted **I've
+  installed it, continue review** button. It checks that LiveReview can now see
+  the installation and then starts the review; if it can't yet, it says so and
+  the user can retry.
 - Hover a provider chip (GitHub, GitLab, Bitbucket, Gitea, Azure DevOps) to see
   its URL format.
 - **Other ways to review** cards: On the PR (assign the bot as reviewer,

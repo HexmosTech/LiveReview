@@ -25,6 +25,20 @@ Any authenticated org member; the review must belong to their org
 - View the commits included in this review (up to a preview limit, expandable).
 - Navigate back to the reviews list.
 
+## When comments couldn't be posted to the PR
+
+A review can finish its analysis but be unable to put comments on the PR/MR
+because the connection has no permission on that repository (for example a
+public GitHub repo reviewed by URL while the LiveReview GitHub App is only
+installed on a different account). The review still completes: the Findings tab
+shows the diff, summary and every finding as usual, with a yellow notice at the
+top — "Comments weren't posted to GitHub because the LiveReview GitHub App isn't
+installed on `<owner/repo>`". For GitHub the notice has an **Install now**
+button, which opens GitHub's install page already on the
+repository's owner (no account list), then returns to this review. Other posting failures (network, server errors) still
+mark the review failed. A failed review's Findings tab says "This review
+failed" with the reason, instead of "still in progress".
+
 ## Auto Approve tab
 
 Reviews started from a PR/MR "Start a review" link show an **Auto Approve** tab

@@ -190,3 +190,35 @@ func (s *Store) getExistingPullRequestID(repositoryID int64, providerPRID string
 	).Scan(&id)
 	return id, err
 }
+
+// DeleteRepositoryByProviderID removes a connector's repository row (and, via cascade, its pull requests) when
+// the provider reports the repository is no longer accessible - e.g. removed from a GitHub App installation.
+func (s *Store) DeleteRepositoryByProviderID(connectorID int64, providerRepoID string) error {
+	_, err := s.db.Exec(`DELETE FROM repositories WHERE connector_id = $1 AND provider_repo_id = $2`, connectorID, providerRepoID)
+	return err
+}
+
+// ListRepositoryFullNamesByConnector returns the full names of a connector's repositories, sorted.
+func (s *Store) ListRepositoryFullNamesByConnector(connectorID int64) ([]string, error) {
+	rows, err := s.db.Query(`SELECT full_name FROM repositories WHERE connector_id = $1 ORDER BY full_name`, connectorID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		names = append(names, n)
+	}
+	return names, rows.Err()
+}
+
+// DeleteRepositoriesByConnector removes every repository row of a connector (and, via cascade, their pull
+// requests), e.g. when a GitHub App installation is uninstalled.
+func (s *Store) DeleteRepositoriesByConnector(connectorID int64) error {
+	_, err := s.db.Exec(`DELETE FROM repositories WHERE connector_id = $1`, connectorID)
+	return err
+}

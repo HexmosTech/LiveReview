@@ -9,12 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/livereview/internal/githubapp"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/azuredevops"
 	"github.com/livereview/internal/providers/bitbucket"
 	"github.com/livereview/internal/providers/gitea"
 	"github.com/livereview/internal/providers/github"
 	"github.com/livereview/internal/providers/gitlab"
+	storagegithub "github.com/livereview/storage/providers/github"
 	"github.com/livereview/storage/providers/pullrequests"
 )
 
@@ -121,6 +123,9 @@ func (awi *AutoWebhookInstaller) syncRepositoriesAndQueueBackfill(ctx context.Co
 		var page *providers.RepositoryPage
 		var err error
 		switch {
+		case connector.TokenType == storagegithub.TokenTypeGitHubApp:
+			// App installations list through the installation endpoint, not /user/repos.
+			page, err = awi.listAppInstallationRepositories(ctx, connector, cursor)
 		case strings.HasPrefix(connector.Provider, "github"):
 			page, err = github.ListRepositories(ctx, connector.ProviderURL, connector.PATToken, cursor)
 		case strings.HasPrefix(connector.Provider, "gitlab"):
@@ -166,6 +171,35 @@ func (awi *AutoWebhookInstaller) syncRepositoriesAndQueueBackfill(ctx context.Co
 
 	log.Printf("Queued initial PR/MR backfill for %d repositories (connector %d)", total, connectorID)
 	return nil
+}
+
+// listAppInstallationRepositories lists one page of repositories for a GitHub App connector, using a valid
+// (possibly just-minted) installation token rather than whatever pat_token held when the connector was loaded.
+func (awi *AutoWebhookInstaller) listAppInstallationRepositories(ctx context.Context, connector *ConnectorDetails, cursor string) (*providers.RepositoryPage, error) {
+	store := storagegithub.NewTokenStore(awi.db)
+	rec, err := store.GetGitHubTokenByConnectorID(int64(connector.ID))
+	if err != nil {
+		return nil, err
+	}
+	token, err := githubapp.ConnectorToken(ctx, store, rec)
+	if err != nil {
+		return nil, err
+	}
+	return github.ListInstallationRepositoriesPage(ctx, connector.ProviderURL, token, cursor)
+}
+
+// SyncAppConnector discovers an App installation's repositories into the repositories table and queues the
+// initial PR backfill for each. It is the App counterpart of the sync TriggerAutoInstallation runs for PAT
+// connectors (which also installs per-repo webhooks - App connectors never do).
+func (awi *AutoWebhookInstaller) SyncAppConnector(ctx context.Context, connectorID int) error {
+	connector, err := awi.getConnectorDetails(connectorID)
+	if err != nil {
+		return fmt.Errorf("failed to load connector %d: %w", connectorID, err)
+	}
+	if connector.TokenType != storagegithub.TokenTypeGitHubApp {
+		return fmt.Errorf("connector %d is not a GitHub App connector", connectorID)
+	}
+	return awi.syncRepositoriesAndQueueBackfill(ctx, connectorID, connector)
 }
 
 // BackfillAllConnectors runs the same repository discovery + PR backfill
@@ -246,6 +280,7 @@ type ConnectorDetails struct {
 	Provider    string
 	ProviderURL string
 	PATToken    string
+	TokenType   string
 	Metadata    map[string]interface{}
 }
 
@@ -255,7 +290,7 @@ func (awi *AutoWebhookInstaller) getConnectorDetails(connectorID int) (*Connecto
 	var metadataBytes []byte
 
 	query := `
-		SELECT id, org_id, provider, provider_url, pat_token, COALESCE(metadata, '{}')
+		SELECT id, org_id, provider, provider_url, pat_token, COALESCE(token_type, ''), COALESCE(metadata, '{}')
 		FROM integration_tokens
 		WHERE id = $1
 	`
@@ -266,6 +301,7 @@ func (awi *AutoWebhookInstaller) getConnectorDetails(connectorID int) (*Connecto
 		&connector.Provider,
 		&connector.ProviderURL,
 		&connector.PATToken,
+		&connector.TokenType,
 		&metadataBytes,
 	)
 
@@ -294,6 +330,10 @@ func (awi *AutoWebhookInstaller) getConnectorDetails(connectorID int) (*Connecto
 
 // shouldAutoInstall determines if a connector should have automatic webhook installation
 func (awi *AutoWebhookInstaller) shouldAutoInstall(connector *ConnectorDetails) bool {
+	// GitHub App webhooks are delivered app-wide to /github-app/webhook; never create per-repo hooks for them.
+	if connector.TokenType == storagegithub.TokenTypeGitHubApp {
+		return false
+	}
 	// Auto-install for GitLab, GitHub, and Gitea providers
 	isGitLab := connector.Provider == "gitlab" ||
 		connector.Provider == "gitlab-com" ||

@@ -25,6 +25,8 @@ const ExploreRoutes = React.lazy(() => import('./pages/Explore/ExploreRoutes'));
 const PullRequestReviewTrigger = React.lazy(() => import('./pages/Reviews/PullRequestReviewTrigger'));
 const Login = React.lazy(() => import('./pages/Auth/Login'));
 const SelfHosted = React.lazy(() => import('./pages/Auth/SelfHosted'));
+const GhLogin = React.lazy(() => import('./pages/Auth/GhLogin'));
+const GetStartedGitHub = React.lazy(() => import('./pages/GetStarted/GetStartedGitHub'));
 const Setup = React.lazy(() => import('./pages/Setup/Setup'));
 const CodeHostCallback = React.lazy(() => import('./pages/Auth/CodeHostCallback'));
 const OAuthCallbackHandler = React.lazy(() => import('./pages/Auth/OAuthCallbackHandler'));
@@ -131,6 +133,7 @@ const AppContent: React.FC = () => {
             hashPath !== '' && 
             hashPath !== '#/' && 
             !hashPath.startsWith('#/oauth-callback') && 
+            !hashPath.startsWith('#/gh-login') &&
             !hashPath.startsWith('#/admin');
         
         if (isProtectedRoute && !isAuthenticated) {
@@ -288,7 +291,10 @@ const AppContent: React.FC = () => {
     } else if (!isAuthenticated) {
         // Allow email/admin login screen only when explicitly visiting /admin in cloud
         // (needed for initial setup or troubleshooting); otherwise use cloud login.
-        if (isCloudMode() && location.pathname === '/admin') {
+        if (location.pathname.startsWith('/gh-login')) {
+            // "Continue with GitHub" landing page; shows the normal login itself when the feature is off.
+            body = <GhLogin />;
+        } else if (isCloudMode() && location.pathname === '/admin') {
             body = <SelfHosted />;
         } else {
             body = <Login />;
@@ -311,6 +317,8 @@ const AppContent: React.FC = () => {
                             <Routes>
                                 <Route path="/" element={<HomeWithOAuthCheck />} />
                                 <Route path="/dashboard" element={<Dashboard />} />
+                                <Route path="/gh-login" element={<Navigate to={{ pathname: '/get-started/github', search: location.search }} replace />} />
+                                <Route path="/get-started/github" element={<GetStartedGitHub />} />
                                 <Route path="/subscribe" element={<Subscribe />} />
                                 <Route path="/subscribe/manage" element={<LicenseManagement />} />
                                 <Route path="/subscribe/subscriptions/:id/assign" element={<LicenseAssignment />} />

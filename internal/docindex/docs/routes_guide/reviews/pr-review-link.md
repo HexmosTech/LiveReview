@@ -37,6 +37,11 @@ aren't members of that org see "pull request wasn't found".
 - If a review of the same PR started less than 10 minutes ago and is still
   running, the link opens that review instead of starting another one.
 - Each later click starts a new review (counts against the org's review quota).
+- If the organization has no AI provider (the Free plan needs one), the page
+  explains that instead of showing a raw error: it points to Google AI Studio
+  for a free Gemini API key, offers **Configure AI** (opens AI Providers in a
+  new tab) and a **Review this PR** button to start the review again once the
+  provider is added.
 - When a review started from this link finishes, LiveReview runs the org's
   [auto-approve policy](../settings/auto-approve.md) on it. The result is shown
   in two places:

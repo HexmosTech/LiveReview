@@ -104,3 +104,6 @@ Makefile*
 docker-compose.yml
 docker-compose.*.yml
 docker/docker-compose.*.yml
+
+# GitHub App private key - never bake into images
+*.pem

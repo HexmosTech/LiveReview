@@ -1,15 +1,20 @@
 package github
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 
 	"github.com/livereview/internal/capture"
 	coreprocessor "github.com/livereview/internal/core_processor"
+	"github.com/livereview/internal/githubapp"
 	"github.com/livereview/internal/webhookutils"
+	networkgithub "github.com/livereview/network/providers/github"
+	storagegithub "github.com/livereview/storage/providers/github"
 )
 
 type (
@@ -142,7 +147,7 @@ func (p *GitHubV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2) e
 		return fmt.Errorf("no merge request in event")
 	}
 
-	token, err := FindIntegrationTokenForGitHubRepo(p.db, event.Repository.FullName)
+	token, err := FindIntegrationTokenForEvent(p.db, event)
 	if err != nil {
 		return fmt.Errorf("failed to get GitHub token: %w", err)
 	}
@@ -186,8 +191,8 @@ func (p *GitHubV2Provider) FetchMergeRequestData(event *UnifiedWebhookEventV2) e
 	return nil
 }
 
-// FindIntegrationTokenForRepo returns the integration token associated with the given repository.
-func (p *GitHubV2Provider) FindIntegrationTokenForRepo(repoFullName string) (*IntegrationToken, error) {
+// FindIntegrationTokenForEvent returns the integration token of the connector that received the event.
+func (p *GitHubV2Provider) FindIntegrationTokenForEvent(event *UnifiedWebhookEventV2) (*IntegrationToken, error) {
 	if p == nil {
 		return nil, fmt.Errorf("github provider not initialised")
 	}
@@ -195,7 +200,7 @@ func (p *GitHubV2Provider) FindIntegrationTokenForRepo(repoFullName string) (*In
 		return nil, fmt.Errorf("github provider missing database handle")
 	}
 
-	return FindIntegrationTokenForGitHubRepo(p.db, repoFullName)
+	return FindIntegrationTokenForEvent(p.db, event)
 }
 
 func recordGitHubWebhook(eventType string, headers map[string]string, body []byte, unified *UnifiedWebhookEventV2, err error) {
@@ -255,7 +260,7 @@ func (p *GitHubV2Provider) PostCommentReply(event *UnifiedWebhookEventV2, conten
 		return fmt.Errorf("invalid event for comment reply")
 	}
 
-	token, err := FindIntegrationTokenForGitHubRepo(p.db, event.Repository.FullName)
+	token, err := FindIntegrationTokenForEvent(p.db, event)
 	if err != nil {
 		return fmt.Errorf("failed to get GitHub token: %w", err)
 	}
@@ -269,7 +274,7 @@ func (p *GitHubV2Provider) PostEmojiReaction(event *UnifiedWebhookEventV2, emoji
 		return fmt.Errorf("no comment in event for emoji reaction")
 	}
 
-	token, err := FindIntegrationTokenForGitHubRepo(p.db, event.Repository.FullName)
+	token, err := FindIntegrationTokenForEvent(p.db, event)
 	if err != nil {
 		return fmt.Errorf("failed to get GitHub token: %w", err)
 	}
@@ -283,7 +288,7 @@ func (p *GitHubV2Provider) PostFullReview(event *UnifiedWebhookEventV2, overallC
 		return fmt.Errorf("no merge request in event for full review")
 	}
 
-	token, err := FindIntegrationTokenForGitHubRepo(p.db, event.Repository.FullName)
+	token, err := FindIntegrationTokenForEvent(p.db, event)
 	if err != nil {
 		return fmt.Errorf("failed to get GitHub token: %w", err)
 	}
@@ -304,7 +309,7 @@ func (p *GitHubV2Provider) FetchMRTimeline(mr UnifiedMergeRequestV2) (*UnifiedTi
 		return nil, err
 	}
 
-	token, err := FindIntegrationTokenForGitHubRepo(p.db, repoFullName)
+	token, err := findIntegrationTokenForMetadata(p.db, mr.Metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get GitHub token: %w", err)
 	}
@@ -406,9 +411,13 @@ func (p *GitHubV2Provider) FetchCodeContext(comment UnifiedCommentV2) (string, e
 
 // GetBotUserInfo gets bot user information for warrant checking.
 func (p *GitHubV2Provider) GetBotUserInfo(repository UnifiedRepositoryV2) (*UnifiedBotUserInfoV2, error) {
-	token, err := FindIntegrationTokenForGitHubRepo(p.db, repository.FullName)
+	token, err := findIntegrationTokenForMetadata(p.db, repository.Metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get GitHub token: %w", err)
+	}
+
+	if token.TokenType == storagegithub.TokenTypeGitHubApp {
+		return appBotInfo(token)
 	}
 
 	botInfo, err := FetchGitHubBotUserInfo(token.PatToken)
@@ -436,8 +445,7 @@ func (p *GitHubV2Provider) PostReviewComments(mr UnifiedMergeRequestV2, comments
 		return nil
 	}
 
-	repoFullName := mr.Metadata["repository_full_name"].(string)
-	token, err := FindIntegrationTokenForGitHubRepo(p.db, repoFullName)
+	token, err := findIntegrationTokenForMetadata(p.db, mr.Metadata)
 	if err != nil {
 		return fmt.Errorf("failed to get GitHub token: %w", err)
 	}
@@ -602,4 +610,37 @@ func extractRepoFullNameFromMetadata(metadata map[string]interface{}) (string, e
 	}
 
 	return "", fmt.Errorf("repository_full_name missing from metadata")
+}
+
+var appBotCache sync.Map // "<api base>|<login>" -> *UnifiedBotUserInfoV2
+
+// appBotInfo describes the GitHub App's bot account. GET /user is rejected for installation tokens, so the
+// account is looked up by its "<slug>[bot]" login instead; the result never changes, so it is cached.
+func appBotInfo(token *IntegrationToken) (*UnifiedBotUserInfoV2, error) {
+	cfg := githubapp.Load()
+	if cfg == nil {
+		return nil, githubapp.ErrNotConfigured
+	}
+	login := cfg.BotLogin()
+	cacheKey := cfg.APIBaseURL() + "|" + login
+	if cached, ok := appBotCache.Load(cacheKey); ok {
+		return cached.(*UnifiedBotUserInfoV2), nil
+	}
+
+	user, err := networkgithub.GetUserByLogin(context.Background(), cfg.APIBaseURL(), token.PatToken, login)
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up GitHub App bot account %s: %w", login, err)
+	}
+	info := &UnifiedBotUserInfoV2{
+		UserID:   fmt.Sprintf("%d", user.ID),
+		Username: login,
+		Name:     cfg.Slug,
+		IsBot:    true,
+		Metadata: map[string]interface{}{
+			"provider":  "github",
+			"user_type": "Bot",
+		},
+	}
+	appBotCache.Store(cacheKey, info)
+	return info, nil
 }

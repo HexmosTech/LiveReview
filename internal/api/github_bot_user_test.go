@@ -15,7 +15,7 @@ func TestGitHubProvider_GetBotUserInfo(t *testing.T) {
 		t.Fatalf("github provider not initialized")
 	}
 
-	insertIntegrationToken(t, server.db, "github", "https://api.github.com", "pat-gh", map[string]interface{}{"installation_id": 42})
+	connectorID := insertIntegrationToken(t, server.db, "github", "https://api.github.com", "pat-gh", map[string]interface{}{"installation_id": 42})
 
 	stubHTTPTransport(t, func(req *http.Request) (*http.Response, error) {
 		if req.URL.Host != "api.github.com" || req.URL.Path != "/user" {
@@ -33,7 +33,8 @@ func TestGitHubProvider_GetBotUserInfo(t *testing.T) {
 		return resp, nil
 	})
 
-	repo := coreprocessor.UnifiedRepositoryV2{FullName: "owner/repo"}
+	// The webhook orchestrator stamps the receiving connector on the event; the token is resolved from it.
+	repo := coreprocessor.UnifiedRepositoryV2{FullName: "owner/repo", Metadata: map[string]interface{}{"connector_id": connectorID}}
 	info, err := server.githubProviderV2.GetBotUserInfo(repo)
 	if err != nil {
 		t.Fatalf("expected bot info, got error: %v", err)
@@ -56,7 +57,7 @@ func TestGitHubProvider_GetBotUserInfo_HTTPError(t *testing.T) {
 		t.Fatalf("github provider not initialized")
 	}
 
-	insertIntegrationToken(t, server.db, "github", "https://api.github.com", "pat-gh-error", nil)
+	connectorID := insertIntegrationToken(t, server.db, "github", "https://api.github.com", "pat-gh-error", nil)
 
 	stubHTTPTransport(t, func(req *http.Request) (*http.Response, error) {
 		resp := &http.Response{
@@ -67,8 +68,18 @@ func TestGitHubProvider_GetBotUserInfo_HTTPError(t *testing.T) {
 		return resp, nil
 	})
 
-	repo := coreprocessor.UnifiedRepositoryV2{FullName: "owner/repo"}
+	repo := coreprocessor.UnifiedRepositoryV2{FullName: "owner/repo", Metadata: map[string]interface{}{"connector_id": connectorID}}
 	if _, err := server.githubProviderV2.GetBotUserInfo(repo); err == nil {
 		t.Fatalf("expected error when GitHub API responds with failure")
+	}
+}
+
+// Without a connector on the event there is no token to use: never fall back to some other tenant's.
+func TestGitHubProvider_GetBotUserInfo_RequiresConnector(t *testing.T) {
+	server := setupBotUserTestServer(t)
+	insertIntegrationToken(t, server.db, "github", "https://api.github.com", "pat-gh-other", nil)
+
+	if _, err := server.githubProviderV2.GetBotUserInfo(coreprocessor.UnifiedRepositoryV2{FullName: "owner/repo"}); err == nil {
+		t.Fatalf("expected an error when the event carries no connector")
 	}
 }

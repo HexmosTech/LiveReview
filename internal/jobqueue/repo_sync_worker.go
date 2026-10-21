@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/livereview/internal/githubapp"
 	"github.com/livereview/internal/policyengine"
 	"github.com/livereview/internal/providers"
 	providerazure "github.com/livereview/internal/providers/azuredevops"
@@ -38,6 +39,7 @@ type repositoryConnectorInfo struct {
 	PATToken       string
 	AccessToken    string
 	Email          string // Bitbucket basic-auth user, from connector metadata
+	TokenType      string // 'GITHUB_APP' rows hold an hourly installation token in pat_token
 }
 
 func (info repositoryConnectorInfo) token() string {
@@ -51,14 +53,21 @@ func loadRepositoryConnectorInfo(db *sql.DB, repositoryID int64) (*repositoryCon
 	var info repositoryConnectorInfo
 	err := db.QueryRow(`
 		SELECT r.id, r.org_id, r.connector_id, r.provider, r.provider_repo_id, r.full_name, r.last_synced_at,
-		       i.provider_url, COALESCE(i.pat_token, ''), COALESCE(i.access_token, ''), COALESCE(i.metadata->>'email', '')
+		       i.provider_url, COALESCE(i.pat_token, ''), COALESCE(i.access_token, ''), COALESCE(i.metadata->>'email', ''), COALESCE(i.token_type, '')
 		FROM repositories r
 		JOIN integration_tokens i ON i.id = r.connector_id
 		WHERE r.id = $1
 	`, repositoryID).Scan(&info.RepositoryID, &info.OrgID, &info.ConnectorID, &info.Provider, &info.ProviderRepoID,
-		&info.FullName, &info.LastSyncedAt, &info.ProviderURL, &info.PATToken, &info.AccessToken, &info.Email)
+		&info.FullName, &info.LastSyncedAt, &info.ProviderURL, &info.PATToken, &info.AccessToken, &info.Email, &info.TokenType)
 	if err != nil {
 		return nil, err
+	}
+	// GitHub App rows cache an hourly installation token in pat_token; resolve a valid one so every caller of
+	// token() (PR sync, policy publishing, PR description updates) gets a working token. Other rows are unchanged.
+	resolveCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if info.PATToken, err = githubapp.ResolveIfApp(resolveCtx, db, info.ConnectorID, info.TokenType, info.PATToken); err != nil {
+		return nil, fmt.Errorf("failed to resolve GitHub App token for connector %d: %w", info.ConnectorID, err)
 	}
 	return &info, nil
 }
