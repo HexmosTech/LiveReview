@@ -104,21 +104,51 @@ func selectLeaderAIConfig(ctx context.Context, db *sql.DB, orgID int64, connecto
 		return review.AIConfig{}, fmt.Errorf("the Free plan requires you to configure your own LLM API key (BYOK) for your organization.")
 	}
 
-	if planCode == license.PlanTeam32USD {
-		if len(connectors) > 0 {
-			connector := connectors[0]
-			if connector.ProviderName == aidefault.ProviderName {
-				return buildDefaultAIConfig(ctx, db, connector)
-			}
-			return buildBYOKAIConfig(ctx, db, connector, "byok_override")
+	switch kind, connector := paidLeaderChoice(planCode, connectors); kind {
+	case leaderManagedConnector:
+		return buildDefaultAIConfig(ctx, db, connector)
+	case leaderOwnKey:
+		mode := "byok_optional"
+		if planCode == license.PlanTeam32USD {
+			mode = "byok_override"
 		}
+		return buildBYOKAIConfig(ctx, db, connector, mode)
+	case leaderManagedDefaultTier:
+		// A paid Cloud org with no AI connector at all still reviews on the LiveReview AI Model.
+		return buildDefaultAIConfig(ctx, db, &aiconnectors.ConnectorRecord{
+			ProviderName:  aidefault.ProviderName,
+			ConnectorName: "LiveReview AI Model",
+			SelectedModel: sql.NullString{String: "default", Valid: true},
+		})
+	default:
 		return buildHostedAutoAIConfig(ctx, db)
 	}
+}
 
+type leaderKind int
+
+const (
+	leaderOwnKey             leaderKind = iota // the org's own provider key
+	leaderManagedConnector                     // the org's "LiveReview AI Model" connector (active managed config)
+	leaderManagedDefaultTier                   // no connector: the managed config's main tier
+	leaderHostedEnv                            // no connector on a licensed self-hosted install: LIVEREVIEW_HOSTED_* env
+)
+
+// paidLeaderChoice decides, for every plan but Free, where a review's main model comes from. The org's first leader
+// connector wins; the LiveReview AI Model connector resolves to the active managed configuration on every paid
+// plan (team_32usd and the loc_* plans alike). With no connector, Cloud plans use the managed model and a licensed
+// self-hosted install keeps its LIVEREVIEW_HOSTED_* env configuration.
+func paidLeaderChoice(planCode license.PlanType, connectors []*aiconnectors.ConnectorRecord) (leaderKind, *aiconnectors.ConnectorRecord) {
 	if len(connectors) > 0 {
-		return buildBYOKAIConfig(ctx, db, connectors[0], "byok_optional")
+		if connectors[0].ProviderName == aidefault.ProviderName {
+			return leaderManagedConnector, connectors[0]
+		}
+		return leaderOwnKey, connectors[0]
 	}
-	return buildHostedAutoAIConfig(ctx, db)
+	if planCode == license.PlanEnterpriseSelfhosted {
+		return leaderHostedEnv, nil
+	}
+	return leaderManagedDefaultTier, nil
 }
 
 func selectHelperAIConfig(ctx context.Context, db *sql.DB, connectors []*aiconnectors.ConnectorRecord) (review.AIConfig, error) {
