@@ -21,8 +21,6 @@ import { UpgradePromptModal } from '../../components/Subscriptions';
 import { useQuotaStatusQuery, useBillingStatusQuery } from '../../api/billing';
 import { QuotaExhaustedBanner } from '../../components/Dashboard/QuotaExhaustedBanner';
 import { QuotaWarningBanner } from '../../components/Dashboard/QuotaWarningBanner';
-import { useOrgContext } from '../../hooks/useOrgContext';
-import LicenseUpgradeDialog from '../../components/License/LicenseUpgradeDialog';
 import GitHubAppNotInstalledModal from '../../components/GitHubApp/GitHubAppNotInstalledModal';
 import { getGitHubAppInstallCheck, githubAppStartUrl } from '../../api/githubApp';
 import { useGitHubAppEnabled } from '../../hooks/useGitHubAppEnabled';
@@ -88,8 +86,6 @@ const isUrlLike = (value: string) => /^https?:\/\//i.test(value.trim());
 
 const NewReview: React.FC = () => {
   const navigate = useNavigate();
-  const { isFreePlan, isSuperAdmin } = useOrgContext();
-  const isReadOnly = isFreePlan && !isSuperAdmin;
   const [url, setUrl] = useState('');
   const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
   const [loading, setLoading] = useState(false);
@@ -106,7 +102,6 @@ const NewReview: React.FC = () => {
   // Shared with Navbar/Dashboard/TeamCheckout/SubscriptionTab via react-query's cache.
   const { data: quotaStatus = null } = useQuotaStatusQuery<QuotaStatusResponse>();
   const { data: trialBilling = null } = useBillingStatusQuery<TrialBillingStatusResponse>();
-  const [showPlanUpgradeDialog, setShowPlanUpgradeDialog] = useState(false);
 
   // A pasted GitHub PR URL whose repository the LiveReview GitHub App can't post to: ask before starting the review.
   const githubAppEnabled = useGitHubAppEnabled();
@@ -186,10 +181,6 @@ const NewReview: React.FC = () => {
 
   // Shared plan/quota gating and error handling for both ways of starting a review.
   const startReview = async (run: () => Promise<{ reviewId: string }>) => {
-    if (isReadOnly) {
-      setShowPlanUpgradeDialog(true);
-      return;
-    }
     setError(null);
     if (quotaStatus?.envelope?.trial_readonly) {
       setError('Trial is read-only for this organization. Upgrade your plan to resume review creation.');
@@ -395,8 +386,8 @@ const NewReview: React.FC = () => {
                 </Alert>
               )}
 
-              {/* Blocked / Trial Read-Only / Free Plan Read-Only Banner */}
-              {(isReadOnly || quotaStatus?.envelope?.trial_readonly || quotaStatus?.envelope?.blocked || quotaStatus?.can_trigger_reviews === false) && (
+              {/* Blocked / Trial Read-Only Banner */}
+              {(quotaStatus?.envelope?.trial_readonly || quotaStatus?.envelope?.blocked || quotaStatus?.can_trigger_reviews === false) && (
                 <Alert
                   variant="error"
                   className="mb-4"
@@ -404,14 +395,12 @@ const NewReview: React.FC = () => {
                 >
                   <div>
                     <div className="font-medium text-red-100">
-                      {isReadOnly ? 'Free Plan Read-Only Mode' : (quotaStatus?.envelope?.trial_readonly ? 'Trial Read-Only Active' : 'Monthly LOC Quota Exceeded')}
+                      {quotaStatus?.envelope?.trial_readonly ? 'Trial Read-Only Active' : 'Monthly LOC Quota Exceeded'}
                     </div>
                     <div className="text-sm mt-1 text-red-200/90">
-                      {isReadOnly 
-                        ? 'Review creation is not available on the Free plan. Upgrade to a paid plan to start using AI code reviews.'
-                        : (quotaStatus?.envelope?.trial_readonly
-                          ? 'This organization is in trial read-only mode. Upgrade from Subscription Management to continue triggering reviews.'
-                          : `You've used ${(quotaStatus?.envelope?.loc_used_month ?? 0).toLocaleString()} of ${(quotaStatus?.envelope?.loc_limit_month ?? 0).toLocaleString()} LOC this month. Reviews are blocked until your quota resets${quotaStatus?.envelope?.billing_period_end ? ` on ${new Date(quotaStatus.envelope.billing_period_end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}` : ''} or you upgrade your plan.`)}
+                      {quotaStatus?.envelope?.trial_readonly
+                        ? 'This organization is in trial read-only mode. Upgrade from Subscription Management to continue triggering reviews.'
+                        : `You've used ${(quotaStatus?.envelope?.loc_used_month ?? 0).toLocaleString()} of ${(quotaStatus?.envelope?.loc_limit_month ?? 0).toLocaleString()} LOC this month. Reviews are blocked until your quota resets${quotaStatus?.envelope?.billing_period_end ? ` on ${new Date(quotaStatus.envelope.billing_period_end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}` : ''} or you upgrade your plan.`}
                     </div>
                     <button
                       type="button"
@@ -608,15 +597,6 @@ const NewReview: React.FC = () => {
             onCancel={() => setNotInstalled(null)}
           />
         )}
-
-        {/* Plan Upgrade Dialog */}
-        <LicenseUpgradeDialog
-          open={showPlanUpgradeDialog}
-          onClose={() => setShowPlanUpgradeDialog(false)}
-          requiredTier="team"
-          featureName="Review Creation from Dashboard"
-          featureDescription="Upgrade to a paid plan to trigger new AI code reviews. Free plans are read-only."
-        />
       </div>
     </ErrorBoundary>
   );

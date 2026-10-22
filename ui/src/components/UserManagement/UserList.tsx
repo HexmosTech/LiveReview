@@ -12,7 +12,7 @@ import {
     getCoreRowModel,
 } from '@tanstack/react-table';
 import { LuSearch } from 'react-icons/lu';
-import { Button, Popover, Input, Icons } from '../UIPrimitives';
+import { Button, Input, Icons } from '../UIPrimitives';
 import { ClientTable } from '../DataTable/ClientTable';
 import { SortIcon, SortableHeaderLabel, HeaderFilterPopover } from '../DataTable/HeaderControls';
 import { Member } from '../../api/users';
@@ -131,7 +131,7 @@ export const UserList: React.FC<UserListProps> = ({
     pagination,
     onPaginationChange,
 }) => {
-    const { currentOrg, isFreePlan } = useOrgContext();
+    const { currentOrg } = useOrgContext();
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
     const selectedCount = Object.values(rowSelection).filter(Boolean).length;
 
@@ -267,52 +267,6 @@ export const UserList: React.FC<UserListProps> = ({
             ),
         });
 
-        cols.push({
-            id: 'access',
-            enableSorting: false,
-            enableColumnFilter: false,
-            header: () => (
-                <div className="flex items-center justify-center gap-1">
-                    git-lrc Access
-                    {isFreePlan && (
-                        <Popover
-                            hover={true}
-                            align="center"
-                            trigger={
-                                <svg className="w-4 h-4 text-slate-500 hover:text-slate-300 transition-colors cursor-help cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                            }
-                        >
-                            <p>
-                                On the Free plan, reviews can only be triggered via the git-lrc CLI by the org owner. Dashboard triggers require Premium.{' '}
-                                <a href="/#/settings-subscriptions-overview" className="text-blue-300 hover:text-blue-200 underline">
-                                    Upgrade to Premium
-                                </a>
-                            </p>
-                        </Popover>
-                    )}
-                </div>
-            ),
-            cell: ({ row }) => {
-                const user = row.original;
-                const hasAccess = !isFreePlan || currentOrg?.created_by_user_id === user.id;
-                return (
-                    <div className="flex justify-center">
-                        {hasAccess ? (
-                            <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-label="Has Review Access">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                            </svg>
-                        ) : (
-                            <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-label="No Review Access">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        )}
-                    </div>
-                );
-            },
-        });
-
         if (isSuperAdminView) {
             cols.push({
                 id: 'organizations',
@@ -385,7 +339,7 @@ export const UserList: React.FC<UserListProps> = ({
 
         return cols;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canManageUsers, isSuperAdminView, isFreePlan, currentOrg, onTransferUser, onDeactivateUser]);
+    }, [canManageUsers, isSuperAdminView, onTransferUser, onDeactivateUser]);
 
     const columnWidths = canManageUsers && isSuperAdminView
         ? USER_LIST_COLUMN_WIDTHS_WITH_CHECKBOX_AND_ORG

@@ -114,11 +114,8 @@ func (h *QuotaStatusHandler) GetQuotaStatus(c echo.Context) error {
 	} else if !apimiddleware.IsCloudMode() {
 		// Unlicensed self-hosted: check blocking
 		status.CanTriggerReviews = !envelope.Blocked
-	} else if isFreeTier {
-		// On free plan, only org creator can trigger reviews AND must be under daily limit
-		status.CanTriggerReviews = isOrgCreator && (dailyLimitPtr == nil || dailyUsed < *dailyLimitPtr)
 	} else {
-		// On team plan, all members can trigger unlimited reviews UNLESS LOC blocked
+		// Cloud (Free and paid): every member can trigger reviews UNLESS LOC blocked
 		status.CanTriggerReviews = !envelope.Blocked && !envelope.TrialReadOnly
 	}
 

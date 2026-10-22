@@ -20,7 +20,6 @@ import {
 import { Alert, Button, Input, Select, Icons, Spinner } from '../UIPrimitives';
 import { useAppDispatch } from '../../store/configureStore';
 import { loadUserOrganizations } from '../../store/Organizations/reducer';
-import { UpgradePromptModal } from '../Subscriptions';
 import { UserOnboardingDetails } from './UserOnboardingDetails';
 import UserIdentitiesEditor from './UserIdentitiesEditor';
 import { Table, TableHead, TableHeaderCell, TableBody, TableRow, TableCell } from '../DataTable/SimpleTable';
@@ -136,7 +135,6 @@ const UserForm: React.FC = () => {
     const [user, setUser] = useState<Member | null>(null);
     const [createdUser, setCreatedUser] = useState<Member | null>(null);
     const [loading, setLoading] = useState(false);
-    const [showUpgradeModal, setShowUpgradeModal] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [prerequisiteError, setPrerequisiteError] = useState<string | null>(null);
     const [prerequisiteStatus, setPrerequisiteStatus] = useState<{ productionUrl: boolean; smtp: boolean } | null>(null);
@@ -614,13 +612,7 @@ const UserForm: React.FC = () => {
         return (
             <UserOnboardingDetails
                 user={createdUser}
-                onContinue={() => {
-                    if (currentOrg?.plan_type === 'free') {
-                        setShowUpgradeModal(true);
-                    } else {
-                        navigate('/settings#users');
-                    }
-                }}
+                onContinue={() => navigate('/settings#users')}
             />
         );
     }
@@ -1448,16 +1440,6 @@ const UserForm: React.FC = () => {
                     </div>
                 </div>
             </div>
-
-            {/* Upgrade Modal */}
-            <UpgradePromptModal
-                isOpen={showUpgradeModal}
-                onClose={() => {
-                    setShowUpgradeModal(false);
-                    navigate('/settings#users');
-                }}
-                reason="MEMBER_ACTIVATION"
-            />
         </div>
     );
 };

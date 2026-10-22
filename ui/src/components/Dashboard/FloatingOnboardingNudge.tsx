@@ -14,8 +14,6 @@ interface FloatingOnboardingNudgeProps {
   onConfigureAI: () => void;
   onNewReview: () => void;
   onDismiss: () => void;
-  isFreePlan?: boolean;
-  onUpgrade?: () => void;
   // Forces the banner open (expanded, ignoring a prior "Close"/"Never Show Again") — used when
   // deep-linked here from the mega menu's "Trigger via CLI" entry.
   forceOpen?: boolean;
@@ -65,8 +63,6 @@ export const FloatingOnboardingNudge: React.FC<FloatingOnboardingNudgeProps> = (
   installCommandWindows,
   onConfigureAI,
   onDismiss,
-  isFreePlan = false,
-  onUpgrade,
   forceOpen = false,
 }) => {
   const [expanded, setExpanded] = useState(false);
@@ -108,8 +104,6 @@ export const FloatingOnboardingNudge: React.FC<FloatingOnboardingNudgeProps> = (
                 installCommand={installCommand}
                 installCommandWindows={installCommandWindows}
                 onConfigureAI={onConfigureAI}
-                isFreePlan={isFreePlan}
-                onUpgrade={onUpgrade}
               />
             </div>
           )}

@@ -8,7 +8,6 @@ import { fetchLicenseStatus, openModal as openLicenseModal, closeModal as closeL
 import LicenseModal from './components/License/LicenseModal';
 import LicenseStatusBar from './components/License/LicenseStatusBar';
 import { isCloudMode, isDebugMode } from './utils/deploymentMode';
-import { SubscriptionGuard } from './components/SubscriptionGuard';
 import { Toaster } from 'react-hot-toast';
 import { useBottomRightBlockers } from './store/uiLayout';
 import { ToastBridge } from './components/Notifications/ToastBridge';
@@ -312,46 +311,44 @@ const AppContent: React.FC = () => {
                 <URLMismatchBanner />
                 {!isCloudMode() && !location.pathname.startsWith('/chat') && <LicenseStatusBar onOpenModal={() => dispatch(openLicenseModal())} />}
                 <div className="flex-grow">
-                    <SubscriptionGuard>
-                        <Suspense fallback={<RouteFallback />}>
-                            <Routes>
-                                <Route path="/" element={<HomeWithOAuthCheck />} />
-                                <Route path="/dashboard" element={<Dashboard />} />
-                                <Route path="/gh-login" element={<Navigate to={{ pathname: '/get-started/github', search: location.search }} replace />} />
-                                <Route path="/get-started/github" element={<GetStartedGitHub />} />
-                                <Route path="/subscribe" element={<Subscribe />} />
-                                <Route path="/subscribe/manage" element={<LicenseManagement />} />
-                                <Route path="/subscribe/subscriptions/:id/assign" element={<LicenseAssignment />} />
-                                <Route path="/checkout/team" element={<TeamCheckout />} />
-                                <Route path="/reviews/*" element={<ReviewsRoutes />} />
-                                <Route path="/pr/:id/review" element={<PullRequestReviewTrigger />} />
-                                <Route path="/explore/*" element={<ExploreRoutes />} />
-                                <Route path="/git/*" element={<GitProviders />} />
-                                <Route path="/ai" element={<AIProviders />} />
-                                <Route path="/ai/:provider" element={<AIProviders />} />
-                                <Route path="/ai/:provider/:action" element={<AIProviders />} />
-                                <Route path="/ai/:provider/:action/:connectorId" element={<AIProviders />} />
-                                <Route path="/settings/*" element={<Settings />} />
-                                <Route path="/settings-subscriptions-overview" element={<Settings />} />
-                                <Route path="/settings-subscriptions-breakdown" element={<Settings />} />
-                                <Route path="/settings-subscriptions-assign" element={<Settings />} />
-                                <Route path="/settings-subscriptions-portfolio" element={<Settings />} />
-                                <Route path="/settings/users/add" element={<UserForm />} />
-                                <Route path="/settings/users/add/bulk" element={<UserForm />} />
-                                <Route path="/settings/users/edit/:userId" element={<UserForm />} />
-                                <Route path="/admin/billing-portfolio" element={<BillingPortfolio />} />
-                                <Route path="/reports/onboarding" element={<OnboardingReport />} />
-                                <Route path="/reports/auto-approve" element={<AutoApproveReport />} />
-                                <Route path="/reports/*" element={<TaxonomyReports />} />
-                                <Route path="/ci-rulesets/*" element={<CiRulesetsRoutes />} />
-                                <Route path="/chat/*" element={<ChatbotRoutes />} />
-                                {isDebugMode() && <Route path="/chat-debug/*" element={<ChatDebugRoutes />} />}
-                                <Route path="/test-middleware" element={<MiddlewareTestPage />} />
-                                <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
-                                <Route path="*" element={<Navigate to="/" replace />} />
-                            </Routes>
-                        </Suspense>
-                    </SubscriptionGuard>
+                    <Suspense fallback={<RouteFallback />}>
+                        <Routes>
+                            <Route path="/" element={<HomeWithOAuthCheck />} />
+                            <Route path="/dashboard" element={<Dashboard />} />
+                            <Route path="/gh-login" element={<Navigate to={{ pathname: '/get-started/github', search: location.search }} replace />} />
+                            <Route path="/get-started/github" element={<GetStartedGitHub />} />
+                            <Route path="/subscribe" element={<Subscribe />} />
+                            <Route path="/subscribe/manage" element={<LicenseManagement />} />
+                            <Route path="/subscribe/subscriptions/:id/assign" element={<LicenseAssignment />} />
+                            <Route path="/checkout/team" element={<TeamCheckout />} />
+                            <Route path="/reviews/*" element={<ReviewsRoutes />} />
+                            <Route path="/pr/:id/review" element={<PullRequestReviewTrigger />} />
+                            <Route path="/explore/*" element={<ExploreRoutes />} />
+                            <Route path="/git/*" element={<GitProviders />} />
+                            <Route path="/ai" element={<AIProviders />} />
+                            <Route path="/ai/:provider" element={<AIProviders />} />
+                            <Route path="/ai/:provider/:action" element={<AIProviders />} />
+                            <Route path="/ai/:provider/:action/:connectorId" element={<AIProviders />} />
+                            <Route path="/settings/*" element={<Settings />} />
+                            <Route path="/settings-subscriptions-overview" element={<Settings />} />
+                            <Route path="/settings-subscriptions-breakdown" element={<Settings />} />
+                            <Route path="/settings-subscriptions-assign" element={<Settings />} />
+                            <Route path="/settings-subscriptions-portfolio" element={<Settings />} />
+                            <Route path="/settings/users/add" element={<UserForm />} />
+                            <Route path="/settings/users/add/bulk" element={<UserForm />} />
+                            <Route path="/settings/users/edit/:userId" element={<UserForm />} />
+                            <Route path="/admin/billing-portfolio" element={<BillingPortfolio />} />
+                            <Route path="/reports/onboarding" element={<OnboardingReport />} />
+                            <Route path="/reports/auto-approve" element={<AutoApproveReport />} />
+                            <Route path="/reports/*" element={<TaxonomyReports />} />
+                            <Route path="/ci-rulesets/*" element={<CiRulesetsRoutes />} />
+                            <Route path="/chat/*" element={<ChatbotRoutes />} />
+                            {isDebugMode() && <Route path="/chat-debug/*" element={<ChatDebugRoutes />} />}
+                            <Route path="/test-middleware" element={<MiddlewareTestPage />} />
+                            <Route path="/oauth-callback" element={<OAuthCallbackHandler />} />
+                            <Route path="*" element={<Navigate to="/" replace />} />
+                        </Routes>
+                    </Suspense>
                 </div>
                 {!location.pathname.startsWith('/chat') && <Footer />}
                 {!isCloudMode() && <LicenseModal open={licenseOpen} onClose={() => dispatch(closeLicenseModal())} />}

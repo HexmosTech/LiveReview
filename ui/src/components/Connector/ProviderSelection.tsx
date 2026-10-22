@@ -14,16 +14,11 @@ const ProviderSelection: React.FC = () => {
                 <p className="text-slate-300 text-sm">Choose a Git provider to connect with LiveReview</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
                     {githubAppEnabled && (
-                        // pointer-events-auto + stopPropagation: the Git Providers page disables this grid (and opens the
-                        // upgrade dialog on click) for read-only Free-plan token connectors, which doesn't apply to the App.
                         <Button
                             variant="outline"
                             icon={<Icons.GitHub />}
-                            className="h-24 flex-col pointer-events-auto md:col-span-2"
-                            onClick={(e: React.MouseEvent) => {
-                                e.stopPropagation();
-                                navigate('/git/github-app');
-                            }}
+                            className="h-24 flex-col md:col-span-2"
+                            onClick={() => navigate('/git/github-app')}
                         >
                             <span className="text-base mt-2">
                                 GitHub App <span className="ml-1 rounded bg-blue-600 px-1.5 py-0.5 text-xs font-medium text-white">Recommended</span>

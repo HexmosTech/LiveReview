@@ -11,10 +11,44 @@ import (
 
 	"github.com/lib/pq"
 	"github.com/rs/zerolog/log"
+	apimiddleware "github.com/livereview/internal/api/middleware"
+	"github.com/livereview/internal/api/plancode"
+	"github.com/livereview/internal/license"
 	"github.com/livereview/network/email"
 	storageusers "github.com/livereview/storage/users"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// ErrFreePlanMemberLimit is returned when adding or re-activating a member would take a Cloud Free
+// org past license.FreePlanMaxMembers active members.
+var ErrFreePlanMemberLimit = fmt.Errorf("the Free plan allows up to %d members; upgrade to add more", license.FreePlanMaxMembers)
+
+// freeMemberCapReached reports whether a Cloud org on the Free plan already has the most active
+// members it may have. Self-hosted installs and paid plans are never capped here.
+func freeMemberCapReached(planCode string, cloud bool, activeMembers int) bool {
+	if !cloud {
+		return false
+	}
+	return plancode.NormalizePlanTypeCode(planCode) == string(license.PlanFree) &&
+		activeMembers >= license.FreePlanMaxMembers
+}
+
+// checkFreePlanMemberCap returns ErrFreePlanMemberLimit when one more active member would exceed
+// the Free plan cap. It locks the org row, so concurrent invites into the same org can't both pass.
+func (us *UserService) checkFreePlanMemberCap(tx *sql.Tx, orgID int64) error {
+	planCode, err := us.store.LockOrgPlanCode(tx, orgID)
+	if err != nil {
+		return fmt.Errorf("failed to load organization plan: %w", err)
+	}
+	active, err := us.store.CountActiveOrgMembers(tx, orgID)
+	if err != nil {
+		return fmt.Errorf("failed to count organization members: %w", err)
+	}
+	if freeMemberCapReached(planCode, apimiddleware.IsCloudMode(), active) {
+		return ErrFreePlanMemberLimit
+	}
+	return nil
+}
 
 // getProductionURL fetches the production URL from instance_details table
 func (us *UserService) getProductionURL() string {
@@ -116,6 +150,8 @@ type CreateUserRequest struct {
 	FirstName string `json:"first_name"`
 	LastName  string `json:"last_name"`
 	RoleID    int64  `json:"role_id" validate:"required"`
+	// SkipMemberCap is set by the server for super admins; the Free plan member cap doesn't apply.
+	SkipMemberCap bool `json:"-"`
 }
 
 // UpdateUserRequest represents the request to update a user
@@ -126,6 +162,8 @@ type UpdateUserRequest struct {
 	RoleID      *int64  `json:"role_id"`
 	Password    *string `json:"password,omitempty"`
 	ReviewLevel *int    `json:"review_level"`
+	// SkipMemberCap is set by the server for super admins; the Free plan member cap doesn't apply.
+	SkipMemberCap bool `json:"-"`
 }
 
 // CreateUserInOrg creates a new user in the specified organization
@@ -174,6 +212,12 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 			}
 		} else {
 			return fmt.Errorf("failed to check existing email: %w", err)
+		}
+
+		if !req.SkipMemberCap {
+			if err := us.checkFreePlanMemberCap(tx, orgID); err != nil {
+				return err
+			}
 		}
 
 		// Add user role in this organization
@@ -461,6 +505,7 @@ type BulkInvitePermissions struct {
 	CanCreate      bool
 	CanEdit        bool
 	CanManageRoles bool
+	SkipMemberCap  bool // super admins aren't held to the Free plan member cap
 }
 
 // BulkInviteUsersInOrg processes a batch of rows (e.g. from a reviewed CSV upload),
@@ -610,8 +655,9 @@ func (us *UserService) BulkInviteUsersInOrg(orgID, actorUserID int64, rows []Bul
 			Email:     email,
 			Password:  r.Password,
 			FirstName: firstName,
-			LastName:  lastName,
-			RoleID:    roleID,
+			LastName:      lastName,
+			RoleID:        roleID,
+			SkipMemberCap: perms.SkipMemberCap,
 		})
 		if err != nil {
 			results = append(results, BulkInviteResultRow{Email: email, Status: "error", Message: friendlyBulkInviteError(err, "invite")})
@@ -634,6 +680,8 @@ func friendlyBulkInviteError(err error, action string) string {
 		return "Password is required for new users"
 	case strings.Contains(msg, "passwords do not match"):
 		return "Passwords do not match"
+	case errors.Is(err, ErrFreePlanMemberLimit):
+		return fmt.Sprintf("Free plan member limit reached (%d)", license.FreePlanMaxMembers)
 	}
 
 	var pqErr *pq.Error
@@ -793,6 +841,24 @@ func (us *UserService) UpdateUserInOrg(orgID, userID, updatedByUserID int64, req
 	}
 
 	err := us.store.WithTx(func(tx *sql.Tx) error {
+		// Re-activating a deactivated member counts against the Free plan member cap.
+		if req.IsActive != nil && *req.IsActive && !req.SkipMemberCap {
+			var currentlyActive bool
+			err := us.store.TxQueryRow(tx, `
+				SELECT u.is_active FROM users u
+				JOIN user_roles ur ON ur.user_id = u.id
+				WHERE u.id = $1 AND ur.org_id = $2
+			`, userID, orgID).Scan(&currentlyActive)
+			if err != nil {
+				return fmt.Errorf("failed to check user status: %w", err)
+			}
+			if !currentlyActive {
+				if err := us.checkFreePlanMemberCap(tx, orgID); err != nil {
+					return err
+				}
+			}
+		}
+
 		// Update user if there are changes
 		if len(setParts) > 1 { // More than just updated_at
 			query := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d",
@@ -1035,7 +1101,8 @@ func (us *UserService) CreateUserInAnyOrg(targetOrgID, createdByUserID int64, re
 		return nil, fmt.Errorf("organization with ID %d does not exist", targetOrgID)
 	}
 
-	// Use existing CreateUserInOrg method
+	// Use existing CreateUserInOrg method; super admins aren't held to the Free plan member cap
+	req.SkipMemberCap = true
 	return us.CreateUserInOrg(targetOrgID, createdByUserID, req)
 }
 

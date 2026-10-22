@@ -33,6 +33,9 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
     const licenseTier = useLicenseTier();
     const hasTeamLicense = useHasLicenseFor('team');
+    // Cloud Free and self-hosted Community share the same member cap.
+    const isCloudFree = isCloudMode() && isFreePlan;
+    const memberCapApplies = isCloudFree || !hasTeamLicense;
 
     // Sorting/filtering/pagination are server-driven - these three are the
     // single source of truth the table's header controls (sort icons, search
@@ -230,10 +233,10 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                     <Button
                         variant="primary"
                         onClick={() => {
-                            // Require Team license for more than allowed Community users (super admins exempt).
+                            // Cloud Free and self-hosted Community allow up to MAX_USERS members (super admins exempt).
                             // Uses the server-reported org-wide total, not users.length - that's now just
                             // the current page's rows since listing is paginated server-side.
-                            if (total >= COMMUNITY_TIER_LIMITS.MAX_USERS && !hasTeamLicense && !isSuperAdmin) {
+                            if (total >= COMMUNITY_TIER_LIMITS.MAX_USERS && memberCapApplies && !isSuperAdmin) {
                                 setShowUpgradeDialog(true);
                                 return;
                             }
@@ -251,17 +254,16 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             </div>
 
             {/* Free Plan Info Banner - Cloud only */}
-            {isCloudMode() && !isSuperAdminView && isFreePlan && (
+            {isCloudFree && !isSuperAdminView && (
                 <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
                     <div className="flex items-start">
                         <svg className="w-5 h-5 text-blue-400 mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                         <div className="flex-1">
-                            <h3 className="text-blue-200 font-semibold mb-1">Free Plan Limitations</h3>
+                            <h3 className="text-blue-200 font-semibold mb-1">Free plan: up to {COMMUNITY_TIER_LIMITS.MAX_USERS} members</h3>
                             <p className="text-blue-100/80 text-sm">
-                                On the Free plan, only the organization creator can trigger reviews via the git-lrc CLI. Dashboard triggers require Premium.
-                                Added members cannot trigger reviews. <a href="/#/settings-subscriptions-overview" className="text-blue-300 hover:text-blue-200 underline font-medium">Upgrade to Premium</a> to give all members full access.
+                                This organization has {total} of {COMMUNITY_TIER_LIMITS.MAX_USERS} members. <a href="/#/settings-subscriptions-overview" className="text-blue-300 hover:text-blue-200 underline font-medium">Upgrade to Premium</a> for unlimited members.
                             </p>
                         </div>
                     </div>
@@ -321,8 +323,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 open={showUpgradeDialog}
                 onClose={() => setShowUpgradeDialog(false)}
                 requiredTier="team"
-                featureName="Team Management (>3 users)"
-                featureDescription="Add more team members to your organization. Community tier includes up to 3 users."
+                featureName={`Team Management (>${COMMUNITY_TIER_LIMITS.MAX_USERS} users)`}
+                featureDescription={`Add more team members to your organization. ${isCloudFree ? 'The Free plan' : 'Community tier'} includes up to ${COMMUNITY_TIER_LIMITS.MAX_USERS} users.`}
             />
         </div>
     );

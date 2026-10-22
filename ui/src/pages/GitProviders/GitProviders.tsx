@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
-import classNames from 'classnames';
 import { formatDistanceToNow, format } from 'date-fns';
 import ConnectorForm from '../../components/Connector/ConnectorForm';
 import ProviderSelection from '../../components/Connector/ProviderSelection';
@@ -15,14 +14,11 @@ import {
     Badge,
     Avatar,
     Spinner,
-    Tooltip,
-    Alert
+    Tooltip
 } from '../../components/UIPrimitives';
 import { ConfirmModal } from '../../components/ConfirmModal';
 import { useToast } from '../../components/NotificationToast';
-import LicenseUpgradeDialog from '../../components/License/LicenseUpgradeDialog';
 import { getConnectors, ConnectorResponse, deleteConnector, WebhookStatusSummary } from '../../api/connectors';
-import { useOrgContext } from '../../hooks/useOrgContext';
 import ConnectorDetails from './ConnectorDetails';
 
 // Spec for GitProviderKit
@@ -73,9 +69,6 @@ const GitProvidersList: React.FC = () => {
     const dispatch = useAppDispatch();
     const navigate = useNavigate();
     const storeConnectors = useAppSelector((state) => state.Connector.connectors);
-    const { isFreePlan, isSuperAdmin } = useOrgContext();
-    const isReadOnly = isFreePlan && !isSuperAdmin;
-    const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
     const { showToast, ToastContainer } = useToast();
     
     // Confirm modal state for delete
@@ -252,20 +245,8 @@ const GitProvidersList: React.FC = () => {
             />
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div 
-                    className={classNames(isReadOnly && "cursor-pointer")}
-                    onClick={() => {
-                        if (isReadOnly) setShowUpgradeDialog(true);
-                    }}
-                >
-                    {isReadOnly && (
-                        <Alert variant="info" className="mb-4">
-                            Connectors are read-only on the Free plan. Click to see upgrade options.
-                        </Alert>
-                    )}
-                    <div className={classNames(isReadOnly && "pointer-events-none")}>
-                        <ProviderSelection />
-                    </div>
+                <div>
+                    <ProviderSelection />
                     
                     {/* Brand Showcase */}
                     <div className="mt-6 card-brand rounded-lg bg-slate-700 border border-slate-600 p-5 shadow-md">
@@ -368,14 +349,10 @@ const GitProvidersList: React.FC = () => {
                                                         size="sm"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            if (isReadOnly) {
-                                                                setShowUpgradeDialog(true);
-                                                            } else {
-                                                                handleDeleteConnector(connector.id, connector.name);
-                                                            }
+                                                            handleDeleteConnector(connector.id, connector.name);
                                                         }}
                                                         disabled={isLoading}
-                                                        title={isReadOnly ? "Upgrade to delete connectors" : "Delete connector"}
+                                                        title="Delete connector"
                                                         className="!px-2.5 !text-red-400 hover:!text-red-300 hover:!border-red-400"
                                                     >
                                                         <Icons.Delete />
@@ -391,15 +368,6 @@ const GitProvidersList: React.FC = () => {
                 </div>
             </div>
             
-            {/* Upgrade Modal */}
-            <LicenseUpgradeDialog
-                open={showUpgradeDialog}
-                onClose={() => setShowUpgradeDialog(false)}
-                requiredTier="team"
-                featureName="Git Provider Management"
-                featureDescription="Upgrade to a paid plan to add, remove, and manage your Git provider configurations."
-            />
-
             <ConfirmModal
                 show={deleteConfirm.show}
                 title="Delete Connector"

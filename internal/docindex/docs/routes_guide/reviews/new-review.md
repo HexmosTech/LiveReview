@@ -11,7 +11,8 @@ ways to review" section lists the other ways reviews can start.
 
 ## Who can access it
 
-Any authenticated org member — but review triggering can be blocked by
+Any authenticated org member, on every plan including Free (a Free org reviews
+with its own AI key) — but review triggering can be blocked by
 quota/billing state (trial exhausted, plan usage cap hit), shown via
 `QuotaExhaustedBanner` / `QuotaWarningBanner` and `LicenseUpgradeDialog` for
 self-hosted license limits.
