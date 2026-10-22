@@ -19,10 +19,10 @@ import { Member } from '../../api/users';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { notify } from '../../utils/notify';
 
-const USER_LIST_COLUMN_WIDTHS_WITH_CHECKBOX_AND_ORG = ['4%', '26%', '10%', '10%', '14%', '12%', '12%', '12%'];
-const USER_LIST_COLUMN_WIDTHS_WITH_CHECKBOX = ['4%', '30%', '11%', '11%', '16%', '13%', '15%'];
-const USER_LIST_COLUMN_WIDTHS_WITH_ORG = ['28%', '11%', '11%', '15%', '13%', '13%', '9%'];
-const USER_LIST_COLUMN_WIDTHS_PLAIN = ['32%', '12%', '12%', '17%', '15%', '12%'];
+const USER_LIST_COLUMN_WIDTHS_WITH_CHECKBOX_AND_ORG = ['4%', '32%', '11%', '11%', '14%', '14%', '14%'];
+const USER_LIST_COLUMN_WIDTHS_WITH_CHECKBOX = ['4%', '38%', '13%', '13%', '16%', '16%'];
+const USER_LIST_COLUMN_WIDTHS_WITH_ORG = ['33%', '13%', '13%', '15%', '15%', '11%'];
+const USER_LIST_COLUMN_WIDTHS_PLAIN = ['38%', '15%', '15%', '17%', '15%'];
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 
