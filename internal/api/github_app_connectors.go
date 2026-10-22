@@ -45,7 +45,8 @@ func (s *Server) preferredGitHubConnector(requestURL, baseURL string, orgID int6
 	if err != nil || token.OrgID != orgID {
 		return nil
 	}
-	if !strings.Contains(strings.TrimRight(token.ProviderURL, "/"), baseURL) {
+	// Same host only: a substring match would accept e.g. https://github.com.example.net for https://github.com.
+	if !strings.EqualFold(strings.TrimRight(token.ProviderURL, "/"), strings.TrimRight(baseURL, "/")) {
 		return nil
 	}
 	return token

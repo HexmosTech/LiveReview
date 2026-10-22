@@ -152,8 +152,7 @@ func NewAuthMiddleware(tokenService *TokenService, db *sql.DB) *AuthMiddleware {
 		stmt, err = db.Prepare(`
 			SELECT obs.current_plan_code
 			FROM user_roles ur
-			JOIN orgs o ON ur.org_id = o.id
-			JOIN org_billing_state obs ON o.id = obs.org_id
+			JOIN org_billing_state obs ON obs.org_id = ur.org_id
 			WHERE ur.user_id = $1 AND ur.org_id = $2
 		`)
 		if err != nil {
@@ -247,8 +246,7 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 				return am.db.QueryRowContext(reqCtx, `
 					SELECT obs.current_plan_code
 					FROM user_roles ur
-					JOIN orgs o ON ur.org_id = o.id
-					JOIN org_billing_state obs ON o.id = obs.org_id
+					JOIN org_billing_state obs ON obs.org_id = ur.org_id
 					WHERE ur.user_id = $1 AND ur.org_id = $2
 				`, user.ID, orgID).Scan(&planType)
 			}
