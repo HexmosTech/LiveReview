@@ -290,6 +290,7 @@ const ManagedAITab: React.FC = () => {
                     <Input
                         id="managed-ai-model"
                         label="Model"
+                        autoComplete="off"
                         value={form.model_name}
                         placeholder={providerHint}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, model_name: e.target.value })}
@@ -312,6 +313,7 @@ const ManagedAITab: React.FC = () => {
                             <Input
                                 id="managed-ai-location"
                                 label="Location"
+                                autoComplete="off"
                                 value={form.gcp_location}
                                 placeholder="us"
                                 helperText="Gemini 3.x is served from us, eu or global, not single regions such as us-central1."
@@ -323,7 +325,7 @@ const ManagedAITab: React.FC = () => {
                             id="managed-ai-key"
                             label="API key"
                             type="password"
-                            autoComplete="off"
+                            autoComplete="new-password"
                             value={form.api_key}
                             placeholder={isEditing ? 'Leave blank to keep the stored key' : ''}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, api_key: e.target.value })}
@@ -332,6 +334,7 @@ const ManagedAITab: React.FC = () => {
                     <Input
                         id="managed-ai-label"
                         label="Label (optional)"
+                        autoComplete="off"
                         value={form.label}
                         placeholder="OpenRouter DeepSeek V4 Flash"
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, label: e.target.value })}
