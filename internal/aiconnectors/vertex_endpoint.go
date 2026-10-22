@@ -33,8 +33,8 @@ func vertexHost(location string) string {
 	}
 }
 
-// serviceAccountProjectID returns the project_id of a Google service-account JSON key ("" if it isn't one).
-func serviceAccountProjectID(credentialsJSON string) string {
+// ServiceAccountProjectID returns the project_id of a Google service-account JSON key ("" if it isn't one).
+func ServiceAccountProjectID(credentialsJSON string) string {
 	var sa struct {
 		ProjectID string `json:"project_id"`
 	}

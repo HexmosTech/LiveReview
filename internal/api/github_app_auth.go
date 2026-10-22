@@ -21,10 +21,14 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/livereview/internal/aidefault"
 	"github.com/livereview/internal/api/auth"
 	"github.com/livereview/internal/githubapp"
+	"github.com/livereview/internal/license"
 	"github.com/livereview/network/hexmos"
 	networkgithub "github.com/livereview/network/providers/github"
+	storageaiconnectors "github.com/livereview/storage/aiconnectors"
+	storagelicense "github.com/livereview/storage/license"
 	storagegithub "github.com/livereview/storage/providers/github"
 	"github.com/livereview/storage/providers/pullrequests"
 	storageusers "github.com/livereview/storage/users"
@@ -349,6 +353,10 @@ func (s *Server) GitHubAppCallback(c echo.Context) error {
 		if err := storageusers.NewUserStore(s.db).SetOrgSignupPath(provisioned.OrgID, "gh_app"); err != nil {
 			log.Printf("[GitHubApp] could not record signup_path for org %d: %v", provisioned.OrgID, err)
 		}
+		// Done here, before the "nothing installed yet" redirect, so it applies whichever way the flow continues.
+		if state.Src == ghSrcLaunchTrial {
+			s.grantLaunchTrialManagedAI(ctx, provisioned.OrgID)
+		}
 	}
 
 	if len(targets) == 0 {
@@ -424,6 +432,22 @@ func (s *Server) GitHubAppCallback(c echo.Context) error {
 		})
 	}
 	return c.Redirect(http.StatusFound, "/?data="+url.QueryEscape(string(data)))
+}
+
+// ghSrcLaunchTrial is the /gh-login?src= value of the Product Hunt launch CTA. New orgs created through it may
+// run reviews on the LiveReview model while on the Free plan (within its monthly LOC limit).
+const ghSrcLaunchTrial = "launch-trial"
+
+// grantLaunchTrialManagedAI records that grant and adds the org's "LiveReview AI Model" connector. A failure only
+// logs: sign-in carries on and the user can still add their own AI key.
+func (s *Server) grantLaunchTrialManagedAI(ctx context.Context, orgID int64) {
+	if err := storagelicense.NewPlanChangeStore(s.db).EnsureOrgBillingState(ctx, orgID, license.PlanFree30K.String()); err != nil {
+		log.Printf("[GitHubApp] launch-trial: billing state for org %d failed: %v", orgID, err)
+		return
+	}
+	if err := storageaiconnectors.NewManagedAIStore(s.db).GrantFreeManagedAI(ctx, orgID, aidefault.ProviderName); err != nil {
+		log.Printf("[GitHubApp] launch-trial: granting the LiveReview model to org %d failed: %v", orgID, err)
+	}
 }
 
 // connectGitHubAppInstallation mints an installation token and records the installation as a connector of the org.

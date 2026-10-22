@@ -36,10 +36,10 @@ func TestVertexEndpointOptionOnlyOverridesWhenNeeded(t *testing.T) {
 }
 
 func TestServiceAccountProjectID(t *testing.T) {
-	if got := serviceAccountProjectID(`{"type":"service_account","project_id":"my-proj"}`); got != "my-proj" {
+	if got := ServiceAccountProjectID(`{"type":"service_account","project_id":"my-proj"}`); got != "my-proj" {
 		t.Fatalf("got %q", got)
 	}
-	if got := serviceAccountProjectID("AIza-not-json"); got != "" {
+	if got := ServiceAccountProjectID("AIza-not-json"); got != "" {
 		t.Fatalf("plain API key should give no project, got %q", got)
 	}
 }

@@ -16,6 +16,7 @@ tabs. Which tabs are visible depends on the user's role
 | Instance | `instance` | super_admin, or org owner (self-hosted only) |
 | SMTP | `smtp` | super_admin or org owner, self-hosted only |
 | Storage | `storage` | super_admin, or org owner (self-hosted only) |
+| Managed AI | `managed-ai` | super_admin, cloud only |
 | Deployment | `deployment` | super_admin or org owner |
 | License | `license` | super_admin or org owner, self-hosted only (tab absent in cloud) |
 | Prompts | `prompts` | super_admin, or org owner/member |
@@ -36,7 +37,7 @@ the `subscriptions` tab.
 
 Each tab has its own file in this folder: [Instance](instance.md),
 [SMTP](smtp.md), [Storage](storage.md), [Deployment](deployment.md),
-[License](license.md), [Prompts](prompts.md), [Auto Approve](auto-approve.md),
+[License](license.md), [Managed AI](managed-ai.md), [Prompts](prompts.md), [Auto Approve](auto-approve.md),
 [Learnings](learnings.md),
 [API Keys](api-keys.md), [MCP Integration](mcp-integration.md),
 [User Management](user-management.md), [Integrations](integrations.md),

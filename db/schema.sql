@@ -1267,6 +1267,7 @@ CREATE TABLE public.org_billing_state (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     upgrade_loc_grant_current_cycle bigint DEFAULT 0 NOT NULL,
     upgrade_loc_grant_expires_at timestamp with time zone,
+    free_managed_ai_granted_at timestamp with time zone,
     CONSTRAINT chk_org_billing_loc_used_non_negative CHECK ((loc_used_month >= 0)),
     CONSTRAINT chk_org_billing_period_valid CHECK ((billing_period_end > billing_period_start)),
     CONSTRAINT chk_org_billing_schedule_pair CHECK ((((scheduled_plan_code IS NULL) AND (scheduled_plan_effective_at IS NULL)) OR ((scheduled_plan_code IS NOT NULL) AND (scheduled_plan_effective_at IS NOT NULL)))),
@@ -2913,7 +2914,9 @@ CREATE TABLE public.system_default_ai_configs (
     is_active boolean DEFAULT true,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
-    gcp_location text
+    gcp_location text,
+    label text,
+    updated_by_user_id bigint
 );
 
 
@@ -4453,14 +4456,6 @@ ALTER TABLE ONLY public.subscriptions
 
 ALTER TABLE ONLY public.system_default_ai_configs
     ADD CONSTRAINT system_default_ai_configs_pkey PRIMARY KEY (id);
-
-
---
--- Name: system_default_ai_configs system_default_ai_configs_tier_name_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.system_default_ai_configs
-    ADD CONSTRAINT system_default_ai_configs_tier_name_key UNIQUE (tier_name);
 
 
 --
@@ -6095,6 +6090,13 @@ CREATE UNIQUE INDEX uq_integration_tokens_github_app_installation ON public.inte
 
 
 --
+-- Name: uq_system_default_ai_configs_active_tier; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_system_default_ai_configs_active_tier ON public.system_default_ai_configs USING btree (tier_name) WHERE is_active;
+
+
+--
 -- Name: uq_pull_requests_repo_number; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7306,4 +7308,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261017090000'),
     ('20261017100000'),
     ('20261020090000'),
-    ('20261022120000');
+    ('20261022120000'),
+    ('20261022130000');
