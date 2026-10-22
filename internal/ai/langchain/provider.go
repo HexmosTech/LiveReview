@@ -642,6 +642,7 @@ func (p *LangchainProvider) initializeVertexLLM() error {
 	opts := []googleai.Option{
 		googleai.WithCloudProject(p.gcpProjectID),
 		googleai.WithCloudLocation(p.gcpLocation),
+		aiconnectors.VertexEndpointOption(p.gcpLocation),
 		googleai.WithDefaultModel(p.getModelName()),
 	}
 

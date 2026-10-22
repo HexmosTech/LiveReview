@@ -2912,7 +2912,8 @@ CREATE TABLE public.system_default_ai_configs (
     master_api_key text NOT NULL,
     is_active boolean DEFAULT true,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
-    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    gcp_location text
 );
 
 
@@ -7304,4 +7305,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261013090000'),
     ('20261017090000'),
     ('20261017100000'),
-    ('20261020090000');
+    ('20261020090000'),
+    ('20261022120000');

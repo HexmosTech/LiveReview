@@ -741,6 +741,7 @@ func createGeminiEnterpriseModel(ctx context.Context, options ConnectorOptions) 
 	opts := []googleai.Option{
 		googleai.WithCloudProject(options.GCPProjectID),
 		googleai.WithCloudLocation(options.GCPLocation),
+		VertexEndpointOption(options.GCPLocation),
 		googleai.WithDefaultModel(options.ModelConfig.Model),
 	}
 
