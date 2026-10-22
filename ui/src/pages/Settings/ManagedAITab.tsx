@@ -207,13 +207,11 @@ const ManagedAITab: React.FC = () => {
                             <div className="overflow-x-auto">
                                 <Table>
                                     <TableHead>
-                                        <tr>
-                                            <TableHeaderCell>Configuration</TableHeaderCell>
-                                            <TableHeaderCell>Model</TableHeaderCell>
-                                            <TableHeaderCell>Key</TableHeaderCell>
-                                            <TableHeaderCell>Status</TableHeaderCell>
-                                            <TableHeaderCell className="text-right">Actions</TableHeaderCell>
-                                        </tr>
+                                        <TableHeaderCell>Configuration</TableHeaderCell>
+                                        <TableHeaderCell>Model</TableHeaderCell>
+                                        <TableHeaderCell>Key</TableHeaderCell>
+                                        <TableHeaderCell>Status</TableHeaderCell>
+                                        <TableHeaderCell className="text-right">Actions</TableHeaderCell>
                                     </TableHead>
                                     <TableBody>
                                         {rows.map((cfg) => (
