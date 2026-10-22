@@ -136,6 +136,12 @@ func buildDefaultAIConfig(ctx context.Context, db *sql.DB, record *aiconnectors.
 		"ai_execution_mode":   "managed_default",
 		"ai_execution_source": "internal",
 	}
+	if options.GCPProjectID != "" {
+		configMap["gcp_project_id"] = options.GCPProjectID
+	}
+	if options.GCPLocation != "" {
+		configMap["gcp_location"] = options.GCPLocation
+	}
 
 	return review.AIConfig{
 		Type:        "langchain",

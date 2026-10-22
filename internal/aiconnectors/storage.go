@@ -540,16 +540,16 @@ func maskAPIKey(apiKey string) string {
 // GetSystemManagedConfig retrieves the master configuration for the managed AI tier from system_default_ai_configs
 func (s *Storage) GetSystemManagedConfig(ctx context.Context, tier string) (ConnectorOptions, error) {
 	query := `
-		SELECT provider_name, model_name, master_api_key
+		SELECT provider_name, model_name, master_api_key, COALESCE(gcp_location, '')
 		FROM system_default_ai_configs
 		WHERE tier_name = $1 AND is_active = true
 		LIMIT 1
 	`
 
-	var provider, model, apiKey string
+	var provider, model, apiKey, gcpLocation string
 	var err error
 	if s.store != nil {
-		err = s.store.QueryRowContext(ctx, query, tier).Scan(&provider, &model, &apiKey)
+		err = s.store.QueryRowContext(ctx, query, tier).Scan(&provider, &model, &apiKey, &gcpLocation)
 	} else {
 		return ConnectorOptions{}, fmt.Errorf("storage store not initialized")
 	}
@@ -561,13 +561,19 @@ func (s *Storage) GetSystemManagedConfig(ctx context.Context, tier string) (Conn
 		return ConnectorOptions{}, fmt.Errorf("failed to query system default AI config: %w", err)
 	}
 
-	return ConnectorOptions{
+	options := ConnectorOptions{
 		Provider: Provider(provider),
 		APIKey:   apiKey,
 		ModelConfig: ModelConfig{
 			Model: model,
 		},
-	}, nil
+	}
+	if options.Provider == ProviderGeminiEnterprise {
+		// Vertex AI: the master key is a service-account JSON; its project is the one billed.
+		options.GCPProjectID = serviceAccountProjectID(apiKey)
+		options.GCPLocation = gcpLocation
+	}
+	return options, nil
 }
 
 // GetMaxDisplayOrder returns the maximum display_order value in the database
