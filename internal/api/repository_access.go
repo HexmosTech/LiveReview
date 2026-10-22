@@ -108,7 +108,9 @@ func (s *Server) fetchAndCacheRepositoryData(connectorID int, forceRefresh bool,
 		if err != nil {
 			return nil, fmt.Errorf("database error: %w", err)
 		}
-		response.Projects = names
+		if names != nil { // keep the initialized empty slice so the JSON says [] rather than null
+			response.Projects = names
+		}
 		response.ProjectCount = len(names)
 		for _, n := range names {
 			response.ProjectsWithStatus = append(response.ProjectsWithStatus, ProjectWithStatus{

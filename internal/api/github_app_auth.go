@@ -356,7 +356,7 @@ func (s *Server) GitHubAppCallback(c echo.Context) error {
 	}
 
 	// 5. connect each installation to the org.
-	connected := 0
+	connected, failed := 0, 0
 	alreadyConnected := false // a connector for one of these installations existed before this sign-in
 	for _, inst := range targets {
 		connectorID, created, err := s.connectGitHubAppInstallation(ctx, provisioned.OrgID, inst)
@@ -369,13 +369,22 @@ func (s *Server) GitHubAppCallback(c echo.Context) error {
 		}
 		if err != nil {
 			log.Printf("[GitHubApp] connecting installation %d failed: %v", inst.ID, err)
-			return s.githubAppErrorPage(c, http.StatusBadGateway, "Could not connect your GitHub installation. Please try again.")
+			// The installation just approved must connect; on a plain sign-in one failing installation
+			// shouldn't block the others (or the sign-in).
+			if explicit {
+				return s.githubAppErrorPage(c, http.StatusBadGateway, "Could not connect your GitHub installation. Please try again.")
+			}
+			failed++
+			continue
 		}
 		connected++
 		if !created {
 			alreadyConnected = true
 		}
 		s.syncGitHubAppConnectorAsync(connectorID, created)
+	}
+	if connected == 0 && failed > 0 {
+		return s.githubAppErrorPage(c, http.StatusBadGateway, "Could not connect your GitHub installation. Please try again.")
 	}
 	if connected == 0 {
 		return s.githubAppErrorPage(c, http.StatusConflict, "Your GitHub installations are already connected to other LiveReview accounts.")
@@ -434,6 +443,9 @@ func (s *Server) connectGitHubAppInstallation(ctx context.Context, orgID int64, 
 	})
 }
 
+// githubAppSyncTimeout bounds one background repository sync (listing repos, registering them, PR backfill).
+const githubAppSyncTimeout = 15 * time.Minute
+
 // syncGitHubAppConnectorAsync discovers the installation's repositories in the background. A sign-in by an
 // existing connector only re-syncs when it has no repositories yet, so it doesn't re-queue every PR backfill.
 func (s *Server) syncGitHubAppConnectorAsync(connectorID int64, created bool) {
@@ -447,7 +459,10 @@ func (s *Server) syncGitHubAppConnectorAsync(connectorID int64, created bool) {
 		}
 	}
 	go func() {
-		if err := s.autoWebhookInstaller.SyncAppConnector(context.Background(), int(connectorID)); err != nil {
+		// Bounded so a stalled GitHub call can't keep this goroutine alive forever.
+		ctx, cancel := context.WithTimeout(context.Background(), githubAppSyncTimeout)
+		defer cancel()
+		if err := s.autoWebhookInstaller.SyncAppConnector(ctx, int(connectorID)); err != nil {
 			log.Printf("[GitHubApp] repository sync failed for connector %d: %v", connectorID, err)
 		}
 	}()
@@ -648,8 +663,13 @@ func (s *Server) GitHubAppDemo(c echo.Context) error {
 			AccountLogin        string `json:"account_login"`
 			AccountType         string `json:"account_type"`
 			RepositorySelection string `json:"repository_selection"`
+			Suspended           bool   `json:"suspended"`
 		}
 		_ = json.Unmarshal(rec.Metadata, &meta)
+		if meta.Suspended {
+			// Not usable until unsuspended on GitHub; the full answer skips it too (no token can be minted).
+			continue
+		}
 
 		var token string
 		if !light {
