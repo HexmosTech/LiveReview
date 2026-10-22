@@ -5,6 +5,7 @@ import { Alert, Button, Card, Icons, PageHeader, Spinner } from '../../component
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { useDashboardQuery } from '../../api/dashboard';
 import { getGitHubAppDemo } from '../../api/githubApp';
+import { getAIConnectors } from '../../api/connectors';
 import GitHubAppAccounts from '../../components/GitHubApp/GitHubAppAccounts';
 import { useGitHubAppInstall } from '../../hooks/useGitHubAppInstall';
 import { useOrgContext } from '../../hooks/useOrgContext';
@@ -56,6 +57,9 @@ const GetStartedGitHub: React.FC = () => {
     });
     const { data: dashboardData = null } = useDashboardQuery();
     const hasAIProvider = (dashboardData?.active_ai_connectors || 0) > 0;
+    // Launch-trial sign-ups get the LiveReview AI Model connector instead of having to add a key.
+    const { data: aiConnectors = [] } = useQuery({ queryKey: ['ai-connectors'], queryFn: getAIConnectors, enabled: hasAIProvider });
+    const usesLiveReviewModel = aiConnectors.some((c: any) => c?.provider_name === 'livereview-default-ai' && (c?.role || 'leader') === 'leader');
 
     // After uninstalling the last account, show the fallback card instead of bouncing the user to GitHub.
     const afterDisconnect = async () => {
@@ -169,7 +173,17 @@ const GetStartedGitHub: React.FC = () => {
                             </Step>
 
                             <Step index={2} title="AI provider" done={hasAIProvider}>
-                                {hasAIProvider ? (
+                                {hasAIProvider && usesLiveReviewModel ? (
+                                    <>
+                                        <p>
+                                            LiveReview AI is connected for you, so there&apos;s nothing to set up: reviews run on our model, up to
+                                            30,000 reviewed lines a month on the Free plan.
+                                        </p>
+                                        <Button className="mt-2" size="sm" variant="ghost" icon={<Icons.AI />} onClick={() => window.open(`${window.location.origin}/#/ai`, '_blank', 'noopener,noreferrer')}>
+                                            Use your own AI key instead
+                                        </Button>
+                                    </>
+                                ) : hasAIProvider ? (
                                     <p>An AI provider is configured.</p>
                                 ) : (
                                     <>

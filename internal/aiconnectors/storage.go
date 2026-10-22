@@ -564,13 +564,14 @@ func (s *Storage) GetSystemManagedConfig(ctx context.Context, tier string) (Conn
 	options := ConnectorOptions{
 		Provider: Provider(provider),
 		APIKey:   apiKey,
+		BaseURL:  ResolveBaseURLForProviderName(provider, ""),
 		ModelConfig: ModelConfig{
 			Model: model,
 		},
 	}
 	if options.Provider == ProviderGeminiEnterprise {
 		// Vertex AI: the master key is a service-account JSON; its project is the one billed.
-		options.GCPProjectID = serviceAccountProjectID(apiKey)
+		options.GCPProjectID = ServiceAccountProjectID(apiKey)
 		options.GCPLocation = gcpLocation
 	}
 	return options, nil

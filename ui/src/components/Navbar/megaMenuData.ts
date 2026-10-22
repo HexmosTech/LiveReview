@@ -248,6 +248,7 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
             ], React.createElement(Icons.Reports)),
             group('Manage System', [
                 link('Storage', React.createElement(Icons.Folder), '/settings#storage', (ctx) => ctx.isSuperAdmin || (ctx.orgRole === 'owner' && !isCloudMode())),
+                link('Managed AI', React.createElement(Icons.AI), '/settings#managed-ai', (ctx) => ctx.isSuperAdmin && isCloudMode()),
                 link('Log Compaction', React.createElement(Icons.Clock), '/settings?section=log-compaction#storage', (ctx) => ctx.isSuperAdmin),
                 link('Preloaded Changes Archival', React.createElement(Icons.Folder), '/settings?section=archival#storage', (ctx) => ctx.isSuperAdmin || (ctx.orgRole === 'owner' && !isCloudMode())),
                 link('Repo Cache', React.createElement(Icons.Folder), '/settings?section=repo-cache#storage', (ctx) => ctx.isSuperAdmin || (ctx.orgRole === 'owner' && !isCloudMode())),

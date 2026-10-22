@@ -201,6 +201,15 @@ Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB
 | users.OrgSignupPath | added | [OrgSignupPath](users/cloud_user_store.go#L110) |
 | users.LockOrgPlanCode | added | [LockOrgPlanCode](users/user_store.go#L35) |
 | users.CountActiveOrgMembers | added | [CountActiveOrgMembers](users/user_store.go#L48) |
+| aiconnectors.NewManagedAIStore | added | [NewManagedAIStore](aiconnectors/managed_ai_store.go#L43) |
+| aiconnectors.ListManagedAIConfigs | added | [ListManagedAIConfigs](aiconnectors/managed_ai_store.go#L48) |
+| aiconnectors.GetManagedAIConfig | added | [GetManagedAIConfig](aiconnectors/managed_ai_store.go#L76) |
+| aiconnectors.CreateManagedAIConfig | added | [CreateManagedAIConfig](aiconnectors/managed_ai_store.go#L92) |
+| aiconnectors.UpdateManagedAIConfig | added | [UpdateManagedAIConfig](aiconnectors/managed_ai_store.go#L105) |
+| aiconnectors.ActivateManagedAIConfig | added | [ActivateManagedAIConfig](aiconnectors/managed_ai_store.go#L124) |
+| aiconnectors.EnsureManagedConnector | added | [EnsureManagedConnector](aiconnectors/managed_ai_store.go#L156) |
+| aiconnectors.GrantFreeManagedAI | added | [GrantFreeManagedAI](aiconnectors/managed_ai_store.go#L186) |
+| aiconnectors.HasFreeManagedAI | added | [HasFreeManagedAI](aiconnectors/managed_ai_store.go#L209) |
 | providersgithub.FindPreferredConnectorForRepo | added | [FindPreferredConnectorForRepo](providers/github/token_store.go#L235) |
 | providersgithub.HasAppConnectorForRepo | added | [HasAppConnectorForRepo](providers/github/token_store.go#L250) |
 | providersgithub.HasAppConnectorForOwnerAllRepos | added | [HasAppConnectorForOwnerAllRepos](providers/github/token_store.go#L267) |

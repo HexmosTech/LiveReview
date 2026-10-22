@@ -38,6 +38,10 @@ to [Get started with GitHub](../get-started-github.md).
   (`/git/github-app`), where their connected accounts are managed, instead of the first-run page.
 - **Other ways to sign in** — a link, with Google, LinkedIn and email icons, to
   the standard Hexmos sign-in, unchanged.
+- **`?src=launch-trial`** (the Product Hunt launch link): when this sign-in creates
+  a new organization, that organization can review on the LiveReview AI Model on
+  the Free plan, with no AI key to add, within the Free plan's monthly LOC limit.
+  Any other `src`, or an existing account, gets the normal flow.
 
 ## Related pages
 

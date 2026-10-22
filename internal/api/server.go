@@ -1311,6 +1311,13 @@ func (s *Server) setupRoutes() {
 	adminGroup.PUT("/users/:user_id/org", s.userHandlers.TransferUserToOrg)
 	adminGroup.GET("/analytics/users", s.userHandlers.GetUserAnalytics)
 
+	// Managed AI ("LiveReview AI Model") provider/model/key per tier - super admin only, writes session-only
+	adminGroup.GET("/managed-ai", s.ListManagedAIConfigs)
+	adminGroup.POST("/managed-ai", s.CreateManagedAIConfig)
+	adminGroup.POST("/managed-ai/test", s.TestManagedAIConfig)
+	adminGroup.PUT("/managed-ai/:id", s.UpdateManagedAIConfig)
+	adminGroup.POST("/managed-ai/:id/activate", s.ActivateManagedAIConfig)
+
 	// Instance-wide config (SMTP, blob storage, production URL): self-hosted org
 	// owners may also manage it, but in cloud mode this config is shared across
 	// every tenant, so it stays super-admin-only there.

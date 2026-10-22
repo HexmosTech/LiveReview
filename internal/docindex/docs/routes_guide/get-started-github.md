@@ -43,6 +43,11 @@ organization has a GitHub App connection.
 - **Configure AI** — opens AI Providers in a new tab when no provider is
   configured. A link to Google AI Studio explains where to get a free Gemini
   API key.
+- Orgs created through `/gh-login?src=launch-trial` (the Product Hunt link) get
+  the "LiveReview AI Model" connector, so the AI step says LiveReview AI is
+  already connected: reviews run on LiveReview's model, within the Free plan's
+  30,000 reviewed lines a month. **Use your own AI key instead** opens AI
+  Providers; once the org has its own key, reviews use that.
 - **See open MRs/PRs and trigger a review** — goes to
   [Merge Requests](explore/merge-requests.md), where open pull requests are
   listed and a review can be triggered.

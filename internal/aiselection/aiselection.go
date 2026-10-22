@@ -31,7 +31,7 @@ func GetReviewAISelection(ctx context.Context, db *sql.DB, orgID int64, planCode
 		return nil, fmt.Errorf("failed to get Leader AI connectors: %w", err)
 	}
 
-	leaderConfig, err := selectLeaderAIConfig(ctx, db, leaderConnectors, planCode)
+	leaderConfig, err := selectLeaderAIConfig(ctx, db, orgID, leaderConnectors, planCode)
 	if err != nil {
 		return nil, err
 	}
@@ -70,23 +70,38 @@ func GetReviewAISelection(ctx context.Context, db *sql.DB, orgID int64, planCode
 	return selection, nil
 }
 
-func selectLeaderAIConfig(ctx context.Context, db *sql.DB, connectors []*aiconnectors.ConnectorRecord, planCode license.PlanType) (review.AIConfig, error) {
+func selectLeaderAIConfig(ctx context.Context, db *sql.DB, orgID int64, connectors []*aiconnectors.ConnectorRecord, planCode license.PlanType) (review.AIConfig, error) {
 	if planCode == "" {
 		planCode = license.PlanFree30K
 	}
 
 	if planCode == license.PlanFree30K {
-		var byokConnector *aiconnectors.ConnectorRecord
+		var byokConnector, managedConnector *aiconnectors.ConnectorRecord
 		for _, c := range connectors {
 			if c.ProviderName != aidefault.ProviderName {
-				byokConnector = c
-				break
+				if byokConnector == nil {
+					byokConnector = c
+				}
+			} else if managedConnector == nil {
+				managedConnector = c
 			}
 		}
-		if byokConnector == nil {
-			return review.AIConfig{}, fmt.Errorf("the Free plan requires you to configure your own LLM API key (BYOK) for your organization.")
+		// The org's own key always wins.
+		if byokConnector != nil {
+			return buildBYOKAIConfig(ctx, db, byokConnector, "byok_required")
 		}
-		return buildBYOKAIConfig(ctx, db, byokConnector, "byok_required")
+		// Orgs created through /gh-login?src=launch-trial may use the LiveReview model on Free (still within the
+		// Free plan's monthly LOC limit).
+		if managedConnector != nil {
+			granted, err := storageaiconnectors.NewManagedAIStore(db).HasFreeManagedAI(ctx, orgID)
+			if err != nil {
+				return review.AIConfig{}, fmt.Errorf("failed to check the organization's LiveReview AI access: %w", err)
+			}
+			if granted {
+				return buildDefaultAIConfig(ctx, db, managedConnector)
+			}
+		}
+		return review.AIConfig{}, fmt.Errorf("the Free plan requires you to configure your own LLM API key (BYOK) for your organization.")
 	}
 
 	if planCode == license.PlanTeam32USD {

@@ -10,6 +10,7 @@ import MCPIntegrationTab from './MCPIntegrationTab';
 import IntegrationsTab from './IntegrationsTab';
 import SMTPSettingsTab from './SMTPSettingsTab';
 import StorageSettingsTab from './StorageSettingsTab';
+import ManagedAITab from './ManagedAITab';
 import CompactionSettingsTab from './CompactionSettingsTab';
 import AutoApprovePolicyTab from './AutoApprovePolicyTab';
 import { UserManagement } from '../../components/UserManagement';
@@ -312,6 +313,8 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
+        // The LiveReview-managed model (provider/model/key) is shared by every Cloud org, so super admins only
+        ...(isSuperAdmin && isCloudMode() ? [{ id: 'managed-ai', name: 'Managed AI', icon: <Icons.AI /> }] : []),
         ...(canManageCurrentOrg ? [{
             id: 'deployment',
             name: 'Deployment', 
@@ -761,6 +764,12 @@ const Settings = () => {
                     {activeTab === 'storage' && canManageInstanceConfig && (
                         <Card>
                             <StorageSettingsTab />
+                        </Card>
+                    )}
+
+                    {activeTab === 'managed-ai' && isSuperAdmin && isCloudMode() && (
+                        <Card>
+                            <ManagedAITab />
                         </Card>
                     )}
 
