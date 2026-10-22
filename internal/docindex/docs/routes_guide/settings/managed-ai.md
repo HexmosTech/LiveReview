@@ -24,8 +24,11 @@ one, and a switch takes effect on the next review.
 ## Key actions
 
 - **Add configuration** — pick a provider (OpenRouter, DeepSeek, Gemini
-  Enterprise / Vertex AI, Gemini, OpenAI, Claude), a model (for example
-  `deepseek/deepseek-v4-flash` on OpenRouter) and the key, and optionally a label.
+  Enterprise / Vertex AI, Gemini, OpenAI, Claude), a model (start typing to pick
+  from the same model catalog AI Providers uses, for example
+  `deepseek/deepseek-v4-flash` on OpenRouter, or enter any model ID) and the key,
+  and optionally a label. **Test and add** makes a test call first and only saves
+  the configuration if the model answers.
   Gemini Enterprise takes a service-account JSON key and a location (`us`, `eu`
   or `global`; Gemini 3.x isn't served from single regions such as
   `us-central1`). New configurations start inactive.
@@ -35,7 +38,8 @@ one, and a switch takes effect on the next review.
   if the test fails nothing changes. The previous configuration stays, inactive,
   so it's one click to switch back.
 - **Edit** — change the model, key, location or label. Leave the key blank to
-  keep the stored one. Editing the active configuration has to pass a test first.
+  keep the stored one. **Test and save** only saves the changes if a test call
+  with them succeeds.
 
 Keys are write-only: the page shows only whether a key is set. Changes need a
 signed-in session; API keys are refused.

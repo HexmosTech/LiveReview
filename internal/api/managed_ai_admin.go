@@ -131,7 +131,7 @@ func (s *Server) ListManagedAIConfigs(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]interface{}{"configs": configs})
 }
 
-// CreateManagedAIConfig adds an inactive configuration to a tier.
+// CreateManagedAIConfig adds an inactive configuration to a tier. It is only saved if a test call succeeds.
 func (s *Server) CreateManagedAIConfig(c echo.Context) error {
 	user, err := managedAISessionUser(c)
 	if user == nil {
@@ -145,6 +145,9 @@ func (s *Server) CreateManagedAIConfig(c echo.Context) error {
 	if msg := req.validate(true); msg != "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": msg})
 	}
+	if ok, msg := s.testManagedAIConfig(c.Request().Context(), req.input()); !ok {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Not saved: " + msg})
+	}
 	id, err := storageaiconnectors.NewManagedAIStore(s.db).CreateManagedAIConfig(c.Request().Context(), req.input(), user.ID)
 	if err != nil {
 		log.Error().Err(err).Msg("[ManagedAI] create failed")
@@ -155,8 +158,8 @@ func (s *Server) CreateManagedAIConfig(c echo.Context) error {
 	return c.JSON(http.StatusCreated, map[string]int64{"id": id})
 }
 
-// UpdateManagedAIConfig edits a configuration. A blank api_key keeps the stored one. Editing the active
-// configuration takes effect for the next review, so it has to pass a test first.
+// UpdateManagedAIConfig edits a configuration. A blank api_key keeps the stored one. Changes are only saved if a
+// test call with the new values succeeds (for the active configuration they apply to the next review).
 func (s *Server) UpdateManagedAIConfig(c echo.Context) error {
 	user, err := managedAISessionUser(c)
 	if user == nil {
@@ -185,14 +188,12 @@ func (s *Server) UpdateManagedAIConfig(c echo.Context) error {
 	if msg := req.validate(false); msg != "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": msg})
 	}
-	if existing.IsActive {
-		test := req.input()
-		if test.APIKey == "" {
-			test.APIKey = storedKey
-		}
-		if ok, msg := s.testManagedAIConfig(ctx, test); !ok {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "This configuration is active, so changes must pass a test first. " + msg})
-		}
+	test := req.input()
+	if test.APIKey == "" {
+		test.APIKey = storedKey
+	}
+	if ok, msg := s.testManagedAIConfig(ctx, test); !ok {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Not saved: " + msg})
 	}
 	if err := store.UpdateManagedAIConfig(ctx, id, req.input(), user.ID); err != nil {
 		log.Error().Err(err).Msg("[ManagedAI] update failed")

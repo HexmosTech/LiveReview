@@ -3,6 +3,7 @@ import { Button, Icons, Input, Select, Spinner } from '../../components/UIPrimit
 import { Table, TableHead, TableHeaderCell, TableBody, TableRow, TableCell } from '../../components/DataTable/SimpleTable';
 import { ConfirmModal } from '../../components/ConfirmModal';
 import apiClient from '../../api/apiClient';
+import { getAIProviderModels } from '../../api/connectors';
 import { notify } from '../../utils/notify';
 
 // Super admin only (Cloud): which provider/model/key runs the "LiveReview AI Model" that paid orgs and
@@ -65,6 +66,27 @@ const ManagedAITab: React.FC = () => {
     const [testingId, setTestingId] = useState<number | null>(null);
     const [activateTarget, setActivateTarget] = useState<ManagedAIConfig | null>(null);
     const [isActivating, setIsActivating] = useState(false);
+    // Model IDs from the same catalog the AI Providers page uses, offered as suggestions (any ID can still be typed).
+    const [models, setModels] = useState<{ id: string; isDefault: boolean }[]>([]);
+    const formProvider = form?.provider_name;
+
+    useEffect(() => {
+        if (!formProvider) {
+            setModels([]);
+            return;
+        }
+        let active = true;
+        getAIProviderModels(formProvider)
+            .then((data) => {
+                if (active) setModels((data?.models || []).map((m) => ({ id: m.model_id, isDefault: m.is_default })));
+            })
+            .catch(() => {
+                if (active) setModels([]);
+            });
+        return () => {
+            active = false;
+        };
+    }, [formProvider]);
 
     const load = useCallback(async () => {
         try {
@@ -171,7 +193,8 @@ const ManagedAITab: React.FC = () => {
         );
     }
 
-    const providerHint = PROVIDERS.find((p) => p.value === form?.provider_name)?.modelHint || '';
+    const providerHint =
+        models.find((m) => m.isDefault)?.id || PROVIDERS.find((p) => p.value === form?.provider_name)?.modelHint || '';
 
     return (
         <div className="space-y-6">
@@ -285,16 +308,23 @@ const ManagedAITab: React.FC = () => {
                         label="Provider"
                         value={form.provider_name}
                         options={PROVIDERS.map((p) => ({ value: p.value, label: p.label }))}
-                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, provider_name: e.target.value })}
+                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, provider_name: e.target.value, model_name: '' })}
                     />
                     <Input
                         id="managed-ai-model"
                         label="Model"
                         autoComplete="off"
+                        list="managed-ai-models"
                         value={form.model_name}
                         placeholder={providerHint}
+                        helperText={models.length > 0 ? `Start typing to pick from ${models.length} known models, or enter any model ID.` : undefined}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, model_name: e.target.value })}
                     />
+                    <datalist id="managed-ai-models">
+                        {models.map((m) => (
+                            <option key={m.id} value={m.id} />
+                        ))}
+                    </datalist>
                     {isVertex ? (
                         <>
                             <div>
@@ -340,7 +370,8 @@ const ManagedAITab: React.FC = () => {
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, label: e.target.value })}
                     />
                     <p className="text-xs text-slate-400">
-                        New configurations start inactive. Use Activate to switch the tier to one; it is tested again before it goes live.
+                        {isEditing ? 'Save' : 'Add'} tests the configuration first and only saves it if the model answers. New configurations
+                        start inactive; Activate switches the tier to one (it is tested again before it goes live).
                     </p>
                     <div className="flex justify-end space-x-4 pt-4">
                         <Button variant="ghost" onClick={() => setForm(null)}>
@@ -350,7 +381,7 @@ const ManagedAITab: React.FC = () => {
                             Test
                         </Button>
                         <Button isLoading={isSaving} onClick={handleSave}>
-                            {isEditing ? 'Save' : 'Add'}
+                            {isEditing ? 'Test and save' : 'Test and add'}
                         </Button>
                     </div>
                 </div>
