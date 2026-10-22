@@ -4,6 +4,7 @@ import { Table, TableHead, TableHeaderCell, TableBody, TableRow, TableCell } fro
 import { ConfirmModal } from '../../components/ConfirmModal';
 import apiClient from '../../api/apiClient';
 import { getAIProviderModels } from '../../api/connectors';
+import AIModelSelect from '../../components/AIModelSelect';
 import { notify } from '../../utils/notify';
 
 // Super admin only (Cloud): which provider/model/key runs the "LiveReview AI Model" that paid orgs and
@@ -37,13 +38,13 @@ const TIERS: { id: string; name: string; description: string }[] = [
     { id: 'default_lite', name: 'Helper model', description: 'Rewrites comments when the helper stage is on. Cheaper and faster.' },
 ];
 
-const PROVIDERS: { value: string; label: string; modelHint: string }[] = [
-    { value: 'openrouter', label: 'OpenRouter', modelHint: 'deepseek/deepseek-v4-flash' },
-    { value: 'deepseek', label: 'DeepSeek', modelHint: 'deepseek-v4-flash' },
-    { value: 'gemini-enterprise', label: 'Gemini Enterprise (Vertex AI)', modelHint: 'gemini-3.8-flash' },
-    { value: 'gemini', label: 'Gemini (AI Studio key)', modelHint: 'gemini-3.8-flash' },
-    { value: 'openai', label: 'OpenAI', modelHint: 'gpt-5-mini' },
-    { value: 'claude', label: 'Claude', modelHint: 'claude-haiku-5-5' },
+const PROVIDERS: { value: string; label: string }[] = [
+    { value: 'openrouter', label: 'OpenRouter' },
+    { value: 'deepseek', label: 'DeepSeek' },
+    { value: 'gemini-enterprise', label: 'Gemini Enterprise (Vertex AI)' },
+    { value: 'gemini', label: 'Gemini (AI Studio key)' },
+    { value: 'openai', label: 'OpenAI' },
+    { value: 'claude', label: 'Claude' },
 ];
 
 const providerLabel = (value: string) => PROVIDERS.find((p) => p.value === value)?.label || value;
@@ -66,22 +67,38 @@ const ManagedAITab: React.FC = () => {
     const [testingId, setTestingId] = useState<number | null>(null);
     const [activateTarget, setActivateTarget] = useState<ManagedAIConfig | null>(null);
     const [isActivating, setIsActivating] = useState(false);
-    // Model IDs from the same catalog the AI Providers page uses, offered as suggestions (any ID can still be typed).
-    const [models, setModels] = useState<{ id: string; isDefault: boolean }[]>([]);
+    // Same model catalog and picker as the AI Providers page (any other model ID can be entered as a custom model).
+    const [models, setModels] = useState<string[]>([]);
+    const [defaultModel, setDefaultModel] = useState('');
+    const [loadingModels, setLoadingModels] = useState(false);
     const formProvider = form?.provider_name;
 
     useEffect(() => {
         if (!formProvider) {
             setModels([]);
+            setDefaultModel('');
             return;
         }
         let active = true;
+        setLoadingModels(true);
         getAIProviderModels(formProvider)
             .then((data) => {
-                if (active) setModels((data?.models || []).map((m) => ({ id: m.model_id, isDefault: m.is_default })));
+                if (!active) return;
+                const ids = (data?.models || []).map((m) => m.model_id);
+                const def = (data?.models || []).find((m) => m.is_default)?.model_id || '';
+                setModels(ids);
+                setDefaultModel(def);
+                // Like the connector form: an empty model takes the provider's default, so what's shown is what's saved.
+                if (def) setForm((f) => (f && f.provider_name === formProvider && !f.model_name ? { ...f, model_name: def } : f));
             })
             .catch(() => {
-                if (active) setModels([]);
+                if (active) {
+                    setModels([]);
+                    setDefaultModel('');
+                }
+            })
+            .finally(() => {
+                if (active) setLoadingModels(false);
             });
         return () => {
             active = false;
@@ -193,8 +210,6 @@ const ManagedAITab: React.FC = () => {
         );
     }
 
-    const providerHint =
-        models.find((m) => m.isDefault)?.id || PROVIDERS.find((p) => p.value === form?.provider_name)?.modelHint || '';
 
     return (
         <div className="space-y-6">
@@ -310,21 +325,15 @@ const ManagedAITab: React.FC = () => {
                         options={PROVIDERS.map((p) => ({ value: p.value, label: p.label }))}
                         onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setForm({ ...form, provider_name: e.target.value, model_name: '' })}
                     />
-                    <Input
-                        id="managed-ai-model"
-                        label="Model"
-                        autoComplete="off"
-                        list="managed-ai-models"
+                    <AIModelSelect
+                        key={form.provider_name}
+                        models={models}
+                        defaultModel={defaultModel}
+                        loading={loadingModels}
                         value={form.model_name}
-                        placeholder={providerHint}
-                        helperText={models.length > 0 ? `Start typing to pick from ${models.length} known models, or enter any model ID.` : undefined}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, model_name: e.target.value })}
+                        onChange={(model) => setForm({ ...form, model_name: model })}
+                        helperText={`Pick from the ${providerLabel(form.provider_name)} model catalog, or choose Custom model… for any other ID.`}
                     />
-                    <datalist id="managed-ai-models">
-                        {models.map((m) => (
-                            <option key={m.id} value={m.id} />
-                        ))}
-                    </datalist>
                     {isVertex ? (
                         <>
                             <div>
