@@ -32,6 +32,9 @@ License Assignment is part of onboarding someone.
   **alternative identities** (Git usernames/emails that map their provider
   account to this LiveReview user).
 - Deactivate a user or force a password reset — owner action.
+- Bring back a deactivated user by inviting their email again: the invite
+  re-activates them with the chosen role (on Free this counts toward the 3
+  members).
 - Non-owners see the roster read-only.
 
 ## Related pages

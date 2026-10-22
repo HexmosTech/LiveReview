@@ -180,20 +180,27 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 
 	var userID int64
 	err = us.store.WithTx(func(tx *sql.Tx) error {
+		// Inviting a deactivated member again re-activates them instead of failing as "already a member".
+		reactivate := false
+
 		// Check if email already exists globally
 		var existingUserID int64
 		err := us.store.TxQueryRow(tx, "SELECT id FROM users WHERE email = $1", req.Email).Scan(&existingUserID)
 		
 		if err == nil {
 			// User exists globally. Check if they are already in THIS organization.
-			var existsInOrg bool
-			err = us.store.TxQueryRow(tx, "SELECT EXISTS(SELECT 1 FROM user_roles WHERE user_id = $1 AND org_id = $2)", existingUserID, orgID).Scan(&existsInOrg)
+			var existsInOrg, isActive bool
+			err = us.store.TxQueryRow(tx, `
+				SELECT EXISTS(SELECT 1 FROM user_roles WHERE user_id = $1 AND org_id = $2), u.is_active
+				FROM users u WHERE u.id = $1
+			`, existingUserID, orgID).Scan(&existsInOrg, &isActive)
 			if err != nil {
 				return fmt.Errorf("failed to check existing user role: %w", err)
 			}
-			if existsInOrg {
+			if existsInOrg && isActive {
 				return fmt.Errorf("user with email %s is already a member of this organization", req.Email)
 			}
+			reactivate = existsInOrg
 
 			// Link existing user to this organization
 			userID = existingUserID
@@ -220,13 +227,31 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 			}
 		}
 
-		// Add user role in this organization
-		_, err = us.store.TxExec(tx, `
-			INSERT INTO user_roles (user_id, org_id, role_id, created_at, updated_at)
-			VALUES ($1, $2, $3, NOW(), NOW())
-		`, userID, orgID, req.RoleID)
-		if err != nil {
-			return fmt.Errorf("failed to assign user role: %w", err)
+		if reactivate {
+			_, err = us.store.TxExec(tx, `
+				UPDATE users
+				SET is_active = true, deactivated_at = NULL, deactivated_by_user_id = NULL, updated_at = NOW()
+				WHERE id = $1
+			`, userID)
+			if err != nil {
+				return fmt.Errorf("failed to re-activate user: %w", err)
+			}
+			_, err = us.store.TxExec(tx, `
+				UPDATE user_roles SET role_id = $1, updated_at = NOW()
+				WHERE user_id = $2 AND org_id = $3
+			`, req.RoleID, userID, orgID)
+			if err != nil {
+				return fmt.Errorf("failed to assign user role: %w", err)
+			}
+		} else {
+			// Add user role in this organization
+			_, err = us.store.TxExec(tx, `
+				INSERT INTO user_roles (user_id, org_id, role_id, created_at, updated_at)
+				VALUES ($1, $2, $3, NOW(), NOW())
+			`, userID, orgID, req.RoleID)
+			if err != nil {
+				return fmt.Errorf("failed to assign user role: %w", err)
+			}
 		}
 
 		// Update user's default_org_id if it is currently NULL
@@ -252,10 +277,14 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 		}
 
 		// Add audit trail
-		err = us.addUserAuditLog(tx, orgID, userID, createdByUserID, "created", map[string]interface{}{
+		action, note := "created", "user linked to organization (existing global user)"
+		if reactivate {
+			action, note = "reactivated", "deactivated member invited again"
+		}
+		err = us.addUserAuditLog(tx, orgID, userID, createdByUserID, action, map[string]interface{}{
 			"role_id": req.RoleID,
 			"email":   req.Email,
-			"note":    "user linked to organization (existing global user)",
+			"note":    note,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to add audit log: %w", err)
@@ -412,7 +441,8 @@ func (us *UserService) BulkCheckUsersInOrg(orgID int64, rows []BulkCheckUserRow)
 			FROM users u
 			JOIN user_roles ur ON u.id = ur.user_id
 			JOIN roles r ON ur.role_id = r.id
-			WHERE ur.org_id = $1 AND LOWER(u.email) = ANY($2)
+			-- Deactivated members aren't "existing": inviting them again re-activates them.
+			WHERE ur.org_id = $1 AND LOWER(u.email) = ANY($2) AND u.is_active
 		`, orgID, pq.Array(emails))
 		if err != nil {
 			return nil, fmt.Errorf("failed to look up existing members: %w", err)
@@ -546,7 +576,8 @@ func (us *UserService) BulkInviteUsersInOrg(orgID, actorUserID int64, rows []Bul
 			FROM users u
 			JOIN user_roles ur ON u.id = ur.user_id
 			JOIN roles r ON ur.role_id = r.id
-			WHERE ur.org_id = $1 AND LOWER(u.email) = ANY($2)
+			-- Deactivated members aren't "existing": inviting them again re-activates them.
+			WHERE ur.org_id = $1 AND LOWER(u.email) = ANY($2) AND u.is_active
 		`, orgID, pq.Array(emails))
 		if err != nil {
 			return nil, fmt.Errorf("failed to look up existing members: %w", err)
@@ -652,9 +683,9 @@ func (us *UserService) BulkInviteUsersInOrg(orgID, actorUserID int64, rows []Bul
 		}
 
 		newUser, err := us.CreateUserInOrg(orgID, actorUserID, CreateUserRequest{
-			Email:     email,
-			Password:  r.Password,
-			FirstName: firstName,
+			Email:         email,
+			Password:      r.Password,
+			FirstName:     firstName,
 			LastName:      lastName,
 			RoleID:        roleID,
 			SkipMemberCap: perms.SkipMemberCap,
