@@ -150,7 +150,7 @@ func NewAuthMiddleware(tokenService *TokenService, db *sql.DB) *AuthMiddleware {
 	var err error
 	if db != nil {
 		stmt, err = db.Prepare(`
-			SELECT obs.current_plan_code, COALESCE((o.created_by_user_id = ur.user_id), true) as is_creator
+			SELECT obs.current_plan_code
 			FROM user_roles ur
 			JOIN orgs o ON ur.org_id = o.id
 			JOIN org_billing_state obs ON o.id = obs.org_id
@@ -238,20 +238,19 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 			// Query the org's current plan - org-level plan/expiration is the single source of
 			// truth; there is no per-seat license concept in the current billing model.
 			var planType sql.NullString
-			var isOrgCreator bool
 
 			loadPlanState := func() error {
 				if am.planStmt != nil {
-					return am.planStmt.QueryRowContext(reqCtx, user.ID, orgID).Scan(&planType, &isOrgCreator)
+					return am.planStmt.QueryRowContext(reqCtx, user.ID, orgID).Scan(&planType)
 				}
 
 				return am.db.QueryRowContext(reqCtx, `
-					SELECT obs.current_plan_code, COALESCE((o.created_by_user_id = ur.user_id), true) as is_creator
+					SELECT obs.current_plan_code
 					FROM user_roles ur
 					JOIN orgs o ON ur.org_id = o.id
 					JOIN org_billing_state obs ON o.id = obs.org_id
 					WHERE ur.user_id = $1 AND ur.org_id = $2
-				`, user.ID, orgID).Scan(&planType, &isOrgCreator)
+				`, user.ID, orgID).Scan(&planType)
 			}
 
 			if err := loadPlanState(); err != nil {
@@ -271,28 +270,8 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 				}
 			}
 
-			normalizedPlanType := strings.ToLower(strings.TrimSpace(resolvedPlanType))
-			isFreeTier := normalizedPlanType == "free" || normalizedPlanType == "free_30k"
-
-			// STRICT ENFORCEMENT for Free/Hobby Plan
-			if isFreeTier && !isOrgCreator {
-				// Allow Super Admins to bypass this restriction
-				var isSuperAdmin bool
-				saErr := am.db.QueryRowContext(reqCtx, `
-					SELECT EXISTS(
-						SELECT 1 FROM user_roles ur
-						JOIN roles r ON ur.role_id = r.id
-						WHERE ur.user_id = $1 AND r.name = 'super_admin'
-					)
-				`, user.ID).Scan(&isSuperAdmin)
-
-				if saErr == nil && !isSuperAdmin {
-					return echo.NewHTTPError(http.StatusForbidden, map[string]interface{}{
-						"code":    "ERR_SUBSCRIPTION_REQUIRED",
-						"message": "This organization is on the Hobby plan. Only the creator can access it.",
-					})
-				}
-			}
+			// Every active member can use a Free org; its member count is capped when members are
+			// added (see users.ErrFreePlanMemberLimit), not here.
 
 			// Set plan info in context for downstream handlers
 			c.Set("plan_type", resolvedPlanType)

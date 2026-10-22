@@ -30,13 +30,18 @@ type PlanLimits struct {
 	Features         []string // list of feature flags
 }
 
+// FreePlanMaxMembers is how many active members a Cloud Free org may have (the same cap as the
+// self-hosted Community tier). It is a constant rather than PlanLimits.MaxUsers because
+// SyncPlanDefinitionsFromCatalog resets MaxUsers for every plan.
+const FreePlanMaxMembers = 3
+
 // PlanDefinitions maps each plan type to its limits
 var PlanDefinitions = map[PlanType]PlanLimits{
 	PlanFree30K: {
 		PlanType:         PlanFree30K,
 		MaxReviewsPerDay: 3,
 		MaxOrganizations: 1,
-		MaxUsers:         1,
+		MaxUsers:         FreePlanMaxMembers,
 		MonthlyLOCLimit:  30000,
 		MonthlyPriceUSD:  0,
 		TrialDays:        0,

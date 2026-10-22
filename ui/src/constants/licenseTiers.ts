@@ -9,7 +9,8 @@ export type LicenseTier = 'community' | 'team' | 'enterprise';
  * Community tier limits - features available without a paid license
  */
 export const COMMUNITY_TIER_LIMITS = {
-  /** Maximum number of users allowed in an organization */
+  /** Maximum number of users allowed in an organization (also the Cloud Free plan's member cap,
+   *  enforced server-side by license.FreePlanMaxMembers) */
   MAX_USERS: 3,
   /** Maximum number of API keys per organization */
   MAX_API_KEYS: 1,

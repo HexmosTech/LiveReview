@@ -15,8 +15,8 @@ visiting right after the dashboard doesn't refetch.
 
 ## Who can access it
 
-Any authenticated org member. Free-plan orgs may see an upgrade dialog
-(`LicenseUpgradeDialog`) for gated capabilities.
+Any authenticated org member, on every plan including Free. **Configure** in
+the setup steps opens AI Providers; a Free org adds its own AI key there.
 
 ## Key actions
 

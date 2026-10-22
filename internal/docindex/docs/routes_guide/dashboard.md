@@ -20,7 +20,9 @@ usage. Three things stack here:
 ## Who can access it
 
 Any authenticated user of the org. All widget data is scoped to the caller's
-organization.
+organization. On every plan, including Free, **New Review** opens
+[New Review](reviews/new-review.md) and the setup guide's **Configure** opens
+AI Providers.
 
 ## The period selector
 

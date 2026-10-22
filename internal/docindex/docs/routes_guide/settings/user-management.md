@@ -12,8 +12,13 @@ Manage the org's user roster — invite new users, assign roles
 (`super_admin`/`owner`/`member`), deactivate users, force password resets.
 
 **This is the one and only place a new team member is added.** There is no
-seat to buy or assign first: per-seat licensing is deprecated and an owner can
-add unlimited users here. Nothing in Settings -> License, Team Checkout, or
+seat to buy or assign first: per-seat licensing is deprecated. An owner can add
+up to 3 active members on LiveReview Cloud's Free plan (the same cap as an
+unlicensed self-hosted install) and unlimited members on paid plans. Inviting
+one more on Free, by the form or a bulk upload, is refused and the **Invite
+User** button opens an upgrade dialog; the Free banner shows how many of the 3
+are used. Every member of a Free org can sign in, start reviews and use
+git-lrc. Nothing in Settings -> License, Team Checkout, or
 License Assignment is part of onboarding someone.
 
 ## Key actions

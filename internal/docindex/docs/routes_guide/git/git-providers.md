@@ -17,8 +17,10 @@ save).
 
 ## Who can access it
 
-Any authenticated org member can view; adding/editing/removing connectors
-may be gated by license (`LicenseUpgradeDialog`) on self-hosted plans.
+Any authenticated org member can view. On LiveReview Cloud every plan,
+including Free, can add, edit and remove connectors (and their webhooks, so
+pull requests get reviewed automatically); on self-hosted plans this may be
+gated by license (`LicenseUpgradeDialog`).
 
 ## Key actions
 
@@ -49,8 +51,7 @@ which uninstalls the app from that account and drops its repositories.
 **Add repositories or organization** opens
 GitHub's install page; afterwards the user returns to `/git/github-app` and the
 new account appears. With nothing connected yet the page shows **Install the
-GitHub App**. The card works on the Free plan; the token-based providers keep
-their own plan rules. Returning GitHub sign-ins land directly on this page.
+GitHub App**. Returning GitHub sign-ins land directly on this page.
 
 ## Related pages
 

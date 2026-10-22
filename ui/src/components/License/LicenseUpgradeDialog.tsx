@@ -37,7 +37,7 @@ const FEATURE_COMPARISON: FeatureRow[] = [
   { feature: 'Self-hosted AI', individual: false, premium: false, enterprise: true },
 
   // Integrations
-  { feature: 'Participate in PR Threads', individual: false, premium: true, enterprise: true },
+  { feature: 'Participate in PR Threads', individual: true, premium: true, enterprise: true },
   { feature: 'Full API Access', individual: false, premium: true, enterprise: true },
   { feature: 'Git-Native CLI (git-lrc)', individual: true, premium: true, enterprise: true },
   { feature: 'VS Code Extension', individual: true, premium: true, enterprise: true },

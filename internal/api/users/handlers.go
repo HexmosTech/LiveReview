@@ -2,6 +2,7 @@ package users
 
 import (
 	"database/sql"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -108,6 +109,7 @@ func (uh *UserHandlers) BulkInviteUsers(c echo.Context) error {
 		CanCreate:      permCtx.HasPermission(auth.PermissionCreateUsers),
 		CanEdit:        permCtx.HasPermission(auth.PermissionEditUsers),
 		CanManageRoles: permCtx.HasPermission(auth.PermissionManageRoles),
+		SkipMemberCap:  permCtx.IsSuperAdmin,
 	}
 
 	results, err := uh.userService.BulkInviteUsersInOrg(permCtx.OrgID, permCtx.User.ID, req.Users, perms)
@@ -142,10 +144,14 @@ func (uh *UserHandlers) CreateUser(c echo.Context) error {
 	}
 
 	// Create user
+	req.SkipMemberCap = permCtx.IsSuperAdmin
 	user, err := uh.userService.CreateUserInOrg(permCtx.OrgID, permCtx.User.ID, req)
 	if err != nil {
 		if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "already a member") {
 			return echo.NewHTTPError(http.StatusConflict, err.Error())
+		}
+		if errors.Is(err, ErrFreePlanMemberLimit) {
+			return echo.NewHTTPError(http.StatusForbidden, ErrFreePlanMemberLimit.Error())
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create user")
 	}
@@ -255,10 +261,14 @@ func (uh *UserHandlers) UpdateUser(c echo.Context) error {
 	}
 
 	// Update user
+	req.SkipMemberCap = permCtx.IsSuperAdmin
 	user, err := uh.userService.UpdateUserInOrg(permCtx.OrgID, userID, permCtx.User.ID, req)
 	if err != nil {
 		if err.Error() == "user not found in organization" {
 			return echo.NewHTTPError(http.StatusNotFound, "User not found")
+		}
+		if errors.Is(err, ErrFreePlanMemberLimit) {
+			return echo.NewHTTPError(http.StatusForbidden, ErrFreePlanMemberLimit.Error())
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update user")
 	}

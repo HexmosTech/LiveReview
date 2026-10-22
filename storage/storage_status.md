@@ -199,6 +199,8 @@ Latest milestone batch note (MF-LOC-007, MF-LOC-008, MF-PRORATION-003, MF-ATTRIB
 | users.DefaultOrgID | added | [DefaultOrgID](users/cloud_user_store.go#L97) |
 | users.SetOrgSignupPath | added | [SetOrgSignupPath](users/cloud_user_store.go#L104) |
 | users.OrgSignupPath | added | [OrgSignupPath](users/cloud_user_store.go#L110) |
+| users.LockOrgPlanCode | added | [LockOrgPlanCode](users/user_store.go#L35) |
+| users.CountActiveOrgMembers | added | [CountActiveOrgMembers](users/user_store.go#L48) |
 | providersgithub.FindPreferredConnectorForRepo | added | [FindPreferredConnectorForRepo](providers/github/token_store.go#L235) |
 | providersgithub.HasAppConnectorForRepo | added | [HasAppConnectorForRepo](providers/github/token_store.go#L250) |
 | providersgithub.HasAppConnectorForOwnerAllRepos | added | [HasAppConnectorForOwnerAllRepos](providers/github/token_store.go#L267) |

@@ -11,8 +11,6 @@ export interface OnboardingStepsProps {
   installCommand?: string;
   installCommandWindows?: string;
   onConfigureAI: () => void;
-  isFreePlan?: boolean;
-  onUpgrade?: () => void;
 }
 
 const Step: React.FC<{
@@ -78,8 +76,6 @@ export const OnboardingSteps: React.FC<OnboardingStepsProps> = ({
   installCommand,
   installCommandWindows,
   onConfigureAI,
-  isFreePlan = false,
-  onUpgrade,
 }) => {
   const allSet = hasCLI && hasAIProvider;
 
@@ -97,14 +93,7 @@ export const OnboardingSteps: React.FC<OnboardingStepsProps> = ({
               size="sm"
               variant="outline"
               icon={<Icons.AI />}
-              onClick={() => {
-                if (isFreePlan && onUpgrade) {
-                  onUpgrade();
-                } else {
-                  onConfigureAI();
-                }
-              }}
-              title={isFreePlan ? 'Upgrade your plan to configure AI' : undefined}
+              onClick={onConfigureAI}
             >
               Configure
             </Button>

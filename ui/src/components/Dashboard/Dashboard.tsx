@@ -19,9 +19,7 @@ import { handleUserLoginNotification } from '../../utils/userNotifications';
 import { getApiUrl } from '../../utils/apiUrl';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { isCloudMode } from '../../utils/deploymentMode';
-import { useOrgContext } from '../../hooks/useOrgContext';
 import { useGitHubAppConnected } from '../../hooks/useGitHubAppConnected';
-import LicenseUpgradeDialog from '../License/LicenseUpgradeDialog';
 import {
     add as addNotification,
     dismiss as dismissNotification,
@@ -91,7 +89,6 @@ export const Dashboard: React.FC = () => {
     const [searchParams] = useSearchParams();
     const forceShowCli = searchParams.get('showCli') === '1';
     const user = useAppSelector(state => state.Auth.user);
-    const { isFreePlan } = useOrgContext();
 
     // Dashboard data - shared across every consumer (this component and the
     // ReviewLayers/SystemOverview/People widget providers) via useDashboardQuery's cache, so a
@@ -105,7 +102,6 @@ export const Dashboard: React.FC = () => {
         console.info('[LiveReview][LoginPerf] Dashboard mounted', performance.now());
     }, []);
     const [notificationSent, setNotificationSent] = useState(false);
-    const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
     const dispatch = useAppDispatch();
     const notificationItems = useAppSelector(state => state.Notifications.items);
     const hydratedUserId = useAppSelector(state => state.Notifications.hydratedUserId);
@@ -283,11 +279,7 @@ export const Dashboard: React.FC = () => {
     }, [dashboardData?.connector_setup_progress, notificationsHydrated, dispatch]);
 
     const handleNewReviewClick = () => {
-        if (isFreePlan) {
-            setShowUpgradeDialog(true);
-        } else {
-            navigate('/reviews/new');
-        }
+        navigate('/reviews/new');
     };
 
     return (
@@ -416,7 +408,7 @@ export const Dashboard: React.FC = () => {
                             variant="primary"
                             icon={<Icons.Add />}
                             onClick={handleNewReviewClick}
-                            title={isFreePlan ? "Upgrade your plan to create reviews" : "Safe review - no comments posted"}
+                            title="Safe review - no comments posted"
                         >
                             New Review
                         </Button>
@@ -442,8 +434,8 @@ export const Dashboard: React.FC = () => {
                     icon={<Icons.Add />}
                     onClick={handleNewReviewClick}
                     className="fixed bottom-6 right-6 sm:hidden z-40 rounded-full w-14 h-14 shadow-lg"
-                    aria-label={isFreePlan ? "Review creation locked" : "New Review (Safe - no comments posted)"}
-                    title={isFreePlan ? "Upgrade your plan to create reviews" : "Safe review - no comments posted"}
+                    aria-label="New Review (Safe - no comments posted)"
+                    title="Safe review - no comments posted"
                 />
 
                 {/* Floating setup-guide nudge – stays available until the user manually dismisses it */}
@@ -456,8 +448,6 @@ export const Dashboard: React.FC = () => {
                         installCommandWindows={installCommandWindows}
                         onConfigureAI={() => navigate('/ai')}
                         onNewReview={() => navigate('/reviews/new')}
-                        isFreePlan={isFreePlan}
-                        onUpgrade={() => setShowUpgradeDialog(true)}
                         forceOpen={forceShowCli}
                         onDismiss={() => dispatch(dismissNotificationPermanently(ONBOARDING_STEPPER_ID))}
                     />
@@ -468,15 +458,6 @@ export const Dashboard: React.FC = () => {
 
                 {/* Real, API-backed activity feed — kept as a fixed section below the widget grid */}
                 <RecentActivity className="mt-6" />
-
-                {/* Upgrade Modal */}
-                <LicenseUpgradeDialog
-                    open={showUpgradeDialog}
-                    onClose={() => setShowUpgradeDialog(false)}
-                    requiredTier="team"
-                    featureName="Review Creation From Dashboard"
-                    featureDescription="Unlock AI-powered code reviews by upgrading to a paid plan. Your current plan is read-only."
-                />
             </main>
         </div>
     );
