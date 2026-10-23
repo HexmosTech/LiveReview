@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { FcGoogle } from 'react-icons/fc';
-import { FaCheck, FaEnvelope, FaLinkedin } from 'react-icons/fa6';
+import { FaCheck, FaEnvelope, FaLinkedinIn } from 'react-icons/fa6';
 import { Icons } from '../../components/UIPrimitives';
 import { FullScreenLoader } from '../../components/FullScreenLoader';
 import { getPublicUIConfig, githubAppStartUrl } from '../../api/githubApp';
@@ -18,6 +18,13 @@ const POINTS = [
     'Risk scoring decides which PRs are safe to ship without a human',
     'Your team only spends review time on risky and critical changes',
     'Connect GitHub and see it on a real pull request in about 2 minutes',
+];
+
+// The other sign-in methods, as brand tiles. Each one opens the normal Hexmos sign-in, which offers all of them.
+const OTHER_SIGN_INS = [
+    { label: 'Google', icon: <FcGoogle className="h-5 w-5" />, className: 'bg-white hover:bg-gray-200' },
+    { label: 'LinkedIn', icon: <FaLinkedinIn className="h-5 w-5 text-white" />, className: 'bg-[#0A66C2] hover:bg-[#004182]' },
+    { label: 'Email', icon: <FaEnvelope className="h-5 w-5 text-white" />, className: 'bg-gray-600 hover:bg-gray-500' },
 ];
 
 const GhLogin: React.FC = () => {
@@ -96,19 +103,22 @@ const GhLogin: React.FC = () => {
                         </button>
                     </div>
 
-                    <div className="mt-3 text-xs">
-                        <button
-                            type="button"
-                            className="inline-flex items-center gap-2 text-white hover:text-gray-300"
-                            onClick={() => navigate('/', { replace: true })}
-                        >
-                            <span className="flex items-center gap-1.5" aria-hidden="true">
-                                <FcGoogle className="h-3.5 w-3.5" />
-                                <FaLinkedin className="h-3.5 w-3.5 text-[#0A66C2]" />
-                                <FaEnvelope className="h-3.5 w-3.5 text-gray-300" />
-                            </span>
-                            Other ways to sign in
-                        </button>
+                    <div className="mt-6">
+                        <p className="text-sm text-gray-400">Or sign in with</p>
+                        <div className="mt-2.5 flex items-center gap-3">
+                            {OTHER_SIGN_INS.map(({ label, icon, className }) => (
+                                <button
+                                    key={label}
+                                    type="button"
+                                    title={label}
+                                    aria-label={`Sign in with ${label}`}
+                                    onClick={() => navigate('/', { replace: true })}
+                                    className={`inline-flex h-11 w-11 items-center justify-center rounded-md transition focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 focus:ring-offset-gray-800 ${className}`}
+                                >
+                                    {icon}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
             </div>
