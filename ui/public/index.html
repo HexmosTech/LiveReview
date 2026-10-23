@@ -8,7 +8,9 @@
                 <% if (htmlWebpackPlugin.options.favicon) { %>
                 <link rel="icon" href="<%= htmlWebpackPlugin.options.favicon %>" type="image/svg+xml">
                 <% } %>
-                <meta property="og:image" content="<%= htmlWebpackPlugin.publicPath %>assets/logo-with-text.svg" />
+                <% if (htmlWebpackPlugin.options.siteURL) { %>
+                <link rel="canonical" href="<%= htmlWebpackPlugin.options.siteURL %>/" />
+                <% } %>
                 <link rel="preload" as="image" href="/assets/logo-horizontal.svg" imagesizes="240px" />
                 <style>
                     /* Instant boot screen to avoid blank paint while JS loads */

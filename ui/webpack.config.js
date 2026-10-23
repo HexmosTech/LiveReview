@@ -10,7 +10,7 @@ const WebpackObfuscator = require('webpack-obfuscator');
 const Beasties = require('beasties-webpack-plugin');
 const webpack = require('webpack');
 const fs = require('fs');
-const metaConfig = require('./meta.config.js');
+const buildMetaConfig = require('./meta.config.js');
 
 // Package name of a node_modules module (e.g. 'echarts', '@tanstack/react-table'), used by the
 // per-usage-context splitChunks naming functions below.
@@ -74,6 +74,9 @@ module.exports =  (env, options)=> {
         console.error(`   Build mode: ${buildMode}`);
         throw new Error(`Required config file ${envName} not found`);
     }
+
+    // Link-preview and SEO tags depend on the deployment (see meta.config.js).
+    const metaConfig = buildMetaConfig((process.env.LIVEREVIEW_IS_CLOUD || '').toLowerCase() === 'true');
 
     return {
         mode: options.mode,
@@ -210,6 +213,7 @@ module.exports =  (env, options)=> {
                 template: './public/index.html',
                 filename: 'index.html',
                 title: metaConfig.title,
+                siteURL: metaConfig.siteURL,
                 favicon: path.resolve(__dirname, './assets/favicon.svg'),
                 meta: metaConfig.meta,
                 minify: {

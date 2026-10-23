@@ -1,7 +1,7 @@
 {
   "name": "livereview-ui",
   "version": "1.0.0",
-  "description": "UI for LiveReview - A powerful tool for automated code reviews",
+  "description": "UI for LiveReview: risk-aware AI code review that auto-approves safe pull requests",
   "main": "index.js",
   "scripts": {
     "test": "jest --passWithNoTests",
@@ -27,7 +27,7 @@
   "bugs": {
     "url": "https://github.com/vannizhang/react-redux-boilerplate/issues"
   },
-  "homepage": "https://github.com/vannizhang/react-redux-boilerplate",
+  "homepage": "https://livereview.hexmos.com",
   "devDependencies": {
     "@babel/core": "^7.29.6",
     "@babel/plugin-bugfix-safari-rest-destructuring-rhs-array": "^7.29.3",
