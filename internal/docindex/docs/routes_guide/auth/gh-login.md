@@ -47,8 +47,9 @@ to [Get started with GitHub](../get-started-github.md).
 - **A failed GitHub sign-in leaves nothing behind:** the landing page is decided
   only when the sign-in succeeds, so choosing **Other ways to sign in** after an
   error lands on the dashboard as usual, not on get-started.
-- **Other ways to sign in** — a link, with Google, LinkedIn and email icons, to
-  the standard Hexmos sign-in, unchanged.
+- **Or sign in with** — a row of Google, LinkedIn and Email tiles under the
+  GitHub button. Each opens the standard Hexmos sign-in, unchanged, which offers
+  all of these methods.
 - **`?src=launch-trial`** (the Product Hunt launch link): when this sign-in creates
   a new organization, that organization can review on the LiveReview AI Model on
   the Free plan, with no AI key to add, within the Free plan's monthly LOC limit.
