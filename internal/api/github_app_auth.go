@@ -213,16 +213,21 @@ func (s *Server) GitHubAppDisconnect(c echo.Context) error {
 		log.Printf("[GitHubApp] uninstall installation %d: listing its connectors failed: %v", meta.InstallationID, err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to disconnect"})
 	}
-	yes := true
+	// Remove every org's connector even if one fails. Retrying is safe: GitHub answers 404 for the already
+	// uninstalled App, which DeleteInstallation treats as done.
+	yes, failed := true, false
 	for _, r := range recs {
-		if err := store.SetAppConnectorFlags(r.ID, &yes, nil); err != nil {
+		err := store.SetAppConnectorFlags(r.ID, &yes, nil)
+		if err == nil {
+			err = repos.DeleteRepositoriesByConnector(r.ID)
+		}
+		if err != nil {
 			log.Printf("[GitHubApp] uninstall installation %d: removing connector %d failed: %v", meta.InstallationID, r.ID, err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to disconnect"})
+			failed = true
 		}
-		if err := repos.DeleteRepositoriesByConnector(r.ID); err != nil {
-			log.Printf("[GitHubApp] uninstall installation %d: dropping connector %d repositories failed: %v", meta.InstallationID, r.ID, err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to disconnect"})
-		}
+	}
+	if failed {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to disconnect"})
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "uninstalled"})
 }
@@ -658,7 +663,9 @@ type githubAppWebhookEnvelope struct {
 	// The PR a comment belongs to: issue_comment carries it as the issue (whose html_url is the PR's for PR
 	// comments), review events as pull_request.
 	Issue *struct {
-		HTMLURL string `json:"html_url"`
+		PullRequest *struct {
+			HTMLURL string `json:"html_url"`
+		} `json:"pull_request"` // present only when the issue is a pull request
 	} `json:"issue"`
 	PullRequest *struct {
 		HTMLURL string `json:"html_url"`
@@ -736,11 +743,11 @@ func (s *Server) gitHubAppWebhookHandler(authMiddleware *auth.AuthMiddleware) ec
 				}
 			}
 		}
-		// The other orgs only need their copy of the PR list updated.
+		// The other orgs only need their copy of the PR list updated. A failure there must not block the org
+		// handling the event; the periodic PR reconciliation sweep catches those copies up.
 		if event == "pull_request" && len(targets) > 1 {
 			if err := s.queueSharedPullRequestState(c, body, targets[1:]); err != nil {
 				log.Printf("[GitHubApp] webhook: updating other orgs' PR failed: %v", err)
-				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			}
 		}
 
@@ -758,8 +765,8 @@ func (env githubAppWebhookEnvelope) prURL() string {
 	if env.PullRequest != nil && env.PullRequest.HTMLURL != "" {
 		return env.PullRequest.HTMLURL
 	}
-	if env.Issue != nil && strings.Contains(env.Issue.HTMLURL, "/pull/") {
-		return env.Issue.HTMLURL
+	if env.Issue != nil && env.Issue.PullRequest != nil {
+		return env.Issue.PullRequest.HTMLURL
 	}
 	return ""
 }
@@ -810,6 +817,7 @@ func (s *Server) queueSharedPullRequestState(c echo.Context, body []byte, recs [
 // handleGitHubAppInstallationEvent applies an installation's deletion or suspension to every org's connector for it.
 func (s *Server) handleGitHubAppInstallationEvent(c echo.Context, store *storagegithub.TokenStore, recs []storagegithub.IntegrationTokenRecord, env githubAppWebhookEnvelope) error {
 	yes, no := true, false
+	failed := false // keep going so one connector's failure doesn't leave the others unchanged
 	for _, rec := range recs {
 		var err error
 		switch env.Action {
@@ -825,8 +833,11 @@ func (s *Server) handleGitHubAppInstallationEvent(c echo.Context, store *storage
 		}
 		if err != nil {
 			log.Printf("[GitHubApp] installation %q event failed for connector %d: %v", env.Action, rec.ID, err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			failed = true
 		}
+	}
+	if failed {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok", "event": "installation." + env.Action})
 }

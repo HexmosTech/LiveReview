@@ -118,7 +118,10 @@ func (awi *AutoWebhookInstaller) processAutoInstallation(ctx context.Context, co
 func (awi *AutoWebhookInstaller) syncRepositoriesAndQueueBackfill(ctx context.Context, connectorID int, connector *ConnectorDetails) error {
 	store := pullrequests.NewStore(awi.db)
 	// A user-scoped GitHub App connector only gets the repositories its user can access.
-	allowed, scoped := userScopedRepoIDs(connector)
+	allowed, scoped, err := userScopedRepoIDs(connector)
+	if err != nil {
+		return err
+	}
 
 	cursor := ""
 	total := 0
@@ -190,19 +193,25 @@ func (awi *AutoWebhookInstaller) syncRepositoriesAndQueueBackfill(ctx context.Co
 }
 
 // userScopedRepoIDs returns the provider repository ids a user-scoped GitHub App connector may sync; scoped is
-// false for every other connector (installer App connectors and PAT/OAuth ones sync everything they list).
-func userScopedRepoIDs(connector *ConnectorDetails) (allowed map[string]bool, scoped bool) {
+// false for every other connector (installer App connectors and PAT/OAuth ones sync everything they list). An
+// unreadable list is an error rather than "no repositories", because the sync drops repositories not on it.
+func userScopedRepoIDs(connector *ConnectorDetails) (allowed map[string]bool, scoped bool, err error) {
 	if connector.TokenType != storagegithub.TokenTypeGitHubApp || connector.Metadata["repo_scope"] != storagegithub.RepoScopeUser {
-		return nil, false
+		return nil, false, nil
+	}
+	ids, ok := connector.Metadata["allowed_repo_ids"].([]interface{})
+	if !ok {
+		return nil, true, fmt.Errorf("connector %d is user-scoped but has no readable allowed_repo_ids", connector.ID)
 	}
 	allowed = map[string]bool{}
-	ids, _ := connector.Metadata["allowed_repo_ids"].([]interface{})
 	for _, raw := range ids {
-		if id, ok := raw.(float64); ok {
-			allowed[strconv.FormatInt(int64(id), 10)] = true
+		id, ok := raw.(float64)
+		if !ok {
+			return nil, true, fmt.Errorf("connector %d has a non-numeric allowed_repo_ids entry %v", connector.ID, raw)
 		}
+		allowed[strconv.FormatInt(int64(id), 10)] = true
 	}
-	return allowed, true
+	return allowed, true, nil
 }
 
 // listAppInstallationRepositories lists one page of repositories for a GitHub App connector, using a valid

@@ -263,7 +263,7 @@ func (s *TokenStore) LatestReviewConnector(connectorIDs []int64, prURL string) (
 	var id int64
 	err := s.db.QueryRow(`
 		SELECT connector_id FROM reviews
-		WHERE connector_id = ANY($1) AND (pr_mr_url = $2 OR pr_mr_url LIKE $2 || '/%')
+		WHERE connector_id = ANY($1) AND (pr_mr_url = $2 OR starts_with(pr_mr_url, $2 || '/'))
 		ORDER BY created_at DESC, id DESC
 		LIMIT 1
 	`, pq.Array(connectorIDs), prURL).Scan(&id)
