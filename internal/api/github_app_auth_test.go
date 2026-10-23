@@ -675,6 +675,19 @@ func TestAppConnectorCovers_RespectsScopeAndState(t *testing.T) {
 	}
 }
 
+func TestMaskEmail(t *testing.T) {
+	for in, want := range map[string]string{
+		"athreyac4@gmail.com": "at•••@gmail.com",
+		"ab@hexmos.com":       "a•••@hexmos.com",
+		"x@y.io":              "x•••@y.io",
+		"no-at-sign":          "•••",
+	} {
+		if got := maskEmail(in); got != want {
+			t.Errorf("maskEmail(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestUserScopedRepoIDs(t *testing.T) {
 	user := &ConnectorDetails{TokenType: storagegithub.TokenTypeGitHubApp, Metadata: map[string]interface{}{
 		"repo_scope": "user", "allowed_repo_ids": []interface{}{float64(101), float64(202)},
@@ -771,6 +784,57 @@ func TestGitHubAppDemo_ScopedToOrg(t *testing.T) {
 	}
 	if theirs := call(otherID); theirs.Connected || len(theirs.Repositories) != 0 || theirs.Installations == nil {
 		t.Fatalf("another org must see nothing (and non-null arrays): %+v", theirs)
+	}
+}
+
+func TestGitHubAppDemo_ListsOtherAccountsMasked(t *testing.T) {
+	f := newFakeGitHub(t)
+	s, db := newGitHubAppTestServer(t, f)
+	store := storagegithub.NewTokenStore(db)
+	inst := time.Now().UnixNano() % 1_000_000_000_000
+	mkOrg := func(name string) int64 {
+		cleanupGitHubAppTenant(t, db, name)
+		var id int64
+		if err := db.QueryRow(`INSERT INTO orgs (name, description) VALUES ($1, 'demo shared test') RETURNING id`, name).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := store.UpsertAppInstallationConnector(storagegithub.AppConnectorUpsert{
+			OrgID: id, BaseURL: f.srv.URL, InstallationID: inst, AccountLogin: "acme", AccountType: "Organization",
+			Token: "ghs_live", ExpiresAt: time.Now().Add(time.Hour),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	suffix := time.Now().UnixNano()
+	mine := mkOrg(fmt.Sprintf("gh-demo-mine-%d@example.test", suffix))
+	theirsEmail := fmt.Sprintf("teammate-%d@example.test", suffix)
+	theirs := mkOrg(theirsEmail)
+	var userID int64
+	if err := db.QueryRow(`INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`, theirsEmail).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO user_roles (user_id, org_id, role_id) VALUES ($1, $2, (SELECT id FROM roles WHERE name = 'owner'))`, userID, theirs); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/github-app/demo?light=1", nil)
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+	c.Set("org_id", mine)
+	if err := s.GitHubAppDemo(c); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("demo: %v %d", err, rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), theirsEmail) {
+		t.Fatal("the other account's full email was sent")
+	}
+	var out githubAppDemoResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Installations) != 1 || out.Installations[0].OtherOrgs != 1 ||
+		len(out.Installations[0].OtherAccounts) != 1 || out.Installations[0].OtherAccounts[0] != "te•••@example.test" {
+		t.Fatalf("installation = %+v, want 1 other account te•••@example.test", out.Installations)
 	}
 }
 

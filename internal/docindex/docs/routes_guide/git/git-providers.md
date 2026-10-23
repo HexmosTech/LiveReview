@@ -43,7 +43,9 @@ added or removed on GitHub, not here.
 Several LiveReview organizations can use the same installation (for example two
 people from one GitHub organization who each signed up). Each has its own
 connection. An organization that joined an installation someone else installed
-only gets the repositories its user's GitHub account can access. Pull request
+only gets the repositories its user's GitHub account can access. Each account
+on the card shows "Also used by N other LiveReview accounts" when others share
+it; clicking that lists them by their owners' masked emails (`at•••@gmail.com`). Pull request
 updates reach every organization that has the repository; a reply to a comment
 on GitHub comes from the organization that reviewed that pull request most
 recently.

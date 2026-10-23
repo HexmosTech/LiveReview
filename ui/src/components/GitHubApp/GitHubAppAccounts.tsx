@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Avatar, Button, Icons } from '../UIPrimitives';
 import GitHubAppRepositories from './GitHubAppRepositories';
 import { ConfirmModal } from '../ConfirmModal';
@@ -38,6 +39,7 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
     onDisconnected,
 }) => {
     const [pending, setPending] = useState<PendingAction | null>(null);
+    const [showingOthers, setShowingOthers] = useState<GitHubAppInstallation | null>(null);
     const [busy, setBusy] = useState(false);
 
     const reposByOwner = (owner: string) =>
@@ -82,7 +84,19 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
                                             {inst.repo_scope === 'user'
                                                 ? 'The GitHub App was already installed here. Showing the repositories your GitHub account can access.'
                                                 : 'Connected through the GitHub App'}
-                                            {inst.other_orgs > 0 && ` Also used by ${accountsLabel(inst.other_orgs)}.`}
+                                            {inst.other_orgs > 0 && (
+                                                <>
+                                                    {' '}Also used by{' '}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowingOthers(inst)}
+                                                        className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+                                                    >
+                                                        {accountsLabel(inst.other_orgs)}
+                                                    </button>
+                                                    .
+                                                </>
+                                            )}
                                         </p>
                                     </div>
                                 </div>
@@ -146,7 +160,45 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
                 onConfirm={confirmAction}
                 onCancel={() => setPending(null)}
             />
+            {showingOthers && (
+                <OtherAccountsModal inst={showingOthers} onClose={() => setShowingOthers(null)} />
+            )}
         </>
+    );
+};
+
+// Lists the other LiveReview accounts using an installation, by their owners' masked emails.
+const OtherAccountsModal: React.FC<{ inst: GitHubAppInstallation; onClose: () => void }> = ({ inst, onClose }) => {
+    const unnamed = inst.other_orgs - inst.other_accounts.length;
+    return createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+            <div className="relative bg-slate-800 rounded-lg border border-slate-600 shadow-2xl max-w-sm w-full">
+                <div className="p-6">
+                    <h3 className="text-lg font-medium text-white">Also using LiveReview on {inst.account_login}</h3>
+                    <p className="mt-1 text-sm text-slate-400">
+                        Each of these LiveReview accounts has its own connection to this installation.
+                    </p>
+                    <ul className="mt-4 space-y-2">
+                        {inst.other_accounts.map((email) => (
+                            <li key={email} className="flex items-center gap-2 text-sm text-slate-200">
+                                <Icons.User />
+                                <span className="break-all">{email}</span>
+                            </li>
+                        ))}
+                        {unnamed > 0 && (
+                            <li className="text-sm text-slate-400">
+                                {unnamed} more {unnamed === 1 ? 'account' : 'accounts'} without an active owner
+                            </li>
+                        )}
+                    </ul>
+                    <div className="flex justify-end pt-6">
+                        <Button onClick={onClose}>Close</Button>
+                    </div>
+                </div>
+            </div>
+        </div>,
+        document.body
     );
 };
 

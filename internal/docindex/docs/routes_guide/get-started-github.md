@@ -38,7 +38,9 @@ organization has a GitHub App connection.
 - When the app was already installed on the account by someone else, the
   account says so and shows only the repositories the user's GitHub account can
   access. When other LiveReview accounts use the same installation, it says how
-  many ("Also used by 1 other LiveReview account").
+  many ("Also used by 1 other LiveReview account"); clicking that opens a popup
+  listing those accounts' owners by masked email (first two letters and the
+  domain, e.g. `at•••@gmail.com`).
 - **Disconnect** (organization owners only) — next to each account: stops
   LiveReview using it for this organization only and drops its repositories
   here. The app stays installed on GitHub, so other LiveReview accounts using it
