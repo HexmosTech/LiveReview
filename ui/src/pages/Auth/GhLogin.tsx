@@ -22,9 +22,9 @@ const POINTS = [
 
 // The other sign-in methods, as brand tiles. Each one opens the normal Hexmos sign-in, which offers all of them.
 const OTHER_SIGN_INS = [
-    { label: 'Google', icon: <FcGoogle className="h-5 w-5" />, className: 'bg-white hover:bg-gray-200' },
-    { label: 'LinkedIn', icon: <FaLinkedinIn className="h-5 w-5 text-white" />, className: 'bg-[#0A66C2] hover:bg-[#004182]' },
-    { label: 'Email', icon: <FaEnvelope className="h-5 w-5 text-white" />, className: 'bg-gray-600 hover:bg-gray-500' },
+    { label: 'Google', icon: <FcGoogle className="h-4 w-4" />, className: 'bg-white hover:bg-gray-200' },
+    { label: 'LinkedIn', icon: <FaLinkedinIn className="h-4 w-4 text-white" />, className: 'bg-[#0A66C2] hover:bg-[#004182]' },
+    { label: 'Email', icon: <FaEnvelope className="h-4 w-4 text-white" />, className: 'bg-gray-600 hover:bg-gray-500' },
 ];
 
 const GhLogin: React.FC = () => {
@@ -105,7 +105,7 @@ const GhLogin: React.FC = () => {
 
                     <div className="mt-6">
                         <p className="text-sm text-gray-400">Or sign in with</p>
-                        <div className="mt-2.5 flex items-center gap-3">
+                        <div className="mt-2 flex items-center gap-2.5">
                             {OTHER_SIGN_INS.map(({ label, icon, className }) => (
                                 <button
                                     key={label}
@@ -113,7 +113,7 @@ const GhLogin: React.FC = () => {
                                     title={label}
                                     aria-label={`Sign in with ${label}`}
                                     onClick={() => navigate('/', { replace: true })}
-                                    className={`inline-flex h-11 w-11 items-center justify-center rounded-md transition focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 focus:ring-offset-gray-800 ${className}`}
+                                    className={`inline-flex h-9 w-9 items-center justify-center rounded-md transition focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 focus:ring-offset-gray-800 ${className}`}
                                 >
                                     {icon}
                                 </button>
