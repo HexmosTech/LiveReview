@@ -6,6 +6,7 @@ import { Icons } from '../../components/UIPrimitives';
 import { FullScreenLoader } from '../../components/FullScreenLoader';
 import { getPublicUIConfig, githubAppStartUrl } from '../../api/githubApp';
 import { isCloudMode } from '../../utils/deploymentMode';
+import { hexmosSigninUrl } from '../../utils/hexmosSignin';
 
 // "Continue with GitHub": one GitHub screen installs the LiveReview GitHub App and signs the user in. This page
 // only starts that flow; the server (see /api/v1/auth/github-app/*) does the rest and ends in the normal Cloud
@@ -20,7 +21,8 @@ const POINTS = [
     'Connect GitHub and see it on a real pull request in about 2 minutes',
 ];
 
-// The other sign-in methods, as brand tiles. Each one opens the normal Hexmos sign-in, which offers all of them.
+// The other sign-in methods, as brand tiles. Each one goes straight to the Hexmos sign-in page, which offers all of
+// them, and comes back to the app root like the normal Cloud login.
 const OTHER_SIGN_INS = [
     { label: 'Google', icon: <FcGoogle className="h-3.5 w-3.5" />, className: 'bg-white hover:bg-gray-200' },
     { label: 'LinkedIn', icon: <FaLinkedinIn className="h-3.5 w-3.5 text-white" />, className: 'bg-[#0A66C2] hover:bg-[#004182]' },
@@ -112,7 +114,9 @@ const GhLogin: React.FC = () => {
                                     type="button"
                                     title={label}
                                     aria-label={`Sign in with ${label}`}
-                                    onClick={() => navigate('/', { replace: true })}
+                                    onClick={() => {
+                                        window.location.href = hexmosSigninUrl(`${window.location.origin}/`);
+                                    }}
                                     className={`inline-flex h-8 w-8 items-center justify-center rounded transition focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 focus:ring-offset-gray-800 ${className}`}
                                 >
                                     {icon}

@@ -5,6 +5,7 @@ import { handleLoginSuccess, handleLoginError, getRedirectAfterLogin, clearRedir
 import { LoginResponse } from '../../api/auth';
 import { FullScreenLoader } from '../../components/FullScreenLoader';
 import { prefetchRoute, awaitRoutePrefetch } from '../../utils/routePrefetch';
+import { hexmosSigninUrl } from '../../utils/hexmosSignin';
 
 interface AuthedUser {
     email: string;
@@ -97,17 +98,7 @@ const Cloud: React.FC = () => {
         try {
             // Clear the hash and any URL parameters to get a completely clean URL
             const cleanUrl = window.location.origin + window.location.pathname;
-
-            const hostEnv = (window as any).__ENV__?.VITE_HOST_ENV;
-            let signinUrl = `/signin/auth/index.html?preselectProvider=authentik&app=livereview&appRedirectURI=${encodeURIComponent(
-                cleanUrl,
-            )}`;
-            if (!hostEnv || hostEnv !== 'onprem') {
-                signinUrl = `https://hexmos.com/signin?app=livereview&appRedirectURI=${encodeURIComponent(
-                    cleanUrl,
-                )}`;
-            }
-            window.location.href = signinUrl;
+            window.location.href = hexmosSigninUrl(cleanUrl);
         } catch (e) {
             console.error('[CloudLogin] Failed to initiate login', e);
         }

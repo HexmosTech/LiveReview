@@ -48,8 +48,9 @@ to [Get started with GitHub](../get-started-github.md).
   only when the sign-in succeeds, so choosing **Other ways to sign in** after an
   error lands on the dashboard as usual, not on get-started.
 - **Or sign in with** — a row of Google, LinkedIn and Email tiles under the
-  GitHub button. Each opens the standard Hexmos sign-in, unchanged, which offers
-  all of these methods.
+  GitHub button. Each goes straight to the Hexmos sign-in page
+  (`hexmos.com/signin?app=livereview`), which offers all of these methods, and
+  returns to LiveReview signed in, like the normal login.
 - **`?src=launch-trial`** (the Product Hunt launch link): when this sign-in creates
   a new organization, that organization can review on the LiveReview AI Model on
   the Free plan, with no AI key to add, within the Free plan's monthly LOC limit.
