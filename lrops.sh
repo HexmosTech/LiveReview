@@ -5980,8 +5980,8 @@ services:
             LIVEREVIEW_PRICING_PROFILE: ${LIVEREVIEW_PRICING_PROFILE:-actual}  
             # Framework-specific API vars are derived at runtime in entrypoint
         ports:
-            - "${LIVEREVIEW_BIND_ADDR:-0.0.0.0}:${LIVEREVIEW_FRONTEND_PORT:-8081}:8081"  # Frontend UI
-            - "${LIVEREVIEW_BIND_ADDR:-0.0.0.0}:${LIVEREVIEW_BACKEND_PORT:-8888}:8888"   # Backend API
+            - "${LIVEREVIEW_BIND_ADDR:+${LIVEREVIEW_BIND_ADDR:-}:}${LIVEREVIEW_FRONTEND_PORT:-8081}:8081"  # Frontend UI
+            - "${LIVEREVIEW_BIND_ADDR:+${LIVEREVIEW_BIND_ADDR:-}:}${LIVEREVIEW_BACKEND_PORT:-8888}:8888"   # Backend API
         depends_on:
             livereview-db:
                 condition: service_healthy
