@@ -21,8 +21,8 @@ const PullRequestReviewTrigger: React.FC = () => {
       return;
     }
     try {
-      await switchToPullRequestOrg(pullRequestId);
-      const res = await startOrReuseReviewForPullRequest(pullRequestId);
+      const orgPullRequestId = await switchToPullRequestOrg(pullRequestId);
+      const res = await startOrReuseReviewForPullRequest(orgPullRequestId);
       navigate(`/reviews/${res.reviewId}`, { replace: true });
     } catch (err: any) {
       setError(err?.status === 404 ? PR_NOT_FOUND_MESSAGE : err?.message || 'Failed to start the review.');

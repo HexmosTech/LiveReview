@@ -36,6 +36,17 @@ to [Get started with GitHub](../get-started-github.md).
 - **Returning users:** a plain GitHub sign-in by someone whose organization and
   GitHub connection already exist lands on the GitHub App card of [Git Providers](../git/git-providers.md)
   (`/git/github-app`), where their connected accounts are managed, instead of the first-run page.
+- **The app is already installed by someone else** (for example a teammate
+  installed it on the GitHub organization from their own LiveReview account):
+  the new user's own LiveReview organization is connected to the same
+  installation, with no invite needed. It gets only the repositories that the
+  user's GitHub account can access; GitHub reports these at sign-in and the
+  list is refreshed on every GitHub sign-in. Reviews, the pull request list and
+  bot replies then work in their organization with their own AI provider. The
+  get-started page and the GitHub App card say the app was already installed.
+- **A failed GitHub sign-in leaves nothing behind:** the landing page is decided
+  only when the sign-in succeeds, so choosing **Other ways to sign in** after an
+  error lands on the dashboard as usual, not on get-started.
 - **Other ways to sign in** — a link, with Google, LinkedIn and email icons, to
   the standard Hexmos sign-in, unchanged.
 - **`?src=launch-trial`** (the Product Hunt launch link): when this sign-in creates

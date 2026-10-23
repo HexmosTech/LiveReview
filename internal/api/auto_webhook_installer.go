@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -116,6 +117,8 @@ func (awi *AutoWebhookInstaller) processAutoInstallation(ctx context.Context, co
 // waiting for the first periodic reconciliation sweep.
 func (awi *AutoWebhookInstaller) syncRepositoriesAndQueueBackfill(ctx context.Context, connectorID int, connector *ConnectorDetails) error {
 	store := pullrequests.NewStore(awi.db)
+	// A user-scoped GitHub App connector only gets the repositories its user can access.
+	allowed, scoped := userScopedRepoIDs(connector)
 
 	cursor := ""
 	total := 0
@@ -138,6 +141,9 @@ func (awi *AutoWebhookInstaller) syncRepositoriesAndQueueBackfill(ctx context.Co
 		}
 
 		for _, repo := range page.Repositories {
+			if scoped && !allowed[repo.ProviderRepoID] {
+				continue
+			}
 			repositoryID, err := store.UpsertRepository(pullrequests.RepositoryUpsert{
 				OrgID:          connector.OrgID,
 				ConnectorID:    int64(connectorID),
@@ -169,8 +175,34 @@ func (awi *AutoWebhookInstaller) syncRepositoriesAndQueueBackfill(ctx context.Co
 		cursor = page.NextCursor
 	}
 
+	if scoped {
+		keep := make([]string, 0, len(allowed))
+		for id := range allowed {
+			keep = append(keep, id)
+		}
+		if err := store.DeleteRepositoriesByConnectorExcept(int64(connectorID), keep); err != nil {
+			return fmt.Errorf("failed to drop repositories the user can no longer access: %w", err)
+		}
+	}
+
 	log.Printf("Queued initial PR/MR backfill for %d repositories (connector %d)", total, connectorID)
 	return nil
+}
+
+// userScopedRepoIDs returns the provider repository ids a user-scoped GitHub App connector may sync; scoped is
+// false for every other connector (installer App connectors and PAT/OAuth ones sync everything they list).
+func userScopedRepoIDs(connector *ConnectorDetails) (allowed map[string]bool, scoped bool) {
+	if connector.TokenType != storagegithub.TokenTypeGitHubApp || connector.Metadata["repo_scope"] != storagegithub.RepoScopeUser {
+		return nil, false
+	}
+	allowed = map[string]bool{}
+	ids, _ := connector.Metadata["allowed_repo_ids"].([]interface{})
+	for _, raw := range ids {
+		if id, ok := raw.(float64); ok {
+			allowed[strconv.FormatInt(int64(id), 10)] = true
+		}
+	}
+	return allowed, true
 }
 
 // listAppInstallationRepositories lists one page of repositories for a GitHub App connector, using a valid

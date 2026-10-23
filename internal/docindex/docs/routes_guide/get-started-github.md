@@ -35,11 +35,20 @@ organization has a GitHub App connection.
   opens GitHub's install page so the app can be added to
   another account or organization (it lists the ones you can install on); after
   installing, the user returns here and the new account appears in the list.
-- **Disconnect** (organization owners only) — next to each account: uninstalls
+- When the app was already installed on the account by someone else, the
+  account says so and shows only the repositories the user's GitHub account can
+  access. When other LiveReview accounts use the same installation, it says how
+  many ("Also used by 1 other LiveReview account").
+- **Disconnect** (organization owners only) — next to each account: stops
+  LiveReview using it for this organization only and drops its repositories
+  here. The app stays installed on GitHub, so other LiveReview accounts using it
+  keep working. To connect it again, use **Add repositories or organization**.
+- **Uninstall** (organization owners only) — next to each account: uninstalls
   the LiveReview GitHub App from that GitHub account or organization (using the
-  app's own credentials, so the user does not need to be a GitHub owner), stops
-  LiveReview using it for the organization, and drops its repositories. To use
-  it again, install the app on GitHub again.
+  app's own credentials, so the user does not need to be a GitHub owner). This
+  removes it for every LiveReview account using it; the confirmation says how
+  many other accounts are affected. To use it again, install the app on GitHub
+  again.
 - **Configure AI** — opens AI Providers in a new tab when no provider is
   configured. A link to Google AI Studio explains where to get a free Gemini
   API key.

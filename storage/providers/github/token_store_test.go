@@ -131,3 +131,44 @@ func TestListAppConnectorsExpiringBefore_SkipsRemovedAndSuspended(t *testing.T) 
 		}
 	}
 }
+
+func TestLatestReviewConnector_PicksTheMostRecentReviewAmongTheConnectors(t *testing.T) {
+	db := testDB(t)
+	store := NewTokenStore(db)
+	orgA, orgB := testOrg(t, db), testOrg(t, db)
+	inst := time.Now().UnixNano() % 1_000_000_000_000
+	mk := func(org int64) int64 {
+		id, _, err := store.UpsertAppInstallationConnector(AppConnectorUpsert{
+			OrgID: org, BaseURL: "https://github.com.test", InstallationID: inst, AccountLogin: "acme", AccountType: "Organization",
+			Token: "t", ExpiresAt: time.Now().Add(time.Hour),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	connA, connB := mk(orgA), mk(orgB)
+	prURL := fmt.Sprintf("https://github.test/acme/api/pull/%d", inst)
+	review := func(org, connector int64, url string, at time.Time) {
+		var id int64
+		if err := db.QueryRow(`
+			INSERT INTO reviews (repository, pr_mr_url, connector_id, org_id, created_at) VALUES ('acme/api', $1, $2, $3, $4) RETURNING id`,
+			url, connector, org, at).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM reviews WHERE id = $1`, id) })
+	}
+
+	if _, err := store.LatestReviewConnector([]int64{connA, connB}, prURL); err != sql.ErrNoRows {
+		t.Fatalf("no reviews yet: err = %v, want sql.ErrNoRows", err)
+	}
+	now := time.Now()
+	review(orgA, connA, prURL, now.Add(-time.Hour))
+	review(orgB, connB, prURL+"/files", now) // a URL pasted with a sub-page still counts
+	if got, err := store.LatestReviewConnector([]int64{connA, connB}, prURL); err != nil || got != connB {
+		t.Fatalf("got (%d, %v), want the latest reviewer %d", got, err, connB)
+	}
+	if got, err := store.LatestReviewConnector([]int64{connA}, prURL); err != nil || got != connA {
+		t.Fatalf("restricted to A: got (%d, %v), want %d", got, err, connA)
+	}
+}

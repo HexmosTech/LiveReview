@@ -6,6 +6,10 @@ export interface GitHubAppInstallation {
   account_type: string;
   repository_selection: string;
   settings_url: string;
+  /** "user": the App was installed by someone else, so this org gets only the repos its GitHub user can access. */
+  repo_scope: 'installer' | 'user';
+  /** How many other LiveReview accounts use this installation. */
+  other_orgs: number;
 }
 
 export interface GitHubAppRepository {
@@ -38,11 +42,12 @@ export const getGitHubAppDemo = (light = false): Promise<GitHubAppDemo> =>
   apiClient.get<GitHubAppDemo>(`/api/v1/github-app/demo${light ? '?light=1' : ''}`);
 
 /**
- * Stops LiveReview using one GitHub App installation for the current org (org owners only). The App stays
- * installed on GitHub; signing in with GitHub again reconnects it.
+ * Stops LiveReview using one GitHub App installation for the current org (org owners only). By default only this
+ * org is disconnected: the App stays installed on GitHub and other LiveReview accounts using it keep working.
+ * `uninstall` also uninstalls the App from GitHub, which removes it for every account using it.
  */
-export const disconnectGitHubInstallation = (connectorId: number): Promise<{ status: string }> =>
-  apiClient.delete<{ status: string }>(`/api/v1/github-app/installations/${connectorId}`);
+export const disconnectGitHubInstallation = (connectorId: number, uninstall = false): Promise<{ status: string }> =>
+  apiClient.delete<{ status: string }>(`/api/v1/github-app/installations/${connectorId}${uninstall ? '?uninstall=true' : ''}`);
 
 export interface PublicUIConfig {
   isCloud: boolean;

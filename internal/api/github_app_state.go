@@ -21,8 +21,9 @@ const (
 	ghStateTTL         = 10 * time.Minute
 	ghStateCookieName  = "lr_gh_state"
 	ghOrgCookieName    = "lr_gh_org"  // org id the UI should open after the GitHub callback (see index.tsx)
-	ghNextCookieName   = "lr_gh_next" // where a returning user lands after login (see index.tsx)
+	ghNextCookieName   = "lr_gh_next" // where the user lands after login (see index.tsx)
 	ghNextGitProviders = "git"
+	ghNextGetStarted   = "get-started"
 	ghModeInstall      = "install"
 	ghModeSignin       = "signin"
 )
@@ -34,6 +35,9 @@ type ghState struct {
 	Src   string `json:"s"`
 	Mode  string `json:"m"`
 	Exp   int64  `json:"e"`
+	// GetStarted: the round trip began on /gh-login, so a successful sign-in lands on get-started. Only the
+	// callback decides this (nothing is stored before leaving), so a failed attempt leaves no stale destination.
+	GetStarted bool `json:"g,omitempty"`
 }
 
 // sanitizeGHSrc keeps the campaign tag short and harmless; anything else becomes "unknown".

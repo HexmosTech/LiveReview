@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -53,7 +54,7 @@ func ghes(t *testing.T, handler http.HandlerFunc) (*Config, *httptest.Server) {
 
 func uniqueInstallation() int64 { return time.Now().UnixNano() % 1_000_000_000_000 }
 
-func TestUpsertAppInstallationConnector_OneOrgPerInstallation(t *testing.T) {
+func TestUpsertAppInstallationConnector_OneConnectorPerOrg(t *testing.T) {
 	db := testDB(t)
 	store := storagegithub.NewTokenStore(db)
 	suffix := time.Now().UnixNano()
@@ -79,12 +80,95 @@ func TestUpsertAppInstallationConnector_OneOrgPerInstallation(t *testing.T) {
 		t.Fatalf("stored row wrong: %+v err=%v", rec, err)
 	}
 
-	in.OrgID = orgB
-	if _, _, err := store.UpsertAppInstallationConnector(in); err != storagegithub.ErrInstallationBoundToOtherOrg {
-		t.Fatalf("foreign org upsert err = %v, want ErrInstallationBoundToOtherOrg", err)
+	// Another org gets its own connector for the same installation; the first one is untouched.
+	in.OrgID, in.Token = orgB, "ghs_b"
+	idB, created, err := store.UpsertAppInstallationConnector(in)
+	if err != nil || !created || idB == id {
+		t.Fatalf("other org upsert = (%d, %v, %v), want a new connector", idB, created, err)
 	}
-	if rec, _ = store.GetGitHubTokenByConnectorID(id); rec.OrgID != orgA {
-		t.Fatalf("installation moved to org %d", rec.OrgID)
+	if rec, _ = store.GetGitHubTokenByConnectorID(id); rec.OrgID != orgA || rec.PatToken != "ghs_two" {
+		t.Fatalf("first org's connector changed: %+v", rec)
+	}
+	recs, err := store.ListAppConnectorsByInstallation("https://ghes.test", inst)
+	if err != nil || len(recs) != 2 || recs[0].ID != id || recs[1].ID != idB {
+		t.Fatalf("ListAppConnectorsByInstallation = %v, %v; want [%d %d]", recs, err, id, idB)
+	}
+	if n, err := store.CountOtherOrgsUsingInstallation("https://ghes.test", inst, orgA); err != nil || n != 1 {
+		t.Fatalf("CountOtherOrgsUsingInstallation = %d, %v; want 1", n, err)
+	}
+}
+
+func scopeOf(t *testing.T, store *storagegithub.TokenStore, id int64) (scope string, allowed []int64, removed bool) {
+	t.Helper()
+	rec, err := store.GetGitHubTokenByConnectorID(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta struct {
+		RepoScope      string  `json:"repo_scope"`
+		AllowedRepoIDs []int64 `json:"allowed_repo_ids"`
+		Removed        bool    `json:"removed"`
+	}
+	if err := json.Unmarshal(rec.Metadata, &meta); err != nil {
+		t.Fatal(err)
+	}
+	return meta.RepoScope, meta.AllowedRepoIDs, meta.Removed
+}
+
+func TestUpsertAppInstallationConnector_RepoScope(t *testing.T) {
+	db := testDB(t)
+	store := storagegithub.NewTokenStore(db)
+	org := testOrg(t, db, fmt.Sprintf("ghapp-scope-%d", time.Now().UnixNano()))
+	in := storagegithub.AppConnectorUpsert{
+		OrgID: org, BaseURL: "https://ghes.test", InstallationID: uniqueInstallation(), AccountLogin: "acme",
+		AccountType: "Organization", Token: "t", ExpiresAt: time.Now().Add(time.Hour),
+		RepoScope: storagegithub.RepoScopeUser, AllowedRepoIDs: []int64{11, 22}, KeepDisconnected: true,
+	}
+	id, _, err := store.UpsertAppInstallationConnector(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scope, allowed, _ := scopeOf(t, store, id); scope != storagegithub.RepoScopeUser || len(allowed) != 2 {
+		t.Fatalf("scope = %q %v, want user [11 22]", scope, allowed)
+	}
+
+	// A later sign-in refreshes the list.
+	in.AllowedRepoIDs = []int64{22}
+	if _, _, err := store.UpsertAppInstallationConnector(in); err != nil {
+		t.Fatal(err)
+	}
+	if _, allowed, _ := scopeOf(t, store, id); len(allowed) != 1 || allowed[0] != 22 {
+		t.Fatalf("allowed = %v, want [22]", allowed)
+	}
+
+	// Installing/configuring widens it to installer; a plain sign-in afterwards doesn't narrow it again.
+	installer := in
+	installer.RepoScope, installer.AllowedRepoIDs, installer.KeepDisconnected = storagegithub.RepoScopeInstaller, nil, false
+	if _, _, err := store.UpsertAppInstallationConnector(installer); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.UpsertAppInstallationConnector(in); err != nil {
+		t.Fatal(err)
+	}
+	if scope, allowed, _ := scopeOf(t, store, id); scope != storagegithub.RepoScopeInstaller || allowed != nil {
+		t.Fatalf("scope = %q %v, want installer with no allow list", scope, allowed)
+	}
+
+	// Disconnected by the org: plain sign-ins leave it alone, installing again reconnects it.
+	if err := store.DisconnectAppConnector(id); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.UpsertAppInstallationConnector(in); err != storagegithub.ErrAppConnectorDisconnected {
+		t.Fatalf("plain sign-in after disconnect: err = %v, want ErrAppConnectorDisconnected", err)
+	}
+	if _, _, removed := scopeOf(t, store, id); !removed {
+		t.Fatal("a plain sign-in reconnected a disconnected installation")
+	}
+	if _, _, err := store.UpsertAppInstallationConnector(installer); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, removed := scopeOf(t, store, id); removed {
+		t.Fatal("installing again did not reconnect it")
 	}
 }
 

@@ -6083,10 +6083,10 @@ CREATE UNIQUE INDEX river_job_unique_idx ON public.river_job USING btree (unique
 
 
 --
--- Name: uq_integration_tokens_github_app_installation; Type: INDEX; Schema: public; Owner: -
+-- Name: uq_integration_tokens_github_app_installation_org; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uq_integration_tokens_github_app_installation ON public.integration_tokens USING btree (provider_url, provider_app_id) WHERE (token_type = 'GITHUB_APP'::text);
+CREATE UNIQUE INDEX uq_integration_tokens_github_app_installation_org ON public.integration_tokens USING btree (provider_url, provider_app_id, org_id) WHERE (token_type = 'GITHUB_APP'::text);
 
 
 --
@@ -7309,4 +7309,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261017100000'),
     ('20261020090000'),
     ('20261022120000'),
-    ('20261022130000');
+    ('20261022130000'),
+    ('20261023090000');

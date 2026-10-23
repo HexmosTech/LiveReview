@@ -37,6 +37,8 @@ type fakeGitHub struct {
 	mu            sync.Mutex
 	emails        string // JSON for GET /user/emails
 	installations string // JSON array body of "installations"
+	userRepos     string // JSON array body of "repositories" for GET /user/installations/{id}/repositories
+	instRepos     string // JSON array body of "repositories" for GET /installation/repositories
 	deleted       []string // installation ids the App was asked to uninstall
 	failDelete    bool
 	srv           *httptest.Server
@@ -47,6 +49,8 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 	f := &fakeGitHub{
 		emails:        `[{"email":"Gh.User@Example.test","primary":true,"verified":true}]`,
 		installations: "[]",
+		userRepos:     `[{"id":1}]`,
+		instRepos:     `[{"id":1,"name":"api","full_name":"acme/api","html_url":"http://x/acme/api","private":true}]`,
 	}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -63,6 +67,8 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 			_, _ = fmt.Fprint(w, f.emails)
 		case r.URL.Path == "/api/v3/user/installations":
 			_, _ = fmt.Fprintf(w, `{"installations":%s}`, f.installations)
+		case strings.HasPrefix(r.URL.Path, "/api/v3/user/installations/") && strings.HasSuffix(r.URL.Path, "/repositories"):
+			_, _ = fmt.Fprintf(w, `{"repositories":%s}`, f.userRepos)
 		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v3/app/installations/"):
 			f.deleted = append(f.deleted, strings.TrimPrefix(r.URL.Path, "/api/v3/app/installations/"))
 			if f.failDelete {
@@ -76,7 +82,7 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 		case r.URL.Path == "/api/v3/users/newco":
 			_, _ = fmt.Fprint(w, `{"id":777,"login":"newco"}`)
 		case r.URL.Path == "/api/v3/installation/repositories":
-			_, _ = fmt.Fprint(w, `{"repositories":[{"id":1,"name":"api","full_name":"acme/api","html_url":"http://x/acme/api","private":true}]}`)
+			_, _ = fmt.Fprintf(w, `{"repositories":%s}`, f.instRepos)
 		case r.URL.Path == "/api/v3/repos/acme/api/pulls":
 			_, _ = fmt.Fprint(w, `[{"number":7,"title":"Fix","html_url":"http://x/acme/api/pull/7","updated_at":"2026-10-19T10:00:00Z","user":{"login":"octo"}}]`)
 		default:
@@ -343,7 +349,7 @@ func TestGitHubAppCallback_HappyPathCreatesAccountAndConnector(t *testing.T) {
 	if orgCookie != fmt.Sprint(orgID) {
 		t.Fatalf("org cookie %q, want the connected org %d", orgCookie, orgID)
 	}
-	rec2, err := storagegithub.NewTokenStore(db).GetAppConnectorByInstallation(f.srv.URL, inst)
+	rec2, err := storagegithub.NewTokenStore(db).GetAppConnectorByInstallation(f.srv.URL, inst, orgID)
 	if err != nil {
 		t.Fatalf("connector missing: %v", err)
 	}
@@ -426,7 +432,17 @@ func TestGitHubAppCallback_SignInWithNothingInstalledCreatesAccountThenGoesToIns
 	}
 }
 
-func TestGitHubAppCallback_InstallationBoundToAnotherOrgIsRejected(t *testing.T) {
+// connectorMeta reads the scope fields of a GitHub App connector.
+func connectorMeta(t *testing.T, rec *storagegithub.IntegrationTokenRecord) appConnectorScope {
+	t.Helper()
+	var sc appConnectorScope
+	if err := json.Unmarshal(rec.Metadata, &sc); err != nil {
+		t.Fatal(err)
+	}
+	return sc
+}
+
+func TestGitHubAppCallback_SharedInstallationConnectsSecondOrgWithItsUsersRepos(t *testing.T) {
 	f := newFakeGitHub(t)
 	s, db := newGitHubAppTestServer(t, f)
 	emailA := fmt.Sprintf("gh-owner-a-%d@example.test", time.Now().UnixNano())
@@ -436,24 +452,92 @@ func TestGitHubAppCallback_InstallationBoundToAnotherOrgIsRejected(t *testing.T)
 	inst := time.Now().UnixNano() % 1_000_000_000_000
 	f.installations = f.installation(inst, "acme")
 
-	signIn := func(email string) *httptest.ResponseRecorder {
+	callback := func(email, mode, installation string) *httptest.ResponseRecorder {
 		f.emails = fmt.Sprintf(`[{"email":%q,"primary":true,"verified":true}]`, email)
 		newFakeParse(t, email, false)
-		state, nonce := s.validState(t, ghModeInstall)
-		return s.doCallback(t, callbackParams{state: state, cookieNonce: nonce, code: "good-code", installation: fmt.Sprint(inst)})
+		state, nonce := s.validState(t, mode)
+		return s.doCallback(t, callbackParams{state: state, cookieNonce: nonce, code: "good-code", installation: installation})
 	}
-	if rec := signIn(emailA); rec.Code != http.StatusFound {
-		t.Fatalf("first owner: status %d: %s", rec.Code, rec.Body.String())
+	// The installation covers repositories 1 and 2. A installs the App and can access both.
+	f.instRepos = `[{"id":1,"name":"api","full_name":"acme/api"},{"id":2,"name":"web","full_name":"acme/web"}]`
+	f.userRepos = `[{"id":1},{"id":2}]`
+	if rec := callback(emailA, ghModeInstall, fmt.Sprint(inst)); rec.Code != http.StatusFound {
+		t.Fatalf("installer: status %d: %s", rec.Code, rec.Body.String())
 	}
-	rec := signIn(emailB)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "another LiveReview account") {
-		t.Fatalf("second owner: status %d body %q, want 409", rec.Code, rec.Body.String())
+	// B signs up on their own, sees the installation, and can only access repository 1. Adding installation_id to
+	// the callback URL by hand must not get B the rest.
+	f.userRepos = `[{"id":1}]`
+	if rec := callback(emailB, ghModeSignin, ""); rec.Code != http.StatusFound {
+		t.Fatalf("second org: status %d: %s", rec.Code, rec.Body.String())
 	}
-	var orgA int64
+	if rec := callback(emailB, ghModeInstall, fmt.Sprint(inst)); rec.Code != http.StatusFound {
+		t.Fatalf("second org, crafted installation_id: status %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var orgA, orgB int64
 	_ = db.QueryRow(`SELECT id FROM orgs WHERE name = $1`, emailA).Scan(&orgA)
-	conn, err := storagegithub.NewTokenStore(db).GetAppConnectorByInstallation(f.srv.URL, inst)
-	if err != nil || conn.OrgID != orgA {
-		t.Fatalf("installation moved away from org A: %+v %v", conn, err)
+	_ = db.QueryRow(`SELECT id FROM orgs WHERE name = $1`, emailB).Scan(&orgB)
+	store := storagegithub.NewTokenStore(db)
+	connA, err := store.GetAppConnectorByInstallation(f.srv.URL, inst, orgA)
+	if err != nil || connectorMeta(t, connA).RepoScope != storagegithub.RepoScopeInstaller {
+		t.Fatalf("installer org connector: %+v %v", connA, err)
+	}
+	connB, err := store.GetAppConnectorByInstallation(f.srv.URL, inst, orgB)
+	if err != nil {
+		t.Fatalf("second org has no connector: %v", err)
+	}
+	if sc := connectorMeta(t, connB); sc.RepoScope != storagegithub.RepoScopeUser || len(sc.AllowedRepoIDs) != 1 || sc.AllowedRepoIDs[0] != 1 {
+		t.Fatalf("second org connector scope = %+v, want user [1]", sc)
+	}
+
+	// The installer signing in again stays installer, even if GitHub now reports fewer repositories for them.
+	if rec := callback(emailA, ghModeSignin, ""); rec.Code != http.StatusFound {
+		t.Fatalf("installer sign-in: status %d", rec.Code)
+	}
+	if connA, _ = store.GetAppConnectorByInstallation(f.srv.URL, inst, orgA); connectorMeta(t, connA).RepoScope != storagegithub.RepoScopeInstaller {
+		t.Fatal("a plain sign-in narrowed the installer's connector")
+	}
+}
+
+func TestGitHubAppCallback_GetStartedOnlyAfterSuccess(t *testing.T) {
+	f := newFakeGitHub(t)
+	s, db := newGitHubAppTestServer(t, f)
+	email := fmt.Sprintf("gh-landing-%d@example.test", time.Now().UnixNano())
+	f.emails = fmt.Sprintf(`[{"email":%q,"primary":true,"verified":true}]`, email)
+	inst := time.Now().UnixNano() % 1_000_000_000_000
+	f.installations = f.installation(inst, "acme")
+	newFakeParse(t, email, false)
+	cleanupGitHubAppTenant(t, db, email)
+
+	nonce := "nonce-" + fmt.Sprint(time.Now().UnixNano())
+	state, err := signGHState(ghState{Nonce: nonce, Src: "test", Mode: ghModeSignin, Exp: time.Now().Add(time.Minute).Unix(), GetStarted: true}, s.githubAppSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := s.doCallback(t, callbackParams{state: state, cookieNonce: nonce, code: "good-code"})
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	next := ""
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == ghNextCookieName {
+			next = c.Value
+		}
+	}
+	if next != ghNextGetStarted {
+		t.Fatalf("a new /gh-login sign-in should land on get-started; next cookie = %q", next)
+	}
+
+	// Starting from /gh-login carries the flag in the signed state, not in the browser.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/github-app/start?mode=signin&src=test", nil)
+	startRec := httptest.NewRecorder()
+	if err := s.GitHubAppStart(echo.New().NewContext(req, startRec)); err != nil {
+		t.Fatal(err)
+	}
+	loc, _ := url.Parse(startRec.Header().Get("Location"))
+	st, err := verifyGHState(loc.Query().Get("state"), s.githubAppSecret, time.Now())
+	if err != nil || !st.GetStarted {
+		t.Fatalf("sign-in start state = %+v, %v; want GetStarted", st, err)
 	}
 }
 
@@ -472,7 +556,7 @@ func TestGitHubAppCallback_ParseFailureStopsBeforeAnyConnector(t *testing.T) {
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("status %d, want 502", rec.Code)
 	}
-	if _, err := storagegithub.NewTokenStore(db).GetAppConnectorByInstallation(f.srv.URL, inst); err == nil {
+	if recs, _ := storagegithub.NewTokenStore(db).ListAppConnectorsByInstallation(f.srv.URL, inst); len(recs) != 0 {
 		t.Fatal("a connector was created even though the Hexmos signup failed")
 	}
 }
@@ -530,17 +614,105 @@ func TestGitHubAppWebhook_SignatureUnknownInstallationAndUninstall(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A second org shares the installation; the uninstall reaches it too.
+	other := fmt.Sprintf("gh-hook-other-%d@example.test", time.Now().UnixNano())
+	cleanupGitHubAppTenant(t, db, other)
+	var otherOrg int64
+	if err := db.QueryRow(`INSERT INTO orgs (name, description) VALUES ($1, 'gh hook test') RETURNING id`, other).Scan(&otherOrg); err != nil {
+		t.Fatal(err)
+	}
+	otherConn, _, err := storagegithub.NewTokenStore(db).UpsertAppInstallationConnector(storagegithub.AppConnectorUpsert{
+		OrgID: otherOrg, BaseURL: f.srv.URL, InstallationID: inst, AccountLogin: "acme", AccountType: "User", Token: "ghs_other", ExpiresAt: time.Now().Add(time.Hour),
+		RepoScope: storagegithub.RepoScopeUser, AllowedRepoIDs: []int64{1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	body = fmt.Sprintf(`{"action":"deleted","installation":{"id":%d}}`, inst)
 	if rec := s.doWebhook(t, "installation", body, "valid"); rec.Code != http.StatusOK {
 		t.Fatalf("uninstall: %d %s", rec.Code, rec.Body.String())
 	}
-	got, _ := storagegithub.NewTokenStore(db).GetGitHubTokenByConnectorID(connID)
-	if got.PatToken != "" || !strings.Contains(string(got.Metadata), `"removed": true`) {
-		t.Fatalf("connector not marked removed: pat=%q meta=%s", got.PatToken, got.Metadata)
+	for _, id := range []int64{connID, otherConn} {
+		got, _ := storagegithub.NewTokenStore(db).GetGitHubTokenByConnectorID(id)
+		if got.PatToken != "" || !strings.Contains(string(got.Metadata), `"removed": true`) {
+			t.Fatalf("connector %d not marked removed: pat=%q meta=%s", id, got.PatToken, got.Metadata)
+		}
 	}
 	// Events for a removed installation are ignored rather than processed.
 	if rec := s.doWebhook(t, "issue_comment", fmt.Sprintf(`{"action":"created","installation":{"id":%d}}`, inst), "valid"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "installation_inactive") {
 		t.Fatalf("removed installation event: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAppConnectorCovers_RespectsScopeAndState(t *testing.T) {
+	repo := func(id int64) *struct {
+		ID int64 `json:"id"`
+	} {
+		return &struct {
+			ID int64 `json:"id"`
+		}{ID: id}
+	}
+	cases := []struct {
+		name string
+		meta string
+		repo int64
+		want bool
+	}{
+		{"installer covers any repo", `{"repo_scope":"installer"}`, 9, true},
+		{"no scope means installer", `{}`, 9, true},
+		{"user scope covers its repo", `{"repo_scope":"user","allowed_repo_ids":[1,2]}`, 2, true},
+		{"user scope skips other repos", `{"repo_scope":"user","allowed_repo_ids":[1,2]}`, 3, false},
+		{"removed covers nothing", `{"removed":true}`, 1, false},
+		{"suspended covers nothing", `{"suspended":true}`, 1, false},
+	}
+	for _, tc := range cases {
+		if got := appConnectorCovers([]byte(tc.meta), repo(tc.repo)); got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	if !appConnectorCovers([]byte(`{"repo_scope":"user","allowed_repo_ids":[]}`), nil) {
+		t.Error("an event without a repository is for every live connector")
+	}
+}
+
+func TestUserScopedRepoIDs(t *testing.T) {
+	user := &ConnectorDetails{TokenType: storagegithub.TokenTypeGitHubApp, Metadata: map[string]interface{}{
+		"repo_scope": "user", "allowed_repo_ids": []interface{}{float64(101), float64(202)},
+	}}
+	allowed, scoped := userScopedRepoIDs(user)
+	if !scoped || len(allowed) != 2 || !allowed["101"] || !allowed["202"] {
+		t.Fatalf("user scope: %v %v", allowed, scoped)
+	}
+	installer := &ConnectorDetails{TokenType: storagegithub.TokenTypeGitHubApp, Metadata: map[string]interface{}{"repo_scope": "installer"}}
+	if _, scoped := userScopedRepoIDs(installer); scoped {
+		t.Error("an installer connector syncs every repository")
+	}
+	pat := &ConnectorDetails{TokenType: "PAT", Metadata: map[string]interface{}{"repo_scope": "user"}}
+	if _, scoped := userScopedRepoIDs(pat); scoped {
+		t.Error("PAT connectors are never user-scoped")
+	}
+}
+
+func TestGitHubAppWebhook_RepositoryNoOrgCoversIsIgnored(t *testing.T) {
+	f := newFakeGitHub(t)
+	s, db := newGitHubAppTestServer(t, f)
+	email := fmt.Sprintf("gh-hook-scope-%d@example.test", time.Now().UnixNano())
+	cleanupGitHubAppTenant(t, db, email)
+	var orgID int64
+	if err := db.QueryRow(`INSERT INTO orgs (name, description) VALUES ($1, 'gh hook test') RETURNING id`, email).Scan(&orgID); err != nil {
+		t.Fatal(err)
+	}
+	inst := time.Now().UnixNano() % 1_000_000_000_000
+	if _, _, err := storagegithub.NewTokenStore(db).UpsertAppInstallationConnector(storagegithub.AppConnectorUpsert{
+		OrgID: orgID, BaseURL: f.srv.URL, InstallationID: inst, AccountLogin: "acme", AccountType: "Organization", Token: "t",
+		ExpiresAt: time.Now().Add(time.Hour), RepoScope: storagegithub.RepoScopeUser, AllowedRepoIDs: []int64{1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Repository 2 isn't one this org's user can access, so nothing is processed (and no stub repo is created).
+	body := fmt.Sprintf(`{"action":"opened","installation":{"id":%d},"repository":{"id":2},"pull_request":{"html_url":"http://x/acme/b/pull/1"}}`, inst)
+	if rec := s.doWebhook(t, "pull_request", body, "valid"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "installation_inactive") {
+		t.Fatalf("uncovered repository: %d %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -627,7 +799,7 @@ func TestGitHubAppDisconnect_OwnersOnlyAndOrgScoped(t *testing.T) {
 	}
 
 	call := func(org int64, owner bool) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodDelete, "/api/v1/github-app/installations/"+fmt.Sprint(connectorID), nil)
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/github-app/installations/"+fmt.Sprint(connectorID)+"?uninstall=true", nil)
 		rec := httptest.NewRecorder()
 		c := echo.New().NewContext(req, rec)
 		c.SetParamNames("connector_id")
@@ -670,6 +842,69 @@ func TestGitHubAppDisconnect_OwnersOnlyAndOrgScoped(t *testing.T) {
 	_ = db.QueryRow(`SELECT COALESCE(pat_token,'') FROM integration_tokens WHERE id = $1`, connectorID).Scan(&token)
 	if token != "" {
 		t.Error("cached installation token was not cleared")
+	}
+}
+
+func TestGitHubAppDisconnect_SharedInstallation(t *testing.T) {
+	f := newFakeGitHub(t)
+	s, db := newGitHubAppTestServer(t, f)
+	store := storagegithub.NewTokenStore(db)
+	inst := time.Now().UnixNano() % 1_000_000_000_000
+	mk := func(prefix string) (orgID, connectorID int64) {
+		name := fmt.Sprintf("%s-%d@example.test", prefix, time.Now().UnixNano())
+		cleanupGitHubAppTenant(t, db, name)
+		if err := db.QueryRow(`INSERT INTO orgs (name, description) VALUES ($1, 'shared disconnect test') RETURNING id`, name).Scan(&orgID); err != nil {
+			t.Fatal(err)
+		}
+		connectorID, _, err := store.UpsertAppInstallationConnector(storagegithub.AppConnectorUpsert{
+			OrgID: orgID, BaseURL: f.srv.URL, InstallationID: inst, AccountLogin: "acme", AccountType: "Organization",
+			Token: "ghs_live", ExpiresAt: time.Now().Add(time.Hour),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return orgID, connectorID
+	}
+	orgA, connA := mk("gh-shared-a")
+	orgB, connB := mk("gh-shared-b")
+	orgC, connC := mk("gh-shared-c")
+	_ = orgC
+
+	call := func(org, connectorID int64, uninstall bool) *httptest.ResponseRecorder {
+		target := "/api/v1/github-app/installations/" + fmt.Sprint(connectorID)
+		if uninstall {
+			target += "?uninstall=true"
+		}
+		rec := httptest.NewRecorder()
+		c := echo.New().NewContext(httptest.NewRequest(http.MethodDelete, target, nil), rec)
+		c.SetParamNames("connector_id")
+		c.SetParamValues(fmt.Sprint(connectorID))
+		c.Set("org_id", org)
+		c.Set(string(auth.PermissionContextKey), &auth.PermissionContext{IsOwner: true, OrgID: org})
+		if err := s.GitHubAppDisconnect(c); err != nil {
+			t.Fatal(err)
+		}
+		return rec
+	}
+	removed := func(id int64) bool {
+		var r string
+		_ = db.QueryRow(`SELECT COALESCE(metadata->>'removed','false') FROM integration_tokens WHERE id = $1`, id).Scan(&r)
+		return r == "true"
+	}
+
+	// Disconnect only: this org stops, GitHub and the other orgs are untouched.
+	if rec := call(orgA, connA, false); rec.Code != http.StatusOK {
+		t.Fatalf("disconnect: %d %s", rec.Code, rec.Body.String())
+	}
+	if !removed(connA) || removed(connB) || removed(connC) || len(f.deleted) != 0 {
+		t.Fatalf("disconnect: A=%v B=%v C=%v github uninstalls=%v", removed(connA), removed(connB), removed(connC), f.deleted)
+	}
+	// Uninstall: GitHub uninstalls it, and every org's connector goes.
+	if rec := call(orgB, connB, true); rec.Code != http.StatusOK {
+		t.Fatalf("uninstall: %d %s", rec.Code, rec.Body.String())
+	}
+	if !removed(connB) || !removed(connC) || len(f.deleted) != 1 || f.deleted[0] != fmt.Sprint(inst) {
+		t.Fatalf("uninstall: B=%v C=%v github uninstalls=%v", removed(connB), removed(connC), f.deleted)
 	}
 }
 

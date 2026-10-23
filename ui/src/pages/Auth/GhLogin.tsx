@@ -14,10 +14,6 @@ import { isCloudMode } from '../../utils/deploymentMode';
 
 const SRC_PATTERN = /^[a-z0-9_-]{1,32}$/;
 
-// Same destination the server redirects to after login; kept in sessionStorage because the GitHub round trip
-// is a full-page navigation. The helper in utils/authHelpers reads it back after login.
-export const GET_STARTED_PATH = '#/get-started/github';
-
 const POINTS = [
     'Risk scoring decides which PRs are safe to ship without a human',
     'Your team only spends review time on risky and critical changes',
@@ -59,12 +55,9 @@ const GhLogin: React.FC = () => {
     // Always starts with GitHub sign-in: returning users are recognised from their installations, and the server
     // sends users with no installation on to the install page (see GitHubAppCallback), so no separate
     // "already installed" path is needed here.
+    // Nothing is stored before leaving: the callback says where to land (get-started) only when sign-in succeeds,
+    // so a failed attempt followed by another sign-in method doesn't end up on get-started.
     const start = () => {
-        try {
-            sessionStorage.setItem('redirectAfterLogin', GET_STARTED_PATH);
-        } catch {
-            // sessionStorage can be unavailable (private mode); the user still lands on the dashboard after login.
-        }
         window.location.href = githubAppStartUrl('signin', src);
     };
 

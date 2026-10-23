@@ -8,16 +8,26 @@ import { disconnectGitHubInstallation, GitHubAppInstallation, GitHubAppRepositor
 interface GitHubAppAccountsProps {
     installations: GitHubAppInstallation[];
     repos: GitHubAppRepository[];
-    // Only organization owners can uninstall; the server enforces it too.
+    // Only organization owners can disconnect or uninstall; the server enforces it too.
     canDisconnect: boolean;
     onInstallAnother: () => void;
     installBusy?: boolean;
-    // Called after an account was uninstalled; the parent refreshes its data.
+    // Called after an account was disconnected or uninstalled; the parent refreshes its data.
     onDisconnected: () => void | Promise<void>;
 }
 
+// What the confirm dialog is for: disconnect only this LiveReview account, or uninstall the App from GitHub.
+interface PendingAction {
+    inst: GitHubAppInstallation;
+    uninstall: boolean;
+}
+
+const accountsLabel = (n: number) => `${n} other LiveReview ${n === 1 ? 'account' : 'accounts'}`;
+
 // The org's connected GitHub accounts: each one is a heading with its repositories indented below it, a
-// "Manage on GitHub" button and (for owners) "Disconnect"; plus "Add repositories or organization".
+// "Manage on GitHub" button and (for owners) "Disconnect" and "Uninstall"; plus "Add repositories or organization".
+// Several LiveReview accounts can share one installation, so Disconnect only affects this account while Uninstall
+// removes the App from GitHub for all of them.
 // Shared by the Git Providers page and the get-started page.
 const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
     installations,
@@ -27,19 +37,22 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
     installBusy = false,
     onDisconnected,
 }) => {
-    const [disconnecting, setDisconnecting] = useState<GitHubAppInstallation | null>(null);
+    const [pending, setPending] = useState<PendingAction | null>(null);
     const [busy, setBusy] = useState(false);
 
     const reposByOwner = (owner: string) =>
         repos.filter((r) => r.full_name.split('/')[0].toLowerCase() === owner.toLowerCase());
 
-    const confirmDisconnect = async () => {
-        if (!disconnecting) return;
+    const confirmAction = async () => {
+        if (!pending) return;
+        const { inst, uninstall } = pending;
         setBusy(true);
         try {
-            await disconnectGitHubInstallation(disconnecting.connector_id);
-            notify.success(`Uninstalled the app from ${disconnecting.account_login} successfully`);
-            setDisconnecting(null);
+            await disconnectGitHubInstallation(inst.connector_id, uninstall);
+            notify.success(uninstall
+                ? `Uninstalled the app from ${inst.account_login} successfully`
+                : `Disconnected ${inst.account_login} successfully`);
+            setPending(null);
             await onDisconnected();
         } catch (err: any) {
             notify.error(err?.message || 'Failed to disconnect GitHub installation');
@@ -65,7 +78,12 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
                                                 {orgRepos.length} {orgRepos.length === 1 ? 'repository' : 'repositories'}
                                             </span>
                                         </div>
-                                        <p className="text-sm text-slate-300">Connected through the GitHub App</p>
+                                        <p className="text-sm text-slate-300">
+                                            {inst.repo_scope === 'user'
+                                                ? 'The GitHub App was already installed here. Showing the repositories your GitHub account can access.'
+                                                : 'Connected through the GitHub App'}
+                                            {inst.other_orgs > 0 && ` Also used by ${accountsLabel(inst.other_orgs)}.`}
+                                        </p>
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2">
@@ -80,14 +98,24 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
                                         </Button>
                                     )}
                                     {canDisconnect && (
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={() => setDisconnecting(inst)}
-                                            className="!text-red-400 hover:!text-red-300 hover:!border-red-400"
-                                        >
-                                            Disconnect
-                                        </Button>
+                                        <>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => setPending({ inst, uninstall: false })}
+                                                className="!text-red-400 hover:!text-red-300 hover:!border-red-400"
+                                            >
+                                                Disconnect
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => setPending({ inst, uninstall: true })}
+                                                className="!text-red-400 hover:!text-red-300 hover:!border-red-400"
+                                            >
+                                                Uninstall
+                                            </Button>
+                                        </>
                                     )}
                                 </div>
                             </div>
@@ -107,17 +135,35 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
                 Add repositories or organization
             </Button>
             <ConfirmModal
-                show={disconnecting !== null}
+                show={pending !== null}
                 loading={busy}
                 type="danger"
-                title={`Uninstall from ${disconnecting?.account_login ?? 'this account'}?`}
-                message="This uninstalls the LiveReview GitHub App from this GitHub account and stops LiveReview reviewing its pull requests. To use it again, install the app on GitHub again."
-                confirmText="Uninstall and disconnect"
-                onConfirm={confirmDisconnect}
-                onCancel={() => setDisconnecting(null)}
+                title={pending?.uninstall
+                    ? `Uninstall from ${pending.inst.account_login}?`
+                    : `Disconnect ${pending?.inst.account_login ?? 'this account'}?`}
+                message={confirmMessage(pending)}
+                confirmText={pending?.uninstall ? 'Uninstall and disconnect' : 'Disconnect'}
+                onConfirm={confirmAction}
+                onCancel={() => setPending(null)}
             />
         </>
     );
 };
+
+function confirmMessage(pending: PendingAction | null): string {
+    if (!pending) return '';
+    const { inst, uninstall } = pending;
+    if (!uninstall) {
+        return `LiveReview stops reviewing ${inst.account_login}'s pull requests for your account and removes its repositories here. ` +
+            'The app stays installed on GitHub' +
+            (inst.other_orgs > 0 ? `, so the ${accountsLabel(inst.other_orgs)} using it keep working` : '') +
+            '. To connect it again, use "Add repositories or organization".';
+    }
+    return `This uninstalls the LiveReview GitHub App from ${inst.account_login} on GitHub and stops LiveReview reviewing its pull requests. ` +
+        (inst.other_orgs > 0
+            ? `${accountsLabel(inst.other_orgs)} ${inst.other_orgs === 1 ? 'also uses' : 'also use'} LiveReview on ${inst.account_login}; uninstalling removes it for all of them. `
+            : '') +
+        'To use it again, install the app on GitHub again.';
+}
 
 export default GitHubAppAccounts;

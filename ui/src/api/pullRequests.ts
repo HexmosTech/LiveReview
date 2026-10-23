@@ -60,10 +60,12 @@ export const triggerReviewForPullRequest = async (pullRequestId: number): Promis
 
 /**
  * Resolve which org a PR belongs to (404 if missing or the user isn't a member).
- * Used by the PR comment's "Start a review" link before the org is known.
+ * Used by the PR comment's "Start a review" link before the org is known. pull_request_id
+ * is the id to use in that org (another org's copy of the same PR when orgs share a
+ * GitHub App installation).
  */
-export const getPullRequestOrg = async (pullRequestId: number): Promise<{ org_id: number }> => {
-  return apiClient.get<{ org_id: number }>(`/api/v1/pull-requests/${pullRequestId}/org`);
+export const getPullRequestOrg = async (pullRequestId: number): Promise<{ org_id: number; pull_request_id: number }> => {
+  return apiClient.get<{ org_id: number; pull_request_id: number }>(`/api/v1/pull-requests/${pullRequestId}/org`);
 };
 
 /**

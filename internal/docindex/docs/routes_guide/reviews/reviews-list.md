@@ -22,7 +22,8 @@ Any authenticated org member.
 - Navigate to scheduled reviews (`/reviews/scheduled`).
 - View one pull request's review history: `/reviews?pull_request_id=<id>`
   (the "View review history" link LiveReview adds to the description of new GitHub/GitLab
-  PRs). Switches to the PR's org if needed. A "Filtered to one pull request"
+  PRs). Switches to the PR's org if needed; when organizations share a GitHub
+  App installation, it opens the user's own organization's copy of that PR. A "Filtered to one pull request"
   chip shows above the table; click **Clear** to see all reviews again.
 
 ## Related pages
