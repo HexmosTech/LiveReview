@@ -3,44 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Card, Icons, PageHeader, Spinner } from '../../components/UIPrimitives';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
-import { useDashboardQuery } from '../../api/dashboard';
 import { getGitHubAppDemo } from '../../api/githubApp';
-import { getAIConnectors } from '../../api/connectors';
 import GitHubAppAccounts from '../../components/GitHubApp/GitHubAppAccounts';
+import GitHubAppNextSteps, { Step } from '../../components/GitHubApp/GitHubAppNextSteps';
 import { useGitHubAppInstall } from '../../hooks/useGitHubAppInstall';
 import { useOrgContext } from '../../hooks/useOrgContext';
-import { GEMINI_API_KEYS_URL } from '../../utils/aiProviderErrors';
 
 // First-run page for orgs connected through the LiveReview GitHub App: repositories are connected, set up an AI
 // provider, then open the merge requests list (or the review-by-URL page) to run the first review. Everything is
 // read from the server; no GitHub URLs or ids live here.
 
 const AUTO_CONNECT_KEY = 'lrGhAutoConnectTried';
-
-const Step: React.FC<{
-    index: number;
-    title: string;
-    done?: boolean;
-    isLast?: boolean;
-    children: React.ReactNode;
-}> = ({ index, title, done = false, isLast = false, children }) => (
-    <li className="flex gap-4">
-        <div className="flex flex-col items-center">
-            <span
-                className={`flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold text-white ${
-                    done ? 'bg-green-600' : 'bg-blue-600'
-                }`}
-            >
-                {done ? <Icons.Success /> : index}
-            </span>
-            {!isLast && <div className="w-px flex-1 my-1 bg-slate-700/70" />}
-        </div>
-        <div className="flex-1 pb-6 min-w-0">
-            <h3 className="text-sm font-semibold text-white">{title}</h3>
-            <div className="mt-1 text-sm text-slate-300">{children}</div>
-        </div>
-    </li>
-);
 
 const GetStartedGitHub: React.FC = () => {
     const navigate = useNavigate();
@@ -55,12 +28,6 @@ const GetStartedGitHub: React.FC = () => {
         staleTime: 0,
         retry: false,
     });
-    const { data: dashboardData = null } = useDashboardQuery();
-    const hasAIProvider = (dashboardData?.active_ai_connectors || 0) > 0;
-    // Launch-trial sign-ups get the LiveReview AI Model connector instead of having to add a key.
-    const { data: aiConnectors = [] } = useQuery({ queryKey: ['ai-connectors'], queryFn: getAIConnectors, enabled: hasAIProvider });
-    const usesLiveReviewModel = aiConnectors.some((c: any) => c?.provider_name === 'livereview-default-ai' && (c?.role || 'leader') === 'leader');
-
     // After a change (say, uninstalling the last account), show the fallback card instead of bouncing the user to GitHub.
     const afterChange = async () => {
         try {
@@ -204,46 +171,7 @@ const GetStartedGitHub: React.FC = () => {
                                 </div>
                             </Step>
 
-                            <Step index={2} title="AI provider" done={hasAIProvider}>
-                                {hasAIProvider && usesLiveReviewModel ? (
-                                    <>
-                                        <p>
-                                            LiveReview AI is connected for you, so there&apos;s nothing to set up: reviews run on our model, up to
-                                            30,000 reviewed lines a month on the Free plan.
-                                        </p>
-                                        <Button className="mt-2" size="sm" variant="ghost" icon={<Icons.AI />} onClick={() => window.open(`${window.location.origin}/#/ai`, '_blank', 'noopener,noreferrer')}>
-                                            Use your own AI key instead
-                                        </Button>
-                                    </>
-                                ) : hasAIProvider ? (
-                                    <p>An AI provider is configured.</p>
-                                ) : (
-                                    <>
-                                        <p>
-                                            Add an AI provider so LiveReview can write review comments. Gemini provides a free API key:{' '}
-                                            <a className="text-blue-400 hover:text-blue-300" href={GEMINI_API_KEYS_URL} target="_blank" rel="noopener noreferrer">
-                                                get one from Google AI Studio
-                                            </a>
-                                            .
-                                        </p>
-                                        <Button className="mt-2" size="sm" variant="outline" icon={<Icons.AI />} onClick={() => window.open(`${window.location.origin}/#/ai`, '_blank', 'noopener,noreferrer')}>
-                                            Configure AI
-                                        </Button>
-                                    </>
-                                )}
-                            </Step>
-
-                            <Step index={3} title="Review a pull request" isLast>
-                                <p>Pick one of your open merge requests / pull requests, or trigger a review with a URL.</p>
-                                <div className="mt-2 flex flex-wrap gap-2">
-                                    <Button size="sm" onClick={() => navigate('/explore/merge-requests')}>
-                                        See open MRs/PRs and trigger a review
-                                    </Button>
-                                    <Button size="sm" variant="outline" onClick={() => navigate('/reviews/new')}>
-                                        Trigger a review via URL
-                                    </Button>
-                                </div>
-                            </Step>
+                            <GitHubAppNextSteps startIndex={2} />
                         </ol>
                         <div className="px-6 pb-6 pt-4 border-t border-slate-700 flex justify-end">
                             <Button variant="ghost" onClick={() => navigate('/reviews/create-cli')}>

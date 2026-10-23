@@ -540,10 +540,11 @@ func (s *Server) GitHubAppCallback(c echo.Context) error {
 	})
 	// A returning user (plain GitHub sign-in, nothing new installed, their org and connection already existed) has
 	// finished onboarding: send them to the GitHub App card on Git Providers, where their accounts are managed, instead of get-started.
-	// Everyone else who started on /gh-login lands on get-started.
+	// Everyone else who started on /gh-login lands on get-started, including a returning user with nothing connected
+	// (say, only offered an installation another LiveReview account uses): it offers Connect and then the next steps.
 	next := ""
 	switch {
-	case state.Mode == ghModeSignin && !explicit && (alreadyConnected || connected == 0) && !provisioned.CreatedOrg:
+	case state.Mode == ghModeSignin && !explicit && alreadyConnected && !provisioned.CreatedOrg:
 		next = ghNextGitProviders
 	case state.GetStarted:
 		next = ghNextGetStarted

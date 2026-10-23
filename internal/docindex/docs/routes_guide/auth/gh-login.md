@@ -36,6 +36,9 @@ to [Get started with GitHub](../get-started-github.md).
 - **Returning users:** a plain GitHub sign-in by someone whose organization and
   GitHub connection already exist lands on the GitHub App card of [Git Providers](../git/git-providers.md)
   (`/git/github-app`), where their connected accounts are managed, instead of the first-run page.
+  A returning user with nothing connected yet (for example, only offered an account
+  another LiveReview account installed, or one they disconnected) lands on get-started
+  instead, which offers **Connect** and then the next steps.
 - **The app is already installed by someone else** (for example a teammate
   installed it on the GitHub organization from their own LiveReview account):
   the new user's own LiveReview organization can use the same installation, with

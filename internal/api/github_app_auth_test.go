@@ -486,6 +486,29 @@ func TestGitHubAppCallback_SharedInstallationOffersSecondOrgItsUsersRepos(t *tes
 		t.Fatalf("second org isn't offered the installation: %v", avail)
 	}
 
+	// B signs in again from /gh-login with the installation still only offered: nothing is connected, so B lands on
+	// get-started (Connect, then the next steps), not on the Git Providers card.
+	f.emails = fmt.Sprintf(`[{"email":%q,"primary":true,"verified":true}]`, emailB)
+	newFakeParse(t, emailB, false)
+	nonce := "nonce-" + fmt.Sprint(time.Now().UnixNano())
+	state, err := signGHState(ghState{Nonce: nonce, Src: "test", Mode: ghModeSignin, GetStarted: true, Exp: time.Now().Add(time.Minute).Unix()}, s.githubAppSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again := s.doCallback(t, callbackParams{state: state, cookieNonce: nonce, code: "good-code"})
+	if again.Code != http.StatusFound {
+		t.Fatalf("second org, repeat sign-in: status %d: %s", again.Code, again.Body.String())
+	}
+	next := ""
+	for _, c := range again.Result().Cookies() {
+		if c.Name == ghNextCookieName {
+			next = c.Value
+		}
+	}
+	if next != ghNextGetStarted {
+		t.Errorf("a returning sign-in with nothing connected should land on get-started; next cookie = %q", next)
+	}
+
 	// Adding installation_id to the callback URL by hand connects it (like Connect would) but must not get B the rest.
 	if rec := callback(emailB, ghModeInstall, fmt.Sprint(inst)); rec.Code != http.StatusFound {
 		t.Fatalf("second org, crafted installation_id: status %d: %s", rec.Code, rec.Body.String())

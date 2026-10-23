@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Icons, Spinner } from '../UIPrimitives';
 import GitHubAppAccounts from '../GitHubApp/GitHubAppAccounts';
+import GitHubAppNextSteps from '../GitHubApp/GitHubAppNextSteps';
 import { getGitHubAppDemo } from '../../api/githubApp';
 import { useGitHubAppEnabled } from '../../hooks/useGitHubAppEnabled';
 import { useGitHubAppInstall } from '../../hooks/useGitHubAppInstall';
@@ -55,17 +56,28 @@ const GitHubAppConnector: React.FC = () => {
                     Please refresh the page.
                 </Alert>
             ) : connected || available.length > 0 ? (
-                <GitHubAppAccounts
-                    installations={demo?.installations || []}
-                    available={available}
-                    repos={demo?.repositories || []}
-                    canDisconnect={canDisconnect}
-                    onInstallAnother={startInstall}
-                    installBusy={busy}
-                    onChanged={async () => {
-                        await refetch();
-                    }}
-                />
+                <>
+                    <GitHubAppAccounts
+                        installations={demo?.installations || []}
+                        available={available}
+                        repos={demo?.repositories || []}
+                        canDisconnect={canDisconnect}
+                        onInstallAnother={startInstall}
+                        installBusy={busy}
+                        onChanged={async () => {
+                            await refetch();
+                        }}
+                    />
+                    {/* Once something is connected (here, through Connect or a new install), show what to do next. */}
+                    {connected && (
+                        <div className="pt-4 border-t border-slate-700">
+                            <h3 className="text-sm font-semibold text-white mb-3">Next steps</h3>
+                            <ol>
+                                <GitHubAppNextSteps startIndex={1} />
+                            </ol>
+                        </div>
+                    )}
+                </>
             ) : (
                 <Button icon={<Icons.GitHub />} onClick={startInstall} isLoading={busy}>
                     Install the GitHub App

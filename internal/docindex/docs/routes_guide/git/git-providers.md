@@ -70,6 +70,10 @@ accounts, each account that isn't connected is one line with no repositories:
 other LiveReview accounts" opens the masked list) or **Disconnected**
 (disconnected here), plus a **Connect** button for organization owners.
 Connect needs no trip to GitHub; the repositories sync in the background.
+Once an account is connected, a **Next steps** section below the accounts shows
+the same two steps as get-started: the AI provider (LiveReview AI already
+connected, or **Configure AI**) and **Review a pull request** (**See open
+MRs/PRs and trigger a review** or **Trigger a review via URL**).
 **Add repositories or organization** opens
 GitHub's install page; afterwards the user returns to `/git/github-app` and the
 new account appears. With nothing connected or available yet the page shows **Install the
