@@ -38,12 +38,14 @@ to [Get started with GitHub](../get-started-github.md).
   (`/git/github-app`), where their connected accounts are managed, instead of the first-run page.
 - **The app is already installed by someone else** (for example a teammate
   installed it on the GitHub organization from their own LiveReview account):
-  the new user's own LiveReview organization is connected to the same
-  installation, with no invite needed. It gets only the repositories that the
-  user's GitHub account can access; GitHub reports these at sign-in and the
-  list is refreshed on every GitHub sign-in. Reviews, the pull request list and
-  bot replies then work in their organization with their own AI provider. The
-  get-started page and the GitHub App card say the app was already installed.
+  the new user's own LiveReview organization can use the same installation, with
+  no invite needed, but it isn't connected automatically. The get-started page
+  and the GitHub App card list it as **Available** with a **Connect** button.
+  Once connected it gets only the repositories that the user's GitHub account
+  can access; GitHub reports these at sign-in and the list is refreshed on every
+  GitHub sign-in. Reviews, the pull request list and bot replies then work in
+  their organization with their own AI provider. Installing or configuring the
+  app on GitHub from LiveReview connects it right away.
 - **A failed GitHub sign-in leaves nothing behind:** the landing page is decided
   only when the sign-in succeeds, so choosing **Other ways to sign in** after an
   error lands on the dashboard as usual, not on get-started.

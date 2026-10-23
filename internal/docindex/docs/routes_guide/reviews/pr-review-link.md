@@ -31,8 +31,13 @@ asked to log in and then sent back to the link. If the user's active org is a
 different one, LiveReview switches to the PR's org automatically. When several
 organizations share one GitHub App installation, each keeps its own copy of the
 PR and the link names one of them; a user from another of those organizations
-is taken to their own organization's copy, and the review runs there. Users who
-aren't members of any organization with that PR see "pull request wasn't found".
+is taken to their own organization's copy, and the review runs there. If their
+organization has that GitHub account only **Available** (not connected yet),
+the page says "Connect <account> to review this pull request" with a
+**Connect <account>** button (organization owners; members are told to ask an
+owner). After connecting, it waits while the repositories sync ("Syncing
+repositories…"), then starts the review. Users who aren't members of any
+organization with that PR or that account available see "pull request wasn't found".
 
 ## Key actions
 

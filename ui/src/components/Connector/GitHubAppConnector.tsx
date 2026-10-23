@@ -26,6 +26,7 @@ const GitHubAppConnector: React.FC = () => {
     });
 
     const connected = Boolean(demo?.connected);
+    const available = demo?.available || [];
 
     // Self-hosted (or the App isn't configured): there is no GitHub App card, so don't sit on a spinner.
     if (enabled === false) return <Navigate to="/git" replace />;
@@ -53,14 +54,15 @@ const GitHubAppConnector: React.FC = () => {
                 <Alert variant="error" title="Could not load your GitHub connections">
                     Please refresh the page.
                 </Alert>
-            ) : connected ? (
+            ) : connected || available.length > 0 ? (
                 <GitHubAppAccounts
                     installations={demo?.installations || []}
+                    available={available}
                     repos={demo?.repositories || []}
                     canDisconnect={canDisconnect}
                     onInstallAnother={startInstall}
                     installBusy={busy}
-                    onDisconnected={async () => {
+                    onChanged={async () => {
                         await refetch();
                     }}
                 />

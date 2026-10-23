@@ -42,8 +42,12 @@ added or removed on GitHub, not here.
 
 Several LiveReview organizations can use the same installation (for example two
 people from one GitHub organization who each signed up). Each has its own
-connection. An organization that joined an installation someone else installed
-only gets the repositories its user's GitHub account can access. Each account
+connection. When a user signs in with GitHub and the app is already installed on
+an account by another LiveReview organization, it isn't connected to theirs
+automatically: it's listed as **Available** and an owner clicks **Connect** to
+opt in. (Installing or configuring the app from LiveReview connects it
+straight away.) An organization that joined an installation someone else
+installed only gets the repositories its user's GitHub account can access. Each account
 on the card shows "Also used by N other LiveReview accounts" when others share
 it; clicking that lists them by their owners' masked emails (`at•••@gmail.com`). Pull request
 updates reach every organization that has the repository; a reply to a comment
@@ -60,10 +64,15 @@ GitHub shows it only to owners), and, for organization owners, **Disconnect**
 (stops using it in this organization only; the app stays installed on GitHub
 for anyone else using it) and **Uninstall** (uninstalls the app from that GitHub
 account, which removes it for every LiveReview account using it; the
-confirmation says how many other accounts are affected).
+confirmation says how many other accounts are affected). Below the connected
+accounts, each account that isn't connected is one line with no repositories:
+**Available** (installed by another LiveReview account; "Already installed by N
+other LiveReview accounts" opens the masked list) or **Disconnected**
+(disconnected here), plus a **Connect** button for organization owners.
+Connect needs no trip to GitHub; the repositories sync in the background.
 **Add repositories or organization** opens
 GitHub's install page; afterwards the user returns to `/git/github-app` and the
-new account appears. With nothing connected yet the page shows **Install the
+new account appears. With nothing connected or available yet the page shows **Install the
 GitHub App**. Returning GitHub sign-ins land directly on this page.
 
 ## Related pages

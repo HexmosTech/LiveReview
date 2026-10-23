@@ -1,17 +1,28 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Button, Card, EmptyState, Icons, Spinner } from '../../components/UIPrimitives';
-import { startOrReuseReviewForPullRequest } from '../../api/pullRequests';
-import { useSwitchToPullRequestOrg, PR_NOT_FOUND_MESSAGE } from '../../hooks/useSwitchToPullRequestOrg';
+import { getPullRequestOrg, startOrReuseReviewForPullRequest } from '../../api/pullRequests';
+import { connectGitHubInstallation } from '../../api/githubApp';
+import { ConnectRequiredError, useSwitchToPullRequestOrg, PR_NOT_FOUND_MESSAGE } from '../../hooks/useSwitchToPullRequestOrg';
+import { notify } from '../../utils/notify';
 import { GEMINI_API_KEYS_URL, isMissingAIProviderError } from '../../utils/aiProviderErrors';
 
+// After connecting a GitHub account, how long to wait for its repositories (and so this PR) to sync.
+const SYNC_POLL_MS = 3000;
+const SYNC_POLL_TRIES = 40;
+
 // Landing page for the "Start a review" link LiveReview posts on new PRs/MRs:
-// switches to the PR's org, starts (or reuses a running) review, then opens it.
+// switches to the PR's org, starts (or reuses a running) review, then opens it. When the user's org has the PR's
+// GitHub account available but not connected (someone in another LiveReview account installed the app), it offers
+// to connect it first.
 const PullRequestReviewTrigger: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const switchToPullRequestOrg = useSwitchToPullRequestOrg();
   const [error, setError] = useState<string | null>(null);
+  const [connectNeeded, setConnectNeeded] = useState<ConnectRequiredError | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const started = useRef(false);
 
   const run = async () => {
@@ -25,8 +36,47 @@ const PullRequestReviewTrigger: React.FC = () => {
       const res = await startOrReuseReviewForPullRequest(orgPullRequestId);
       navigate(`/reviews/${res.reviewId}`, { replace: true });
     } catch (err: any) {
+      // By name, not instanceof: transpiled Error subclasses don't always keep their prototype.
+      if (err?.name === 'ConnectRequiredError') {
+        setConnectNeeded(err as ConnectRequiredError);
+        return;
+      }
       setError(err?.status === 404 ? PR_NOT_FOUND_MESSAGE : err?.message || 'Failed to start the review.');
     }
+  };
+
+  // Connect the GitHub account, wait for the PR to sync into this org, then start the review.
+  const connectAndRun = async (needed: ConnectRequiredError) => {
+    setConnecting(true);
+    try {
+      await connectGitHubInstallation(needed.connectorId);
+    } catch (err: any) {
+      notify.error(err?.message || 'Failed to connect GitHub installation');
+      setConnecting(false);
+      return;
+    }
+    setConnecting(false);
+    setConnectNeeded(null);
+    setSyncing(true);
+    for (let i = 0; i < SYNC_POLL_TRIES; i++) {
+      await new Promise((resolve) => setTimeout(resolve, SYNC_POLL_MS));
+      try {
+        const res = await getPullRequestOrg(Number(id));
+        if (res.pull_request_id !== undefined && !res.connect) {
+          setSyncing(false);
+          await run();
+          return;
+        }
+      } catch (err: any) {
+        if (err?.status !== 404) {
+          setSyncing(false);
+          setError(err?.message || 'Failed to start the review.');
+          return;
+        }
+      }
+    }
+    setSyncing(false);
+    setError(`${needed.accountLogin} is connected, but its repositories are still syncing. Open this link again in a minute.`);
   };
 
   useEffect(() => {
@@ -36,6 +86,34 @@ const PullRequestReviewTrigger: React.FC = () => {
     void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  if (connectNeeded) {
+    const account = connectNeeded.accountLogin;
+    return (
+      <div className="max-w-xl mx-auto px-4 py-12">
+        <Card>
+          <div className="p-6">
+            <h2 className="text-lg font-semibold text-white">Connect {account} to review this pull request</h2>
+            <p className="mt-2 text-sm text-slate-300 leading-relaxed">
+              {connectNeeded.canConnect
+                ? `The LiveReview GitHub App is already installed on ${account}, but it isn't connected to this LiveReview account yet. Connect it to review this pull request here.`
+                : `The LiveReview GitHub App is already installed on ${account}, but it isn't connected to this LiveReview account yet. An owner of your organization can connect it under Git Providers, GitHub App. Then open this link again.`}
+            </p>
+            <div className="mt-6 flex justify-end space-x-4">
+              <Button variant="ghost" onClick={() => navigate('/reviews')}>
+                Go to Reviews
+              </Button>
+              {connectNeeded.canConnect && (
+                <Button icon={<Icons.GitHub />} isLoading={connecting} onClick={() => void connectAndRun(connectNeeded)}>
+                  Connect {account}
+                </Button>
+              )}
+            </div>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   if (error && isMissingAIProviderError(error)) {
     return (
@@ -111,7 +189,7 @@ const PullRequestReviewTrigger: React.FC = () => {
   return (
     <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-300">
       <Spinner size="lg" />
-      <p className="text-sm">Starting review…</p>
+      <p className="text-sm">{syncing ? 'Syncing repositories…' : 'Starting review…'}</p>
     </div>
   );
 };

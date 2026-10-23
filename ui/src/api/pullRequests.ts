@@ -64,8 +64,19 @@ export const triggerReviewForPullRequest = async (pullRequestId: number): Promis
  * is the id to use in that org (another org's copy of the same PR when orgs share a
  * GitHub App installation).
  */
-export const getPullRequestOrg = async (pullRequestId: number): Promise<{ org_id: number; pull_request_id: number }> => {
-  return apiClient.get<{ org_id: number; pull_request_id: number }>(`/api/v1/pull-requests/${pullRequestId}/org`);
+export interface PullRequestOrg {
+  org_id: number;
+  /** The PR's id in that org. Missing when `connect` is set. */
+  pull_request_id?: number;
+  /**
+   * Set when none of the user's orgs has this PR yet but org_id has its GitHub installation available, not connected:
+   * connecting it there brings the PR in.
+   */
+  connect?: { connector_id: number; account_login: string; can_connect: boolean };
+}
+
+export const getPullRequestOrg = async (pullRequestId: number): Promise<PullRequestOrg> => {
+  return apiClient.get<PullRequestOrg>(`/api/v1/pull-requests/${pullRequestId}/org`);
 };
 
 /**

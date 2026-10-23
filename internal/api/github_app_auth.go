@@ -64,6 +64,13 @@ func (s *Server) registerGitHubAppRoutes(public, v1 *echo.Group, authMiddleware 
 		authMiddleware.ValidateOrgAccess(),
 		authMiddleware.BuildPermissionContext(),
 	)
+	// Session-only and org owners only, like disconnecting: it adds a GitHub account's repositories to the org.
+	v1.POST("/github-app/installations/:connector_id/connect", s.GitHubAppConnect,
+		authMiddleware.RequireAuth(),
+		authMiddleware.BuildOrgContextFromHeader(),
+		authMiddleware.ValidateOrgAccess(),
+		authMiddleware.BuildPermissionContext(),
+	)
 }
 
 type githubAppInstallCheckResponse struct {
@@ -152,7 +159,7 @@ func (s *Server) GitHubAppInstallCheck(c echo.Context) error {
 // installation, so there are two ways:
 //   - default: only this org's connector is marked removed (its cached token cleared, its repositories dropped);
 //     the App stays installed on GitHub and other orgs keep working. Plain GitHub sign-ins don't reconnect it;
-//     installing or configuring the App again does.
+//     Connect (GitHubAppConnect), or installing or configuring the App again, does.
 //   - ?uninstall=true: also uninstalls the App from the GitHub account or organization (as the App, via its own
 //     JWT), which ends it for every org using it, so every org's connector is removed here too (GitHub's
 //     "installation deleted" webhook, which follows, then finds nothing left to do).
@@ -230,6 +237,82 @@ func (s *Server) GitHubAppDisconnect(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to disconnect"})
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "uninstalled"})
+}
+
+// GitHubAppConnect connects an installation the caller's org has available but not connected: one it disconnected,
+// or one it was offered at sign-in because another LiveReview org already uses it. It keeps the repository scope
+// worked out at the org's last GitHub sign-in (every repository, or only those its GitHub user can access), so it
+// needs no trip to GitHub; minting a token proves the App is still installed.
+func (s *Server) GitHubAppConnect(c echo.Context) error {
+	orgID, ok := auth.GetOrgIDFromContext(c)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Org context not found"})
+	}
+	if pc := auth.GetPermissionContext(c); pc == nil || pc.RequireOrgOwner() != nil {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "Only an organization owner can connect a GitHub installation"})
+	}
+	connectorID, err := strconv.ParseInt(c.Param("connector_id"), 10, 64)
+	if err != nil || connectorID <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid connector id"})
+	}
+	store := storagegithub.NewTokenStore(s.db)
+	rec, err := store.GetGitHubTokenByConnectorID(connectorID)
+	// Same answer for "does not exist", "not a GitHub App connector" and "another org's": never confirm other orgs' ids.
+	if err != nil || rec == nil || rec.OrgID != orgID || rec.TokenType != storagegithub.TokenTypeGitHubApp {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "GitHub installation not found"})
+	}
+	var meta struct {
+		InstallationID int64  `json:"installation_id"`
+		AccountLogin   string `json:"account_login"`
+		Removed        bool   `json:"removed"`
+		Disconnected   bool   `json:"disconnected"`
+		Suspended      bool   `json:"suspended"`
+	}
+	if err := json.Unmarshal(rec.Metadata, &meta); err != nil || meta.InstallationID <= 0 {
+		log.Printf("[GitHubApp] connect connector %d: no installation id in metadata", connectorID)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to connect"})
+	}
+	switch {
+	case !meta.Removed:
+		return c.JSON(http.StatusConflict, map[string]string{"error": "This GitHub account is already connected"})
+	case !meta.Disconnected:
+		return c.JSON(http.StatusConflict, map[string]string{"error": "The app is no longer installed on " + meta.AccountLogin + ". Install it again to connect it."})
+	case meta.Suspended:
+		return c.JSON(http.StatusConflict, map[string]string{"error": "The app is suspended on " + meta.AccountLogin + " on GitHub. Unsuspend it there first."})
+	}
+
+	cfg := s.githubApp
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 20*time.Second)
+	defer cancel()
+	appJWT, err := networkgithub.MintAppJWT(cfg.AppID, cfg.PrivateKey, time.Now())
+	if err != nil {
+		log.Printf("[GitHubApp] connect connector %d: minting the app JWT failed: %v", connectorID, err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to connect"})
+	}
+	tok, err := networkgithub.CreateInstallationToken(ctx, cfg.APIBaseURL(), appJWT, meta.InstallationID)
+	if err != nil {
+		var apiErr *networkgithub.APIError
+		if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+			// Uninstalled while we missed the webhook: record it, so it stops being offered.
+			yes := true
+			if flagErr := store.SetAppConnectorFlags(connectorID, &yes, nil); flagErr != nil {
+				log.Printf("[GitHubApp] connect connector %d: marking it removed failed: %v", connectorID, flagErr)
+			}
+			return c.JSON(http.StatusConflict, map[string]string{"error": "The app is no longer installed on " + meta.AccountLogin + ". Install it again to connect it."})
+		}
+		log.Printf("[GitHubApp] connect connector %d: minting an installation token failed: %v", connectorID, err)
+		return c.JSON(http.StatusBadGateway, map[string]string{"error": "Could not reach GitHub. Please try again."})
+	}
+	if err := store.ConnectAppConnector(connectorID, tok.Token, tok.ExpiresAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// Connected (or uninstalled) by someone else in the meantime.
+			return c.JSON(http.StatusConflict, map[string]string{"error": "This GitHub account changed in the meantime. Refresh the page."})
+		}
+		log.Printf("[GitHubApp] connect connector %d (org %d) failed: %v", connectorID, orgID, err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to connect"})
+	}
+	s.syncGitHubAppConnectorAsync(connectorID, true)
+	return c.JSON(http.StatusOK, map[string]string{"status": "connected"})
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -401,12 +484,14 @@ func (s *Server) GitHubAppCallback(c echo.Context) error {
 
 	// 5. connect each installation to the org. Other orgs may use the same installation (each has its own
 	// connector), and each gets only the repositories its GitHub user can access (see connectGitHubAppInstallation).
+	// On a plain sign-in, one another org already uses is only offered: the org's owner connects it from the UI.
 	connected, failed := 0, 0
 	alreadyConnected := false // a connector for one of these installations existed before this sign-in
 	for _, inst := range targets {
 		connectorID, created, resync, err := s.connectGitHubAppInstallation(ctx, provisioned.OrgID, inst, userToken, explicit)
-		if errors.Is(err, storagegithub.ErrAppConnectorDisconnected) {
-			// The org disconnected it on purpose; installing or configuring the App again reconnects it.
+		if errors.Is(err, storagegithub.ErrAppConnectorDisconnected) || errors.Is(err, storagegithub.ErrAppConnectorOffered) {
+			// Recorded as available, not connected: the org disconnected it on purpose, or someone in another org
+			// installed it. Connect on the GitHub App page, or installing or configuring the App again, connects it.
 			continue
 		}
 		if err != nil {
@@ -494,7 +579,9 @@ func (s *Server) grantLaunchTrialManagedAI(ctx context.Context, orgID int64) {
 // installed or manages it); otherwise only the ones the user can access, since anyone who merely sees the
 // installation (an outside collaborator, say) must not get the rest. GitHub supplies both lists, so nothing here
 // trusts the callback URL. explicit (the user just installed or configured it) also reconnects an installation the
-// org had disconnected. resync is true when the connector's repositories need syncing again.
+// org had disconnected. Without it (a plain sign-in), an installation the org isn't connected to and another org
+// already uses is only offered (storagegithub.ErrAppConnectorOffered): the org opts in with Connect. resync is true
+// when the connector's repositories need syncing again.
 func (s *Server) connectGitHubAppInstallation(ctx context.Context, orgID int64, inst networkgithub.Installation, userToken string, explicit bool) (connectorID int64, created, resync bool, err error) {
 	cfg := s.githubApp
 	store := storagegithub.NewTokenStore(s.db)
@@ -525,7 +612,7 @@ func (s *Server) connectGitHubAppInstallation(ctx context.Context, orgID int64, 
 	in := storagegithub.AppConnectorUpsert{
 		OrgID: orgID, BaseURL: cfg.BaseURL, InstallationID: inst.ID, AccountLogin: inst.AccountLogin, AccountType: inst.AccountType,
 		RepositorySelection: inst.RepositorySelection, AppSlug: cfg.Slug, Token: tok.Token, ExpiresAt: tok.ExpiresAt,
-		RepoScope: storagegithub.RepoScopeInstaller, KeepDisconnected: !explicit,
+		RepoScope: storagegithub.RepoScopeInstaller, KeepDisconnected: !explicit, OfferIfShared: !explicit,
 	}
 	if !containsAllIDs(userRepos, all) {
 		in.RepoScope, in.AllowedRepoIDs = storagegithub.RepoScopeUser, userRepos
@@ -884,6 +971,20 @@ type githubAppDemoInstallation struct {
 	OtherAccounts []string `json:"other_accounts"`
 }
 
+// githubAppDemoAvailable is an installation the org can connect in one click (GitHubAppConnect).
+type githubAppDemoAvailable struct {
+	ConnectorID  int64  `json:"connector_id"`
+	AccountLogin string `json:"account_login"`
+	AccountType  string `json:"account_type"`
+	// State is "offered" (someone in another LiveReview org installed it; this org never connected it) or
+	// "disconnected" (this org disconnected it).
+	State string `json:"state"`
+	// RepoScope is the scope Connect gives, as in githubAppDemoInstallation.
+	RepoScope     string   `json:"repo_scope"`
+	OtherOrgs     int      `json:"other_orgs"`
+	OtherAccounts []string `json:"other_accounts"`
+}
+
 type githubAppDemoRepo struct {
 	FullName string `json:"full_name"`
 	WebURL   string `json:"web_url"`
@@ -900,10 +1001,12 @@ type githubAppDemoPull struct {
 }
 
 type githubAppDemoResponse struct {
-	Connected        bool                        `json:"connected"`
-	Installations    []githubAppDemoInstallation `json:"installations"`
-	Repositories     []githubAppDemoRepo         `json:"repositories"`
-	OpenPullRequests []githubAppDemoPull         `json:"open_pull_requests"`
+	Connected     bool                        `json:"connected"`
+	Installations []githubAppDemoInstallation `json:"installations"`
+	// Available lists installations the org isn't connected to but can connect (no GitHub calls are made for them).
+	Available        []githubAppDemoAvailable `json:"available"`
+	Repositories     []githubAppDemoRepo      `json:"repositories"`
+	OpenPullRequests []githubAppDemoPull      `json:"open_pull_requests"`
 }
 
 const (
@@ -921,7 +1024,8 @@ func (s *Server) GitHubAppDemo(c echo.Context) error {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Org context not found"})
 	}
 	resp := githubAppDemoResponse{
-		Installations: []githubAppDemoInstallation{}, Repositories: []githubAppDemoRepo{}, OpenPullRequests: []githubAppDemoPull{},
+		Installations: []githubAppDemoInstallation{}, Available: []githubAppDemoAvailable{},
+		Repositories: []githubAppDemoRepo{}, OpenPullRequests: []githubAppDemoPull{},
 	}
 
 	cfg := s.githubApp
@@ -954,22 +1058,11 @@ func (s *Server) GitHubAppDemo(c echo.Context) error {
 			// Not usable until unsuspended on GitHub; the full answer skips it too (no token can be minted).
 			continue
 		}
-		scope := storagegithub.RepoScopeInstaller
-		if meta.RepoScope == storagegithub.RepoScopeUser {
-			scope = storagegithub.RepoScopeUser
-		}
-		others, err := store.CountOtherOrgsUsingInstallation(cfg.BaseURL, meta.InstallationID, orgID)
-		var ownerEmails []string
-		if err == nil {
-			ownerEmails, err = store.OtherOrgOwnerEmailsForInstallation(cfg.BaseURL, meta.InstallationID, orgID)
-		}
+		scope := demoRepoScope(meta.RepoScope)
+		others, otherAccounts, err := otherOrgsUsingInstallation(store, cfg.BaseURL, meta.InstallationID, orgID)
 		if err != nil {
 			log.Printf("[GitHubApp] demo: looking up other orgs for connector %d failed: %v", rec.ID, err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load GitHub connections"})
-		}
-		otherAccounts := make([]string, 0, len(ownerEmails))
-		for _, e := range ownerEmails {
-			otherAccounts = append(otherAccounts, maskEmail(e))
 		}
 
 		var token string
@@ -1010,6 +1103,35 @@ func (s *Server) GitHubAppDemo(c echo.Context) error {
 		}
 	}
 
+	available, err := store.ListNotConnectedAppConnectorsForOrg(orgID)
+	if err != nil {
+		log.Printf("[GitHubApp] demo: list available connectors failed: %v", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load GitHub connections"})
+	}
+	for _, rec := range available {
+		var meta struct {
+			appConnectorScope
+			InstallationID int64  `json:"installation_id"`
+			AccountLogin   string `json:"account_login"`
+			AccountType    string `json:"account_type"`
+			Offered        bool   `json:"offered"`
+		}
+		_ = json.Unmarshal(rec.Metadata, &meta)
+		others, otherAccounts, err := otherOrgsUsingInstallation(store, cfg.BaseURL, meta.InstallationID, orgID)
+		if err != nil {
+			log.Printf("[GitHubApp] demo: looking up other orgs for connector %d failed: %v", rec.ID, err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load GitHub connections"})
+		}
+		state := "disconnected"
+		if meta.Offered {
+			state = "offered"
+		}
+		resp.Available = append(resp.Available, githubAppDemoAvailable{
+			ConnectorID: rec.ID, AccountLogin: meta.AccountLogin, AccountType: meta.AccountType, State: state,
+			RepoScope: demoRepoScope(meta.RepoScope), OtherOrgs: others, OtherAccounts: otherAccounts,
+		})
+	}
+
 	for _, full := range reposForPulls {
 		pulls, err := networkgithub.ListOpenPulls(ctx, cfg.APIBaseURL(), pullTokens[full], full, githubAppDemoPullsPerRepo)
 		if err != nil {
@@ -1029,6 +1151,31 @@ func (s *Server) GitHubAppDemo(c echo.Context) error {
 		resp.OpenPullRequests = resp.OpenPullRequests[:githubAppDemoMaxPulls]
 	}
 	return c.JSON(http.StatusOK, resp)
+}
+
+func demoRepoScope(scope string) string {
+	if scope == storagegithub.RepoScopeUser {
+		return storagegithub.RepoScopeUser
+	}
+	return storagegithub.RepoScopeInstaller
+}
+
+// otherOrgsUsingInstallation counts the other orgs with a live connector for the installation and lists their
+// owners' emails, masked.
+func otherOrgsUsingInstallation(store *storagegithub.TokenStore, baseURL string, installationID, orgID int64) (int, []string, error) {
+	n, err := store.CountOtherOrgsUsingInstallation(baseURL, installationID, orgID)
+	if err != nil {
+		return 0, nil, err
+	}
+	emails, err := store.OtherOrgOwnerEmailsForInstallation(baseURL, installationID, orgID)
+	if err != nil {
+		return 0, nil, err
+	}
+	masked := make([]string, 0, len(emails))
+	for _, e := range emails {
+		masked = append(masked, maskEmail(e))
+	}
+	return n, masked, nil
 }
 
 // maskEmail keeps the first two characters of the name and the domain: "athreyac4@gmail.com" -> "at•••@gmail.com"

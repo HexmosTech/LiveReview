@@ -120,7 +120,8 @@ func (s *Server) createReview(c echo.Context) error {
 // "Start a review" link, which doesn't know the PR's org yet. Auth-only route, so it
 // checks membership itself and returns 404 for both "no such PR" and "not a member".
 // pull_request_id is the id to use in that org (another org's copy of the same PR when
-// orgs share a GitHub App installation).
+// orgs share a GitHub App installation). When the user's org has that installation only
+// available, not connected, the answer is that org plus "connect" (no pull_request_id).
 func (s *Server) getPullRequestOrg(c echo.Context) error {
 	user, ok := c.Get(string(auth.UserContextKey)).(*models.User)
 	if !ok || user == nil {
@@ -146,6 +147,22 @@ func (s *Server) getPullRequestOrg(c echo.Context) error {
 		// Orgs sharing a GitHub App installation each keep their own copy of the PR, and the link names one of
 		// them: open the copy in an org the user belongs to.
 		orgID, resolvedID, err = pullrequests.NewStore(s.db).SiblingPullRequestForUser(prID, user.ID)
+	}
+	if err == sql.ErrNoRows {
+		// None of the user's orgs has the PR yet, but one may have the installation available and just not
+		// connected: tell the UI which, so it can offer to connect it there instead of a dead end.
+		avail, aerr := pullrequests.NewStore(s.db).AvailableConnectorForPullRequest(prID, user.ID)
+		if aerr == nil {
+			return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
+				"org_id": avail.OrgID,
+				"connect": map[string]interface{}{
+					"connector_id": avail.ConnectorID, "account_login": avail.AccountLogin, "can_connect": avail.CanConnect,
+				},
+			})
+		}
+		if aerr != sql.ErrNoRows {
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "failed to look up pull request"})
+		}
 	}
 	if err == sql.ErrNoRows {
 		return c.JSON(http.StatusNotFound, ErrorResponse{Error: "pull request not found"})

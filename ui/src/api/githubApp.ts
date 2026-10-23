@@ -14,6 +14,19 @@ export interface GitHubAppInstallation {
   other_accounts: string[];
 }
 
+/** An installation the org isn't connected to but can connect in one click (org owners). */
+export interface GitHubAppAvailableInstallation {
+  connector_id: number;
+  account_login: string;
+  account_type: string;
+  /** "offered": someone in another LiveReview account installed it; "disconnected": this account disconnected it. */
+  state: 'offered' | 'disconnected';
+  /** The repositories Connect gives: all of them ("installer"), or only those your GitHub account can access ("user"). */
+  repo_scope: 'installer' | 'user';
+  other_orgs: number;
+  other_accounts: string[];
+}
+
 export interface GitHubAppRepository {
   full_name: string;
   web_url: string;
@@ -32,6 +45,8 @@ export interface GitHubAppPullRequest {
 export interface GitHubAppDemo {
   connected: boolean;
   installations: GitHubAppInstallation[];
+  /** Installations this org can connect but hasn't (no repositories or pull requests are listed for them). */
+  available: GitHubAppAvailableInstallation[];
   repositories: GitHubAppRepository[];
   open_pull_requests: GitHubAppPullRequest[];
 }
@@ -50,6 +65,13 @@ export const getGitHubAppDemo = (light = false): Promise<GitHubAppDemo> =>
  */
 export const disconnectGitHubInstallation = (connectorId: number, uninstall = false): Promise<{ status: string }> =>
   apiClient.delete<{ status: string }>(`/api/v1/github-app/installations/${connectorId}${uninstall ? '?uninstall=true' : ''}`);
+
+/**
+ * Connects an installation the current org has available but not connected (org owners only). It keeps the repository
+ * scope from the last GitHub sign-in and syncs the repositories in the background.
+ */
+export const connectGitHubInstallation = (connectorId: number): Promise<{ status: string }> =>
+  apiClient.post<{ status: string }>(`/api/v1/github-app/installations/${connectorId}/connect`, {});
 
 export interface PublicUIConfig {
   isCloud: boolean;

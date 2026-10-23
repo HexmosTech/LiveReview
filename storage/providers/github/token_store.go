@@ -25,8 +25,14 @@ const (
 )
 
 // ErrAppConnectorDisconnected is returned when an org disconnected this installation itself and the upsert asked
-// not to reconnect it (plain sign-ins); only installing or configuring the App again reconnects it.
+// not to reconnect it (plain sign-ins). Its repository scope is still refreshed, so the org's owner can connect it
+// again in one click (ConnectAppConnector); installing or configuring the App again also reconnects it.
 var ErrAppConnectorDisconnected = errors.New("github app installation was disconnected from this organization")
+
+// ErrAppConnectorOffered is returned when the upsert asked to offer an installation another org already uses
+// (OfferIfShared) instead of connecting it: the org gets a connector that is available but not connected (no token,
+// no repositories) until its owner connects it (ConnectAppConnector).
+var ErrAppConnectorOffered = errors.New("github app installation is used by another organization; offered, not connected")
 
 type IntegrationTokenRecord struct {
 	ID          int64
@@ -96,12 +102,17 @@ type AppConnectorUpsert struct {
 	// configures the App.
 	RepoScope      string
 	AllowedRepoIDs []int64
-	// KeepDisconnected leaves a connector the org disconnected alone (ErrAppConnectorDisconnected).
+	// KeepDisconnected leaves a connector the org disconnected (or was offered) not connected, only refreshing its
+	// scope (ErrAppConnectorDisconnected / ErrAppConnectorOffered).
 	KeepDisconnected bool
+	// OfferIfShared records an installation the org has no live connector for, and another org already uses, as
+	// available instead of connecting it (ErrAppConnectorOffered).
+	OfferIfShared bool
 }
 
 // UpsertAppInstallationConnector inserts or refreshes the org's GITHUB_APP row for (BaseURL, InstallationID).
-// Other orgs may have their own connector for the same installation.
+// Other orgs may have their own connector for the same installation. With KeepDisconnected or OfferIfShared the row
+// may be written without being connected; the returned error then says which (the write is still committed).
 func (s *TokenStore) UpsertAppInstallationConnector(in AppConnectorUpsert) (connectorID int64, created bool, err error) {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -120,7 +131,25 @@ func (s *TokenStore) UpsertAppInstallationConnector(in AppConnectorUpsert) (conn
 		"removed":              false,
 		"suspended":            false,
 		"disconnected":         false,
+		"offered":              false,
 	}
+	// offer turns fields into an available-but-not-connected connector: no token is stored.
+	offer := func() {
+		fields["removed"], fields["disconnected"], fields["offered"] = true, true, true
+		in.Token, in.ExpiresAt = "", time.Time{}
+	}
+	sharedElsewhere := func() (bool, error) {
+		var shared bool
+		err := tx.QueryRow(`
+			SELECT EXISTS (
+				SELECT 1 FROM integration_tokens
+				WHERE token_type = $1 AND provider_url = $2 AND provider_app_id = $3 AND org_id <> $4
+				  AND COALESCE(metadata->>'removed', 'false') <> 'true'
+			)
+		`, TokenTypeGitHubApp, in.BaseURL, appID, in.OrgID).Scan(&shared)
+		return shared, err
+	}
+	var notConnected error // ErrAppConnectorDisconnected / ErrAppConnectorOffered once the row is written
 
 	var existingMeta []byte
 	err = tx.QueryRow(`
@@ -134,10 +163,28 @@ func (s *TokenStore) UpsertAppInstallationConnector(in AppConnectorUpsert) (conn
 			RepoScope    string `json:"repo_scope"`
 			Removed      bool   `json:"removed"`
 			Disconnected bool   `json:"disconnected"`
+			Offered      bool   `json:"offered"`
 		}
 		_ = json.Unmarshal(existingMeta, &prev)
-		if in.KeepDisconnected && prev.Removed && prev.Disconnected {
-			return connectorID, false, ErrAppConnectorDisconnected
+		switch {
+		case in.KeepDisconnected && prev.Removed && prev.Disconnected:
+			// Stays not connected (and offered stays as it was); only the scope below is refreshed.
+			offer()
+			fields["offered"] = prev.Offered
+			notConnected = ErrAppConnectorDisconnected
+			if prev.Offered {
+				notConnected = ErrAppConnectorOffered
+			}
+		case in.OfferIfShared && prev.Removed:
+			// Uninstalled before; installed again since, by someone in another org.
+			shared, err := sharedElsewhere()
+			if err != nil {
+				return 0, false, err
+			}
+			if shared {
+				offer()
+				notConnected = ErrAppConnectorOffered
+			}
 		}
 		// A user-scoped refresh of a live installer connector keeps it installer. A removed one starts over, so
 		// a scope it had before an uninstall doesn't come back.
@@ -155,11 +202,21 @@ func (s *TokenStore) UpsertAppInstallationConnector(in AppConnectorUpsert) (conn
 			SET pat_token = $1, expires_at = $2, connection_name = $3,
 			    metadata = (COALESCE(metadata, '{}'::jsonb) - 'allowed_repo_ids') || $4::jsonb, updated_at = NOW()
 			WHERE id = $5
-		`, in.Token, in.ExpiresAt, "GitHub App · "+in.AccountLogin, string(meta), connectorID)
+		`, in.Token, nullTime(in.ExpiresAt), "GitHub App · "+in.AccountLogin, string(meta), connectorID)
 		if err != nil {
 			return 0, false, err
 		}
 	case errors.Is(err, sql.ErrNoRows):
+		if in.OfferIfShared {
+			shared, err := sharedElsewhere()
+			if err != nil {
+				return 0, false, err
+			}
+			if shared {
+				offer()
+				notConnected = ErrAppConnectorOffered
+			}
+		}
 		setScope(fields, in.RepoScope, in.AllowedRepoIDs)
 		meta, err := json.Marshal(fields)
 		if err != nil {
@@ -172,7 +229,7 @@ func (s *TokenStore) UpsertAppInstallationConnector(in AppConnectorUpsert) (conn
 				 provider_url, org_id, metadata)
 			VALUES ('github', $1, '', $2, $3, $4, $5, $6, $7, $8::jsonb)
 			RETURNING id
-		`, appID, TokenTypeGitHubApp, in.Token, in.ExpiresAt, "GitHub App · "+in.AccountLogin, in.BaseURL, in.OrgID, string(meta)).Scan(&connectorID)
+		`, appID, TokenTypeGitHubApp, in.Token, nullTime(in.ExpiresAt), "GitHub App · "+in.AccountLogin, in.BaseURL, in.OrgID, string(meta)).Scan(&connectorID)
 		if err != nil {
 			return 0, false, err
 		}
@@ -184,7 +241,15 @@ func (s *TokenStore) UpsertAppInstallationConnector(in AppConnectorUpsert) (conn
 	if err := tx.Commit(); err != nil {
 		return 0, false, err
 	}
-	return connectorID, created, nil
+	return connectorID, created, notConnected
+}
+
+// nullTime stores a zero time as NULL (a connector that isn't connected has no token, so no expiry).
+func nullTime(t time.Time) interface{} {
+	if t.IsZero() {
+		return nil
+	}
+	return t
 }
 
 // setScope writes repo_scope (and allowed_repo_ids for a user scope) into the metadata fields.
@@ -318,11 +383,15 @@ func (s *TokenStore) listRecords(query string, args ...interface{}) ([]Integrati
 }
 
 // SetAppConnectorFlags records that an installation was removed and/or suspended. Removing it also clears the
-// cached token so nothing can keep using it.
+// cached token so nothing can keep using it, and ends a disconnected or offered state: the installation itself is
+// gone, so there is nothing left to connect.
 func (s *TokenStore) SetAppConnectorFlags(connectorID int64, removed, suspended *bool) error {
 	flags := map[string]bool{}
 	if removed != nil {
 		flags["removed"] = *removed
+		if *removed {
+			flags["disconnected"], flags["offered"] = false, false
+		}
 	}
 	if suspended != nil {
 		flags["suspended"] = *suspended
@@ -350,11 +419,41 @@ func (s *TokenStore) SetAppConnectorFlags(connectorID int64, removed, suspended 
 func (s *TokenStore) DisconnectAppConnector(connectorID int64) error {
 	_, err := s.db.Exec(`
 		UPDATE integration_tokens
-		SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"removed": true, "disconnected": true}'::jsonb,
+		SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"removed": true, "disconnected": true, "offered": false}'::jsonb,
 		    pat_token = '', updated_at = NOW()
 		WHERE id = $1 AND token_type = $2
 	`, connectorID, TokenTypeGitHubApp)
 	return err
+}
+
+// ListNotConnectedAppConnectorsForOrg returns the org's App connectors that are available but not connected: ones
+// it disconnected, and ones it was offered because another org already uses the installation. Suspended ones are
+// left out (they can't be connected until GitHub unsuspends them).
+func (s *TokenStore) ListNotConnectedAppConnectorsForOrg(orgID int64) ([]IntegrationTokenRecord, error) {
+	return s.listRecords(`
+		SELECT `+appConnectorColumns+` FROM integration_tokens
+		WHERE token_type = $1 AND org_id = $2
+		  AND COALESCE(metadata->>'removed', 'false') = 'true'
+		  AND COALESCE(metadata->>'disconnected', 'false') = 'true'
+		  AND COALESCE(metadata->>'suspended', 'false') <> 'true'
+		ORDER BY id
+	`, TokenTypeGitHubApp, orgID)
+}
+
+// ConnectAppConnector connects an available connector (disconnected or offered) with a freshly minted installation
+// token, keeping the repository scope recorded at the org's last GitHub sign-in. sql.ErrNoRows when the connector is
+// not in that state (already connected, uninstalled, or not a GitHub App connector).
+func (s *TokenStore) ConnectAppConnector(connectorID int64, token string, expiresAt time.Time) error {
+	var id int64
+	return s.db.QueryRow(`
+		UPDATE integration_tokens
+		SET metadata = COALESCE(metadata, '{}'::jsonb) || '{"removed": false, "disconnected": false, "offered": false}'::jsonb,
+		    pat_token = $1, expires_at = $2, updated_at = NOW()
+		WHERE id = $3 AND token_type = $4
+		  AND COALESCE(metadata->>'removed', 'false') = 'true'
+		  AND COALESCE(metadata->>'disconnected', 'false') = 'true'
+		RETURNING id
+	`, token, expiresAt, connectorID, TokenTypeGitHubApp).Scan(&id)
 }
 
 // FindPreferredConnectorForRepo returns the org's GitHub connector that has the repository, preferring a

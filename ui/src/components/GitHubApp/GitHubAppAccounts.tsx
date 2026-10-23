@@ -4,18 +4,29 @@ import { Avatar, Button, Icons } from '../UIPrimitives';
 import GitHubAppRepositories from './GitHubAppRepositories';
 import { ConfirmModal } from '../ConfirmModal';
 import { notify } from '../../utils/notify';
-import { disconnectGitHubInstallation, GitHubAppInstallation, GitHubAppRepository } from '../../api/githubApp';
+import {
+    connectGitHubInstallation,
+    disconnectGitHubInstallation,
+    GitHubAppAvailableInstallation,
+    GitHubAppInstallation,
+    GitHubAppRepository,
+} from '../../api/githubApp';
 
 interface GitHubAppAccountsProps {
     installations: GitHubAppInstallation[];
+    // Accounts this LiveReview account can connect but hasn't: shown minimized, with a Connect button.
+    available?: GitHubAppAvailableInstallation[];
     repos: GitHubAppRepository[];
-    // Only organization owners can disconnect or uninstall; the server enforces it too.
+    // Only organization owners can connect, disconnect or uninstall; the server enforces it too.
     canDisconnect: boolean;
     onInstallAnother: () => void;
     installBusy?: boolean;
-    // Called after an account was disconnected or uninstalled; the parent refreshes its data.
-    onDisconnected: () => void | Promise<void>;
+    // Called after an account was connected, disconnected or uninstalled; the parent refreshes its data.
+    onChanged: () => void | Promise<void>;
 }
+
+// What the "other LiveReview accounts" popup needs, from a connected or an available account.
+type SharedAccount = Pick<GitHubAppInstallation, 'account_login' | 'other_orgs' | 'other_accounts'>;
 
 // What the confirm dialog is for: disconnect only this LiveReview account, or uninstall the App from GitHub.
 interface PendingAction {
@@ -26,21 +37,38 @@ interface PendingAction {
 const accountsLabel = (n: number) => `${n} other LiveReview ${n === 1 ? 'account' : 'accounts'}`;
 
 // The org's connected GitHub accounts: each one is a heading with its repositories indented below it, a
-// "Manage on GitHub" button and (for owners) "Disconnect" and "Uninstall"; plus "Add repositories or organization".
+// "Manage on GitHub" button and (for owners) "Disconnect" and "Uninstall"; then the accounts it can connect but
+// hasn't (installed by someone in another LiveReview account, or disconnected here), one line each with "Connect";
+// plus "Add repositories or organization".
 // Several LiveReview accounts can share one installation, so Disconnect only affects this account while Uninstall
 // removes the App from GitHub for all of them.
 // Shared by the Git Providers page and the get-started page.
 const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
     installations,
+    available = [],
     repos,
     canDisconnect,
     onInstallAnother,
     installBusy = false,
-    onDisconnected,
+    onChanged,
 }) => {
     const [pending, setPending] = useState<PendingAction | null>(null);
-    const [showingOthers, setShowingOthers] = useState<GitHubAppInstallation | null>(null);
+    const [showingOthers, setShowingOthers] = useState<SharedAccount | null>(null);
     const [busy, setBusy] = useState(false);
+    const [connecting, setConnecting] = useState<number | null>(null);
+
+    const connect = async (inst: GitHubAppAvailableInstallation) => {
+        setConnecting(inst.connector_id);
+        try {
+            await connectGitHubInstallation(inst.connector_id);
+            notify.success(`Connected ${inst.account_login} successfully`);
+            await onChanged();
+        } catch (err: any) {
+            notify.error(err?.message || 'Failed to connect GitHub installation');
+        } finally {
+            setConnecting(null);
+        }
+    };
 
     const reposByOwner = (owner: string) =>
         repos.filter((r) => r.full_name.split('/')[0].toLowerCase() === owner.toLowerCase());
@@ -55,7 +83,7 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
                 ? `Uninstalled the app from ${inst.account_login} successfully`
                 : `Disconnected ${inst.account_login} successfully`);
             setPending(null);
-            await onDisconnected();
+            await onChanged();
         } catch (err: any) {
             notify.error(err?.message || 'Failed to disconnect GitHub installation');
         } finally {
@@ -138,6 +166,21 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
                     );
                 })}
             </ul>
+            {available.length > 0 && (
+                <ul className={`space-y-2 ${installations.length > 0 ? 'mt-4' : ''}`}>
+                    {available.map((inst) => (
+                        <AvailableAccountRow
+                            key={inst.connector_id}
+                            inst={inst}
+                            canConnect={canDisconnect}
+                            connecting={connecting === inst.connector_id}
+                            disabled={connecting !== null}
+                            onConnect={() => void connect(inst)}
+                            onShowOthers={() => setShowingOthers(inst)}
+                        />
+                    ))}
+                </ul>
+            )}
             <Button
                 className="mt-4"
                 size="sm"
@@ -167,8 +210,67 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
     );
 };
 
+// One minimized line for an account this LiveReview account can connect: no repositories until it's connected.
+const AvailableAccountRow: React.FC<{
+    inst: GitHubAppAvailableInstallation;
+    canConnect: boolean;
+    connecting: boolean;
+    disabled: boolean;
+    onConnect: () => void;
+    onShowOthers: () => void;
+}> = ({ inst, canConnect, connecting, disabled, onConnect, onShowOthers }) => (
+    <li className="flex flex-wrap items-center justify-between gap-3 border border-slate-700 rounded-lg bg-slate-800 px-4 py-2.5">
+        <div className="flex items-center min-w-0">
+            <Avatar size="sm" initials={inst.account_login.charAt(0).toUpperCase()} className="flex-shrink-0 mr-3" />
+            <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-white break-all">{inst.account_login}</span>
+                    <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            inst.state === 'offered' ? 'bg-blue-900/20 text-blue-300' : 'bg-amber-900/20 text-amber-300'
+                        }`}
+                    >
+                        {inst.state === 'offered' ? 'Available' : 'Disconnected'}
+                    </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                    {inst.state === 'offered' ? (
+                        inst.other_orgs > 0 ? (
+                            <>
+                                Already installed by{' '}
+                                <button
+                                    type="button"
+                                    onClick={onShowOthers}
+                                    className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+                                >
+                                    {accountsLabel(inst.other_orgs)}
+                                </button>
+                                .
+                            </>
+                        ) : (
+                            'Already installed on GitHub.'
+                        )
+                    ) : (
+                        'Disconnected from this LiveReview account.'
+                    )}{' '}
+                    {inst.repo_scope === 'user'
+                        ? 'Connecting adds the repositories your GitHub account can access.'
+                        : 'Connecting adds all of its repositories.'}
+                </p>
+            </div>
+        </div>
+        {canConnect ? (
+            <Button size="sm" onClick={onConnect} isLoading={connecting} disabled={disabled && !connecting}>
+                Connect
+            </Button>
+        ) : (
+            <span className="text-xs text-slate-400">An organization owner can connect it</span>
+        )}
+    </li>
+);
+
 // Lists the other LiveReview accounts using an installation, by their owners' masked emails.
-const OtherAccountsModal: React.FC<{ inst: GitHubAppInstallation; onClose: () => void }> = ({ inst, onClose }) => {
+const OtherAccountsModal: React.FC<{ inst: SharedAccount; onClose: () => void }> = ({ inst, onClose }) => {
     const unnamed = inst.other_orgs - inst.other_accounts.length;
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
@@ -224,7 +326,7 @@ function confirmMessage(pending: PendingAction | null): string {
             (inst.other_orgs > 0
                 ? `, so the ${accountsLabel(inst.other_orgs)} using it ${inst.other_orgs === 1 ? 'keeps' : 'keep'} working`
                 : '') +
-            '. To connect it again, use "Add repositories or organization".';
+            '. You can connect it again from here.';
     }
     return `This uninstalls the LiveReview GitHub App from ${inst.account_login} on GitHub and stops LiveReview reviewing its pull requests. ` +
         (inst.other_orgs > 0

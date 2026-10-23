@@ -61,8 +61,8 @@ const GetStartedGitHub: React.FC = () => {
     const { data: aiConnectors = [] } = useQuery({ queryKey: ['ai-connectors'], queryFn: getAIConnectors, enabled: hasAIProvider });
     const usesLiveReviewModel = aiConnectors.some((c: any) => c?.provider_name === 'livereview-default-ai' && (c?.role || 'leader') === 'leader');
 
-    // After uninstalling the last account, show the fallback card instead of bouncing the user to GitHub.
-    const afterDisconnect = async () => {
+    // After a change (say, uninstalling the last account), show the fallback card instead of bouncing the user to GitHub.
+    const afterChange = async () => {
         try {
             sessionStorage.setItem(AUTO_CONNECT_KEY, '1');
         } catch {
@@ -76,11 +76,16 @@ const GetStartedGitHub: React.FC = () => {
     const connected = Boolean(demo?.connected);
     const settingsUrl = demo?.installations?.[0]?.settings_url || '';
     const installations = demo?.installations || [];
+    const available = demo?.available || [];
+    // Nothing connected, but the app is already installed on an account (by someone in another LiveReview account,
+    // or disconnected here): offer to connect it instead of sending the user to GitHub.
+    const canConnectInstead = !isLoading && !loadError && !connected && available.length > 0;
 
     // Nothing to review yet (the app isn't installed, or it was given no repositories): send the user to GitHub
     // instead of showing this page, but only ONCE per browser session. Coming back without finishing shows the
     // fallback card below instead of redirecting again. location.replace keeps this page out of the history.
-    const unconnected = !isLoading && !loadError && Boolean(demo) && (!connected || (repos.length === 0 && Boolean(settingsUrl)));
+    const unconnected = !isLoading && !loadError && Boolean(demo) && !canConnectInstead &&
+        (!connected || (repos.length === 0 && Boolean(settingsUrl)));
     const [alreadyTried, setAlreadyTried] = useState(() => {
         try {
             return sessionStorage.getItem(AUTO_CONNECT_KEY) === '1';
@@ -153,6 +158,32 @@ const GetStartedGitHub: React.FC = () => {
                     </Card>
                 )}
 
+                {canConnectInstead && (
+                    <Card className="mt-6">
+                        <div className="p-6 space-y-3">
+                            <h2 className="text-lg font-semibold text-white">
+                                LiveReview is already installed on {available.map((a) => a.account_login).join(', ')}
+                            </h2>
+                            <p className="text-sm text-slate-300">
+                                {canDisconnect
+                                    ? 'Connect it to your account to see its repositories and pull requests here and review them with your own AI provider.'
+                                    : 'An owner of your LiveReview organization can connect it to see its repositories and pull requests here.'}
+                            </p>
+                            <GitHubAppAccounts
+                                installations={[]}
+                                available={available}
+                                repos={[]}
+                                canDisconnect={canDisconnect}
+                                onInstallAnother={connectGitHub}
+                                installBusy={reconnecting}
+                                onChanged={async () => {
+                                    await refetch();
+                                }}
+                            />
+                        </div>
+                    </Card>
+                )}
+
                 {!isLoading && !needsGitHub && connected && (
                     <Card className="mt-6">
                         <ol className="p-6">
@@ -163,11 +194,12 @@ const GetStartedGitHub: React.FC = () => {
                                 <div className="mt-2">
                                     <GitHubAppAccounts
                                         installations={installations}
+                                        available={available}
                                         repos={repos}
                                         canDisconnect={canDisconnect}
                                         onInstallAnother={connectGitHub}
                                         installBusy={reconnecting}
-                                        onDisconnected={afterDisconnect}
+                                        onChanged={afterChange}
                                     />
                                 </div>
                             </Step>

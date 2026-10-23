@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -169,6 +170,95 @@ func TestUpsertAppInstallationConnector_RepoScope(t *testing.T) {
 	}
 	if _, _, removed := scopeOf(t, store, id); removed {
 		t.Fatal("installing again did not reconnect it")
+	}
+}
+
+func TestUpsertAppInstallationConnector_OfferIfShared(t *testing.T) {
+	db := testDB(t)
+	store := storagegithub.NewTokenStore(db)
+	suffix := time.Now().UnixNano()
+	orgA := testOrg(t, db, fmt.Sprintf("ghapp-offer-a-%d", suffix))
+	orgB := testOrg(t, db, fmt.Sprintf("ghapp-offer-b-%d", suffix))
+	inst := uniqueInstallation()
+	plain := storagegithub.AppConnectorUpsert{
+		OrgID: orgA, BaseURL: "https://ghes.test", InstallationID: inst, AccountLogin: "acme", AccountType: "Organization",
+		Token: "ghs_a", ExpiresAt: time.Now().Add(time.Hour), KeepDisconnected: true, OfferIfShared: true,
+	}
+
+	// The first org to see the installation gets it connected, even on a plain sign-in.
+	idA, _, err := store.UpsertAppInstallationConnector(plain)
+	if err != nil {
+		t.Fatalf("first org: err = %v, want connected", err)
+	}
+
+	// Another org's plain sign-in is only offered it: no token, nothing live.
+	plain.OrgID, plain.Token, plain.RepoScope, plain.AllowedRepoIDs = orgB, "ghs_b", storagegithub.RepoScopeUser, []int64{5}
+	idB, created, err := store.UpsertAppInstallationConnector(plain)
+	if !errors.Is(err, storagegithub.ErrAppConnectorOffered) || !created {
+		t.Fatalf("second org: (created %v, err %v), want a new offered connector", created, err)
+	}
+	if rec, _ := store.GetGitHubTokenByConnectorID(idB); rec.PatToken != "" || rec.ExpiresAt.Valid {
+		t.Fatalf("offered connector stored a token: %+v", rec)
+	}
+	if live, _ := store.ListAppConnectorsForOrg(orgB); len(live) != 0 {
+		t.Fatalf("offered connector is live: %v", live)
+	}
+	if avail, err := store.ListNotConnectedAppConnectorsForOrg(orgB); err != nil || len(avail) != 1 || avail[0].ID != idB {
+		t.Fatalf("ListNotConnectedAppConnectorsForOrg = %v, %v; want [%d]", avail, err, idB)
+	}
+	if n, _ := store.CountOtherOrgsUsingInstallation("https://ghes.test", inst, orgA); n != 0 {
+		t.Fatalf("an offered connector counts as using the installation: %d", n)
+	}
+
+	// Later sign-ins keep it offered but refresh its scope.
+	plain.AllowedRepoIDs = []int64{5, 6}
+	if _, _, err := store.UpsertAppInstallationConnector(plain); !errors.Is(err, storagegithub.ErrAppConnectorOffered) {
+		t.Fatalf("second sign-in: err = %v, want ErrAppConnectorOffered", err)
+	}
+	if scope, allowed, removed := scopeOf(t, store, idB); scope != storagegithub.RepoScopeUser || len(allowed) != 2 || !removed {
+		t.Fatalf("after refresh: %q %v removed=%v, want user [5 6], still not connected", scope, allowed, removed)
+	}
+
+	// Connect makes it live with the recorded scope; connecting twice is refused.
+	if err := store.ConnectAppConnector(idB, "ghs_b2", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if scope, allowed, removed := scopeOf(t, store, idB); scope != storagegithub.RepoScopeUser || len(allowed) != 2 || removed {
+		t.Fatalf("after connect: %q %v removed=%v, want live user [5 6]", scope, allowed, removed)
+	}
+	if rec, _ := store.GetGitHubTokenByConnectorID(idB); rec.PatToken != "ghs_b2" {
+		t.Fatal("connect did not store the token")
+	}
+	if err := store.ConnectAppConnector(idB, "x", time.Now()); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("connecting a live connector: err = %v, want sql.ErrNoRows", err)
+	}
+	// Connected now, so a plain sign-in just refreshes it.
+	if _, _, err := store.UpsertAppInstallationConnector(plain); err != nil {
+		t.Fatalf("sign-in after connect: err = %v", err)
+	}
+
+	// Disconnected, then uninstalled: nothing is left to connect.
+	if err := store.DisconnectAppConnector(idB); err != nil {
+		t.Fatal(err)
+	}
+	if avail, _ := store.ListNotConnectedAppConnectorsForOrg(orgB); len(avail) != 1 {
+		t.Fatalf("a disconnected connector should be available: %v", avail)
+	}
+	yes := true
+	for _, id := range []int64{idA, idB} {
+		if err := store.SetAppConnectorFlags(id, &yes, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if avail, _ := store.ListNotConnectedAppConnectorsForOrg(orgB); len(avail) != 0 {
+		t.Fatalf("an uninstalled connector is still offered: %v", avail)
+	}
+	if err := store.ConnectAppConnector(idB, "x", time.Now()); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("connecting an uninstalled connector: err = %v, want sql.ErrNoRows", err)
+	}
+	// Installed again with nobody else using it: a plain sign-in connects it.
+	if _, _, err := store.UpsertAppInstallationConnector(plain); err != nil {
+		t.Fatalf("sign-in after reinstall: err = %v, want connected", err)
 	}
 }
 

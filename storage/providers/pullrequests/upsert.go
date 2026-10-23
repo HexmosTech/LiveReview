@@ -230,6 +230,48 @@ func (s *Store) SiblingPullRequestForUser(prID, userID int64) (orgID, siblingID 
 	return orgID, siblingID, err
 }
 
+// AvailableConnector is a GitHub App connector an org could connect to reach a pull request (see
+// AvailableConnectorForPullRequest).
+type AvailableConnector struct {
+	OrgID        int64
+	ConnectorID  int64
+	AccountLogin string
+	// CanConnect is true when the user is an owner (or super admin) of that org; only they can connect.
+	CanConnect bool
+}
+
+// AvailableConnectorForPullRequest finds, in an org the user belongs to, a GitHub App connector that is available
+// but not connected (disconnected, or offered because another org uses the installation) for the same installation
+// as prID's repository, and that covers that repository (a user-scoped one only covers its allowed list). It's for
+// PR links that name another org's copy of the PR while the user's org hasn't connected the installation yet; it
+// only points at the user's own org, so it grants no new access. sql.ErrNoRows when none.
+func (s *Store) AvailableConnectorForPullRequest(prID, userID int64) (AvailableConnector, error) {
+	var a AvailableConnector
+	err := s.db.QueryRow(`
+		SELECT st.org_id, st.id, COALESCE(st.metadata->>'account_login', ''),
+		       EXISTS (
+				SELECT 1 FROM user_roles ur JOIN roles ro ON ro.id = ur.role_id
+				WHERE ur.user_id = $2 AND ur.org_id = st.org_id AND ro.name IN ('owner', 'super_admin')
+		       )
+		FROM pull_requests pr
+		JOIN repositories r ON r.id = pr.repository_id
+		JOIN integration_tokens t ON t.id = r.connector_id AND t.token_type = 'GITHUB_APP'
+		JOIN integration_tokens st ON st.token_type = t.token_type AND st.provider_url = t.provider_url
+			AND st.provider_app_id = t.provider_app_id AND st.id <> t.id
+		WHERE pr.id = $1
+		  AND COALESCE(st.metadata->>'removed', 'false') = 'true'
+		  AND COALESCE(st.metadata->>'disconnected', 'false') = 'true'
+		  AND COALESCE(st.metadata->>'suspended', 'false') <> 'true'
+		  AND (COALESCE(st.metadata->>'repo_scope', 'installer') <> 'user'
+		       OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(st.metadata->'allowed_repo_ids', '[]'::jsonb)) a
+		                  WHERE a = r.provider_repo_id))
+		  AND EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = $2 AND ur.org_id = st.org_id)
+		ORDER BY st.id
+		LIMIT 1
+	`, prID, userID).Scan(&a.OrgID, &a.ConnectorID, &a.AccountLogin, &a.CanConnect)
+	return a, err
+}
+
 // ListRepositoryFullNamesByConnector returns the full names of a connector's repositories, sorted.
 func (s *Store) ListRepositoryFullNamesByConnector(connectorID int64) ([]string, error) {
 	rows, err := s.db.Query(`SELECT full_name FROM repositories WHERE connector_id = $1 ORDER BY full_name`, connectorID)

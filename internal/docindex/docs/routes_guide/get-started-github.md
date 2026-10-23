@@ -35,16 +35,25 @@ organization has a GitHub App connection.
   opens GitHub's install page so the app can be added to
   another account or organization (it lists the ones you can install on); after
   installing, the user returns here and the new account appears in the list.
+- **Already installed by someone else:** when the only GitHub accounts the user
+  can see already have the app installed by another LiveReview account (for
+  example a teammate's), nothing is connected yet. The page says "LiveReview is
+  already installed on <account>" and lists each such account on one line,
+  marked **Available**, with a **Connect** button (organization owners only;
+  members see that an owner can connect it). Connecting adds all of its
+  repositories, or only the ones the user's GitHub account can access (the line
+  says which), and the usual steps appear. It doesn't send the user to GitHub.
 - When the app was already installed on the account by someone else, the
-  account says so and shows only the repositories the user's GitHub account can
-  access. When other LiveReview accounts use the same installation, it says how
+  connected account says so and shows only the repositories the user's GitHub
+  account can access. When other LiveReview accounts use the same installation, it says how
   many ("Also used by 1 other LiveReview account"); clicking that opens a popup
   listing those accounts' owners by masked email (first two letters and the
   domain, e.g. `at•••@gmail.com`).
 - **Disconnect** (organization owners only) — next to each account: stops
   LiveReview using it for this organization only and drops its repositories
   here. The app stays installed on GitHub, so other LiveReview accounts using it
-  keep working. To connect it again, use **Add repositories or organization**.
+  keep working. The account then shows on one line, marked **Disconnected**, with
+  a **Connect** button to connect it again.
 - **Uninstall** (organization owners only) — next to each account: uninstalls
   the LiveReview GitHub App from that GitHub account or organization (using the
   app's own credentials, so the user does not need to be a GitHub owner). This

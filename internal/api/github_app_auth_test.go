@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -442,7 +443,7 @@ func connectorMeta(t *testing.T, rec *storagegithub.IntegrationTokenRecord) appC
 	return sc
 }
 
-func TestGitHubAppCallback_SharedInstallationConnectsSecondOrgWithItsUsersRepos(t *testing.T) {
+func TestGitHubAppCallback_SharedInstallationOffersSecondOrgItsUsersRepos(t *testing.T) {
 	f := newFakeGitHub(t)
 	s, db := newGitHubAppTestServer(t, f)
 	emailA := fmt.Sprintf("gh-owner-a-%d@example.test", time.Now().UnixNano())
@@ -464,30 +465,38 @@ func TestGitHubAppCallback_SharedInstallationConnectsSecondOrgWithItsUsersRepos(
 	if rec := callback(emailA, ghModeInstall, fmt.Sprint(inst)); rec.Code != http.StatusFound {
 		t.Fatalf("installer: status %d: %s", rec.Code, rec.Body.String())
 	}
-	// B signs up on their own, sees the installation, and can only access repository 1. Adding installation_id to
-	// the callback URL by hand must not get B the rest.
+	// B signs up on their own, sees the installation, and can only access repository 1. It's only offered to B's
+	// org (not connected) until B connects it.
 	f.userRepos = `[{"id":1}]`
 	if rec := callback(emailB, ghModeSignin, ""); rec.Code != http.StatusFound {
 		t.Fatalf("second org: status %d: %s", rec.Code, rec.Body.String())
 	}
-	if rec := callback(emailB, ghModeInstall, fmt.Sprint(inst)); rec.Code != http.StatusFound {
-		t.Fatalf("second org, crafted installation_id: status %d: %s", rec.Code, rec.Body.String())
-	}
-
 	var orgA, orgB int64
 	_ = db.QueryRow(`SELECT id FROM orgs WHERE name = $1`, emailA).Scan(&orgA)
 	_ = db.QueryRow(`SELECT id FROM orgs WHERE name = $1`, emailB).Scan(&orgB)
 	store := storagegithub.NewTokenStore(db)
-	connA, err := store.GetAppConnectorByInstallation(f.srv.URL, inst, orgA)
-	if err != nil || connectorMeta(t, connA).RepoScope != storagegithub.RepoScopeInstaller {
-		t.Fatalf("installer org connector: %+v %v", connA, err)
-	}
 	connB, err := store.GetAppConnectorByInstallation(f.srv.URL, inst, orgB)
 	if err != nil {
 		t.Fatalf("second org has no connector: %v", err)
 	}
-	if sc := connectorMeta(t, connB); sc.RepoScope != storagegithub.RepoScopeUser || len(sc.AllowedRepoIDs) != 1 || sc.AllowedRepoIDs[0] != 1 {
-		t.Fatalf("second org connector scope = %+v, want user [1]", sc)
+	if sc := connectorMeta(t, connB); !sc.Removed || sc.RepoScope != storagegithub.RepoScopeUser || len(sc.AllowedRepoIDs) != 1 || connB.PatToken != "" {
+		t.Fatalf("second org connector = %+v (token %q), want offered (not connected) with user [1]", sc, connB.PatToken)
+	}
+	if avail, _ := store.ListNotConnectedAppConnectorsForOrg(orgB); len(avail) != 1 || avail[0].ID != connB.ID {
+		t.Fatalf("second org isn't offered the installation: %v", avail)
+	}
+
+	// Adding installation_id to the callback URL by hand connects it (like Connect would) but must not get B the rest.
+	if rec := callback(emailB, ghModeInstall, fmt.Sprint(inst)); rec.Code != http.StatusFound {
+		t.Fatalf("second org, crafted installation_id: status %d: %s", rec.Code, rec.Body.String())
+	}
+	connA, err := store.GetAppConnectorByInstallation(f.srv.URL, inst, orgA)
+	if err != nil || connectorMeta(t, connA).RepoScope != storagegithub.RepoScopeInstaller {
+		t.Fatalf("installer org connector: %+v %v", connA, err)
+	}
+	connB, _ = store.GetAppConnectorByInstallation(f.srv.URL, inst, orgB)
+	if sc := connectorMeta(t, connB); sc.Removed || sc.RepoScope != storagegithub.RepoScopeUser || len(sc.AllowedRepoIDs) != 1 || sc.AllowedRepoIDs[0] != 1 {
+		t.Fatalf("second org connector scope = %+v, want connected with user [1]", sc)
 	}
 
 	// The installer signing in again stays installer, even if GitHub now reports fewer repositories for them.
@@ -984,6 +993,90 @@ func TestGitHubAppDisconnect_SharedInstallation(t *testing.T) {
 	}
 	if !removed(connB) || !removed(connC) || len(f.deleted) != 1 || f.deleted[0] != fmt.Sprint(inst) {
 		t.Fatalf("uninstall: B=%v C=%v github uninstalls=%v", removed(connB), removed(connC), f.deleted)
+	}
+}
+
+func TestGitHubAppConnect_OwnersOnlyOrgScopedAndListedAsAvailable(t *testing.T) {
+	f := newFakeGitHub(t)
+	s, db := newGitHubAppTestServer(t, f)
+	store := storagegithub.NewTokenStore(db)
+	inst := time.Now().UnixNano() % 1_000_000_000_000
+	mkOrg := func(prefix string) int64 {
+		name := fmt.Sprintf("%s-%d@example.test", prefix, time.Now().UnixNano())
+		cleanupGitHubAppTenant(t, db, name)
+		var id int64
+		if err := db.QueryRow(`INSERT INTO orgs (name, description) VALUES ($1, 'connect test') RETURNING id`, name).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	orgA, orgB := mkOrg("gh-connect-a"), mkOrg("gh-connect-b")
+	upsert := storagegithub.AppConnectorUpsert{
+		OrgID: orgA, BaseURL: f.srv.URL, InstallationID: inst, AccountLogin: "acme", AccountType: "Organization",
+		Token: "ghs_a", ExpiresAt: time.Now().Add(time.Hour), KeepDisconnected: true, OfferIfShared: true,
+	}
+	if _, _, err := store.UpsertAppInstallationConnector(upsert); err != nil {
+		t.Fatal(err)
+	}
+	upsert.OrgID, upsert.RepoScope, upsert.AllowedRepoIDs = orgB, storagegithub.RepoScopeUser, []int64{1}
+	connB, _, err := store.UpsertAppInstallationConnector(upsert)
+	if !errors.Is(err, storagegithub.ErrAppConnectorOffered) {
+		t.Fatalf("second org: err = %v, want offered", err)
+	}
+
+	demo := func(org int64) githubAppDemoResponse {
+		rec := httptest.NewRecorder()
+		c := echo.New().NewContext(httptest.NewRequest(http.MethodGet, "/api/v1/github-app/demo?light=1", nil), rec)
+		c.Set("org_id", org)
+		if err := s.GitHubAppDemo(c); err != nil || rec.Code != http.StatusOK {
+			t.Fatalf("demo: %v %d", err, rec.Code)
+		}
+		var out githubAppDemoResponse
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		return out
+	}
+	if d := demo(orgB); d.Connected || len(d.Installations) != 0 || len(d.Available) != 1 ||
+		d.Available[0].ConnectorID != connB || d.Available[0].State != "offered" || d.Available[0].RepoScope != storagegithub.RepoScopeUser || d.Available[0].OtherOrgs != 1 {
+		t.Fatalf("offered org's demo = %+v", d)
+	}
+	if d := demo(orgA); len(d.Available) != 0 || len(d.Installations) != 1 || d.Installations[0].OtherOrgs != 0 {
+		t.Fatalf("installer org's demo = %+v (an offered org must not count as using it)", d)
+	}
+
+	call := func(org int64, owner bool) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		c := echo.New().NewContext(httptest.NewRequest(http.MethodPost, "/api/v1/github-app/installations/"+fmt.Sprint(connB)+"/connect", nil), rec)
+		c.SetParamNames("connector_id")
+		c.SetParamValues(fmt.Sprint(connB))
+		c.Set("org_id", org)
+		c.Set(string(auth.PermissionContextKey), &auth.PermissionContext{IsOwner: owner, IsMember: !owner, OrgID: org})
+		if err := s.GitHubAppConnect(c); err != nil {
+			t.Fatal(err)
+		}
+		return rec
+	}
+	live := func() bool {
+		recs, _ := store.ListAppConnectorsForOrg(orgB)
+		return len(recs) == 1
+	}
+	if rec := call(orgB, false); rec.Code != http.StatusForbidden || live() {
+		t.Fatalf("a plain member must not connect: %d", rec.Code)
+	}
+	if rec := call(orgA, true); rec.Code != http.StatusNotFound || live() {
+		t.Fatalf("another org's owner must get 404: %d", rec.Code)
+	}
+	if rec := call(orgB, true); rec.Code != http.StatusOK || !live() {
+		t.Fatalf("owner connect: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, _ := store.GetGitHubTokenByConnectorID(connB)
+	if sc := connectorMeta(t, rec); rec.PatToken != "ghs_inst" || sc.RepoScope != storagegithub.RepoScopeUser || len(sc.AllowedRepoIDs) != 1 {
+		t.Fatalf("connected connector = %+v (token %q), want the recorded user [1] scope and a fresh token", sc, rec.PatToken)
+	}
+	if d := demo(orgB); !d.Connected || len(d.Available) != 0 {
+		t.Fatalf("after connect, demo = %+v", d)
+	}
+	if rec := call(orgB, true); rec.Code != http.StatusConflict {
+		t.Fatalf("connecting twice: %d, want 409", rec.Code)
 	}
 }
 

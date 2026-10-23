@@ -325,6 +325,75 @@ func TestSiblingPullRequestForUser_OnlyInTheUsersOrgs(t *testing.T) {
 	}
 }
 
+func TestAvailableConnectorForPullRequest(t *testing.T) {
+	db := testDB(t)
+	store := NewStore(db)
+	stamp := time.Now().Format("150405.000000")
+	inst := "avail-" + stamp
+
+	mkOrg := func(name string) int64 {
+		var id int64
+		if err := db.QueryRow(`INSERT INTO orgs (name, description) VALUES ($1, 'available test') RETURNING id`, name).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM orgs WHERE id = $1`, id) })
+		return id
+	}
+	mkConnector := func(orgID int64, meta string) int64 {
+		var id int64
+		if err := db.QueryRow(`
+			INSERT INTO integration_tokens (provider, provider_app_id, access_token, token_type, connection_name, provider_url, org_id, metadata)
+			VALUES ('github', $1, '', 'GITHUB_APP', 'c', 'https://github.test', $2, $3::jsonb) RETURNING id`, inst, orgID, meta).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM integration_tokens WHERE id = $1`, id) })
+		return id
+	}
+	orgA, orgB := mkOrg("avail-a-"+stamp), mkOrg("avail-b-"+stamp)
+	connA := mkConnector(orgA, `{"account_login":"acme"}`)
+	connB := mkConnector(orgB, `{"account_login":"acme","removed":true,"disconnected":true,"offered":true,"repo_scope":"user","allowed_repo_ids":[42]}`)
+	repoID, err := store.UpsertRepository(RepositoryUpsert{
+		OrgID: orgA, ConnectorID: connA, Provider: "github", ProviderRepoID: "42", FullName: "acme/api", Name: "api",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM repositories WHERE id = $1`, repoID) })
+	prA, err := store.UpsertPullRequest(PullRequestUpsert{
+		RepositoryID: repoID, OrgID: orgA, Provider: "github", ProviderPRID: "gh-pr-" + stamp, Number: 1, Title: "t", State: "open",
+		ProviderUpdatedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var userID int64
+	if err := db.QueryRow(`INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`, "avail-"+stamp+"@example.test").Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM user_roles WHERE user_id = $1`, userID)
+		_, _ = db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+	})
+	if _, err := store.AvailableConnectorForPullRequest(prA, userID); err != sql.ErrNoRows {
+		t.Fatalf("a user in neither org: err = %v, want sql.ErrNoRows", err)
+	}
+	if _, err := db.Exec(`INSERT INTO user_roles (user_id, org_id, role_id) VALUES ($1, $2, (SELECT id FROM roles WHERE name = 'owner'))`, userID, orgB); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.AvailableConnectorForPullRequest(prA, userID)
+	if err != nil || got.OrgID != orgB || got.ConnectorID != connB || got.AccountLogin != "acme" || !got.CanConnect {
+		t.Fatalf("got %+v, %v; want org %d's connector %d, connectable", got, err, orgB, connB)
+	}
+	// Not on the user-scoped connector's allowed list: connecting wouldn't reach this repository.
+	if _, err := db.Exec(`UPDATE integration_tokens SET metadata = jsonb_set(metadata, '{allowed_repo_ids}', '[7]') WHERE id = $1`, connB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AvailableConnectorForPullRequest(prA, userID); err != sql.ErrNoRows {
+		t.Fatalf("repository not covered: err = %v, want sql.ErrNoRows", err)
+	}
+}
+
 func TestDeleteRepositoriesByConnectorExcept(t *testing.T) {
 	db := testDB(t)
 	store := NewStore(db)
