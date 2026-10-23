@@ -76,10 +76,10 @@ const GhLogin: React.FC = () => {
                         Auto-approve up to 50% of your pull requests, safely
                     </h1>
 
-                    <ul className="mt-8 space-y-3 text-base text-gray-200 leading-relaxed">
+                    <ul className="mt-8 space-y-2.5 text-sm text-gray-200 leading-relaxed">
                         {POINTS.map((point) => (
-                            <li key={point} className="flex items-start gap-3">
-                                <FaCheck className="mt-1 h-4 w-4 flex-shrink-0 text-green-400" aria-hidden="true" />
+                            <li key={point} className="flex items-start gap-2.5">
+                                <FaCheck className="mt-1 h-3.5 w-3.5 flex-shrink-0 text-green-400" aria-hidden="true" />
                                 <span>{point}</span>
                             </li>
                         ))}
