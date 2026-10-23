@@ -10,6 +10,8 @@ export interface GitHubAppInstallation {
   repo_scope: 'installer' | 'user';
   /** How many other LiveReview accounts use this installation. */
   other_orgs: number;
+  /** Their owners' emails, masked by the server (e.g. "at•••@gmail.com"). */
+  other_accounts: string[];
 }
 
 export interface GitHubAppRepository {

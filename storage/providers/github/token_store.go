@@ -229,6 +229,34 @@ func (s *TokenStore) CountOtherOrgsUsingInstallation(baseURL string, installatio
 	return n, err
 }
 
+// OtherOrgOwnerEmailsForInstallation returns the emails of the active owners of the other orgs with a live connector
+// for the installation, sorted and without duplicates. Callers show them masked only.
+func (s *TokenStore) OtherOrgOwnerEmailsForInstallation(baseURL string, installationID, orgID int64) ([]string, error) {
+	rows, err := s.db.Query(`
+		SELECT DISTINCT LOWER(u.email)
+		FROM integration_tokens it
+		JOIN user_roles ur ON ur.org_id = it.org_id
+		JOIN roles r ON r.id = ur.role_id AND r.name = 'owner'
+		JOIN users u ON u.id = ur.user_id AND u.is_active
+		WHERE it.token_type = $1 AND it.provider_url = $2 AND it.provider_app_id = $3 AND it.org_id <> $4
+		  AND COALESCE(it.metadata->>'removed', 'false') <> 'true'
+		ORDER BY 1
+	`, TokenTypeGitHubApp, baseURL, fmt.Sprintf("%d", installationID), orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	emails := []string{}
+	for rows.Next() {
+		var e string
+		if err := rows.Scan(&e); err != nil {
+			return nil, err
+		}
+		emails = append(emails, e)
+	}
+	return emails, rows.Err()
+}
+
 // LatestReviewConnector returns which of the connectors ran the most recent review of the PR/MR at prURL;
 // sql.ErrNoRows when none of them reviewed it.
 func (s *TokenStore) LatestReviewConnector(connectorIDs []int64, prURL string) (int64, error) {

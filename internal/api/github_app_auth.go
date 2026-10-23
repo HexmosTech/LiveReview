@@ -866,8 +866,11 @@ type githubAppDemoInstallation struct {
 	// RepoScope is "user" when this org only gets the repositories its GitHub user can access (the App was
 	// installed by someone else), otherwise "installer".
 	RepoScope string `json:"repo_scope"`
-	// OtherOrgs counts the other LiveReview orgs using this installation (a number only, nothing about them).
+	// OtherOrgs counts the other LiveReview orgs using this installation.
 	OtherOrgs int `json:"other_orgs"`
+	// OtherAccounts lists those orgs' owners, masked ("at•••@gmail.com"): enough to recognise a teammate, not
+	// to contact them. Full addresses never leave the server.
+	OtherAccounts []string `json:"other_accounts"`
 }
 
 type githubAppDemoRepo struct {
@@ -945,9 +948,17 @@ func (s *Server) GitHubAppDemo(c echo.Context) error {
 			scope = storagegithub.RepoScopeUser
 		}
 		others, err := store.CountOtherOrgsUsingInstallation(cfg.BaseURL, meta.InstallationID, orgID)
+		var ownerEmails []string
+		if err == nil {
+			ownerEmails, err = store.OtherOrgOwnerEmailsForInstallation(cfg.BaseURL, meta.InstallationID, orgID)
+		}
 		if err != nil {
-			log.Printf("[GitHubApp] demo: counting other orgs for connector %d failed: %v", rec.ID, err)
+			log.Printf("[GitHubApp] demo: looking up other orgs for connector %d failed: %v", rec.ID, err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load GitHub connections"})
+		}
+		otherAccounts := make([]string, 0, len(ownerEmails))
+		for _, e := range ownerEmails {
+			otherAccounts = append(otherAccounts, maskEmail(e))
 		}
 
 		var token string
@@ -962,7 +973,7 @@ func (s *Server) GitHubAppDemo(c echo.Context) error {
 		resp.Installations = append(resp.Installations, githubAppDemoInstallation{
 			ConnectorID: rec.ID, AccountLogin: meta.AccountLogin, AccountType: meta.AccountType,
 			RepositorySelection: meta.RepositorySelection, SettingsURL: cfg.InstallationSettingsURL(meta.AccountType, meta.AccountLogin, meta.InstallationID),
-			RepoScope: scope, OtherOrgs: others,
+			RepoScope: scope, OtherOrgs: others, OtherAccounts: otherAccounts,
 		})
 		if light {
 			continue
@@ -1007,6 +1018,21 @@ func (s *Server) GitHubAppDemo(c echo.Context) error {
 		resp.OpenPullRequests = resp.OpenPullRequests[:githubAppDemoMaxPulls]
 	}
 	return c.JSON(http.StatusOK, resp)
+}
+
+// maskEmail keeps the first two characters of the name and the domain: "athreyac4@gmail.com" -> "at•••@gmail.com"
+// (one character when the name is that short).
+func maskEmail(email string) string {
+	at := strings.LastIndex(email, "@")
+	if at < 1 {
+		return "•••"
+	}
+	name := []rune(email[:at])
+	keep := 2
+	if len(name) <= 2 {
+		keep = 1
+	}
+	return string(name[:keep]) + "•••" + email[at:]
 }
 
 // ---------------------------------------------------------------------------------------------------------
