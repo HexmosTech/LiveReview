@@ -601,7 +601,7 @@ USAGE:
     lrops.sh help apache               # Apache reverse proxy setup
 
 INSTALLATION OPTIONS:
-    --express                          Use secure defaults, no prompts (demo mode)
+    --express                          Use secure defaults, no prompts (demo mode; with setup-production: production mode)
     --force                           Overwrite existing installation
     --version=v1.2.3                  Install specific version (default: latest)
     --dry-run                         Show what would be done without installing
@@ -1533,7 +1533,13 @@ gather_configuration() {
     section_header "CONFIGURATION"
     
     if [[ "$EXPRESS_MODE" == "true" ]]; then
-        log_info "Express mode: Using secure defaults for demo mode"
+        # Express asks no questions. setup-production --express keeps its preset mode;
+        # everything else stays demo.
+        local express_mode="demo"
+        if [[ "$PRESET_DEPLOYMENT_MODE" == "production" ]]; then
+            express_mode="production"
+        fi
+        log_info "Express mode: Using secure defaults for $express_mode mode"
         
         # Generate secure defaults
         local db_password
@@ -1542,7 +1548,7 @@ gather_configuration() {
         jwt_secret=$(generate_jwt_secret)
         
         # Configure deployment variables
-        configure_deployment_mode "demo" 8888 8081
+        configure_deployment_mode "$express_mode" 8888 8081
         
         # Demo mode defaults (localhost-only)
         cat > "$config_file" << EOF
@@ -1567,7 +1573,7 @@ LIVEREVIEW_BACKEND_PORT=8888
 LIVEREVIEW_FRONTEND_PORT=8081
 
 # Reverse proxy setup (only change if using nginx/apache in front)
-LIVEREVIEW_REVERSE_PROXY=false
+LIVEREVIEW_REVERSE_PROXY=$REVERSE_PROXY
 
 #==============================================================================
 # OPTIONAL CONFIGURATION
@@ -1578,8 +1584,12 @@ LOG_LEVEL=info
 ACCESS_TOKEN_DURATION_HOURS=8
 REFRESH_TOKEN_DURATION_DAYS=30
 EOF
-    log_success "✅ Demo mode configuration (localhost-only, no webhooks)"
-    log_info "   To upgrade to production mode, set LIVEREVIEW_REVERSE_PROXY=true and configure your reverse proxy"
+    if [[ "$express_mode" == "production" ]]; then
+        log_success "✅ Production mode configuration (reverse proxy, webhooks enabled)"
+    else
+        log_success "✅ Demo mode configuration (localhost-only, no webhooks)"
+        log_info "   To upgrade to production mode, set LIVEREVIEW_REVERSE_PROXY=true and configure your reverse proxy"
+    fi
     else
         log_info "Interactive configuration mode"
 
@@ -1900,6 +1910,7 @@ LIVEREVIEW_BACKEND_PORT=$backend_port
 LIVEREVIEW_FRONTEND_PORT=$frontend_port
 LIVEREVIEW_REVERSE_PROXY=$REVERSE_PROXY
 LIVEREVIEW_IS_CLOUD=false
+$([[ -n "${LIVEREVIEW_BIND_ADDR:-}" ]] && echo "# Interface the app ports listen on (127.0.0.1 = this machine only)" && echo "LIVEREVIEW_BIND_ADDR=$LIVEREVIEW_BIND_ADDR")
 
 # Database
 DB_PASSWORD=$DB_PASSWORD
@@ -5400,7 +5411,8 @@ main() {
             # Interactive for the password/JWT prompts (so they can be overridden), but
             # the deployment-mode question itself is answered here: this command said
             # "production", so it should not turn around and ask which mode you want.
-            EXPRESS_MODE=false
+            # EXPRESS_MODE is left as parse_arguments set it, so `setup-production --express`
+            # runs with no prompts at all (generated secrets, production mode).
             FORCE_INSTALL=false
             PRESET_DEPLOYMENT_MODE="production"
             log_info "Setting up LiveReview in production mode"
@@ -5968,8 +5980,8 @@ services:
             LIVEREVIEW_PRICING_PROFILE: ${LIVEREVIEW_PRICING_PROFILE:-actual}  
             # Framework-specific API vars are derived at runtime in entrypoint
         ports:
-            - "${LIVEREVIEW_FRONTEND_PORT:-8081}:8081"  # Frontend UI
-            - "${LIVEREVIEW_BACKEND_PORT:-8888}:8888"   # Backend API
+            - "${LIVEREVIEW_BIND_ADDR:-0.0.0.0}:${LIVEREVIEW_FRONTEND_PORT:-8081}:8081"  # Frontend UI
+            - "${LIVEREVIEW_BIND_ADDR:-0.0.0.0}:${LIVEREVIEW_BACKEND_PORT:-8888}:8888"   # Backend API
         depends_on:
             livereview-db:
                 condition: service_healthy
