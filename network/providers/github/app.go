@@ -230,6 +230,32 @@ func ListUserInstallations(ctx context.Context, apiBase, userToken string) ([]In
 	return all, nil
 }
 
+// ListUserInstallationRepositoryIDs returns the ids of the installation's repositories that the user can access,
+// following pagination (GitHub decides access: org base permission, teams, collaborator grants).
+func ListUserInstallationRepositoryIDs(ctx context.Context, apiBase, userToken string, installationID int64) ([]int64, error) {
+	ids := []int64{}
+	next := fmt.Sprintf("%s/user/installations/%d/repositories?per_page=100", apiBase, installationID)
+	for page := 0; next != ""; page++ {
+		if page == 100 {
+			return nil, fmt.Errorf("installation %d lists more than 10000 repositories for this user", installationID)
+		}
+		var out struct {
+			Repositories []struct {
+				ID int64 `json:"id"`
+			} `json:"repositories"`
+		}
+		resp, err := doJSON(ctx, http.MethodGet, next, "Bearer "+userToken, nil, http.StatusOK, &out)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range out.Repositories {
+			ids = append(ids, r.ID)
+		}
+		next = nextLink(resp, apiBase)
+	}
+	return ids, nil
+}
+
 type InstallationRepo struct {
 	ID            int64  `json:"id"`
 	Name          string `json:"name"`

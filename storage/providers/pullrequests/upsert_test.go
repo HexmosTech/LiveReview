@@ -258,3 +258,90 @@ func TestUpsertPullRequest_ConcurrentUpsertsDoNotDuplicate(t *testing.T) {
 		t.Fatalf("expected exactly 1 row after concurrent upserts, got %d", count)
 	}
 }
+
+func TestSiblingPullRequestForUser_OnlyInTheUsersOrgs(t *testing.T) {
+	db := testDB(t)
+	store := NewStore(db)
+
+	mkOrg := func(name string) int64 {
+		var id int64
+		if err := db.QueryRow(`INSERT INTO orgs (name, description) VALUES ($1, 'sibling test') RETURNING id`, name).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM orgs WHERE id = $1`, id) })
+		return id
+	}
+	mkConnector := func(orgID int64) int64 {
+		var id int64
+		if err := db.QueryRow(`
+			INSERT INTO integration_tokens (provider, provider_app_id, access_token, connection_name, provider_url, org_id)
+			VALUES ('github', 'sibling-test', 'na', 'c', 'https://github.test', $1) RETURNING id`, orgID).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM integration_tokens WHERE id = $1`, id) })
+		return id
+	}
+	mkPR := func(orgID, connectorID int64) int64 {
+		repoID, err := store.UpsertRepository(RepositoryUpsert{
+			OrgID: orgID, ConnectorID: connectorID, Provider: "github", ProviderRepoID: "repo-1",
+			FullName: "acme/api", Name: "api", WebURL: "https://github.test/acme/api",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM repositories WHERE id = $1`, repoID) })
+		prID, err := store.UpsertPullRequest(PullRequestUpsert{
+			RepositoryID: repoID, OrgID: orgID, Provider: "github", ProviderPRID: "gh-pr-777", Number: 7,
+			Title: "t", State: "open", WebURL: "https://github.test/acme/api/pull/7", LastSyncedSource: "webhook",
+			ProviderUpdatedAt: time.Now(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return prID
+	}
+	orgA, orgB := mkOrg("sibling-a-"+time.Now().Format("150405.000000")), mkOrg("sibling-b-"+time.Now().Format("150405.000000"))
+	prA, prB := mkPR(orgA, mkConnector(orgA)), mkPR(orgB, mkConnector(orgB))
+
+	var userID int64
+	email := "sibling-" + time.Now().Format("150405.000000") + "@example.test"
+	if err := db.QueryRow(`INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`, email).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM user_roles WHERE user_id = $1`, userID)
+		_, _ = db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+	})
+
+	if _, _, err := store.SiblingPullRequestForUser(prA, userID); err != sql.ErrNoRows {
+		t.Fatalf("a user in neither org: err = %v, want sql.ErrNoRows", err)
+	}
+	if _, err := db.Exec(`INSERT INTO user_roles (user_id, org_id, role_id) VALUES ($1, $2, (SELECT id FROM roles WHERE name = 'member'))`, userID, orgB); err != nil {
+		t.Fatal(err)
+	}
+	gotOrg, gotPR, err := store.SiblingPullRequestForUser(prA, userID)
+	if err != nil || gotOrg != orgB || gotPR != prB {
+		t.Fatalf("got (%d, %d, %v), want org %d's copy %d", gotOrg, gotPR, err, orgB, prB)
+	}
+}
+
+func TestDeleteRepositoriesByConnectorExcept(t *testing.T) {
+	db := testDB(t)
+	store := NewStore(db)
+	connectorID := insertTestConnector(t, db, "github")
+	keep := insertTestRepository(t, db, connectorID, "keep-1")
+	drop := insertTestRepository(t, db, connectorID, "drop-1")
+
+	if err := store.DeleteRepositoriesByConnectorExcept(connectorID, []string{"keep-1"}); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM repositories WHERE id = $1`, keep).Scan(&n)
+	if n != 1 {
+		t.Error("the allowed repository was deleted")
+	}
+	_ = db.QueryRow(`SELECT COUNT(*) FROM repositories WHERE id = $1`, drop).Scan(&n)
+	if n != 0 {
+		t.Error("the repository that is no longer allowed was kept")
+	}
+}

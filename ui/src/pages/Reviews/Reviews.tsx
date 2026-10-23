@@ -175,7 +175,11 @@ const Reviews: React.FC = () => {
         (async () => {
             if (pullRequestId) {
                 try {
-                    await switchToPullRequestOrg(pullRequestId);
+                    const orgPullRequestId = await switchToPullRequestOrg(pullRequestId);
+                    if (orgPullRequestId !== pullRequestId) {
+                        pullRequestIdRef.current = orgPullRequestId;
+                        setPullRequestId(orgPullRequestId);
+                    }
                 } catch (err: any) {
                     setLoading(false);
                     setError(err?.status === 404

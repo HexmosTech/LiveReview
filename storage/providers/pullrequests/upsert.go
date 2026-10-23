@@ -8,6 +8,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 type Store struct {
@@ -196,6 +198,36 @@ func (s *Store) getExistingPullRequestID(repositoryID int64, providerPRID string
 func (s *Store) DeleteRepositoryByProviderID(connectorID int64, providerRepoID string) error {
 	_, err := s.db.Exec(`DELETE FROM repositories WHERE connector_id = $1 AND provider_repo_id = $2`, connectorID, providerRepoID)
 	return err
+}
+
+// DeleteRepositoriesByConnectorExcept removes the connector's repositories whose provider id isn't in keep (a
+// user-scoped GitHub App connector whose user lost access to some).
+func (s *Store) DeleteRepositoriesByConnectorExcept(connectorID int64, keep []string) error {
+	if keep == nil {
+		keep = []string{}
+	}
+	_, err := s.db.Exec(`DELETE FROM repositories WHERE connector_id = $1 AND NOT (provider_repo_id = ANY($2))`, connectorID, pq.Array(keep))
+	return err
+}
+
+// SiblingPullRequestForUser finds the same pull request (same provider host and provider PR id) as prID in another
+// org the user belongs to, for links that carry one org's pull_requests id while orgs share a GitHub App
+// installation. It only finds PRs the user's org already synced, so it grants no new access. sql.ErrNoRows when none.
+func (s *Store) SiblingPullRequestForUser(prID, userID int64) (orgID, siblingID int64, err error) {
+	err = s.db.QueryRow(`
+		SELECT sib.org_id, sib.id
+		FROM pull_requests pr
+		JOIN repositories r ON r.id = pr.repository_id
+		JOIN integration_tokens t ON t.id = r.connector_id
+		JOIN pull_requests sib ON sib.provider = pr.provider AND sib.provider_pr_id = pr.provider_pr_id AND sib.id <> pr.id
+		JOIN repositories sr ON sr.id = sib.repository_id
+		JOIN integration_tokens st ON st.id = sr.connector_id AND st.provider_url = t.provider_url
+		WHERE pr.id = $1
+		  AND EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = $2 AND ur.org_id = sib.org_id)
+		ORDER BY sib.id
+		LIMIT 1
+	`, prID, userID).Scan(&orgID, &siblingID)
+	return orgID, siblingID, err
 }
 
 // ListRepositoryFullNamesByConnector returns the full names of a connector's repositories, sorted.

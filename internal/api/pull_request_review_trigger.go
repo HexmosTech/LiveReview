@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
 	"github.com/livereview/pkg/models"
+	"github.com/livereview/storage/providers/pullrequests"
 )
 
 // CreateReviewRequest is the body of POST /api/v1/reviews - trigger a new
@@ -118,6 +119,8 @@ func (s *Server) createReview(c echo.Context) error {
 // getPullRequestOrg handles GET /api/v1/pull-requests/:id/org for the PR comment's
 // "Start a review" link, which doesn't know the PR's org yet. Auth-only route, so it
 // checks membership itself and returns 404 for both "no such PR" and "not a member".
+// pull_request_id is the id to use in that org (another org's copy of the same PR when
+// orgs share a GitHub App installation).
 func (s *Server) getPullRequestOrg(c echo.Context) error {
 	user, ok := c.Get(string(auth.UserContextKey)).(*models.User)
 	if !ok || user == nil {
@@ -138,13 +141,19 @@ func (s *Server) getPullRequestOrg(c echo.Context) error {
 		 )`,
 		prID, user.ID, auth.RoleSuperAdmin,
 	).Scan(&orgID)
+	resolvedID := prID
+	if err == sql.ErrNoRows {
+		// Orgs sharing a GitHub App installation each keep their own copy of the PR, and the link names one of
+		// them: open the copy in an org the user belongs to.
+		orgID, resolvedID, err = pullrequests.NewStore(s.db).SiblingPullRequestForUser(prID, user.ID)
+	}
 	if err == sql.ErrNoRows {
 		return c.JSON(http.StatusNotFound, ErrorResponse{Error: "pull request not found"})
 	}
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "failed to look up pull request"})
 	}
-	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{"org_id": orgID})
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{"org_id": orgID, "pull_request_id": resolvedID})
 }
 
 // markForPolicyCheck flags a manual PR review so the worker runs the approval policy check once it completes.

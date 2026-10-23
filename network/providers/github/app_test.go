@@ -95,6 +95,31 @@ func TestListUserInstallations_FollowsPagesAndMapsFields(t *testing.T) {
 	}
 }
 
+func TestListUserInstallationRepositoryIDs_FollowsPages(t *testing.T) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer ghu_x" || r.URL.Path != "/user/installations/42/repositories" {
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		if r.URL.Query().Get("page") == "2" {
+			_, _ = fmt.Fprint(w, `{"total_count":3,"repositories":[{"id":30}]}`)
+			return
+		}
+		w.Header().Set("Link", fmt.Sprintf(`<%s/user/installations/42/repositories?per_page=100&page=2>; rel="next"`, srv.URL))
+		_, _ = fmt.Fprint(w, `{"total_count":3,"repositories":[{"id":10},{"id":20}]}`)
+	}))
+	defer srv.Close()
+
+	got, err := ListUserInstallationRepositoryIDs(context.Background(), srv.URL, "ghu_x", 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0] != 10 || got[1] != 20 || got[2] != 30 {
+		t.Fatalf("got %v, want [10 20 30]", got)
+	}
+}
+
 func TestNextLink_IgnoresOtherHosts(t *testing.T) {
 	resp := &http.Response{Header: http.Header{"Link": []string{`<https://evil.example/x?page=2>; rel="next"`}}}
 	if got := nextLink(resp, "https://api.github.com"); got != "" {

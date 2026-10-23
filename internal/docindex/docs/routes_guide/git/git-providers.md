@@ -40,14 +40,25 @@ repositories come from the installation, and webhooks are delivered by the
 app, so the manual-trigger buttons are replaced by a note. Repositories are
 added or removed on GitHub, not here.
 
+Several LiveReview organizations can use the same installation (for example two
+people from one GitHub organization who each signed up). Each has its own
+connection. An organization that joined an installation someone else installed
+only gets the repositories its user's GitHub account can access. Pull request
+updates reach every organization that has the repository; a reply to a comment
+on GitHub comes from the organization that reviewed that pull request most
+recently.
+
 ### The GitHub App card
 
 On LiveReview Cloud the **Select Git Provider** grid starts with a **GitHub App**
 card (marked Recommended). It opens `/git/github-app`, which is titled **GitHub App** and lists every
 connected GitHub account or organization as a panel (name, repository count, repositories as chips; a toggle at the top right of the repositories switches to a searchable list that shows five rows and scrolls),
 a **Manage on GitHub** button (opens that account's installation settings;
-GitHub shows it only to owners), and, for organization owners, **Disconnect**,
-which uninstalls the app from that account and drops its repositories.
+GitHub shows it only to owners), and, for organization owners, **Disconnect**
+(stops using it in this organization only; the app stays installed on GitHub
+for anyone else using it) and **Uninstall** (uninstalls the app from that GitHub
+account, which removes it for every LiveReview account using it; the
+confirmation says how many other accounts are affected).
 **Add repositories or organization** opens
 GitHub's install page; afterwards the user returns to `/git/github-app` and the
 new account appears. With nothing connected yet the page shows **Install the

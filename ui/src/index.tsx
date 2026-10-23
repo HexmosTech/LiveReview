@@ -25,17 +25,22 @@ if (typeof window !== 'undefined' && /^\/gh-login\/?$/.test(window.location.path
     window.location.replace('/#/gh-login' + window.location.search);
 }
 
-// A returning GitHub sign-in is sent to the GitHub App card on Git Providers (where their connected accounts are managed) rather than
-// the first-run get-started page: the callback says so with a short-lived cookie, which overrides the destination
-// that /gh-login stored before leaving for GitHub.
+// Where a successful GitHub sign-in from /gh-login lands, from a short-lived cookie the callback sets: get-started
+// for new users, the GitHub App card on Git Providers (where connected accounts are managed) for returning ones.
+const GH_NEXT_PAGES: Record<string, string> = {
+    'get-started': '#/get-started/github',
+    git: '#/git/github-app',
+};
 if (typeof document !== 'undefined') {
     try {
-        if (/(?:^|; )lr_gh_next=git(?:;|$)/.test(document.cookie)) {
-            sessionStorage.setItem('redirectAfterLogin', '#/git/github-app');
+        const match = document.cookie.match(/(?:^|; )lr_gh_next=([a-z-]+)/);
+        if (match) {
+            const page = GH_NEXT_PAGES[match[1]];
+            if (page) sessionStorage.setItem('redirectAfterLogin', page);
             document.cookie = 'lr_gh_next=; Max-Age=0; Path=/';
         }
     } catch {
-        // Cookies or sessionStorage unavailable: the user lands on the page /gh-login chose.
+        // Cookies or sessionStorage unavailable: the user lands on the dashboard.
     }
 }
 

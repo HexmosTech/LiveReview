@@ -28,8 +28,11 @@ already existed, reopens, or pushes).
 
 Any authenticated member of the org the PR belongs to. Logged-out users are
 asked to log in and then sent back to the link. If the user's active org is a
-different one, LiveReview switches to the PR's org automatically. Users who
-aren't members of that org see "pull request wasn't found".
+different one, LiveReview switches to the PR's org automatically. When several
+organizations share one GitHub App installation, each keeps its own copy of the
+PR and the link names one of them; a user from another of those organizations
+is taken to their own organization's copy, and the review runs there. Users who
+aren't members of any organization with that PR see "pull request wasn't found".
 
 ## Key actions
 

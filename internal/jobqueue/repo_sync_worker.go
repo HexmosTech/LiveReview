@@ -207,6 +207,8 @@ type PRStateSyncJobArgs struct {
 	ConnectorID int64                        `json:"connector_id"`
 	Provider    string                       `json:"provider"`
 	Event       prsync.PullRequestStateEvent `json:"event"`
+	// SkipLinks: another org's connector for the same GitHub App installation writes the PR description links.
+	SkipLinks bool `json:"skip_links,omitempty"`
 }
 
 func (PRStateSyncJobArgs) Kind() string { return "pr_state_sync" }
@@ -271,7 +273,7 @@ func (w *PRStateSyncWorker) Work(ctx context.Context, job *river.Job[PRStateSync
 		return fmt.Errorf("failed to upsert pull request from webhook event: %w", err)
 	}
 
-	if action, _ := event.Metadata["action"].(string); action == "opened" || action == "open" {
+	if action, _ := event.Metadata["action"].(string); !args.SkipLinks && (action == "opened" || action == "open") {
 		return w.postLinksComment(ctx, repositoryID, pullRequestID, event.Number)
 	}
 	return nil
@@ -565,12 +567,17 @@ func (jq *JobQueue) QueueRepoPRSyncJob(ctx context.Context, repositoryID int64, 
 // QueuePRStateSyncJob enqueues an upsert for a single PR/MR whose state a
 // webhook delivery just reported, on the "repo_sync" queue.
 func (jq *JobQueue) QueuePRStateSyncJob(ctx context.Context, orgID, connectorID int64, provider string, event prsync.PullRequestStateEvent) error {
-	_, err := jq.client.Insert(ctx, PRStateSyncJobArgs{
-		OrgID:       orgID,
-		ConnectorID: connectorID,
-		Provider:    provider,
-		Event:       event,
-	}, &river.InsertOpts{Queue: "repo_sync", MaxAttempts: 5})
+	return jq.queuePRStateSync(ctx, PRStateSyncJobArgs{OrgID: orgID, ConnectorID: connectorID, Provider: provider, Event: event})
+}
+
+// QueueSharedPRStateSyncJob updates one more org's copy of a PR whose GitHub App installation several orgs share;
+// it never writes the PR description links (the installation's primary connector does that once).
+func (jq *JobQueue) QueueSharedPRStateSyncJob(ctx context.Context, orgID, connectorID int64, provider string, event prsync.PullRequestStateEvent) error {
+	return jq.queuePRStateSync(ctx, PRStateSyncJobArgs{OrgID: orgID, ConnectorID: connectorID, Provider: provider, Event: event, SkipLinks: true})
+}
+
+func (jq *JobQueue) queuePRStateSync(ctx context.Context, args PRStateSyncJobArgs) error {
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "repo_sync", MaxAttempts: 5})
 	if err != nil {
 		return fmt.Errorf("failed to queue PR state sync job: %w", err)
 	}
