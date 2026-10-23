@@ -692,16 +692,31 @@ func TestUserScopedRepoIDs(t *testing.T) {
 	user := &ConnectorDetails{TokenType: storagegithub.TokenTypeGitHubApp, Metadata: map[string]interface{}{
 		"repo_scope": "user", "allowed_repo_ids": []interface{}{float64(101), float64(202)},
 	}}
-	allowed, scoped := userScopedRepoIDs(user)
-	if !scoped || len(allowed) != 2 || !allowed["101"] || !allowed["202"] {
-		t.Fatalf("user scope: %v %v", allowed, scoped)
+	allowed, scoped, err := userScopedRepoIDs(user)
+	if err != nil || !scoped || len(allowed) != 2 || !allowed["101"] || !allowed["202"] {
+		t.Fatalf("user scope: %v %v %v", allowed, scoped, err)
+	}
+	empty := &ConnectorDetails{TokenType: storagegithub.TokenTypeGitHubApp, Metadata: map[string]interface{}{
+		"repo_scope": "user", "allowed_repo_ids": []interface{}{},
+	}}
+	if allowed, scoped, err := userScopedRepoIDs(empty); err != nil || !scoped || len(allowed) != 0 {
+		t.Fatalf("a user with access to nothing: %v %v %v", allowed, scoped, err)
+	}
+	// An unreadable list must stop the sync, not count as "no repositories" (which would drop them all).
+	for name, meta := range map[string]map[string]interface{}{
+		"missing": {"repo_scope": "user"},
+		"strings": {"repo_scope": "user", "allowed_repo_ids": []interface{}{"101"}},
+	} {
+		if _, _, err := userScopedRepoIDs(&ConnectorDetails{TokenType: storagegithub.TokenTypeGitHubApp, Metadata: meta}); err == nil {
+			t.Errorf("%s allowed_repo_ids: want an error", name)
+		}
 	}
 	installer := &ConnectorDetails{TokenType: storagegithub.TokenTypeGitHubApp, Metadata: map[string]interface{}{"repo_scope": "installer"}}
-	if _, scoped := userScopedRepoIDs(installer); scoped {
+	if _, scoped, _ := userScopedRepoIDs(installer); scoped {
 		t.Error("an installer connector syncs every repository")
 	}
 	pat := &ConnectorDetails{TokenType: "PAT", Metadata: map[string]interface{}{"repo_scope": "user"}}
-	if _, scoped := userScopedRepoIDs(pat); scoped {
+	if _, scoped, _ := userScopedRepoIDs(pat); scoped {
 		t.Error("PAT connectors are never user-scoped")
 	}
 }

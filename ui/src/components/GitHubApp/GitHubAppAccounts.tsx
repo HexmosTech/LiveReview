@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Avatar, Button, Icons } from '../UIPrimitives';
 import GitHubAppRepositories from './GitHubAppRepositories';
@@ -170,18 +170,31 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
 // Lists the other LiveReview accounts using an installation, by their owners' masked emails.
 const OtherAccountsModal: React.FC<{ inst: GitHubAppInstallation; onClose: () => void }> = ({ inst, onClose }) => {
     const unnamed = inst.other_orgs - inst.other_accounts.length;
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose();
+        };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+    }, [onClose]);
     return createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-            <div className="relative bg-slate-800 rounded-lg border border-slate-600 shadow-2xl max-w-sm w-full">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="gh-other-accounts-title"
+                className="relative bg-slate-800 rounded-lg border border-slate-600 shadow-2xl max-w-sm w-full"
+            >
                 <div className="p-6">
-                    <h3 className="text-lg font-medium text-white">Also using LiveReview on {inst.account_login}</h3>
+                    <h3 id="gh-other-accounts-title" className="text-lg font-medium text-white">Also using LiveReview on {inst.account_login}</h3>
                     <p className="mt-1 text-sm text-slate-400">
                         Each of these LiveReview accounts has its own connection to this installation.
                     </p>
                     <ul className="mt-4 space-y-2">
-                        {inst.other_accounts.map((email) => (
-                            <li key={email} className="flex items-center gap-2 text-sm text-slate-200">
+                        {inst.other_accounts.map((email, i) => (
+                            // Masked emails can repeat (same first letters and domain), so they aren't keys.
+                            <li key={i} className="flex items-center gap-2 text-sm text-slate-200">
                                 <Icons.User />
                                 <span className="break-all">{email}</span>
                             </li>
@@ -193,7 +206,7 @@ const OtherAccountsModal: React.FC<{ inst: GitHubAppInstallation; onClose: () =>
                         )}
                     </ul>
                     <div className="flex justify-end pt-6">
-                        <Button onClick={onClose}>Close</Button>
+                        <Button onClick={onClose} autoFocus>Close</Button>
                     </div>
                 </div>
             </div>
@@ -208,7 +221,9 @@ function confirmMessage(pending: PendingAction | null): string {
     if (!uninstall) {
         return `LiveReview stops reviewing ${inst.account_login}'s pull requests for your account and removes its repositories here. ` +
             'The app stays installed on GitHub' +
-            (inst.other_orgs > 0 ? `, so the ${accountsLabel(inst.other_orgs)} using it keep working` : '') +
+            (inst.other_orgs > 0
+                ? `, so the ${accountsLabel(inst.other_orgs)} using it ${inst.other_orgs === 1 ? 'keeps' : 'keep'} working`
+                : '') +
             '. To connect it again, use "Add repositories or organization".';
     }
     return `This uninstalls the LiveReview GitHub App from ${inst.account_login} on GitHub and stops LiveReview reviewing its pull requests. ` +
