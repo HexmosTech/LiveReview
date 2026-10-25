@@ -285,7 +285,7 @@ detect_livereview_installation() {
         
         # Look for LiveReview containers and try to find their compose file
         local container_id
-        container_id=$(docker ps --filter "name=livereview" --format "{{.ID}}" | head -1)
+        container_id=$(docker ps --filter "name=^/livereview-app$" --filter "name=^/livereview-db$" --format "{{.ID}}" | head -1)
         
         if [[ -n "$container_id" ]]; then
             # Try to get the working directory or volume mounts
@@ -775,7 +775,10 @@ check_existing_installation() {
     # Check for running containers
     # grep -q exits on the first match, docker ps then takes SIGPIPE (141), and
     # `set -o pipefail` turns that into a false negative. Test captured output instead.
-    if [[ -n "$(docker ps --filter "name=livereview" --format "{{.Names}}" 2>/dev/null)" ]]; then
+    # Only the installer's own containers count (anchored names; repeated name filters are ORed).
+    # A plain "name=livereview" also matched unrelated containers such as the dev database
+    # 'livereview_pg' and reported an installation on a clean machine.
+    if [[ -n "$(docker ps --filter "name=^/livereview-app$" --filter "name=^/livereview-db$" --format "{{.Names}}" 2>/dev/null)" ]]; then
         log_warning "LiveReview containers are currently running"
         installation_exists=true
     fi
