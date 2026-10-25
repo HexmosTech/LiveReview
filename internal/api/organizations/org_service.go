@@ -1,23 +1,32 @@
 package organizations
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
+	"strconv"
 
 	"github.com/livereview/internal/api/middleware"
+	"github.com/livereview/internal/auditlog"
 	"github.com/livereview/pkg/models"
 )
 
 type OrganizationService struct {
 	db     *sql.DB
 	logger *log.Logger
+	audit  *auditlog.Recorder
 }
 
-func NewOrganizationService(db *sql.DB, logger *log.Logger) *OrganizationService {
+func NewOrganizationService(db *sql.DB, logger *log.Logger, audit ...*auditlog.Recorder) *OrganizationService {
+	var rec *auditlog.Recorder
+	if len(audit) > 0 {
+		rec = audit[0]
+	}
 	return &OrganizationService{
 		db:     db,
 		logger: logger,
+		audit:  rec,
 	}
 }
 
@@ -632,6 +641,44 @@ func (s *OrganizationService) ChangeUserRole(orgID, userID, newRoleID int64, cha
 		return fmt.Errorf("failed to log role change: %w", err)
 	}
 
+	if s.audit != nil {
+		var newRoleName, actorEmail, actorName string
+		_ = tx.QueryRow(`SELECT name FROM roles WHERE id = $1`, newRoleID).Scan(&newRoleName)
+		_ = tx.QueryRow(`SELECT email, COALESCE(NULLIF(TRIM(CONCAT_WS(' ', first_name, last_name)), ''), email) FROM users WHERE id = $1`, changedByUserID).Scan(&actorEmail, &actorName)
+		actorKind := auditlog.ActorKindMember
+		actorCapacity := auditlog.ActorCapacityMember
+		var isSuper bool
+		_ = tx.QueryRow(`
+			SELECT EXISTS(
+				SELECT 1 FROM user_roles ur
+				JOIN roles r ON r.id = ur.role_id
+				WHERE ur.user_id = $1 AND r.name = 'super_admin'
+			)`, changedByUserID).Scan(&isSuper)
+		if isSuper {
+			actorKind = auditlog.ActorKindSuperAdmin
+			actorCapacity = auditlog.ActorCapacityAdmin
+		}
+		ev := auditlog.Event{
+			OrgID:         orgID,
+			ActorUserID:   &changedByUserID,
+			ActorEmail:    actorEmail,
+			ActorName:     actorName,
+			ActorKind:     actorKind,
+			ActorCapacity: actorCapacity,
+			Action:        auditlog.ActionOrgRoleChange,
+			Category:      auditlog.CategoryOrg,
+			ResourceType:  "member",
+			ResourceID:    strconv.FormatInt(userID, 10),
+			Outcome:       auditlog.OutcomeSuccess,
+			Severity:      auditlog.SeverityWarning,
+			Details:       auditlog.Details("old_role", oldRoleName, "new_role", newRoleName),
+			Source:        auditlog.SourceAPI,
+		}
+		if err := s.audit.RecordTx(context.Background(), tx, ev); err != nil {
+			return fmt.Errorf("failed to record audit event: %w", err)
+		}
+	}
+
 	err = tx.Commit()
 	if err != nil {
 		return fmt.Errorf("failed to commit role change: %w", err)
@@ -746,4 +793,3 @@ func (s *OrganizationService) SetUserDefaultOrganization(userID int64, orgID int
 
 	return nil
 }
-

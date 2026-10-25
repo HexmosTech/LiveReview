@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/auditlog"
 	"github.com/livereview/internal/chatstats"
 	"github.com/livereview/internal/onboardingreport"
 	"github.com/rs/zerolog/log"
@@ -23,36 +24,37 @@ import (
 // LLM-free report that executes parameterized SQL templates and returns
 // filled Vega-Lite chart specs for any org.
 type OnboardingReportHandler struct {
-	db *sql.DB
+	db    *sql.DB
+	audit *auditlog.Recorder
 }
 
-func NewOnboardingReportHandler(db *sql.DB) *OnboardingReportHandler {
-	return &OnboardingReportHandler{db: db}
+func NewOnboardingReportHandler(db *sql.DB, audit *auditlog.Recorder) *OnboardingReportHandler {
+	return &OnboardingReportHandler{db: db, audit: audit}
 }
 
 // chartResult is one chart with its query results injected into the Vega spec.
 type chartResult struct {
-	ID          string          `json:"id"`
-	Section     string          `json:"section"`
-	SectionLabel string         `json:"section_label"`
-	Title       string          `json:"title"`
-	Description string          `json:"description"`
-	QuerySummary string         `json:"query_summary"`
-	ChartType   string          `json:"chart_type"`
-	Granularity string          `json:"granularity"`
-	TimeRange   string          `json:"time_range"`
-	VegaSpec    json.RawMessage `json:"vega_spec"`
-	RowCount    int             `json:"row_count"`
-	Stats       json.RawMessage `json:"stats,omitempty"`
-	Error       string          `json:"error,omitempty"`
+	ID           string          `json:"id"`
+	Section      string          `json:"section"`
+	SectionLabel string          `json:"section_label"`
+	Title        string          `json:"title"`
+	Description  string          `json:"description"`
+	QuerySummary string          `json:"query_summary"`
+	ChartType    string          `json:"chart_type"`
+	Granularity  string          `json:"granularity"`
+	TimeRange    string          `json:"time_range"`
+	VegaSpec     json.RawMessage `json:"vega_spec"`
+	RowCount     int             `json:"row_count"`
+	Stats        json.RawMessage `json:"stats,omitempty"`
+	Error        string          `json:"error,omitempty"`
 }
 
 // sectionResult is the response for one section.
 type sectionResult struct {
-	Section     string        `json:"section"`
-	SectionLabel string       `json:"section_label"`
-	Charts      []chartResult `json:"charts"`
-	TotalCharts int           `json:"total_charts"`
+	Section      string        `json:"section"`
+	SectionLabel string        `json:"section_label"`
+	Charts       []chartResult `json:"charts"`
+	TotalCharts  int           `json:"total_charts"`
 }
 
 // GetSections returns the list of available sections (no SQL execution).
@@ -152,9 +154,9 @@ func (h *OnboardingReportHandler) GetAllCharts(c echo.Context) error {
 	}
 
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
-		"sections":      sections,
-		"total_charts":  len(results),
-		"generated_at":  time.Now().UTC().Format(time.RFC3339),
+		"sections":     sections,
+		"total_charts": len(results),
+		"generated_at": time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -350,6 +352,9 @@ func (h *OnboardingReportHandler) ExportFile(c echo.Context) error {
 	if job.status != "done" {
 		return JSONErrorWithEnvelope(c, http.StatusConflict, "export not ready yet")
 	}
+
+	recordSensitiveRead(c, h.audit, auditlog.ActionExportReport,
+		auditlog.Details("filename", job.filename, "content_type", job.contentType, "org_id", job.orgID))
 
 	c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, job.filename))
 	return c.Blob(http.StatusOK, job.contentType, job.data)

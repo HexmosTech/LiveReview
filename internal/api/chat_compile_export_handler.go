@@ -8,6 +8,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/auditlog"
 	"github.com/livereview/internal/chatexport"
 	storagechat "github.com/livereview/storage/chat"
 	"github.com/rs/zerolog/log"
@@ -58,6 +59,8 @@ func (s *Server) CompileExport(c echo.Context) error {
 	if format != "pdf" && format != "html" && format != "json" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "unsupported format: " + format})
 	}
+	s.recordAuditRead(c, auditlog.ActionExportChat,
+		auditlog.Details("format", format, "conversations", len(req.ConversationIDs)))
 
 	ctx := c.Request().Context()
 	chatStore := storagechat.NewStore(s.db)

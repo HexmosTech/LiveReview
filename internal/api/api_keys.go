@@ -31,6 +31,7 @@ type APIKey struct {
 	KeyHash    string          `json:"-"`
 	KeyPrefix  string          `json:"key_prefix"`
 	Label      string          `json:"label"`
+	Kind       string          `json:"kind"`
 	Scopes     json.RawMessage `json:"scopes"`
 	LastUsedAt *time.Time      `json:"last_used_at"`
 	CreatedAt  time.Time       `json:"created_at"`
@@ -81,8 +82,22 @@ func (m *APIKeyManager) GetKeyPrefix(key string) string {
 	return "lr_" + stripped
 }
 
-// CreateAPIKey generates and stores a new API key
-func (m *APIKeyManager) CreateAPIKey(userID, orgID int64, label string, scopes []string, expiresAt *time.Time) (*APIKey, string, error) {
+// ValidAPIKeyKind reports whether kind is a supported API key kind.
+func ValidAPIKeyKind(kind string) bool {
+	return kind == "" || kind == "standard" || kind == "audit_reader"
+}
+
+func normalizeKeyKind(kinds ...string) string {
+	if len(kinds) > 0 && kinds[0] == "audit_reader" {
+		return "audit_reader"
+	}
+	return "standard"
+}
+
+// CreateAPIKey generates and stores a new API key. The optional kind defaults
+// to "standard"; "audit_reader" keys are SIEM-only and cannot call other APIs.
+func (m *APIKeyManager) CreateAPIKey(userID, orgID int64, label string, scopes []string, expiresAt *time.Time, kinds ...string) (*APIKey, string, error) {
+	kind := normalizeKeyKind(kinds...)
 	// Generate the key
 	key, err := m.GenerateAPIKey()
 	if err != nil {
@@ -95,13 +110,13 @@ func (m *APIKeyManager) CreateAPIKey(userID, orgID int64, label string, scopes [
 	scopesJSON, _ := json.Marshal(scopes)
 
 	query := `
-		INSERT INTO api_keys (user_id, org_id, key_hash, key_prefix, label, scopes, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, user_id, org_id, key_hash, key_prefix, label, scopes, last_used_at, created_at, expires_at, revoked_at
+		INSERT INTO api_keys (user_id, org_id, key_hash, key_prefix, label, scopes, expires_at, kind)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, user_id, org_id, key_hash, key_prefix, label, scopes, last_used_at, created_at, expires_at, revoked_at, kind
 	`
 
 	var apiKey APIKey
-	err = m.db.QueryRow(query, userID, orgID, keyHash, keyPrefix, label, scopesJSON, expiresAt).Scan(
+	err = m.db.QueryRow(query, userID, orgID, keyHash, keyPrefix, label, scopesJSON, expiresAt, kind).Scan(
 		&apiKey.ID,
 		&apiKey.UserID,
 		&apiKey.OrgID,
@@ -113,6 +128,7 @@ func (m *APIKeyManager) CreateAPIKey(userID, orgID int64, label string, scopes [
 		&apiKey.CreatedAt,
 		&apiKey.ExpiresAt,
 		&apiKey.RevokedAt,
+		&apiKey.Kind,
 	)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create API key: %w", err)
@@ -122,7 +138,8 @@ func (m *APIKeyManager) CreateAPIKey(userID, orgID int64, label string, scopes [
 }
 
 // CreateAPIKeyTx generates and stores a new API key within a transaction context
-func (m *APIKeyManager) CreateAPIKeyTx(tx *sql.Tx, userID, orgID int64, label string, scopes []string, expiresAt *time.Time) (*APIKey, string, error) {
+func (m *APIKeyManager) CreateAPIKeyTx(tx *sql.Tx, userID, orgID int64, label string, scopes []string, expiresAt *time.Time, kinds ...string) (*APIKey, string, error) {
+	kind := normalizeKeyKind(kinds...)
 	// Generate the key
 	key, err := m.GenerateAPIKey()
 	if err != nil {
@@ -135,13 +152,13 @@ func (m *APIKeyManager) CreateAPIKeyTx(tx *sql.Tx, userID, orgID int64, label st
 	scopesJSON, _ := json.Marshal(scopes)
 
 	query := `
-		INSERT INTO api_keys (user_id, org_id, key_hash, key_prefix, label, scopes, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, user_id, org_id, key_hash, key_prefix, label, scopes, last_used_at, created_at, expires_at, revoked_at
+		INSERT INTO api_keys (user_id, org_id, key_hash, key_prefix, label, scopes, expires_at, kind)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, user_id, org_id, key_hash, key_prefix, label, scopes, last_used_at, created_at, expires_at, revoked_at, kind
 	`
 
 	var apiKey APIKey
-	err = tx.QueryRow(query, userID, orgID, keyHash, keyPrefix, label, scopesJSON, expiresAt).Scan(
+	err = tx.QueryRow(query, userID, orgID, keyHash, keyPrefix, label, scopesJSON, expiresAt, kind).Scan(
 		&apiKey.ID,
 		&apiKey.UserID,
 		&apiKey.OrgID,
@@ -153,6 +170,7 @@ func (m *APIKeyManager) CreateAPIKeyTx(tx *sql.Tx, userID, orgID int64, label st
 		&apiKey.CreatedAt,
 		&apiKey.ExpiresAt,
 		&apiKey.RevokedAt,
+		&apiKey.Kind,
 	)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create API key in transaction: %w", err)
@@ -161,7 +179,6 @@ func (m *APIKeyManager) CreateAPIKeyTx(tx *sql.Tx, userID, orgID int64, label st
 	return &apiKey, key, nil
 }
 
-
 // ValidateAPIKey checks if a key is valid and returns the associated key record and user model
 func (m *APIKeyManager) ValidateAPIKey(key string) (*APIKey, *models.User, error) {
 	keyHash := m.HashAPIKey(key)
@@ -169,7 +186,7 @@ func (m *APIKeyManager) ValidateAPIKey(key string) (*APIKey, *models.User, error
 	query := `
 		SELECT 
 			ak.id, ak.user_id, ak.org_id, ak.key_hash, ak.key_prefix, 
-			ak.label, ak.scopes, ak.last_used_at, ak.created_at, ak.expires_at, ak.revoked_at,
+			ak.label, ak.scopes, ak.last_used_at, ak.created_at, ak.expires_at, ak.revoked_at, ak.kind,
 			u.id, u.email, u.password_hash, u.created_at, u.updated_at
 		FROM api_keys ak
 		JOIN users u ON ak.user_id = u.id
@@ -191,6 +208,7 @@ func (m *APIKeyManager) ValidateAPIKey(key string) (*APIKey, *models.User, error
 		&apiKey.CreatedAt,
 		&apiKey.ExpiresAt,
 		&apiKey.RevokedAt,
+		&apiKey.Kind,
 		&user.ID,
 		&user.Email,
 		&user.PasswordHash,
@@ -226,7 +244,7 @@ func (m *APIKeyManager) UpdateLastUsed(keyID int64) error {
 // ListAPIKeys returns all API keys for a user in an organization
 func (m *APIKeyManager) ListAPIKeys(userID, orgID int64) ([]APIKey, error) {
 	query := `
-		SELECT id, user_id, org_id, key_hash, key_prefix, label, scopes, last_used_at, created_at, expires_at, revoked_at
+		SELECT id, user_id, org_id, key_hash, key_prefix, label, scopes, last_used_at, created_at, expires_at, revoked_at, kind
 		FROM api_keys
 		WHERE user_id = $1 AND org_id = $2 AND revoked_at IS NULL
 		ORDER BY created_at DESC
@@ -253,6 +271,7 @@ func (m *APIKeyManager) ListAPIKeys(userID, orgID int64) ([]APIKey, error) {
 			&key.CreatedAt,
 			&key.ExpiresAt,
 			&key.RevokedAt,
+			&key.Kind,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan API key: %w", err)
@@ -319,5 +338,43 @@ func (m *APIKeyManager) DeleteAPIKey(keyID, userID, orgID int64) error {
 		return fmt.Errorf("API key not found")
 	}
 
+	return nil
+}
+
+// RevokeAPIKeyTx is the transactional form used by the audit-enabled handler.
+func (m *APIKeyManager) RevokeAPIKeyTx(tx *sql.Tx, keyID, userID, orgID int64) error {
+	query := `
+		UPDATE api_keys
+		SET revoked_at = NOW()
+		WHERE id = $1 AND user_id = $2 AND org_id = $3 AND revoked_at IS NULL
+	`
+	result, err := tx.Exec(query, keyID, userID, orgID)
+	if err != nil {
+		return fmt.Errorf("failed to revoke API key: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("API key not found or already revoked")
+	}
+	return nil
+}
+
+// DeleteAPIKeyTx is the transactional form used by the audit-enabled handler.
+func (m *APIKeyManager) DeleteAPIKeyTx(tx *sql.Tx, keyID, userID, orgID int64) error {
+	query := `DELETE FROM api_keys WHERE id = $1 AND user_id = $2 AND org_id = $3`
+	result, err := tx.Exec(query, keyID, userID, orgID)
+	if err != nil {
+		return fmt.Errorf("failed to delete API key: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("API key not found")
+	}
 	return nil
 }

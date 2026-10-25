@@ -21,13 +21,14 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/api/auth"
-	"github.com/livereview/internal/githubapp"
 	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/api/organizations"
 	"github.com/livereview/internal/api/users"
+	"github.com/livereview/internal/auditlog"
 	"github.com/livereview/internal/database"
 	"github.com/livereview/internal/discordbot"
 	"github.com/livereview/internal/docindex"
+	"github.com/livereview/internal/githubapp"
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/learnings"
 	"github.com/livereview/internal/license"
@@ -133,34 +134,37 @@ func isMCPRequest(c echo.Context) bool {
 
 // Server represents the API server
 type Server struct {
-	echo                   *echo.Echo
-	port                   int
-	db                     *sql.DB
-	jobQueue               *jobqueue.JobQueue
-	dashboardManager       *DashboardManager
+	echo                            *echo.Echo
+	port                            int
+	db                              *sql.DB
+	jobQueue                        *jobqueue.JobQueue
+	dashboardManager                *DashboardManager
 	eventCompactionManager          *EventCompactionManager
 	preloadedChangesArchivalManager *PreloadedChangesArchivalManager
+	auditRecorder                   *auditlog.Recorder
+	auditRegistry                   *auditlog.Registry
+	auditMaintenance                *AuditMaintenanceManager
 	autoWebhookInstaller            *AutoWebhookInstaller
-	versionInfo            *VersionInfo
-	deploymentConfig       *DeploymentConfig
-	authHandlers           *auth.AuthHandlers
-	githubApp              *githubapp.Config // nil unless GITHUB_APP_* is configured
-	githubAppSecret        []byte            // HMAC key for the GitHub App OAuth state
-	tokenService           *auth.TokenService
-	userHandlers           *users.UserHandlers
-	userService            *users.UserService
-	profileHandlers        *users.ProfileHandlers
-	orgHandlers            *organizations.OrganizationHandlers
-	orgService             *organizations.OrganizationService
-	testHandlers           *TestHandlers
-	devMode                bool
-	_licenseSvc            interface{} // holds *license.Service lazily (typed in license.go)
-	licenseScheduler       *license.Scheduler
-	billingActionsCancel   context.CancelFunc
-	modelSyncCancel        context.CancelFunc
-	slackBotCancel         context.CancelFunc
-	scheduledReviewCancel  context.CancelFunc
-	scheduledReviewWakeCh  chan struct{}
+	versionInfo                     *VersionInfo
+	deploymentConfig                *DeploymentConfig
+	authHandlers                    *auth.AuthHandlers
+	githubApp                       *githubapp.Config // nil unless GITHUB_APP_* is configured
+	githubAppSecret                 []byte            // HMAC key for the GitHub App OAuth state
+	tokenService                    *auth.TokenService
+	userHandlers                    *users.UserHandlers
+	userService                     *users.UserService
+	profileHandlers                 *users.ProfileHandlers
+	orgHandlers                     *organizations.OrganizationHandlers
+	orgService                      *organizations.OrganizationService
+	testHandlers                    *TestHandlers
+	devMode                         bool
+	_licenseSvc                     interface{} // holds *license.Service lazily (typed in license.go)
+	licenseScheduler                *license.Scheduler
+	billingActionsCancel            context.CancelFunc
+	modelSyncCancel                 context.CancelFunc
+	slackBotCancel                  context.CancelFunc
+	scheduledReviewCancel           context.CancelFunc
+	scheduledReviewWakeCh           chan struct{}
 
 	// V2 Webhook Providers
 	gitlabProviderV2      *gitlabprovider.GitLabV2Provider
@@ -317,6 +321,12 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	tokenService := auth.NewTokenService(db, jwtSecret)
 	authHandlers := auth.NewAuthHandlers(tokenService, db)
 
+	// Audit trail framework: recorder + route-spec registry. The HTTP
+	// middleware records mutations automatically; see AGENTS.md.
+	auditRecorder := auditlog.NewRecorder(db)
+	auditRegistry := auditlog.NewRegistry()
+	authHandlers.SetAuditRecorder(auditRecorder)
+
 	// Initialize user management system
 	apiKeyManager := NewAPIKeyManager(db)
 
@@ -330,7 +340,7 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	userService := users.NewUserService(db, func(tx *sql.Tx, userID, orgID int64) (string, error) {
 		_, key, err := apiKeyManager.CreateAPIKeyTx(tx, userID, orgID, "Onboarding API Key", []string{}, nil)
 		return key, err
-	})
+	}, auditRecorder)
 	userHandlers := users.NewUserHandlers(userService, db)
 
 	// Initialize profile management system
@@ -339,7 +349,7 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 
 	// Initialize organization management system
 	logger := log.New(os.Stdout, "[ORG] ", log.LstdFlags)
-	orgService := organizations.NewOrganizationService(db, logger)
+	orgService := organizations.NewOrganizationService(db, logger, auditRecorder)
 	orgHandlers := organizations.NewOrganizationHandlers(orgService, logger)
 
 	// Initialize test handlers for manual testing
@@ -357,29 +367,34 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	learningsSvc := learnings.NewService(learnings.NewPostgresStore(db))
 
 	server := &Server{
-		port:                   port,
-		db:                     db,
-		jobQueue:               jq,
+		port:                            port,
+		db:                              db,
+		jobQueue:                        jq,
 		dashboardManager:                dashboardManager,
 		eventCompactionManager:          eventCompactionManager,
 		preloadedChangesArchivalManager: preloadedChangesArchivalManager,
+		auditRecorder:                   auditRecorder,
+		auditRegistry:                   auditRegistry,
 		autoWebhookInstaller:            autoWebhookInstaller,
-		versionInfo:            versionInfo,
-		deploymentConfig:       deploymentConfig,
-		authHandlers:           authHandlers,
-		githubApp:              githubapp.Load(),
-		githubAppSecret:        []byte(jwtSecret),
-		tokenService:           tokenService,
-		userHandlers:           userHandlers,
-		userService:            userService,
-		profileHandlers:        profileHandlers,
-		orgHandlers:            orgHandlers,
-		orgService:             orgService,
-		testHandlers:           testHandlers,
-		devMode:                devMode,
-		gitlabAuthService:      gitlabprovider.NewAuthService(db, triggerAutoInstall),
-		learningsService:       learningsSvc,
+		versionInfo:                     versionInfo,
+		deploymentConfig:                deploymentConfig,
+		authHandlers:                    authHandlers,
+		githubApp:                       githubapp.Load(),
+		githubAppSecret:                 []byte(jwtSecret),
+		tokenService:                    tokenService,
+		userHandlers:                    userHandlers,
+		userService:                     userService,
+		profileHandlers:                 profileHandlers,
+		orgHandlers:                     orgHandlers,
+		orgService:                      orgService,
+		testHandlers:                    testHandlers,
+		devMode:                         devMode,
+		gitlabAuthService:               gitlabprovider.NewAuthService(db, triggerAutoInstall),
+		learningsService:                learningsSvc,
 	}
+
+	// Audit maintenance: partitions, archive/retention, anchors.
+	server.auditMaintenance = NewAuditMaintenanceManager(db, auditRecorder)
 
 	// Initialize V2 webhook providers
 	server.gitlabProviderV2 = gitlabprovider.NewGitLabV2Provider(db, gitlaboutput.NewAPIClient())
@@ -465,7 +480,9 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	})
 
 	server.echo = e
+	e.Use(server.auditMiddleware)
 	server.setupRoutes()
+	server.validateAuditCoverage()
 	mcp := mcpserver.New(e)
 	mcp.RegisterSchema("POST", "/api/v1/connectors/trigger-review", nil, TriggerReviewRequest{})
 	mcp.RegisterSchema("POST", "/api/v1/integration_tokens/pat", nil, CreatePATRequest{})
@@ -1285,13 +1302,13 @@ func (s *Server) setupRoutes() {
 	orgGroup.GET("/users", s.orgHandlers.GetOrganizationMembers)
 	orgGroup.GET("/users/check", s.userHandlers.CheckUser)
 	orgGroup.POST("/users/bulk-check", s.userHandlers.BulkCheckUsers)
-	orgGroup.POST("/users/bulk-invite", s.userHandlers.BulkInviteUsers)
-	orgGroup.POST("/users", s.userHandlers.CreateUser)
+	s.audited(orgGroup, echo.POST, "/users/bulk-invite", auditlog.Spec{Action: auditlog.ActionUserBulkInvite, Category: auditlog.CategoryUser, ResourceType: "user"}, s.userHandlers.BulkInviteUsers)
+	s.audited(orgGroup, echo.POST, "/users", auditlog.Spec{Action: auditlog.ActionUserCreate, Category: auditlog.CategoryUser, ResourceType: "user", Sensitive: true}, s.userHandlers.CreateUser)
 	orgGroup.GET("/users/:user_id", s.userHandlers.GetUser)
-	orgGroup.PUT("/users/:user_id", s.userHandlers.UpdateUser)
-	orgGroup.DELETE("/users/:user_id", s.userHandlers.DeactivateUser)
-	orgGroup.PUT("/users/:user_id/role", s.userHandlers.ChangeUserRole)
-	orgGroup.POST("/users/:user_id/force-password-reset", s.userHandlers.ForcePasswordReset)
+	s.audited(orgGroup, echo.PUT, "/users/:user_id", auditlog.Spec{Action: auditlog.ActionUserUpdate, Category: auditlog.CategoryUser, ResourceType: "user", ResourceIDParam: "user_id", Sensitive: true}, s.userHandlers.UpdateUser)
+	s.audited(orgGroup, echo.DELETE, "/users/:user_id", auditlog.Spec{Action: auditlog.ActionUserDeactivate, Category: auditlog.CategoryUser, ResourceType: "user", ResourceIDParam: "user_id", Sensitive: true}, s.userHandlers.DeactivateUser)
+	s.audited(orgGroup, echo.PUT, "/users/:user_id/role", auditlog.Spec{Action: auditlog.ActionUserRoleChange, Category: auditlog.CategoryUser, ResourceType: "user", ResourceIDParam: "user_id", Sensitive: true}, s.userHandlers.ChangeUserRole)
+	s.audited(orgGroup, echo.POST, "/users/:user_id/force-password-reset", auditlog.Spec{Action: auditlog.ActionPasswordForceReset, Category: auditlog.CategoryUser, ResourceType: "user", ResourceIDParam: "user_id", Sensitive: true}, s.userHandlers.ForcePasswordReset)
 	orgGroup.GET("/users/:user_id/audit-log", s.userHandlers.GetUserAuditLog)
 	orgGroup.POST("/review-outcomes", s.orgReviewOutcome)
 	orgGroup.GET("/review-outcomes", s.listReviewOutcomes)
@@ -1307,8 +1324,8 @@ func (s *Server) setupRoutes() {
 
 	// Super admin user management endpoints
 	adminGroup.GET("/users", s.userHandlers.ListAllUsers)
-	adminGroup.POST("/orgs/:org_id/users", s.userHandlers.CreateUserInAnyOrg)
-	adminGroup.PUT("/users/:user_id/org", s.userHandlers.TransferUserToOrg)
+	s.audited(adminGroup, echo.POST, "/orgs/:org_id/users", auditlog.Spec{Action: auditlog.ActionAdminUserCreate, Category: auditlog.CategoryAdmin, ResourceType: "user", Sensitive: true}, s.userHandlers.CreateUserInAnyOrg)
+	s.audited(adminGroup, echo.PUT, "/users/:user_id/org", auditlog.Spec{Action: auditlog.ActionAdminUserTransfer, Category: auditlog.CategoryAdmin, ResourceType: "user", ResourceIDParam: "user_id", Sensitive: true}, s.userHandlers.TransferUserToOrg)
 	adminGroup.GET("/analytics/users", s.userHandlers.GetUserAnalytics)
 
 	// Managed AI ("LiveReview AI Model") provider/model/key per tier - super admin only, writes session-only
@@ -1317,6 +1334,18 @@ func (s *Server) setupRoutes() {
 	adminGroup.POST("/managed-ai/test", s.TestManagedAIConfig)
 	adminGroup.PUT("/managed-ai/:id", s.UpdateManagedAIConfig)
 	adminGroup.POST("/managed-ai/:id/activate", s.ActivateManagedAIConfig)
+
+	// Cross-org audit reads and the retention policy. Session-only: the
+	// auditReadScope helper rejects API keys for admin view.
+	adminGroup.GET("/audit-events", s.AdminListAuditEvents)
+	adminGroup.GET("/audit-events/export", s.AdminExportAuditEvents)
+	adminGroup.GET("/audit-events/integrity", s.AdminAuditIntegrity)
+	adminGroup.GET("/audit-settings", s.GetAuditSettings)
+	adminGroup.PUT("/audit-settings", s.UpdateAuditSettings)
+	s.audited(adminGroup, echo.POST, "/audit-maintenance/run", auditlog.Spec{
+		Action: auditlog.ActionSystemAuditMaintenance, Category: auditlog.CategorySystem,
+		ResourceType: "audit", Sensitive: true,
+	}, s.RunAuditMaintenance)
 
 	// Instance-wide config (SMTP, blob storage, production URL): self-hosted org
 	// owners may also manage it, but in cloud mode this config is shared across
@@ -1369,7 +1398,7 @@ func (s *Server) setupRoutes() {
 
 	// Organization management within org context
 	orgGroup.GET("/members", s.orgHandlers.GetOrganizationMembers)
-	orgGroup.PUT("/members/:user_id/role", s.orgHandlers.ChangeUserRole)
+	s.audited(orgGroup, echo.PUT, "/members/:user_id/role", auditlog.Spec{Action: auditlog.ActionOrgRoleChange, Category: auditlog.CategoryOrg, ResourceType: "member", ResourceIDParam: "user_id", Sensitive: true}, s.orgHandlers.ChangeUserRole)
 	orgGroup.GET("/analytics", s.orgHandlers.GetOrganizationAnalytics)
 	orgGroup.PUT("", s.orgHandlers.UpdateOrganization) // Update org details (owners only)
 
@@ -1400,10 +1429,21 @@ func (s *Server) setupRoutes() {
 	}
 
 	// API key management within org context
-	orgGroup.POST("/api-keys", s.CreateAPIKeyHandler)
+	s.audited(orgGroup, echo.POST, "/api-keys", auditlog.Spec{Action: auditlog.ActionAPIKeyCreate, Category: auditlog.CategoryAPIKey, ResourceType: "api_key", Sensitive: true}, s.CreateAPIKeyHandler)
 	orgGroup.GET("/api-keys", s.ListAPIKeysHandler)
-	orgGroup.POST("/api-keys/:id/revoke", s.RevokeAPIKeyHandler)
-	orgGroup.DELETE("/api-keys/:id", s.DeleteAPIKeyHandler)
+	s.audited(orgGroup, echo.POST, "/api-keys/:id/revoke", auditlog.Spec{Action: auditlog.ActionAPIKeyRevoke, Category: auditlog.CategoryAPIKey, ResourceType: "api_key", ResourceIDParam: "id", Sensitive: true}, s.RevokeAPIKeyHandler)
+	s.audited(orgGroup, echo.DELETE, "/api-keys/:id", auditlog.Spec{Action: auditlog.ActionAPIKeyDelete, Category: auditlog.CategoryAPIKey, ResourceType: "api_key", ResourceIDParam: "id", Sensitive: true}, s.DeleteAPIKeyHandler)
+
+	// Audit log reads. Static paths are registered before /:id so Echo's
+	// router resolves them correctly. Each handler emits its own sensitive-
+	// read audit event; the middleware intentionally does not duplicate it.
+	orgGroup.GET("/audit-events", s.GetAuditEvents)
+	orgGroup.GET("/audit-events/meta", s.GetAuditMeta)
+	orgGroup.GET("/audit-events/facets", s.GetAuditFacets)
+	orgGroup.GET("/audit-events/ai-usage", s.GetAuditAIUsage)
+	orgGroup.GET("/audit-events/export", s.ExportAuditEvents)
+	orgGroup.GET("/audit-events/archive", s.DownloadAuditArchive)
+	orgGroup.GET("/audit-events/:id", s.GetAuditEvent)
 
 	// Organization creation - available to all authenticated users
 	protectedOrgsGroup.POST("/organizations", s.orgHandlers.CreateOrganization)
@@ -1824,7 +1864,7 @@ func (s *Server) setupRoutes() {
 	adminBillingGroup.GET("/portfolio/orgs/:org_id/usage", billingActionsHandler.GetAdminOrganizationBillingUsage)
 
 	// Taxonomy report endpoints (org-scoped: owner/admin)
-	taxonomyHandler := NewTaxonomyReportHandler(s.db)
+	taxonomyHandler := NewTaxonomyReportHandler(s.db, s.auditRecorder)
 	reportsGroup := v1.Group("/reports/taxonomy")
 	reportsGroup.Use(authMiddleware.RequireAuth())
 	reportsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
@@ -1855,7 +1895,7 @@ func (s *Server) setupRoutes() {
 	adminReportsGroup.GET("/export/xlsx", taxonomyHandler.ExportAdminTaxonomyXLSX)
 
 	// Onboarding report endpoints (org-scoped: any member)
-	onboardingHandler := NewOnboardingReportHandler(s.db)
+	onboardingHandler := NewOnboardingReportHandler(s.db, s.auditRecorder)
 	onboardingGroup := v1.Group("/reports/onboarding")
 	onboardingGroup.Use(authMiddleware.RequireAuth())
 	onboardingGroup.Use(authMiddleware.BuildOrgContextFromHeader())
@@ -2042,6 +2082,12 @@ func (s *Server) Start() error {
 	s.eventCompactionManager.Start()
 	fmt.Println("Event compaction manager started")
 
+	// Start audit maintenance (partitions, archive/retention, daily anchor)
+	if s.auditMaintenance != nil {
+		s.auditMaintenance.Start()
+		fmt.Println("Audit maintenance manager started")
+	}
+
 	// Start preloaded_changes archival manager (daily background cron archiving preloaded_changes > 30 days)
 	if s.preloadedChangesArchivalManager != nil {
 		s.preloadedChangesArchivalManager.Start()
@@ -2155,6 +2201,12 @@ func (s *Server) Start() error {
 	if s.eventCompactionManager != nil {
 		s.eventCompactionManager.Stop()
 		fmt.Println("Event compaction manager stopped")
+	}
+
+	// Stop audit maintenance manager
+	if s.auditMaintenance != nil {
+		s.auditMaintenance.Stop()
+		fmt.Println("Audit maintenance manager stopped")
 	}
 
 	// Stop preloaded_changes archival manager

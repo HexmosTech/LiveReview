@@ -75,6 +75,7 @@ func (a *Agent) classify(ctx context.Context, history []HistoryEntry, userText s
 			clog.LLMCallError(0, "classify", "", attempt, elapsed, err)
 			return classifyResult{}, fmt.Errorf("classify call: %w", err)
 		}
+		a.addUsage(usage)
 		clog.LLMCallResponse(0, "classify", "", attempt, elapsed, usage.InputTokens, usage.OutputTokens, response)
 
 		if res, ok := parseClassifyShape(response); ok {

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/labstack/echo/v4"
@@ -101,8 +102,8 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	}
 	orgID := pc.OrgID
 	userID := pc.User.ID
-	// We use context.WithoutCancel to intentionally detach DB/LLM operations from the HTTP request 
-	// lifecycle. This ensures that if the load balancer cuts the connection (e.g. 60s timeout), 
+	// We use context.WithoutCancel to intentionally detach DB/LLM operations from the HTTP request
+	// lifecycle. This ensures that if the load balancer cuts the connection (e.g. 60s timeout),
 	// the long-running analysis completes in the background and the UI can fetch it via polling.
 	ctx := context.WithoutCancel(c.Request().Context())
 	chatStore := storagechat.NewStore(s.db)
@@ -206,7 +207,7 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 		if marshalErr != nil {
 			log.Warn().Err(marshalErr).Msg("WebChat: failed to marshal debug artifacts")
 		}
-		
+
 		entry := mcpagent.HistoryEntry{
 			"role":            "assistant",
 			"content":         userFriendlyErr,
@@ -244,7 +245,10 @@ func (s *Server) HandleWebChat(c echo.Context) error {
 	agent := mcpagent.NewAgent(provider, mcpSession, maxSteps).
 		WithAnalytics(storageanalytics.NewAdHocStore(s.db))
 
+	started := time.Now()
 	responseText, updatedHistory, artifacts, debugArt, err := agent.RunTurnWithArtifacts(ctx, history, req.Message, sessionID, "livi")
+	usage, calls := agent.Usage()
+	s.recordChatAIUsage(ctx, c, orgID, connector, "livi_chat", &convID, req.Message, started, usage, calls, err)
 	if err != nil {
 		log.Error().Err(err).Msg("WebChat: agent loop failed")
 		userFriendlyErr := "> **AI Processing Error**\n> \n> I encountered an unexpected error while processing your request. Please try asking again."

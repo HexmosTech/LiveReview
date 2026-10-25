@@ -41,6 +41,12 @@ type Agent struct {
 	// is the pre-existing behaviour; see WithAnalytics.
 	analytics AnalyticsEngine
 
+	// totalUsage accumulates token usage across every LLM call in this agent's
+	// lifetime (one agent per chat turn). It is reported to the audit log, not
+	// used for billing.
+	totalUsage TokenUsage
+	llmCalls   int
+
 	// The following are precomputed once by WithAnalytics and only
 	// meaningful when analyticsEnabled() is true - RunTurnWithArtifacts
 	// falls back to systemPrompt/providerTools above otherwise, byte-
@@ -383,6 +389,7 @@ func (a *Agent) runStepLoop(
 			return msg, history, nil, debugArt, nil
 		}
 		log.Debug().Int("step", step).Int("response_len", len(response)).Msg("LLM call succeeded")
+		a.addUsage(usage)
 		clog.AIResponse(callNumber, step, aiElapsed, usage.InputTokens, usage.OutputTokens, response)
 
 		history = append(history, HistoryEntry{"role": "assistant", "content": response, "text": response})
@@ -841,4 +848,22 @@ func truncateContent(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen]
+}
+
+// Usage returns accumulated token usage for this agent (one chat turn).
+func (a *Agent) Usage() (TokenUsage, int) {
+	if a == nil {
+		return TokenUsage{}, 0
+	}
+	return a.totalUsage, a.llmCalls
+}
+
+// addUsage records one successful LLM call.
+func (a *Agent) addUsage(u TokenUsage) {
+	if a == nil {
+		return
+	}
+	a.totalUsage.InputTokens += u.InputTokens
+	a.totalUsage.OutputTokens += u.OutputTokens
+	a.llmCalls++
 }

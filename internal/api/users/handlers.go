@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/auditlog"
 )
 
 // UserHandlers contains the user management handler methods
@@ -155,6 +156,7 @@ func (uh *UserHandlers) CreateUser(c echo.Context) error {
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create user")
 	}
+	auditlog.MarkRecorded(c)
 
 	return c.JSON(http.StatusCreated, user)
 }
@@ -272,6 +274,7 @@ func (uh *UserHandlers) UpdateUser(c echo.Context) error {
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to update user")
 	}
+	auditlog.MarkRecorded(c)
 
 	return c.JSON(http.StatusOK, user)
 }
@@ -303,6 +306,7 @@ func (uh *UserHandlers) DeactivateUser(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to deactivate user")
 	}
+	auditlog.MarkRecorded(c)
 
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": "User deactivated successfully",
@@ -346,6 +350,7 @@ func (uh *UserHandlers) ChangeUserRole(c echo.Context) error {
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to change user role")
 	}
+	auditlog.MarkRecorded(c)
 
 	return c.JSON(http.StatusOK, user)
 }
@@ -372,6 +377,7 @@ func (uh *UserHandlers) ForcePasswordReset(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to force password reset")
 	}
+	auditlog.MarkRecorded(c)
 
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": "Password reset required - user will be prompted to change password on next login",
@@ -393,6 +399,13 @@ func (uh *UserHandlers) GetUserAuditLog(c echo.Context) error {
 	userID, err := strconv.ParseInt(userIDStr, 10, 64)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid user ID")
+	}
+
+	// Audit history is sensitive: owners and super admins may view any user in
+	// their org; members may view only their own. This mirrors the audit page's
+	// visibility rule.
+	if !permCtx.IsOwner && !permCtx.IsSuperAdmin && userID != permCtx.GetUserID() {
+		return echo.NewHTTPError(http.StatusForbidden, "Permission denied: members can only view their own audit history")
 	}
 
 	// Parse pagination parameters
@@ -496,6 +509,7 @@ func (uh *UserHandlers) CreateUserInAnyOrg(c echo.Context) error {
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to create user")
 	}
+	auditlog.MarkRecorded(c)
 
 	return c.JSON(http.StatusCreated, createdUser)
 }

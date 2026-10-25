@@ -69,6 +69,8 @@ var deniedTables = map[string]bool{
 	"upgrade_payment_attempts":     true,
 	"user_management_audit":        true,
 	"user_role_history":            true,
+	"audit_events":                 true,
+	"audit_archives":               true,
 	"ai_comments":                  true,
 }
 

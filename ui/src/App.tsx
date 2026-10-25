@@ -40,6 +40,7 @@ const BillingPortfolio = React.lazy(() => import('./pages/Admin/BillingPortfolio
 const TaxonomyReports = React.lazy(() => import('./pages/Reports/TaxonomyReports'));
 const OnboardingReport = React.lazy(() => import('./pages/Reports/OnboardingReport'));
 const AutoApproveReport = React.lazy(() => import('./pages/Reports/AutoApproveReport'));
+const AuditLog = React.lazy(() => import('./pages/Reports/AuditLog'));
 const ChatbotRoutes = React.lazy(() => import('./pages/Chatbot/ChatbotRoutes'));
 const ChatDebugRoutes = React.lazy(() => import('./pages/Chatbot/ChatDebugRoutes'));
 const CiRulesetsRoutes = React.lazy(() => import('./pages/CiRulesets/CiRulesetsRoutes'));
@@ -340,6 +341,7 @@ const AppContent: React.FC = () => {
                             <Route path="/admin/billing-portfolio" element={<BillingPortfolio />} />
                             <Route path="/reports/onboarding" element={<OnboardingReport />} />
                             <Route path="/reports/auto-approve" element={<AutoApproveReport />} />
+                            <Route path="/reports/audit" element={<AuditLog />} />
                             <Route path="/reports/*" element={<TaxonomyReports />} />
                             <Route path="/ci-rulesets/*" element={<CiRulesetsRoutes />} />
                             <Route path="/chat/*" element={<ChatbotRoutes />} />

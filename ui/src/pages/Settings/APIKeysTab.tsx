@@ -10,6 +10,7 @@ export interface APIKey {
     id: number;
     key_prefix: string;
     label: string;
+    kind?: string;
     scopes: string[];
     last_used_at: string | null;
     created_at: string;
@@ -32,6 +33,7 @@ const APIKeysTab: React.FC = () => {
     const [showCreateForm, setShowCreateForm] = useState(false);
     const [newKeyLabel, setNewKeyLabel] = useState('');
     const [newKeyScopes, setNewKeyScopes] = useState<string[]>([]);
+    const [newKeyKind, setNewKeyKind] = useState<'standard' | 'audit_reader'>('standard');
     const [createdKey, setCreatedKey] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
@@ -81,7 +83,8 @@ const APIKeysTab: React.FC = () => {
         try {
             const response = await apiClient.post<CreateKeyResponse>(`/orgs/${currentOrg.id}/api-keys`, {
                 label: newKeyLabel,
-                scopes: newKeyScopes,
+                scopes: newKeyKind === 'audit_reader' ? ['audit:read'] : newKeyScopes,
+                kind: newKeyKind,
             });
 
             setCreatedKey(response.plain_key);
@@ -89,6 +92,7 @@ const APIKeysTab: React.FC = () => {
             setShowCreateForm(false);
             setNewKeyLabel('');
             setNewKeyScopes([]);
+            setNewKeyKind('standard');
             await loadKeys();
         } catch (err: any) {
             setError(err.message || 'Failed to create API key');
@@ -288,6 +292,22 @@ const APIKeysTab: React.FC = () => {
                             onChange={(e) => setNewKeyLabel(e.target.value)}
                             helperText="A descriptive name to identify this key"
                         />
+                        <div>
+                            <label className="block text-sm text-slate-300 mb-1">Key type</label>
+                            <select
+                                value={newKeyKind}
+                                onChange={(e) => setNewKeyKind(e.target.value as 'standard' | 'audit_reader')}
+                                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200"
+                            >
+                                <option value="standard">Standard — inherits your permissions</option>
+                                <option value="audit_reader">Audit log only — SIEM export (read-only)</option>
+                            </select>
+                            <p className="text-xs text-slate-400 mt-1">
+                                {newKeyKind === 'audit_reader'
+                                    ? 'This key can only read audit events and export them. It cannot call any other API and loses access if you are no longer an owner.'
+                                    : 'This key can call the normal API with your current role, including reviews and repositories.'}
+                            </p>
+                        </div>
                         <div className="flex space-x-2">
                             <Button
                                 variant="primary"
@@ -340,6 +360,9 @@ const APIKeysTab: React.FC = () => {
                                 <div className="flex-1">
                                     <div className="flex items-center space-x-3 mb-2">
                                         <h5 className="text-white font-medium">{key.label}</h5>
+                                        {key.kind === 'audit_reader' && (
+                                            <Badge variant="warning" size="sm">Audit only</Badge>
+                                        )}
                                         <code className="text-xs bg-slate-900 text-slate-400 px-2 py-1 rounded font-mono">
                                             {key.key_prefix}...
                                         </code>

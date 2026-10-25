@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/auditlog"
 	"github.com/livereview/internal/chatexport"
 	"github.com/livereview/pkg/models"
 	storagechat "github.com/livereview/storage/chat"
@@ -46,6 +47,8 @@ func (s *Server) ExportConversation(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "conversation not found"})
 	}
 
+	s.recordAuditRead(c, auditlog.ActionExportChat,
+		auditlog.Details("format", format, "conversation_id", convID, "surface", string(conv.Surface)))
 	isDebug := conv.Surface == storagechat.SurfaceChatDebug
 	if format == "json" && !isDebug {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "JSON export is only available for debug conversations"})

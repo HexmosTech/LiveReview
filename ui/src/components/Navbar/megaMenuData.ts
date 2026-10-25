@@ -214,6 +214,7 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
             link('Download Report', React.createElement(Icons.Download), '/reports?export=pdf'),
             link('Custom Reports', React.createElement(Icons.Dashboard), '/reports?mode=custom'),
             link('Auto Approve', React.createElement(Icons.List), '/reports/auto-approve'),
+            link('Audit Log', React.createElement(Icons.List), '/reports/audit', (ctx) => ctx.isSuperAdmin || ctx.hasOrg),
         ],
     },
     {
