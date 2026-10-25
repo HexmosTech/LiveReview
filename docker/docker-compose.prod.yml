@@ -3,8 +3,8 @@ services:
     image: git.apps.hexmos.com:5050/hexmos/livereview
     container_name: livereview-app
     ports:
-      - "${LIVEREVIEW_BACKEND_PORT:-8888}:8888"  # Backend API
-      - "${LIVEREVIEW_FRONTEND_PORT:-8081}:8081"  # Frontend UI
+      - "${LIVEREVIEW_BIND_ADDR:+${LIVEREVIEW_BIND_ADDR:-}:}${LIVEREVIEW_BACKEND_PORT:-8888}:8888"  # Backend API
+      - "${LIVEREVIEW_BIND_ADDR:+${LIVEREVIEW_BIND_ADDR:-}:}${LIVEREVIEW_FRONTEND_PORT:-8081}:8081"  # Frontend UI
     env_file:
       - ../.env
     environment:
