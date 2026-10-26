@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -252,11 +253,20 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 			}
 
 			if err := loadPlanState(); err != nil {
-				if err == sql.ErrNoRows {
+				if err != sql.ErrNoRows {
+					fmt.Printf("[Subscription] plan lookup failed user=%d org=%d err=%v\n", user.ID, orgID, err)
+					return echo.NewHTTPError(http.StatusInternalServerError, "failed to check subscription")
+				}
+				// Not a member: only a super admin may continue.
+				plan, isSuperAdmin, err := am.loadSuperAdminPlan(reqCtx, user.ID, orgID)
+				if err != nil {
+					fmt.Printf("[Subscription] super admin plan lookup failed user=%d org=%d err=%v\n", user.ID, orgID, err)
+					return echo.NewHTTPError(http.StatusInternalServerError, "failed to check subscription")
+				}
+				if !isSuperAdmin {
 					return echo.NewHTTPError(http.StatusForbidden, "no access to this organization")
 				}
-				fmt.Printf("[Subscription] plan lookup failed user=%d org=%d err=%v\n", user.ID, orgID, err)
-				return echo.NewHTTPError(http.StatusInternalServerError, "failed to check subscription")
+				planType = plan
 			}
 
 			// Resolve plan type safely (NULL or empty -> free)
@@ -278,6 +288,27 @@ func (am *AuthMiddleware) EnforceSubscriptionLimits() echo.MiddlewareFunc {
 			return next(c)
 		}
 	}
+}
+
+// loadSuperAdminPlan reads an org's plan for a super admin, who can open any org without being a member.
+// isSuperAdmin is false (and plan empty) for everyone else; an org with no billing row yields an empty plan.
+func (am *AuthMiddleware) loadSuperAdminPlan(ctx context.Context, userID, orgID int64) (plan sql.NullString, isSuperAdmin bool, err error) {
+	err = am.db.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM user_roles ur
+			JOIN roles r ON ur.role_id = r.id
+			WHERE ur.user_id = $1 AND r.name = $2
+		)
+	`, userID, RoleSuperAdmin).Scan(&isSuperAdmin)
+	if err != nil || !isSuperAdmin {
+		return plan, false, err
+	}
+	err = am.db.QueryRowContext(ctx,
+		`SELECT current_plan_code FROM org_billing_state WHERE org_id = $1`, orgID).Scan(&plan)
+	if err == sql.ErrNoRows {
+		err = nil
+	}
+	return plan, true, err
 }
 
 // BuildOrgContextFromHeader middleware extracts org_id from X-Org-Context header and validates org exists
