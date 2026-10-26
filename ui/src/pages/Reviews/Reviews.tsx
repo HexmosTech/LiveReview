@@ -292,6 +292,8 @@ const Reviews: React.FC = () => {
             {
                 id: 'review',
                 accessorFn: (review) => getPrimaryTitle(review),
+                // Links its own title/PR line so "Open PR/MR" isn't nested in a link.
+                meta: { rowLink: false },
                 // Searches title/repo/branch/URL/author together, same combined
                 // free-text search the old top search bar offered (it searched
                 // "repositories or URLs"; author is included too since it's visible
@@ -365,14 +367,18 @@ const Reviews: React.FC = () => {
                     return (
                         <div className="flex flex-col justify-center gap-1 min-w-0 min-h-[44px]">
                             <div className="flex items-center gap-2 min-w-0">
-                                <span className="min-w-0 truncate text-white font-semibold">
+                                <Link
+                                    to={`/reviews/${review.id}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="min-w-0 truncate text-white font-semibold"
+                                >
                                     <TruncatedWithTooltip
                                         text={primaryTitle}
                                         max={TITLE_MAX}
                                     >
                                         {displayTitle}
                                     </TruncatedWithTooltip>
-                                </span>
+                                </Link>
                                 {review.prMrUrl && (
                                     <a
                                         href={review.prMrUrl}
@@ -386,9 +392,13 @@ const Reviews: React.FC = () => {
                                 )}
                             </div>
                             {metaChips.length > 0 && (
-                                <div className="min-w-0 text-sm text-slate-400 truncate">
+                                <Link
+                                    to={`/reviews/${review.id}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="block min-w-0 text-sm text-slate-400 truncate"
+                                >
                                     {metaChips.join(' · ')}
-                                </div>
+                                </Link>
                             )}
                         </div>
                     );
@@ -644,6 +654,7 @@ const Reviews: React.FC = () => {
                 id: 'details',
                 enableSorting: false,
                 enableColumnFilter: false,
+                meta: { rowLink: false },
                 header: () => (
                     <span className="font-semibold text-slate-300 uppercase tracking-wide text-xs">
                         Details
@@ -651,12 +662,11 @@ const Reviews: React.FC = () => {
                 ),
                 cell: ({ row }) => (
                     <Button
+                        as={Link}
+                        to={`/reviews/${row.original.id}`}
                         variant="outline"
                         size="sm"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            handleViewReview(row.original);
-                        }}
+                        onClick={(e: React.MouseEvent) => e.stopPropagation()}
                         className="border-slate-400 text-white hover:bg-white/10 hover:border-white text-sm cursor-pointer"
                     >
                         View Details
@@ -746,6 +756,7 @@ const Reviews: React.FC = () => {
                 }}
                 pageSizeOptions={pageSizeOptions}
                 onRowClick={handleViewReview}
+                getRowHref={(review) => `/reviews/${review.id}`}
                 manualTotal={total}
             />
         </div>
