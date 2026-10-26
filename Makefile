@@ -3,6 +3,7 @@
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
 .PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging ensure-seed-demo-env
 .PHONY: dev dev-up dev-down dev-restart dev-status dev-attach
+.PHONY: e2e e2e-up e2e-down e2e-auth e2e-preflight e2e-audit e2e-review e2e-urls e2e-visual e2e-clean e2e-shell e2e-doctor e2e-status
 
 # ============================================================================
 # Environment switching
@@ -1565,6 +1566,49 @@ dev-status:
 
 dev-attach:
 	@scripts/dev.sh attach
+
+# ============================================================================
+# Local E2E harness (real accounts, isolated lrc, audit scoping)
+# ============================================================================
+
+e2e-up:
+	@scripts/e2e/bootstrap.sh up --interactive
+
+e2e-down:
+	@scripts/e2e/bootstrap.sh down
+
+e2e-auth:
+	@scripts/e2e/bootstrap.sh auth $(ARGS)
+
+e2e-status:
+	@scripts/e2e/bootstrap.sh status
+
+e2e-doctor:
+	@scripts/e2e/bootstrap.sh doctor
+
+e2e-preflight:
+	@scripts/e2e/bootstrap.sh preflight $(ARGS)
+
+e2e-audit:
+	@scripts/e2e/bootstrap.sh audit $(ARGS)
+
+e2e-review:
+	@scripts/e2e/bootstrap.sh review $(ARGS)
+
+e2e-urls:
+	@scripts/e2e/bootstrap.sh urls $(ARGS)
+
+e2e:
+	@scripts/e2e/run.sh $(ARGS)
+
+e2e-visual:
+	@scripts/e2e/run.sh --skip-api --skip-review --skip-urls $(ARGS)
+
+e2e-clean:
+	@scripts/e2e/bootstrap.sh clean
+
+e2e-shell:
+	@scripts/e2e/shell.sh
 
 # ============================================================================
 # CI/CD Gate demo (shrsv/claude-world) -- see demo/cicd/README.md

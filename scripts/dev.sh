@@ -7,14 +7,15 @@ WIN_API="$ROOT_DIR/scripts/tmux-helpers/api.sh"
 WIN_UI="$ROOT_DIR/scripts/tmux-helpers/ui.sh"
 WIN_WORKER="$ROOT_DIR/scripts/tmux-helpers/worker.sh"
 WIN_NICEURL="$ROOT_DIR/scripts/tmux-helpers/niceurl.sh"
+WIN_E2E="$ROOT_DIR/scripts/tmux-helpers/e2e.sh"
 
 usage() {
   cat <<'EOF'
 Usage: scripts/dev.sh [COMMAND]  (or: make dev / make dev-up / make dev-down / ...)
 
 Commands:
-  up            Start all services in a tmux session (default)
-  down          Kill the tmux session
+  up            Start all services plus the isolated E2E sandbox (default)
+  down          Clean up E2E fixtures and kill the tmux session
   restart SVC   Restart a single service (api|ui|worker|niceurl)
   status        List tmux windows and their status
   attach        Attach to the running session
@@ -84,6 +85,26 @@ echo ">>> UI is up. Starting $NICEURL ..."
 exec make "$NICEURL"
 NUEOF
 
+  # e2e.sh
+  cat > "$WIN_E2E" <<'E2EEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/common.sh"
+cd "$ROOT_DIR"
+echo ">>> Waiting for API on :8888 and UI on :8081 ..."
+wait_port 8888
+wait_port 8081
+echo ">>> Provisioning the isolated lrc/E2E sandbox ..."
+if grep -Eq '^E2E_(OTP|PASSWORD)=.+' .env.e2e.local 2>/dev/null; then
+  python3 scripts/e2e/control.py up --optional --interactive --headless || true
+else
+  python3 scripts/e2e/control.py up --optional || true
+fi
+echo ""
+echo ">>> E2E window idle. Run 'make e2e-status' or 'make e2e' from another terminal."
+exec sleep infinity
+E2EEOF
+
   # common.sh (shared helpers)
   cat > "$ROOT_DIR/scripts/tmux-helpers/common.sh" <<'CMNEOF'
 #!/usr/bin/env bash
@@ -109,7 +130,7 @@ cmd_up() {
     exit 0
   fi
 
-  echo "Starting tmux session '$SESSION' with 4 windows ..."
+  echo "Starting tmux session '$SESSION' with 5 windows ..."
 
   tmux new-session -d -s "$SESSION" -n api \
     "bash '$WIN_API'"
@@ -123,29 +144,50 @@ cmd_up() {
   tmux new-window -t "$SESSION" -n niceurl \
     "NICEURL=${NICEURL:-niceurl2} bash '$WIN_NICEURL'"
 
+  tmux new-window -t "$SESSION" -n e2e \
+    "NICEURL=${NICEURL:-niceurl2} bash '$WIN_E2E'"
+
   # Focus on api window by default
   tmux select-window -t "$SESSION:api"
 
   echo ""
   echo "  tmux session '$SESSION' started."
   echo ""
-  echo "  Windows:  api | ui | worker | niceurl"
+  echo "  Windows:  api | ui | worker | niceurl | e2e"
   echo ""
   echo "  Attach:       scripts/dev.sh attach"
   echo "  Restart API:  scripts/dev.sh restart api"
+  echo "  E2E status:   make e2e-status"
+  echo "  E2E tests:    make e2e"
   echo "  Kill all:     scripts/dev.sh down"
   echo ""
-  echo "  Inside tmux: prefix+n to switch windows, prefix+0-3 to jump"
+  echo "  Inside tmux: prefix+n to switch windows, prefix+0-4 to jump"
   echo ""
 }
 
 cmd_down() {
+  # Always attempt E2E cleanup before killing tmux: this revokes ephemeral API
+  # keys, deactivates the temp member, and restores any journaled user config.
+  if [[ -x "$ROOT_DIR/scripts/e2e/bootstrap.sh" ]]; then
+    "$ROOT_DIR/scripts/e2e/bootstrap.sh" down || true
+  fi
   if tmux has-session -t "$SESSION" 2>/dev/null; then
     tmux kill-session -t "$SESSION"
     echo "Session '$SESSION' killed."
   else
     echo "No session '$SESSION' running."
   fi
+
+  # tmux does not always reap children started by air/webpack; make dev-down a
+  # real stop so the next dev-up can bind the ports cleanly.
+  for port in 8888 8081; do
+    pids=$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+    if [[ -n "$pids" ]]; then
+      kill -9 $pids 2>/dev/null || true
+    fi
+  done
+  pkill -9 -f './tmp/lrworker' 2>/dev/null || true
+  pkill -9 -f 'autossh -M 2000[0-4]' 2>/dev/null || true
 }
 
 cmd_restart() {
@@ -213,6 +255,10 @@ cmd_status() {
     exit 0
   fi
   tmux list-windows -t "$SESSION"
+  echo ""
+  if [[ -x "$ROOT_DIR/scripts/e2e/bootstrap.sh" ]]; then
+    "$ROOT_DIR/scripts/e2e/bootstrap.sh" status || true
+  fi
 }
 
 cmd_attach() {
