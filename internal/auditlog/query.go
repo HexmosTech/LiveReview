@@ -266,7 +266,7 @@ func (q *Query) Get(ctx context.Context, db *sql.DB, id int64) (*Event, error) {
 	idArg := fmt.Sprintf("$%d", len(args)+1)
 	args = append(args, id)
 	// where is fixed clauses/placeholders; idArg is a generated $N placeholder.
-	// nosemgrep: go.lang.security.audit.sqli.gosql-sqli.gosql-sqli
+	// nosemgrep: go.lang.security.audit.sqli.gosql-sqli.gosql-sqli, go.lang.security.audit.database.string-formatted-query.string-formatted-query
 	sqlText := "SELECT " + eventColumns + " FROM audit_events WHERE " + where +
 		" AND id = " + idArg + " ORDER BY occurred_at DESC LIMIT 1"
 	// nosemgrep: go.lang.security.audit.sqli.gosql-sqli.gosql-sqli
