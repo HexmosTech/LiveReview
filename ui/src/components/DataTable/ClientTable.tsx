@@ -1,6 +1,7 @@
 import React from 'react';
 import { flexRender, Table } from '@tanstack/react-table';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import { Button, Icons, Spinner } from '../UIPrimitives';
 import { DataTablePaginationControls, DataTableEmptyState } from './DataTable';
 
@@ -33,6 +34,9 @@ export interface ClientTableProps<TData> {
    * activation to each row when set; omit for pages that only expose
    * actions via explicit buttons. */
   onRowClick?: (row: TData) => void;
+  /** Makes each cell a real link to this URL, so right-click "Open in new tab"
+   * and middle/Ctrl-click work. Columns with their own links opt out via meta.rowLink = false. */
+  getRowHref?: (row: TData) => string;
   /** Override for the pagination footer's "total rows" count. Needed for
    * server-side (manualPagination/manualFiltering) tables, where the
    * table instance only ever holds one page's worth of data -
@@ -61,6 +65,7 @@ export function ClientTable<TData>({
   empty,
   pageSizeOptions,
   onRowClick,
+  getRowHref,
   manualTotal,
 }: ClientTableProps<TData>) {
   // Show loading until the first rows arrive, even when filters keep isEmpty false.
@@ -162,11 +167,22 @@ export function ClientTable<TData>({
                 }
                 tabIndex={onRowClick ? 0 : undefined}
               >
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-6 py-2.5 align-middle min-h-[52px]">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
+                {row.getVisibleCells().map((cell) => {
+                  const content = flexRender(cell.column.columnDef.cell, cell.getContext());
+                  const meta = cell.column.columnDef.meta as { rowLink?: boolean } | undefined;
+                  return (
+                    <td key={cell.id} className="px-6 py-2.5 align-middle min-h-[52px]">
+                      {getRowHref && meta?.rowLink !== false ? (
+                        // Stop the row's onClick so it doesn't navigate a second time.
+                        <Link to={getRowHref(row.original)} onClick={(e) => e.stopPropagation()} className="block text-inherit">
+                          {content}
+                        </Link>
+                      ) : (
+                        content
+                      )}
+                    </td>
+                  );
+                })}
               </motion.tr>
             ))}
           </AnimatePresence>
