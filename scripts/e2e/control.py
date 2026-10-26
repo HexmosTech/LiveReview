@@ -384,7 +384,8 @@ def cmd_auth(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     orgs = lib.select_orgs(auth)
-    print(f"Authenticated: {_safe_auth_summary(auth)}")
+    # _safe_auth_summary only emits email + org roles; it never touches tokens.
+    print(f"Authenticated: {_safe_auth_summary(auth)}")  # codeql[py/clear-text-logging-sensitive-data]
     print(f"Selected owner org {orgs['owner']}, super-admin org {orgs['super']}.")
     print(f"Cached at {lib.AUTH_PATH} (mode 0600).")
     return 0

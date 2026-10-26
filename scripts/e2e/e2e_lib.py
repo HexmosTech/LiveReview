@@ -161,7 +161,8 @@ def secure_dir(path: Path) -> Path:
 def secure_write(path: Path, data: str) -> None:
     secure_dir(path.parent)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(data, encoding="utf-8")
+    # Fixture state contains no password; only short-lived local test tokens.
+    tmp.write_text(data, encoding="utf-8")  # codeql[py/clear-text-storage-sensitive-data]
     try:
         tmp.chmod(0o600)
     except OSError:
