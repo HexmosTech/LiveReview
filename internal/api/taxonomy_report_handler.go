@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/auditlog"
 	storagereports "github.com/livereview/storage/reviews"
 	"github.com/xuri/excelize/v2"
 )
@@ -44,11 +45,13 @@ func collectMultiQueryParam(c echo.Context, key string) string {
 // for review-finding taxonomy data.
 type TaxonomyReportHandler struct {
 	store *storagereports.TaxonomyReportStore
+	audit *auditlog.Recorder
 }
 
-func NewTaxonomyReportHandler(db *sql.DB) *TaxonomyReportHandler {
+func NewTaxonomyReportHandler(db *sql.DB, audit *auditlog.Recorder) *TaxonomyReportHandler {
 	return &TaxonomyReportHandler{
 		store: storagereports.NewTaxonomyReportStore(db),
+		audit: audit,
 	}
 }
 
@@ -445,6 +448,8 @@ func (h *TaxonomyReportHandler) ExportOrgTaxonomyCSV(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "org context required")
 	}
 	dataset := strings.TrimSpace(c.QueryParam("dataset"))
+	recordSensitiveRead(c, h.audit, auditlog.ActionExportFindings,
+		auditlog.Details("format", "csv", "dataset", dataset, "all_orgs", false))
 	return h.streamCSV(c, orgID, dataset, false)
 }
 
@@ -454,6 +459,8 @@ func (h *TaxonomyReportHandler) ExportOrgTaxonomyXLSX(c echo.Context) error {
 	if !ok {
 		return JSONErrorWithEnvelope(c, http.StatusUnauthorized, "org context required")
 	}
+	recordSensitiveRead(c, h.audit, auditlog.ActionExportFindings,
+		auditlog.Details("format", "xlsx", "all_orgs", false))
 	return h.streamXLSX(c, orgID, false)
 }
 
@@ -464,6 +471,8 @@ func (h *TaxonomyReportHandler) ExportAdminTaxonomyCSV(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
 	}
 	dataset := strings.TrimSpace(c.QueryParam("dataset"))
+	recordSensitiveRead(c, h.audit, auditlog.ActionExportFindings,
+		auditlog.Details("format", "csv", "dataset", dataset, "all_orgs", true))
 	return h.streamCSV(c, orgID, dataset, true)
 }
 
@@ -473,6 +482,8 @@ func (h *TaxonomyReportHandler) ExportAdminTaxonomyXLSX(c echo.Context) error {
 	if err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, err.Error())
 	}
+	recordSensitiveRead(c, h.audit, auditlog.ActionExportFindings,
+		auditlog.Details("format", "xlsx", "all_orgs", true))
 	return h.streamXLSX(c, orgID, true)
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/auditlog"
 	"github.com/livereview/internal/blastradius/repocache"
 )
 
@@ -403,6 +404,7 @@ func (h *OrganizationHandlers) ChangeUserRole(c echo.Context) error {
 		h.logger.Printf("Error changing user role: %v", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to change user role")
 	}
+	auditlog.MarkRecorded(c)
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message": "User role changed successfully",

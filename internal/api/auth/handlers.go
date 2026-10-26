@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/livereview/internal/auditlog"
 	"github.com/livereview/pkg/models"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -21,6 +23,7 @@ import (
 type AuthHandlers struct {
 	tokenService *TokenService
 	db           *sql.DB
+	audit        *auditlog.Recorder
 	// onboardingKeyGenerator creates a user's onboarding API key within an existing transaction.
 	// Injected from package api (via SetOnboardingKeyGenerator) rather than imported directly,
 	// since internal/api already imports internal/api/auth and a reverse import would cycle.
@@ -42,6 +45,52 @@ func NewAuthHandlers(tokenService *TokenService, db *sql.DB) *AuthHandlers {
 // user's first dashboard load (see collectOnboardingData in internal/api/dashboard.go).
 func (h *AuthHandlers) SetOnboardingKeyGenerator(gen func(tx *sql.Tx, userID, orgID int64) (string, error)) {
 	h.onboardingKeyGenerator = gen
+}
+
+// SetAuditRecorder wires the audit trail into authentication events. Optional:
+// nil disables audit writes (useful in unit tests).
+func (h *AuthHandlers) SetAuditRecorder(rec *auditlog.Recorder) {
+	h.audit = rec
+}
+
+// recordAuthEvent writes an authentication event best-effort. Login must never
+// fail because the audit store is unavailable.
+func (h *AuthHandlers) recordAuthEvent(c echo.Context, ev auditlog.Event) {
+	if h.audit == nil {
+		return
+	}
+	ev.Source = auditlog.SourceAPI
+	ev.RequestID = auditlog.RequestID(c)
+	ev.IP = c.RealIP()
+	ev.UserAgent = c.Request().UserAgent()
+	ev.Method = c.Request().Method
+	ev.Path = c.Path()
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
+	defer cancel()
+	if err := h.audit.Record(ctx, ev); err != nil {
+		auditlog.LogRecordError(ev.Action, err)
+	}
+}
+
+// orgForEmail resolves the org an authentication attempt belongs to, so a
+// failed sign-in is visible to that org's owner. Unknown emails fall back to
+// org 0 (visible only to super admins).
+func (h *AuthHandlers) orgForEmail(email string) int64 {
+	if strings.TrimSpace(email) == "" {
+		return 0
+	}
+	var orgID sql.NullInt64
+	if err := h.db.QueryRow(`SELECT default_org_id FROM users WHERE email = $1`, email).Scan(&orgID); err == nil && orgID.Valid {
+		return orgID.Int64
+	}
+	var fallback int64
+	_ = h.db.QueryRow(`
+		SELECT ur.org_id FROM user_roles ur
+		JOIN users u ON u.id = ur.user_id
+		WHERE u.email = $1
+		ORDER BY ur.org_id
+		LIMIT 1`, email).Scan(&fallback)
+	return fallback
 }
 
 // LoginRequest represents the login request body
@@ -124,6 +173,15 @@ func (h *AuthHandlers) Login(c echo.Context) error {
 	`, req.Email).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DefaultOrgID, &user.CreatedAt, &user.UpdatedAt)
 
 	if err == sql.ErrNoRows {
+		h.recordAuthEvent(c, auditlog.Event{
+			OrgID:      h.orgForEmail(req.Email),
+			ActorEmail: req.Email,
+			ActorKind:  auditlog.ActorKindMember,
+			Action:     auditlog.ActionLoginFailure,
+			Outcome:    auditlog.OutcomeFailure,
+			Severity:   auditlog.SeverityWarning,
+			Details:    auditlog.Details("email", req.Email, "reason", "unknown_email"),
+		})
 		return c.JSON(http.StatusUnauthorized, map[string]string{
 			"error": "Invalid email or password",
 		})
@@ -137,6 +195,15 @@ func (h *AuthHandlers) Login(c echo.Context) error {
 	// Verify password
 	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password))
 	if err != nil {
+		h.recordAuthEvent(c, auditlog.Event{
+			OrgID:      h.orgForEmail(req.Email),
+			ActorEmail: req.Email,
+			ActorKind:  auditlog.ActorKindMember,
+			Action:     auditlog.ActionLoginFailure,
+			Outcome:    auditlog.OutcomeFailure,
+			Severity:   auditlog.SeverityWarning,
+			Details:    auditlog.Details("email", req.Email, "reason", "invalid_password"),
+		})
 		return c.JSON(http.StatusUnauthorized, map[string]string{
 			"error": "Invalid email or password",
 		})
@@ -197,6 +264,31 @@ func (h *AuthHandlers) Login(c echo.Context) error {
 		Organizations: organizations,
 	}
 
+	// Record the successful sign-in and update last_login_at. Both are
+	// best-effort: a slow audit store must not block authentication.
+	_, _ = h.db.Exec(`UPDATE users SET last_login_at = NOW() WHERE id = $1`, user.ID)
+	loginOrgID := int64(0)
+	if len(organizations) > 0 {
+		loginOrgID = organizations[0].ID
+	} else if user.DefaultOrgID != nil {
+		loginOrgID = *user.DefaultOrgID
+	}
+	uid := user.ID
+	actorKind, actorCapacity := h.actorFor(user)
+	h.recordAuthEvent(c, auditlog.Event{
+		OrgID:         loginOrgID,
+		ActorUserID:   &uid,
+		ActorEmail:    user.Email,
+		ActorName:     h.userName(user.ID),
+		ActorKind:     actorKind,
+		ActorCapacity: actorCapacity,
+		AuthMethod:    "password",
+		Action:        auditlog.ActionLoginSuccess,
+		Outcome:       auditlog.OutcomeSuccess,
+		Severity:      auditlog.SeverityInfo,
+		Details:       auditlog.Details("email", user.Email, "method", "password"),
+	})
+
 	return c.JSON(http.StatusOK, response)
 }
 
@@ -243,6 +335,7 @@ func (h *AuthHandlers) Logout(c echo.Context) error {
 				"error": "Failed to logout from all devices",
 			})
 		}
+		h.recordLogout(c, user, true)
 		return c.JSON(http.StatusOK, map[string]string{
 			"message": "Logged out from all devices",
 		})
@@ -261,10 +354,31 @@ func (h *AuthHandlers) Logout(c echo.Context) error {
 			h.tokenService.RevokeToken(refreshTokenHash, "refresh")
 		}
 
+		h.recordLogout(c, user, false)
 		return c.JSON(http.StatusOK, map[string]string{
 			"message": "Logged out successfully",
 		})
 	}
+}
+
+func (h *AuthHandlers) recordLogout(c echo.Context, user *models.User, all bool) {
+	orgID := int64(0)
+	if user.DefaultOrgID != nil {
+		orgID = *user.DefaultOrgID
+	}
+	uid := user.ID
+	actorKind, actorCapacity := h.actorFor(user)
+	h.recordAuthEvent(c, auditlog.Event{
+		OrgID:         orgID,
+		ActorUserID:   &uid,
+		ActorEmail:    user.Email,
+		ActorKind:     actorKind,
+		ActorCapacity: actorCapacity,
+		AuthMethod:    "session",
+		Action:        auditlog.ActionLogout,
+		Outcome:       auditlog.OutcomeSuccess,
+		Details:       auditlog.Details("all_sessions", all),
+	})
 }
 
 // Me returns information about the currently authenticated user
@@ -339,8 +453,38 @@ func (h *AuthHandlers) RefreshToken(c echo.Context) error {
 	// Refresh the token pair
 	tokenPair, err := h.tokenService.RefreshTokenPair(req.RefreshToken, userAgent, ipAddress)
 	if err != nil {
+		h.recordAuthEvent(c, auditlog.Event{
+			ActorKind:  auditlog.ActorKindMember,
+			Action:     auditlog.ActionTokenRefresh,
+			Outcome:    auditlog.OutcomeFailure,
+			Severity:   auditlog.SeverityWarning,
+			AuthMethod: "refresh",
+			Details:    auditlog.Details("reason", "invalid_or_expired_refresh"),
+		})
 		return c.JSON(http.StatusUnauthorized, map[string]string{
 			"error": "Invalid or expired refresh token",
+		})
+	}
+
+	// Record the refresh as a session event. Access tokens are long-lived
+	// (hours), so this is low-volume and useful for session forensics.
+	if user, err := h.tokenService.ValidateAccessToken(tokenPair.AccessToken); err == nil && user != nil {
+		orgID := int64(0)
+		if user.DefaultOrgID != nil {
+			orgID = *user.DefaultOrgID
+		}
+		uid := user.ID
+		actorKind, actorCapacity := h.actorFor(user)
+		h.recordAuthEvent(c, auditlog.Event{
+			OrgID:         orgID,
+			ActorUserID:   &uid,
+			ActorEmail:    user.Email,
+			ActorKind:     actorKind,
+			ActorCapacity: actorCapacity,
+			AuthMethod:    "refresh",
+			Action:        auditlog.ActionTokenRefresh,
+			Outcome:       auditlog.OutcomeSuccess,
+			Details:       auditlog.Details("method", "refresh"),
 		})
 	}
 
@@ -541,14 +685,54 @@ func (h *AuthHandlers) ChangePassword(c echo.Context) error {
 		})
 	}
 
-	// Update password
-	_, err = h.db.Exec(`
+	// Update password and write the audit row in the same transaction:
+	// password changes are fail-closed.
+	tx, err := h.db.BeginTx(c.Request().Context(), nil)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to update password",
+		})
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.ExecContext(c.Request().Context(), `
 		UPDATE users 
 		SET password_hash = $1, updated_at = NOW()
 		WHERE id = $2
 	`, string(hashedPassword), user.ID)
 
 	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "Failed to update password",
+		})
+	}
+
+	if h.audit != nil {
+		orgID := int64(0)
+		if user.DefaultOrgID != nil {
+			orgID = *user.DefaultOrgID
+		}
+		uid := user.ID
+		actorKind, actorCapacity := h.actorFor(user)
+		if err := h.audit.RecordTxEcho(c, tx, auditlog.Event{
+			OrgID:         orgID,
+			ActorUserID:   &uid,
+			ActorEmail:    user.Email,
+			ActorKind:     actorKind,
+			ActorCapacity: actorCapacity,
+			AuthMethod:    "session",
+			Action:        auditlog.ActionPasswordChange,
+			Outcome:       auditlog.OutcomeSuccess,
+			Severity:      auditlog.SeverityWarning,
+			Details:       auditlog.Details("method", "password"),
+		}); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "Failed to record audit event",
+			})
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "Failed to update password",
 		})
@@ -734,3 +918,27 @@ func (h *AuthHandlers) EnterpriseEnquiry(c echo.Context) error {
 
 // Note: Onboarding API keys are now created using the standard APIKeyManager from the api package
 // This is called after transaction commit to avoid import cycles
+
+// isSuperAdmin reports whether the user has the platform super-admin role.
+// Super-admin actions are recorded with admin capacity so only super admins
+// can see them, even when the action happens on an org-scoped route.
+func (h *AuthHandlers) isSuperAdmin(userID int64) bool {
+	if userID <= 0 {
+		return false
+	}
+	var ok bool
+	_ = h.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM user_roles ur
+			JOIN roles r ON ur.role_id = r.id
+			WHERE ur.user_id = $1 AND r.name = $2
+		)`, userID, RoleSuperAdmin).Scan(&ok)
+	return ok
+}
+
+func (h *AuthHandlers) actorFor(user *models.User) (auditlog.ActorKind, auditlog.ActorCapacity) {
+	if user != nil && h.isSuperAdmin(user.ID) {
+		return auditlog.ActorKindSuperAdmin, auditlog.ActorCapacityAdmin
+	}
+	return auditlog.ActorKindMember, auditlog.ActorCapacityMember
+}

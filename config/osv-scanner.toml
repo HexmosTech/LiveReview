@@ -2,7 +2,3 @@
 [[ignoredVulns]]
 id = "GO-2026-5932"
 reason = "False positive — golang.org/x/crypto/openpgp sub-package is never imported by this project; only golang.org/x/crypto/bcrypt is used."
-
-[[ignoredVulns]]
-id = "GHSA-vfj7-8cjw-p6xm"
-reason = "braces v3.0.3 is the latest version available and there is no patch. As a devDependency only invoked at build time, it is not exposed to untrusted user input."

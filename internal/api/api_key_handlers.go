@@ -10,11 +10,13 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/auditlog"
 )
 
 // CreateAPIKeyRequest represents the request body for creating an API key
 type CreateAPIKeyRequest struct {
 	Label     string   `json:"label"`
+	Kind      string   `json:"kind,omitempty"` // standard | audit_reader
 	Scopes    []string `json:"scopes,omitempty"`
 	ExpiresAt *string  `json:"expires_at,omitempty"` // ISO 8601 format
 }
@@ -40,6 +42,14 @@ func (s *Server) CreateAPIKeyHandler(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "label is required"})
 	}
 
+	kind := strings.TrimSpace(req.Kind)
+	if kind == "" {
+		kind = "standard"
+	}
+	if !ValidAPIKeyKind(kind) {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "kind must be standard or audit_reader"})
+	}
+
 	var expiresAt *time.Time
 	if req.ExpiresAt != nil && *req.ExpiresAt != "" {
 		parsed, err := time.Parse(time.RFC3339, *req.ExpiresAt)
@@ -54,9 +64,48 @@ func (s *Server) CreateAPIKeyHandler(c echo.Context) error {
 		scopes = []string{}
 	}
 
+	if kind == "audit_reader" {
+		if !pc.IsOwner && !pc.IsSuperAdmin {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "only owners can create audit-reader keys"})
+		}
+		if method, _ := c.Get(authMethodContextKey).(string); method == authMethodAPIKey {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "audit keys must be created from a user session"})
+		}
+		scopes = appendUniqueString(scopes, "audit:read")
+	}
+
 	manager := NewAPIKeyManager(s.db)
-	apiKey, plainKey, err := manager.CreateAPIKey(userID, orgID, req.Label, scopes, expiresAt)
+	tx, err := s.db.BeginTx(c.Request().Context(), nil)
 	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create API key"})
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	apiKey, plainKey, err := manager.CreateAPIKeyTx(tx, userID, orgID, req.Label, scopes, expiresAt, kind)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create API key"})
+	}
+
+	if s.auditRecorder != nil {
+		expires := ""
+		if expiresAt != nil {
+			expires = expiresAt.UTC().Format(time.RFC3339)
+		}
+		if err := s.auditRecorder.RecordTxEcho(c, tx, auditlog.Event{
+			OrgID:        orgID,
+			Action:       auditlog.ActionAPIKeyCreate,
+			Category:     auditlog.CategoryAPIKey,
+			ResourceType: "api_key",
+			ResourceID:   strconv.FormatInt(apiKey.ID, 10),
+			Outcome:      auditlog.OutcomeSuccess,
+			Severity:     auditlog.SeverityWarning,
+			Details:      auditlog.Details("label", req.Label, "kind", kind, "scopes", scopes, "expires_at", expires),
+		}); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to record audit event"})
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to create API key"})
 	}
 
@@ -64,6 +113,15 @@ func (s *Server) CreateAPIKeyHandler(c echo.Context) error {
 		APIKey:   apiKey,
 		PlainKey: plainKey,
 	})
+}
+
+func appendUniqueString(in []string, value string) []string {
+	for _, v := range in {
+		if v == value {
+			return in
+		}
+	}
+	return append(in, value)
 }
 
 // ListAPIKeysHandler handles GET /api/v1/api-keys
@@ -96,10 +154,31 @@ func (s *Server) RevokeAPIKeyHandler(c echo.Context) error {
 	}
 
 	manager := NewAPIKeyManager(s.db)
-	if err := manager.RevokeAPIKey(keyID, userID, orgID); err != nil {
+	tx, err := s.db.BeginTx(c.Request().Context(), nil)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to revoke API key"})
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := manager.RevokeAPIKeyTx(tx, keyID, userID, orgID); err != nil {
 		if err.Error() == "API key not found or already revoked" {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
 		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to revoke API key"})
+	}
+	if s.auditRecorder != nil {
+		if err := s.auditRecorder.RecordTxEcho(c, tx, auditlog.Event{
+			OrgID:        orgID,
+			Action:       auditlog.ActionAPIKeyRevoke,
+			Category:     auditlog.CategoryAPIKey,
+			ResourceType: "api_key",
+			ResourceID:   strconv.FormatInt(keyID, 10),
+			Outcome:      auditlog.OutcomeSuccess,
+			Severity:     auditlog.SeverityWarning,
+		}); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to record audit event"})
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to revoke API key"})
 	}
 
@@ -119,10 +198,31 @@ func (s *Server) DeleteAPIKeyHandler(c echo.Context) error {
 	}
 
 	manager := NewAPIKeyManager(s.db)
-	if err := manager.DeleteAPIKey(keyID, userID, orgID); err != nil {
+	tx, err := s.db.BeginTx(c.Request().Context(), nil)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete API key"})
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := manager.DeleteAPIKeyTx(tx, keyID, userID, orgID); err != nil {
 		if err.Error() == "API key not found" {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
 		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete API key"})
+	}
+	if s.auditRecorder != nil {
+		if err := s.auditRecorder.RecordTxEcho(c, tx, auditlog.Event{
+			OrgID:        orgID,
+			Action:       auditlog.ActionAPIKeyDelete,
+			Category:     auditlog.CategoryAPIKey,
+			ResourceType: "api_key",
+			ResourceID:   strconv.FormatInt(keyID, 10),
+			Outcome:      auditlog.OutcomeSuccess,
+			Severity:     auditlog.SeverityWarning,
+		}); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to record audit event"})
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to delete API key"})
 	}
 
@@ -184,8 +284,8 @@ func APIKeyAuthMiddleware(db *sql.DB) echo.MiddlewareFunc {
 // Context keys/values recording which auth path a request took — read by triggerTypeForRequest (review_service.go) to classify how a review was triggered.
 const (
 	authMethodContextKey = "auth_method"
-	authMethodAPIKey      = "api_key"
-	authMethodSession     = "session"
+	authMethodAPIKey     = "api_key"
+	authMethodSession    = "session"
 )
 
 // RequireAuthOrAPIKey creates authentication middleware that supports both Bearer tokens and API keys
@@ -228,12 +328,23 @@ func RequireAuthOrAPIKey(tokenService *auth.TokenService, db *sql.DB) echo.Middl
 				// Update last used timestamp (async to not slow down request)
 				go manager.UpdateLastUsed(keyRecord.ID)
 
+				// Audit-only keys may call audit read/export endpoints and
+				// nothing else. This is the first genuinely enforced key kind.
+				if keyRecord.Kind == "audit_reader" && !isAuditReaderAllowed(c) {
+					return c.JSON(http.StatusForbidden, map[string]string{
+						"error":      "this API key can only read audit logs",
+						"error_code": "AUDIT_KEY_SCOPE_DENIED",
+					})
+				}
+
 				// Set user and org context (same as APIKeyAuthMiddleware)
 				c.Set(string(auth.UserContextKey), user)
 				c.Set("user_id", keyRecord.UserID)
 				c.Request().Header.Set("X-Org-Context", strconv.FormatInt(keyRecord.OrgID, 10))
 				c.Set("org_id", keyRecord.OrgID)
 				c.Set("api_key_id", keyRecord.ID)
+				c.Set("api_key_kind", keyRecord.Kind)
+				c.Set("api_key_scopes", keyRecord.Scopes)
 				c.Set(authMethodContextKey, authMethodAPIKey)
 
 				return next(c)
@@ -282,3 +393,14 @@ func RequireAuthOrAPIKey(tokenService *auth.TokenService, db *sql.DB) echo.Middl
 	}
 }
 
+// isAuditReaderAllowed is the route allowlist for audit_reader keys. It is
+// deliberately path-based (not c.Path()) so it works before the router's
+// template is available on every Echo version. Only GET/HEAD requests to an
+// audit-events endpoint pass.
+func isAuditReaderAllowed(c echo.Context) bool {
+	method := c.Request().Method
+	if method != echo.GET && method != echo.HEAD {
+		return false
+	}
+	return strings.Contains(c.Request().URL.Path, "/audit-events")
+}

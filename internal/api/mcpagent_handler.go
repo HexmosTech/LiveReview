@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/aiconnectors"
@@ -83,7 +84,10 @@ func (s *Server) HandleMCPAgentChat(c echo.Context) error {
 	agent := mcpagent.NewAgent(provider, mcpSession, 0)
 
 	// 4. Run the agent loop
+	started := time.Now()
 	responseText, updatedHistory, err := agent.RunTurn(ctx, req.History, req.Message, newChatSessionID(), "api")
+	usage, calls := agent.Usage()
+	s.recordChatAIUsage(ctx, c, orgID, connector, "mcp_agent_chat", nil, req.Message, started, usage, calls, err)
 	if err != nil {
 		log.Error().Err(err).Msg("Agent loop failed")
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Agent loop failed: %s", err.Error())})

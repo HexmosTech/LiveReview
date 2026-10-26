@@ -193,3 +193,21 @@ This exposes your local environment through:
 - `manual-talent.apps.hexmos.com`
 - `manual-talent2.apps.hexmos.com`
 - `manual-talent3.apps.hexmos.com`
+
+---
+
+## 14. End-to-end testing with real accounts
+
+`make dev-up` also starts an `e2e` tmux window that provisions an isolated
+git-lrc sandbox and ephemeral member/owner fixtures. Your real `~/.lrc.toml` is
+never modified.
+
+```bash
+make dev-up                 # default niceurl2
+make dev-up NICEURL=niceurl3
+make e2e-auth               # once, if no cached session
+make e2e
+```
+
+See [E2E local testing](e2e-local-testing.md) for the full command list,
+security model, audit scoping matrix, and troubleshooting.

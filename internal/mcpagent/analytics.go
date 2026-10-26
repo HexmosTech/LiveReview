@@ -1376,6 +1376,7 @@ func (a *Agent) completeOnce(ctx context.Context, clog *logging.ChatTurnLogger, 
 		clog.LLMCallError(call, kind, reportID, attempt, elapsed, err)
 		return "", err
 	}
+	a.addUsage(usage)
 	clog.LLMCallResponse(call, kind, reportID, attempt, elapsed, usage.InputTokens, usage.OutputTokens, text)
 	return text, nil
 }

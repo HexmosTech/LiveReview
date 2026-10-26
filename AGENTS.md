@@ -112,6 +112,70 @@ Before writing any new endpoint, making database changes, or updating routing, c
     Endpoints that perform destructive actions, credential changes, or billing subscription alterations MUST reject API keys. Gating should explicitly check for JWT authentication.
 
 
+## Audit Logging Is Automatic
+
+Every state-changing API call is recorded in `audit_events` by a global Echo
+middleware. You do not opt in to basic coverage; you opt in to *semantic
+quality*. The framework lives in `internal/auditlog`, the read API in
+`internal/api/audit_handlers.go`, and the UI at `/reports/audit`.
+
+### Rules
+
+1. **Register new mutating routes with `s.audited(...)`**, not
+   `group.POST(...)`. It registers the route and its `auditlog.Spec` together so
+   they cannot drift. Use an action constant from
+   `internal/auditlog/catalog.go` — never a string literal.
+2. **Privileged handlers MUST call `s.auditRecorder.RecordTxEcho(c, tx, ...)` inside the
+   same transaction.** User/role, API-key, password, billing, organization, and
+   settings changes are fail-closed: if the audit row cannot be written, the
+   business change rolls back. Middleware records the failed attempt outside
+   the transaction.
+3. **Never put bodies, passwords, tokens, API keys, authorization headers,
+   cookies, or raw query strings in `details`.** Use `auditlog.Details(...)`; the
+   sanitizer is a backstop, not permission. Raw prompts/responses are never
+   stored — use a prompt hash and byte size.
+4. **Exports, file downloads, and audit reads MUST emit a sensitive-read
+   event** (`auditlog.Recorder.SensitiveRead` / the audit handlers' `recordAuditRead`).
+   Background jobs and webhooks use `s.auditRecorder.System(...)`; central LLM
+   call sites use `s.auditRecorder.AIInvocation(...)` with a prompt fingerprint.
+5. **Audit reads MUST go through `auditlog.NewQuery(scope, filters)`** (built
+   from `PermissionContext`). Never hand-write an audit `WHERE org_id = ...`.
+   The query builder enforces tenant isolation plus the member/owner/super-admin
+   visibility rules in one place.
+6. **Every new action must appear in `docs/audit-events.md`**; a test enforces
+   it. Action names are a public SIEM contract: rename = alias, never reuse.
+7. **`go test ./internal/auditlog/...`** enforces the catalog/docs contract.
+   The HTTP middleware guarantees generic coverage for every non-GET route; run
+   the server in development to see which existing routes still need a
+   semantic spec.
+8. **API keys:** only `kind='audit_reader'` keys may read audit data, and only
+   a session may read cross-org admin audit data or change retention settings.
+   An audit-only key must be rejected on every non-audit route.
+9. **Append-only:** `audit_events` rejects `UPDATE` and `DELETE` (the retention
+   job opts in with `app.audit_purge=on`). Do not add code that edits history;
+   record a new event instead.
+10. **Documentation:** update `internal/docindex/docs/routes_guide/reports/audit-log.md`
+    when the page, its filters, or its access rules change.
+
+**Visibility contract:** every super-admin action is recorded with
+`actor_capacity='admin'` (and usually `actor_kind='super_admin'`). Owners see
+their organization and all member actions, but not super-admin-capacity work;
+members see only their own actions; super admins see everything, in every org.
+Never skip recording an event because the actor is a super admin.
+
+### Example
+
+```go
+s.audited(orgGroup, echo.PUT, "/users/:user_id/role", auditlog.Spec{
+    Action:          auditlog.ActionUserRoleChange,
+    Category:        auditlog.CategoryUser,
+    ResourceType:    "user",
+    ResourceIDParam: "user_id",
+    Severity:        auditlog.SeverityWarning,
+    Sensitive:       true,
+}, s.userHandlers.ChangeUserRole)
+```
+
 ## Porting from git-lrc
 
 `git-lrc` (sibling repo, typically checked out at `../git-lrc`) is where LiveReview's

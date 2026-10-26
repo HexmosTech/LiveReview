@@ -7,6 +7,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/auditlog"
 	"github.com/livereview/internal/mcpagent"
 	"github.com/livereview/internal/vlrender"
 	storagechat "github.com/livereview/storage/chat"
@@ -21,13 +22,13 @@ import (
 
 // WebChatFile is a downloadable artifact offered alongside a chat answer.
 type WebChatFile struct {
-	URL         string `json:"url"`
-	Filename    string `json:"filename"`
-	Title       string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
-	Query       string `json:"query,omitempty"`
-	TimeRange   string `json:"time_range,omitempty"`
-	Granularity string `json:"granularity,omitempty"`
+	URL         string                `json:"url"`
+	Filename    string                `json:"filename"`
+	Title       string                `json:"title,omitempty"`
+	Description string                `json:"description,omitempty"`
+	Query       string                `json:"query,omitempty"`
+	TimeRange   string                `json:"time_range,omitempty"`
+	Granularity string                `json:"granularity,omitempty"`
 	Context     vlrender.ChartContext `json:"context"`
 	Rows        int                   `json:"rows,omitempty"`
 }
@@ -78,6 +79,8 @@ func (s *Server) ServeChatCSV(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load file"})
 	}
 
+	s.recordAuditRead(c, auditlog.ActionExportChat,
+		auditlog.Details("format", "csv", "file_id", id, "filename", f.Filename))
 	c.Response().Header().Set(echo.HeaderContentDisposition,
 		fmt.Sprintf("attachment; filename=%q", f.Filename))
 	return c.Blob(http.StatusOK, "text/csv; charset=utf-8", f.Data)

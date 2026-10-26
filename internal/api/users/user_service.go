@@ -1,21 +1,24 @@
 package users
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/lib/pq"
-	"github.com/rs/zerolog/log"
 	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/api/plancode"
+	"github.com/livereview/internal/auditlog"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/network/email"
 	storageusers "github.com/livereview/storage/users"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -111,14 +114,20 @@ type UserService struct {
 	db              *sql.DB
 	store           *storageusers.UserStore
 	apiKeyGenerator APIKeyGeneratorTx
+	audit           *auditlog.Recorder
 }
 
 // NewUserService creates a new user service
-func NewUserService(db *sql.DB, apiKeyGenerator APIKeyGeneratorTx) *UserService {
+func NewUserService(db *sql.DB, apiKeyGenerator APIKeyGeneratorTx, audit ...*auditlog.Recorder) *UserService {
+	var rec *auditlog.Recorder
+	if len(audit) > 0 {
+		rec = audit[0]
+	}
 	return &UserService{
 		db:              db,
 		store:           storageusers.NewUserStore(db),
 		apiKeyGenerator: apiKeyGenerator,
+		audit:           rec,
 	}
 }
 
@@ -186,7 +195,7 @@ func (us *UserService) CreateUserInOrg(orgID, createdByUserID int64, req CreateU
 		// Check if email already exists globally
 		var existingUserID int64
 		err := us.store.TxQueryRow(tx, "SELECT id FROM users WHERE email = $1", req.Email).Scan(&existingUserID)
-		
+
 		if err == nil {
 			// User exists globally. Check if they are already in THIS organization.
 			var existsInOrg, isActive bool
@@ -1055,8 +1064,73 @@ func (us *UserService) addUserAuditLog(tx *sql.Tx, orgID, targetUserID, performe
 		INSERT INTO user_management_audit (org_id, target_user_id, performed_by_user_id, action, details, created_at)
 		VALUES ($1, $2, $3, $4, $5, NOW())
 	`, orgID, targetUserID, performedByUserID, action, string(detailsJSON))
+	if err != nil {
+		return err
+	}
 
-	return err
+	// Mirror the event into the unified audit trail in the same transaction:
+	// privileged user changes are fail-closed. The handler marks the request
+	// as audited so the HTTP middleware does not write a duplicate fallback.
+	if us.audit != nil {
+		if mapped, ok := userAuditAction(action); ok {
+			var email, name, ip string
+			_ = us.store.TxQueryRow(tx, `SELECT email, COALESCE(NULLIF(TRIM(CONCAT_WS(' ', first_name, last_name)), ''), email) FROM users WHERE id = $1`, performedByUserID).Scan(&email, &name)
+			actorKind := auditlog.ActorKindMember
+			actorCapacity := auditlog.ActorCapacityMember
+			var isSuper bool
+			_ = us.store.TxQueryRow(tx, `
+				SELECT EXISTS(
+					SELECT 1 FROM user_roles ur
+					JOIN roles r ON r.id = ur.role_id
+					WHERE ur.user_id = $1 AND r.name = 'super_admin'
+				)`, performedByUserID).Scan(&isSuper)
+			if isSuper {
+				actorKind = auditlog.ActorKindSuperAdmin
+				actorCapacity = auditlog.ActorCapacityAdmin
+			}
+			ev := auditlog.Event{
+				OrgID:         orgID,
+				ActorUserID:   &performedByUserID,
+				ActorEmail:    email,
+				ActorName:     name,
+				ActorKind:     actorKind,
+				ActorCapacity: actorCapacity,
+				Action:        mapped,
+				Category:      auditlog.CategoryUser,
+				ResourceType:  "user",
+				ResourceID:    strconv.FormatInt(targetUserID, 10),
+				Outcome:       auditlog.OutcomeSuccess,
+				Severity:      auditlog.SeverityWarning,
+				Details:       auditlog.Fields(details),
+				Source:        auditlog.SourceAPI,
+				IP:            ip,
+			}
+			if err := us.audit.RecordTx(context.Background(), tx, ev); err != nil {
+				return fmt.Errorf("failed to record audit event: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+func userAuditAction(action string) (auditlog.Action, bool) {
+	switch action {
+	case "created":
+		return auditlog.ActionUserCreate, true
+	case "updated":
+		return auditlog.ActionUserUpdate, true
+	case "deactivated":
+		return auditlog.ActionUserDeactivate, true
+	case "reactivated":
+		return auditlog.ActionUserReactivate, true
+	case "role_changed":
+		return auditlog.ActionUserRoleChange, true
+	case "password_reset":
+		return auditlog.ActionPasswordForceReset, true
+	case "transferred":
+		return auditlog.ActionUserTransfer, true
+	}
+	return "", false
 }
 
 // ============================================================================
