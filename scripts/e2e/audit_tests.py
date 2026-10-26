@@ -137,8 +137,11 @@ def setup_context() -> Dict[str, Any]:
         auth = lib.ensure_auth(interactive=False, allow_browser=False)
     owner = int(state["owner_org_id"])
     super_org = int(state.get("super_org_id") or owner)
-    member_auth = lib.login_member(state["member_email"], state["member_password"])
-    owner_auth = lib.login_member(state["owner_email"], state["owner_password"])
+    member_auth = lib.ensure_fixture_auth(state.get("member_auth"), "member")
+    owner_auth = lib.ensure_fixture_auth(state.get("owner_auth"), "owner")
+    state["member_auth"] = member_auth
+    state["owner_auth"] = owner_auth
+    lib.save_state(state)
     return {
         "state": state,
         "auth": auth,
@@ -541,36 +544,6 @@ def run_tests(ctx: Dict[str, Any]) -> Results:
             )
     except Exception as exc:
         r.fail("append-only trigger", f"{type(exc).__name__}: {exc}")
-
-    # ----------------------------------------------- password change event
-    try:
-        new_password = state["member_password"] + "x"
-        status, payload, _ = lib.api(
-            "POST",
-            "/api/v1/auth/change-password",
-            token=_token(member_auth),
-            body={
-                "current_password": state["member_password"],
-                "new_password": new_password,
-            },
-            raise_on_error=False,
-        )
-        if status == 200:
-            member_auth = lib.login_member(member_email, new_password)
-            state["member_password"] = new_password
-            lib.save_state(state)
-            lib.playwright_state(member_auth, owner, lib.PLAYWRIGHT_STATE_MEMBER_PATH)
-            time.sleep(1.0)
-            member_events = _events(member_auth, owner, limit=500)
-            r.check(
-                "member sees own password change",
-                "auth.password.change" in _actions(member_events),
-                "event present",
-            )
-        else:
-            r.skip("member password change", f"HTTP {status}")
-    except Exception as exc:
-        r.fail("member password change", f"{type(exc).__name__}: {exc}")
 
     report = {
         "generated_at": lib.now_iso(),

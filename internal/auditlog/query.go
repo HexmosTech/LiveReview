@@ -225,9 +225,13 @@ func (q *Query) List(ctx context.Context, db *sql.DB) ([]Event, string, error) {
 	where, args := q.Where()
 	limit := q.filters.Limit
 	args = append(args, limit+1)
+	// where is built by Where() and contains only fixed clauses plus $N
+	// placeholders; eventColumns is a compile-time constant.
+	// nosemgrep: go.lang.security.audit.sqli.gosql-sqli.gosql-sqli
 	sqlText := "SELECT " + eventColumns + " FROM audit_events WHERE " + where +
 		" ORDER BY occurred_at DESC, id DESC LIMIT $" + strconv.Itoa(len(args))
 
+	// nosemgrep: go.lang.security.audit.sqli.gosql-sqli.gosql-sqli
 	rows, err := db.QueryContext(ctx, sqlText, args...)
 	if err != nil {
 		return nil, "", fmt.Errorf("auditlog: list: %w", err)
@@ -261,8 +265,11 @@ func (q *Query) Get(ctx context.Context, db *sql.DB, id int64) (*Event, error) {
 	where, args := q.Where()
 	idArg := fmt.Sprintf("$%d", len(args)+1)
 	args = append(args, id)
+	// where is fixed clauses/placeholders; idArg is a generated $N placeholder.
+	// nosemgrep: go.lang.security.audit.sqli.gosql-sqli.gosql-sqli
 	sqlText := "SELECT " + eventColumns + " FROM audit_events WHERE " + where +
 		" AND id = " + idArg + " ORDER BY occurred_at DESC LIMIT 1"
+	// nosemgrep: go.lang.security.audit.sqli.gosql-sqli.gosql-sqli
 	row := db.QueryRowContext(ctx, sqlText, args...)
 	ev, err := scanEvent(row)
 	if err != nil {
@@ -276,6 +283,8 @@ func (q *Query) Get(ctx context.Context, db *sql.DB, id int64) (*Event, error) {
 func (q *Query) Count(ctx context.Context, db *sql.DB) (int64, error) {
 	where, args := q.Where()
 	var n int64
+	// where is fixed clauses/placeholders built by Where().
+	// nosemgrep: go.lang.security.audit.sqli.gosql-sqli.gosql-sqli
 	err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_events WHERE "+where, args...).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("auditlog: count: %w", err)
@@ -318,9 +327,12 @@ func (q *Query) Facets(ctx context.Context, db *sql.DB) (*Facets, error) {
 }
 
 func (q *Query) facet(ctx context.Context, db *sql.DB, column, where string, args []any, limit int) ([]FacetValue, error) {
-	// column is a compile-time constant from Facets, never user input.
+	// column is a compile-time constant from Facets, never user input; where is
+	// fixed clauses/placeholders and limit is an integer.
+	// nosemgrep: go.lang.security.audit.sqli.gosql-sqli.gosql-sqli, go.lang.security.audit.database.string-formatted-query.string-formatted-query
 	sqlText := "SELECT " + column + ", COUNT(*) FROM audit_events WHERE " + where +
 		" GROUP BY " + column + " ORDER BY COUNT(*) DESC, " + column + " ASC LIMIT " + strconv.Itoa(limit)
+	// nosemgrep: go.lang.security.audit.sqli.gosql-sqli.gosql-sqli
 	rows, err := db.QueryContext(ctx, sqlText, args...)
 	if err != nil {
 		return nil, fmt.Errorf("auditlog: facet %s: %w", column, err)
@@ -341,9 +353,12 @@ func (q *Query) facet(ctx context.Context, db *sql.DB, column, where string, arg
 }
 
 func (q *Query) actorFacet(ctx context.Context, db *sql.DB, where string, args []any) ([]FacetValue, error) {
+	// where is fixed clauses/placeholders built by timeOnlyWhere().
+	// nosemgrep: go.lang.security.audit.sqli.gosql-sqli.gosql-sqli
 	sqlText := `SELECT COALESCE(NULLIF(actor_email, ''), actor_name, 'unknown') AS actor, COUNT(*)
 		FROM audit_events WHERE ` + where + `
 		GROUP BY actor ORDER BY COUNT(*) DESC, actor ASC LIMIT 100`
+	// nosemgrep: go.lang.security.audit.sqli.gosql-sqli.gosql-sqli
 	rows, err := db.QueryContext(ctx, sqlText, args...)
 	if err != nil {
 		return nil, fmt.Errorf("auditlog: actor facet: %w", err)

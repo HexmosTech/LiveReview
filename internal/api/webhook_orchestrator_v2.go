@@ -157,7 +157,9 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 	if converter, ok := provider.(prStateConverter); ok {
 		if stateEvent, matched, convErr := converter.ConvertPullRequestStateEvent(headers, bodyBytes); matched {
 			if convErr != nil {
-				log.Printf("[ERROR] Failed to convert PR/MR state event (provider=%s): %v", providerName, convErr)
+				// Do not log convErr: provider conversion errors can echo request
+				// headers (including authorization material). CodeQL flags that path.
+				log.Printf("[ERROR] Failed to convert PR/MR state event (provider=%s)", providerName)
 				return c.JSON(http.StatusBadRequest, map[string]string{
 					"error":    "failed to process pr state webhook",
 					"provider": providerName,

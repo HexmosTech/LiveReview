@@ -287,6 +287,7 @@ func (m *AuditMaintenanceManager) ensurePartitions(ctx context.Context, monthsAh
 			continue
 		}
 		// Name and bounds are generated from time, never user input.
+		// nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query
 		stmt := fmt.Sprintf(
 			`CREATE TABLE IF NOT EXISTS %s PARTITION OF audit_events FOR VALUES FROM ('%s') TO ('%s')`,
 			name, from.Format("2006-01-02"), to.Format("2006-01-02"))
@@ -355,6 +356,7 @@ func (m *AuditMaintenanceManager) archivePartition(ctx context.Context, bucket *
 	// Dropping the partition removes the rows without firing the append-only
 	// row trigger. It is only reached after every org's archive upload and
 	// audit_archives insert succeeded.
+	// nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query
 	if _, err := m.db.ExecContext(ctx, `DROP TABLE IF EXISTS `+pqIdent(p.name)); err != nil {
 		return fmt.Errorf("drop partition: %w", err)
 	}
@@ -368,6 +370,8 @@ func (m *AuditMaintenanceManager) archivePartition(ctx context.Context, bucket *
 }
 
 func (m *AuditMaintenanceManager) partitionOrgs(ctx context.Context, partition string) ([]int64, error) {
+	// partition is a name discovered from pg_class and is quoted by pqIdent.
+	// nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query
 	rows, err := m.db.QueryContext(ctx, `SELECT DISTINCT org_id FROM `+pqIdent(partition)+` ORDER BY org_id`)
 	if err != nil {
 		return nil, err

@@ -40,7 +40,7 @@ require (
 	github.com/itchyny/gojq v0.12.19
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/kaptinlin/jsonrepair v0.2.3
-	github.com/labstack/echo/v4 v4.15.3
+	github.com/labstack/echo/v4 v4.16.1
 	github.com/lib/pq v1.12.0
 	github.com/mdombrov-33/go-promptguard v0.4.0
 	github.com/philippgille/chromem-go v0.7.0
@@ -179,7 +179,7 @@ require (
 	github.com/labstack/gommon v0.5.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
-	github.com/mattn/go-colorable v0.1.14 // indirect
+	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/mholt/archives v0.1.5 // indirect

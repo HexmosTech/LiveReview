@@ -215,6 +215,9 @@ def _request(
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
+        # URL is the configured E2E API base plus a fixed route, never arbitrary
+        # user input.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             payload = resp.read()
             resp_headers = {k.lower(): v for k, v in resp.headers.items()}
@@ -309,7 +312,7 @@ def validate_access(auth: Dict[str, Any]) -> bool:
         return False
 
 
-def refresh_auth(auth: Dict[str, Any]) -> bool:
+def refresh_auth(auth: Dict[str, Any], *, save: bool = True) -> bool:
     refresh = _refresh_token(auth)
     if not refresh:
         return False
@@ -330,8 +333,25 @@ def refresh_auth(auth: Dict[str, Any]) -> bool:
         "expires_at": payload.get("expires_at"),
         "token_type": payload.get("token_type", "Bearer"),
     }
-    save_auth(auth)
+    if save:
+        save_auth(auth)
     return validate_access(auth)
+
+
+def ensure_fixture_auth(auth: Optional[Dict[str, Any]], label: str) -> Dict[str, Any]:
+    """Validate or refresh a stored member/owner fixture session.
+
+    Fixture passwords are intentionally never persisted.  The harness keeps
+    only the short-lived session/refresh tokens created at provisioning time.
+    """
+    if isinstance(auth, dict):
+        if validate_access(auth):
+            return auth
+        if refresh_auth(auth, save=False):
+            return auth
+    raise AuthRequired(
+        f"{label} fixture session expired. Run `make e2e-up --fresh` to recreate fixtures."
+    )
 
 
 def password_login(email: str, password: str, *, save: bool = True) -> Dict[str, Any]:
@@ -785,9 +805,7 @@ def write_run_env(state: Dict[str, Any]) -> None:
         f"export E2E_OWNER_ORG_ID={shell_quote(str(state.get('owner_org_id', '')))}",
         f"export E2E_SUPER_ORG_ID={shell_quote(str(state.get('super_org_id', '')))}",
         f"export E2E_MEMBER_EMAIL={shell_quote(str(state.get('member_email', '')))}",
-        f"export E2E_MEMBER_PASSWORD={shell_quote(str(state.get('member_password', '')))}",
         f"export E2E_OWNER_MEMBER_EMAIL={shell_quote(str(state.get('owner_email', '')))}",
-        f"export E2E_OWNER_MEMBER_PASSWORD={shell_quote(str(state.get('owner_password', '')))}",
         f"export E2E_STANDARD_KEY={shell_quote(str(state.get('standard_key', '')))}",
         f"export E2E_LRC_KEY={shell_quote(str(state.get('lrc_key', '')))}",
         f"export E2E_AUDIT_KEY={shell_quote(str(state.get('audit_key', '')))}",
@@ -856,6 +874,8 @@ def wait_http(url: str, timeout: float = 120, interval: float = 1.0) -> bool:
     while time.time() < deadline:
         req = urllib.request.Request(url, method="GET")
         try:
+            # URL is a configured health endpoint.
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             with urllib.request.urlopen(req, timeout=3) as resp:
                 if resp.status < 500:
                     return True

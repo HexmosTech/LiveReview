@@ -145,7 +145,8 @@ def cmd_up(args: argparse.Namespace) -> int:
         auth = lib.get_auth()
         lrc_path = Path(str(existing.get("lrc_config") or ""))
         lrc_ok = bool(lrc_path and lrc_path.exists())
-        if auth and lib.validate_access(auth) and lrc_ok:
+        fixtures_ok = bool(existing.get("member_auth") and existing.get("owner_auth"))
+        if auth and lib.validate_access(auth) and lrc_ok and fixtures_ok:
             print(f"E2E already provisioned for run {existing.get('run_id')}.")
             _print_summary(existing, auth)
             return 0
@@ -228,11 +229,13 @@ def cmd_up(args: argparse.Namespace) -> int:
         )
         state["member_id"] = member["id"]
         state["member_email"] = member_email
-        state["member_password"] = member_password
         lib.save_state(state)
         lib.update_cleanup(member_id=member["id"])
 
+        # The generated password is used once and deliberately never persisted.
+        # Only the resulting session/refresh tokens are kept.
         member_auth = lib.login_member(member_email, member_password)
+        state["member_auth"] = member_auth
 
         # The supplied real account is a global super admin, so acting in org
         # 151 still resolves as super_admin. Create a pure owner fixture to
@@ -251,10 +254,10 @@ def cmd_up(args: argparse.Namespace) -> int:
         )
         state["owner_member_id"] = owner_user["id"]
         state["owner_email"] = owner_email
-        state["owner_password"] = owner_password
         lib.save_state(state)
         lib.update_cleanup(owner_member_id=owner_user["id"])
         owner_auth = lib.login_member(owner_email, owner_password)
+        state["owner_auth"] = owner_auth
 
         # Submit the real review as the pure owner, not the global super admin:
         # owner AI-usage queries intentionally hide super-admin work, so using
@@ -369,7 +372,12 @@ def cmd_auth(args: argparse.Namespace) -> int:
         email = lib.cfg("E2E_EMAIL")
         password = lib.cfg("E2E_PASSWORD")
         if email and password:
-            auth = lib.password_login(email, password, save=True)
+            lib.password_login(email, password, save=True)
+            # Reload from disk rather than passing the login response object
+            # into the summary print.  The cached file contains no password.
+            auth = lib.get_auth()
+            if not auth:
+                raise lib.AuthRequired("Password login succeeded but no cached session was written.")
         else:
             auth = lib.browser_auth(headed=not args.headless)
     except lib.AuthRequired as exc:
@@ -475,8 +483,15 @@ def cmd_sync_ui(args: argparse.Namespace) -> int:
         return 2
     owner_org = int(state["owner_org_id"])
     super_org = int(state.get("super_org_id") or owner_org)
-    owner_auth = lib.login_member(state["owner_email"], state["owner_password"])
-    member_auth = lib.login_member(state["member_email"], state["member_password"])
+    try:
+        owner_auth = lib.ensure_fixture_auth(state.get("owner_auth"), "owner")
+        member_auth = lib.ensure_fixture_auth(state.get("member_auth"), "member")
+    except lib.AuthRequired as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    state["owner_auth"] = owner_auth
+    state["member_auth"] = member_auth
+    lib.save_state(state)
     lib.playwright_state(owner_auth, owner_org, lib.PLAYWRIGHT_STATE_PATH)
     lib.playwright_state(auth, super_org, lib.PLAYWRIGHT_STATE_SUPER_PATH)
     lib.playwright_state(member_auth, owner_org, lib.PLAYWRIGHT_STATE_MEMBER_PATH)

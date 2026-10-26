@@ -25,6 +25,8 @@ def probe(url: str, health_base: str = "") -> Dict[str, Any]:
     out: Dict[str, Any] = {"host": host, "base": url, "health": None, "version": None, "ui": None, "detail": None}
     try:
         req = urllib.request.Request(api_base + "/health", method="GET")
+        # URL comes from E2E config / the fixed manual-talent host list.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         with urllib.request.urlopen(req, timeout=8) as resp:
             out["health"] = resp.status
     except urllib.error.HTTPError as exc:
@@ -34,6 +36,8 @@ def probe(url: str, health_base: str = "") -> Dict[str, Any]:
 
     try:
         req = urllib.request.Request(api_base + "/api/version", method="GET")
+        # URL comes from E2E config / the fixed manual-talent host list.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         with urllib.request.urlopen(req, timeout=8) as resp:
             out["version"] = resp.status
             try:
@@ -49,6 +53,8 @@ def probe(url: str, health_base: str = "") -> Dict[str, Any]:
 
     try:
         req = urllib.request.Request(url.rstrip("/") + "/", method="GET")
+        # URL comes from E2E config / the fixed manual-talent host list.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         with urllib.request.urlopen(req, timeout=8) as resp:
             out["ui"] = resp.status
     except urllib.error.HTTPError as exc:

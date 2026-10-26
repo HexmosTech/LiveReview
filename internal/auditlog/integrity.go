@@ -33,6 +33,8 @@ func VerifyChain(ctx context.Context, db *sql.DB, orgID int64, fromSeq int64, li
 	if fromSeq < 1 {
 		fromSeq = 1
 	}
+	// eventColumns is a compile-time constant; orgID/fromSeq/limit are bound.
+	// nosemgrep: go.lang.security.audit.sqli.gosql-sqli.gosql-sqli
 	rows, err := db.QueryContext(ctx, `
 		SELECT `+eventColumns+`
 		FROM audit_events

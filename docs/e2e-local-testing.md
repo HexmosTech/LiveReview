@@ -100,8 +100,8 @@ make e2e
 
 - **Lifecycle**: API/UI health, selected reverse tunnel, worker presence,
   sandbox lrc, stale-journal recovery, unchanged real `~/.lrc.toml`.
-- **Auth**: password login, cached session refresh, browser/SSO fallback,
-  member login, password change.
+- **Auth**: password login, cached session refresh, browser/SSO fallback, and
+  fixture token refresh (fixture passwords are never persisted).
 - **Audit visibility**: member sees only self; owner sees org events but not
   `actor_capacity=admin` / `actor_kind=super_admin`; super admin sees admin
   capacity and cross-org events; member gets 403/404 on admin endpoints.
@@ -156,6 +156,8 @@ used against a hosted target.
 ## Test data and cleanup
 
 - Every run has a unique `run_id` (`e2e-<timestamp>-<random>`).
+- Ephemeral fixture passwords are generated in memory, used once, and never
+  written to disk; only session/refresh tokens are kept under `.lrdata/e2e/`.
 - Temp member emails and API-key labels include the run ID.
 - API keys are revoked and temp users deactivated on `dev-down` or
   `make e2e-clean`; a crashed run is replayed from the cleanup manifest.
