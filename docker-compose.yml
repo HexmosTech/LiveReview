@@ -4,8 +4,8 @@ services:
     container_name: livereview-app
     ports:
       # Use simplified LIVEREVIEW_* port variables
-      - "${LIVEREVIEW_BACKEND_PORT:-8888}:${LIVEREVIEW_BACKEND_PORT:-8888}"   # Backend API
-      - "${LIVEREVIEW_FRONTEND_PORT:-8081}:${LIVEREVIEW_FRONTEND_PORT:-8081}" # Frontend UI
+      - "${LIVEREVIEW_BIND_ADDR:+${LIVEREVIEW_BIND_ADDR:-}:}${LIVEREVIEW_BACKEND_PORT:-8888}:${LIVEREVIEW_BACKEND_PORT:-8888}"   # Backend API
+      - "${LIVEREVIEW_BIND_ADDR:+${LIVEREVIEW_BIND_ADDR:-}:}${LIVEREVIEW_FRONTEND_PORT:-8081}:${LIVEREVIEW_FRONTEND_PORT:-8081}" # Frontend UI
     env_file:
       - .env
     environment:
