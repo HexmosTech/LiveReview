@@ -74,23 +74,19 @@ func (s *ProfileStore) GetUserProfile(ctx context.Context, userID int64) (*UserP
 	return rec, nil
 }
 
-func (s *ProfileStore) UpdateUserProfile(ctx context.Context, input UpdateProfileInput) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
+// UpdateUserProfile applies the profile change on the caller's transaction so
+// it can be committed atomically with the audit event (self-service profile
+// edits are fail-closed, like password changes).
+func (s *ProfileStore) UpdateUserProfile(ctx context.Context, tx *sql.Tx, input UpdateProfileInput) error {
 	if input.Email != nil {
 		var existingUserID int64
-		err = tx.QueryRowContext(ctx, "SELECT id FROM users WHERE email = $1 AND id != $2", *input.Email, input.UserID).Scan(&existingUserID)
+		err := tx.QueryRowContext(ctx, "SELECT id FROM users WHERE email = $1 AND id != $2", *input.Email, input.UserID).Scan(&existingUserID)
 		if err == nil {
 			return ErrEmailInUse
 		}
 		if err != sql.ErrNoRows {
 			return fmt.Errorf("failed to check existing email: %w", err)
 		}
-
 	}
 
 	if _, err := tx.ExecContext(ctx, `
@@ -108,7 +104,7 @@ func (s *ProfileStore) UpdateUserProfile(ctx context.Context, input UpdateProfil
 		return err
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 func (s *ProfileStore) GetCurrentPasswordHash(ctx context.Context, userID int64) (string, error) {
@@ -120,8 +116,10 @@ func (s *ProfileStore) GetCurrentPasswordHash(ctx context.Context, userID int64)
 	return currentHash, nil
 }
 
-func (s *ProfileStore) UpdatePasswordIfCurrentHash(ctx context.Context, userID int64, currentHash, passwordHash string) (bool, error) {
-	result, err := s.db.ExecContext(ctx, `
+// UpdatePasswordIfCurrentHash applies the password change on the caller's
+// transaction so it can be committed atomically with the audit event.
+func (s *ProfileStore) UpdatePasswordIfCurrentHash(ctx context.Context, tx *sql.Tx, userID int64, currentHash, passwordHash string) (bool, error) {
+	result, err := tx.ExecContext(ctx, `
 		UPDATE users
 		SET password_hash = $1, password_reset_required = false, updated_at = NOW()
 		WHERE id = $2 AND password_hash = $3

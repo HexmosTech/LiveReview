@@ -13,6 +13,7 @@ tabs. Which tabs are visible depends on the user's role
 
 | Tab | id | Who sees it |
 |---|---|---|
+| Account | `account` | every authenticated user (self-service, no role gate) |
 | Instance | `instance` | super_admin, or org owner (self-hosted only) |
 | SMTP | `smtp` | super_admin or org owner, self-hosted only |
 | Storage | `storage` | super_admin, or org owner (self-hosted only) |
@@ -35,7 +36,7 @@ the `subscriptions` tab.
 
 ## Related pages
 
-Each tab has its own file in this folder: [Instance](instance.md),
+Each tab has its own file in this folder: [Account](account.md), [Instance](instance.md),
 [SMTP](smtp.md), [Storage](storage.md), [Deployment](deployment.md),
 [License](license.md), [Managed AI](managed-ai.md), [Prompts](prompts.md), [Auto Approve](auto-approve.md),
 [Learnings](learnings.md),
