@@ -395,11 +395,15 @@ const Repositories: React.FC = () => {
         const repo = row.original;
         const badge = syncStatusBadge(repo.last_sync_status);
         const BadgeIcon = badge.icon;
+        const tooltipContent = repo.last_sync_status === 'error'
+          ? (repo.last_sync_error || 'Sync failed: an error occurred during repository sync')
+          : (repo.last_synced_at ? `Synced ${formatRelativeTime(repo.last_synced_at)}` : 'Never synced');
+
         return (
           <div className="flex items-center justify-center">
-            <Tooltip content={repo.last_synced_at ? formatRelativeTime(repo.last_synced_at) : 'Never synced'}>
+            <Tooltip content={tooltipContent}>
               <span
-                className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-sm font-medium w-fit"
+                className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-sm font-medium w-fit cursor-help"
                 style={{ backgroundColor: 'transparent', color: badge.color, border: `1px solid ${badge.borderColor}` }}
               >
                 <BadgeIcon />

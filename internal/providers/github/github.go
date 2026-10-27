@@ -464,6 +464,13 @@ func (p *GitHubProvider) GetCompareChanges(ctx context.Context, owner, repo, bas
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return nil, nil, &providers.AuthError{
+				Provider:   "github",
+				StatusCode: resp.StatusCode,
+				Message:    fmt.Sprintf("GitHub compare failed: %s: %s", resp.Status, string(body)),
+			}
+		}
 		return nil, nil, fmt.Errorf("GitHub compare failed: %s: %s", resp.Status, string(body))
 	}
 
@@ -533,6 +540,13 @@ func (p *GitHubProvider) GetDefaultBranch(ctx context.Context, owner, repo strin
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return "", &providers.AuthError{
+				Provider:   "github",
+				StatusCode: resp.StatusCode,
+				Message:    fmt.Sprintf("GitHub get repo failed: %s: %s", resp.Status, string(body)),
+			}
+		}
 		return "", fmt.Errorf("GitHub get repo failed: %s: %s", resp.Status, string(body))
 	}
 
@@ -564,6 +578,13 @@ func (p *GitHubProvider) GetBranchHeadSHA(ctx context.Context, owner, repo, bran
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return "", &providers.AuthError{
+				Provider:   "github",
+				StatusCode: resp.StatusCode,
+				Message:    fmt.Sprintf("GitHub get branch head failed: %s: %s", resp.Status, string(body)),
+			}
+		}
 		return "", fmt.Errorf("GitHub get branch head failed: %s: %s", resp.Status, string(body))
 	}
 
@@ -598,6 +619,13 @@ func (p *GitHubProvider) GetCommitBefore(ctx context.Context, owner, repo, branc
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return "", &providers.AuthError{
+				Provider:   "github",
+				StatusCode: resp.StatusCode,
+				Message:    fmt.Sprintf("GitHub list commits failed: %s: %s", resp.Status, string(body)),
+			}
+		}
 		return "", fmt.Errorf("GitHub list commits failed: %s: %s", resp.Status, string(body))
 	}
 

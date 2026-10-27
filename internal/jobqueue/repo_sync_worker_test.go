@@ -4,12 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/livereview/internal/database"
+	"github.com/livereview/storage/providers/pullrequests"
 	"github.com/riverqueue/river"
 )
 
@@ -86,10 +91,25 @@ func TestReconciliationSweepWorker_OnlyQueuesStaleRepositories(t *testing.T) {
 		return id
 	}
 
+	insertRepoWithStatus := func(providerRepoID string, lastSyncedAt interface{}, syncStatus string, updatedAt time.Time) int64 {
+		var id int64
+		err := db.QueryRow(`
+			INSERT INTO repositories (org_id, connector_id, provider, provider_repo_id, full_name, name, web_url, last_synced_at, last_sync_status, updated_at)
+			VALUES (1, $1, 'github', $2, 'acme/'||$2, $2, 'https://github.com/acme/'||$2, $3, $4, $5)
+			RETURNING id
+		`, connectorID, providerRepoID, lastSyncedAt, syncStatus, updatedAt).Scan(&id)
+		if err != nil {
+			t.Fatalf("insert repository %s: %v", providerRepoID, err)
+		}
+		t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM repositories WHERE id = $1`, id) })
+		return id
+	}
+
 	neverSynced := insertRepo("never-synced", nil)
 	staleRepo := insertRepo("stale", time.Now().Add(-1*time.Hour))
 	freshRepo := insertRepo("fresh", time.Now().Add(-1*time.Minute))
-	_ = freshRepo
+	recentErrorRepo := insertRepoWithStatus("recent-error", nil, "error", time.Now().Add(-10*time.Minute))
+	oldErrorRepo := insertRepoWithStatus("old-error", nil, "error", time.Now().Add(-7*time.Hour))
 
 	worker := &ReconciliationSweepWorker{
 		db:                 db,
@@ -104,7 +124,7 @@ func TestReconciliationSweepWorker_OnlyQueuesStaleRepositories(t *testing.T) {
 	}
 
 	queuedRepoIDs := map[int64]bool{}
-	rows, err := db.Query(`SELECT args FROM river_job WHERE kind = 'repo_pr_sync' ORDER BY id DESC LIMIT 20`)
+	rows, err := db.Query(`SELECT args FROM river_job WHERE kind = 'repo_pr_sync' ORDER BY id DESC LIMIT 50`)
 	if err != nil {
 		t.Fatalf("query river_job: %v", err)
 	}
@@ -121,8 +141,8 @@ func TestReconciliationSweepWorker_OnlyQueuesStaleRepositories(t *testing.T) {
 		queuedRepoIDs[args.RepositoryID] = true
 	}
 	t.Cleanup(func() {
-		_, _ = db.Exec(`DELETE FROM river_job WHERE kind = 'repo_pr_sync' AND args->>'repository_id' IN ($1,$2,$3)`,
-			neverSynced, staleRepo, freshRepo)
+		_, _ = db.Exec(`DELETE FROM river_job WHERE kind = 'repo_pr_sync' AND args->>'repository_id' IN ($1,$2,$3,$4,$5)`,
+			neverSynced, staleRepo, freshRepo, recentErrorRepo, oldErrorRepo)
 	})
 
 	if !queuedRepoIDs[neverSynced] {
@@ -133,5 +153,202 @@ func TestReconciliationSweepWorker_OnlyQueuesStaleRepositories(t *testing.T) {
 	}
 	if queuedRepoIDs[freshRepo] {
 		t.Errorf("expected freshly-synced repository %d to NOT be queued for sync", freshRepo)
+	}
+	if queuedRepoIDs[recentErrorRepo] {
+		t.Errorf("expected errored repository %d to NOT be queued by background sweep", recentErrorRepo)
+	}
+	if queuedRepoIDs[oldErrorRepo] {
+		t.Errorf("expected errored repository %d to NOT be queued by background sweep", oldErrorRepo)
+	}
+}
+
+func TestRepoPRSyncWorker_AuthError_CancelsJob(t *testing.T) {
+	db, _ := testDBAndURL(t)
+
+	// Mock server that simulates a GitHub 401 Bad credentials response
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"Bad credentials","documentation_url":"https://docs.github.com/rest"}`))
+	}))
+	defer mockServer.Close()
+
+	var connectorID int64
+	err := db.QueryRow(`
+		INSERT INTO integration_tokens (provider, provider_app_id, access_token, connection_name, provider_url, org_id)
+		VALUES ('github', 'test-app', 'invalid-token', 'auth-fail-test', $1, 1)
+		RETURNING id
+	`, mockServer.URL).Scan(&connectorID)
+	if err != nil {
+		t.Fatalf("insert connector: %v", err)
+	}
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM integration_tokens WHERE id = $1`, connectorID) })
+
+	var repoID int64
+	err = db.QueryRow(`
+		INSERT INTO repositories (org_id, connector_id, provider, provider_repo_id, full_name, name, web_url, last_sync_status)
+		VALUES (1, $1, 'github', 'auth-fail-repo', 'acme/auth-fail-repo', 'auth-fail-repo', 'https://github.com/acme/auth-fail-repo', 'pending')
+		RETURNING id
+	`, connectorID).Scan(&repoID)
+	if err != nil {
+		t.Fatalf("insert repository: %v", err)
+	}
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM repositories WHERE id = $1`, repoID) })
+
+	prStore := pullrequests.NewStore(db)
+	worker := &RepoPRSyncWorker{
+		db:    db,
+		store: prStore,
+	}
+
+	job := &river.Job[RepoPRSyncJobArgs]{
+		Args: RepoPRSyncJobArgs{RepositoryID: repoID},
+	}
+
+	workErr := worker.Work(context.Background(), job)
+	if workErr == nil {
+		t.Fatal("expected Work to return an error, got nil")
+	}
+
+	// Verify that the error is wrapped in river.JobCancel
+	var cancelErr *river.JobCancelError
+	if !errors.As(workErr, &cancelErr) {
+		t.Errorf("expected error to wrap river.JobCancel, got %T: %v", workErr, workErr)
+	}
+
+	// Verify that last_sync_status was updated to 'error' and has user-friendly message
+	var lastSyncStatus string
+	var lastSyncError sql.NullString
+	err = db.QueryRow(`SELECT last_sync_status, last_sync_error FROM repositories WHERE id = $1`, repoID).Scan(&lastSyncStatus, &lastSyncError)
+	if err != nil {
+		t.Fatalf("query repository status: %v", err)
+	}
+
+	if lastSyncStatus != "error" {
+		t.Errorf("expected last_sync_status to be 'error', got %q", lastSyncStatus)
+	}
+	if !lastSyncError.Valid || !strings.Contains(lastSyncError.String, "Authentication failed") {
+		t.Errorf("expected last_sync_error to contain 'Authentication failed', got %v", lastSyncError)
+	}
+}
+
+func TestRepoPRSyncWorker_MissingToken_CancelsJob(t *testing.T) {
+	db, _ := testDBAndURL(t)
+
+	var connectorID int64
+	err := db.QueryRow(`
+		INSERT INTO integration_tokens (provider, provider_app_id, access_token, pat_token, connection_name, provider_url, org_id)
+		VALUES ('github', 'test-app', '', '', 'missing-token-test', 'https://example.com', 1)
+		RETURNING id
+	`).Scan(&connectorID)
+	if err != nil {
+		t.Fatalf("insert connector: %v", err)
+	}
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM integration_tokens WHERE id = $1`, connectorID) })
+
+	var repoID int64
+	err = db.QueryRow(`
+		INSERT INTO repositories (org_id, connector_id, provider, provider_repo_id, full_name, name, web_url, last_sync_status)
+		VALUES (1, $1, 'github', 'missing-token-repo', 'acme/missing-token-repo', 'missing-token-repo', 'https://github.com/acme/missing-token-repo', 'pending')
+		RETURNING id
+	`, connectorID).Scan(&repoID)
+	if err != nil {
+		t.Fatalf("insert repository: %v", err)
+	}
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM repositories WHERE id = $1`, repoID) })
+
+	prStore := pullrequests.NewStore(db)
+	worker := &RepoPRSyncWorker{
+		db:    db,
+		store: prStore,
+	}
+
+	job := &river.Job[RepoPRSyncJobArgs]{
+		Args: RepoPRSyncJobArgs{RepositoryID: repoID},
+	}
+
+	workErr := worker.Work(context.Background(), job)
+	if workErr == nil {
+		t.Fatal("expected Work to return an error, got nil")
+	}
+
+	// Verify that the error is wrapped in river.JobCancel
+	var cancelErr *river.JobCancelError
+	if !errors.As(workErr, &cancelErr) {
+		t.Errorf("expected error to wrap river.JobCancel, got %T: %v", workErr, workErr)
+	}
+
+	var lastSyncStatus string
+	var lastSyncError sql.NullString
+	err = db.QueryRow(`SELECT last_sync_status, last_sync_error FROM repositories WHERE id = $1`, repoID).Scan(&lastSyncStatus, &lastSyncError)
+	if err != nil {
+		t.Fatalf("query repository status: %v", err)
+	}
+
+	if lastSyncStatus != "error" {
+		t.Errorf("expected last_sync_status to be 'error', got %q", lastSyncStatus)
+	}
+	if !lastSyncError.Valid || !strings.Contains(lastSyncError.String, "access token is missing") {
+		t.Errorf("expected last_sync_error to contain 'access token is missing', got %v", lastSyncError)
+	}
+}
+
+func TestRepoPRSyncWorker_ProviderMismatch_CancelsJob(t *testing.T) {
+	db, _ := testDBAndURL(t)
+
+	var connectorID int64
+	err := db.QueryRow(`
+		INSERT INTO integration_tokens (provider, provider_app_id, access_token, pat_token, connection_name, provider_url, org_id)
+		VALUES ('gitlab', 'test-app', 'valid-token', 'valid-token', 'mismatch-test', 'https://gitlab.example.com', 1)
+		RETURNING id
+	`).Scan(&connectorID)
+	if err != nil {
+		t.Fatalf("insert connector: %v", err)
+	}
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM integration_tokens WHERE id = $1`, connectorID) })
+
+	var repoID int64
+	err = db.QueryRow(`
+		INSERT INTO repositories (org_id, connector_id, provider, provider_repo_id, full_name, name, web_url, last_sync_status)
+		VALUES (1, $1, 'github', 'mismatch-repo', 'acme/mismatch-repo', 'mismatch-repo', 'https://github.com/acme/mismatch-repo', 'pending')
+		RETURNING id
+	`, connectorID).Scan(&repoID)
+	if err != nil {
+		t.Fatalf("insert repository: %v", err)
+	}
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM repositories WHERE id = $1`, repoID) })
+
+	prStore := pullrequests.NewStore(db)
+	worker := &RepoPRSyncWorker{
+		db:    db,
+		store: prStore,
+	}
+
+	job := &river.Job[RepoPRSyncJobArgs]{
+		Args: RepoPRSyncJobArgs{RepositoryID: repoID},
+	}
+
+	workErr := worker.Work(context.Background(), job)
+	if workErr == nil {
+		t.Fatal("expected Work to return an error, got nil")
+	}
+
+	// Verify that the error is wrapped in river.JobCancel
+	var cancelErr *river.JobCancelError
+	if !errors.As(workErr, &cancelErr) {
+		t.Errorf("expected error to wrap river.JobCancel, got %T: %v", workErr, workErr)
+	}
+
+	var lastSyncStatus string
+	var lastSyncError sql.NullString
+	err = db.QueryRow(`SELECT last_sync_status, last_sync_error FROM repositories WHERE id = $1`, repoID).Scan(&lastSyncStatus, &lastSyncError)
+	if err != nil {
+		t.Fatalf("query repository status: %v", err)
+	}
+
+	if lastSyncStatus != "error" {
+		t.Errorf("expected last_sync_status to be 'error', got %q", lastSyncStatus)
+	}
+	if !lastSyncError.Valid || !strings.Contains(lastSyncError.String, "Configuration error: repository provider") {
+		t.Errorf("expected last_sync_error to contain 'Configuration error: repository provider', got %v", lastSyncError)
 	}
 }
