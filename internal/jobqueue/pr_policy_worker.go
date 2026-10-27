@@ -142,7 +142,7 @@ func (w *PRPolicyCheckWorker) publish(ctx context.Context, args PRPolicyCheckJob
 	).Scan(&repositoryID, &number); err != nil {
 		return fmt.Errorf("failed to load pull request %d: %w", pullRequestID, err)
 	}
-	info, err := loadRepositoryConnectorInfo(w.db, repositoryID)
+	info, err := loadActingConnectorInfo(w.db, repositoryID)
 	if err != nil {
 		return fmt.Errorf("failed to load connector for repository %d: %w", repositoryID, err)
 	}

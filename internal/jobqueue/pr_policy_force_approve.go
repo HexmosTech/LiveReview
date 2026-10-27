@@ -68,7 +68,7 @@ func (w *PRPolicyForceApproveWorker) Work(ctx context.Context, job *river.Job[PR
 		release()
 		return err
 	}
-	info, err := loadRepositoryConnectorInfo(w.db, repositoryID)
+	info, err := loadActingConnectorInfo(w.db, repositoryID)
 	if err != nil {
 		release()
 		return err

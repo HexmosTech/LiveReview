@@ -21,6 +21,7 @@ import (
 	providergitlab "github.com/livereview/internal/providers/gitlab"
 	"github.com/livereview/internal/prsync"
 	storagejobqueue "github.com/livereview/storage/jobqueue"
+	storagegithub "github.com/livereview/storage/providers/github"
 	"github.com/livereview/storage/providers/pullrequests"
 	"github.com/riverqueue/river"
 )
@@ -72,6 +73,54 @@ func loadRepositoryConnectorInfo(db *sql.DB, repositoryID int64) (*repositoryCon
 	return &info, nil
 }
 
+func isGitHubProvider(provider string) bool {
+	return provider == "github" || provider == "github-com" || provider == "github-enterprise"
+}
+
+// appRepositoryID finds the repositories row of the same org's live GitHub App connector for the same repo on the
+// same host, or sql.ErrNoRows. Only token connectors can be covered by an App.
+func appRepositoryID(db *sql.DB, info *repositoryConnectorInfo) (int64, error) {
+	if info.TokenType == storagegithub.TokenTypeGitHubApp || !isGitHubProvider(info.Provider) {
+		return 0, sql.ErrNoRows
+	}
+	var id int64
+	err := db.QueryRow(`
+		SELECT r.id FROM repositories r JOIN integration_tokens it ON it.id = r.connector_id
+		WHERE it.org_id = $1 AND it.token_type = $2 AND LOWER(r.full_name) = LOWER($3)
+		  AND LOWER(TRIM(TRAILING '/' FROM it.provider_url)) = LOWER(TRIM(TRAILING '/' FROM $4::text))
+		  AND COALESCE(it.metadata->>'removed', 'false') <> 'true'
+		  AND COALESCE(it.metadata->>'suspended', 'false') <> 'true'
+		ORDER BY it.created_at DESC LIMIT 1
+	`, info.OrgID, storagegithub.TokenTypeGitHubApp, info.FullName, info.ProviderURL).Scan(&id)
+	return id, err
+}
+
+// loadActingConnectorInfo is loadRepositoryConnectorInfo, except that when the org's GitHub App also lists the
+// repository, the App's credentials are used, so posts come from the App and not a token owner's account.
+func loadActingConnectorInfo(db *sql.DB, repositoryID int64) (*repositoryConnectorInfo, error) {
+	info, err := loadRepositoryConnectorInfo(db, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	appRepoID, err := appRepositoryID(db, info)
+	if errors.Is(err, sql.ErrNoRows) {
+		return info, nil
+	}
+	var app *repositoryConnectorInfo
+	if err == nil {
+		app, err = loadRepositoryConnectorInfo(db, appRepoID)
+	}
+	if err != nil {
+		// Better to post with the token than to drop the result.
+		log.Printf("[WARN] acting connector: could not use the GitHub App for repository %d: %v", repositoryID, err)
+		return info, nil
+	}
+	// Keep this PR copy's repository identity; only who we act as changes.
+	info.ConnectorID, info.ProviderURL, info.PATToken, info.AccessToken, info.Email, info.TokenType =
+		app.ConnectorID, app.ProviderURL, app.PATToken, app.AccessToken, app.Email, app.TokenType
+	return info, nil
+}
+
 // RepoPRSyncJobArgs syncs all pull/merge requests for one repository from its
 // provider into the pull_requests table. Enqueued both by the periodic
 // reconciliation coordinator (see ReconciliationSweepWorker) and by the
@@ -99,6 +148,13 @@ func (w *RepoPRSyncWorker) Work(ctx context.Context, job *river.Job[RepoPRSyncJo
 			return nil
 		}
 		return fmt.Errorf("failed to load repository %d: %w", args.RepositoryID, err)
+	}
+
+	// The org's GitHub App syncs this repo already; a token copy would double every PR.
+	if _, err := appRepositoryID(w.db, info); err == nil {
+		return nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to check GitHub App coverage for repository %d: %w", args.RepositoryID, err)
 	}
 
 	state := providers.PRListStateAll
@@ -308,7 +364,7 @@ func (w *PRStateSyncWorker) postLinksComment(ctx context.Context, repositoryID, 
 		return nil
 	}
 
-	info, err := loadRepositoryConnectorInfo(w.db, repositoryID)
+	info, err := loadActingConnectorInfo(w.db, repositoryID)
 	if err == nil {
 		err = writePRSection(ctx, info, number, buildPRLinksSection(host, pullRequestID, repositoryID, ""))
 	}
