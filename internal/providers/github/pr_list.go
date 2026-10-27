@@ -86,6 +86,15 @@ func ListPullRequests(ctx context.Context, baseURL, pat, ownerRepo string, state
 		return nil, rlErr
 	}
 
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, &providers.AuthError{
+			Provider:   "github",
+			StatusCode: resp.StatusCode,
+			Message:    string(body),
+		}
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("GitHub API request failed with status %d: %s", resp.StatusCode, string(body))

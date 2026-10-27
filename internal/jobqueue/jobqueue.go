@@ -2550,7 +2550,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 		Queues:                      config.RiverQueueConfig(),
 		Workers:                     workers,
 		CompletedJobRetentionPeriod: 30 * 24 * time.Hour,
-		CancelledJobRetentionPeriod: 30 * 24 * time.Hour,
+		CancelledJobRetentionPeriod: 7 * 24 * time.Hour,
 		DiscardedJobRetentionPeriod: 7 * 24 * time.Hour,
 		PeriodicJobs: append(periodicJobs,
 			river.NewPeriodicJob(
@@ -2716,7 +2716,14 @@ func (jq *JobQueue) QueueManualReviewJob(ctx context.Context, orgID int64, planC
 // QueueScheduledReviewJob enqueues a scheduled-review run for a single config.
 func (jq *JobQueue) QueueScheduledReviewJob(ctx context.Context, configID int64) error {
 	args := ScheduledReviewJobArgs{ConfigID: configID}
-	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{Queue: "review", MaxAttempts: 3})
+	_, err := jq.client.Insert(ctx, args, &river.InsertOpts{
+		Queue:       "review",
+		MaxAttempts: 3,
+		UniqueOpts: river.UniqueOpts{
+			ByArgs:   true,
+			ByPeriod: 10 * time.Minute,
+		},
+	})
 	if err != nil {
 		log.Printf("[ERROR] Failed to queue scheduled review job: %v", err)
 		return fmt.Errorf("failed to queue scheduled review job: %w", err)

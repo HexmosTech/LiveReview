@@ -449,6 +449,15 @@ func (c *GitLabHTTPClient) ListMergeRequests(projectID string, state string, pag
 	defer resp.Body.Close()
 
 	// Check for errors
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, "", &providers.AuthError{
+			Provider:   "gitlab",
+			StatusCode: resp.StatusCode,
+			Message:    string(body),
+		}
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
