@@ -16,9 +16,12 @@ The system includes the following components:
 
 - The **Tool Analysis Card** (`ui/src/components/reviews/ToolAnalysisCard.tsx`) renders on the `ReviewDetail` page.
 - Database migrations (`available_tools`, `org_tools`) manage global catalogs and per-organization settings.
-- The `River` job queue manages parallel tool execution with `ToolReviewWorker`.
+- The `River` job queue manages tool execution with `ToolReviewWorker`. Tool jobs share the `review` queue with AI review jobs.
 - AWS Lambda functions execute tools and return finding payloads.
-- The `toolclassifier` module normalizes findings using deterministic rules, database caching, and low-token LLM batch requests.
+- The `toolclassifier` module normalizes findings using deterministic rules and low-token LLM batch requests.
+  The planned database rule cache is not implemented yet. See "Caching Roadmap".
+- Tool execution runs today on one trigger path only: the CLI flag `--tools` (`tools_only=true`).
+  The other trigger paths do not dispatch tools yet. See "Trigger Coverage".
 - The credit store deducts organization credits based on configured tool memory and timeout multipliers.
 
 ---
@@ -39,7 +42,7 @@ flowchart TD
     G --> H["Insert tool_dispatch Events"]
     H --> I["Enqueue ToolReviewJob per tool<br/>(with DiffZipBase64)"]
 
-    I --> J["River Queue: ToolReviewJob Pool<br/>(10 Workers)"]
+    I --> J["River 'review' Queue<br/>(ToolReviewJob shares<br/>the AI review pool)"]
     J --> K["ToolReviewWorker"]
     K --> L["Invoke AWS Lambda"]
 
@@ -158,7 +161,11 @@ Current Tier 1 entries (selected):
 
 #### Tier 2: Database Rule Cache (0 LLM Tokens)
 
-If a rule key is not in Tier 1, the classifier queries `public.tool_rule_taxonomies`.
+**Status: planned. This tier is not in the code yet.** 
+Today every miss on Tier 1 goes directly to Tier 3 and repeats the LLM token cost after each restart.
+The "Caching Roadmap" section implements this tier.
+
+When implemented, the flow is: a rule key that Tier 1 does not cover finds its tuple in `public.tool_rule_taxonomies`.
 This table stores all previously LLM-classified rule mappings.
 
 **Schema:**
@@ -256,9 +263,10 @@ Findings (tool:rule_id - sample message):
 
 ---
 
-### Self-Learning Auto-Cache Mechanism
+### Self-Learning Auto-Cache Mechanism (planned)
 
-After Tier 3 classifies a batch of new rule keys, the system upserts all results into `tool_rule_taxonomies`.
+After Tier 3 classifies a batch of new rule keys, the system will upsert all results into `tool_rule_taxonomies`.
+**Status: planned. The upsert step is not in the code yet.**
 
 ```mermaid
 sequenceDiagram
@@ -280,6 +288,87 @@ sequenceDiagram
 All future invocations — including after server restart — find the rule key in Tier 2 (0 LLM tokens).
 
 ---
+
+## Trigger Coverage
+
+The `reviews.trigger_type` column defines four dashboard layers: `precommit`, `mr-pr`, `api-mcp`, `scheduled`.
+`api-mcp` combines the raw API trigger types `api` and `mcp`.
+
+| Trigger path | Review row producer | Runs tools today | Anchor |
+|---|---|---|---|
+| CLI, flag `--tools` | `DiffReviewJob`, field `tools_only=true` | Yes | `internal/jobqueue/review_worker.go`, dispatch block |
+| CLI, normal AI review | `DiffReviewJob`, field `tools_only=false` | No | `review_worker.go` |
+| PR comment, UI manual | `POST /api/v1/reviews`, `/connectors/trigger-review`, `TriggerReviewV2`, `ManualReviewJob` | No | `internal/api/pull_request_review_trigger.go` |
+| API and MCP | `TriggerReviewV2` phases (`trigger_type` `api`, `mcp`) | No | `internal/api/dashboard_cache_manager.go` |
+| Scheduled | `ScheduledReviewWorker` | No | `internal/jobqueue/scheduled_review_worker.go` |
+
+One enqueue site constructs `ToolReviewJobArgs`: `internal/jobqueue/review_worker.go`, inside the `tools_only` block.
+The worker `finalizeIfAllDone` in `internal/jobqueue/tool_worker.go` marks the review `completed` when every dispatch has a result.
+
+## Universal Tool Execution Plan
+
+The goal: every trigger path runs static tools when the organization enables tools or the repo `.lrc` enables a tool.
+No `--tools` flag appears in this flow.
+
+### Phase 1 - Shared Dispatcher
+
+Extract the `tools_only` dispatch block from `DiffReviewWorker` into one `internal/jobqueue` helper.
+The helper takes org id, review id, plan code, diff zip, `.lrc` bundle, and the changed-file list.
+The helper performs these steps: fetch enabled org tools, merge repo `.lrc` rules, apply diff matchers, deduct credits, insert `tool_dispatch` events, and enqueue one `tool_review` job per tool.
+`DiffReviewWorker` calls the helper. Behavior of the CLI path stays identical.
+
+### Phase 2 - Server-Side Diff Package
+
+Manual, PR, API, MCP, and scheduled flows do not carry the CLI's diff zip.
+The server builds the package: reuse the `internal/blastradius/repocache` clone, check out the head SHA, and zip the files changed between base and head, honoring `.lrc/ignore`.
+Scheduled reviews reuse the same step on the diffed range.
+
+### Phase 3 - Combined Completion
+
+The current `finalizeIfAllDone` overwrites the review status to `completed`. In a combined run the AI result races it.
+At dispatch the helper writes `metadata.tools_pending = N`.
+The AI path and the tool worker share one completion helper that marks `completed` only when pending tools equal zero.
+The completion summary text becomes "AI review + static analysis" when both layers ran.
+
+### Phase 4 - Wire Every Trigger
+
+`ManualReviewWorker` calls the helper after the AI review succeeds. This one hook covers manual UI, PR comment, API, and MCP triggers, because all of them share `TriggerReviewV2`.
+`ScheduledReviewWorker` calls the same helper after its pipeline.
+Tool failures insert synthetic `tool_result` events and never fail the review.
+
+### Phase 5 - Enablement Rules
+
+Tools run when the organization enables them globally, or when the repo `.lrc/policy/tools.toml` enables a tool.
+The auto-enable loop for `.lrc` exists in the `tools_only` block today and moves into the helper.
+Org settings show per-trigger coverage in the third-party tools tab.
+
+---
+
+## Caching Roadmap
+
+Two caches are missing today. Both cut repeat token and credit costs.
+
+### Cache 1 - Rule Taxonomy DB Cache (Tier 2)
+
+Implement the table and the two queries described in the Tier 2 section:
+
+1. Migration creates `tool_rule_taxonomies` with the columns of the not-yet-implemented SQL block above.
+2. `ClassifyToolResult` batch-selects unresolved rule keys before the LLM call.
+3. After a Tier 3 batch, the worker upserts all new tuples (async, non-blocking).
+
+Effect: each tool `(tool_name, rule_id)` pair classifies once per database, not once per review or restart.
+
+### Cache 2 - Lambda Result Cache
+
+Key: `SHA256(tool_name, repo, base_sha, head_sha, tool config)`.
+Value: the classified `tool_result` payload in the blob store, next to diff-review artifacts.
+
+On dispatch the helper checks the key first. On a hit the review reuses the findings and skips the Lambda invocation and its credits.
+This helps force-push cycles and CI re-runs of the same commit. A cache event records the credit saving.
+
+---
+
+
 
 ## Official Tool Specification Mapping Table
 
