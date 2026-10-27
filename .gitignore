@@ -96,3 +96,7 @@ scripts/prelivi/.venv/
 email-preview
 email-preview.html
 livereview.dtx
+
+
+.kiro/*
+.agents/*
