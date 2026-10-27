@@ -179,6 +179,14 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 				log.Printf("[ERROR] Job queue not initialized, cannot process PR state event")
 				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			}
+			// The org's GitHub App already tracks this repo's PRs, so a token copy would double the PR and its link.
+			if wo.githubAppCoversRepo(providerName, stateEvent.RepositoryFullName, connectorID, orgID) {
+				return c.JSON(http.StatusOK, map[string]string{
+					"status":   "ignored",
+					"provider": providerName,
+					"reason":   "superseded_by_github_app",
+				})
+			}
 			if err := wo.server.jobQueue.QueuePRStateSyncJob(c.Request().Context(), orgID, connectorID, providerName, *stateEvent); err != nil {
 				log.Printf("[ERROR] Failed to queue PR state sync job: %v", err)
 				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to queue pr state sync"})
@@ -242,6 +250,16 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 			"status":   "ignored",
 			"provider": providerName,
 			"reason":   "superseded_by_github_app",
+		})
+	}
+
+	// Same provider account connected in several orgs: every org's webhook sees this event, so only one answers.
+	if wo.supersededBySiblingOrg(event, connectorID, orgID) {
+		log.Printf("[INFO] Ignoring webhook for %s: another org with the same provider account answers it (connector_id=%d)", event.Repository.FullName, connectorID)
+		return c.JSON(http.StatusOK, map[string]string{
+			"status":   "ignored",
+			"provider": providerName,
+			"reason":   "handled_by_sibling_org",
 		})
 	}
 
@@ -334,18 +352,42 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 	})
 }
 
+// supersededBySiblingOrg reports whether another org, which connected this repository with a token from the same
+// provider account, should answer the event instead. Any lookup problem keeps the event, so nothing goes unanswered.
+func (wo *WebhookOrchestratorV2) supersededBySiblingOrg(event *UnifiedWebhookEventV2, connectorID, orgID int64) bool {
+	if wo.server == nil || wo.server.db == nil {
+		return false
+	}
+	prURL := ""
+	if event.MergeRequest != nil {
+		prURL = event.MergeRequest.WebURL
+	}
+	preferred, err := storagegithub.NewTokenStore(wo.server.db).PreferredSiblingConnector(
+		connectorID, orgID, strings.TrimSpace(event.Repository.ID), strings.TrimSpace(event.Repository.FullName), prURL)
+	if err != nil {
+		log.Printf("[WARN] Sibling org check failed for %s: %v", event.Repository.FullName, err)
+		return false
+	}
+	return preferred != connectorID
+}
+
 // supersededByGitHubApp reports whether a GitHub event received through a non-App connector is for a repository
 // that a GitHub App connector of the same org also serves.
 func (wo *WebhookOrchestratorV2) supersededByGitHubApp(event *UnifiedWebhookEventV2, connectorID, orgID int64) bool {
-	if wo.server == nil || wo.server.db == nil || !strings.EqualFold(event.Provider, "github") || event.Repository.FullName == "" {
+	return wo.githubAppCoversRepo(event.Provider, event.Repository.FullName, connectorID, orgID)
+}
+
+// githubAppCoversRepo is the check behind supersededByGitHubApp, for callers that have no unified event yet.
+func (wo *WebhookOrchestratorV2) githubAppCoversRepo(provider, repoFullName string, connectorID, orgID int64) bool {
+	if wo.server == nil || wo.server.db == nil || !strings.EqualFold(provider, "github") || repoFullName == "" {
 		return false
 	}
 	if wo.server.isGitHubAppConnector(int(connectorID)) {
 		return false
 	}
-	has, err := storagegithub.NewTokenStore(wo.server.db).HasAppConnectorForRepo(orgID, event.Repository.FullName)
+	has, err := storagegithub.NewTokenStore(wo.server.db).HasAppConnectorForRepo(orgID, repoFullName)
 	if err != nil {
-		log.Printf("[WARN] GitHub App overlap check failed for %s: %v", event.Repository.FullName, err)
+		log.Printf("[WARN] GitHub App overlap check failed for %s: %v", repoFullName, err)
 		return false
 	}
 	return has

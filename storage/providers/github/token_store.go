@@ -335,6 +335,62 @@ func (s *TokenStore) LatestReviewConnector(connectorIDs []int64, prURL string) (
 	return id, err
 }
 
+// PreferredSiblingConnector says which connector should answer an event for a repo that several orgs connected with
+// a token from the same provider account. Each org has its own webhook, so every one of them sees the event.
+// It is the connector that reviewed prURL most recently, else the oldest. It returns connectorID itself when it has
+// no such siblings (or no saved account profile), so a different answer only ever means "defer to another org".
+func (s *TokenStore) PreferredSiblingConnector(connectorID, orgID int64, repoProviderID, repoFullName, prURL string) (int64, error) {
+	// Deliberately spans orgs, like LatestReviewConnector: the caller only compares the returned id with its own.
+	rows, err := s.db.Query(`
+		WITH accounts AS (
+			SELECT id, org_id, provider, provider_url,
+			       COALESCE(metadata->'githubProfile'->>'id', metadata->'gitlabProfile'->>'id',
+			                metadata->'giteaProfile'->>'id', metadata->'bitbucketProfile'->>'account_id') AS account_id
+			FROM integration_tokens
+			WHERE token_type = 'PAT'
+		)
+		SELECT DISTINCT other.id
+		FROM accounts me
+		JOIN accounts other ON other.provider = me.provider AND other.provider_url = me.provider_url
+		                   AND other.account_id = me.account_id
+		JOIN repositories r ON r.connector_id = other.id
+		WHERE me.id = $1 AND me.org_id = $2 AND me.account_id IS NOT NULL
+		  AND (($3 <> '' AND r.provider_repo_id = $3) OR ($4 <> '' AND LOWER(r.full_name) = LOWER($4)))
+		ORDER BY other.id
+	`, connectorID, orgID, repoProviderID, repoFullName)
+	if err != nil {
+		return connectorID, err
+	}
+	defer rows.Close()
+	var ids []int64
+	includesSelf := false
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return connectorID, err
+		}
+		ids = append(ids, id)
+		includesSelf = includesSelf || id == connectorID
+	}
+	if err := rows.Err(); err != nil {
+		return connectorID, err
+	}
+	// Fail open: if this connector doesn't list the repo itself, don't let a sibling silence it.
+	if len(ids) < 2 || !includesSelf {
+		return connectorID, nil
+	}
+	if prURL != "" {
+		id, err := s.LatestReviewConnector(ids, prURL)
+		if err == nil {
+			return id, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return connectorID, err
+		}
+	}
+	return ids[0], nil
+}
+
 // UpdateCachedInstallationToken stores a freshly minted installation token on its connector.
 func (s *TokenStore) UpdateCachedInstallationToken(connectorID int64, token string, expiresAt time.Time) error {
 	_, err := s.db.Exec(`
