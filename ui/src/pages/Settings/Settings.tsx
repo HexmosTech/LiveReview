@@ -13,6 +13,7 @@ import StorageSettingsTab from './StorageSettingsTab';
 import ManagedAITab from './ManagedAITab';
 import CompactionSettingsTab from './CompactionSettingsTab';
 import AutoApprovePolicyTab from './AutoApprovePolicyTab';
+import AccountTab from './AccountTab';
 import { UserManagement } from '../../components/UserManagement';
 import LicenseManagement from '../Licenses/LicenseManagement';
 import { useOrgContext } from '../../hooks/useOrgContext';
@@ -292,6 +293,8 @@ const Settings = () => {
 
     // Available tabs based on permissions
     const tabs = [
+        // Self-service: every authenticated user can manage their own profile and password, regardless of org role
+        { id: 'account', name: 'Account', icon: <Icons.User /> },
         // Instance-wide config: self-hosted owners may manage it, but in cloud it's shared across every tenant, so it stays super-admin-only there
         ...(canManageInstanceConfig ? [{ id: 'instance', name: 'Instance', icon: <Icons.Settings /> }] : []),
         ...(canManageCurrentOrg && !isCloudMode() ? [{
@@ -635,6 +638,12 @@ const Settings = () => {
                 </div>
                 
                 <div className="md:col-span-3">
+                    {activeTab === 'account' && (
+                        <Card>
+                            <AccountTab />
+                        </Card>
+                    )}
+
                     {activeTab === 'prompts' && canAccessPrompts && (
                         <Card>
                             <PromptsPage />

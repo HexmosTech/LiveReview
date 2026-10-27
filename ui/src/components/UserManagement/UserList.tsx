@@ -18,6 +18,7 @@ import { SortIcon, SortableHeaderLabel, HeaderFilterPopover } from '../DataTable
 import { Member } from '../../api/users';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { notify } from '../../utils/notify';
+import { formatRoleLabel } from '../../utils/formatRole';
 
 const USER_LIST_COLUMN_WIDTHS_WITH_CHECKBOX_AND_ORG = ['4%', '32%', '11%', '11%', '14%', '14%', '14%'];
 const USER_LIST_COLUMN_WIDTHS_WITH_CHECKBOX = ['4%', '38%', '13%', '13%', '16%', '16%'];
@@ -263,7 +264,7 @@ export const UserList: React.FC<UserListProps> = ({
                 </div>
             ),
             cell: ({ row }) => (
-                <span className="text-sm text-slate-400 capitalize">{row.original.role}</span>
+                <span className="text-sm text-slate-400">{formatRoleLabel(row.original.role)}</span>
             ),
         });
 

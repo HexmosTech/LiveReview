@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { notify } from '../../utils/notify';
+import { formatRoleLabel } from '../../utils/formatRole';
 import { Member } from '../../api/users';
 import { Button } from '../UIPrimitives';
 
@@ -72,7 +73,7 @@ export const UserOnboardingDetails: React.FC<UserOnboardingDetailsProps> = ({ us
               </div>
               <div>
                 <span className="text-gray-400 block">Role</span>
-                <span className="font-medium text-white capitalize">{user.role}</span>
+                <span className="font-medium text-white">{formatRoleLabel(user.role)}</span>
               </div>
             </div>
           </div>

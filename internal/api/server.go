@@ -345,7 +345,7 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 
 	// Initialize profile management system
 	profileService := users.NewProfileService(db)
-	profileHandlers := users.NewProfileHandlers(profileService)
+	profileHandlers := users.NewProfileHandlers(profileService, db, auditRecorder)
 
 	// Initialize organization management system
 	logger := log.New(os.Stdout, "[ORG] ", log.LstdFlags)

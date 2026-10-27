@@ -20,6 +20,7 @@ import { NavMegaMenu } from './NavMegaMenu';
 import { EnterpriseModal } from './EnterpriseModal';
 import { shortcutKeyLabel } from '../../utils/platform';
 import { NotificationBell } from '../Notifications/NotificationBell';
+import { AccountMenu } from './AccountMenu';
 import { add as addNotification, dismiss as dismissNotification } from '../../store/Notifications/slice';
 import { prefetchRoute } from '../../utils/routePrefetch';
 import { triggerNavigationProgress } from '../NavigationProgressBar';
@@ -911,20 +912,8 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         className="ml-1 2xl:ml-2"
                     />
 
-                    {/* Logout button */}
-                    {onLogout && (
-                        <button
-                            type="button"
-                            onClick={onLogout}
-                            aria-label="Logout"
-                            title="Logout"
-                            className="ml-2 text-slate-300 hover:text-red-400 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
-                        >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                            </svg>
-                        </button>
-                    )}
+                    {/* Account menu (profile, password, API keys, sign out) */}
+                    <AccountMenu onLogout={onLogout} className="ml-2" />
                 </div>
             </div>
 
@@ -974,20 +963,10 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
                         </Button>
                     ))}
 
-                    {/* Mobile logout button */}
-                    {onLogout && (
-                        <Button
-                            variant="ghost"
-                            onClick={onLogout}
-                            className="w-full justify-start text-slate-300 hover:text-red-300 hover:bg-red-900/20"
-                            iconPosition="left"
-                            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                            </svg>}
-                        >
-                            Logout
-                        </Button>
-                    )}
+                    {/* Mobile account menu (profile, password, API keys, sign out) */}
+                    <div className="mb-3">
+                        <AccountMenu onLogout={onLogout} />
+                    </div>
                 </div>
             )}
 

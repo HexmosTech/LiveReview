@@ -5,6 +5,7 @@ import { Button, Icons } from '../UIPrimitives';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { Organization } from '../../store/Organizations/types';
 import { CreateOrganizationModal } from '../CreateOrganizationModal';
+import { formatRoleLabel } from '../../utils/formatRole';
 
 export interface OrganizationSelectorProps {
     /**
@@ -87,8 +88,11 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
         }
     }, [orgSelectorOpen]);
 
-    // Filter organizations
+    // Other organizations, filtered by search. The current org is pinned in
+    // its own section above this list (regardless of search text), so it's
+    // excluded here to avoid showing it twice.
     const filteredOrgs = userOrganizations.filter(org =>
+        org.id !== currentOrg?.id &&
         org.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
@@ -324,18 +328,42 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
                         </div>
                     </div>
 
-                    {/* Organizations List - Scrollable */}
+                    {/* Current organization - pinned, always visible regardless of search */}
+                    {currentOrg && (
+                        <div className="p-2 pb-1 border-b border-slate-700/50">
+                            <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 px-1">
+                                Current organization
+                            </div>
+                            <div className="w-full px-3 py-2 rounded bg-blue-600/20 text-blue-300 flex items-center space-x-2">
+                                <svg className={styles.icon} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                </svg>
+                                <div className="flex-1 min-w-0">
+                                    <div className="font-medium whitespace-nowrap">{currentOrg.name}</div>
+                                    {currentOrg.role && (
+                                        <div className="text-xs text-blue-300/80">{formatRoleLabel(currentOrg.role)}</div>
+                                    )}
+                                </div>
+                                <svg className={styles.icon} fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                </svg>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Other organizations - scrollable, filtered by search */}
+                    <div className="p-2 pb-0">
+                        <div className="text-xs font-medium text-slate-500 uppercase tracking-wider px-1">
+                            Other organizations
+                        </div>
+                    </div>
                     <div className="overflow-y-auto max-h-60 py-1">
                         {filteredOrgs.length > 0 ? (
                             filteredOrgs.map((org) => (
                                 <button
                                     key={org.id}
                                     onClick={() => handleOrgSwitch(org)}
-                                    className={classNames(
-                                        'w-full px-3 py-2 text-left hover:bg-slate-700/60 transition-colors',
-                                        'flex items-center space-x-2',
-                                        currentOrg?.id === org.id && 'bg-blue-600/20 text-blue-300'
-                                    )}
+                                    className="w-full px-3 py-2 text-left hover:bg-slate-700/60 transition-colors flex items-center space-x-2"
                                     disabled={loading.switching}
                                 >
                                     <svg className={styles.icon} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -344,19 +372,14 @@ export const OrganizationSelector: React.FC<OrganizationSelectorProps> = ({
                                     <div className="flex-1 min-w-0">
                                         <div className="font-medium whitespace-nowrap">{org.name}</div>
                                         {org.role && (
-                                            <div className="text-xs text-slate-400 capitalize">{org.role}</div>
+                                            <div className="text-xs text-slate-400">{formatRoleLabel(org.role)}</div>
                                         )}
                                     </div>
-                                    {currentOrg?.id === org.id && (
-                                        <svg className={styles.icon} fill="currentColor" viewBox="0 0 20 20">
-                                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                        </svg>
-                                    )}
                                 </button>
                             ))
                         ) : (
                             <div className="px-3 py-4 text-center text-sm text-slate-500">
-                                No organizations found
+                                {searchTerm ? 'No organizations found' : 'No other organizations'}
                             </div>
                         )}
                     </div>

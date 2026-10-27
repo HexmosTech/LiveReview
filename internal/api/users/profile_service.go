@@ -76,13 +76,15 @@ func (ps *ProfileService) GetUserProfile(ctx context.Context, userID int64) (*Us
 	}, nil
 }
 
-// UpdateUserProfile updates the user's profile information
-func (ps *ProfileService) UpdateUserProfile(ctx context.Context, userID int64, req UpdateProfileRequest) (*UserProfile, error) {
+// UpdateUserProfile applies the profile change on tx, so the handler can
+// commit it atomically with the audit event. Read the refreshed profile back
+// with GetUserProfile after the commit, not before.
+func (ps *ProfileService) UpdateUserProfile(ctx context.Context, tx *sql.Tx, userID int64, req UpdateProfileRequest) error {
 	if err := validateUpdateProfileRequest(req); err != nil {
-		return nil, err
+		return err
 	}
 
-	err := ps.store.UpdateUserProfile(ctx, storageusers.UpdateProfileInput{
+	err := ps.store.UpdateUserProfile(ctx, tx, storageusers.UpdateProfileInput{
 		UserID:    userID,
 		FirstName: req.FirstName,
 		LastName:  req.LastName,
@@ -90,17 +92,17 @@ func (ps *ProfileService) UpdateUserProfile(ctx context.Context, userID int64, r
 	})
 	if err != nil {
 		if errors.Is(err, storageusers.ErrEmailInUse) {
-			return nil, storageusers.ErrEmailInUse
+			return storageusers.ErrEmailInUse
 		}
-		return nil, fmt.Errorf("failed to update user profile: %w", err)
+		return fmt.Errorf("failed to update user profile: %w", err)
 	}
 
-	// Get updated profile
-	return ps.GetUserProfile(ctx, userID)
+	return nil
 }
 
-// ChangePassword changes the user's password
-func (ps *ProfileService) ChangePassword(ctx context.Context, userID int64, req ChangePasswordRequest) error {
+// ChangePassword changes the user's password on tx, so the handler can
+// commit it atomically with the audit event.
+func (ps *ProfileService) ChangePassword(ctx context.Context, tx *sql.Tx, userID int64, req ChangePasswordRequest) error {
 	if strings.TrimSpace(req.CurrentPassword) == "" || strings.TrimSpace(req.NewPassword) == "" {
 		return fmt.Errorf("current and new password are required")
 	}
@@ -125,7 +127,7 @@ func (ps *ProfileService) ChangePassword(ctx context.Context, userID int64, req 
 		return fmt.Errorf("failed to hash new password: %w", err)
 	}
 
-	updated, err := ps.store.UpdatePasswordIfCurrentHash(ctx, userID, currentHash, string(hashedPassword))
+	updated, err := ps.store.UpdatePasswordIfCurrentHash(ctx, tx, userID, currentHash, string(hashedPassword))
 	if err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
 	}

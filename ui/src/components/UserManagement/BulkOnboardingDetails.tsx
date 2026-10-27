@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { notify } from '../../utils/notify';
+import { formatRoleLabel } from '../../utils/formatRole';
 import { Button } from '../UIPrimitives';
 
 export interface BulkOnboardingRow {
@@ -77,7 +78,7 @@ export const BulkOnboardingDetails: React.FC<BulkOnboardingDetailsProps> = ({ ro
                     <p className="text-gray-400 text-xs truncate">{row.email}</p>
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0">
-                    <span className="text-gray-300 capitalize">{row.role}</span>
+                    <span className="text-gray-300">{formatRoleLabel(row.role)}</span>
                     <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-900/30 text-emerald-300 capitalize">
                       {row.status}
                     </span>
