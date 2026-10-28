@@ -17,7 +17,8 @@ Any authenticated org member.
 
 - Search/filter/sort reviews (by status, repo, provider, etc.) using
   column header filters and a search box.
-- Click a row to open [Review Detail](review-detail.md).
+- Click a row to open [Review Detail](review-detail.md). Rows are real links,
+  so right-click gives "Open in new tab" and middle/Ctrl-click work anywhere in the row.
 - Start a new review via "New Review" (`/reviews/new`).
 - Navigate to scheduled reviews (`/reviews/scheduled`).
 - View one pull request's review history: `/reviews?pull_request_id=<id>`

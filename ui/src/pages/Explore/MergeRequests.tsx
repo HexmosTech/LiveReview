@@ -151,6 +151,8 @@ const MergeRequests: React.FC = () => {
   const columns = useMemo<ColumnDef<PullRequestWithRepo>[]>(() => [
     {
       id: 'title',
+      // Has its own link to the PR on the provider, so the row link stays out of the cell's content.
+      meta: { rowLink: false },
       // Searches title + author + repository together, same combined
       // free-text search the old top search bar offered.
       accessorFn: (pr) => `${pr.title} ${pr.author_name || pr.author_username || ''} ${pr.repository_full_name}`.toLowerCase(),
@@ -309,6 +311,7 @@ const MergeRequests: React.FC = () => {
     },
     {
       id: 'actions',
+      meta: { rowLink: false },
       enableSorting: false,
       enableColumnFilter: false,
       header: () => <span className="font-semibold text-slate-300 uppercase tracking-wide text-xs">Actions</span>,
@@ -364,6 +367,7 @@ const MergeRequests: React.FC = () => {
         <ClientTable
           table={table}
           columnWidths={MERGE_REQUESTS_COLUMN_WIDTHS}
+          getRowHref={(pr) => `/reviews?pull_request_id=${pr.id}`}
           loading={loading}
           loadingLabel="Loading merge requests..."
           error={error}
