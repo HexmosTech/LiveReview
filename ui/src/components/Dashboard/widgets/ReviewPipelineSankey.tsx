@@ -96,6 +96,17 @@ export const ReviewPipelineSankey: React.FC = () => {
         );
     }
 
+    // Reviews ran but none reported issues: no links means nothing to draw, and echarts piles the nodes up.
+    if (links.length === 0) {
+        return (
+            <EmptyState
+                icon={<Icons.EmptyState />}
+                title="No issues found in this period"
+                description="Reviews ran, but none reported issues, so there is nothing to chart yet."
+            />
+        );
+    }
+
     return (
         <div ref={containerRef} className="w-full h-full">
             <ReactECharts
