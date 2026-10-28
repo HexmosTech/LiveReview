@@ -74,6 +74,7 @@ Generated from `internal/auditlog/catalog.go`.
 | `chat.file.upload` | `chat` | file | info | Chat file uploaded | A file was attached to a chat. |
 | `connector.create` | `connector` | connector | warning | Integration connected | A source-control integration was connected. |
 | `connector.delete` | `connector` | connector | warning | Integration removed | A source-control integration was removed. |
+| `connector.github_app.start` | `connector` | connector | info | GitHub App connection started | A member started connecting a GitHub account or organization through the GitHub App. |
 | `connector.reconnect` | `connector` | connector | info | Integration reconnected | A source-control integration was reconnected. |
 | `connector.update` | `connector` | connector | warning | Integration updated | A source-control integration was updated. |
 | `export.audit` | `export` | audit | warning | Audit log exported | Audit events were exported. |

@@ -24,6 +24,7 @@ import (
 	"github.com/livereview/internal/api/auth"
 	"github.com/livereview/internal/database"
 	"github.com/livereview/internal/githubapp"
+	"github.com/livereview/pkg/models"
 	storagegithub "github.com/livereview/storage/providers/github"
 )
 
@@ -211,12 +212,13 @@ func (s *Server) validState(t *testing.T, mode string) (state, nonce string) {
 	return state, nonce
 }
 
-func TestGitHubAppStart_RedirectsToInstallOrAuthorize(t *testing.T) {
+// The public start is /gh-login's: it always signs in, so an old in-app install link can no longer swap the session.
+func TestGitHubAppStart_AlwaysSignsIn(t *testing.T) {
 	f := newFakeGitHub(t)
 	s, _ := newGitHubAppTestServer(t, f)
 
-	for mode, wantPath := range map[string]string{"": "/github-apps/lr-test/installations/new", "signin": "/login/oauth/authorize"} {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/github-app/start?src=Home&mode="+mode, nil)
+	for _, mode := range []string{"", "install", "signin"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/github-app/start?src=Home&target_id=42&mode="+mode, nil)
 		rec := httptest.NewRecorder()
 		if err := s.GitHubAppStart(echo.New().NewContext(req, rec)); err != nil {
 			t.Fatal(err)
@@ -225,11 +227,11 @@ func TestGitHubAppStart_RedirectsToInstallOrAuthorize(t *testing.T) {
 			t.Fatalf("mode %q: status %d", mode, rec.Code)
 		}
 		loc, _ := url.Parse(rec.Header().Get("Location"))
-		if loc.Path != wantPath {
-			t.Errorf("mode %q: redirected to %s, want path %s", mode, loc.Path, wantPath)
+		if loc.Path != "/login/oauth/authorize" {
+			t.Errorf("mode %q: redirected to %s, want the authorize page", mode, loc.Path)
 		}
 		st, err := verifyGHState(loc.Query().Get("state"), s.githubAppSecret, time.Now())
-		if err != nil || st.Src != "home" {
+		if err != nil || st.Src != "home" || st.Mode != ghModeSignin || !st.GetStarted || st.OrgID != 0 || st.UserID != 0 {
 			t.Fatalf("mode %q: bad state in redirect: %v %+v", mode, err, st)
 		}
 		var cookie *http.Cookie
@@ -270,8 +272,14 @@ func TestGitHubAppCallback_SetupActionRequestIsInformational(t *testing.T) {
 	f := newFakeGitHub(t)
 	s, _ := newGitHubAppTestServer(t, f)
 	rec := s.doCallback(t, callbackParams{setupAction: "request"})
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "needs to approve") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "needs to approve") || !strings.Contains(rec.Body.String(), `href="/#/gh-login"`) {
 		t.Fatalf("status %d body %q", rec.Code, rec.Body.String())
+	}
+	// Requested from inside the app: the page goes back there.
+	state, _ := s.boundState(t, 3, 4, ghModeInstall, ghNextGetStarted)
+	rec = s.doCallback(t, callbackParams{setupAction: "request", state: state})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Find my GitHub accounts") || !strings.Contains(rec.Body.String(), `href="/#/get-started/github"`) {
+		t.Fatalf("bound: status %d body %q", rec.Code, rec.Body.String())
 	}
 }
 
@@ -285,6 +293,7 @@ func TestGitHubAppCallback_RejectsUnverifiedEmailBadCodeAndForeignInstallation(t
 	}
 
 	f.emails = `[{"email":"a@b.test","primary":true,"verified":false}]`
+	f.installations = f.installation(555, "mine")
 	state, nonce = s.validState(t, ghModeInstall)
 	rec := s.doCallback(t, callbackParams{state: state, cookieNonce: nonce, code: "good-code", installation: "555"})
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "verified primary email") {
@@ -1019,7 +1028,7 @@ func TestGitHubAppDisconnect_SharedInstallation(t *testing.T) {
 	}
 }
 
-func TestGitHubAppConnect_OwnersOnlyOrgScopedAndListedAsAvailable(t *testing.T) {
+func TestGitHubAppConnect_MembersOrgScopedAndListedAsAvailable(t *testing.T) {
 	f := newFakeGitHub(t)
 	s, db := newGitHubAppTestServer(t, f)
 	store := storagegithub.NewTokenStore(db)
@@ -1082,14 +1091,12 @@ func TestGitHubAppConnect_OwnersOnlyOrgScopedAndListedAsAvailable(t *testing.T) 
 		recs, _ := store.ListAppConnectorsForOrg(orgB)
 		return len(recs) == 1
 	}
-	if rec := call(orgB, false); rec.Code != http.StatusForbidden || live() {
-		t.Fatalf("a plain member must not connect: %d", rec.Code)
-	}
 	if rec := call(orgA, true); rec.Code != http.StatusNotFound || live() {
 		t.Fatalf("another org's owner must get 404: %d", rec.Code)
 	}
-	if rec := call(orgB, true); rec.Code != http.StatusOK || !live() {
-		t.Fatalf("owner connect: %d %s", rec.Code, rec.Body.String())
+	// Any member of the org may connect (disconnecting stays owner-only).
+	if rec := call(orgB, false); rec.Code != http.StatusOK || !live() {
+		t.Fatalf("member connect: %d %s", rec.Code, rec.Body.String())
 	}
 	rec, _ := store.GetGitHubTokenByConnectorID(connB)
 	if sc := connectorMeta(t, rec); rec.PatToken != "ghs_inst" || sc.RepoScope != storagegithub.RepoScopeUser || len(sc.AllowedRepoIDs) != 1 {
@@ -1103,34 +1110,273 @@ func TestGitHubAppConnect_OwnersOnlyOrgScopedAndListedAsAvailable(t *testing.T) 
 	}
 }
 
-func TestGitHubAppStart_TargetIDOpensInstallPageOnThatAccount(t *testing.T) {
+// connectStart calls GitHubAppConnectStart as user userID in org orgID (0 leaves the user out of the context).
+func (s *Server) connectStart(t *testing.T, orgID, userID int64, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/github-app/start", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+	c.Set("org_id", orgID)
+	if userID != 0 {
+		c.Set(string(auth.UserContextKey), &models.User{ID: userID})
+	}
+	if err := s.GitHubAppConnectStart(c); err != nil {
+		t.Fatal(err)
+	}
+	return rec
+}
+
+func TestGitHubAppConnectStart_BindsSessionOrgAndOpensTarget(t *testing.T) {
 	f := newFakeGitHub(t)
 	s, _ := newGitHubAppTestServer(t, f)
 
-	start := func(query string) *url.URL {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/github-app/start?"+query, nil)
-		rec := httptest.NewRecorder()
-		if err := s.GitHubAppStart(echo.New().NewContext(req, rec)); err != nil {
-			t.Fatal(err)
+	start := func(body string) (*url.URL, *ghState, *http.Cookie) {
+		rec := s.connectStart(t, 31, 47, body)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("body %s: status %d %s", body, rec.Code, rec.Body.String())
 		}
-		loc, _ := url.Parse(rec.Header().Get("Location"))
-		return loc
+		var out struct {
+			URL string `json:"url"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		loc, err := url.Parse(out.URL)
+		if err != nil || out.URL == "" {
+			t.Fatalf("body %s: no url in %s", body, rec.Body.String())
+		}
+		st, err := verifyGHState(loc.Query().Get("state"), s.githubAppSecret, time.Now())
+		if err != nil {
+			t.Fatalf("body %s: bad state: %v", body, err)
+		}
+		var cookie *http.Cookie
+		for _, c := range rec.Result().Cookies() {
+			if c.Name == ghStateCookieName {
+				cookie = c
+			}
+		}
+		return loc, st, cookie
 	}
 
-	loc := start("mode=install&src=x&target_id=42")
+	loc, st, cookie := start(`{"mode":"install","src":"git-providers","target_id":42,"return":"get-started"}`)
 	if loc.Path != "/github-apps/lr-test/installations/new/permissions" || loc.Query().Get("target_id") != "42" {
 		t.Errorf("install with target_id went to %s", loc)
 	}
-	if _, err := verifyGHState(loc.Query().Get("state"), s.githubAppSecret, time.Now()); err != nil {
-		t.Errorf("state missing or bad on the targeted install URL: %v", err)
+	if st.OrgID != 31 || st.UserID != 47 || st.Mode != ghModeInstall || st.Return != ghNextGetStarted || st.GetStarted || st.Src != "git-providers" {
+		t.Errorf("state = %+v, want bound to org 31 / user 47, returning to get-started", st)
 	}
-	for _, bad := range []string{"abc", "-5", "0", "1.5"} {
-		if loc := start("mode=install&src=x&target_id=" + bad); loc.Path != "/github-apps/lr-test/installations/new" {
+	if cookie == nil || cookie.Value != st.Nonce || !cookie.HttpOnly || cookie.Path != "/api/v1/auth/github-app" {
+		t.Errorf("state cookie wrong: %+v", cookie)
+	}
+	for _, bad := range []string{"-5", "0"} {
+		if loc, _, _ := start(`{"target_id":` + bad + `}`); loc.Path != "/github-apps/lr-test/installations/new" {
 			t.Errorf("target_id=%s must be ignored, went to %s", bad, loc)
 		}
 	}
-	if loc := start("mode=signin&src=x&target_id=42"); loc.Path != "/login/oauth/authorize" {
-		t.Errorf("sign-in must ignore target_id, went to %s", loc)
+	if loc, st, _ := start(`{"mode":"discover","target_id":42,"return":"https://evil.example"}`); loc.Path != "/login/oauth/authorize" ||
+		st.Mode != ghModeSignin || st.Return != ghNextGitProviders || st.OrgID != 31 {
+		t.Errorf("discover went to %s with state %+v", loc, st)
+	}
+
+	if rec := s.connectStart(t, 31, 47, `{"mode":"signin"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown mode: status %d, want 400", rec.Code)
+	}
+	if rec := s.connectStart(t, 31, 0, `{}`); rec.Code != http.StatusUnauthorized {
+		t.Errorf("no user: status %d, want 401", rec.Code)
+	}
+}
+
+// boundState is a state from GitHubAppConnectStart: user userID in org orgID.
+func (s *Server) boundState(t *testing.T, orgID, userID int64, mode, ret string) (state, nonce string) {
+	t.Helper()
+	nonce = "nonce-" + fmt.Sprint(time.Now().UnixNano())
+	state, err := signGHState(ghState{Nonce: nonce, Src: "test", Mode: mode, Exp: time.Now().Add(time.Minute).Unix(),
+		OrgID: orgID, UserID: userID, Return: ret}, s.githubAppSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return state, nonce
+}
+
+// mkGitHubAppOrg creates an org named name (removed after the test).
+func mkGitHubAppOrg(t *testing.T, db *sql.DB, name string) int64 {
+	t.Helper()
+	cleanupGitHubAppTenant(t, db, name)
+	var id int64
+	if err := db.QueryRow(`INSERT INTO orgs (name, description) VALUES ($1, 'github app bound test') RETURNING id`, name).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// mkGitHubAppUser creates an email-login user with role in each of orgs (removed after the test, before the orgs).
+func mkGitHubAppUser(t *testing.T, db *sql.DB, email, role string, orgs ...int64) int64 {
+	t.Helper()
+	cleanupGitHubAppTenant(t, db, email)
+	var id int64
+	if err := db.QueryRow(`INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id`, email).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	for _, org := range orgs {
+		if _, err := db.Exec(`INSERT INTO user_roles (user_id, org_id, role_id) VALUES ($1, $2, (SELECT id FROM roles WHERE name = $3))`, id, org, role); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return id
+}
+
+func cookieValue(rec *httptest.ResponseRecorder, name string) string {
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == name {
+			return c.Value
+		}
+	}
+	return ""
+}
+
+// Rows 1, 3 and 13 of the GitHub App case table: someone signed in as a@domain installs from the app with a GitHub
+// account whose email is different (and here not even verified), and that email has its own LiveReview account.
+func TestGitHubAppCallback_BoundInstallConnectsSessionOrgWithoutSigningIn(t *testing.T) {
+	f := newFakeGitHub(t)
+	s, db := newGitHubAppTestServer(t, f)
+	suffix := time.Now().UnixNano()
+	domainEmail := fmt.Sprintf("a-%d@domain.test", suffix)
+	gmail := fmt.Sprintf("a-%d@gmail.test", suffix)
+	orgX := mkGitHubAppOrg(t, db, domainEmail)
+	userX := mkGitHubAppUser(t, db, domainEmail, "owner", orgX)
+	gmailOrg := mkGitHubAppOrg(t, db, gmail)
+	mkGitHubAppUser(t, db, gmail, "owner", gmailOrg)
+
+	f.emails = fmt.Sprintf(`[{"email":%q,"primary":true,"verified":false}]`, gmail)
+	newFakeParse(t, gmail, true) // a Hexmos sign-up would fail the callback: it must not happen
+	inst := suffix % 1_000_000_000_000
+	f.installations = f.installation(inst, "hexmostech")
+
+	state, nonce := s.boundState(t, orgX, userX, ghModeInstall, ghNextGitProviders)
+	rec := s.doCallback(t, callbackParams{state: state, cookieNonce: nonce, code: "good-code", installation: fmt.Sprint(inst), setupAction: "install"})
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	if loc := rec.Header().Get("Location"); loc != "/#/git/github-app" {
+		t.Fatalf("redirected to %q, want straight back to the GitHub App page with no login hand-off", loc)
+	}
+	if got := cookieValue(rec, ghOrgCookieName); got != fmt.Sprint(orgX) {
+		t.Errorf("org cookie %q, want the session's org %d", got, orgX)
+	}
+	if got := cookieValue(rec, ghNextCookieName); got != "" {
+		t.Errorf("a bound trip sets no login destination; next = %q", got)
+	}
+	store := storagegithub.NewTokenStore(db)
+	conn, err := store.GetAppConnectorByInstallation(f.srv.URL, inst, orgX)
+	if err != nil || conn.PatToken != "ghs_inst" || connectorMeta(t, conn).Removed {
+		t.Fatalf("session org connector = %+v, %v; want connected", conn, err)
+	}
+	if _, err := store.GetAppConnectorByInstallation(f.srv.URL, inst, gmailOrg); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("the GitHub email's own org must get nothing; err = %v", err)
+	}
+	var users int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM users WHERE email IN ($1, $2)`, domainEmail, gmail).Scan(&users)
+	if users != 2 {
+		t.Fatalf("got %d users, want the 2 that existed (no new account)", users)
+	}
+}
+
+// Row 2 and "Find my GitHub accounts": the installation is already used by another org.
+func TestGitHubAppCallback_BoundDiscoverOffersSharedAndInstallConnectsIt(t *testing.T) {
+	f := newFakeGitHub(t)
+	s, db := newGitHubAppTestServer(t, f)
+	suffix := time.Now().UnixNano()
+	orgA := mkGitHubAppOrg(t, db, fmt.Sprintf("gh-bound-a-%d@example.test", suffix))
+	orgB := mkGitHubAppOrg(t, db, fmt.Sprintf("gh-bound-b-%d@domain.test", suffix))
+	userB := mkGitHubAppUser(t, db, fmt.Sprintf("b-%d@domain.test", suffix), "member", orgB)
+	f.emails = `[{"email":"b@gmail.test","primary":true,"verified":true}]`
+
+	shared, own := suffix%1_000_000_000_000, suffix%1_000_000_000_000+1
+	store := storagegithub.NewTokenStore(db)
+	if _, _, err := store.UpsertAppInstallationConnector(storagegithub.AppConnectorUpsert{
+		OrgID: orgA, BaseURL: f.srv.URL, InstallationID: shared, AccountLogin: "hexmostech", AccountType: "Organization",
+		Token: "ghs_a", ExpiresAt: time.Now().Add(time.Hour), RepoScope: storagegithub.RepoScopeInstaller,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.installations = "[" + strings.Trim(f.installation(shared, "hexmostech"), "[]") + "," + strings.Trim(f.installation(own, "bsv"), "[]") + "]"
+	f.instRepos = `[{"id":1,"name":"api","full_name":"hexmostech/api"},{"id":2,"name":"web","full_name":"hexmostech/web"}]`
+	f.userRepos = `[{"id":1}]`
+
+	// Discover: the shared installation is only offered, the one nobody uses is connected.
+	state, nonce := s.boundState(t, orgB, userB, ghModeSignin, "review/9")
+	rec := s.doCallback(t, callbackParams{state: state, cookieNonce: nonce, code: "good-code"})
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/#/reviews/9" {
+		t.Fatalf("discover: status %d location %q: %s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
+	}
+	connShared, err := store.GetAppConnectorByInstallation(f.srv.URL, shared, orgB)
+	if err != nil || !connectorMeta(t, connShared).Removed || connShared.PatToken != "" {
+		t.Fatalf("shared installation in org B = %+v, %v; want offered, not connected", connShared, err)
+	}
+	if avail, _ := store.ListNotConnectedAppConnectorsForOrg(orgB); len(avail) != 1 || avail[0].ID != connShared.ID {
+		t.Fatalf("org B isn't offered the shared installation: %v", avail)
+	}
+	if connOwn, err := store.GetAppConnectorByInstallation(f.srv.URL, own, orgB); err != nil || connectorMeta(t, connOwn).Removed {
+		t.Fatalf("unshared installation in org B = %+v, %v; want connected", connOwn, err)
+	}
+
+	// Install (Configure on GitHub) connects the shared one, limited to the repositories this GitHub user can access.
+	state, nonce = s.boundState(t, orgB, userB, ghModeInstall, "")
+	rec = s.doCallback(t, callbackParams{state: state, cookieNonce: nonce, code: "good-code", installation: fmt.Sprint(shared), setupAction: "update"})
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/#/git/github-app" {
+		t.Fatalf("install: status %d location %q: %s", rec.Code, rec.Header().Get("Location"), rec.Body.String())
+	}
+	connShared, _ = store.GetAppConnectorByInstallation(f.srv.URL, shared, orgB)
+	if sc := connectorMeta(t, connShared); sc.Removed || sc.RepoScope != storagegithub.RepoScopeUser || len(sc.AllowedRepoIDs) != 1 || sc.AllowedRepoIDs[0] != 1 {
+		t.Fatalf("org B connector = %+v, want connected with user scope [1]", sc)
+	}
+	if connA, _ := store.GetAppConnectorByInstallation(f.srv.URL, shared, orgA); connectorMeta(t, connA).Removed || connectorMeta(t, connA).RepoScope != storagegithub.RepoScopeInstaller {
+		t.Fatal("the installer org's connector changed")
+	}
+}
+
+// Rows 11 and 16: the org comes from the state (not the user's other orgs), and access is checked again on return.
+func TestGitHubAppCallback_BoundUsesStateOrgAndRechecksAccess(t *testing.T) {
+	f := newFakeGitHub(t)
+	s, db := newGitHubAppTestServer(t, f)
+	suffix := time.Now().UnixNano()
+	orgX := mkGitHubAppOrg(t, db, fmt.Sprintf("gh-multi-x-%d@example.test", suffix))
+	orgY := mkGitHubAppOrg(t, db, fmt.Sprintf("gh-multi-y-%d@example.test", suffix))
+	user := mkGitHubAppUser(t, db, fmt.Sprintf("multi-%d@domain.test", suffix), "member", orgX, orgY)
+	inst := suffix % 1_000_000_000_000
+	f.installations = f.installation(inst, "acme")
+	store := storagegithub.NewTokenStore(db)
+
+	state, nonce := s.boundState(t, orgY, user, ghModeInstall, "")
+	if rec := s.doCallback(t, callbackParams{state: state, cookieNonce: nonce, code: "good-code", installation: fmt.Sprint(inst)}); rec.Code != http.StatusFound || cookieValue(rec, ghOrgCookieName) != fmt.Sprint(orgY) {
+		t.Fatalf("status %d org cookie %q: %s", rec.Code, cookieValue(rec, ghOrgCookieName), rec.Body.String())
+	}
+	if _, err := store.GetAppConnectorByInstallation(f.srv.URL, inst, orgY); err != nil {
+		t.Fatalf("state org Y has no connector: %v", err)
+	}
+	if _, err := store.GetAppConnectorByInstallation(f.srv.URL, inst, orgX); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("the user's other org X must get nothing; err = %v", err)
+	}
+
+	// Removed from org X while away on GitHub: nothing is connected, and the error page links back into the app.
+	if _, err := db.Exec(`DELETE FROM user_roles WHERE user_id = $1 AND org_id = $2`, user, orgX); err != nil {
+		t.Fatal(err)
+	}
+	state, nonce = s.boundState(t, orgX, user, ghModeInstall, "review/5")
+	rec := s.doCallback(t, callbackParams{state: state, cookieNonce: nonce, code: "good-code", installation: fmt.Sprint(inst)})
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), `href="/#/reviews/5"`) {
+		t.Fatalf("removed member: status %d body %s", rec.Code, rec.Body.String())
+	}
+	if _, err := store.GetAppConnectorByInstallation(f.srv.URL, inst, orgX); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("a removed member must not connect anything; err = %v", err)
+	}
+
+	// A deactivated user is refused too.
+	if _, err := db.Exec(`UPDATE users SET is_active = FALSE WHERE id = $1`, user); err != nil {
+		t.Fatal(err)
+	}
+	state, nonce = s.boundState(t, orgY, user, ghModeSignin, "")
+	if rec := s.doCallback(t, callbackParams{state: state, cookieNonce: nonce, code: "good-code"}); rec.Code != http.StatusForbidden {
+		t.Fatalf("deactivated user: status %d", rec.Code)
 	}
 }
 

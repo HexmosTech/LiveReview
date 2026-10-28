@@ -31,7 +31,8 @@ self-hosted license limits.
   comments** (runs the review and shows the findings in LiveReview without
   posting to the pull request). Installing opens GitHub's install page, already
   on that owner, in a new tab, so this page and the review being set up stay
-  put; the other tab signs in again and lands on the connected GitHub accounts.
+  put; the other tab comes back to the connected GitHub accounts, still signed in
+  as the same user (whatever email the GitHub account uses).
   The collapsible **Finished installing on
   GitHub?** section appears under the button right away (the button shows "Opening GitHub…" for two seconds before the tab actually opens), with a highlighted **I've
   installed it, continue review** button. It checks that LiveReview can now see

@@ -15,8 +15,9 @@ import classNames from 'classnames';
 import { useSearchParams } from 'react-router-dom';
 import { Alert, Button, EmptyState, Icons, Spinner } from '../../UIPrimitives';
 import { getDiffReview } from '../../../api/reviews';
-import { getGitHubAppInstallCheck, githubAppStartUrl } from '../../../api/githubApp';
+import { getGitHubAppInstallCheck, startGitHubAppConnect } from '../../../api/githubApp';
 import { showRedirectOverlay } from '../../../utils/redirectOverlay';
+import { notify } from '../../../utils/notify';
 import { BlastRadiusReport, DiffReviewFile, DiffReviewStatusResponse } from '../../../types/reviews';
 import type { RiskScore } from '../RiskAssessment';
 import { attachBlastData, buildBlastLookup, flattenFilesByRisk, hasBlastRadiusData, sortFilesByBlastRadius } from '../../../lib/blastRadius';
@@ -124,8 +125,8 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
   const [searchParams, setSearchParams] = useSearchParams();
   const [installing, setInstalling] = useState(false);
 
-  // "Install now": leave for GitHub and come back to this review through the normal login (the same hand-off the
-  // get-started page uses). The session is kept until the sign-in actually returns.
+  // "Install now": leave for GitHub and come back to this review, still signed in as the same user (the round trip
+  // is bound to this session and org on the server).
   const installNow = async () => {
     setInstalling(true);
     // Open GitHub's install page already on the repository's owner; without the id it lists the accounts instead.
@@ -138,13 +139,16 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
         console.error('GitHub App install check failed:', err);
       }
     }
-    showRedirectOverlay('Taking you to GitHub…');
+    let target: string;
     try {
-      sessionStorage.setItem('redirectAfterLogin', window.location.hash || `#/reviews/${reviewId}`);
-    } catch {
-      // Falls back to the dashboard after login.
+      target = await startGitHubAppConnect('install', 'review', `review/${reviewId}`, targetId);
+    } catch (err: any) {
+      setInstalling(false);
+      notify.error(err?.message || 'Could not start connecting to GitHub. Please try again.');
+      return;
     }
-    window.location.assign(githubAppStartUrl('install', 'review', targetId));
+    showRedirectOverlay('Taking you to GitHub…');
+    window.location.assign(target);
   };
 
   useEffect(() => {

@@ -89,11 +89,40 @@ export const getPublicUIConfig = async (): Promise<PublicUIConfig> => {
 };
 
 /**
- * Where the "Continue with GitHub" flow starts on the server; it redirects on to GitHub. `targetId` (install mode)
- * is the numeric GitHub id of the account or organization to install on, so GitHub opens straight at it.
+ * Where "Continue with GitHub" (/gh-login) starts on the server; it redirects on to GitHub and signs in as the
+ * GitHub user's email. Inside the app use startGitHubAppConnect instead, which keeps the current session.
  */
-export const githubAppStartUrl = (mode: 'install' | 'signin', src: string, targetId?: number): string =>
-  `/api/v1/auth/github-app/start?mode=${mode}&src=${encodeURIComponent(src)}${targetId ? `&target_id=${targetId}` : ''}`;
+export const githubAppSignInUrl = (src: string): string =>
+  `/api/v1/auth/github-app/start?src=${encodeURIComponent(src)}`;
+
+/**
+ * "install": GitHub's install page (on `targetId`, the numeric GitHub id of an account or organization, when set).
+ * "discover": GitHub's sign-in, which connects or offers every account your GitHub user can already see the App on.
+ */
+export type GitHubAppConnectMode = 'install' | 'discover';
+
+/** The page a GitHub round trip started inside the app comes back to. */
+export type GitHubAppReturn = 'git' | 'get-started' | `review/${number}`;
+
+/**
+ * Starts a GitHub round trip for the current org and resolves to the GitHub URL to open. The round trip connects
+ * whatever the GitHub account can access to this org and comes back to `returnTo` signed in as the same user,
+ * whatever email the GitHub account uses.
+ */
+export const startGitHubAppConnect = async (
+  mode: GitHubAppConnectMode,
+  src: string,
+  returnTo: GitHubAppReturn,
+  targetId?: number,
+): Promise<string> => {
+  const res = await apiClient.post<{ url: string }>('/api/v1/github-app/start', {
+    mode,
+    src,
+    return: returnTo,
+    ...(targetId ? { target_id: targetId } : {}),
+  });
+  return res.url;
+};
 
 export interface GitHubAppInstallCheck {
   /** False when the input is not a pull request (or repository) on the App's GitHub host. */

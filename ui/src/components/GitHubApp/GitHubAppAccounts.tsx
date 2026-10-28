@@ -17,10 +17,13 @@ interface GitHubAppAccountsProps {
     // Accounts this LiveReview account can connect but hasn't: shown minimized, with a Connect button.
     available?: GitHubAppAvailableInstallation[];
     repos: GitHubAppRepository[];
-    // Only organization owners can connect, disconnect or uninstall; the server enforces it too.
+    // Only organization owners can disconnect or uninstall; the server enforces it too. Any member can connect.
     canDisconnect: boolean;
     onInstallAnother: () => void;
     installBusy?: boolean;
+    // "Find my GitHub accounts": signs in to GitHub to connect (or offer) the accounts the App is already on there.
+    onFindAccounts: () => void;
+    findBusy?: boolean;
     // Called after an account was connected, disconnected or uninstalled; the parent refreshes its data.
     onChanged: () => void | Promise<void>;
 }
@@ -39,7 +42,7 @@ const accountsLabel = (n: number) => `${n} other LiveReview ${n === 1 ? 'account
 // The org's connected GitHub accounts: each one is a heading with its repositories indented below it, a
 // "Manage on GitHub" button and (for owners) "Disconnect" and "Uninstall"; then the accounts it can connect but
 // hasn't (installed by someone in another LiveReview account, or disconnected here), one line each with "Connect";
-// plus "Add repositories or organization".
+// plus "Add repositories or organization" and "Find my GitHub accounts".
 // Several LiveReview accounts can share one installation, so Disconnect only affects this account while Uninstall
 // removes the App from GitHub for all of them.
 // Shared by the Git Providers page and the get-started page.
@@ -50,6 +53,8 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
     canDisconnect,
     onInstallAnother,
     installBusy = false,
+    onFindAccounts,
+    findBusy = false,
     onChanged,
 }) => {
     const [pending, setPending] = useState<PendingAction | null>(null);
@@ -172,7 +177,6 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
                         <AvailableAccountRow
                             key={inst.connector_id}
                             inst={inst}
-                            canConnect={canDisconnect}
                             connecting={connecting === inst.connector_id}
                             disabled={connecting !== null}
                             onConnect={() => void connect(inst)}
@@ -181,16 +185,28 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
                     ))}
                 </ul>
             )}
-            <Button
-                className="mt-4"
-                size="sm"
-                variant="outline"
-                icon={<Icons.Add />}
-                onClick={onInstallAnother}
-                isLoading={installBusy}
-            >
-                Add repositories or organization
-            </Button>
+            <div className="mt-4 flex flex-wrap gap-2">
+                <Button
+                    size="sm"
+                    variant="outline"
+                    icon={<Icons.Add />}
+                    onClick={onInstallAnother}
+                    isLoading={installBusy}
+                    disabled={findBusy}
+                >
+                    Add repositories or organization
+                </Button>
+                <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<Icons.GitHub />}
+                    onClick={onFindAccounts}
+                    isLoading={findBusy}
+                    disabled={installBusy}
+                >
+                    Find my GitHub accounts
+                </Button>
+            </div>
             <ConfirmModal
                 show={pending !== null}
                 loading={busy}
@@ -213,12 +229,11 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
 // One minimized line for an account this LiveReview account can connect: no repositories until it's connected.
 const AvailableAccountRow: React.FC<{
     inst: GitHubAppAvailableInstallation;
-    canConnect: boolean;
     connecting: boolean;
     disabled: boolean;
     onConnect: () => void;
     onShowOthers: () => void;
-}> = ({ inst, canConnect, connecting, disabled, onConnect, onShowOthers }) => (
+}> = ({ inst, connecting, disabled, onConnect, onShowOthers }) => (
     <li className="flex flex-wrap items-center justify-between gap-3 border border-slate-700 rounded-lg bg-slate-800 px-4 py-2.5">
         <div className="flex items-center min-w-0">
             <Avatar size="sm" initials={inst.account_login.charAt(0).toUpperCase()} className="flex-shrink-0 mr-3" />
@@ -259,13 +274,9 @@ const AvailableAccountRow: React.FC<{
                 </p>
             </div>
         </div>
-        {canConnect ? (
-            <Button size="sm" onClick={onConnect} isLoading={connecting} disabled={disabled && !connecting}>
-                Connect
-            </Button>
-        ) : (
-            <span className="text-xs text-slate-400">An organization owner can connect it</span>
-        )}
+        <Button size="sm" onClick={onConnect} isLoading={connecting} disabled={disabled && !connecting}>
+            Connect
+        </Button>
     </li>
 );
 

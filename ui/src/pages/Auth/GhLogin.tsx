@@ -4,7 +4,7 @@ import { FcGoogle } from 'react-icons/fc';
 import { FaCheck, FaEnvelope, FaLinkedinIn } from 'react-icons/fa6';
 import { Icons } from '../../components/UIPrimitives';
 import { FullScreenLoader } from '../../components/FullScreenLoader';
-import { getPublicUIConfig, githubAppStartUrl } from '../../api/githubApp';
+import { getPublicUIConfig, githubAppSignInUrl } from '../../api/githubApp';
 import { isCloudMode } from '../../utils/deploymentMode';
 import { hexmosSigninUrl } from '../../utils/hexmosSignin';
 
@@ -67,7 +67,7 @@ const GhLogin: React.FC = () => {
     // Nothing is stored before leaving: the callback says where to land (get-started) only when sign-in succeeds,
     // so a failed attempt followed by another sign-in method doesn't end up on get-started.
     const start = () => {
-        window.location.href = githubAppStartUrl('signin', src);
+        window.location.href = githubAppSignInUrl(src);
     };
 
     if (enabled === null || enabled === false) {

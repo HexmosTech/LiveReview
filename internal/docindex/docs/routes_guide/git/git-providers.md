@@ -44,7 +44,7 @@ Several LiveReview organizations can use the same installation (for example two
 people from one GitHub organization who each signed up). Each has its own
 connection. When a user signs in with GitHub and the app is already installed on
 an account by another LiveReview organization, it isn't connected to theirs
-automatically: it's listed as **Available** and an owner clicks **Connect** to
+automatically: it's listed as **Available** and any member clicks **Connect** to
 opt in. (Installing or configuring the app from LiveReview connects it
 straight away.) An organization that joined an installation someone else
 installed only gets the repositories its user's GitHub account can access. Each account
@@ -68,7 +68,7 @@ confirmation says how many other accounts are affected). Below the connected
 accounts, each account that isn't connected is one line with no repositories:
 **Available** (installed by another LiveReview account; "Already installed by N
 other LiveReview accounts" opens the masked list) or **Disconnected**
-(disconnected here), plus a **Connect** button for organization owners.
+(disconnected here), plus a **Connect** button (any member of the organization).
 Connect needs no trip to GitHub; the repositories sync in the background.
 Once an account is connected, a **Next steps** section below the accounts shows
 the same two steps as get-started: the AI provider (LiveReview AI already
@@ -76,8 +76,20 @@ connected, or **Configure AI**) and **Review a pull request** (**See open
 MRs/PRs and trigger a review** or **Trigger a review via URL**).
 **Add repositories or organization** opens
 GitHub's install page; afterwards the user returns to `/git/github-app` and the
-new account appears. With nothing connected or available yet the page shows **Install the
-GitHub App**. Returning GitHub sign-ins land directly on this page.
+new account appears. **Find my GitHub accounts** signs in to GitHub and adds every
+account the app is already installed on that the user's GitHub account can access:
+accounts nobody else uses are connected, ones another LiveReview account uses are
+listed as **Available** (use **Connect**). With nothing connected or available yet
+the page shows **Install the GitHub App** and **Find my GitHub accounts**.
+Returning GitHub sign-ins land directly on this page.
+
+The GitHub account used on GitHub doesn't have to match the LiveReview login:
+someone signed in to LiveReview as `a@company.com` can install or find accounts
+with a GitHub account whose email is `a@gmail.com`. They stay signed in as
+`a@company.com`, the accounts are connected to the organization they started
+from, and no second LiveReview account is created. GitHub only decides which
+accounts and repositories that user can access. (Signing in with **Continue with
+GitHub** on `/gh-login` is different: it signs in as the GitHub account's email.)
 
 ## Related pages
 
