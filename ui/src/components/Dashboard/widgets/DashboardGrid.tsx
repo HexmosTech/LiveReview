@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'classnames';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -7,6 +7,7 @@ import type { Layout } from 'react-grid-layout/legacy';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import { Button, Icons, Popover, Tooltip } from '../../UIPrimitives';
+import { WidgetEmptyReporterContext, WidgetIdContext } from '../../WidgetEmptyContext';
 import { useDashboardLayout } from './useDashboardLayout';
 import { WidgetChrome } from './WidgetChrome';
 import { ChartSkeleton } from './ChartSkeleton';
@@ -27,6 +28,9 @@ interface DashboardGridProps {
 // Height of the sticky header a section scrolls under. Tailwind needs a literal
 // class, so the anchors below repeat it as `scroll-mt-[140px]` - keep both in sync.
 const SECTION_ANCHOR_OFFSET = 140;
+
+// A card showing only an empty state is drawn this many grid rows tall (about 300px) instead of its full size.
+const EMPTY_WIDGET_ROWS = 7;
 
 // Rendered inside all three providers (not DashboardGrid itself) so it sits alongside the
 // widgets it refreshes. The dashboard query itself is a plain cheap GET (see useDashboardQuery
@@ -167,6 +171,25 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
         return () => observer.disconnect();
     }, []);
 
+    // Counts per card (not a flag): the expanded view can mount a second empty state for the same card.
+    const [emptyCounts, setEmptyCounts] = useState<Record<string, number>>({});
+    const reportEmpty = useCallback((widgetId: string, empty: boolean) => {
+        setEmptyCounts((prev) => {
+            const count = Math.max(0, (prev[widgetId] ?? 0) + (empty ? 1 : -1));
+            const { [widgetId]: _removed, ...rest } = prev;
+            return count > 0 ? { ...rest, [widgetId]: count } : rest;
+        });
+    }, []);
+    const hasEmptyWidgets = Object.keys(emptyCounts).length > 0;
+
+    // Display only: empty cards shrink unless the user is customizing, and this is never saved to their layout.
+    const displayLayout = useMemo(() => {
+        if (editMode || !hasEmptyWidgets) return layout;
+        return layout.map((item) => emptyCounts[item.i]
+            ? { ...item, h: Math.min(item.h, EMPTY_WIDGET_ROWS), minH: Math.min(item.minH ?? EMPTY_WIDGET_ROWS, EMPTY_WIDGET_ROWS) }
+            : item);
+    }, [layout, emptyCounts, editMode, hasEmptyWidgets]);
+
     return (
         <DashboardPeriodProvider userId={userId}>
         <ReviewLayersProvider>
@@ -256,10 +279,11 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
             */}
             <div ref={gridWrapperRef}>
                 {gridWidth !== null && (
+                    <WidgetEmptyReporterContext.Provider value={reportEmpty}>
                     <Responsive
                         className="layout"
                         width={gridWidth}
-                        layouts={{ lg: layout }}
+                        layouts={{ lg: displayLayout }}
                         breakpoints={{ lg: 0 }}
                         cols={{ lg: 12 }}
                         rowHeight={30}
@@ -268,7 +292,11 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
                         isDraggable={editMode}
                         isResizable={editMode}
                         draggableHandle=".widget-drag-handle"
-                        onLayoutChange={(currentLayout: Layout) => handleLayoutChange(currentLayout)}
+                        onLayoutChange={(currentLayout: Layout) => {
+                            // Skip while empty cards are shrunk: that layout is for display, not the user's saved one.
+                            if (!editMode && hasEmptyWidgets) return;
+                            handleLayoutChange(currentLayout);
+                        }}
                     >
                         {activeWidgets.map((widget, index) => {
                             const isSectionAnchor = anchorByCategory[widget.category]?.id === widget.id;
@@ -278,6 +306,7 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
                                     id={isSectionAnchor ? `dash-section-${widget.category}` : undefined}
                                     className={isSectionAnchor ? 'scroll-mt-[140px]' : undefined}
                                 >
+                                    <WidgetIdContext.Provider value={widget.id}>
                                     <WidgetChrome
                                         title={widget.title}
                                         category={widget.category}
@@ -293,10 +322,12 @@ export const DashboardGrid: React.FC<DashboardGridProps> = ({ userId }) => {
                                             <widget.component />
                                         </React.Suspense>
                                     </WidgetChrome>
+                                    </WidgetIdContext.Provider>
                                 </div>
                             );
                         })}
                     </Responsive>
+                    </WidgetEmptyReporterContext.Provider>
                 )}
             </div>
         </div>

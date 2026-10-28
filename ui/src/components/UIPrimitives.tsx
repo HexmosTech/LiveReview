@@ -17,6 +17,7 @@ import {
 import { FaSlack, FaAws } from 'react-icons/fa6';
 import { TbUserPlus, TbUsersPlus } from 'react-icons/tb';
 import { VscVscode } from 'react-icons/vsc';
+import { useReportWidgetEmpty } from './WidgetEmptyContext';
 
 // ===== BUTTON COMPONENTS =====
 type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
@@ -415,6 +416,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   action,
   className,
 }) => {
+  useReportWidgetEmpty();
   return (
     <div className={classNames('flex flex-col items-center justify-center py-10 text-center', className)}>
       {icon && <div className="mb-4 text-slate-400">{icon}</div>}

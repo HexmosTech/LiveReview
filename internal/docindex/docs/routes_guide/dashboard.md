@@ -102,6 +102,12 @@ yet, not that something is wrong. Review Pipeline shows "No issues found in
 this period" when reviews ran but none reported issues, since there is nothing
 to draw ribbons for.
 
+A card that is showing an empty state is drawn at a compact height (about 7
+grid rows) instead of its full size, so empty cards don't take up a screen of
+blank space. This is display only: it is off while you are in **Customize
+Dashboard**, and it never changes your saved layout, so the card returns to its
+normal size as soon as it has data.
+
 ## Onboarding and banners
 
 - **`OnboardingSteps` / `FloatingOnboardingNudge`** — the setup checklist:
