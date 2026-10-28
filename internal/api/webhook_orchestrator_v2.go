@@ -23,6 +23,7 @@ import (
 	githubinput "github.com/livereview/internal/provider_input/github"
 	gitlabinput "github.com/livereview/internal/provider_input/gitlab"
 	"github.com/livereview/internal/prsync"
+	"github.com/livereview/internal/webhookutils"
 	storagelicense "github.com/livereview/storage/license"
 	storagegithub "github.com/livereview/storage/providers/github"
 )
@@ -144,6 +145,15 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 	}
 
 	log.Printf("[INFO] Detected provider: %s", providerName)
+
+	// GitHub pings a webhook as soon as it is created; there is nothing to process, so answer 200 instead of an error.
+	if event, _ := webhookutils.GetHeaderCaseInsensitive(headers, "X-GitHub-Event"); providerName == "github" && event == "ping" {
+		return c.JSON(http.StatusOK, map[string]string{
+			"status":   "ignored",
+			"provider": providerName,
+			"reason":   "ping",
+		})
+	}
 
 	// Phase 1.5: PR/MR state-sync short-circuit. GitHub's "pull_request" and
 	// GitLab's "merge_request" webhook events are already delivered to this
