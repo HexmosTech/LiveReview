@@ -247,6 +247,8 @@ const Repositories: React.FC = () => {
   const columns = useMemo<ColumnDef<Repository>[]>(() => [
     {
       id: 'repository',
+      // Has its own link to the repo on the provider, so the row link stays out of the cell's content.
+      meta: { rowLink: false },
       accessorKey: 'full_name',
       filterFn: 'includesString',
       header: ({ column }) => (
@@ -406,6 +408,7 @@ const Repositories: React.FC = () => {
     },
     {
       id: 'actions',
+      meta: { rowLink: false },
       enableSorting: false,
       enableColumnFilter: false,
       header: () => <span className="font-semibold text-slate-300 uppercase tracking-wide text-xs">Actions</span>,
@@ -500,6 +503,7 @@ const Repositories: React.FC = () => {
         <ClientTable
           table={table}
           columnWidths={REPOSITORIES_COLUMN_WIDTHS}
+          getRowHref={(repo) => `/explore/merge-requests?repository_id=${repo.id}`}
           loading={loading}
           loadingLabel="Loading repositories..."
           error={error}

@@ -15,6 +15,10 @@ Any authenticated org member.
 ## Key actions
 
 - Search/filter/sort repositories by provider, name, etc.
+- Click a row to see that repository's [pull requests](merge-requests.md). Rows
+  are real links, so right-click gives "Open in new tab" and middle/Ctrl-click
+  work anywhere in the row; the repo name still links to the provider, and the
+  Actions buttons work as before.
 - Trigger a sync of a repository's pull requests
   (`syncRepositoryPullRequests`).
 - Trigger a sync of all repositories for a connector

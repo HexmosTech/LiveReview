@@ -170,16 +170,30 @@ export function ClientTable<TData>({
                 {row.getVisibleCells().map((cell) => {
                   const content = flexRender(cell.column.columnDef.cell, cell.getContext());
                   const meta = cell.column.columnDef.meta as { rowLink?: boolean } | undefined;
+                  const href = getRowHref?.(row.original);
+                  if (!href) {
+                    return (
+                      <td key={cell.id} className="px-6 py-2.5 align-middle min-h-[52px]">
+                        {content}
+                      </td>
+                    );
+                  }
+                  if (meta?.rowLink === false) {
+                    // This cell has its own links/buttons: a link behind it covers the rest, and only those stay clickable.
+                    return (
+                      <td key={cell.id} className="relative px-6 py-2.5 align-middle min-h-[52px]">
+                        <Link to={href} tabIndex={-1} aria-hidden="true" onClick={(e) => e.stopPropagation()} className="absolute inset-0" />
+                        <div className="pointer-events-none relative [&_a]:pointer-events-auto [&_button]:pointer-events-auto">{content}</div>
+                      </td>
+                    );
+                  }
+                  // The link fills the whole cell (padding included), so right-click "Open in new tab" works anywhere in it.
+                  // Stop the row's onClick so it doesn't navigate a second time.
                   return (
-                    <td key={cell.id} className="px-6 py-2.5 align-middle min-h-[52px]">
-                      {getRowHref && meta?.rowLink !== false ? (
-                        // Stop the row's onClick so it doesn't navigate a second time.
-                        <Link to={getRowHref(row.original)} onClick={(e) => e.stopPropagation()} className="block text-inherit">
-                          {content}
-                        </Link>
-                      ) : (
-                        content
-                      )}
+                    <td key={cell.id} className="h-px p-0 align-middle">
+                      <Link to={href} onClick={(e) => e.stopPropagation()} className="flex h-full w-full items-center px-6 py-2.5 text-inherit">
+                        <div className="min-w-0 w-full">{content}</div>
+                      </Link>
                     </td>
                   );
                 })}
