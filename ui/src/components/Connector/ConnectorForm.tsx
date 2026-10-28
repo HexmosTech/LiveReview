@@ -13,11 +13,10 @@ import ConnectorLayout from './ConnectorLayout';
 const ConnectorForm: React.FC = () => {
     const isGitHubApp = useLocation().pathname.startsWith('/git/github-app');
     return (
+        // Props stay undefined off the GitHub App page: spreading `false` crashes React 19 dev builds.
         <ConnectorLayout
-            {...(isGitHubApp && {
-                title: 'GitHub App',
-                description: 'Choose which GitHub accounts and repositories LiveReview can review',
-            })}
+            title={isGitHubApp ? 'GitHub App' : undefined}
+            description={isGitHubApp ? 'Choose which GitHub accounts and repositories LiveReview can review' : undefined}
         >
             <Routes>
                 <Route index element={<ProviderSelection />} />
