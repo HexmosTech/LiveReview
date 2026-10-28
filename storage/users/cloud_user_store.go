@@ -1,6 +1,7 @@
 package users
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 )
@@ -104,6 +105,27 @@ func (s *UserStore) DefaultOrgID(userID int64) (*int64, error) {
 func (s *UserStore) SetOrgSignupPath(orgID int64, path string) error {
 	_, err := s.db.Exec(`UPDATE orgs SET signup_path = $1 WHERE id = $2 AND signup_path IS NULL`, path, orgID)
 	return err
+}
+
+// ActiveOrgAccess reports whether the user is active and may open the org: as a member, or as a super admin (the
+// same rule as auth.ValidateOrgAccess). isSuperAdmin says the user has the super admin role. The GitHub App callback
+// uses it to re-check a session that started before the GitHub round trip.
+func (s *UserStore) ActiveOrgAccess(ctx context.Context, userID, orgID int64) (hasAccess, isSuperAdmin bool, err error) {
+	var member bool
+	err = s.db.QueryRowContext(ctx, `
+		SELECT
+			EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id AND ur.org_id = $2),
+			EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id AND r.name = 'super_admin')
+		FROM users u
+		WHERE u.id = $1 AND u.is_active = TRUE AND EXISTS (SELECT 1 FROM orgs WHERE id = $2)
+	`, userID, orgID).Scan(&member, &isSuperAdmin)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	return member || isSuperAdmin, isSuperAdmin, nil
 }
 
 // OrgSignupPath returns the org's signup path ("" when unset).

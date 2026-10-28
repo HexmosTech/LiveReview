@@ -18,7 +18,8 @@ const AUTO_CONNECT_KEY = 'lrGhAutoConnectTried';
 const GetStartedGitHub: React.FC = () => {
     const navigate = useNavigate();
 
-    const { startInstall: connectGitHub, busy: reconnecting } = useGitHubAppInstall('#/get-started/github', 'get-started');
+    const { startInstall: connectGitHub, startDiscover, busy: reconnecting, installing, discovering } =
+        useGitHubAppInstall('get-started', 'get-started');
     const { isSuperAdmin, currentOrg } = useOrgContext();
     const canDisconnect = isSuperAdmin || currentOrg?.role === 'owner';
 
@@ -117,9 +118,14 @@ const GetStartedGitHub: React.FC = () => {
                                     Add repositories on GitHub
                                 </Button>
                             ) : (
-                                <Button icon={<Icons.GitHub />} onClick={connectGitHub} isLoading={reconnecting}>
-                                    Continue with GitHub
-                                </Button>
+                                <div className="flex flex-wrap gap-2">
+                                    <Button icon={<Icons.GitHub />} onClick={connectGitHub} isLoading={installing} disabled={discovering}>
+                                        Continue with GitHub
+                                    </Button>
+                                    <Button variant="outline" onClick={startDiscover} isLoading={discovering} disabled={installing}>
+                                        Find my GitHub accounts
+                                    </Button>
+                                </div>
                             )}
                         </div>
                     </Card>
@@ -132,9 +138,7 @@ const GetStartedGitHub: React.FC = () => {
                                 LiveReview is already installed on {available.map((a) => a.account_login).join(', ')}
                             </h2>
                             <p className="text-sm text-slate-300">
-                                {canDisconnect
-                                    ? 'Connect it to your account to see its repositories and pull requests here and review them with your own AI provider.'
-                                    : 'An owner of your LiveReview organization can connect it to see its repositories and pull requests here.'}
+                                Connect it to your account to see its repositories and pull requests here and review them with your own AI provider.
                             </p>
                             <GitHubAppAccounts
                                 installations={[]}
@@ -142,7 +146,9 @@ const GetStartedGitHub: React.FC = () => {
                                 repos={[]}
                                 canDisconnect={canDisconnect}
                                 onInstallAnother={connectGitHub}
-                                installBusy={reconnecting}
+                                installBusy={installing}
+                                onFindAccounts={startDiscover}
+                                findBusy={discovering}
                                 onChanged={async () => {
                                     await refetch();
                                 }}
@@ -165,7 +171,9 @@ const GetStartedGitHub: React.FC = () => {
                                         repos={repos}
                                         canDisconnect={canDisconnect}
                                         onInstallAnother={connectGitHub}
-                                        installBusy={reconnecting}
+                                        installBusy={installing}
+                                        onFindAccounts={startDiscover}
+                                        findBusy={discovering}
                                         onChanged={afterChange}
                                     />
                                 </div>

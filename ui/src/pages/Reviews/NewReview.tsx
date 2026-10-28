@@ -22,7 +22,8 @@ import { useQuotaStatusQuery, useBillingStatusQuery } from '../../api/billing';
 import { QuotaExhaustedBanner } from '../../components/Dashboard/QuotaExhaustedBanner';
 import { QuotaWarningBanner } from '../../components/Dashboard/QuotaWarningBanner';
 import GitHubAppNotInstalledModal from '../../components/GitHubApp/GitHubAppNotInstalledModal';
-import { getGitHubAppInstallCheck, githubAppStartUrl } from '../../api/githubApp';
+import { getGitHubAppInstallCheck, startGitHubAppConnect } from '../../api/githubApp';
+import { notify } from '../../utils/notify';
 import { useGitHubAppEnabled } from '../../hooks/useGitHubAppEnabled';
 
 type QuotaStatusResponse = {
@@ -106,6 +107,8 @@ const NewReview: React.FC = () => {
   // A pasted GitHub PR URL whose repository the LiveReview GitHub App can't post to: ask before starting the review.
   const githubAppEnabled = useGitHubAppEnabled();
   const [notInstalled, setNotInstalled] = useState<{ owner: string; repository: string; targetId?: number } | null>(null);
+  // The GitHub install URL of the last "Install GitHub App" click, offered as a link if the browser blocked the tab.
+  const [installUrl, setInstallUrl] = useState<string | undefined>(undefined);
 
   // Load connectors when component mounts
   useEffect(() => {
@@ -563,24 +566,24 @@ const NewReview: React.FC = () => {
             owner={notInstalled.owner}
             repository={notInstalled.repository}
             continueBusy={loading}
-            installUrl={githubAppStartUrl('install', 'new-review', notInstalled.targetId)}
+            installUrl={installUrl}
             onInstall={() => {
-              // The GitHub round trip ends in a sign-in, so it runs in its own tab and this page keeps the review
-              // being set up. A tab opened this way starts with a copy of sessionStorage: it lands on the connected
-              // GitHub accounts after signing in (this tab's own value is removed right away).
-              try {
-                sessionStorage.setItem('redirectAfterLogin', '#/git/github-app');
-              } catch {
-                // The new tab then lands on the dashboard.
-              }
-              const tab = window.open(githubAppStartUrl('install', 'new-review', notInstalled.targetId), '_blank');
-              try {
-                sessionStorage.removeItem('redirectAfterLogin');
-              } catch {
-                // ignore
-              }
+              // The GitHub round trip runs in its own tab, so this page keeps the review being set up; it ends on the
+              // connected GitHub accounts, still signed in as this user. The tab is opened right away (browsers only
+              // allow that shortly after a click) and sent to GitHub once the server has started the round trip.
+              const tab = window.open('', '_blank');
               // A tab opened this way can reach back to this page through window.opener; cut that link.
               if (tab) tab.opener = null;
+              setInstallUrl(undefined);
+              startGitHubAppConnect('install', 'new-review', 'git', notInstalled.targetId)
+                .then((target) => {
+                  setInstallUrl(target);
+                  if (tab) tab.location.href = target;
+                })
+                .catch((err: any) => {
+                  tab?.close();
+                  notify.error(err?.message || 'Could not start connecting to GitHub. Please try again.');
+                });
               return tab !== null;
             }}
             onInstalled={async () => {

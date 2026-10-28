@@ -12,9 +12,9 @@ interface GitHubAppNotInstalledModalProps {
     owner: string;
     repository: string;
     // Opens GitHub's install page for `owner` in a new tab (this page stays put). Returns false when the browser
-    // blocked the tab; `installUrl` is then offered as a plain link.
+    // blocked the tab; `installUrl` is then offered as a plain link once the parent has it.
     onInstall: () => boolean;
-    installUrl: string;
+    installUrl?: string;
     // After installing: resolves true when LiveReview can now see the installation (the parent then starts the
     // review), false when it can't yet.
     onInstalled: () => Promise<boolean>;
@@ -25,8 +25,7 @@ interface GitHubAppNotInstalledModalProps {
 }
 
 // Shown before a review starts from a pasted GitHub pull request URL when the LiveReview GitHub App can't post to
-// that repository. Styled like ConfirmModal. Installing happens in another tab (the GitHub round trip ends in a
-// sign-in there), so once it is opened a collapsible "Finished installing?" section appears with the highlighted
+// that repository. Styled like ConfirmModal. Installing happens in another tab, so once it is opened a collapsible "Finished installing?" section appears with the highlighted
 // button that continues the review here.
 const GitHubAppNotInstalledModal: React.FC<GitHubAppNotInstalledModalProps> = ({
     owner,
@@ -127,10 +126,16 @@ const GitHubAppNotInstalledModal: React.FC<GitHubAppNotInstalledModalProps> = ({
                                             {popupBlocked ? (
                                                 <p className="text-xs text-yellow-300">
                                                     Your browser blocked the new tab.{' '}
-                                                    <a className="underline" href={installUrl} target="_blank" rel="noopener noreferrer">
-                                                        Open the GitHub install page
-                                                    </a>
-                                                    , finish installing, then come back to this tab.
+                                                    {installUrl ? (
+                                                        <>
+                                                            <a className="underline" href={installUrl} target="_blank" rel="noopener noreferrer">
+                                                                Open the GitHub install page
+                                                            </a>
+                                                            , finish installing, then come back to this tab.
+                                                        </>
+                                                    ) : (
+                                                        'Preparing a link to the GitHub install page…'
+                                                    )}
                                                 </p>
                                             ) : opening ? (
                                                 <p className="text-xs text-blue-300">Opening GitHub in a new tab…</p>

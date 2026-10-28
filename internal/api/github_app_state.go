@@ -38,6 +38,34 @@ type ghState struct {
 	// GetStarted: the round trip began on /gh-login, so a successful sign-in lands on get-started. Only the
 	// callback decides this (nothing is stored before leaving), so a failed attempt leaves no stale destination.
 	GetStarted bool `json:"g,omitempty"`
+	// OrgID and UserID bind the round trip to a signed-in LiveReview session (POST /github-app/start): the callback
+	// connects to that org and keeps the session, whatever email the GitHub account uses. Zero for /gh-login.
+	OrgID  int64 `json:"o,omitempty"`
+	UserID int64 `json:"u,omitempty"`
+	// Return is the page a bound round trip lands on, as a sanitizeGHReturn key (never a URL).
+	Return string `json:"r,omitempty"`
+}
+
+var ghReturnReviewPattern = regexp.MustCompile(`^review/[1-9][0-9]{0,18}$`)
+
+// sanitizeGHReturn keeps only the pages a bound round trip may land on; anything else becomes the GitHub App card.
+func sanitizeGHReturn(ret string) string {
+	if ret == ghNextGetStarted || ghReturnReviewPattern.MatchString(ret) {
+		return ret
+	}
+	return ghNextGitProviders
+}
+
+// ghReturnHash is the UI route for a sanitizeGHReturn key.
+func ghReturnHash(ret string) string {
+	switch {
+	case ret == ghNextGetStarted:
+		return "#/get-started/github"
+	case ghReturnReviewPattern.MatchString(ret):
+		return "#/reviews/" + strings.TrimPrefix(ret, "review/")
+	default:
+		return "#/git/github-app"
+	}
 }
 
 // sanitizeGHSrc keeps the campaign tag short and harmless; anything else becomes "unknown".
@@ -47,13 +75,6 @@ func sanitizeGHSrc(src string) string {
 		return src
 	}
 	return "unknown"
-}
-
-func sanitizeGHMode(mode string) string {
-	if mode == ghModeSignin {
-		return ghModeSignin
-	}
-	return ghModeInstall
 }
 
 func newGHNonce() (string, error) {

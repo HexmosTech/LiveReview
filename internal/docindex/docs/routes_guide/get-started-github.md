@@ -11,12 +11,13 @@ set up, and run the first review on a real pull request.
 
 If the organization has no GitHub App connection yet, or the app was given no
 repositories, the user is sent to GitHub (a spinner shows briefly): into the
-install flow when the app isn't installed (the user stays signed in and comes back in
-through the GitHub flow), or to the installation's settings page on GitHub when
+install flow when the app isn't installed (the user stays signed in as themselves,
+whatever email their GitHub account uses, and comes back to this page), or to the installation's settings page on GitHub when
 it is installed but has no repositories. This happens only once per browser
 session. If the user comes back (Back button) without
-finishing, the page shows a small card with a **Continue with GitHub** button
-(or **Add repositories on GitHub**) instead of redirecting again.
+finishing, the page shows a small card with a **Continue with GitHub** button and
+a **Find my GitHub accounts** button (or **Add repositories on GitHub**) instead of
+redirecting again.
 
 ## Who can access it
 
@@ -35,12 +36,15 @@ organization has a GitHub App connection.
   opens GitHub's install page so the app can be added to
   another account or organization (it lists the ones you can install on); after
   installing, the user returns here and the new account appears in the list.
+- **Find my GitHub accounts** — next to it: signs in to GitHub and adds every
+  account the app is already installed on that the user's GitHub account can
+  access (ones another LiveReview account uses are listed as **Available**).
 - **Already installed by someone else:** when the only GitHub accounts the user
   can see already have the app installed by another LiveReview account (for
   example a teammate's), nothing is connected yet. The page says "LiveReview is
   already installed on <account>" and lists each such account on one line,
-  marked **Available**, with a **Connect** button (organization owners only;
-  members see that an owner can connect it). Connecting adds all of its
+  marked **Available**, with a **Connect** button (any member of the
+  organization). Connecting adds all of its
   repositories, or only the ones the user's GitHub account can access (the line
   says which), and the usual steps appear. It doesn't send the user to GitHub.
 - When the app was already installed on the account by someone else, the

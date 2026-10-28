@@ -24,6 +24,7 @@ import (
 
 	"github.com/livereview/internal/aidefault"
 	"github.com/livereview/internal/api/auth"
+	"github.com/livereview/internal/auditlog"
 	"github.com/livereview/internal/githubapp"
 	"github.com/livereview/internal/license"
 	githubprovider "github.com/livereview/internal/provider_input/github"
@@ -64,8 +65,19 @@ func (s *Server) registerGitHubAppRoutes(public, v1 *echo.Group, authMiddleware 
 		authMiddleware.ValidateOrgAccess(),
 		authMiddleware.BuildPermissionContext(),
 	)
-	// Session-only and org owners only, like disconnecting: it adds a GitHub account's repositories to the org.
-	v1.POST("/github-app/installations/:connector_id/connect", s.GitHubAppConnect,
+	// Session-only, any member of the org: it adds a GitHub account's repositories to the org.
+	s.audited(v1, echo.POST, "/github-app/installations/:connector_id/connect",
+		auditlog.Spec{Action: auditlog.ActionConnectorConnect, ResourceIDParam: "connector_id"},
+		s.GitHubAppConnect,
+		authMiddleware.RequireAuth(),
+		authMiddleware.BuildOrgContextFromHeader(),
+		authMiddleware.ValidateOrgAccess(),
+		authMiddleware.BuildPermissionContext(),
+	)
+	// Session-only, any member of the org: starts a GitHub round trip that connects to this org and keeps the session.
+	s.audited(v1, echo.POST, "/github-app/start",
+		auditlog.Spec{Action: auditlog.ActionGitHubAppConnectStart},
+		s.GitHubAppConnectStart,
 		authMiddleware.RequireAuth(),
 		authMiddleware.BuildOrgContextFromHeader(),
 		authMiddleware.ValidateOrgAccess(),
@@ -242,14 +254,12 @@ func (s *Server) GitHubAppDisconnect(c echo.Context) error {
 // GitHubAppConnect connects an installation the caller's org has available but not connected: one it disconnected,
 // or one it was offered at sign-in because another LiveReview org already uses it. It keeps the repository scope
 // worked out at the org's last GitHub sign-in (every repository, or only those its GitHub user can access), so it
-// needs no trip to GitHub; minting a token proves the App is still installed.
+// needs no trip to GitHub; minting a token proves the App is still installed. Any member of the org may connect
+// (the route's middleware checks membership); disconnecting stays owner-only.
 func (s *Server) GitHubAppConnect(c echo.Context) error {
 	orgID, ok := auth.GetOrgIDFromContext(c)
 	if !ok {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Org context not found"})
-	}
-	if pc := auth.GetPermissionContext(c); pc == nil || pc.RequireOrgOwner() != nil {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "Only an organization owner can connect a GitHub installation"})
 	}
 	connectorID, err := strconv.ParseInt(c.Param("connector_id"), 10, 64)
 	if err != nil || connectorID <= 0 {
@@ -318,28 +328,33 @@ func (s *Server) GitHubAppConnect(c echo.Context) error {
 // ---------------------------------------------------------------------------------------------------------
 // start
 
-// GitHubAppStart begins the GitHub round trip: a signed state (mirrored in a cookie) then a redirect to the
-// install page, or to the OAuth authorize page for users who already installed the App.
+// GitHubAppStart begins the /gh-login round trip ("Continue with GitHub"): a signed state (mirrored in a cookie) then
+// a redirect to the OAuth authorize page. It always signs in as the GitHub user's email, so it never installs:
+// installing from inside the app goes through GitHubAppConnectStart, which keeps the user's session.
 func (s *Server) GitHubAppStart(c echo.Context) error {
-	// target_id (install mode only) is the numeric GitHub id of the account or organization to install on, so
-	// GitHub opens straight at that account instead of listing them; anything that is not a positive number is ignored.
-	var targetID int64
-	if id, err := strconv.ParseInt(c.QueryParam("target_id"), 10, 64); err == nil && id > 0 {
-		targetID = id
-	}
-	mode := sanitizeGHMode(c.QueryParam("mode"))
-	// Only /gh-login starts in sign-in mode; the in-app install buttons store their own return page.
-	return s.redirectToGitHub(c, sanitizeGHSrc(c.QueryParam("src")), mode, targetID, mode == ghModeSignin)
+	return s.redirectToGitHub(c, sanitizeGHSrc(c.QueryParam("src")), ghModeSignin, 0, true)
 }
 
+// redirectToGitHub sends an unbound (/gh-login) round trip to GitHub.
 func (s *Server) redirectToGitHub(c echo.Context, src, mode string, targetID int64, getStarted bool) error {
-	nonce, err := newGHNonce()
+	target, err := s.githubAppStartURL(c, ghState{Src: src, Mode: mode, GetStarted: getStarted}, targetID)
 	if err != nil {
 		return s.githubAppErrorPage(c, http.StatusInternalServerError, "Could not start sign-in. Please try again.")
 	}
-	signed, err := signGHState(ghState{Nonce: nonce, Src: src, Mode: mode, Exp: time.Now().Add(ghStateTTL).Unix(), GetStarted: getStarted}, s.githubAppSecret)
+	return c.Redirect(http.StatusFound, target)
+}
+
+// githubAppStartURL signs st (adding the nonce and expiry), mirrors the nonce in the state cookie and returns the
+// GitHub page to send the browser to: the install page (on targetID when set), or the authorize page in sign-in mode.
+func (s *Server) githubAppStartURL(c echo.Context, st ghState, targetID int64) (string, error) {
+	nonce, err := newGHNonce()
 	if err != nil {
-		return s.githubAppErrorPage(c, http.StatusInternalServerError, "Could not start sign-in. Please try again.")
+		return "", err
+	}
+	st.Nonce, st.Exp = nonce, time.Now().Add(ghStateTTL).Unix()
+	signed, err := signGHState(st, s.githubAppSecret)
+	if err != nil {
+		return "", err
 	}
 
 	// Lax, not Strict: the return trip from GitHub is a cross-site top-level GET, which Strict would drop.
@@ -349,14 +364,61 @@ func (s *Server) redirectToGitHub(c echo.Context, src, mode string, targetID int
 		MaxAge: int(ghStateTTL.Seconds()), HttpOnly: true, Secure: c.Scheme() == "https", SameSite: http.SameSiteLaxMode,
 	})
 
-	target := s.githubApp.InstallURL(signed)
-	if mode == ghModeInstall && targetID > 0 {
-		target = s.githubApp.InstallURLForTarget(signed, targetID)
+	switch {
+	case st.Mode == ghModeSignin:
+		return s.githubApp.AuthorizeURL(signed), nil
+	case targetID > 0:
+		return s.githubApp.InstallURLForTarget(signed, targetID), nil
+	default:
+		return s.githubApp.InstallURL(signed), nil
 	}
-	if mode == ghModeSignin {
-		target = s.githubApp.AuthorizeURL(signed)
+}
+
+type githubAppConnectStartRequest struct {
+	// "install" (default): GitHub's install page, to install the App or pick repositories. "discover": GitHub's
+	// authorize page, which connects or offers every account the GitHub user can already see the App on.
+	Mode string `json:"mode"`
+	Src  string `json:"src"`
+	// TargetID (install only) is the numeric GitHub id of the account or organization to install on, so GitHub opens
+	// straight at it instead of listing them; anything that is not a positive number is ignored.
+	TargetID int64 `json:"target_id"`
+	// Return is the page to come back to: "git" (default), "get-started" or "review/<id>".
+	Return string `json:"return"`
+}
+
+// GitHubAppConnectStart begins a GitHub round trip for the signed-in user's current org and returns the GitHub URL
+// to open (a navigation can't carry the session token, so the UI asks for the URL first). The state names the org
+// and user, so the callback connects there and leaves the session alone: the GitHub account only proves which
+// installations it can access, whatever its email.
+func (s *Server) GitHubAppConnectStart(c echo.Context) error {
+	orgID, ok := auth.GetOrgIDFromContext(c)
+	user := auth.GetUser(c)
+	if !ok || user == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Org context not found"})
 	}
-	return c.Redirect(http.StatusFound, target)
+	var req githubAppConnectStartRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	}
+	mode, targetID := ghModeInstall, req.TargetID
+	switch req.Mode {
+	case "", ghModeInstall:
+	case "discover":
+		mode, targetID = ghModeSignin, 0
+	default:
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "mode must be install or discover"})
+	}
+	if targetID < 0 {
+		targetID = 0
+	}
+	target, err := s.githubAppStartURL(c, ghState{
+		Src: sanitizeGHSrc(req.Src), Mode: mode, OrgID: orgID, UserID: user.ID, Return: sanitizeGHReturn(req.Return),
+	}, targetID)
+	if err != nil {
+		log.Printf("[GitHubApp] connect start (org %d): %v", orgID, err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Could not start connecting to GitHub. Please try again."})
+	}
+	return c.JSON(http.StatusOK, map[string]string{"url": target})
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -371,15 +433,20 @@ func pickPrimaryVerifiedEmail(emails []networkgithub.UserEmail) string {
 	return ""
 }
 
-// GitHubAppCallback finishes the round trip: verify the state, prove who the GitHub user is, prove they own the
-// installation, sign them in through Hexmos (cloud), connect the installation to their org, and hand the
-// browser to the normal Cloud login with the Hexmos JWT.
+// GitHubAppCallback finishes the round trip: verify the state, prove who the GitHub user is and which installations
+// they can access, then either connect them to the signed-in org that started the trip (bound: see
+// finishBoundGitHubAppCallback), or sign the GitHub user in through Hexmos (cloud), connect the installation to
+// their org, and hand the browser to the normal Cloud login with the Hexmos JWT (/gh-login).
 func (s *Server) GitHubAppCallback(c echo.Context) error {
 	cfg := s.githubApp
 	ctx := c.Request().Context()
 
 	if c.QueryParam("setup_action") == "request" {
-		// A member asked an owner to approve the install; there is no installation (and no code) yet.
+		// A member asked an owner to approve the install; there is no installation (and no code) yet. The state is
+		// only read to pick the page to go back to; nothing is connected here.
+		if st, err := verifyGHState(c.QueryParam("state"), s.githubAppSecret, time.Now()); err == nil && st.OrgID != 0 {
+			return s.githubAppBoundErrorPage(c, st, http.StatusOK, "Installation requested. An owner of the GitHub organization needs to approve it on GitHub; you'll get an email when they do. Then come back here and choose Find my GitHub accounts.")
+		}
 		return s.githubAppErrorPage(c, http.StatusOK, "Installation requested. An owner of the GitHub organization needs to approve it on GitHub; you'll get an email when they do. Then start again from the sign-in page.")
 	}
 
@@ -391,35 +458,32 @@ func (s *Server) GitHubAppCallback(c echo.Context) error {
 	if err != nil || cookieErr != nil || !hmac.Equal([]byte(cookie.Value), []byte(state.Nonce)) {
 		return s.githubAppErrorPage(c, http.StatusBadRequest, "This sign-in link expired or was opened in a different browser. Please start again.")
 	}
+	// From here on a bound round trip's errors link back to the app page it started on.
+	fail := func(status int, message string) error {
+		if state.OrgID != 0 {
+			return s.githubAppBoundErrorPage(c, state, status, message)
+		}
+		return s.githubAppErrorPage(c, status, message)
+	}
 
 	code := c.QueryParam("code")
 	if code == "" {
-		return s.githubAppErrorPage(c, http.StatusBadRequest, "GitHub did not return an authorization code. Please start again.")
+		return fail(http.StatusBadRequest, "GitHub did not return an authorization code. Please start again.")
 	}
 
 	// 2. the GitHub user.
 	userTok, err := networkgithub.ExchangeUserCode(ctx, cfg.BaseURL, cfg.ClientID, cfg.ClientSecret, code)
 	if err != nil {
 		log.Printf("[GitHubApp] code exchange failed: %v", err)
-		return s.githubAppErrorPage(c, http.StatusBadRequest, "GitHub rejected the sign-in code. Please start again.")
+		return fail(http.StatusBadRequest, "GitHub rejected the sign-in code. Please start again.")
 	}
 	userToken := userTok.AccessToken
-
-	emails, err := networkgithub.ListUserEmails(ctx, cfg.APIBaseURL(), userToken)
-	if err != nil {
-		log.Printf("[GitHubApp] list emails failed: %v", err)
-		return s.githubAppErrorPage(c, http.StatusBadGateway, "Could not read your GitHub email address. Please try again.")
-	}
-	email := pickPrimaryVerifiedEmail(emails)
-	if email == "" {
-		return s.githubAppErrorPage(c, http.StatusBadRequest, "Your GitHub account needs a verified primary email address to sign in.")
-	}
 
 	// 3. the installation must belong to this GitHub user; otherwise anyone could claim someone else's by editing the URL.
 	installs, err := networkgithub.ListUserInstallations(ctx, cfg.APIBaseURL(), userToken)
 	if err != nil {
 		log.Printf("[GitHubApp] list installations failed: %v", err)
-		return s.githubAppErrorPage(c, http.StatusBadGateway, "Could not read your GitHub installations. Please try again.")
+		return fail(http.StatusBadGateway, "Could not read your GitHub installations. Please try again.")
 	}
 	var targets []networkgithub.Installation
 	explicit := c.QueryParam("installation_id") != ""
@@ -433,8 +497,23 @@ func (s *Server) GitHubAppCallback(c echo.Context) error {
 		targets = append(targets, inst)
 	}
 	if explicit && len(targets) == 0 {
-		return s.githubAppErrorPage(c, http.StatusForbidden, "That installation doesn't belong to your GitHub account.")
+		return fail(http.StatusForbidden, "That installation doesn't belong to your GitHub account.")
 	}
+	if state.OrgID != 0 {
+		return s.finishBoundGitHubAppCallback(c, state, targets, explicit, userToken)
+	}
+
+	// The rest signs in as the GitHub user (/gh-login), so it needs their verified email.
+	emails, err := networkgithub.ListUserEmails(ctx, cfg.APIBaseURL(), userToken)
+	if err != nil {
+		log.Printf("[GitHubApp] list emails failed: %v", err)
+		return s.githubAppErrorPage(c, http.StatusBadGateway, "Could not read your GitHub email address. Please try again.")
+	}
+	email := pickPrimaryVerifiedEmail(emails)
+	if email == "" {
+		return s.githubAppErrorPage(c, http.StatusBadRequest, "Your GitHub account needs a verified primary email address to sign in.")
+	}
+
 	// Signing in with GitHub (no installation_id) is allowed with nothing installed yet: the account is created
 	// below, then the user is sent straight on to GitHub's install page (no LiveReview session yet, so there is no
 	// login screen flash in between). The callback that follows the install signs them in.
@@ -557,6 +636,89 @@ func (s *Server) GitHubAppCallback(c echo.Context) error {
 		})
 	}
 	return c.Redirect(http.StatusFound, "/?data="+url.QueryEscape(string(data)))
+}
+
+// finishBoundGitHubAppCallback ends a round trip started inside the app (GitHubAppConnectStart). GitHub only proves
+// which installations this GitHub user can access; the org and the user come from the signed state, so the browser
+// keeps its session whatever email the GitHub account uses, and no Hexmos account, LiveReview user or org is
+// created. Each installation is connected exactly as on a GitHub sign-in (see connectGitHubAppInstallation): explicit
+// (just installed or configured) connects it; otherwise one another org already uses is only offered (Connect).
+func (s *Server) finishBoundGitHubAppCallback(c echo.Context, state *ghState, targets []networkgithub.Installation, explicit bool, userToken string) error {
+	ctx := c.Request().Context()
+	fail := func(status int, message string) error { return s.githubAppBoundErrorPage(c, state, status, message) }
+
+	// The session may have changed during the round trip (removed from the org, deactivated): check again.
+	hasAccess, isSuperAdmin, err := storageusers.NewUserStore(s.db).ActiveOrgAccess(ctx, state.UserID, state.OrgID)
+	if err != nil {
+		log.Printf("[GitHubApp] bound callback: access check for user %d in org %d failed: %v", state.UserID, state.OrgID, err)
+		return fail(http.StatusInternalServerError, "Could not check your LiveReview access. Please try again.")
+	}
+	if !hasAccess {
+		return fail(http.StatusForbidden, "You no longer have access to this LiveReview organization, so nothing was connected.")
+	}
+	if len(targets) == 0 && state.Mode != ghModeSignin {
+		return fail(http.StatusBadRequest, "The LiveReview GitHub App isn't installed on that GitHub account yet. Please try again and choose Install.")
+	}
+
+	connected, failed := 0, 0
+	for _, inst := range targets {
+		connectorID, created, resync, err := s.connectGitHubAppInstallation(ctx, state.OrgID, inst, userToken, explicit)
+		if errors.Is(err, storagegithub.ErrAppConnectorDisconnected) || errors.Is(err, storagegithub.ErrAppConnectorOffered) {
+			continue // recorded as available: Connect on the GitHub App page connects it
+		}
+		if err != nil {
+			log.Printf("[GitHubApp] bound callback: connecting installation %d to org %d failed: %v", inst.ID, state.OrgID, err)
+			if explicit {
+				return fail(http.StatusBadGateway, "Could not connect your GitHub installation. Please try again.")
+			}
+			failed++
+			continue
+		}
+		connected++
+		s.syncGitHubAppConnectorAsync(connectorID, created || resync)
+		s.auditBoundGitHubAppConnect(ctx, state, isSuperAdmin, connectorID, created, inst)
+	}
+	if connected == 0 && failed > 0 {
+		return fail(http.StatusBadGateway, "Could not connect your GitHub installation. Please try again.")
+	}
+
+	// Open the org the trip started in, even if another tab switched orgs meanwhile (read and cleared by index.tsx).
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure, go.lang.security.audit.net.cookie-missing-httponly.cookie-missing-httponly -- the UI must read it from JS (index.tsx); holds only an org id; Secure whenever HTTPS
+	c.SetCookie(&http.Cookie{
+		Name: ghOrgCookieName, Value: strconv.FormatInt(state.OrgID, 10), Path: "/",
+		MaxAge: 300, Secure: c.Scheme() == "https", SameSite: http.SameSiteLaxMode,
+	})
+	return c.Redirect(http.StatusFound, "/"+ghReturnHash(state.Return))
+}
+
+// auditBoundGitHubAppConnect records a bound connection under the user who started it. It is best effort: the
+// connection is already made, and a missing audit row must not strand the user on an error page.
+func (s *Server) auditBoundGitHubAppConnect(ctx context.Context, state *ghState, isSuperAdmin bool, connectorID int64, created bool, inst networkgithub.Installation) {
+	if s.auditRecorder == nil {
+		return
+	}
+	action := auditlog.ActionConnectorUpdate
+	if created {
+		action = auditlog.ActionConnectorCreate
+	}
+	userID := state.UserID
+	ev := auditlog.Event{
+		OrgID:         state.OrgID,
+		ActorUserID:   &userID,
+		ActorKind:     auditlog.ActorKindMember,
+		ActorCapacity: auditlog.ActorCapacityMember,
+		AuthMethod:    "github_app",
+		Action:        action,
+		ResourceType:  "connector",
+		ResourceID:    strconv.FormatInt(connectorID, 10),
+		Details:       auditlog.Details("provider", "github_app", "installation_id", inst.ID, "account_login", inst.AccountLogin),
+	}
+	if isSuperAdmin {
+		ev.ActorKind, ev.ActorCapacity = auditlog.ActorKindSuperAdmin, auditlog.ActorCapacityAdmin
+	}
+	if err := s.auditRecorder.Record(ctx, ev); err != nil {
+		log.Printf("[GitHubApp] bound callback: audit for connector %d failed: %v", connectorID, err)
+	}
 }
 
 // ghSrcLaunchTrial is the /gh-login?src= value of the Product Hunt launch CTA. New orgs created through it may
@@ -1210,14 +1372,24 @@ a.btn{display:inline-block;background:var(--accent);color:#fff;text-decoration:n
 a.alt{margin-left:14px;color:var(--accent)}
 </style></head><body><main>
 <h1>LiveReview</h1><p>{{.Message}}</p>
-<a class="btn" href="/#/gh-login">Try again</a><a class="alt" href="/">Other ways to sign in</a>
+{{if .BackURL}}<a class="btn" href="{{.BackURL}}">Back to LiveReview</a>{{else}}<a class="btn" href="/#/gh-login">Try again</a><a class="alt" href="/">Other ways to sign in</a>{{end}}
 </main></body></html>`))
 
 // githubAppErrorPage renders a small self-contained error page; the GitHub round trip is a browser navigation,
 // so a JSON error would just strand the user.
 func (s *Server) githubAppErrorPage(c echo.Context, status int, message string) error {
+	return s.renderGitHubAppErrorPage(c, status, message, "")
+}
+
+// githubAppBoundErrorPage is githubAppErrorPage for a round trip started inside the app: the user is still signed
+// in, so the button goes back to the page they started on instead of the sign-in page.
+func (s *Server) githubAppBoundErrorPage(c echo.Context, state *ghState, status int, message string) error {
+	return s.renderGitHubAppErrorPage(c, status, message, "/"+ghReturnHash(state.Return))
+}
+
+func (s *Server) renderGitHubAppErrorPage(c echo.Context, status int, message, backURL string) error {
 	var buf bytes.Buffer
-	if err := githubAppErrorTemplate.Execute(&buf, map[string]string{"Message": message}); err != nil {
+	if err := githubAppErrorTemplate.Execute(&buf, map[string]string{"Message": message, "BackURL": backURL}); err != nil {
 		return c.String(status, message)
 	}
 	return c.HTMLBlob(status, buf.Bytes())

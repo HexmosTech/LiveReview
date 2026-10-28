@@ -150,12 +150,13 @@ const (
 	ActionSettingsRetention     Action = "settings.retention.update"
 	ActionSettingsPrompts       Action = "settings.prompts.update"
 
-	ActionConnectorCreate  Action = "connector.create"
-	ActionConnectorUpdate  Action = "connector.update"
-	ActionConnectorDelete  Action = "connector.delete"
-	ActionConnectorConnect Action = "connector.reconnect"
-	ActionWebhookInstall   Action = "webhook.install"
-	ActionWebhookUninstall Action = "webhook.uninstall"
+	ActionConnectorCreate       Action = "connector.create"
+	ActionConnectorUpdate       Action = "connector.update"
+	ActionConnectorDelete       Action = "connector.delete"
+	ActionConnectorConnect      Action = "connector.reconnect"
+	ActionGitHubAppConnectStart Action = "connector.github_app.start"
+	ActionWebhookInstall        Action = "webhook.install"
+	ActionWebhookUninstall      Action = "webhook.uninstall"
 
 	ActionRepositoryCreate Action = "repository.create"
 	ActionRepositoryUpdate Action = "repository.update"
@@ -292,6 +293,7 @@ var actionCatalog = func() map[Action]ActionMeta {
 		meta(ActionConnectorUpdate, CategoryConnector, "connector", "Integration updated", "A source-control integration was updated.", SeverityWarning),
 		sensitive(meta(ActionConnectorDelete, CategoryConnector, "connector", "Integration removed", "A source-control integration was removed.", SeverityWarning)),
 		meta(ActionConnectorConnect, CategoryConnector, "connector", "Integration reconnected", "A source-control integration was reconnected.", SeverityInfo),
+		meta(ActionGitHubAppConnectStart, CategoryConnector, "connector", "GitHub App connection started", "A member started connecting a GitHub account or organization through the GitHub App.", SeverityInfo),
 		meta(ActionWebhookInstall, CategoryConnector, "webhook", "Webhook installed", "A repository webhook was installed.", SeverityInfo),
 		meta(ActionWebhookUninstall, CategoryConnector, "webhook", "Webhook removed", "A repository webhook was removed.", SeverityWarning),
 

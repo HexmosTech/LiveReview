@@ -74,6 +74,9 @@ Restricted strictly to read-only views and review execution.
 - **Subscriptions**:
   - `GET /api/v1/subscriptions/:id` ➔ `subscriptionsHandler.GetSubscription`
   - `GET /api/v1/subscriptions/current` ➔ `subscriptionsHandler.GetCurrentSubscription`
+- **GitHub App** (a deliberate exception to read-only: anyone who can access a GitHub account on GitHub may connect it to their org; disconnecting stays owner-only):
+  - `POST /api/v1/github-app/start` ➔ `s.GitHubAppConnectStart`
+  - `POST /api/v1/github-app/installations/:connector_id/connect` ➔ `s.GitHubAppConnect`
 
 #### Dynamic Role Checks & Middlewares
 

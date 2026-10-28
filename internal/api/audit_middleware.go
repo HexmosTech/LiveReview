@@ -170,8 +170,8 @@ func isAuthAuditSkipped(path string) bool {
 // audited registers a route and its audit spec atomically, so the two cannot
 // drift. It returns the Echo route (with the full path) for callers that need
 // it.
-func (s *Server) audited(g *echo.Group, method, path string, spec auditlog.Spec, h echo.HandlerFunc) *echo.Route {
-	r := g.Add(method, path, h)
+func (s *Server) audited(g *echo.Group, method, path string, spec auditlog.Spec, h echo.HandlerFunc, m ...echo.MiddlewareFunc) *echo.Route {
+	r := g.Add(method, path, h, m...)
 	if s.auditRegistry != nil {
 		s.auditRegistry.Register(method, r.Path, spec)
 	}

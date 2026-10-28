@@ -9,14 +9,15 @@ import { useGitHubAppEnabled } from '../../hooks/useGitHubAppEnabled';
 import { useGitHubAppInstall } from '../../hooks/useGitHubAppInstall';
 import { useOrgContext } from '../../hooks/useOrgContext';
 
-// The "GitHub App" provider card: install the app, and see/manage every connected GitHub account with its
-// repositories. Returning GitHub sign-ins land here (see the lr_gh_next cookie handling in index.tsx).
+// The "GitHub App" provider card: install the app (or find the accounts it is already on), and see/manage every
+// connected GitHub account with its repositories. Returning GitHub sign-ins and in-app GitHub round trips land here
+// (see the lr_gh_next cookie handling in index.tsx, and GitHubAppConnectStart on the server).
 const GitHubAppConnector: React.FC = () => {
     const navigate = useNavigate();
     const enabled = useGitHubAppEnabled();
     const { isSuperAdmin, currentOrg } = useOrgContext();
     const canDisconnect = isSuperAdmin || currentOrg?.role === 'owner';
-    const { startInstall, busy } = useGitHubAppInstall('#/git/github-app', 'git-providers');
+    const { startInstall, startDiscover, installing, discovering } = useGitHubAppInstall('git', 'git-providers');
 
     const { data: demo, isLoading, error, refetch } = useQuery({
         queryKey: ['github-app', 'demo', 'git-providers'],
@@ -63,7 +64,9 @@ const GitHubAppConnector: React.FC = () => {
                         repos={demo?.repositories || []}
                         canDisconnect={canDisconnect}
                         onInstallAnother={startInstall}
-                        installBusy={busy}
+                        installBusy={installing}
+                        onFindAccounts={startDiscover}
+                        findBusy={discovering}
                         onChanged={async () => {
                             await refetch();
                         }}
@@ -79,9 +82,20 @@ const GitHubAppConnector: React.FC = () => {
                     )}
                 </>
             ) : (
-                <Button icon={<Icons.GitHub />} onClick={startInstall} isLoading={busy}>
-                    Install the GitHub App
-                </Button>
+                <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                        <Button icon={<Icons.GitHub />} onClick={startInstall} isLoading={installing} disabled={discovering}>
+                            Install the GitHub App
+                        </Button>
+                        <Button variant="outline" onClick={startDiscover} isLoading={discovering} disabled={installing}>
+                            Find my GitHub accounts
+                        </Button>
+                    </div>
+                    <p className="text-sm text-slate-400">
+                        Already installed on GitHub (by you or a teammate)? Find my GitHub accounts signs in to GitHub and
+                        lists every account you can access, whatever email your GitHub account uses.
+                    </p>
+                </div>
             )}
         </div>
     );

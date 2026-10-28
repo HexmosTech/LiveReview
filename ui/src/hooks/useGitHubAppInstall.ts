@@ -1,40 +1,54 @@
 import { useEffect, useState } from 'react';
-import { githubAppStartUrl } from '../api/githubApp';
+import { GitHubAppReturn, startGitHubAppConnect, GitHubAppConnectMode } from '../api/githubApp';
 import { showRedirectOverlay } from '../utils/redirectOverlay';
+import { notify } from '../utils/notify';
 
-// Sends the user to GitHub's install page for the LiveReview GitHub App ("Add repositories or organization",
-// first install, etc.). The user stays signed in while away; the callback ends in the normal Cloud login
-// (utils/dropSessionOnLoginReturn lets it replace the session) and that returns the user to `returnHash`
-// (for example '#/git/github-app').
-export const useGitHubAppInstall = (returnHash: string, src: string) => {
-    const [busy, setBusy] = useState(false);
+// Sends the user to GitHub for the LiveReview GitHub App: the install page ("Add repositories or organization",
+// first install, etc.) or GitHub's sign-in ("Find my GitHub accounts"). The round trip is bound to the current
+// session and org on the server, so whatever email the GitHub account uses, the user comes back to `returnTo` still
+// signed in as themselves, with the accounts connected to this org.
+export const useGitHubAppInstall = (returnTo: GitHubAppReturn, src: string) => {
+    // Which round trip is starting (for the spinner on the button that was clicked); null when idle.
+    const [pending, setPending] = useState<GitHubAppConnectMode | null>(null);
 
     // Coming back with the browser's Back button can restore this page as it was (spinner and all): reset it.
     useEffect(() => {
         const onPageShow = (e: PageTransitionEvent) => {
-            if (e.persisted) setBusy(false);
+            if (e.persisted) setPending(null);
         };
         window.addEventListener('pageshow', onPageShow);
         return () => window.removeEventListener('pageshow', onPageShow);
     }, []);
 
-    // `targetId` opens GitHub's install page already on that account or organization.
-    const run = (targetId?: number) => {
-        setBusy(true);
+    const run = async (mode: GitHubAppConnectMode) => {
+        setPending(mode);
+        let url: string;
+        try {
+            url = await startGitHubAppConnect(mode, src, returnTo);
+        } catch (err: any) {
+            setPending(null);
+            notify.error(err?.message || 'Could not start connecting to GitHub. Please try again.');
+            return;
+        }
         // Covers the page while the browser starts navigating, so nothing flashes.
         showRedirectOverlay('Taking you to GitHub…');
-        try {
-            sessionStorage.setItem('redirectAfterLogin', returnHash);
-        } catch {
-            // Falls back to the dashboard after login.
-        }
         // assign, not replace: Back from GitHub returns to this page.
-        window.location.assign(githubAppStartUrl('install', src, targetId));
+        window.location.assign(url);
     };
 
-    // Separate from startInstallOn so it can be used directly as an onClick handler (which passes an event).
-    const startInstall = () => run();
-    const startInstallOn = (targetId?: number) => run(targetId);
+    // Wrapped so they can be used directly as onClick handlers (which pass an event).
+    const startInstall = (): void => {
+        void run('install');
+    };
+    const startDiscover = (): void => {
+        void run('discover');
+    };
 
-    return { startInstall, startInstallOn, busy };
+    return {
+        startInstall,
+        startDiscover,
+        busy: pending !== null,
+        installing: pending === 'install',
+        discovering: pending === 'discover',
+    };
 };
