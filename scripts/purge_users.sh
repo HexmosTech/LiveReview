@@ -73,10 +73,8 @@ localhost | 127.0.0.1 | "[::1]" | ::1) ;;
 	;;
 esac
 
-email_list="$(
-	IFS=,
-	echo "${emails[*]}"
-)"
+email_list="$(printf '%s,' "${emails[@]}")"
+email_list="${email_list%,}"
 
 echo "Database: $db_host ($(echo "$db_url" | sed -E 's#.*/([^/?]+)(\?.*)?$#\1#'))"
 psql "$db_url" -X -q -v ON_ERROR_STOP=1 -v emails="$email_list" <<'SQL'
