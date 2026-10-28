@@ -98,7 +98,9 @@ Each contributor keeps the same colour across Top Reviewers and Usage Share
 Widgets render an empty state rather than a broken chart when there's no data
 yet — e.g. Review Coverage shows "Review coverage will appear here once
 PRs/MRs are tracked." An empty grid usually means the org hasn't run reviews
-yet, not that something is wrong.
+yet, not that something is wrong. Review Pipeline shows "No issues found in
+this period" when reviews ran but none reported issues, since there is nothing
+to draw ribbons for.
 
 ## Onboarding and banners
 
