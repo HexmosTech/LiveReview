@@ -218,8 +218,8 @@ const AutoApprovePanel: React.FC<{ reviewId: number }> = ({ reviewId }) => {
                 <div
                   className={`grid grid-cols-[1.25rem_1fr] items-center gap-x-3 gap-y-2 text-sm md:grid-cols-[1.25rem_11rem_1fr_auto] ${canExpand ? 'cursor-pointer' : ''}`}
                   onClick={(e) => {
-                    // Links and the Details button handle their own clicks.
-                    if (canExpand && !(e.target as HTMLElement).closest('a,button')) toggle();
+                    // Links, the Details button and the info icon handle their own clicks.
+                    if (canExpand && !(e.target as HTMLElement).closest('a,button,[aria-label="Help"]')) toggle();
                   }}
                 >
                   <VerdictIcon verdict={st.verdict} />

@@ -495,7 +495,8 @@ func decisionReason(res *policyengine.FunnelResult) string {
 	return strings.Join(parts, "; ")
 }
 
-// replaceBetween swaps the text from start through end markers for section; ok is false if start is absent.
+// replaceBetween swaps the text from start through end markers for section.
+// ok is false if either marker is missing, so a lost end marker never deletes the author's text.
 func replaceBetween(body, start, end, section string) (string, bool) {
 	i := strings.Index(body, start)
 	if i < 0 {
@@ -503,7 +504,7 @@ func replaceBetween(body, start, end, section string) (string, bool) {
 	}
 	j := strings.Index(body[i:], end)
 	if j < 0 {
-		return body[:i] + strings.TrimRight(section, "\n"), true
+		return body, false
 	}
 	return body[:i] + strings.TrimRight(section, "\n") + body[i+j+len(end):], true
 }
