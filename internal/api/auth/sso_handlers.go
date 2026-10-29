@@ -216,11 +216,15 @@ func (h *AuthHandlers) SSOOIDCBackChannelLogout(c echo.Context) error {
 	h.recordAuthEvent(c, auditlog.Event{
 		OrgID:       orgID,
 		ActorUserID: &userID,
-		ActorKind:   auditlog.ActorKindMember,
-		Action:      auditlog.ActionSessionRevoke,
-		Outcome:     auditlog.OutcomeSuccess,
-		Severity:    auditlog.SeverityWarning,
-		Details:     auditlog.Details("method", "sso_oidc_backchannel_logout"),
+		// The IdP pushed this logout event, not the user themselves (there
+		// is no session on this endpoint) - ActorKindWebhook maps to
+		// ActorCapacitySystem (see auditlog.EnrichFromEcho), matching how
+		// SCIM-driven deactivations are attributed.
+		ActorKind: auditlog.ActorKindWebhook,
+		Action:    auditlog.ActionSessionRevoke,
+		Outcome:   auditlog.OutcomeSuccess,
+		Severity:  auditlog.SeverityWarning,
+		Details:   auditlog.Details("method", "sso_oidc_backchannel_logout"),
 	})
 	return c.NoContent(http.StatusOK)
 }

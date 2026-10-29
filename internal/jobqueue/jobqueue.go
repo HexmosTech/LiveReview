@@ -2449,7 +2449,11 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, seedDemoWorker)
 	river.AddWorker(workers, &BlastRadiusWorker{db: db})
 	river.AddWorker(workers, &RiskModelRefitWorker{db: db})
-	river.AddWorker(workers, &SSOReconciliationWorker{db: db})
+	ssoJWTSecret := os.Getenv("JWT_SECRET")
+	if ssoJWTSecret == "" {
+		log.Printf("WARNING: JWT_SECRET not set - SSO reconciliation sweep will be a no-op for every org")
+	}
+	river.AddWorker(workers, &SSOReconciliationWorker{db: db, jwtSecret: ssoJWTSecret})
 
 	coordinatorInterval := config.RepoSyncConfig.CoordinatorInterval
 	if coordinatorInterval <= 0 {

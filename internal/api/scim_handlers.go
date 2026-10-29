@@ -4,17 +4,18 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
-	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/api/users"
 	"github.com/livereview/internal/auditlog"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/scim"
+	"github.com/rs/zerolog/log"
 )
 
 // orgHasSCIMFeature mirrors orgHasSSOFeature (internal/api/sso_config.go) -
@@ -97,27 +98,46 @@ func primaryEmail(r scim.UserResource) string {
 	return ""
 }
 
-// parseEmailFilter extracts the target email from the simple SCIM filter
-// expressions IdPs actually send when checking "does this user already
-// exist" before creating - userName eq "x@y.com" or emails.value eq
-// "x@y.com". Full SCIM filter grammar (and/or/not, other attributes) is not
-// needed for this use case and isn't parsed.
+// emailFilterPattern matches the simple SCIM filter expressions IdPs
+// actually send when checking "does this user already exist" before
+// creating - userName eq "x@y.com" or emails.value eq "x@y.com". Full SCIM
+// filter grammar (and/or/not, other attributes) is not needed for this use
+// case and isn't parsed. Case-insensitive on the attribute name and the
+// "eq" operator, and tolerant of extra whitespace around it - real IdPs
+// (Okta in particular) don't all format this identically.
+var emailFilterPattern = regexp.MustCompile(`(?i)(?:userName|emails(?:\.value)?)\s+eq\s+"([^"]+)"`)
+
 func parseEmailFilter(filter string) string {
-	filter = strings.TrimSpace(filter)
-	for _, attr := range []string{"userName", "emails.value", "emails"} {
-		prefix := attr + " eq "
-		if idx := strings.Index(filter, prefix); idx != -1 {
-			rest := strings.TrimSpace(filter[idx+len(prefix):])
-			rest = strings.Trim(rest, `"`)
-			return strings.ToLower(rest)
-		}
+	m := emailFilterPattern.FindStringSubmatch(filter)
+	if m == nil {
+		return ""
 	}
-	return ""
+	return strings.ToLower(strings.TrimSpace(m[1]))
+}
+
+// scimMaxPageSize bounds `count` - without a ceiling, a misbehaving or
+// malicious client could ask for an unbounded page.
+const scimMaxPageSize = 200
+
+// scimPaging parses SCIM's 1-based `startIndex`/`count` query params,
+// defaulting and clamping both so a missing, zero, negative, or
+// unreasonably large value can't produce an invalid OFFSET/LIMIT.
+func scimPaging(c echo.Context) (startIndex, count int) {
+	startIndex = 1
+	if v, err := strconv.Atoi(c.QueryParam("startIndex")); err == nil && v > 1 {
+		startIndex = v
+	}
+	count = scimMaxPageSize
+	if v, err := strconv.Atoi(c.QueryParam("count")); err == nil && v > 0 && v < scimMaxPageSize {
+		count = v
+	}
+	return startIndex, count
 }
 
 // SCIMListUsers handles GET /scim/v2/Users. IdPs call this both to page
-// through the directory and, far more commonly, with a `filter` to check
-// whether a user already exists before POSTing a create.
+// through the directory - via the SCIM-standard `startIndex`/`count` query
+// params - and, far more commonly, with a `filter` to check whether a user
+// already exists before POSTing a create.
 func (s *Server) SCIMListUsers(c echo.Context) error {
 	orgID := scimOrgID(c)
 	email := parseEmailFilter(c.QueryParam("filter"))
@@ -130,6 +150,8 @@ func (s *Server) SCIMListUsers(c echo.Context) error {
 		createdAt, updatedAt time.Time
 	}
 	var rows []row
+	startIndex, count := scimPaging(c)
+	totalResults := 0
 
 	if email != "" {
 		var r row
@@ -140,15 +162,21 @@ func (s *Server) SCIMListUsers(c echo.Context) error {
 		`, email, orgID).Scan(&r.id, &r.email, &r.isActive, &r.firstName, &r.lastName, &r.createdAt, &r.updatedAt)
 		if err == nil {
 			rows = append(rows, r)
+			totalResults = 1
 		} else if err != sql.ErrNoRows {
 			return c.JSON(http.StatusInternalServerError, scim.NewError(http.StatusInternalServerError, "failed to query users"))
 		}
 	} else {
+		if err := s.db.QueryRow(`
+			SELECT count(*) FROM users u JOIN user_roles ur ON ur.user_id = u.id WHERE ur.org_id = $1
+		`, orgID).Scan(&totalResults); err != nil {
+			return c.JSON(http.StatusInternalServerError, scim.NewError(http.StatusInternalServerError, "failed to count users"))
+		}
 		sqlRows, err := s.db.Query(`
 			SELECT u.id, u.email, u.is_active, u.first_name, u.last_name, u.created_at, u.updated_at
 			FROM users u JOIN user_roles ur ON ur.user_id = u.id
-			WHERE ur.org_id = $1 ORDER BY u.id LIMIT 200
-		`, orgID)
+			WHERE ur.org_id = $1 ORDER BY u.id LIMIT $2 OFFSET $3
+		`, orgID, count, startIndex-1)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, scim.NewError(http.StatusInternalServerError, "failed to query users"))
 		}
@@ -188,9 +216,9 @@ func (s *Server) SCIMListUsers(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, scim.ListResponse{
 		Schemas:      []string{scim.SchemaListResponse},
-		TotalResults: len(resources),
+		TotalResults: totalResults,
 		ItemsPerPage: len(resources),
-		StartIndex:   1,
+		StartIndex:   startIndex,
 		Resources:    resources,
 	})
 }
@@ -220,7 +248,9 @@ func (s *Server) SCIMCreateUser(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, scim.NewError(http.StatusInternalServerError, "failed to provision user"))
 	}
 	if created && s.auditRecorder != nil {
-		_ = s.auditRecorder.Webhook(c.Request().Context(), orgID, auditlog.ActionSCIMUserCreate, auditlog.Details("email", email))
+		if aerr := s.auditRecorder.Webhook(c.Request().Context(), orgID, auditlog.ActionSCIMUserCreate, auditlog.Details("email", email)); aerr != nil {
+			log.Error().Err(aerr).Int64("org_id", orgID).Str("email", email).Msg("scim: failed to record user-create audit event")
+		}
 	}
 	return c.JSON(http.StatusCreated, scimResourceFromUser(user))
 }
@@ -267,14 +297,18 @@ func (s *Server) SCIMPatchUser(c echo.Context) error {
 				return c.JSON(http.StatusInternalServerError, scim.NewError(http.StatusInternalServerError, "failed to reactivate user"))
 			}
 			if s.auditRecorder != nil {
-				_ = s.auditRecorder.Webhook(c.Request().Context(), orgID, auditlog.ActionSCIMUserReactivate, auditlog.Details("user_id", userID))
+				if aerr := s.auditRecorder.Webhook(c.Request().Context(), orgID, auditlog.ActionSCIMUserReactivate, auditlog.Details("user_id", userID)); aerr != nil {
+					log.Error().Err(aerr).Int64("org_id", orgID).Int64("user_id", userID).Msg("scim: failed to record user-reactivate audit event")
+				}
 			}
 		} else {
 			if err := s.userService.DeactivateUserInOrgBySCIM(userID); err != nil {
 				return c.JSON(http.StatusInternalServerError, scim.NewError(http.StatusInternalServerError, "failed to deactivate user"))
 			}
 			if s.auditRecorder != nil {
-				_ = s.auditRecorder.Webhook(c.Request().Context(), orgID, auditlog.ActionSCIMUserDeactivate, auditlog.Details("user_id", userID))
+				if aerr := s.auditRecorder.Webhook(c.Request().Context(), orgID, auditlog.ActionSCIMUserDeactivate, auditlog.Details("user_id", userID)); aerr != nil {
+					log.Error().Err(aerr).Int64("org_id", orgID).Int64("user_id", userID).Msg("scim: failed to record user-deactivate audit event")
+				}
 			}
 		}
 	}
@@ -311,27 +345,12 @@ func patchActiveValue(op scim.PatchOperation) (active bool, matched bool) {
 
 // --- SCIM token management (session-authenticated, owner-only) ---
 
-// requireSCIMConfigAccess mirrors requireSSOAccess (internal/api/sso_config.go):
-// Sensitive Operations Gate + Session-Only Gating + self-hosted-enterprise
-// feature check, for the org's SCIM token itself.
+// requireSCIMConfigAccess is requireSSOAccess's SCIM-token counterpart
+// (internal/api/sso_config.go's requireOwnerSessionAndFeature carries the
+// shared Sensitive Operations Gate + Session-Only Gating +
+// self-hosted-enterprise feature check both rely on).
 func (s *Server) requireSCIMConfigAccess(c echo.Context, orgID int64) error {
-	if err := requireSession(c); err != nil {
-		return err
-	}
-	pc := auth.GetPermissionContext(c)
-	if pc == nil {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "only org owners can manage SCIM provisioning"})
-	}
-	if err := pc.RequireOrgOwner(); err != nil {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "only org owners can manage SCIM provisioning"})
-	}
-	if apimiddleware.IsCloudMode() {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "SCIM is available on self-hosted enterprise deployments only"})
-	}
-	if !s.orgHasSCIMFeature(orgID) {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "SCIM requires an enterprise self-hosted license"})
-	}
-	return nil
+	return s.requireOwnerSessionAndFeature(c, s.orgHasSCIMFeature(orgID), "SCIM provisioning")
 }
 
 type scimTokenResponse struct {

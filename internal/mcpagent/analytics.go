@@ -1426,30 +1426,29 @@ var DefaultAIErrorSuggestedQuestions = []SuggestedQuestionCategory{
 // right next to the correctly-delivered file - a contradiction a user would
 // rightly read as a bug, because it is one.
 func assembleAnalyticsResponse(reports []vlrender.VegaLiteReport, notes []string, hasArtifacts bool) string {
-	if len(reports) == 0 {
-		if len(notes) == 0 {
-			if hasArtifacts {
-				// A file-only turn still needs words. Returning "" renders
-				// as an empty bubble next to a download the user has no
-				// context for.
-				return "I've put the results in a file you can download."
-			}
-			return NoDataAnalyticsResponseText
+	if len(reports) > 0 {
+		payload, err := json.Marshal(map[string]any{"reports": reports})
+		if err != nil {
+			log.Error().Err(err).Msg("failed to marshal analytics reports")
+			return strings.Join(notes, "\n\n")
 		}
-		return strings.Join(notes, "\n\n")
+		out := string(payload)
+		if len(notes) > 0 {
+			// Notes precede the JSON: the render path strips the JSON block
+			// and keeps surrounding prose as the message text.
+			out = strings.Join(notes, "\n\n") + "\n" + out
+		}
+		return out
 	}
-	payload, err := json.Marshal(map[string]any{"reports": reports})
-	if err != nil {
-		log.Error().Err(err).Msg("failed to marshal analytics reports")
-		return strings.Join(notes, "\n\n")
-	}
-	out := string(payload)
 	if len(notes) > 0 {
-		// Notes precede the JSON: the render path strips the JSON block and
-		// keeps surrounding prose as the message text.
-		out = strings.Join(notes, "\n\n") + "\n" + out
+		return strings.Join(notes, "\n\n")
 	}
-	return out
+	if hasArtifacts {
+		// A file-only turn still needs words. Returning "" renders as an
+		// empty bubble next to a download the user has no context for.
+		return "I've put the results in a file you can download."
+	}
+	return NoDataAnalyticsResponseText
 }
 
 // rowsToPreviewCSV converts rows to a CSV string for debug preview.
