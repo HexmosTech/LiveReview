@@ -8,6 +8,7 @@ import (
 )
 
 func TestCreateSubscription(t *testing.T) {
+	skipWithoutRazorpayTestKeys(t)
 	// First, get a plan to subscribe to
 	planList, err := GetAllPlans("test")
 	if err != nil {
@@ -56,6 +57,7 @@ func TestCreateSubscription(t *testing.T) {
 }
 
 func TestGetAllSubscriptions(t *testing.T) {
+	skipWithoutRazorpayTestKeys(t)
 	subList, err := GetAllSubscriptions("test")
 	if err != nil {
 		t.Fatalf("Error fetching all subscriptions: %v", err)
@@ -73,6 +75,7 @@ func TestGetAllSubscriptions(t *testing.T) {
 }
 
 func TestGetSubscriptionByID(t *testing.T) {
+	skipWithoutRazorpayTestKeys(t)
 	// First, get all subscriptions to get a valid subscription ID
 	subList, err := GetAllSubscriptions("test")
 	if err != nil {
@@ -100,6 +103,7 @@ func TestGetSubscriptionByID(t *testing.T) {
 }
 
 func TestUpdateSubscriptionQuantity(t *testing.T) {
+	skipWithoutRazorpayTestKeys(t)
 	// First, create a subscription
 	planList, err := GetAllPlans("test")
 	if err != nil {
@@ -157,6 +161,7 @@ func TestUpdateSubscriptionQuantity(t *testing.T) {
 }
 
 func TestCancelSubscription(t *testing.T) {
+	skipWithoutRazorpayTestKeys(t)
 	// First, create a subscription
 	planList, err := GetAllPlans("test")
 	if err != nil {
@@ -208,6 +213,7 @@ func TestCancelSubscription(t *testing.T) {
 }
 
 func TestCancelSubscriptionAtCycleEnd(t *testing.T) {
+	skipWithoutRazorpayTestKeys(t)
 	// First, create a subscription
 	planList, err := GetAllPlans("test")
 	if err != nil {

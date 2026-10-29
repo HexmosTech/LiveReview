@@ -9,6 +9,7 @@ import (
 // Run with: go test -v ./internal/license/payment -run TestSetupPlans
 // Use -args test or -args live to specify mode (default: test)
 func TestSetupPlans(t *testing.T) {
+	skipWithoutRazorpayTestKeys(t)
 	// Get mode from test args (defaults to "test")
 	mode := "test"
 	// Note: In real usage, you'd pass mode via environment variable:

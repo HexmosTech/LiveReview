@@ -6,6 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"time"
+
+	"github.com/livereview/internal/aiconnectors"
+	"github.com/livereview/internal/database"
 	storageanalytics "github.com/livereview/storage/analytics"
 	"github.com/tmc/langchaingo/llms"
 )
@@ -146,8 +150,24 @@ func (nopAnalyticsEngine) Query(context.Context, string, int) (*storageanalytics
 // database/tool-server behind it - every case below is designed to be
 // resolved by the guard's own validation (rejecting a table that isn't in
 // the catalog) or to never call a tool, so nothing here needs live
-// infrastructure.
-func dispatchTestAgent(prov *recordingProvider) *Agent {
+// infrastructure. It still has to wait on the real package-wide schema
+// index, though: RunTurnWithArtifacts refuses any turn up front when
+// analyticsEnabled() && !schemaIndexReady() (agent.go), and that index is a
+// process-wide singleton shared with the testAgent-based tests in
+// analytics_pipeline_test.go - without this wait, this test is a race
+// against whichever test happens to trigger the (slow, first-time) build.
+func dispatchTestAgent(t *testing.T, prov *recordingProvider) *Agent {
+	t.Helper()
+	if dsn, err := database.LoadDatabaseURL(); err == nil {
+		InitSchemaIndex(dsn)
+	}
+	if schemaIdx != nil {
+		select {
+		case <-schemaIdx.Ready():
+		case <-time.After(60 * time.Second):
+		}
+	}
+
 	session := &MCPSession{
 		OrgID:    1,
 		OrgName:  "TestOrg",
@@ -171,21 +191,22 @@ func dispatchTestAgent(prov *recordingProvider) *Agent {
 // this replaced), turns 2 and 3 would still see turn 1's prompt.
 func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 	prov := &recordingProvider{replies: []string{
-		// Turn 1: chat
-		`{"response":"chat"}`,
+		// Turn 1: product_guidance (the old "chat" shape, renamed)
+		`{"response":"product_guidance"}`,
 		"Hi! I'm Livi, how can I help you?",
 		// Turn 2: action (no tool call in the reply - just confirms the
 		// prompt/tools selection, not the tool-calling loop itself, which
 		// is unchanged and already covered elsewhere)
 		`{"response":"action"}`,
 		"Which repository would you like me to review?",
-		// Turn 3: count_query - a table outside the catalog so the guard
-		// rejects it deterministically, without touching a database.
-		`{"response":"count_query"}`,
+		// Turn 3: analytics (the old "count_query" shape, renamed) - a table
+		// outside the catalog so the guard rejects it deterministically,
+		// without touching a database.
+		`{"response":"analytics"}`,
 		`{"analytics_plan":[{"id":"r1","question":"bad","count_sql":"SELECT count(*) FROM secret_table"}]}`,
 		"SELECT count(*) AS n FROM public.reviews", // repair attempt, also rejected
 	}}
-	agent := dispatchTestAgent(prov)
+	agent := dispatchTestAgent(t, prov)
 
 	var history []HistoryEntry
 
@@ -300,13 +321,13 @@ func TestDispatchSwapsSystemPromptPerTurn(t *testing.T) {
 // UI would just render raw JSON. See looksLikeUnrecognizedJSON.
 func TestChatBranchRejectsFabricatedJSON(t *testing.T) {
 	prov := &recordingProvider{replies: []string{
-		`{"response":"chat"}`,
+		`{"response":"product_guidance"}`,
 		// The model invents its own ad hoc chart shape instead of answering
 		// in prose - none of parseToolCalls/parseAnalyticsPlan recognize it.
 		`{"chart": {"title": "x"}, "learning": {"title": "y"}}`,
 		"I don't have live data for that right now - try asking it as a data question.",
 	}}
-	agent := dispatchTestAgent(prov)
+	agent := dispatchTestAgent(t, prov)
 
 	text, _, _, _, err := agent.RunTurnWithArtifacts(context.Background(), nil, "are engineers using this daily?", "s1", "test")
 	if err != nil {
@@ -334,7 +355,7 @@ func TestCountQueryBranchRejectsTruncatedJSON(t *testing.T) {
 		`{"analytics_plan": [{"id": "r1", "question": "q", "count_sql": "SELECT count(*) FROM reviews`,
 		"I could not work out a full query for that - try rephrasing it.",
 	}}
-	agent := dispatchTestAgent(prov)
+	agent := dispatchTestAgent(t, prov)
 
 	text, _, _, _, err := agent.RunTurnWithArtifacts(context.Background(), nil, "what's our billing status?", "s1", "test")
 	if err != nil {
@@ -354,13 +375,20 @@ func TestDispatchClassifyFailureDegradesToChat(t *testing.T) {
 		"Still not sure what you mean.",                  // classify call attempt 2 (the one corrective retry): also unparseable
 		"Sure, I'm happy to help with that.",             // the degraded chat-branch call
 	}}
-	agent := dispatchTestAgent(prov)
+	agent := dispatchTestAgent(t, prov)
 
 	text, history, _, _, err := agent.RunTurnWithArtifacts(context.Background(), nil, "hello", "s1", "test")
 	if err != nil {
 		t.Fatalf("expected the turn to degrade gracefully, not error: %v", err)
 	}
-	if text != "Sure, I'm happy to help with that." {
+	// A genuine classify-call error (not just an unparseable shape) now
+	// surfaces an error banner ahead of the degraded reply, so the user
+	// knows call #0 failed instead of silently getting a plain chat answer
+	// - see agent.go's classifyErr handling.
+	wantPrefix := LLMErrorTemplates[aiconnectors.ErrCategoryUnknown].Message + "\n\n" +
+		"However, here is some general product guidance:\n\n---\n\n" +
+		"Sure, I'm happy to help with that."
+	if text != wantPrefix {
 		t.Fatalf("unexpected response %q", text)
 	}
 	if len(prov.toolsPerCall) != 3 {

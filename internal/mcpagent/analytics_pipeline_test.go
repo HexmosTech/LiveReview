@@ -460,12 +460,12 @@ func TestAnalyticsPipelineProducesCSV(t *testing.T) {
 		t.Fatalf("expected 1 CSV artifact, got %d", len(artifacts))
 	}
 	// A CSV-only turn (no chart, no notes) must not also claim nothing was
-	// found - the file itself, delivered separately, IS the answer. Regression
-	// guard for the exact contradiction seen in production: a correctly
-	// attached CSV alongside the chat text "I could not find anything to
-	// answer that."
-	if text != "" {
-		t.Fatalf("expected empty response text alongside the CSV artifact, got %q", text)
+	// found - the file itself, delivered separately, IS the answer. An empty
+	// response text renders as a context-free empty bubble next to the
+	// download, so a short acknowledgement is used instead (never the
+	// contradictory "I could not find anything to answer that.").
+	if text != "I've put the results in a file you can download." {
+		t.Fatalf("expected the file-download acknowledgement alongside the CSV artifact, got %q", text)
 	}
 	art := artifacts[0]
 	if art.Filename != "completed.csv" {
