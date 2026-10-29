@@ -167,8 +167,15 @@ func (s *Server) UpsertSSOConfig(c echo.Context) error {
 
 	// Preserve the existing secret/metadata unless the caller explicitly
 	// sent a replacement, so the settings UI never has to round-trip a
-	// decrypted secret just to leave it unchanged.
-	if existing, gerr := s.ssoStore.Get(orgID, provider); gerr == nil {
+	// decrypted secret just to leave it unchanged. A real (non-not-found)
+	// lookup error must fail the request rather than be treated as "no
+	// existing config" - silently swallowing it here would wipe the saved
+	// client secret/metadata on a transient DB error.
+	existing, gerr := s.ssoStore.Get(orgID, provider)
+	if gerr != nil && gerr != sso.ErrNotFound {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to load existing SSO configuration"})
+	}
+	if gerr == nil {
 		cfg.OIDCClientSecret = existing.OIDCClientSecret
 		if cfg.SAMLIDPMetadataXML == "" {
 			cfg.SAMLIDPMetadataXML = existing.SAMLIDPMetadataXML

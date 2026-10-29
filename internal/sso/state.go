@@ -7,9 +7,12 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/hkdf"
 )
 
 // StateSigner produces and verifies the OAuth/SAML "state" parameter without
@@ -23,8 +26,12 @@ type StateSigner struct {
 }
 
 func NewStateSigner(secret string) *StateSigner {
-	key := sha256.Sum256([]byte("sso-state:" + secret))
-	return &StateSigner{key: key[:], ttl: 10 * time.Minute}
+	key := make([]byte, 32)
+	// HKDF rather than a bare hash: keeps this HMAC key independent of
+	// SecretBox's AES key even though both ultimately derive from the same
+	// JWT_SECRET, and doesn't degrade to the secret's raw entropy.
+	_, _ = io.ReadFull(hkdf.New(sha256.New, []byte(secret), nil, []byte("livereview-sso-state-v1")), key)
+	return &StateSigner{key: key, ttl: 10 * time.Minute}
 }
 
 // Encode signs orgID + a random nonce (the nonce makes the token

@@ -11,12 +11,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"golang.org/x/crypto/hkdf"
 )
 
 // SecretBox encrypts small secrets (OIDC client secrets, etc.) at rest using
-// AES-256-GCM. The key is derived from the server's existing JWT_SECRET
-// (sha256) rather than a new dedicated env var, so deployments don't need an
-// extra secret to manage.
+// AES-256-GCM. The key is derived from the server's existing JWT_SECRET via
+// HKDF (not used bare, so a lower-entropy JWT_SECRET doesn't translate
+// one-to-one into a weak AES key) rather than a new dedicated env var, so
+// deployments don't need an extra secret to manage.
 type SecretBox struct {
 	gcm cipher.AEAD
 }
@@ -27,7 +30,10 @@ func NewSecretBox(secret string) (*SecretBox, error) {
 	if secret == "" {
 		return nil, errors.New("sso: secret box key material is empty")
 	}
-	key := sha256.Sum256([]byte(secret))
+	var key [32]byte
+	if _, err := io.ReadFull(hkdf.New(sha256.New, []byte(secret), nil, []byte("livereview-sso-secretbox-v1")), key[:]); err != nil {
+		return nil, fmt.Errorf("sso: deriving key: %w", err)
+	}
 	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return nil, fmt.Errorf("sso: creating cipher: %w", err)

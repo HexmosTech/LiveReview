@@ -324,3 +324,52 @@ Keycloak for both protocols. Summary of what shipped:
   real IdP later.
 - No regressions: password login, API-key auth, and the Hexmos cloud login
   path (`ensure-cloud-user`) all verified unchanged at the end of every phase.
+
+### Phase 6 — Pre-merge hardening — ✅ DONE (2026-10-29)
+
+Found and fixed while running `lrc review --agent-mode` against the full diff
+and the four pre-merge security scanners (`make security-osv`,
+`security-govulncheck`, `security-semgrep`, `security-gitleaks`):
+
+- **Real bug, caught only by manually exercising the Settings → SSO tab**:
+  the `"sso"` plan feature was added to `PlanDefinitions` in
+  `internal/license/plans.go`, but that map is entirely overwritten at
+  startup by `license.SyncPlanDefinitionsFromCatalog` reading
+  `config/plan_catalog.json` (and, if that file is ever missing, by the
+  Go-level `DefaultPlanCatalog()` fallback in `plan_catalog.go`) - so the
+  real runtime feature list never had `"sso"` and every enterprise-selfhosted
+  org was silently 403'd out of the config endpoints. Fixed by adding
+  `"sso"` to the `enterprise-selfhosted` entry's `feature_flags` in both
+  `config/plan_catalog.json` and the Go fallback. `plans.go`'s copy was left
+  as-is for readability but is effectively dead for feature-gating purposes
+  once the catalog sync runs.
+- **`goxmldsig` v1.4.0** (pulled in transitively by `crewjam/saml`) has a
+  known loop-variable-capture signature-bypass bug (GHSA-479m-364c-43vc,
+  fixed in v1.6.0) - directly relevant since this library verifies SAML
+  assertion signatures. Bumped to v1.6.0 (`go get
+  github.com/russellhaering/goxmldsig@v1.6.0`); both Keycloak e2e tests
+  re-verified green after the bump.
+- `internal/sso/secretbox.go` and `internal/sso/state.go` switched from a
+  bare `sha256.Sum256(secret)` key derivation to HKDF-SHA256 with a
+  purpose-specific info string, so the AES-GCM key and the state-token HMAC
+  key stay independent even though both derive from the same `JWT_SECRET`,
+  and a lower-entropy `JWT_SECRET` doesn't translate one-to-one into a weak
+  key. No stored-data migration needed (pre-release, no production SSO
+  secrets exist yet).
+- `internal/api/sso_config.go`'s `UpsertSSOConfig` previously ignored any
+  non-`ErrNotFound` error from the existing-config lookup and silently
+  treated it as "no existing config," which could wipe a saved OIDC client
+  secret or SAML metadata on a transient DB error. Now a real lookup error
+  fails the request instead.
+- Everything else `lrc` flagged (Keycloak healthcheck port 9000, the SAML
+  error-message PII, the e2e test's `&amp;` unescaping, `expires_at`
+  handling in `SSOCallback.tsx`, etc.) was checked against the actual
+  running code/logs and confirmed to already be handled correctly or to be
+  a false positive - see the PR description for the per-finding triage.
+- Final scanner results: `security-osv` clean except the pre-existing
+  `labstack/echo` `X-Forwarded-For` advisories (present on `master` before
+  this branch, no `v4.x` fix exists yet); `security-govulncheck` 0 called
+  vulnerabilities; `security-semgrep` 0 findings across 1825 rules;
+  `security-gitleaks` no leaks. `go test ./...`, `go test
+  ./internal/auditlog/...`, and `make test-sso-e2e` (both protocols) all
+  re-verified green after every fix in this phase.
