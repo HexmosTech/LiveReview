@@ -2,7 +2,9 @@ package users
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -968,17 +970,29 @@ func (us *UserService) UpdateUserInOrg(orgID, userID, updatedByUserID int64, req
 	return us.GetUserInOrg(orgID, userID)
 }
 
-// DeactivateUserInOrg deactivates a user in a specific organization
+// DeactivateUserInOrg deactivates a user in a specific organization and
+// revokes every live session/refresh token they currently hold. Without the
+// revocation, a deactivated user's already-issued JWT would keep working
+// until its own natural expiry - deactivation needs to cut off access
+// immediately, not just block future logins.
 func (us *UserService) DeactivateUserInOrg(orgID, userID, deactivatedByUserID int64) error {
 	return us.store.WithTx(func(tx *sql.Tx) error {
 		// Deactivate user
 		_, err := us.store.TxExec(tx, `
-			UPDATE users 
+			UPDATE users
 			SET is_active = false, deactivated_at = NOW(), deactivated_by_user_id = $1, updated_at = NOW()
 			WHERE id = $2
 		`, deactivatedByUserID, userID)
 		if err != nil {
 			return fmt.Errorf("failed to deactivate user: %w", err)
+		}
+
+		revokedCount, err := us.store.TxExec(tx, `
+			UPDATE auth_tokens SET is_active = false, revoked_at = NOW()
+			WHERE user_id = $1 AND is_active = true
+		`, userID)
+		if err != nil {
+			return fmt.Errorf("failed to revoke active sessions: %w", err)
 		}
 
 		// Add audit log
@@ -987,8 +1001,163 @@ func (us *UserService) DeactivateUserInOrg(orgID, userID, deactivatedByUserID in
 			return fmt.Errorf("failed to add audit log: %w", err)
 		}
 
+		if rows, rerr := revokedCount.RowsAffected(); rerr == nil && rows > 0 {
+			if aerr := us.addUserAuditLog(tx, orgID, userID, deactivatedByUserID, "session_revoked", map[string]interface{}{"revoked_count": rows}); aerr != nil {
+				return fmt.Errorf("failed to add session revocation audit log: %w", aerr)
+			}
+		}
+
 		return nil
 	})
+}
+
+// ReactivateUserInOrg restores a previously deactivated user. This is the
+// only path back to is_active=true - SSO login deliberately never does this
+// itself (see errSSOAccountDeactivated in internal/api/auth/sso_handlers.go).
+func (us *UserService) ReactivateUserInOrg(orgID, userID, reactivatedByUserID int64) error {
+	return us.store.WithTx(func(tx *sql.Tx) error {
+		_, err := us.store.TxExec(tx, `
+			UPDATE users
+			SET is_active = true, deactivated_at = NULL, deactivated_by_user_id = NULL, updated_at = NOW()
+			WHERE id = $1
+		`, userID)
+		if err != nil {
+			return fmt.Errorf("failed to reactivate user: %w", err)
+		}
+
+		if err := us.addUserAuditLog(tx, orgID, userID, reactivatedByUserID, "reactivated", map[string]interface{}{}); err != nil {
+			return fmt.Errorf("failed to add audit log: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// ErrSCIMAccountDeactivated is returned by ProvisionSCIMUser when the
+// matched user has been manually deactivated. Like SSO JIT login, SCIM
+// provisioning must never silently resurrect a deactivated account.
+var ErrSCIMAccountDeactivated = errors.New("scim: account is deactivated")
+
+// ProvisionSCIMUser creates or links a user into orgID via SCIM. It mirrors
+// the SSO JIT-provisioning create path (internal/api/auth/sso_handlers.go's
+// jitProvisionSSOUser): a random unusable password and member role, with no
+// invitation email - the IdP is the source of truth for this account, not
+// an email invite, which is why this doesn't just call the owner-driven
+// CreateUserInOrg above. Returns the user and whether a new user_roles row
+// was created (true also covers "newly created user" since the row is
+// always new in that case).
+func (us *UserService) ProvisionSCIMUser(orgID int64, email, firstName, lastName string) (*UserWithRole, bool, error) {
+	var userID int64
+	created := false
+
+	err := us.store.WithTx(func(tx *sql.Tx) error {
+		var existingUserID int64
+		var isActive bool
+		err := us.store.TxQueryRow(tx, `SELECT id, is_active FROM users WHERE email = $1`, email).Scan(&existingUserID, &isActive)
+		if err == sql.ErrNoRows {
+			randBytes := make([]byte, 32)
+			if _, rerr := rand.Read(randBytes); rerr != nil {
+				return rerr
+			}
+			hashed, herr := bcrypt.GenerateFromPassword([]byte(hex.EncodeToString(randBytes)), bcrypt.DefaultCost)
+			if herr != nil {
+				return herr
+			}
+			if err := us.store.TxQueryRow(tx, `
+				INSERT INTO users (email, password_hash, first_name, last_name, default_org_id, password_reset_required, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, false, NOW(), NOW())
+				RETURNING id
+			`, email, string(hashed), nullableStr(firstName), nullableStr(lastName), orgID).Scan(&userID); err != nil {
+				return err
+			}
+			if _, err := us.store.TxExec(tx, `
+				INSERT INTO user_roles (user_id, org_id, role_id)
+				VALUES ($1, $2, (SELECT id FROM roles WHERE name = 'member'))
+			`, userID, orgID); err != nil {
+				return err
+			}
+			created = true
+			return nil
+		} else if err != nil {
+			return err
+		}
+
+		userID = existingUserID
+		if !isActive {
+			return ErrSCIMAccountDeactivated
+		}
+		var isMember bool
+		if err := us.store.TxQueryRow(tx, `SELECT EXISTS(SELECT 1 FROM user_roles WHERE user_id = $1 AND org_id = $2)`, userID, orgID).Scan(&isMember); err != nil {
+			return err
+		}
+		if !isMember {
+			if _, err := us.store.TxExec(tx, `
+				INSERT INTO user_roles (user_id, org_id, role_id)
+				VALUES ($1, $2, (SELECT id FROM roles WHERE name = 'member'))
+			`, userID, orgID); err != nil {
+				return err
+			}
+			created = true
+		}
+		if _, err := us.store.TxExec(tx, `UPDATE users SET default_org_id = COALESCE(default_org_id, $1) WHERE id = $2`, orgID, userID); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+
+	user, err := us.GetUserInOrg(orgID, userID)
+	if err != nil {
+		return nil, false, err
+	}
+	return user, created, nil
+}
+
+func nullableStr(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// DeactivateUserInOrgBySCIM deactivates a user as part of SCIM-driven
+// deprovisioning (PATCH active:false) and revokes their live sessions, same
+// as DeactivateUserInOrg. There is no human actor to record here - the
+// actor is the IdP, via SCIM - so deactivated_by_user_id is left NULL and
+// the unified audit event is emitted by the caller
+// (internal/api/scim_handlers.go) via auditRecorder.Webhook instead of the
+// user_management_audit mirror addUserAuditLog uses, which requires a real
+// performed_by_user_id (NOT NULL, FK to users).
+func (us *UserService) DeactivateUserInOrgBySCIM(userID int64) error {
+	return us.store.WithTx(func(tx *sql.Tx) error {
+		if _, err := us.store.TxExec(tx, `
+			UPDATE users SET is_active = false, deactivated_at = NOW(), deactivated_by_user_id = NULL, updated_at = NOW()
+			WHERE id = $1
+		`, userID); err != nil {
+			return fmt.Errorf("failed to deactivate user: %w", err)
+		}
+		if _, err := us.store.TxExec(tx, `
+			UPDATE auth_tokens SET is_active = false, revoked_at = NOW()
+			WHERE user_id = $1 AND is_active = true
+		`, userID); err != nil {
+			return fmt.Errorf("failed to revoke active sessions: %w", err)
+		}
+		return nil
+	})
+}
+
+// ReactivateUserInOrgBySCIM mirrors DeactivateUserInOrgBySCIM for PATCH active:true.
+func (us *UserService) ReactivateUserInOrgBySCIM(userID int64) error {
+	_, err := us.db.Exec(`
+		UPDATE users SET is_active = true, deactivated_at = NULL, deactivated_by_user_id = NULL, updated_at = NOW()
+		WHERE id = $1
+	`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to reactivate user: %w", err)
+	}
+	return nil
 }
 
 // ForcePasswordReset forces a user to reset their password on next login
@@ -1123,6 +1292,8 @@ func userAuditAction(action string) (auditlog.Action, bool) {
 		return auditlog.ActionUserDeactivate, true
 	case "reactivated":
 		return auditlog.ActionUserReactivate, true
+	case "session_revoked":
+		return auditlog.ActionSessionRevoke, true
 	case "role_changed":
 		return auditlog.ActionUserRoleChange, true
 	case "password_reset":

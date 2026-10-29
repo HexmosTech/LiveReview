@@ -313,6 +313,33 @@ func (uh *UserHandlers) DeactivateUser(c echo.Context) error {
 	})
 }
 
+// ReactivateUser handles restoring a previously deactivated user in an
+// organization. This is the only way a deactivated user becomes active
+// again - SSO login deliberately never does this on its own.
+func (uh *UserHandlers) ReactivateUser(c echo.Context) error {
+	permCtx := auth.MustGetPermissionContext(c)
+
+	if !permCtx.HasPermission(auth.PermissionDeleteUsers) {
+		return echo.NewHTTPError(http.StatusForbidden, "Permission denied: cannot reactivate users")
+	}
+
+	userIDStr := c.Param("user_id")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid user ID")
+	}
+
+	err = uh.userService.ReactivateUserInOrg(permCtx.OrgID, userID, permCtx.User.ID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to reactivate user")
+	}
+	auditlog.MarkRecorded(c)
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"message": "User reactivated successfully",
+	})
+}
+
 // ChangeUserRole handles changing a user's role in an organization
 func (uh *UserHandlers) ChangeUserRole(c echo.Context) error {
 	// Get permission context from middleware

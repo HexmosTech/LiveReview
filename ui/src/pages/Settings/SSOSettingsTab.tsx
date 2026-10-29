@@ -6,6 +6,8 @@ import { useOrgContext } from '../../hooks/useOrgContext';
 
 type ProviderType = 'oidc' | 'saml';
 
+type ReconciliationInterval = 'hourly' | 'daily' | 'weekly';
+
 interface SSOConfigResponse {
     provider_type: ProviderType;
     display_name: string;
@@ -17,6 +19,9 @@ interface SSOConfigResponse {
     saml_idp_metadata_url?: string;
     saml_idp_entity_id?: string;
     saml_metadata_set: boolean;
+    reconciliation_enabled?: boolean;
+    reconciliation_interval?: ReconciliationInterval;
+    last_reconciled_at?: string;
 }
 
 interface FormState {
@@ -28,6 +33,8 @@ interface FormState {
     oidc_scopes: string;
     saml_idp_metadata_url: string;
     saml_idp_metadata_xml: string;
+    reconciliation_enabled: boolean;
+    reconciliation_interval: ReconciliationInterval;
 }
 
 const emptyForm: FormState = {
@@ -39,6 +46,8 @@ const emptyForm: FormState = {
     oidc_scopes: '',
     saml_idp_metadata_url: '',
     saml_idp_metadata_xml: '',
+    reconciliation_enabled: false,
+    reconciliation_interval: 'daily',
 };
 
 const ResultBanner: React.FC<{ type: 'success' | 'error'; message: string }> = ({ type, message }) => (
@@ -70,6 +79,8 @@ const ProviderPanel: React.FC<{
                 oidc_scopes: existing.oidc_scopes || '',
                 saml_idp_metadata_url: existing.saml_idp_metadata_url || '',
                 saml_idp_metadata_xml: '', // never round-tripped - left blank keeps the stored metadata
+                reconciliation_enabled: existing.reconciliation_enabled || false,
+                reconciliation_interval: existing.reconciliation_interval || 'daily',
             });
         }
     }, [existing]);
@@ -90,6 +101,8 @@ const ProviderPanel: React.FC<{
             if (form.oidc_client_secret !== '') {
                 body.oidc_client_secret = form.oidc_client_secret;
             }
+            body.reconciliation_enabled = form.reconciliation_enabled;
+            body.reconciliation_interval = form.reconciliation_interval;
         } else {
             body.saml_idp_metadata_url = form.saml_idp_metadata_url;
             if (form.saml_idp_metadata_xml !== '') {
@@ -203,6 +216,46 @@ const ProviderPanel: React.FC<{
                         Redirect URI to register with your identity provider:{' '}
                         <code className="text-slate-200">{window.location.origin}/api/v1/auth/sso/oidc/callback</code>
                     </p>
+
+                    <div className="bg-slate-800 p-4 rounded-lg space-y-3">
+                        <div className="flex items-center space-x-2">
+                            <input
+                                type="checkbox"
+                                id="reconciliation-enabled"
+                                checked={form.reconciliation_enabled}
+                                onChange={(e) => handleChange('reconciliation_enabled', e.target.checked)}
+                                className="w-4 h-4 text-indigo-600 bg-slate-700 border-slate-600 rounded focus:ring-indigo-500 focus:ring-2"
+                            />
+                            <label htmlFor="reconciliation-enabled" className="text-sm font-medium text-slate-300">
+                                Automatic deprovisioning check
+                            </label>
+                        </div>
+                        <p className="text-sm text-slate-400">
+                            Fallback for orgs that don't configure SCIM below: periodically re-checks each signed-in
+                            user against the identity provider and deactivates them here if the account was disabled
+                            or removed there. SCIM (if configured) is real-time; this is a backstop, bounded by the
+                            interval you pick.
+                        </p>
+                        {form.reconciliation_enabled && (
+                            <div>
+                                <label className="block text-sm font-medium text-slate-300 mb-1">Check interval</label>
+                                <select
+                                    value={form.reconciliation_interval}
+                                    onChange={(e) => handleChange('reconciliation_interval', e.target.value)}
+                                    className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200"
+                                >
+                                    <option value="hourly">Hourly</option>
+                                    <option value="daily">Daily</option>
+                                    <option value="weekly">Weekly</option>
+                                </select>
+                                {existing?.last_reconciled_at && (
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        Last checked: {new Date(existing.last_reconciled_at).toLocaleString()}
+                                    </p>
+                                )}
+                            </div>
+                        )}
+                    </div>
                 </>
             ) : (
                 <>
@@ -256,6 +309,129 @@ const ProviderPanel: React.FC<{
                 <Button variant="primary" onClick={handleSave} isLoading={isSaving} disabled={isSaving || isTesting || isDeleting || !form.display_name}>
                     Save
                 </Button>
+            </div>
+        </div>
+    );
+};
+
+interface ScimTokenResponse {
+    exists?: boolean;
+    token_prefix?: string;
+    created_at?: string;
+    token?: string; // only present immediately after create/rotate
+}
+
+const ScimProvisioningPanel: React.FC<{ orgId: number }> = ({ orgId }) => {
+    const [tokenInfo, setTokenInfo] = useState<ScimTokenResponse | null>(null);
+    const [newToken, setNewToken] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isWorking, setIsWorking] = useState(false);
+
+    const fetchToken = async () => {
+        try {
+            const data = await apiClient.get<ScimTokenResponse>(`/api/v1/orgs/${orgId}/scim-token`);
+            setTokenInfo(data);
+        } catch (error) {
+            console.error('Failed to fetch SCIM token status:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (orgId) {
+            fetchToken();
+        }
+    }, [orgId]);
+
+    const handleGenerate = async () => {
+        const verb = tokenInfo?.token_prefix ? 'rotate' : 'generate';
+        if (tokenInfo?.token_prefix && !window.confirm('Rotating the SCIM token immediately invalidates the old one. Your identity provider will need the new token. Continue?')) {
+            return;
+        }
+        setIsWorking(true);
+        try {
+            const data = await apiClient.post<ScimTokenResponse>(`/api/v1/orgs/${orgId}/scim-token`, {});
+            setTokenInfo(data);
+            setNewToken(data.token || null);
+            notify.success(`SCIM token ${verb}d`);
+        } catch (error: any) {
+            notify.error(error?.message || `Failed to ${verb} SCIM token`);
+        } finally {
+            setIsWorking(false);
+        }
+    };
+
+    const handleRevoke = async () => {
+        if (!window.confirm('Revoke the SCIM token? Your identity provider will no longer be able to sync users until a new token is generated.')) {
+            return;
+        }
+        setIsWorking(true);
+        try {
+            await apiClient.delete(`/api/v1/orgs/${orgId}/scim-token`);
+            setTokenInfo({ exists: false });
+            setNewToken(null);
+            notify.success('SCIM token revoked');
+        } catch (error: any) {
+            notify.error(error?.message || 'Failed to revoke SCIM token');
+        } finally {
+            setIsWorking(false);
+        }
+    };
+
+    if (isLoading) {
+        return null;
+    }
+
+    const scimBaseURL = `${window.location.origin}/api/v1/scim/v2`;
+
+    return (
+        <div className="mt-8 pt-8 border-t border-slate-700">
+            <div className="flex items-center mb-4">
+                <div className="text-indigo-400 mr-3">
+                    <Icons.Settings />
+                </div>
+                <div>
+                    <h3 className="font-medium text-white">SCIM Provisioning</h3>
+                    <p className="text-sm text-slate-300">
+                        Let Okta, Azure AD, or Google Workspace automatically create and deactivate users here when
+                        they're added or removed at the identity provider - the real-time counterpart to the
+                        reconciliation check above.
+                    </p>
+                </div>
+            </div>
+
+            {newToken && (
+                <div className="mb-4 p-4 rounded-lg bg-amber-900/30 border border-amber-600 text-amber-200">
+                    <p className="text-sm font-medium mb-2">
+                        Copy this token now - it won't be shown again.
+                    </p>
+                    <code className="block bg-slate-900 p-2 rounded text-xs break-all text-amber-100">{newToken}</code>
+                </div>
+            )}
+
+            <p className="text-sm text-slate-400 mb-3">
+                SCIM base URL: <code className="text-slate-200">{scimBaseURL}</code>
+            </p>
+
+            {tokenInfo?.token_prefix ? (
+                <p className="text-sm text-slate-400 mb-3">
+                    Current token: <code className="text-slate-200">{tokenInfo.token_prefix}...</code>
+                    {tokenInfo.created_at && ` (created ${new Date(tokenInfo.created_at).toLocaleString()})`}
+                </p>
+            ) : (
+                <p className="text-sm text-slate-400 mb-3">No SCIM token configured yet.</p>
+            )}
+
+            <div className="flex space-x-3">
+                <Button variant="primary" onClick={handleGenerate} isLoading={isWorking} disabled={isWorking}>
+                    {tokenInfo?.token_prefix ? 'Rotate Token' : 'Generate Token'}
+                </Button>
+                {tokenInfo?.token_prefix && (
+                    <Button variant="outline" onClick={handleRevoke} isLoading={isWorking} disabled={isWorking}>
+                        Revoke
+                    </Button>
+                )}
             </div>
         </div>
     );
@@ -336,6 +512,8 @@ const SSOSettingsTab: React.FC = () => {
                 existing={existingForActive}
                 onSaved={fetchConfigs}
             />
+
+            <ScimProvisioningPanel orgId={orgId} />
         </div>
     );
 };

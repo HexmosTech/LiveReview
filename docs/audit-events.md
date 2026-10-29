@@ -58,6 +58,7 @@ Generated from `internal/auditlog/catalog.go`.
 | `auth.logout` | `auth` | session | info | Signed out | A user ended a session. |
 | `auth.password.change` | `auth` | user | warning | Password changed | A user changed their password. |
 | `auth.password.reset.complete` | `auth` | user | warning | Password reset completed | A user completed a required password reset. |
+| `auth.session.revoke` | `auth` | session | warning | Sessions revoked | A user's active sessions and refresh tokens were revoked, typically following deactivation. |
 | `auth.sso.provision` | `auth` | user | info | SSO account provisioned | An account was provisioned through SSO. |
 | `auth.token.refresh` | `auth` | session | info | Session refreshed | A session token was refreshed. |
 | `auto_approve.policy.create` | `settings` | policy | warning | Auto-approve policy created | An auto-approve policy was created. |
@@ -106,6 +107,12 @@ Generated from `internal/auditlog/catalog.go`.
 | `ruleset.create` | `repository` | ruleset | warning | Ruleset created | A CI ruleset was created. |
 | `ruleset.delete` | `repository` | ruleset | warning | Ruleset deleted | A CI ruleset was deleted. |
 | `ruleset.update` | `repository` | ruleset | warning | Ruleset updated | A CI ruleset was changed. |
+| `scim.token.create` | `auth` | scim_token | warning | SCIM token created | An org's SCIM bearer token was generated or rotated. |
+| `scim.token.revoke` | `auth` | scim_token | warning | SCIM token revoked | An org's SCIM bearer token was revoked. |
+| `scim.user.create` | `auth` | user | info | SCIM user provisioned | An identity provider created or linked a user via SCIM. |
+| `scim.user.deactivate` | `auth` | user | warning | SCIM user deactivated | An identity provider deactivated a user via SCIM. |
+| `scim.user.reactivate` | `auth` | user | warning | SCIM user reactivated | An identity provider reactivated a user via SCIM. |
+| `scim.user.update` | `auth` | user | info | SCIM user updated | An identity provider updated a user's attributes via SCIM. |
 | `settings.auto_approve.update` | `settings` | setting | warning | Auto-approve updated | The auto-approve policy was changed. |
 | `settings.managed_ai.update` | `settings` | setting | critical | Managed AI updated | LiveReview-managed AI configuration was changed. |
 | `settings.prompts.update` | `settings` | prompt | warning | Prompts updated | Review prompts were changed. |

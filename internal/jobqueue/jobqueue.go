@@ -35,17 +35,17 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/livereview/internal/githubapp"
+	"github.com/livereview/internal/policyengine"
 	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/providers/gitea"
-	"github.com/livereview/internal/policyengine"
 	"github.com/livereview/internal/seed_demo"
 	networkjobqueue "github.com/livereview/network/jobqueue"
 	storagejobqueue "github.com/livereview/storage/jobqueue"
-	"github.com/robfig/cron/v3"
 	"github.com/livereview/storage/providers/pullrequests"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
+	"github.com/robfig/cron/v3"
 )
 
 // GitLab API response structures
@@ -2449,6 +2449,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, seedDemoWorker)
 	river.AddWorker(workers, &BlastRadiusWorker{db: db})
 	river.AddWorker(workers, &RiskModelRefitWorker{db: db})
+	river.AddWorker(workers, &SSOReconciliationWorker{db: db})
 
 	coordinatorInterval := config.RepoSyncConfig.CoordinatorInterval
 	if coordinatorInterval <= 0 {
@@ -2569,14 +2570,21 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 				&river.PeriodicJobOpts{ID: "risk_model_refit", RunOnStart: false},
 			),
 			river.NewPeriodicJob(
+				river.PeriodicInterval(15*time.Minute),
+				func() (river.JobArgs, *river.InsertOpts) {
+					return SSOReconciliationJobArgs{}, &river.InsertOpts{Queue: "repo_sync", MaxAttempts: 3}
+				},
+				&river.PeriodicJobOpts{ID: "sso_reconciliation", RunOnStart: false},
+			),
+			river.NewPeriodicJob(
 				archivalSchedule,
 				func() (river.JobArgs, *river.InsertOpts) {
 					return PreloadedChangesArchivalSweepJobArgs{
-						RetentionDays: archivalRetentionDays,
-					}, &river.InsertOpts{
-						Queue:       "preloaded_changes_archival_sweep",
-						MaxAttempts: 3,
-					}
+							RetentionDays: archivalRetentionDays,
+						}, &river.InsertOpts{
+							Queue:       "preloaded_changes_archival_sweep",
+							MaxAttempts: 3,
+						}
 				},
 				&river.PeriodicJobOpts{
 					ID:         "preloaded_changes_archival_sweep",

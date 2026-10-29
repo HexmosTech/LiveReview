@@ -373,3 +373,146 @@ and the four pre-merge security scanners (`make security-osv`,
   `security-gitleaks` no leaks. `go test ./...`, `go test
   ./internal/auditlog/...`, and `make test-sso-e2e` (both protocols) all
   re-verified green after every fix in this phase.
+
+---
+
+## Deprovisioning & lifecycle sync (follow-up, 2026-10-29)
+
+The phases above cover provisioning only (JIT create/login). An audit found
+zero offboarding story: SSO login silently re-activated deactivated users,
+deactivation never revoked a live JWT session, there was no automated
+deprovisioning (SCIM), and no real-time session kill from the IdP. This
+section closes those gaps.
+
+### Phase 7 — Reactivation fix + session revocation — ✅ DONE
+- [x] `jitProvisionSSOUser` (`internal/api/auth/sso_handlers.go`) now checks
+      `is_active` before linking an existing user into an org; a deactivated
+      user's SSO login is rejected (`errSSOAccountDeactivated` →
+      `account_deactivated` failure redirect) instead of being silently
+      flipped back to active. The old unconditional
+      `UPDATE users SET ... is_active = TRUE` is gone.
+- [x] `POST /api/v1/orgs/:org_id/users/:user_id/reactivate` (new
+      `ReactivateUser` handler + `UserService.ReactivateUserInOrg`) - the
+      only path back to `is_active=true` now, since SSO deliberately never
+      does this itself.
+- [x] `UserService.DeactivateUserInOrg` now revokes every live `auth_tokens`
+      row for that user in the same transaction as the deactivation -
+      without this, a fired user's already-issued JWT kept working until
+      its own expiry regardless of admin action. New `ActionSessionRevoke`
+      (`auth.session.revoke`) audit action.
+- [x] `TokenService.ValidateAccessToken` now filters `is_active = true` on
+      the user lookup, as defense in depth (matching
+      `APIKeyManager.ValidateAPIKey`'s existing behavior) - belt-and-suspenders
+      in case a future deactivation path forgets to revoke tokens directly.
+- [x] Regression set green: `go test ./...` (pre-existing, unrelated
+      failures only - confirmed via `git status` that none of the failing
+      packages were touched), `go test ./internal/auditlog/...` clean.
+
+### Phase 8 — SCIM 2.0 provisioning/deprovisioning — ✅ DONE
+- [x] New `internal/scim` package: bearer-token hashing/store
+      (`token.go`, modeled on `internal/api/api_keys.go`'s scheme) + minimal
+      SCIM 2.0 protocol types (`types.go`) covering what Okta/Azure
+      AD/Google actually use for lifecycle sync.
+- [x] `scim_tokens` table (`db/migrations/20261029150000_create_scim_tokens.sql`)
+      - one static bearer token per org, no user session involved, per the
+      SCIM RFC.
+- [x] `internal/api/scim_handlers.go`: `GET/POST /scim/v2/Users`,
+      `GET/PATCH /scim/v2/Users/:id`, authenticated via
+      `requireSCIMBearerAuth` (resolves `org_id` from the token itself,
+      never a client-supplied id) and gated on the new `"scim"` plan feature
+      (`internal/license/plans.go` + `config/plan_catalog.json`, same
+      pattern as `"sso"`). `PATCH active:false` → `DeactivateUserInOrgBySCIM`
+      (new `UserService` method - same deactivate+revoke-tokens logic as
+      Phase 7, but with `deactivated_by_user_id = NULL` since the actor is
+      the IdP, not a LiveReview user); `active:true` → `ReactivateUserInOrgBySCIM`.
+      Create uses the new `UserService.ProvisionSCIMUser`, which mirrors the
+      SSO JIT-create path (random unusable password, member role) rather
+      than the owner-driven `CreateUserInOrg`, since SCIM provisioning must
+      never send an invitation email.
+- [x] Org-scoped, session-authenticated token management:
+      `GET/POST/DELETE /api/v1/orgs/:org_id/scim-token` (generate, rotate,
+      revoke - plaintext shown once, same reveal-once convention as an API
+      key), gated the same way as `/sso-config`.
+- [x] New audit actions `scim.user.create/update/deactivate/reactivate`,
+      `scim.token.create/revoke` in `internal/auditlog/catalog.go` +
+      `docs/audit-events.md`. SCIM-triggered events use
+      `auditRecorder.Webhook(...)` (no user session to attribute them to -
+      same category as a provider webhook).
+- [x] Settings UI: SCIM Provisioning panel at the bottom of
+      `SSOSettingsTab.tsx` - generate/rotate/revoke the token, shows the
+      SCIM base URL to paste into the IdP's SCIM app config.
+- [x] `npx tsc --noEmit` clean. Build clean, `go test ./internal/auditlog/...`
+      clean.
+
+### Phase 9 — OIDC back-channel logout / SAML SLO — PARTIAL (OIDC done, SAML not shipped)
+- [x] `sso_identities` table
+      (`db/migrations/20261029150100_create_sso_identities.sql`): maps
+      `(org_id, provider_type, subject)` → LiveReview `user_id`, populated
+      on every successful login (`internal/sso/identity_store.go`,
+      `IdentityStore.Upsert` called from `completeSSOLogin`). Needed
+      because an incoming logout event only ever carries the IdP's own
+      subject, never a LiveReview user id.
+- [x] `POST /api/v1/auth/sso/oidc/:org_id/backchannel-logout`
+      (`SSOOIDCBackChannelLogout`): verifies the IdP's `logout_token` JWT
+      the same way an ID token is verified (`sso.VerifyBackChannelLogoutToken`
+      - same issuer/signature/audience/expiry checks via `go-oidc`, plus the
+      OIDC Back-Channel Logout 1.0 `events` claim check), resolves the
+      subject via `sso_identities`, and revokes that user's `auth_tokens`
+      immediately. Per spec, always responds `200` once the token verifies,
+      even if there's nothing to revoke, so the endpoint never leaks account
+      existence.
+- [ ] **SAML Single Logout (SLO) was not implemented.** `crewjam/saml`
+      v0.5.1 only exposes signature verification for the full
+      `ParseResponse`/assertion flow; it has no public primitive for
+      verifying a *signed, IdP-initiated* `LogoutRequest` on its own. Hand-rolling
+      XML-dsig verification for this one message type was judged too high-risk
+      to ship quickly and correctly - accepting an unverified "logout" request
+      would let anyone force-logout a known subject without proving they're
+      the IdP. SAML orgs rely on Phases 7/8 (manual deactivation, SCIM) and
+      normal JWT expiry for this gap; revisit if a later `crewjam/saml`
+      release (or a vetted standalone XML-dsig verifier) exposes a safe
+      primitive for inbound `LogoutRequest` verification.
+- [x] Build clean; `go test ./internal/sso/...` and related packages pass
+      (no e2e back-channel-logout test added yet - would need a Keycloak
+      realm configured to actually send back-channel logout tokens, which
+      isn't wired into the existing `test/fixtures/keycloak/` fixture).
+
+### Phase 10 — Reconciliation poll (fallback for orgs without SCIM) — ✅ DONE
+- [x] `org_sso_configs` gains `reconciliation_enabled`,
+      `reconciliation_interval` (`hourly`/`daily`/`weekly`, default `daily`),
+      `last_reconciled_at`
+      (`db/migrations/20261029150200_add_sso_reconciliation_columns.sql`) -
+      OIDC-only; SAML has no standing credential to silently re-check, so
+      the UI only shows this toggle on the OIDC panel.
+- [x] When enabled, the OIDC auth flow requests the `offline_access` scope
+      (`sso.BuildOIDCOAuth2Config`) and `sso_identities` stores the
+      encrypted refresh token per identity (same AES-GCM box as the client
+      secret).
+- [x] `internal/jobqueue/sso_reconciliation_worker.go`
+      (`SSOReconciliationWorker`, registered as a 15-minute `river.PeriodicJob`
+      named `sso_reconciliation`): queries
+      `sso.Store.ListDueForReconciliation()` for configs whose interval has
+      elapsed, and for each, attempts a silent refresh-token exchange for
+      every stored identity. `invalid_grant`/any refresh failure (what
+      Okta/Azure/Google return for a disabled/deleted/de-authorized account)
+      → `DeactivateUserInOrgBySCIM`, same as a real SCIM deactivation. One
+      coordinator `Work()` call does the per-org fan-out inline, same shape
+      `RiskModelRefitWorker` already uses - no separate one-shot job type
+      needed.
+- [x] Settings UI: "Automatic deprovisioning check" toggle + interval
+      dropdown on the OIDC panel in `SSOSettingsTab.tsx`, shows last-checked
+      time when available.
+- [x] This is the direct answer to "how often does this sync": SCIM
+      (Phase 8) is real-time, push-based - there's no interval for it. This
+      poll's interval is the *maximum extra latency* for OIDC orgs that skip
+      SCIM; Phases 7's session revocation already cuts off a deactivated
+      user's existing session immediately regardless of this job's schedule.
+- [x] Build clean, `go test ./internal/jobqueue/...` and `./internal/sso/...`
+      pass, no import cycle introduced (`internal/jobqueue` importing
+      `internal/api/users` was checked explicitly - no reverse dependency).
+
+**Known gaps after Phases 7-10:** no e2e test harness yet for SCIM, the
+reconciliation poll, or OIDC back-channel logout against a real Keycloak
+(the existing `test/fixtures/keycloak/` realm only covers login); SAML SLO
+is not implemented (see Phase 9). These would be the natural next additions
+if a future session has the budget for them.

@@ -39,6 +39,11 @@ type ssoConfigRequest struct {
 	SAMLIDPMetadataURL string `json:"saml_idp_metadata_url,omitempty"`
 	SAMLIDPMetadataXML string `json:"saml_idp_metadata_xml,omitempty"`
 	SAMLIDPEntityID    string `json:"saml_idp_entity_id,omitempty"`
+
+	// Reconciliation only applies to provider_type=oidc - see Phase 5 of
+	// docs/sso.md's deprovisioning section. Ignored for SAML.
+	ReconciliationEnabled  bool   `json:"reconciliation_enabled,omitempty"`
+	ReconciliationInterval string `json:"reconciliation_interval,omitempty"`
 }
 
 // ssoConfigResponse never carries secrets - this is what GET/PUT return.
@@ -53,21 +58,31 @@ type ssoConfigResponse struct {
 	SAMLIDPMetadataURL  string `json:"saml_idp_metadata_url,omitempty"`
 	SAMLIDPEntityID     string `json:"saml_idp_entity_id,omitempty"`
 	SAMLMetadataSet     bool   `json:"saml_metadata_set"`
+
+	ReconciliationEnabled  bool   `json:"reconciliation_enabled,omitempty"`
+	ReconciliationInterval string `json:"reconciliation_interval,omitempty"`
+	LastReconciledAt       string `json:"last_reconciled_at,omitempty"`
 }
 
 func redactedSSOConfig(cfg *sso.Config) ssoConfigResponse {
-	return ssoConfigResponse{
-		ProviderType:        string(cfg.ProviderType),
-		DisplayName:         cfg.DisplayName,
-		Enabled:             cfg.Enabled,
-		OIDCIssuer:          cfg.OIDCIssuer,
-		OIDCClientID:        cfg.OIDCClientID,
-		OIDCClientSecretSet: cfg.OIDCClientSecret != "",
-		OIDCScopes:          cfg.OIDCScopes,
-		SAMLIDPMetadataURL:  cfg.SAMLIDPMetadataURL,
-		SAMLIDPEntityID:     cfg.SAMLIDPEntityID,
-		SAMLMetadataSet:     cfg.SAMLIDPMetadataXML != "",
+	resp := ssoConfigResponse{
+		ProviderType:           string(cfg.ProviderType),
+		DisplayName:            cfg.DisplayName,
+		Enabled:                cfg.Enabled,
+		OIDCIssuer:             cfg.OIDCIssuer,
+		OIDCClientID:           cfg.OIDCClientID,
+		OIDCClientSecretSet:    cfg.OIDCClientSecret != "",
+		OIDCScopes:             cfg.OIDCScopes,
+		SAMLIDPMetadataURL:     cfg.SAMLIDPMetadataURL,
+		SAMLIDPEntityID:        cfg.SAMLIDPEntityID,
+		SAMLMetadataSet:        cfg.SAMLIDPMetadataXML != "",
+		ReconciliationEnabled:  cfg.ReconciliationEnabled,
+		ReconciliationInterval: cfg.ReconciliationInterval,
 	}
+	if cfg.LastReconciledAt != nil {
+		resp.LastReconciledAt = cfg.LastReconciledAt.Format(time.RFC3339)
+	}
+	return resp
 }
 
 func parseProviderType(raw string) (sso.ProviderType, bool) {
@@ -148,21 +163,26 @@ func (s *Server) UpsertSSOConfig(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 	}
+	if req.ReconciliationInterval != "" && req.ReconciliationInterval != "hourly" && req.ReconciliationInterval != "daily" && req.ReconciliationInterval != "weekly" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "reconciliation_interval must be 'hourly', 'daily', or 'weekly'"})
+	}
 	if req.DisplayName == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "display_name is required"})
 	}
 
 	cfg := &sso.Config{
-		OrgID:              orgID,
-		ProviderType:       provider,
-		DisplayName:        req.DisplayName,
-		Enabled:            req.Enabled,
-		OIDCIssuer:         req.OIDCIssuer,
-		OIDCClientID:       req.OIDCClientID,
-		OIDCScopes:         req.OIDCScopes,
-		SAMLIDPMetadataURL: req.SAMLIDPMetadataURL,
-		SAMLIDPMetadataXML: req.SAMLIDPMetadataXML,
-		SAMLIDPEntityID:    req.SAMLIDPEntityID,
+		OrgID:                  orgID,
+		ProviderType:           provider,
+		DisplayName:            req.DisplayName,
+		Enabled:                req.Enabled,
+		OIDCIssuer:             req.OIDCIssuer,
+		OIDCClientID:           req.OIDCClientID,
+		OIDCScopes:             req.OIDCScopes,
+		SAMLIDPMetadataURL:     req.SAMLIDPMetadataURL,
+		SAMLIDPMetadataXML:     req.SAMLIDPMetadataXML,
+		SAMLIDPEntityID:        req.SAMLIDPEntityID,
+		ReconciliationEnabled:  provider == sso.ProviderOIDC && req.ReconciliationEnabled,
+		ReconciliationInterval: req.ReconciliationInterval,
 	}
 
 	// Preserve the existing secret/metadata unless the caller explicitly

@@ -33,8 +33,9 @@ type AuthHandlers struct {
 	onboardingKeyGenerator func(tx *sql.Tx, userID, orgID int64) (string, error)
 	// sso/ssoState are optional (nil in tests that never call SetSSO): SSO
 	// login routes degrade to "not configured" rather than panicking.
-	sso      *sso.Store
-	ssoState *sso.StateSigner
+	sso           *sso.Store
+	ssoState      *sso.StateSigner
+	ssoIdentities *sso.IdentityStore
 }
 
 // NewAuthHandlers creates a new authentication handlers instance

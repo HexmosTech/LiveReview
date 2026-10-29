@@ -49,6 +49,7 @@ import (
 	"github.com/livereview/internal/providers/azuredevops"
 	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/internal/scheduledreview"
+	"github.com/livereview/internal/scim"
 	"github.com/livereview/internal/slackbot"
 	"github.com/livereview/internal/sso"
 	"github.com/livereview/internal/teamsbot"
@@ -149,7 +150,8 @@ type Server struct {
 	versionInfo                     *VersionInfo
 	deploymentConfig                *DeploymentConfig
 	authHandlers                    *auth.AuthHandlers
-	ssoStore                        *sso.Store        // nil only if the secret box failed to init (see SetSSO wiring)
+	ssoStore                        *sso.Store // nil only if the secret box failed to init (see SetSSO wiring)
+	scimTokens                      *scim.TokenStore
 	githubApp                       *githubapp.Config // nil unless GITHUB_APP_* is configured
 	githubAppSecret                 []byte            // HMAC key for the GitHub App OAuth state
 	tokenService                    *auth.TokenService
@@ -326,11 +328,14 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	// Enterprise SSO (OIDC/SAML) - see docs/sso.md. The secret box reuses
 	// JWT_SECRET rather than requiring a dedicated encryption key.
 	var ssoStore *sso.Store
+	var ssoIdentities *sso.IdentityStore
 	if ssoBox, err := sso.NewSecretBox(jwtSecret); err != nil {
 		log.Printf("[sso] disabled: %v", err)
 	} else {
 		ssoStore = sso.NewStore(db, ssoBox)
 		authHandlers.SetSSO(ssoStore, jwtSecret)
+		ssoIdentities = sso.NewIdentityStore(db, ssoBox)
+		authHandlers.SetSSOIdentities(ssoIdentities)
 	}
 
 	// Audit trail framework: recorder + route-spec registry. The HTTP
@@ -392,6 +397,7 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 		deploymentConfig:                deploymentConfig,
 		authHandlers:                    authHandlers,
 		ssoStore:                        ssoStore,
+		scimTokens:                      scim.NewTokenStore(db),
 		githubApp:                       githubapp.Load(),
 		githubAppSecret:                 []byte(jwtSecret),
 		tokenService:                    tokenService,
@@ -1173,9 +1179,22 @@ func (s *Server) setupRoutes() {
 	public.GET("/auth/sso/providers", s.authHandlers.SSOProviders)
 	public.GET("/auth/sso/oidc/:org_id/login", s.authHandlers.SSOOIDCLogin)
 	public.GET("/auth/sso/oidc/callback", s.authHandlers.SSOOIDCCallback)
+	public.POST("/auth/sso/oidc/:org_id/backchannel-logout", s.authHandlers.SSOOIDCBackChannelLogout)
 	public.GET("/auth/sso/saml/:org_id/metadata", s.authHandlers.SSOSAMLMetadata)
 	public.GET("/auth/sso/saml/:org_id/login", s.authHandlers.SSOSAMLLogin)
 	public.POST("/auth/sso/saml/:org_id/acs", s.authHandlers.SSOSAMLACS)
+
+	// SCIM 2.0 (Okta/Azure AD/Google Workspace user lifecycle sync) - see
+	// docs/sso.md. Public route group by necessity (SCIM clients authenticate
+	// via their own org-scoped bearer token, not a LiveReview session);
+	// org-scoping comes from that token alone, enforced inside
+	// requireSCIMBearerAuth, never from a client-supplied id.
+	scimGroup := public.Group("/scim/v2")
+	scimGroup.Use(s.requireSCIMBearerAuth)
+	scimGroup.GET("/Users", s.SCIMListUsers)
+	scimGroup.POST("/Users", s.SCIMCreateUser)
+	scimGroup.GET("/Users/:id", s.SCIMGetUser)
+	scimGroup.PATCH("/Users/:id", s.SCIMPatchUser)
 
 	// Diff review endpoints. Accepts either an X-API-Key (the git-lrc CLI's
 	// auth) or a Bearer session token (the web UI's review-details diff
@@ -1331,6 +1350,7 @@ func (s *Server) setupRoutes() {
 	orgGroup.GET("/users/:user_id", s.userHandlers.GetUser)
 	s.audited(orgGroup, echo.PUT, "/users/:user_id", auditlog.Spec{Action: auditlog.ActionUserUpdate, Category: auditlog.CategoryUser, ResourceType: "user", ResourceIDParam: "user_id", Sensitive: true}, s.userHandlers.UpdateUser)
 	s.audited(orgGroup, echo.DELETE, "/users/:user_id", auditlog.Spec{Action: auditlog.ActionUserDeactivate, Category: auditlog.CategoryUser, ResourceType: "user", ResourceIDParam: "user_id", Sensitive: true}, s.userHandlers.DeactivateUser)
+	s.audited(orgGroup, echo.POST, "/users/:user_id/reactivate", auditlog.Spec{Action: auditlog.ActionUserReactivate, Category: auditlog.CategoryUser, ResourceType: "user", ResourceIDParam: "user_id", Sensitive: true}, s.userHandlers.ReactivateUser)
 	s.audited(orgGroup, echo.PUT, "/users/:user_id/role", auditlog.Spec{Action: auditlog.ActionUserRoleChange, Category: auditlog.CategoryUser, ResourceType: "user", ResourceIDParam: "user_id", Sensitive: true}, s.userHandlers.ChangeUserRole)
 	s.audited(orgGroup, echo.POST, "/users/:user_id/force-password-reset", auditlog.Spec{Action: auditlog.ActionPasswordForceReset, Category: auditlog.CategoryUser, ResourceType: "user", ResourceIDParam: "user_id", Sensitive: true}, s.userHandlers.ForcePasswordReset)
 	orgGroup.GET("/users/:user_id/audit-log", s.userHandlers.GetUserAuditLog)
@@ -1350,6 +1370,9 @@ func (s *Server) setupRoutes() {
 	s.audited(orgGroup, echo.PUT, "/sso-config/:provider_type", auditlog.Spec{Action: auditlog.ActionSettingsSSOUpdate, Category: auditlog.CategorySettings, ResourceType: "org_sso_config", ResourceIDParam: "provider_type", Sensitive: true}, s.UpsertSSOConfig)
 	s.audited(orgGroup, echo.DELETE, "/sso-config/:provider_type", auditlog.Spec{Action: auditlog.ActionSettingsSSODelete, Category: auditlog.CategorySettings, ResourceType: "org_sso_config", ResourceIDParam: "provider_type", Sensitive: true}, s.DeleteSSOConfig)
 	orgGroup.POST("/sso-config/:provider_type/test", s.TestSSOConfig)
+	orgGroup.GET("/scim-token", s.GetSCIMToken)
+	s.audited(orgGroup, echo.POST, "/scim-token", auditlog.Spec{Action: auditlog.ActionSCIMTokenCreate, Category: auditlog.CategoryAuth, ResourceType: "scim_token", Sensitive: true}, s.CreateSCIMToken)
+	s.audited(orgGroup, echo.DELETE, "/scim-token", auditlog.Spec{Action: auditlog.ActionSCIMTokenRevoke, Category: auditlog.CategoryAuth, ResourceType: "scim_token", Sensitive: true}, s.RevokeSCIMToken)
 
 	// Super admin routes - Production
 	adminGroup := v1.Group("/admin")

@@ -236,11 +236,15 @@ func (ts *TokenService) ValidateAccessToken(tokenString string) (*models.User, e
 		fmt.Printf("Warning: failed to update last_used_at: %v\n", err)
 	}
 
-	// Get user details
+	// Get user details. The is_active filter is defense in depth: deactivation
+	// (internal/api/users/user_service.go's DeactivateUserInOrg) already
+	// revokes this user's auth_tokens rows directly, but this guards against
+	// any future deactivation path that forgets to, same as
+	// APIKeyManager.ValidateAPIKey already does for API keys.
 	user := &models.User{}
 	err = ts.db.QueryRow(`
 		SELECT id, email, password_hash, default_org_id, created_at, updated_at
-		FROM users WHERE id = $1
+		FROM users WHERE id = $1 AND is_active = true
 	`, claims.UserID).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.DefaultOrgID, &user.CreatedAt, &user.UpdatedAt)
 
 	if err != nil {

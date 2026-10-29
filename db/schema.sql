@@ -303,6 +303,20 @@ $$;
 
 
 --
+-- Name: set_sso_identities_updated_at(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.set_sso_identities_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: trial_eligibility_set_updated_at(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2133,7 +2147,11 @@ CREATE TABLE public.org_sso_configs (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     created_by_user_id bigint,
-    CONSTRAINT org_sso_configs_provider_type_check CHECK (((provider_type)::text = ANY ((ARRAY['oidc'::character varying, 'saml'::character varying])::text[])))
+    reconciliation_enabled boolean DEFAULT false NOT NULL,
+    reconciliation_interval text DEFAULT 'daily'::text NOT NULL,
+    last_reconciled_at timestamp with time zone,
+    CONSTRAINT org_sso_configs_provider_type_check CHECK (((provider_type)::text = ANY ((ARRAY['oidc'::character varying, 'saml'::character varying])::text[]))),
+    CONSTRAINT org_sso_configs_reconciliation_interval_check CHECK ((reconciliation_interval = ANY (ARRAY['hourly'::text, 'daily'::text, 'weekly'::text])))
 );
 
 
@@ -3429,6 +3447,78 @@ CREATE TABLE public.schema_migrations (
 
 
 --
+-- Name: scim_tokens; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.scim_tokens (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    token_hash character varying(64) NOT NULL,
+    token_prefix character varying(16) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone,
+    revoked_at timestamp with time zone,
+    created_by_user_id bigint
+);
+
+
+--
+-- Name: scim_tokens_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.scim_tokens_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: scim_tokens_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.scim_tokens_id_seq OWNED BY public.scim_tokens.id;
+
+
+--
+-- Name: sso_identities; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sso_identities (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    provider_type character varying(16) NOT NULL,
+    subject character varying(512) NOT NULL,
+    oidc_refresh_token_enc text,
+    last_checked_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT sso_identities_provider_type_check CHECK (((provider_type)::text = ANY ((ARRAY['oidc'::character varying, 'saml'::character varying])::text[])))
+);
+
+
+--
+-- Name: sso_identities_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.sso_identities_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: sso_identities_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.sso_identities_id_seq OWNED BY public.sso_identities.id;
+
+
+--
 -- Name: subscription_payments; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4521,6 +4611,20 @@ ALTER TABLE ONLY public.scheduled_review_runs ALTER COLUMN id SET DEFAULT nextva
 
 
 --
+-- Name: scim_tokens id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scim_tokens ALTER COLUMN id SET DEFAULT nextval('public.scim_tokens_id_seq'::regclass);
+
+
+--
+-- Name: sso_identities id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sso_identities ALTER COLUMN id SET DEFAULT nextval('public.sso_identities_id_seq'::regclass);
+
+
+--
 -- Name: subscription_payments id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -5338,6 +5442,38 @@ ALTER TABLE ONLY public.scheduled_review_runs
 
 ALTER TABLE ONLY public.schema_migrations
     ADD CONSTRAINT schema_migrations_pkey PRIMARY KEY (version);
+
+
+--
+-- Name: scim_tokens scim_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scim_tokens
+    ADD CONSTRAINT scim_tokens_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: scim_tokens scim_tokens_token_hash_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scim_tokens
+    ADD CONSTRAINT scim_tokens_token_hash_key UNIQUE (token_hash);
+
+
+--
+-- Name: sso_identities sso_identities_org_id_provider_type_subject_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sso_identities
+    ADD CONSTRAINT sso_identities_org_id_provider_type_subject_key UNIQUE (org_id, provider_type, subject);
+
+
+--
+-- Name: sso_identities sso_identities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sso_identities
+    ADD CONSTRAINT sso_identities_pkey PRIMARY KEY (id);
 
 
 --
@@ -7599,6 +7735,20 @@ CREATE INDEX idx_scheduled_review_runs_config_id ON public.scheduled_review_runs
 
 
 --
+-- Name: idx_scim_tokens_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_scim_tokens_org_id ON public.scim_tokens USING btree (org_id);
+
+
+--
+-- Name: idx_sso_identities_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_sso_identities_user_id ON public.sso_identities USING btree (user_id);
+
+
+--
 -- Name: idx_subscription_payments_captured; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -9181,6 +9331,13 @@ CREATE TRIGGER trg_quota_policy_catalog_updated_at BEFORE UPDATE ON public.quota
 
 
 --
+-- Name: sso_identities trg_sso_identities_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_sso_identities_updated_at BEFORE UPDATE ON public.sso_identities FOR EACH ROW EXECUTE FUNCTION public.set_sso_identities_updated_at();
+
+
+--
 -- Name: trial_eligibility trg_trial_eligibility_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -9900,6 +10057,38 @@ ALTER TABLE ONLY public.scheduled_review_runs
 
 
 --
+-- Name: scim_tokens scim_tokens_created_by_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scim_tokens
+    ADD CONSTRAINT scim_tokens_created_by_user_id_fkey FOREIGN KEY (created_by_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: scim_tokens scim_tokens_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.scim_tokens
+    ADD CONSTRAINT scim_tokens_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: sso_identities sso_identities_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sso_identities
+    ADD CONSTRAINT sso_identities_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: sso_identities sso_identities_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sso_identities
+    ADD CONSTRAINT sso_identities_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: subscription_payments subscription_payments_subscription_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -10301,4 +10490,7 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261025120100'),
     ('20261025130000'),
     ('20261029104047'),
-    ('20261029134500');
+    ('20261029134500'),
+    ('20261029150000'),
+    ('20261029150100'),
+    ('20261029150200');

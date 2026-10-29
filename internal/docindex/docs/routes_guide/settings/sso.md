@@ -58,6 +58,59 @@ real gatekeeper.
 - Flip **Enabled** on a saved config to let users sign in with it immediately,
   or off to stop new SSO logins without losing the saved settings.
 
+## Deprovisioning: how a removed user actually loses access
+
+JIT provisioning only covers getting users *in*. There are three distinct
+mechanisms for getting a removed/disabled IdP user *out*, each covering a
+different gap:
+
+1. **Manual deactivation always works.** An owner deactivating a user
+   (Settings → Users) immediately revokes every one of that user's live
+   sessions - their JWT stops working on the very next request, not just on
+   future logins. SSO login itself can never undo a deactivation: if a
+   deactivated user's IdP credentials still work, login is rejected rather
+   than silently reactivating them. Reactivating is an explicit admin action.
+2. **SCIM (below) is the real-time, automated answer**, if the org wires it
+   up at their IdP. Without it, deprovisioning depends on a human noticing
+   or the two fallbacks below.
+3. **The reconciliation poll** (OIDC panel, "Automatic deprovisioning
+   check") and **OIDC back-channel logout** are two best-effort fallbacks
+   for orgs that skip SCIM - see their own sections below. Neither applies
+   to SAML; a SAML-only org that wants automated deprovisioning needs SCIM.
+
+## SCIM provisioning
+
+A "SCIM Provisioning" panel sits below the OIDC/SAML tabs on this same page,
+independent of which login protocol(s) are configured. This lets the IdP
+itself (Okta, Azure AD/Entra ID, Google Workspace) push user lifecycle
+events directly - most importantly, deactivating a LiveReview user the
+moment the IdP admin removes or disables them there, rather than waiting for
+that user to attempt another login.
+
+- **Generate Token** creates the org's SCIM bearer token, shown once (same
+  reveal-once convention as an API key) - copy it into the IdP's SCIM app
+  configuration alongside the shown **SCIM base URL**
+  (`{origin}/api/v1/scim/v2`).
+- **Rotate Token** replaces the token; the old one stops working
+  immediately, so the IdP's SCIM config needs updating with the new one.
+- **Revoke** disables SCIM entirely until a new token is generated.
+- Requires the `scim` plan feature (same plan entry as `sso`,
+  `internal/license/plans.go`'s `PlanEnterpriseSelfhosted`).
+- The IdP authenticates every SCIM call with this bearer token alone - there
+  is no user session involved, and the org is resolved from the token
+  itself, never a client-supplied id.
+
+## Automatic deprovisioning check (OIDC reconciliation poll)
+
+Only shown on the OIDC panel. A fallback for orgs that configure OIDC login
+but never wire up SCIM above (a separate integration step many admins skip).
+When enabled, LiveReview periodically re-checks each signed-in user against
+the IdP (silently refreshing a stored OAuth token) and deactivates them here
+if the IdP rejects it - the same outcome a SCIM deactivation would produce,
+just on a delay bounded by the interval you pick (hourly/daily/weekly,
+default daily) instead of instantly. Not available for SAML - there's no
+equivalent standing credential to silently re-check with that protocol.
+
 ## Where this shows up elsewhere
 
 - The self-hosted login page (`ui/src/pages/Auth/SelfHosted.tsx`) calls the
