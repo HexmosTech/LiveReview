@@ -1,10 +1,18 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useAppDispatch, useAppSelector } from '../../store/configureStore';
 import { useNavigate } from 'react-router-dom';
 import { login } from '../../store/Auth/reducer';
 import { handleLoginError, getRedirectAfterLogin, clearRedirectAfterLogin } from '../../utils/authHelpers';
 import { notify } from '../../utils/notify';
+import apiClient from '../../api/apiClient';
+
+interface SSOProviderInfo {
+	org_id: number;
+	org_name: string;
+	provider_type: 'oidc' | 'saml';
+	display_name: string;
+}
 
 const SelfHosted: React.FC = () => {
 	const dispatch = useAppDispatch();
@@ -12,6 +20,15 @@ const SelfHosted: React.FC = () => {
 	const [email, setEmail] = useState('');
 	const [password, setPassword] = useState('');
 	const { isLoading, error } = useAppSelector((state) => state.Auth);
+	const [ssoProviders, setSsoProviders] = useState<SSOProviderInfo[]>([]);
+	const ssoErrorParam = new URLSearchParams(window.location.search).get('sso_error');
+
+	useEffect(() => {
+		apiClient
+			.get<SSOProviderInfo[]>('/api/v1/auth/sso/providers')
+			.then((data) => setSsoProviders(data || []))
+			.catch(() => setSsoProviders([]));
+	}, []);
 
 	// Debug logging for login component
 	console.log('🚨🚨🚨 === LOGIN COMPONENT DEBUG === 🚨🚨🚨');
@@ -161,6 +178,11 @@ const SelfHosted: React.FC = () => {
 					</div>
 
 					{error && <div className="bg-red-900/20 border border-red-600 text-red-300 px-4 py-3 rounded-lg text-sm">{error}</div>}
+					{ssoErrorParam && (
+						<div className="bg-red-900/20 border border-red-600 text-red-300 px-4 py-3 rounded-lg text-sm">
+							Single sign-on login failed ({ssoErrorParam}). Please try again or use your password below.
+						</div>
+					)}
 
 					<div className="pt-2">
 						<button
@@ -172,6 +194,30 @@ const SelfHosted: React.FC = () => {
 						</button>
 					</div>
 				</form>
+
+				{ssoProviders.length > 0 && (
+					<div className="mt-6">
+						<div className="relative">
+							<div className="absolute inset-0 flex items-center">
+								<div className="w-full border-t border-gray-700" />
+							</div>
+							<div className="relative flex justify-center text-sm">
+								<span className="px-2 bg-gray-900 text-gray-400">or</span>
+							</div>
+						</div>
+						<div className="mt-4 space-y-2">
+							{ssoProviders.map((p) => (
+								<a
+									key={`${p.org_id}-${p.provider_type}`}
+									href={`/api/v1/auth/sso/${p.provider_type}/${p.org_id}/login`}
+									className="group relative w-full flex justify-center py-3 px-4 border border-gray-600 text-sm font-medium rounded-lg text-white bg-gray-800 hover:bg-gray-700 transition-colors"
+								>
+									Continue with {p.display_name}
+								</a>
+							))}
+						</div>
+					</div>
+				)}
 			</div>
 		</div>
 	);

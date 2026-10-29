@@ -50,6 +50,7 @@ import (
 	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/internal/scheduledreview"
 	"github.com/livereview/internal/slackbot"
+	"github.com/livereview/internal/sso"
 	"github.com/livereview/internal/teamsbot"
 	storageanalytics "github.com/livereview/storage/analytics"
 	"github.com/livereview/storage/core"
@@ -148,6 +149,7 @@ type Server struct {
 	versionInfo                     *VersionInfo
 	deploymentConfig                *DeploymentConfig
 	authHandlers                    *auth.AuthHandlers
+	ssoStore                        *sso.Store        // nil only if the secret box failed to init (see SetSSO wiring)
 	githubApp                       *githubapp.Config // nil unless GITHUB_APP_* is configured
 	githubAppSecret                 []byte            // HMAC key for the GitHub App OAuth state
 	tokenService                    *auth.TokenService
@@ -321,6 +323,16 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 	tokenService := auth.NewTokenService(db, jwtSecret)
 	authHandlers := auth.NewAuthHandlers(tokenService, db)
 
+	// Enterprise SSO (OIDC/SAML) - see docs/sso.md. The secret box reuses
+	// JWT_SECRET rather than requiring a dedicated encryption key.
+	var ssoStore *sso.Store
+	if ssoBox, err := sso.NewSecretBox(jwtSecret); err != nil {
+		log.Printf("[sso] disabled: %v", err)
+	} else {
+		ssoStore = sso.NewStore(db, ssoBox)
+		authHandlers.SetSSO(ssoStore, jwtSecret)
+	}
+
 	// Audit trail framework: recorder + route-spec registry. The HTTP
 	// middleware records mutations automatically; see AGENTS.md.
 	auditRecorder := auditlog.NewRecorder(db)
@@ -379,6 +391,7 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 		versionInfo:                     versionInfo,
 		deploymentConfig:                deploymentConfig,
 		authHandlers:                    authHandlers,
+		ssoStore:                        ssoStore,
 		githubApp:                       githubapp.Load(),
 		githubAppSecret:                 []byte(jwtSecret),
 		tokenService:                    tokenService,
@@ -1153,6 +1166,17 @@ func (s *Server) setupRoutes() {
 	public.POST("/auth/setup", s.authHandlers.SetupAdmin)
 	public.POST("/auth/onboard", s.Onboard)
 
+	// Enterprise SSO (OIDC/SAML) login + discovery - see docs/sso.md.
+	// Public by necessity (this IS the login mechanism); org-scoping is
+	// enforced inside the handlers via the signed state token / SP config,
+	// never from a client-supplied header.
+	public.GET("/auth/sso/providers", s.authHandlers.SSOProviders)
+	public.GET("/auth/sso/oidc/:org_id/login", s.authHandlers.SSOOIDCLogin)
+	public.GET("/auth/sso/oidc/callback", s.authHandlers.SSOOIDCCallback)
+	public.GET("/auth/sso/saml/:org_id/metadata", s.authHandlers.SSOSAMLMetadata)
+	public.GET("/auth/sso/saml/:org_id/login", s.authHandlers.SSOSAMLLogin)
+	public.POST("/auth/sso/saml/:org_id/acs", s.authHandlers.SSOSAMLACS)
+
 	// Diff review endpoints. Accepts either an X-API-Key (the git-lrc CLI's
 	// auth) or a Bearer session token (the web UI's review-details diff
 	// viewer, which reads this same data via GET /:review_id) — mirrors the
@@ -1316,6 +1340,16 @@ func (s *Server) setupRoutes() {
 	orgGroup.POST("/users/:user_id/identities", s.addUserIdentity)
 	orgGroup.DELETE("/users/:user_id/identities/:id", s.removeUserIdentity)
 	orgGroup.GET("/identities", s.listOrgIdentities)
+
+	// Enterprise SSO (OIDC/SAML) configuration - see docs/sso.md.
+	// Session-only, owner/super-admin-only, self-hosted-enterprise-only
+	// (all enforced inside requireSSOAccess, since the gate also depends on
+	// the org's license plan, not just role/API-key checks s.audited can
+	// express declaratively).
+	orgGroup.GET("/sso-config", s.ListSSOConfigs)
+	s.audited(orgGroup, echo.PUT, "/sso-config/:provider_type", auditlog.Spec{Action: auditlog.ActionSettingsSSOUpdate, Category: auditlog.CategorySettings, ResourceType: "org_sso_config", ResourceIDParam: "provider_type", Sensitive: true}, s.UpsertSSOConfig)
+	s.audited(orgGroup, echo.DELETE, "/sso-config/:provider_type", auditlog.Spec{Action: auditlog.ActionSettingsSSODelete, Category: auditlog.CategorySettings, ResourceType: "org_sso_config", ResourceIDParam: "provider_type", Sensitive: true}, s.DeleteSSOConfig)
+	orgGroup.POST("/sso-config/:provider_type/test", s.TestSSOConfig)
 
 	// Super admin routes - Production
 	adminGroup := v1.Group("/admin")

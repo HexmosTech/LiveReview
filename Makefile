@@ -390,6 +390,18 @@ testall:
 regen-risk-report:
 	python3 scripts/regen_risk_report.py
 
+# Local/CI end-to-end SSO test against a real Keycloak (OIDC + SAML, see
+# docs/sso.md). Brings up Keycloak with the checked-in realm fixture,
+# runs the headless cookie-jar e2e test, tears the container down either
+# way (the `|| true` + explicit `down` guarantees cleanup even on failure).
+.PHONY: test-sso-e2e
+test-sso-e2e:
+	docker compose -f docker/docker-compose.sso-test.yml up -d keycloak
+	@echo "Waiting for Keycloak to become healthy..."
+	@timeout 120 sh -c 'until docker compose -f docker/docker-compose.sso-test.yml ps keycloak --format json | grep -q "\"Health\":\"healthy\""; do sleep 2; done'
+	$(GOTEST) -tags=sso_e2e -count=1 -v ./internal/sso/... || (docker compose -f docker/docker-compose.sso-test.yml down -v; exit 1)
+	docker compose -f docker/docker-compose.sso-test.yml down -v
+
 .PHONY: security-govulncheck security-govulncheck-json security-osv security-gitleaks security-semgrep security-dependabot security-gh-secret-scanning security-triage
 
 # Run Go vulnerability analysis for reachable vulnerabilities.

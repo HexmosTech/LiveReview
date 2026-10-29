@@ -15,6 +15,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/auditlog"
+	"github.com/livereview/internal/sso"
 	"github.com/livereview/pkg/models"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -30,6 +31,10 @@ type AuthHandlers struct {
 	// Optional: nil just means EnsureCloudUser skips eager generation (dashboard's own lazy
 	// fallback in collectOnboardingData still covers it).
 	onboardingKeyGenerator func(tx *sql.Tx, userID, orgID int64) (string, error)
+	// sso/ssoState are optional (nil in tests that never call SetSSO): SSO
+	// login routes degrade to "not configured" rather than panicking.
+	sso      *sso.Store
+	ssoState *sso.StateSigner
 }
 
 // NewAuthHandlers creates a new authentication handlers instance

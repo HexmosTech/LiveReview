@@ -149,6 +149,8 @@ const (
 	ActionSettingsRiskModel     Action = "settings.risk_model.update"
 	ActionSettingsRetention     Action = "settings.retention.update"
 	ActionSettingsPrompts       Action = "settings.prompts.update"
+	ActionSettingsSSOUpdate     Action = "settings.sso.update"
+	ActionSettingsSSODelete     Action = "settings.sso.delete"
 
 	ActionConnectorCreate       Action = "connector.create"
 	ActionConnectorUpdate       Action = "connector.update"
@@ -283,6 +285,8 @@ var actionCatalog = func() map[Action]ActionMeta {
 		sensitive(meta(ActionSettingsUpdate, CategorySettings, "setting", "Settings updated", "Platform or organization settings were changed.", SeverityWarning)),
 		sensitive(meta(ActionSettingsSMTPUpdate, CategorySettings, "setting", "SMTP settings updated", "Outbound email settings were changed.", SeverityCritical)),
 		sensitive(meta(ActionSettingsStorageUpdate, CategorySettings, "setting", "Storage settings updated", "The blob storage backend was changed.", SeverityCritical)),
+		sensitive(meta(ActionSettingsSSOUpdate, CategorySettings, "setting", "SSO settings updated", "An organization's single sign-on (OIDC/SAML) configuration was created or changed.", SeverityCritical)),
+		sensitive(meta(ActionSettingsSSODelete, CategorySettings, "setting", "SSO settings deleted", "An organization's single sign-on configuration was removed.", SeverityCritical)),
 		sensitive(meta(ActionSettingsManagedAI, CategorySettings, "setting", "Managed AI updated", "LiveReview-managed AI configuration was changed.", SeverityCritical)),
 		sensitive(meta(ActionSettingsAutoApprove, CategorySettings, "setting", "Auto-approve updated", "The auto-approve policy was changed.", SeverityWarning)),
 		sensitive(meta(ActionSettingsRiskModel, CategorySettings, "setting", "Risk model updated", "Risk model configuration was changed.", SeverityWarning)),

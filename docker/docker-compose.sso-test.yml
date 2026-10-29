@@ -1,0 +1,22 @@
+# Local/CI harness for the SSO end-to-end test (see docs/sso.md, "Local
+# end-to-end test: Keycloak" and `make test-sso-e2e`). Test-only: this image
+# is NOT part of the shipped LiveReview Docker image, so it is intentionally
+# pinned here rather than in docker/docker-deps.env (that file only pins
+# ingredients baked into Dockerfile/Dockerfile.crosscompile).
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ../test/fixtures/keycloak:/opt/keycloak/data/import:ro
+    ports:
+      - "8089:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"status\": \"UP\"' <&3"]
+      interval: 3s
+      timeout: 5s
+      retries: 40

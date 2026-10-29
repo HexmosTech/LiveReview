@@ -72,6 +72,15 @@ require (
 require github.com/cdipaolo/goml v0.0.0-20220715001353-00e0c845ae1c
 
 require (
+	github.com/beevik/etree v1.5.0 // indirect
+	github.com/coreos/go-oidc/v3 v3.21.0 // indirect
+	github.com/crewjam/saml v0.5.1 // indirect
+	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
+	github.com/mattermost/xml-roundtrip-validator v0.1.0 // indirect
+	github.com/russellhaering/goxmldsig v1.4.0 // indirect
+)
+
+require (
 	cel.dev/expr v0.25.2 // indirect
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/ai v0.8.0 // indirect
@@ -258,7 +267,7 @@ require (
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
-	golang.org/x/oauth2 v0.36.0 // indirect
+	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/tools v0.51.0 // indirect

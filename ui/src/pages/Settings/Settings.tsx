@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { PageHeader, Card, Button, Icons, Input, Alert, Badge } from '../../components/UIPrimitives';
 import PromptsPage from '../Prompts';
 import LicenseTab from './LicenseTab';
+import SSOSettingsTab from './SSOSettingsTab';
 import SubscriptionTab from './SubscriptionTab';
 import LearningsTab from './LearningsTab';
 import APIKeysTab from './APIKeysTab';
@@ -331,6 +332,12 @@ const Settings = () => {
         ...(!isCloudMode() && (isSuperAdmin || currentOrg?.role === 'owner') ? [{ id: 'license', name: 'License', icon: (
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a4 4 0 10-4 4v1a1 1 0 001 1h1v1a1 1 0 001 1h1l3 3 3-3-3-3v-2a4 4 0 00-4-4z" />
+            </svg>
+        ) }] : []),
+        // SSO tab: self-hosted enterprise only (super_admin or owner) - same gating as License
+        ...(!isCloudMode() && (isSuperAdmin || currentOrg?.role === 'owner') ? [{ id: 'sso', name: 'SSO', icon: (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
         ) }] : []),
         ...(canAccessPrompts ? [{ id: 'prompts', name: 'Prompts', icon: <Icons.AI /> }] : []),
@@ -807,6 +814,12 @@ const Settings = () => {
                     {activeTab === 'license' && !isCloudMode() && (isSuperAdmin || currentOrg?.role === 'owner') && (
                         <Card>
                             <LicenseTab />
+                        </Card>
+                    )}
+
+                    {activeTab === 'sso' && !isCloudMode() && (isSuperAdmin || currentOrg?.role === 'owner') && (
+                        <Card>
+                            <SSOSettingsTab />
                         </Card>
                     )}
 

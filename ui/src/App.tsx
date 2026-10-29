@@ -25,6 +25,7 @@ const PullRequestReviewTrigger = React.lazy(() => import('./pages/Reviews/PullRe
 const Login = React.lazy(() => import('./pages/Auth/Login'));
 const SelfHosted = React.lazy(() => import('./pages/Auth/SelfHosted'));
 const GhLogin = React.lazy(() => import('./pages/Auth/GhLogin'));
+const SSOCallback = React.lazy(() => import('./pages/Auth/SSOCallback'));
 const GetStartedGitHub = React.lazy(() => import('./pages/GetStarted/GetStartedGitHub'));
 const Setup = React.lazy(() => import('./pages/Setup/Setup'));
 const CodeHostCallback = React.lazy(() => import('./pages/Auth/CodeHostCallback'));
@@ -294,6 +295,9 @@ const AppContent: React.FC = () => {
         if (location.pathname.startsWith('/gh-login')) {
             // "Continue with GitHub" landing page; shows the normal login itself when the feature is off.
             body = <GhLogin />;
+        } else if (location.pathname.startsWith('/sso/callback')) {
+            // Lands here right after a successful OIDC/SAML login; tokens are in the URL fragment.
+            body = <SSOCallback />;
         } else if (isCloudMode() && location.pathname === '/admin') {
             body = <SelfHosted />;
         } else {
