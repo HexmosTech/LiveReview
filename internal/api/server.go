@@ -1825,7 +1825,26 @@ func (s *Server) setupRoutes() {
 	subscriptionsGroup.Use(authMiddleware.BuildOrgContextFromHeader())
 	subscriptionsGroup.Use(authMiddleware.ValidateOrgAccess())
 	subscriptionsGroup.Use(authMiddleware.BuildPermissionContext())
-	subscriptionMutationLimiter := middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(30))
+	// Identify by authenticated user, not RealIP(): these routes always run
+	// after BuildPermissionContext, and echo's default IdentifierExtractor
+	// trusts the client-supplied X-Forwarded-For/X-Real-IP headers, letting
+	// an attacker rotate them to get a fresh rate-limit bucket on every
+	// request (GHSA-246p-cpwv-v3jq / GHSA-99jh-6h7p-pp36, no echo v4 fix).
+	subscriptionMutationLimiter := middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
+		Store: middleware.NewRateLimiterMemoryStore(30),
+		IdentifierExtractor: func(c echo.Context) (string, error) {
+			// This group's middleware chain (RequireAuthOrAPIKey ->
+			// BuildPermissionContext) always runs before this limiter and
+			// aborts on auth failure, so permCtx should never be nil here.
+			// Fail closed rather than fall back to the spoofable RealIP()
+			// if that invariant is ever broken by a future routing change.
+			permCtx := auth.GetPermissionContext(c)
+			if permCtx == nil {
+				return "", fmt.Errorf("rate limiter: no permission context on authenticated route")
+			}
+			return strconv.FormatInt(permCtx.GetUserID(), 10), nil
+		},
+	})
 
 	subscriptionsGroup.POST("", subscriptionsHandler.CreateSubscription)
 	subscriptionsGroup.POST("/confirm-purchase", subscriptionsHandler.ConfirmPurchase)

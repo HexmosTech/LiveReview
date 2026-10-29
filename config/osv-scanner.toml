@@ -4,6 +4,16 @@ id = "GO-2026-5932"
 reason = "False positive — golang.org/x/crypto/openpgp sub-package is never imported by this project; only golang.org/x/crypto/bcrypt is used."
 
 [[ignoredVulns]]
+id = "GHSA-246p-cpwv-v3jq"
+ignoreUntil = 2027-01-28
+reason = "No github.com/labstack/echo/v4 fix exists (only v5.1.0, a different module path). The one place this app used middleware.RateLimiter() with the vulnerable default IdentifierExtractor (internal/api/server.go, subscriptionMutationLimiter) now keys on the authenticated user ID via a custom IdentifierExtractor instead of c.RealIP(), which is immune to X-Forwarded-For/X-Real-IP spoofing. Re-check when a v4.x fix is published."
+
+[[ignoredVulns]]
+id = "GHSA-99jh-6h7p-pp36"
+ignoreUntil = 2027-01-28
+reason = "Not applicable - this is about echo's middleware/proxy.go (Proxy()/ProxyWithConfig()) forwarding a spoofed X-Real-IP to an upstream, and this app never uses echo's reverse-proxy middleware anywhere (grep for middleware.Proxy/ProxyWithConfig is empty). Re-check if that ever changes, or when a v4.x fix is published."
+
+[[ignoredVulns]]
 id = "GHSA-gcqx-w48m-w2h4"
 ignoreUntil = 2027-01-28
 reason = "No patched release exists. deepmerge 4.3.1 is only pulled in by dev tooling (jest, fork-ts-checker-webpack-plugin); `npm ls deepmerge --omit=dev` is empty, so it never ships and never merges untrusted input. Re-check when a fixed version is published."
