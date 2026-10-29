@@ -69,3 +69,5 @@ docs/releases/assets/v1.1.0-audit-log.png
 assets/screenshots/2026-10-29/01-settings-sso-oidc.png
 assets/screenshots/2026-10-29/02-settings-sso-saml.png
 assets/screenshots/2026-10-29/03-login-sso-button.png
+assets/screenshots/2026-10-29/04-settings-sso-scim-baseline.png
+assets/screenshots/2026-10-29/05-settings-sso-reconciliation-scim-token.png
