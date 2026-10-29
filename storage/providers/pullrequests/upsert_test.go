@@ -414,3 +414,41 @@ func TestDeleteRepositoriesByConnectorExcept(t *testing.T) {
 		t.Error("the repository that is no longer allowed was kept")
 	}
 }
+
+func TestUpsertRepository_RejectsIncompatibleProvider(t *testing.T) {
+	db := testDB(t)
+	store := NewStore(db)
+	gitlabConnectorID := insertTestConnector(t, db, "gitlab-self-hosted")
+
+	// Attempt to upsert a GitHub repo with a GitLab connector
+	_, err := store.UpsertRepository(RepositoryUpsert{
+		OrgID:          1,
+		ConnectorID:    gitlabConnectorID,
+		Provider:       "github",
+		ProviderRepoID: "12345",
+		FullName:       "acme/github-repo",
+		Name:           "github-repo",
+	})
+	if err == nil {
+		t.Fatal("expected error when upserting github repo with gitlab connector, got nil")
+	}
+}
+
+func TestEnsureRepositoryStub_RejectsIncompatibleProvider(t *testing.T) {
+	db := testDB(t)
+	store := NewStore(db)
+	gitlabConnectorID := insertTestConnector(t, db, "gitlab-self-hosted")
+
+	// Attempt to create a stub for a GitHub repo with a GitLab connector
+	_, err := store.EnsureRepositoryStub(RepositoryUpsert{
+		OrgID:          1,
+		ConnectorID:    gitlabConnectorID,
+		Provider:       "github",
+		ProviderRepoID: "12345",
+		FullName:       "acme/github-repo",
+		Name:           "github-repo",
+	})
+	if err == nil {
+		t.Fatal("expected error when creating stub for github repo with gitlab connector, got nil")
+	}
+}

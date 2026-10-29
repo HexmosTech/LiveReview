@@ -8,6 +8,7 @@ import { logout, checkSetupStatus, fetchUser } from './store/Auth/reducer';
 import { fetchLicenseStatus, openModal as openLicenseModal, closeModal as closeLicenseModal } from './store/License/slice';
 import LicenseModal from './components/License/LicenseModal';
 import LicenseStatusBar from './components/License/LicenseStatusBar';
+import { GlobalConnectorAlerts } from './components/Connector/ConnectorAlerts';
 import { isCloudMode, isDebugMode } from './utils/deploymentMode';
 import { Toaster } from 'react-hot-toast';
 import { useBottomRightBlockers } from './store/uiLayout';
@@ -318,6 +319,7 @@ const AppContent: React.FC = () => {
                 />
                 <URLMismatchBanner />
                 {!isCloudMode() && !location.pathname.startsWith('/chat') && <LicenseStatusBar onOpenModal={() => dispatch(openLicenseModal())} />}
+                {!location.pathname.startsWith('/chat') && <GlobalConnectorAlerts />}
                 <div className="flex-grow">
                     <Suspense fallback={<RouteFallback />}>
                         <Routes>

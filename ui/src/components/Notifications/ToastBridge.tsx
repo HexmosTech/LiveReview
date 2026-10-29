@@ -25,7 +25,7 @@ const showToast = (severity: NotificationSeverity, text: string, durationMs: num
             toast.error(text, opts);
             break;
         case 'warning':
-            toast(text, { ...opts, icon: '⚠️' });
+            toast(text, opts);
             break;
         default:
             toast(text, opts);

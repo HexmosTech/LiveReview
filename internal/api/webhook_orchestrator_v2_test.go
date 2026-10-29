@@ -374,3 +374,27 @@ func BenchmarkWebhookProcessing(b *testing.B) {
 		_ = server.WebhookOrchestratorV2Handler(c)
 	}
 }
+
+func TestWebhookOrchestratorV2_RejectsProviderMismatch(t *testing.T) {
+	e := echo.New()
+	testServer := &Server{echo: e}
+	server := &Server{
+		echo:                  e,
+		webhookOrchestratorV2: NewWebhookOrchestratorV2(testServer),
+	}
+
+	githubPayload := `{"action":"opened","pull_request":{"id":123,"number":1,"title":"test"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/github-hook/3", strings.NewReader(githubPayload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GitHub-Event", "pull_request")
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.Set("connector_id", int64(3))
+	c.Set("connector_provider", "gitlab-self-hosted")
+
+	err := server.WebhookOrchestratorV2Handler(c)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "provider mismatch")
+}

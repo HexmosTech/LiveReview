@@ -51,6 +51,8 @@ export interface ClientTableProps<TData> {
    * given an initial `size` (TanStack's resizing API) - columnWidths is
    * still used as the pre-resize starting layout. */
   enableColumnResizing?: boolean;
+  /** Optional min-width for table element. Omit to let the table adapt to container width. */
+  minWidth?: string;
 }
 
 /**
@@ -74,6 +76,7 @@ export function ClientTable<TData>({
   getRowHref,
   manualTotal,
   enableColumnResizing = false,
+  minWidth,
 }: ClientTableProps<TData>) {
   // Show loading until the first rows arrive, even when filters keep isEmpty false.
   if (loading && (isEmpty || table.getRowModel().rows.length === 0)) {
@@ -126,8 +129,11 @@ export function ClientTable<TData>({
 
   return (
     <div className="bg-[#1F2836] rounded-lg border border-slate-700">
-      <div className="overflow-x-auto">
-      <table className="w-full table-fixed text-sm min-w-[900px]">
+      <div
+        className="overflow-x-auto [&::-webkit-scrollbar]:hidden min-h-[360px]"
+        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+      >
+      <table className="w-full table-fixed text-sm" style={minWidth ? { minWidth } : undefined}>
         <colgroup>
           {enableColumnResizing
             ? // Percentage widths (relative to the table's current total size)
@@ -165,7 +171,7 @@ export function ClientTable<TData>({
         <tbody className="divide-y divide-slate-700">
           {table.getRowModel().rows.length === 0 && (
             <tr>
-              <td colSpan={columnWidths.length} className="px-6 py-10 text-center text-slate-400 text-sm">
+              <td colSpan={columnWidths.length} className="px-6 py-28 text-center text-slate-400 text-sm">
                 No results match your current filters. Try adjusting or clearing them above.
               </td>
             </tr>

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ProviderIcon from '../../components/ProviderIcon';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import { useAppDispatch } from '../../store/configureStore';
+import { add as addNotification } from '../../store/Notifications/slice';
 import {
   ColumnDef,
   SortingState,
@@ -12,7 +14,7 @@ import {
 } from '@tanstack/react-table';
 import { notify } from '../../utils/notify';
 import { LuSearch } from 'react-icons/lu';
-import { Button, Icons, Tooltip, Input, MultiSelectPanel } from '../../components/UIPrimitives';
+import { Alert, Button, Icons, Tooltip, Input, MultiSelectPanel } from '../../components/UIPrimitives';
 import { ClientTable } from '../../components/DataTable/ClientTable';
 import { SortIcon, SortableHeaderLabel, HeaderFilterPopover, multiSelectFilterFn, TruncatedWithTooltip } from '../../components/DataTable/HeaderControls';
 import ExploreTabs from './ExploreTabs';
@@ -68,6 +70,81 @@ const syncStatusBadge = (status: string): { label: string; color: string; border
   }
 };
 
+// ─── Org-level connector error alert helpers ─────────────────────────────────
+
+/** Error kinds we surface as connector-level alerts. */
+type ConnectorErrorKind = 'auth' | 'mismatch';
+
+interface ConnectorAlert {
+  connector: import('../../api/connectors').ConnectorResponse;
+  kind: ConnectorErrorKind;
+  /** Number of repos in this connector with this error kind. */
+  repoCount: number;
+}
+
+/** Return the LiveReview wiki URL for a given connector provider. */
+function wikiUrlForProvider(provider: string): string {
+  const norm = (provider || '').toLowerCase();
+  if (norm.startsWith('gitlab-self') || norm === 'gitlab-self-hosted') {
+    return 'https://github.com/HexmosTech/LiveReview/wiki/Self%E2%80%90Hosted-GitLab';
+  }
+  if (norm.startsWith('gitlab')) return 'https://github.com/HexmosTech/LiveReview/wiki/Gitlab';
+  if (norm.startsWith('github')) return 'https://github.com/HexmosTech/LiveReview/wiki/Github';
+  if (norm.startsWith('bitbucket')) return 'https://github.com/HexmosTech/LiveReview/wiki/BitBucket';
+  return 'https://github.com/HexmosTech/LiveReview/wiki';
+}
+
+/** Scan the currently-loaded repository page and return one alert per
+ *  affected connector. Multiple repos on the same connector collapse into
+ *  a single alert so we never spam N banners for N repos. */
+function computeConnectorAlerts(
+  repos: import('../../types/explore').Repository[],
+  connectors: import('../../api/connectors').ConnectorResponse[]
+): ConnectorAlert[] {
+  const connectorMap = new Map(connectors.map((c) => [c.id, c]));
+  // connector_id → { auth count, mismatch count }
+  const counts = new Map<number, { auth: number; mismatch: number }>();
+
+  for (const repo of repos) {
+    if (repo.last_sync_status !== 'error' || !repo.last_sync_error) continue;
+    const err = repo.last_sync_error.toLowerCase();
+    const isForbidden =
+      err.includes('forbidden') ||
+      err.includes('403') ||
+      err.includes('access forbidden');
+    const isAuth =
+      !isForbidden &&
+      (err.includes('auth') ||
+        err.includes('token') ||
+        err.includes('401') ||
+        err.includes('unauthorized') ||
+        err.includes('credential'));
+    const isMismatch =
+      err.includes('mismatch') ||
+      err.includes('does not match') ||
+      err.includes('configuration error') ||
+      err.includes('incompatible');
+    if (!isAuth && !isMismatch) continue;
+
+    const existing = counts.get(repo.connector_id) ?? { auth: 0, mismatch: 0 };
+    if (isAuth) existing.auth += 1;
+    if (isMismatch) existing.mismatch += 1;
+    counts.set(repo.connector_id, existing);
+  }
+
+  const alerts: ConnectorAlert[] = [];
+  for (const [connectorId, { auth, mismatch }] of counts) {
+    const connector = connectorMap.get(connectorId);
+    if (!connector) continue;
+    // Auth errors take priority; if both exist show auth.
+    if (auth > 0) alerts.push({ connector, kind: 'auth', repoCount: auth });
+    else if (mismatch > 0) alerts.push({ connector, kind: 'mismatch', repoCount: mismatch });
+  }
+  return alerts;
+}
+
+
+
 // Matches the "Open in new tab" icon already used in RecentActivity.tsx.
 const ExternalLinkIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -86,7 +163,7 @@ const DESCRIPTION_MAX = 90;
 
 const truncate = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max)}…` : text);
 
-const REPOSITORIES_COLUMN_WIDTHS = ['32%', '17%', '17%', '17%', '17%'];
+const REPOSITORIES_COLUMN_WIDTHS = ['35%', '16%', '16%', '16%', '17%'];
 
 // How long to wait after the last keystroke in the Repository search box
 // before actually firing the (now server-side) request - typing shouldn't
@@ -95,6 +172,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 
 const Repositories: React.FC = () => {
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
 
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [total, setTotal] = useState(0);
@@ -166,6 +244,37 @@ const Repositories: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchRepositories, sorting, columnFilters, pagination]);
 
+  // Synchronize any connector-level sync errors detected on repositories to the Notifications store
+  useEffect(() => {
+    if (loading || repositories.length === 0 || connectors.length === 0) return;
+    const alerts = computeConnectorAlerts(repositories, connectors);
+    alerts.forEach((alert) => {
+      const pName = providerLabel(alert.connector.provider);
+      const wiki = wikiUrlForProvider(alert.connector.provider);
+      const title = alert.kind === 'auth'
+        ? `Your ${pName} provider credential expired, please renew it.`
+        : `Provider Mismatch: ${pName} (${alert.connector.connection_name})`;
+      const message = alert.kind === 'auth'
+        ? `Connector "${alert.connector.connection_name}": ${alert.repoCount} ${alert.repoCount === 1 ? 'repository' : 'repositories'} could not sync due to expired or invalid credentials.`
+        : `${alert.repoCount} ${alert.repoCount === 1 ? 'repository' : 'repositories'} have a mismatched provider configured.`;
+
+      dispatch(
+        addNotification({
+          dedupeKey: `connector-${alert.kind}-${alert.connector.id}`,
+          severity: 'error',
+          title,
+          message,
+          source: 'connector',
+          toast: false,
+          actions: [
+            { label: 'Renew Credentials', actionId: `/git/connector/${alert.connector.id}` },
+            { label: `${pName} Setup Guide`, actionId: wiki },
+          ],
+        })
+      );
+    });
+  }, [loading, repositories, connectors, dispatch]);
+
   const handleSortingChange: OnChangeFn<SortingState> = (updater) => {
     const next = typeof updater === 'function' ? updater(sorting) : updater;
     const nextPagination = { ...pagination, pageIndex: 0 };
@@ -230,15 +339,74 @@ const Repositories: React.FC = () => {
       const results = await Promise.allSettled(
         connectors.map((c) => syncConnectorRepositories(c.id.toString()))
       );
-      const failed = results.filter((r) => r.status === 'rejected').length;
-      if (failed === 0) {
-        notify.success(`Repository sync started for ${connectors.length} connector(s). New repositories and PRs will appear shortly.`);
-      } else {
-        notify.error(`Sync started, but failed for ${failed} of ${connectors.length} connector(s).`);
+
+      const failedEntries: { connector: ConnectorResponse; error: unknown }[] = [];
+      results.forEach((res, idx) => {
+        if (res.status === 'rejected') {
+          failedEntries.push({ connector: connectors[idx], error: res.reason });
+        }
+      });
+
+      const failedCount = failedEntries.length;
+      const successCount = connectors.length - failedCount;
+
+      if (successCount > 0) {
+        notify.success(
+          successCount === 1
+            ? 'Sync started. Updating repositories and pull requests...'
+            : `Sync started for all ${successCount} connectors. Updating repositories and pull requests...`
+        );
       }
+
+      if (failedCount > 0) {
+        // Dispatch one clear notification per failed connector naming the provider
+        failedEntries.forEach(({ connector, error: rawErr }) => {
+          const pName = providerLabel(connector.provider);
+          const wiki = wikiUrlForProvider(connector.provider);
+          const errMsg = rawErr instanceof Error ? rawErr.message : String(rawErr || '');
+          const errLower = errMsg.toLowerCase();
+          const isForbidden = errLower.includes('403') || errLower.includes('forbidden');
+          const isAuth =
+            !isForbidden &&
+            (errLower.includes('auth') ||
+              errLower.includes('token') ||
+              errLower.includes('401') ||
+              errLower.includes('unauthorized') ||
+              errLower.includes('credential') ||
+              errLower.includes('bad credentials'));
+
+          const kind = isAuth ? 'auth' : 'sync-error';
+          const title = isAuth
+            ? `${pName} credential expired — please renew it`
+            : `Sync failed: ${pName} (${connector.connection_name})`;
+
+          const message = isAuth
+            ? `Connector "${connector.connection_name}": failed to authenticate with ${pName}. Please renew your access token.`
+            : `Sync failed for ${pName} (${connector.connection_name}): ${errMsg || 'network or server error'}`;
+
+          dispatch(
+            addNotification({
+              dedupeKey: `connector-${kind}-${connector.id}`,
+              severity: 'error',
+              title,
+              message,
+              source: 'connector',
+              toast: true,
+              actions: [
+                { label: 'Renew Credentials', actionId: `/git/connector/${connector.id}` },
+                { label: `${pName} Setup Guide`, actionId: wiki },
+              ],
+            })
+          );
+        });
+      }
+
       // Give the backfill a moment to at least upsert repositories (PR data
       // arrives asynchronously via the job queue) before refreshing the list.
-      setTimeout(refetchCurrent, 2000);
+      setTimeout(() => {
+        refetchCurrent();
+        window.dispatchEvent(new Event('connector-sync-finished'));
+      }, 2000);
     } finally {
       setSyncingAll(false);
     }

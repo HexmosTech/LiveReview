@@ -7,9 +7,11 @@ package pullrequests
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/lib/pq"
+	"github.com/livereview/internal/providers"
 )
 
 type Store struct {
@@ -36,11 +38,40 @@ type RepositoryUpsert struct {
 	Description    string
 }
 
+// ProviderMismatchError is returned when a repository's provider is incompatible with its connector.
+type ProviderMismatchError struct {
+	RepoFullName string
+	RepoProvider string
+	ConnectorID  int64
+	ConnProvider string
+}
+
+func (e *ProviderMismatchError) Error() string {
+	return fmt.Sprintf("repository provider %q is incompatible with connector %d provider %q (repo: %s)",
+		e.RepoProvider, e.ConnectorID, e.ConnProvider, e.RepoFullName)
+}
+
 // UpsertRepository inserts or updates a repositories row keyed by
 // (connector_id, provider_repo_id). Discovery snapshots are always a full,
 // self-consistent picture, so no staleness guard is needed here (unlike
 // UpsertPullRequest).
 func (s *Store) UpsertRepository(r RepositoryUpsert) (int64, error) {
+	if r.ConnectorID > 0 {
+		var connProvider string
+		err := s.db.QueryRow(`SELECT provider FROM integration_tokens WHERE id = $1`, r.ConnectorID).Scan(&connProvider)
+		if err != nil && err != sql.ErrNoRows {
+			return 0, fmt.Errorf("failed to query connector %d for provider validation: %w", r.ConnectorID, err)
+		}
+		if err == nil && connProvider != "" && !providers.IsProviderCompatible(r.Provider, connProvider) {
+			return 0, &ProviderMismatchError{
+				RepoFullName: r.FullName,
+				RepoProvider: r.Provider,
+				ConnectorID:  r.ConnectorID,
+				ConnProvider: connProvider,
+			}
+		}
+	}
+
 	const q = `
 		INSERT INTO repositories (
 			org_id, connector_id, provider, provider_repo_id, full_name, name,
@@ -74,6 +105,22 @@ func (s *Store) UpsertRepository(r RepositoryUpsert) (int64, error) {
 // the later backfill's UpsertRepository call fills in the rest. It never
 // overwrites an existing row.
 func (s *Store) EnsureRepositoryStub(r RepositoryUpsert) (int64, error) {
+	if r.ConnectorID > 0 {
+		var connProvider string
+		err := s.db.QueryRow(`SELECT provider FROM integration_tokens WHERE id = $1`, r.ConnectorID).Scan(&connProvider)
+		if err != nil && err != sql.ErrNoRows {
+			return 0, fmt.Errorf("failed to query connector %d for provider validation: %w", r.ConnectorID, err)
+		}
+		if err == nil && connProvider != "" && !providers.IsProviderCompatible(r.Provider, connProvider) {
+			return 0, &ProviderMismatchError{
+				RepoFullName: r.FullName,
+				RepoProvider: r.Provider,
+				ConnectorID:  r.ConnectorID,
+				ConnProvider: connProvider,
+			}
+		}
+	}
+
 	const q = `
 		INSERT INTO repositories (
 			org_id, connector_id, provider, provider_repo_id, full_name, name, web_url, last_sync_status

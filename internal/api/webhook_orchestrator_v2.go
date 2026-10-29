@@ -22,6 +22,7 @@ import (
 	"github.com/livereview/internal/prompts"
 	githubinput "github.com/livereview/internal/provider_input/github"
 	gitlabinput "github.com/livereview/internal/provider_input/gitlab"
+	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/prsync"
 	"github.com/livereview/internal/webhookutils"
 	storagelicense "github.com/livereview/storage/license"
@@ -153,6 +154,20 @@ func (wo *WebhookOrchestratorV2) ProcessWebhookEvent(c echo.Context) error {
 			"provider": providerName,
 			"reason":   "ping",
 		})
+	}
+
+	// Guard against webhook-to-connector provider mismatch: e.g. a GitHub webhook
+	// sent to a GitLab connector endpoint (/github-hook/:gitlab_connector_id).
+	if connProvider, ok := auth.GetConnectorProviderFromContext(c); ok && connProvider != "" {
+		if !providers.IsProviderCompatible(providerName, connProvider) {
+			connectorID, _ := auth.GetConnectorIDFromContext(c)
+			log.Printf("[WARN] Webhook provider mismatch: incoming webhook provider %q does not match connector %d provider %q",
+				providerName, connectorID, connProvider)
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error":    fmt.Sprintf("provider mismatch: incoming webhook (%s) does not match connector (%s)", providerName, connProvider),
+				"provider": providerName,
+			})
+		}
 	}
 
 	// Phase 1.5: PR/MR state-sync short-circuit. GitHub's "pull_request" and
