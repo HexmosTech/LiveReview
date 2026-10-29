@@ -1148,16 +1148,20 @@ func (us *UserService) DeactivateUserInOrgBySCIM(userID int64) error {
 	})
 }
 
-// ReactivateUserInOrgBySCIM mirrors DeactivateUserInOrgBySCIM for PATCH active:true.
+// ReactivateUserInOrgBySCIM mirrors DeactivateUserInOrgBySCIM for PATCH
+// active:true - uses the same store.WithTx wrapper as its sibling (rather
+// than us.db.Exec directly) so a future addition here (e.g. an audit insert
+// in the same transaction) doesn't have to be retrofitted for atomicity.
 func (us *UserService) ReactivateUserInOrgBySCIM(userID int64) error {
-	_, err := us.db.Exec(`
-		UPDATE users SET is_active = true, deactivated_at = NULL, deactivated_by_user_id = NULL, updated_at = NOW()
-		WHERE id = $1
-	`, userID)
-	if err != nil {
-		return fmt.Errorf("failed to reactivate user: %w", err)
-	}
-	return nil
+	return us.store.WithTx(func(tx *sql.Tx) error {
+		if _, err := us.store.TxExec(tx, `
+			UPDATE users SET is_active = true, deactivated_at = NULL, deactivated_by_user_id = NULL, updated_at = NOW()
+			WHERE id = $1
+		`, userID); err != nil {
+			return fmt.Errorf("failed to reactivate user: %w", err)
+		}
+		return nil
+	})
 }
 
 // ForcePasswordReset forces a user to reset their password on next login

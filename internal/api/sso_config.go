@@ -94,25 +94,39 @@ func parseProviderType(raw string) (sso.ProviderType, bool) {
 	}
 }
 
-// requireSSOAccess checks the "Sensitive Operations Gate" + "Session-Only
-// Gating" + self-hosted-enterprise-feature rules from CLAUDE.md in one
-// place, since every SSO config handler needs all three.
-func (s *Server) requireSSOAccess(c echo.Context, orgID int64) error {
+// requireOwnerSessionAndFeature checks the three rules every SSO/SCIM
+// config handler needs in combination - the "Sensitive Operations Gate"
+// (session only, no API keys), org-owner-only, and self-hosted-enterprise
+// feature-gating rules from CLAUDE.md - in one place, so requireSSOAccess
+// and requireSCIMConfigAccess don't each carry their own copy of the same
+// four checks with only the error strings differing.
+func (s *Server) requireOwnerSessionAndFeature(c echo.Context, hasFeature bool, resourceName string) error {
 	if err := requireSession(c); err != nil {
 		return err
 	}
 	pc := auth.GetPermissionContext(c)
+	deniedMsg := map[string]string{"error": "only org owners can manage " + resourceName}
 	if pc == nil {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "only org owners can manage SSO configuration"})
+		return c.JSON(http.StatusForbidden, deniedMsg)
 	}
 	if err := pc.RequireOrgOwner(); err != nil {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "only org owners can manage SSO configuration"})
+		return c.JSON(http.StatusForbidden, deniedMsg)
 	}
 	if apimiddleware.IsCloudMode() {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "SSO is available on self-hosted enterprise deployments only"})
+		return c.JSON(http.StatusForbidden, map[string]string{"error": resourceName + " is available on self-hosted enterprise deployments only"})
 	}
-	if !s.orgHasSSOFeature(orgID) {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "SSO requires an enterprise self-hosted license"})
+	if !hasFeature {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": resourceName + " requires an enterprise self-hosted license"})
+	}
+	return nil
+}
+
+// requireSSOAccess checks the "Sensitive Operations Gate" + "Session-Only
+// Gating" + self-hosted-enterprise-feature rules from CLAUDE.md in one
+// place, since every SSO config handler needs all three.
+func (s *Server) requireSSOAccess(c echo.Context, orgID int64) error {
+	if err := s.requireOwnerSessionAndFeature(c, s.orgHasSSOFeature(orgID), "SSO configuration"); err != nil {
+		return err
 	}
 	if s.ssoStore == nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "SSO is not available on this deployment"})

@@ -4,11 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
 
 	"github.com/livereview/internal/api/users"
 	"github.com/livereview/internal/sso"
 	"github.com/riverqueue/river"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/oauth2"
 )
 
@@ -26,14 +26,22 @@ func (SSOReconciliationJobArgs) Kind() string { return "sso_reconciliation" }
 
 type SSOReconciliationWorker struct {
 	river.WorkerDefaults[SSOReconciliationJobArgs]
-	db *sql.DB
+	db        *sql.DB
+	jwtSecret string
 }
 
 func (w *SSOReconciliationWorker) Work(ctx context.Context, job *river.Job[SSOReconciliationJobArgs]) error {
-	box, err := sso.NewSecretBox(os.Getenv("JWT_SECRET"))
-	if err != nil {
+	if w.jwtSecret == "" {
 		// Same "disabled, not fatal" treatment server.go gives a missing/empty
-		// JWT_SECRET for SSO generally - nothing to reconcile without it.
+		// JWT_SECRET for SSO generally - nothing to reconcile without it. Logged
+		// (rather than silently skipped) since an org with reconciliation
+		// enabled would otherwise see it silently never run.
+		log.Warn().Msg("sso reconciliation: JWT_SECRET not set, skipping sweep")
+		return nil
+	}
+	box, err := sso.NewSecretBox(w.jwtSecret)
+	if err != nil {
+		log.Warn().Err(err).Msg("sso reconciliation: failed to build secret box, skipping sweep")
 		return nil
 	}
 	configStore := sso.NewStore(w.db, box)
@@ -56,19 +64,24 @@ func (w *SSOReconciliationWorker) Work(ctx context.Context, job *river.Job[SSORe
 func (w *SSOReconciliationWorker) reconcileOrg(ctx context.Context, cfg *sso.Config, configStore *sso.Store, identityStore *sso.IdentityStore, userService *users.UserService) {
 	fullCfg, err := configStore.Get(cfg.OrgID, sso.ProviderOIDC)
 	if err != nil {
+		log.Warn().Err(err).Int64("org_id", cfg.OrgID).Msg("sso reconciliation: failed to load full OIDC config")
 		return
 	}
 	identities, err := identityStore.ListWithRefreshToken(cfg.OrgID, sso.ProviderOIDC)
 	if err != nil {
+		log.Warn().Err(err).Int64("org_id", cfg.OrgID).Msg("sso reconciliation: failed to list identities with refresh tokens")
 		return
 	}
 	if len(identities) == 0 {
-		_ = configStore.MarkReconciled(cfg.OrgID, sso.ProviderOIDC)
+		if err := configStore.MarkReconciled(cfg.OrgID, sso.ProviderOIDC); err != nil {
+			log.Warn().Err(err).Int64("org_id", cfg.OrgID).Msg("sso reconciliation: failed to mark org reconciled (no identities)")
+		}
 		return
 	}
 
 	oauthCfg, _, err := sso.BuildOIDCOAuth2Config(ctx, fullCfg, "")
 	if err != nil {
+		log.Warn().Err(err).Int64("org_id", cfg.OrgID).Msg("sso reconciliation: failed to build OIDC OAuth2 config")
 		return
 	}
 
@@ -78,11 +91,21 @@ func (w *SSOReconciliationWorker) reconcileOrg(ctx context.Context, cfg *sso.Con
 			// The IdP rejected the refresh - invalid_grant/invalid_token is
 			// exactly what Okta/Azure/Google return for a disabled, deleted,
 			// or de-authorized account. Deactivate, same as a SCIM
-			// PATCH active:false would.
-			_ = userService.DeactivateUserInOrgBySCIM(identity.UserID)
+			// PATCH active:false would. If the deactivation itself fails,
+			// the identity is deliberately left unmarked (not MarkChecked)
+			// so it's picked up again next reconciliation cycle instead of
+			// silently staying active.
+			if err := userService.DeactivateUserInOrgBySCIM(identity.UserID); err != nil {
+				log.Error().Err(err).Int64("org_id", cfg.OrgID).Int64("user_id", identity.UserID).
+					Msg("sso reconciliation: IdP rejected refresh but deactivating the user failed")
+			}
 			continue
 		}
-		_ = identityStore.MarkChecked(identity.ID)
+		if err := identityStore.MarkChecked(identity.ID); err != nil {
+			log.Warn().Err(err).Int64("org_id", cfg.OrgID).Int64("identity_id", identity.ID).Msg("sso reconciliation: failed to mark identity checked")
+		}
 	}
-	_ = configStore.MarkReconciled(cfg.OrgID, sso.ProviderOIDC)
+	if err := configStore.MarkReconciled(cfg.OrgID, sso.ProviderOIDC); err != nil {
+		log.Warn().Err(err).Int64("org_id", cfg.OrgID).Msg("sso reconciliation: failed to mark org reconciled")
+	}
 }

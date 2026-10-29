@@ -183,20 +183,12 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			clog.BranchSelected("analytics", 0, 0)
 
 			// This branch never runs through runStepLoop (which otherwise
-			// does this swap - see its own comment), so it has to do the
-			// same history[0] swap itself. Without it, a turn landing here
-			// right after an action/product_guidance turn keeps that
-			// turn's stale system prompt (missing the SQL rules, or
-			// leaking the tool list into an analytics turn).
-			analyticsSystemPrompt := a.interpretPrompt()
-			switch {
-			case len(history) == 0:
-				history = append(history, HistoryEntry{"role": "system", "content": analyticsSystemPrompt})
-			case history[0]["role"] == "system":
-				history[0] = HistoryEntry{"role": "system", "content": analyticsSystemPrompt}
-			default:
-				history = append([]HistoryEntry{{"role": "system", "content": analyticsSystemPrompt}}, history...)
-			}
+			// does this swap - see swapSystemPrompt's comment), so it has
+			// to do the same history[0] swap itself. Without it, a turn
+			// landing here right after an action/product_guidance turn
+			// keeps that turn's stale system prompt (missing the SQL
+			// rules, or leaking the tool list into an analytics turn).
+			history = swapSystemPrompt(history, a.interpretPrompt())
 
 			text, artifacts, debugArt, err := a.runMultiInterpret(ctx, userText, clog, a.mcpSession.OrgID, a.mcpSession.OrgName)
 			if err != nil {
@@ -322,6 +314,29 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 	return a.runStepLoop(ctx, history, userText, a.systemPrompt, a.providerTools, 0, false, false, "", clog)
 }
 
+// swapSystemPrompt replaces (or inserts) history's leading system message
+// with systemPrompt. Swapped every turn, not appended once: which prompt a
+// turn needs is decided fresh per call, so a session that changes shape
+// turn-to-turn (a data question, then "trigger a review for that repo",
+// then another data question) must not keep whatever was baked in on turn
+// one. The rest of history (actual conversation content) is untouched.
+// Used by both runStepLoop and RunTurnWithArtifacts's analytics branch,
+// which bypasses runStepLoop entirely but still needs the same swap.
+func swapSystemPrompt(history []HistoryEntry, systemPrompt string) []HistoryEntry {
+	if systemPrompt == "" {
+		return history
+	}
+	switch {
+	case len(history) == 0:
+		return append(history, HistoryEntry{"role": "system", "content": systemPrompt})
+	case history[0]["role"] == "system":
+		history[0] = HistoryEntry{"role": "system", "content": systemPrompt}
+		return history
+	default:
+		return append([]HistoryEntry{{"role": "system", "content": systemPrompt}}, history...)
+	}
+}
+
 // runStepLoop is the ReAct tool-calling loop. Extracted from RunTurnWithArtifacts
 // so the count_query branch can skip it entirely (using runMultiInterpret instead)
 // while action and chat branches continue through the step loop as before.
@@ -337,25 +352,7 @@ func (a *Agent) runStepLoop(
 	schemaTableText string,
 	clog *logging.ChatTurnLogger,
 ) (string, []HistoryEntry, []Artifact, *DebugArtifacts, error) {
-	// Swapped every turn, not appended once: which prompt a turn needs is
-	// decided fresh above, so a session that changes shape turn-to-turn
-	// (a data question, then "trigger a review for that repo", then
-	// another data question) must not keep whatever was baked in on turn
-	// one. The rest of history (actual conversation content) is untouched.
-	switch {
-	case len(history) == 0:
-		if systemPrompt != "" {
-			history = append(history, HistoryEntry{"role": "system", "content": systemPrompt})
-		}
-	case history[0]["role"] == "system":
-		if systemPrompt != "" {
-			history[0] = HistoryEntry{"role": "system", "content": systemPrompt}
-		}
-	default:
-		if systemPrompt != "" {
-			history = append([]HistoryEntry{{"role": "system", "content": systemPrompt}}, history...)
-		}
-	}
+	history = swapSystemPrompt(history, systemPrompt)
 	history = append(history, HistoryEntry{"role": "user", "content": userText})
 
 	for step := 0; step < a.maxSteps; step++ {
