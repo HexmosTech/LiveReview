@@ -209,8 +209,13 @@ func (w *RepoPRSyncWorker) Work(ctx context.Context, job *river.Job[RepoPRSyncJo
 			if errors.As(err, &rlErr) {
 				return river.JobSnooze(rlErr.RetryAfter)
 			}
+			if providers.IsForbiddenError(err) {
+				userMsg := fmt.Sprintf("Access forbidden (403, %s): connected account lacks permission for this repository or its pull/merge requests.", info.Provider)
+				w.markSyncError(args.RepositoryID, userMsg)
+				return river.JobCancel(fmt.Errorf("access forbidden for repository %d: %w", args.RepositoryID, err))
+			}
 			if providers.IsAuthError(err, info.Provider) {
-				userMsg := fmt.Sprintf("Authentication failed (%s): token is invalid, expired, or revoked. Please update connector credentials in Settings.", info.Provider)
+				userMsg := fmt.Sprintf("Unauthorized (401, %s): token is invalid, expired, or revoked. Please update connector credentials in Settings.", info.Provider)
 				w.markSyncError(args.RepositoryID, userMsg)
 				return river.JobCancel(fmt.Errorf("fatal authentication error for repository %d: %w", args.RepositoryID, err))
 			}
@@ -324,6 +329,10 @@ func (w *PRStateSyncWorker) Work(ctx context.Context, job *river.Job[PRStateSync
 		})
 	}
 	if err != nil {
+		var mismatchErr *pullrequests.ProviderMismatchError
+		if errors.As(err, &mismatchErr) || strings.Contains(err.Error(), "incompatible with connector") {
+			return river.JobCancel(fmt.Errorf("fatal provider mismatch: %w", err))
+		}
 		return fmt.Errorf("failed to resolve repository for connector=%d provider_repo_id=%s: %w",
 			args.ConnectorID, event.RepositoryProviderID, err)
 	}
@@ -724,22 +733,5 @@ func (jq *JobQueue) queuePRStateSync(ctx context.Context, args PRStateSyncJobArg
 }
 
 func isProviderCompatible(repoProvider, connProvider string) bool {
-	repoNorm := strings.ToLower(repoProvider)
-	connNorm := strings.ToLower(connProvider)
-	if strings.HasPrefix(repoNorm, "github") && (strings.HasPrefix(connNorm, "github") || connNorm == "github_app") {
-		return true
-	}
-	if strings.HasPrefix(repoNorm, "gitlab") && strings.HasPrefix(connNorm, "gitlab") {
-		return true
-	}
-	if strings.HasPrefix(repoNorm, "bitbucket") && strings.HasPrefix(connNorm, "bitbucket") {
-		return true
-	}
-	if strings.HasPrefix(repoNorm, "azure") && strings.HasPrefix(connNorm, "azure") {
-		return true
-	}
-	if strings.HasPrefix(repoNorm, "gitea") && strings.HasPrefix(connNorm, "gitea") {
-		return true
-	}
-	return repoNorm == connNorm
+	return providers.IsProviderCompatible(repoProvider, connProvider)
 }

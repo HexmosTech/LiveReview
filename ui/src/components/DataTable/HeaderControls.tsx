@@ -65,7 +65,11 @@ export const SortableHeaderLabel: React.FC<{ label: string; onToggle: (e: unknow
  * permanently-visible filter/search row under the header). Defaults to the
  * filter (funnel) icon for checkbox filters; pass a different `icon` (e.g. a
  * search glyph) for a free-text search column. */
-export const HeaderFilterPopover: React.FC<{ children: React.ReactNode; icon?: React.FC<{ size?: number }>; label?: string }> = ({ children, icon: TriggerIcon = LuListFilter, label = 'Open filter' }) => {
+export const HeaderFilterPopover: React.FC<{
+  children: React.ReactNode;
+  icon?: React.FC<{ size?: number }>;
+  label?: string;
+}> = ({ children, icon: TriggerIcon = LuListFilter, label = 'Open filter' }) => {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -75,8 +79,15 @@ export const HeaderFilterPopover: React.FC<{ children: React.ReactNode; icon?: R
       if (!rootRef.current) return;
       if (!rootRef.current.contains(ev.target as Node)) setOpen(false);
     };
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') setOpen(false);
+    };
     document.addEventListener('mousedown', onClickOutside);
-    return () => document.removeEventListener('mousedown', onClickOutside);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onClickOutside);
+      document.removeEventListener('keydown', onKeyDown);
+    };
   }, [open]);
 
   // Focus the popover's input/search box as soon as it opens, so clicking
@@ -101,7 +112,7 @@ export const HeaderFilterPopover: React.FC<{ children: React.ReactNode; icon?: R
         <TriggerIcon size={12} />
       </button>
       {open && (
-        <div className="absolute z-30 top-full left-0 mt-2 w-56 rounded-lg border border-slate-600 bg-slate-800 shadow-xl p-2 font-normal normal-case tracking-normal">
+        <div className="absolute z-40 top-full right-0 mt-2 w-56 rounded-lg border border-slate-600 bg-slate-800 shadow-2xl p-2 font-normal normal-case tracking-normal">
           {children}
         </div>
       )}

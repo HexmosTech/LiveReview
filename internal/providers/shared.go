@@ -132,6 +132,33 @@ func (e *AuthError) Error() string {
 	return fmt.Sprintf("%s authentication failed: %s", e.Provider, e.Message)
 }
 
+// IsForbiddenError returns true if err or any error in its chain represents an HTTP 403 Forbidden /
+// permission denied error (and not a rate limit). Unlike HTTP 401 Unauthorized, HTTP 403 indicates
+// that the token/credentials authenticated but lack permission for that specific repository or resource.
+func IsForbiddenError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var authErr *AuthError
+	if errors.As(err, &authErr) {
+		if authErr.StatusCode == 403 {
+			return true
+		}
+		if authErr.StatusCode == 401 {
+			return false
+		}
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "rate limit") || strings.Contains(msg, "too many requests") {
+		return false
+	}
+	return strings.Contains(msg, "403") && (
+		strings.Contains(msg, "forbidden") ||
+			strings.Contains(msg, "status") ||
+			strings.Contains(msg, "http") ||
+			strings.Contains(msg, "(403)"))
+}
+
 // IsAuthError returns true if err or any error in its chain is an *AuthError,
 // or contains authentication error indicators for the specified provider (or across all
 // known providers if no provider is passed).
@@ -216,4 +243,28 @@ func IsAuthError(err error, providerOpt ...string) bool {
 			strings.Contains(msg, "token is invalid") ||
 			strings.Contains(msg, "tf400813")
 	}
+}
+
+// IsProviderCompatible checks whether a repository or incoming webhook provider
+// is compatible with a connector provider (e.g. "github" matches "github_app" and "github-enterprise",
+// "gitlab" matches "gitlab-self-hosted", etc.).
+func IsProviderCompatible(repoProvider, connProvider string) bool {
+	repoNorm := strings.ToLower(repoProvider)
+	connNorm := strings.ToLower(connProvider)
+	if strings.HasPrefix(repoNorm, "github") && (strings.HasPrefix(connNorm, "github") || connNorm == "github_app") {
+		return true
+	}
+	if strings.HasPrefix(repoNorm, "gitlab") && strings.HasPrefix(connNorm, "gitlab") {
+		return true
+	}
+	if strings.HasPrefix(repoNorm, "bitbucket") && strings.HasPrefix(connNorm, "bitbucket") {
+		return true
+	}
+	if strings.HasPrefix(repoNorm, "azure") && strings.HasPrefix(connNorm, "azure") {
+		return true
+	}
+	if strings.HasPrefix(repoNorm, "gitea") && strings.HasPrefix(connNorm, "gitea") {
+		return true
+	}
+	return repoNorm == connNorm
 }
