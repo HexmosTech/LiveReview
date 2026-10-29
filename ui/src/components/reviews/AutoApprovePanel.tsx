@@ -1,4 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useAppSelector } from '../../store/configureStore';
+import { useOrgContext } from '../../hooks/useOrgContext';
 import { Alert, Button, Card, Spinner } from '../UIPrimitives';
 import { getReviewPolicyLog, forceApproveReview, markReviewOutcome, PolicyLogResponse } from '../../api/riskPolicy';
 import { InfoHint } from '../AutoApprove/InfoHint';
@@ -20,8 +23,63 @@ const STAGE_HINT: Record<string, string> = {
   final: HELP.stageFinal,
 };
 
-const verdictIcon = (v: string) =>
-  v === 'pass' || v === 'approved' ? '✅' : v === 'fail' || v === 'blocked' ? '❌' : '⏭️';
+const VerdictIcon: React.FC<{ verdict: string }> = ({ verdict }) => {
+  const pass = verdict === 'pass' || verdict === 'approved';
+  const fail = verdict === 'fail' || verdict === 'blocked';
+  const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 2.2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  const base = 'w-5 h-5 rounded-full p-[3px] shrink-0';
+  if (pass) {
+    return (
+      <svg className={`${base} bg-[#22C55E] text-white`} viewBox="0 0 24 24" role="img" aria-label="passed" {...stroke}>
+        <path d="m5 12.5 4.5 4.5L19 7.5" />
+      </svg>
+    );
+  }
+  if (fail) {
+    return (
+      <svg className={`${base} bg-red-500 text-white`} viewBox="0 0 24 24" role="img" aria-label="failed" {...stroke}>
+        <path d="M6 6l12 12M18 6 6 18" />
+      </svg>
+    );
+  }
+  return (
+    <svg className={`${base} bg-amber-400 text-slate-900`} viewBox="0 0 24 24" role="img" aria-label="skipped" {...stroke}>
+      <path d="M6 12h12" />
+    </svg>
+  );
+};
+
+// Policy sub-tab where each stage is configured (the final decision has none).
+const STAGE_SETTINGS_TAB: Record<string, string> = {
+  eligibility: 'eligibility',
+  static: 'static-rules',
+  risk: 'risk-model',
+  llm: 'general',
+};
+
+const actionClass =
+  'inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 ' +
+  'hover:border-slate-500 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400 transition-colors';
+
+const GearIcon = () => (
+  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5h0a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" />
+  </svg>
+);
+
+const UserIcon = () => (
+  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4 21a8 8 0 0 1 16 0" />
+  </svg>
+);
+
+const Chevron: React.FC<{ open: boolean }> = ({ open }) => (
+  <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+);
 
 // Every stage's detail blob carries more than the one-line reason already
 // shown inline (risk's full feature-by-feature breakdown, llm's class +
@@ -32,7 +90,7 @@ const StageDetail: React.FC<{ detail: Record<string, unknown> }> = ({ detail }) 
   const entries = Object.entries(detail).filter(([k]) => k !== 'reason' && k !== 'features');
   if (!features && entries.length === 0) return null;
   return (
-    <div className="mt-1 ml-9 text-xs text-slate-400 space-y-1 border-l border-slate-700 pl-3">
+    <div className="mt-2 ml-8 text-xs text-slate-400 space-y-1 border-l border-slate-700 pl-3">
       {entries.map(([k, v]) => (
         <div key={k}>
           <span className="text-slate-500">{k.replace(/_/g, ' ')}:</span>{' '}
@@ -68,6 +126,8 @@ const AutoApprovePanel: React.FC<{ reviewId: number }> = ({ reviewId }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const { canManageCurrentOrg } = useOrgContext();
+  const viewerId = useAppSelector((state) => state.Auth.user?.id);
 
   const [forceReason, setForceReason] = useState('');
   const [forceBusy, setForceBusy] = useState(false);
@@ -140,33 +200,60 @@ const AutoApprovePanel: React.FC<{ reviewId: number }> = ({ reviewId }) => {
       {error && <Alert variant="error">{error}</Alert>}
 
       <Card className="p-4">
-        <div className="space-y-2">
+        <div className="divide-y divide-slate-700/60">
           {log.stages.map((st) => {
             const canExpand = hasExpandableDetail(st.detail || {});
             const isOpen = expanded.has(st.stage);
+            const settingsTab = STAGE_SETTINGS_TAB[st.stage];
+            const isFinal = st.stage === 'final';
+            const toggle = () =>
+              setExpanded((prev) => {
+                const next = new Set(prev);
+                if (next.has(st.stage)) next.delete(st.stage);
+                else next.add(st.stage);
+                return next;
+              });
             return (
-              <div key={st.stage}>
+              <div key={st.stage} className={`py-3 first:pt-1 last:pb-1 ${isFinal ? 'border-t border-slate-600' : ''}`}>
                 <div
-                  className={`flex items-start gap-3 text-sm ${canExpand ? 'cursor-pointer' : ''}`}
-                  onClick={() => {
-                    if (!canExpand) return;
-                    setExpanded((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(st.stage)) next.delete(st.stage);
-                      else next.add(st.stage);
-                      return next;
-                    });
+                  className={`grid grid-cols-[1.25rem_1fr] items-center gap-x-3 gap-y-2 text-sm md:grid-cols-[1.25rem_11rem_1fr_auto] ${canExpand ? 'cursor-pointer' : ''}`}
+                  onClick={(e) => {
+                    // Links and the Details button handle their own clicks.
+                    if (canExpand && !(e.target as HTMLElement).closest('a,button')) toggle();
                   }}
                 >
-                  <span className="shrink-0">{verdictIcon(st.verdict)}</span>
-                  <span className="w-36 shrink-0 text-slate-300 inline-flex items-center gap-1.5">
+                  <VerdictIcon verdict={st.verdict} />
+                  <span className={`inline-flex items-center gap-1.5 ${isFinal ? 'font-bold text-white' : 'font-medium text-slate-200'}`}>
                     {STAGE_LABEL[st.stage] || st.stage}
                     {STAGE_HINT[st.stage] && <InfoHint text={STAGE_HINT[st.stage]} />}
                   </span>
-                  <span className={st.verdict === 'fail' ? 'text-red-300' : 'text-slate-400'}>
+                  <span className={`col-start-2 md:col-start-auto ${st.verdict === 'fail' ? 'text-red-300' : 'text-slate-400'} ${isFinal ? 'font-semibold' : ''}`}>
                     {String((st.detail as any)?.reason ?? '')}
                   </span>
-                  {canExpand && <span className="text-slate-500 text-xs shrink-0">{isOpen ? '▾ hide details' : '▸ show details'}</span>}
+                  <div className="col-start-2 flex flex-wrap items-center gap-2 md:col-start-auto md:justify-end">
+                    {canExpand ? (
+                      <button
+                        type="button"
+                        onClick={toggle}
+                        aria-expanded={isOpen}
+                        className={`${actionClass} w-[5.5rem] justify-between border-transparent text-slate-400`}
+                      >
+                        Details <Chevron open={isOpen} />
+                      </button>
+                    ) : (
+                      <span className="hidden w-[5.5rem] md:block" aria-hidden="true" />
+                    )}
+                    {canManageCurrentOrg && st.stage === 'eligibility' && viewerId && (
+                      <Link to={`/settings/users/edit/${viewerId}`} className={actionClass} title="Open your user settings (review level)">
+                        <UserIcon /> Your level
+                      </Link>
+                    )}
+                    {canManageCurrentOrg && settingsTab && (
+                      <Link to={`/settings?subtab=${settingsTab}#auto-approve`} className={actionClass} title="Open this stage in the org policy settings">
+                        <GearIcon /> Configure
+                      </Link>
+                    )}
+                  </div>
                 </div>
                 {isOpen && <StageDetail detail={st.detail || {}} />}
               </div>

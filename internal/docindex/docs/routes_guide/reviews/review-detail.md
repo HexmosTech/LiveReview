@@ -51,6 +51,11 @@ assessment: Approved, Not approved, or Pending. For a blocked review, owners/adm
 `force_approve_min_level`) can **force approve** with a reason — recorded in the
 audit log and posted to the PR/MR. Any member can **mark a production outcome**
 (revert / incident / confirmed-safe) with a reason, which feeds the risk model.
+Each stage row shows a pass/fail/skipped icon, its reason, and a **Details**
+toggle; clicking anywhere on a stage row also opens or closes its details. At the end of the row, owners/admins get a **Configure** link on every
+stage except the final decision; it opens that stage's sub-tab in Settings →
+Auto Approve Policies. The eligibility row adds **Your level** before it, which
+opens the viewer's own user settings (review level).
 See [Settings → Auto Approve](../settings/auto-approve.md).
 
 ## Blast-radius scoring and ordering

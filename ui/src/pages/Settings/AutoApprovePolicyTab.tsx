@@ -70,7 +70,7 @@ const AutoApprovePolicyTab: React.FC = () => {
   const [overrideDraft, setOverrideDraft] = useState<Record<string, number>>({});
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [outcomes, setOutcomes] = useState<OutcomeRow[]>([]);
-  const [subtab, setSubtab] = useState('general');
+  const [subtab, setSubtab] = useState(() => new URLSearchParams(window.location.search).get('subtab') || 'general');
   const [simRows, setSimRows] = useState<SimulateRow[] | null>(null);
 
   const orgId = currentOrgId ?? 0;

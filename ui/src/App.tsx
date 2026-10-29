@@ -2,6 +2,7 @@ import React, { Suspense, useEffect, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
 import { Navbar } from './components/Navbar/Navbar';
 import { URLMismatchBanner } from './components/URLMismatchBanner';
+import { useSyncTimeZone } from './hooks/useSyncTimeZone';
 import { useAppDispatch, useAppSelector } from './store/configureStore';
 import { logout, checkSetupStatus, fetchUser } from './store/Auth/reducer';
 import { fetchLicenseStatus, openModal as openLicenseModal, closeModal as closeLicenseModal } from './store/License/slice';
@@ -197,6 +198,8 @@ const AppContent: React.FC = () => {
             dispatch(checkSetupStatus());
         }
     }, [dispatch, accessToken]);
+
+    useSyncTimeZone();
 
     // Kick off initial license status load (non-blocking UI)
     useEffect(() => {

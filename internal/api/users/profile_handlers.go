@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
@@ -218,4 +219,33 @@ func (ph *ProfileHandlers) ChangePassword(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": "Password changed successfully. Please log in again with your new password.",
 	})
+}
+
+// UpdateTimeZone saves the browser's IANA time zone so PR tables show the user's local time.
+// It is a no-op when the zone is unchanged, so repeated calls write nothing.
+func (ph *ProfileHandlers) UpdateTimeZone(c echo.Context) error {
+	if err := requireSession(c); err != nil {
+		return err
+	}
+	user := auth.GetUser(c)
+	if user == nil {
+		return echo.NewHTTPError(http.StatusUnauthorized, "User not found in context")
+	}
+
+	var req struct {
+		TimeZone string `json:"time_zone"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
+	}
+	if _, err := time.LoadLocation(req.TimeZone); err != nil || req.TimeZone == "" || req.TimeZone == "Local" {
+		return echo.NewHTTPError(http.StatusBadRequest, "time_zone must be a valid IANA zone, e.g. Asia/Kolkata")
+	}
+
+	if _, err := ph.db.ExecContext(c.Request().Context(),
+		`UPDATE users SET time_zone = $1 WHERE id = $2 AND time_zone IS DISTINCT FROM $1`,
+		req.TimeZone, user.ID); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to save time zone")
+	}
+	return c.NoContent(http.StatusNoContent)
 }
