@@ -238,7 +238,10 @@ func (ph *ProfileHandlers) UpdateTimeZone(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
 	}
-	if _, err := time.LoadLocation(req.TimeZone); err != nil || req.TimeZone == "" || req.TimeZone == "Local" {
+	if len(req.TimeZone) > 64 || req.TimeZone == "" || req.TimeZone == "Local" {
+		return echo.NewHTTPError(http.StatusBadRequest, "time_zone must be a valid IANA zone, e.g. Asia/Kolkata")
+	}
+	if _, err := time.LoadLocation(req.TimeZone); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "time_zone must be a valid IANA zone, e.g. Asia/Kolkata")
 	}
 
