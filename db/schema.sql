@@ -1,11 +1,12 @@
 \restrict dbmate
 
--- Dumped from database version 16.14 (Ubuntu 16.14-0ubuntu0.24.04.1)
--- Dumped by pg_dump version 16.14 (Ubuntu 16.14-0ubuntu0.24.04.1)
+-- Dumped from database version 18.6 (Debian 18.6-1.pgdg13+2)
+-- Dumped by pg_dump version 18.6 (Debian 18.6-1.pgdg13+2)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
 SELECT pg_catalog.set_config('search_path', '', false);
@@ -81,6 +82,26 @@ CREATE FUNCTION public.ai_models_set_updated_at() RETURNS trigger
 BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: audit_events_append_only(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.audit_events_append_only() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        RAISE EXCEPTION 'audit_events is append-only: UPDATE is not permitted';
+    END IF;
+    IF TG_OP = 'DELETE'
+       AND COALESCE(current_setting('app.audit_purge', true), '') <> 'on' THEN
+        RAISE EXCEPTION 'audit_events is append-only: DELETE is not permitted';
+    END IF;
+    RETURN OLD;
 END;
 $$;
 
@@ -181,6 +202,20 @@ $$;
 --
 
 CREATE FUNCTION public.org_billing_state_set_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: org_sso_configs_set_updated_at(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.org_sso_configs_set_updated_at() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
@@ -425,6 +460,8 @@ CREATE TABLE public.api_keys (
     created_at timestamp without time zone DEFAULT now() NOT NULL,
     expires_at timestamp without time zone,
     revoked_at timestamp without time zone,
+    kind character varying(20) DEFAULT 'standard'::character varying NOT NULL,
+    CONSTRAINT chk_api_keys_kind CHECK (((kind)::text = ANY ((ARRAY['standard'::character varying, 'audit_reader'::character varying])::text[]))),
     CONSTRAINT valid_expiry CHECK (((expires_at IS NULL) OR (expires_at > created_at)))
 );
 
@@ -491,6 +528,616 @@ ALTER SEQUENCE public.api_keys_id_seq OWNED BY public.api_keys.id;
 
 
 --
+-- Name: audit_archives; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_archives (
+    org_id bigint NOT NULL,
+    month text NOT NULL,
+    object_key text NOT NULL,
+    row_count bigint NOT NULL,
+    sha256 text NOT NULL,
+    archived_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: audit_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events (
+    id bigint NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() NOT NULL,
+    org_id bigint NOT NULL,
+    actor_user_id bigint,
+    actor_email text,
+    actor_name text,
+    actor_kind text DEFAULT 'system'::text NOT NULL,
+    actor_capacity text DEFAULT 'member'::text NOT NULL,
+    auth_method text,
+    api_key_id bigint,
+    action text NOT NULL,
+    category text NOT NULL,
+    resource_type text,
+    resource_id text,
+    outcome text DEFAULT 'success'::text NOT NULL,
+    status_code integer,
+    severity text DEFAULT 'info'::text NOT NULL,
+    ip inet,
+    user_agent text,
+    request_id text,
+    method text,
+    path text,
+    details jsonb DEFAULT '{}'::jsonb NOT NULL,
+    source text DEFAULT 'api'::text NOT NULL,
+    legacy_id bigint,
+    seq bigint,
+    prev_hash text,
+    hash text
+)
+PARTITION BY RANGE (occurred_at);
+
+
+--
+-- Name: audit_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.audit_events_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: audit_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.audit_events_id_seq OWNED BY public.audit_events.id;
+
+
+--
+-- Name: audit_events_2026_10; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_2026_10 (
+    id bigint DEFAULT nextval('public.audit_events_id_seq'::regclass) CONSTRAINT audit_events_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    org_id bigint CONSTRAINT audit_events_org_id_not_null NOT NULL,
+    actor_user_id bigint,
+    actor_email text,
+    actor_name text,
+    actor_kind text DEFAULT 'system'::text CONSTRAINT audit_events_actor_kind_not_null NOT NULL,
+    actor_capacity text DEFAULT 'member'::text CONSTRAINT audit_events_actor_capacity_not_null NOT NULL,
+    auth_method text,
+    api_key_id bigint,
+    action text CONSTRAINT audit_events_action_not_null NOT NULL,
+    category text CONSTRAINT audit_events_category_not_null NOT NULL,
+    resource_type text,
+    resource_id text,
+    outcome text DEFAULT 'success'::text CONSTRAINT audit_events_outcome_not_null NOT NULL,
+    status_code integer,
+    severity text DEFAULT 'info'::text CONSTRAINT audit_events_severity_not_null NOT NULL,
+    ip inet,
+    user_agent text,
+    request_id text,
+    method text,
+    path text,
+    details jsonb DEFAULT '{}'::jsonb CONSTRAINT audit_events_details_not_null NOT NULL,
+    source text DEFAULT 'api'::text CONSTRAINT audit_events_source_not_null NOT NULL,
+    legacy_id bigint,
+    seq bigint,
+    prev_hash text,
+    hash text
+);
+
+
+--
+-- Name: audit_events_2026_11; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_2026_11 (
+    id bigint DEFAULT nextval('public.audit_events_id_seq'::regclass) CONSTRAINT audit_events_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    org_id bigint CONSTRAINT audit_events_org_id_not_null NOT NULL,
+    actor_user_id bigint,
+    actor_email text,
+    actor_name text,
+    actor_kind text DEFAULT 'system'::text CONSTRAINT audit_events_actor_kind_not_null NOT NULL,
+    actor_capacity text DEFAULT 'member'::text CONSTRAINT audit_events_actor_capacity_not_null NOT NULL,
+    auth_method text,
+    api_key_id bigint,
+    action text CONSTRAINT audit_events_action_not_null NOT NULL,
+    category text CONSTRAINT audit_events_category_not_null NOT NULL,
+    resource_type text,
+    resource_id text,
+    outcome text DEFAULT 'success'::text CONSTRAINT audit_events_outcome_not_null NOT NULL,
+    status_code integer,
+    severity text DEFAULT 'info'::text CONSTRAINT audit_events_severity_not_null NOT NULL,
+    ip inet,
+    user_agent text,
+    request_id text,
+    method text,
+    path text,
+    details jsonb DEFAULT '{}'::jsonb CONSTRAINT audit_events_details_not_null NOT NULL,
+    source text DEFAULT 'api'::text CONSTRAINT audit_events_source_not_null NOT NULL,
+    legacy_id bigint,
+    seq bigint,
+    prev_hash text,
+    hash text
+);
+
+
+--
+-- Name: audit_events_2026_12; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_2026_12 (
+    id bigint DEFAULT nextval('public.audit_events_id_seq'::regclass) CONSTRAINT audit_events_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    org_id bigint CONSTRAINT audit_events_org_id_not_null NOT NULL,
+    actor_user_id bigint,
+    actor_email text,
+    actor_name text,
+    actor_kind text DEFAULT 'system'::text CONSTRAINT audit_events_actor_kind_not_null NOT NULL,
+    actor_capacity text DEFAULT 'member'::text CONSTRAINT audit_events_actor_capacity_not_null NOT NULL,
+    auth_method text,
+    api_key_id bigint,
+    action text CONSTRAINT audit_events_action_not_null NOT NULL,
+    category text CONSTRAINT audit_events_category_not_null NOT NULL,
+    resource_type text,
+    resource_id text,
+    outcome text DEFAULT 'success'::text CONSTRAINT audit_events_outcome_not_null NOT NULL,
+    status_code integer,
+    severity text DEFAULT 'info'::text CONSTRAINT audit_events_severity_not_null NOT NULL,
+    ip inet,
+    user_agent text,
+    request_id text,
+    method text,
+    path text,
+    details jsonb DEFAULT '{}'::jsonb CONSTRAINT audit_events_details_not_null NOT NULL,
+    source text DEFAULT 'api'::text CONSTRAINT audit_events_source_not_null NOT NULL,
+    legacy_id bigint,
+    seq bigint,
+    prev_hash text,
+    hash text
+);
+
+
+--
+-- Name: audit_events_2027_01; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_2027_01 (
+    id bigint DEFAULT nextval('public.audit_events_id_seq'::regclass) CONSTRAINT audit_events_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    org_id bigint CONSTRAINT audit_events_org_id_not_null NOT NULL,
+    actor_user_id bigint,
+    actor_email text,
+    actor_name text,
+    actor_kind text DEFAULT 'system'::text CONSTRAINT audit_events_actor_kind_not_null NOT NULL,
+    actor_capacity text DEFAULT 'member'::text CONSTRAINT audit_events_actor_capacity_not_null NOT NULL,
+    auth_method text,
+    api_key_id bigint,
+    action text CONSTRAINT audit_events_action_not_null NOT NULL,
+    category text CONSTRAINT audit_events_category_not_null NOT NULL,
+    resource_type text,
+    resource_id text,
+    outcome text DEFAULT 'success'::text CONSTRAINT audit_events_outcome_not_null NOT NULL,
+    status_code integer,
+    severity text DEFAULT 'info'::text CONSTRAINT audit_events_severity_not_null NOT NULL,
+    ip inet,
+    user_agent text,
+    request_id text,
+    method text,
+    path text,
+    details jsonb DEFAULT '{}'::jsonb CONSTRAINT audit_events_details_not_null NOT NULL,
+    source text DEFAULT 'api'::text CONSTRAINT audit_events_source_not_null NOT NULL,
+    legacy_id bigint,
+    seq bigint,
+    prev_hash text,
+    hash text
+);
+
+
+--
+-- Name: audit_events_2027_02; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_2027_02 (
+    id bigint DEFAULT nextval('public.audit_events_id_seq'::regclass) CONSTRAINT audit_events_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    org_id bigint CONSTRAINT audit_events_org_id_not_null NOT NULL,
+    actor_user_id bigint,
+    actor_email text,
+    actor_name text,
+    actor_kind text DEFAULT 'system'::text CONSTRAINT audit_events_actor_kind_not_null NOT NULL,
+    actor_capacity text DEFAULT 'member'::text CONSTRAINT audit_events_actor_capacity_not_null NOT NULL,
+    auth_method text,
+    api_key_id bigint,
+    action text CONSTRAINT audit_events_action_not_null NOT NULL,
+    category text CONSTRAINT audit_events_category_not_null NOT NULL,
+    resource_type text,
+    resource_id text,
+    outcome text DEFAULT 'success'::text CONSTRAINT audit_events_outcome_not_null NOT NULL,
+    status_code integer,
+    severity text DEFAULT 'info'::text CONSTRAINT audit_events_severity_not_null NOT NULL,
+    ip inet,
+    user_agent text,
+    request_id text,
+    method text,
+    path text,
+    details jsonb DEFAULT '{}'::jsonb CONSTRAINT audit_events_details_not_null NOT NULL,
+    source text DEFAULT 'api'::text CONSTRAINT audit_events_source_not_null NOT NULL,
+    legacy_id bigint,
+    seq bigint,
+    prev_hash text,
+    hash text
+);
+
+
+--
+-- Name: audit_events_2027_03; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_2027_03 (
+    id bigint DEFAULT nextval('public.audit_events_id_seq'::regclass) CONSTRAINT audit_events_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    org_id bigint CONSTRAINT audit_events_org_id_not_null NOT NULL,
+    actor_user_id bigint,
+    actor_email text,
+    actor_name text,
+    actor_kind text DEFAULT 'system'::text CONSTRAINT audit_events_actor_kind_not_null NOT NULL,
+    actor_capacity text DEFAULT 'member'::text CONSTRAINT audit_events_actor_capacity_not_null NOT NULL,
+    auth_method text,
+    api_key_id bigint,
+    action text CONSTRAINT audit_events_action_not_null NOT NULL,
+    category text CONSTRAINT audit_events_category_not_null NOT NULL,
+    resource_type text,
+    resource_id text,
+    outcome text DEFAULT 'success'::text CONSTRAINT audit_events_outcome_not_null NOT NULL,
+    status_code integer,
+    severity text DEFAULT 'info'::text CONSTRAINT audit_events_severity_not_null NOT NULL,
+    ip inet,
+    user_agent text,
+    request_id text,
+    method text,
+    path text,
+    details jsonb DEFAULT '{}'::jsonb CONSTRAINT audit_events_details_not_null NOT NULL,
+    source text DEFAULT 'api'::text CONSTRAINT audit_events_source_not_null NOT NULL,
+    legacy_id bigint,
+    seq bigint,
+    prev_hash text,
+    hash text
+);
+
+
+--
+-- Name: audit_events_2027_04; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_2027_04 (
+    id bigint DEFAULT nextval('public.audit_events_id_seq'::regclass) CONSTRAINT audit_events_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    org_id bigint CONSTRAINT audit_events_org_id_not_null NOT NULL,
+    actor_user_id bigint,
+    actor_email text,
+    actor_name text,
+    actor_kind text DEFAULT 'system'::text CONSTRAINT audit_events_actor_kind_not_null NOT NULL,
+    actor_capacity text DEFAULT 'member'::text CONSTRAINT audit_events_actor_capacity_not_null NOT NULL,
+    auth_method text,
+    api_key_id bigint,
+    action text CONSTRAINT audit_events_action_not_null NOT NULL,
+    category text CONSTRAINT audit_events_category_not_null NOT NULL,
+    resource_type text,
+    resource_id text,
+    outcome text DEFAULT 'success'::text CONSTRAINT audit_events_outcome_not_null NOT NULL,
+    status_code integer,
+    severity text DEFAULT 'info'::text CONSTRAINT audit_events_severity_not_null NOT NULL,
+    ip inet,
+    user_agent text,
+    request_id text,
+    method text,
+    path text,
+    details jsonb DEFAULT '{}'::jsonb CONSTRAINT audit_events_details_not_null NOT NULL,
+    source text DEFAULT 'api'::text CONSTRAINT audit_events_source_not_null NOT NULL,
+    legacy_id bigint,
+    seq bigint,
+    prev_hash text,
+    hash text
+);
+
+
+--
+-- Name: audit_events_2027_05; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_2027_05 (
+    id bigint DEFAULT nextval('public.audit_events_id_seq'::regclass) CONSTRAINT audit_events_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    org_id bigint CONSTRAINT audit_events_org_id_not_null NOT NULL,
+    actor_user_id bigint,
+    actor_email text,
+    actor_name text,
+    actor_kind text DEFAULT 'system'::text CONSTRAINT audit_events_actor_kind_not_null NOT NULL,
+    actor_capacity text DEFAULT 'member'::text CONSTRAINT audit_events_actor_capacity_not_null NOT NULL,
+    auth_method text,
+    api_key_id bigint,
+    action text CONSTRAINT audit_events_action_not_null NOT NULL,
+    category text CONSTRAINT audit_events_category_not_null NOT NULL,
+    resource_type text,
+    resource_id text,
+    outcome text DEFAULT 'success'::text CONSTRAINT audit_events_outcome_not_null NOT NULL,
+    status_code integer,
+    severity text DEFAULT 'info'::text CONSTRAINT audit_events_severity_not_null NOT NULL,
+    ip inet,
+    user_agent text,
+    request_id text,
+    method text,
+    path text,
+    details jsonb DEFAULT '{}'::jsonb CONSTRAINT audit_events_details_not_null NOT NULL,
+    source text DEFAULT 'api'::text CONSTRAINT audit_events_source_not_null NOT NULL,
+    legacy_id bigint,
+    seq bigint,
+    prev_hash text,
+    hash text
+);
+
+
+--
+-- Name: audit_events_2027_06; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_2027_06 (
+    id bigint DEFAULT nextval('public.audit_events_id_seq'::regclass) CONSTRAINT audit_events_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    org_id bigint CONSTRAINT audit_events_org_id_not_null NOT NULL,
+    actor_user_id bigint,
+    actor_email text,
+    actor_name text,
+    actor_kind text DEFAULT 'system'::text CONSTRAINT audit_events_actor_kind_not_null NOT NULL,
+    actor_capacity text DEFAULT 'member'::text CONSTRAINT audit_events_actor_capacity_not_null NOT NULL,
+    auth_method text,
+    api_key_id bigint,
+    action text CONSTRAINT audit_events_action_not_null NOT NULL,
+    category text CONSTRAINT audit_events_category_not_null NOT NULL,
+    resource_type text,
+    resource_id text,
+    outcome text DEFAULT 'success'::text CONSTRAINT audit_events_outcome_not_null NOT NULL,
+    status_code integer,
+    severity text DEFAULT 'info'::text CONSTRAINT audit_events_severity_not_null NOT NULL,
+    ip inet,
+    user_agent text,
+    request_id text,
+    method text,
+    path text,
+    details jsonb DEFAULT '{}'::jsonb CONSTRAINT audit_events_details_not_null NOT NULL,
+    source text DEFAULT 'api'::text CONSTRAINT audit_events_source_not_null NOT NULL,
+    legacy_id bigint,
+    seq bigint,
+    prev_hash text,
+    hash text
+);
+
+
+--
+-- Name: audit_events_2027_07; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_2027_07 (
+    id bigint DEFAULT nextval('public.audit_events_id_seq'::regclass) CONSTRAINT audit_events_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    org_id bigint CONSTRAINT audit_events_org_id_not_null NOT NULL,
+    actor_user_id bigint,
+    actor_email text,
+    actor_name text,
+    actor_kind text DEFAULT 'system'::text CONSTRAINT audit_events_actor_kind_not_null NOT NULL,
+    actor_capacity text DEFAULT 'member'::text CONSTRAINT audit_events_actor_capacity_not_null NOT NULL,
+    auth_method text,
+    api_key_id bigint,
+    action text CONSTRAINT audit_events_action_not_null NOT NULL,
+    category text CONSTRAINT audit_events_category_not_null NOT NULL,
+    resource_type text,
+    resource_id text,
+    outcome text DEFAULT 'success'::text CONSTRAINT audit_events_outcome_not_null NOT NULL,
+    status_code integer,
+    severity text DEFAULT 'info'::text CONSTRAINT audit_events_severity_not_null NOT NULL,
+    ip inet,
+    user_agent text,
+    request_id text,
+    method text,
+    path text,
+    details jsonb DEFAULT '{}'::jsonb CONSTRAINT audit_events_details_not_null NOT NULL,
+    source text DEFAULT 'api'::text CONSTRAINT audit_events_source_not_null NOT NULL,
+    legacy_id bigint,
+    seq bigint,
+    prev_hash text,
+    hash text
+);
+
+
+--
+-- Name: audit_events_2027_08; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_2027_08 (
+    id bigint DEFAULT nextval('public.audit_events_id_seq'::regclass) CONSTRAINT audit_events_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    org_id bigint CONSTRAINT audit_events_org_id_not_null NOT NULL,
+    actor_user_id bigint,
+    actor_email text,
+    actor_name text,
+    actor_kind text DEFAULT 'system'::text CONSTRAINT audit_events_actor_kind_not_null NOT NULL,
+    actor_capacity text DEFAULT 'member'::text CONSTRAINT audit_events_actor_capacity_not_null NOT NULL,
+    auth_method text,
+    api_key_id bigint,
+    action text CONSTRAINT audit_events_action_not_null NOT NULL,
+    category text CONSTRAINT audit_events_category_not_null NOT NULL,
+    resource_type text,
+    resource_id text,
+    outcome text DEFAULT 'success'::text CONSTRAINT audit_events_outcome_not_null NOT NULL,
+    status_code integer,
+    severity text DEFAULT 'info'::text CONSTRAINT audit_events_severity_not_null NOT NULL,
+    ip inet,
+    user_agent text,
+    request_id text,
+    method text,
+    path text,
+    details jsonb DEFAULT '{}'::jsonb CONSTRAINT audit_events_details_not_null NOT NULL,
+    source text DEFAULT 'api'::text CONSTRAINT audit_events_source_not_null NOT NULL,
+    legacy_id bigint,
+    seq bigint,
+    prev_hash text,
+    hash text
+);
+
+
+--
+-- Name: audit_events_2027_09; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_2027_09 (
+    id bigint DEFAULT nextval('public.audit_events_id_seq'::regclass) CONSTRAINT audit_events_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    org_id bigint CONSTRAINT audit_events_org_id_not_null NOT NULL,
+    actor_user_id bigint,
+    actor_email text,
+    actor_name text,
+    actor_kind text DEFAULT 'system'::text CONSTRAINT audit_events_actor_kind_not_null NOT NULL,
+    actor_capacity text DEFAULT 'member'::text CONSTRAINT audit_events_actor_capacity_not_null NOT NULL,
+    auth_method text,
+    api_key_id bigint,
+    action text CONSTRAINT audit_events_action_not_null NOT NULL,
+    category text CONSTRAINT audit_events_category_not_null NOT NULL,
+    resource_type text,
+    resource_id text,
+    outcome text DEFAULT 'success'::text CONSTRAINT audit_events_outcome_not_null NOT NULL,
+    status_code integer,
+    severity text DEFAULT 'info'::text CONSTRAINT audit_events_severity_not_null NOT NULL,
+    ip inet,
+    user_agent text,
+    request_id text,
+    method text,
+    path text,
+    details jsonb DEFAULT '{}'::jsonb CONSTRAINT audit_events_details_not_null NOT NULL,
+    source text DEFAULT 'api'::text CONSTRAINT audit_events_source_not_null NOT NULL,
+    legacy_id bigint,
+    seq bigint,
+    prev_hash text,
+    hash text
+);
+
+
+--
+-- Name: audit_events_2027_10; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_2027_10 (
+    id bigint DEFAULT nextval('public.audit_events_id_seq'::regclass) CONSTRAINT audit_events_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    org_id bigint CONSTRAINT audit_events_org_id_not_null NOT NULL,
+    actor_user_id bigint,
+    actor_email text,
+    actor_name text,
+    actor_kind text DEFAULT 'system'::text CONSTRAINT audit_events_actor_kind_not_null NOT NULL,
+    actor_capacity text DEFAULT 'member'::text CONSTRAINT audit_events_actor_capacity_not_null NOT NULL,
+    auth_method text,
+    api_key_id bigint,
+    action text CONSTRAINT audit_events_action_not_null NOT NULL,
+    category text CONSTRAINT audit_events_category_not_null NOT NULL,
+    resource_type text,
+    resource_id text,
+    outcome text DEFAULT 'success'::text CONSTRAINT audit_events_outcome_not_null NOT NULL,
+    status_code integer,
+    severity text DEFAULT 'info'::text CONSTRAINT audit_events_severity_not_null NOT NULL,
+    ip inet,
+    user_agent text,
+    request_id text,
+    method text,
+    path text,
+    details jsonb DEFAULT '{}'::jsonb CONSTRAINT audit_events_details_not_null NOT NULL,
+    source text DEFAULT 'api'::text CONSTRAINT audit_events_source_not_null NOT NULL,
+    legacy_id bigint,
+    seq bigint,
+    prev_hash text,
+    hash text
+);
+
+
+--
+-- Name: audit_events_2027_11; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_2027_11 (
+    id bigint DEFAULT nextval('public.audit_events_id_seq'::regclass) CONSTRAINT audit_events_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    org_id bigint CONSTRAINT audit_events_org_id_not_null NOT NULL,
+    actor_user_id bigint,
+    actor_email text,
+    actor_name text,
+    actor_kind text DEFAULT 'system'::text CONSTRAINT audit_events_actor_kind_not_null NOT NULL,
+    actor_capacity text DEFAULT 'member'::text CONSTRAINT audit_events_actor_capacity_not_null NOT NULL,
+    auth_method text,
+    api_key_id bigint,
+    action text CONSTRAINT audit_events_action_not_null NOT NULL,
+    category text CONSTRAINT audit_events_category_not_null NOT NULL,
+    resource_type text,
+    resource_id text,
+    outcome text DEFAULT 'success'::text CONSTRAINT audit_events_outcome_not_null NOT NULL,
+    status_code integer,
+    severity text DEFAULT 'info'::text CONSTRAINT audit_events_severity_not_null NOT NULL,
+    ip inet,
+    user_agent text,
+    request_id text,
+    method text,
+    path text,
+    details jsonb DEFAULT '{}'::jsonb CONSTRAINT audit_events_details_not_null NOT NULL,
+    source text DEFAULT 'api'::text CONSTRAINT audit_events_source_not_null NOT NULL,
+    legacy_id bigint,
+    seq bigint,
+    prev_hash text,
+    hash text
+);
+
+
+--
+-- Name: audit_events_default; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_default (
+    id bigint DEFAULT nextval('public.audit_events_id_seq'::regclass) CONSTRAINT audit_events_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    org_id bigint CONSTRAINT audit_events_org_id_not_null NOT NULL,
+    actor_user_id bigint,
+    actor_email text,
+    actor_name text,
+    actor_kind text DEFAULT 'system'::text CONSTRAINT audit_events_actor_kind_not_null NOT NULL,
+    actor_capacity text DEFAULT 'member'::text CONSTRAINT audit_events_actor_capacity_not_null NOT NULL,
+    auth_method text,
+    api_key_id bigint,
+    action text CONSTRAINT audit_events_action_not_null NOT NULL,
+    category text CONSTRAINT audit_events_category_not_null NOT NULL,
+    resource_type text,
+    resource_id text,
+    outcome text DEFAULT 'success'::text CONSTRAINT audit_events_outcome_not_null NOT NULL,
+    status_code integer,
+    severity text DEFAULT 'info'::text CONSTRAINT audit_events_severity_not_null NOT NULL,
+    ip inet,
+    user_agent text,
+    request_id text,
+    method text,
+    path text,
+    details jsonb DEFAULT '{}'::jsonb CONSTRAINT audit_events_details_not_null NOT NULL,
+    source text DEFAULT 'api'::text CONSTRAINT audit_events_source_not_null NOT NULL,
+    legacy_id bigint,
+    seq bigint,
+    prev_hash text,
+    hash text
+);
+
+
+--
 -- Name: auth_tokens; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -549,7 +1196,7 @@ CREATE TABLE public.auto_approve_policies (
     blocking_ruleset_ids bigint[] DEFAULT '{}'::bigint[] NOT NULL,
     landing_delay_seconds integer DEFAULT 0 NOT NULL,
     daily_approve_cap integer,
-    restrict_outcome_reporting_to_admins boolean DEFAULT false NOT NULL,
+    restrict_outcome_reporting_to_admins boolean DEFAULT false CONSTRAINT auto_approve_policies_restrict_outcome_reporting_to_ad_not_null NOT NULL,
     force_approve_min_level integer DEFAULT 3 NOT NULL,
     created_by bigint,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -709,7 +1356,7 @@ CREATE TABLE public.chat_charts (
     vega_spec jsonb NOT NULL,
     raw_llm_output text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    context jsonb,
+    context text[],
     stats jsonb
 );
 
@@ -788,7 +1435,7 @@ CREATE TABLE public.chat_files (
     rows integer,
     data bytea NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    context jsonb
+    context text[]
 );
 
 
@@ -1467,6 +2114,49 @@ ALTER SEQUENCE public.org_slack_configs_id_seq OWNED BY public.org_slack_configs
 
 
 --
+-- Name: org_sso_configs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.org_sso_configs (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    provider_type character varying(16) NOT NULL,
+    display_name character varying(255) NOT NULL,
+    enabled boolean DEFAULT false NOT NULL,
+    oidc_issuer character varying(512),
+    oidc_client_id character varying(512),
+    oidc_client_secret_enc text,
+    oidc_scopes text,
+    saml_idp_metadata_url character varying(512),
+    saml_idp_metadata_xml text,
+    saml_idp_entity_id character varying(512),
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by_user_id bigint,
+    CONSTRAINT org_sso_configs_provider_type_check CHECK (((provider_type)::text = ANY ((ARRAY['oidc'::character varying, 'saml'::character varying])::text[])))
+);
+
+
+--
+-- Name: org_sso_configs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.org_sso_configs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: org_sso_configs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.org_sso_configs_id_seq OWNED BY public.org_sso_configs.id;
+
+
+--
 -- Name: org_teams_configs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1783,12 +2473,12 @@ CREATE TABLE public.quota_batch_settlements (
     context_tokens_batch bigint NOT NULL,
     allowed_context_tokens_batch bigint NOT NULL,
     extra_context_tokens_batch bigint NOT NULL,
-    provider_total_input_tokens_batch bigint NOT NULL,
+    provider_total_input_tokens_batch bigint CONSTRAINT quota_batch_settlements_provider_total_input_tokens_ba_not_null NOT NULL,
     output_tokens_batch bigint NOT NULL,
     input_cost_usd_batch double precision NOT NULL,
     output_cost_usd_batch double precision NOT NULL,
     total_cost_usd_batch double precision NOT NULL,
-    context_tokens_per_loc_allowance double precision NOT NULL,
+    context_tokens_per_loc_allowance double precision CONSTRAINT quota_batch_settlements_context_tokens_per_loc_allowan_not_null NOT NULL,
     accounted_at timestamp with time zone DEFAULT now() NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -1852,9 +2542,9 @@ CREATE TABLE public.quota_operation_aggregates (
     diff_input_tokens_total bigint NOT NULL,
     context_chars_total bigint NOT NULL,
     context_tokens_total bigint NOT NULL,
-    allowed_context_tokens_total bigint NOT NULL,
+    allowed_context_tokens_total bigint CONSTRAINT quota_operation_aggregates_allowed_context_tokens_tota_not_null NOT NULL,
     extra_context_tokens_total bigint NOT NULL,
-    provider_total_input_tokens_total bigint NOT NULL,
+    provider_total_input_tokens_total bigint CONSTRAINT quota_operation_aggregates_provider_total_input_tokens_not_null NOT NULL,
     output_tokens_total bigint NOT NULL,
     input_cost_usd_total double precision NOT NULL,
     output_cost_usd_total double precision NOT NULL,
@@ -1913,7 +2603,7 @@ CREATE TABLE public.quota_policy_catalog (
     context_budget_ratio double precision NOT NULL,
     ops_reserved_ratio double precision NOT NULL,
     input_cost_per_million_tokens_usd double precision NOT NULL,
-    output_cost_per_million_tokens_usd double precision NOT NULL,
+    output_cost_per_million_tokens_usd double precision CONSTRAINT quota_policy_catalog_output_cost_per_million_tokens_us_not_null NOT NULL,
     rounding_scale integer DEFAULT 6 NOT NULL,
     active boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -2130,10 +2820,22 @@ CREATE SEQUENCE public.review_events_id_seq
 
 
 --
--- Name: review_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+-- Name: review_events_id_seq1; Type: SEQUENCE; Schema: public; Owner: -
 --
 
-ALTER SEQUENCE public.review_events_id_seq OWNED BY public.review_events.id;
+CREATE SEQUENCE public.review_events_id_seq1
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: review_events_id_seq1; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.review_events_id_seq1 OWNED BY public.review_events.id;
 
 
 --
@@ -2490,37 +3192,6 @@ CREATE UNLOGGED TABLE public.river_client_queue (
 
 
 --
--- Name: river_job; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.river_job (
-    id bigint NOT NULL,
-    state public.river_job_state DEFAULT 'available'::public.river_job_state NOT NULL,
-    attempt smallint DEFAULT 0 NOT NULL,
-    max_attempts smallint NOT NULL,
-    attempted_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    finalized_at timestamp with time zone,
-    scheduled_at timestamp with time zone DEFAULT now() NOT NULL,
-    priority smallint DEFAULT 1 NOT NULL,
-    args jsonb NOT NULL,
-    attempted_by text[],
-    errors jsonb[],
-    kind text NOT NULL,
-    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    queue text DEFAULT 'default'::text NOT NULL,
-    tags character varying(255)[] DEFAULT '{}'::character varying[] NOT NULL,
-    unique_key bytea,
-    unique_states bit(8),
-    CONSTRAINT finalized_or_finalized_at_null CHECK ((((finalized_at IS NULL) AND (state <> ALL (ARRAY['cancelled'::public.river_job_state, 'completed'::public.river_job_state, 'discarded'::public.river_job_state]))) OR ((finalized_at IS NOT NULL) AND (state = ANY (ARRAY['cancelled'::public.river_job_state, 'completed'::public.river_job_state, 'discarded'::public.river_job_state]))))),
-    CONSTRAINT kind_length CHECK (((char_length(kind) > 0) AND (char_length(kind) < 128))),
-    CONSTRAINT max_attempts_is_positive CHECK ((max_attempts > 0)),
-    CONSTRAINT priority_in_range CHECK (((priority >= 1) AND (priority <= 4))),
-    CONSTRAINT queue_length CHECK (((char_length(queue) > 0) AND (char_length(queue) < 128)))
-);
-
-
---
 -- Name: river_job_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -2533,10 +3204,29 @@ CREATE SEQUENCE public.river_job_id_seq
 
 
 --
--- Name: river_job_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+-- Name: river_job; Type: TABLE; Schema: public; Owner: -
 --
 
-ALTER SEQUENCE public.river_job_id_seq OWNED BY public.river_job.id;
+CREATE TABLE public.river_job (
+    id bigint DEFAULT nextval('public.river_job_id_seq'::regclass) NOT NULL,
+    args jsonb DEFAULT '{}'::jsonb NOT NULL,
+    attempt smallint DEFAULT 0 NOT NULL,
+    attempted_at timestamp with time zone,
+    attempted_by text[],
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    errors jsonb[],
+    finalized_at timestamp with time zone,
+    kind text NOT NULL,
+    max_attempts smallint DEFAULT 3 NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    priority smallint DEFAULT 1 NOT NULL,
+    queue text DEFAULT 'default'::text NOT NULL,
+    state public.river_job_state DEFAULT 'available'::public.river_job_state NOT NULL,
+    scheduled_at timestamp with time zone DEFAULT now() NOT NULL,
+    tags character varying(255)[] DEFAULT '{}'::character varying[],
+    unique_key bytea,
+    unique_states bit(8)
+);
 
 
 --
@@ -3061,14 +3751,14 @@ CREATE TABLE public.upgrade_replacement_cutovers (
     org_id bigint NOT NULL,
     owner_user_id bigint NOT NULL,
     old_local_subscription_id bigint NOT NULL,
-    old_razorpay_subscription_id character varying(255) NOT NULL,
+    old_razorpay_subscription_id character varying(255) CONSTRAINT upgrade_replacement_cutover_old_razorpay_subscription__not_null NOT NULL,
     replacement_local_subscription_id bigint,
     replacement_razorpay_subscription_id character varying(255),
     target_plan_code character varying(64) NOT NULL,
     target_quantity integer NOT NULL,
     currency character varying(16) NOT NULL,
     cutover_at timestamp with time zone NOT NULL,
-    old_cancellation_scheduled boolean DEFAULT false NOT NULL,
+    old_cancellation_scheduled boolean DEFAULT false CONSTRAINT upgrade_replacement_cutover_old_cancellation_scheduled_not_null NOT NULL,
     status character varying(64) DEFAULT 'pending_provisioning'::character varying NOT NULL,
     retry_count integer DEFAULT 0 NOT NULL,
     next_retry_at timestamp with time zone,
@@ -3103,24 +3793,6 @@ ALTER SEQUENCE public.upgrade_replacement_cutovers_id_seq OWNED BY public.upgrad
 
 
 --
--- Name: upgrade_request_events; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.upgrade_request_events (
-    id bigint NOT NULL,
-    upgrade_request_id character varying(36) NOT NULL,
-    org_id bigint NOT NULL,
-    event_source character varying(64) NOT NULL,
-    event_type character varying(64) NOT NULL,
-    from_status character varying(64),
-    to_status character varying(64),
-    event_payload jsonb,
-    event_time timestamp with time zone DEFAULT now() NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
 -- Name: upgrade_request_events_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -3130,13 +3802,6 @@ CREATE SEQUENCE public.upgrade_request_events_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
-
-
---
--- Name: upgrade_request_events_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.upgrade_request_events_id_seq OWNED BY public.upgrade_request_events.id;
 
 
 --
@@ -3408,6 +4073,111 @@ ALTER SEQUENCE public.webhook_registry_id_seq OWNED BY public.webhook_registry.i
 
 
 --
+-- Name: audit_events_2026_10; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_2026_10 FOR VALUES FROM ('2026-10-01 00:00:00+00') TO ('2026-11-01 00:00:00+00');
+
+
+--
+-- Name: audit_events_2026_11; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_2026_11 FOR VALUES FROM ('2026-11-01 00:00:00+00') TO ('2026-12-01 00:00:00+00');
+
+
+--
+-- Name: audit_events_2026_12; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_2026_12 FOR VALUES FROM ('2026-12-01 00:00:00+00') TO ('2027-01-01 00:00:00+00');
+
+
+--
+-- Name: audit_events_2027_01; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_2027_01 FOR VALUES FROM ('2027-01-01 00:00:00+00') TO ('2027-02-01 00:00:00+00');
+
+
+--
+-- Name: audit_events_2027_02; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_2027_02 FOR VALUES FROM ('2027-02-01 00:00:00+00') TO ('2027-03-01 00:00:00+00');
+
+
+--
+-- Name: audit_events_2027_03; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_2027_03 FOR VALUES FROM ('2027-03-01 00:00:00+00') TO ('2027-04-01 00:00:00+00');
+
+
+--
+-- Name: audit_events_2027_04; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_2027_04 FOR VALUES FROM ('2027-04-01 00:00:00+00') TO ('2027-05-01 00:00:00+00');
+
+
+--
+-- Name: audit_events_2027_05; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_2027_05 FOR VALUES FROM ('2027-05-01 00:00:00+00') TO ('2027-06-01 00:00:00+00');
+
+
+--
+-- Name: audit_events_2027_06; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_2027_06 FOR VALUES FROM ('2027-06-01 00:00:00+00') TO ('2027-07-01 00:00:00+00');
+
+
+--
+-- Name: audit_events_2027_07; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_2027_07 FOR VALUES FROM ('2027-07-01 00:00:00+00') TO ('2027-08-01 00:00:00+00');
+
+
+--
+-- Name: audit_events_2027_08; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_2027_08 FOR VALUES FROM ('2027-08-01 00:00:00+00') TO ('2027-09-01 00:00:00+00');
+
+
+--
+-- Name: audit_events_2027_09; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_2027_09 FOR VALUES FROM ('2027-09-01 00:00:00+00') TO ('2027-10-01 00:00:00+00');
+
+
+--
+-- Name: audit_events_2027_10; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_2027_10 FOR VALUES FROM ('2027-10-01 00:00:00+00') TO ('2027-11-01 00:00:00+00');
+
+
+--
+-- Name: audit_events_2027_11; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_2027_11 FOR VALUES FROM ('2027-11-01 00:00:00+00') TO ('2027-12-01 00:00:00+00');
+
+
+--
+-- Name: audit_events_default; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_default DEFAULT;
+
+
+--
 -- Name: ai_comments id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3433,6 +4203,13 @@ ALTER TABLE ONLY public.ai_models ALTER COLUMN id SET DEFAULT nextval('public.ai
 --
 
 ALTER TABLE ONLY public.api_keys ALTER COLUMN id SET DEFAULT nextval('public.api_keys_id_seq'::regclass);
+
+
+--
+-- Name: audit_events id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ALTER COLUMN id SET DEFAULT nextval('public.audit_events_id_seq'::regclass);
 
 
 --
@@ -3569,6 +4346,13 @@ ALTER TABLE ONLY public.org_slack_configs ALTER COLUMN id SET DEFAULT nextval('p
 
 
 --
+-- Name: org_sso_configs id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_sso_configs ALTER COLUMN id SET DEFAULT nextval('public.org_sso_configs_id_seq'::regclass);
+
+
+--
 -- Name: org_teams_configs id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -3656,7 +4440,7 @@ ALTER TABLE ONLY public.review_commits ALTER COLUMN id SET DEFAULT nextval('publ
 -- Name: review_events id; Type: DEFAULT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.review_events ALTER COLUMN id SET DEFAULT nextval('public.review_events_id_seq'::regclass);
+ALTER TABLE ONLY public.review_events ALTER COLUMN id SET DEFAULT nextval('public.review_events_id_seq1'::regclass);
 
 
 --
@@ -3713,13 +4497,6 @@ ALTER TABLE ONLY public.risk_feature_snapshots ALTER COLUMN id SET DEFAULT nextv
 --
 
 ALTER TABLE ONLY public.risk_model_versions ALTER COLUMN id SET DEFAULT nextval('public.risk_model_versions_id_seq'::regclass);
-
-
---
--- Name: river_job id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.river_job ALTER COLUMN id SET DEFAULT nextval('public.river_job_id_seq'::regclass);
 
 
 --
@@ -3783,13 +4560,6 @@ ALTER TABLE ONLY public.upgrade_payment_attempts ALTER COLUMN id SET DEFAULT nex
 --
 
 ALTER TABLE ONLY public.upgrade_replacement_cutovers ALTER COLUMN id SET DEFAULT nextval('public.upgrade_replacement_cutovers_id_seq'::regclass);
-
-
---
--- Name: upgrade_request_events id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.upgrade_request_events ALTER COLUMN id SET DEFAULT nextval('public.upgrade_request_events_id_seq'::regclass);
 
 
 --
@@ -3880,6 +4650,142 @@ ALTER TABLE ONLY public.api_keys
 
 ALTER TABLE ONLY public.api_keys
     ADD CONSTRAINT api_keys_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: audit_archives audit_archives_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_archives
+    ADD CONSTRAINT audit_archives_pkey PRIMARY KEY (org_id, month);
+
+
+--
+-- Name: audit_events audit_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events
+    ADD CONSTRAINT audit_events_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_2026_10 audit_events_2026_10_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_2026_10
+    ADD CONSTRAINT audit_events_2026_10_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_2026_11 audit_events_2026_11_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_2026_11
+    ADD CONSTRAINT audit_events_2026_11_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_2026_12 audit_events_2026_12_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_2026_12
+    ADD CONSTRAINT audit_events_2026_12_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_2027_01 audit_events_2027_01_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_2027_01
+    ADD CONSTRAINT audit_events_2027_01_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_2027_02 audit_events_2027_02_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_2027_02
+    ADD CONSTRAINT audit_events_2027_02_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_2027_03 audit_events_2027_03_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_2027_03
+    ADD CONSTRAINT audit_events_2027_03_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_2027_04 audit_events_2027_04_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_2027_04
+    ADD CONSTRAINT audit_events_2027_04_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_2027_05 audit_events_2027_05_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_2027_05
+    ADD CONSTRAINT audit_events_2027_05_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_2027_06 audit_events_2027_06_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_2027_06
+    ADD CONSTRAINT audit_events_2027_06_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_2027_07 audit_events_2027_07_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_2027_07
+    ADD CONSTRAINT audit_events_2027_07_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_2027_08 audit_events_2027_08_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_2027_08
+    ADD CONSTRAINT audit_events_2027_08_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_2027_09 audit_events_2027_09_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_2027_09
+    ADD CONSTRAINT audit_events_2027_09_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_2027_10 audit_events_2027_10_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_2027_10
+    ADD CONSTRAINT audit_events_2027_10_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_2027_11 audit_events_2027_11_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_2027_11
+    ADD CONSTRAINT audit_events_2027_11_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_default audit_events_default_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_default
+    ADD CONSTRAINT audit_events_default_pkey PRIMARY KEY (id, occurred_at);
 
 
 --
@@ -4120,6 +5026,22 @@ ALTER TABLE ONLY public.org_slack_configs
 
 ALTER TABLE ONLY public.org_slack_configs
     ADD CONSTRAINT org_slack_configs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: org_sso_configs org_sso_configs_org_id_provider_type_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_sso_configs
+    ADD CONSTRAINT org_sso_configs_org_id_provider_type_key UNIQUE (org_id, provider_type);
+
+
+--
+-- Name: org_sso_configs org_sso_configs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_sso_configs
+    ADD CONSTRAINT org_sso_configs_pkey PRIMARY KEY (id);
 
 
 --
@@ -4515,14 +5437,6 @@ ALTER TABLE ONLY public.upgrade_replacement_cutovers
 
 
 --
--- Name: upgrade_request_events upgrade_request_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.upgrade_request_events
-    ADD CONSTRAINT upgrade_request_events_pkey PRIMARY KEY (id);
-
-
---
 -- Name: upgrade_requests upgrade_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4683,6 +5597,1014 @@ ALTER TABLE ONLY public.webhook_registry
 
 
 --
+-- Name: idx_audit_events_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_events_id ON ONLY public.audit_events USING btree (id);
+
+
+--
+-- Name: audit_events_2026_10_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_10_id_idx ON public.audit_events_2026_10 USING btree (id);
+
+
+--
+-- Name: idx_audit_events_org_action_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_events_org_action_time ON ONLY public.audit_events USING btree (org_id, action, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2026_10_org_id_action_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_10_org_id_action_occurred_at_idx ON public.audit_events_2026_10 USING btree (org_id, action, occurred_at DESC);
+
+
+--
+-- Name: idx_audit_events_org_actor_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_events_org_actor_time ON ONLY public.audit_events USING btree (org_id, actor_user_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2026_10_org_id_actor_user_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_10_org_id_actor_user_id_occurred_at_idx ON public.audit_events_2026_10 USING btree (org_id, actor_user_id, occurred_at DESC);
+
+
+--
+-- Name: idx_audit_events_org_category_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_events_org_category_time ON ONLY public.audit_events USING btree (org_id, category, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2026_10_org_id_category_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_10_org_id_category_occurred_at_idx ON public.audit_events_2026_10 USING btree (org_id, category, occurred_at DESC);
+
+
+--
+-- Name: idx_audit_events_org_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_events_org_time ON ONLY public.audit_events USING btree (org_id, occurred_at DESC, id DESC);
+
+
+--
+-- Name: audit_events_2026_10_org_id_occurred_at_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_10_org_id_occurred_at_id_idx ON public.audit_events_2026_10 USING btree (org_id, occurred_at DESC, id DESC);
+
+
+--
+-- Name: idx_audit_events_org_outcome_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_events_org_outcome_time ON ONLY public.audit_events USING btree (org_id, outcome, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2026_10_org_id_outcome_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_10_org_id_outcome_occurred_at_idx ON public.audit_events_2026_10 USING btree (org_id, outcome, occurred_at DESC);
+
+
+--
+-- Name: idx_audit_events_org_seq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_events_org_seq ON ONLY public.audit_events USING btree (org_id, seq) WHERE (seq IS NOT NULL);
+
+
+--
+-- Name: audit_events_2026_10_org_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_10_org_id_seq_idx ON public.audit_events_2026_10 USING btree (org_id, seq) WHERE (seq IS NOT NULL);
+
+
+--
+-- Name: idx_audit_events_org_severity_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_audit_events_org_severity_time ON ONLY public.audit_events USING btree (org_id, severity, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2026_10_org_id_severity_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_10_org_id_severity_occurred_at_idx ON public.audit_events_2026_10 USING btree (org_id, severity, occurred_at DESC);
+
+
+--
+-- Name: uq_audit_events_legacy; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_audit_events_legacy ON ONLY public.audit_events USING btree (source, legacy_id, occurred_at) WHERE (legacy_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_2026_10_source_legacy_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX audit_events_2026_10_source_legacy_id_occurred_at_idx ON public.audit_events_2026_10 USING btree (source, legacy_id, occurred_at) WHERE (legacy_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_2026_11_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_11_id_idx ON public.audit_events_2026_11 USING btree (id);
+
+
+--
+-- Name: audit_events_2026_11_org_id_action_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_11_org_id_action_occurred_at_idx ON public.audit_events_2026_11 USING btree (org_id, action, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2026_11_org_id_actor_user_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_11_org_id_actor_user_id_occurred_at_idx ON public.audit_events_2026_11 USING btree (org_id, actor_user_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2026_11_org_id_category_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_11_org_id_category_occurred_at_idx ON public.audit_events_2026_11 USING btree (org_id, category, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2026_11_org_id_occurred_at_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_11_org_id_occurred_at_id_idx ON public.audit_events_2026_11 USING btree (org_id, occurred_at DESC, id DESC);
+
+
+--
+-- Name: audit_events_2026_11_org_id_outcome_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_11_org_id_outcome_occurred_at_idx ON public.audit_events_2026_11 USING btree (org_id, outcome, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2026_11_org_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_11_org_id_seq_idx ON public.audit_events_2026_11 USING btree (org_id, seq) WHERE (seq IS NOT NULL);
+
+
+--
+-- Name: audit_events_2026_11_org_id_severity_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_11_org_id_severity_occurred_at_idx ON public.audit_events_2026_11 USING btree (org_id, severity, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2026_11_source_legacy_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX audit_events_2026_11_source_legacy_id_occurred_at_idx ON public.audit_events_2026_11 USING btree (source, legacy_id, occurred_at) WHERE (legacy_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_2026_12_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_12_id_idx ON public.audit_events_2026_12 USING btree (id);
+
+
+--
+-- Name: audit_events_2026_12_org_id_action_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_12_org_id_action_occurred_at_idx ON public.audit_events_2026_12 USING btree (org_id, action, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2026_12_org_id_actor_user_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_12_org_id_actor_user_id_occurred_at_idx ON public.audit_events_2026_12 USING btree (org_id, actor_user_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2026_12_org_id_category_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_12_org_id_category_occurred_at_idx ON public.audit_events_2026_12 USING btree (org_id, category, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2026_12_org_id_occurred_at_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_12_org_id_occurred_at_id_idx ON public.audit_events_2026_12 USING btree (org_id, occurred_at DESC, id DESC);
+
+
+--
+-- Name: audit_events_2026_12_org_id_outcome_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_12_org_id_outcome_occurred_at_idx ON public.audit_events_2026_12 USING btree (org_id, outcome, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2026_12_org_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_12_org_id_seq_idx ON public.audit_events_2026_12 USING btree (org_id, seq) WHERE (seq IS NOT NULL);
+
+
+--
+-- Name: audit_events_2026_12_org_id_severity_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2026_12_org_id_severity_occurred_at_idx ON public.audit_events_2026_12 USING btree (org_id, severity, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2026_12_source_legacy_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX audit_events_2026_12_source_legacy_id_occurred_at_idx ON public.audit_events_2026_12 USING btree (source, legacy_id, occurred_at) WHERE (legacy_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_01_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_01_id_idx ON public.audit_events_2027_01 USING btree (id);
+
+
+--
+-- Name: audit_events_2027_01_org_id_action_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_01_org_id_action_occurred_at_idx ON public.audit_events_2027_01 USING btree (org_id, action, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_01_org_id_actor_user_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_01_org_id_actor_user_id_occurred_at_idx ON public.audit_events_2027_01 USING btree (org_id, actor_user_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_01_org_id_category_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_01_org_id_category_occurred_at_idx ON public.audit_events_2027_01 USING btree (org_id, category, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_01_org_id_occurred_at_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_01_org_id_occurred_at_id_idx ON public.audit_events_2027_01 USING btree (org_id, occurred_at DESC, id DESC);
+
+
+--
+-- Name: audit_events_2027_01_org_id_outcome_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_01_org_id_outcome_occurred_at_idx ON public.audit_events_2027_01 USING btree (org_id, outcome, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_01_org_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_01_org_id_seq_idx ON public.audit_events_2027_01 USING btree (org_id, seq) WHERE (seq IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_01_org_id_severity_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_01_org_id_severity_occurred_at_idx ON public.audit_events_2027_01 USING btree (org_id, severity, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_01_source_legacy_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX audit_events_2027_01_source_legacy_id_occurred_at_idx ON public.audit_events_2027_01 USING btree (source, legacy_id, occurred_at) WHERE (legacy_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_02_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_02_id_idx ON public.audit_events_2027_02 USING btree (id);
+
+
+--
+-- Name: audit_events_2027_02_org_id_action_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_02_org_id_action_occurred_at_idx ON public.audit_events_2027_02 USING btree (org_id, action, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_02_org_id_actor_user_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_02_org_id_actor_user_id_occurred_at_idx ON public.audit_events_2027_02 USING btree (org_id, actor_user_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_02_org_id_category_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_02_org_id_category_occurred_at_idx ON public.audit_events_2027_02 USING btree (org_id, category, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_02_org_id_occurred_at_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_02_org_id_occurred_at_id_idx ON public.audit_events_2027_02 USING btree (org_id, occurred_at DESC, id DESC);
+
+
+--
+-- Name: audit_events_2027_02_org_id_outcome_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_02_org_id_outcome_occurred_at_idx ON public.audit_events_2027_02 USING btree (org_id, outcome, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_02_org_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_02_org_id_seq_idx ON public.audit_events_2027_02 USING btree (org_id, seq) WHERE (seq IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_02_org_id_severity_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_02_org_id_severity_occurred_at_idx ON public.audit_events_2027_02 USING btree (org_id, severity, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_02_source_legacy_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX audit_events_2027_02_source_legacy_id_occurred_at_idx ON public.audit_events_2027_02 USING btree (source, legacy_id, occurred_at) WHERE (legacy_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_03_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_03_id_idx ON public.audit_events_2027_03 USING btree (id);
+
+
+--
+-- Name: audit_events_2027_03_org_id_action_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_03_org_id_action_occurred_at_idx ON public.audit_events_2027_03 USING btree (org_id, action, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_03_org_id_actor_user_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_03_org_id_actor_user_id_occurred_at_idx ON public.audit_events_2027_03 USING btree (org_id, actor_user_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_03_org_id_category_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_03_org_id_category_occurred_at_idx ON public.audit_events_2027_03 USING btree (org_id, category, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_03_org_id_occurred_at_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_03_org_id_occurred_at_id_idx ON public.audit_events_2027_03 USING btree (org_id, occurred_at DESC, id DESC);
+
+
+--
+-- Name: audit_events_2027_03_org_id_outcome_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_03_org_id_outcome_occurred_at_idx ON public.audit_events_2027_03 USING btree (org_id, outcome, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_03_org_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_03_org_id_seq_idx ON public.audit_events_2027_03 USING btree (org_id, seq) WHERE (seq IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_03_org_id_severity_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_03_org_id_severity_occurred_at_idx ON public.audit_events_2027_03 USING btree (org_id, severity, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_03_source_legacy_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX audit_events_2027_03_source_legacy_id_occurred_at_idx ON public.audit_events_2027_03 USING btree (source, legacy_id, occurred_at) WHERE (legacy_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_04_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_04_id_idx ON public.audit_events_2027_04 USING btree (id);
+
+
+--
+-- Name: audit_events_2027_04_org_id_action_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_04_org_id_action_occurred_at_idx ON public.audit_events_2027_04 USING btree (org_id, action, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_04_org_id_actor_user_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_04_org_id_actor_user_id_occurred_at_idx ON public.audit_events_2027_04 USING btree (org_id, actor_user_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_04_org_id_category_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_04_org_id_category_occurred_at_idx ON public.audit_events_2027_04 USING btree (org_id, category, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_04_org_id_occurred_at_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_04_org_id_occurred_at_id_idx ON public.audit_events_2027_04 USING btree (org_id, occurred_at DESC, id DESC);
+
+
+--
+-- Name: audit_events_2027_04_org_id_outcome_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_04_org_id_outcome_occurred_at_idx ON public.audit_events_2027_04 USING btree (org_id, outcome, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_04_org_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_04_org_id_seq_idx ON public.audit_events_2027_04 USING btree (org_id, seq) WHERE (seq IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_04_org_id_severity_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_04_org_id_severity_occurred_at_idx ON public.audit_events_2027_04 USING btree (org_id, severity, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_04_source_legacy_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX audit_events_2027_04_source_legacy_id_occurred_at_idx ON public.audit_events_2027_04 USING btree (source, legacy_id, occurred_at) WHERE (legacy_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_05_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_05_id_idx ON public.audit_events_2027_05 USING btree (id);
+
+
+--
+-- Name: audit_events_2027_05_org_id_action_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_05_org_id_action_occurred_at_idx ON public.audit_events_2027_05 USING btree (org_id, action, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_05_org_id_actor_user_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_05_org_id_actor_user_id_occurred_at_idx ON public.audit_events_2027_05 USING btree (org_id, actor_user_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_05_org_id_category_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_05_org_id_category_occurred_at_idx ON public.audit_events_2027_05 USING btree (org_id, category, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_05_org_id_occurred_at_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_05_org_id_occurred_at_id_idx ON public.audit_events_2027_05 USING btree (org_id, occurred_at DESC, id DESC);
+
+
+--
+-- Name: audit_events_2027_05_org_id_outcome_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_05_org_id_outcome_occurred_at_idx ON public.audit_events_2027_05 USING btree (org_id, outcome, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_05_org_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_05_org_id_seq_idx ON public.audit_events_2027_05 USING btree (org_id, seq) WHERE (seq IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_05_org_id_severity_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_05_org_id_severity_occurred_at_idx ON public.audit_events_2027_05 USING btree (org_id, severity, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_05_source_legacy_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX audit_events_2027_05_source_legacy_id_occurred_at_idx ON public.audit_events_2027_05 USING btree (source, legacy_id, occurred_at) WHERE (legacy_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_06_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_06_id_idx ON public.audit_events_2027_06 USING btree (id);
+
+
+--
+-- Name: audit_events_2027_06_org_id_action_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_06_org_id_action_occurred_at_idx ON public.audit_events_2027_06 USING btree (org_id, action, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_06_org_id_actor_user_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_06_org_id_actor_user_id_occurred_at_idx ON public.audit_events_2027_06 USING btree (org_id, actor_user_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_06_org_id_category_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_06_org_id_category_occurred_at_idx ON public.audit_events_2027_06 USING btree (org_id, category, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_06_org_id_occurred_at_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_06_org_id_occurred_at_id_idx ON public.audit_events_2027_06 USING btree (org_id, occurred_at DESC, id DESC);
+
+
+--
+-- Name: audit_events_2027_06_org_id_outcome_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_06_org_id_outcome_occurred_at_idx ON public.audit_events_2027_06 USING btree (org_id, outcome, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_06_org_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_06_org_id_seq_idx ON public.audit_events_2027_06 USING btree (org_id, seq) WHERE (seq IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_06_org_id_severity_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_06_org_id_severity_occurred_at_idx ON public.audit_events_2027_06 USING btree (org_id, severity, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_06_source_legacy_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX audit_events_2027_06_source_legacy_id_occurred_at_idx ON public.audit_events_2027_06 USING btree (source, legacy_id, occurred_at) WHERE (legacy_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_07_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_07_id_idx ON public.audit_events_2027_07 USING btree (id);
+
+
+--
+-- Name: audit_events_2027_07_org_id_action_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_07_org_id_action_occurred_at_idx ON public.audit_events_2027_07 USING btree (org_id, action, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_07_org_id_actor_user_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_07_org_id_actor_user_id_occurred_at_idx ON public.audit_events_2027_07 USING btree (org_id, actor_user_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_07_org_id_category_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_07_org_id_category_occurred_at_idx ON public.audit_events_2027_07 USING btree (org_id, category, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_07_org_id_occurred_at_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_07_org_id_occurred_at_id_idx ON public.audit_events_2027_07 USING btree (org_id, occurred_at DESC, id DESC);
+
+
+--
+-- Name: audit_events_2027_07_org_id_outcome_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_07_org_id_outcome_occurred_at_idx ON public.audit_events_2027_07 USING btree (org_id, outcome, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_07_org_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_07_org_id_seq_idx ON public.audit_events_2027_07 USING btree (org_id, seq) WHERE (seq IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_07_org_id_severity_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_07_org_id_severity_occurred_at_idx ON public.audit_events_2027_07 USING btree (org_id, severity, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_07_source_legacy_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX audit_events_2027_07_source_legacy_id_occurred_at_idx ON public.audit_events_2027_07 USING btree (source, legacy_id, occurred_at) WHERE (legacy_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_08_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_08_id_idx ON public.audit_events_2027_08 USING btree (id);
+
+
+--
+-- Name: audit_events_2027_08_org_id_action_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_08_org_id_action_occurred_at_idx ON public.audit_events_2027_08 USING btree (org_id, action, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_08_org_id_actor_user_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_08_org_id_actor_user_id_occurred_at_idx ON public.audit_events_2027_08 USING btree (org_id, actor_user_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_08_org_id_category_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_08_org_id_category_occurred_at_idx ON public.audit_events_2027_08 USING btree (org_id, category, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_08_org_id_occurred_at_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_08_org_id_occurred_at_id_idx ON public.audit_events_2027_08 USING btree (org_id, occurred_at DESC, id DESC);
+
+
+--
+-- Name: audit_events_2027_08_org_id_outcome_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_08_org_id_outcome_occurred_at_idx ON public.audit_events_2027_08 USING btree (org_id, outcome, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_08_org_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_08_org_id_seq_idx ON public.audit_events_2027_08 USING btree (org_id, seq) WHERE (seq IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_08_org_id_severity_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_08_org_id_severity_occurred_at_idx ON public.audit_events_2027_08 USING btree (org_id, severity, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_08_source_legacy_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX audit_events_2027_08_source_legacy_id_occurred_at_idx ON public.audit_events_2027_08 USING btree (source, legacy_id, occurred_at) WHERE (legacy_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_09_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_09_id_idx ON public.audit_events_2027_09 USING btree (id);
+
+
+--
+-- Name: audit_events_2027_09_org_id_action_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_09_org_id_action_occurred_at_idx ON public.audit_events_2027_09 USING btree (org_id, action, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_09_org_id_actor_user_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_09_org_id_actor_user_id_occurred_at_idx ON public.audit_events_2027_09 USING btree (org_id, actor_user_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_09_org_id_category_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_09_org_id_category_occurred_at_idx ON public.audit_events_2027_09 USING btree (org_id, category, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_09_org_id_occurred_at_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_09_org_id_occurred_at_id_idx ON public.audit_events_2027_09 USING btree (org_id, occurred_at DESC, id DESC);
+
+
+--
+-- Name: audit_events_2027_09_org_id_outcome_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_09_org_id_outcome_occurred_at_idx ON public.audit_events_2027_09 USING btree (org_id, outcome, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_09_org_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_09_org_id_seq_idx ON public.audit_events_2027_09 USING btree (org_id, seq) WHERE (seq IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_09_org_id_severity_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_09_org_id_severity_occurred_at_idx ON public.audit_events_2027_09 USING btree (org_id, severity, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_09_source_legacy_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX audit_events_2027_09_source_legacy_id_occurred_at_idx ON public.audit_events_2027_09 USING btree (source, legacy_id, occurred_at) WHERE (legacy_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_10_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_10_id_idx ON public.audit_events_2027_10 USING btree (id);
+
+
+--
+-- Name: audit_events_2027_10_org_id_action_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_10_org_id_action_occurred_at_idx ON public.audit_events_2027_10 USING btree (org_id, action, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_10_org_id_actor_user_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_10_org_id_actor_user_id_occurred_at_idx ON public.audit_events_2027_10 USING btree (org_id, actor_user_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_10_org_id_category_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_10_org_id_category_occurred_at_idx ON public.audit_events_2027_10 USING btree (org_id, category, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_10_org_id_occurred_at_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_10_org_id_occurred_at_id_idx ON public.audit_events_2027_10 USING btree (org_id, occurred_at DESC, id DESC);
+
+
+--
+-- Name: audit_events_2027_10_org_id_outcome_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_10_org_id_outcome_occurred_at_idx ON public.audit_events_2027_10 USING btree (org_id, outcome, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_10_org_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_10_org_id_seq_idx ON public.audit_events_2027_10 USING btree (org_id, seq) WHERE (seq IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_10_org_id_severity_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_10_org_id_severity_occurred_at_idx ON public.audit_events_2027_10 USING btree (org_id, severity, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_10_source_legacy_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX audit_events_2027_10_source_legacy_id_occurred_at_idx ON public.audit_events_2027_10 USING btree (source, legacy_id, occurred_at) WHERE (legacy_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_11_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_11_id_idx ON public.audit_events_2027_11 USING btree (id);
+
+
+--
+-- Name: audit_events_2027_11_org_id_action_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_11_org_id_action_occurred_at_idx ON public.audit_events_2027_11 USING btree (org_id, action, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_11_org_id_actor_user_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_11_org_id_actor_user_id_occurred_at_idx ON public.audit_events_2027_11 USING btree (org_id, actor_user_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_11_org_id_category_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_11_org_id_category_occurred_at_idx ON public.audit_events_2027_11 USING btree (org_id, category, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_11_org_id_occurred_at_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_11_org_id_occurred_at_id_idx ON public.audit_events_2027_11 USING btree (org_id, occurred_at DESC, id DESC);
+
+
+--
+-- Name: audit_events_2027_11_org_id_outcome_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_11_org_id_outcome_occurred_at_idx ON public.audit_events_2027_11 USING btree (org_id, outcome, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_11_org_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_11_org_id_seq_idx ON public.audit_events_2027_11 USING btree (org_id, seq) WHERE (seq IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_11_org_id_severity_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_11_org_id_severity_occurred_at_idx ON public.audit_events_2027_11 USING btree (org_id, severity, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_11_source_legacy_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX audit_events_2027_11_source_legacy_id_occurred_at_idx ON public.audit_events_2027_11 USING btree (source, legacy_id, occurred_at) WHERE (legacy_id IS NOT NULL);
+
+
+--
+-- Name: audit_events_default_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_default_id_idx ON public.audit_events_default USING btree (id);
+
+
+--
+-- Name: audit_events_default_org_id_action_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_default_org_id_action_occurred_at_idx ON public.audit_events_default USING btree (org_id, action, occurred_at DESC);
+
+
+--
+-- Name: audit_events_default_org_id_actor_user_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_default_org_id_actor_user_id_occurred_at_idx ON public.audit_events_default USING btree (org_id, actor_user_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_default_org_id_category_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_default_org_id_category_occurred_at_idx ON public.audit_events_default USING btree (org_id, category, occurred_at DESC);
+
+
+--
+-- Name: audit_events_default_org_id_occurred_at_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_default_org_id_occurred_at_id_idx ON public.audit_events_default USING btree (org_id, occurred_at DESC, id DESC);
+
+
+--
+-- Name: audit_events_default_org_id_outcome_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_default_org_id_outcome_occurred_at_idx ON public.audit_events_default USING btree (org_id, outcome, occurred_at DESC);
+
+
+--
+-- Name: audit_events_default_org_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_default_org_id_seq_idx ON public.audit_events_default USING btree (org_id, seq) WHERE (seq IS NOT NULL);
+
+
+--
+-- Name: audit_events_default_org_id_severity_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_default_org_id_severity_occurred_at_idx ON public.audit_events_default USING btree (org_id, severity, occurred_at DESC);
+
+
+--
+-- Name: audit_events_default_source_legacy_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX audit_events_default_source_legacy_id_occurred_at_idx ON public.audit_events_default USING btree (source, legacy_id, occurred_at) WHERE (legacy_id IS NOT NULL);
+
+
+--
 -- Name: idx_ai_comments_created_at; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -4785,6 +6707,13 @@ CREATE INDEX idx_api_keys_key_prefix ON public.api_keys USING btree (key_prefix)
 --
 
 CREATE INDEX idx_api_keys_org_id ON public.api_keys USING btree (org_id);
+
+
+--
+-- Name: idx_api_keys_org_kind; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_api_keys_org_kind ON public.api_keys USING btree (org_id, kind) WHERE (revoked_at IS NULL);
 
 
 --
@@ -5254,6 +7183,13 @@ CREATE INDEX idx_org_slack_configs_org_id ON public.org_slack_configs USING btre
 --
 
 CREATE INDEX idx_org_slack_configs_team_id ON public.org_slack_configs USING btree (team_id);
+
+
+--
+-- Name: idx_org_sso_configs_org_enabled; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_org_sso_configs_org_enabled ON public.org_sso_configs USING btree (org_id) WHERE (enabled = true);
 
 
 --
@@ -5824,20 +7760,6 @@ CREATE INDEX idx_upgrade_replacement_cutovers_org_status ON public.upgrade_repla
 
 
 --
--- Name: idx_upgrade_request_events_org_time; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_upgrade_request_events_org_time ON public.upgrade_request_events USING btree (org_id, event_time DESC);
-
-
---
--- Name: idx_upgrade_request_events_request_time; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_upgrade_request_events_request_time ON public.upgrade_request_events USING btree (upgrade_request_id, event_time DESC);
-
-
---
 -- Name: idx_upgrade_requests_customer_state; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -6044,7 +7966,7 @@ CREATE INDEX idx_webhook_registry_provider_project ON public.webhook_registry US
 -- Name: river_job_args_index; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX river_job_args_index ON public.river_job USING gin (args);
+CREATE INDEX river_job_args_index ON public.river_job USING gin (args jsonb_path_ops);
 
 
 --
@@ -6055,17 +7977,17 @@ CREATE INDEX river_job_kind ON public.river_job USING btree (kind);
 
 
 --
--- Name: river_job_metadata_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX river_job_metadata_index ON public.river_job USING gin (metadata);
-
-
---
 -- Name: river_job_prioritized_fetching_index; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX river_job_prioritized_fetching_index ON public.river_job USING btree (state, queue, priority, scheduled_at, id);
+
+
+--
+-- Name: river_job_scheduled_at_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX river_job_scheduled_at_index ON public.river_job USING btree (scheduled_at) WHERE (state = 'scheduled'::public.river_job_state);
 
 
 --
@@ -6090,13 +8012,6 @@ CREATE UNIQUE INDEX uq_integration_tokens_github_app_installation_org ON public.
 
 
 --
--- Name: uq_system_default_ai_configs_active_tier; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX uq_system_default_ai_configs_active_tier ON public.system_default_ai_configs USING btree (tier_name) WHERE is_active;
-
-
---
 -- Name: uq_pull_requests_repo_number; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -6104,10 +8019,1074 @@ CREATE UNIQUE INDEX uq_pull_requests_repo_number ON public.pull_requests USING b
 
 
 --
+-- Name: uq_system_default_ai_configs_active_tier; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_system_default_ai_configs_active_tier ON public.system_default_ai_configs USING btree (tier_name) WHERE is_active;
+
+
+--
 -- Name: ux_license_state_singleton; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX ux_license_state_singleton ON public.license_state USING btree (id);
+
+
+--
+-- Name: audit_events_2026_10_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_id ATTACH PARTITION public.audit_events_2026_10_id_idx;
+
+
+--
+-- Name: audit_events_2026_10_org_id_action_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_action_time ATTACH PARTITION public.audit_events_2026_10_org_id_action_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2026_10_org_id_actor_user_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_actor_time ATTACH PARTITION public.audit_events_2026_10_org_id_actor_user_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2026_10_org_id_category_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_category_time ATTACH PARTITION public.audit_events_2026_10_org_id_category_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2026_10_org_id_occurred_at_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_time ATTACH PARTITION public.audit_events_2026_10_org_id_occurred_at_id_idx;
+
+
+--
+-- Name: audit_events_2026_10_org_id_outcome_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_outcome_time ATTACH PARTITION public.audit_events_2026_10_org_id_outcome_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2026_10_org_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_seq ATTACH PARTITION public.audit_events_2026_10_org_id_seq_idx;
+
+
+--
+-- Name: audit_events_2026_10_org_id_severity_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_severity_time ATTACH PARTITION public.audit_events_2026_10_org_id_severity_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2026_10_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_2026_10_pkey;
+
+
+--
+-- Name: audit_events_2026_10_source_legacy_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.uq_audit_events_legacy ATTACH PARTITION public.audit_events_2026_10_source_legacy_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2026_11_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_id ATTACH PARTITION public.audit_events_2026_11_id_idx;
+
+
+--
+-- Name: audit_events_2026_11_org_id_action_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_action_time ATTACH PARTITION public.audit_events_2026_11_org_id_action_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2026_11_org_id_actor_user_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_actor_time ATTACH PARTITION public.audit_events_2026_11_org_id_actor_user_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2026_11_org_id_category_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_category_time ATTACH PARTITION public.audit_events_2026_11_org_id_category_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2026_11_org_id_occurred_at_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_time ATTACH PARTITION public.audit_events_2026_11_org_id_occurred_at_id_idx;
+
+
+--
+-- Name: audit_events_2026_11_org_id_outcome_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_outcome_time ATTACH PARTITION public.audit_events_2026_11_org_id_outcome_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2026_11_org_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_seq ATTACH PARTITION public.audit_events_2026_11_org_id_seq_idx;
+
+
+--
+-- Name: audit_events_2026_11_org_id_severity_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_severity_time ATTACH PARTITION public.audit_events_2026_11_org_id_severity_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2026_11_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_2026_11_pkey;
+
+
+--
+-- Name: audit_events_2026_11_source_legacy_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.uq_audit_events_legacy ATTACH PARTITION public.audit_events_2026_11_source_legacy_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2026_12_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_id ATTACH PARTITION public.audit_events_2026_12_id_idx;
+
+
+--
+-- Name: audit_events_2026_12_org_id_action_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_action_time ATTACH PARTITION public.audit_events_2026_12_org_id_action_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2026_12_org_id_actor_user_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_actor_time ATTACH PARTITION public.audit_events_2026_12_org_id_actor_user_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2026_12_org_id_category_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_category_time ATTACH PARTITION public.audit_events_2026_12_org_id_category_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2026_12_org_id_occurred_at_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_time ATTACH PARTITION public.audit_events_2026_12_org_id_occurred_at_id_idx;
+
+
+--
+-- Name: audit_events_2026_12_org_id_outcome_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_outcome_time ATTACH PARTITION public.audit_events_2026_12_org_id_outcome_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2026_12_org_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_seq ATTACH PARTITION public.audit_events_2026_12_org_id_seq_idx;
+
+
+--
+-- Name: audit_events_2026_12_org_id_severity_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_severity_time ATTACH PARTITION public.audit_events_2026_12_org_id_severity_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2026_12_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_2026_12_pkey;
+
+
+--
+-- Name: audit_events_2026_12_source_legacy_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.uq_audit_events_legacy ATTACH PARTITION public.audit_events_2026_12_source_legacy_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_01_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_id ATTACH PARTITION public.audit_events_2027_01_id_idx;
+
+
+--
+-- Name: audit_events_2027_01_org_id_action_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_action_time ATTACH PARTITION public.audit_events_2027_01_org_id_action_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_01_org_id_actor_user_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_actor_time ATTACH PARTITION public.audit_events_2027_01_org_id_actor_user_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_01_org_id_category_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_category_time ATTACH PARTITION public.audit_events_2027_01_org_id_category_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_01_org_id_occurred_at_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_time ATTACH PARTITION public.audit_events_2027_01_org_id_occurred_at_id_idx;
+
+
+--
+-- Name: audit_events_2027_01_org_id_outcome_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_outcome_time ATTACH PARTITION public.audit_events_2027_01_org_id_outcome_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_01_org_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_seq ATTACH PARTITION public.audit_events_2027_01_org_id_seq_idx;
+
+
+--
+-- Name: audit_events_2027_01_org_id_severity_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_severity_time ATTACH PARTITION public.audit_events_2027_01_org_id_severity_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_01_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_2027_01_pkey;
+
+
+--
+-- Name: audit_events_2027_01_source_legacy_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.uq_audit_events_legacy ATTACH PARTITION public.audit_events_2027_01_source_legacy_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_02_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_id ATTACH PARTITION public.audit_events_2027_02_id_idx;
+
+
+--
+-- Name: audit_events_2027_02_org_id_action_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_action_time ATTACH PARTITION public.audit_events_2027_02_org_id_action_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_02_org_id_actor_user_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_actor_time ATTACH PARTITION public.audit_events_2027_02_org_id_actor_user_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_02_org_id_category_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_category_time ATTACH PARTITION public.audit_events_2027_02_org_id_category_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_02_org_id_occurred_at_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_time ATTACH PARTITION public.audit_events_2027_02_org_id_occurred_at_id_idx;
+
+
+--
+-- Name: audit_events_2027_02_org_id_outcome_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_outcome_time ATTACH PARTITION public.audit_events_2027_02_org_id_outcome_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_02_org_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_seq ATTACH PARTITION public.audit_events_2027_02_org_id_seq_idx;
+
+
+--
+-- Name: audit_events_2027_02_org_id_severity_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_severity_time ATTACH PARTITION public.audit_events_2027_02_org_id_severity_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_02_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_2027_02_pkey;
+
+
+--
+-- Name: audit_events_2027_02_source_legacy_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.uq_audit_events_legacy ATTACH PARTITION public.audit_events_2027_02_source_legacy_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_03_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_id ATTACH PARTITION public.audit_events_2027_03_id_idx;
+
+
+--
+-- Name: audit_events_2027_03_org_id_action_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_action_time ATTACH PARTITION public.audit_events_2027_03_org_id_action_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_03_org_id_actor_user_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_actor_time ATTACH PARTITION public.audit_events_2027_03_org_id_actor_user_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_03_org_id_category_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_category_time ATTACH PARTITION public.audit_events_2027_03_org_id_category_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_03_org_id_occurred_at_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_time ATTACH PARTITION public.audit_events_2027_03_org_id_occurred_at_id_idx;
+
+
+--
+-- Name: audit_events_2027_03_org_id_outcome_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_outcome_time ATTACH PARTITION public.audit_events_2027_03_org_id_outcome_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_03_org_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_seq ATTACH PARTITION public.audit_events_2027_03_org_id_seq_idx;
+
+
+--
+-- Name: audit_events_2027_03_org_id_severity_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_severity_time ATTACH PARTITION public.audit_events_2027_03_org_id_severity_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_03_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_2027_03_pkey;
+
+
+--
+-- Name: audit_events_2027_03_source_legacy_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.uq_audit_events_legacy ATTACH PARTITION public.audit_events_2027_03_source_legacy_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_04_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_id ATTACH PARTITION public.audit_events_2027_04_id_idx;
+
+
+--
+-- Name: audit_events_2027_04_org_id_action_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_action_time ATTACH PARTITION public.audit_events_2027_04_org_id_action_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_04_org_id_actor_user_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_actor_time ATTACH PARTITION public.audit_events_2027_04_org_id_actor_user_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_04_org_id_category_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_category_time ATTACH PARTITION public.audit_events_2027_04_org_id_category_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_04_org_id_occurred_at_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_time ATTACH PARTITION public.audit_events_2027_04_org_id_occurred_at_id_idx;
+
+
+--
+-- Name: audit_events_2027_04_org_id_outcome_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_outcome_time ATTACH PARTITION public.audit_events_2027_04_org_id_outcome_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_04_org_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_seq ATTACH PARTITION public.audit_events_2027_04_org_id_seq_idx;
+
+
+--
+-- Name: audit_events_2027_04_org_id_severity_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_severity_time ATTACH PARTITION public.audit_events_2027_04_org_id_severity_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_04_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_2027_04_pkey;
+
+
+--
+-- Name: audit_events_2027_04_source_legacy_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.uq_audit_events_legacy ATTACH PARTITION public.audit_events_2027_04_source_legacy_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_05_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_id ATTACH PARTITION public.audit_events_2027_05_id_idx;
+
+
+--
+-- Name: audit_events_2027_05_org_id_action_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_action_time ATTACH PARTITION public.audit_events_2027_05_org_id_action_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_05_org_id_actor_user_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_actor_time ATTACH PARTITION public.audit_events_2027_05_org_id_actor_user_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_05_org_id_category_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_category_time ATTACH PARTITION public.audit_events_2027_05_org_id_category_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_05_org_id_occurred_at_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_time ATTACH PARTITION public.audit_events_2027_05_org_id_occurred_at_id_idx;
+
+
+--
+-- Name: audit_events_2027_05_org_id_outcome_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_outcome_time ATTACH PARTITION public.audit_events_2027_05_org_id_outcome_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_05_org_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_seq ATTACH PARTITION public.audit_events_2027_05_org_id_seq_idx;
+
+
+--
+-- Name: audit_events_2027_05_org_id_severity_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_severity_time ATTACH PARTITION public.audit_events_2027_05_org_id_severity_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_05_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_2027_05_pkey;
+
+
+--
+-- Name: audit_events_2027_05_source_legacy_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.uq_audit_events_legacy ATTACH PARTITION public.audit_events_2027_05_source_legacy_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_06_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_id ATTACH PARTITION public.audit_events_2027_06_id_idx;
+
+
+--
+-- Name: audit_events_2027_06_org_id_action_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_action_time ATTACH PARTITION public.audit_events_2027_06_org_id_action_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_06_org_id_actor_user_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_actor_time ATTACH PARTITION public.audit_events_2027_06_org_id_actor_user_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_06_org_id_category_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_category_time ATTACH PARTITION public.audit_events_2027_06_org_id_category_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_06_org_id_occurred_at_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_time ATTACH PARTITION public.audit_events_2027_06_org_id_occurred_at_id_idx;
+
+
+--
+-- Name: audit_events_2027_06_org_id_outcome_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_outcome_time ATTACH PARTITION public.audit_events_2027_06_org_id_outcome_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_06_org_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_seq ATTACH PARTITION public.audit_events_2027_06_org_id_seq_idx;
+
+
+--
+-- Name: audit_events_2027_06_org_id_severity_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_severity_time ATTACH PARTITION public.audit_events_2027_06_org_id_severity_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_06_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_2027_06_pkey;
+
+
+--
+-- Name: audit_events_2027_06_source_legacy_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.uq_audit_events_legacy ATTACH PARTITION public.audit_events_2027_06_source_legacy_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_07_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_id ATTACH PARTITION public.audit_events_2027_07_id_idx;
+
+
+--
+-- Name: audit_events_2027_07_org_id_action_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_action_time ATTACH PARTITION public.audit_events_2027_07_org_id_action_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_07_org_id_actor_user_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_actor_time ATTACH PARTITION public.audit_events_2027_07_org_id_actor_user_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_07_org_id_category_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_category_time ATTACH PARTITION public.audit_events_2027_07_org_id_category_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_07_org_id_occurred_at_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_time ATTACH PARTITION public.audit_events_2027_07_org_id_occurred_at_id_idx;
+
+
+--
+-- Name: audit_events_2027_07_org_id_outcome_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_outcome_time ATTACH PARTITION public.audit_events_2027_07_org_id_outcome_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_07_org_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_seq ATTACH PARTITION public.audit_events_2027_07_org_id_seq_idx;
+
+
+--
+-- Name: audit_events_2027_07_org_id_severity_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_severity_time ATTACH PARTITION public.audit_events_2027_07_org_id_severity_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_07_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_2027_07_pkey;
+
+
+--
+-- Name: audit_events_2027_07_source_legacy_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.uq_audit_events_legacy ATTACH PARTITION public.audit_events_2027_07_source_legacy_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_08_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_id ATTACH PARTITION public.audit_events_2027_08_id_idx;
+
+
+--
+-- Name: audit_events_2027_08_org_id_action_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_action_time ATTACH PARTITION public.audit_events_2027_08_org_id_action_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_08_org_id_actor_user_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_actor_time ATTACH PARTITION public.audit_events_2027_08_org_id_actor_user_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_08_org_id_category_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_category_time ATTACH PARTITION public.audit_events_2027_08_org_id_category_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_08_org_id_occurred_at_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_time ATTACH PARTITION public.audit_events_2027_08_org_id_occurred_at_id_idx;
+
+
+--
+-- Name: audit_events_2027_08_org_id_outcome_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_outcome_time ATTACH PARTITION public.audit_events_2027_08_org_id_outcome_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_08_org_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_seq ATTACH PARTITION public.audit_events_2027_08_org_id_seq_idx;
+
+
+--
+-- Name: audit_events_2027_08_org_id_severity_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_severity_time ATTACH PARTITION public.audit_events_2027_08_org_id_severity_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_08_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_2027_08_pkey;
+
+
+--
+-- Name: audit_events_2027_08_source_legacy_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.uq_audit_events_legacy ATTACH PARTITION public.audit_events_2027_08_source_legacy_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_09_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_id ATTACH PARTITION public.audit_events_2027_09_id_idx;
+
+
+--
+-- Name: audit_events_2027_09_org_id_action_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_action_time ATTACH PARTITION public.audit_events_2027_09_org_id_action_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_09_org_id_actor_user_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_actor_time ATTACH PARTITION public.audit_events_2027_09_org_id_actor_user_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_09_org_id_category_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_category_time ATTACH PARTITION public.audit_events_2027_09_org_id_category_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_09_org_id_occurred_at_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_time ATTACH PARTITION public.audit_events_2027_09_org_id_occurred_at_id_idx;
+
+
+--
+-- Name: audit_events_2027_09_org_id_outcome_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_outcome_time ATTACH PARTITION public.audit_events_2027_09_org_id_outcome_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_09_org_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_seq ATTACH PARTITION public.audit_events_2027_09_org_id_seq_idx;
+
+
+--
+-- Name: audit_events_2027_09_org_id_severity_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_severity_time ATTACH PARTITION public.audit_events_2027_09_org_id_severity_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_09_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_2027_09_pkey;
+
+
+--
+-- Name: audit_events_2027_09_source_legacy_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.uq_audit_events_legacy ATTACH PARTITION public.audit_events_2027_09_source_legacy_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_10_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_id ATTACH PARTITION public.audit_events_2027_10_id_idx;
+
+
+--
+-- Name: audit_events_2027_10_org_id_action_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_action_time ATTACH PARTITION public.audit_events_2027_10_org_id_action_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_10_org_id_actor_user_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_actor_time ATTACH PARTITION public.audit_events_2027_10_org_id_actor_user_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_10_org_id_category_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_category_time ATTACH PARTITION public.audit_events_2027_10_org_id_category_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_10_org_id_occurred_at_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_time ATTACH PARTITION public.audit_events_2027_10_org_id_occurred_at_id_idx;
+
+
+--
+-- Name: audit_events_2027_10_org_id_outcome_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_outcome_time ATTACH PARTITION public.audit_events_2027_10_org_id_outcome_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_10_org_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_seq ATTACH PARTITION public.audit_events_2027_10_org_id_seq_idx;
+
+
+--
+-- Name: audit_events_2027_10_org_id_severity_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_severity_time ATTACH PARTITION public.audit_events_2027_10_org_id_severity_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_10_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_2027_10_pkey;
+
+
+--
+-- Name: audit_events_2027_10_source_legacy_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.uq_audit_events_legacy ATTACH PARTITION public.audit_events_2027_10_source_legacy_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_11_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_id ATTACH PARTITION public.audit_events_2027_11_id_idx;
+
+
+--
+-- Name: audit_events_2027_11_org_id_action_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_action_time ATTACH PARTITION public.audit_events_2027_11_org_id_action_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_11_org_id_actor_user_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_actor_time ATTACH PARTITION public.audit_events_2027_11_org_id_actor_user_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_11_org_id_category_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_category_time ATTACH PARTITION public.audit_events_2027_11_org_id_category_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_11_org_id_occurred_at_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_time ATTACH PARTITION public.audit_events_2027_11_org_id_occurred_at_id_idx;
+
+
+--
+-- Name: audit_events_2027_11_org_id_outcome_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_outcome_time ATTACH PARTITION public.audit_events_2027_11_org_id_outcome_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_11_org_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_seq ATTACH PARTITION public.audit_events_2027_11_org_id_seq_idx;
+
+
+--
+-- Name: audit_events_2027_11_org_id_severity_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_severity_time ATTACH PARTITION public.audit_events_2027_11_org_id_severity_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_11_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_2027_11_pkey;
+
+
+--
+-- Name: audit_events_2027_11_source_legacy_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.uq_audit_events_legacy ATTACH PARTITION public.audit_events_2027_11_source_legacy_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_default_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_id ATTACH PARTITION public.audit_events_default_id_idx;
+
+
+--
+-- Name: audit_events_default_org_id_action_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_action_time ATTACH PARTITION public.audit_events_default_org_id_action_occurred_at_idx;
+
+
+--
+-- Name: audit_events_default_org_id_actor_user_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_actor_time ATTACH PARTITION public.audit_events_default_org_id_actor_user_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_default_org_id_category_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_category_time ATTACH PARTITION public.audit_events_default_org_id_category_occurred_at_idx;
+
+
+--
+-- Name: audit_events_default_org_id_occurred_at_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_time ATTACH PARTITION public.audit_events_default_org_id_occurred_at_id_idx;
+
+
+--
+-- Name: audit_events_default_org_id_outcome_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_outcome_time ATTACH PARTITION public.audit_events_default_org_id_outcome_occurred_at_idx;
+
+
+--
+-- Name: audit_events_default_org_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_seq ATTACH PARTITION public.audit_events_default_org_id_seq_idx;
+
+
+--
+-- Name: audit_events_default_org_id_severity_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_severity_time ATTACH PARTITION public.audit_events_default_org_id_severity_occurred_at_idx;
+
+
+--
+-- Name: audit_events_default_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_default_pkey;
+
+
+--
+-- Name: audit_events_default_source_legacy_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.uq_audit_events_legacy ATTACH PARTITION public.audit_events_default_source_legacy_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events audit_events_append_only_trigger; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER audit_events_append_only_trigger BEFORE DELETE OR UPDATE ON public.audit_events FOR EACH ROW EXECUTE FUNCTION public.audit_events_append_only();
 
 
 --
@@ -6164,6 +9143,13 @@ CREATE TRIGGER trg_org_billing_state_audit AFTER UPDATE ON public.org_billing_st
 --
 
 CREATE TRIGGER trg_org_billing_state_updated_at BEFORE UPDATE ON public.org_billing_state FOR EACH ROW EXECUTE FUNCTION public.org_billing_state_set_updated_at();
+
+
+--
+-- Name: org_sso_configs trg_org_sso_configs_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_org_sso_configs_updated_at BEFORE UPDATE ON public.org_sso_configs FOR EACH ROW EXECUTE FUNCTION public.org_sso_configs_set_updated_at();
 
 
 --
@@ -6535,6 +9521,22 @@ ALTER TABLE ONLY public.org_review_ai_settings
 
 ALTER TABLE ONLY public.org_slack_configs
     ADD CONSTRAINT org_slack_configs_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: org_sso_configs org_sso_configs_created_by_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_sso_configs
+    ADD CONSTRAINT org_sso_configs_created_by_user_id_fkey FOREIGN KEY (created_by_user_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: org_sso_configs org_sso_configs_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_sso_configs
+    ADD CONSTRAINT org_sso_configs_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
 
 
 --
@@ -7002,22 +10004,6 @@ ALTER TABLE ONLY public.upgrade_replacement_cutovers
 
 
 --
--- Name: upgrade_request_events upgrade_request_events_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.upgrade_request_events
-    ADD CONSTRAINT upgrade_request_events_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
-
-
---
--- Name: upgrade_request_events upgrade_request_events_upgrade_request_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.upgrade_request_events
-    ADD CONSTRAINT upgrade_request_events_upgrade_request_id_fkey FOREIGN KEY (upgrade_request_id) REFERENCES public.upgrade_requests(upgrade_request_id) ON DELETE CASCADE;
-
-
---
 -- Name: upgrade_requests upgrade_requests_actor_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7310,4 +10296,9 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261020090000'),
     ('20261022120000'),
     ('20261022130000'),
-    ('20261023090000');
+    ('20261023090000'),
+    ('20261025120000'),
+    ('20261025120100'),
+    ('20261025130000'),
+    ('20261029104047'),
+    ('20261029134500');

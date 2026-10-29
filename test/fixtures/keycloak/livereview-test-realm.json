@@ -1,0 +1,41 @@
+{
+  "realm": "livereview-test",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "accessTokenLifespan": 300,
+  "clients": [
+    {
+      "clientId": "livereview-oidc-test",
+      "name": "LiveReview SSO e2e test (OIDC)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "test-client-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8888/api/v1/auth/sso/oidc/callback"
+      ],
+      "webOrigins": ["*"]
+    }
+  ],
+  "users": [
+    {
+      "username": "sso-test@example.com",
+      "email": "sso-test@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "SSO",
+      "lastName": "Tester",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "sso-test-password",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

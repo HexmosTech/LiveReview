@@ -240,8 +240,8 @@ until the index is rebuilt. Same applies on every deploy target.
 
 ## 7. Backfill
 
-New `scripts/backfill_blast_radius_hunks.go` (same shape as
-`scripts/backfill_chat_chart_stats.go`): enumerate
+New `cmd/backfill-blast-radius-hunks/main.go` (same shape as
+`cmd/backfill-chat-chart-stats/main.go`): enumerate
 `org/*/review/*/artifacts/blast-radius.json` via `bucket.List(&blob.ListOptions{
 Prefix: "org/"})` — `internal/blobstore.OpenBucket` returns a gocloud
 `*blob.Bucket`, whose `List` covers this natively, so no aws CLI shell-out like

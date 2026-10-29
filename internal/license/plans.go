@@ -4,10 +4,10 @@ package license
 type PlanType string
 
 const (
-	PlanFree30K    PlanType = "free_30k"
-	PlanTeam32USD  PlanType = "team_32usd"
-	PlanFree       PlanType = PlanFree30K
-	PlanTeam       PlanType = PlanTeam32USD
+	PlanFree30K              PlanType = "free_30k"
+	PlanTeam32USD            PlanType = "team_32usd"
+	PlanFree                 PlanType = PlanFree30K
+	PlanTeam                 PlanType = PlanTeam32USD
 	PlanEnterpriseSelfhosted PlanType = "enterprise-selfhosted"
 
 	PlanStarter100K PlanType = PlanTeam32USD
@@ -161,6 +161,7 @@ var PlanDefinitions = map[PlanType]PlanLimits{
 			"hosted_auto_model",
 			"email_support",
 			"priority_support",
+			"sso",
 		},
 	},
 }

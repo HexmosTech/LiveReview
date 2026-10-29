@@ -122,7 +122,8 @@
       "monthly_loc_limit": -1,
       "feature_flags": [
         "unlimited_reviews",
-        "hosted_auto_model"
+        "hosted_auto_model",
+        "sso"
       ],
       "trial_policy": {
         "enabled": false,

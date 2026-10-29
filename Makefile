@@ -379,7 +379,7 @@ TEST_PACKAGES := $(shell find . \
 SECURITY_GOVULN_PACKAGES := $(filter-out ./scripts ./cmd/onboarding-pdf,$(TEST_PACKAGES))
 
 # Tests and packages that fail today, skipped until fixed. Remove a name once its test passes.
-TESTALL_SKIP_TESTS := ^(TestAnalyticsPipelineFinalizeGivesUpAfterRepairFails|TestAnalyticsPipelineProducesExactCounts|TestAnalyticsPipelineProducesFacetedChart|TestAnalyticsPipelineProducesCSV|TestAnalyticsPipelineRepairsThenGivesUp|TestAnalyticsPipelineZeroRowsShortCircuits|TestBitbucketCommentHierarchyFromCapture|TestBuildFileCommentIndex|TestBuildFileCommentTree|TestChatBranchRejectsFabricatedJSON|TestCheckRequiredConfigCloudLiveLowPricingProfileRequiresLowPricingPlanIDs|TestCheckRequiredConfigCloudLiveModeRequiresLiveVars|TestCheckRequiredConfigCloudTestModeRequiresRazorpayTestVars|TestConvertAzureDevOpsCommentEvent_RealPayload|TestCountQueryBranchRejectsTruncatedJSON|TestCreateMonthlyPlan|TestDispatchClassifyFailureDegradesToChat|TestDispatchSwapsSystemPromptPerTurn|TestLawbookCarriesMachineContracts|TestListPaths|TestPostCommentReply_IssueCommentUsesIssueEndpoint|TestReconciliationSweepWorker_OnlyQueuesStaleRepositories|TestRoundTripUnifiedArtifact|TestShowCommentsPerFile|TestShowCommentsPerFileTree|TestShowCommentsPerFileTreeBitbucket|TestShowCommentsPerFileTreeGithub|TestShowCommentsPerFileTreeGitlab|TestSubscriptionIntegration|TestWebhookProcessing)$$
+TESTALL_SKIP_TESTS := ^(TestAnalyticsPipelineFinalizeGivesUpAfterRepairFails|TestAnalyticsPipelineProducesExactCounts|TestAnalyticsPipelineProducesFacetedChart|TestAnalyticsPipelineProducesCSV|TestAnalyticsPipelineRepairsThenGivesUp|TestAnalyticsPipelineZeroRowsShortCircuits|TestBitbucketCommentHierarchyFromCapture|TestChatBranchRejectsFabricatedJSON|TestCheckRequiredConfigCloudLiveLowPricingProfileRequiresLowPricingPlanIDs|TestCheckRequiredConfigCloudLiveModeRequiresLiveVars|TestCheckRequiredConfigCloudTestModeRequiresRazorpayTestVars|TestConvertAzureDevOpsCommentEvent_RealPayload|TestCountQueryBranchRejectsTruncatedJSON|TestCreateMonthlyPlan|TestDispatchClassifyFailureDegradesToChat|TestDispatchSwapsSystemPromptPerTurn|TestLawbookCarriesMachineContracts|TestPostCommentReply_IssueCommentUsesIssueEndpoint|TestReconciliationSweepWorker_OnlyQueuesStaleRepositories|TestSubscriptionIntegration|TestWebhookProcessing)$$
 TESTALL_SKIP_PKGS := . ./scripts ./cmd/onboarding-pdf ./internal/license/payment
 
 .PHONY: testall
@@ -389,6 +389,22 @@ testall:
 .PHONY: regen-risk-report
 regen-risk-report:
 	python3 scripts/regen_risk_report.py
+
+# Local/CI end-to-end SSO test against a real Keycloak (OIDC + SAML, see
+# docs/sso.md). Brings up Keycloak with the checked-in realm fixture,
+# runs the headless cookie-jar e2e test, tears the container down either
+# way (the `|| true` + explicit `down` guarantees cleanup even on failure).
+.PHONY: test-sso-e2e
+test-sso-e2e:
+	docker compose -f docker/docker-compose.sso-test.yml up -d keycloak
+	@echo "Waiting for Keycloak to become healthy..."
+	@i=0; until docker compose -f docker/docker-compose.sso-test.yml ps keycloak --format json | grep -q "\"Health\":\"healthy\""; do \
+		i=$$((i + 2)); \
+		if [ $$i -ge 120 ]; then echo "Keycloak did not become healthy within 120s"; exit 1; fi; \
+		sleep 2; \
+	done
+	$(GOTEST) -tags=sso_e2e -count=1 -v ./internal/sso/... || (docker compose -f docker/docker-compose.sso-test.yml down -v; exit 1)
+	docker compose -f docker/docker-compose.sso-test.yml down -v
 
 .PHONY: security-govulncheck security-govulncheck-json security-osv security-gitleaks security-semgrep security-dependabot security-gh-secret-scanning security-triage
 

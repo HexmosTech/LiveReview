@@ -112,6 +112,8 @@ Generated from `internal/auditlog/catalog.go`.
 | `settings.retention.update` | `settings` | setting | critical | Audit retention updated | The audit retention policy was changed. |
 | `settings.risk_model.update` | `settings` | setting | warning | Risk model updated | Risk model configuration was changed. |
 | `settings.smtp.update` | `settings` | setting | critical | SMTP settings updated | Outbound email settings were changed. |
+| `settings.sso.delete` | `settings` | setting | critical | SSO settings deleted | An organization's single sign-on configuration was removed. |
+| `settings.sso.update` | `settings` | setting | critical | SSO settings updated | An organization's single sign-on (OIDC/SAML) configuration was created or changed. |
 | `settings.storage.update` | `settings` | setting | critical | Storage settings updated | The blob storage backend was changed. |
 | `settings.update` | `settings` | setting | warning | Settings updated | Platform or organization settings were changed. |
 | `system.audit.anchor` | `system` | audit | info | Audit anchor written | The daily audit hash anchor was written. |
