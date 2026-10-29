@@ -61,7 +61,7 @@ func TestPostCommentReply_IssueCommentUsesIssueEndpoint(t *testing.T) {
 
 	require.NoError(t, client.PostCommentReply(event, "token", "hello"))
 	require.Equal(t, "https://api.github.com/repos/owner/repo/issues/42/comments", capturedURL)
-	require.Equal(t, "hello", capturedBody["body"])
+	require.Equal(t, "> @livereviewbot please help\n\n\nhello", capturedBody["body"])
 	require.NotContains(t, capturedBody, "in_reply_to")
 }
 

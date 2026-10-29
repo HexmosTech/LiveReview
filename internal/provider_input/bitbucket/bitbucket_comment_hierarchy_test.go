@@ -40,7 +40,7 @@ func TestBitbucketCommentHierarchyFromCapture(t *testing.T) {
 	provider := server.BitbucketProviderV2()
 	fileStore := storagecore.NewFileOpsStore()
 
-	capturePath := filepath.Join("captures", "bitbucket", "20251014-194407", "bitbucket-webhook-pullrequest_comment_created-body-0025.json")
+	capturePath := filepath.Join("docs", "raw", "captures", "bitbucket", "20251014-194407", "bitbucket-webhook-pullrequest_comment_created-body-0025.json")
 	body, err := fileStore.ReadFile(capturePath)
 	if err != nil {
 		t.Fatalf("failed to read capture file %s: %v", capturePath, err)

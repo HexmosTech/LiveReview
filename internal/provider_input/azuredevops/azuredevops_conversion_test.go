@@ -72,7 +72,7 @@ func TestConvertAzureDevOpsCommentEvent_RealPayload(t *testing.T) {
 	if event.Comment == nil {
 		t.Fatal("event.Comment is nil, want populated")
 	}
-	if got, want := event.Comment.Body, "explain the issue\n"; got != want {
+	if got, want := event.Comment.Body, "explain the issue"; got != want {
 		t.Errorf("Comment.Body = %q, want %q", got, want)
 	}
 	if got, want := event.Comment.ID, "2"; got != want {

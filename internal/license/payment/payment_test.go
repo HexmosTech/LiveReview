@@ -7,6 +7,7 @@ import (
 )
 
 func TestGetRazoarPayKeys(t *testing.T) {
+	skipWithoutRazorpayTestKeys(t)
 	accessKey, secretKey, err := GetRazorpayKeys("test")
 	if err != nil {
 		t.Errorf("Error getting Razorpay keys: %v", err)
@@ -20,6 +21,7 @@ func TestGetRazoarPayKeys(t *testing.T) {
 }
 
 func TestCreateMonthlyPlan(t *testing.T) {
+	skipWithoutRazorpayTestKeys(t)
 	plan, err := CreatePlan("test", "monthly")
 	if err != nil {
 		t.Errorf("Error creating monthly plan: %v", err)
@@ -41,6 +43,7 @@ func TestCreateMonthlyPlan(t *testing.T) {
 }
 
 func TestCreateYearlyPlan(t *testing.T) {
+	skipWithoutRazorpayTestKeys(t)
 	plan, err := CreatePlan("test", "yearly")
 	if err != nil {
 		t.Errorf("Error creating yearly plan: %v", err)
@@ -62,6 +65,7 @@ func TestCreateYearlyPlan(t *testing.T) {
 }
 
 func TestGetAllPlans(t *testing.T) {
+	skipWithoutRazorpayTestKeys(t)
 	planList, err := GetAllPlans("test")
 	if err != nil {
 		t.Errorf("Error fetching all plans: %v", err)
@@ -80,6 +84,7 @@ func TestGetAllPlans(t *testing.T) {
 }
 
 func TestGetPlanByID(t *testing.T) {
+	skipWithoutRazorpayTestKeys(t)
 	// First, get all plans to get a valid plan ID
 	planList, err := GetAllPlans("test")
 	if err != nil {

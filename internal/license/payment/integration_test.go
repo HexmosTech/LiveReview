@@ -13,6 +13,7 @@ import (
 // TestSubscriptionIntegration tests the complete subscription flow
 // Run with: go test -v ./internal/license/payment -run TestSubscriptionIntegration
 func TestSubscriptionIntegration(t *testing.T) {
+	skipWithoutRazorpayTestKeys(t)
 	// Skip if not in integration test mode
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

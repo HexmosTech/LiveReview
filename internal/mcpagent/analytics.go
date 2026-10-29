@@ -1427,18 +1427,29 @@ var DefaultAIErrorSuggestedQuestions = []SuggestedQuestionCategory{
 // rightly read as a bug, because it is one.
 func assembleAnalyticsResponse(reports []vlrender.VegaLiteReport, notes []string, hasArtifacts bool) string {
 	if len(reports) == 0 {
-		if hasArtifacts {
-			return "I've put the results in a file you can download."
+		if len(notes) == 0 {
+			if hasArtifacts {
+				// A file-only turn still needs words. Returning "" renders
+				// as an empty bubble next to a download the user has no
+				// context for.
+				return "I've put the results in a file you can download."
+			}
+			return NoDataAnalyticsResponseText
 		}
-		return NoDataAnalyticsResponseText
+		return strings.Join(notes, "\n\n")
 	}
 	payload, err := json.Marshal(map[string]any{"reports": reports})
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal analytics reports")
-		return NoDataAnalyticsResponseText
+		return strings.Join(notes, "\n\n")
 	}
-	// Notes (skip reasons) are only in debug artifacts, not in chat response.
-	return string(payload)
+	out := string(payload)
+	if len(notes) > 0 {
+		// Notes precede the JSON: the render path strips the JSON block and
+		// keeps surrounding prose as the message text.
+		out = strings.Join(notes, "\n\n") + "\n" + out
+	}
+	return out
 }
 
 // rowsToPreviewCSV converts rows to a CSV string for debug preview.
@@ -1688,10 +1699,23 @@ func (a *Agent) runMultiInterpret(
 
 	interps, ok := parseInterpretations(raw)
 	if !ok {
-		log.Warn().Str("raw_preview", truncateContent(raw, 200)).Msg("could not parse interpretations from LLM response")
+		// One corrective retry, the same budget the SQL repair phases already
+		// get (see repairSQL) - recovers truncated/malformed replies instead
+		// of giving up the whole report on the first bad JSON.
+		log.Warn().Str("raw_preview", truncateContent(raw, 200)).Msg("could not parse interpretations from LLM response, retrying with correction")
+		retryUserMsg := userMsg + "\n\nYour previous reply could not be parsed:\n" + truncateContent(raw, 500) +
+			"\n\nReply again with ONLY a valid JSON object of the exact {\"analytics_plan\": [...]} shape described above - no prose, no truncation, nothing else."
+		retryRaw, retryErr := a.completeOnce(ctx, clog, 2, "interpret", "multi", 2, system, retryUserMsg)
+		if retryErr == nil {
+			raw = retryRaw
+			debug.LLMRawResponse = raw
+			interps, ok = parseInterpretations(raw)
+		}
+	}
+	if !ok {
+		log.Warn().Str("raw_preview", truncateContent(raw, 200)).Msg("could not parse interpretations from LLM response after retry")
 		debug.RawLLMError = "Failed to parse LLM output as JSON (often caused by max token limits). Raw output:\n" + raw
-		formatMsg := "> **Model Output Error**\n> \n> The AI returned data in an unexpected format. Please try rephrasing your question."
-		return formatMsg, nil, debug, nil
+		return "I could not work out a full query for that - try rephrasing it.", nil, debug, nil
 	}
 	debug.Interpretations = interps
 

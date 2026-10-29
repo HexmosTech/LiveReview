@@ -181,6 +181,23 @@ func (a *Agent) RunTurnWithArtifacts(ctx context.Context, history []HistoryEntry
 			// single LLM call returns SQL + chart specs for up to 5
 			// interpretations. No plan→finalize two-step.
 			clog.BranchSelected("analytics", 0, 0)
+
+			// This branch never runs through runStepLoop (which otherwise
+			// does this swap - see its own comment), so it has to do the
+			// same history[0] swap itself. Without it, a turn landing here
+			// right after an action/product_guidance turn keeps that
+			// turn's stale system prompt (missing the SQL rules, or
+			// leaking the tool list into an analytics turn).
+			analyticsSystemPrompt := a.interpretPrompt()
+			switch {
+			case len(history) == 0:
+				history = append(history, HistoryEntry{"role": "system", "content": analyticsSystemPrompt})
+			case history[0]["role"] == "system":
+				history[0] = HistoryEntry{"role": "system", "content": analyticsSystemPrompt}
+			default:
+				history = append([]HistoryEntry{{"role": "system", "content": analyticsSystemPrompt}}, history...)
+			}
+
 			text, artifacts, debugArt, err := a.runMultiInterpret(ctx, userText, clog, a.mcpSession.OrgID, a.mcpSession.OrgName)
 			if err != nil {
 				return text, history, artifacts, debugArt, err
