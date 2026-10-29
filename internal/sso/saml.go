@@ -95,6 +95,7 @@ func ExchangeSAMLResponse(sp *samllib.ServiceProvider, r *http.Request) (*Identi
 	identity := &Identity{}
 	if assertion.Subject != nil && assertion.Subject.NameID != nil {
 		v := strings.TrimSpace(assertion.Subject.NameID.Value)
+		identity.Subject = v
 		if strings.Contains(v, "@") {
 			identity.Email = v
 		}

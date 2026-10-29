@@ -162,6 +162,7 @@ var PlanDefinitions = map[PlanType]PlanLimits{
 			"email_support",
 			"priority_support",
 			"sso",
+			"scim",
 		},
 	},
 }

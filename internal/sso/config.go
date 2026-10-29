@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // ProviderType is the SSO protocol a config row speaks.
@@ -31,6 +32,14 @@ type Config struct {
 	SAMLIDPMetadataURL string
 	SAMLIDPMetadataXML string
 	SAMLIDPEntityID    string
+
+	// Reconciliation fields only apply to provider_type=oidc - see Phase 5
+	// of docs/sso.md's deprovisioning section. SAML has no standing
+	// credential to silently re-check, so these are always false/zero for
+	// SAML configs.
+	ReconciliationEnabled  bool
+	ReconciliationInterval string // "hourly" | "daily" | "weekly"
+	LastReconciledAt       *time.Time
 }
 
 // Store persists org_sso_configs, transparently encrypting/decrypting the
@@ -51,7 +60,8 @@ func (s *Store) Get(orgID int64, provider ProviderType) (*Config, error) {
 	row := s.db.QueryRow(`
 		SELECT id, org_id, provider_type, display_name, enabled,
 		       COALESCE(oidc_issuer, ''), COALESCE(oidc_client_id, ''), COALESCE(oidc_client_secret_enc, ''), COALESCE(oidc_scopes, ''),
-		       COALESCE(saml_idp_metadata_url, ''), COALESCE(saml_idp_metadata_xml, ''), COALESCE(saml_idp_entity_id, '')
+		       COALESCE(saml_idp_metadata_url, ''), COALESCE(saml_idp_metadata_xml, ''), COALESCE(saml_idp_entity_id, ''),
+		       reconciliation_enabled, reconciliation_interval, last_reconciled_at
 		FROM org_sso_configs
 		WHERE org_id = $1 AND provider_type = $2
 	`, orgID, string(provider))
@@ -60,7 +70,8 @@ func (s *Store) Get(orgID int64, provider ProviderType) (*Config, error) {
 	var encSecret string
 	if err := row.Scan(&cfg.ID, &cfg.OrgID, &cfg.ProviderType, &cfg.DisplayName, &cfg.Enabled,
 		&cfg.OIDCIssuer, &cfg.OIDCClientID, &encSecret, &cfg.OIDCScopes,
-		&cfg.SAMLIDPMetadataURL, &cfg.SAMLIDPMetadataXML, &cfg.SAMLIDPEntityID); err != nil {
+		&cfg.SAMLIDPMetadataURL, &cfg.SAMLIDPMetadataXML, &cfg.SAMLIDPEntityID,
+		&cfg.ReconciliationEnabled, &cfg.ReconciliationInterval, &cfg.LastReconciledAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrNotFound
 		}
@@ -122,13 +133,18 @@ func (s *Store) UpsertTx(exec sqlExecer, cfg *Config, createdByUserID int64) err
 	if err != nil {
 		return fmt.Errorf("sso: encrypting client secret: %w", err)
 	}
+	reconciliationInterval := cfg.ReconciliationInterval
+	if reconciliationInterval == "" {
+		reconciliationInterval = "daily"
+	}
 	_, err = exec.Exec(`
 		INSERT INTO org_sso_configs (
 			org_id, provider_type, display_name, enabled,
 			oidc_issuer, oidc_client_id, oidc_client_secret_enc, oidc_scopes,
 			saml_idp_metadata_url, saml_idp_metadata_xml, saml_idp_entity_id,
+			reconciliation_enabled, reconciliation_interval,
 			created_by_user_id
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		ON CONFLICT (org_id, provider_type) DO UPDATE SET
 			display_name = EXCLUDED.display_name,
 			enabled = EXCLUDED.enabled,
@@ -139,10 +155,13 @@ func (s *Store) UpsertTx(exec sqlExecer, cfg *Config, createdByUserID int64) err
 			saml_idp_metadata_url = EXCLUDED.saml_idp_metadata_url,
 			saml_idp_metadata_xml = EXCLUDED.saml_idp_metadata_xml,
 			saml_idp_entity_id = EXCLUDED.saml_idp_entity_id,
+			reconciliation_enabled = EXCLUDED.reconciliation_enabled,
+			reconciliation_interval = EXCLUDED.reconciliation_interval,
 			updated_at = NOW()
 	`, cfg.OrgID, string(cfg.ProviderType), cfg.DisplayName, cfg.Enabled,
 		nullable(cfg.OIDCIssuer), nullable(cfg.OIDCClientID), nullable(encSecret), nullable(cfg.OIDCScopes),
 		nullable(cfg.SAMLIDPMetadataURL), nullable(cfg.SAMLIDPMetadataXML), nullable(cfg.SAMLIDPEntityID),
+		cfg.ReconciliationEnabled, reconciliationInterval,
 		nullableID(createdByUserID))
 	if err != nil {
 		return fmt.Errorf("sso: upserting config: %w", err)
@@ -159,6 +178,49 @@ func (s *Store) DeleteTx(exec sqlExecer, orgID int64, provider ProviderType) err
 	_, err := exec.Exec(`DELETE FROM org_sso_configs WHERE org_id = $1 AND provider_type = $2`, orgID, string(provider))
 	if err != nil {
 		return fmt.Errorf("sso: deleting config: %w", err)
+	}
+	return nil
+}
+
+// ListDueForReconciliation returns every OIDC config with the reconciliation
+// poll enabled whose interval has elapsed since it last ran (or that has
+// never run). Used by the coordinator job (internal/jobqueue/sso_reconciliation_worker.go)
+// on a fixed short tick to decide which orgs to fan out one-shot work to -
+// see Phase 5 of docs/sso.md's deprovisioning section for why this is a
+// coordinator+fan-out job rather than one River PeriodicJob per org.
+func (s *Store) ListDueForReconciliation() ([]*Config, error) {
+	rows, err := s.db.Query(`
+		SELECT id, org_id, provider_type, reconciliation_interval, last_reconciled_at
+		FROM org_sso_configs
+		WHERE provider_type = 'oidc' AND reconciliation_enabled = TRUE AND (
+			last_reconciled_at IS NULL
+			OR (reconciliation_interval = 'hourly' AND last_reconciled_at < NOW() - INTERVAL '1 hour')
+			OR (reconciliation_interval = 'daily' AND last_reconciled_at < NOW() - INTERVAL '1 day')
+			OR (reconciliation_interval = 'weekly' AND last_reconciled_at < NOW() - INTERVAL '7 days')
+		)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("sso: listing configs due for reconciliation: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*Config
+	for rows.Next() {
+		cfg := &Config{}
+		if err := rows.Scan(&cfg.ID, &cfg.OrgID, &cfg.ProviderType, &cfg.ReconciliationInterval, &cfg.LastReconciledAt); err != nil {
+			return nil, fmt.Errorf("sso: scanning config due for reconciliation: %w", err)
+		}
+		out = append(out, cfg)
+	}
+	return out, rows.Err()
+}
+
+// MarkReconciled stamps last_reconciled_at = NOW() once a reconciliation
+// sweep finishes for (orgID, provider).
+func (s *Store) MarkReconciled(orgID int64, provider ProviderType) error {
+	_, err := s.db.Exec(`UPDATE org_sso_configs SET last_reconciled_at = NOW() WHERE org_id = $1 AND provider_type = $2`, orgID, string(provider))
+	if err != nil {
+		return fmt.Errorf("sso: marking config reconciled: %w", err)
 	}
 	return nil
 }

@@ -114,6 +114,14 @@ const (
 	ActionIdentityAdd        Action = "auth.identity.add"
 	ActionIdentityRemove     Action = "auth.identity.remove"
 	ActionSSOProvision       Action = "auth.sso.provision"
+	ActionSessionRevoke      Action = "auth.session.revoke"
+
+	ActionSCIMUserCreate     Action = "scim.user.create"
+	ActionSCIMUserUpdate     Action = "scim.user.update"
+	ActionSCIMUserDeactivate Action = "scim.user.deactivate"
+	ActionSCIMUserReactivate Action = "scim.user.reactivate"
+	ActionSCIMTokenCreate    Action = "scim.token.create"
+	ActionSCIMTokenRevoke    Action = "scim.token.revoke"
 
 	ActionUserCreate     Action = "user.create"
 	ActionUserUpdate     Action = "user.update"
@@ -255,6 +263,13 @@ var actionCatalog = func() map[Action]ActionMeta {
 		meta(ActionIdentityAdd, CategoryAuth, "identity", "Identity linked", "A login identity was linked to a user.", SeverityWarning),
 		meta(ActionIdentityRemove, CategoryAuth, "identity", "Identity unlinked", "A login identity was removed from a user.", SeverityWarning),
 		meta(ActionSSOProvision, CategoryAuth, "user", "SSO account provisioned", "An account was provisioned through SSO.", SeverityInfo),
+		sensitive(meta(ActionSessionRevoke, CategoryAuth, "session", "Sessions revoked", "A user's active sessions and refresh tokens were revoked, typically following deactivation.", SeverityWarning)),
+		sensitive(meta(ActionSCIMUserCreate, CategoryAuth, "user", "SCIM user provisioned", "An identity provider created or linked a user via SCIM.", SeverityInfo)),
+		sensitive(meta(ActionSCIMUserUpdate, CategoryAuth, "user", "SCIM user updated", "An identity provider updated a user's attributes via SCIM.", SeverityInfo)),
+		sensitive(meta(ActionSCIMUserDeactivate, CategoryAuth, "user", "SCIM user deactivated", "An identity provider deactivated a user via SCIM.", SeverityWarning)),
+		sensitive(meta(ActionSCIMUserReactivate, CategoryAuth, "user", "SCIM user reactivated", "An identity provider reactivated a user via SCIM.", SeverityWarning)),
+		sensitive(meta(ActionSCIMTokenCreate, CategoryAuth, "scim_token", "SCIM token created", "An org's SCIM bearer token was generated or rotated.", SeverityWarning)),
+		sensitive(meta(ActionSCIMTokenRevoke, CategoryAuth, "scim_token", "SCIM token revoked", "An org's SCIM bearer token was revoked.", SeverityWarning)),
 
 		sensitive(meta(ActionUserCreate, CategoryUser, "user", "User created", "A user was added to the organization.", SeverityWarning)),
 		sensitive(meta(ActionUserUpdate, CategoryUser, "user", "User updated", "A user's profile or settings were changed.", SeverityWarning)),

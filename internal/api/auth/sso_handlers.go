@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -19,12 +20,24 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// errSSOAccountDeactivated is returned by jitProvisionSSOUser when the
+// matched user has been deactivated. SSO login must never resurrect a
+// deactivated account - that's an explicit admin action only.
+var errSSOAccountDeactivated = errors.New("sso: account is deactivated")
+
 // SetSSO wires the SSO config store and state signer into the auth
 // handlers. Both the OIDC and (later) SAML login routes, and the config
 // CRUD handlers that validate against a live IdP, depend on this.
 func (h *AuthHandlers) SetSSO(store *sso.Store, jwtSecret string) {
 	h.sso = store
 	h.ssoState = sso.NewStateSigner(jwtSecret)
+}
+
+// SetSSOIdentities wires the subject->user identity store in, used to
+// resolve incoming OIDC back-channel logout tokens / SAML LogoutRequests to
+// a LiveReview user (Phase 4 of docs/sso.md's deprovisioning section).
+func (h *AuthHandlers) SetSSOIdentities(store *sso.IdentityStore) {
+	h.ssoIdentities = store
 }
 
 // baseURL derives this request's own origin, used both as the OIDC/SAML
@@ -159,6 +172,59 @@ func (h *AuthHandlers) SSOOIDCCallback(c echo.Context) error {
 	return h.completeSSOLogin(c, orgID, identity, "sso_oidc")
 }
 
+// SSOOIDCBackChannelLogout is public: POST /api/v1/auth/sso/oidc/:org_id/backchannel-logout.
+// Per OIDC Back-Channel Logout 1.0, the IdP calls this directly (no
+// browser involved) when a user logs out or is disabled at the IdP, so
+// LiveReview can revoke that user's sessions in near real time rather than
+// waiting for their JWT to expire or the next SCIM/reconciliation sweep.
+// Best-effort and intentionally quiet on any resolution failure (unknown
+// subject, SSO not configured, etc.) - per spec, this endpoint must not
+// leak account existence, so it always responds 200 once the token itself
+// verifies, even if there's nothing on LiveReview's side to revoke.
+func (h *AuthHandlers) SSOOIDCBackChannelLogout(c echo.Context) error {
+	orgID, err := strconv.ParseInt(c.Param("org_id"), 10, 64)
+	if err != nil || orgID <= 0 {
+		return c.String(http.StatusBadRequest, "invalid org")
+	}
+	if h.sso == nil {
+		return c.String(http.StatusNotFound, "sso not configured")
+	}
+	cfg, err := h.sso.Get(orgID, sso.ProviderOIDC)
+	if err != nil || !cfg.Enabled {
+		return c.String(http.StatusNotFound, "sso not configured")
+	}
+	logoutToken := c.Request().PostFormValue("logout_token")
+	if logoutToken == "" {
+		return c.String(http.StatusBadRequest, "missing logout_token")
+	}
+	subject, err := sso.VerifyBackChannelLogoutToken(c.Request().Context(), cfg, logoutToken)
+	if err != nil {
+		log.Printf("[sso] back-channel logout token verification failed for org %d: %v", orgID, err)
+		return c.String(http.StatusBadRequest, "invalid logout_token")
+	}
+	if h.ssoIdentities == nil {
+		return c.NoContent(http.StatusOK)
+	}
+	userID, err := h.ssoIdentities.LookupUserBySubject(orgID, sso.ProviderOIDC, subject)
+	if err != nil {
+		return c.NoContent(http.StatusOK)
+	}
+	if _, err := h.db.Exec(`UPDATE auth_tokens SET is_active = false, revoked_at = NOW() WHERE user_id = $1 AND is_active = true`, userID); err != nil {
+		log.Printf("[sso] back-channel logout: failed to revoke sessions for user %d: %v", userID, err)
+		return c.NoContent(http.StatusOK)
+	}
+	h.recordAuthEvent(c, auditlog.Event{
+		OrgID:       orgID,
+		ActorUserID: &userID,
+		ActorKind:   auditlog.ActorKindMember,
+		Action:      auditlog.ActionSessionRevoke,
+		Outcome:     auditlog.OutcomeSuccess,
+		Severity:    auditlog.SeverityWarning,
+		Details:     auditlog.Details("method", "sso_oidc_backchannel_logout"),
+	})
+	return c.NoContent(http.StatusOK)
+}
+
 // samlURLs derives this org's metadata/ACS URLs from the current request's
 // own origin, same reasoning as baseURL for OIDC's redirect URL.
 func samlURLs(c echo.Context, orgID int64) (metadataURL, acsURL string) {
@@ -284,7 +350,12 @@ func (h *AuthHandlers) completeSSOLogin(c echo.Context, orgID int64, identity *s
 
 	user, created, err := h.jitProvisionSSOUser(orgID, email, identity.Name)
 	if err != nil {
-		log.Printf("[sso] JIT provisioning failed for %s in org %d: %v", email, orgID, err)
+		reason := "provisioning_failed"
+		if errors.Is(err, errSSOAccountDeactivated) {
+			reason = "account_deactivated"
+		} else {
+			log.Printf("[sso] JIT provisioning failed for %s in org %d: %v", email, orgID, err)
+		}
 		h.recordAuthEvent(c, auditlog.Event{
 			OrgID:      orgID,
 			ActorEmail: email,
@@ -292,9 +363,9 @@ func (h *AuthHandlers) completeSSOLogin(c echo.Context, orgID int64, identity *s
 			Action:     auditlog.ActionLoginFailure,
 			Outcome:    auditlog.OutcomeFailure,
 			Severity:   auditlog.SeverityWarning,
-			Details:    auditlog.Details("method", method, "reason", "provisioning_failed"),
+			Details:    auditlog.Details("method", method, "reason", reason),
 		})
-		return ssoFailureRedirect(c, "provisioning_failed")
+		return ssoFailureRedirect(c, reason)
 	}
 
 	userAgent := c.Request().Header.Get("User-Agent")
@@ -306,6 +377,19 @@ func (h *AuthHandlers) completeSSOLogin(c echo.Context, orgID int64, identity *s
 	}
 
 	_, _ = h.db.Exec(`UPDATE users SET last_login_at = NOW() WHERE id = $1`, user.ID)
+
+	if h.ssoIdentities != nil && identity.Subject != "" {
+		provider := sso.ProviderOIDC
+		if method == "sso_saml" {
+			provider = sso.ProviderSAML
+		}
+		if err := h.ssoIdentities.Upsert(orgID, user.ID, provider, identity.Subject, identity.RefreshToken); err != nil {
+			// Non-fatal: this only degrades back-channel logout resolution
+			// and the reconciliation poll for this login, never the login
+			// itself.
+			log.Printf("[sso] failed to record identity mapping for org %d user %d: %v", orgID, user.ID, err)
+		}
+	}
 
 	uid := user.ID
 	actorKind, actorCapacity := h.actorFor(user)
@@ -352,6 +436,7 @@ func (h *AuthHandlers) completeSSOLogin(c echo.Context, orgID int64, identity *s
 // login path until an owner sets one).
 func (h *AuthHandlers) jitProvisionSSOUser(orgID int64, email, displayName string) (*models.User, bool, error) {
 	var userID int64
+	var isActive bool
 	created := false
 
 	err := func() error {
@@ -361,7 +446,7 @@ func (h *AuthHandlers) jitProvisionSSOUser(orgID int64, email, displayName strin
 		}
 		defer tx.Rollback()
 
-		err = tx.QueryRow(`SELECT id FROM users WHERE email = $1`, email).Scan(&userID)
+		err = tx.QueryRow(`SELECT id, is_active FROM users WHERE email = $1`, email).Scan(&userID, &isActive)
 		if err == sql.ErrNoRows {
 			randBytes := make([]byte, 32)
 			if _, rerr := rand.Read(randBytes); rerr != nil {
@@ -389,6 +474,12 @@ func (h *AuthHandlers) jitProvisionSSOUser(orgID int64, email, displayName strin
 		} else if err != nil {
 			return err
 		} else {
+			if !isActive {
+				// Deactivation is an explicit admin action; SSO login must
+				// never silently undo it. Reject here rather than
+				// reactivating - see errSSOAccountDeactivated.
+				return errSSOAccountDeactivated
+			}
 			var isMember bool
 			if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM user_roles WHERE user_id = $1 AND org_id = $2)`, userID, orgID).Scan(&isMember); err != nil {
 				return err
@@ -402,7 +493,7 @@ func (h *AuthHandlers) jitProvisionSSOUser(orgID int64, email, displayName strin
 				}
 				created = true
 			}
-			if _, err := tx.Exec(`UPDATE users SET default_org_id = COALESCE(default_org_id, $1), is_active = TRUE WHERE id = $2`, orgID, userID); err != nil {
+			if _, err := tx.Exec(`UPDATE users SET default_org_id = COALESCE(default_org_id, $1) WHERE id = $2`, orgID, userID); err != nil {
 				return err
 			}
 		}
