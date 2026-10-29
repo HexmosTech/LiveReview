@@ -338,11 +338,14 @@ func (w *PRStateSyncWorker) Work(ctx context.Context, job *river.Job[PRStateSync
 // The LiveReview section in a PR description sits between these markers so it can be replaced in place.
 // They are markdown comments, which every provider hides (Bitbucket shows HTML comments as text).
 const (
-	prSectionStart = "[//]: # (livereview:links)"
-	prSectionEnd   = "[//]: # (livereview:end)"
-	// Markers used before the switch, still matched so older sections get replaced.
+	controlsStart = "[//]: # (livereview:controls)"
+	controlsEnd   = "[//]: # (livereview:controls-end)"
+	resultsStart  = "[//]: # (livereview:results)"
+	resultsEnd    = "[//]: # (livereview:results-end)"
+	// Old single section (controls and table together, at the bottom), removed when found.
+	prSectionStart     = "[//]: # (livereview:links)"
+	prSectionEnd       = "[//]: # (livereview:end)"
 	legacySectionStart = "<!-- livereview:links -->"
-	legacySectionEnd   = "<!-- livereview:end -->"
 )
 
 // postLinksComment adds the LiveReview links (review, history, repo/org policy) to the end of a new PR/MR's description.
@@ -366,7 +369,9 @@ func (w *PRStateSyncWorker) postLinksComment(ctx context.Context, repositoryID, 
 
 	info, err := loadActingConnectorInfo(w.db, repositoryID)
 	if err == nil {
-		err = writePRSection(ctx, info, number, buildPRLinksSection(host, pullRequestID, repositoryID, ""))
+		err = writePRSection(ctx, info, number, func(body string) string {
+			return upsertControlsSection(body, buildControlsSection(host, pullRequestID, repositoryID))
+		})
 	}
 	if err != nil {
 		// Release the claim so River's retry can add it.
@@ -378,21 +383,25 @@ func (w *PRStateSyncWorker) postLinksComment(ctx context.Context, repositoryID, 
 	return nil
 }
 
-// buildPRLinksSection renders the LiveReview section; history is the review history table, or "".
-func buildPRLinksSection(host string, pullRequestID, repositoryID int64, history string) string {
+// buildControlsSection renders the control panel (start review, history, policy links) shown at the top of the PR.
+func buildControlsSection(host string, pullRequestID, repositoryID int64) string {
 	host = strings.TrimSuffix(host, "/")
 	return fmt.Sprintf(`%s
-
----
 ### 🔍 LiveReview
 
 - ▶️ **[Start a review](%s/#/pr/%d/review)**: reviews all changes in this PR against its target branch
 - 📜 **[Review history](%s/#/reviews?pull_request_id=%d)**: all past reviews of this PR
 
-%s⚙️ Customize risk-based approval policy for [this repository](%s/#/explore/repositories/%d/settings#auto-approve) or [your organization](%s/#/settings#auto-approve).
+⚙️ Customize risk-based approval policy for [this repository](%s/#/explore/repositories/%d/settings#auto-approve) or [your organization](%s/#/settings#auto-approve).
 
+---
 %s
-`, prSectionStart, host, pullRequestID, host, pullRequestID, history, host, repositoryID, host, prSectionEnd)
+`, controlsStart, host, pullRequestID, host, pullRequestID, host, repositoryID, host, controlsEnd)
+}
+
+// buildResultsSection wraps the decisions table, which stays at the bottom of the PR.
+func buildResultsSection(history string) string {
+	return fmt.Sprintf("%s\n\n---\n%s%s\n", resultsStart, history, resultsEnd)
 }
 
 // refreshPRSection rewrites the LiveReview section with one history row per policy-checked review of this PR.
@@ -400,8 +409,9 @@ func buildPRLinksSection(host string, pullRequestID, repositoryID int64, history
 func refreshPRSection(ctx context.Context, db *sql.DB, info *repositoryConnectorInfo, host string, pullRequestID int64, number int) error {
 	rows, err := db.QueryContext(ctx,
 		// ponytail: only the last 10 rows, so the table stays under description size limits (Azure DevOps: 4000 chars).
-		`SELECT id, policy, forced_reason FROM (
-		   SELECT r.id, r.metadata->'policy_result' AS policy,
+		`SELECT id, created_at, policy, forced_reason, time_zone FROM (
+		   SELECT r.id, r.created_at, r.metadata->'policy_result' AS policy,
+		     (SELECT u.time_zone FROM users u WHERE lower(u.email) = lower(r.user_email) LIMIT 1) AS time_zone,
 		     (SELECT o.reason FROM review_policy_overrides o
 		      WHERE o.review_id = r.id AND o.org_id = r.org_id ORDER BY o.created_at DESC LIMIT 1) AS forced_reason
 		   FROM reviews r
@@ -414,12 +424,13 @@ func refreshPRSection(ctx context.Context, db *sql.DB, info *repositoryConnector
 
 	host = strings.TrimSuffix(host, "/")
 	var b strings.Builder
-	b.WriteString("#### Auto-approval decisions\n\n| Review | Decision | Reason |\n|---|---|---|\n")
+	b.WriteString("#### LiveReview auto-approval decisions\n\n| Review | Time | Decision | Reason |\n|---|---|---|---|\n")
 	for rows.Next() {
 		var reviewID int64
+		var createdAt time.Time
 		var raw []byte
-		var forcedReason sql.NullString
-		if err := rows.Scan(&reviewID, &raw, &forcedReason); err != nil {
+		var forcedReason, timeZone sql.NullString
+		if err := rows.Scan(&reviewID, &createdAt, &raw, &forcedReason, &timeZone); err != nil {
 			return err
 		}
 		var res policyengine.FunnelResult
@@ -432,13 +443,27 @@ func refreshPRSection(ctx context.Context, db *sql.DB, info *repositoryConnector
 		} else if !res.Approved {
 			decision = "❌ Not approved"
 		}
-		fmt.Fprintf(&b, "| [#%d](%s/#/reviews/%d) | %s | %s |\n", reviewID, host, reviewID, decision, strings.ReplaceAll(reason, "|", "\\|"))
+		fmt.Fprintf(&b, "| [#%d](%s/#/reviews/%d) | %s | %s | %s |\n", reviewID, host, reviewID, formatReviewTime(createdAt, timeZone), decision, strings.ReplaceAll(reason, "|", "\\|"))
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
 	b.WriteString("\n")
-	return writePRSection(ctx, info, number, buildPRLinksSection(host, pullRequestID, info.RepositoryID, b.String()))
+	controls := buildControlsSection(host, pullRequestID, info.RepositoryID)
+	results := buildResultsSection(b.String())
+	return writePRSection(ctx, info, number, func(body string) string {
+		return upsertResultsSection(upsertControlsSection(body, controls), results)
+	})
+}
+
+// formatReviewTime shows the time in the review starter's saved zone, or UTC if none is saved.
+func formatReviewTime(t time.Time, timeZone sql.NullString) string {
+	if timeZone.Valid {
+		if loc, err := time.LoadLocation(timeZone.String); err == nil {
+			return t.In(loc).Format("2 Jan 2006, 15:04 MST")
+		}
+	}
+	return t.UTC().Format("2 Jan 2006, 15:04 UTC")
 }
 
 // decisionReason is the readable "why" for one decision row: each failing stage's reason, or that all passed.
@@ -470,31 +495,52 @@ func decisionReason(res *policyengine.FunnelResult) string {
 	return strings.Join(parts, "; ")
 }
 
-// upsertPRSection swaps the old LiveReview section in body for section, or appends section if there is none.
-// Sections from before the end marker existed were always last, so they are replaced up to the end of body.
-func upsertPRSection(body, section string) string {
-	startMarker, endMarker := prSectionStart, prSectionEnd
-	start := strings.Index(body, startMarker)
-	if start < 0 {
-		startMarker, endMarker = legacySectionStart, legacySectionEnd
-		start = strings.Index(body, startMarker)
+// replaceBetween swaps the text from start through end markers for section; ok is false if start is absent.
+func replaceBetween(body, start, end, section string) (string, bool) {
+	i := strings.Index(body, start)
+	if i < 0 {
+		return body, false
 	}
-	if start < 0 {
-		if strings.TrimSpace(body) == "" {
-			return section
-		}
-		return strings.TrimRight(body, "\n") + "\n\n" + section
+	j := strings.Index(body[i:], end)
+	if j < 0 {
+		return body[:i] + strings.TrimRight(section, "\n"), true
 	}
-	rest := ""
-	if end := strings.Index(body[start:], endMarker); end >= 0 {
-		rest = body[start+end+len(endMarker):]
-		section = strings.TrimRight(section, "\n")
-	}
-	return body[:start] + section + rest
+	return body[:i] + strings.TrimRight(section, "\n") + body[i+j+len(end):], true
 }
 
-// writePRSection reads the PR/MR description and saves it with the LiveReview section updated.
-func writePRSection(ctx context.Context, info *repositoryConnectorInfo, number int, section string) error {
+// removeOldSection drops the old single section; the legacy one was always last, so it goes to the end of body.
+func removeOldSection(body string) string {
+	if next, ok := replaceBetween(body, prSectionStart, prSectionEnd, ""); ok {
+		return strings.TrimRight(next, "\n") + "\n"
+	}
+	if i := strings.Index(body, legacySectionStart); i >= 0 {
+		return strings.TrimRight(body[:i], "\n") + "\n"
+	}
+	return body
+}
+
+// upsertControlsSection puts the control panel at the top of body, replacing it in place if already there.
+func upsertControlsSection(body, section string) string {
+	body = removeOldSection(body)
+	if next, ok := replaceBetween(body, controlsStart, controlsEnd, section); ok {
+		return next
+	}
+	if strings.TrimSpace(body) == "" {
+		return section
+	}
+	return section + "\n" + strings.TrimLeft(body, "\n")
+}
+
+// upsertResultsSection keeps the decisions table at the bottom of body, replacing it in place if already there.
+func upsertResultsSection(body, section string) string {
+	if next, ok := replaceBetween(body, resultsStart, resultsEnd, section); ok {
+		return next
+	}
+	return strings.TrimRight(body, "\n") + "\n\n" + section
+}
+
+// writePRSection reads the PR/MR description and saves it after update changes the LiveReview sections.
+func writePRSection(ctx context.Context, info *repositoryConnectorInfo, number int, update func(body string) string) error {
 	var get func() (string, error)
 	var set func(string) error
 	switch info.Provider {
@@ -544,7 +590,7 @@ func writePRSection(ctx context.Context, info *repositoryConnectorInfo, number i
 	if err != nil {
 		return err
 	}
-	if next := upsertPRSection(body, section); next != body {
+	if next := update(body); next != body {
 		return set(next)
 	}
 	return nil

@@ -53,8 +53,10 @@ organization with that PR or that account available see "pull request wasn't fou
 - When a review started from this link finishes, LiveReview runs the org's
   [auto-approve policy](../settings/auto-approve.md) on it. The result is shown
   in two places:
-  - **PR description:** under the two links, an "Auto-approval decisions"
-    table with one row per policy-checked review, latest first: Review (link),
+  - **PR description:** the controls (Start a review, Review history, policy
+    links) sit at the top, above a horizontal line. A "LiveReview auto-approval
+    decisions" table stays at the bottom, with one row per policy-checked review, latest first: Review (link),
+    Time (in the review starter's saved time zone, e.g. "29 Oct 2026, 19:35 IST"; UTC until they open the app once),
     Decision (✅ Approved / ❌ Not approved / ⚠️ Force-approved), and Reason
     (the failing stage and why, the repo mode override such as
     "mode override: always_approve", the force-approve reason, or "All policy

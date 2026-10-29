@@ -37,3 +37,10 @@ export const updateProfile = async (req: UpdateProfileRequest): Promise<UserProf
 export const changePassword = async (req: ChangePasswordRequest): Promise<{ message: string }> => {
     return apiClient.put<{ message: string }>('/users/password', req);
 };
+
+/**
+ * Save the browser's time zone (IANA name) so PR tables show this user's local time.
+ */
+export const saveTimeZone = async (timeZone: string): Promise<void> => {
+    await apiClient.put('/users/time-zone', { time_zone: timeZone });
+};

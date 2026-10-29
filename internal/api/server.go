@@ -1318,6 +1318,7 @@ func (s *Server) setupRoutes() {
 	protected.GET("/users/profile", s.profileHandlers.GetProfile)
 	protected.PUT("/users/profile", s.profileHandlers.UpdateProfile)
 	protected.PUT("/users/default-org", s.orgHandlers.SetDefaultOrganization)
+	protected.PUT("/users/time-zone", s.profileHandlers.UpdateTimeZone)
 	protected.PUT("/users/password", s.profileHandlers.ChangePassword)
 
 	// Development mode test endpoints (only enabled when DEV_MODE=true)

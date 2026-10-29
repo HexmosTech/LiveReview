@@ -2,7 +2,7 @@
 
 ## Goal
 
-When a new PR/MR is opened, LiveReview adds a section with two links to the end of its description:
+When a new PR/MR is opened, LiveReview adds a controls section with two links to the top of its description:
 
 1. **Start a review** — opens LiveReview, triggers a review for that PR, and redirects to the
    review details page.
@@ -21,7 +21,7 @@ built on CI/CD Gates jq rulesets) remain a later feature.
 | Providers | GitHub, GitLab, Bitbucket, Gitea, Azure DevOps |
 | Which repos | Every repo with the LiveReview webhook installed |
 | Which PRs | Only newly opened PRs (GitHub action `opened`, GitLab action `open`). Existing open PRs, reopen, push, and edit events are ignored. |
-| Where links go | A section at the end of the PR description, between the markdown-comment markers `[//]: # (livereview:links)` and `[//]: # (livereview:end)` (HTML comments show as text on Bitbucket; the old `<!-- … -->` markers are still recognised). Added at PR open; rewritten in place after each link-started review with an "Auto-approval decisions" table (one row per review, latest first: Review, Decision, Reason). The stage-by-stage policy breakdown is a separate PR comment. Replaced the earlier bot comment. |
+| Where links go | A controls section at the top of the PR description, between `[//]: # (livereview:controls)` and `[//]: # (livereview:controls-end)`, followed by a horizontal line (HTML comments show as text on Bitbucket). Added at PR open. A separate results section at the bottom, between `livereview:results` and `livereview:results-end`, is rewritten in place after each link-started review with a "LiveReview auto-approval decisions" table. The old single section (`livereview:links` / `livereview:end`, or the legacy `<!-- … -->` markers) is removed and replaced on the next review. The table (one row per review, latest first: Review, Time (starter's time zone, UTC fallback), Decision, Reason). The stage-by-stage policy breakdown is a separate PR comment. Replaced the earlier bot comment. |
 | Duplicate webhooks | Guarded by a "links added" flag (`links_comment_posted_at`) on the `pull_requests` row |
 | Auth | Both links require a LiveReview login. Logged-out users log in and are sent back to the link (existing `redirectAfterLogin` flow). |
 | Org | The user is switched to the PR's org automatically. Non-members get "not found". |
