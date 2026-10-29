@@ -16,17 +16,14 @@ make -f config/Makefile.test test-prompt           # Prompt construction
 make -f config/Makefile.test test-api              # AI API calls
 make -f config/Makefile.test test-gitlab-mr        # GitLab MR fetching
 make -f config/Makefile.test test-gitlab-comments  # GitLab comment posting
-make -f config/Makefile.test test-pipeline         # Complete pipeline
 ```
 
 **Run tests in this directory directly:**
 ```bash
-go test -v ./tests -run TestCompletePipeline
-go test -v ./tests -run TestFetchMR335Details
+go test -v ./tests
 ```
 
 ## Notes
 
 - Integration tests require credentials and may be skipped in short mode
-- For debugging tools (Ollama/LLM connectivity), see [../debug/](../debug/)
 - For shell script tests (API/webhooks), see [../scripts/tests/](../scripts/tests/)

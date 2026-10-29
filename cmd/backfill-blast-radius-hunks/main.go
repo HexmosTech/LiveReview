@@ -10,7 +10,7 @@
 // whichever backend internal/blobstore is configured for (S3, GCS, Azure,
 // local filesystem), not just S3.
 //
-// Usage: go run scripts/backfill_blast_radius_hunks.go
+// Usage: go run ./cmd/backfill-blast-radius-hunks
 package main
 
 import (

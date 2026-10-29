@@ -10,7 +10,7 @@ import (
 
 // TestRoundTripUnifiedArtifact tests loading a saved UnifiedArtifact JSON back into the struct
 func TestRoundTripUnifiedArtifact(t *testing.T) {
-	artifactPath := "../../../artifacts/gh_unified.json"
+	artifactPath := "../../../docs/raw/artifacts/gh_unified.json"
 
 	// Read the JSON file
 	data, err := os.ReadFile(artifactPath)

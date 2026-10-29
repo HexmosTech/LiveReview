@@ -5,7 +5,7 @@
 // shape chatstats doesn't recognize, which stays NULL on purpose) can be
 // resumed by running it again.
 //
-// Usage: go run scripts/backfill_chat_chart_stats.go
+// Usage: go run ./cmd/backfill-chat-chart-stats
 package main
 
 import (

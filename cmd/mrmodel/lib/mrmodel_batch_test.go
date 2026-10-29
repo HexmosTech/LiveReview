@@ -8,7 +8,7 @@ import (
 
 // TestListPaths tests loading a unified artifact and listing its diff paths
 func TestListPaths(t *testing.T) {
-	artifactPath := "../../../artifacts/gl_unified.json"
+	artifactPath := "../../../docs/raw/artifacts/gl_unified.json"
 
 	// Read the JSON file
 	data, err := os.ReadFile(artifactPath)
@@ -34,7 +34,7 @@ func TestListPaths(t *testing.T) {
 
 // TestShowCommentsPerFile tests showing comments organized by file
 func TestShowCommentsPerFile(t *testing.T) {
-	artifactPath := "../../../artifacts/gl_unified.json"
+	artifactPath := "../../../docs/raw/artifacts/gl_unified.json"
 
 	// Read the JSON file
 	data, err := os.ReadFile(artifactPath)
@@ -75,7 +75,7 @@ func TestShowCommentsPerFile(t *testing.T) {
 
 // TestBuildFileCommentIndex tests building the efficient file->comments index
 func TestBuildFileCommentIndex(t *testing.T) {
-	artifactPath := "../../../artifacts/gl_unified.json"
+	artifactPath := "../../../docs/raw/artifacts/gl_unified.json"
 
 	// Read the JSON file
 	data, err := os.ReadFile(artifactPath)
@@ -115,7 +115,7 @@ func TestBuildFileCommentIndex(t *testing.T) {
 
 // TestBuildFileCommentTree tests building the tree structure per file
 func TestBuildFileCommentTree(t *testing.T) {
-	artifactPath := "../../../artifacts/gl_unified.json"
+	artifactPath := "../../../docs/raw/artifacts/gl_unified.json"
 
 	// Read the JSON file
 	data, err := os.ReadFile(artifactPath)
@@ -158,7 +158,7 @@ func TestBuildFileCommentTree(t *testing.T) {
 
 // TestShowCommentsPerFileTree tests showing the tree structure
 func TestShowCommentsPerFileTree(t *testing.T) {
-	artifactPath := "../../../artifacts/gl_unified.json"
+	artifactPath := "../../../docs/raw/artifacts/gl_unified.json"
 
 	// Read the JSON file
 	data, err := os.ReadFile(artifactPath)
@@ -181,7 +181,7 @@ func TestShowCommentsPerFileTree(t *testing.T) {
 
 // TestShowCommentsPerFileTreeBitbucket tests with Bitbucket data that has threaded comments
 func TestShowCommentsPerFileTreeBitbucket(t *testing.T) {
-	artifactPath := "../../../artifacts/bb_unified.json"
+	artifactPath := "../../../docs/raw/artifacts/bb_unified.json"
 
 	// Read the JSON file
 	data, err := os.ReadFile(artifactPath)
@@ -230,7 +230,7 @@ func TestShowCommentsPerFileTreeBitbucket(t *testing.T) {
 
 // TestShowCommentsPerFileTreeGitlab tests with GitLab data
 func TestShowCommentsPerFileTreeGitlab(t *testing.T) {
-	artifactPath := "../../../artifacts/gl_unified.json"
+	artifactPath := "../../../docs/raw/artifacts/gl_unified.json"
 
 	// Read the JSON file
 	data, err := os.ReadFile(artifactPath)
@@ -280,7 +280,7 @@ func TestShowCommentsPerFileTreeGitlab(t *testing.T) {
 
 // TestShowCommentsPerFileTreeGithub tests with GitHub data
 func TestShowCommentsPerFileTreeGithub(t *testing.T) {
-	artifactPath := "../../../artifacts/gh_unified.json"
+	artifactPath := "../../../docs/raw/artifacts/gh_unified.json"
 
 	// Read the JSON file
 	data, err := os.ReadFile(artifactPath)
