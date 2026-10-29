@@ -398,7 +398,11 @@ regen-risk-report:
 test-sso-e2e:
 	docker compose -f docker/docker-compose.sso-test.yml up -d keycloak
 	@echo "Waiting for Keycloak to become healthy..."
-	@timeout 120 sh -c 'until docker compose -f docker/docker-compose.sso-test.yml ps keycloak --format json | grep -q "\"Health\":\"healthy\""; do sleep 2; done'
+	@i=0; until docker compose -f docker/docker-compose.sso-test.yml ps keycloak --format json | grep -q "\"Health\":\"healthy\""; do \
+		i=$$((i + 2)); \
+		if [ $$i -ge 120 ]; then echo "Keycloak did not become healthy within 120s"; exit 1; fi; \
+		sleep 2; \
+	done
 	$(GOTEST) -tags=sso_e2e -count=1 -v ./internal/sso/... || (docker compose -f docker/docker-compose.sso-test.yml down -v; exit 1)
 	docker compose -f docker/docker-compose.sso-test.yml down -v
 

@@ -2126,7 +2126,7 @@ CREATE TABLE public.org_sso_configs (
     oidc_issuer character varying(512),
     oidc_client_id character varying(512),
     oidc_client_secret_enc text,
-    oidc_scopes character varying(255),
+    oidc_scopes text,
     saml_idp_metadata_url character varying(512),
     saml_idp_metadata_xml text,
     saml_idp_entity_id character varying(512),
@@ -10300,4 +10300,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261025120000'),
     ('20261025120100'),
     ('20261025130000'),
-    ('20261029104047');
+    ('20261029104047'),
+    ('20261029134500');
