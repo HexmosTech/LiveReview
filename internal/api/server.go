@@ -458,6 +458,17 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	e := echo.New()
 	e.HideBanner = true
 
+	// Echo v4.16.3 changed the unconfigured default (previously: trust
+	// X-Forwarded-For/X-Real-IP unconditionally, GHSA-246p-cpwv-v3jq /
+	// GHSA-99jh-6h7p-pp36) to use the raw connection peer only. LiveReview
+	// always sits behind a reverse proxy on the same host or Docker network
+	// (nginx/Caddy/Apache, see config/*-ssl.conf.example), so the direct
+	// peer is loopback/private and trusted by default; the client's real IP
+	// is the nearest untrusted hop in X-Forwarded-For. Without this, every
+	// request would appear to come from the proxy, breaking IP-based audit
+	// logging, SSO/onboarding IP capture, and the subscription rate limiter.
+	e.IPExtractor = echo.ExtractIPFromXFFHeader()
+
 	// Middleware
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
