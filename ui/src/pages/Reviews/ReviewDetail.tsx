@@ -510,6 +510,8 @@ const ReviewDetail: React.FC = () => {
 
     return (
         <div className="container mx-auto px-4 py-8">
+            <PushNotificationBanner />
+
             {/* Header */}
             <Button
                 as={Link}
@@ -707,8 +709,6 @@ const ReviewDetail: React.FC = () => {
                     </div>
                 )}
             </div>
-
-            <PushNotificationBanner />
 
             {/* Findings / Accounting / Events */}
             <Tabs
