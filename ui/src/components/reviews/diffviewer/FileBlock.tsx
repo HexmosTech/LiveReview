@@ -16,9 +16,14 @@ interface FileBlockProps {
   expanded: boolean;
   onToggle: () => void;
   filters: IssueFilters;
+  // Time-to-first-comment tracking (see DiffViewerPanel.tsx / reviewPerformance.ts) -
+  // threaded straight through to CommentThread, which renders the "Appeared in Xs" label.
+  baselineMs?: number;
+  commentRenderTimes?: Record<string, number>;
+  onCommentRendered?: (commentKey: string) => void;
 }
 
-const FileBlock: React.FC<FileBlockProps> = ({ reviewId, file, expanded, onToggle, filters }) => {
+const FileBlock: React.FC<FileBlockProps> = ({ reviewId, file, expanded, onToggle, filters, baselineMs, commentRenderTimes, onCommentRendered }) => {
   const visibleCount = countFileVisibleComments(file, filters);
   const indexedComments = (file.comments || []).map((comment, idx) => ({ comment, idx }));
   const navId = fileNavId(file);
@@ -61,6 +66,9 @@ const FileBlock: React.FC<FileBlockProps> = ({ reviewId, file, expanded, onToggl
                 comments={indexedComments}
                 hunkIndex={idx}
                 filters={filters}
+                baselineMs={baselineMs}
+                commentRenderTimes={commentRenderTimes}
+                onCommentRendered={onCommentRendered}
               />
             ))
           )}

@@ -80,8 +80,14 @@ func (p *GeminiProvider) ReviewCodeWithBatching(
 	results := taskQueue.ProcessAll(ctx)
 	fmt.Printf("===== ✅ BATCH PROCESSING COMPLETE =====\n\n")
 
-	// Collect batch results
-	batchResults := make([]*batch.BatchResult, len(batchInput.Batches))
+	// Collect batch results - TOLERATE PARTIAL FAILURES. One bad batch (a
+	// transient LLM error, a parse failure, ...) must not discard every other
+	// batch's already-good comments and fail the whole review; only abort if
+	// every batch failed. Mirrors internal/ai/langchain/provider.go's
+	// ReviewCodeWithBatching, which already does this correctly.
+	var batchResults []*batch.BatchResult
+	var failedBatches []string
+	var partialFailure bool
 	totalComments := 0
 
 	fmt.Printf("===== 📋 BATCH RESULTS SUMMARY =====\n")
@@ -90,15 +96,22 @@ func (p *GeminiProvider) ReviewCodeWithBatching(
 		taskResult, ok := results[batchID]
 
 		if !ok || taskResult.Error != nil {
+			failedBatches = append(failedBatches, batchID)
+			partialFailure = true
 			if !ok {
-				return nil, fmt.Errorf("batch %s not found in results", batchID)
+				fmt.Printf("[PARTIAL FAILURE] Batch %s not found in results, skipping\n", batchID)
+			} else {
+				fmt.Printf("[PARTIAL FAILURE] Batch %s failed: %v, skipping\n", batchID, taskResult.Error)
 			}
-			return nil, fmt.Errorf("error processing batch %s: %v", batchID, taskResult.Error)
+			continue
 		}
 
 		batchResult, ok := taskResult.Result.(*batch.BatchResult)
 		if !ok {
-			return nil, fmt.Errorf("invalid result type for batch %s", batchID)
+			failedBatches = append(failedBatches, batchID)
+			partialFailure = true
+			fmt.Printf("[PARTIAL FAILURE] Batch %s: invalid result type, skipping\n", batchID)
+			continue
 		}
 
 		// Display batch result details
@@ -109,10 +122,15 @@ func (p *GeminiProvider) ReviewCodeWithBatching(
 		fmt.Println()
 
 		totalComments += len(batchResult.Comments)
-		batchResults[i] = batchResult
+		batchResults = append(batchResults, batchResult)
 	}
 	fmt.Printf("✨ Total comments generated: %d\n", totalComments)
 	fmt.Printf("===================================\n\n")
+
+	// If NO batches succeeded, fail the entire review - there's nothing to aggregate.
+	if len(batchResults) == 0 {
+		return nil, fmt.Errorf("all %d batches failed: %v", len(batchInput.Batches), failedBatches)
+	}
 
 	// Step 5: Aggregate and combine outputs
 	fmt.Printf("===== 🔄 AGGREGATING RESULTS =====\n")
@@ -120,6 +138,14 @@ func (p *GeminiProvider) ReviewCodeWithBatching(
 	if err != nil {
 		fmt.Printf("❌ Error aggregating results: %v\n", err)
 		return nil, err
+	}
+
+	if partialFailure {
+		warningMsg := fmt.Sprintf("\n\n---\n\n⚠️ **Partial Review Results**\n\nThis review completed with partial results: **%d out of %d batches** processed successfully.\n\n**Failed batches:** %v\n\nThe comments and analysis shown are based only on the files that were successfully reviewed. Some files may have been skipped due to batch processing errors.",
+			len(batchResults), len(batchInput.Batches), failedBatches)
+		result.Summary = result.Summary + warningMsg
+		fmt.Printf("\n[PARTIAL SUCCESS] Review completed with %d/%d successful batches (failed: %v)\n",
+			len(batchResults), len(batchInput.Batches), failedBatches)
 	}
 
 	// Filter out any useless comments and enhance the meaningful ones

@@ -10,7 +10,7 @@
 // (real deep-linking — a step beyond git-lrc's own behavior, which doesn't
 // read location.hash on initial mount either), and works with the browser
 // Back/Forward buttons via the router's normal history subscription.
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'classnames';
 import { useSearchParams } from 'react-router-dom';
 import { Alert, Button, EmptyState, Icons, Spinner } from '../../UIPrimitives';
@@ -25,6 +25,7 @@ import {
   extractExternalCommentsFromEvents,
   extractNewEvents,
   inferReviewStatusFromEvents,
+  shouldClearStreamedComments,
   sinceWithOverlap,
 } from './reviewStreamState';
 import type { RiskScore } from '../RiskAssessment';
@@ -47,6 +48,7 @@ import Sidebar, { HunkNav } from './Sidebar';
 import IssueFilterBar from './IssueFilterBar';
 import CommentNav, { NavComment } from './CommentNav';
 import SummaryPanel from './SummaryPanel';
+import { buildPerformanceSnapshot, getFirstRenderTime, getPerformanceNow, recordFirstRenderTime } from './reviewPerformance';
 
 interface DiffViewerPanelProps {
   reviewId: number;
@@ -132,6 +134,25 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
   const [streamedComments, setStreamedComments] = useState<(DiffReviewComment & { file_path: string })[]>([]);
   const seenEventIdsRef = React.useRef<Set<string>>(new Set());
   const lastEventTimeRef = React.useRef<string | null>(null);
+  // Time-to-first-comment tracking (ported from git-lrc's review_performance_state.mjs -
+  // see reviewPerformance.ts). baselineMs is set once, when this panel first mounts for
+  // this review; commentRenderTimes records the first moment each individual comment
+  // (by its stable DOM id) actually renders, streamed or final.
+  const baselineMsRef = useRef<number>(getPerformanceNow());
+  const [commentRenderTimes, setCommentRenderTimes] = useState<Record<string, number>>({});
+  const recordCommentRendered = useCallback((commentKey: string) => {
+    setCommentRenderTimes((prev) => recordFirstRenderTime(prev, commentKey, getPerformanceNow()));
+  }, []);
+  // Ticks the "Elapsed Xs" banner text forward once a second while waiting
+  // for the first comment - without this, it would only update whenever a
+  // poll happens to bring new events, and otherwise sit frozen.
+  const [, forcePerfTick] = useState(0);
+  const hasFirstComment = getFirstRenderTime(commentRenderTimes) !== null;
+  useEffect(() => {
+    if (hasFirstComment || data?.status === 'completed' || data?.status === 'failed') return;
+    const tick = setInterval(() => forcePerfTick((n) => n + 1), 1000);
+    return () => clearInterval(tick);
+  }, [hasFirstComment, data?.status]);
   const blastLookup = useMemo(() => (blastReport ? buildBlastLookup(blastReport) : undefined), [blastReport]);
   const [sortMode, setSortMode] = useState<SortMode>('risk-flat');
   const [expandedFiles, setExpandedFiles] = useState<Record<string, boolean>>({});
@@ -174,6 +195,8 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
     setStreamedComments([]);
     seenEventIdsRef.current = new Set();
     lastEventTimeRef.current = null;
+    baselineMsRef.current = getPerformanceNow();
+    setCommentRenderTimes({});
     getDiffReview(reviewId)
       .then((res) => {
         if (cancelled) return;
@@ -233,7 +256,14 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
               .then((finalRes) => {
                 if (cancelled) return;
                 setData(finalRes);
-                setStreamedComments([]);
+                // See shouldClearStreamedComments's doc comment: a 'failed'
+                // review's final fetch can legitimately have fewer comments
+                // than what already streamed (one bad batch wipes the whole
+                // result) - keep the stream in that case instead of wiping
+                // already-shown, real findings.
+                if (shouldClearStreamedComments(inferredStatus)) {
+                  setStreamedComments([]);
+                }
               })
               .catch(() => {});
           }
@@ -425,14 +455,25 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
         onHunkClick={jumpToHunk}
       />
       <div className="min-w-0 flex-1 space-y-4">
-        {isRunning && (
-          <Alert variant="info" title="Review in progress" icon={<Icons.Reviews />}>
-            <p className="text-sm">
-              Findings are streaming in as each batch of files finishes — {navComments.length} so far.
-              This list will keep growing until the review completes.
-            </p>
-          </Alert>
-        )}
+        {isRunning && (() => {
+          const firstCommentMs = getFirstRenderTime(commentRenderTimes);
+          const snapshot = buildPerformanceSnapshot({
+            baselineMs: baselineMsRef.current,
+            nowMs: getPerformanceNow(),
+            firstCommentMs,
+            totalComments: navComments.length,
+          });
+          return (
+            <Alert variant="info" title="Review in progress" icon={<Icons.Reviews />}>
+              <p className="text-sm">
+                {firstCommentMs === null
+                  ? `Elapsed ${snapshot.elapsedLabel} • waiting for first result`
+                  : `First result in ${snapshot.firstCommentLabel} • ${navComments.length} so far`}
+                {' '}Findings are streaming in as each batch of files finishes and will keep growing until the review completes.
+              </p>
+            </Alert>
+          );
+        })()}
         {data.status === 'failed' && (
           <Alert variant="warning" title="This review failed before finishing" icon={<Icons.Warning />}>
             <p className="text-sm">
@@ -505,6 +546,9 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
               expanded={!!expandedFiles[file.file_path]}
               onToggle={() => toggleFile(file.file_path)}
               filters={filters}
+              baselineMs={baselineMsRef.current}
+              commentRenderTimes={commentRenderTimes}
+              onCommentRendered={recordCommentRendered}
             />
           ))}
         </div>

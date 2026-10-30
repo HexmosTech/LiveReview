@@ -29,6 +29,9 @@ interface HunkBlockProps {
   comments: { comment: DiffReviewComment; idx: number }[];
   hunkIndex: number;
   filters: IssueFilters;
+  baselineMs?: number;
+  commentRenderTimes?: Record<string, number>;
+  onCommentRendered?: (commentKey: string) => void;
 }
 
 const lineClass = (type: DiffLine['type']): string => {
@@ -51,7 +54,7 @@ const linePrefix = (type: DiffLine['type']): string => {
   return ' ';
 };
 
-const HunkBlock: React.FC<HunkBlockProps> = ({ reviewId, filePath, navId, hunk, comments, hunkIndex, filters }) => {
+const HunkBlock: React.FC<HunkBlockProps> = ({ reviewId, filePath, navId, hunk, comments, hunkIndex, filters, baselineMs, commentRenderTimes, onCommentRendered }) => {
   const lines = parseHunkLines(hunk);
   const [panelOpen, setPanelOpen] = useState(false);
   const blastDetail = hunk.BlastDetail;
@@ -125,6 +128,9 @@ const HunkBlock: React.FC<HunkBlockProps> = ({ reviewId, filePath, navId, hunk, 
                         hunkRiskScore={hunk.BlastRadius}
                         codeExcerpt={buildIssueCodeExcerpt(lines, idx, 1)}
                         onOpenBreakdown={openBreakdown}
+                        baselineMs={baselineMs}
+                        commentRenderTimes={commentRenderTimes}
+                        onCommentRendered={onCommentRendered}
                       />
                     </td>
                   </tr>

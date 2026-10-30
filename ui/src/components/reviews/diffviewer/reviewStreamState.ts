@@ -197,6 +197,26 @@ export function extractExternalCommentsFromEvents(events: ReviewEvent[] | undefi
   return comments;
 }
 
+// Whether the live-streamed comments should be discarded once the review
+// reaches a terminal status and the final getDiffReview fetch lands.
+//
+// 'completed': the final result is authoritative - AggregateAndCombineOutputs
+// (internal/batch/batch.go) already deduped exact-duplicate comments across
+// batches and capped the external count as an anti-flood safety net, so the
+// final set is correct and should fully replace the raw stream.
+//
+// 'failed': NOT authoritative in the same way. If even one batch errored,
+// internal/ai/gemini/batch.go's result loop aborts the whole review with no
+// partial-success handling, so review_result ends up with zero comments even
+// though other batches already succeeded and their comments already streamed
+// live (internal/jobqueue/review_worker.go: `status := "failed"` is the
+// default, and `comments = result.Comments` only runs `if result.Success`).
+// Clearing here would silently discard real findings that already rendered -
+// this is the fix for the "findings load then disappear" bug.
+export function shouldClearStreamedComments(status: 'completed' | 'failed'): boolean {
+  return status === 'completed';
+}
+
 export function appendStreamedCommentsToFiles(
   files: DiffReviewFile[] | undefined,
   incomingComments: (DiffReviewComment & { file_path: string })[] | undefined

@@ -31,6 +31,15 @@ Any authenticated org member; the review must belong to their org
   current tab is kept in the URL (`?tab=...`), so reloading the page or
   sharing the link lands back on the same tab, and the browser Back/Forward
   buttons step through tab switches.
+- While a review is still running, the Findings tab's "Review in progress"
+  banner shows a time-to-first-comment readout — "Elapsed Xs • waiting for
+  first result" before anything has streamed in, then "First result in Xs •
+  N so far" once the first finding renders — and each individual finding
+  shows its own "Appeared in Xs" timing next to its confidence/type tags.
+  Findings that stream in live stay visible even if the review later ends in
+  "failed" (a single bad batch can empty the final result without discarding
+  what already streamed); they're only replaced by the authoritative final
+  set once the review completes successfully.
 
 ## When comments couldn't be posted to the PR
 
