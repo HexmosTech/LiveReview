@@ -18,7 +18,11 @@ const NotificationsTab: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
+  const [permission, setPermission] = useState<NotificationPermission | null>(
+    typeof Notification !== 'undefined' ? Notification.permission : null
+  );
   const supported = isPushSupported();
+  const blocked = permission === 'denied';
 
   useEffect(() => {
     let cancelled = false;
@@ -59,11 +63,12 @@ const NotificationsTab: React.FC = () => {
         setSubscribed(false);
       } else {
         if (Notification.permission === 'denied') {
-          notify.error('Notifications are blocked for this site in your browser settings.');
+          setPermission('denied');
           return;
         }
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') return;
+        const result = await Notification.requestPermission();
+        setPermission(result);
+        if (result !== 'granted') return;
         await subscribe();
         setSubscribed(true);
         notify.success("You're set — we'll notify you about your reviews.");
@@ -95,10 +100,22 @@ const NotificationsTab: React.FC = () => {
           <p className="text-sm text-slate-500">
             Browser notifications aren't available in this browser or over an insecure connection (HTTPS is required).
           </p>
+        ) : blocked ? (
+          <p className="text-sm text-amber-400">
+            Notifications are blocked for this site. Click the lock or info icon next to your browser's address bar,
+            allow notifications for this site, then reload the page.
+          </p>
         ) : (
-          <Button onClick={handleToggleBrowser} isLoading={subscribing} variant={subscribed ? 'outline' : 'primary'}>
-            {subscribed ? 'Disable on this browser' : 'Enable on this browser'}
-          </Button>
+          <>
+            <Button onClick={handleToggleBrowser} isLoading={subscribing} variant={subscribed ? 'outline' : 'primary'}>
+              {subscribed ? 'Disable on this browser' : 'Enable on this browser'}
+            </Button>
+            {!subscribed && (
+              <p className="text-xs text-slate-500 mt-2">
+                Your browser may show a permission request near its address bar - allow it there to finish.
+              </p>
+            )}
+          </>
         )}
       </Card>
 
