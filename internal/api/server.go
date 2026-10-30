@@ -446,6 +446,19 @@ func appContext(port int, versionInfo *VersionInfo) (*Server, error) {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
 	}
 
+	// Wires browser push notifications (review progress) into every
+	// completion/batch-event write path in one place — see
+	// reviewprocessor.SetNotifier's doc comment for why this is a
+	// package-level hook rather than threaded through every ReviewManager
+	// construction site. Belongs in appContext, not NewServer: the actual
+	// batch-completion/status-update writes that trigger notifications run
+	// inside the background `worker` process (cmd/worker.go calls
+	// WorkerContext, which is appContext without the Echo routing NewServer
+	// adds), not the `api` process — wiring this only in NewServer meant it
+	// was never set in the worker process at all, so every notification
+	// silently no-op'd there with no error or log line.
+	reviewprocessor.SetNotifier(pushnotify.New(server.db))
+
 	return server, nil
 }
 
@@ -455,13 +468,6 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// Wires browser push notifications (review progress) into every
-	// completion/batch-event write path in one place — see
-	// reviewprocessor.SetNotifier's doc comment for why this is a
-	// package-level hook rather than threaded through every ReviewManager
-	// construction site.
-	reviewprocessor.SetNotifier(pushnotify.New(server.db))
 
 	e := echo.New()
 	e.HideBanner = true
