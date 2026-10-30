@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Alert, Button, Icons } from '../UIPrimitives';
 import { isPushSupported, subscribe } from '../../utils/pushNotifications';
 import { notify } from '../../utils/notify';
@@ -57,19 +58,33 @@ export const PushNotificationBanner: React.FC = () => {
   };
 
   return (
-    // Icon is placed inline inside our own items-center row rather than via
-    // Alert's `icon` prop - Alert's own icon slot isn't vertically centered
-    // against taller children (ours includes a button row), which misaligns
-    // the bell against the text.
-    <Alert variant="info" onClose={handleDismiss} className="mb-6">
+    // Icon, Settings link, CTA and the close button are all placed inline
+    // inside our own items-center row rather than via Alert's `icon`/
+    // `onClose` props - Alert's own icon/close slots aren't vertically
+    // centered against taller children (ours includes a button), which
+    // misaligns them against the text.
+    <Alert variant="info" className="mb-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Icons.Bell />
           <p>Want a browser notification when this review's findings are ready?</p>
         </div>
-        <Button size="sm" onClick={handleEnable} isLoading={enabling}>
-          Enable notifications
-        </Button>
+        <div className="flex items-center gap-3">
+          <Link to="/settings#notifications" className="text-sm font-medium text-blue-200 hover:text-white hover:underline">
+            Settings
+          </Link>
+          <Button size="sm" onClick={handleEnable} isLoading={enabling}>
+            Enable notifications
+          </Button>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            onClick={handleDismiss}
+            className="text-blue-200 hover:text-white"
+          >
+            <Icons.Close />
+          </button>
+        </div>
       </div>
     </Alert>
   );
