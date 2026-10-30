@@ -1,9 +1,9 @@
 import React, { useEffect } from 'react';
 import { registerNotificationAction } from '../store/Notifications/actionRegistry';
-import { subscribe } from '../utils/pushNotifications';
+import { subscribe, PUSH_ENABLE_ACTION_ID } from '../utils/pushNotifications';
 import { notify } from '../utils/notify';
 
-export const PUSH_ENABLE_ACTION_ID = 'push-notify:enable';
+export { PUSH_ENABLE_ACTION_ID };
 
 // Headless (renders nothing) — mounted once at the app root (App.tsx), same
 // pattern as URLMismatchBanner/LicenseStatusBar. Registers the handler the

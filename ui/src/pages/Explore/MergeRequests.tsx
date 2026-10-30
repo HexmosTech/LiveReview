@@ -3,6 +3,7 @@ import ProviderIcon from '../../components/ProviderIcon';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ColumnDef, useReactTable, getCoreRowModel, getFilteredRowModel, getSortedRowModel, getPaginationRowModel } from '@tanstack/react-table';
 import { notify } from '../../utils/notify';
+import { maybePromptForPushNotifications } from '../../utils/pushNotifications';
 import { LuSearch } from 'react-icons/lu';
 import { Button, Icons, Tooltip, Input, MultiSelectPanel } from '../../components/UIPrimitives';
 import { ClientTable } from '../../components/DataTable/ClientTable';
@@ -139,6 +140,7 @@ const MergeRequests: React.FC = () => {
     setTriggeringId(pr.id);
     try {
       const response = await triggerReviewForPullRequest(pr.id);
+      maybePromptForPushNotifications();
       navigate(`/reviews/${response.reviewId}`);
     } catch (err) {
       console.error('Failed to trigger review:', err);
