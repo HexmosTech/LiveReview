@@ -1,32 +1,58 @@
 #!/bin/bash
 # Regenerates db/schema.sql via `dbmate dump`.
 #
-# dbmate shells out to whatever `pg_dump` it finds on PATH, and refuses to run
-# if that binary's version is older than the Postgres server's (pg_dump
-# "aborting because of server version mismatch"). The local dev Postgres runs
-# in Docker (see scripts/pgctl.sh, container "livereview_pg") on whatever
-# major version PG_VERSION there is pinned to - the host's own
-# postgresql-client package commonly lags behind that. Rather than requiring
-# a matching postgresql-client install on every machine, this shims `pg_dump`
-# for the duration of the dump to forward into the running container, whose
-# pg_dump always matches its own server exactly.
+# dbmate shells out to whatever `pg_dump` it finds on PATH, and refuses to
+# run if that binary's major version is older than the Postgres server's
+# ("pg_dump: error: aborting because of server version mismatch"). This
+# script checks that up front and fails with install instructions instead of
+# letting dbmate's own confusing error surface, or silently working around it
+# via Docker - a mismatch here means the host's postgresql-client package is
+# genuinely stale and should be fixed once, not routed around on every dump.
 set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-PG_CONTAINER_NAME="${PG_CONTAINER_NAME:-livereview_pg}"
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs)
+fi
 
-if ! docker ps --format '{{.Names}}' | grep -qx "$PG_CONTAINER_NAME"; then
-    echo "ERROR: Postgres container '$PG_CONTAINER_NAME' is not running (see scripts/pgctl.sh)." >&2
+if [ -z "${DATABASE_URL:-}" ]; then
+    echo "ERROR: DATABASE_URL not set (expected in .env)." >&2
     exit 1
 fi
 
-SHIM_DIR="$(mktemp -d)"
-trap 'rm -rf "$SHIM_DIR"' EXIT
+if ! command -v pg_dump >/dev/null 2>&1; then
+    echo "ERROR: pg_dump not found. Install postgresql-client - see scripts/install-pgdg-client.sh." >&2
+    exit 1
+fi
 
-cat > "$SHIM_DIR/pg_dump" <<EOF
-#!/bin/bash
-exec docker exec -i $PG_CONTAINER_NAME pg_dump "\$@"
+if ! command -v psql >/dev/null 2>&1; then
+    echo "ERROR: psql not found. Install postgresql-client - see scripts/install-pgdg-client.sh." >&2
+    exit 1
+fi
+
+local_major="$(pg_dump --version | grep -oE '[0-9]+' | head -1)"
+server_version_num="$(psql "$DATABASE_URL" -tAc "SHOW server_version_num" 2>/dev/null | tr -d '[:space:]')"
+
+if [ -z "$server_version_num" ]; then
+    echo "ERROR: could not connect to the dev database at \$DATABASE_URL to check its version." >&2
+    exit 1
+fi
+
+# server_version_num is e.g. 180006 for 18.6 - the major version is the
+# leading 2 digits for >=10, matching how pg_dump's --version already prints.
+server_major="${server_version_num:0:2}"
+
+if [ "$local_major" -lt "$server_major" ]; then
+    cat >&2 <<EOF
+ERROR: local pg_dump is version $local_major, but the dev Postgres server is version $server_major.
+pg_dump refuses to dump a server newer than itself.
+
+Fix: install a matching postgresql-client from the PGDG apt repo:
+  PG_VERSION=$server_major ./scripts/install-pgdg-client.sh
+
+Then make sure it's first on PATH (the installer prints how) and re-run this script.
 EOF
-chmod +x "$SHIM_DIR/pg_dump"
+    exit 1
+fi
 
-PATH="$SHIM_DIR:$PATH" dbmate dump
+dbmate dump
