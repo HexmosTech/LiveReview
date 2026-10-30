@@ -21,7 +21,12 @@ self.addEventListener('push', (event) => {
     body: payload.body,
     tag: payload.tag,
     data: { url: payload.url },
-    icon: '/favicon.ico',
+    // .ico isn't reliably rendered as a notification icon across OS/browser
+    // notification UIs (Chrome/Windows in particular) - a PNG is required.
+    // notification-icon.png is favicon.svg rasterized at 192x192 (vl-convert
+    // svg2png), the size Chrome's Web Push notifications expect.
+    icon: '/notification-icon.png',
+    badge: '/notification-icon.png',
   };
 
   event.waitUntil(self.registration.showNotification(payload.title, options));

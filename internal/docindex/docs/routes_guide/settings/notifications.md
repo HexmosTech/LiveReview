@@ -25,7 +25,13 @@ tab only affects reviews started from a logged-in session.
 - Toggle "First finding is ready" — notified as soon as the first batch of results
   streams in for a review you triggered. On by default.
 - Toggle "Review completed or failed" — notified when the whole review finishes.
-  On by default.
+  On by default. A review that finished with errors is titled "Review completed
+  with errors" rather than "Review failed", since most failures here are partial
+  (one batch erroring), not a total loss of the review.
+- Each notification names the review (`#<id>`, `owner/repo`, and the PR/MR title
+  when known) so it's recognizable without opening it, and clicking it opens that
+  review's detail page directly (focusing an already-open tab if one matches,
+  otherwise opening a new one).
 
 ## Related pages
 

@@ -62,13 +62,13 @@ func (s *ReviewAccountingStore) GetReviewAccountingTotals(ctx context.Context, o
 			SUM(COALESCE(llm_cost_usd,
 				CASE WHEN jsonb_typeof(metadata->'llm_cost_usd') = 'number'
 					THEN (metadata->>'llm_cost_usd')::double precision ELSE 0 END)) AS cost_sum,
-			SUM(CASE WHEN input_tokens IS NOT NULL
+			COALESCE(SUM(CASE WHEN input_tokens IS NOT NULL
 				OR output_tokens IS NOT NULL
 				OR llm_cost_usd IS NOT NULL
 				OR jsonb_typeof(metadata->'input_tokens') = 'number'
 				OR jsonb_typeof(metadata->'output_tokens') = 'number'
 				OR jsonb_typeof(metadata->'llm_cost_usd') = 'number'
-				THEN 1 ELSE 0 END) AS token_tracked_ops
+				THEN 1 ELSE 0 END), 0) AS token_tracked_ops
 		FROM loc_usage_ledger
 		WHERE org_id = $1 AND review_id = $2 AND status = 'accounted'
 	`, orgID, reviewID).Scan(

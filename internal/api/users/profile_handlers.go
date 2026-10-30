@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -238,6 +239,7 @@ func (ph *ProfileHandlers) UpdateTimeZone(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
 	}
+	req.TimeZone = strings.TrimSpace(req.TimeZone)
 	if len(req.TimeZone) > 64 || req.TimeZone == "" || req.TimeZone == "Local" {
 		return echo.NewHTTPError(http.StatusBadRequest, "time_zone must be a valid IANA zone, e.g. Asia/Kolkata")
 	}

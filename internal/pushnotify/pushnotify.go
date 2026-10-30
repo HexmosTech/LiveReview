@@ -67,20 +67,22 @@ type reviewInfo struct {
 	friendlyName string
 	repository   string
 	prMrURL      string
+	mrTitle      string
 }
 
 func (n *Notifier) loadReviewInfo(ctx context.Context, reviewID int64) (*reviewInfo, error) {
 	var info reviewInfo
-	var friendlyName, prMrURL sql.NullString
+	var friendlyName, prMrURL, mrTitle sql.NullString
 	err := n.db.QueryRowContext(ctx, `
-		SELECT user_email, friendly_name, repository, pr_mr_url
+		SELECT user_email, friendly_name, repository, pr_mr_url, mr_title
 		FROM reviews WHERE id = $1
-	`, reviewID).Scan(&info.userEmail, &friendlyName, &info.repository, &prMrURL)
+	`, reviewID).Scan(&info.userEmail, &friendlyName, &info.repository, &prMrURL, &mrTitle)
 	if err != nil {
 		return nil, fmt.Errorf("load review %d: %w", reviewID, err)
 	}
 	info.friendlyName = friendlyName.String
 	info.prMrURL = prMrURL.String
+	info.mrTitle = mrTitle.String
 	return &info, nil
 }
 
@@ -161,26 +163,75 @@ type pushPayload struct {
 	Tag   string `json:"tag,omitempty"`
 }
 
-func reviewLabel(info *reviewInfo) string {
+// shortRepoLabel turns a stored repository/PR value — which can be a bare
+// "owner/repo", a git remote URL, or (for webui-triggered reviews) the PR/MR
+// URL itself stored verbatim in the repository column — into a compact
+// "owner/repo" label, by dropping a leading host segment (the one
+// containing a dot) and any trailing path segments (e.g. "pull/150") past
+// the first two.
+func shortRepoLabel(raw string) string {
+	s := strings.TrimSuffix(strings.TrimSpace(raw), "/")
+	s = strings.TrimSuffix(s, ".git")
+	s = strings.TrimPrefix(s, "https://")
+	s = strings.TrimPrefix(s, "http://")
+	s = strings.TrimPrefix(s, "git@")
+	s = strings.ReplaceAll(s, ":", "/")
+	parts := strings.Split(s, "/")
+	if len(parts) > 0 && strings.Contains(parts[0], ".") {
+		parts = parts[1:]
+	}
+	if len(parts) >= 2 {
+		return parts[0] + "/" + parts[1]
+	}
+	if len(parts) == 1 && parts[0] != "" {
+		return parts[0]
+	}
+	return raw
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return strings.TrimSpace(s[:max]) + "…"
+}
+
+// reviewDetail builds the "quickly recognize which review this is" portion
+// shown in the notification body — the MR/PR title when known (most
+// specific), falling back to a friendly name, then a short "owner/repo".
+func reviewDetail(info *reviewInfo) string {
+	if title := strings.TrimSpace(info.mrTitle); title != "" {
+		return truncate(title, 80)
+	}
 	if info.friendlyName != "" {
 		return info.friendlyName
 	}
 	if info.repository != "" {
-		return info.repository
+		return shortRepoLabel(info.repository)
 	}
-	return "Your review"
+	return "your review"
 }
 
 func buildPayload(kind Kind, reviewID int64, info *reviewInfo, prodURL string) pushPayload {
-	label := reviewLabel(info)
+	ref := fmt.Sprintf("#%d", reviewID)
+	repo := shortRepoLabel(info.repository)
+	detail := reviewDetail(info)
+	identity := ref
+	if repo != "" {
+		identity = fmt.Sprintf("%s · %s", ref, repo)
+	}
+
 	var p pushPayload
 	switch kind {
 	case KindFirstFinding:
-		p = pushPayload{Title: "First finding ready", Body: fmt.Sprintf("%s — the first results are in.", label)}
+		p = pushPayload{Title: "First finding ready", Body: fmt.Sprintf("%s — %s: first results are in.", identity, detail)}
 	case KindFailed:
-		p = pushPayload{Title: "Review failed", Body: fmt.Sprintf("%s did not complete.", label)}
+		// Not "Review failed" — most failures here are partial/recoverable
+		// (a batch errored, not necessarily every finding lost), so this
+		// avoids implying total loss before the user has even looked.
+		p = pushPayload{Title: "Review completed with errors", Body: fmt.Sprintf("%s — %s: didn't finish cleanly, take a look.", identity, detail)}
 	default:
-		p = pushPayload{Title: "Review completed", Body: fmt.Sprintf("%s is ready to view.", label)}
+		p = pushPayload{Title: "Review completed", Body: fmt.Sprintf("%s — %s: ready to view.", identity, detail)}
 	}
 	p.Tag = fmt.Sprintf("review-%d", reviewID)
 	if prodURL != "" {
