@@ -15,8 +15,9 @@ tab only affects reviews started from a logged-in session.
 ## Key actions
 
 - Enable or disable browser push notifications for this specific browser/device.
-  Granting permission can also happen inline, right after triggering a review, via
-  an "Enable" button on the toast that appears — no need to visit this page first.
+  Granting permission can also happen inline, right on a review's detail page, via
+  an "Enable notifications" banner shown there (closeable, not auto-dismissed) —
+  no need to visit this page first.
 - Toggle "First finding is ready" — notified as soon as the first batch of results
   streams in for a review you triggered. On by default.
 - Toggle "Review completed or failed" — notified when the whole review finishes.

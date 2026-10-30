@@ -6,7 +6,6 @@ import { connectGitHubInstallation } from '../../api/githubApp';
 import { ConnectRequiredError, useSwitchToPullRequestOrg, PR_NOT_FOUND_MESSAGE } from '../../hooks/useSwitchToPullRequestOrg';
 import { notify } from '../../utils/notify';
 import { GEMINI_API_KEYS_URL, isMissingAIProviderError } from '../../utils/aiProviderErrors';
-import { maybePromptForPushNotifications } from '../../utils/pushNotifications';
 
 // After connecting a GitHub account, how long to wait for its repositories (and so this PR) to sync.
 const SYNC_POLL_MS = 3000;
@@ -35,7 +34,6 @@ const PullRequestReviewTrigger: React.FC = () => {
     try {
       const orgPullRequestId = await switchToPullRequestOrg(pullRequestId);
       const res = await startOrReuseReviewForPullRequest(orgPullRequestId);
-      maybePromptForPushNotifications();
       navigate(`/reviews/${res.reviewId}`, { replace: true });
     } catch (err: any) {
       // By name, not instanceof: transpiled Error subclasses don't always keep their prototype.

@@ -24,6 +24,9 @@ Any authenticated org member; the review must belong to their org
   (`getReviewAccounting`).
 - View the commits included in this review (up to a preview limit, expandable).
 - Navigate back to the reviews list.
+- Enable browser push notifications from the closeable banner shown above the
+  tabs (shown until you enable notifications or close it; it never
+  auto-dismisses) — see [Settings → Notifications](../settings/notifications.md).
 
 ## When comments couldn't be posted to the PR
 

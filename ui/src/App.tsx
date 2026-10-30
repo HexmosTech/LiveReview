@@ -2,7 +2,6 @@ import React, { Suspense, useEffect, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useNavigate, useLocation, Link } from 'react-router-dom';
 import { Navbar } from './components/Navbar/Navbar';
 import { URLMismatchBanner } from './components/URLMismatchBanner';
-import { PushNotificationPrompt } from './components/PushNotificationPrompt';
 import { useSyncTimeZone } from './hooks/useSyncTimeZone';
 import { useAppDispatch, useAppSelector } from './store/configureStore';
 import { logout, checkSetupStatus, fetchUser } from './store/Auth/reducer';
@@ -318,7 +317,6 @@ const AppContent: React.FC = () => {
                     onLogout={handleLogout}
                 />
                 <URLMismatchBanner />
-                <PushNotificationPrompt />
                 {!isCloudMode() && !location.pathname.startsWith('/chat') && <LicenseStatusBar onOpenModal={() => dispatch(openLicenseModal())} />}
                 <div className="flex-grow">
                     <Suspense fallback={<RouteFallback />}>

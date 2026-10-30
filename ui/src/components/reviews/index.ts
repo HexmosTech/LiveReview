@@ -8,3 +8,4 @@ export { default as TimingChart } from './TimingChart';
 export { default as ProgressIndicators } from './ProgressIndicators';
 export { default as EventFilters } from './EventFilters';
 export { default as DiffViewerPanel } from './diffviewer/DiffViewerPanel';
+export { default as PushNotificationBanner } from './PushNotificationBanner';

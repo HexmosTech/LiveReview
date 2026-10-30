@@ -1,9 +1,6 @@
 // Web Push subscribe/unsubscribe plumbing for review-progress notifications.
 // See the Browser Push Notifications plan for the full design.
 import { createPushSubscription, deletePushSubscription, getVapidPublicKey } from '../api/push';
-import { notify } from './notify';
-
-export const PUSH_ENABLE_ACTION_ID = 'push-notify:enable';
 
 export function isPushSupported(): boolean {
   return (
@@ -74,23 +71,4 @@ export async function unsubscribe(): Promise<void> {
   const endpoint = subscription.endpoint;
   await subscription.unsubscribe();
   await deletePushSubscription(endpoint);
-}
-
-// Call this right after ANY code path successfully triggers a review -
-// there are several (the "Create Review" form, the "Start a review" link
-// posted on PRs/MRs, the Explore > Pull/Merge Requests list) and this must
-// not be missed from any of them. Offers to enable browser push
-// notifications via a toast with an inline "Enable" action button (handled
-// by PushNotificationPrompt, mounted once at the app root) - no navigation
-// to Settings required. No-ops if push isn't supported, or the browser has
-// already been asked (permission is 'granted' or 'denied').
-export function maybePromptForPushNotifications(): void {
-  if (!isPushSupported() || typeof Notification === 'undefined' || Notification.permission !== 'default') {
-    return;
-  }
-  notify.info("Want a browser notification when this review's findings are ready?", {
-    source: 'push-notify',
-    dedupeKey: 'push-notify-prompt',
-    actions: [{ label: 'Enable', actionId: PUSH_ENABLE_ACTION_ID }],
-  });
 }

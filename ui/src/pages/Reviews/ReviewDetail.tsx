@@ -5,7 +5,7 @@ import ProviderIcon from '../../components/ProviderIcon';
 import { riskAssessment, RiskAssessmentDetails, RiskScore } from '../../components/reviews/RiskAssessment';
 import { reviewStatusBadge } from '../../utils/reviewDisplay';
 import { Button, Icons, Tabs } from '../../components/UIPrimitives';
-import { ReviewEventsPage, DiffViewerPanel } from '../../components/reviews';
+import { ReviewEventsPage, DiffViewerPanel, PushNotificationBanner } from '../../components/reviews';
 import AutoApprovePanel from '../../components/reviews/AutoApprovePanel';
 import { getReviewPolicyLog } from '../../api/riskPolicy';
 import {
@@ -707,6 +707,8 @@ const ReviewDetail: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            <PushNotificationBanner />
 
             {/* Findings / Accounting / Events */}
             <Tabs

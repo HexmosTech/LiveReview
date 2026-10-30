@@ -25,7 +25,6 @@ import GitHubAppNotInstalledModal from '../../components/GitHubApp/GitHubAppNotI
 import { getGitHubAppInstallCheck, startGitHubAppConnect } from '../../api/githubApp';
 import { notify } from '../../utils/notify';
 import { useGitHubAppEnabled } from '../../hooks/useGitHubAppEnabled';
-import { maybePromptForPushNotifications } from '../../utils/pushNotifications';
 
 type QuotaStatusResponse = {
   can_trigger_reviews: boolean;
@@ -198,7 +197,6 @@ const NewReview: React.FC = () => {
     setLoading(true);
     try {
       const response = await run();
-      maybePromptForPushNotifications();
       navigate(`/reviews/${response.reviewId}`);
     } catch (err: any) {
       console.error('Error triggering review:', err);

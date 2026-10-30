@@ -8,8 +8,7 @@ export type NotificationSource =
     | 'demo'
     | 'url-mismatch'
     | 'system'
-    | 'toast-migrated'
-    | 'push-notify';
+    | 'toast-migrated';
 
 export interface NotificationAction {
     label: string;
