@@ -67,7 +67,7 @@ export const PushNotificationBanner: React.FC = () => {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Icons.Bell />
-          <p>Want a browser notification when your reviews' findings are ready or complete — even with this tab closed?</p>
+          <p>Want a browser notification when your reviews' findings are ready?</p>
         </div>
         <div className="flex items-center gap-3">
           <Link to="/settings#notifications" className="text-sm font-medium text-blue-200 hover:text-white hover:underline">
