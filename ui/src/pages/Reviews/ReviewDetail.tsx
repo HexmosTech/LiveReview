@@ -119,7 +119,6 @@ const ReviewDetail: React.FC = () => {
         };
     }, [reviewId]);
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-    const defaultedTabForReviewRef = useRef<number | null>(null);
 
 
     const getEventIcon = (type: string, level?: string) => {
@@ -268,18 +267,10 @@ const ReviewDetail: React.FC = () => {
         setAllCommitsShown(false);
     }, [id]);
 
-    // Findings only exist once the review has finished. While it is still
-    // running -- or has failed, e.g. an expired git connector -- the Events
-    // tab is what tells the user what is actually happening, so open there
-    // instead of on an empty Findings panel. Applied once per review so a
-    // user who deliberately clicks Findings is not bounced back.
-    useEffect(() => {
-        if (!review || defaultedTabForReviewRef.current === review.id) return;
-        defaultedTabForReviewRef.current = review.id;
-        if (review.status !== 'completed') {
-            setActiveTab('events');
-        }
-    }, [review]);
+    // Findings now stream in incrementally (DiffViewerPanel polls batch
+    // events while the review runs — see reviewStreamState.ts), so Findings
+    // stays the default tab even while a review is still in progress instead
+    // of bouncing the user to Events until completion.
 
     // When a review finishes while the page is open, jump to Findings and flag the Auto Approve tab.
     const lastStatusRef = useRef<string | undefined>(undefined);
