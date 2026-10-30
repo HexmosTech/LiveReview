@@ -227,6 +227,7 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
                 link('Profile and Preferences', React.createElement(Icons.User), '/settings#account'),
                 link('Change Password', React.createElement(Icons.Settings), '/settings#account'),
                 link('My API Keys', React.createElement(Icons.Settings), '/settings#api-keys'),
+                link('Notifications', React.createElement(Icons.Bell), '/settings#notifications'),
             ], React.createElement(Icons.User)),
             group('Manage Team', [
                 link('View Users', React.createElement(Icons.List), '/settings#users', (ctx) => ctx.isSuperAdmin || ctx.hasOrg),

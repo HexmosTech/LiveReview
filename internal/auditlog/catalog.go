@@ -133,6 +133,10 @@ const (
 	ActionUserBulkInvite Action = "user.bulk_invite"
 	ActionUserAuditRead  Action = "user.audit.read"
 
+	ActionPushSubscriptionCreate        Action = "user.push_subscription.create"
+	ActionPushSubscriptionDelete        Action = "user.push_subscription.delete"
+	ActionNotificationPreferencesUpdate Action = "user.notification_preferences.update"
+
 	ActionOrgUpdate         Action = "org.update"
 	ActionOrgDeactivate     Action = "org.deactivate"
 	ActionOrgRoleChange     Action = "org.member.role.changed"
@@ -279,6 +283,9 @@ var actionCatalog = func() map[Action]ActionMeta {
 		sensitive(meta(ActionUserTransfer, CategoryUser, "user", "User transferred", "A user was moved to another organization.", SeverityCritical)),
 		meta(ActionUserInvite, CategoryUser, "user", "User invited", "A user was invited.", SeverityInfo),
 		meta(ActionUserBulkInvite, CategoryUser, "user", "Users invited", "Multiple users were invited.", SeverityInfo),
+		meta(ActionPushSubscriptionCreate, CategoryUser, "push_subscription", "Push subscription created", "A user registered a browser for push notifications.", SeverityInfo),
+		meta(ActionPushSubscriptionDelete, CategoryUser, "push_subscription", "Push subscription removed", "A user removed a browser's push notification registration.", SeverityInfo),
+		meta(ActionNotificationPreferencesUpdate, CategoryUser, "user", "Notification preferences updated", "A user changed their review push-notification preferences.", SeverityInfo),
 		readSensitive(meta(ActionUserAuditRead, CategoryAudit, "user", "User audit viewed", "A user's audit history was viewed.", SeverityInfo)),
 
 		sensitive(meta(ActionOrgUpdate, CategoryOrg, "org", "Organization updated", "Organization settings were changed.", SeverityWarning)),

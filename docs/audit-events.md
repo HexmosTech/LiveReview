@@ -135,7 +135,10 @@ Generated from `internal/auditlog/catalog.go`.
 | `user.create` | `user` | user | warning | User created | A user was added to the organization. |
 | `user.deactivate` | `user` | user | warning | User deactivated | A user was deactivated. |
 | `user.invite` | `user` | user | info | User invited | A user was invited. |
+| `user.notification_preferences.update` | `user` | user | info | Notification preferences updated | A user changed their review push-notification preferences. |
 | `user.password.reset.force` | `user` | user | warning | Forced password reset | An owner required a user to reset their password. |
+| `user.push_subscription.create` | `user` | push_subscription | info | Push subscription created | A user registered a browser for push notifications. |
+| `user.push_subscription.delete` | `user` | push_subscription | info | Push subscription removed | A user removed a browser's push notification registration. |
 | `user.reactivate` | `user` | user | warning | User reactivated | A user was reactivated. |
 | `user.role.changed` | `user` | user | warning | Role changed | A user's organization role was changed. |
 | `user.transfer` | `user` | user | critical | User transferred | A user was moved to another organization. |

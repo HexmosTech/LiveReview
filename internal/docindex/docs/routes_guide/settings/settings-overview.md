@@ -37,7 +37,7 @@ the `subscriptions` tab.
 
 ## Related pages
 
-Each tab has its own file in this folder: [Account](account.md), [Instance](instance.md),
+Each tab has its own file in this folder: [Account](account.md), [Notifications](notifications.md), [Instance](instance.md),
 [SMTP](smtp.md), [Storage](storage.md), [Deployment](deployment.md),
 [License](license.md), [SSO](sso.md), [Managed AI](managed-ai.md), [Prompts](prompts.md), [Auto Approve](auto-approve.md),
 [Learnings](learnings.md),

@@ -1,6 +1,7 @@
 package reviewprocessor
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -159,11 +160,26 @@ func (rm *ReviewManager) UpdateReviewStatus(reviewID int64, status string) error
 		query = `UPDATE reviews SET status = $1, started_at = NOW() WHERE id = $2`
 		args = []interface{}{status, reviewID}
 	case "completed", "failed":
-		query = `UPDATE reviews SET status = $1, completed_at = NOW() WHERE id = $2`
+		query = `UPDATE reviews SET status = $1, completed_at = NOW() WHERE id = $2 RETURNING org_id`
 		args = []interface{}{status, reviewID}
 	default:
 		query = `UPDATE reviews SET status = $1 WHERE id = $2`
 		args = []interface{}{status, reviewID}
+	}
+
+	// completed/failed is a terminal status reached from several independent
+	// call sites across the codebase (review_worker.go, scheduled_review_worker.go,
+	// manual.go) — centralizing the push-notification hook here, rather than at
+	// each of those, guarantees every terminal transition fires it exactly once.
+	// See reviewprocessor.SetNotifier's doc comment for why this is a
+	// package-level hook rather than a constructor parameter.
+	if status == "completed" || status == "failed" {
+		var orgID int64
+		if err := rm.store.QueryRow(query, args...).Scan(&orgID); err != nil {
+			return fmt.Errorf("failed to update review status: %w", err)
+		}
+		NotifyReviewEvent(context.Background(), reviewID, orgID, status)
+		return nil
 	}
 
 	_, err := rm.store.Exec(query, args...)

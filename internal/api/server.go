@@ -47,6 +47,7 @@ import (
 	githuboutput "github.com/livereview/internal/provider_output/github"
 	gitlaboutput "github.com/livereview/internal/provider_output/gitlab"
 	"github.com/livereview/internal/providers/azuredevops"
+	"github.com/livereview/internal/pushnotify"
 	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/internal/scheduledreview"
 	"github.com/livereview/internal/scim"
@@ -454,6 +455,13 @@ func NewServer(port int, versionInfo *VersionInfo) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Wires browser push notifications (review progress) into every
+	// completion/batch-event write path in one place — see
+	// reviewprocessor.SetNotifier's doc comment for why this is a
+	// package-level hook rather than threaded through every ReviewManager
+	// construction site.
+	reviewprocessor.SetNotifier(pushnotify.New(server.db))
 
 	e := echo.New()
 	e.HideBanner = true
@@ -1330,6 +1338,33 @@ func (s *Server) setupRoutes() {
 	protected.PUT("/users/profile", s.profileHandlers.UpdateProfile)
 	protected.PUT("/users/default-org", s.orgHandlers.SetDefaultOrganization)
 	protected.PUT("/users/time-zone", s.profileHandlers.UpdateTimeZone)
+
+	// Browser push notifications for review progress (first finding /
+	// completion) and the preferences that gate them. Session-only — a
+	// separate group using RequireAuth() rather than `protected`
+	// (RequireAuthOrAPIKey): a push subscription is tied to one specific
+	// browser's real endpoint, not something an API key/automation should
+	// be creating or reading on a user's behalf.
+	pushHandlers := NewPushHandlers(s.db)
+	pushGroup := v1.Group("/push")
+	pushGroup.Use(authMiddleware.RequireAuth())
+	pushGroup.GET("/vapid-public-key", pushHandlers.GetVAPIDPublicKey)
+	s.audited(pushGroup, echo.POST, "/subscriptions", auditlog.Spec{
+		Action:   auditlog.ActionPushSubscriptionCreate,
+		Category: auditlog.CategoryUser,
+	}, pushHandlers.CreateSubscription)
+	s.audited(pushGroup, echo.DELETE, "/subscriptions", auditlog.Spec{
+		Action:   auditlog.ActionPushSubscriptionDelete,
+		Category: auditlog.CategoryUser,
+	}, pushHandlers.DeleteSubscription)
+
+	notificationPrefsGroup := v1.Group("/users/me/notification-preferences")
+	notificationPrefsGroup.Use(authMiddleware.RequireAuth())
+	notificationPrefsGroup.GET("", pushHandlers.GetNotificationPreferences)
+	s.audited(notificationPrefsGroup, echo.PUT, "", auditlog.Spec{
+		Action:   auditlog.ActionNotificationPreferencesUpdate,
+		Category: auditlog.CategoryUser,
+	}, pushHandlers.UpdateNotificationPreferences)
 	protected.PUT("/users/password", s.profileHandlers.ChangePassword)
 
 	// Development mode test endpoints (only enabled when DEV_MODE=true)

@@ -25,6 +25,8 @@ import GitHubAppNotInstalledModal from '../../components/GitHubApp/GitHubAppNotI
 import { getGitHubAppInstallCheck, startGitHubAppConnect } from '../../api/githubApp';
 import { notify } from '../../utils/notify';
 import { useGitHubAppEnabled } from '../../hooks/useGitHubAppEnabled';
+import { isPushSupported } from '../../utils/pushNotifications';
+import { PUSH_ENABLE_ACTION_ID } from '../../components/PushNotificationPrompt';
 
 type QuotaStatusResponse = {
   can_trigger_reviews: boolean;
@@ -182,6 +184,21 @@ const NewReview: React.FC = () => {
     return () => clearTimeout(timer);
   }, [url]);
 
+  // Right after a review is successfully triggered — not before, not on an
+  // unrelated page — offer to enable browser push notifications, with the
+  // permission grant itself happening inline via the toast's action button
+  // (see PushNotificationPrompt), no navigation to Settings required.
+  const maybePromptForPushNotifications = () => {
+    if (!isPushSupported() || typeof Notification === 'undefined' || Notification.permission !== 'default') {
+      return;
+    }
+    notify.info("Want a browser notification when this review's findings are ready?", {
+      source: 'push-notify',
+      dedupeKey: 'push-notify-prompt',
+      actions: [{ label: 'Enable', actionId: PUSH_ENABLE_ACTION_ID }],
+    });
+  };
+
   // Shared plan/quota gating and error handling for both ways of starting a review.
   const startReview = async (run: () => Promise<{ reviewId: string }>) => {
     setError(null);
@@ -197,6 +214,7 @@ const NewReview: React.FC = () => {
     setLoading(true);
     try {
       const response = await run();
+      maybePromptForPushNotifications();
       navigate(`/reviews/${response.reviewId}`);
     } catch (err: any) {
       console.error('Error triggering review:', err);

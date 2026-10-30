@@ -70,6 +70,7 @@ require (
 )
 
 require (
+	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/cdipaolo/goml v0.0.0-20220715001353-00e0c845ae1c
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/crewjam/saml v0.5.1
