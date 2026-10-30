@@ -27,6 +27,10 @@ Any authenticated org member; the review must belong to their org
 - Enable browser push notifications from the closeable banner shown above the
   tabs (shown until you enable notifications or close it; it never
   auto-dismisses) — see [Settings → Notifications](../settings/notifications.md).
+- Switch between the Findings/Accounting/Events/Auto Approve tabs — the
+  current tab is kept in the URL (`?tab=...`), so reloading the page or
+  sharing the link lands back on the same tab, and the browser Back/Forward
+  buttons step through tab switches.
 
 ## When comments couldn't be posted to the PR
 

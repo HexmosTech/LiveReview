@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { LuExternalLink, LuGitBranch } from 'react-icons/lu';
 import ProviderIcon from '../../components/ProviderIcon';
 import { riskAssessment, RiskAssessmentDetails, RiskScore } from '../../components/reviews/RiskAssessment';
@@ -83,7 +83,26 @@ const ReviewDetail: React.FC = () => {
     const [levelFilter, setLevelFilter] = useState<ReviewEventLevel | ''>('');
     const [typeFilter, setTypeFilter] = useState<ReviewEventType | ''>('');
     const [lastEventTime, setLastEventTime] = useState<string | null>(null);
-    const [activeTab, setActiveTab] = useState<'findings' | 'accounting' | 'events' | 'auto-approve'>('findings');
+    type TabId = 'findings' | 'accounting' | 'events' | 'auto-approve';
+    const TAB_IDS: TabId[] = ['findings', 'accounting', 'events', 'auto-approve'];
+    const [searchParams, setSearchParams] = useSearchParams();
+    // The active tab lives in the URL (?tab=...), not plain useState, so a
+    // refresh or a deep link restores the tab instead of always landing on
+    // Findings, and the browser Back/Forward buttons step through tab
+    // switches like any other navigation - both were reported as broken.
+    const tabParam = searchParams.get('tab');
+    const activeTab: TabId = (TAB_IDS as string[]).includes(tabParam || '') ? (tabParam as TabId) : 'findings';
+    const setActiveTab = useCallback((tab: TabId, opts?: { replace?: boolean }) => {
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            if (tab === 'findings') {
+                next.delete('tab');
+            } else {
+                next.set('tab', tab);
+            }
+            return next;
+        }, { replace: opts?.replace });
+    }, [setSearchParams]);
     const [blastReport, setBlastReport] = useState<BlastRadiusReport | BlastRadiusSkipped | null>(null);
     const [blastPoll, setBlastPoll] = useState<'checking' | 'waiting' | 'gave_up'>('checking');
     const [riskScores, setRiskScores] = useState<RiskScore[]>([]);
@@ -279,7 +298,7 @@ const ReviewDetail: React.FC = () => {
         const prev = lastStatusRef.current;
         lastStatusRef.current = review?.status;
         if ((prev === 'created' || prev === 'in_progress') && review?.status === 'completed') {
-            setActiveTab('findings');
+            setActiveTab('findings', { replace: true });
             if (review.metadata?.pr_link_policy) setAutoApproveAttention(true);
         }
     }, [review?.status, review?.metadata?.pr_link_policy]);
@@ -744,9 +763,13 @@ const ReviewDetail: React.FC = () => {
 
             {activeTab === 'findings' && (
                 <div className="mb-6">
-                    {/* Keyed on status so the findings reload once the review finishes. */}
+                    {/* No key={review?.status} here - DiffViewerPanel has its own
+                        internal polling that refetches on completion (see its
+                        header comment). Remounting it on every status transition
+                        used to wipe already-streamed comments and the comment nav
+                        back to a loading state, then rebuild them from scratch -
+                        visible as a flash of findings disappearing mid-review. */}
                     <DiffViewerPanel
-                        key={review?.status}
                         reviewId={reviewId}
                         blastReport={blastReport && !isBlastRadiusSkipped(blastReport) ? blastReport : undefined}
                         onRiskScores={setRiskScores}
