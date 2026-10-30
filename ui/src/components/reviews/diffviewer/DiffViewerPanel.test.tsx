@@ -9,7 +9,7 @@ import '@testing-library/jest-dom';
 import { MemoryRouter } from 'react-router-dom';
 import DiffViewerPanel from './DiffViewerPanel';
 import { getDiffReview, getReviewEvents } from '../../../api/reviews';
-import { DiffReviewStatusResponse, ReviewEvent, ReviewEventsResponse } from '../../../types/reviews';
+import { BlastRadiusReport, DiffReviewStatusResponse, ReviewEvent, ReviewEventsResponse } from '../../../types/reviews';
 
 jest.mock('../../../api/reviews');
 jest.mock('../../../api/githubApp', () => ({
@@ -22,10 +22,10 @@ jest.mock('../../../utils/notify', () => ({ notify: { success: jest.fn(), error:
 const mockGetDiffReview = getDiffReview as jest.Mock;
 const mockGetReviewEvents = getReviewEvents as jest.Mock;
 
-function renderPanel(reviewId = 1) {
+function renderPanel(reviewId = 1, blastReport?: BlastRadiusReport) {
   return render(
     <MemoryRouter>
-      <DiffViewerPanel reviewId={reviewId} />
+      <DiffViewerPanel reviewId={reviewId} blastReport={blastReport} />
     </MemoryRouter>
   );
 }
@@ -190,5 +190,62 @@ describe('DiffViewerPanel - findings streaming / disappearing-comments regressio
     await flush();
     // Still 2, not 4 - extractNewEvents' seen-id set deduped the replay.
     expect(screen.getByText('— / 2')).toBeInTheDocument();
+  });
+
+  it('keeps a comment visible after blast-radius data arrives late and flips the view to the default risk-flat sort', async () => {
+    // Two hunks on the same file with a gap between their line ranges
+    // ([5,8) and [20,23)), and a comment sitting in that gap (line 12) -
+    // this is the exact flattenFilesByRisk shape that used to drop a
+    // comment the instant canSortByRisk flipped true (see blastRadius.ts).
+    const hunkA = { old_start_line: 0, old_line_count: 0, new_start_line: 5, new_line_count: 3, content: '' };
+    const hunkB = { old_start_line: 0, old_line_count: 0, new_start_line: 20, new_line_count: 3, content: '' };
+    mockGetDiffReview.mockResolvedValueOnce({
+      status: 'completed',
+      review_id: '1',
+      files: [
+        {
+          file_path: 'a.go',
+          hunks: [hunkA, hunkB],
+          comments: [{ file_path: 'a.go', line: 12, content: 'gap finding' }],
+        },
+      ],
+    });
+    mockGetReviewEvents.mockResolvedValue(eventsResponse([]));
+
+    const { rerender } = renderPanel(1, undefined);
+    await flush();
+
+    // Before blast data arrives: canSortByRisk is false, plain per-file view.
+    expect(screen.getByText('— / 1')).toBeInTheDocument();
+
+    // Blast radius data lands late (server-side River job finishing after
+    // the AI review), matching a hunk somewhere in the diff - flips
+    // canSortByRisk true and switches to flattenFilesByRisk.
+    const blastReport: BlastRadiusReport = {
+      Project: 'p',
+      GeneratedAt: 'now',
+      Files: [
+        {
+          Path: 'a.go',
+          Hunks: [
+            {
+              FilePath: 'a.go', Header: '@@', NewStart: 5, NewLines: 3,
+              BlastRadiusRaw: 10, BlastRadiusNorm: 10, MaxBlastRadiusRaw: 100,
+              ReviewPriorityRaw: 5, ReviewPriorityNorm: 5, MaxReviewPriorityRaw: 100,
+              Combined: 20, HygieneMultiplier: 1, Weights: { BlastRadius: 0.6, ReviewPriority: 0.4 },
+            },
+          ],
+        },
+      ],
+    };
+    rerender(
+      <MemoryRouter>
+        <DiffViewerPanel reviewId={1} blastReport={blastReport} />
+      </MemoryRouter>
+    );
+    await flush();
+
+    // The gap comment must still be visible after the flatten transition.
+    expect(screen.getByText('— / 1')).toBeInTheDocument();
   });
 });
