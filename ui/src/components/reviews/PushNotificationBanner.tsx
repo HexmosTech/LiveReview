@@ -57,9 +57,16 @@ export const PushNotificationBanner: React.FC = () => {
   };
 
   return (
-    <Alert variant="info" icon={<Icons.Bell />} onClose={handleDismiss} className="mb-6">
+    // Icon is placed inline inside our own items-center row rather than via
+    // Alert's `icon` prop - Alert's own icon slot isn't vertically centered
+    // against taller children (ours includes a button row), which misaligns
+    // the bell against the text.
+    <Alert variant="info" onClose={handleDismiss} className="mb-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p>Want a browser notification when this review's findings are ready?</p>
+        <div className="flex items-center gap-3">
+          <Icons.Bell />
+          <p>Want a browser notification when this review's findings are ready?</p>
+        </div>
         <Button size="sm" onClick={handleEnable} isLoading={enabling}>
           Enable notifications
         </Button>
