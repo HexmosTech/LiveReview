@@ -38,9 +38,10 @@ type repositoryConnectorInfo struct {
 	LastSyncedAt   sql.NullTime
 	ProviderURL    string
 	PATToken       string
-	AccessToken    string
-	Email          string // Bitbucket basic-auth user, from connector metadata
-	TokenType      string // 'GITHUB_APP' rows hold an hourly installation token in pat_token
+	AccessToken       string
+	Email             string // Bitbucket basic-auth user, from connector metadata
+	TokenType         string // 'GITHUB_APP' rows hold an hourly installation token in pat_token
+	ConnectorProvider string
 }
 
 func (info repositoryConnectorInfo) token() string {
@@ -54,12 +55,14 @@ func loadRepositoryConnectorInfo(db *sql.DB, repositoryID int64) (*repositoryCon
 	var info repositoryConnectorInfo
 	err := db.QueryRow(`
 		SELECT r.id, r.org_id, r.connector_id, r.provider, r.provider_repo_id, r.full_name, r.last_synced_at,
-		       i.provider_url, COALESCE(i.pat_token, ''), COALESCE(i.access_token, ''), COALESCE(i.metadata->>'email', ''), COALESCE(i.token_type, '')
+		       i.provider_url, COALESCE(i.pat_token, ''), COALESCE(i.access_token, ''), COALESCE(i.metadata->>'email', ''), COALESCE(i.token_type, ''),
+		       i.provider
 		FROM repositories r
 		JOIN integration_tokens i ON i.id = r.connector_id
 		WHERE r.id = $1
 	`, repositoryID).Scan(&info.RepositoryID, &info.OrgID, &info.ConnectorID, &info.Provider, &info.ProviderRepoID,
-		&info.FullName, &info.LastSyncedAt, &info.ProviderURL, &info.PATToken, &info.AccessToken, &info.Email, &info.TokenType)
+		&info.FullName, &info.LastSyncedAt, &info.ProviderURL, &info.PATToken, &info.AccessToken, &info.Email, &info.TokenType,
+		&info.ConnectorProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -147,6 +150,10 @@ func (w *RepoPRSyncWorker) Work(ctx context.Context, job *river.Job[RepoPRSyncJo
 			// was enqueued - nothing to sync, not a failure.
 			return nil
 		}
+		if providers.IsAuthError(err) {
+			w.markSyncError(args.RepositoryID, "Authentication failed: invalid or expired Git provider connector credentials. Please update in Settings.")
+			return river.JobCancel(fmt.Errorf("fatal authentication error for repository %d: %w", args.RepositoryID, err))
+		}
 		return fmt.Errorf("failed to load repository %d: %w", args.RepositoryID, err)
 	}
 
@@ -155,6 +162,18 @@ func (w *RepoPRSyncWorker) Work(ctx context.Context, job *river.Job[RepoPRSyncJo
 		return nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("failed to check GitHub App coverage for repository %d: %w", args.RepositoryID, err)
+	}
+
+	if !isProviderCompatible(info.Provider, info.ConnectorProvider) {
+		userMsg := fmt.Sprintf("Configuration error: repository provider %q does not match connector provider %q. Please update connector in Settings.", info.Provider, info.ConnectorProvider)
+		w.markSyncError(args.RepositoryID, userMsg)
+		return river.JobCancel(fmt.Errorf("fatal provider mismatch for repository %d: repo provider %q != connector %q", args.RepositoryID, info.Provider, info.ConnectorProvider))
+	}
+
+	if strings.TrimSpace(info.token()) == "" || info.token() == "NA" {
+		userMsg := fmt.Sprintf("Authentication failed (%s): access token is missing. Please update connector credentials in Settings.", info.Provider)
+		w.markSyncError(args.RepositoryID, userMsg)
+		return river.JobCancel(fmt.Errorf("fatal authentication error for repository %d: missing access token", args.RepositoryID))
 	}
 
 	state := providers.PRListStateAll
@@ -190,7 +209,17 @@ func (w *RepoPRSyncWorker) Work(ctx context.Context, job *river.Job[RepoPRSyncJo
 			if errors.As(err, &rlErr) {
 				return river.JobSnooze(rlErr.RetryAfter)
 			}
-			w.markSyncError(args.RepositoryID, err)
+			if providers.IsForbiddenError(err) {
+				userMsg := fmt.Sprintf("Access forbidden (403, %s): connected account lacks permission for this repository or its pull/merge requests.", info.Provider)
+				w.markSyncError(args.RepositoryID, userMsg)
+				return river.JobCancel(fmt.Errorf("access forbidden for repository %d: %w", args.RepositoryID, err))
+			}
+			if providers.IsAuthError(err, info.Provider) {
+				userMsg := fmt.Sprintf("Unauthorized (401, %s): token is invalid, expired, or revoked. Please update connector credentials in Settings.", info.Provider)
+				w.markSyncError(args.RepositoryID, userMsg)
+				return river.JobCancel(fmt.Errorf("fatal authentication error for repository %d: %w", args.RepositoryID, err))
+			}
+			w.markSyncError(args.RepositoryID, err.Error())
 			return fmt.Errorf("failed to list pull requests for repository %d: %w", args.RepositoryID, err)
 		}
 
@@ -221,7 +250,7 @@ func (w *RepoPRSyncWorker) Work(ctx context.Context, job *river.Job[RepoPRSyncJo
 				LastSyncedSource:  syncSource,
 				Metadata:          pr.Metadata,
 			}); err != nil {
-				w.markSyncError(args.RepositoryID, err)
+				w.markSyncError(args.RepositoryID, err.Error())
 				return fmt.Errorf("failed to upsert pull request %s for repository %d: %w", pr.ProviderPRID, args.RepositoryID, err)
 			}
 			synced++
@@ -245,10 +274,10 @@ func (w *RepoPRSyncWorker) Work(ctx context.Context, job *river.Job[RepoPRSyncJo
 	return nil
 }
 
-func (w *RepoPRSyncWorker) markSyncError(repositoryID int64, syncErr error) {
+func (w *RepoPRSyncWorker) markSyncError(repositoryID int64, errorMsg string) {
 	_, err := w.db.Exec(
 		`UPDATE repositories SET last_sync_status = 'error', last_sync_error = $2, updated_at = now() WHERE id = $1`,
-		repositoryID, syncErr.Error(),
+		repositoryID, errorMsg,
 	)
 	if err != nil {
 		log.Printf("[WARN] failed to record repository sync error for repository %d: %v", repositoryID, err)
@@ -300,6 +329,10 @@ func (w *PRStateSyncWorker) Work(ctx context.Context, job *river.Job[PRStateSync
 		})
 	}
 	if err != nil {
+		var mismatchErr *pullrequests.ProviderMismatchError
+		if errors.As(err, &mismatchErr) || strings.Contains(err.Error(), "incompatible with connector") {
+			return river.JobCancel(fmt.Errorf("fatal provider mismatch: %w", err))
+		}
 		return fmt.Errorf("failed to resolve repository for connector=%d provider_repo_id=%s: %w",
 			args.ConnectorID, event.RepositoryProviderID, err)
 	}
@@ -623,8 +656,13 @@ func (w *ReconciliationSweepWorker) Work(ctx context.Context, job *river.Job[Rec
 		threshold = 20 * time.Minute
 	}
 
+	// Repositories in 'error' state are completely excluded from background sweeps.
+	// Broken/unauthenticated repositories will not be polled automatically — they are displayed
+	// with their error reason in the UI and only re-synced when the user updates the connector or clicks Sync.
 	rows, err := w.db.QueryContext(ctx,
-		`SELECT id FROM repositories WHERE last_synced_at IS NULL OR last_synced_at < now() - make_interval(secs => $1)`,
+		`SELECT id FROM repositories 
+		WHERE last_sync_status != 'error' 
+		  AND (last_synced_at IS NULL OR last_synced_at < now() - make_interval(secs => $1))`,
 		threshold.Seconds(),
 	)
 	if err != nil {
@@ -660,7 +698,14 @@ func (jq *JobQueue) QueueRepoPRSyncJob(ctx context.Context, repositoryID int64, 
 	_, err := jq.client.Insert(ctx, RepoPRSyncJobArgs{
 		RepositoryID:    repositoryID,
 		InitialBackfill: initialBackfill,
-	}, &river.InsertOpts{Queue: "repo_sync", MaxAttempts: 5})
+	}, &river.InsertOpts{
+		Queue:       "repo_sync",
+		MaxAttempts: 3,
+		UniqueOpts: river.UniqueOpts{
+			ByArgs:   true,
+			ByPeriod: 15 * time.Minute,
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("failed to queue repo PR sync job: %w", err)
 	}
@@ -685,4 +730,8 @@ func (jq *JobQueue) queuePRStateSync(ctx context.Context, args PRStateSyncJobArg
 		return fmt.Errorf("failed to queue PR state sync job: %w", err)
 	}
 	return nil
+}
+
+func isProviderCompatible(repoProvider, connProvider string) bool {
+	return providers.IsProviderCompatible(repoProvider, connProvider)
 }

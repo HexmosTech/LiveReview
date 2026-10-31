@@ -12,5 +12,20 @@ export function registerNotificationAction(actionId: string, handler: () => void
 
 export function runNotificationAction(actionId: string): void {
     const handler = handlers[actionId];
-    if (handler) void handler();
+    if (handler) {
+        void handler();
+        return;
+    }
+    // Fallback: If actionId is an external URL, open in a new tab.
+    if (actionId.startsWith('http://') || actionId.startsWith('https://')) {
+        window.open(actionId, '_blank', 'noopener,noreferrer');
+        return;
+    }
+    // Fallback: If actionId is an internal hash/pathname route (e.g. /git).
+    // Use assign() so the HashRouter picks up the hashchange event properly
+    // instead of bypassing React Router's history state with a direct assignment.
+    if (actionId.startsWith('/')) {
+        window.location.assign(`#${actionId}`);
+        return;
+    }
 }

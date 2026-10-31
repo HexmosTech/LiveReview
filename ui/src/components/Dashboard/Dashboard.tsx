@@ -81,7 +81,6 @@ type DashboardBillingInsight = {
     actionRequiredType: string;
 };
 
-const connectorNotificationId = (connectorId: number): string => `connector-${connectorId}`;
 const ONBOARDING_STEPPER_ID = 'onboarding-stepper';
 
 export const Dashboard: React.FC = () => {
@@ -109,19 +108,6 @@ export const Dashboard: React.FC = () => {
     const notificationsHydrated = !!user?.id && hydratedUserId === user.id;
     const hideStepper = !!notificationItems.find(n => n.id === ONBOARDING_STEPPER_ID)?.dismissed;
 
-    const isConnectorDismissed = (connectorId: number): boolean => {
-        const item = notificationItems.find(n => n.id === connectorNotificationId(connectorId));
-        return !!item?.dismissed;
-    };
-
-    const dismissConnectorForSession = (connectorId: number): void => {
-        dispatch(dismissNotification(connectorNotificationId(connectorId)));
-    };
-
-    const dismissConnectorPermanently = (connectorId: number): void => {
-        dispatch(dismissNotificationPermanently(connectorNotificationId(connectorId)));
-    };
-
     // Handle user notification on first dashboard load
     useEffect(() => {
         if (!notificationSent && user?.email && user?.created_at) {
@@ -146,7 +132,7 @@ export const Dashboard: React.FC = () => {
             message: 'Complete your onboarding checklist to get the most out of LiveReview.',
             source: 'onboarding',
             toast: false,
-            persistDismiss: false,
+            persistDismiss: true,
         }));
     }, [dashboardData, notificationsHydrated, dispatch]);
 
@@ -222,62 +208,6 @@ export const Dashboard: React.FC = () => {
     // Auto-hide feature disabled - users can manually dismiss the onboarding stepper if they want
     // by clicking "Don't show again" button
 
-    // Get connectors that need setup attention (filter out dismissed ones)
-    const connectorsNeedingSetup = (dashboardData?.connector_setup_progress || []).filter(
-        c => !isConnectorDismissed(c.connector_id)
-    );
-
-    // Helper to get phase variant for Alert
-    const getPhaseVariant = (phase: string): 'info' | 'warning' | 'success' | 'error' => {
-        switch (phase) {
-            case 'discovering': return 'info';
-            case 'installing': return 'warning';
-            case 'ready': return 'success';
-            case 'error': return 'error';
-            default: return 'info';
-        }
-    };
-
-    // Helper to get phase message
-    const getPhaseMessage = (phase: string, connectorName: string, provider: string, totalProjects: number, connectedProjects: number): string => {
-        switch (phase) {
-            case 'discovering':
-                return `${connectorName} (${provider}): Discovering projects...`;
-            case 'installing':
-                const percent = totalProjects > 0 ? Math.round((connectedProjects / totalProjects) * 100) : 0;
-                return `${connectorName} (${provider}): Installing webhooks ${connectedProjects}/${totalProjects} (${percent}%)`;
-            case 'ready':
-                return `${connectorName} (${provider}): Ready - ${totalProjects} projects connected`;
-            case 'error':
-                return `${connectorName} (${provider}): Setup failed - click to retry`;
-            default:
-                return `${connectorName} (${provider})`;
-        }
-    };
-
-    // Mirror connector setup progress into the Notifications store, once hydrated
-    useEffect(() => {
-        if (!notificationsHydrated) return;
-        const progress = dashboardData?.connector_setup_progress || [];
-        progress.forEach((connector) => {
-            dispatch(addNotification({
-                dedupeKey: connectorNotificationId(connector.connector_id),
-                severity: getPhaseVariant(connector.phase),
-                message: getPhaseMessage(
-                    connector.phase,
-                    connector.connector_name,
-                    connector.provider,
-                    connector.total_projects,
-                    connector.connected_projects
-                ),
-                source: 'connector',
-                toast: false,
-                persistDismiss: false,
-            }));
-        });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [dashboardData?.connector_setup_progress, notificationsHydrated, dispatch]);
-
     const handleNewReviewClick = () => {
         navigate('/reviews/new');
     };
@@ -285,59 +215,6 @@ export const Dashboard: React.FC = () => {
     return (
         <div className="min-h-screen">
             <main className="container mx-auto px-4 py-8">
-                {/* Connector Setup Progress - using standard Alert component */}
-                {connectorsNeedingSetup.length > 0 && (
-                    <div className="mb-6 space-y-3">
-                        {connectorsNeedingSetup.map((connector) => (
-                            <Alert
-                                key={connector.connector_id}
-                                variant={getPhaseVariant(connector.phase)}
-                                onClose={() => dismissConnectorForSession(connector.connector_id)}
-                                className="cursor-pointer hover:opacity-90"
-                            >
-                                <div
-                                    className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
-                                    onClick={() => navigate(`/git/connector/${connector.connector_id}`)}
-                                >
-                                    <span className="sm:pr-4">
-                                        {getPhaseMessage(
-                                            connector.phase,
-                                            connector.connector_name,
-                                            connector.provider,
-                                            connector.total_projects,
-                                            connector.connected_projects
-                                        )}
-                                    </span>
-                                    <div className="flex flex-wrap items-center gap-2 sm:ml-4 sm:flex-nowrap">
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="text-current hover:bg-black/10 hover:opacity-90"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                dismissConnectorPermanently(connector.connector_id);
-                                            }}
-                                        >
-                                            Don&apos;t show again
-                                        </Button>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="!border-current !text-current hover:opacity-80"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                navigate(`/git/connector/${connector.connector_id}`);
-                                            }}
-                                        >
-                                            View Details
-                                        </Button>
-                                    </div>
-                                </div>
-                            </Alert>
-                        ))}
-                    </div>
-                )}
-
                 {/* LOC Quota Warning/Blocked Banners */}
                 {billingInsight && billingInsight.blocked && (
                     <Alert variant="error" className="mb-4">

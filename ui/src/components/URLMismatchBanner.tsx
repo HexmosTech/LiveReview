@@ -129,7 +129,7 @@ export const URLMismatchBanner: React.FC = () => {
         message,
         source: 'url-mismatch',
         toast: true,
-        persistDismiss: false,
+        persistDismiss: true,
         actions: [
           { label: 'Fix URL', actionId: `${URL_MISMATCH_ID}:fix` },
           { label: 'Settings', actionId: `${URL_MISMATCH_ID}:settings` },

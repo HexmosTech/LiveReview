@@ -378,11 +378,12 @@ func (am *AuthMiddleware) BuildOrgContextFromConnector() echo.MiddlewareFunc {
 // exported for handlers that learn the connector some other way (e.g. the GitHub App webhook, which maps an
 // installation id to its connector). The returned error is an *echo.HTTPError.
 func (am *AuthMiddleware) SetConnectorOrgContext(c echo.Context, connectorID int64) error {
-	// Query integration_tokens to get org_id for this connector
+	// Query integration_tokens to get org_id and provider for this connector
 	var orgID int64
+	var provider string
 	err := am.db.QueryRow(`
-		SELECT org_id FROM integration_tokens WHERE id = $1
-	`, connectorID).Scan(&orgID)
+		SELECT org_id, provider FROM integration_tokens WHERE id = $1
+	`, connectorID).Scan(&orgID, &provider)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -405,8 +406,9 @@ func (am *AuthMiddleware) SetConnectorOrgContext(c echo.Context, connectorID int
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to fetch organization")
 	}
 
-	// Store both connector_id and org context for downstream handlers
+	// Store connector_id, connector_provider and org context for downstream handlers
 	c.Set("connector_id", connectorID)
+	c.Set("connector_provider", provider)
 	c.Set(string(OrgContextKey), org)
 	c.Set("org_id", org.ID)
 	return nil
@@ -735,4 +737,15 @@ func GetOrgIDFromContext(c echo.Context) (int64, bool) {
 	}
 	orgID, ok := orgIDInterface.(int64)
 	return orgID, ok
+}
+
+// GetConnectorProviderFromContext extracts connector_provider from echo context
+// Returns the provider string and true if found, "" and false otherwise
+func GetConnectorProviderFromContext(c echo.Context) (string, bool) {
+	providerInterface := c.Get("connector_provider")
+	if providerInterface == nil {
+		return "", false
+	}
+	provider, ok := providerInterface.(string)
+	return provider, ok
 }
