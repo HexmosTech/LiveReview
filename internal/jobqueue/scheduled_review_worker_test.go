@@ -66,8 +66,8 @@ func TestScheduledReviewWorker_MissingToken_CancelsJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query next_run_at: %v", err)
 	}
-	if !nextRunAt.After(time.Now()) {
-		t.Errorf("expected next_run_at to be in the future, got %v", nextRunAt)
+	if nextRunAt.Before(time.Now().Add(20 * time.Hour)) {
+		t.Errorf("expected next_run_at to back off at least 20 hours into the future, got %v", nextRunAt)
 	}
 }
 
@@ -140,7 +140,7 @@ func TestScheduledReviewWorker_AuthError_CancelsJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query next_run_at: %v", err)
 	}
-	if !nextRunAt.After(time.Now()) {
-		t.Errorf("expected next_run_at to be in the future, got %v", nextRunAt)
+	if nextRunAt.Before(time.Now().Add(20 * time.Hour)) {
+		t.Errorf("expected next_run_at to back off at least 20 hours into the future, got %v", nextRunAt)
 	}
 }
