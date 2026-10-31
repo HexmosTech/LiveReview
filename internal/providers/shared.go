@@ -227,16 +227,24 @@ func IsAuthError(err error, providerOpt ...string) bool {
 			strings.Contains(msg, "token expired")
 	default:
 		// When no specific provider is passed, check across all known provider signatures:
-		return strings.Contains(msg, "bad credentials") ||
-			strings.Contains(msg, "failed to resolve github app token") ||
-			strings.Contains(msg, "invalid_token") ||
-			strings.Contains(msg, "invalid token") ||
-			strings.Contains(msg, "invalid personal access token") ||
-			strings.Contains(msg, "token expired") ||
-			strings.Contains(msg, "token has expired") ||
-			strings.Contains(msg, "access token expired") ||
-			strings.Contains(msg, "token is invalid") ||
-			strings.Contains(msg, "tf400813")
+		authSignatures := []string{
+			"bad credentials",
+			"failed to resolve github app token",
+			"invalid_token",
+			"invalid token",
+			"invalid personal access token",
+			"token expired",
+			"token has expired",
+			"access token expired",
+			"token is invalid",
+			"tf400813",
+		}
+		for _, sig := range authSignatures {
+			if strings.Contains(msg, sig) {
+				return true
+			}
+		}
+		return false
 	}
 }
 
