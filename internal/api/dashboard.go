@@ -672,9 +672,10 @@ func (dm *DashboardManager) collectConnectorSetupProgress(ctx context.Context, d
 			message = fmt.Sprintf("Ready: %d projects connected", totalProjects)
 		}
 
-		// Include connectors still in setup, or ready ones created recently so the user sees the success.
+		// Only include connectors created recently within the setup window (ready or still in setup).
+		// Connectors older than the threshold are settled and not actively in-setup.
 		isRecent := createdAt.After(recentThreshold)
-		if phase != "ready" || isRecent {
+		if isRecent {
 			progressList = append(progressList, ConnectorSetupProgress{
 				ConnectorID:       connectorID,
 				ConnectorName:     connectorName,

@@ -266,6 +266,7 @@ const Repositories: React.FC = () => {
           message,
           source: 'connector',
           toast: false,
+          persistDismiss: true,
           actions: [
             { label: 'Renew Credentials', actionId: `/git/connector/${alert.connector.id}` },
             { label: `${pName} Setup Guide`, actionId: wiki },

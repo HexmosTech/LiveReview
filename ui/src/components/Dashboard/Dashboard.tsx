@@ -132,7 +132,7 @@ export const Dashboard: React.FC = () => {
             message: 'Complete your onboarding checklist to get the most out of LiveReview.',
             source: 'onboarding',
             toast: false,
-            persistDismiss: false,
+            persistDismiss: true,
         }));
     }, [dashboardData, notificationsHydrated, dispatch]);
 
