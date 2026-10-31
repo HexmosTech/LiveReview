@@ -338,7 +338,7 @@ const BillingChip: React.FC = () => {
             message: messages[level],
             source: 'quota',
             toast: true,
-            persistDismiss: false,
+            persistDismiss: true,
         }));
     }, [chip, dispatch]);
 

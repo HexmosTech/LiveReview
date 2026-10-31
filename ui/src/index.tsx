@@ -17,6 +17,7 @@ import App from './App';
 import { queryClient } from './api/queryClient';
 import { injectStore } from './api/apiClient';
 import { injectStore as injectNotifyStore } from './utils/notify';
+import { injectNotificationStore } from './store/Notifications/registry';
 
 // /gh-login is a shareable path ("Continue with GitHub"), but the app is a HashRouter: move it into the hash,
 // keeping the query string (src). The Go UI server and the webpack dev server both already serve index.html
@@ -100,6 +101,7 @@ const preloadedState = getPreloadedState();
 const store = configureAppStore(preloadedState);
 injectStore(store);
 injectNotifyStore(store);
+injectNotificationStore(store);
 
 // Make store available globally for token refresh
 (window as ClarityWindow).__REDUX_STORE__ = store;

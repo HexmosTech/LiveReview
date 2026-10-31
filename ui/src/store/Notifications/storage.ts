@@ -1,6 +1,11 @@
 import { Notification, PersistedNotificationState } from './types';
 
-const keyFor = (userId?: number | string): string => `lr_notifications_${userId ?? 'anon'}`;
+export const keyFor = (userId?: number | string): string => {
+    if (userId !== undefined && userId !== null && String(userId).trim() !== '') {
+        return `lr_notifications_${userId}`;
+    }
+    return 'lr_notifications_anon';
+};
 
 export function loadPersistedNotifications(userId?: number | string): Record<string, PersistedNotificationState> {
     try {
@@ -13,15 +18,34 @@ export function loadPersistedNotifications(userId?: number | string): Record<str
     }
 }
 
+export function savePersistedMap(userId: number | string | undefined, map: Record<string, PersistedNotificationState>): void {
+    try {
+        const effectiveKey = keyFor(userId);
+        const existing = loadPersistedNotifications(userId);
+        const merged: Record<string, PersistedNotificationState> = { ...existing, ...map };
+        localStorage.setItem(effectiveKey, JSON.stringify(merged));
+    } catch {
+        // no-op: keep UI functional when localStorage is unavailable
+    }
+}
+
 export function savePersistedNotifications(userId: number | string | undefined, items: Notification[]): void {
     try {
-        const persisted: Record<string, PersistedNotificationState> = {};
+        const effectiveKey = keyFor(userId);
+        const existing = loadPersistedNotifications(userId);
+        const persisted: Record<string, PersistedNotificationState> = { ...existing };
         items.forEach((n) => {
-            if (n.persistDismiss) {
-                persisted[n.id] = { read: n.read, dismissed: n.dismissed };
+            const resurfaced = n.expiresAt !== undefined && Date.now() >= n.expiresAt;
+            if (n.dismissed && !resurfaced) {
+                persisted[n.id] = { read: n.read, dismissed: true };
+            } else if (resurfaced) {
+                persisted[n.id] = { read: false, dismissed: false };
+            } else if (n.persistDismiss && !persisted[n.id]?.dismissed) {
+                // Prevent an active notification from overwriting a previously dismissed state
+                persisted[n.id] = { read: n.read, dismissed: false };
             }
         });
-        localStorage.setItem(keyFor(userId), JSON.stringify(persisted));
+        localStorage.setItem(effectiveKey, JSON.stringify(persisted));
     } catch {
         // no-op: keep UI functional when localStorage is unavailable
     }

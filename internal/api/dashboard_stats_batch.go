@@ -143,7 +143,7 @@ func (dm *DashboardManager) fetchConnectorSetupProgressBatch(ctx context.Context
 		}
 
 		isRecent := createdAt.After(recentThreshold)
-		if phase != "ready" || isRecent {
+		if isRecent {
 			result[orgID] = append(result[orgID], ConnectorSetupProgress{
 				ConnectorID:       connectorID,
 				ConnectorName:     connectorName,

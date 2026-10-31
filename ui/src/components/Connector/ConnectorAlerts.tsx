@@ -134,6 +134,8 @@ export function useConnectorAlerts(): {
 } {
   const dispatch = useAppDispatch();
   const location = useLocation();
+  const notificationItems = useAppSelector((state) => state.Notifications.items);
+  const persistedNotifications = useAppSelector((state) => state.Notifications.persisted);
   const [allAlerts, setAllAlerts] = useState<ConnectorAlert[]>([]);
   const [dismissed, setDismissed] = useState<Set<number>>(loadDismissed);
   const lastFetchTimeRef = useRef<number>(0);
@@ -175,6 +177,7 @@ export function useConnectorAlerts(): {
             message,
             source: 'connector',
             toast: false,
+            persistDismiss: true,
             actions: [
               { label: 'Renew Credentials', actionId: `/git/connector/${alert.connector.id}` },
               { label: `${pName} Setup Guide`, actionId: wiki },
@@ -211,9 +214,21 @@ export function useConnectorAlerts(): {
       saveDismissed(next);
       return next;
     });
+    dispatch(dismissNotificationPermanently(`connector-auth-${connectorId}`));
+    dispatch(dismissNotificationPermanently(`connector-mismatch-${connectorId}`));
+    dispatch(dismissNotificationPermanently(`connector-${connectorId}`));
   };
 
-  const alerts = allAlerts.filter((a) => !dismissed.has(a.connector.id));
+  const isAlertDismissed = (connectorId: number, kind: string): boolean => {
+    if (dismissed.has(connectorId)) return true;
+    const key = `connector-${kind}-${connectorId}`;
+    if (persistedNotifications?.[key]?.dismissed) return true;
+    const item = notificationItems.find((n) => n.id === key);
+    if (item?.dismissed) return true;
+    return false;
+  };
+
+  const alerts = allAlerts.filter((a) => !isAlertDismissed(a.connector.id, a.kind));
   return { alerts, dismissAlert, refresh: fetchAlerts };
 }
 
@@ -399,28 +414,35 @@ export const ConnectorSetupProgressBanner: React.FC<{
 
 // ── Global layout alert container (renders at top of all pages) ───────────────
 
+import { ConnectorAuthAlert, ConnectorSetupProgressAlert } from '../../store/Notifications/catalog';
+
+const isCredentialAlertRoute = (pathname: string): boolean => {
+  return ConnectorAuthAlert.matchesRoute(pathname);
+};
+
+const isDashboardRoute = (pathname: string): boolean => {
+  return ConnectorSetupProgressAlert.matchesRoute(pathname);
+};
+
 export const GlobalConnectorAlerts: React.FC = () => {
+  const location = useLocation();
   const dispatch = useAppDispatch();
   const notificationItems = useAppSelector((state) => state.Notifications.items);
+  const persistedNotifications = useAppSelector((state) => state.Notifications.persisted);
   const { data: dashboardData } = useDashboardQuery();
 
   const { alerts, dismissAlert } = useConnectorAlerts();
-  const [sessionDismissedSetup, setSessionDismissedSetup] = useState<Set<number>>(new Set());
 
   const connectorNotificationId = (connectorId: number): string => `connector-${connectorId}`;
 
   const isConnectorDismissed = (connectorId: number): boolean => {
-    const item = notificationItems.find((n) => n.id === connectorNotificationId(connectorId));
-    return !!item?.dismissed;
+    const id = connectorNotificationId(connectorId);
+    const item = notificationItems.find((n) => n.id === id);
+    if (item?.dismissed) return true;
+    return !!persistedNotifications?.[id]?.dismissed;
   };
 
-  const dismissSetupForSession = (connectorId: number): void => {
-    setSessionDismissedSetup((prev) => new Set([...prev, connectorId]));
-    dispatch(dismissNotification(connectorNotificationId(connectorId)));
-  };
-
-  const dismissSetupPermanently = (connectorId: number): void => {
-    setSessionDismissedSetup((prev) => new Set([...prev, connectorId]));
+  const dismissSetup = (connectorId: number): void => {
     dispatch(dismissNotificationPermanently(connectorNotificationId(connectorId)));
   };
 
@@ -441,35 +463,41 @@ export const GlobalConnectorAlerts: React.FC = () => {
           ),
           source: 'connector',
           toast: false,
-          persistDismiss: false,
+          persistDismiss: true,
         })
       );
     });
   }, [dashboardData?.connector_setup_progress, dispatch]);
 
   const connectorsNeedingSetup = (dashboardData?.connector_setup_progress || []).filter(
-    (c) => !sessionDismissedSetup.has(c.connector_id) && !isConnectorDismissed(c.connector_id)
+    (c) => !isConnectorDismissed(c.connector_id)
   );
 
-  const hasAlerts = alerts.length > 0 || connectorsNeedingSetup.length > 0;
+  const showCredentialAlerts = isCredentialAlertRoute(location.pathname);
+  const showSetupProgress = isDashboardRoute(location.pathname);
+
+  const visibleAlerts = showCredentialAlerts ? alerts : [];
+  const visibleSetup = showSetupProgress ? connectorsNeedingSetup : [];
+
+  const hasAlerts = visibleAlerts.length > 0 || visibleSetup.length > 0;
   if (!hasAlerts) return null;
 
   return (
     <div className="container mx-auto px-4 pt-6" data-testid="global-connector-alerts">
       <div className="space-y-3">
-        {alerts.map((alert) => (
+        {visibleAlerts.map((alert) => (
           <ConnectorAlertBanner
             key={`error-${alert.kind}-${alert.connector.id}`}
             alert={alert}
             onDismiss={dismissAlert}
           />
         ))}
-        {connectorsNeedingSetup.map((connector) => (
+        {visibleSetup.map((connector) => (
           <ConnectorSetupProgressBanner
             key={`setup-${connector.connector_id}`}
             connector={connector}
-            onDismissSession={dismissSetupForSession}
-            onDismissPermanent={dismissSetupPermanently}
+            onDismissSession={dismissSetup}
+            onDismissPermanent={dismissSetup}
           />
         ))}
       </div>
