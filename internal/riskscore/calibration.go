@@ -17,6 +17,23 @@ import (
 // finding scores ~0.6 (blocks).
 const defaultCutoff = 0.5
 
+// minScoresForPercentile is the smallest historical sample PercentileCutoff
+// will rank against. Below it, the nearest-rank index (p*n+99)/100-1 can land
+// at or near the top of a tiny sorted array for any p, including a "strict"
+// low percentile like 20 — producing a cutoff that collapses onto the
+// distribution's max (often the very review being scored), which reads as a
+// contradiction (e.g. "P100" score tying a "P20" cutoff). Too few points to
+// rank meaningfully falls back to the same cold-start default as no history.
+const minScoresForPercentile = 10
+
+// HasEnoughHistory reports whether scores is large enough for PercentileCutoff
+// to rank against meaningfully, rather than falling back to defaultCutoff. The
+// UI should hide P-number labels when this is false — a tiny sample can't
+// support a "P20" claim that means anything.
+func HasEnoughHistory(scores []float64) bool {
+	return len(scores) >= minScoresForPercentile
+}
+
 // LoadRecentScores returns the org's most recent risk scores (newest first),
 // from risk_feature_snapshots, limited to limit rows.
 func LoadRecentScores(ctx context.Context, db *sql.DB, orgID int64, limit int) ([]float64, error) {
@@ -45,7 +62,7 @@ func LoadRecentScores(ctx context.Context, db *sql.DB, orgID int64, limit int) (
 // distribution (nearest-rank). A review blocks when its score >= this value.
 // Empty distribution returns defaultCutoff.
 func PercentileCutoff(scores []float64, p int) float64 {
-	if len(scores) == 0 {
+	if len(scores) < minScoresForPercentile {
 		return defaultCutoff
 	}
 	if p <= 0 {

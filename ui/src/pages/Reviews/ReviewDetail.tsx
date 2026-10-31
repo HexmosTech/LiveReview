@@ -107,6 +107,7 @@ const ReviewDetail: React.FC = () => {
     const [blastReport, setBlastReport] = useState<BlastRadiusReport | BlastRadiusSkipped | null>(null);
     const [blastPoll, setBlastPoll] = useState<'checking' | 'waiting' | 'gave_up'>('checking');
     const [riskScores, setRiskScores] = useState<RiskScore[]>([]);
+    const [commentCount, setCommentCount] = useState<number | undefined>(undefined);
 
     useEffect(() => {
         // Blast radius comes from `git lrc review` or the server-side job, which runs alongside the
@@ -117,6 +118,7 @@ const ReviewDetail: React.FC = () => {
         setBlastReport(null);
         setBlastPoll('checking');
         setRiskScores([]);
+        setCommentCount(undefined);
         const load = () => {
             getBlastRadiusReport(reviewId)
                 .then((report) => {
@@ -630,6 +632,7 @@ const ReviewDetail: React.FC = () => {
                     {elapsed && <HeaderStat label="Elapsed" value={elapsed} />}
                     <HeaderStat label="Events" value={eventCount !== undefined && eventCount > 0 ? String(eventCount) : String(Object.values(summary?.eventCounts || {}).reduce((a: number, b: number) => a + b, 0))} />
                     <HeaderStat label="Risk assessment" value={risk.value} className={risk.tone} />
+                    {commentCount !== undefined && <HeaderStat label="Comments" value={String(commentCount)} />}
                     {review.metadata?.pr_link_policy && (
                         <HeaderStat
                             label="Auto-approve"
@@ -816,6 +819,7 @@ const ReviewDetail: React.FC = () => {
                         reviewId={reviewId}
                         blastReport={blastReport && !isBlastRadiusSkipped(blastReport) ? blastReport : undefined}
                         onRiskScores={setRiskScores}
+                        onCommentCount={setCommentCount}
                         reviewStartedAt={review.startedAt}
                     />
                 </div>
@@ -980,6 +984,7 @@ const ReviewDetail: React.FC = () => {
                             severity: mapEventLevel(event.level) as 'info' | 'success' | 'warning' | 'warn' | 'error' | 'debug'
                         }))}
                         isLive={review?.status === 'in_progress'}
+                        reviewStatus={review?.status}
                     />
             </div>
         </div>

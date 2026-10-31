@@ -56,6 +56,9 @@ interface DiffViewerPanelProps {
   blastReport?: BlastRadiusReport;
   // Receives each scored change's badge score (blended with its findings) for the page header.
   onRiskScores?: (scores: RiskScore[]) => void;
+  // Receives the live (filter-applied) total comment count, so the page
+  // header can show it instead of this panel rendering its own line.
+  onCommentCount?: (count: number) => void;
   // The review's real wall-clock start time (ISO string), used to seed the
   // "Elapsed"/"time to first comment" baseline so it reflects when the review
   // actually started rather than resetting to "now" on every page refresh.
@@ -139,7 +142,7 @@ interface DiffNavTarget {
   file?: string;
 }
 
-const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport, onRiskScores, reviewStartedAt }) => {
+const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport, onRiskScores, onCommentCount, reviewStartedAt }) => {
   const [data, setData] = useState<DiffReviewStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -324,6 +327,9 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
 
   const facets = useMemo(() => buildFilterFacets(enrichedFiles, filters), [enrichedFiles, filters]);
   const navComments = useMemo(() => buildVisibleCommentNav(files, filters), [files, filters]);
+  useEffect(() => {
+    onCommentCount?.(navComments.length);
+  }, [navComments, onCommentCount]);
   const allExpanded = files.length > 0 && files.every((f) => expandedFiles[f.file_path]);
   // Sidebar always shows the real, unflattened file list (git-lrc's
   // Sidebar.js receives `filesInDiffOrder`, never the sort-mode-dependent
@@ -508,11 +514,6 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
             )}
           </Alert>
         )}
-        <div className="flex items-center justify-between text-xs text-slate-400">
-          <span>
-            <span className="font-medium text-slate-200">{navComments.length}</span> total comment{navComments.length === 1 ? '' : 's'}
-          </span>
-        </div>
         <SummaryPanel reviewId={reviewId} summary={data.summary} files={files} quiz={quiz} onOpenFile={jumpToFileByPath} />
 
         {/* Toolbar row (sort mode + Expand All) — NOT sticky, matching

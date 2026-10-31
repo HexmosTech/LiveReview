@@ -55,6 +55,39 @@ const expandReviewStage = () => {
   fireEvent.click(screen.getByText('Review'));
 };
 
+// Replays review 13543's real shape: the frontend fetches at most 1000
+// events (ReviewDetail.tsx hardcodes that limit), but a long review can emit
+// well over that, so the Finalization stage's own "stage completed"/
+// "completion" events - which only ever occur right at the very end - can
+// fall outside the fetched window entirely. Once the review itself stops
+// being live (status leaves in_progress), the page never fetches further
+// events to pick them up, so this stage would stay "in-progress" forever
+// even though the review record says "completed" - exactly what the review
+// detail header, the Events tab, and the overall progress bar disagreed
+// about for review 13543.
+const stageEvent = (message: string, id: string): ReviewEvent => ({
+  id,
+  timestamp: '2026-10-31T10:12:05.000Z',
+  eventType: 'log',
+  message,
+  severity: 'info',
+});
+
+const truncatedCompletedReviewEvents: ReviewEvent[] = [
+  stageEvent('Stage started: Preparation', 'p1'),
+  stageEvent('Stage completed: Preparation', 'p2'),
+  stageEvent('Stage started: Analysis', 'a1'),
+  stageEvent('Stage completed: Analysis', 'a2'),
+  stageEvent('Stage started: Review', 'r1'),
+  stageEvent('Stage completed: Review', 'r2'),
+  stageEvent('Stage started: Artifact Generation', 'g1'),
+  stageEvent('Stage completed: Artifact Generation', 'g2'),
+  // Finalization only ever got its start marker in this truncated window -
+  // its own completion/"review process completed" event landed past event
+  // #1000 and was never fetched.
+  stageEvent('Stage started: Finalization', 'f1'),
+];
+
 describe('ReviewProgressView - batch failure truth (review 13536 regression)', () => {
   it('renders a batch that failed outright as Failed, never as fake success', () => {
     render(
@@ -118,5 +151,29 @@ describe('ReviewProgressView - batch failure truth (review 13536 regression)', (
     // Must show the real comment count (3), never the unrelated file count (9).
     expect(screen.getByText('✓ Generated 3 comments')).toBeInTheDocument();
     expect(screen.queryByText(/9 comments?/)).not.toBeInTheDocument();
+  });
+});
+
+describe('ReviewProgressView - stuck-stage truth once the review is actually done (review 13543 regression)', () => {
+  it('without reviewStatus, a stage missing its completion event (outside the fetched window) stays stuck in-progress', () => {
+    render(<ReviewProgressView reviewId={13543} events={truncatedCompletedReviewEvents} />);
+
+    expect(screen.getByText('90%')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Finalization'));
+    expect(screen.getByText('in-progress')).toBeInTheDocument();
+  });
+
+  it('once reviewStatus is "completed", a stuck stage resolves to completed and the bar reaches 100%', () => {
+    render(
+      <ReviewProgressView
+        reviewId={13543}
+        events={truncatedCompletedReviewEvents}
+        reviewStatus="completed"
+      />
+    );
+
+    expect(screen.getByText('100%')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Finalization'));
+    expect(screen.queryByText('in-progress')).not.toBeInTheDocument();
   });
 });

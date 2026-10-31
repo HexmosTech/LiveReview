@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { Alert, Button, Card, Spinner, Tabs } from '../../components/UIPrimitives';
 import {
@@ -70,7 +70,16 @@ const AutoApprovePolicyTab: React.FC = () => {
   const [overrideDraft, setOverrideDraft] = useState<Record<string, number>>({});
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [outcomes, setOutcomes] = useState<OutcomeRow[]>([]);
+  const location = useLocation();
   const [subtab, setSubtab] = useState(() => new URLSearchParams(window.location.search).get('subtab') || 'general');
+  // Re-sync whenever ?subtab= changes, not just on first mount: the "Configure"
+  // links on the review detail page's Auto-Approve tab all route to this same
+  // /settings#auto-approve URL with a different ?subtab=, so React Router updates
+  // location.search without remounting this component — a useState initializer
+  // alone would miss every navigation after the first.
+  useEffect(() => {
+    setSubtab(new URLSearchParams(location.search).get('subtab') || 'general');
+  }, [location.search]);
   const [simRows, setSimRows] = useState<SimulateRow[] | null>(null);
 
   const orgId = currentOrgId ?? 0;

@@ -127,14 +127,20 @@ export function ClientTable<TData>({
   return (
     <div className="bg-[#1F2836] rounded-lg border border-slate-700">
       <div className="overflow-x-auto">
-      <table
-        className="w-full table-fixed text-sm min-w-[900px]"
-        style={enableColumnResizing ? { width: table.getTotalSize() } : undefined}
-      >
+      <table className="w-full table-fixed text-sm min-w-[900px]">
         <colgroup>
           {enableColumnResizing
-            ? table.getFlatHeaders().map((header) => (
-                <col key={header.id} style={{ width: header.getSize() }} />
+            ? // Percentage widths (relative to the table's current total size)
+              // rather than raw px - a fixed px colgroup leaves the table
+              // narrower than its container on wide screens (table-layout:
+              // fixed doesn't stretch fixed-width columns to fill extra
+              // space). Percentages keep the table at a full 100% while
+              // still reflecting each column's size/resize state.
+              table.getFlatHeaders().map((header) => (
+                <col
+                  key={header.id}
+                  style={{ width: `${(header.getSize() / table.getTotalSize()) * 100}%` }}
+                />
               ))
             : columnWidths.map((width, i) => <col key={i} style={{ width }} />)}
         </colgroup>
@@ -142,7 +148,7 @@ export function ClientTable<TData>({
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id} className="divide-x divide-slate-600/60">
               {headerGroup.headers.map((header) => (
-                <th key={header.id} className="relative align-top px-6 py-4 text-left">
+                <th key={header.id} className="relative align-middle px-6 py-4 text-left">
                   {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                   {enableColumnResizing && header.column.getCanResize() && (
                     <div

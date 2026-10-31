@@ -7,11 +7,11 @@ import RepositorySettings from './RepositorySettings';
 const ExploreRoutes: React.FC = () => {
     return (
         <Routes>
-            <Route index element={<Navigate to="repositories" replace />} />
+            <Route index element={<Navigate to="merge-requests" replace />} />
             <Route path="/repositories" element={<Repositories />} />
             <Route path="/repositories/:repoId/settings" element={<RepositorySettings />} />
             <Route path="/merge-requests" element={<MergeRequests />} />
-            <Route path="*" element={<Navigate to="/explore/repositories" replace />} />
+            <Route path="*" element={<Navigate to="/explore/merge-requests" replace />} />
         </Routes>
     );
 };

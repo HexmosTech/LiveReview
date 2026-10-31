@@ -12,6 +12,10 @@ interface ReviewEventsPageProps {
   isLive?: boolean;
   pollingInterval?: number;
   className?: string;
+  // The review's real top-level status - passed through to ReviewProgressView
+  // so it can resolve stages stuck pending/in-progress once the review is
+  // actually done. See ReviewProgressView's reviewStatus prop comment.
+  reviewStatus?: string;
 }
 
 type ViewMode = 'progress' | 'raw';
@@ -20,9 +24,10 @@ export default function ReviewEventsPage({
   reviewId, 
   initialEvents, 
   initialEventCount,
-  isLive = false, 
+  isLive = false,
   pollingInterval = 5000,
-  className 
+  className,
+  reviewStatus,
 }: ReviewEventsPageProps) {
   const [currentView, setCurrentView] = useState<ViewMode>('progress');
   const [events, setEvents] = useState<ReviewEvent[]>(initialEvents);
@@ -341,6 +346,7 @@ export default function ReviewEventsPage({
             reviewId={reviewId}
             events={events}
             isLive={isPolling}
+            reviewStatus={reviewStatus}
           />
         ) : isTailing ? (
           <div ref={tailContainerRef} className="max-h-[32rem] overflow-y-auto rounded-lg border border-slate-700">

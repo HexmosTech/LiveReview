@@ -6,8 +6,8 @@ interface ExploreTabsProps {
 }
 
 const tabs: { key: ExploreTabsProps['active']; label: string; path: string }[] = [
-  { key: 'repositories', label: 'Repositories', path: '/explore/repositories' },
   { key: 'merge-requests', label: 'Merge Requests', path: '/explore/merge-requests' },
+  { key: 'repositories', label: 'Repositories', path: '/explore/repositories' },
 ];
 
 const ExploreTabs: React.FC<ExploreTabsProps> = ({ active }) => {

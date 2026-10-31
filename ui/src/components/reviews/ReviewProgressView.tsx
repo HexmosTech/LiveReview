@@ -7,6 +7,14 @@ interface ReviewProgressViewProps {
   events: ReviewEvent[];
   isLive?: boolean;
   className?: string;
+  // The review's real top-level status (from the review record, not derived
+  // from this event stream). Used to resolve stages that are stuck
+  // pending/in-progress once the review itself has actually finished -
+  // some stages (e.g. Finalization) only ever get marked complete by a
+  // specific message/eventType match, and a review can legitimately finish
+  // without ever emitting that exact marker, leaving the stage frozen
+  // in-progress forever even though the review is done.
+  reviewStatus?: string;
 }
 
 type StageStatus = 'pending' | 'in-progress' | 'completed' | 'failed';
@@ -106,17 +114,22 @@ interface ResiliencyEvent {
   attempt?: number;
   details: string;
   resolved: boolean;
-  // Repeated occurrences of the same (type, details) are grouped into one
-  // pill instead of rendering a duplicate pill per raw event - occurrences
-  // holds each underlying raw event so the grouped count can still be
-  // expanded to show exactly when/why each one happened.
-  occurrences: { timestamp?: string; attempt?: number }[];
+  // Repeated occurrences of the same type within a substage are grouped into
+  // one pill instead of rendering a duplicate pill per raw event - occurrences
+  // holds each underlying raw event (with its own message) so the grouped
+  // count can still be expanded to see exactly when/why each one happened.
+  // Grouping is by type alone (not exact message text): a single underlying
+  // LLM failure is commonly logged as several near-identical lines - a
+  // top-level wrapped error plus one line per unwrapped cause in its error
+  // chain - which previously defeated message-based dedup and rendered as
+  // several near-duplicate pills for what is really one failure.
+  occurrences: { timestamp?: string; attempt?: number; details: string }[];
 }
 
-// Groups a new resiliency event into an existing pill with the same (type,
-// details) instead of always pushing a new one, so e.g. three retries of the
-// same underlying failure render as one "circuit breaker (×3)" pill rather
-// than three near-identical pills.
+// Groups a new resiliency event into an existing pill with the same type
+// within the same substage instead of always pushing a new one, so e.g.
+// three retries/error-chain entries for the same underlying failure render
+// as one "circuit breaker (×3)" pill rather than three near-identical pills.
 function pushResiliencyEvent(
   substage: Substage,
   type: ResiliencyEvent['type'],
@@ -125,9 +138,9 @@ function pushResiliencyEvent(
   resolved: boolean,
   timestamp: string | undefined
 ) {
-  const existing = substage.resiliencyEvents.find((e) => e.type === type && e.details === details);
+  const existing = substage.resiliencyEvents.find((e) => e.type === type);
   if (existing) {
-    existing.occurrences.push({ timestamp, attempt });
+    existing.occurrences.push({ timestamp, attempt, details });
     existing.resolved = existing.resolved || resolved;
     if (attempt !== undefined) {
       existing.attempt = attempt;
@@ -139,11 +152,11 @@ function pushResiliencyEvent(
     details,
     attempt,
     resolved,
-    occurrences: [{ timestamp, attempt }],
+    occurrences: [{ timestamp, attempt, details }],
   });
 }
 
-export default function ReviewProgressView({ reviewId, events, isLive = false, className }: ReviewProgressViewProps) {
+export default function ReviewProgressView({ reviewId, events, isLive = false, className, reviewStatus }: ReviewProgressViewProps) {
   const [stages, setStages] = useState<Stage[]>([]);
   const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set(['stage-4'])); // Default expand "Processing Batches"
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set()); // Track which stages have expanded events
@@ -177,7 +190,7 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
     }
     
     setStages(processedStages);
-  }, [events]);
+  }, [events, reviewStatus]);
 
   const processEventsIntoStages = (events: ReviewEvent[]): Stage[] => {
     const stageMap = new Map<StageKey, Stage>();
@@ -662,6 +675,30 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
       }
     });
 
+    // The review itself is the source of truth for whether it's actually
+    // over - some stages (Finalization in particular) only flip to
+    // 'completed' above on a specific message/eventType match, and a review
+    // can legitimately finish without ever emitting that exact marker. Once
+    // the review record says it's done, any stage/substage still stuck
+    // pending/in-progress is resolved to match rather than spinning forever
+    // (e.g. "Finalization: in-progress" + a stale "70% complete" bar next to
+    // a review the header already shows as Completed).
+    if (reviewStatus === 'completed' || reviewStatus === 'failed') {
+      const resolvedStatus: StageStatus = reviewStatus === 'completed' ? 'completed' : 'failed';
+      stageMap.forEach(stage => {
+        if (stage.status === 'pending' || stage.status === 'in-progress') {
+          stage.status = resolvedStatus;
+          stage.endTime = stage.endTime ?? stage.events[stage.events.length - 1]?.timestamp;
+        }
+        stage.substages?.forEach(substage => {
+          if (substage.status === 'pending' || substage.status === 'in-progress') {
+            substage.status = resolvedStatus;
+            substage.endTime = substage.endTime ?? substage.events[substage.events.length - 1]?.timestamp;
+          }
+        });
+      });
+    }
+
     return STAGE_DEFINITIONS.map(def => stageMap.get(def.key)!);
   };
 
@@ -932,13 +969,15 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
                                           {resEvent.resolved && <Icons.Success />}
                                         </button>
                                         {isExpanded && (
-                                          <div className="mt-1 rounded border border-slate-700 bg-slate-900/80 px-2 py-1.5 text-[11px] text-slate-300 space-y-1 max-w-sm">
-                                            <p className="text-slate-400">{resEvent.details}</p>
+                                          <div className="mt-1 rounded border border-slate-700 bg-slate-900/80 px-2 py-1.5 text-[11px] text-slate-300 space-y-1.5 max-w-sm">
                                             {resEvent.occurrences.map((occ, occIdx) => (
-                                              <p key={occIdx} className="text-slate-500">
-                                                {occ.timestamp ? new Date(occ.timestamp).toLocaleTimeString() : `#${occIdx + 1}`}
-                                                {occ.attempt !== undefined && ` · attempt ${occ.attempt}`}
-                                              </p>
+                                              <div key={occIdx}>
+                                                <p className="text-slate-500">
+                                                  {occ.timestamp ? new Date(occ.timestamp).toLocaleTimeString() : `#${occIdx + 1}`}
+                                                  {occ.attempt !== undefined && ` · attempt ${occ.attempt}`}
+                                                </p>
+                                                <p className="text-slate-400 break-words">{occ.details}</p>
+                                              </div>
                                             ))}
                                           </div>
                                         )}
