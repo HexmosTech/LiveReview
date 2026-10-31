@@ -653,4 +653,28 @@ at least one required-but-gitignored file at the repo root (`.env.selfhosted`),
 which a git archive would silently omit, trading one hard-to-diagnose failure
 for another.
 
+## Git Safety & Rebasing: Zero Code Loss Guarantee
+
+Never lose or discard commits, unstaged work, or active branch code from `master`/`main` or user working branches without explicit user permission.
+
+### 1. Absolute Code Preservation
+- **Never drop code silently**: When rebasing or merging, both upstream `master` code and the user's branch logic must be preserved. Never discard either side without explicit user permission.
+- **No destructive git commands**: Never run `git reset --hard`, `git checkout -- .`, `git restore .`, or `git clean -fd` without explicit permission and verifying uncommitted work is backed up.
+- **No blind force-pushes**: Never run `git push --force` or `-f`. If a force push is ever required after a verified rebase, use `--force-with-lease` only with explicit user approval.
+- **No destructive branch/stash drops**: Never run `git branch -D` on branches with unmerged work, or `git stash drop`/`clear`.
+
+### 2. Rebasing Protocol & Conflict Resolution
+When helping the user rebase or resolve rebase conflicts:
+1. **Safety Snapshot**: Always check status (`git status`) and record the pre-rebase commit SHA (`git rev-parse HEAD`) or create a temporary safety tag/branch before initiating or modifying a rebase.
+2. **Never discard during conflicts**:
+   - Inspect every conflict block thoroughly (`git diff`).
+   - Do NOT use `-X ours` or `-X theirs` blindly.
+   - Combine changes so that upstream functionality and branch enhancements coexist cleanly.
+   - If a conflict involves overlapping or contradictory logic, stop and explain the trade-offs to the user before resolving.
+3. **Verify Before Continuing**:
+   - After editing conflict markers, verify code compiles and tests pass before running `git rebase --continue`.
+4. **Fail-Safe Abort**:
+   - If a rebase gets into a messy or destructive state, immediately abort with `git rebase --abort` to return safely to the original branch state, rather than forcing through bad commits.
+
+
 
