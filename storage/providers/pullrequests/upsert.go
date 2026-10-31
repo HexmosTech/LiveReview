@@ -57,10 +57,13 @@ func (s *Store) validateConnectorProvider(r RepositoryUpsert) error {
 	}
 	var connProvider string
 	err := s.db.QueryRow(`SELECT provider FROM integration_tokens WHERE id = $1`, r.ConnectorID).Scan(&connProvider)
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("connector %d not found: %w", r.ConnectorID, err)
+		}
 		return fmt.Errorf("failed to query connector %d for provider validation: %w", r.ConnectorID, err)
 	}
-	if err == nil && connProvider != "" && !providers.IsProviderCompatible(r.Provider, connProvider) {
+	if connProvider != "" && !providers.IsProviderCompatible(r.Provider, connProvider) {
 		return &ProviderMismatchError{
 			RepoFullName: r.FullName,
 			RepoProvider: r.Provider,

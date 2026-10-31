@@ -218,7 +218,6 @@ export function useConnectorAlerts(): {
       } else {
         next.add(`${connectorId}-auth`);
         next.add(`${connectorId}-mismatch`);
-        next.add(String(connectorId));
       }
       saveDismissed(next);
       return next;
@@ -236,7 +235,7 @@ export function useConnectorAlerts(): {
     if (persistedNotifications?.[key]?.dismissed) return true;
     const item = notificationItems.find((n) => n.id === key);
     if (item?.dismissed) return true;
-    if (dismissed.has(`${connectorId}-${kind}`) || dismissed.has(String(connectorId))) return true;
+    if (dismissed.has(`${connectorId}-${kind}`)) return true;
     return false;
   };
 
