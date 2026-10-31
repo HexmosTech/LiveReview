@@ -62,6 +62,24 @@ export interface ConnectorFormData {
 export interface ReviewAISettings {
     helper_enabled: boolean;
     helper_mode: 'concise_then_expand' | 'polish_only';
+    // Optional soft preferences - null means "use the system default".
+    // Always clamped server-side to the instance-wide ceiling: an org can
+    // turn these down, never up past what the instance allows.
+    preferred_max_concurrent_batches?: number | null;
+    preferred_review_timeout_seconds?: number | null;
+    // What will actually be used right now (preference resolved against
+    // the current instance-wide ceiling), returned by GET/PUT so the UI
+    // can show "you asked for X, the instance allows up to Y".
+    effective_max_concurrent_batches?: number;
+    effective_review_timeout_seconds?: number;
+}
+
+// Instance-wide review concurrency/timeout ceiling (super-admin / self-hosted
+// owner only). Bounds every org's own preference above.
+export interface AIReviewPerformanceSettings {
+    max_concurrent_batches_ceiling: number;
+    min_review_timeout_floor_seconds: number;
+    max_review_timeout_ceiling_seconds: number;
 }
 
 export interface ValidationResult {

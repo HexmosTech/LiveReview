@@ -6,6 +6,7 @@ import { notify } from '../../utils/notify';
 import CompactionSettingsTab from './CompactionSettingsTab';
 import PreloadedChangesArchivalSettingsTab from './PreloadedChangesArchivalSettingsTab';
 import BlastRadiusCacheSettingsTab from './BlastRadiusCacheSettingsTab';
+import AIReviewPerformanceSettingsTab from './AIReviewPerformanceSettingsTab';
 
 import { isCloudMode } from '../../utils/deploymentMode';
 import { useOrgContext } from '../../hooks/useOrgContext';
@@ -58,6 +59,7 @@ const StorageSettingsTab: React.FC = () => {
             { id: 'log-compaction', label: 'Log Compaction' },
             { id: 'archival', label: 'Preloaded Changes Archival' },
             { id: 'repo-cache', label: 'Repo Cache' },
+            { id: 'ai-review-performance', label: 'AI Review Performance' },
         ] : []),
     ];
     const requested = new URLSearchParams(location.search).get('section');
@@ -334,6 +336,7 @@ const StorageSettingsTab: React.FC = () => {
             {section === 'log-compaction' && <CompactionSettingsTab />}
             {section === 'archival' && <PreloadedChangesArchivalSettingsTab />}
             {section === 'repo-cache' && <BlastRadiusCacheSettingsTab />}
+            {section === 'ai-review-performance' && <AIReviewPerformanceSettingsTab />}
         </div>
     );
 };

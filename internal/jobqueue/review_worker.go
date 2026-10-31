@@ -322,10 +322,14 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 		aiFactory = mockFactory
 	}
 
+	reviewConfig := review.DefaultReviewConfig()
+	reviewConfig.MaxConcurrentBatches = selection.EffectiveMaxConcurrentBatches
+	reviewConfig.ReviewTimeout = time.Duration(selection.EffectiveReviewTimeoutSeconds) * time.Second
+
 	result := review.NewService(
 		review.NewStandardProviderFactory(),
 		aiFactory,
-		review.DefaultReviewConfig(),
+		reviewConfig,
 	).ProcessReview(ctx, reviewRequest)
 
 	status := "failed"
@@ -408,10 +412,10 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 
 	// 10. Persist final results and update status
 	type diffReviewResultPayload struct {
-		Summary            string                       `json:"summary"`
-		Comments           []*models.ReviewComment      `json:"comments"`
-		Quiz               []models.QuizQuestion        `json:"quiz,omitempty"`
-		DiffClassification *models.DiffClassification   `json:"diffClassification,omitempty"`
+		Summary            string                     `json:"summary"`
+		Comments           []*models.ReviewComment    `json:"comments"`
+		Quiz               []models.QuizQuestion      `json:"quiz,omitempty"`
+		DiffClassification *models.DiffClassification `json:"diffClassification,omitempty"`
 	}
 	payload := diffReviewResultPayload{Summary: summary, Comments: comments, Quiz: quiz, DiffClassification: diffClassification}
 	meta := map[string]interface{}{"review_result": payload}

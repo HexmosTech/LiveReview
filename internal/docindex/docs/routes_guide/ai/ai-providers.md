@@ -25,6 +25,12 @@ typically an owner/admin action (enforced server-side).
   Ollama, Bedrock have dedicated forms for their unique config).
 - Set org-wide review AI settings / adaptive review behavior
   (`AdaptiveReviewInfo`).
+- **Review Performance** section: optionally set a preferred max concurrent
+  batches and/or review timeout (seconds) for this org's reviews. Leave
+  blank to use the instance default. Always clamped server-side to the
+  instance-wide ceiling set in
+  [Settings → Storage → AI Review Performance](../settings/storage.md) - an
+  org can turn these down, never above what the instance allows.
 - View usage tips (`UsageTips`) for getting good review quality.
 
 ## Related pages

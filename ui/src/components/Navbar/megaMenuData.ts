@@ -260,6 +260,7 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
                 link('Log Compaction', React.createElement(Icons.Clock), '/settings?section=log-compaction#storage', (ctx) => ctx.isSuperAdmin),
                 link('Preloaded Changes Archival', React.createElement(Icons.Folder), '/settings?section=archival#storage', (ctx) => ctx.isSuperAdmin || (ctx.orgRole === 'owner' && !isCloudMode())),
                 link('Repo Cache', React.createElement(Icons.Folder), '/settings?section=repo-cache#storage', (ctx) => ctx.isSuperAdmin || (ctx.orgRole === 'owner' && !isCloudMode())),
+                link('AI Review Performance', React.createElement(Icons.AI), '/settings?section=ai-review-performance#storage', (ctx) => ctx.isSuperAdmin || (ctx.orgRole === 'owner' && !isCloudMode())),
             ], React.createElement(Icons.Settings)),
         ],
     },

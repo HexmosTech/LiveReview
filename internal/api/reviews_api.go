@@ -332,26 +332,27 @@ func ensureValidToken(token *IntegrationToken) string {
 	return token.AccessToken
 }
 
-// createReviewService creates a new review service instance per request
-// This allows for dynamic configuration based on request context or database state
-func (s *Server) createReviewService(token *IntegrationToken) (*review.Service, error) {
+// createReviewService creates a new review service instance per request.
+// Concurrency ceiling and review timeout are resolved per-org (soft
+// preference) clamped against the instance-wide ceiling (see
+// internal/reviewperf and internal/aiselection.Selection) instead of always
+// using the hardcoded review.DefaultReviewConfig() defaults.
+func (s *Server) createReviewService(token *IntegrationToken, orgID int64, planCode license.PlanType) (*review.Service, error) {
 	// Create factories for this specific request
 	providerFactory := review.NewStandardProviderFactory()
 	aiProviderFactory := review.NewStandardAIProviderFactory()
 
-	// Build review configuration (could be customized based on database state)
 	reviewConfig := review.DefaultReviewConfig()
 
-	// Example: Could customize config based on database state
-	// if token.Provider == "enterprise-gitlab" {
-	//     reviewConfig.ReviewTimeout = 20 * time.Minute
-	// }
-	//
-	// Future enhancement: Load per-user/org config from database
-	// userConfig, err := s.loadUserReviewConfig(token.UserID)
-	// if err == nil {
-	//     reviewConfig = userConfig
-	// }
+	selection, err := s.getReviewAISelectionFromDatabase(context.Background(), orgID, planCode)
+	if err != nil {
+		// Fall back to the system defaults already in reviewConfig rather
+		// than failing review creation over a performance-settings lookup.
+		log.Printf("[WARN] createReviewService: failed to resolve review performance settings for org %d, using defaults: %v", orgID, err)
+	} else {
+		reviewConfig.MaxConcurrentBatches = selection.EffectiveMaxConcurrentBatches
+		reviewConfig.ReviewTimeout = time.Duration(selection.EffectiveReviewTimeoutSeconds) * time.Second
+	}
 
 	// Create review service for this specific request
 	reviewService := review.NewService(providerFactory, aiProviderFactory, reviewConfig)

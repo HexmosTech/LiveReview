@@ -88,7 +88,14 @@ func (cs *ConfigurationService) buildAIConfig() (AIConfig, error) {
 // DefaultReviewConfig returns a sensible default configuration for reviews
 func DefaultReviewConfig() Config {
 	return Config{
-		ReviewTimeout: 10 * time.Minute,
+		// 4 minutes, not 10: most reviews should finish well under that, and a
+		// hard ceiling this long mostly served to mask the old 2-worker
+		// starvation bug by giving stuck batches more time to eventually get a
+		// turn. With up to batch.DefaultMaxConcurrentBatches batches now
+		// running concurrently and a ~90s per-batch call timeout (see
+		// internal/ai/langchain/provider.go's streamTimeout/fbTimeout), 4
+		// minutes is generous headroom, not a tight cut-off.
+		ReviewTimeout: 4 * time.Minute,
 		DefaultAI:     "langchain",
 		DefaultModel:  gemini.DefaultModel,
 		Temperature:   0.4,

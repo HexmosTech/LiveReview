@@ -460,7 +460,7 @@ func (s *Server) createReviewRequest(ctx *reviewSetupContext) error {
 		ctx.logger.Log("Creating review service...")
 	}
 	log.Printf("[DEBUG] TriggerReviewV2: Creating review service for request")
-	reviewService, err := s.createReviewService(ctx.token)
+	reviewService, err := s.createReviewService(ctx.token, ctx.orgID, ctx.planCode)
 	if err != nil {
 		if ctx.logger != nil {
 			ctx.logger.LogError("Failed to create review service", err)

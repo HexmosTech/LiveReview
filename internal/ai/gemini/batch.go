@@ -3,10 +3,10 @@ package gemini
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"strings"
 
 	"github.com/livereview/internal/batch"
+	"github.com/livereview/internal/llm/adaptivelimiter"
 	"github.com/livereview/internal/prompts"
 	"github.com/livereview/pkg/models"
 )
@@ -42,7 +42,7 @@ func (p *GeminiProvider) ReviewCodeWithBatching(
 	batchInput := batchProcessor.BatchInputs(input)
 
 	// Step 4: Process batches with LLM using task queue
-	taskQueue := batch.NewTaskQueue(runtime.NumCPU())
+	taskQueue := batch.NewTaskQueue(batch.DefaultMaxConcurrentBatches)
 
 	// Use the batch processor's configuration for the task queue if available
 	if batchProcessor.TaskQueueConfig.MaxWorkers > 0 {
@@ -51,6 +51,14 @@ func (p *GeminiProvider) ReviewCodeWithBatching(
 			batchProcessor.TaskQueueConfig.MaxWorkers,
 			batchProcessor.TaskQueueConfig.MaxRetries)
 	}
+
+	// Tier 2: gate every batch's LLM call through the process-wide, self-tuning
+	// limiter for this connector (see internal/llm/adaptivelimiter) - shared
+	// across every concurrently-running review using this same Gemini connector.
+	connectorLimiter := adaptivelimiter.ForConnector(
+		"gemini",
+		adaptivelimiter.Config{Floor: 2, Ceiling: 64, Initial: batch.DefaultMaxConcurrentBatches},
+	)
 
 	// Create tasks for each batch
 	for i, batchDiffs := range batchInput.Batches {
@@ -65,6 +73,8 @@ func (p *GeminiProvider) ReviewCodeWithBatching(
 		task := batch.NewBatchTask(batchID, batchDiffs, processor)
 		task.SetBatchNumber(i + 1)
 		task.SetLogger(batchProcessor.Logger)
+		task.SetLimiter(connectorLimiter)
+		task.SetProviderType("gemini")
 		taskQueue.AddTask(task)
 
 		// Display batch details

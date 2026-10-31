@@ -2066,7 +2066,11 @@ CREATE TABLE public.org_review_ai_settings (
     helper_mode character varying(32) DEFAULT 'concise_then_expand'::character varying NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT org_review_ai_settings_helper_mode_check CHECK (((helper_mode)::text = ANY (ARRAY[('concise_then_expand'::character varying)::text, ('polish_only'::character varying)::text])))
+    preferred_max_concurrent_batches integer,
+    preferred_review_timeout_seconds integer,
+    CONSTRAINT org_review_ai_settings_helper_mode_check CHECK (((helper_mode)::text = ANY (ARRAY[('concise_then_expand'::character varying)::text, ('polish_only'::character varying)::text]))),
+    CONSTRAINT org_review_ai_settings_preferred_max_concurrent_batches_check CHECK (((preferred_max_concurrent_batches IS NULL) OR (preferred_max_concurrent_batches > 0))),
+    CONSTRAINT org_review_ai_settings_preferred_review_timeout_seconds_check CHECK (((preferred_review_timeout_seconds IS NULL) OR (preferred_review_timeout_seconds > 0)))
 );
 
 
@@ -10598,4 +10602,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261029150000'),
     ('20261029150100'),
     ('20261029150200'),
-    ('20261030134721');
+    ('20261030134721'),
+    ('20261031070300');

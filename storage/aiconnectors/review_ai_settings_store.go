@@ -19,6 +19,15 @@ type ReviewAISettings struct {
 	OrgID         int64
 	HelperEnabled bool
 	HelperMode    string
+
+	// PreferredMaxConcurrentBatches and PreferredReviewTimeoutSeconds are
+	// optional soft preferences (NULL = "use the system default", resolved
+	// by internal/aiselection's review-performance resolver and always
+	// clamped to the system-wide ceiling in system_settings row
+	// 'ai_review_performance' - an org can lower its own concurrency/timeout
+	// but can never raise it past what the instance allows).
+	PreferredMaxConcurrentBatches *int
+	PreferredReviewTimeoutSeconds *int
 }
 
 type ReviewAISettingsStore struct {
@@ -67,10 +76,11 @@ func (s *ReviewAISettingsStore) GetByOrgID(ctx context.Context, orgID int64) (Re
 	}
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT helper_enabled, helper_mode
+		SELECT helper_enabled, helper_mode, preferred_max_concurrent_batches, preferred_review_timeout_seconds
 		FROM org_review_ai_settings
 		WHERE org_id = $1
-	`, orgID).Scan(&settings.HelperEnabled, &settings.HelperMode)
+	`, orgID).Scan(&settings.HelperEnabled, &settings.HelperMode,
+		&settings.PreferredMaxConcurrentBatches, &settings.PreferredReviewTimeoutSeconds)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return settings, nil
@@ -102,14 +112,24 @@ func (s *ReviewAISettingsStore) Upsert(ctx context.Context, settings ReviewAISet
 
 	settings.HelperMode = normalizedMode
 
+	if settings.PreferredMaxConcurrentBatches != nil && *settings.PreferredMaxConcurrentBatches <= 0 {
+		return ReviewAISettings{}, fmt.Errorf("preferred max concurrent batches must be > 0")
+	}
+	if settings.PreferredReviewTimeoutSeconds != nil && *settings.PreferredReviewTimeoutSeconds <= 0 {
+		return ReviewAISettings{}, fmt.Errorf("preferred review timeout seconds must be > 0")
+	}
+
 	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO org_review_ai_settings (org_id, helper_enabled, helper_mode, created_at, updated_at)
-		VALUES ($1, $2, $3, NOW(), NOW())
+		INSERT INTO org_review_ai_settings (org_id, helper_enabled, helper_mode, preferred_max_concurrent_batches, preferred_review_timeout_seconds, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
 		ON CONFLICT (org_id)
 		DO UPDATE SET helper_enabled = EXCLUDED.helper_enabled,
 		              helper_mode = EXCLUDED.helper_mode,
+		              preferred_max_concurrent_batches = EXCLUDED.preferred_max_concurrent_batches,
+		              preferred_review_timeout_seconds = EXCLUDED.preferred_review_timeout_seconds,
 		              updated_at = NOW()
-	`, settings.OrgID, settings.HelperEnabled, settings.HelperMode); err != nil {
+	`, settings.OrgID, settings.HelperEnabled, settings.HelperMode,
+		settings.PreferredMaxConcurrentBatches, settings.PreferredReviewTimeoutSeconds); err != nil {
 		return ReviewAISettings{}, fmt.Errorf("upsert review ai settings: %w", err)
 	}
 

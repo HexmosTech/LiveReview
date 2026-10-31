@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/livereview/internal/aiselection"
+	"github.com/livereview/internal/githubapp"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/naming"
-	"github.com/livereview/internal/githubapp"
 	githubprovider "github.com/livereview/internal/providers/github"
 	"github.com/livereview/internal/review"
 	reviewprocessor "github.com/livereview/internal/review_processor"
@@ -230,10 +230,14 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 		PreloadedChanges: diffs,
 	}
 
+	reviewConfig := review.DefaultReviewConfig()
+	reviewConfig.MaxConcurrentBatches = selection.EffectiveMaxConcurrentBatches
+	reviewConfig.ReviewTimeout = time.Duration(selection.EffectiveReviewTimeoutSeconds) * time.Second
+
 	result := review.NewService(
 		review.NewStandardProviderFactory(),
 		review.NewStandardAIProviderFactory(),
-		review.DefaultReviewConfig(),
+		reviewConfig,
 	).ProcessReview(ctx, reviewRequest)
 
 	status := "failed"

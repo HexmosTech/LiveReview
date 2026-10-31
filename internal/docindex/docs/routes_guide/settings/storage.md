@@ -16,13 +16,14 @@ switching backends or rotating credentials needs no redeploy. See
 
 ## Layout
 
-The page has four sub-tabs, each with its own Save button. The selected one
+The page has five sub-tabs, each with its own Save button. The selected one
 is kept in the URL (`/settings?section=<id>#storage`), so links open it directly:
 
 - **Blob Storage** (`section=blob`, the default)
 - **Log Compaction** (`section=log-compaction`)
 - **Preloaded Changes Archival** (`section=archival`)
 - **Repo Cache** (`section=repo-cache`)
+- **AI Review Performance** (`section=ai-review-performance`)
 
 ## Key actions
 
@@ -41,6 +42,17 @@ is kept in the URL (`/settings?section=<id>#storage`), so links open it directly
   Backed by
   the `system_settings` row `blast_radius_cache`
   (`/api/v1/admin/settings/blast-radius-cache`).
+- **AI Review Performance** sub-tab: set instance-wide safety bounds for AI
+  review concurrency and timeout - the max concurrent batches ceiling
+  (default 16) and the min/max review timeout in seconds (default 60s floor,
+  240s ceiling). These bound, but don't replace, the self-tuning
+  per-AI-connector concurrency limiter (`internal/llm/adaptivelimiter`) that
+  discovers the actual safe concurrency for your provider at runtime, and
+  they also bound any organization's own optional preference set on the
+  [AI Providers](../ai/ai-providers.md) page (an org can turn its own
+  concurrency/timeout down, never above what the instance allows). Backed by
+  the `system_settings` row `ai_review_performance`
+  (`/api/v1/admin/settings/ai-review-performance`).
 
 ## Related pages
 

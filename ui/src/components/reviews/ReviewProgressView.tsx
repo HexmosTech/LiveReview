@@ -352,6 +352,16 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
       };
 
       const markCompleted = (countHint?: number) => {
+        // Once a batch has been explicitly marked failed (a genuine
+        // terminal-failure event, not a per-attempt retry), no later
+        // loosely-matched event (e.g. a log line that happens to contain
+        // "completed"/"generated"/"posted") may flip it back to success and
+        // force-resolve its error pills - that is exactly how fake "✓
+        // Generated N comments" badges got shown for batches that actually
+        // failed outright.
+        if (substage.status === 'failed') {
+          return;
+        }
         substage.status = 'completed';
         substage.endTime = event.timestamp;
         ensureCount(countHint ?? parseCountFromMessage(event.message));
@@ -371,7 +381,14 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
         substage.endTime = event.timestamp;
       };
 
-      const countFromDetails = event.details?.commentCount ?? event.details?.fileCount;
+      // Only a genuine comment count may ever populate substage.count, which
+      // render() displays verbatim as "Generated N comments" - never fall
+      // back to fileCount (a "processing" event's file total). Falling back
+      // used to preload substage.count with a batch's file count during
+      // processing, so if that batch later failed outright and some
+      // unrelated event loosely matched into markCompleted() without its own
+      // real comment count, the stale file count rendered as fake success.
+      const countFromDetails = event.details?.commentCount;
 
       if (event.eventType === 'batch' || event.eventType === 'status') {
         const statusValue = normalize(String(event.details?.status || ''));
