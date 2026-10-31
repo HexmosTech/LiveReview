@@ -99,7 +99,7 @@ export function computeConnectorAlerts(
     const connector = connectorMap.get(connectorId);
     if (!connector) continue;
     if (auth > 0) alerts.push({ connector, kind: 'auth', repoCount: auth });
-    else if (mismatch > 0) alerts.push({ connector, kind: 'mismatch', repoCount: mismatch });
+    if (mismatch > 0) alerts.push({ connector, kind: 'mismatch', repoCount: mismatch });
   }
   return alerts;
 }
