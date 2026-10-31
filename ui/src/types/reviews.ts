@@ -140,6 +140,7 @@ export interface ReviewCommit {
   ref: string;
   refType: 'commit' | 'range';
   createdAt: string;
+  message?: string;
 }
 
 export interface ReviewCommitsResponse {

@@ -7,6 +7,18 @@
 // ui/public/ via webpack's existing CopyPlugin (ui/webpack.config.js) —
 // no build config change needed.
 
+// Force updated workers to take over immediately instead of waiting for
+// every open LiveReview tab to be fully closed — otherwise a browser that
+// subscribed before an sw.js change (e.g. the notification-icon fix below)
+// keeps running the old worker indefinitely for background push events.
+self.addEventListener('install', () => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener('push', (event) => {
   let payload = { title: 'LiveReview', body: 'A review you triggered has an update.' };
   try {

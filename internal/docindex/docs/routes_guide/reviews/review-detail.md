@@ -19,11 +19,24 @@ Any authenticated org member; the review must belong to their org
 ## Key actions
 
 - View the diff being reviewed (`DiffViewerPanel`) alongside AI findings.
-- View the event/log timeline of the review run (`ReviewEventsPage`).
+- View the event/log timeline of the review run (`ReviewEventsPage`), with a
+  **Tail Log** toggle in the Raw Events view that pins the log to the bottom
+  and auto-scrolls as new events arrive (off by default, so normal scrolling
+  isn't disrupted until you turn it on). Raw-event resiliency pills (e.g.
+  "circuit breaker") group repeated occurrences of the same underlying
+  failure into one pill with a count, expandable to see each individual
+  occurrence's timestamp.
 - View accounting: which stages ran, tokens/cost per stage
   (`getReviewAccounting`).
-- View the commits included in this review (up to a preview limit, expandable).
+- View the commits included in this review (up to a preview limit, expandable),
+  each with a one-line commit message underneath (truncated with a hover
+  tooltip for the full text when available).
 - Navigate back to the reviews list.
+- The info bar shows a live-ticking **Elapsed** stat next to Last activity
+  while a review is running, and the **Events** tab label carries a live
+  count badge so progress is visible without switching tabs. The **Batches**
+  count in the expanded "Review details" panel self-corrects within 15s if
+  the page was opened before any batch had started.
 - Enable browser push notifications from the closeable banner shown above the
   tabs (shown until you enable notifications or close it; it never
   auto-dismisses) — see [Settings → Notifications](../settings/notifications.md).
@@ -40,6 +53,9 @@ Any authenticated org member; the review must belong to their org
   "failed" (a single bad batch can empty the final result without discarding
   what already streamed); they're only replaced by the authoritative final
   set once the review completes successfully.
+
+A total comment count is shown just above the summary panel in the Findings
+tab, so you can see the overall finding count without opening the filter bar.
 
 ## When comments couldn't be posted to the PR
 

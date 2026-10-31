@@ -4,7 +4,7 @@ import { LuExternalLink, LuGitBranch } from 'react-icons/lu';
 import ProviderIcon from '../../components/ProviderIcon';
 import { riskAssessment, RiskAssessmentDetails, RiskScore } from '../../components/reviews/RiskAssessment';
 import { reviewStatusBadge } from '../../utils/reviewDisplay';
-import { Button, Icons, Tabs } from '../../components/UIPrimitives';
+import { Button, Icons, Tabs, Tooltip } from '../../components/UIPrimitives';
 import { ReviewEventsPage, DiffViewerPanel, PushNotificationBanner } from '../../components/reviews';
 import AutoApprovePanel from '../../components/reviews/AutoApprovePanel';
 import { getReviewPolicyLog } from '../../api/riskPolicy';
@@ -83,6 +83,7 @@ const ReviewDetail: React.FC = () => {
     const [levelFilter, setLevelFilter] = useState<ReviewEventLevel | ''>('');
     const [typeFilter, setTypeFilter] = useState<ReviewEventType | ''>('');
     const [lastEventTime, setLastEventTime] = useState<string | null>(null);
+    const [nowTick, setNowTick] = useState<number>(() => Date.now());
     type TabId = 'findings' | 'accounting' | 'events' | 'auto-approve';
     const TAB_IDS: TabId[] = ['findings', 'accounting', 'events', 'auto-approve'];
     const [searchParams, setSearchParams] = useSearchParams();
@@ -360,6 +361,15 @@ const ReviewDetail: React.FC = () => {
         fetchReviewDetails();
     }, [fetchReviewDetails]);
 
+    // Drives the live "Elapsed" stat while the review is in progress.
+    useEffect(() => {
+        if (review?.status !== 'created' && review?.status !== 'in_progress') {
+            return;
+        }
+        const tick = setInterval(() => setNowTick(Date.now()), 1000);
+        return () => clearInterval(tick);
+    }, [review?.status]);
+
     // Poll accounting so the panel auto-updates once usage records land.
     useEffect(() => {
         if (!id || !pollingEnabled || accountingRouteUnavailable) {
@@ -397,6 +407,10 @@ const ReviewDetail: React.FC = () => {
             // Refresh the review itself too, so the status badge flips once the review finishes.
             if (review?.status === 'created' || review?.status === 'in_progress') {
                 getReview(currentReviewId).then(setReview).catch(() => {});
+                // Summary (batch count, event counts) is otherwise only fetched once on
+                // mount - without this it stays frozen at whatever it was when the page
+                // first loaded, e.g. "Batches: 0" forever if opened before any batch ran.
+                getReviewSummary(currentReviewId).then(setSummary).catch(() => {});
             }
         }, ACCOUNTING_REFRESH_INTERVAL_MS);
 
@@ -478,6 +492,13 @@ const ReviewDetail: React.FC = () => {
         const seconds = totalSeconds % 60;
         return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
     };
+
+    // "Elapsed" ticks live while a review is running (unlike formatDuration, which
+    // only has an answer once completedAt is set) - uses nowTick so it re-renders
+    // every second instead of freezing at the value from the last fetch.
+    const elapsed = review.startedAt
+        ? formatDuration(review.startedAt, review.completedAt || new Date(nowTick).toISOString())
+        : null;
 
     const leaderAIExecutionMode = typeof review.metadata?.leader_ai_execution_mode === 'string' ? review.metadata.leader_ai_execution_mode : '';
     const leaderAIExecutionSource = typeof review.metadata?.leader_ai_execution_source === 'string' ? review.metadata.leader_ai_execution_source : '';
@@ -606,6 +627,7 @@ const ReviewDetail: React.FC = () => {
                     />
                     <HeaderStat label="Commits" value={commitsLoaded ? String(commits.length) : '...'} />
                     <HeaderStat label="Last activity" value={formatRelativeTime(review.completedAt || review.startedAt || review.createdAt)} />
+                    {elapsed && <HeaderStat label="Elapsed" value={elapsed} />}
                     <HeaderStat label="Events" value={eventCount !== undefined && eventCount > 0 ? String(eventCount) : String(Object.values(summary?.eventCounts || {}).reduce((a: number, b: number) => a + b, 0))} />
                     <HeaderStat label="Risk assessment" value={risk.value} className={risk.tone} />
                     {review.metadata?.pr_link_policy && (
@@ -641,29 +663,38 @@ const ReviewDetail: React.FC = () => {
                                 <>
                                     <ul className={`space-y-2 ${allCommitsShown && commits.length > COMMITS_PREVIEW_LIMIT ? 'max-h-64 overflow-y-auto pr-1' : ''}`}>
                                         {(allCommitsShown ? commits : commits.slice(0, COMMITS_PREVIEW_LIMIT)).map((commit) => (
-                                            <li key={commit.ref} className="flex items-center gap-3 text-xs">
-                                                <div className="flex items-center gap-2 min-w-0">
-                                                    {commit.refType === 'commit' && githubBaseUrl ? (
-                                                        <a
-                                                            href={`${githubBaseUrl}/commit/${commit.ref}`}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="font-mono text-slate-200 shrink-0 hover:text-blue-400 hover:underline"
-                                                        >
-                                                            {commit.ref.substring(0, 8)}
-                                                        </a>
-                                                    ) : (
-                                                        <span className="font-mono text-slate-200 shrink-0">
-                                                            {commit.refType === 'commit' ? commit.ref.substring(0, 8) : commit.ref}
-                                                        </span>
-                                                    )}
-                                                    {commit.refType === 'range' && (
-                                                        <span className="shrink-0 text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border bg-purple-900/30 text-purple-300 border-purple-700">
-                                                            range
-                                                        </span>
-                                                    )}
+                                            <li key={commit.ref} className="text-xs">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        {commit.refType === 'commit' && githubBaseUrl ? (
+                                                            <a
+                                                                href={`${githubBaseUrl}/commit/${commit.ref}`}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="font-mono text-slate-200 shrink-0 hover:text-blue-400 hover:underline"
+                                                            >
+                                                                {commit.ref.substring(0, 8)}
+                                                            </a>
+                                                        ) : (
+                                                            <span className="font-mono text-slate-200 shrink-0">
+                                                                {commit.refType === 'commit' ? commit.ref.substring(0, 8) : commit.ref}
+                                                            </span>
+                                                        )}
+                                                        {commit.refType === 'range' && (
+                                                            <span className="shrink-0 text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border bg-purple-900/30 text-purple-300 border-purple-700">
+                                                                range
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <span className="shrink-0 text-slate-400">{formatRelativeTime(commit.createdAt)}</span>
                                                 </div>
-                                                <span className="shrink-0 text-slate-400">{formatRelativeTime(commit.createdAt)}</span>
+                                                {commit.message && (
+                                                    <div className="mt-0.5 w-full">
+                                                        <Tooltip content={commit.message}>
+                                                            <p className="w-full truncate text-slate-400">{commit.message}</p>
+                                                        </Tooltip>
+                                                    </div>
+                                                )}
                                             </li>
                                         ))}
                                     </ul>
@@ -737,7 +768,19 @@ const ReviewDetail: React.FC = () => {
                 tabs={[
                     { id: 'findings', label: 'Findings' },
                     { id: 'accounting', label: 'Accounting' },
-                    { id: 'events', label: 'Events' },
+                    {
+                        id: 'events',
+                        label: (
+                            <span className="inline-flex items-center gap-1.5">
+                                Events
+                                {eventCount > 0 && (
+                                    <span className="inline-flex items-center justify-center rounded-full bg-slate-700 px-1.5 py-0.5 text-[10px] font-medium text-slate-200 min-w-[1.25rem]">
+                                        {eventCount}
+                                    </span>
+                                )}
+                            </span>
+                        ),
+                    },
                     ...(review.metadata?.pr_link_policy ? [{
                         id: 'auto-approve',
                         label: (
@@ -773,6 +816,7 @@ const ReviewDetail: React.FC = () => {
                         reviewId={reviewId}
                         blastReport={blastReport && !isBlastRadiusSkipped(blastReport) ? blastReport : undefined}
                         onRiskScores={setRiskScores}
+                        reviewStartedAt={review.startedAt}
                     />
                 </div>
             )}

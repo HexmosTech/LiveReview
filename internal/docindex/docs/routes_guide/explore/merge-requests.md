@@ -14,7 +14,8 @@ Any authenticated org member.
 
 ## Key actions
 
-- Search/filter/sort PRs by provider, repo, state, etc.
+- Search/filter/sort PRs by provider, repo, state, etc. Column widths can be
+  resized by dragging the edge of a column header.
 - Click a row to see that PR's review history in the [Reviews list](../reviews/reviews-list.md).
   Rows are real links, so right-click gives "Open in new tab" and middle/Ctrl-click
   work anywhere in the row; the PR title still links to the provider, and the

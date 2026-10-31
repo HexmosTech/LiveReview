@@ -2811,6 +2811,7 @@ CREATE TABLE public.review_commits (
     ref character varying(160) NOT NULL,
     ref_type text DEFAULT 'commit'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    message text,
     CONSTRAINT review_commits_ref_type_check CHECK ((ref_type = ANY (ARRAY['commit'::text, 'range'::text])))
 );
 
@@ -10603,4 +10604,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261029150100'),
     ('20261029150200'),
     ('20261030134721'),
-    ('20261031070300');
+    ('20261031070300'),
+    ('20261031120000');

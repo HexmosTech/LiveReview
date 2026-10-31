@@ -56,6 +56,23 @@ interface DiffViewerPanelProps {
   blastReport?: BlastRadiusReport;
   // Receives each scored change's badge score (blended with its findings) for the page header.
   onRiskScores?: (scores: RiskScore[]) => void;
+  // The review's real wall-clock start time (ISO string), used to seed the
+  // "Elapsed"/"time to first comment" baseline so it reflects when the review
+  // actually started rather than resetting to "now" on every page refresh.
+  reviewStartedAt?: string;
+}
+
+// Translates a wall-clock timestamp into the same domain as getPerformanceNow()
+// (which is performance.now() - monotonic since page load, not wall-clock), so
+// the elapsed-time baseline survives a refresh instead of resetting to "now".
+function baselineFromStartedAt(reviewStartedAt: string | undefined): number {
+  if (reviewStartedAt) {
+    const startedMs = new Date(reviewStartedAt).getTime();
+    if (Number.isFinite(startedMs)) {
+      return startedMs - Date.now() + getPerformanceNow();
+    }
+  }
+  return getPerformanceNow();
 }
 
 // Mirrors git-lrc's SORT_MODE_RISK_FLAT / SORT_MODE_RISK_FILE / SORT_MODE_DIFF
@@ -122,7 +139,7 @@ interface DiffNavTarget {
   file?: string;
 }
 
-const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport, onRiskScores }) => {
+const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport, onRiskScores, reviewStartedAt }) => {
   const [data, setData] = useState<DiffReviewStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -138,7 +155,7 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
   // see reviewPerformance.ts). baselineMs is set once, when this panel first mounts for
   // this review; commentRenderTimes records the first moment each individual comment
   // (by its stable DOM id) actually renders, streamed or final.
-  const baselineMsRef = useRef<number>(getPerformanceNow());
+  const baselineMsRef = useRef<number>(baselineFromStartedAt(reviewStartedAt));
   const [commentRenderTimes, setCommentRenderTimes] = useState<Record<string, number>>({});
   const recordCommentRendered = useCallback((commentKey: string) => {
     setCommentRenderTimes((prev) => recordFirstRenderTime(prev, commentKey, getPerformanceNow()));
@@ -195,7 +212,7 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
     setStreamedComments([]);
     seenEventIdsRef.current = new Set();
     lastEventTimeRef.current = null;
-    baselineMsRef.current = getPerformanceNow();
+    baselineMsRef.current = baselineFromStartedAt(reviewStartedAt);
     setCommentRenderTimes({});
     getDiffReview(reviewId)
       .then((res) => {
@@ -491,6 +508,11 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
             )}
           </Alert>
         )}
+        <div className="flex items-center justify-between text-xs text-slate-400">
+          <span>
+            <span className="font-medium text-slate-200">{navComments.length}</span> total comment{navComments.length === 1 ? '' : 's'}
+          </span>
+        </div>
         <SummaryPanel reviewId={reviewId} summary={data.summary} files={files} quiz={quiz} onOpenFile={jumpToFileByPath} />
 
         {/* Toolbar row (sort mode + Expand All) — NOT sticky, matching

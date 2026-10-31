@@ -132,6 +132,7 @@ type ReviewCommitEntry struct {
 	Ref       string    `json:"ref"`
 	RefType   string    `json:"refType"`
 	CreatedAt time.Time `json:"createdAt"`
+	Message   string    `json:"message,omitempty"`
 }
 
 // GetReviewCommits handles GET /api/v1/reviews/:id/commits: the commit
@@ -155,7 +156,7 @@ func (s *Server) GetReviewCommits(c echo.Context) error {
 	}
 
 	rows, err := s.db.QueryContext(c.Request().Context(), `
-		SELECT rc.ref, rc.ref_type, rc.created_at
+		SELECT rc.ref, rc.ref_type, rc.created_at, rc.message
 		FROM review_commits rc
 		JOIN reviews r ON r.id = rc.review_id
 		WHERE rc.review_id = $1 AND r.org_id = $2
@@ -169,9 +170,11 @@ func (s *Server) GetReviewCommits(c echo.Context) error {
 	commits := make([]ReviewCommitEntry, 0)
 	for rows.Next() {
 		var entry ReviewCommitEntry
-		if err := rows.Scan(&entry.Ref, &entry.RefType, &entry.CreatedAt); err != nil {
+		var message sql.NullString
+		if err := rows.Scan(&entry.Ref, &entry.RefType, &entry.CreatedAt, &message); err != nil {
 			return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to scan review commit row")
 		}
+		entry.Message = message.String
 		commits = append(commits, entry)
 	}
 	if err := rows.Err(); err != nil {

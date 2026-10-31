@@ -106,12 +106,59 @@ interface ResiliencyEvent {
   attempt?: number;
   details: string;
   resolved: boolean;
+  // Repeated occurrences of the same (type, details) are grouped into one
+  // pill instead of rendering a duplicate pill per raw event - occurrences
+  // holds each underlying raw event so the grouped count can still be
+  // expanded to show exactly when/why each one happened.
+  occurrences: { timestamp?: string; attempt?: number }[];
+}
+
+// Groups a new resiliency event into an existing pill with the same (type,
+// details) instead of always pushing a new one, so e.g. three retries of the
+// same underlying failure render as one "circuit breaker (×3)" pill rather
+// than three near-identical pills.
+function pushResiliencyEvent(
+  substage: Substage,
+  type: ResiliencyEvent['type'],
+  details: string,
+  attempt: number | undefined,
+  resolved: boolean,
+  timestamp: string | undefined
+) {
+  const existing = substage.resiliencyEvents.find((e) => e.type === type && e.details === details);
+  if (existing) {
+    existing.occurrences.push({ timestamp, attempt });
+    existing.resolved = existing.resolved || resolved;
+    if (attempt !== undefined) {
+      existing.attempt = attempt;
+    }
+    return;
+  }
+  substage.resiliencyEvents.push({
+    type,
+    details,
+    attempt,
+    resolved,
+    occurrences: [{ timestamp, attempt }],
+  });
 }
 
 export default function ReviewProgressView({ reviewId, events, isLive = false, className }: ReviewProgressViewProps) {
   const [stages, setStages] = useState<Stage[]>([]);
   const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set(['stage-4'])); // Default expand "Processing Batches"
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set()); // Track which stages have expanded events
+  const [expandedResiliency, setExpandedResiliency] = useState<Set<string>>(new Set()); // Which grouped resiliency pills are expanded
+  const toggleResiliencyExpanded = (key: string) => {
+    setExpandedResiliency((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     const processedStages = processEventsIntoStages(events);
@@ -420,12 +467,7 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
           markCompleted(countFromDetails);
         }
         if (severityIsError(event.severity)) {
-          substage.resiliencyEvents.push({
-            type: 'circuit_breaker',
-            details: event.message,
-            attempt: event.details?.attempt,
-            resolved: false
-          });
+          pushResiliencyEvent(substage, 'circuit_breaker', event.message, event.details?.attempt, false, event.timestamp);
           markInProgress();
         }
       }
@@ -437,22 +479,12 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
       }
 
       if (event.eventType === 'retry' || event.eventType === 'json_repair' || event.eventType === 'timeout') {
-        substage.resiliencyEvents.push({
-          type: event.eventType,
-          details: event.message,
-          attempt: event.details?.attempt,
-          resolved: !severityIsError(event.severity)
-        });
+        pushResiliencyEvent(substage, event.eventType, event.message, event.details?.attempt, !severityIsError(event.severity), event.timestamp);
         markInProgress();
       }
 
       if (event.eventType === 'error') {
-        substage.resiliencyEvents.push({
-          type: 'circuit_breaker',
-          details: event.message,
-          attempt: event.details?.attempt,
-          resolved: false
-        });
+        pushResiliencyEvent(substage, 'circuit_breaker', event.message, event.details?.attempt, false, event.timestamp);
         markFailed();
       }
 
@@ -871,26 +903,48 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
                                 </div>
                               </div>
                               
-                              {/* Resiliency events */}
+                              {/* Resiliency events - grouped: repeated occurrences of the
+                                  same underlying failure render as one pill with a count,
+                                  expandable to see each individual occurrence. */}
                               {substage.resiliencyEvents.length > 0 && (
                                 <div className="flex flex-wrap gap-2 mb-2">
-                                  {substage.resiliencyEvents.map((resEvent, idx) => (
-                                    <div 
-                                      key={idx}
-                                      className={`flex items-center gap-1 px-2 py-1 rounded text-xs ${
-                                        resEvent.resolved 
-                                          ? 'bg-yellow-900/30 text-yellow-300 border border-yellow-700/30' 
-                                          : 'bg-red-900/30 text-red-300 border border-red-700/30'
-                                      }`}
-                                    >
-                                      {getResiliencyIcon(resEvent.type)}
-                                      <span>
-                                        {resEvent.type.replace('_', ' ')}
-                                        {resEvent.attempt && ` (${resEvent.attempt}x)`}
-                                      </span>
-                                      {resEvent.resolved && <Icons.Success />}
-                                    </div>
-                                  ))}
+                                  {substage.resiliencyEvents.map((resEvent, idx) => {
+                                    const pillKey = `${stage.id}-${substage.id}-${idx}`;
+                                    const isExpanded = expandedResiliency.has(pillKey);
+                                    const count = resEvent.occurrences.length;
+                                    return (
+                                      <div key={idx} className="flex flex-col">
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleResiliencyExpanded(pillKey)}
+                                          title={resEvent.details}
+                                          className={`flex items-center gap-1 px-2 py-1 rounded text-xs ${
+                                            resEvent.resolved
+                                              ? 'bg-yellow-900/30 text-yellow-300 border border-yellow-700/30'
+                                              : 'bg-red-900/30 text-red-300 border border-red-700/30'
+                                          }`}
+                                        >
+                                          {getResiliencyIcon(resEvent.type)}
+                                          <span>
+                                            {resEvent.type.replace('_', ' ')}
+                                            {count > 1 && ` (×${count})`}
+                                          </span>
+                                          {resEvent.resolved && <Icons.Success />}
+                                        </button>
+                                        {isExpanded && (
+                                          <div className="mt-1 rounded border border-slate-700 bg-slate-900/80 px-2 py-1.5 text-[11px] text-slate-300 space-y-1 max-w-sm">
+                                            <p className="text-slate-400">{resEvent.details}</p>
+                                            {resEvent.occurrences.map((occ, occIdx) => (
+                                              <p key={occIdx} className="text-slate-500">
+                                                {occ.timestamp ? new Date(occ.timestamp).toLocaleTimeString() : `#${occIdx + 1}`}
+                                                {occ.attempt !== undefined && ` · attempt ${occ.attempt}`}
+                                              </p>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               )}
                               

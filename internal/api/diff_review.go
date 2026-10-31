@@ -43,8 +43,9 @@ type DiffReviewRequest struct {
 // ref(s) at request time (git-lrc's --commit/--range post-commit reviews) —
 // plain staged/working diffs have no commit yet, so they send none.
 type CommitRef struct {
-	Ref  string `json:"ref"`
-	Type string `json:"type"` // "commit" | "range"
+	Ref     string `json:"ref"`
+	Type    string `json:"type"`              // "commit" | "range"
+	Message string `json:"message,omitempty"` // best-effort; empty when the source never provided one
 }
 
 // DiffReviewResult holds persisted review output that is safe to marshal.
