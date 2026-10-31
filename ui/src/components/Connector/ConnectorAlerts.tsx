@@ -73,15 +73,14 @@ export function computeConnectorAlerts(
   for (const repo of repos) {
     if (repo.last_sync_status !== 'error' || !repo.last_sync_error) continue;
     const err = repo.last_sync_error.toLowerCase();
-    const isForbidden =
-      err.includes('forbidden') || err.includes('403') || err.includes('access forbidden');
     const isAuth =
-      !isForbidden &&
-      (err.includes('auth') ||
-        err.includes('token') ||
-        err.includes('401') ||
-        err.includes('unauthorized') ||
-        err.includes('credential'));
+      err.includes('forbidden') ||
+      err.includes('403') ||
+      err.includes('auth') ||
+      err.includes('token') ||
+      err.includes('401') ||
+      err.includes('unauthorized') ||
+      err.includes('credential');
     const isMismatch =
       err.includes('mismatch') ||
       err.includes('does not match') ||
