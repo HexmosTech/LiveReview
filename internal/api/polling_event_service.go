@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
+
+	reviewprocessor "github.com/livereview/internal/review_processor"
 )
 
 // EventSink defines the interface for broadcasting events
@@ -159,7 +162,30 @@ func (s *PollingEventService) CreateBatchEvent(ctx context.Context, reviewID, or
 		Data:      dataJSON,
 	}
 
-	return s.EmitEvent(ctx, event)
+	if err := s.EmitEvent(ctx, event); err != nil {
+		return err
+	}
+
+	// Mirrors internal/review_processor/events.go's CreateBatchEvent — this
+	// package has its own separate PollingEventService (used by the
+	// synchronous CLI-diff review path, internal/api/review_service.go),
+	// so the same hook needs wiring here too, not just there.
+	if status == "completed" && hasComments(comments) {
+		reviewprocessor.NotifyReviewEvent(ctx, reviewID, orgID, "first_finding")
+	}
+
+	return nil
+}
+
+// hasComments reports whether comments is a non-empty slice, without this
+// package needing to import pkg/models for the concrete []*models.ReviewComment
+// type EmitBatchComplete actually passes through here.
+func hasComments(comments interface{}) bool {
+	if comments == nil {
+		return false
+	}
+	v := reflect.ValueOf(comments)
+	return v.Kind() == reflect.Slice && v.Len() > 0
 }
 
 // CreateArtifactEvent creates an artifact reference event

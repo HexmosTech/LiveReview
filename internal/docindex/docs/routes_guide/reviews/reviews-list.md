@@ -16,7 +16,8 @@ Any authenticated org member.
 ## Key actions
 
 - Search/filter/sort reviews (by status, repo, provider, etc.) using
-  column header filters and a search box.
+  column header filters and a search box. Column widths can be resized by
+  dragging the edge of a column header.
 - Click a row to open [Review Detail](review-detail.md). Rows are real links,
   so right-click gives "Open in new tab" and middle/Ctrl-click work anywhere in the row.
 - Start a new review via "New Review" (`/reviews/new`).

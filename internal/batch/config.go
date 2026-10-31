@@ -1,9 +1,20 @@
 package batch
 
 import (
-	"runtime"
 	"time"
 )
+
+// DefaultMaxConcurrentBatches is the per-review concurrency ceiling used when
+// nothing more specific (an org preference or a system-wide setting) overrides
+// it. It is NOT derived from runtime.NumCPU(): a batch "worker" spends its time
+// blocked on an LLM API call (I/O-bound), so CPU count has nothing to do with
+// how many can usefully run at once - the real ceiling is the AI provider's
+// rate limit, which the global per-connector adaptive limiter (see
+// internal/llm/adaptivelimiter) discovers and enforces independently. This
+// value is just a conservative per-review cap safely under a typical
+// default-tier provider limit, so a review's own batches never queue behind
+// only 1-2 slots the way runtime.NumCPU() did on a small box.
+const DefaultMaxConcurrentBatches = 16
 
 // Config holds configuration for batch processing
 type Config struct {
@@ -16,7 +27,7 @@ type Config struct {
 // DefaultConfig returns a default configuration for batch processing
 func DefaultConfig() Config {
 	return Config{
-		MaxWorkers:   runtime.NumCPU(),
+		MaxWorkers:   DefaultMaxConcurrentBatches,
 		MaxRetries:   3,
 		RetryDelay:   2 * time.Second,
 		MaxBatchSize: 10000,

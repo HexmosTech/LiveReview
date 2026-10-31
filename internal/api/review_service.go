@@ -460,7 +460,7 @@ func (s *Server) createReviewRequest(ctx *reviewSetupContext) error {
 		ctx.logger.Log("Creating review service...")
 	}
 	log.Printf("[DEBUG] TriggerReviewV2: Creating review service for request")
-	reviewService, err := s.createReviewService(ctx.token)
+	reviewService, err := s.createReviewService(ctx.token, ctx.orgID, ctx.planCode)
 	if err != nil {
 		if ctx.logger != nil {
 			ctx.logger.LogError("Failed to create review service", err)
@@ -588,9 +588,9 @@ func (s *Server) enrichMetadata(ctx *reviewSetupContext) {
 	// recorded; the rest fall back to just the head/base pair from DiffRefs.
 	var commitRefs []CommitRef
 	if len(details.Commits) > 0 {
-		for _, sha := range details.Commits {
-			if sha = strings.TrimSpace(sha); sha != "" {
-				commitRefs = append(commitRefs, CommitRef{Ref: sha, Type: "commit"})
+		for _, c := range details.Commits {
+			if sha := strings.TrimSpace(c.SHA); sha != "" {
+				commitRefs = append(commitRefs, CommitRef{Ref: sha, Type: "commit", Message: strings.TrimSpace(c.Message)})
 			}
 		}
 	} else {

@@ -14,9 +14,9 @@ import (
 
 	"github.com/labstack/echo/v4"
 	apimiddleware "github.com/livereview/internal/api/middleware"
-	"github.com/livereview/internal/githubapp"
 	"github.com/livereview/internal/blobstore"
 	"github.com/livereview/internal/diffutil"
+	"github.com/livereview/internal/githubapp"
 	"github.com/livereview/internal/jobqueue"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/naming"
@@ -43,8 +43,9 @@ type DiffReviewRequest struct {
 // ref(s) at request time (git-lrc's --commit/--range post-commit reviews) —
 // plain staged/working diffs have no commit yet, so they send none.
 type CommitRef struct {
-	Ref  string `json:"ref"`
-	Type string `json:"type"` // "commit" | "range"
+	Ref     string `json:"ref"`
+	Type    string `json:"type"`              // "commit" | "range"
+	Message string `json:"message,omitempty"` // best-effort; empty when the source never provided one
 }
 
 // DiffReviewResult holds persisted review output that is safe to marshal.
@@ -166,43 +167,6 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusNotFound, "review not found")
 	}
 
-	if reviewRecord.Status != "completed" {
-		meta := map[string]interface{}{}
-		if len(reviewRecord.Metadata) > 0 {
-			_ = json.Unmarshal(reviewRecord.Metadata, &meta)
-		}
-		applyEnvelopeUsageFromMetadata(c, meta)
-		if v, ok := readOperationBillableLOC(meta); ok {
-			c.Set(EnvelopeOperationTypeContextKey, "diff_review")
-			c.Set(EnvelopeTriggerSourceContextKey, "api")
-			c.Set(EnvelopeOperationBillableLOCContextKey, v)
-		}
-		if v, ok := readStringMeta(meta, "accounted_at"); ok {
-			c.Set(EnvelopeAccountedAtContextKey, v)
-		}
-		if v, ok := readStringMeta(meta, "operation_id"); ok {
-			c.Set(EnvelopeOperationIDContextKey, v)
-		}
-		if v, ok := readStringMeta(meta, "idempotency_key"); ok {
-			c.Set(EnvelopeIdempotencyKeyContextKey, v)
-		}
-
-		failureReason, _ := meta["failure_reason"].(string)
-		response := map[string]interface{}{
-			"status":    reviewRecord.Status,
-			"review_id": fmt.Sprintf("%d", reviewRecord.ID),
-		}
-
-		if reviewRecord.FriendlyName != nil {
-			response["friendly_name"] = *reviewRecord.FriendlyName
-		}
-		if failureReason != "" {
-			response["message"] = failureReason
-		}
-
-		return JSONWithEnvelope(c, http.StatusOK, response)
-	}
-
 	meta := map[string]interface{}{}
 	if len(reviewRecord.Metadata) > 0 {
 		_ = json.Unmarshal(reviewRecord.Metadata, &meta)
@@ -223,48 +187,33 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 		c.Set(EnvelopeIdempotencyKeyContextKey, v)
 	}
 
-	liveFetch := false
-	preloaded, err := s.fetchPreloadedChanges(c.Request().Context(), orgID, reviewID, meta)
-	if err != nil {
-		preloaded = nil
-		// fetchPreloadedChanges reads from blob storage (or legacy metadata fallback) - only cli_diff persists the diff; every other trigger type dispatches to its own live-fetch strategy by trigger_type.
-		switch reviewRecord.TriggerType {
-		case "scheduled":
-			live, ok, liveErr := s.fetchLiveDiffFromMetadata(c.Request().Context(), meta)
-			if liveErr != nil {
-				log.Printf("[WARN] live diff fetch failed for scheduled review %d: %v", reviewID, liveErr)
-			} else if ok {
-				preloaded = live
-				liveFetch = true
-			}
-		case "cli_diff":
-			log.Printf("[WARN] preloaded_changes unavailable for CLI review %d: %v", reviewID, err)
-		default:
-			// manual, webhook, api, mcp, or any other trigger reviewing a real PR/MR.
-			connectorID := reviewRecord.ConnectorID
-			if connectorID == nil && reviewRecord.PrMrURL != "" {
-				// Pre-backfill reviews have connector_id unset - resolve it the same way prepareAuthentication does, and persist it so this only runs once per review.
-				if _, baseURL, parseErr := validateAndParseURL(reviewRecord.PrMrURL); parseErr == nil {
-					if token, tokenErr := s.findIntegrationToken(baseURL, orgID); tokenErr == nil {
-						connectorID = &token.ID
-						if updErr := rm.UpdateReviewConnector(reviewRecord.ID, token.ID); updErr != nil {
-							log.Printf("[WARN] Failed to backfill connector_id for review %d: %v", reviewID, updErr)
-						}
-					}
-				}
-			}
-			if connectorID != nil && reviewRecord.PrMrURL != "" {
-				prLive, prErr := s.fetchLiveDiffFromPR(c.Request().Context(), *connectorID, reviewRecord.PrMrURL)
-				if prErr != nil {
-					log.Printf("[WARN] live PR diff fetch failed for review %d", reviewID)
-				} else {
-					preloaded = prLive
-					liveFetch = true
-				}
-			} else {
-				log.Printf("[WARN] preloaded_changes unavailable for review %d (trigger_type=%s): %v", reviewID, reviewRecord.TriggerType, err)
-			}
+	// Resolve the diff/hunk structure regardless of completion status, so the
+	// webui's Findings tab can render real files+hunks (with no comments yet)
+	// while the review is still in_progress, and merge in streamed per-batch
+	// comments from GetReviewEvents on top of them. Before this, a
+	// non-completed review returned no "files" at all, so there was nothing
+	// to merge incremental findings into (see the incremental-findings plan).
+	preloaded, liveFetch := s.resolvePreloadedChanges(c.Request().Context(), orgID, reviewID, reviewRecord, rm, meta)
+
+	if reviewRecord.Status != "completed" {
+		failureReason, _ := meta["failure_reason"].(string)
+		response := map[string]interface{}{
+			"status":    reviewRecord.Status,
+			"review_id": fmt.Sprintf("%d", reviewRecord.ID),
+			"files":     buildDiffFiles(preloaded, nil),
 		}
+
+		if reviewRecord.FriendlyName != nil {
+			response["friendly_name"] = *reviewRecord.FriendlyName
+		}
+		if failureReason != "" {
+			response["message"] = failureReason
+		}
+		if liveFetch {
+			response["live_fetch"] = true
+		}
+
+		return JSONWithEnvelope(c, http.StatusOK, response)
 	}
 
 	result, err := decodeReviewResult(meta)
@@ -301,6 +250,59 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	}
 
 	return JSONWithEnvelope(c, http.StatusOK, response)
+}
+
+// resolvePreloadedChanges fetches the diff/hunk structure for a review,
+// independent of whether the review has finished analyzing it yet.
+// fetchPreloadedChanges reads from blob storage (or legacy metadata
+// fallback) - only cli_diff persists the diff; every other trigger type
+// dispatches to its own live-fetch strategy by trigger_type. Returns
+// (nil, false) if nothing is available yet (e.g. a brand-new review whose
+// diff hasn't been persisted/fetched yet) - callers treat that as "no files
+// to show yet", not an error.
+func (s *Server) resolvePreloadedChanges(ctx context.Context, orgID, reviewID int64, reviewRecord *Review, rm *ReviewManager, meta map[string]interface{}) ([]models.CodeDiff, bool) {
+	preloaded, err := s.fetchPreloadedChanges(ctx, orgID, reviewID, meta)
+	if err == nil {
+		return preloaded, false
+	}
+
+	switch reviewRecord.TriggerType {
+	case "scheduled":
+		live, ok, liveErr := s.fetchLiveDiffFromMetadata(ctx, meta)
+		if liveErr != nil {
+			log.Printf("[WARN] live diff fetch failed for scheduled review %d: %v", reviewID, liveErr)
+		} else if ok {
+			return live, true
+		}
+	case "cli_diff":
+		log.Printf("[WARN] preloaded_changes unavailable for CLI review %d: %v", reviewID, err)
+	default:
+		// manual, webhook, api, mcp, or any other trigger reviewing a real PR/MR.
+		connectorID := reviewRecord.ConnectorID
+		if connectorID == nil && reviewRecord.PrMrURL != "" {
+			// Pre-backfill reviews have connector_id unset - resolve it the same way prepareAuthentication does, and persist it so this only runs once per review.
+			if _, baseURL, parseErr := validateAndParseURL(reviewRecord.PrMrURL); parseErr == nil {
+				if token, tokenErr := s.findIntegrationToken(baseURL, orgID); tokenErr == nil {
+					connectorID = &token.ID
+					if updErr := rm.UpdateReviewConnector(reviewRecord.ID, token.ID); updErr != nil {
+						log.Printf("[WARN] Failed to backfill connector_id for review %d: %v", reviewID, updErr)
+					}
+				}
+			}
+		}
+		if connectorID != nil && reviewRecord.PrMrURL != "" {
+			prLive, prErr := s.fetchLiveDiffFromPR(ctx, *connectorID, reviewRecord.PrMrURL)
+			if prErr != nil {
+				log.Printf("[WARN] live PR diff fetch failed for review %d", reviewID)
+			} else {
+				return prLive, true
+			}
+		} else {
+			log.Printf("[WARN] preloaded_changes unavailable for review %d (trigger_type=%s): %v", reviewID, reviewRecord.TriggerType, err)
+		}
+	}
+
+	return nil, false
 }
 
 // AttachDiffReviewCommitRequest is the payload for POST /api/v1/diff-review/:review_id/commit.

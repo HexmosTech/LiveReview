@@ -7,10 +7,11 @@
 // comment card; the styles below mirror git-lrc's actual .badge-info/.badge-warning/
 // .badge-critical rgba values (Comment.js/styles.css), which were designed for a
 // dark surface.
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { DiffReviewComment } from '../../../types/reviews';
 import { BlastRadiusHunkReport } from '../../../types/reviews';
 import { commentDomId, severityBadgeStyle } from './diffUtils';
+import { getCommentRenderLabel } from './reviewPerformance';
 import VoteButtons from './VoteButtons';
 import RiskBadge from './RiskBadge';
 
@@ -27,6 +28,12 @@ interface CommentThreadProps {
   // score and comment are always assessed together" (RiskBadge.js), and both
   // copies drive the one shared panel, not independent ones.
   onOpenBreakdown?: () => void;
+  // Time-to-first-comment tracking (ported from git-lrc - see reviewPerformance.ts /
+  // DiffViewerPanel.tsx). baselineMs is the review's start time; onCommentRendered fires
+  // once per comment id the first time it mounts, recording when it actually appeared.
+  baselineMs?: number;
+  commentRenderTimes?: Record<string, number>;
+  onCommentRendered?: (commentKey: string) => void;
 }
 
 function buildMetaItems(comment: DiffReviewComment): { label: string; value: string }[] {
@@ -64,11 +71,22 @@ const CommentCard: React.FC<{
   hunkRiskScore?: number;
   codeExcerpt?: string;
   onOpenBreakdown?: () => void;
-}> = ({ id, reviewId, filePath, comment, hunkBlastDetail, hunkRiskScore, codeExcerpt, onOpenBreakdown }) => {
+  renderLabel?: string;
+  onRendered?: () => void;
+}> = ({ id, reviewId, filePath, comment, hunkBlastDetail, hunkRiskScore, codeExcerpt, onOpenBreakdown, renderLabel, onRendered }) => {
   const [hidden, setHidden] = useState(false);
   const [copyLabel, setCopyLabel] = useState<string | null>(null);
 
+  // Mount-only: records the first moment this specific comment actually
+  // rendered, for the "Appeared in Xs" meta item below (ported from
+  // git-lrc's handleCommentRendered - app.js).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { onRendered?.(); }, []);
+
   const metaItems = buildMetaItems(comment);
+  if (renderLabel) {
+    metaItems.push({ label: 'Timing', value: renderLabel });
+  }
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(buildCopyText(filePath, comment, codeExcerpt)).then(() => {
@@ -179,23 +197,28 @@ const CommentCard: React.FC<{
   );
 };
 
-const CommentThread: React.FC<CommentThreadProps> = ({ reviewId, filePath, comments, hunkBlastDetail, hunkRiskScore, codeExcerpt, onOpenBreakdown }) => {
+const CommentThread: React.FC<CommentThreadProps> = ({ reviewId, filePath, comments, hunkBlastDetail, hunkRiskScore, codeExcerpt, onOpenBreakdown, baselineMs, commentRenderTimes, onCommentRendered }) => {
   if (!comments.length) return null;
   return (
     <div className="space-y-3 px-3 py-3">
-      {comments.map(({ comment, idx }) => (
-        <CommentCard
-          key={idx}
-          id={commentDomId(filePath, comment, idx)}
-          reviewId={reviewId}
-          filePath={filePath}
-          comment={comment}
-          hunkBlastDetail={hunkBlastDetail}
-          hunkRiskScore={hunkRiskScore}
-          codeExcerpt={codeExcerpt}
-          onOpenBreakdown={onOpenBreakdown}
-        />
-      ))}
+      {comments.map(({ comment, idx }) => {
+        const domId = commentDomId(filePath, comment, idx);
+        return (
+          <CommentCard
+            key={idx}
+            id={domId}
+            reviewId={reviewId}
+            filePath={filePath}
+            comment={comment}
+            hunkBlastDetail={hunkBlastDetail}
+            hunkRiskScore={hunkRiskScore}
+            codeExcerpt={codeExcerpt}
+            onOpenBreakdown={onOpenBreakdown}
+            renderLabel={getCommentRenderLabel(baselineMs, commentRenderTimes?.[domId])}
+            onRendered={onCommentRendered ? () => onCommentRendered(domId) : undefined}
+          />
+        );
+      })}
     </div>
   );
 };

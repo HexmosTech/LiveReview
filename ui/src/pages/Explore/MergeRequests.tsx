@@ -151,6 +151,7 @@ const MergeRequests: React.FC = () => {
   const columns = useMemo<ColumnDef<PullRequestWithRepo>[]>(() => [
     {
       id: 'title',
+      size: 300,
       // Has its own link to the PR on the provider, so the row link stays out of the cell's content.
       meta: { rowLink: false },
       // Searches title + author + repository together, same combined
@@ -210,6 +211,7 @@ const MergeRequests: React.FC = () => {
     },
     {
       id: 'provider',
+      size: 120,
       accessorFn: (pr) => normalizeProvider(pr.provider),
       filterFn: multiSelectFilterFn,
       header: ({ column }) => (
@@ -243,6 +245,7 @@ const MergeRequests: React.FC = () => {
     },
     {
       id: 'state',
+      size: 120,
       accessorKey: 'state',
       filterFn: multiSelectFilterFn,
       header: ({ column }) => (
@@ -281,6 +284,7 @@ const MergeRequests: React.FC = () => {
     },
     {
       id: 'author',
+      size: 150,
       accessorFn: (pr) => pr.author_name || pr.author_username || '',
       enableColumnFilter: false,
       header: ({ column }) => (
@@ -295,6 +299,7 @@ const MergeRequests: React.FC = () => {
     },
     {
       id: 'updated',
+      size: 150,
       accessorFn: (pr) => pr.provider_updated_at || pr.last_synced_at || '',
       enableColumnFilter: false,
       header: ({ column }) => (
@@ -311,6 +316,7 @@ const MergeRequests: React.FC = () => {
     },
     {
       id: 'actions',
+      size: 160,
       meta: { rowLink: false },
       enableSorting: false,
       enableColumnFilter: false,
@@ -343,6 +349,8 @@ const MergeRequests: React.FC = () => {
     initialState: {
       pagination: { pageSize: pageSizeOptions[0] },
     },
+    columnResizeMode: 'onChange',
+    enableColumnResizing: true,
   });
 
   return (
@@ -367,6 +375,7 @@ const MergeRequests: React.FC = () => {
         <ClientTable
           table={table}
           columnWidths={MERGE_REQUESTS_COLUMN_WIDTHS}
+          enableColumnResizing
           getRowHref={(pr) => `/reviews?pull_request_id=${pr.id}`}
           loading={loading}
           loadingLabel="Loading merge requests..."

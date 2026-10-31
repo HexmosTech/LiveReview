@@ -17,7 +17,7 @@ func (s *Server) insertReviewCommits(ctx context.Context, reviewID, orgID int64,
 func insertReviewCommitsTx(ctx context.Context, db *sql.DB, reviewID, orgID int64, repositoryID *int64, refs []CommitRef) error {
 	converted := make([]reviewprocessor.CommitRef, len(refs))
 	for i, r := range refs {
-		converted[i] = reviewprocessor.CommitRef{Ref: r.Ref, Type: r.Type}
+		converted[i] = reviewprocessor.CommitRef{Ref: r.Ref, Type: r.Type, Message: r.Message}
 	}
 	return reviewprocessor.InsertReviewCommits(ctx, db, reviewID, orgID, repositoryID, converted)
 }

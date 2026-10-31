@@ -322,6 +322,7 @@ func (e *Engine) riskStage(ctx context.Context, orgID, reviewID int64, p *Policy
 	scores, _ := riskscore.LoadRecentScores(ctx, e.db, orgID, 1000)
 	cutoff := riskscore.PercentileCutoff(scores, p.RiskThresholdPercentile)
 	pct := riskscore.PercentileOf(score, scores)
+	cutoffPct := riskscore.PercentileOf(cutoff, scores)
 
 	if !dryRun {
 		info, infoErr := e.scorer.Info(ctx, orgID)
@@ -331,13 +332,14 @@ func (e *Engine) riskStage(ctx context.Context, orgID, reviewID int64, p *Policy
 	}
 
 	detail := map[string]interface{}{
-		"score":      score,
-		"percentile": pct,
-		"cutoff":     cutoff,
-		"threshold":  p.RiskThresholdPercentile,
-		"features":   featureTable(features),
+		"score":             score,
+		"percentile":        pct,
+		"cutoff":            cutoff,
+		"cutoff_percentile": cutoffPct,
+		"threshold":         p.RiskThresholdPercentile,
+		"features":          featureTable(features),
 	}
-	detail["reason"] = riskReason(score, cutoff, pct, p.RiskThresholdPercentile, len(scores) > 0)
+	detail["reason"] = riskReason(score, cutoff, pct, cutoffPct, p.RiskThresholdPercentile, riskscore.HasEnoughHistory(scores))
 	if score >= cutoff {
 		return riskStageResult{StageResult: StageResult{Stage: StageRisk, Verdict: VerdictFail, Detail: detail}, Score: score, Percentile: pct, Cutoff: cutoff}
 	}
@@ -346,16 +348,32 @@ func (e *Engine) riskStage(ctx context.Context, orgID, reviewID int64, p *Policy
 
 // riskReason builds the risk stage message. P numbers only mean something
 // when there are past scores to rank against, so they're left out otherwise.
-func riskReason(score, cutoff float64, pct, threshold int, hasHistory bool) string {
+//
+// Both P-labels must answer the same question — the value's actual rank in
+// the org's historical score distribution, via PercentileOf — rather than
+// mixing "actual rank" for the score with "configured policy knob" for the
+// cutoff. Those are different numbers, and showing both as "(P__)" falsely
+// implied they were comparable (e.g. P100 vs the configured P20, for the
+// same raw value). The configured threshold is still surfaced, but only
+// called out by name when it diverges from the cutoff's actual rank, which
+// happens for a small/skewed historical distribution.
+func riskReason(score, cutoff float64, scorePct, cutoffPct, threshold int, hasHistory bool) string {
 	scoreLabel, cutoffLabel := fmt.Sprintf("%.2f", score), fmt.Sprintf("%.2f", cutoff)
 	if hasHistory {
-		scoreLabel += fmt.Sprintf(" (P%d)", pct)
-		cutoffLabel += fmt.Sprintf(" (P%d)", threshold)
+		scoreLabel += fmt.Sprintf(" (P%d)", scorePct)
+		cutoffLabel += fmt.Sprintf(" (P%d)", cutoffPct)
+		if cutoffPct != threshold {
+			cutoffLabel += fmt.Sprintf(", configured for P%d", threshold)
+		}
 	}
-	if score >= cutoff {
+	switch {
+	case score > cutoff:
 		return fmt.Sprintf("Risk score %s is above the cutoff of %s", scoreLabel, cutoffLabel)
+	case score < cutoff:
+		return fmt.Sprintf("Risk score %s is below the cutoff of %s", scoreLabel, cutoffLabel)
+	default:
+		return fmt.Sprintf("Risk score %s is at the cutoff of %s", scoreLabel, cutoffLabel)
 	}
-	return fmt.Sprintf("Risk score %s is below the cutoff of %s", scoreLabel, cutoffLabel)
 }
 
 // featureTable renders the feature vector as a human-readable list for the UI's

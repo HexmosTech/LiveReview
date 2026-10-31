@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { LuExternalLink, LuGitBranch } from 'react-icons/lu';
 import ProviderIcon from '../../components/ProviderIcon';
 import { riskAssessment, RiskAssessmentDetails, RiskScore } from '../../components/reviews/RiskAssessment';
 import { reviewStatusBadge } from '../../utils/reviewDisplay';
-import { Button, Icons, Tabs } from '../../components/UIPrimitives';
-import { ReviewEventsPage, DiffViewerPanel } from '../../components/reviews';
+import { Button, Icons, Tabs, Tooltip } from '../../components/UIPrimitives';
+import { ReviewEventsPage, DiffViewerPanel, PushNotificationBanner } from '../../components/reviews';
 import AutoApprovePanel from '../../components/reviews/AutoApprovePanel';
 import { getReviewPolicyLog } from '../../api/riskPolicy';
 import {
@@ -83,10 +83,37 @@ const ReviewDetail: React.FC = () => {
     const [levelFilter, setLevelFilter] = useState<ReviewEventLevel | ''>('');
     const [typeFilter, setTypeFilter] = useState<ReviewEventType | ''>('');
     const [lastEventTime, setLastEventTime] = useState<string | null>(null);
-    const [activeTab, setActiveTab] = useState<'findings' | 'accounting' | 'events' | 'auto-approve'>('findings');
+    const [nowTick, setNowTick] = useState<number>(() => Date.now());
+    type TabId = 'findings' | 'accounting' | 'events' | 'auto-approve';
+    const TAB_IDS: TabId[] = ['findings', 'accounting', 'events', 'auto-approve'];
+    const [searchParams, setSearchParams] = useSearchParams();
+    // The active tab lives in the URL (?tab=...), not plain useState, so a
+    // refresh or a deep link restores the tab instead of always landing on
+    // Findings, and the browser Back/Forward buttons step through tab
+    // switches like any other navigation - both were reported as broken.
+    const tabParam = searchParams.get('tab');
+    const activeTab: TabId = (TAB_IDS as string[]).includes(tabParam || '') ? (tabParam as TabId) : 'findings';
+    const setActiveTab = useCallback((tab: TabId, opts?: { replace?: boolean }) => {
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            if (tab === 'findings') {
+                next.delete('tab');
+            } else {
+                next.set('tab', tab);
+            }
+            return next;
+        }, { replace: opts?.replace });
+    }, [setSearchParams]);
     const [blastReport, setBlastReport] = useState<BlastRadiusReport | BlastRadiusSkipped | null>(null);
     const [blastPoll, setBlastPoll] = useState<'checking' | 'waiting' | 'gave_up'>('checking');
-    const [riskScores, setRiskScores] = useState<RiskScore[]>([]);
+    // null means "not loaded yet" (Findings hasn't computed its real, finding-
+    // aware scores) -- distinct from [] (loaded, confirmed zero scored hunks).
+    // riskAssessment() shows a neutral "Calculating..." state for null instead
+    // of guessing from the structural-only blast radius score, which used to
+    // flash a different (sometimes higher) risk tier the moment Findings
+    // finished loading and handed over the real numbers.
+    const [riskScores, setRiskScores] = useState<RiskScore[] | null>(null);
+    const [commentCount, setCommentCount] = useState<number | undefined>(undefined);
 
     useEffect(() => {
         // Blast radius comes from `git lrc review` or the server-side job, which runs alongside the
@@ -96,7 +123,8 @@ const ReviewDetail: React.FC = () => {
         let attempts = 0;
         setBlastReport(null);
         setBlastPoll('checking');
-        setRiskScores([]);
+        setRiskScores(null);
+        setCommentCount(undefined);
         const load = () => {
             getBlastRadiusReport(reviewId)
                 .then((report) => {
@@ -119,7 +147,6 @@ const ReviewDetail: React.FC = () => {
         };
     }, [reviewId]);
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-    const defaultedTabForReviewRef = useRef<number | null>(null);
 
 
     const getEventIcon = (type: string, level?: string) => {
@@ -268,18 +295,10 @@ const ReviewDetail: React.FC = () => {
         setAllCommitsShown(false);
     }, [id]);
 
-    // Findings only exist once the review has finished. While it is still
-    // running -- or has failed, e.g. an expired git connector -- the Events
-    // tab is what tells the user what is actually happening, so open there
-    // instead of on an empty Findings panel. Applied once per review so a
-    // user who deliberately clicks Findings is not bounced back.
-    useEffect(() => {
-        if (!review || defaultedTabForReviewRef.current === review.id) return;
-        defaultedTabForReviewRef.current = review.id;
-        if (review.status !== 'completed') {
-            setActiveTab('events');
-        }
-    }, [review]);
+    // Findings now stream in incrementally (DiffViewerPanel polls batch
+    // events while the review runs — see reviewStreamState.ts), so Findings
+    // stays the default tab even while a review is still in progress instead
+    // of bouncing the user to Events until completion.
 
     // When a review finishes while the page is open, jump to Findings and flag the Auto Approve tab.
     const lastStatusRef = useRef<string | undefined>(undefined);
@@ -288,7 +307,7 @@ const ReviewDetail: React.FC = () => {
         const prev = lastStatusRef.current;
         lastStatusRef.current = review?.status;
         if ((prev === 'created' || prev === 'in_progress') && review?.status === 'completed') {
-            setActiveTab('findings');
+            setActiveTab('findings', { replace: true });
             if (review.metadata?.pr_link_policy) setAutoApproveAttention(true);
         }
     }, [review?.status, review?.metadata?.pr_link_policy]);
@@ -350,6 +369,15 @@ const ReviewDetail: React.FC = () => {
         fetchReviewDetails();
     }, [fetchReviewDetails]);
 
+    // Drives the live "Elapsed" stat while the review is in progress.
+    useEffect(() => {
+        if (review?.status !== 'created' && review?.status !== 'in_progress') {
+            return;
+        }
+        const tick = setInterval(() => setNowTick(Date.now()), 1000);
+        return () => clearInterval(tick);
+    }, [review?.status]);
+
     // Poll accounting so the panel auto-updates once usage records land.
     useEffect(() => {
         if (!id || !pollingEnabled || accountingRouteUnavailable) {
@@ -387,6 +415,10 @@ const ReviewDetail: React.FC = () => {
             // Refresh the review itself too, so the status badge flips once the review finishes.
             if (review?.status === 'created' || review?.status === 'in_progress') {
                 getReview(currentReviewId).then(setReview).catch(() => {});
+                // Summary (batch count, event counts) is otherwise only fetched once on
+                // mount - without this it stays frozen at whatever it was when the page
+                // first loaded, e.g. "Batches: 0" forever if opened before any batch ran.
+                getReviewSummary(currentReviewId).then(setSummary).catch(() => {});
             }
         }, ACCOUNTING_REFRESH_INTERVAL_MS);
 
@@ -469,6 +501,13 @@ const ReviewDetail: React.FC = () => {
         return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
     };
 
+    // "Elapsed" ticks live while a review is running (unlike formatDuration, which
+    // only has an answer once completedAt is set) - uses nowTick so it re-renders
+    // every second instead of freezing at the value from the last fetch.
+    const elapsed = review.startedAt
+        ? formatDuration(review.startedAt, review.completedAt || new Date(nowTick).toISOString())
+        : null;
+
     const leaderAIExecutionMode = typeof review.metadata?.leader_ai_execution_mode === 'string' ? review.metadata.leader_ai_execution_mode : '';
     const leaderAIExecutionSource = typeof review.metadata?.leader_ai_execution_source === 'string' ? review.metadata.leader_ai_execution_source : '';
     const leaderAIExecutionProvider = typeof review.metadata?.leader_ai_provider_name === 'string' ? review.metadata.leader_ai_provider_name : '';
@@ -519,6 +558,8 @@ const ReviewDetail: React.FC = () => {
 
     return (
         <div className="container mx-auto px-4 py-8">
+            <PushNotificationBanner />
+
             {/* Header */}
             <Button
                 as={Link}
@@ -594,8 +635,10 @@ const ReviewDetail: React.FC = () => {
                     />
                     <HeaderStat label="Commits" value={commitsLoaded ? String(commits.length) : '...'} />
                     <HeaderStat label="Last activity" value={formatRelativeTime(review.completedAt || review.startedAt || review.createdAt)} />
+                    {elapsed && <HeaderStat label="Elapsed" value={elapsed} />}
                     <HeaderStat label="Events" value={eventCount !== undefined && eventCount > 0 ? String(eventCount) : String(Object.values(summary?.eventCounts || {}).reduce((a: number, b: number) => a + b, 0))} />
                     <HeaderStat label="Risk assessment" value={risk.value} className={risk.tone} />
+                    {commentCount !== undefined && <HeaderStat label="Comments" value={String(commentCount)} />}
                     {review.metadata?.pr_link_policy && (
                         <HeaderStat
                             label="Auto-approve"
@@ -629,29 +672,38 @@ const ReviewDetail: React.FC = () => {
                                 <>
                                     <ul className={`space-y-2 ${allCommitsShown && commits.length > COMMITS_PREVIEW_LIMIT ? 'max-h-64 overflow-y-auto pr-1' : ''}`}>
                                         {(allCommitsShown ? commits : commits.slice(0, COMMITS_PREVIEW_LIMIT)).map((commit) => (
-                                            <li key={commit.ref} className="flex items-center gap-3 text-xs">
-                                                <div className="flex items-center gap-2 min-w-0">
-                                                    {commit.refType === 'commit' && githubBaseUrl ? (
-                                                        <a
-                                                            href={`${githubBaseUrl}/commit/${commit.ref}`}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="font-mono text-slate-200 shrink-0 hover:text-blue-400 hover:underline"
-                                                        >
-                                                            {commit.ref.substring(0, 8)}
-                                                        </a>
-                                                    ) : (
-                                                        <span className="font-mono text-slate-200 shrink-0">
-                                                            {commit.refType === 'commit' ? commit.ref.substring(0, 8) : commit.ref}
-                                                        </span>
-                                                    )}
-                                                    {commit.refType === 'range' && (
-                                                        <span className="shrink-0 text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border bg-purple-900/30 text-purple-300 border-purple-700">
-                                                            range
-                                                        </span>
-                                                    )}
+                                            <li key={commit.ref} className="text-xs">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        {commit.refType === 'commit' && githubBaseUrl ? (
+                                                            <a
+                                                                href={`${githubBaseUrl}/commit/${commit.ref}`}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="font-mono text-slate-200 shrink-0 hover:text-blue-400 hover:underline"
+                                                            >
+                                                                {commit.ref.substring(0, 8)}
+                                                            </a>
+                                                        ) : (
+                                                            <span className="font-mono text-slate-200 shrink-0">
+                                                                {commit.refType === 'commit' ? commit.ref.substring(0, 8) : commit.ref}
+                                                            </span>
+                                                        )}
+                                                        {commit.refType === 'range' && (
+                                                            <span className="shrink-0 text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border bg-purple-900/30 text-purple-300 border-purple-700">
+                                                                range
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <span className="shrink-0 text-slate-400">{formatRelativeTime(commit.createdAt)}</span>
                                                 </div>
-                                                <span className="shrink-0 text-slate-400">{formatRelativeTime(commit.createdAt)}</span>
+                                                {commit.message && (
+                                                    <div className="mt-0.5 w-full">
+                                                        <Tooltip content={commit.message}>
+                                                            <p className="w-full truncate text-slate-400">{commit.message}</p>
+                                                        </Tooltip>
+                                                    </div>
+                                                )}
                                             </li>
                                         ))}
                                     </ul>
@@ -725,7 +777,19 @@ const ReviewDetail: React.FC = () => {
                 tabs={[
                     { id: 'findings', label: 'Findings' },
                     { id: 'accounting', label: 'Accounting' },
-                    { id: 'events', label: 'Events' },
+                    {
+                        id: 'events',
+                        label: (
+                            <span className="inline-flex items-center gap-1.5">
+                                Events
+                                {eventCount > 0 && (
+                                    <span className="inline-flex items-center justify-center rounded-full bg-slate-700 px-1.5 py-0.5 text-[10px] font-medium text-slate-200 min-w-[1.25rem]">
+                                        {eventCount}
+                                    </span>
+                                )}
+                            </span>
+                        ),
+                    },
                     ...(review.metadata?.pr_link_policy ? [{
                         id: 'auto-approve',
                         label: (
@@ -751,12 +815,18 @@ const ReviewDetail: React.FC = () => {
 
             {activeTab === 'findings' && (
                 <div className="mb-6">
-                    {/* Keyed on status so the findings reload once the review finishes. */}
+                    {/* No key={review?.status} here - DiffViewerPanel has its own
+                        internal polling that refetches on completion (see its
+                        header comment). Remounting it on every status transition
+                        used to wipe already-streamed comments and the comment nav
+                        back to a loading state, then rebuild them from scratch -
+                        visible as a flash of findings disappearing mid-review. */}
                     <DiffViewerPanel
-                        key={review?.status}
                         reviewId={reviewId}
                         blastReport={blastReport && !isBlastRadiusSkipped(blastReport) ? blastReport : undefined}
                         onRiskScores={setRiskScores}
+                        onCommentCount={setCommentCount}
+                        reviewStartedAt={review.startedAt}
                     />
                 </div>
             )}
@@ -920,6 +990,7 @@ const ReviewDetail: React.FC = () => {
                             severity: mapEventLevel(event.level) as 'info' | 'success' | 'warning' | 'warn' | 'error' | 'debug'
                         }))}
                         isLive={review?.status === 'in_progress'}
+                        reviewStatus={review?.status}
                     />
             </div>
         </div>

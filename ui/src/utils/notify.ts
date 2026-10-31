@@ -22,6 +22,9 @@ const dispatchNotification = (input: AddNotificationInput): void => {
 };
 
 export const notify = {
+    info(message: string, opts?: NotifyOptions): void {
+        dispatchNotification({ severity: 'info', message, source: 'toast-migrated', toast: true, ...opts });
+    },
     success(message: string, opts?: NotifyOptions): void {
         dispatchNotification({ severity: 'success', message, source: 'toast-migrated', toast: true, ...opts });
     },

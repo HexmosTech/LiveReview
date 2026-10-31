@@ -587,7 +587,7 @@ type NavLink = {
 const baseNavLinks: NavLink[] = [
     { name: 'Dashboard', key: 'dashboard', icon: <Icons.Dashboard />, path: '/dashboard' },
     { name: 'Reviews', key: 'reviews', icon: <Icons.Reviews />, path: '/reviews' },
-    { name: 'Explore', key: 'explore', icon: <Icons.FolderOpen />, path: '/explore/repositories' },
+    { name: 'Explore', key: 'explore', icon: <Icons.FolderOpen />, path: '/explore/merge-requests' },
     { name: 'Providers', key: 'providers', icon: <Icons.Layers />, requiresOwnerOrAdmin: true },
     { name: 'Reports', key: 'reports', icon: <Icons.Reports />, path: '/reports', requiresOwnerOrAdmin: true },
     { name: 'Settings', key: 'settings', icon: <Icons.Settings />, path: '/settings' },

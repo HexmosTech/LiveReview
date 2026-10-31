@@ -216,7 +216,9 @@ const AIProviders: React.FC = () => {
     const [activeRole, setActiveRole] = useState<'leader' | 'helper'>('leader');
     const [helperSettings, setHelperSettings] = useState<ReviewAISettings>({
         helper_enabled: true,
-        helper_mode: 'concise_then_expand'
+        helper_mode: 'concise_then_expand',
+        preferred_max_concurrent_batches: null,
+        preferred_review_timeout_seconds: null
     });
     const [helperSettingsSaved, setHelperSettingsSaved] = useState(false);
 	const dropdownRef = useRef<HTMLDivElement>(null);
@@ -265,7 +267,11 @@ const AIProviders: React.FC = () => {
                 const settings = await getReviewAISettings();
                 setHelperSettings({
                     helper_enabled: !!settings.helper_enabled,
-                    helper_mode: (settings.helper_mode as 'concise_then_expand' | 'polish_only') || 'concise_then_expand'
+                    helper_mode: (settings.helper_mode as 'concise_then_expand' | 'polish_only') || 'concise_then_expand',
+                    preferred_max_concurrent_batches: settings.preferred_max_concurrent_batches ?? null,
+                    preferred_review_timeout_seconds: settings.preferred_review_timeout_seconds ?? null,
+                    effective_max_concurrent_batches: settings.effective_max_concurrent_batches,
+                    effective_review_timeout_seconds: settings.effective_review_timeout_seconds,
                 });
             } catch (settingsError) {
                 console.error('Failed to load review AI settings:', settingsError);
@@ -486,10 +492,19 @@ const AIProviders: React.FC = () => {
 
     const handleSaveHelperSettings = async () => {
         try {
-            const updated = await updateReviewAISettings(helperSettings.helper_enabled, helperSettings.helper_mode);
+            const updated = await updateReviewAISettings(
+                helperSettings.helper_enabled,
+                helperSettings.helper_mode,
+                helperSettings.preferred_max_concurrent_batches ?? null,
+                helperSettings.preferred_review_timeout_seconds ?? null
+            );
             setHelperSettings({
                 helper_enabled: !!updated.helper_enabled,
-                helper_mode: (updated.helper_mode as 'concise_then_expand' | 'polish_only') || 'concise_then_expand'
+                helper_mode: (updated.helper_mode as 'concise_then_expand' | 'polish_only') || 'concise_then_expand',
+                preferred_max_concurrent_batches: updated.preferred_max_concurrent_batches ?? null,
+                preferred_review_timeout_seconds: updated.preferred_review_timeout_seconds ?? null,
+                effective_max_concurrent_batches: updated.effective_max_concurrent_batches,
+                effective_review_timeout_seconds: updated.effective_review_timeout_seconds,
             });
             setHelperSettingsSaved(true);
             setTimeout(() => setHelperSettingsSaved(false), 3000);
@@ -613,6 +628,57 @@ const AIProviders: React.FC = () => {
                             </Card>
                             </>
                         )}
+
+                        <Card
+                            title="Review Performance"
+                            badge={helperSettings.effective_max_concurrent_batches ? `${helperSettings.effective_max_concurrent_batches} concurrent batches` : undefined}
+                        >
+                            <div className="space-y-4">
+                                <p className="text-sm text-slate-400">
+                                    Optional. Leave blank to use the instance default. Your value is always clamped to what the instance allows - you can turn these down, never above the instance ceiling.
+                                </p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-300 mb-2">
+                                            Preferred concurrent batches
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            placeholder={helperSettings.effective_max_concurrent_batches ? `Default: ${helperSettings.effective_max_concurrent_batches}` : 'Instance default'}
+                                            value={helperSettings.preferred_max_concurrent_batches ?? ''}
+                                            onChange={(e) => setHelperSettings((prev) => ({
+                                                ...prev,
+                                                preferred_max_concurrent_batches: e.target.value === '' ? null : (parseInt(e.target.value, 10) || null)
+                                            }))}
+                                            className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-300 mb-2">
+                                            Preferred review timeout (seconds)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            placeholder={helperSettings.effective_review_timeout_seconds ? `Default: ${helperSettings.effective_review_timeout_seconds}` : 'Instance default'}
+                                            value={helperSettings.preferred_review_timeout_seconds ?? ''}
+                                            onChange={(e) => setHelperSettings((prev) => ({
+                                                ...prev,
+                                                preferred_review_timeout_seconds: e.target.value === '' ? null : (parseInt(e.target.value, 10) || null)
+                                            }))}
+                                            className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <Button variant="primary" size="sm" onClick={handleSaveHelperSettings}>
+                                        Save Performance Settings
+                                    </Button>
+                                    {helperSettingsSaved && <span className="text-sm text-emerald-400">Saved</span>}
+                                </div>
+                            </div>
+                        </Card>
 
                         {/* Connector Form - Only show when actively adding/editing */}
                         {(formData.name || formData.apiKey || isEditing) && (

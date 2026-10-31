@@ -114,16 +114,28 @@ func LoadBlastStats(ctx context.Context, db *sql.DB, orgID, reviewID int64) (Bla
 // (when present) the diff-level semantic classification. Feature values are
 // lightly bounded/compressed (log1p on counts) so no single feature dominates
 // the dot product.
+// log1p'd features: every count/sum that is structurally unbounded (grows with
+// diff size or finding volume, not capped to a known range) is compressed with
+// math.Log1p before it reaches the dot product. br_sum is the feature that
+// actually saturated production (a raw SUM(combined) across every blast-radius
+// hunk in the diff, real values 1700-4840, against a weight calibrated for an
+// assumed 0-100 range) - but every count feature here shares the identical
+// structural flaw once a diff/review has enough findings (production data
+// already shows warning_count up to 37, critical_count up to 12, both alone
+// enough to saturate at their un-compressed weights). br_max, br_weighted_avg
+// stay raw because they're genuinely bounded (a MAX or a weighted AVERAGE of a
+// per-hunk score can't runaway the way a SUM or a COUNT can); llm_class_risk
+// stays raw because it's already a bounded ordinal (0/0.5/1).
 func ExtractFeatures(br BlastStats, doc *canonicaldoc.ReviewDoc) []float64 {
 	f := make([]float64, FeatureCount())
-	f[0] = br.Sum
+	f[0] = math.Log1p(br.Sum)
 	f[1] = br.Max
 	f[2] = br.WeightedAvg
-	f[3] = float64(br.HighCount)
+	f[3] = math.Log1p(float64(br.HighCount))
 	if doc != nil {
-		f[4] = float64(doc.Counts.BySeverity["critical"])
-		f[5] = float64(doc.Counts.BySeverity["warning"])
-		f[6] = float64(doc.Counts.ByCategory["security"])
+		f[4] = math.Log1p(float64(doc.Counts.BySeverity["critical"]))
+		f[5] = math.Log1p(float64(doc.Counts.BySeverity["warning"]))
+		f[6] = math.Log1p(float64(doc.Counts.ByCategory["security"]))
 	}
 	f[7] = math.Log1p(float64(br.FileCount))
 	f[8] = math.Log1p(float64(br.LinesAdded))
@@ -132,15 +144,15 @@ func ExtractFeatures(br BlastStats, doc *canonicaldoc.ReviewDoc) []float64 {
 		// doc.Counts.ByCategory keys are the taxonomy labels lower-cased as-is
 		// (canonicaldoc.Build), so "Compliance & Governance"/"Developer
 		// Experience" keep their space/"&" rather than becoming snake_case.
-		f[10] = float64(doc.Counts.ByCategory["reliability"])
-		f[11] = float64(doc.Counts.ByCategory["correctness"])
-		f[12] = float64(doc.Counts.ByCategory["performance"])
-		f[13] = float64(doc.Counts.ByCategory["scalability"])
-		f[14] = float64(doc.Counts.ByCategory["compliance & governance"])
-		f[15] = float64(doc.Counts.ByCategory["maintainability"])
-		f[16] = float64(doc.Counts.ByCategory["architecture"])
-		f[17] = float64(doc.Counts.ByCategory["developer experience"])
-		f[18] = float64(doc.Counts.ByCategory["cost"])
+		f[10] = math.Log1p(float64(doc.Counts.ByCategory["reliability"]))
+		f[11] = math.Log1p(float64(doc.Counts.ByCategory["correctness"]))
+		f[12] = math.Log1p(float64(doc.Counts.ByCategory["performance"]))
+		f[13] = math.Log1p(float64(doc.Counts.ByCategory["scalability"]))
+		f[14] = math.Log1p(float64(doc.Counts.ByCategory["compliance & governance"]))
+		f[15] = math.Log1p(float64(doc.Counts.ByCategory["maintainability"]))
+		f[16] = math.Log1p(float64(doc.Counts.ByCategory["architecture"]))
+		f[17] = math.Log1p(float64(doc.Counts.ByCategory["developer experience"]))
+		f[18] = math.Log1p(float64(doc.Counts.ByCategory["cost"]))
 	}
 	return f
 }

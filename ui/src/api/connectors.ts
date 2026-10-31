@@ -1,4 +1,5 @@
 import apiClient from './apiClient';
+import { ReviewAISettings, AIReviewPerformanceSettings } from '../pages/AIProviders/types';
 
 // Types for webhook status summary
 export interface WebhookStatusSummary {
@@ -303,7 +304,7 @@ export const reorderAIConnectors = async (
   }
 };
 
-export const getReviewAISettings = async (): Promise<{ helper_enabled: boolean; helper_mode: string }> => {
+export const getReviewAISettings = async (): Promise<ReviewAISettings> => {
   try {
     return await apiClient.get('/api/v1/aiconnectors/settings');
   } catch (error) {
@@ -314,15 +315,40 @@ export const getReviewAISettings = async (): Promise<{ helper_enabled: boolean; 
 
 export const updateReviewAISettings = async (
   helperEnabled: boolean,
-  helperMode: string
-): Promise<{ helper_enabled: boolean; helper_mode: string }> => {
+  helperMode: string,
+  preferredMaxConcurrentBatches?: number | null,
+  preferredReviewTimeoutSeconds?: number | null
+): Promise<ReviewAISettings> => {
   try {
     return await apiClient.put('/api/v1/aiconnectors/settings', {
       helper_enabled: helperEnabled,
       helper_mode: helperMode,
+      preferred_max_concurrent_batches: preferredMaxConcurrentBatches ?? null,
+      preferred_review_timeout_seconds: preferredReviewTimeoutSeconds ?? null,
     });
   } catch (error) {
     console.error('Error updating review AI settings:', error);
+    throw error;
+  }
+};
+
+// Instance-wide ceiling (super-admin / self-hosted owner only).
+export const getAIReviewPerformanceSettings = async (): Promise<AIReviewPerformanceSettings> => {
+  try {
+    return await apiClient.get('/api/v1/admin/settings/ai-review-performance');
+  } catch (error) {
+    console.error('Error fetching AI review performance settings:', error);
+    throw error;
+  }
+};
+
+export const updateAIReviewPerformanceSettings = async (
+  settings: AIReviewPerformanceSettings
+): Promise<{ message: string }> => {
+  try {
+    return await apiClient.put('/api/v1/admin/settings/ai-review-performance', settings);
+  } catch (error) {
+    console.error('Error updating AI review performance settings:', error);
     throw error;
   }
 };

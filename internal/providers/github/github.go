@@ -317,8 +317,8 @@ func (p *GitHubProvider) GetMergeRequestDetails(ctx context.Context, mrURL strin
 }
 
 // fetchPullRequestCommits returns every commit SHA on a PR, oldest first; paginates at 100/page, capped at 250 commits (GitHub's own limit for this endpoint regardless of pagination).
-func (p *GitHubProvider) fetchPullRequestCommits(ctx context.Context, owner, repo, number string) ([]string, error) {
-	var shas []string
+func (p *GitHubProvider) fetchPullRequestCommits(ctx context.Context, owner, repo, number string) ([]providers.CommitSummary, error) {
+	var result []providers.CommitSummary
 	const perPage = 100
 	for page := 1; page <= 3; page++ {
 		apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%s/commits?per_page=%d&page=%d", owner, repo, number, perPage, page)
@@ -333,7 +333,10 @@ func (p *GitHubProvider) fetchPullRequestCommits(ctx context.Context, owner, rep
 			return nil, err
 		}
 		var commits []struct {
-			SHA string `json:"sha"`
+			SHA    string `json:"sha"`
+			Commit struct {
+				Message string `json:"message"`
+			} `json:"commit"`
 		}
 		decodeErr := json.NewDecoder(resp.Body).Decode(&commits)
 		statusCode := resp.StatusCode
@@ -345,13 +348,16 @@ func (p *GitHubProvider) fetchPullRequestCommits(ctx context.Context, owner, rep
 			return nil, decodeErr
 		}
 		for _, c := range commits {
-			shas = append(shas, c.SHA)
+			// Only the subject line (first line) - the body can be long/multi-paragraph
+			// and this is shown as a short hover label, not a full commit view.
+			message := strings.SplitN(c.Commit.Message, "\n", 2)[0]
+			result = append(result, providers.CommitSummary{SHA: c.SHA, Message: message})
 		}
 		if len(commits) < perPage {
 			break
 		}
 	}
-	return shas, nil
+	return result, nil
 }
 
 func (p *GitHubProvider) GetMergeRequestChanges(ctx context.Context, mrID string) ([]*models.CodeDiff, error) {

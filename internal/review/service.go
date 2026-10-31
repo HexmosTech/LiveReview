@@ -43,6 +43,15 @@ type Config struct {
 	DefaultAI     string
 	DefaultModel  string
 	Temperature   float64
+
+	// MaxConcurrentBatches bounds how many of a review's batches run at once
+	// (tier 1 of the two-tier concurrency model - see
+	// internal/llm/adaptivelimiter for tier 2, the process-wide per-connector
+	// limiter). Zero means "use batch.DefaultMaxConcurrentBatches" - see
+	// createBatchProcessor below. Callers that resolved an org/system value
+	// via internal/aiselection.Selection should set this explicitly instead
+	// of leaving it at the zero-value default.
+	MaxConcurrentBatches int
 }
 
 // ReviewRequest contains all the information needed to perform a review
@@ -92,28 +101,28 @@ type AIConfig struct {
 
 // ReviewResult contains the results of a review process
 type ReviewResult struct {
-	ReviewID       string
-	Success        bool
-	Error          error
-	Summary        string
-	CommentsCount  int
-	Comments       []*models.ReviewComment // Added to track actual comment details
+	ReviewID      string
+	Success       bool
+	Error         error
+	Summary       string
+	CommentsCount int
+	Comments      []*models.ReviewComment // Added to track actual comment details
 	// CommentsNotPosted is set when the review itself succeeded but the provider refused the comments for lack of
 	// permission (e.g. the GitHub App is not installed on a public repo that was reviewed by URL). The findings are
 	// still returned and stored so they can be shown in LiveReview; it holds the provider's reason.
-	CommentsNotPosted string
-	Quiz           []models.QuizQuestion   // Optional comprehension quiz for this review, nil if none generated
+	CommentsNotPosted  string
+	Quiz               []models.QuizQuestion      // Optional comprehension quiz for this review, nil if none generated
 	DiffClassification *models.DiffClassification // Diff-level semantic classification (docs/risk-policy-engine.md §5)
-	BillableLOC    int64
-	Provider       string
-	Model          string
-	PricingVersion string
-	InputTokens    *int64
-	OutputTokens   *int64
-	CostUSD        *float64
-	LeaderUsage    *AIStageUsage
-	HelperUsage    *AIStageUsage
-	Duration       time.Duration
+	BillableLOC        int64
+	Provider           string
+	Model              string
+	PricingVersion     string
+	InputTokens        *int64
+	OutputTokens       *int64
+	CostUSD            *float64
+	LeaderUsage        *AIStageUsage
+	HelperUsage        *AIStageUsage
+	Duration           time.Duration
 }
 
 // ReviewWorkflowResult contains the full workflow result including MR details
@@ -746,6 +755,13 @@ func (s *Service) createBatchProcessor(provider ai.Provider) *batch.BatchProcess
 	// Configure retry logic (3 retries, 2s delay)
 	processor.TaskQueueConfig.MaxRetries = 3
 	processor.TaskQueueConfig.RetryDelay = 2 * time.Second
+	// Per-review concurrency ceiling (tier 1 - see internal/batch/task_queue.go).
+	// s.config.MaxConcurrentBatches is 0 unless a caller explicitly resolved
+	// an org/system value via internal/aiselection.Selection, in which case
+	// ConfigureTaskQueue below (via DefaultConfig's MaxWorkers) is overridden.
+	if s.config.MaxConcurrentBatches > 0 {
+		processor.TaskQueueConfig.MaxWorkers = s.config.MaxConcurrentBatches
+	}
 	return processor
 }
 

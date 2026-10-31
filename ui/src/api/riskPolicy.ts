@@ -83,6 +83,16 @@ export interface SimulateRow {
   score?: number;
 }
 
+export interface SimulateSummary {
+  scored_count: number;
+  skipped_count: number;
+  saturated_high: number;
+  saturated_low: number;
+  score_min?: number;
+  score_max?: number;
+  score_mean?: number;
+}
+
 export interface ScoreHistogramBucket {
   range_start: number;
   range_end: number;
@@ -156,7 +166,7 @@ export const simulatePolicy = (body: {
   policy: AutoApprovePolicyUpsert;
   review_ids?: number[];
   limit?: number;
-}): Promise<{ rows: SimulateRow[] }> => apiClient.post('/auto-approve-policies/simulate', body);
+}): Promise<{ rows: SimulateRow[]; summary: SimulateSummary }> => apiClient.post('/auto-approve-policies/simulate', body);
 
 // ---- review policy actions -------------------------------------------------
 

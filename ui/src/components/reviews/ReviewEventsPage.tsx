@@ -12,6 +12,10 @@ interface ReviewEventsPageProps {
   isLive?: boolean;
   pollingInterval?: number;
   className?: string;
+  // The review's real top-level status - passed through to ReviewProgressView
+  // so it can resolve stages stuck pending/in-progress once the review is
+  // actually done. See ReviewProgressView's reviewStatus prop comment.
+  reviewStatus?: string;
 }
 
 type ViewMode = 'progress' | 'raw';
@@ -20,9 +24,10 @@ export default function ReviewEventsPage({
   reviewId, 
   initialEvents, 
   initialEventCount,
-  isLive = false, 
+  isLive = false,
   pollingInterval = 5000,
-  className 
+  className,
+  reviewStatus,
 }: ReviewEventsPageProps) {
   const [currentView, setCurrentView] = useState<ViewMode>('progress');
   const [events, setEvents] = useState<ReviewEvent[]>(initialEvents);
@@ -30,9 +35,20 @@ export default function ReviewEventsPage({
   const [displayCount, setDisplayCount] = useState<number>(initialEventCount ?? initialEvents.length);
   const [isPolling, setIsPolling] = useState(true); // Default to ON
   const [lastEventCount, setLastEventCount] = useState(initialEvents.length);
+  // "Tail Log" (ported UX from git-lrc's local review UI Toolbar.js): when on,
+  // the raw log view becomes a fixed-height scrollable pane that auto-scrolls
+  // to the bottom on every new event; when off, it reads like a normal page.
+  const [isTailing, setIsTailing] = useState(false);
+  const tailContainerRef = useRef<HTMLDivElement>(null);
   const scrollPositionRef = useRef<number>(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const pollingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (isTailing && currentView === 'raw' && tailContainerRef.current) {
+      tailContainerRef.current.scrollTop = tailContainerRef.current.scrollHeight;
+    }
+  }, [isTailing, currentView, events]);
 
   // Save scroll position before updates
   const saveScrollPosition = () => {
@@ -272,6 +288,22 @@ export default function ReviewEventsPage({
 
         {/* Single consolidated control */}
         <div className="flex items-center space-x-4">
+          {currentView === 'raw' && (
+            <button
+              onClick={() => setIsTailing((v) => !v)}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                isTailing
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+              }`}
+              title="Pin the log to the bottom and auto-scroll as new events arrive"
+            >
+              <div className="w-4 h-4 inline-block">
+                <Icons.Dashboard />
+              </div>
+              {isTailing ? 'Tailing…' : 'Tail Log'}
+            </button>
+          )}
           {currentView === 'raw' && events.length > 0 && (
             <button
               onClick={copyLogsToClipboard}
@@ -305,14 +337,25 @@ export default function ReviewEventsPage({
         </div>
       </div>
 
-      {/* Content area without inner scroll - use page scroll */}
+      {/* Content area: normally no inner scroll (uses page scroll), except
+          the raw view while tailing, which gets a fixed-height scrollable
+          pane pinned to the bottom. */}
       <div ref={containerRef}>
         {currentView === 'progress' ? (
           <ReviewProgressView
             reviewId={reviewId}
             events={events}
             isLive={isPolling}
+            reviewStatus={reviewStatus}
           />
+        ) : isTailing ? (
+          <div ref={tailContainerRef} className="max-h-[32rem] overflow-y-auto rounded-lg border border-slate-700">
+            <ReviewTimeline
+              reviewId={reviewId}
+              events={events}
+              isLive={isPolling}
+            />
+          </div>
         ) : (
           <ReviewTimeline
             reviewId={reviewId}

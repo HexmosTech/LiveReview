@@ -42,8 +42,14 @@ type MergeRequestDetails struct {
 	WebURL         string
 	ProviderType   string
 	RepositoryURL  string
-	// Commits is every individual commit SHA on this PR/MR, oldest first - populated by providers that support fetching it (GitHub, GitLab so far); empty for the rest, who fall back to DiffRefs' head/base pair.
-	Commits []string
+	// Commits is every individual commit on this PR/MR, oldest first - populated by providers that support fetching it (GitHub, GitLab so far); empty for the rest, who fall back to DiffRefs' head/base pair.
+	Commits []CommitSummary
+}
+
+// CommitSummary is a single PR/MR commit, as returned by a provider's commits endpoint.
+type CommitSummary struct {
+	SHA     string
+	Message string // best-effort; may be empty if the provider's response omitted it
 }
 
 // DiffRefs contains references to the diff endpoints

@@ -10,15 +10,24 @@
 // (real deep-linking — a step beyond git-lrc's own behavior, which doesn't
 // read location.hash on initial mount either), and works with the browser
 // Back/Forward buttons via the router's normal history subscription.
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'classnames';
 import { useSearchParams } from 'react-router-dom';
 import { Alert, Button, EmptyState, Icons, Spinner } from '../../UIPrimitives';
-import { getDiffReview } from '../../../api/reviews';
+import { getDiffReview, getReviewEvents } from '../../../api/reviews';
 import { getGitHubAppInstallCheck, startGitHubAppConnect } from '../../../api/githubApp';
 import { showRedirectOverlay } from '../../../utils/redirectOverlay';
 import { notify } from '../../../utils/notify';
-import { BlastRadiusReport, DiffReviewFile, DiffReviewStatusResponse } from '../../../types/reviews';
+import { BlastRadiusReport, DiffReviewComment, DiffReviewFile, DiffReviewStatusResponse } from '../../../types/reviews';
+import {
+  appendStreamedCommentsToFiles,
+  EVENTS_POLL_LIMIT,
+  extractExternalCommentsFromEvents,
+  extractNewEvents,
+  inferReviewStatusFromEvents,
+  shouldClearStreamedComments,
+  sinceWithOverlap,
+} from './reviewStreamState';
 import type { RiskScore } from '../RiskAssessment';
 import { attachBlastData, buildBlastLookup, flattenFilesByRisk, hasBlastRadiusData, sortFilesByBlastRadius } from '../../../lib/blastRadius';
 import { commentDomId, fileNavId, scrollElementIntoViewBelowStickyBars } from './diffUtils';
@@ -39,6 +48,7 @@ import Sidebar, { HunkNav } from './Sidebar';
 import IssueFilterBar from './IssueFilterBar';
 import CommentNav, { NavComment } from './CommentNav';
 import SummaryPanel from './SummaryPanel';
+import { buildPerformanceSnapshot, getFirstRenderTime, getPerformanceNow, recordFirstRenderTime } from './reviewPerformance';
 
 interface DiffViewerPanelProps {
   reviewId: number;
@@ -46,6 +56,26 @@ interface DiffViewerPanelProps {
   blastReport?: BlastRadiusReport;
   // Receives each scored change's badge score (blended with its findings) for the page header.
   onRiskScores?: (scores: RiskScore[]) => void;
+  // Receives the live (filter-applied) total comment count, so the page
+  // header can show it instead of this panel rendering its own line.
+  onCommentCount?: (count: number) => void;
+  // The review's real wall-clock start time (ISO string), used to seed the
+  // "Elapsed"/"time to first comment" baseline so it reflects when the review
+  // actually started rather than resetting to "now" on every page refresh.
+  reviewStartedAt?: string;
+}
+
+// Translates a wall-clock timestamp into the same domain as getPerformanceNow()
+// (which is performance.now() - monotonic since page load, not wall-clock), so
+// the elapsed-time baseline survives a refresh instead of resetting to "now".
+function baselineFromStartedAt(reviewStartedAt: string | undefined): number {
+  if (reviewStartedAt) {
+    const startedMs = new Date(reviewStartedAt).getTime();
+    if (Number.isFinite(startedMs)) {
+      return startedMs - Date.now() + getPerformanceNow();
+    }
+  }
+  return getPerformanceNow();
 }
 
 // Mirrors git-lrc's SORT_MODE_RISK_FLAT / SORT_MODE_RISK_FILE / SORT_MODE_DIFF
@@ -112,10 +142,37 @@ interface DiffNavTarget {
   file?: string;
 }
 
-const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport, onRiskScores }) => {
+const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport, onRiskScores, onCommentCount, reviewStartedAt }) => {
   const [data, setData] = useState<DiffReviewStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Comments streamed in live via batch events while the review is still
+  // running (see reviewStreamState.ts). Cleared once the final, authoritative
+  // getDiffReview fetch lands on completion -- that response already carries
+  // the real (possibly helper-polished) comments, so there's nothing left to
+  // merge on top of it.
+  const [streamedComments, setStreamedComments] = useState<(DiffReviewComment & { file_path: string })[]>([]);
+  const seenEventIdsRef = React.useRef<Set<string>>(new Set());
+  const lastEventTimeRef = React.useRef<string | null>(null);
+  // Time-to-first-comment tracking (ported from git-lrc's review_performance_state.mjs -
+  // see reviewPerformance.ts). baselineMs is set once, when this panel first mounts for
+  // this review; commentRenderTimes records the first moment each individual comment
+  // (by its stable DOM id) actually renders, streamed or final.
+  const baselineMsRef = useRef<number>(baselineFromStartedAt(reviewStartedAt));
+  const [commentRenderTimes, setCommentRenderTimes] = useState<Record<string, number>>({});
+  const recordCommentRendered = useCallback((commentKey: string) => {
+    setCommentRenderTimes((prev) => recordFirstRenderTime(prev, commentKey, getPerformanceNow()));
+  }, []);
+  // Ticks the "Elapsed Xs" banner text forward once a second while waiting
+  // for the first comment - without this, it would only update whenever a
+  // poll happens to bring new events, and otherwise sit frozen.
+  const [, forcePerfTick] = useState(0);
+  const hasFirstComment = getFirstRenderTime(commentRenderTimes) !== null;
+  useEffect(() => {
+    if (hasFirstComment || data?.status === 'completed' || data?.status === 'failed') return;
+    const tick = setInterval(() => forcePerfTick((n) => n + 1), 1000);
+    return () => clearInterval(tick);
+  }, [hasFirstComment, data?.status]);
   const blastLookup = useMemo(() => (blastReport ? buildBlastLookup(blastReport) : undefined), [blastReport]);
   const [sortMode, setSortMode] = useState<SortMode>('risk-flat');
   const [expandedFiles, setExpandedFiles] = useState<Record<string, boolean>>({});
@@ -155,6 +212,11 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setStreamedComments([]);
+    seenEventIdsRef.current = new Set();
+    lastEventTimeRef.current = null;
+    baselineMsRef.current = baselineFromStartedAt(reviewStartedAt);
+    setCommentRenderTimes({});
     getDiffReview(reviewId)
       .then((res) => {
         if (cancelled) return;
@@ -182,18 +244,87 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
     };
   }, [reviewId]);
 
-  const rawFiles = data?.files || [];
+  // While the review is still running, poll the same events endpoint
+  // git-lrc's local review UI polls, merge each batch's streamed comments
+  // into the file list as they land (see reviewStreamState.ts), and do one
+  // final authoritative getDiffReview fetch once events report completion —
+  // this is the only point where a finding's text can change (the helper
+  // "polish" stage only rewords, it never adds/drops/moves a finding; see
+  // the incremental-findings plan for why this is a safe reconciliation).
+  useEffect(() => {
+    if (!data || data.status === 'completed' || data.status === 'failed') {
+      return;
+    }
+    let cancelled = false;
+
+    const poll = () => {
+      getReviewEvents(reviewId, sinceWithOverlap(lastEventTimeRef.current), EVENTS_POLL_LIMIT)
+        .then((res) => {
+          if (cancelled) return;
+          const { newEvents, nextSeenEventIds, lastSeenAt } = extractNewEvents(res.events, seenEventIdsRef.current);
+          seenEventIdsRef.current = nextSeenEventIds;
+          if (lastSeenAt) lastEventTimeRef.current = lastSeenAt;
+
+          const newComments = extractExternalCommentsFromEvents(newEvents);
+          if (newComments.length > 0) {
+            setStreamedComments((prev) => [...prev, ...newComments]);
+          }
+
+          const inferredStatus = inferReviewStatusFromEvents(newEvents);
+          if (inferredStatus === 'completed' || inferredStatus === 'failed') {
+            getDiffReview(reviewId)
+              .then((finalRes) => {
+                if (cancelled) return;
+                setData(finalRes);
+                // See shouldClearStreamedComments's doc comment: a 'failed'
+                // review's final fetch can legitimately have fewer comments
+                // than what already streamed (one bad batch wipes the whole
+                // result) - keep the stream in that case instead of wiping
+                // already-shown, real findings.
+                if (shouldClearStreamedComments(inferredStatus)) {
+                  setStreamedComments([]);
+                }
+              })
+              .catch(() => {});
+          }
+        })
+        .catch(() => {});
+    };
+
+    poll();
+    const interval = setInterval(poll, 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewId, data?.status]);
+
+  // Merges in-flight streamedComments on top of whatever getDiffReview last
+  // returned. Once the review completes, streamedComments is cleared (see
+  // the polling effect above) and this is just the final response's files.
+  const rawFiles = useMemo(
+    () => appendStreamedCommentsToFiles(data?.files, streamedComments),
+    [data?.files, streamedComments]
+  );
   // Attached once here (not per-render inside FileBlock/HunkBlock) so
   // sortFilesByBlastRadius/flattenFilesByRisk/hasBlastRadiusData all see
   // hunk.BlastRadius already in place — see attachBlastData's doc comment.
   const enrichedFiles = useMemo(() => attachBlastData(rawFiles, blastLookup || new Map()), [rawFiles, blastLookup]);
   const canSortByRisk = useMemo(() => hasBlastRadiusData(enrichedFiles), [enrichedFiles]);
   useEffect(() => {
-    if (!blastReport || !onRiskScores) return;
+    // Also gated on `data` (not just blastReport): before the diff itself has
+    // loaded, enrichedFiles is `[]` purely because rawFiles is still empty,
+    // not because there are genuinely zero scored hunks. Reporting that
+    // premature `[]` up would show a confident-but-wrong "Minimal risk" in
+    // the page header for a moment before correcting to the real score once
+    // data arrives -- the same class of flicker this callback exists to
+    // avoid downstream (see ReviewDetail's riskScores state comment).
+    if (!blastReport || !onRiskScores || !data) return;
     onRiskScores(enrichedFiles.flatMap((f) => (f.hunks || [])
       .filter((h) => typeof h.BlastRadius === 'number')
       .map((h) => ({ path: f.file_path, score: h.BlastRadius as number }))));
-  }, [enrichedFiles, blastReport, onRiskScores]);
+  }, [enrichedFiles, blastReport, onRiskScores, data]);
   const files = useMemo(() => {
     if (!canSortByRisk) return enrichedFiles;
     if (sortMode === 'risk-flat') return flattenFilesByRisk(enrichedFiles);
@@ -203,6 +334,9 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
 
   const facets = useMemo(() => buildFilterFacets(enrichedFiles, filters), [enrichedFiles, filters]);
   const navComments = useMemo(() => buildVisibleCommentNav(files, filters), [files, filters]);
+  useEffect(() => {
+    onCommentCount?.(navComments.length);
+  }, [navComments, onCommentCount]);
   const allExpanded = files.length > 0 && files.every((f) => expandedFiles[f.file_path]);
   // Sidebar always shows the real, unflattened file list (git-lrc's
   // Sidebar.js receives `filesInDiffOrder`, never the sort-mode-dependent
@@ -300,7 +434,21 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
     );
   }
 
-  if (data && data.status === 'failed') {
+  if (!data) {
+    return (
+      <EmptyState
+        icon={<Icons.Reviews />}
+        title="No diff data for this review"
+        description="This review has no structured diff/findings data — most likely it wasn’t triggered via the diff-review flow."
+      />
+    );
+  }
+
+  // A failure with nothing streamed in yet has nothing to show; a failure
+  // partway through a batch still has real findings worth keeping visible
+  // (handled below, alongside the in-progress case) rather than discarding
+  // them behind this empty state.
+  if (data.status === 'failed' && files.length === 0) {
     return (
       <EmptyState
         icon={<Icons.Error />}
@@ -310,23 +458,19 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
     );
   }
 
-  if (!data || data.status !== 'completed' || !data.files) {
-    return (
-      <EmptyState
-        icon={<Icons.Reviews />}
-        title={data && data.status !== 'completed' ? 'Diff not ready yet' : 'No diff data for this review'}
-        description={
-          data && data.status !== 'completed'
-            ? 'This review is still in progress. Findings will appear here once it completes.'
-            : 'This review has no structured diff/findings data — most likely it wasn’t triggered via the diff-review flow.'
-        }
-      />
-    );
-  }
-
   const quiz = data.quiz || [];
+  const isRunning = data.status === 'created' || data.status === 'in_progress';
 
   if (files.length === 0) {
+    if (isRunning) {
+      return (
+        <EmptyState
+          icon={<Icons.Reviews />}
+          title="Preparing the diff…"
+          description="This review is still starting up. The file list and findings will appear here as soon as they're ready — no need to switch tabs."
+        />
+      );
+    }
     return <EmptyState icon={<Icons.Reviews />} title="No files changed" />;
   }
 
@@ -341,6 +485,32 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
         onHunkClick={jumpToHunk}
       />
       <div className="min-w-0 flex-1 space-y-4">
+        {isRunning && (() => {
+          const firstCommentMs = getFirstRenderTime(commentRenderTimes);
+          const snapshot = buildPerformanceSnapshot({
+            baselineMs: baselineMsRef.current,
+            nowMs: getPerformanceNow(),
+            firstCommentMs,
+            totalComments: navComments.length,
+          });
+          return (
+            <Alert variant="info" title="Review in progress" icon={<Icons.Reviews />}>
+              <p className="text-sm">
+                {firstCommentMs === null
+                  ? `Elapsed ${snapshot.elapsedLabel} • waiting for first result`
+                  : `First result in ${snapshot.firstCommentLabel} • ${navComments.length} so far`}
+                {' '}Findings are streaming in as each batch of files finishes and will keep growing until the review completes.
+              </p>
+            </Alert>
+          );
+        })()}
+        {data.status === 'failed' && (
+          <Alert variant="warning" title="This review failed before finishing" icon={<Icons.Warning />}>
+            <p className="text-sm">
+              {data.message || 'The review did not complete.'} Showing the {navComments.length} finding(s) streamed in before it failed — the Events tab has the full detail.
+            </p>
+          </Alert>
+        )}
         {data.comments_not_posted && (
           <Alert variant="warning" title="Comments weren't posted to the pull request" icon={<Icons.Warning />}>
             <p className="text-sm">{data.comments_not_posted.message}</p>
@@ -406,6 +576,9 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
               expanded={!!expandedFiles[file.file_path]}
               onToggle={() => toggleFile(file.file_path)}
               filters={filters}
+              baselineMs={baselineMsRef.current}
+              commentRenderTimes={commentRenderTimes}
+              onCommentRendered={recordCommentRendered}
             />
           ))}
         </div>

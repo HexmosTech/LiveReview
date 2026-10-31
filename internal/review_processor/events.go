@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -527,7 +528,30 @@ func (s *PollingEventService) CreateBatchEvent(ctx context.Context, reviewID, or
 		data.FinishedAt = &finishedAtStr
 	}
 
-	return s.repo.createTypedEvent(ctx, reviewID, orgID, "batch", "info", &batchID, data)
+	if err := s.repo.createTypedEvent(ctx, reviewID, orgID, "batch", "info", &batchID, data); err != nil {
+		return err
+	}
+
+	// Fire on every batch that completes with findings — batches run
+	// concurrently, so which one is actually "first" is decided by
+	// pushnotify.Notifier's atomic claim, not by this call site. See
+	// reviewprocessor.SetNotifier's doc comment.
+	if status == "completed" && hasComments(comments) {
+		NotifyReviewEvent(ctx, reviewID, orgID, "first_finding")
+	}
+
+	return nil
+}
+
+// hasComments reports whether comments is a non-empty slice, without this
+// package needing to import pkg/models for the concrete []*models.ReviewComment
+// type EmitBatchComplete actually passes through here.
+func hasComments(comments interface{}) bool {
+	if comments == nil {
+		return false
+	}
+	v := reflect.ValueOf(comments)
+	return v.Kind() == reflect.Slice && v.Len() > 0
 }
 
 // CreateArtifactEvent creates an artifact reference event

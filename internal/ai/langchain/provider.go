@@ -28,6 +28,7 @@ import (
 
 	"github.com/livereview/internal/aidefault"
 	"github.com/livereview/internal/batch"
+	"github.com/livereview/internal/llm/adaptivelimiter"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/prompts"
 	vendorpack "github.com/livereview/internal/prompts/vendor"
@@ -303,7 +304,7 @@ func (p *LangchainProvider) effectiveTemperature() float64 {
 // buildCallOptions creates a slice of CallOption with the provider's default model configuration.
 func (p *LangchainProvider) buildCallOptions(extra ...llms.CallOption) []llms.CallOption {
 	var opts []llms.CallOption
-	
+
 	isGemini := false
 	switch strings.ToLower(p.providerType) {
 	case "gemini", "googleai", "gemini-enterprise", "vertex":
@@ -1001,13 +1002,23 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 	fmt.Printf("[LANGCHAIN DEBUG] Provider type: %s, Model: %s, Base URL: %s\n",
 		p.providerType, p.getLoggedModelName(), p.baseURL)
 
-	// Create a timeout context
-	// For Ollama, some setups (reverse proxies) buffer SSE and models can be slow to start.
-	// Use a longer, configurable timeout to avoid premature context deadlines.
-	streamTimeout := 5 * time.Minute
+	// Create a timeout context. Previously 5 minutes (8 for Ollama) - cut to
+	// 90s so one slow batch can't stall the whole review: with up to
+	// batch.DefaultMaxConcurrentBatches batches now running concurrently (see
+	// internal/batch/config.go), a single batch sitting on a 5-8 minute call
+	// no longer just delays itself, it risks starving the retry budget before
+	// review.Config.ReviewTimeout (4 minutes) fires. 90s is a real tradeoff,
+	// not a free win: a genuinely-slow-but-otherwise-fine response is now cut
+	// off more readily. Override via LIVEREVIEW_AI_STREAM_TIMEOUT_SECONDS (all
+	// providers) or LIVEREVIEW_OLLAMA_STREAM_TIMEOUT_SECONDS (Ollama only,
+	// takes precedence for Ollama) for self-hosted setups with slower models.
+	streamTimeout := 90 * time.Second
+	if v := os.Getenv("LIVEREVIEW_AI_STREAM_TIMEOUT_SECONDS"); v != "" {
+		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+			streamTimeout = time.Duration(secs) * time.Second
+		}
+	}
 	if strings.EqualFold(p.providerType, "ollama") {
-		// Default: 8 minutes for streaming - very generous for large models with slow startup
-		streamTimeout = 8 * time.Minute
 		// Allow override via env var LIVEREVIEW_OLLAMA_STREAM_TIMEOUT_SECONDS
 		if v := os.Getenv("LIVEREVIEW_OLLAMA_STREAM_TIMEOUT_SECONDS"); v != "" {
 			if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
@@ -1254,8 +1265,8 @@ func (p *LangchainProvider) reviewCodeBatchFormatted(ctx context.Context, diffs 
 		// Fallback for Ollama: retry once without streaming (some reverse proxies buffer/block streams)
 		if strings.EqualFold(p.providerType, "ollama") {
 			fmt.Printf("[LANGCHAIN FALLBACK] Retrying Ollama request without streaming...\n")
-			// Use a very generous, configurable non-streaming timeout
-			fbTimeout := 8 * time.Minute
+			// Cut from 8 minutes to 90s, same rationale as streamTimeout above.
+			fbTimeout := 90 * time.Second
 			if v := os.Getenv("LIVEREVIEW_OLLAMA_REQUEST_TIMEOUT_SECONDS"); v != "" {
 				if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
 					fbTimeout = time.Duration(secs) * time.Second
@@ -1405,12 +1416,22 @@ func (p *LangchainProvider) ReviewCodeWithBatching(ctx context.Context, diffs []
 	batchInput := batchProcessor.BatchInputs(input)
 
 	// Process batches using task queue (following Gemini provider pattern)
-	taskQueue := batch.NewTaskQueue(4) // Use 4 workers by default
+	taskQueue := batch.NewTaskQueue(batch.DefaultMaxConcurrentBatches)
 
 	// Use the batch processor's configuration for the task queue if available
 	if batchProcessor.TaskQueueConfig.MaxWorkers > 0 {
 		taskQueue = batch.ConfigureTaskQueue(batchProcessor.TaskQueueConfig)
 	}
+
+	// Tier 2: gate every batch's LLM call through the process-wide, self-tuning
+	// limiter for this AI connector (shared across every concurrently-running
+	// review that uses the same connector - a per-review semaphore alone can't
+	// protect a shared provider API key). Keyed by provider type + provider
+	// name, the closest thing to a connector identity available here.
+	connectorLimiter := adaptivelimiter.ForConnector(
+		p.providerType+":"+p.providerName,
+		adaptivelimiter.Config{Floor: 2, Ceiling: 64, Initial: batch.DefaultMaxConcurrentBatches},
+	)
 
 	// Create tasks for each batch
 	for i, batchDiffs := range batchInput.Batches {
@@ -1426,6 +1447,8 @@ func (p *LangchainProvider) ReviewCodeWithBatching(ctx context.Context, diffs []
 		task := batch.NewBatchTask(batchID, batchDiffs, processor)
 		task.SetBatchNumber(i + 1)
 		task.SetLogger(batchProcessor.Logger)
+		task.SetLimiter(connectorLimiter)
+		task.SetProviderType(p.providerType)
 		taskQueue.AddTask(task)
 	}
 
@@ -1447,12 +1470,20 @@ func (p *LangchainProvider) ReviewCodeWithBatching(ctx context.Context, diffs []
 			failedBatches = append(failedBatches, batchID)
 			partialFailure = true
 
+			var batchErr error
+			if taskResult != nil {
+				batchErr = taskResult.Error
+			} else {
+				batchErr = fmt.Errorf("batch not found in results")
+			}
+
 			if p.logger != nil {
-				errorMsg := "batch not found in results"
-				if taskResult != nil && taskResult.Error != nil {
-					errorMsg = taskResult.Error.Error()
-				}
-				p.logger.Log("⚠️ Batch %s failed: %v (continuing with other batches)", batchID, errorMsg)
+				p.logger.Log("⚠️ Batch %s failed: %v (continuing with other batches)", batchID, batchErr)
+				// Emit an explicit terminal failure event - distinct from a
+				// per-attempt retry log - so the frontend can render this
+				// batch as genuinely Failed instead of falling back to a
+				// stale fileCount and rendering fake success.
+				p.logger.EmitBatchFailed(batchID, batchErr)
 			}
 
 			// Log to console as well
@@ -1468,8 +1499,10 @@ func (p *LangchainProvider) ReviewCodeWithBatching(ctx context.Context, diffs []
 		if !ok {
 			failedBatches = append(failedBatches, batchID)
 			partialFailure = true
+			invalidTypeErr := fmt.Errorf("invalid result type")
 			if p.logger != nil {
 				p.logger.Log("⚠️ Batch %s: invalid result type, skipping", batchID)
+				p.logger.EmitBatchFailed(batchID, invalidTypeErr)
 			}
 			fmt.Printf("[PARTIAL FAILURE] Batch %s: invalid result type, skipping\n", batchID)
 			continue
@@ -1610,16 +1643,16 @@ func (p *LangchainProvider) parseResponse(response string, diffs []models.CodeDi
 	}
 
 	return &ParsedResult{
-		TechnicalSummaries:  summaries,
-		Comments:            comments,
-		DiffClassification:  resp.DiffClassification,
+		TechnicalSummaries: summaries,
+		Comments:           comments,
+		DiffClassification: resp.DiffClassification,
 	}, nil
 }
 
 type ParsedResult struct {
-	TechnicalSummaries  []prompts.TechnicalSummary
-	Comments            []*models.ReviewComment
-	DiffClassification  *models.DiffClassification
+	TechnicalSummaries []prompts.TechnicalSummary
+	Comments           []*models.ReviewComment
+	DiffClassification *models.DiffClassification
 }
 
 // fallbackParsedResult builds a minimal, user-visible result when the model response is empty/invalid

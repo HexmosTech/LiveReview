@@ -10,6 +10,7 @@ import {
   BlastRadiusHunkReport,
   BlastRadiusReport,
   BlastRadiusSignal,
+  DiffReviewComment,
   DiffReviewFile,
   DiffReviewHunk,
 } from '../types/reviews';
@@ -217,8 +218,46 @@ export function sortFilesByBlastRadius(files: DiffReviewFile[]): DiffReviewFile[
 export function flattenFilesByRisk(files: DiffReviewFile[]): DiffReviewFile[] {
   interface Entry { file: DiffReviewFile; fileIdx: number; hunk: DiffReviewHunk; hunkIdx: number; score: number | null }
   const entries: Entry[] = [];
+  // Comments are matched against a hunk's new-side line range (backend's
+  // lineWithinHunks — see diffUtils.ts's commentBelongsToLine doc comment).
+  // Partitioned per-file, in original hunk order, BEFORE the global risk
+  // sort below, so every comment ends up in exactly one hunk's bucket.
+  // A comment whose line doesn't fall inside any hunk's declared range
+  // (a hunk's metadata not perfectly bounding every line the model
+  // annotated, or a comment sitting in the gap between two hunks) is NOT
+  // dropped — it's queued onto the file's last hunk instead, so the total
+  // comment count across every synthetic entry always equals the input's
+  // total, regardless of how the per-hunk filter matches.
+  const perFileHunkComments = new Map<number, DiffReviewComment[][]>();
   files.forEach((file, fileIdx) => {
-    (file.hunks || []).forEach((hunk, hunkIdx) => {
+    // A hunkless file with comments has nothing to flatten into - give it one
+    // synthetic zero-width placeholder hunk so there's still an entry below
+    // to carry its comments, instead of silently losing them.
+    const hasRealHunks = (file.hunks || []).length > 0;
+    const needsPlaceholder = !hasRealHunks && (file.comments || []).length > 0;
+    const hunks = hasRealHunks
+      ? (file.hunks as DiffReviewHunk[])
+      : needsPlaceholder
+        ? [{ old_start_line: 0, old_line_count: 0, new_start_line: 0, new_line_count: 0, content: '' }]
+        : [];
+    const buckets: DiffReviewComment[][] = hunks.map((): DiffReviewComment[] => []);
+    const unclaimed: DiffReviewComment[] = [];
+    (file.comments || []).forEach((comment) => {
+      const hunkIdx = hasRealHunks
+        ? hunks.findIndex((hunk) => comment.line >= hunk.new_start_line && comment.line < hunk.new_start_line + hunk.new_line_count)
+        : -1;
+      if (hunkIdx >= 0) {
+        buckets[hunkIdx].push(comment);
+      } else {
+        unclaimed.push(comment);
+      }
+    });
+    if (unclaimed.length > 0) {
+      buckets[buckets.length - 1].push(...unclaimed);
+    }
+    perFileHunkComments.set(fileIdx, buckets);
+
+    hunks.forEach((hunk, hunkIdx) => {
       entries.push({ file, fileIdx, hunk, hunkIdx, score: normalizedScore(hunk) });
     });
   });
@@ -232,15 +271,7 @@ export function flattenFilesByRisk(files: DiffReviewFile[]): DiffReviewFile[] {
   return entries.map(({ file, fileIdx, hunk, hunkIdx }) => ({
     ...file,
     hunks: [hunk],
-    // Comments are matched against a hunk's new-side line range (backend's
-    // lineWithinHunks — see diffUtils.ts's commentBelongsToLine doc
-    // comment). Without this filter every synthetic entry inherited the
-    // *whole file's* comment list instead of just this hunk's, inflating
-    // both the per-entry comment badge and the sidebar's total file/comment
-    // counts by roughly the file's hunk count.
-    comments: (file.comments || []).filter(
-      (c) => c.line >= hunk.new_start_line && c.line < hunk.new_start_line + hunk.new_line_count
-    ),
+    comments: perFileHunkComments.get(fileIdx)?.[hunkIdx] || [],
     syntheticId: `${file.file_path}--hunk-${fileIdx}-${hunkIdx}`,
     sourceHunkNumber: hunkIdx + 1,
   }));

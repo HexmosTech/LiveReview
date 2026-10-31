@@ -1,7 +1,7 @@
 \restrict dbmate
 
 -- Dumped from database version 18.6 (Debian 18.6-1.pgdg13+2)
--- Dumped by pg_dump version 18.6 (Debian 18.6-1.pgdg13+2)
+-- Dumped by pg_dump version 18.6 (Ubuntu 18.6-1.pgdg24.04+2)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -2066,7 +2066,11 @@ CREATE TABLE public.org_review_ai_settings (
     helper_mode character varying(32) DEFAULT 'concise_then_expand'::character varying NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT org_review_ai_settings_helper_mode_check CHECK (((helper_mode)::text = ANY (ARRAY[('concise_then_expand'::character varying)::text, ('polish_only'::character varying)::text])))
+    preferred_max_concurrent_batches integer,
+    preferred_review_timeout_seconds integer,
+    CONSTRAINT org_review_ai_settings_helper_mode_check CHECK (((helper_mode)::text = ANY (ARRAY[('concise_then_expand'::character varying)::text, ('polish_only'::character varying)::text]))),
+    CONSTRAINT org_review_ai_settings_preferred_max_concurrent_batches_check CHECK (((preferred_max_concurrent_batches IS NULL) OR (preferred_max_concurrent_batches > 0))),
+    CONSTRAINT org_review_ai_settings_preferred_review_timeout_seconds_check CHECK (((preferred_review_timeout_seconds IS NULL) OR (preferred_review_timeout_seconds > 0)))
 );
 
 
@@ -2468,6 +2472,41 @@ ALTER SEQUENCE public.pull_requests_id_seq OWNED BY public.pull_requests.id;
 
 
 --
+-- Name: push_subscriptions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.push_subscriptions (
+    id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    endpoint text NOT NULL,
+    p256dh text NOT NULL,
+    auth_key text NOT NULL,
+    user_agent text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_used_at timestamp with time zone
+);
+
+
+--
+-- Name: push_subscriptions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.push_subscriptions_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: push_subscriptions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.push_subscriptions_id_seq OWNED BY public.push_subscriptions.id;
+
+
+--
 -- Name: quota_batch_settlements; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2772,6 +2811,7 @@ CREATE TABLE public.review_commits (
     ref character varying(160) NOT NULL,
     ref_type text DEFAULT 'commit'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    message text,
     CONSTRAINT review_commits_ref_type_check CHECK ((ref_type = ANY (ARRAY['commit'::text, 'range'::text])))
 );
 
@@ -3032,6 +3072,7 @@ CREATE TABLE public.reviews (
     author_username text,
     friendly_name text,
     pull_request_id bigint,
+    first_finding_notified_at timestamp with time zone,
     CONSTRAINT reviews_status_check CHECK (((status)::text = ANY (ARRAY[('created'::character varying)::text, ('in_progress'::character varying)::text, ('completed'::character varying)::text, ('failed'::character varying)::text])))
 );
 
@@ -4024,6 +4065,18 @@ ALTER SEQUENCE public.user_management_audit_id_seq OWNED BY public.user_manageme
 
 
 --
+-- Name: user_notification_preferences; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.user_notification_preferences (
+    user_id bigint NOT NULL,
+    notify_first_finding boolean DEFAULT true NOT NULL,
+    notify_completion boolean DEFAULT true NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: user_role_history; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4095,7 +4148,8 @@ CREATE TABLE public.users (
     onboarding_api_key text,
     last_cli_used_at timestamp with time zone,
     default_org_id bigint,
-    review_level integer DEFAULT 1 NOT NULL
+    review_level integer DEFAULT 1 NOT NULL,
+    time_zone text
 );
 
 
@@ -4482,6 +4536,13 @@ ALTER TABLE ONLY public.prompt_chunks ALTER COLUMN id SET DEFAULT nextval('publi
 --
 
 ALTER TABLE ONLY public.pull_requests ALTER COLUMN id SET DEFAULT nextval('public.pull_requests_id_seq'::regclass);
+
+
+--
+-- Name: push_subscriptions id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.push_subscriptions ALTER COLUMN id SET DEFAULT nextval('public.push_subscriptions_id_seq'::regclass);
 
 
 --
@@ -5221,6 +5282,22 @@ ALTER TABLE ONLY public.pull_requests
 
 
 --
+-- Name: push_subscriptions push_subscriptions_endpoint_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.push_subscriptions
+    ADD CONSTRAINT push_subscriptions_endpoint_key UNIQUE (endpoint);
+
+
+--
+-- Name: push_subscriptions push_subscriptions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.push_subscriptions
+    ADD CONSTRAINT push_subscriptions_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: quota_batch_settlements quota_batch_settlements_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5690,6 +5767,14 @@ ALTER TABLE ONLY public.user_identities
 
 ALTER TABLE ONLY public.user_management_audit
     ADD CONSTRAINT user_management_audit_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: user_notification_preferences user_notification_preferences_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_notification_preferences
+    ADD CONSTRAINT user_notification_preferences_pkey PRIMARY KEY (user_id);
 
 
 --
@@ -7410,6 +7495,13 @@ CREATE INDEX idx_pull_requests_org_state ON public.pull_requests USING btree (or
 --
 
 CREATE INDEX idx_pull_requests_repository_state ON public.pull_requests USING btree (repository_id, state);
+
+
+--
+-- Name: idx_push_subscriptions_user_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_push_subscriptions_user_id ON public.push_subscriptions USING btree (user_id);
 
 
 --
@@ -9769,6 +9861,14 @@ ALTER TABLE ONLY public.pull_requests
 
 
 --
+-- Name: push_subscriptions push_subscriptions_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.push_subscriptions
+    ADD CONSTRAINT push_subscriptions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: quota_batch_settlements quota_batch_settlements_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -10257,6 +10357,14 @@ ALTER TABLE ONLY public.user_management_audit
 
 
 --
+-- Name: user_notification_preferences user_notification_preferences_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_notification_preferences
+    ADD CONSTRAINT user_notification_preferences_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: user_role_history user_role_history_changed_by_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -10490,7 +10598,12 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261025120100'),
     ('20261025130000'),
     ('20261029104047'),
+    ('20261029120000'),
     ('20261029134500'),
     ('20261029150000'),
     ('20261029150100'),
-    ('20261029150200');
+    ('20261029150200'),
+    ('20261030134721'),
+    ('20261031070300'),
+    ('20261031120000'),
+    ('20261031140000');

@@ -12,13 +12,15 @@ import { parseMultiFilterValue } from '../UIPrimitives';
 // rather than generic UI.
 
 /** Wraps `children` in a native `title` attribute (plain browser tooltip,
- * not the app's custom floating `Tooltip` component) only when `text`
- * actually got cut down to `max` chars - otherwise the tooltip would just
- * repeat what's already visible. Table cells hover a lot as the cursor
- * crosses the row, so the instant, no-JS native tooltip reads better here
- * than a positioned popup. */
-export const TruncatedWithTooltip: React.FC<{ text: string; max: number; children: React.ReactNode }> = ({ text, max, children }) => {
-  if (text.length <= max) return <>{children}</>;
+ * not the app's custom floating `Tooltip` component). Table cells hover a
+ * lot as the cursor crosses the row, so the instant, no-JS native tooltip
+ * reads better here than a positioned popup. Always set (not just when
+ * `text` exceeds `max`) - columns are user-resizable, so content well under
+ * `max` chars can still be visually clipped by a narrow column; there's no
+ * way to know the rendered width here, so showing the tooltip whenever
+ * there's any text is the only way to guarantee it's available when needed. */
+export const TruncatedWithTooltip: React.FC<{ text: string; max: number; children: React.ReactNode }> = ({ text, children }) => {
+  if (!text) return <>{children}</>;
   // block + min-w-0 (not inline-block): inline-block sizes to its child's
   // intrinsic content width, which under white-space:nowrap is the FULL
   // untruncated text width - it ignores the table cell's fixed width
@@ -75,6 +77,17 @@ export const HeaderFilterPopover: React.FC<{ children: React.ReactNode; icon?: R
     };
     document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [open]);
+
+  // Focus the popover's input/search box as soon as it opens, so clicking
+  // the trigger icon drops the user straight into typing instead of
+  // requiring a second click into the box.
+  useEffect(() => {
+    if (!open) return;
+    const id = requestAnimationFrame(() => {
+      rootRef.current?.querySelector<HTMLInputElement>('input, [tabindex]')?.focus();
+    });
+    return () => cancelAnimationFrame(id);
   }, [open]);
 
   return (

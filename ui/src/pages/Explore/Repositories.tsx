@@ -247,6 +247,7 @@ const Repositories: React.FC = () => {
   const columns = useMemo<ColumnDef<Repository>[]>(() => [
     {
       id: 'repository',
+      size: 320,
       // Has its own link to the repo on the provider, so the row link stays out of the cell's content.
       meta: { rowLink: false },
       accessorKey: 'full_name',
@@ -318,6 +319,7 @@ const Repositories: React.FC = () => {
     },
     {
       id: 'provider',
+      size: 160,
       accessorFn: (repo) => normalizeProvider(repo.provider),
       filterFn: multiSelectFilterFn,
       header: ({ column }) => (
@@ -351,6 +353,7 @@ const Repositories: React.FC = () => {
     },
     {
       id: 'default_branch',
+      size: 160,
       accessorKey: 'default_branch',
       enableColumnFilter: false,
       header: ({ column }) => (
@@ -365,6 +368,7 @@ const Repositories: React.FC = () => {
     },
     {
       id: 'sync_status',
+      size: 160,
       accessorKey: 'last_sync_status',
       filterFn: multiSelectFilterFn,
       header: ({ column }) => (
@@ -408,6 +412,7 @@ const Repositories: React.FC = () => {
     },
     {
       id: 'actions',
+      size: 220,
       meta: { rowLink: false },
       enableSorting: false,
       enableColumnFilter: false,
@@ -473,6 +478,8 @@ const Repositories: React.FC = () => {
     manualPagination: true,
     pageCount: totalPages,
     state: { sorting, columnFilters, pagination },
+    columnResizeMode: 'onChange',
+    enableColumnResizing: true,
     onSortingChange: handleSortingChange,
     onColumnFiltersChange: handleColumnFiltersChange,
     onPaginationChange: handlePaginationChange,
@@ -503,6 +510,7 @@ const Repositories: React.FC = () => {
         <ClientTable
           table={table}
           columnWidths={REPOSITORIES_COLUMN_WIDTHS}
+          enableColumnResizing
           getRowHref={(repo) => `/explore/merge-requests?repository_id=${repo.id}`}
           loading={loading}
           loadingLabel="Loading repositories..."

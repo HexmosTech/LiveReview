@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/aidefault"
+	"github.com/livereview/internal/reviewperf"
 	storageaiconnectors "github.com/livereview/storage/aiconnectors"
 	"github.com/rs/zerolog/log"
 )
@@ -166,11 +167,29 @@ type AIConnectorResponse struct {
 type ReviewAISettingsRequest struct {
 	HelperEnabled bool   `json:"helper_enabled"`
 	HelperMode    string `json:"helper_mode"`
+
+	// PreferredMaxConcurrentBatches and PreferredReviewTimeoutSeconds are
+	// optional soft preferences - omitted/null means "use the system
+	// default" (see internal/reviewperf). Always clamped server-side to the
+	// instance-wide ceiling; an org can turn these down, never up past what
+	// the instance allows.
+	PreferredMaxConcurrentBatches *int `json:"preferred_max_concurrent_batches"`
+	PreferredReviewTimeoutSeconds *int `json:"preferred_review_timeout_seconds"`
 }
 
 type ReviewAISettingsResponse struct {
 	HelperEnabled bool   `json:"helper_enabled"`
 	HelperMode    string `json:"helper_mode"`
+
+	PreferredMaxConcurrentBatches *int `json:"preferred_max_concurrent_batches"`
+	PreferredReviewTimeoutSeconds *int `json:"preferred_review_timeout_seconds"`
+
+	// EffectiveMaxConcurrentBatches/EffectiveReviewTimeoutSeconds show what
+	// will actually be used right now (preference resolved against the
+	// current instance-wide ceiling) - lets the Settings UI show "you asked
+	// for X, the instance allows up to Y" without a second API call.
+	EffectiveMaxConcurrentBatches int `json:"effective_max_concurrent_batches"`
+	EffectiveReviewTimeoutSeconds int `json:"effective_review_timeout_seconds"`
 }
 
 // FetchOllamaModelsRequest represents the request for fetching Ollama models
@@ -615,9 +634,18 @@ func (s *Server) GetReviewAISettings(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to load review AI settings: " + err.Error()})
 	}
 
+	perfSettings, err := reviewperf.Load(c.Request().Context(), s.db)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to load review performance settings: " + err.Error()})
+	}
+
 	return c.JSON(http.StatusOK, ReviewAISettingsResponse{
-		HelperEnabled: settings.HelperEnabled,
-		HelperMode:    settings.HelperMode,
+		HelperEnabled:                 settings.HelperEnabled,
+		HelperMode:                    settings.HelperMode,
+		PreferredMaxConcurrentBatches: settings.PreferredMaxConcurrentBatches,
+		PreferredReviewTimeoutSeconds: settings.PreferredReviewTimeoutSeconds,
+		EffectiveMaxConcurrentBatches: perfSettings.ResolveMaxConcurrentBatches(settings.PreferredMaxConcurrentBatches),
+		EffectiveReviewTimeoutSeconds: perfSettings.ResolveReviewTimeoutSeconds(settings.PreferredReviewTimeoutSeconds),
 	})
 }
 
@@ -637,20 +665,37 @@ func (s *Server) UpsertReviewAISettings(c echo.Context) error {
 	if normalizedMode == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Helper mode must be concise_then_expand or polish_only"})
 	}
+	if req.PreferredMaxConcurrentBatches != nil && *req.PreferredMaxConcurrentBatches <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Preferred max concurrent batches must be > 0"})
+	}
+	if req.PreferredReviewTimeoutSeconds != nil && *req.PreferredReviewTimeoutSeconds <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Preferred review timeout seconds must be > 0"})
+	}
 
 	store := storageaiconnectors.NewReviewAISettingsStore(s.db)
 	settings, err := store.Upsert(c.Request().Context(), storageaiconnectors.ReviewAISettings{
-		OrgID:         orgID,
-		HelperEnabled: req.HelperEnabled,
-		HelperMode:    normalizedMode,
+		OrgID:                         orgID,
+		HelperEnabled:                 req.HelperEnabled,
+		HelperMode:                    normalizedMode,
+		PreferredMaxConcurrentBatches: req.PreferredMaxConcurrentBatches,
+		PreferredReviewTimeoutSeconds: req.PreferredReviewTimeoutSeconds,
 	})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to save review AI settings: " + err.Error()})
 	}
 
+	perfSettings, err := reviewperf.Load(c.Request().Context(), s.db)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to load review performance settings: " + err.Error()})
+	}
+
 	return c.JSON(http.StatusOK, ReviewAISettingsResponse{
-		HelperEnabled: settings.HelperEnabled,
-		HelperMode:    settings.HelperMode,
+		HelperEnabled:                 settings.HelperEnabled,
+		HelperMode:                    settings.HelperMode,
+		PreferredMaxConcurrentBatches: settings.PreferredMaxConcurrentBatches,
+		PreferredReviewTimeoutSeconds: settings.PreferredReviewTimeoutSeconds,
+		EffectiveMaxConcurrentBatches: perfSettings.ResolveMaxConcurrentBatches(settings.PreferredMaxConcurrentBatches),
+		EffectiveReviewTimeoutSeconds: perfSettings.ResolveReviewTimeoutSeconds(settings.PreferredReviewTimeoutSeconds),
 	})
 }
 

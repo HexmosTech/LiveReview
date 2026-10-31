@@ -17,3 +17,13 @@ reason = "Not applicable - this is about echo's middleware/proxy.go (Proxy()/Pro
 id = "GHSA-gcqx-w48m-w2h4"
 ignoreUntil = 2027-01-28
 reason = "No patched release exists. deepmerge 4.3.1 is only pulled in by dev tooling (jest, fork-ts-checker-webpack-plugin); `npm ls deepmerge --omit=dev` is empty, so it never ships and never merges untrusted input. Re-check when a fixed version is published."
+
+[[ignoredVulns]]
+id = "GHSA-3g3m-2fjr-6pw4"
+ignoreUntil = 2027-01-31
+reason = "DoS-only (aborted glob walks keep doing filesystem I/O in the background); only fixed in glob 14.0.2+, no backport to the 9.x-13.x line this repo's overrides/transitive resolutions use. Every occurrence (ui/package-lock.json, extension/livereview/package-lock.json) is dev-only build/test tooling (beasties-webpack-plugin, jest, mocha, @vscode/test-cli) - `npm ls glob --omit=dev` is empty in both, so it never ships. Bumping to glob 14 means bumping every dependent (webpack plugins, jest, mocha) across a major version, which is a separate, larger change than this fix warrants. Re-check when re-evaluating the dev toolchain."
+
+[[ignoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+ignoreUntil = 2027-01-31
+reason = "DoS-only (globparts amplification); only fixed in minimatch 11.0.1+, no backport to the 3.x/9.x/10.x lines this repo's overrides pin (minimatch@3, @9, @10 in ui/package.json). Every occurrence (ui/package-lock.json, extension/livereview/package-lock.json) is dev-only build/test tooling (eslint, jest, webpack-obfuscator, beasties-webpack-plugin, @vscode/test-cli, npm-run-all) - `npm ls minimatch --omit=dev` is empty in both, so it never ships. Bumping to minimatch 11 means bumping every dependent across a major version, which is a separate, larger change than this fix warrants. Re-check when re-evaluating the dev toolchain."

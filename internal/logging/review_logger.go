@@ -207,6 +207,32 @@ func (r *ReviewLogger) EmitBatchStart(batchID string, fileCount int) {
 	_ = r.eventSink.EmitLogEvent(ctx, r.reviewIDInt, r.orgID, "info", message, batchID)
 }
 
+// EmitBatchFailed emits an explicit terminal failure event for a batch that
+// exhausted all retries - distinct from a per-attempt retry error, so the
+// frontend (ReviewProgressView.tsx) can render this batch as genuinely
+// Failed instead of falling back to a stale fileCount and rendering fake
+// success. Previously only a free-text log line was emitted here, which the
+// frontend's error-parsing had no reliable way to distinguish from a
+// transient retry log - this is the fix for that.
+func (r *ReviewLogger) EmitBatchFailed(batchID string, err error) {
+	if r == nil || r.eventSink == nil {
+		return
+	}
+
+	ctx := context.Background()
+	errorSummary := "batch failed"
+	if err != nil {
+		errorSummary = err.Error()
+	}
+	// Status "failed" - comments is nil since none were produced.
+	_ = r.eventSink.EmitBatchEvent(ctx, r.reviewIDInt, r.orgID, batchID, "failed", 0, 0, nil)
+
+	// r.Log already emits a matching "log" event through the sink (see its
+	// own eventSink branch above) - no separate EmitLogEvent call needed here.
+	message := fmt.Sprintf("Batch %s failed permanently: %s", batchID, errorSummary)
+	r.Log("❌ %s", message)
+}
+
 // EmitBatchComplete emits an event when a batch completes processing
 func (r *ReviewLogger) EmitBatchComplete(batchID string, commentCount int, comments interface{}) {
 	if r == nil || r.eventSink == nil {

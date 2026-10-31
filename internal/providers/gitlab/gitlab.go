@@ -82,11 +82,12 @@ func (p *GitLabProvider) GetMergeRequestDetails(ctx context.Context, mrURL strin
 	if commits, commitsErr := p.httpClient.GetMergeRequestCommits(projectID, mrIID); commitsErr != nil {
 		fmt.Printf("[WARN] GitLabProvider: failed to fetch MR commits for project=%s mrIID=%d: %v\n", projectID, mrIID, commitsErr)
 	} else {
-		shas := make([]string, 0, len(commits))
+		summaries := make([]providers.CommitSummary, 0, len(commits))
 		for _, c := range commits {
-			shas = append(shas, c.ID)
+			// Title is GitLab's first line of the commit message (Message is the full body).
+			summaries = append(summaries, providers.CommitSummary{SHA: c.ID, Message: c.Title})
 		}
-		details.Commits = shas
+		details.Commits = summaries
 	}
 
 	return details, nil

@@ -45,6 +45,12 @@ export interface ClientTableProps<TData> {
    * computed. Omit for client-side tables (derives it from the table's own
    * row model, same as before). */
   manualTotal?: number;
+  /** Lets the user drag column edges to resize. Off by default (unchanged
+   * behavior for existing callers). When on, the caller's `table` must have
+   * been constructed with `enableColumnResizing: true` and each column
+   * given an initial `size` (TanStack's resizing API) - columnWidths is
+   * still used as the pre-resize starting layout. */
+  enableColumnResizing?: boolean;
 }
 
 /**
@@ -67,6 +73,7 @@ export function ClientTable<TData>({
   onRowClick,
   getRowHref,
   manualTotal,
+  enableColumnResizing = false,
 }: ClientTableProps<TData>) {
   // Show loading until the first rows arrive, even when filters keep isEmpty false.
   if (loading && (isEmpty || table.getRowModel().rows.length === 0)) {
@@ -122,16 +129,34 @@ export function ClientTable<TData>({
       <div className="overflow-x-auto">
       <table className="w-full table-fixed text-sm min-w-[900px]">
         <colgroup>
-          {columnWidths.map((width, i) => (
-            <col key={i} style={{ width }} />
-          ))}
+          {enableColumnResizing
+            ? // Percentage widths (relative to the table's current total size)
+              // rather than raw px - a fixed px colgroup leaves the table
+              // narrower than its container on wide screens (table-layout:
+              // fixed doesn't stretch fixed-width columns to fill extra
+              // space). Percentages keep the table at a full 100% while
+              // still reflecting each column's size/resize state.
+              table.getFlatHeaders().map((header) => (
+                <col
+                  key={header.id}
+                  style={{ width: `${(header.getSize() / table.getTotalSize()) * 100}%` }}
+                />
+              ))
+            : columnWidths.map((width, i) => <col key={i} style={{ width }} />)}
         </colgroup>
         <thead className="bg-[#2A3340]">
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id} className="divide-x divide-slate-600/60">
               {headerGroup.headers.map((header) => (
-                <th key={header.id} className="align-top px-6 py-4 text-left">
+                <th key={header.id} className="relative align-middle px-6 py-4 text-left">
                   {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                  {enableColumnResizing && header.column.getCanResize() && (
+                    <div
+                      onMouseDown={header.getResizeHandler()}
+                      onTouchStart={header.getResizeHandler()}
+                      className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize select-none touch-none bg-slate-600/0 hover:bg-blue-500/60"
+                    />
+                  )}
                 </th>
               ))}
             </tr>

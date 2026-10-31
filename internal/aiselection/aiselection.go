@@ -12,6 +12,7 @@ import (
 	"github.com/livereview/internal/aidefault"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/review"
+	"github.com/livereview/internal/reviewperf"
 	storageaiconnectors "github.com/livereview/storage/aiconnectors"
 )
 
@@ -21,6 +22,13 @@ type Selection struct {
 	Helper        *review.AIConfig
 	HelperEnabled bool
 	HelperMode    string
+
+	// EffectiveMaxConcurrentBatches and EffectiveReviewTimeoutSeconds are the
+	// org's optional soft preference resolved against the instance-wide
+	// ceiling (see internal/reviewperf) - always safe to use directly when
+	// building a review.Config, never requiring the caller to re-clamp.
+	EffectiveMaxConcurrentBatches int
+	EffectiveReviewTimeoutSeconds int
 }
 
 // GetReviewAISelection resolves the org's Leader (and, if enabled, Helper) AI connector, same rules as manual/webhook reviews.
@@ -42,10 +50,17 @@ func GetReviewAISelection(ctx context.Context, db *sql.DB, orgID int64, planCode
 		return nil, fmt.Errorf("failed to get review AI settings: %w", err)
 	}
 
+	perfSettings, err := reviewperf.Load(ctx, db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load review performance settings: %w", err)
+	}
+
 	selection := &Selection{
-		Leader:        leaderConfig,
-		HelperEnabled: settings.HelperEnabled,
-		HelperMode:    settings.HelperMode,
+		Leader:                        leaderConfig,
+		HelperEnabled:                 settings.HelperEnabled,
+		HelperMode:                    settings.HelperMode,
+		EffectiveMaxConcurrentBatches: perfSettings.ResolveMaxConcurrentBatches(settings.PreferredMaxConcurrentBatches),
+		EffectiveReviewTimeoutSeconds: perfSettings.ResolveReviewTimeoutSeconds(settings.PreferredReviewTimeoutSeconds),
 	}
 
 	if !settings.HelperEnabled {

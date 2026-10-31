@@ -291,6 +291,7 @@ const Reviews: React.FC = () => {
         () => [
             {
                 id: 'review',
+                size: 180,
                 accessorFn: (review) => getPrimaryTitle(review),
                 // Links its own title/PR line so "Open PR/MR" isn't nested in a link.
                 meta: { rowLink: false },
@@ -406,6 +407,7 @@ const Reviews: React.FC = () => {
             },
             {
                 id: 'branch',
+                size: 120,
                 accessorFn: (review) => review.branch?.trim() || '',
                 enableColumnFilter: false,
                 header: ({ column }) => (
@@ -433,6 +435,7 @@ const Reviews: React.FC = () => {
             },
             {
                 id: 'repository',
+                size: 140,
                 accessorFn: (review) => getCleanRepository(review),
                 // Free-text search lives on the "Review" column only (one combined
                 // `search` query param on the backend) - this column is sort-only.
@@ -465,6 +468,7 @@ const Reviews: React.FC = () => {
             },
             {
                 id: 'source',
+                size: 120,
                 accessorFn: (review) => normalizeSource(review.provider, review.triggerType),
                 filterFn: multiSelectFilterFn,
                 header: ({ column }) => (
@@ -517,6 +521,7 @@ const Reviews: React.FC = () => {
             },
             {
                 id: 'status',
+                size: 120,
                 accessorKey: 'status',
                 filterFn: multiSelectFilterFn,
                 header: ({ column }) => (
@@ -591,6 +596,7 @@ const Reviews: React.FC = () => {
             },
             {
                 id: 'author',
+                size: 100,
                 accessorFn: (review) => {
                     const fallbackAuthorFromUrl = review.prMrUrl
                         ? extractAuthorFromUrl(review.prMrUrl)
@@ -629,6 +635,7 @@ const Reviews: React.FC = () => {
             },
             {
                 id: 'last_activity',
+                size: 120,
                 accessorFn: (review) =>
                     review.completedAt || review.startedAt || review.createdAt,
                 enableColumnFilter: false,
@@ -652,6 +659,7 @@ const Reviews: React.FC = () => {
             },
             {
                 id: 'details',
+                size: 100,
                 enableSorting: false,
                 enableColumnFilter: false,
                 meta: { rowLink: false },
@@ -693,6 +701,8 @@ const Reviews: React.FC = () => {
         onSortingChange: handleSortingChange,
         onColumnFiltersChange: handleColumnFiltersChange,
         onPaginationChange: handlePaginationChange,
+        columnResizeMode: 'onChange',
+        enableColumnResizing: true,
     });
 
     return (
@@ -733,6 +743,7 @@ const Reviews: React.FC = () => {
             <ClientTable
                 table={table}
                 columnWidths={REVIEWS_COLUMN_WIDTHS}
+                enableColumnResizing
                 loading={loading}
                 loadingLabel="Loading reviews..."
                 error={error}

@@ -7,6 +7,14 @@ interface ReviewProgressViewProps {
   events: ReviewEvent[];
   isLive?: boolean;
   className?: string;
+  // The review's real top-level status (from the review record, not derived
+  // from this event stream). Used to resolve stages that are stuck
+  // pending/in-progress once the review itself has actually finished -
+  // some stages (e.g. Finalization) only ever get marked complete by a
+  // specific message/eventType match, and a review can legitimately finish
+  // without ever emitting that exact marker, leaving the stage frozen
+  // in-progress forever even though the review is done.
+  reviewStatus?: string;
 }
 
 type StageStatus = 'pending' | 'in-progress' | 'completed' | 'failed';
@@ -106,12 +114,64 @@ interface ResiliencyEvent {
   attempt?: number;
   details: string;
   resolved: boolean;
+  // Repeated occurrences of the same type within a substage are grouped into
+  // one pill instead of rendering a duplicate pill per raw event - occurrences
+  // holds each underlying raw event (with its own message) so the grouped
+  // count can still be expanded to see exactly when/why each one happened.
+  // Grouping is by type alone (not exact message text): a single underlying
+  // LLM failure is commonly logged as several near-identical lines - a
+  // top-level wrapped error plus one line per unwrapped cause in its error
+  // chain - which previously defeated message-based dedup and rendered as
+  // several near-duplicate pills for what is really one failure.
+  occurrences: { timestamp?: string; attempt?: number; details: string }[];
 }
 
-export default function ReviewProgressView({ reviewId, events, isLive = false, className }: ReviewProgressViewProps) {
+// Groups a new resiliency event into an existing pill with the same type
+// within the same substage instead of always pushing a new one, so e.g.
+// three retries/error-chain entries for the same underlying failure render
+// as one "circuit breaker (×3)" pill rather than three near-identical pills.
+function pushResiliencyEvent(
+  substage: Substage,
+  type: ResiliencyEvent['type'],
+  details: string,
+  attempt: number | undefined,
+  resolved: boolean,
+  timestamp: string | undefined
+) {
+  const existing = substage.resiliencyEvents.find((e) => e.type === type);
+  if (existing) {
+    existing.occurrences.push({ timestamp, attempt, details });
+    existing.resolved = existing.resolved || resolved;
+    if (attempt !== undefined) {
+      existing.attempt = attempt;
+    }
+    return;
+  }
+  substage.resiliencyEvents.push({
+    type,
+    details,
+    attempt,
+    resolved,
+    occurrences: [{ timestamp, attempt, details }],
+  });
+}
+
+export default function ReviewProgressView({ reviewId, events, isLive = false, className, reviewStatus }: ReviewProgressViewProps) {
   const [stages, setStages] = useState<Stage[]>([]);
   const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set(['stage-4'])); // Default expand "Processing Batches"
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set()); // Track which stages have expanded events
+  const [expandedResiliency, setExpandedResiliency] = useState<Set<string>>(new Set()); // Which grouped resiliency pills are expanded
+  const toggleResiliencyExpanded = (key: string) => {
+    setExpandedResiliency((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     const processedStages = processEventsIntoStages(events);
@@ -130,7 +190,7 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
     }
     
     setStages(processedStages);
-  }, [events]);
+  }, [events, reviewStatus]);
 
   const processEventsIntoStages = (events: ReviewEvent[]): Stage[] => {
     const stageMap = new Map<StageKey, Stage>();
@@ -352,6 +412,16 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
       };
 
       const markCompleted = (countHint?: number) => {
+        // Once a batch has been explicitly marked failed (a genuine
+        // terminal-failure event, not a per-attempt retry), no later
+        // loosely-matched event (e.g. a log line that happens to contain
+        // "completed"/"generated"/"posted") may flip it back to success and
+        // force-resolve its error pills - that is exactly how fake "✓
+        // Generated N comments" badges got shown for batches that actually
+        // failed outright.
+        if (substage.status === 'failed') {
+          return;
+        }
         substage.status = 'completed';
         substage.endTime = event.timestamp;
         ensureCount(countHint ?? parseCountFromMessage(event.message));
@@ -371,7 +441,14 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
         substage.endTime = event.timestamp;
       };
 
-      const countFromDetails = event.details?.commentCount ?? event.details?.fileCount;
+      // Only a genuine comment count may ever populate substage.count, which
+      // render() displays verbatim as "Generated N comments" - never fall
+      // back to fileCount (a "processing" event's file total). Falling back
+      // used to preload substage.count with a batch's file count during
+      // processing, so if that batch later failed outright and some
+      // unrelated event loosely matched into markCompleted() without its own
+      // real comment count, the stale file count rendered as fake success.
+      const countFromDetails = event.details?.commentCount;
 
       if (event.eventType === 'batch' || event.eventType === 'status') {
         const statusValue = normalize(String(event.details?.status || ''));
@@ -403,12 +480,7 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
           markCompleted(countFromDetails);
         }
         if (severityIsError(event.severity)) {
-          substage.resiliencyEvents.push({
-            type: 'circuit_breaker',
-            details: event.message,
-            attempt: event.details?.attempt,
-            resolved: false
-          });
+          pushResiliencyEvent(substage, 'circuit_breaker', event.message, event.details?.attempt, false, event.timestamp);
           markInProgress();
         }
       }
@@ -420,22 +492,12 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
       }
 
       if (event.eventType === 'retry' || event.eventType === 'json_repair' || event.eventType === 'timeout') {
-        substage.resiliencyEvents.push({
-          type: event.eventType,
-          details: event.message,
-          attempt: event.details?.attempt,
-          resolved: !severityIsError(event.severity)
-        });
+        pushResiliencyEvent(substage, event.eventType, event.message, event.details?.attempt, !severityIsError(event.severity), event.timestamp);
         markInProgress();
       }
 
       if (event.eventType === 'error') {
-        substage.resiliencyEvents.push({
-          type: 'circuit_breaker',
-          details: event.message,
-          attempt: event.details?.attempt,
-          resolved: false
-        });
+        pushResiliencyEvent(substage, 'circuit_breaker', event.message, event.details?.attempt, false, event.timestamp);
         markFailed();
       }
 
@@ -612,6 +674,30 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
         }
       }
     });
+
+    // The review itself is the source of truth for whether it's actually
+    // over - some stages (Finalization in particular) only flip to
+    // 'completed' above on a specific message/eventType match, and a review
+    // can legitimately finish without ever emitting that exact marker. Once
+    // the review record says it's done, any stage/substage still stuck
+    // pending/in-progress is resolved to match rather than spinning forever
+    // (e.g. "Finalization: in-progress" + a stale "70% complete" bar next to
+    // a review the header already shows as Completed).
+    if (reviewStatus === 'completed' || reviewStatus === 'failed') {
+      const resolvedStatus: StageStatus = reviewStatus === 'completed' ? 'completed' : 'failed';
+      stageMap.forEach(stage => {
+        if (stage.status === 'pending' || stage.status === 'in-progress') {
+          stage.status = resolvedStatus;
+          stage.endTime = stage.endTime ?? stage.events[stage.events.length - 1]?.timestamp;
+        }
+        stage.substages?.forEach(substage => {
+          if (substage.status === 'pending' || substage.status === 'in-progress') {
+            substage.status = resolvedStatus;
+            substage.endTime = substage.endTime ?? substage.events[substage.events.length - 1]?.timestamp;
+          }
+        });
+      });
+    }
 
     return STAGE_DEFINITIONS.map(def => stageMap.get(def.key)!);
   };
@@ -854,26 +940,50 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
                                 </div>
                               </div>
                               
-                              {/* Resiliency events */}
+                              {/* Resiliency events - grouped: repeated occurrences of the
+                                  same underlying failure render as one pill with a count,
+                                  expandable to see each individual occurrence. */}
                               {substage.resiliencyEvents.length > 0 && (
                                 <div className="flex flex-wrap gap-2 mb-2">
-                                  {substage.resiliencyEvents.map((resEvent, idx) => (
-                                    <div 
-                                      key={idx}
-                                      className={`flex items-center gap-1 px-2 py-1 rounded text-xs ${
-                                        resEvent.resolved 
-                                          ? 'bg-yellow-900/30 text-yellow-300 border border-yellow-700/30' 
-                                          : 'bg-red-900/30 text-red-300 border border-red-700/30'
-                                      }`}
-                                    >
-                                      {getResiliencyIcon(resEvent.type)}
-                                      <span>
-                                        {resEvent.type.replace('_', ' ')}
-                                        {resEvent.attempt && ` (${resEvent.attempt}x)`}
-                                      </span>
-                                      {resEvent.resolved && <Icons.Success />}
-                                    </div>
-                                  ))}
+                                  {substage.resiliencyEvents.map((resEvent, idx) => {
+                                    const pillKey = `${stage.id}-${substage.id}-${idx}`;
+                                    const isExpanded = expandedResiliency.has(pillKey);
+                                    const count = resEvent.occurrences.length;
+                                    return (
+                                      <div key={idx} className="flex flex-col">
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleResiliencyExpanded(pillKey)}
+                                          title={resEvent.details}
+                                          className={`flex items-center gap-1 px-2 py-1 rounded text-xs ${
+                                            resEvent.resolved
+                                              ? 'bg-yellow-900/30 text-yellow-300 border border-yellow-700/30'
+                                              : 'bg-red-900/30 text-red-300 border border-red-700/30'
+                                          }`}
+                                        >
+                                          {getResiliencyIcon(resEvent.type)}
+                                          <span>
+                                            {resEvent.type.replace('_', ' ')}
+                                            {count > 1 && ` (×${count})`}
+                                          </span>
+                                          {resEvent.resolved && <Icons.Success />}
+                                        </button>
+                                        {isExpanded && (
+                                          <div className="mt-1 rounded border border-slate-700 bg-slate-900/80 px-2 py-1.5 text-[11px] text-slate-300 space-y-1.5 max-w-sm">
+                                            {resEvent.occurrences.map((occ, occIdx) => (
+                                              <div key={occIdx}>
+                                                <p className="text-slate-500">
+                                                  {occ.timestamp ? new Date(occ.timestamp).toLocaleTimeString() : `#${occIdx + 1}`}
+                                                  {occ.attempt !== undefined && ` · attempt ${occ.attempt}`}
+                                                </p>
+                                                <p className="text-slate-400 break-words">{occ.details}</p>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               )}
                               
