@@ -52,7 +52,10 @@ export function riskAssessment(
   report: BlastRadiusReport | BlastRadiusSkipped | null,
   poll: RiskPoll,
   isPR: boolean,
-  badgeScores?: RiskScore[], // same numbers as the Findings badges, once that panel has loaded
+  // Same numbers as the Findings badges (they blend in finding severity on
+  // top of the structural blast-radius score). `null` means Findings hasn't
+  // loaded them yet -- distinct from `[]`, a confirmed zero-hunk result.
+  badgeScores?: RiskScore[] | null,
 ): RiskAssessment {
   const none: RiskScore[] = [];
   if (report && isBlastRadiusSkipped(report)) {
@@ -63,13 +66,19 @@ export function riskAssessment(
   }
   const ready = report as BlastRadiusReport | null; // skipped returned above
   if (ready) {
-    // Until Findings loads, fall back to the structural score (badges add 10% finding severity).
-    const scores = badgeScores?.length
-      ? badgeScores
-      : ready.Files.flatMap((f) => (f.Hunks || []).map((h) => ({ path: f.Path, score: h.Combined || 0 })));
-    const top = Math.max(0, ...scores.map((h) => h.score));
+    if (badgeScores == null) {
+      // Blast radius landed, but the Findings panel (which blends in finding
+      // severity) hasn't computed its scores yet -- previously this fell back
+      // to the structural-only score instead, which could land in a
+      // different risk tier and visibly flash/correct the moment Findings
+      // finished loading. Showing a neutral, honest "still calculating" state
+      // instead of a number that might be wrong is worth more than instant
+      // (but possibly misleading) feedback here.
+      return { kind: 'calculating', value: 'Calculating...', tone: '!text-sky-400', text: 'Waiting for findings to finish loading before computing the full risk score.', scores: none, top: 0 };
+    }
+    const top = Math.max(0, ...badgeScores.map((h) => h.score));
     const text = 'Highest risk score (0-100) across the changed code.';
-    return { kind: 'ready', value: blastRadiusTierLabel(top), tone: TIER_TONE[blastRadiusTier(top)], text, report: ready, scores, top };
+    return { kind: 'ready', value: blastRadiusTierLabel(top), tone: TIER_TONE[blastRadiusTier(top)], text, report: ready, scores: badgeScores, top };
   }
   if (poll === 'gave_up') {
     return { kind: 'unavailable', value: 'Not available', tone: '!text-slate-400', text: 'No result arrived within 15 minutes.', scores: none, top: 0 };

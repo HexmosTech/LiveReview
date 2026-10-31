@@ -106,7 +106,13 @@ const ReviewDetail: React.FC = () => {
     }, [setSearchParams]);
     const [blastReport, setBlastReport] = useState<BlastRadiusReport | BlastRadiusSkipped | null>(null);
     const [blastPoll, setBlastPoll] = useState<'checking' | 'waiting' | 'gave_up'>('checking');
-    const [riskScores, setRiskScores] = useState<RiskScore[]>([]);
+    // null means "not loaded yet" (Findings hasn't computed its real, finding-
+    // aware scores) -- distinct from [] (loaded, confirmed zero scored hunks).
+    // riskAssessment() shows a neutral "Calculating..." state for null instead
+    // of guessing from the structural-only blast radius score, which used to
+    // flash a different (sometimes higher) risk tier the moment Findings
+    // finished loading and handed over the real numbers.
+    const [riskScores, setRiskScores] = useState<RiskScore[] | null>(null);
     const [commentCount, setCommentCount] = useState<number | undefined>(undefined);
 
     useEffect(() => {
@@ -117,7 +123,7 @@ const ReviewDetail: React.FC = () => {
         let attempts = 0;
         setBlastReport(null);
         setBlastPoll('checking');
-        setRiskScores([]);
+        setRiskScores(null);
         setCommentCount(undefined);
         const load = () => {
             getBlastRadiusReport(reviewId)

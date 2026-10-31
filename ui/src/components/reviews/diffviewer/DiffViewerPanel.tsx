@@ -313,11 +313,18 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
   const enrichedFiles = useMemo(() => attachBlastData(rawFiles, blastLookup || new Map()), [rawFiles, blastLookup]);
   const canSortByRisk = useMemo(() => hasBlastRadiusData(enrichedFiles), [enrichedFiles]);
   useEffect(() => {
-    if (!blastReport || !onRiskScores) return;
+    // Also gated on `data` (not just blastReport): before the diff itself has
+    // loaded, enrichedFiles is `[]` purely because rawFiles is still empty,
+    // not because there are genuinely zero scored hunks. Reporting that
+    // premature `[]` up would show a confident-but-wrong "Minimal risk" in
+    // the page header for a moment before correcting to the real score once
+    // data arrives -- the same class of flicker this callback exists to
+    // avoid downstream (see ReviewDetail's riskScores state comment).
+    if (!blastReport || !onRiskScores || !data) return;
     onRiskScores(enrichedFiles.flatMap((f) => (f.hunks || [])
       .filter((h) => typeof h.BlastRadius === 'number')
       .map((h) => ({ path: f.file_path, score: h.BlastRadius as number }))));
-  }, [enrichedFiles, blastReport, onRiskScores]);
+  }, [enrichedFiles, blastReport, onRiskScores, data]);
   const files = useMemo(() => {
     if (!canSortByRisk) return enrichedFiles;
     if (sortMode === 'risk-flat') return flattenFilesByRisk(enrichedFiles);
