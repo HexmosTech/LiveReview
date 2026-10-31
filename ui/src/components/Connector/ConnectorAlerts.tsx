@@ -5,7 +5,7 @@
 //   const { alerts, dismissAlert } = useConnectorAlerts();
 //   {alerts.map(a => <ConnectorAlertBanner key={a.connector.id} alert={a} onDismiss={dismissAlert} />)}
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Alert, Button } from '../UIPrimitives';
 import { getConnectors, ConnectorResponse } from '../../api/connectors';
@@ -108,18 +108,20 @@ export function computeConnectorAlerts(
 
 const LOCAL_KEY = 'dismissed_connector_alerts';
 
-function loadDismissed(): Set<number> {
+function loadDismissed(): Set<string> {
   try {
     const raw = localStorage.getItem(LOCAL_KEY);
-    return raw ? new Set<number>(JSON.parse(raw)) : new Set<number>();
+    if (!raw) return new Set<string>();
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? new Set<string>(parsed.map(String)) : new Set<string>();
   } catch {
-    return new Set<number>();
+    return new Set<string>();
   }
 }
 
-function saveDismissed(ids: Set<number>): void {
+function saveDismissed(keys: Set<string>): void {
   try {
-    localStorage.setItem(LOCAL_KEY, JSON.stringify([...ids]));
+    localStorage.setItem(LOCAL_KEY, JSON.stringify([...keys]));
   } catch { /* ignore */ }
 }
 
@@ -137,7 +139,7 @@ export function useConnectorAlerts(): {
   const notificationItems = useAppSelector((state) => state.Notifications.items);
   const persistedNotifications = useAppSelector((state) => state.Notifications.persisted);
   const [allAlerts, setAllAlerts] = useState<ConnectorAlert[]>([]);
-  const [dismissed, setDismissed] = useState<Set<number>>(loadDismissed);
+  const [dismissed, setDismissed] = useState<Set<string>>(loadDismissed);
   const lastFetchTimeRef = useRef<number>(0);
 
   const fetchAlerts = useCallback(async () => {
@@ -210,7 +212,14 @@ export function useConnectorAlerts(): {
 
   const dismissAlert = (connectorId: number, kind?: string) => {
     setDismissed((prev) => {
-      const next = new Set([...prev, connectorId]);
+      const next = new Set(prev);
+      if (kind) {
+        next.add(`${connectorId}-${kind}`);
+      } else {
+        next.add(`${connectorId}-auth`);
+        next.add(`${connectorId}-mismatch`);
+        next.add(String(connectorId));
+      }
       saveDismissed(next);
       return next;
     });
@@ -223,11 +232,11 @@ export function useConnectorAlerts(): {
   };
 
   const isAlertDismissed = (connectorId: number, kind: string): boolean => {
-    if (dismissed.has(connectorId)) return true;
     const key = `connector-${kind}-${connectorId}`;
     if (persistedNotifications?.[key]?.dismissed) return true;
     const item = notificationItems.find((n) => n.id === key);
     if (item?.dismissed) return true;
+    if (dismissed.has(`${connectorId}-${kind}`) || dismissed.has(String(connectorId))) return true;
     return false;
   };
 
@@ -440,9 +449,10 @@ export const GlobalConnectorAlerts: React.FC = () => {
 
   const isConnectorDismissed = (connectorId: number): boolean => {
     const id = connectorNotificationId(connectorId);
+    if (persistedNotifications?.[id]?.dismissed) return true;
     const item = notificationItems.find((n) => n.id === id);
     if (item?.dismissed) return true;
-    return !!persistedNotifications?.[id]?.dismissed;
+    return false;
   };
 
   const dismissSetup = (connectorId: number): void => {
@@ -472,8 +482,12 @@ export const GlobalConnectorAlerts: React.FC = () => {
     });
   }, [dashboardData?.connector_setup_progress, dispatch]);
 
-  const connectorsNeedingSetup = (dashboardData?.connector_setup_progress || []).filter(
-    (c) => !isConnectorDismissed(c.connector_id)
+  const connectorsNeedingSetup = useMemo(
+    () =>
+      (dashboardData?.connector_setup_progress || []).filter(
+        (c) => !isConnectorDismissed(c.connector_id)
+      ),
+    [dashboardData?.connector_setup_progress, notificationItems, persistedNotifications]
   );
 
   const showCredentialAlerts = isCredentialAlertRoute(location.pathname);

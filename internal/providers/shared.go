@@ -132,6 +132,17 @@ func (e *AuthError) Error() string {
 	return fmt.Sprintf("%s authentication failed: %s", e.Provider, e.Message)
 }
 
+func isHTTPStatusCode(msg, code, text string) bool {
+	return strings.Contains(msg, code+" "+text) ||
+		(strings.Contains(msg, text) && strings.Contains(msg, code)) ||
+		strings.Contains(msg, "status "+code) ||
+		strings.Contains(msg, "status: "+code) ||
+		strings.Contains(msg, "status code "+code) ||
+		strings.Contains(msg, "http "+code) ||
+		strings.Contains(msg, "http: "+code) ||
+		strings.Contains(msg, "("+code+")")
+}
+
 // IsForbiddenError returns true if err or any error in its chain represents an HTTP 403 Forbidden /
 // permission denied error (and not a rate limit). Unlike HTTP 401 Unauthorized, HTTP 403 indicates
 // that the token/credentials authenticated but lack permission for that specific repository or resource.
@@ -152,11 +163,7 @@ func IsForbiddenError(err error) bool {
 	if strings.Contains(msg, "rate limit") || strings.Contains(msg, "too many requests") {
 		return false
 	}
-	return strings.Contains(msg, "403") && (
-		strings.Contains(msg, "forbidden") ||
-			strings.Contains(msg, "status") ||
-			strings.Contains(msg, "http") ||
-			strings.Contains(msg, "(403)"))
+	return isHTTPStatusCode(msg, "403", "forbidden")
 }
 
 // IsAuthError returns true if err or any error in its chain is an *AuthError,
@@ -183,22 +190,10 @@ func IsAuthError(err error, providerOpt ...string) bool {
 	}
 
 	// Standard HTTP 401 Unauthorized across any provider:
-	// - Go HTTP status text: "401 unauthorized"
-	// - Generic status format: "status 401", "status: 401", "status code 401", "http 401"
-	// - Bracketed status format (Azure DevOps, Gitea): "(401)"
-	has401 := strings.Contains(msg, "401") && (
-		strings.Contains(msg, "unauthorized") ||
-			strings.Contains(msg, "status") ||
-			strings.Contains(msg, "http") ||
-			strings.Contains(msg, "(401)"))
+	has401 := isHTTPStatusCode(msg, "401", "unauthorized")
 
 	// Standard HTTP 403 Forbidden across any provider (rate limits already excluded):
-	// - "403 forbidden", "status 403", "http 403", "(403)"
-	has403 := strings.Contains(msg, "403") && (
-		strings.Contains(msg, "forbidden") ||
-			strings.Contains(msg, "status") ||
-			strings.Contains(msg, "http") ||
-			strings.Contains(msg, "(403)"))
+	has403 := isHTTPStatusCode(msg, "403", "forbidden")
 
 	if has401 || has403 {
 		return true
