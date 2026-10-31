@@ -14,6 +14,7 @@ import {
   retrainRiskModel,
   simulatePolicy,
   SimulateRow,
+  SimulateSummary,
   listReviewOutcomes,
   OutcomeRow,
 } from '../../api/riskPolicy';
@@ -81,6 +82,7 @@ const AutoApprovePolicyTab: React.FC = () => {
     setSubtab(new URLSearchParams(location.search).get('subtab') || 'general');
   }, [location.search]);
   const [simRows, setSimRows] = useState<SimulateRow[] | null>(null);
+  const [simSummary, setSimSummary] = useState<SimulateSummary | null>(null);
 
   const orgId = currentOrgId ?? 0;
   const readOnly = !canManageCurrentOrg && currentOrg?.role !== 'owner';
@@ -185,6 +187,7 @@ const AutoApprovePolicyTab: React.FC = () => {
     try {
       const res = await simulatePolicy({ policy: draft, limit: 20 });
       setSimRows(res.rows);
+      setSimSummary(res.summary);
     } catch (e: any) {
       setError(String(e?.message || e));
     }
@@ -278,6 +281,28 @@ const AutoApprovePolicyTab: React.FC = () => {
                 <InfoHint text={HELP.simulate} />
               </span>
             </div>
+            {simSummary && (() => {
+              const denom = simSummary.scored_count || 1;
+              const saturatedFraction = (simSummary.saturated_high + simSummary.saturated_low) / denom;
+              const saturationWarning = simSummary.scored_count > 0 && saturatedFraction > 0.3;
+              const text = simSummary.scored_count === 0
+                ? `${simSummary.skipped_count} review(s) skipped (couldn't be scored) — nothing to show.`
+                : `${simSummary.scored_count}/${simSummary.scored_count + simSummary.skipped_count} scored` +
+                  (simSummary.skipped_count > 0 ? ` (${simSummary.skipped_count} skipped)` : '') +
+                  `. ${simSummary.saturated_high} pinned at the ceiling (>0.99), ${simSummary.saturated_low} at the floor (<0.01).` +
+                  ` Range ${simSummary.score_min?.toFixed(2)}-${simSummary.score_max?.toFixed(2)}, mean ${simSummary.score_mean?.toFixed(2)}.`;
+              return (
+                <Alert variant={saturationWarning ? 'warning' : 'info'}>
+                  {text}
+                  {saturationWarning && (
+                    <span className="block mt-1">
+                      Over 30% of these reviews scored at the extreme ends — this slider configuration may not be
+                      differentiating risk well. Consider easing the categories driving the highest scores.
+                    </span>
+                  )}
+                </Alert>
+              );
+            })()}
             {simRows && (
               <div className="space-y-1">
                 <p className="text-sm text-slate-400">Simulation (last {simRows.length} completed reviews):</p>

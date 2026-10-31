@@ -382,23 +382,70 @@ func (h *AutoApprovePoliciesHandler) Simulate(c echo.Context) error {
 		Score     float64                    `json:"score,omitempty"`
 		Stages    []policyengine.StageResult `json:"stages"`
 	}
+	// simSummary answers "is this org's current slider configuration actually
+	// differentiating anything" at a glance, instead of requiring a hand-query
+	// against the database (how the original br_sum saturation bug behind this
+	// package's riskscore changes was actually found). saturated_high/_low
+	// count scores pinned at either extreme, which a well-tuned model should
+	// rarely produce for a typical history.
+	type simSummary struct {
+		ScoredCount   int     `json:"scored_count"`
+		SkippedCount  int     `json:"skipped_count"`
+		SaturatedHigh int     `json:"saturated_high"`
+		SaturatedLow  int     `json:"saturated_low"`
+		ScoreMin      float64 `json:"score_min,omitempty"`
+		ScoreMax      float64 `json:"score_max,omitempty"`
+		ScoreMean     float64 `json:"score_mean,omitempty"`
+	}
 	out := []simRow{}
+	summary := simSummary{ScoreMin: 1}
+	var scoreSum float64
 	for _, rid := range reviewIDs {
 		res, err := h.engine.RunWithPolicy(c.Request().Context(), orgID, rid, draft, true)
 		if err != nil {
 			log.Printf("auto-approve simulate: review %d skipped: %v", rid, err)
+			summary.SkippedCount++
 			continue
 		}
 		row := simRow{ReviewID: rid, Approved: res.Approved, Score: res.Score, Stages: res.Stages}
+		riskRan := false
 		for _, st := range res.Stages {
-			if st.Verdict == policyengine.VerdictFail {
+			if row.BlockedAt == "" && st.Verdict == policyengine.VerdictFail {
 				row.BlockedAt = st.Stage
-				break
+			}
+			// Risk stage is skipped (VerdictSkip) whenever an earlier stage
+			// (eligibility/static) already blocked the review -- res.Score
+			// stays its zero value in that case, which isn't a real "low
+			// score" and must not be counted in the summary stats below.
+			if st.Stage == policyengine.StageRisk && st.Verdict != policyengine.VerdictSkip {
+				riskRan = true
 			}
 		}
 		out = append(out, row)
+
+		if riskRan {
+			summary.ScoredCount++
+			scoreSum += res.Score
+			if res.Score > summary.ScoreMax {
+				summary.ScoreMax = res.Score
+			}
+			if res.Score < summary.ScoreMin {
+				summary.ScoreMin = res.Score
+			}
+			if res.Score > 0.99 {
+				summary.SaturatedHigh++
+			}
+			if res.Score < 0.01 {
+				summary.SaturatedLow++
+			}
+		}
 	}
-	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{"rows": out})
+	if summary.ScoredCount == 0 {
+		summary.ScoreMin = 0
+	} else {
+		summary.ScoreMean = scoreSum / float64(summary.ScoredCount)
+	}
+	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{"rows": out, "summary": summary})
 }
 
 // loadOrgDefaultPolicy returns the org-default (repository_id IS NULL) policy

@@ -31,15 +31,21 @@ func Build(featureCount int) []Example {
 	rng := rand.New(rand.NewSource(7))
 	var out []Example
 
+	// Mirrors riskscore.ExtractFeatures' encoding exactly (duplicated here
+	// rather than imported so this package stays dependency-free of
+	// riskscore -- see the package doc comment): brSum/brHigh/critical/
+	// warning/security are log1p'd, matching ExtractFeatures' compression of
+	// every structurally-unbounded count/sum feature. brMax/brWeighted stay
+	// raw (genuinely bounded), same as ExtractFeatures.
 	f := func(brSum, brMax, brWeighted, brHigh, critical, warning, security, files, lines, llmRisk float64) []float64 {
 		v := make([]float64, featureCount)
-		v[0] = brSum
+		v[0] = math.Log1p(brSum)
 		v[1] = brMax
 		v[2] = brWeighted
-		v[3] = brHigh
-		v[4] = critical
-		v[5] = warning
-		v[6] = security
+		v[3] = math.Log1p(brHigh)
+		v[4] = math.Log1p(critical)
+		v[5] = math.Log1p(warning)
+		v[6] = math.Log1p(security)
 		v[7] = math.Log1p(files)
 		v[8] = math.Log1p(lines)
 		v[9] = llmRisk

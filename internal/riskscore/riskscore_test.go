@@ -29,8 +29,15 @@ func TestScoreInRange(t *testing.T) {
 func TestScoreOverrideEffect(t *testing.T) {
 	prior := Prior()
 	x := make([]float64, FeatureCount())
-	x[0] = 50 // br_sum
-	x[4] = 1  // critical_count
+	// Realistic log1p'd-scale values, not raw counts (features are
+	// log1p-compressed by ExtractFeatures before Score ever sees them -- a
+	// log1p'd br_sum realistically tops out around 8-9, so a raw value like
+	// 50 here would already be past where a real feature vector could land,
+	// and would clamp both branches to the same z ceiling, hiding the
+	// override's effect entirely -- exactly what this test is supposed to
+	// catch).
+	x[0] = 2.0              // br_sum, log1p(~6.4) -- a sizeable but plausible blast radius
+	x[4] = math.Log1p(1)    // critical_count: one critical finding
 
 	base := Score(prior, x, nil)
 	boosted := Score(prior, x, map[string]float64{"blast_radius": 10})
@@ -172,15 +179,24 @@ func TestPriorAllFeatureWeightsNonNegative(t *testing.T) {
 func TestPriorScoreMonotonicInEachFeature(t *testing.T) {
 	prior := Prior()
 	rng := rand.New(rand.NewSource(42))
+	// Sampled up to 60, not 10: a log1p'd feature realistically tops out
+	// around 8-9 even for an extreme real-world value (log1p(4840) ≈ 8.5,
+	// the actual br_sum behind the production bug this suite guards
+	// against), but this test exercises Score as a pure function over any
+	// input, including well past that -- including past the zClampAbs
+	// clamp boundary (12) -- so a future unbounded feature added without
+	// log1p compression, or a future clamp/weight regression, gets caught
+	// here instead of only showing up in production.
+	const sampleMax = 60.0
 	for trial := 0; trial < 20; trial++ {
 		base := make([]float64, FeatureCount())
 		for i := range base {
-			base[i] = rng.Float64() * 10
+			base[i] = rng.Float64() * sampleMax
 		}
 		baseScore := Score(prior, base, nil)
 		for i := range base {
 			bumped := append([]float64{}, base...)
-			bumped[i] += rng.Float64()*10 + 0.1 // strictly positive delta
+			bumped[i] += rng.Float64()*sampleMax + 0.1 // strictly positive delta
 			bumpedScore := Score(prior, bumped, nil)
 			if bumpedScore < baseScore-1e-12 {
 				t.Fatalf("trial %d, feature %d (%s): increasing this feature (holding others fixed) decreased the seed model's score (%v -> %v)",
