@@ -40,6 +40,12 @@ type ScheduledReviewWorker struct {
 	jq *JobQueue
 }
 
+func checkpointOrWarn(ctx context.Context, store *scheduledreviewstore.Store, configID int64, defaultBranch, lastSyncedSHA string, lastRunAt, nextRunAt time.Time) {
+	if err := store.UpdateCheckpoint(ctx, configID, defaultBranch, lastSyncedSHA, lastRunAt, nextRunAt); err != nil {
+		log.Printf("[WARN] ScheduledReviewWorker: failed to update checkpoint for config %d: %v", configID, err)
+	}
+}
+
 // Timeout overrides the default River 60s timeout to allow longer AI reviews.
 func (w *ScheduledReviewWorker) Timeout(job *river.Job[ScheduledReviewJobArgs]) time.Duration {
 	return 10 * time.Minute
@@ -85,7 +91,7 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 		log.Printf("[ERROR] ScheduledReviewWorker: failed to load integration token %d for config %d: %v", cfg.ConnectorID, cfg.ID, err)
 		run.ErrorMessage = err.Error()
 		if err == sql.ErrNoRows {
-			_ = store.UpdateCheckpoint(ctx, cfg.ID, cfg.DefaultBranch.String, cfg.LastSyncedSHA.String, time.Now(), nextRunAt)
+			checkpointOrWarn(ctx, store, cfg.ID, cfg.DefaultBranch.String, cfg.LastSyncedSHA.String, time.Now(), nextRunAt)
 			return river.JobCancel(fmt.Errorf("integration token %d not found: %w", cfg.ConnectorID, err))
 		}
 		return fmt.Errorf("failed to load integration token: %w", err)
@@ -114,7 +120,7 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 		run.ErrorMessage = err.Error()
 		if providers.IsAuthError(err) {
 			log.Printf("[WARN] ScheduledReviewWorker: auth error resolving GitHub app token for config %d: %v; cancelling job", cfg.ID, err)
-			_ = store.UpdateCheckpoint(ctx, cfg.ID, cfg.DefaultBranch.String, cfg.LastSyncedSHA.String, time.Now(), nextRunAt)
+			checkpointOrWarn(ctx, store, cfg.ID, cfg.DefaultBranch.String, cfg.LastSyncedSHA.String, time.Now(), nextRunAt)
 			return river.JobCancel(fmt.Errorf("failed to resolve GitHub token for connector %d: %w", cfg.ConnectorID, err))
 		}
 		return fmt.Errorf("failed to resolve GitHub token for connector %d: %w", cfg.ConnectorID, err)
@@ -122,7 +128,7 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 	if strings.TrimSpace(patToken) == "" {
 		run.ErrorMessage = "connector access token is missing"
 		log.Printf("[WARN] ScheduledReviewWorker: connector %d has empty access token; cancelling job", cfg.ConnectorID)
-		_ = store.UpdateCheckpoint(ctx, cfg.ID, cfg.DefaultBranch.String, cfg.LastSyncedSHA.String, time.Now(), nextRunAt)
+		checkpointOrWarn(ctx, store, cfg.ID, cfg.DefaultBranch.String, cfg.LastSyncedSHA.String, time.Now(), nextRunAt)
 		return river.JobCancel(fmt.Errorf("access token is missing for connector %d", cfg.ConnectorID))
 	}
 	ghProvider := githubprovider.NewGitHubProvider(patToken)
@@ -134,7 +140,7 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 			run.ErrorMessage = err.Error()
 			if providers.IsAuthError(err) {
 				log.Printf("[WARN] ScheduledReviewWorker: auth error resolving default branch for %s (config %d): %v; cancelling job", cfg.ProjectFullName, cfg.ID, err)
-				_ = store.UpdateCheckpoint(ctx, cfg.ID, cfg.DefaultBranch.String, cfg.LastSyncedSHA.String, time.Now(), nextRunAt)
+				checkpointOrWarn(ctx, store, cfg.ID, cfg.DefaultBranch.String, cfg.LastSyncedSHA.String, time.Now(), nextRunAt)
 				return river.JobCancel(fmt.Errorf("failed to resolve default branch for %s: %w", cfg.ProjectFullName, err))
 			}
 			return fmt.Errorf("failed to resolve default branch for %s: %w", cfg.ProjectFullName, err)
@@ -147,7 +153,7 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 		run.ErrorMessage = err.Error()
 		if providers.IsAuthError(err) {
 			log.Printf("[WARN] ScheduledReviewWorker: auth error resolving branch head for %s (config %d): %v; cancelling job", cfg.ProjectFullName, cfg.ID, err)
-			_ = store.UpdateCheckpoint(ctx, cfg.ID, branch, cfg.LastSyncedSHA.String, time.Now(), nextRunAt)
+			checkpointOrWarn(ctx, store, cfg.ID, branch, cfg.LastSyncedSHA.String, time.Now(), nextRunAt)
 			return river.JobCancel(fmt.Errorf("failed to resolve branch head for %s: %w", cfg.ProjectFullName, err))
 		}
 		return fmt.Errorf("failed to resolve branch head for %s: %w", cfg.ProjectFullName, err)
@@ -167,7 +173,7 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 			run.ErrorMessage = err.Error()
 			if providers.IsAuthError(err) {
 				log.Printf("[WARN] ScheduledReviewWorker: auth error resolving lookback commit for %s (config %d): %v; cancelling job", cfg.ProjectFullName, cfg.ID, err)
-				_ = store.UpdateCheckpoint(ctx, cfg.ID, branch, headSHA, time.Now(), nextRunAt)
+				checkpointOrWarn(ctx, store, cfg.ID, branch, headSHA, time.Now(), nextRunAt)
 				return river.JobCancel(fmt.Errorf("failed to resolve lookback commit for %s: %w", cfg.ProjectFullName, err))
 			}
 			return fmt.Errorf("failed to resolve lookback commit for %s: %w", cfg.ProjectFullName, err)
@@ -186,7 +192,7 @@ func (w *ScheduledReviewWorker) Work(ctx context.Context, job *river.Job[Schedul
 		run.ErrorMessage = err.Error()
 		if providers.IsAuthError(err) {
 			log.Printf("[WARN] ScheduledReviewWorker: auth error fetching compare diff for %s (config %d): %v; cancelling job", cfg.ProjectFullName, cfg.ID, err)
-			_ = store.UpdateCheckpoint(ctx, cfg.ID, branch, headSHA, time.Now(), nextRunAt)
+			checkpointOrWarn(ctx, store, cfg.ID, branch, headSHA, time.Now(), nextRunAt)
 			return river.JobCancel(fmt.Errorf("failed to fetch compare diff for %s (%s...%s): %w", cfg.ProjectFullName, baseSHA, headSHA, err))
 		}
 		return fmt.Errorf("failed to fetch compare diff for %s (%s...%s): %w", cfg.ProjectFullName, baseSHA, headSHA, err)

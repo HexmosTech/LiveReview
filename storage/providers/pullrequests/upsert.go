@@ -51,25 +51,33 @@ func (e *ProviderMismatchError) Error() string {
 		e.RepoProvider, e.ConnectorID, e.ConnProvider, e.RepoFullName)
 }
 
+func (s *Store) validateConnectorProvider(r RepositoryUpsert) error {
+	if r.ConnectorID <= 0 {
+		return nil
+	}
+	var connProvider string
+	err := s.db.QueryRow(`SELECT provider FROM integration_tokens WHERE id = $1`, r.ConnectorID).Scan(&connProvider)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to query connector %d for provider validation: %w", r.ConnectorID, err)
+	}
+	if err == nil && connProvider != "" && !providers.IsProviderCompatible(r.Provider, connProvider) {
+		return &ProviderMismatchError{
+			RepoFullName: r.FullName,
+			RepoProvider: r.Provider,
+			ConnectorID:  r.ConnectorID,
+			ConnProvider: connProvider,
+		}
+	}
+	return nil
+}
+
 // UpsertRepository inserts or updates a repositories row keyed by
 // (connector_id, provider_repo_id). Discovery snapshots are always a full,
 // self-consistent picture, so no staleness guard is needed here (unlike
 // UpsertPullRequest).
 func (s *Store) UpsertRepository(r RepositoryUpsert) (int64, error) {
-	if r.ConnectorID > 0 {
-		var connProvider string
-		err := s.db.QueryRow(`SELECT provider FROM integration_tokens WHERE id = $1`, r.ConnectorID).Scan(&connProvider)
-		if err != nil && err != sql.ErrNoRows {
-			return 0, fmt.Errorf("failed to query connector %d for provider validation: %w", r.ConnectorID, err)
-		}
-		if err == nil && connProvider != "" && !providers.IsProviderCompatible(r.Provider, connProvider) {
-			return 0, &ProviderMismatchError{
-				RepoFullName: r.FullName,
-				RepoProvider: r.Provider,
-				ConnectorID:  r.ConnectorID,
-				ConnProvider: connProvider,
-			}
-		}
+	if err := s.validateConnectorProvider(r); err != nil {
+		return 0, err
 	}
 
 	const q = `
@@ -105,20 +113,8 @@ func (s *Store) UpsertRepository(r RepositoryUpsert) (int64, error) {
 // the later backfill's UpsertRepository call fills in the rest. It never
 // overwrites an existing row.
 func (s *Store) EnsureRepositoryStub(r RepositoryUpsert) (int64, error) {
-	if r.ConnectorID > 0 {
-		var connProvider string
-		err := s.db.QueryRow(`SELECT provider FROM integration_tokens WHERE id = $1`, r.ConnectorID).Scan(&connProvider)
-		if err != nil && err != sql.ErrNoRows {
-			return 0, fmt.Errorf("failed to query connector %d for provider validation: %w", r.ConnectorID, err)
-		}
-		if err == nil && connProvider != "" && !providers.IsProviderCompatible(r.Provider, connProvider) {
-			return 0, &ProviderMismatchError{
-				RepoFullName: r.FullName,
-				RepoProvider: r.Provider,
-				ConnectorID:  r.ConnectorID,
-				ConnProvider: connProvider,
-			}
-		}
+	if err := s.validateConnectorProvider(r); err != nil {
+		return 0, err
 	}
 
 	const q = `
