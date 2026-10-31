@@ -129,7 +129,7 @@ function saveDismissed(ids: Set<number>): void {
  *  plus a dismiss callback. Dismissals are shared across tabs via localStorage. */
 export function useConnectorAlerts(): {
   alerts: ConnectorAlert[];
-  dismissAlert: (connectorId: number) => void;
+  dismissAlert: (connectorId: number, kind?: string) => void;
   refresh: () => Promise<void>;
 } {
   const dispatch = useAppDispatch();
@@ -208,15 +208,18 @@ export function useConnectorAlerts(): {
     return () => window.removeEventListener('connector-sync-finished', handleSyncComplete);
   }, [fetchAlerts]);
 
-  const dismissAlert = (connectorId: number) => {
+  const dismissAlert = (connectorId: number, kind?: string) => {
     setDismissed((prev) => {
       const next = new Set([...prev, connectorId]);
       saveDismissed(next);
       return next;
     });
-    dispatch(dismissNotificationPermanently(`connector-auth-${connectorId}`));
-    dispatch(dismissNotificationPermanently(`connector-mismatch-${connectorId}`));
-    dispatch(dismissNotificationPermanently(`connector-${connectorId}`));
+    if (kind) {
+      dispatch(dismissNotificationPermanently(`connector-${kind}-${connectorId}`));
+    } else {
+      dispatch(dismissNotificationPermanently(`connector-auth-${connectorId}`));
+      dispatch(dismissNotificationPermanently(`connector-mismatch-${connectorId}`));
+    }
   };
 
   const isAlertDismissed = (connectorId: number, kind: string): boolean => {
@@ -244,7 +247,7 @@ const ExternalLinkIcon: React.FC<{ className?: string }> = ({ className = 'w-3 h
 
 export const ConnectorAlertBanner: React.FC<{
   alert: ConnectorAlert;
-  onDismiss: (connectorId: number) => void;
+  onDismiss: (connectorId: number, kind?: string) => void;
 }> = ({ alert, onDismiss }) => {
   const navigate = useNavigate();
   const { connector, kind, repoCount } = alert;
@@ -265,7 +268,7 @@ export const ConnectorAlertBanner: React.FC<{
   return (
     <Alert
       variant="warning"
-      onClose={() => onDismiss(connector.id)}
+      onClose={() => onDismiss(connector.id, kind)}
       className="w-full"
     >
       <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -300,7 +303,7 @@ export const ConnectorAlertBanner: React.FC<{
             className="text-current hover:bg-black/10 hover:opacity-90"
             onClick={(e) => {
               e.stopPropagation();
-              onDismiss(connector.id);
+              onDismiss(connector.id, kind);
             }}
           >
             Don&apos;t show again
