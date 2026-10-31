@@ -87,10 +87,19 @@ func TestLearningCycleProvesFeedbackLoopWorks(t *testing.T) {
 	// the model's non-saturated range (moderate blast radius, below the
 	// "high" tier) deliberately, so the before/after movement this test
 	// prints is a real, legible delta rather than a ceiling effect at ~1.0.
+	// br_max/br_weighted_avg (indices 1/2) stay raw -- ExtractFeatures never
+	// compresses them, they're already a bounded 0-100 scale. br_sum (index
+	// 0) is log1p'd by ExtractFeatures before scoring ever sees it, so a
+	// fixture that builds the vector by hand (bypassing ExtractFeatures, like
+	// this one) must apply the same transform or it's feeding the model a
+	// value outside anything ExtractFeatures could ever actually produce --
+	// exactly the mismatch that caused this test to fail after the feature
+	// rescaling fix (a raw 15 read as an already-log1p'd br_sum implies a
+	// real underlying sum of roughly e^15, nothing like this test intends).
 	highRisk := make([]float64, FeatureCount())
-	highRisk[0], highRisk[1], highRisk[2] = 15, 15, 15 // br_sum / br_max / br_weighted_avg
+	highRisk[0], highRisk[1], highRisk[2] = math.Log1p(15), 15, 15 // br_sum / br_max / br_weighted_avg
 	lowRisk := make([]float64, FeatureCount())
-	lowRisk[0], lowRisk[1], lowRisk[2] = 2, 2, 2
+	lowRisk[0], lowRisk[1], lowRisk[2] = math.Log1p(2), 2, 2
 
 	// --- Step 0: cold start. Every org begins at the shared common-sense
 	// seed, with zero outcomes recorded. ---
@@ -124,11 +133,11 @@ func TestLearningCycleProvesFeedbackLoopWorks(t *testing.T) {
 			// Moderate blast radius, varied a little so it's not two point
 			// masses, and overlapping the held-out highRisk probe's range.
 			v := 15.0 + float64(i%20)
-			features[0], features[1], features[2] = v, v, v
+			features[0], features[1], features[2] = math.Log1p(v), v, v
 			outcome = "revert"
 		} else {
 			v := float64(i % 10)
-			features[0], features[1], features[2] = v, v, v
+			features[0], features[1], features[2] = math.Log1p(v), v, v
 		}
 		seedLabeledExampleFromSource(t, db, orgID, features, outcome, "ci")
 	}
@@ -178,7 +187,7 @@ func TestLearningCycleProvesFeedbackLoopWorks(t *testing.T) {
 	// No batch job involved -- one gradient step, applied immediately. ---
 	freshReviewID := seedReview(t, db, orgID)
 	freshFeatures := make([]float64, FeatureCount())
-	freshFeatures[0], freshFeatures[1], freshFeatures[2] = 15, 15, 15
+	freshFeatures[0], freshFeatures[1], freshFeatures[2] = math.Log1p(15), 15, 15
 	raw := mustMarshal(t, freshFeatures)
 	if _, err := db.Exec(`
 		INSERT INTO risk_feature_snapshots (review_id, org_id, model_version, features, score)

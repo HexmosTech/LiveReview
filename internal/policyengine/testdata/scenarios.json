@@ -398,7 +398,7 @@
     "rationale": "A moderately risky score (~0.55-0.6) against a lenient P80 org calibration (seeded from a realistic recent-score distribution): the cutoff sits above this score, so it approves. Proves risk_threshold_percentile actually moves the decision, not just the raw score.",
     "blast_hunks": [
       {
-        "combined": 8,
+        "combined": 3,
         "new_lines": 10,
         "file_path": "a/mod.go"
       }
@@ -438,7 +438,7 @@
     "rationale": "The exact same underlying review and score as threshold-p80-lenient-approves-borderline-score, but under a strict P10 org calibration: the cutoff sits below this score, so it blocks. Same model, same score, different dial setting, different outcome.",
     "blast_hunks": [
       {
-        "combined": 8,
+        "combined": 3,
         "new_lines": 10,
         "file_path": "a/mod.go"
       }
