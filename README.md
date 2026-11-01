@@ -1,20 +1,19 @@
 <!-- <img src="./assets/gfx/png/logo-with-text.png" alt="LiveReview" height=80 /> -->
 
-<a href="https://www.producthunt.com/products/livereview?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-livereview"
-   target="_blank" rel="noopener noreferrer"
-   style="display: block; text-decoration: none; color: inherit; font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, &quot;Helvetica Neue&quot;, Arial, sans-serif; border: 1px solid rgb(224, 224, 224); border-radius: 12px; padding: 20px; max-width: 500px; background: rgb(255, 255, 255); box-shadow: rgba(0, 0, 0, 0.05) 0px 2px 8px; cursor: pointer;">
-  <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-    <img alt="LiveReview"
-         src="https://ph-files.imgix.net/b2c2dfcc-1984-408d-a268-16b35a67c388.gif?auto=compress,format&amp;codec=mozjpeg&amp;cs=strip&amp;fit=crop&amp;h=80&amp;w=80"
-         style="width: 64px; height: 64px; border-radius: 8px; object-fit: cover; flex-shrink: 0;">
-    <img alt="LiveReview - Free, Risk-Aware Code Review: Auto Approve Low-Risk Changes | Product Hunt"
-         width="250" height="64"
-         src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1293330&amp;theme=light&amp;t=1793546682186"
-         style="display: block; max-width: 100%; height: auto;">
-  </div>
-<a href="https://www.producthunt.com/products/livereview?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-livereview" target="_blank" rel="noopener noreferrer">Upvote on Product Hunt →</a>
-</a>
-<br></br>
+<table cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width: 560px; border-collapse: collapse;">
+<tr>
+<td width="56" valign="middle" style="padding-right: 14px;">
+<a href="https://www.producthunt.com/products/livereview?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-livereview" target="_blank" rel="noopener noreferrer"><img alt="LiveReview" src="https://ph-files.imgix.net/b2c2dfcc-1984-408d-a268-16b35a67c388.gif?auto=compress,format&amp;codec=mozjpeg&amp;cs=strip&amp;fit=crop&amp;h=80&amp;w=80" width="48" height="48" style="display: block; width: 48px; height: 48px; border-radius: 10px;"></a>
+</td>
+<td valign="middle">
+<a href="https://www.producthunt.com/products/livereview?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-livereview" target="_blank" rel="noopener noreferrer" style="text-decoration: none; color: inherit;"><strong>LiveReview</strong><br><span style="font-size: 14px; opacity: 0.75;">Upvote us on Product Hunt →</span></a>
+</td>
+<td align="right" valign="middle">
+<a href="https://www.producthunt.com/products/livereview?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-livereview" target="_blank" rel="noopener noreferrer"><img alt="LiveReview on Product Hunt" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1293330&amp;theme=light&amp;t=1793546682186" width="200" height="43" style="display: block;"></a>
+</td>
+</tr>
+</table>
+
 
 <a href="https://github.com/HexmosTech/LiveReview/actions/workflows/gitleaks.yml" target="_blank" rel="noopener noreferrer"><img alt="gitleaks.yml" title="gitleaks.yml: Secret scanning workflow" src="https://github.com/HexmosTech/LiveReview/actions/workflows/gitleaks.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/osv-scanner.yml" target="_blank" rel="noopener noreferrer"><img alt="osv-scanner.yml" title="osv-scanner.yml: Dependency vulnerability scan" src="https://github.com/HexmosTech/LiveReview/actions/workflows/osv-scanner.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/govulncheck.yml" target="_blank" rel="noopener noreferrer"><img alt="govulncheck.yml" title="govulncheck.yml: Go vulnerability check" src="https://github.com/HexmosTech/LiveReview/actions/workflows/govulncheck.yml/badge.svg"></a>&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/semgrep.yml" target="_blank" rel="noopener noreferrer"><img alt="semgrep.yml" title="semgrep.yml: Static analysis security scan" src="https://github.com/HexmosTech/LiveReview/actions/workflows/semgrep.yml/badge.svg"></a>&nbsp;<img alt="dependabot-enabled" title="dependabot-enabled: Automated dependency updates are enabled" src="./assets/gfx/dependabot-enabled.svg">&nbsp;<a href="https://github.com/HexmosTech/LiveReview/actions/workflows/mcp-testcases.yml" target="_blank" rel="noopener noreferrer"><img alt="mcp-testcases.yml" title="mcp-testcases.yml: MCP integration test suite" src="https://github.com/HexmosTech/LiveReview/actions/workflows/mcp-testcases.yml/badge.svg"></a>
 
