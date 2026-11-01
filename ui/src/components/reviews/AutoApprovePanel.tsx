@@ -277,25 +277,42 @@ const AutoApprovePanel: React.FC<{ reviewId: number }> = ({ reviewId }) => {
         </div>
       )}
 
-      {log.blocked && log.can_force_approve && (
+      {log.blocked && (
         <Card className="p-4">
           <h3 className="text-sm font-semibold text-white mb-2 inline-flex items-center gap-1.5">
             Force approve
             <InfoHint text={HELP.forceApproveSection} />
           </h3>
-          <p className="text-xs text-slate-400 mb-3">
-            Requires review level ≥ {log.force_approve_min_level} or owner/admin. Recorded in the audit log.
-          </p>
-          <textarea
-            className="w-full rounded-lg border border-slate-600 bg-slate-700 text-white px-3 py-2 text-sm mb-2"
-            rows={2}
-            placeholder="Reason for overriding the policy"
-            value={forceReason}
-            onChange={(e) => setForceReason(e.target.value)}
-          />
-          <Button variant="primary" onClick={forceApprove} disabled={forceBusy}>
-            {forceDone ? 'Force-approved' : 'Force approve'}
-          </Button>
+          {log.can_force_approve ? (
+            <>
+              <p className="text-xs text-slate-400 mb-3">
+                Requires review level ≥ {log.force_approve_min_level} or owner/admin. Recorded in the audit log.
+              </p>
+              <textarea
+                className="w-full rounded-lg border border-slate-600 bg-slate-700 text-white px-3 py-2 text-sm mb-2"
+                rows={2}
+                placeholder="Reason for overriding the policy"
+                value={forceReason}
+                onChange={(e) => setForceReason(e.target.value)}
+              />
+              <Button variant="primary" onClick={forceApprove} disabled={forceBusy}>
+                {forceDone ? 'Force-approved' : 'Force approve'}
+              </Button>
+            </>
+          ) : (
+            <div className="bg-slate-800/80 border border-slate-700 rounded-lg p-3 text-xs text-slate-400 flex items-start gap-2.5">
+              <svg className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+              <div>
+                <p className="text-slate-300 font-medium mb-0.5">Force-approval not permitted</p>
+                <p>
+                  Your review level{log.user_level !== undefined ? ` (${log.user_level})` : ''} is insufficient to force-approve this review.
+                  Requires review level ≥ {log.force_approve_min_level} or an organization owner/admin.
+                </p>
+              </div>
+            </div>
+          )}
         </Card>
       )}
 

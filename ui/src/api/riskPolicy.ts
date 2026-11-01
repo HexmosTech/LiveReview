@@ -43,6 +43,7 @@ export interface PolicyLogResponse {
   blocked: boolean;
   overridden?: boolean;
   can_force_approve?: boolean;
+  user_level?: number;
   force_approve_min_level: number;
   features: number[];
   feature_names: { Name: string; Category: string }[];
