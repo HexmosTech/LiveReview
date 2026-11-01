@@ -1110,13 +1110,13 @@ niceurl5:
 		-o ConnectionAttempts=3 \
 		-R 6547:localhost:8081 root@master -N
 
-check-env-prod:
+check-env-prod: download-secrets
 	@$(PYTHON) scripts/deployment_checks/verify_deploy.py $(DEPLOY_ACTUAL_ENV_FILE) --mode prod
 
-check-env-staging:
+check-env-staging: download-secrets
 	@$(PYTHON) scripts/deployment_checks/verify_deploy.py $(DEPLOY_STAGING_ENV_FILE) --mode staging
 
-check-env-low-pricing:
+check-env-low-pricing: download-secrets
 	@$(PYTHON) scripts/deployment_checks/verify_deploy.py $(DEPLOY_LOW_PRICING_ENV_FILE) --mode prod-low-pricing
 
 build-with-ui: check-env-prod sync-docs-sources
