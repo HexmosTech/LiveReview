@@ -91,10 +91,16 @@ func (s *Server) getReviewPolicyLog(c echo.Context) error {
 	}
 
 	var overrideCount int
-	_ = s.db.QueryRowContext(c.Request().Context(), `
+	if err := s.db.QueryRowContext(c.Request().Context(), `
 		SELECT count(*) FROM review_policy_overrides
 		WHERE review_id = $1 AND org_id = $2 AND forced_verdict = $3`,
-		reviewID, orgID, policyengine.FinalApproved).Scan(&overrideCount)
+		reviewID, orgID, policyengine.FinalApproved).Scan(&overrideCount); err != nil {
+		return JSONWithEnvelope(c, http.StatusInternalServerError, map[string]interface{}{
+			"error":      "failed to load review policy overrides: " + err.Error(),
+			"error_code": "DATABASE_ERROR",
+			"error_tag":  "DATABASE_ERROR",
+		})
+	}
 	overridden := overrideCount > 0
 
 	actorLevel := 0
@@ -203,12 +209,27 @@ func (s *Server) forceApproveReview(c echo.Context) error {
 		})
 	}
 
-	_, err = s.db.ExecContext(c.Request().Context(), `
+	res, err := s.db.ExecContext(c.Request().Context(), `
 		INSERT INTO review_policy_overrides (review_id, org_id, actor_user_id, original_verdict, forced_verdict, reason)
-		VALUES ($1, $2, $3, $4, $5, $6)`,
+		SELECT $1, $2, $3, $4, $5, $6
+		WHERE NOT EXISTS (
+			SELECT 1 FROM review_policy_overrides
+			WHERE review_id = $1 AND org_id = $2 AND forced_verdict = $5
+		)`,
 		reviewID, orgID, pc.GetUserID(), finalVerdict, policyengine.FinalApproved, body.Reason)
 	if err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to record override: "+err.Error())
+		return JSONWithEnvelope(c, http.StatusInternalServerError, map[string]interface{}{
+			"error":      "failed to record override: " + err.Error(),
+			"error_code": "DATABASE_ERROR",
+			"error_tag":  "DATABASE_ERROR",
+		})
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return JSONWithEnvelope(c, http.StatusBadRequest, map[string]interface{}{
+			"error":      "review has already been force-approved",
+			"error_code": "ALREADY_FORCE_APPROVED",
+			"error_tag":  "ALREADY_FORCE_APPROVED",
+		})
 	}
 
 	if err := s.jobQueue.QueuePRPolicyForceApprove(c.Request().Context(), jobqueue.PRPolicyForceApproveJobArgs{
