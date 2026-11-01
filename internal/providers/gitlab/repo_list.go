@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/livereview/internal/providers"
@@ -46,7 +45,7 @@ func ListRepositories(ctx context.Context, baseURL, pat, cursor string) (*provid
 	params.Add("membership", "true")
 	params.Add("page", strconv.Itoa(page))
 	params.Add("per_page", "100")
-	requestURL := fmt.Sprintf("%s/api/v4/projects?%s", strings.TrimSuffix(baseURL, "/"), params.Encode())
+	requestURL := fmt.Sprintf("%s/projects?%s", normalizeGitLabBaseURL(baseURL), params.Encode())
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
@@ -67,7 +66,7 @@ func ListRepositories(ctx context.Context, baseURL, pat, cursor string) (*provid
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("GitLab API request failed with status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("GitLab API request failed with status %d: %s", resp.StatusCode, providers.FormatAPIResponseBody(body))
 	}
 
 	var items []gitLabProjectListItem

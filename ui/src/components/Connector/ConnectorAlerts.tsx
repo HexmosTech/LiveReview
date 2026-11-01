@@ -18,7 +18,7 @@ import {
   dismissPermanently as dismissNotificationPermanently,
 } from '../../store/Notifications/slice';
 import { useDashboardQuery, ConnectorSetupProgress } from '../../api/dashboard';
-import { ConnectorAuthAlert, ConnectorSetupProgressAlert } from '../../store/Notifications/catalog';
+import { ConnectorAuthAlert, ConnectorMismatchAlert, ConnectorSetupProgressAlert } from '../../store/Notifications/catalog';
 
 // ── Provider helpers ──────────────────────────────────────────────────────────
 
@@ -426,7 +426,7 @@ export const ConnectorSetupProgressBanner: React.FC<{
 // ── Global layout alert container (renders at top of all pages) ───────────────
 
 const isCredentialAlertRoute = (pathname: string): boolean => {
-  return ConnectorAuthAlert.matchesRoute(pathname);
+  return ConnectorAuthAlert.matchesRoute(pathname) || ConnectorMismatchAlert.matchesRoute(pathname);
 };
 
 const isDashboardRoute = (pathname: string): boolean => {

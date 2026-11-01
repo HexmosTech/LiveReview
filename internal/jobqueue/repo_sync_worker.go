@@ -275,9 +275,10 @@ func (w *RepoPRSyncWorker) Work(ctx context.Context, job *river.Job[RepoPRSyncJo
 }
 
 func (w *RepoPRSyncWorker) markSyncError(repositoryID int64, errorMsg string) {
+	cleaned := providers.FormatAPIResponseBody([]byte(errorMsg))
 	_, err := w.db.Exec(
 		`UPDATE repositories SET last_sync_status = 'error', last_sync_error = $2, updated_at = now() WHERE id = $1`,
-		repositoryID, errorMsg,
+		repositoryID, cleaned,
 	)
 	if err != nil {
 		log.Printf("[WARN] failed to record repository sync error for repository %d: %v", repositoryID, err)

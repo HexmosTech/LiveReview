@@ -131,3 +131,51 @@ func TestIsAuthError(t *testing.T) {
 	})
 }
 
+func TestFormatAPIResponseBody(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []byte
+		expected string
+	}{
+		{
+			name:     "empty body",
+			input:    []byte(""),
+			expected: "",
+		},
+		{
+			name:     "json error message",
+			input:    []byte(`{"message":"Not Found"}`),
+			expected: `{"message":"Not Found"}`,
+		},
+		{
+			name:     "html doctype page",
+			input:    []byte("<!DOCTYPE html><html><head><title>404 Not Found</title></head><body><h1>Not Found</h1></body></html>"),
+			expected: "[upstream returned HTML error page]",
+		},
+		{
+			name:     "lowercase html tag",
+			input:    []byte("<html><body>Error</body></html>"),
+			expected: "[upstream returned HTML error page]",
+		},
+		{
+			name:     "html error with status code prefix",
+			input:    []byte("API request failed with status 404: <!DOCTYPE html><html><body>404 Not Found</body></html>"),
+			expected: "API request failed with status 404: [upstream returned HTML error page]",
+		},
+		{
+			name:     "overly long text truncated to 300",
+			input:    []byte("This is a very long error message that repeats over and over again to test truncation behavior. This is a very long error message that repeats over and over again to test truncation behavior. This is a very long error message that repeats over and over again to test truncation behavior. This is a very long error message that repeats over and over again to test truncation behavior."),
+			expected: "This is a very long error message that repeats over and over again to test truncation behavior. This is a very long error message that repeats over and over again to test truncation behavior. This is a very long error message that repeats over and over again to test truncation behavior. This is a ve...",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FormatAPIResponseBody(tc.input)
+			if got != tc.expected {
+				t.Errorf("FormatAPIResponseBody() = %q, expected %q", got, tc.expected)
+			}
+		})
+	}
+}
+
