@@ -1,7 +1,7 @@
 .PHONY: build build-prod run-review run-review-verbose test clean develop develop-reflex river-deps river-install river-migrate river-setup river-ui-install river-ui install-vl-convert db-flip version version-bump version-patch version-minor version-major version-bump-dirty version-patch-dirty version-minor-dirty version-major-dirty version-bump-dry version-patch-dry version-minor-dry version-major-dry build-versioned check-docker-deps update-docker-deps update-docker-deps-yes verify-docker-deps docker-build docker-build-push docker-build-dry docker-interactive docker-interactive-push docker-interactive-dry docker-build docker-build-push docker-build-versioned docker-build-push-versioned docker-build-dry docker-build-push-dry docker-context-setup ghcr-login docker-multiarch docker-multiarch-push docker-multiarch-dry docker-interactive-multiarch docker-interactive-multiarch-push cplrops vendor-prompts-encrypt vendor-prompts-build vendor-prompts-rebuild vendor-docker-build vendor-docker-build-dry vendor-docker-build-push vendor-docker-multiarch-dry vendor-docker-multiarch-push run-debug run-fast logrun api-with-migrations build-with-ui security-sbom security-sbom-cyclonedx security-sbom-spdx security-sbom-validate release-notes-init release-notes-check release-preflight release-gh niceurl niceurl2 run-api run-worker prep-dbctx db-dump
 .PHONY: upload-secrets download-secrets list-secrets-files legacy-secrets-clear generate-openapi sync-docs-sources check-docs-sources
 .PHONY: razorpay-webhook-ensure razorpay-webhook-ensure-dry razorpay-verify-plans razorpay-verify-plans-low-pricing
-.PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging ensure-seed-demo-env
+.PHONY: raw-deploy raw-deploy-low-pricing raw-deploy-backend raw-deploy-backend-low-pricing build-staging-with-ui raw-deploy-staging stop-staging ensure-seed-demo-env check-env-prod check-env-staging check-env-low-pricing
 .PHONY: dev dev-up dev-down dev-restart dev-status dev-attach
 .PHONY: e2e e2e-up e2e-down e2e-auth e2e-preflight e2e-audit e2e-review e2e-urls e2e-visual e2e-clean e2e-shell e2e-doctor e2e-status
 
@@ -1110,7 +1110,16 @@ niceurl5:
 		-o ConnectionAttempts=3 \
 		-R 6547:localhost:8081 root@master -N
 
-build-with-ui: sync-docs-sources
+check-env-prod:
+	@$(PYTHON) scripts/deployment_checks/verify_deploy.py $(DEPLOY_ACTUAL_ENV_FILE) --mode prod
+
+check-env-staging:
+	@$(PYTHON) scripts/deployment_checks/verify_deploy.py $(DEPLOY_STAGING_ENV_FILE) --mode staging
+
+check-env-low-pricing:
+	@$(PYTHON) scripts/deployment_checks/verify_deploy.py $(DEPLOY_LOW_PRICING_ENV_FILE) --mode prod-low-pricing
+
+build-with-ui: check-env-prod sync-docs-sources
 	@echo "🔨 Building for PRODUCTION deployment (is_cloud=true)"
 	@if [ ! -f .env.prod ]; then \
 		echo "❌ ERROR: .env.prod not found! Cannot build for production."; \
@@ -1172,7 +1181,7 @@ ensure-seed-demo-env:
 		echo "➕ Added SEED_DEMO_ENABLED=true to $(DEPLOY_ACTUAL_ENV_FILE)"; \
 	fi
 
-raw-deploy: build-with-ui ensure-seed-demo-env
+raw-deploy: check-env-prod build-with-ui ensure-seed-demo-env
 	@echo "🚀 Deploying to production server..."
 	@if [ ! -f ./livereview ]; then \
 		echo "❌ ERROR: livereview binary not found! Run 'make build-with-ui' first."; \
@@ -1218,7 +1227,7 @@ DEPLOY_STAGING_ENV_FILE=.env.staging
 DEPLOY_STAGING_PATH=/home/ubuntu/staging_lr
 DEPLOY_STAGING_HOST=nats03-do
 
-build-staging-with-ui:
+build-staging-with-ui: check-env-staging
 	@echo "🔨 Building for STAGING deployment"
 	@if [ ! -f .env.staging ]; then \
 		echo "❌ ERROR: .env.staging not found! Cannot build for staging."; \
@@ -1229,7 +1238,7 @@ build-staging-with-ui:
 	$(GOBUILD) -o $(BINARY_NAME) .
 	@echo "✅ Staging build complete. Binary ready for raw-deploy-staging."
 
-raw-deploy-staging: build-staging-with-ui
+raw-deploy-staging: check-env-staging build-staging-with-ui
 	@echo "🚀 Deploying to staging server..."
 	@if [ ! -f ./livereview ]; then \
 		echo "❌ ERROR: livereview binary not found!"; \
@@ -1260,7 +1269,7 @@ stop-staging:
 	ssh $(DEPLOY_STAGING_HOST) "bash -ic 'cd $(DEPLOY_STAGING_PATH) && pm2 delete ecosystem.staging.config.js || true'"
 	@echo "✅ Staging processes stopped and removed from PM2!"
 
-raw-deploy-low-pricing: build-with-ui
+raw-deploy-low-pricing: check-env-low-pricing build-with-ui
 	@echo "🚀 Deploying to production server with LOW pricing profile..."
 	@if [ ! -f ./livereview ]; then \
 		echo "❌ ERROR: livereview binary not found! Run 'make build-with-ui' first."; \
@@ -1310,7 +1319,7 @@ raw-deploy-low-pricing: build-with-ui
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
-raw-deploy-backend: ensure-seed-demo-env
+raw-deploy-backend: check-env-prod ensure-seed-demo-env
 	@echo "🚀 Deploying to production server..."
 	$(GOBUILD) -tags production livereview.go
 	@if [ ! -f ./livereview ]; then \
@@ -1353,7 +1362,7 @@ raw-deploy-backend: ensure-seed-demo-env
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
-raw-deploy-backend-low-pricing:
+raw-deploy-backend-low-pricing: check-env-low-pricing
 	@echo "🚀 Deploying backend with LOW pricing profile..."
 	$(GOBUILD) -tags production livereview.go
 	@if [ ! -f ./livereview ]; then \

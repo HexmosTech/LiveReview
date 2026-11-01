@@ -66,6 +66,14 @@ def _tracked_path(root: Path, tracked: TrackedFile) -> Path:
 	return root / tracked.rel_path
 
 
+def _download_target_path(root: Path, tracked: TrackedFile) -> Path:
+	# Protect local .env from being overwritten during secrets download.
+	# The downloaded template/cloud .env is safely written to .env.local instead.
+	if tracked.rel_path == ".env":
+		return root / ".env.local"
+	return _tracked_path(root, tracked)
+
+
 def _atomic_write_bytes(path: Path, content: bytes) -> None:
 	path.parent.mkdir(parents=True, exist_ok=True)
 	tmp_path = path.with_suffix(path.suffix + ".ghsm.tmp")
@@ -227,7 +235,7 @@ def cmd_download(repo: str, dry_run: bool) -> int:
 		print(f"error: manifest missing tracked file(s): {', '.join(missing)}", file=sys.stderr)
 		return 1
 
-	targets = [_tracked_path(root, tracked) for tracked in TRACKED_FILES]
+	targets = [_download_target_path(root, tracked) for tracked in TRACKED_FILES]
 	backup_root = _create_backup(root, targets)
 
 	print(f"Restoring tracked files from {repo}...")
@@ -266,13 +274,14 @@ def cmd_download(repo: str, dry_run: bool) -> int:
 				)
 				return 1
 
-		target = _tracked_path(root, tracked)
+		target = _download_target_path(root, tracked)
+		dest_display = ".env.local (preserved local .env)" if tracked.rel_path == ".env" else tracked.rel_path
 		if dry_run:
-			print(f"[dry-run] restore {tracked.rel_path} from {variable_name}")
+			print(f"[dry-run] restore {tracked.rel_path} -> {dest_display} from {variable_name}")
 			continue
 
 		_atomic_write_bytes(target, raw)
-		print(f"- restored {tracked.rel_path}")
+		print(f"- restored {dest_display}")
 
 	if not dry_run:
 		print(f"Local backup saved at: {backup_root}")
