@@ -86,9 +86,32 @@ func (s *Server) getReviewPolicyLog(c echo.Context) error {
 		forceApproveMinLevel = p.ForceApproveMinLevel
 	}
 
+	var overrideCount int
+	_ = s.db.QueryRowContext(c.Request().Context(), `
+		SELECT count(*) FROM review_policy_overrides
+		WHERE review_id = $1 AND org_id = $2 AND forced_verdict = $3`,
+		reviewID, orgID, policyengine.FinalApproved).Scan(&overrideCount)
+	overridden := overrideCount > 0
+
+	canForceApprove := false
+	if blocked && !overridden {
+		if pc := auth.GetPermissionContext(c); pc != nil {
+			if pc.IsOwner || pc.IsSuperAdmin {
+				canForceApprove = true
+			} else {
+				var actorLevel int
+				if err := s.db.QueryRowContext(c.Request().Context(), `SELECT review_level FROM users WHERE id = $1`, pc.GetUserID()).Scan(&actorLevel); err == nil {
+					canForceApprove = actorLevel >= forceApproveMinLevel
+				}
+			}
+		}
+	}
+
 	return JSONWithEnvelope(c, http.StatusOK, map[string]interface{}{
 		"stages":                  out,
-		"blocked":                 blocked,
+		"blocked":                 blocked && !overridden,
+		"overridden":              overridden,
+		"can_force_approve":       canForceApprove,
 		"force_approve_min_level": forceApproveMinLevel,
 		"features":                features,
 		"feature_names":           riskscore.FeatureSpecs,
@@ -146,6 +169,14 @@ func (s *Server) forceApproveReview(c echo.Context) error {
 	}
 	if finalVerdict != policyengine.FinalBlocked {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "review is not blocked")
+	}
+
+	var alreadyOverridden int
+	if err := s.db.QueryRowContext(c.Request().Context(), `
+		SELECT count(*) FROM review_policy_overrides
+		WHERE review_id = $1 AND org_id = $2 AND forced_verdict = $3`,
+		reviewID, orgID, policyengine.FinalApproved).Scan(&alreadyOverridden); err == nil && alreadyOverridden > 0 {
+		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "review has already been force-approved")
 	}
 
 	_, err = s.db.ExecContext(c.Request().Context(), `

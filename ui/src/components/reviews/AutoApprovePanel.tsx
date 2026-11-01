@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { useAppSelector } from '../../store/configureStore';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import { Alert, Button, Card, Spinner } from '../UIPrimitives';
@@ -175,8 +176,12 @@ const AutoApprovePanel: React.FC<{ reviewId: number }> = ({ reviewId }) => {
     try {
       await forceApproveReview(reviewId, forceReason || 'Manual override');
       setForceDone(true);
+      toast.success('Review force-approved successfully!');
+      await load();
     } catch (e: any) {
-      setError(String(e?.message || e));
+      const msg = String(e?.message || e);
+      setError(msg);
+      toast.error(msg);
     } finally {
       setForceBusy(false);
     }
@@ -188,8 +193,11 @@ const AutoApprovePanel: React.FC<{ reviewId: number }> = ({ reviewId }) => {
     try {
       await markReviewOutcome(reviewId, outcomeType, outcomeReason);
       setOutcomeDone(true);
+      toast.success('Production outcome recorded successfully!');
     } catch (e: any) {
-      setError(String(e?.message || e));
+      const msg = String(e?.message || e);
+      setError(msg);
+      toast.error(msg);
     } finally {
       setOutcomeBusy(false);
     }
@@ -262,7 +270,14 @@ const AutoApprovePanel: React.FC<{ reviewId: number }> = ({ reviewId }) => {
         </div>
       </Card>
 
-      {log.blocked && (
+      {log.overridden && (
+        <div className="bg-emerald-950/60 border border-emerald-500/30 rounded-lg p-3 text-sm text-emerald-300 flex items-center gap-2">
+          <VerdictIcon verdict="approved" />
+          <span>This review was force-approved by an authorized reviewer.</span>
+        </div>
+      )}
+
+      {log.blocked && log.can_force_approve && (
         <Card className="p-4">
           <h3 className="text-sm font-semibold text-white mb-2 inline-flex items-center gap-1.5">
             Force approve
