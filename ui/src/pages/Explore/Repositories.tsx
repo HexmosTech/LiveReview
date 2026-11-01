@@ -54,6 +54,22 @@ const providerLabel = (provider: string): string => {
   }
 };
 
+export function formatSyncError(errorMsg?: string): string {
+  if (!errorMsg) return 'Sync failed: an error occurred during repository sync';
+  const lower = errorMsg.toLowerCase();
+  if (lower.includes('<!doctype') || lower.includes('<html') || lower.includes('<head')) {
+    const statusMatch = errorMsg.match(/status (\d+)/i);
+    if (statusMatch) {
+      return `API request failed with status ${statusMatch[1]} (upstream returned HTML page)`;
+    }
+    return 'Sync failed: upstream provider returned an unexpected HTML error page';
+  }
+  if (errorMsg.length > 250) {
+    return errorMsg.slice(0, 250) + '...';
+  }
+  return errorMsg;
+}
+
 // Plain hex/rgba values, applied via inline style rather than Tailwind
 // classes - the shared Badge component's own default variant class
 // (bg-gray-100 text-gray-800) kept winning over className overrides
@@ -565,7 +581,7 @@ const Repositories: React.FC = () => {
         const badge = syncStatusBadge(repo.last_sync_status);
         const BadgeIcon = badge.icon;
         const tooltipContent = repo.last_sync_status === 'error'
-          ? (repo.last_sync_error || 'Sync failed: an error occurred during repository sync')
+          ? formatSyncError(repo.last_sync_error)
           : (repo.last_synced_at ? `Synced ${formatRelativeTime(repo.last_synced_at)}` : 'Never synced');
 
         return (

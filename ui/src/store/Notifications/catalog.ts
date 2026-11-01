@@ -17,7 +17,7 @@ export const ConnectorAuthAlert = defineNotification<{
     title: ({ provider }) => `Your ${provider} provider credential expired, please renew it.`,
     message: ({ connectionName, repoCount }) =>
         `Connector "${connectionName}": ${repoCount} ${repoCount === 1 ? 'repository' : 'repositories'} could not sync due to expired or invalid credentials.`,
-    bannerRoutes: ['/dashboard', '/reviews', '/explore/repositories', '/git'],
+    bannerRoutes: ['/dashboard', '/reviews', '/explore/repositories', '/explore/merge-requests', '/git'],
     persistDismiss: true,
     actions: ({ connectorId, provider, wikiUrl }) => [
         { label: 'Renew Credentials', actionId: `/git/connector/${connectorId}` },
@@ -41,7 +41,7 @@ export const ConnectorMismatchAlert = defineNotification<{
     title: ({ provider, connectionName }) => `Provider Mismatch: ${provider} (${connectionName})`,
     message: ({ repoCount }) =>
         `${repoCount} ${repoCount === 1 ? 'repository' : 'repositories'} have a mismatched provider configured.`,
-    bannerRoutes: ['/dashboard', '/reviews', '/explore/repositories', '/git'],
+    bannerRoutes: ['/dashboard', '/reviews', '/explore/repositories', '/explore/merge-requests', '/git'],
     persistDismiss: true,
     actions: ({ connectorId, provider, wikiUrl }) => [
         { label: 'Review Connector', actionId: `/git/connector/${connectorId}` },

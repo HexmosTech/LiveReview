@@ -271,3 +271,27 @@ func IsProviderCompatible(repoProvider, connProvider string) bool {
 	}
 	return repoNorm == connNorm
 }
+
+// FormatAPIResponseBody sanitizes upstream provider response bodies for error messages.
+// If the body is an HTML document (e.g. 404/502 error page) or overly long, it summarizes
+// it rather than dumping raw HTML into error messages and logs.
+func FormatAPIResponseBody(body []byte) string {
+	s := strings.TrimSpace(string(body))
+	if s == "" {
+		return ""
+	}
+	lower := strings.ToLower(s)
+	for _, tag := range []string{"<!doctype", "<html", "<head"} {
+		if idx := strings.Index(lower, tag); idx != -1 {
+			prefix := strings.TrimSpace(s[:idx])
+			if prefix != "" {
+				return strings.TrimRight(prefix, ": ") + ": [upstream returned HTML error page]"
+			}
+			return "[upstream returned HTML error page]"
+		}
+	}
+	if len(s) > 300 {
+		return s[:300] + "..."
+	}
+	return s
+}

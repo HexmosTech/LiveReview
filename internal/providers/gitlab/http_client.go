@@ -31,15 +31,21 @@ type GitLabHTTPClient struct {
 	client  *http.Client
 }
 
+func normalizeGitLabBaseURL(baseURL string) string {
+	u := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if u == "" {
+		return "https://gitlab.com/api/v4"
+	}
+	if strings.HasSuffix(u, "/api/v4") {
+		return u
+	}
+	return u + "/api/v4"
+}
+
 // NewHTTPClient creates a new GitLab HTTP client
 func NewHTTPClient(baseURL, token string) *GitLabHTTPClient {
-	// Make sure baseURL doesn't end with a slash
-	if baseURL[len(baseURL)-1] == '/' {
-		baseURL = baseURL[:len(baseURL)-1]
-	}
-
 	return &GitLabHTTPClient{
-		baseURL: fmt.Sprintf("%s/api/v4", baseURL),
+		baseURL: normalizeGitLabBaseURL(baseURL),
 		token:   token,
 		client:  networkgitlab.NewHTTPClient(60 * time.Second),
 	}
@@ -460,7 +466,7 @@ func (c *GitLabHTTPClient) ListMergeRequests(projectID string, state string, pag
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		return nil, "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, providers.FormatAPIResponseBody(body))
 	}
 
 	// Parse the response

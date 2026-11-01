@@ -6,10 +6,14 @@ import "strings"
 // URL: github.com uses api.github.com, while GitHub Enterprise instances serve
 // their API under /api/v3 of the same host.
 func apiBaseURL(baseURL string) string {
-	if baseURL == "" || baseURL == "https://github.com" {
+	u := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if u == "" || u == "https://github.com" || u == "http://github.com" || u == "github.com" || u == "https://api.github.com" {
 		return "https://api.github.com"
 	}
-	return strings.TrimSuffix(baseURL, "/") + "/api/v3"
+	if strings.HasSuffix(u, "/api/v3") {
+		return u
+	}
+	return u + "/api/v3"
 }
 
 // APIBaseURL is the exported form of apiBaseURL for callers outside this package.
