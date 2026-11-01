@@ -17,7 +17,11 @@ import (
 // actions require a live JWT session per the scoping guardrails).
 func requireSession(c echo.Context) error {
 	if c.Get(authMethodContextKey) != authMethodSession {
-		return JSONErrorWithEnvelope(c, http.StatusForbidden, "this action requires an active user session")
+		return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
+			"error":      "this action requires an active user session",
+			"error_code": "SESSION_REQUIRED",
+			"error_tag":  "SESSION_REQUIRED",
+		})
 	}
 	return nil
 }
@@ -93,15 +97,16 @@ func (s *Server) getReviewPolicyLog(c echo.Context) error {
 		reviewID, orgID, policyengine.FinalApproved).Scan(&overrideCount)
 	overridden := overrideCount > 0
 
+	actorLevel := 0
 	canForceApprove := false
 	if blocked && !overridden {
 		if pc := auth.GetPermissionContext(c); pc != nil {
 			if pc.IsOwner || pc.IsSuperAdmin {
 				canForceApprove = true
-			} else {
-				var actorLevel int
-				if err := s.db.QueryRowContext(c.Request().Context(), `SELECT review_level FROM users WHERE id = $1`, pc.GetUserID()).Scan(&actorLevel); err == nil {
-					canForceApprove = actorLevel >= forceApproveMinLevel
+			}
+			if err := s.db.QueryRowContext(c.Request().Context(), `SELECT review_level FROM users WHERE id = $1`, pc.GetUserID()).Scan(&actorLevel); err == nil {
+				if actorLevel >= forceApproveMinLevel {
+					canForceApprove = true
 				}
 			}
 		}
@@ -112,6 +117,7 @@ func (s *Server) getReviewPolicyLog(c echo.Context) error {
 		"blocked":                 blocked && !overridden,
 		"overridden":              overridden,
 		"can_force_approve":       canForceApprove,
+		"user_level":              actorLevel,
 		"force_approve_min_level": forceApproveMinLevel,
 		"features":                features,
 		"feature_names":           riskscore.FeatureSpecs,
@@ -156,7 +162,13 @@ func (s *Server) forceApproveReview(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, "failed to load user level")
 	}
 	if actorLevel < forceApproveMinLevel && !pc.IsOwner && !pc.IsSuperAdmin {
-		return JSONErrorWithEnvelope(c, http.StatusForbidden, "insufficient review level or role to force-approve")
+		return JSONWithEnvelope(c, http.StatusForbidden, map[string]interface{}{
+			"error":          "insufficient review level or role to force-approve",
+			"error_code":     "INSUFFICIENT_REVIEW_LEVEL",
+			"error_tag":      "INSUFFICIENT_REVIEW_LEVEL",
+			"user_level":     actorLevel,
+			"required_level": forceApproveMinLevel,
+		})
 	}
 
 	// Only blocked -> approved; there is no symmetric force-request-changes.
@@ -165,10 +177,18 @@ func (s *Server) forceApproveReview(c echo.Context) error {
 		SELECT verdict FROM review_policy_log
 		WHERE review_id = $1 AND org_id = $2 AND stage = 'final' ORDER BY id DESC LIMIT 1`,
 		reviewID, orgID).Scan(&finalVerdict); err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusNotFound, "no policy evaluation found for this review")
+		return JSONWithEnvelope(c, http.StatusNotFound, map[string]interface{}{
+			"error":      "no policy evaluation found for this review",
+			"error_code": "POLICY_EVALUATION_NOT_FOUND",
+			"error_tag":  "POLICY_EVALUATION_NOT_FOUND",
+		})
 	}
 	if finalVerdict != policyengine.FinalBlocked {
-		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "review is not blocked")
+		return JSONWithEnvelope(c, http.StatusBadRequest, map[string]interface{}{
+			"error":      "review is not blocked",
+			"error_code": "REVIEW_NOT_BLOCKED",
+			"error_tag":  "REVIEW_NOT_BLOCKED",
+		})
 	}
 
 	var alreadyOverridden int
@@ -176,7 +196,11 @@ func (s *Server) forceApproveReview(c echo.Context) error {
 		SELECT count(*) FROM review_policy_overrides
 		WHERE review_id = $1 AND org_id = $2 AND forced_verdict = $3`,
 		reviewID, orgID, policyengine.FinalApproved).Scan(&alreadyOverridden); err == nil && alreadyOverridden > 0 {
-		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "review has already been force-approved")
+		return JSONWithEnvelope(c, http.StatusBadRequest, map[string]interface{}{
+			"error":      "review has already been force-approved",
+			"error_code": "ALREADY_FORCE_APPROVED",
+			"error_tag":  "ALREADY_FORCE_APPROVED",
+		})
 	}
 
 	_, err = s.db.ExecContext(c.Request().Context(), `
