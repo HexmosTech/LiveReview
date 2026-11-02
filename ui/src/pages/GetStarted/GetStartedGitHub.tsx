@@ -18,7 +18,7 @@ const AUTO_CONNECT_KEY = 'lrGhAutoConnectTried';
 const GetStartedGitHub: React.FC = () => {
     const navigate = useNavigate();
 
-    const { startInstall: connectGitHub, startDiscover, busy: reconnecting, installing, discovering } =
+    const { startInstall: connectGitHub, startDiscover, busy: reconnecting, installing, discovering, tabOpened, dismissBanner } =
         useGitHubAppInstall('get-started', 'get-started');
     const { isSuperAdmin, currentOrg } = useOrgContext();
     const canDisconnect = isSuperAdmin || currentOrg?.role === 'owner';
@@ -152,6 +152,8 @@ const GetStartedGitHub: React.FC = () => {
                                 onChanged={async () => {
                                     await refetch();
                                 }}
+                                showRefreshBanner={tabOpened}
+                                onDismissBanner={dismissBanner}
                             />
                         </div>
                     </Card>
@@ -175,6 +177,8 @@ const GetStartedGitHub: React.FC = () => {
                                         onFindAccounts={startDiscover}
                                         findBusy={discovering}
                                         onChanged={afterChange}
+                                        showRefreshBanner={tabOpened}
+                                        onDismissBanner={dismissBanner}
                                     />
                                 </div>
                             </Step>
