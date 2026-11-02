@@ -856,10 +856,10 @@ func (s *Service) ProcessReviewAsync(ctx context.Context, request ReviewRequest,
 	}()
 }
 
-// extractRepoFullName parses "owner/repo" from a git host URL.
+// ExtractRepoFullName parses "owner/repo" from a git host URL.
 // Works for GitHub, GitLab, Bitbucket, and Gitea URL shapes.
 // Returns "" when the URL cannot be parsed.
-func extractRepoFullName(rawURL string) string {
+func ExtractRepoFullName(rawURL string) string {
 	if rawURL == "" {
 		return ""
 	}
@@ -875,6 +875,10 @@ func extractRepoFullName(rawURL string) string {
 		return ""
 	}
 	return path
+}
+
+func extractRepoFullName(rawURL string) string {
+	return ExtractRepoFullName(rawURL)
 }
 
 // isPostingPermissionError reports whether the provider refused to accept comments because the token has no

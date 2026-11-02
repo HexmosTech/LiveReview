@@ -24,46 +24,49 @@ func NewCreditStore(db *sql.DB) *CreditStore {
 	return &CreditStore{db: db}
 }
 
+// ensureAndLockBillingState ensures the billing record exists, locks it with FOR UPDATE,
+// and resets usage if the billing period has expired.
 func (s *CreditStore) ensureAndLockBillingState(ctx context.Context, tx *sql.Tx, orgID int64) (float64, float64, error) {
 	now := time.Now().UTC()
 	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	endOfMonth := startOfMonth.AddDate(0, 1, 0)
 
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO public.org_tool_billing_state (
-			org_id, credits_used_month, credits_limit_month, billing_period_start, billing_period_end
-		) VALUES ($1, 0.0, 50000.0, $2, $3)
+		INSERT INTO public.org_billing_state (
+			org_id, current_plan_code, billing_period_start, billing_period_end,
+			tool_credits_used_month, tool_credits_limit_month
+		) VALUES ($1, 'free', $2, $3, 0.0, 50000.0)
 		ON CONFLICT (org_id) DO NOTHING
 	`, orgID, startOfMonth, endOfMonth)
 	if err != nil {
-		return 0, 0, fmt.Errorf("ensure tool billing state: %w", err)
+		return 0, 0, fmt.Errorf("ensure billing state: %w", err)
 	}
 
 	var currentUsed, currentLimit float64
 	var periodStart, periodEnd time.Time
 	err = tx.QueryRowContext(ctx, `
-		SELECT credits_used_month, credits_limit_month, billing_period_start, billing_period_end
-		FROM public.org_tool_billing_state
+		SELECT tool_credits_used_month, tool_credits_limit_month, billing_period_start, billing_period_end
+		FROM public.org_billing_state
 		WHERE org_id = $1
 		FOR UPDATE
 	`, orgID).Scan(&currentUsed, &currentLimit, &periodStart, &periodEnd)
 	if err != nil {
-		return 0, 0, fmt.Errorf("lock tool billing state: %w", err)
+		return 0, 0, fmt.Errorf("lock billing state: %w", err)
 	}
 
 	// Reset if billing period has ended
 	if !now.Before(periodEnd) {
 		currentUsed = 0.0
 		_, err = tx.ExecContext(ctx, `
-			UPDATE public.org_tool_billing_state
-			SET credits_used_month = 0.0,
+			UPDATE public.org_billing_state
+			SET tool_credits_used_month = 0.0,
 			    billing_period_start = $1,
 			    billing_period_end = $2,
 			    updated_at = NOW()
 			WHERE org_id = $3
 		`, startOfMonth, endOfMonth, orgID)
 		if err != nil {
-			return 0, 0, fmt.Errorf("reset tool billing state: %w", err)
+			return 0, 0, fmt.Errorf("reset billing state: %w", err)
 		}
 	}
 
@@ -123,7 +126,7 @@ func (s *CreditStore) CheckCreditPreflight(ctx context.Context, orgID int64, req
 	return nil
 }
 
-// DeductCredits securely deducts the credits and writes to the ledger.
+// DeductCredits atomically checks and deducts credits, recording the transaction in tool_credit_ledger.
 func (s *CreditStore) DeductCredits(ctx context.Context, orgID int64, reviewID int64, multiplier float64, planCode license.PlanType) error {
 	if !license.IsToolsEligible(planCode) {
 		return fmt.Errorf("tools credits are not available on the %s plan", planCode)
@@ -146,7 +149,7 @@ func (s *CreditStore) DeductCredits(ctx context.Context, orgID int64, reviewID i
 	}
 
 	if currentLimit-currentUsed < multiplier {
-		return fmt.Errorf("insufficient tool credits during deduction")
+		return fmt.Errorf("insufficient tool credits: review requires %.2f credits, but only %.2f remaining this month", multiplier, currentLimit-currentUsed)
 	}
 
 	idempotencyKey := fmt.Sprintf("tool_review_%d", reviewID)
@@ -164,11 +167,12 @@ func (s *CreditStore) DeductCredits(ctx context.Context, orgID int64, reviewID i
 		return fmt.Errorf("insert ledger: %w", err)
 	}
 
+	// Only update billing balance if not previously deducted for this review
 	if ledgerID != 0 {
 		newUsed := currentUsed + multiplier
 		_, err = tx.ExecContext(ctx, `
-			UPDATE public.org_tool_billing_state
-			SET credits_used_month = $1,
+			UPDATE public.org_billing_state
+			SET tool_credits_used_month = $1,
 			    updated_at = NOW()
 			WHERE org_id = $2
 		`, newUsed, orgID)

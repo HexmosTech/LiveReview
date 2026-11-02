@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	storagetools "github.com/livereview/storage/tools"
 )
 
 // EventSink defines the interface for broadcasting events
@@ -745,16 +747,12 @@ func (r *ReviewEventsRepo) GetToolSummary(ctx context.Context, reviewID, orgID i
 		}
 	}
 
-	// Fetch multipliers from available_tools table in database
+	// Fetch multipliers from catalog
 	multiplierMap := make(map[string]float64)
-	if tRows, tErr := r.db.QueryContext(ctx, `SELECT name, multiplier FROM public.available_tools`); tErr == nil {
-		defer tRows.Close()
-		for tRows.Next() {
-			var tName string
-			var mult float64
-			if err := tRows.Scan(&tName, &mult); err == nil {
-				multiplierMap[strings.ToLower(tName)] = mult
-			}
+	toolsStore := storagetools.NewToolsStore(r.db)
+	if catalog, err := toolsStore.LoadCatalog(ctx); err == nil {
+		for _, t := range catalog {
+			multiplierMap[strings.ToLower(t.Name)] = t.Multiplier
 		}
 	}
 

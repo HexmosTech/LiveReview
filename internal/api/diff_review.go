@@ -239,7 +239,7 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 					continue
 				}
 
-				var cStr, sevStr, catStr, subCatStr, confStr, typeStr, srcStr string
+				var cStr, sevStr, catStr, subCatStr, confStr, typeStr, srcStr, toolNameStr string
 				if v, ok := contentMap["content"].(string); ok {
 					cStr = v
 				}
@@ -260,6 +260,9 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 				}
 				if v, ok := contentMap["source"].(string); ok {
 					srcStr = v
+				}
+				if v, ok := contentMap["tool_name"].(string); ok {
+					toolNameStr = v
 				}
 
 				severity := models.CommentSeverity(strings.ToLower(strings.TrimSpace(sevStr)))
@@ -289,6 +292,7 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 					Confidence:  confStr,
 					Type:        typeStr,
 					Source:      srcStr,
+					ToolName:    toolNameStr,
 				}
 				result.Comments = append(result.Comments, rc)
 			}

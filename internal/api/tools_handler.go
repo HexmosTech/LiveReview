@@ -1,9 +1,13 @@
 package api
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
@@ -35,7 +39,7 @@ func (s *Server) UpsertAvailableTool(c echo.Context) error {
 		req.Multiplier = 1.0
 	}
 
-	err := upsertAvailableTool(s.db, req)
+	err := upsertAvailableTool(c.Request().Context(), s.db, req)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
@@ -46,48 +50,100 @@ func (s *Server) UpsertAvailableTool(c echo.Context) error {
 // ListAvailableTools handles GET /api/v1/admin/tools
 // Returns all tools in the catalog — used by the Settings UI (Phase 2).
 func (s *Server) ListAvailableTools(c echo.Context) error {
-	type ToolRow struct {
-		ID          int64   `json:"id"`
-		Name        string  `json:"name"`
-		Description string  `json:"description"`
-		LambdaARN   string  `json:"lambda_arn"`
-		Multiplier  float64 `json:"multiplier"`
-		UseCase     string  `json:"use_case"`
-	}
-
-	rows, err := s.db.QueryContext(c.Request().Context(),
-		`SELECT id, name, description, lambda_arn, multiplier, use_case
-		   FROM available_tools
-		  ORDER BY name`,
-	)
+	store := tools.NewToolsStore(s.db)
+	catalog, err := store.LoadCatalog(c.Request().Context())
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
-	defer rows.Close()
-
-	tools := make([]ToolRow, 0)
-	for rows.Next() {
-		var t ToolRow
-		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.LambdaARN, &t.Multiplier, &t.UseCase); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		}
-		tools = append(tools, t)
-	}
-	return c.JSON(http.StatusOK, tools)
+	return c.JSON(http.StatusOK, catalog)
 }
 
-func upsertAvailableTool(db *sql.DB, req UpsertToolRequest) error {
-	_, err := db.Exec(`
-		INSERT INTO available_tools (name, description, lambda_arn, multiplier, use_case)
-		VALUES ($1, $2, $3, $4, $5)
+func getNextToolID(ctx context.Context, db *sql.DB, catalog []tools.AvailableTool) int64 {
+	var seqID int64
+	err := db.QueryRowContext(ctx, "SELECT nextval('public.tools_catalog_id_seq')").Scan(&seqID)
+	if err == nil {
+		var maxID int64
+		for _, t := range catalog {
+			if t.ID > maxID {
+				maxID = t.ID
+			}
+		}
+		if seqID <= maxID {
+			return maxID + 1
+		}
+		return seqID
+	}
+	var maxID int64
+	for _, t := range catalog {
+		if t.ID > maxID {
+			maxID = t.ID
+		}
+	}
+	return maxID + 1
+}
+
+func upsertAvailableTool(ctx context.Context, db *sql.DB, req UpsertToolRequest) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	var data []byte
+	err = tx.QueryRowContext(ctx, "SELECT data FROM public.system_settings WHERE name = 'tools_catalog' FOR UPDATE").Scan(&data)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("query tools_catalog: %w", err)
+	}
+
+	var catalog []tools.AvailableTool
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &catalog); err != nil {
+			return fmt.Errorf("unmarshal tools_catalog: %w", err)
+		}
+	}
+
+	found := false
+	for i, t := range catalog {
+		if strings.EqualFold(t.Name, req.Name) {
+			catalog[i].Description = req.Description
+			catalog[i].LambdaARN = req.LambdaARN
+			catalog[i].Multiplier = req.Multiplier
+			catalog[i].UseCase = req.UseCase
+			found = true
+			break
+		}
+	}
+	if !found {
+		newID := getNextToolID(ctx, db, catalog)
+		catalog = append(catalog, tools.AvailableTool{
+			ID:          newID,
+			Name:        req.Name,
+			Description: req.Description,
+			LambdaARN:   req.LambdaARN,
+			Multiplier:  req.Multiplier,
+			UseCase:     req.UseCase,
+		})
+	}
+
+	catalogJSON, err := json.Marshal(catalog)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO public.system_settings (name, data, updated_at)
+		VALUES ('tools_catalog', $1, NOW())
 		ON CONFLICT (name) DO UPDATE
-		  SET description = EXCLUDED.description,
-		      lambda_arn  = EXCLUDED.lambda_arn,
-		      multiplier  = EXCLUDED.multiplier,
-		      use_case    = EXCLUDED.use_case`,
-		req.Name, req.Description, req.LambdaARN, req.Multiplier, req.UseCase,
-	)
-	return err
+		SET data = EXCLUDED.data,
+		    updated_at = NOW()
+	`, catalogJSON)
+	if err != nil {
+		return fmt.Errorf("upsert tools_catalog: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 // ListOrgTools handles GET /api/v1/orgs/:org_id/tools

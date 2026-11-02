@@ -39,156 +39,243 @@ func NewToolsStore(db *sql.DB) *ToolsStore {
 	return &ToolsStore{db: db}
 }
 
-// GetAvailableToolsForOrg lists all available tools from the catalog, annotated with the org's enabling configuration.
-func (s *ToolsStore) GetAvailableToolsForOrg(ctx context.Context, orgID int64) ([]OrgToolView, error) {
-	query := `
-		SELECT
-			t.id,
-			t.name,
-			t.description,
-			t.lambda_arn,
-			t.multiplier,
-			t.use_case,
-			COALESCE(ot.enabled, false) AS enabled,
-			COALESCE(ot.config_json, '{}'::jsonb) AS config_json
-		FROM public.available_tools t
-		LEFT JOIN public.org_tools ot ON t.id = ot.tool_id AND ot.org_id = $1
-		ORDER BY t.name
-	`
-	rows, err := s.db.QueryContext(ctx, query, orgID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query available tools for org %d: %w", orgID, err)
-	}
-	defer rows.Close()
+// defaultCatalog provides fallback tool definitions if system_settings tools_catalog row is not yet set.
+var defaultCatalog = []AvailableTool{
+	{ID: 1, Name: "ruff", Description: "Fast Python linter and formatter", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:ruff-python-linter", Multiplier: 1.0, UseCase: "Python lint/format"},
+	{ID: 2, Name: "openapi", Description: "OpenAPI and YAML specification validation", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:openapi-yaml-validator", Multiplier: 1.0, UseCase: "OpenAPI/YAML validation"},
+	{ID: 3, Name: "osv", Description: "Google open-source vulnerability scanner", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:osv-scanner", Multiplier: 1.0, UseCase: "Dependencies & Supply Chain"},
+	{ID: 4, Name: "gitleaks", Description: "Git history secret and credential scanner", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:medium", Multiplier: 12.0, UseCase: "Secrets & Security"},
+	{ID: 5, Name: "trivy", Description: "Container and SCA vulnerability scanner", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:trivy-linter", Multiplier: 4.0, UseCase: "Dependencies & Supply Chain"},
+	{ID: 6, Name: "trufflehog", Description: "Deep entropy-based secret detection", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:trufflehog-linter", Multiplier: 12.0, UseCase: "Secrets & Security"},
+	{ID: 7, Name: "tfsec", Description: "Terraform security and misconfiguration scanner", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:tfsec-linter", Multiplier: 1.0, UseCase: "Infrastructure & Config"},
+	{ID: 8, Name: "kubescape", Description: "Kubernetes security & compliance analyzer", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:kubescape-linter", Multiplier: 3.0, UseCase: "Infrastructure & Config"},
+	{ID: 9, Name: "hadolint", Description: "Dockerfile best practices linter", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:hadolint-linter", Multiplier: 1.0, UseCase: "Containers & Docker"},
+	{ID: 10, Name: "shellcheck", Description: "Shell script static analysis linter", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:shellcheck-linter", Multiplier: 1.0, UseCase: "Scripts & Shell"},
+	{ID: 11, Name: "actionlint", Description: "GitHub Actions workflow linter", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:actionlint-linter", Multiplier: 1.0, UseCase: "CI/CD & Workflow"},
+	{ID: 12, Name: "golangci-lint", Description: "Go meta-linter suite", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:golangci-lint-linter", Multiplier: 12.0, UseCase: "Go Code Quality"},
+	{ID: 13, Name: "spectral", Description: "API style guide enforcement linter", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:spectral-linter", Multiplier: 3.0, UseCase: "API Schema"},
+	{ID: 14, Name: "zizmor", Description: "GitHub Actions security scanner", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:zizmor-linter", Multiplier: 1.0, UseCase: "CI/CD & Workflow"},
+	{ID: 15, Name: "bandit", Description: "Python security scanner (SAST)", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:bandit-linter", Multiplier: 12.0, UseCase: "Python SAST"},
+	{ID: 16, Name: "detect-secrets", Description: "Baseline pattern-based secrets detection", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:detect-secrets-linter", Multiplier: 12.0, UseCase: "Secrets & Security"},
+	{ID: 17, Name: "checkov", Description: "IaC security scanner", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:checkov-linter", Multiplier: 12.0, UseCase: "Infrastructure & Config"},
+	{ID: 18, Name: "semgrep", Description: "Fast multi-language SAST analyzer", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:semgrep-linter", Multiplier: 12.0, UseCase: "Security & Code Quality"},
+	{ID: 19, Name: "brakeman", Description: "Ruby on Rails security scanner", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:brakeman-linter", Multiplier: 12.0, UseCase: "Ruby Security"},
+	{ID: 20, Name: "eslint", Description: "JavaScript / TypeScript linter", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:eslint-linter", Multiplier: 12.0, UseCase: "JS/TS Code Quality"},
+	{ID: 21, Name: "rubocop", Description: "Ruby static code analyzer", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:rubocop-linter", Multiplier: 12.0, UseCase: "Ruby Code Quality"},
+	{ID: 22, Name: "ktlint", Description: "Kotlin linter and formatter", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:ktlint-linter", Multiplier: 12.0, UseCase: "Kotlin Code Quality"},
+	{ID: 23, Name: "phpcs", Description: "PHP CodeSniffer token analyzer", LambdaARN: "arn:aws:lambda:us-east-1:042198857528:function:phpcs-linter", Multiplier: 12.0, UseCase: "PHP Code Quality"},
+}
 
-	var views []OrgToolView
-	for rows.Next() {
-		var v OrgToolView
-		var configBytes []byte
-		err := rows.Scan(
-			&v.ID,
-			&v.Name,
-			&v.Description,
-			&v.LambdaARN,
-			&v.Multiplier,
-			&v.UseCase,
-			&v.Enabled,
-			&configBytes,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan org tool view: %w", err)
-		}
-		v.ConfigJSON = json.RawMessage(configBytes)
-		views = append(views, v)
+// LoadCatalog loads tools catalog from system_settings row 'tools_catalog', falling back to defaultCatalog.
+func (s *ToolsStore) LoadCatalog(ctx context.Context) ([]AvailableTool, error) {
+	tools := make([]AvailableTool, len(defaultCatalog))
+	copy(tools, defaultCatalog)
+
+	if s.db == nil {
+		return tools, nil
 	}
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating org tool views: %w", err)
+
+	var data []byte
+	err := s.db.QueryRowContext(ctx, "SELECT data FROM public.system_settings WHERE name = 'tools_catalog'").Scan(&data)
+	if err == sql.ErrNoRows {
+		return tools, nil
+	}
+	if err != nil {
+		return tools, nil // Fail open to default catalog if table/row error
+	}
+
+	// Unmarshal overrides
+	var overrides []AvailableTool
+	if unmarshalErr := json.Unmarshal(data, &overrides); unmarshalErr == nil && len(overrides) > 0 {
+		return overrides, nil
+	}
+
+	// Map of name -> AvailableTool shape
+	var mapOverrides map[string]AvailableTool
+	if unmarshalErr := json.Unmarshal(data, &mapOverrides); unmarshalErr == nil && len(mapOverrides) > 0 {
+		for i, t := range tools {
+			if o, ok := mapOverrides[t.Name]; ok {
+				if o.LambdaARN != "" {
+					tools[i].LambdaARN = o.LambdaARN
+				}
+				if o.Multiplier > 0 {
+					tools[i].Multiplier = o.Multiplier
+				}
+				if o.Description != "" {
+					tools[i].Description = o.Description
+				}
+				if o.UseCase != "" {
+					tools[i].UseCase = o.UseCase
+				}
+			}
+		}
+	}
+
+	return tools, nil
+}
+
+type OrgToolConfig struct {
+	Enabled    bool            `json:"enabled"`
+	ConfigJSON json.RawMessage `json:"config_json,omitempty"`
+}
+
+// GetAvailableToolsForOrg lists all available tools from the catalog, annotated with the org's enabling configuration from orgs.settings.
+func (s *ToolsStore) GetAvailableToolsForOrg(ctx context.Context, orgID int64) ([]OrgToolView, error) {
+	catalog, err := s.LoadCatalog(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load tools catalog: %w", err)
+	}
+
+	toolSettings := s.getOrgToolSettings(ctx, orgID)
+
+	views := make([]OrgToolView, len(catalog))
+	for i, t := range catalog {
+		lowerName := strings.ToLower(t.Name)
+		cfg, ok := toolSettings[lowerName]
+		if !ok {
+			cfg = toolSettings[fmt.Sprintf("%d", t.ID)]
+		}
+		if len(cfg.ConfigJSON) == 0 {
+			cfg.ConfigJSON = json.RawMessage("{}")
+		}
+
+		views[i] = OrgToolView{
+			AvailableTool: t,
+			Enabled:       cfg.Enabled,
+			ConfigJSON:    cfg.ConfigJSON,
+		}
 	}
 	return views, nil
 }
 
-// UpsertOrgTool inserts or updates the enabling configuration of a tool for a specific organization.
-func (s *ToolsStore) UpsertOrgTool(ctx context.Context, orgID, toolID int64, enabled bool) (OrgToolRow, error) {
-	// First check if the tool actually exists in available_tools
-	var exists bool
-	err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM public.available_tools WHERE id = $1)", toolID).Scan(&exists)
-	if err != nil {
-		return OrgToolRow{}, fmt.Errorf("failed to check tool existence: %w", err)
+func (s *ToolsStore) getOrgToolSettings(ctx context.Context, orgID int64) map[string]OrgToolConfig {
+	settingsMap := make(map[string]OrgToolConfig)
+	if s.db == nil {
+		return settingsMap
 	}
-	if !exists {
+
+	var settingsJSON []byte
+	err := s.db.QueryRowContext(ctx, "SELECT settings->'tools' FROM public.orgs WHERE id = $1", orgID).Scan(&settingsJSON)
+	if err != nil || len(settingsJSON) == 0 {
+		return settingsMap
+	}
+
+	var rawMap map[string]interface{}
+	if err := json.Unmarshal(settingsJSON, &rawMap); err == nil {
+		for k, v := range rawMap {
+			lowerK := strings.ToLower(k)
+			if b, ok := v.(bool); ok {
+				settingsMap[lowerK] = OrgToolConfig{
+					Enabled:    b,
+					ConfigJSON: json.RawMessage("{}"),
+				}
+			} else if m, ok := v.(map[string]interface{}); ok {
+				cfg := OrgToolConfig{ConfigJSON: json.RawMessage("{}")}
+				if eb, ok := m["enabled"].(bool); ok {
+					cfg.Enabled = eb
+				}
+				if cj, ok := m["config_json"]; ok {
+					if cjBytes, err := json.Marshal(cj); err == nil {
+						cfg.ConfigJSON = json.RawMessage(cjBytes)
+					}
+				}
+				settingsMap[lowerK] = cfg
+			}
+		}
+	}
+	return settingsMap
+}
+
+// UpsertOrgTool inserts or updates the enabling configuration of a tool for a specific organization in orgs.settings.
+func (s *ToolsStore) UpsertOrgTool(ctx context.Context, orgID, toolID int64, enabled bool) (OrgToolRow, error) {
+	catalog, err := s.LoadCatalog(ctx)
+	if err != nil {
+		return OrgToolRow{}, err
+	}
+
+	var toolName string
+	for _, t := range catalog {
+		if t.ID == toolID {
+			toolName = t.Name
+			break
+		}
+	}
+	if toolName == "" {
 		return OrgToolRow{}, sql.ErrNoRows
 	}
 
-	query := `
-		INSERT INTO public.org_tools (org_id, tool_id, enabled, config_json, updated_at)
-		VALUES ($1, $2, $3, '{}'::jsonb, NOW())
-		ON CONFLICT (org_id, tool_id) DO UPDATE
-		  SET enabled = EXCLUDED.enabled,
-		      updated_at = NOW()
-		RETURNING org_id, tool_id, enabled, config_json
-	`
-	var r OrgToolRow
-	var configBytes []byte
-	err = s.db.QueryRowContext(ctx, query, orgID, toolID, enabled).Scan(
-		&r.OrgID,
-		&r.ToolID,
-		&r.Enabled,
-		&configBytes,
-	)
-	if err != nil {
-		return OrgToolRow{}, fmt.Errorf("failed to upsert org tool: %w", err)
+	lowerName := strings.ToLower(toolName)
+	toolSettings := s.getOrgToolSettings(ctx, orgID)
+	existingCfg := toolSettings[lowerName]
+	if len(existingCfg.ConfigJSON) == 0 {
+		existingCfg.ConfigJSON = json.RawMessage("{}")
 	}
-	r.ConfigJSON = json.RawMessage(configBytes)
-	return r, nil
+	existingCfg.Enabled = enabled
+
+	cfgBytes, err := json.Marshal(existingCfg)
+	if err != nil {
+		return OrgToolRow{}, fmt.Errorf("marshal tool settings: %w", err)
+	}
+
+	query := `
+		UPDATE public.orgs
+		SET settings = jsonb_set(
+			COALESCE(settings, '{}'::jsonb),
+			'{tools}',
+			COALESCE(settings->'tools', '{}'::jsonb) || jsonb_build_object($2::text, $3::jsonb)
+		)
+		WHERE id = $1
+	`
+	_, err = s.db.ExecContext(ctx, query, orgID, lowerName, cfgBytes)
+	if err != nil {
+		return OrgToolRow{}, fmt.Errorf("failed to update org tool settings: %w", err)
+	}
+
+	return OrgToolRow{
+		OrgID:      orgID,
+		ToolID:     toolID,
+		Enabled:    enabled,
+		ConfigJSON: existingCfg.ConfigJSON,
+	}, nil
 }
 
 // GetEnabledToolsForOrg returns the catalog details of all tools that have been explicitly enabled by the org.
 func (s *ToolsStore) GetEnabledToolsForOrg(ctx context.Context, orgID int64) ([]AvailableTool, error) {
-	query := `
-		SELECT
-			t.id,
-			t.name,
-			t.description,
-			t.lambda_arn,
-			t.multiplier,
-			t.use_case
-		FROM public.available_tools t
-		JOIN public.org_tools ot ON t.id = ot.tool_id
-		WHERE ot.org_id = $1 AND ot.enabled = true
-		ORDER BY t.name
-	`
-	rows, err := s.db.QueryContext(ctx, query, orgID)
+	catalog, err := s.LoadCatalog(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query enabled tools for org %d: %w", orgID, err)
+		return nil, fmt.Errorf("failed to load tools catalog: %w", err)
 	}
-	defer rows.Close()
 
-	var tools []AvailableTool
-	for rows.Next() {
-		var t AvailableTool
-		err := rows.Scan(
-			&t.ID,
-			&t.Name,
-			&t.Description,
-			&t.LambdaARN,
-			&t.Multiplier,
-			&t.UseCase,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan enabled tool: %w", err)
+	toolSettings := s.getOrgToolSettings(ctx, orgID)
+	var enabledTools []AvailableTool
+	for _, t := range catalog {
+		lowerName := strings.ToLower(t.Name)
+		cfg, ok := toolSettings[lowerName]
+		if !ok {
+			cfg = toolSettings[fmt.Sprintf("%d", t.ID)]
 		}
-		tools = append(tools, t)
+		if cfg.Enabled {
+			enabledTools = append(enabledTools, t)
+		}
 	}
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating enabled tools: %w", err)
-	}
-	return tools, nil
+	return enabledTools, nil
 }
 
-// GetAvailableToolByName fetches a tool from the global available_tools catalog by name.
+// GetAvailableToolByName fetches a tool from the catalog by name.
 func (s *ToolsStore) GetAvailableToolByName(ctx context.Context, name string) (*AvailableTool, error) {
-	query := `
-		SELECT id, name, description, lambda_arn, multiplier, use_case
-		FROM public.available_tools
-		WHERE LOWER(name) = LOWER($1)
-		LIMIT 1
-	`
-	var t AvailableTool
-	err := s.db.QueryRowContext(ctx, query, name).Scan(
-		&t.ID,
-		&t.Name,
-		&t.Description,
-		&t.LambdaARN,
-		&t.Multiplier,
-		&t.UseCase,
-	)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
+	catalog, err := s.LoadCatalog(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query available tool %q: %w", name, err)
+		return nil, err
 	}
-	return &t, nil
+
+	target := strings.ToLower(strings.TrimSpace(name))
+	for _, t := range catalog {
+		if strings.ToLower(t.Name) == target {
+			toolCopy := t
+			return &toolCopy, nil
+		}
+	}
+	return nil, nil
 }
 
 // InsertToolResultEvent wraps raw Lambda response and logs it in review_events table.

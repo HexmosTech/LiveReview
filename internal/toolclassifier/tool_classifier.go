@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
+	"github.com/lib/pq"
 	"github.com/livereview/internal/aiconnectors"
 	"github.com/livereview/internal/aiselection"
 	"github.com/livereview/internal/license"
@@ -120,7 +122,68 @@ func ClassifyToolResult(
 		return comments, nil
 	}
 
+	// Step 1.5 (Tier 2 DB Cache): If db != nil and there are unresolvedIndices, query tool_rule_taxonomies
+	if db != nil && len(unresolvedIndices) > 0 {
+		keySet := make(map[string]struct{})
+		for _, origIdx := range unresolvedIndices {
+			rKey := MakeRuleKey(toolName, findings[origIdx].Rule)
+			keySet[rKey] = struct{}{}
+			rawKey := strings.ToLower(strings.TrimSpace(findings[origIdx].Rule))
+			if rawKey != "" {
+				keySet[rawKey] = struct{}{}
+			}
+		}
+		queryKeys := make([]string, 0, len(keySet))
+		for k := range keySet {
+			queryKeys = append(queryKeys, k)
+		}
+
+		cachedTuples, qErr := queryTaxonomyCache(ctx, db, queryKeys)
+		if qErr != nil {
+			log.Printf("[WARN] [TOOL %s] Failed to query tool_rule_taxonomies cache: %v", toolName, qErr)
+		} else if len(cachedTuples) > 0 {
+			var stillUnresolved []int
+			for _, origIdx := range unresolvedIndices {
+				f := findings[origIdx]
+				rKey := MakeRuleKey(toolName, f.Rule)
+				rawKey := strings.ToLower(strings.TrimSpace(f.Rule))
+
+				tuple, ok := cachedTuples[rKey]
+				if !ok {
+					tuple, ok = cachedTuples[rawKey]
+				}
+
+				if ok {
+					cat, subcat := ValidateAndNormalizeTaxonomy(tuple.Category, tuple.Subcategory)
+					comments[origIdx] = &models.ReviewComment{
+						FilePath:    f.File,
+						Line:        f.Line,
+						Content:     f.Message,
+						Severity:    parseSeverity(tuple.Severity),
+						Category:    cat,
+						Subcategory: subcat,
+						Confidence:  NormalizeConfidence(tuple.Confidence),
+						Type:        NormalizeType(tuple.Type),
+					}
+					if logger != nil {
+						logger.Log("[TOOL %s] Database cache classification (0 tokens) for rule %s: %s / %s", toolName, f.Rule, cat, subcat)
+					}
+				} else {
+					stillUnresolved = append(stillUnresolved, origIdx)
+				}
+			}
+			unresolvedIndices = stillUnresolved
+		}
+
+		if len(unresolvedIndices) == 0 {
+			return comments, nil
+		}
+	}
+
 	// Step 2: Resolve Helper AI model configuration
+	if db == nil {
+		return applyFallbackComments(findings, comments, unresolvedIndices), nil
+	}
 	selection, err := aiselection.GetReviewAISelection(ctx, db, orgID, planCode)
 	var helperConfig review.AIConfig
 	if err == nil && selection.HelperEnabled && selection.Helper != nil {
@@ -191,6 +254,35 @@ Findings:
 								Type:        parseTypeCode(parts[5]),
 							}
 						}
+					}
+				}
+
+				// Step 4 (Self-Learning Auto-Cache): After the LLM batch completes successfully,
+				// asynchronously upsert the newly classified unique rule keys into tool_rule_taxonomies
+				if db != nil {
+					var newEntries []TaxonomyCacheEntry
+					seenKeys := make(map[string]bool)
+					for _, origIdx := range unresolvedIndices {
+						c := comments[origIdx]
+						if c != nil {
+							rKey := MakeRuleKey(toolName, findings[origIdx].Rule)
+							if !seenKeys[rKey] {
+								seenKeys[rKey] = true
+								newEntries = append(newEntries, TaxonomyCacheEntry{
+									RuleKey:     rKey,
+									ToolName:    toolName,
+									RuleID:      CleanRuleID(toolName, findings[origIdx].Rule),
+									Category:    c.Category,
+									Subcategory: c.Subcategory,
+									Severity:    string(c.Severity),
+									Confidence:  c.Confidence,
+									Type:        c.Type,
+								})
+							}
+						}
+					}
+					if len(newEntries) > 0 {
+						autoCacheTaxonomiesAsync(db, toolName, newEntries)
 					}
 				}
 			}
@@ -266,9 +358,9 @@ func connectorOptionsFromAIConfig(config review.AIConfig, commentCount int) (aic
 
 func parseSeverity(raw string) models.CommentSeverity {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "critical":
+	case "critical", "c":
 		return models.SeverityCritical
-	case "info":
+	case "info", "i":
 		return models.SeverityInfo
 	default:
 		return models.SeverityWarning
@@ -402,15 +494,156 @@ func ValidateAndNormalizeTaxonomy(rawCategory, rawSubcategory string) (string, s
 }
 
 func NormalizeType(raw string) string {
-	if val, ok := ValidTypes[strings.ToLower(strings.TrimSpace(raw))]; ok {
+	clean := strings.ToLower(strings.TrimSpace(raw))
+	switch clean {
+	case "b":
+		return "Bug"
+	case "r":
+		return "Risk"
+	case "o":
+		return "Optimization"
+	case "s":
+		return "Code Smell"
+	case "p":
+		return "Best Practice"
+	case "d":
+		return "Technical Debt"
+	}
+	if val, ok := ValidTypes[clean]; ok {
 		return val
 	}
 	return "Risk"
 }
 
 func NormalizeConfidence(raw string) string {
-	if val, ok := ValidConfidences[strings.ToLower(strings.TrimSpace(raw))]; ok {
+	clean := strings.ToLower(strings.TrimSpace(raw))
+	switch clean {
+	case "h":
+		return "High"
+	case "m":
+		return "Medium"
+	case "l":
+		return "Low"
+	}
+	if val, ok := ValidConfidences[clean]; ok {
 		return val
 	}
 	return "High"
+}
+
+// TaxonomyCacheEntry represents a single rule taxonomy cache row
+type TaxonomyCacheEntry struct {
+	RuleKey     string
+	ToolName    string
+	RuleID      string
+	Category    string
+	Subcategory string
+	Severity    string
+	Confidence  string
+	Type        string
+}
+
+// MakeRuleKey creates a normalized rule key: lowercase "tool_name:rule_id"
+func MakeRuleKey(toolName, ruleID string) string {
+	r := strings.TrimSpace(ruleID)
+	t := strings.TrimSpace(toolName)
+	prefix := strings.ToLower(t) + ":"
+	if strings.HasPrefix(strings.ToLower(r), prefix) {
+		return strings.ToLower(r)
+	}
+	return strings.ToLower(t + ":" + r)
+}
+
+// CleanRuleID strips the tool name prefix from rule_id if present
+func CleanRuleID(toolName, ruleID string) string {
+	r := strings.TrimSpace(ruleID)
+	t := strings.TrimSpace(toolName)
+	prefix := strings.ToLower(t) + ":"
+	if strings.HasPrefix(strings.ToLower(r), prefix) {
+		trimmed := strings.TrimSpace(r[len(prefix):])
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return r
+}
+
+func queryTaxonomyCache(ctx context.Context, db *sql.DB, queryKeys []string) (map[string]TaxonomyTuple, error) {
+	if db == nil || len(queryKeys) == 0 {
+		return nil, nil
+	}
+
+	query := `SELECT rule_key, category, subcategory, severity, confidence, type FROM tool_rule_taxonomies WHERE rule_key = ANY($1)`
+	rows, err := db.QueryContext(ctx, query, pq.Array(queryKeys))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	cachedTuples := make(map[string]TaxonomyTuple)
+	for rows.Next() {
+		var rKey, cat, subcat, sev, conf, typ string
+		if err := rows.Scan(&rKey, &cat, &subcat, &sev, &conf, &typ); err == nil {
+			cachedTuples[strings.ToLower(strings.TrimSpace(rKey))] = TaxonomyTuple{
+				Category:    cat,
+				Subcategory: subcat,
+				Severity:    sev,
+				Confidence:  conf,
+				Type:        typ,
+			}
+		}
+	}
+	return cachedTuples, rows.Err()
+}
+
+// Hook for testing async upsert completion
+var onTaxonomyCacheUpsertDone func(err error)
+
+func autoCacheTaxonomiesAsync(db *sql.DB, toolName string, entries []TaxonomyCacheEntry) {
+	if db == nil || len(entries) == 0 {
+		return
+	}
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		err := UpsertTaxonomies(bgCtx, db, entries)
+		if err != nil {
+			log.Printf("[WARN] [TOOL %s] Failed to upsert tool_rule_taxonomies cache: %v", toolName, err)
+		}
+		if onTaxonomyCacheUpsertDone != nil {
+			onTaxonomyCacheUpsertDone(err)
+		}
+	}()
+}
+
+// UpsertTaxonomies batch-upserts taxonomy classifications into tool_rule_taxonomies
+func UpsertTaxonomies(ctx context.Context, db *sql.DB, entries []TaxonomyCacheEntry) error {
+	if db == nil || len(entries) == 0 {
+		return nil
+	}
+
+	valueStrings := make([]string, 0, len(entries))
+	valueArgs := make([]interface{}, 0, len(entries)*8)
+	for i, entry := range entries {
+		offset := i * 8
+		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, NOW())",
+			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7, offset+8))
+		valueArgs = append(valueArgs,
+			entry.RuleKey,
+			entry.ToolName,
+			entry.RuleID,
+			entry.Category,
+			entry.Subcategory,
+			entry.Severity,
+			entry.Confidence,
+			entry.Type,
+		)
+	}
+
+	query := fmt.Sprintf(`INSERT INTO tool_rule_taxonomies (rule_key, tool_name, rule_id, category, subcategory, severity, confidence, type, updated_at) VALUES %s ON CONFLICT (rule_key) DO UPDATE SET category = EXCLUDED.category, subcategory = EXCLUDED.subcategory, severity = EXCLUDED.severity, confidence = EXCLUDED.confidence, type = EXCLUDED.type, updated_at = NOW()`,
+		strings.Join(valueStrings, ", "))
+
+	_, err := db.ExecContext(ctx, query, valueArgs...)
+	return err
 }
