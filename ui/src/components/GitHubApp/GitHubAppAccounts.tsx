@@ -26,6 +26,8 @@ interface GitHubAppAccountsProps {
     findBusy?: boolean;
     // Called after an account was connected, disconnected or uninstalled; the parent refreshes its data.
     onChanged: () => void | Promise<void>;
+    // Called when a GitHub link is opened (for showing banner in parent component)
+    onGitHubOpened?: () => void;
 }
 
 // What the "other LiveReview accounts" popup needs, from a connected or an available account.
@@ -56,6 +58,7 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
     onFindAccounts,
     findBusy = false,
     onChanged,
+    onGitHubOpened,
 }) => {
     const [pending, setPending] = useState<PendingAction | null>(null);
     const [showingOthers, setShowingOthers] = useState<SharedAccount | null>(null);
@@ -190,7 +193,10 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
                     size="sm"
                     variant="outline"
                     icon={<Icons.Add />}
-                    onClick={onInstallAnother}
+                    onClick={() => {
+                        onGitHubOpened?.();
+                        onInstallAnother();
+                    }}
                     isLoading={installBusy}
                     disabled={findBusy}
                 >
@@ -200,7 +206,10 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
                     size="sm"
                     variant="ghost"
                     icon={<Icons.GitHub />}
-                    onClick={onFindAccounts}
+                    onClick={() => {
+                        onGitHubOpened?.();
+                        onFindAccounts();
+                    }}
                     isLoading={findBusy}
                     disabled={installBusy}
                 >

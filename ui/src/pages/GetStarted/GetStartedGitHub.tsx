@@ -17,9 +17,14 @@ const AUTO_CONNECT_KEY = 'lrGhAutoConnectTried';
 
 const GetStartedGitHub: React.FC = () => {
     const navigate = useNavigate();
+    const [gitHubWindowOpened, setGitHubWindowOpened] = useState(false);
 
+    // For first-time setup: redirects in same tab
     const { startInstall: connectGitHub, startDiscover, busy: reconnecting, installing, discovering } =
         useGitHubAppInstall('get-started', 'get-started');
+    // For re-login: opens in new tab
+    const { startInstall: connectGitHubNewTab, startDiscover: startDiscoverNewTab, installing: installingNewTab, discovering: discoveringNewTab } =
+        useGitHubAppInstall('get-started', 'get-started', true);
     const { isSuperAdmin, currentOrg } = useOrgContext();
     const canDisconnect = isSuperAdmin || currentOrg?.role === 'owner';
 
@@ -159,6 +164,27 @@ const GetStartedGitHub: React.FC = () => {
 
                 {!isLoading && !needsGitHub && connected && (
                     <Card className="mt-6">
+                        {gitHubWindowOpened && (
+                            <Alert variant="info" className="m-6 mb-0">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="flex-1">
+                                        <p className="text-sm">
+                                            GitHub opened in a new tab. After managing your repository permissions, close the GitHub tab and click the refresh button below to see your updated repositories.
+                                        </p>
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={async () => {
+                                            setGitHubWindowOpened(false);
+                                            await refetch();
+                                        }}
+                                    >
+                                        Refresh
+                                    </Button>
+                                </div>
+                            </Alert>
+                        )}
                         <ol className="p-6">
                             <Step index={1} title="Repositories connected" done>
                                 {repos.length === 0 ? (
@@ -170,11 +196,12 @@ const GetStartedGitHub: React.FC = () => {
                                         available={available}
                                         repos={repos}
                                         canDisconnect={canDisconnect}
-                                        onInstallAnother={connectGitHub}
-                                        installBusy={installing}
-                                        onFindAccounts={startDiscover}
-                                        findBusy={discovering}
+                                        onInstallAnother={connectGitHubNewTab}
+                                        installBusy={installingNewTab}
+                                        onFindAccounts={startDiscoverNewTab}
+                                        findBusy={discoveringNewTab}
                                         onChanged={afterChange}
+                                        onGitHubOpened={() => setGitHubWindowOpened(true)}
                                     />
                                 </div>
                             </Step>

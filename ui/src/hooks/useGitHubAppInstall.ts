@@ -7,7 +7,7 @@ import { notify } from '../utils/notify';
 // first install, etc.) or GitHub's sign-in ("Find my GitHub accounts"). The round trip is bound to the current
 // session and org on the server, so whatever email the GitHub account uses, the user comes back to `returnTo` still
 // signed in as themselves, with the accounts connected to this org.
-export const useGitHubAppInstall = (returnTo: GitHubAppReturn, src: string) => {
+export const useGitHubAppInstall = (returnTo: GitHubAppReturn, src: string, openInNewTab?: boolean) => {
     // Which round trip is starting (for the spinner on the button that was clicked); null when idle.
     const [pending, setPending] = useState<GitHubAppConnectMode | null>(null);
 
@@ -30,10 +30,16 @@ export const useGitHubAppInstall = (returnTo: GitHubAppReturn, src: string) => {
             notify.error(err?.message || 'Could not start connecting to GitHub. Please try again.');
             return;
         }
-        // Covers the page while the browser starts navigating, so nothing flashes.
-        showRedirectOverlay('Taking you to GitHub…');
-        // assign, not replace: Back from GitHub returns to this page.
-        window.location.assign(url);
+        if (openInNewTab) {
+            // Open in new tab without redirect overlay
+            window.open(url, '_blank', 'noopener,noreferrer');
+            setPending(null);
+        } else {
+            // Covers the page while the browser starts navigating, so nothing flashes.
+            showRedirectOverlay('Taking you to GitHub…');
+            // assign, not replace: Back from GitHub returns to this page.
+            window.location.assign(url);
+        }
     };
 
     // Wrapped so they can be used directly as onClick handlers (which pass an event).
