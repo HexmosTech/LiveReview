@@ -75,18 +75,15 @@ the same two steps as get-started: the AI provider (LiveReview AI already
 connected, or **Configure AI**) and **Review a pull request** (**See open
 MRs/PRs and trigger a review** or **Trigger a review via URL**).
 **Add repositories or organization** opens
-GitHub's install page in a new tab (opened synchronously on click, so popup
-blockers don't interfere). A banner appears: "GitHub opened in a new tab. When
+GitHub's install page in a new tab. A banner appears first ("Opening GitHub in a new tab…"), and the tab opens a few seconds later, like the install button on New Review: "GitHub opened in a new tab. When
 you're done managing repositories, close that tab and click Refresh." The
 **Refresh** button refetches the account list without reloading the page. For
 already-connected users, the GitHub tab ends on a "Done, you can close this
 tab" page instead of opening a second LiveReview tab.
-**Find my GitHub accounts** signs in to GitHub in a new tab and adds every
+**Find my GitHub accounts** signs in to GitHub (in this tab, then returns here) and adds every
 account the app is already installed on that the user's GitHub account can access:
 accounts nobody else uses are connected, ones another LiveReview account uses are
-listed as **Available** (use **Connect**). Works the same way as "Add
-repositories or organization": opens in a new tab, shows the refresh banner,
-and ends on a "close this tab" page for already-connected users. With nothing
+listed as **Available** (use **Connect**). It leaves this page for GitHub and comes back here. With nothing
 connected or available yet the page shows **Install the GitHub App** and **Find
 my GitHub accounts**. Returning GitHub sign-ins land directly on this page.
 

@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Avatar, Button, Icons } from '../UIPrimitives';
 import GitHubAppRepositories from './GitHubAppRepositories';
+import GitHubTabBanner from './GitHubTabBanner';
+import { GitHubTabControls } from '../../hooks/useGitHubAppInstall';
 import { ConfirmModal } from '../ConfirmModal';
 import { notify } from '../../utils/notify';
 import {
@@ -26,9 +28,8 @@ interface GitHubAppAccountsProps {
     findBusy?: boolean;
     // Called after an account was connected, disconnected or uninstalled; the parent refreshes its data.
     onChanged: () => void | Promise<void>;
-    // Whether to show the "GitHub opened in new tab" banner with Refresh button.
-    showRefreshBanner?: boolean;
-    onDismissBanner?: () => void;
+    // GitHub in a new tab ("Manage on GitHub", "Add repositories or organization") and its Refresh banner.
+    githubTab: GitHubTabControls;
 }
 
 // What the "other LiveReview accounts" popup needs, from a connected or an available account.
@@ -59,14 +60,12 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
     onFindAccounts,
     findBusy = false,
     onChanged,
-    showRefreshBanner = false,
-    onDismissBanner,
+    githubTab,
 }) => {
     const [pending, setPending] = useState<PendingAction | null>(null);
     const [showingOthers, setShowingOthers] = useState<SharedAccount | null>(null);
     const [busy, setBusy] = useState(false);
     const [connecting, setConnecting] = useState<number | null>(null);
-    const [refreshing, setRefreshing] = useState(false);
 
     const connect = async (inst: GitHubAppAvailableInstallation) => {
         setConnecting(inst.connector_id);
@@ -102,48 +101,8 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
         }
     };
 
-    const handleRefresh = async () => {
-        setRefreshing(true);
-        try {
-            await onChanged();
-            onDismissBanner?.();
-        } catch (err: any) {
-            notify.error(err?.message || 'Failed to refresh accounts');
-        } finally {
-            setRefreshing(false);
-        }
-    };
-
     return (
         <>
-            {showRefreshBanner && (
-                <div className="border-l-4 border-l-blue-500 border-t border-r border-b border-slate-700/50 bg-slate-800/90 rounded-lg p-4 mb-4">
-                    <div className="flex items-start gap-3">
-                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20 mt-0.5">
-                            <div className="text-blue-400">
-                                <Icons.GitHub />
-                            </div>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <p className="text-sm text-slate-200">
-                                GitHub opened in a new tab. When you&apos;re done managing repositories, close that tab and click Refresh.
-                            </p>
-                            <p className="text-xs text-slate-400 mt-1">
-                                If something still doesn&apos;t show, try &quot;Find my GitHub accounts&quot;.
-                            </p>
-                        </div>
-                        <div className="flex-shrink-0">
-                            <Button
-                                size="sm"
-                                onClick={handleRefresh}
-                                isLoading={refreshing}
-                            >
-                                Refresh
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-            )}
             <ul className="space-y-4">
                 {installations.map((inst) => {
                     const orgRepos = reposByOwner(inst.account_login);
@@ -185,7 +144,9 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
                                             size="sm"
                                             variant="outline"
                                             icon={<Icons.GitHub />}
-                                            onClick={() => window.open(inst.settings_url, '_blank', 'noopener,noreferrer')}
+                                            onClick={() => githubTab.openManage(inst.settings_url!)}
+                                            isLoading={githubTab.launching && githubTab.kind === 'manage' && githubTab.url === inst.settings_url}
+                                            disabled={githubTab.launching}
                                         >
                                             Manage on GitHub
                                         </Button>
@@ -238,7 +199,7 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
                     icon={<Icons.Add />}
                     onClick={onInstallAnother}
                     isLoading={installBusy}
-                    disabled={findBusy}
+                    disabled={findBusy || githubTab.launching}
                 >
                     Add repositories or organization
                 </Button>
@@ -253,6 +214,7 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
                     Find my GitHub accounts
                 </Button>
             </div>
+            <GitHubTabBanner githubTab={githubTab} onRefresh={onChanged} />
             <ConfirmModal
                 show={pending !== null}
                 loading={busy}

@@ -18,7 +18,7 @@ const AUTO_CONNECT_KEY = 'lrGhAutoConnectTried';
 const GetStartedGitHub: React.FC = () => {
     const navigate = useNavigate();
 
-    const { startInstall: connectGitHub, startDiscover, busy: reconnecting, installing, discovering, tabOpened, dismissBanner } =
+    const { startInstall: connectGitHub, startDiscover, busy: reconnecting, installing, discovering, githubTab } =
         useGitHubAppInstall('get-started', 'get-started');
     const { isSuperAdmin, currentOrg } = useOrgContext();
     const canDisconnect = isSuperAdmin || currentOrg?.role === 'owner';
@@ -145,15 +145,14 @@ const GetStartedGitHub: React.FC = () => {
                                 available={available}
                                 repos={[]}
                                 canDisconnect={canDisconnect}
-                                onInstallAnother={connectGitHub}
-                                installBusy={installing}
+                                onInstallAnother={githubTab.openInstall}
+                                installBusy={githubTab.launching && githubTab.kind === 'install'}
                                 onFindAccounts={startDiscover}
                                 findBusy={discovering}
                                 onChanged={async () => {
                                     await refetch();
                                 }}
-                                showRefreshBanner={tabOpened}
-                                onDismissBanner={dismissBanner}
+                                githubTab={githubTab}
                             />
                         </div>
                     </Card>
@@ -172,13 +171,12 @@ const GetStartedGitHub: React.FC = () => {
                                         available={available}
                                         repos={repos}
                                         canDisconnect={canDisconnect}
-                                        onInstallAnother={connectGitHub}
-                                        installBusy={installing}
+                                        onInstallAnother={githubTab.openInstall}
+                                        installBusy={githubTab.launching && githubTab.kind === 'install'}
                                         onFindAccounts={startDiscover}
                                         findBusy={discovering}
                                         onChanged={afterChange}
-                                        showRefreshBanner={tabOpened}
-                                        onDismissBanner={dismissBanner}
+                                        githubTab={githubTab}
                                     />
                                 </div>
                             </Step>

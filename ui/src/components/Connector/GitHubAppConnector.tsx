@@ -17,7 +17,7 @@ const GitHubAppConnector: React.FC = () => {
     const enabled = useGitHubAppEnabled();
     const { isSuperAdmin, currentOrg } = useOrgContext();
     const canDisconnect = isSuperAdmin || currentOrg?.role === 'owner';
-    const { startInstall, startDiscover, installing, discovering, tabOpened, dismissBanner } = useGitHubAppInstall('git', 'git-providers');
+    const { startInstall, startDiscover, installing, discovering, githubTab } = useGitHubAppInstall('git', 'git-providers');
 
     const { data: demo, isLoading, error, refetch } = useQuery({
         queryKey: ['github-app', 'demo', 'git-providers'],
@@ -63,15 +63,14 @@ const GitHubAppConnector: React.FC = () => {
                         available={available}
                         repos={demo?.repositories || []}
                         canDisconnect={canDisconnect}
-                        onInstallAnother={startInstall}
-                        installBusy={installing}
+                        onInstallAnother={githubTab.openInstall}
+                        installBusy={githubTab.launching && githubTab.kind === 'install'}
                         onFindAccounts={startDiscover}
                         findBusy={discovering}
                         onChanged={async () => {
                             await refetch();
                         }}
-                        showRefreshBanner={tabOpened}
-                        onDismissBanner={dismissBanner}
+                        githubTab={githubTab}
                     />
                     {/* Once something is connected (here, through Connect or a new install), show what to do next. */}
                     {connected && (

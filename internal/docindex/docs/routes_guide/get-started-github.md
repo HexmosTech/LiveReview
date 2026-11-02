@@ -33,23 +33,20 @@ organization has a GitHub App connection.
   (to add or remove repositories). GitHub shows that page only to owners of the
   account or organization.
 - **Add repositories or organization** — below the connected accounts:
-  opens GitHub's install page in a new tab (opened synchronously on click, so
-  popup blockers don't interfere) so the app can be added to
+  opens GitHub's install page in a new tab so the app can be added to
   another account or organization (it lists the ones you can install on). A
-  banner appears below the buttons: "GitHub opened in a new tab. When you're
+  banner appears below the buttons as soon as it is clicked, and the tab opens a few seconds later (if the browser blocks it, the banner offers an **Open GitHub** link): "GitHub opened in a new tab. When you're
   done managing repositories, close that tab and click Refresh." The **Refresh**
   button refetches the account list without reloading the page. For
   already-connected users, the GitHub tab ends on a "Done, you can close this
   tab" page instead of opening a second LiveReview tab.
-- **Find my GitHub accounts** — next to it: signs in to GitHub in a new tab and
-  adds every account the app is already installed on that the user's GitHub
+- **Find my GitHub accounts** — next to it: signs in to GitHub (in this tab, then returns here) and adds every account the app is already installed on that the user's GitHub
   account can access (ones another LiveReview account uses are listed as
   **Available**). Works the same way as "Add repositories or organization":
   opens in a new tab, shows the refresh banner, and ends on a "close this tab"
   page for already-connected users.
 - **Manage on GitHub** — next to each account: opens that account's installation
-  settings on GitHub in a new tab, with the same refresh banner and close-tab
-  page behavior.
+  settings on GitHub in a new tab, with the same banner and Refresh button.
 - **Already installed by someone else:** when the only GitHub accounts the user
   can see already have the app installed by another LiveReview account (for
   example a teammate's), nothing is connected yet. The page says "LiveReview is

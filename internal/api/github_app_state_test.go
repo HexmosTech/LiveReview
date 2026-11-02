@@ -76,3 +76,16 @@ func TestSanitizeGHSrcAndReturn(t *testing.T) {
 		}
 	}
 }
+
+func TestGHState_NewTabRoundTrip(t *testing.T) {
+	secret := []byte("s3cret")
+	now := time.Now()
+	raw, err := signGHState(ghState{Nonce: "n", OrgID: 3, UserID: 4, NewTab: true, Exp: now.Add(ghStateTTL).Unix()}, secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := verifyGHState(raw, secret, now)
+	if err != nil || !got.NewTab {
+		t.Fatalf("got (%+v, %v)", got, err)
+	}
+}

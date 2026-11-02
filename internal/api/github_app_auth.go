@@ -684,69 +684,14 @@ func (s *Server) finishBoundGitHubAppCallback(c echo.Context, state *ghState, ta
 		return fail(http.StatusBadGateway, "Could not connect your GitHub installation. Please try again.")
 	}
 
-	// If this was opened in a new tab and the user is already connected (not a first-time install), show a "close
-	// this tab" page instead of redirecting back to the app (which would open a second LiveReview tab).
-	if state.NewTab && connected > 0 {
-		return c.HTML(http.StatusOK, `<!DOCTYPE html>
-<html lang="en">
-<head>
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Done</title>
-	<style>
-		body {
-			margin: 0;
-			padding: 0;
-			font-family: system-ui, -apple-system, sans-serif;
-			background: #0f172a;
-			color: #cbd5e1;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			min-height: 100vh;
+	// Opened in a new tab from the app: that tab ends here, so the app tab (still open, waiting behind its
+	// "Refresh" banner) isn't joined by a second LiveReview tab. The changes above are already saved.
+	if state.NewTab {
+		msg := "Go back to LiveReview and click Refresh to see your changes."
+		if connected == 0 {
+			msg = "Go back to LiveReview and click Refresh. Accounts that another LiveReview organization already uses show a Connect button there."
 		}
-		.container {
-			text-align: center;
-			padding: 2rem;
-			max-width: 400px;
-		}
-		h1 {
-			color: #f1f5f9;
-			font-size: 1.5rem;
-			margin-bottom: 1rem;
-		}
-		p {
-			color: #94a3b8;
-			line-height: 1.6;
-		}
-		.icon {
-			width: 64px;
-			height: 64px;
-			margin: 0 auto 1.5rem;
-			border-radius: 50%;
-			background: rgba(34, 197, 94, 0.1);
-			border: 2px solid rgba(34, 197, 94, 0.2);
-			display: flex;
-			align-items: center;
-			justify-content: center;
-		}
-		.checkmark {
-			color: #22c55e;
-			font-size: 32px;
-			line-height: 1;
-		}
-	</style>
-</head>
-<body>
-	<div class="container">
-		<div class="icon">
-			<div class="checkmark">✓</div>
-		</div>
-		<h1>Done, you can close this tab</h1>
-		<p>Go back to LiveReview and click Refresh to see your changes.</p>
-	</div>
-</body>
-</html>`)
+		return s.renderGitHubAppPage(c, http.StatusOK, "Done, you can close this tab", msg, "")
 	}
 
 	// Open the org the trip started in, even if another tab switched orgs meanwhile (read and cleared by index.tsx).
@@ -1428,7 +1373,7 @@ func maskEmail(email string) string {
 
 var githubAppErrorTemplate = template.Must(template.New("gh-app-error").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LiveReview sign-in</title>
+<title>LiveReview</title>
 <style>
 :root{--bg:#f6f7f9;--fg:#111827;--muted:#4b5563;--card:#fff;--accent:#2563eb;--border:#e5e7eb}
 @media (prefers-color-scheme:dark){:root{--bg:#0b1020;--fg:#e5e7eb;--muted:#9ca3af;--card:#111827;--accent:#60a5fa;--border:#1f2937}}
@@ -1438,8 +1383,8 @@ h1{font-size:1.25rem;margin:0 0 8px}p{color:var(--muted);margin:0 0 20px}
 a.btn{display:inline-block;background:var(--accent);color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600}
 a.alt{margin-left:14px;color:var(--accent)}
 </style></head><body><main>
-<h1>LiveReview</h1><p>{{.Message}}</p>
-{{if .BackURL}}<a class="btn" href="{{.BackURL}}">Back to LiveReview</a>{{else}}<a class="btn" href="/#/gh-login">Try again</a><a class="alt" href="/">Other ways to sign in</a>{{end}}
+<h1>{{.Title}}</h1><p>{{.Message}}</p>
+{{if .Done}}{{else if .BackURL}}<a class="btn" href="{{.BackURL}}">Back to LiveReview</a>{{else}}<a class="btn" href="/#/gh-login">Try again</a><a class="alt" href="/">Other ways to sign in</a>{{end}}
 </main></body></html>`))
 
 // githubAppErrorPage renders a small self-contained error page; the GitHub round trip is a browser navigation,
@@ -1455,9 +1400,19 @@ func (s *Server) githubAppBoundErrorPage(c echo.Context, state *ghState, status 
 }
 
 func (s *Server) renderGitHubAppErrorPage(c echo.Context, status int, message, backURL string) error {
+	return s.renderGitHubAppPageData(c, status, map[string]any{"Title": "LiveReview", "Message": message, "BackURL": backURL})
+}
+
+// renderGitHubAppPage is the same page for an outcome with nothing to click (for example "close this tab").
+func (s *Server) renderGitHubAppPage(c echo.Context, status int, title, message, backURL string) error {
+	return s.renderGitHubAppPageData(c, status, map[string]any{"Title": title, "Message": message, "BackURL": backURL, "Done": backURL == ""})
+}
+
+func (s *Server) renderGitHubAppPageData(c echo.Context, status int, data map[string]any) error {
 	var buf bytes.Buffer
-	if err := githubAppErrorTemplate.Execute(&buf, map[string]string{"Message": message, "BackURL": backURL}); err != nil {
-		return c.String(status, message)
+	if err := githubAppErrorTemplate.Execute(&buf, data); err != nil {
+		return c.String(status, fmt.Sprint(data["Message"]))
 	}
+	c.Response().Header().Set("Cache-Control", "no-store")
 	return c.HTMLBlob(status, buf.Bytes())
 }
