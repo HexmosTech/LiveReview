@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { LuExternalLink, LuGitBranch } from 'react-icons/lu';
 import ProviderIcon from '../../components/ProviderIcon';
 import { riskAssessment, RiskAssessmentDetails, RiskScore } from '../../components/reviews/RiskAssessment';
 import { reviewStatusBadge, SourceIcon } from '../../utils/reviewDisplay';
-import { Button, Icons, Tabs, Tooltip, RelativeTime } from '../../components/UIPrimitives';
-import { ReviewEventsPage, DiffViewerPanel, PushNotificationBanner } from '../../components/reviews';
+import { Button, Icons, Tabs, RelativeTime } from '../../components/UIPrimitives';
+import { ReviewEventsPage, DiffViewerPanel } from '../../components/reviews';
 import AutoApprovePanel from '../../components/reviews/AutoApprovePanel';
 import { getReviewPolicyLog } from '../../api/riskPolicy';
 import { ToolAnalysisCard, ToolAccountingData, ToolBreakdownItem } from '../../components/reviews/ToolAnalysisCard';
@@ -38,12 +37,15 @@ import {
 const ACCOUNTING_REFRESH_INTERVAL_MS = 15000;
 const COMMITS_PREVIEW_LIMIT = 5;
 
-const HeaderStat: React.FC<{ label: string; value: React.ReactNode; className?: string }> = ({ label, value, className }) => (
-    <div className="shrink-0">
-        <p className="text-[11px] text-slate-400 whitespace-nowrap">{label}</p>
-        <p className={`text-sm text-white whitespace-nowrap ${className || ''}`}>{value}</p>
-    </div>
-);
+const isSafeExternalUrl = (url: string | null | undefined): boolean => {
+    if (!url) return false;
+    try {
+        const parsed = new URL(url);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+        return false;
+    }
+};
 
 const hasAccountingDetails = (value: ReviewAccounting | null): boolean => {
         if (!value) {
@@ -76,9 +78,7 @@ const ReviewDetail: React.FC = () => {
     const [accountingRouteUnavailable, setAccountingRouteUnavailable] = useState(false);
     const [commits, setCommits] = useState<ReviewCommit[]>([]);
     const [allCommitsShown, setAllCommitsShown] = useState(false);
-    const [detailsExpanded, setDetailsExpanded] = useState(false);
-    const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-    useEffect(() => () => clearTimeout(hoverTimerRef.current), []);
+    const [detailsExpanded, setDetailsExpanded] = useState(true);
     const [commitsLoaded, setCommitsLoaded] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -86,14 +86,9 @@ const ReviewDetail: React.FC = () => {
     const [levelFilter, setLevelFilter] = useState<ReviewEventLevel | ''>('');
     const [typeFilter, setTypeFilter] = useState<ReviewEventType | ''>('');
     const [lastEventTime, setLastEventTime] = useState<string | null>(null);
-    const [nowTick, setNowTick] = useState<number>(() => Date.now());
     type TabId = 'findings' | 'accounting' | 'events' | 'auto-approve';
     const TAB_IDS: TabId[] = ['findings', 'accounting', 'events', 'auto-approve'];
     const [searchParams, setSearchParams] = useSearchParams();
-    // The active tab lives in the URL (?tab=...), not plain useState, so a
-    // refresh or a deep link restores the tab instead of always landing on
-    // Findings, and the browser Back/Forward buttons step through tab
-    // switches like any other navigation - both were reported as broken.
     const tabParam = searchParams.get('tab');
     const activeTab: TabId = (TAB_IDS as string[]).includes(tabParam || '') ? (tabParam as TabId) : 'findings';
     const setActiveTab = useCallback((tab: TabId, opts?: { replace?: boolean }) => {
@@ -112,9 +107,7 @@ const ReviewDetail: React.FC = () => {
     // null means "not loaded yet" (Findings hasn't computed its real, finding-
     // aware scores) -- distinct from [] (loaded, confirmed zero scored hunks).
     // riskAssessment() shows a neutral "Calculating..." state for null instead
-    // of guessing from the structural-only blast radius score, which used to
-    // flash a different (sometimes higher) risk tier the moment Findings
-    // finished loading and handed over the real numbers.
+    // of flashing a false "No Risk" on initial load or tab switch.
     const [riskScores, setRiskScores] = useState<RiskScore[] | null>(null);
     const [commentCount, setCommentCount] = useState<number | undefined>(undefined);
 
@@ -148,7 +141,6 @@ const ReviewDetail: React.FC = () => {
         if (!seeded) setBlastReport(null);
         setBlastPoll('checking');
         setRiskScores(null);
-        setCommentCount(undefined);
         let inflight: AbortController | null = null;
         const load = () => {
             const controller = new AbortController();
@@ -184,6 +176,7 @@ const ReviewDetail: React.FC = () => {
         };
     }, [reviewId, review?.status]);
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const defaultedTabForReviewRef = useRef<number | null>(null);
 
 
     const getEventIcon = (type: string, level?: string) => {
@@ -383,36 +376,6 @@ const ReviewDetail: React.FC = () => {
             toolBreakdown,
         };
     }, [toolAccounting, events, dbToolMultipliers, DEFAULT_TOOL_MULTIPLIERS]);
-
-    // Where the third-party static-analysis tools stand for this review, from the same
-    // tool_dispatch/tool_result events the Static Analysis panel is built from. The
-    // Auto Approve tab shows this so a policy decision is never read without knowing
-    // whether the static pass ran, is still running, or was never dispatched.
-    const staticAnalysisStatus = useMemo(() => {
-        const toolEvents = (events || []).filter(e => (e.type as string) === 'tool_dispatch' || (e.type as string) === 'tool_result');
-        const dispatched = new Set<string>();
-        const finished = new Set<string>();
-        let findings = 0;
-        for (const e of toolEvents) {
-            try {
-                const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-                const toolName = data?.tool_name || data?.toolName;
-                if (!toolName) continue;
-                if ((e.type as string) === 'tool_dispatch') {
-                    dispatched.add(toolName);
-                } else {
-                    finished.add(toolName);
-                    if (Array.isArray(data.findings)) findings += data.findings.length;
-                }
-            } catch {
-                // ignore malformed event payloads
-            }
-        }
-        const total = Math.max(dispatched.size, finished.size);
-        if (total === 0) return { state: 'not_run' as const, total: 0, finished: 0, findings: 0 };
-        if (finished.size < dispatched.size) return { state: 'running' as const, total, finished: finished.size, findings };
-        return { state: 'done' as const, total, finished: finished.size, findings };
-    }, [events]);
 
     // Fetch review details
     const fetchReviewDetails = useCallback(async () => {
@@ -729,10 +692,18 @@ const ReviewDetail: React.FC = () => {
         setAllCommitsShown(false);
     }, [id]);
 
-    // Findings now stream in incrementally (DiffViewerPanel polls batch
-    // events while the review runs — see reviewStreamState.ts), so Findings
-    // stays the default tab even while a review is still in progress instead
-    // of bouncing the user to Events until completion.
+    // Findings only exist once the review has finished. While it is still
+    // running -- or has failed, e.g. an expired git connector -- the Events
+    // tab is what tells the user what is actually happening, so open there
+    // instead of on an empty Findings panel. Applied once per review so a
+    // user who deliberately clicks Findings is not bounced back.
+    useEffect(() => {
+        if (!review || defaultedTabForReviewRef.current === review.id) return;
+        defaultedTabForReviewRef.current = review.id;
+        if (review.status !== 'completed') {
+            setActiveTab('events');
+        }
+    }, [review]);
 
     // When a review finishes while the page is open, jump to Findings and flag the Auto Approve tab.
     const lastStatusRef = useRef<string | undefined>(undefined);
@@ -741,7 +712,7 @@ const ReviewDetail: React.FC = () => {
         const prev = lastStatusRef.current;
         lastStatusRef.current = review?.status;
         if ((prev === 'created' || prev === 'in_progress') && review?.status === 'completed') {
-            setActiveTab('findings', { replace: true });
+            setActiveTab('findings');
             if (review.metadata?.pr_link_policy) setAutoApproveAttention(true);
         }
     }, [review?.status, review?.metadata?.pr_link_policy]);
@@ -812,15 +783,6 @@ const ReviewDetail: React.FC = () => {
         fetchReviewDetails();
     }, [fetchReviewDetails]);
 
-    // Drives the live "Elapsed" stat while the review is in progress.
-    useEffect(() => {
-        if (review?.status !== 'created' && review?.status !== 'in_progress') {
-            return;
-        }
-        const tick = setInterval(() => setNowTick(Date.now()), 1000);
-        return () => clearInterval(tick);
-    }, [review?.status]);
-
     // Poll accounting so the panel auto-updates once usage records land.
     useEffect(() => {
         if (!id || !pollingEnabled || accountingRouteUnavailable) {
@@ -858,9 +820,6 @@ const ReviewDetail: React.FC = () => {
             // Refresh the review itself too, so the status badge flips once the review finishes.
             if (review?.status === 'created' || review?.status === 'in_progress') {
                 getReview(currentReviewId).then(setReview).catch(() => {});
-                // Summary (batch count, event counts) is otherwise only fetched once on
-                // mount - without this it stays frozen at whatever it was when the page
-                // first loaded, e.g. "Batches: 0" forever if opened before any batch ran.
                 getReviewSummary(currentReviewId).then(setSummary).catch(() => {});
             }
         }, ACCOUNTING_REFRESH_INTERVAL_MS);
@@ -944,13 +903,6 @@ const ReviewDetail: React.FC = () => {
         return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
     };
 
-    // "Elapsed" ticks live while a review is running (unlike formatDuration, which
-    // only has an answer once completedAt is set) - uses nowTick so it re-renders
-    // every second instead of freezing at the value from the last fetch.
-    const elapsed = review.startedAt
-        ? formatDuration(review.startedAt, review.completedAt || new Date(nowTick).toISOString())
-        : null;
-
     const leaderAIExecutionMode = typeof review.metadata?.leader_ai_execution_mode === 'string' ? review.metadata.leader_ai_execution_mode : '';
     const leaderAIExecutionSource = typeof review.metadata?.leader_ai_execution_source === 'string' ? review.metadata.leader_ai_execution_source : '';
     const leaderAIExecutionProvider = typeof review.metadata?.leader_ai_provider_name === 'string' ? review.metadata.leader_ai_provider_name : '';
@@ -1001,152 +953,220 @@ const ReviewDetail: React.FC = () => {
 
     return (
         <div className="container mx-auto px-4 py-8">
-            <PushNotificationBanner />
-
-            {/* Header */}
-            <Button
-                as={Link}
-                to="/reviews"
-                variant="ghost"
-                icon={<Icons.Back />}
-                className="-ml-4 mb-2"
-            >
-                Back to Reviews
-            </Button>
-            <div className="flex items-center justify-between mb-8">
-                <div className="flex items-center">
-                    <div>
-                        <h1 className="text-3xl font-bold text-white">
-                            {review.repository.split('/').pop() || review.repository}
-                            <span className="ml-3 text-lg font-normal text-slate-400">#{review.id}</span>
-                        </h1>
-                        <p className="flex items-center gap-3 text-slate-300">
-                            {review.branch && (
-                                <span className="inline-flex items-center gap-1.5">
-                                    <LuGitBranch className="w-4 h-4 text-slate-400" />
-                                    {review.branch}
-                                </span>
-                            )}
-                            {review.prMrUrl && (
-                                <a
-                                    href={review.prMrUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300"
-                                >
-                                    View PR/MR
-                                    <LuExternalLink className="w-3.5 h-3.5" />
-                                </a>
-                            )}
-                        </p>
-                    </div>
-                </div>
-                <div className="flex items-center space-x-4">
-                    <span
-                        className="inline-flex items-center rounded-md px-2 py-0.5 text-sm font-medium"
-                        style={{ color: statusBadge.color, border: `1px solid ${statusBadge.borderColor}` }}
+            {/* ── Review header toolbar ── */}
+            <div className="mb-4 bg-slate-800/80 rounded-xl border border-slate-700/70 overflow-hidden">
+                <div className="flex items-stretch min-h-[52px]">
+                    {/* Back button (Full-height hoverable zone) */}
+                    <Link
+                        to="/reviews"
+                        className="shrink-0 self-stretch flex items-center px-3.5 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-700/40 transition-colors no-underline"
+                        title="Back to Reviews"
                     >
-                        {getStatusText(review.status)}
-                    </span>
-                    {/* Polling control moved to ReviewEventsPage for consistency */}
-                </div>
-            </div>
+                        ← Back
+                    </Link>
 
-            {/* Review Info: compact one-row header, expands inline for
-                commits + review details rather than spreading everything
-                across the page by default. */}
-            <div className="bg-slate-800 rounded-lg border border-slate-700 mb-6">
-                <button
-                    type="button"
-                    onClick={() => setDetailsExpanded((v) => !v)}
-                    onMouseEnter={() => { hoverTimerRef.current = setTimeout(() => setDetailsExpanded(true), 2000); }}
-                    onMouseLeave={() => clearTimeout(hoverTimerRef.current)}
-                    className="w-full flex items-center gap-6 px-4 py-3 text-left overflow-x-auto"
-                    aria-expanded={detailsExpanded}
-                >
-                    <HeaderStat
-                        label="Provider"
-                        value={review.provider ? (
-                            <span className="inline-flex items-center gap-1.5">
-                                <span className="inline-flex [&>svg]:h-3.5 [&>svg]:w-3.5">
-                                    <ProviderIcon provider={review.provider} />
-                                </span>
-                                {review.provider}
+                    {/* Title, Branch & Provider Logo (Unified full-height PR link zone) */}
+                    <div
+                        className={`shrink-0 flex items-center gap-2.5 px-3.5 self-stretch transition-colors ${isSafeExternalUrl(review.prMrUrl) ? 'cursor-pointer hover:bg-slate-700/40' : ''}`}
+                        onClick={() => {
+                            if (isSafeExternalUrl(review.prMrUrl)) {
+                                window.open(review.prMrUrl, '_blank', 'noopener,noreferrer');
+                            }
+                        }}
+                        role={isSafeExternalUrl(review.prMrUrl) ? 'link' : undefined}
+                        tabIndex={isSafeExternalUrl(review.prMrUrl) ? 0 : undefined}
+                        onKeyDown={(e) => {
+                            if (!isSafeExternalUrl(review.prMrUrl)) return;
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                window.open(review.prMrUrl, '_blank', 'noopener,noreferrer');
+                            }
+                        }}
+                        title={isSafeExternalUrl(review.prMrUrl) ? `Open PR/MR: ${review.prMrUrl}` : review.repository}
+                    >
+                        {/* Title & Branch */}
+                        <div className="shrink-0 min-w-0 max-w-[240px]">
+                            <h1 className="text-base font-bold text-white leading-5 truncate">
+                                {review.repository.split('/').pop() || review.repository}
+                            </h1>
+                            {review.branch && (
+                                <p className="text-[11px] text-slate-400 font-mono leading-4 truncate">
+                                    {review.branch}
+                                </p>
+                            )}
+                        </div>
+
+                        {/* Provider / CLI Logo */}
+                        <div className="shrink-0">
+                            <div className="inline-flex items-center justify-center p-1.5 rounded-md border border-slate-700/80 bg-slate-900/60 text-slate-200 leading-none">
+                                <SourceIcon provider={review.provider} triggerType={review.triggerType} />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ── Details tab ── sentence | severity ▼ */}
+                    <div
+                        onClick={() => { setDetailsExpanded(v => !v); setToolExpanded(false); }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setDetailsExpanded(v => !v);
+                                setToolExpanded(false);
+                            }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={detailsExpanded}
+                        aria-label="Toggle review details"
+                        className="shrink-0 flex items-center gap-2.5 px-3.5 self-stretch cursor-pointer group select-none hover:bg-slate-700/30 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/60"
+                        title="Toggle review details"
+                    >
+                        {/* Sentence — RelativeTime wrapped in fixed min-width to prevent layout shift */}
+                        <p className="text-xs text-slate-300 whitespace-nowrap">
+                            <span className="font-semibold text-white">{review.userEmail?.split('@')[0] || 'Someone'}</span>
+                            {' '}created{' '}
+                            <span className="text-slate-400 inline-block min-w-[6rem]">
+                                <RelativeTime timestamp={review.createdAt} />
                             </span>
-                        ) : '-'}
-                        className="capitalize"
-                    />
-                    <HeaderStat label="Commits" value={commitsLoaded ? String(commits.length) : '...'} />
-                    <HeaderStat label="Last activity" value={formatRelativeTime(review.completedAt || review.startedAt || review.createdAt)} />
-                    {elapsed && <HeaderStat label="Elapsed" value={elapsed} />}
-                    <HeaderStat label="Events" value={eventCount !== undefined && eventCount > 0 ? String(eventCount) : String(Object.values(summary?.eventCounts || {}).reduce((a: number, b: number) => a + b, 0))} />
-                    <HeaderStat label="Risk assessment" value={risk.value} className={risk.tone} />
-                    {commentCount !== undefined && <HeaderStat label="Comments" value={String(commentCount)} />}
-                    {(review.metadata?.pr_link_policy || review.prMrUrl) && (
-                        <HeaderStat
-                            label="Auto-approve"
-                            value={!review.metadata?.pr_link_policy ? 'Not evaluated' : policyApproved === null ? 'Pending' : policyApproved ? 'Approved' : 'Not approved'}
-                            className={!review.metadata?.pr_link_policy ? '!text-red-400' : policyApproved === null ? '!text-slate-400' : policyApproved ? '!text-green-400' : '!text-red-400'}
-                        />
-                    )}
-                    <div className="ml-auto flex items-center gap-3 shrink-0">
-                        <span className="flex items-center gap-1 text-xs text-slate-300">
-                            {detailsExpanded ? 'Less' : 'More'}
-                            {detailsExpanded ? <Icons.ChevronDown /> : <Icons.ChevronRight />}
+                        </p>
+
+                        {/* Pipe separator */}
+                        <span className="text-slate-600 select-none">|</span>
+
+                        {/* Severity indicators */}
+                        <div className="shrink-0 flex items-center gap-2 text-xs text-slate-400">
+                            <span><strong className="font-medium text-slate-200">{eventSeverityCounts.high}</strong> High</span>
+                            <span className="text-slate-700">·</span>
+                            <span><strong className="font-medium text-slate-200">{eventSeverityCounts.medium}</strong> Med</span>
+                            <span className="text-slate-700">·</span>
+                            <span><strong className="font-medium text-slate-200">{eventSeverityCounts.low}</strong> Low</span>
+                        </div>
+
+                        {/* Pipe separator */}
+                        <span className="text-slate-600 select-none">|</span>
+
+                        {/* Risk assessment — stacked label/value, the way master's Review Info row shows it */}
+                        <div className="shrink-0 flex flex-col justify-center leading-tight">
+                            <span className="text-[11px] text-slate-400 whitespace-nowrap">Risk assessment</span>
+                            <span className={`text-xs font-medium whitespace-nowrap ${risk.tone}`}>{risk.value}</span>
+                        </div>
+
+                        {/* Auto-approve — the policy outcome, next to Risk, for any review with a PR link */}
+                        {(review.metadata?.pr_link_policy || review.prMrUrl) && (
+                            <div className="shrink-0 flex flex-col justify-center leading-tight">
+                                <span className="text-[11px] text-slate-400 whitespace-nowrap">Auto-approve</span>
+                                <span className={`text-xs font-medium whitespace-nowrap ${!review.metadata?.pr_link_policy ? 'text-red-400' : policyApproved === null ? 'text-slate-400' : policyApproved ? 'text-green-400' : 'text-red-400'}`}>
+                                    {!review.metadata?.pr_link_policy ? 'Not evaluated' : policyApproved === null ? 'Pending' : policyApproved ? 'Approved' : 'Not approved'}
+                                </span>
+                            </div>
+                        )}
+
+                        {/* Chevron indicator */}
+                        <svg
+                            className={`w-3.5 h-3.5 text-slate-400 group-hover:text-slate-200 transition-all duration-200 ${detailsExpanded ? 'rotate-180' : 'rotate-0'}`}
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+
+                    {/* ── Static Analysis tab ── tools summary ▼ */}
+                    <div
+                        onClick={() => { setToolExpanded(v => !v); setDetailsExpanded(false); }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setToolExpanded(v => !v);
+                                setDetailsExpanded(false);
+                            }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={toolExpanded}
+                        aria-label="Toggle static analysis tools"
+                        className="ml-auto shrink-0 flex items-center gap-2.5 px-3.5 self-stretch cursor-pointer group select-none hover:bg-slate-700/30 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/60"
+                        title="Toggle static analysis tools"
+                    >
+                        {effectiveToolAccounting ? (
+                            <p className="text-xs text-slate-300 whitespace-nowrap">
+                                <strong className="font-semibold text-slate-100">{effectiveToolAccounting.toolsExecuted || effectiveToolAccounting.toolBreakdown.length}</strong> Tools
+                                {effectiveToolAccounting.totalCommentsGenerated > 0 ? (
+                                    <span className="text-slate-500 ml-1">· {effectiveToolAccounting.totalCommentsGenerated} findings</span>
+                                ) : (
+                                    <span className="text-slate-500 ml-1">· clean</span>
+                                )}
+                            </p>
+                        ) : (
+                            <p className="text-xs text-slate-400 whitespace-nowrap">Static Analysis</p>
+                        )}
+
+                        {/* Chevron indicator */}
+                        <svg
+                            className={`w-3.5 h-3.5 text-slate-400 group-hover:text-slate-200 transition-all duration-200 ${toolExpanded ? 'rotate-180' : 'rotate-0'}`}
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+
+                    {/* ── Status badge (far right) ── */}
+                    <div className="shrink-0 flex items-center px-3.5 self-stretch">
+                        <span
+                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold leading-5 whitespace-nowrap"
+                            style={{ color: statusBadge.color, border: `1px solid ${statusBadge.borderColor}` }}
+                        >
+                            {review.status === 'in_progress' && (
+                                <svg className="animate-spin w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+                            )}
+                            {getStatusText(review.status)}
                         </span>
                     </div>
-                </button>
+                </div>
 
+                {/* ── Details panel ── */}
                 {detailsExpanded && (
-                    <div className="border-t border-slate-700 px-4 py-4 grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
-                        <div>
-                            <h3 className="text-xs font-semibold text-white uppercase tracking-wide mb-2">
+                    <div className="border-t border-slate-700/50 bg-slate-900/30">
+                        <div className="p-4 grid grid-cols-1 md:grid-cols-12 gap-4">
+                        {/* GROUP 1: Commits (real data) */}
+                        <div className="md:col-span-4 bg-slate-900/60 border border-slate-700/50 rounded-lg p-3.5 flex flex-col h-[135px]">
+                            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1.5 shrink-0">
                                 Commits{commitsLoaded && ` (${commits.length})`}
-                            </h3>
+                            </p>
                             {!commitsLoaded && (
                                 <p className="text-xs text-slate-400">Checking for commit information...</p>
                             )}
                             {commitsLoaded && commits.length === 0 && (
-                                <p className="text-xs text-slate-400">
+                                <p className="text-xs text-slate-400 leading-snug">
                                     No commit information recorded for this review yet. Plain "lrc review" (staged/working) commits sync in the background after `git commit` and may take a moment to appear; PR/MR and --commit/--range reviews are recorded immediately once submitted.
                                 </p>
                             )}
                             {commits.length > 0 && (
                                 <>
-                                    <ul className={`space-y-2 ${allCommitsShown && commits.length > COMMITS_PREVIEW_LIMIT ? 'max-h-64 overflow-y-auto pr-1' : ''}`}>
+                                    <ul className={`space-y-1.5 flex-1 min-h-0 ${allCommitsShown && commits.length > COMMITS_PREVIEW_LIMIT ? 'overflow-y-auto pr-1' : 'overflow-hidden'}`}>
                                         {(allCommitsShown ? commits : commits.slice(0, COMMITS_PREVIEW_LIMIT)).map((commit) => (
-                                            <li key={commit.ref} className="text-xs">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="flex items-center gap-2 min-w-0">
-                                                        {commit.refType === 'commit' && githubBaseUrl ? (
-                                                            <a
-                                                                href={`${githubBaseUrl}/commit/${commit.ref}`}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                className="font-mono text-slate-200 shrink-0 hover:text-blue-400 hover:underline"
-                                                            >
-                                                                {commit.ref.substring(0, 8)}
-                                                            </a>
-                                                        ) : (
-                                                            <span className="font-mono text-slate-200 shrink-0">
-                                                                {commit.refType === 'commit' ? commit.ref.substring(0, 8) : commit.ref}
-                                                            </span>
-                                                        )}
-                                                        {commit.refType === 'range' && (
-                                                            <span className="shrink-0 text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border bg-purple-900/30 text-purple-300 border-purple-700">
-                                                                range
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    <span className="shrink-0 text-slate-400">{formatRelativeTime(commit.createdAt)}</span>
+                                            <li key={commit.ref} className="flex items-center gap-2 text-xs">
+                                                <div className="flex items-center gap-1.5 min-w-0">
+                                                    {commit.refType === 'commit' && githubBaseUrl ? (
+                                                        <a
+                                                            href={`${githubBaseUrl}/commit/${commit.ref}`}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="font-mono text-blue-400 hover:text-blue-300 hover:underline shrink-0"
+                                                        >
+                                                            {commit.ref.substring(0, 8)}
+                                                        </a>
+                                                    ) : (
+                                                        <span className="font-mono text-slate-300 shrink-0">
+                                                            {commit.refType === 'commit' ? commit.ref.substring(0, 8) : commit.ref}
+                                                        </span>
+                                                    )}
+                                                    {commit.refType === 'range' && (
+                                                        <span className="shrink-0 text-[10px] uppercase tracking-wide rounded-full px-2 py-0.5 border bg-purple-900/30 text-purple-300 border-purple-700">
+                                                            range
+                                                        </span>
+                                                    )}
                                                 </div>
-                                                {commit.message && (
-                                                    <div className="mt-0.5 w-full">
-                                                        <Tooltip content={commit.message}>
-                                                            <p className="w-full truncate text-slate-400">{commit.message}</p>
-                                                        </Tooltip>
-                                                    </div>
-                                                )}
+                                                <RelativeTime timestamp={commit.createdAt} className="text-slate-600 text-[10px] shrink-0 ml-auto" />
                                             </li>
                                         ))}
                                     </ul>
@@ -1154,71 +1174,125 @@ const ReviewDetail: React.FC = () => {
                                         <button
                                             type="button"
                                             onClick={() => setAllCommitsShown((prev) => !prev)}
-                                            className="mt-2 text-xs text-slate-400 hover:text-white hover:underline"
+                                            className="mt-1 text-[11px] text-blue-400 hover:text-blue-300 hover:underline text-left shrink-0 font-medium"
                                         >
-                                            {allCommitsShown ? 'Show less' : `+${commits.length - COMMITS_PREVIEW_LIMIT} more commits`}
+                                            {allCommitsShown ? 'Show less' : `+${commits.length - COMMITS_PREVIEW_LIMIT} more`}
                                         </button>
                                     )}
                                 </>
                             )}
                         </div>
 
-                        <div>
-                            <h3 className="text-xs font-semibold text-white uppercase tracking-wide mb-2">Review details</h3>
-                            <dl className="grid grid-cols-[6.5rem_1fr] gap-x-3 gap-y-1 text-xs">
-                                <div className="contents">
-                                    <dt className="text-slate-400">Created by</dt>
-                                    <dd className="text-white">{review.userEmail || '-'}</dd>
+                        {/* GROUP 2: Issues by Severity */}
+                        <div className="md:col-span-4 bg-slate-900/60 border border-slate-700/50 rounded-lg p-3.5 flex flex-col justify-between h-[135px]">
+                            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-2 shrink-0">Issues by severity</p>
+                            <div className="flex items-end gap-6 my-auto">
+                                <div>
+                                    <span className="text-2xl font-bold text-red-400 leading-none">{eventSeverityCounts.high}</span>
+                                    <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-wide font-medium">High</p>
                                 </div>
-                                <div className="contents">
-                                    <dt className="text-slate-400">Created</dt>
-                                    <dd className="text-white">{new Date(review.createdAt).toLocaleString()}</dd>
+                                <div>
+                                    <span className="text-2xl font-bold text-amber-400 leading-none">{eventSeverityCounts.medium}</span>
+                                    <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-wide font-medium">Medium</p>
                                 </div>
-                                <div className="contents">
-                                    <dt className="text-slate-400">Batches</dt>
-                                    <dd className="text-white">{summary?.batchCount ?? 0}</dd>
-                                </div>
-                                {formatDuration(review.startedAt, review.completedAt) && (
-                                    <div className="contents">
-                                        <dt className="text-slate-400">Duration</dt>
-                                        <dd className="text-white">{formatDuration(review.startedAt, review.completedAt)}</dd>
-                                    </div>
-                                )}
-                            </dl>
-                            <div className="mt-4">
-                                <p className="text-xs text-slate-400 mb-1">Events by severity</p>
-                                <div className="flex gap-4 text-xs">
-                                    <span className="text-red-400">High {eventSeverityCounts.high}</span>
-                                    <span className="text-amber-400">Medium {eventSeverityCounts.medium}</span>
-                                    <span className="text-sky-400">Low {eventSeverityCounts.low}</span>
+                                <div>
+                                    <span className="text-2xl font-bold text-sky-400 leading-none">{eventSeverityCounts.low}</span>
+                                    <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-wide font-medium">Low</p>
                                 </div>
                             </div>
                             <button
                                 type="button"
                                 onClick={() => setActiveTab('events')}
-                                className="mt-4 text-xs text-blue-400 hover:text-blue-300"
+                                className="text-[11px] text-blue-400 hover:text-blue-300 text-left shrink-0"
                             >
                                 View all events →
                             </button>
                         </div>
 
-                        <div>
-                            <h3 className="text-xs font-semibold text-white uppercase tracking-wide mb-2">Risk assessment</h3>
+                        {/* GROUP 3: Details & Progress (col-span-4 - equal width & height) */}
+                        <div className="md:col-span-4 bg-slate-900/60 border border-slate-700/50 rounded-lg p-3.5 flex flex-col justify-between h-[135px]">
+                            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1 shrink-0">Details & Progress</p>
+                            {/* Row 1: Progress stats including Events */}
+                            <div className="grid grid-cols-4 gap-2 text-xs my-auto">
+                                <div>
+                                    <p className="text-[10px] text-slate-500 uppercase tracking-wide">Duration</p>
+                                    <p className="font-semibold text-slate-200 mt-0.5 truncate">{formatDuration(review.startedAt, review.completedAt) || '—'}</p>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] text-slate-500 uppercase tracking-wide">Batches</p>
+                                    <p className="font-semibold text-slate-200 mt-0.5">{summary?.batchCount ?? '—'}</p>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] text-slate-500 uppercase tracking-wide">Events</p>
+                                    <p className="font-semibold text-blue-400 mt-0.5">{events.length}</p>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] text-slate-500 uppercase tracking-wide">Activity</p>
+                                    <p className="font-semibold text-slate-200 mt-0.5 truncate">{summary?.lastActivity ? <RelativeTime timestamp={summary.lastActivity} /> : '—'}</p>
+                                </div>
+                            </div>
+                            {/* Row 2: Created by & Created at split 50/50 equally */}
+                            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-700/40 text-xs shrink-0">
+                                <div className="min-w-0">
+                                    <p className="text-[10px] text-slate-500 uppercase tracking-wide">Created by</p>
+                                    <p className="font-semibold text-slate-200 mt-0.5 break-all text-[11px] leading-tight">{review.userEmail || '—'}</p>
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-[10px] text-slate-500 uppercase tracking-wide">Created at</p>
+                                    <p className="font-semibold text-slate-200 mt-0.5 text-[11px] leading-tight">
+                                        {new Date(review.createdAt).toLocaleString([], {
+                                            year: 'numeric', month: 'short', day: 'numeric',
+                                            hour: '2-digit', minute: '2-digit'
+                                        })}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* GROUP 4: Risk assessment + policy status */}
+                        <div className="md:col-span-12 bg-slate-900/60 border border-slate-700/50 rounded-lg p-3.5">
+                            <div className="flex items-center justify-between mb-1.5">
+                                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Risk assessment</p>
+                                <div className="flex items-center gap-3 text-xs">
+                                    <span className={`font-semibold ${risk.tone}`}>{risk.value}</span>
+                                    {review.metadata?.pr_link_policy && (
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="text-[10px] text-slate-500 uppercase tracking-wide">Auto-approve</span>
+                                            <span className={`font-semibold ${policyApproved === null ? 'text-slate-400' : policyApproved ? 'text-green-400' : 'text-red-400'}`}>
+                                                {policyApproved === null ? 'Pending' : policyApproved ? 'Approved' : 'Not approved'}
+                                            </span>
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
                             <div className="text-xs">
                                 <RiskAssessmentDetails risk={risk} connectorId={review.connectorId} />
                             </div>
                         </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Static Analysis Tools panel — expanded INSIDE the same outer card box */}
+                {toolExpanded && (
+                    <div className="border-t border-slate-700/50 bg-slate-900/40">
+                        <div className="p-4">
+                            {effectiveToolAccounting && effectiveToolAccounting.toolBreakdown.length > 0 ? (
+                                <ToolAnalysisCard data={effectiveToolAccounting} embedded={true} isExpanded={true} hideSummary={true} />
+                            ) : (
+                                <div className="text-center py-6 text-slate-400 text-xs select-none">
+                                    <svg className="w-5 h-5 mx-auto mb-2 opacity-40 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    </svg>
+                                    <p className="font-medium text-slate-300">No static analysis tools recorded</p>
+                                    <p className="text-[11px] text-slate-500 mt-1">Tool execution details will appear here as static analysis tools run.</p>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>
-
-            {/* Third-party static analysis tools, derived from tool_dispatch / tool_result events */}
-            {effectiveToolAccounting && effectiveToolAccounting.toolBreakdown.length > 0 && (
-                <div className="mb-6">
-                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white">Static analysis tools</h3>
-                    <ToolAnalysisCard data={effectiveToolAccounting} />
-                </div>
-            )}
 
             {/* Findings / Accounting / Events */}
             <Tabs
@@ -1228,19 +1302,7 @@ const ReviewDetail: React.FC = () => {
                 tabs={[
                     { id: 'findings', label: 'Findings' },
                     { id: 'accounting', label: 'Accounting' },
-                    {
-                        id: 'events',
-                        label: (
-                            <span className="inline-flex items-center gap-1.5">
-                                Events
-                                {eventCount > 0 && (
-                                    <span className="inline-flex items-center justify-center rounded-full bg-slate-700 px-1.5 py-0.5 text-[10px] font-medium text-slate-200 min-w-[1.25rem]">
-                                        {eventCount}
-                                    </span>
-                                )}
-                            </span>
-                        ),
-                    },
+                    { id: 'events', label: 'Events' },
                     ...(review.metadata?.pr_link_policy || review.prMrUrl ? [{
                         id: 'auto-approve',
                         label: (
@@ -1260,20 +1322,6 @@ const ReviewDetail: React.FC = () => {
 
             {activeTab === 'auto-approve' && (review.metadata?.pr_link_policy || review.prMrUrl) && (
                 <div className="mb-6 space-y-4">
-                    {/* Static-analysis pass status — so the policy funnel is read alongside whether the static review ran. */}
-                    <div className="bg-slate-800 rounded-lg px-4 py-3 border border-slate-700 flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <span className="text-[10px] uppercase tracking-wide text-slate-500">Static analysis</span>
-                        <span className={`text-sm font-semibold ${staticAnalysisStatus.state === 'running' ? 'text-sky-400' : staticAnalysisStatus.state === 'done' ? 'text-green-400' : 'text-slate-400'}`}>
-                            {staticAnalysisStatus.state === 'running'
-                                ? `Running — ${staticAnalysisStatus.finished}/${staticAnalysisStatus.total} tools done`
-                                : staticAnalysisStatus.state === 'done'
-                                ? `Completed — ${staticAnalysisStatus.total} tools, ${staticAnalysisStatus.findings} findings`
-                                : 'Not run'}
-                        </span>
-                        {staticAnalysisStatus.state === 'not_run' && (
-                            <span className="text-xs text-slate-500">No static-analysis tools were dispatched for this review.</span>
-                        )}
-                    </div>
                     <AutoApprovePanel reviewId={reviewId} />
                 </div>
             )}
@@ -1435,7 +1483,6 @@ const ReviewDetail: React.FC = () => {
                             severity: mapEventLevel(event.level) as 'info' | 'success' | 'warning' | 'warn' | 'error' | 'debug'
                         }))}
                         isLive={review?.status === 'in_progress'}
-                        reviewStatus={review?.status}
                     />
             </div>
         </div>
