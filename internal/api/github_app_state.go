@@ -44,6 +44,8 @@ type ghState struct {
 	UserID int64 `json:"u,omitempty"`
 	// Return is the page a bound round trip lands on, as a sanitizeGHReturn key (never a URL).
 	Return string `json:"r,omitempty"`
+	// NewTab: the round trip opened in a new tab, so already-connected users should see a "close this tab" page.
+	NewTab bool `json:"t,omitempty"`
 }
 
 var ghReturnReviewPattern = regexp.MustCompile(`^review/[1-9][0-9]{0,18}$`)

@@ -384,6 +384,8 @@ type githubAppConnectStartRequest struct {
 	TargetID int64 `json:"target_id"`
 	// Return is the page to come back to: "git" (default), "get-started" or "review/<id>".
 	Return string `json:"return"`
+	// NewTab: when true, the callback shows a "close this tab" page for already-connected users instead of redirecting.
+	NewTab bool `json:"new_tab"`
 }
 
 // GitHubAppConnectStart begins a GitHub round trip for the signed-in user's current org and returns the GitHub URL
@@ -412,7 +414,7 @@ func (s *Server) GitHubAppConnectStart(c echo.Context) error {
 		targetID = 0
 	}
 	target, err := s.githubAppStartURL(c, ghState{
-		Src: sanitizeGHSrc(req.Src), Mode: mode, OrgID: orgID, UserID: user.ID, Return: sanitizeGHReturn(req.Return),
+		Src: sanitizeGHSrc(req.Src), Mode: mode, OrgID: orgID, UserID: user.ID, Return: sanitizeGHReturn(req.Return), NewTab: req.NewTab,
 	}, targetID)
 	if err != nil {
 		log.Printf("[GitHubApp] connect start (org %d): %v", orgID, err)
@@ -680,6 +682,71 @@ func (s *Server) finishBoundGitHubAppCallback(c echo.Context, state *ghState, ta
 	}
 	if connected == 0 && failed > 0 {
 		return fail(http.StatusBadGateway, "Could not connect your GitHub installation. Please try again.")
+	}
+
+	// If this was opened in a new tab and the user is already connected (not a first-time install), show a "close
+	// this tab" page instead of redirecting back to the app (which would open a second LiveReview tab).
+	if state.NewTab && connected > 0 {
+		return c.HTML(http.StatusOK, `<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Done</title>
+	<style>
+		body {
+			margin: 0;
+			padding: 0;
+			font-family: system-ui, -apple-system, sans-serif;
+			background: #0f172a;
+			color: #cbd5e1;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			min-height: 100vh;
+		}
+		.container {
+			text-align: center;
+			padding: 2rem;
+			max-width: 400px;
+		}
+		h1 {
+			color: #f1f5f9;
+			font-size: 1.5rem;
+			margin-bottom: 1rem;
+		}
+		p {
+			color: #94a3b8;
+			line-height: 1.6;
+		}
+		.icon {
+			width: 64px;
+			height: 64px;
+			margin: 0 auto 1.5rem;
+			border-radius: 50%;
+			background: rgba(34, 197, 94, 0.1);
+			border: 2px solid rgba(34, 197, 94, 0.2);
+			display: flex;
+			align-items: center;
+			justify-content: center;
+		}
+		.checkmark {
+			color: #22c55e;
+			font-size: 32px;
+			line-height: 1;
+		}
+	</style>
+</head>
+<body>
+	<div class="container">
+		<div class="icon">
+			<div class="checkmark">✓</div>
+		</div>
+		<h1>Done, you can close this tab</h1>
+		<p>Go back to LiveReview and click Refresh to see your changes.</p>
+	</div>
+</body>
+</html>`)
 	}
 
 	// Open the org the trip started in, even if another tab switched orgs meanwhile (read and cleared by index.tsx).

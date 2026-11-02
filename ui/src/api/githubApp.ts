@@ -114,12 +114,14 @@ export const startGitHubAppConnect = async (
   src: string,
   returnTo: GitHubAppReturn,
   targetId?: number,
+  newTab?: boolean,
 ): Promise<string> => {
   const res = await apiClient.post<{ url: string }>('/api/v1/github-app/start', {
     mode,
     src,
     return: returnTo,
     ...(targetId ? { target_id: targetId } : {}),
+    ...(newTab ? { new_tab: true } : {}),
   });
   return res.url;
 };

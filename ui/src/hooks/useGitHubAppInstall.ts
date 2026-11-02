@@ -32,7 +32,7 @@ export const useGitHubAppInstall = (returnTo: GitHubAppReturn, src: string, useN
             if (tab) tab.opener = null;
 
             try {
-                const url = await startGitHubAppConnect(mode, src, returnTo);
+                const url = await startGitHubAppConnect(mode, src, returnTo, undefined, true);
                 if (tab) {
                     tab.location.href = url;
                     setTabOpened(true);
