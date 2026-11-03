@@ -20,6 +20,27 @@ type helperTransformResponse struct {
 }
 
 func (s *Service) applyHelperStage(ctx context.Context, helperConfig AIConfig, helperMode string, leaderResult *models.ReviewResult) (*models.ReviewResult, *AIStageUsage, error) {
+	// Nothing to rewrite when the leader found no issues. Calling the helper
+	// with an empty comment list invites it to invent one, which then fails
+	// parsing because it no longer matches the expected count.
+	if len(leaderResult.Comments) == 0 {
+		providerName := strings.TrimSpace(helperConfig.Type)
+		if configuredProvider, ok := helperConfig.Config["provider_name"].(string); ok && strings.TrimSpace(configuredProvider) != "" {
+			providerName = strings.TrimSpace(configuredProvider)
+		}
+		var inputTokens, outputTokens int64
+		var costUSD float64
+		return cloneReviewResult(leaderResult), &AIStageUsage{
+			Stage:          "helper",
+			Provider:       providerName,
+			Model:          helperConfig.Model,
+			PricingVersion: "v1_estimated",
+			InputTokens:    &inputTokens,
+			OutputTokens:   &outputTokens,
+			CostUSD:        &costUSD,
+		}, nil
+	}
+
 	options, providerName, err := connectorOptionsFromAIConfig(helperConfig, len(leaderResult.Comments))
 	if err != nil {
 		return nil, nil, err
