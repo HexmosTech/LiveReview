@@ -100,15 +100,18 @@ func (w *ToolReviewWorker) Work(ctx context.Context, job *river.Job[ToolReviewJo
 	outBytes, invokeErr := networktools.InvokeTool(ctx, w.awsCfg, args.LambdaARN, payloadBytes)
 	if invokeErr != nil {
 		log.Printf("[ERROR] Lambda invocation for tool %s failed: %v", args.ToolName, invokeErr)
-		_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "error", fmt.Sprintf("Lambda execution for tool %s failed: %v", args.ToolName, invokeErr), "")
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		_ = eventSink.EmitLogEvent(cleanupCtx, args.ReviewID, args.OrgID, "error", fmt.Sprintf("Lambda execution for tool %s failed: %v", args.ToolName, invokeErr), "")
 		// Write synthetic failure event
 		toolsStore := storagetools.NewToolsStore(w.db)
 		failJSON := fmt.Sprintf(`{"exit_code": -1, "findings": [], "stderr": %q}`, invokeErr.Error())
-		if insertErr := toolsStore.InsertToolResultEvent(ctx, args.ReviewID, args.OrgID, args.ToolID, args.ToolName, []byte(failJSON)); insertErr != nil {
+		if insertErr := toolsStore.InsertToolResultEvent(cleanupCtx, args.ReviewID, args.OrgID, args.ToolID, args.ToolName, []byte(failJSON)); insertErr != nil {
 			log.Printf("[ERROR] Failed to insert synthetic tool result event: %v", insertErr)
 		}
-		w.finalizeIfAllDone(ctx, args)
-		return invokeErr
+		_ = w.finalizeIfAllDone(cleanupCtx, args)
+		return nil
 	}
 
 	log.Printf("[INFO] ToolReviewWorker: Lambda returned %d bytes in %v for tool=%s review=%d", len(outBytes), time.Since(startTime).Round(time.Millisecond), args.ToolName, args.ReviewID)

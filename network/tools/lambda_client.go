@@ -44,7 +44,7 @@ func InvokeTool(ctx context.Context, awsCfg aws.Config, arn string, payload []by
 		return nil, fmt.Errorf("failed to sign request: %w", err)
 	}
 
-	client := &http.Client{Timeout: 300 * time.Second}
+	client := &http.Client{Timeout: 90 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http request failed: %w", err)

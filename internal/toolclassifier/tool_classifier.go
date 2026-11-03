@@ -94,6 +94,8 @@ func ClassifyToolResult(
 				Subcategory: subcat,
 				Confidence:  NormalizeConfidence(tuple.Confidence),
 				Type:        NormalizeType(tuple.Type),
+				Source:      "tool",
+				ToolName:    toolName,
 			}
 			if logger != nil {
 				logger.Log("[TOOL %s] Deterministic classification (0 tokens) for rule %s: %s / %s", toolName, finding.Rule, cat, subcat)
@@ -109,6 +111,8 @@ func ClassifyToolResult(
 				Subcategory: subcat,
 				Confidence:  NormalizeConfidence(tuple.Confidence),
 				Type:        NormalizeType(tuple.Type),
+				Source:      "tool",
+				ToolName:    toolName,
 			}
 			if logger != nil {
 				logger.Log("[TOOL %s] Deterministic classification (0 tokens) for rule %s: %s / %s", toolName, finding.Rule, cat, subcat)
@@ -164,6 +168,8 @@ func ClassifyToolResult(
 						Subcategory: subcat,
 						Confidence:  NormalizeConfidence(tuple.Confidence),
 						Type:        NormalizeType(tuple.Type),
+						Source:      "tool",
+						ToolName:    toolName,
 					}
 					if logger != nil {
 						logger.Log("[TOOL %s] Database cache classification (0 tokens) for rule %s: %s / %s", toolName, f.Rule, cat, subcat)
@@ -182,7 +188,7 @@ func ClassifyToolResult(
 
 	// Step 2: Resolve Helper AI model configuration
 	if db == nil {
-		return applyFallbackComments(findings, comments, unresolvedIndices), nil
+		return applyFallbackComments(toolName, findings, comments, unresolvedIndices), nil
 	}
 	selection, err := aiselection.GetReviewAISelection(ctx, db, orgID, planCode)
 	var helperConfig review.AIConfig
@@ -191,7 +197,7 @@ func ClassifyToolResult(
 	} else if err == nil {
 		helperConfig = selection.Leader
 	} else {
-		return applyFallbackComments(findings, comments, unresolvedIndices), nil
+		return applyFallbackComments(toolName, findings, comments, unresolvedIndices), nil
 	}
 
 	// Step 3: Construct compact pipe-delimited batch prompt (~120 tokens)
@@ -252,6 +258,8 @@ Findings:
 								Subcategory: subcat,
 								Confidence:  parseConfidenceCode(parts[4]),
 								Type:        parseTypeCode(parts[5]),
+								Source:      "tool",
+								ToolName:    toolName,
 							}
 						}
 					}
@@ -289,7 +297,7 @@ Findings:
 		}
 	}
 
-	return applyFallbackComments(findings, comments, unresolvedIndices), nil
+	return applyFallbackComments(toolName, findings, comments, unresolvedIndices), nil
 }
 
 func parsePipeDelimitedResponse(raw string) []string {
@@ -306,7 +314,7 @@ func parsePipeDelimitedResponse(raw string) []string {
 	return lines
 }
 
-func applyFallbackComments(findings []RawToolFinding, comments []*models.ReviewComment, unresolved []int) []*models.ReviewComment {
+func applyFallbackComments(toolName string, findings []RawToolFinding, comments []*models.ReviewComment, unresolved []int) []*models.ReviewComment {
 	for _, origIdx := range unresolved {
 		if comments[origIdx] == nil {
 			comments[origIdx] = &models.ReviewComment{
@@ -318,6 +326,8 @@ func applyFallbackComments(findings []RawToolFinding, comments []*models.ReviewC
 				Subcategory: "Secrets Management",
 				Confidence:  "High",
 				Type:        "Risk",
+				Source:      "tool",
+				ToolName:    toolName,
 			}
 		}
 	}

@@ -38,6 +38,7 @@ interface CommentThreadProps {
 
 function buildMetaItems(comment: DiffReviewComment): { label: string; value: string }[] {
   const items: { label: string; value: string }[] = [];
+  if (comment.tool_name) items.push({ label: 'Tool', value: comment.tool_name });
   if (comment.confidence) items.push({ label: 'Confidence', value: comment.confidence });
   if (comment.type) items.push({ label: 'Type', value: comment.type });
   if (comment.category || comment.subcategory) {
@@ -128,6 +129,11 @@ const CommentCard: React.FC<{
           >
             {(comment.severity || 'info').toUpperCase()}
           </span>
+          {comment.tool_name && (
+            <span className="inline-flex items-center rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-semibold text-sky-400">
+              {comment.tool_name}
+            </span>
+          )}
           <span className="font-mono text-xs text-slate-500">{filePath}:{comment.line}</span>
         </div>
         <div className="flex items-center gap-1.5">
