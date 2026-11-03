@@ -384,6 +384,8 @@ type githubAppConnectStartRequest struct {
 	TargetID int64 `json:"target_id"`
 	// Return is the page to come back to: "git" (default), "get-started" or "review/<id>".
 	Return string `json:"return"`
+	// NewTab: when true, the callback shows a "close this tab" page for already-connected users instead of redirecting.
+	NewTab bool `json:"new_tab"`
 }
 
 // GitHubAppConnectStart begins a GitHub round trip for the signed-in user's current org and returns the GitHub URL
@@ -412,7 +414,7 @@ func (s *Server) GitHubAppConnectStart(c echo.Context) error {
 		targetID = 0
 	}
 	target, err := s.githubAppStartURL(c, ghState{
-		Src: sanitizeGHSrc(req.Src), Mode: mode, OrgID: orgID, UserID: user.ID, Return: sanitizeGHReturn(req.Return),
+		Src: sanitizeGHSrc(req.Src), Mode: mode, OrgID: orgID, UserID: user.ID, Return: sanitizeGHReturn(req.Return), NewTab: req.NewTab,
 	}, targetID)
 	if err != nil {
 		log.Printf("[GitHubApp] connect start (org %d): %v", orgID, err)
@@ -680,6 +682,16 @@ func (s *Server) finishBoundGitHubAppCallback(c echo.Context, state *ghState, ta
 	}
 	if connected == 0 && failed > 0 {
 		return fail(http.StatusBadGateway, "Could not connect your GitHub installation. Please try again.")
+	}
+
+	// Opened in a new tab from the app: that tab ends here, so the app tab (still open, waiting behind its
+	// "Refresh" banner) isn't joined by a second LiveReview tab. The changes above are already saved.
+	if state.NewTab {
+		msg := "Go back to LiveReview and click Refresh to see your changes."
+		if connected == 0 {
+			msg = "Go back to LiveReview and click Refresh. Accounts that another LiveReview organization already uses show a Connect button there."
+		}
+		return s.renderGitHubAppPage(c, http.StatusOK, "Done, you can close this tab", msg, "")
 	}
 
 	// Open the org the trip started in, even if another tab switched orgs meanwhile (read and cleared by index.tsx).
@@ -1361,7 +1373,7 @@ func maskEmail(email string) string {
 
 var githubAppErrorTemplate = template.Must(template.New("gh-app-error").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LiveReview sign-in</title>
+<title>LiveReview</title>
 <style>
 :root{--bg:#f6f7f9;--fg:#111827;--muted:#4b5563;--card:#fff;--accent:#2563eb;--border:#e5e7eb}
 @media (prefers-color-scheme:dark){:root{--bg:#0b1020;--fg:#e5e7eb;--muted:#9ca3af;--card:#111827;--accent:#60a5fa;--border:#1f2937}}
@@ -1371,8 +1383,8 @@ h1{font-size:1.25rem;margin:0 0 8px}p{color:var(--muted);margin:0 0 20px}
 a.btn{display:inline-block;background:var(--accent);color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600}
 a.alt{margin-left:14px;color:var(--accent)}
 </style></head><body><main>
-<h1>LiveReview</h1><p>{{.Message}}</p>
-{{if .BackURL}}<a class="btn" href="{{.BackURL}}">Back to LiveReview</a>{{else}}<a class="btn" href="/#/gh-login">Try again</a><a class="alt" href="/">Other ways to sign in</a>{{end}}
+<h1>{{.Title}}</h1><p>{{.Message}}</p>
+{{if .Done}}{{else if .BackURL}}<a class="btn" href="{{.BackURL}}">Back to LiveReview</a>{{else}}<a class="btn" href="/#/gh-login">Try again</a><a class="alt" href="/">Other ways to sign in</a>{{end}}
 </main></body></html>`))
 
 // githubAppErrorPage renders a small self-contained error page; the GitHub round trip is a browser navigation,
@@ -1388,9 +1400,19 @@ func (s *Server) githubAppBoundErrorPage(c echo.Context, state *ghState, status 
 }
 
 func (s *Server) renderGitHubAppErrorPage(c echo.Context, status int, message, backURL string) error {
+	return s.renderGitHubAppPageData(c, status, map[string]any{"Title": "LiveReview", "Message": message, "BackURL": backURL})
+}
+
+// renderGitHubAppPage is the same page for an outcome with nothing to click (for example "close this tab").
+func (s *Server) renderGitHubAppPage(c echo.Context, status int, title, message, backURL string) error {
+	return s.renderGitHubAppPageData(c, status, map[string]any{"Title": title, "Message": message, "BackURL": backURL, "Done": backURL == ""})
+}
+
+func (s *Server) renderGitHubAppPageData(c echo.Context, status int, data map[string]any) error {
 	var buf bytes.Buffer
-	if err := githubAppErrorTemplate.Execute(&buf, map[string]string{"Message": message, "BackURL": backURL}); err != nil {
-		return c.String(status, message)
+	if err := githubAppErrorTemplate.Execute(&buf, data); err != nil {
+		return c.String(status, fmt.Sprint(data["Message"]))
 	}
+	c.Response().Header().Set("Cache-Control", "no-store")
 	return c.HTMLBlob(status, buf.Bytes())
 }

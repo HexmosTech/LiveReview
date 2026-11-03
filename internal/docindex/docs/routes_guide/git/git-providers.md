@@ -59,8 +59,8 @@ recently.
 On LiveReview Cloud the **Select Git Provider** grid starts with a **GitHub App**
 card (marked Recommended). It opens `/git/github-app`, which is titled **GitHub App** and lists every
 connected GitHub account or organization as a panel (name, repository count, repositories as chips; a toggle at the top right of the repositories switches to a searchable list that shows five rows and scrolls),
-a **Manage on GitHub** button (opens that account's installation settings;
-GitHub shows it only to owners), and, for organization owners, **Disconnect**
+a **Manage on GitHub** button (opens that account's installation settings in a
+new tab; GitHub shows it only to owners), and, for organization owners, **Disconnect**
 (stops using it in this organization only; the app stays installed on GitHub
 for anyone else using it) and **Uninstall** (uninstalls the app from that GitHub
 account, which removes it for every LiveReview account using it; the
@@ -75,13 +75,17 @@ the same two steps as get-started: the AI provider (LiveReview AI already
 connected, or **Configure AI**) and **Review a pull request** (**See open
 MRs/PRs and trigger a review** or **Trigger a review via URL**).
 **Add repositories or organization** opens
-GitHub's install page; afterwards the user returns to `/git/github-app` and the
-new account appears. **Find my GitHub accounts** signs in to GitHub and adds every
+GitHub's install page in a new tab. A banner appears first ("Opening GitHub in a new tab…"), and the tab opens a few seconds later, like the install button on New Review: "GitHub opened in a new tab. When
+you're done managing repositories, close that tab and click Refresh." The
+**Refresh** button refetches the account list without reloading the page. For
+already-connected users, the GitHub tab ends on a "Done, you can close this
+tab" page instead of opening a second LiveReview tab.
+**Find my GitHub accounts** signs in to GitHub (in this tab, then returns here) and adds every
 account the app is already installed on that the user's GitHub account can access:
 accounts nobody else uses are connected, ones another LiveReview account uses are
-listed as **Available** (use **Connect**). With nothing connected or available yet
-the page shows **Install the GitHub App** and **Find my GitHub accounts**.
-Returning GitHub sign-ins land directly on this page.
+listed as **Available** (use **Connect**). It leaves this page for GitHub and comes back here. With nothing
+connected or available yet the page shows **Install the GitHub App** and **Find
+my GitHub accounts**. Returning GitHub sign-ins land directly on this page.
 
 The GitHub account used on GitHub doesn't have to match the LiveReview login:
 someone signed in to LiveReview as `a@company.com` can install or find accounts

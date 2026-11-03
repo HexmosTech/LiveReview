@@ -1464,3 +1464,35 @@ func TestGitHubAppInstallCheck_ScopedToOrgAndResolvesOwner(t *testing.T) {
 		}
 	}
 }
+
+// Opened in a new tab from the app (Add repositories or organization): the tab ends on a "close this tab" page
+// instead of redirecting into a second LiveReview tab, and the installation is connected all the same.
+func TestGitHubAppCallback_BoundNewTabShowsCloseTabPage(t *testing.T) {
+	f := newFakeGitHub(t)
+	s, db := newGitHubAppTestServer(t, f)
+	suffix := time.Now().UnixNano()
+	email := fmt.Sprintf("newtab-%d@domain.test", suffix)
+	org := mkGitHubAppOrg(t, db, email)
+	user := mkGitHubAppUser(t, db, email, "member", org)
+	f.emails = `[{"email":"x@gmail.test","primary":true,"verified":true}]`
+	inst := suffix % 1_000_000_000_000
+	f.installations = f.installation(inst, "hexmostech")
+
+	nonce := fmt.Sprint("nonce-", suffix)
+	state, err := signGHState(ghState{Nonce: nonce, Src: "test", Mode: ghModeInstall, Exp: time.Now().Add(time.Minute).Unix(),
+		OrgID: org, UserID: user, Return: ghNextGitProviders, NewTab: true}, s.githubAppSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := s.doCallback(t, callbackParams{state: state, cookieNonce: nonce, code: "good-code", installation: fmt.Sprint(inst), setupAction: "install"})
+	if rec.Code != http.StatusOK || rec.Header().Get("Location") != "" {
+		t.Fatalf("status %d, Location %q; want the close-tab page with no redirect", rec.Code, rec.Header().Get("Location"))
+	}
+	if !strings.Contains(rec.Body.String(), "you can close this tab") || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("unexpected page: %s", rec.Body.String())
+	}
+	conn, err := storagegithub.NewTokenStore(db).GetAppConnectorByInstallation(f.srv.URL, inst, org)
+	if err != nil || connectorMeta(t, conn).Removed {
+		t.Fatalf("connector = %+v, %v; want connected in the session org", conn, err)
+	}
+}

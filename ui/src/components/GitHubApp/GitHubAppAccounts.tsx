@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Avatar, Button, Icons } from '../UIPrimitives';
 import GitHubAppRepositories from './GitHubAppRepositories';
+import GitHubTabBanner from './GitHubTabBanner';
+import { GitHubTabControls } from '../../hooks/useGitHubAppInstall';
 import { ConfirmModal } from '../ConfirmModal';
 import { notify } from '../../utils/notify';
 import {
@@ -26,6 +28,8 @@ interface GitHubAppAccountsProps {
     findBusy?: boolean;
     // Called after an account was connected, disconnected or uninstalled; the parent refreshes its data.
     onChanged: () => void | Promise<void>;
+    // GitHub in a new tab ("Manage on GitHub", "Add repositories or organization") and its Refresh banner.
+    githubTab: GitHubTabControls;
 }
 
 // What the "other LiveReview accounts" popup needs, from a connected or an available account.
@@ -56,6 +60,7 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
     onFindAccounts,
     findBusy = false,
     onChanged,
+    githubTab,
 }) => {
     const [pending, setPending] = useState<PendingAction | null>(null);
     const [showingOthers, setShowingOthers] = useState<SharedAccount | null>(null);
@@ -139,7 +144,9 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
                                             size="sm"
                                             variant="outline"
                                             icon={<Icons.GitHub />}
-                                            onClick={() => window.open(inst.settings_url, '_blank', 'noopener,noreferrer')}
+                                            onClick={() => githubTab.openManage(inst.settings_url!)}
+                                            isLoading={githubTab.launching && githubTab.kind === 'manage' && githubTab.url === inst.settings_url}
+                                            disabled={githubTab.launching}
                                         >
                                             Manage on GitHub
                                         </Button>
@@ -192,7 +199,7 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
                     icon={<Icons.Add />}
                     onClick={onInstallAnother}
                     isLoading={installBusy}
-                    disabled={findBusy}
+                    disabled={findBusy || githubTab.launching}
                 >
                     Add repositories or organization
                 </Button>
@@ -207,6 +214,7 @@ const GitHubAppAccounts: React.FC<GitHubAppAccountsProps> = ({
                     Find my GitHub accounts
                 </Button>
             </div>
+            <GitHubTabBanner githubTab={githubTab} onRefresh={onChanged} />
             <ConfirmModal
                 show={pending !== null}
                 loading={busy}
