@@ -150,6 +150,7 @@ export interface ReviewAccounting {
   totalInputTokens?: number;
   totalOutputTokens?: number;
   totalCostUsd?: number;
+  toolCreditsDeducted?: number;
   helperEnabled?: boolean;
   helperMode?: string;
   stageBreakdown?: ReviewAccountingStage[];

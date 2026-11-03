@@ -29,6 +29,7 @@ type ViewMode = 'slides' | 'text' | 'quiz';
 const SummaryPanel: React.FC<SummaryPanelProps> = ({ reviewId, summary, files, quiz, onOpenFile }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('slides');
   const [modalOpen, setModalOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const hasSummary = Boolean(summary && summary.trim());
   const hasQuiz = Array.isArray(quiz) && quiz.length > 0;
 
@@ -80,7 +81,7 @@ const SummaryPanel: React.FC<SummaryPanelProps> = ({ reviewId, summary, files, q
             <div className="summary-header-center text-xs font-medium text-slate-500 uppercase tracking-wide" aria-hidden="true">
               Summary
             </div>
-            <div className="summary-actions">
+            <div className="summary-actions flex items-center gap-2">
               <button
                 className="action-btn summary-play-btn rounded-full border border-slate-600 bg-slate-900 px-3 py-1 text-xs text-slate-400 hover:bg-slate-700 hover:text-slate-200 flex items-center gap-1"
                 onClick={() => setModalOpen(true)}
@@ -90,21 +91,34 @@ const SummaryPanel: React.FC<SummaryPanelProps> = ({ reviewId, summary, files, q
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><polyline points="8 21 12 17 16 21"></polyline></svg>
                 Open Slides
               </button>
+              <button
+                type="button"
+                className="action-btn rounded-full border border-slate-600 bg-slate-900 p-1 text-xs text-slate-400 hover:bg-slate-700 hover:text-slate-200 flex items-center justify-center h-6 w-6"
+                onClick={() => setCollapsed(!collapsed)}
+                title={collapsed ? 'Expand summary' : 'Collapse summary'}
+                aria-label={collapsed ? 'Expand summary' : 'Collapse summary'}
+              >
+                <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${collapsed ? 'rotate-180' : 'rotate-0'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                </svg>
+              </button>
             </div>
           </div>
         )}
 
-        <div className="p-4">
-          {!hasSummary ? (
-            <p className="text-sm text-slate-500">No summary was generated for this review.</p>
-          ) : viewMode === 'quiz' ? (
-            <QuizPanel quiz={quiz} />
-          ) : viewMode === 'slides' ? (
-            <SummarySlideshow reviewId={reviewId} summary={summary!} hasQuiz={hasQuiz} onTakeQuiz={() => setViewMode('quiz')} onOpenFile={onOpenFile} />
-          ) : (
-            <Markdown text={summary!} onOpenFile={onOpenFile} />
-          )}
-        </div>
+        {!collapsed && (
+          <div className="p-4">
+            {!hasSummary ? (
+              <p className="text-sm text-slate-500">No summary was generated for this review.</p>
+            ) : viewMode === 'quiz' ? (
+              <QuizPanel quiz={quiz} />
+            ) : viewMode === 'slides' ? (
+              <SummarySlideshow reviewId={reviewId} summary={summary!} hasQuiz={hasQuiz} onTakeQuiz={() => setViewMode('quiz')} onOpenFile={onOpenFile} />
+            ) : (
+              <Markdown text={summary!} onOpenFile={onOpenFile} />
+            )}
+          </div>
+        )}
       </div>
 
       {modalOpen && (

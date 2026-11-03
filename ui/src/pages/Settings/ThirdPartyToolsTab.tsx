@@ -17,6 +17,8 @@ interface ListToolsResponse {
 	tools: Tool[];
 }
 
+const DEFAULT_TOOL_CREDITS_LIMIT = 50000;
+
 const ThirdPartyToolsTab: React.FC = () => {
 	const { currentOrg } = useOrgContext();
 	const isOwner = currentOrg?.role === 'owner';
@@ -27,6 +29,7 @@ const ThirdPartyToolsTab: React.FC = () => {
 	const [error, setError] = useState<string | null>(null);
 	const [success, setSuccess] = useState<string | null>(null);
 	const [localEnabled, setLocalEnabled] = useState<Record<number, boolean>>({});
+	const [creditUsage, setCreditUsage] = useState<{ used: number; limit: number } | null>(null);
 
 	const [sortField, setSortField] = useState<'name' | 'use_case' | 'multiplier' | 'enabled'>('name');
 	const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -97,8 +100,11 @@ const ThirdPartyToolsTab: React.FC = () => {
 		setLoading(true);
 		setError(null);
 		try {
-			const response = await apiClient.get<ListToolsResponse>(`/orgs/${currentOrg.id}/tools`);
-			const fetchedTools = response.tools || [];
+			const [toolsRes, usageRes] = await Promise.all([
+				apiClient.get<ListToolsResponse>(`/orgs/${currentOrg.id}/tools`),
+				apiClient.get<any>('/billing/usage/summary', { headers: { 'X-Org-Context': String(currentOrg.id) } }).catch((): null => null),
+			]);
+			const fetchedTools = toolsRes.tools || [];
 			setTools(fetchedTools);
 
 			const initialMap: Record<number, boolean> = {};
@@ -106,6 +112,17 @@ const ThirdPartyToolsTab: React.FC = () => {
 				initialMap[t.id] = t.enabled;
 			});
 			setLocalEnabled(initialMap);
+			if (usageRes && typeof usageRes.tool_credits_used_month === 'number') {
+				setCreditUsage({
+					used: usageRes.tool_credits_used_month,
+					limit: typeof usageRes.tool_credits_limit_month === 'number' ? usageRes.tool_credits_limit_month : DEFAULT_TOOL_CREDITS_LIMIT,
+				});
+			} else {
+				setCreditUsage({
+					used: 0,
+					limit: DEFAULT_TOOL_CREDITS_LIMIT,
+				});
+			}
 			setCurrentPage(1); // Reset page on org change
 		} catch (err: any) {
 			setError(err.message || 'Failed to load tools');
@@ -166,8 +183,10 @@ const ThirdPartyToolsTab: React.FC = () => {
 	const enabledToolsCount = tools.filter(t => localEnabled[t.id]).length;
 	const rawTotalMultiplier = tools.reduce((acc, t) => acc + (localEnabled[t.id] ? Number(t.multiplier) : 0), 0);
 	const totalMultiplier = Number(rawTotalMultiplier.toFixed(2));
-	const totalCreditPool = 50000;
-	const estimatedReviews = totalMultiplier > 0 ? Math.floor(totalCreditPool / totalMultiplier) : 0;
+	const totalCreditPool = creditUsage?.limit ?? DEFAULT_TOOL_CREDITS_LIMIT;
+	const creditsUsed = creditUsage?.used ?? 0;
+	const remainingCredits = Math.max(0, totalCreditPool - creditsUsed);
+	const estimatedReviews = totalMultiplier > 0 ? Math.floor(remainingCredits / totalMultiplier) : 0;
 	const hasChanges = tools.some(t => localEnabled[t.id] !== t.enabled);
 
 	const totalPages = Math.ceil(sortedTools.length / pageSize);
@@ -185,21 +204,32 @@ const ThirdPartyToolsTab: React.FC = () => {
 
 			{/* Cost Explanation Card */}
 			<div className="bg-slate-800/40 border border-slate-700/60 rounded-xl p-5 backdrop-blur-md shadow-sm">
-				<h4 className="text-sm font-semibold text-white mb-2 flex items-center">
-					<svg className="w-4 h-4 mr-2 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-						<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-					</svg>
-					Credit Pool & Limits
-				</h4>
-				<p className="text-xs text-slate-300 leading-relaxed">
-					Each tool invocation deducts credits from your organization's <strong>50,000 credit budget</strong>. 
-					The credit cost of a review is equal to the sum of the multipliers of all enabled tools (<strong>Total Multiplier</strong>). 
-					Based on your current configuration, your pool allows for up to{' '}
+				<div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+					<h4 className="text-sm font-semibold text-white flex items-center">
+						<svg className="w-4 h-4 mr-2 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+							<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+						</svg>
+						Credit Pool & Limits
+					</h4>
+					<span className="text-xs text-slate-400">
+						<strong className="text-white font-medium">{remainingCredits.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</strong> / {totalCreditPool.toLocaleString()} credits remaining
+					</span>
+				</div>
+				<p className="text-xs text-slate-300 leading-relaxed mb-3">
+					Each tool invocation deducts credits from your organization's monthly <strong>{totalCreditPool.toLocaleString()} credit budget</strong>. 
+					The credit cost of a review is equal to the sum of the multipliers of all enabled tools (<strong>Total Multiplier: {totalMultiplier}x</strong>). 
+					Based on your current configuration and credit balance ({creditsUsed.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} credits used this month), your remaining pool allows for up to{' '}
 					<strong className="text-amber-400">
 						{totalMultiplier > 0 ? `${estimatedReviews.toLocaleString()} reviews` : 'unlimited reviews'}
 					</strong>{' '}
 					before exhausting the budget.
 				</p>
+				<div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
+					<div
+						className="bg-violet-500 h-1.5 rounded-full transition-all duration-300"
+						style={{ width: `${Math.min(100, Math.max(0, (creditsUsed / totalCreditPool) * 100))}%` }}
+					/>
+				</div>
 			</div>
 
 			{error && (

@@ -337,7 +337,24 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
   useEffect(() => {
     onCommentCount?.(navComments.length);
   }, [navComments, onCommentCount]);
-  const allExpanded = files.length > 0 && files.every((f) => expandedFiles[f.file_path]);
+
+  // Ensure files default to expanded so diff hunks are immediately visible on page load
+  useEffect(() => {
+    if (!files || files.length === 0) return;
+    setExpandedFiles((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      files.forEach((f) => {
+        if (next[f.file_path] === undefined) {
+          next[f.file_path] = true;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [files]);
+
+  const allExpanded = files.length > 0 && files.every((f) => !!expandedFiles[f.file_path]);
   // Sidebar always shows the real, unflattened file list (git-lrc's
   // Sidebar.js receives `filesInDiffOrder`, never the sort-mode-dependent
   // `files`) — only the main content area's ordering changes with sortMode.
@@ -352,7 +369,8 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
 
   const toggleAll = () => {
     const next: Record<string, boolean> = {};
-    files.forEach((f) => { next[f.file_path] = !allExpanded; });
+    const willExpand = !allExpanded;
+    files.forEach((f) => { next[f.file_path] = willExpand; });
     setExpandedFiles(next);
   };
 

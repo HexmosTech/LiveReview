@@ -1,17 +1,14 @@
 // Ported from git-lrc:internal/staticserve/static/components/Comment.js (header/
 // meta-line/body structure + per-comment vote buttons + hide/show + copy) as of the
-// git-lrc HEAD current when this port was written. The severity chip is a custom
-// inline-styled span rather than LiveReview's shared Badge primitive — Badge's
-// info/warning/danger variants are light-mode Tailwind colors meant for a light
-// surface elsewhere in the app, and read as washed-out pastel chips on this dark
-// comment card; the styles below mirror git-lrc's actual .badge-info/.badge-warning/
-// .badge-critical rgba values (Comment.js/styles.css), which were designed for a
-// dark surface.
+// git-lrc HEAD current when this port was written. Styles mirror git-lrc's actual
+// .comment-container, .badge-info/.badge-warning/.badge-critical, .comment-tool-badge,
+// .comment-meta-line, and .comment-body CSS rules (Comment.js/styles.css) 1:1.
 import React, { useCallback, useEffect, useState } from 'react';
 import { DiffReviewComment } from '../../../types/reviews';
 import { BlastRadiusHunkReport } from '../../../types/reviews';
 import { commentDomId, severityBadgeStyle } from './diffUtils';
 import { getCommentRenderLabel } from './reviewPerformance';
+import { renderInline } from '../../../lib/markdown';
 import VoteButtons from './VoteButtons';
 import RiskBadge from './RiskBadge';
 
@@ -85,9 +82,6 @@ const CommentCard: React.FC<{
   useEffect(() => { onRendered?.(); }, []);
 
   const metaItems = buildMetaItems(comment);
-  if (renderLabel) {
-    metaItems.push({ label: 'Timing', value: renderLabel });
-  }
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(buildCopyText(filePath, comment, codeExcerpt)).then(() => {
@@ -119,24 +113,34 @@ const CommentCard: React.FC<{
   }
 
   return (
-    <div id={id} className="scroll-mt-24 rounded-lg border border-slate-700/80 bg-slate-900 p-5 shadow-lg shadow-black/40 target:border-blue-500">
-      {/* Header row — mb: 10px, gap: 12px matches git-lrc .comment-header */}
-      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-3">
+    <div
+      id={id}
+      className="scroll-mt-24 relative my-2.5 rounded-[10px] border border-slate-700/60 bg-gradient-to-b from-[#24292f] to-[#1e2228] p-4 md:px-[18px] md:pt-4 md:pb-[18px] shadow-lg shadow-black/30 font-sans target:border-blue-500 transition-colors"
+    >
+      {/* Header row — git-lrc .comment-header: pr-28 reserves space for action buttons */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-2 pr-28 text-slate-300">
         <div className="flex flex-wrap items-center gap-2.5">
           <span
-            className="inline-flex items-center rounded-full px-2.5 py-[3px] text-[11px] font-extrabold uppercase"
+            className="inline-flex items-center uppercase px-2.5 py-[3px] rounded-full text-[11px] font-extrabold tracking-[0.02em]"
             style={severityBadgeStyle(comment.severity)}
           >
             {(comment.severity || 'info').toUpperCase()}
           </span>
           {comment.tool_name && (
-            <span className="inline-flex items-center rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-semibold text-sky-400">
+            <span className="inline-flex items-center rounded-full border border-sky-400/35 bg-sky-400/15 px-2 py-0.5 text-[11px] font-semibold text-sky-400">
               {comment.tool_name}
             </span>
           )}
-          <span className="font-mono text-xs text-slate-500">{filePath}:{comment.line}</span>
+          <span className="font-mono text-xs text-slate-400">
+            {filePath}:{comment.line}
+          </span>
+          {renderLabel && (
+            <span className="text-xs font-medium tracking-[0.01em] text-slate-400">
+              {renderLabel}
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="absolute right-3 top-3 flex items-center gap-1.5">
           {hunkBlastDetail && typeof hunkRiskScore === 'number' && (
             <RiskBadge score={hunkRiskScore} detail={hunkBlastDetail} size="small" onOpen={onOpenBreakdown} />
           )}
@@ -149,11 +153,12 @@ const CommentCard: React.FC<{
             severity={comment.severity}
           />
           <button
-            type="button" onClick={() => setHidden(true)}
-            title="Hide this issue"
-            className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-700 text-slate-400 hover:border-slate-600 hover:bg-slate-800 hover:text-slate-200"
+            type="button"
+            onClick={() => setHidden(true)}
+            title="Hide this comment"
+            className="inline-flex h-[30px] w-[30px] items-center justify-center rounded border border-slate-700/60 bg-slate-800/40 text-slate-400 hover:border-slate-500 hover:text-slate-200 transition-colors"
           >
-            <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
               <path d="M10.58 10.58a2 2 0 0 0 2.84 2.84" />
               <path d="M9.36 5.37A10.94 10.94 0 0 1 12 5c7 0 10 7 10 7a13.03 13.03 0 0 1-3.08 4.25" />
               <path d="M6.61 6.61C3.61 8.13 2 12 2 12s3 7 10 7a9.76 9.76 0 0 0 4.39-1.02" />
@@ -161,16 +166,19 @@ const CommentCard: React.FC<{
             </svg>
           </button>
           <button
-            type="button" onClick={handleCopy}
-            title="Copy issue to clipboard"
-            className={copyLabel === 'Copied!' ? 'inline-flex h-7 w-7 items-center justify-center rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-300' : 'inline-flex h-7 w-7 items-center justify-center rounded border border-blue-500/30 bg-blue-500/10 text-sky-300 hover:border-blue-500/50 hover:bg-blue-500/20'}
+            type="button"
+            onClick={handleCopy}
+            title="Copy issue details"
+            className={copyLabel === 'Copied!'
+              ? 'inline-flex h-[30px] w-[30px] items-center justify-center rounded border border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+              : 'inline-flex h-[30px] w-[30px] items-center justify-center rounded border border-sky-500/30 bg-sky-500/10 text-sky-300 hover:border-sky-500/50 hover:bg-sky-500/20 transition-colors'}
           >
             {copyLabel === 'Copied!' ? (
-              <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M5 13l4 4L19 7" />
               </svg>
             ) : (
-              <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+              <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
                 <path d="M8 16H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2" />
                 <path d="M10 10h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z" />
               </svg>
@@ -178,27 +186,34 @@ const CommentCard: React.FC<{
           </button>
         </div>
       </div>
-      {/* Meta row — gap: 8px, mb: 12px matches git-lrc .comment-meta-line */}
+
+      {/* Meta row — git-lrc .comment-meta-line */}
       {metaItems.length > 0 && (
-        <div className="mb-3.5 flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 mb-3">
           {metaItems.map((item, i) => (
             <React.Fragment key={item.label}>
-              {i > 0 && <span className="select-none text-[11px] text-slate-500/55">•</span>}
+              {i > 0 && (
+                <span className="select-none text-[11px] text-slate-400/55">
+                  •
+                </span>
+              )}
               <span className="inline-flex items-center gap-1.5">
-                <span className="text-[11px] font-bold uppercase tracking-[0.04em] text-slate-500">{item.label}</span>
-                <span className="text-[12px] font-medium text-slate-300">{item.value}</span>
+                <span className="text-[11px] font-bold uppercase tracking-[0.04em] text-slate-400">
+                  {item.label}
+                </span>
+                <span className={`text-xs font-medium break-words ${item.label === 'Classification' ? 'text-slate-200' : 'text-slate-300'}`}>
+                  {item.value}
+                </span>
               </span>
             </React.Fragment>
           ))}
         </div>
       )}
-      {/* Body — subtle border-top (rgba 12%), font-size 14px, line-height 1.72 matches git-lrc .comment-body */}
-      <p
-        className="whitespace-pre-wrap pt-3.5 text-[14px] font-medium leading-[1.72] tracking-[0.01em] text-slate-200"
-        style={{ borderTop: '1px solid rgba(110, 118, 129, 0.12)' }}
-      >
-        {comment.content}
-      </p>
+
+      {/* Body — git-lrc .comment-body */}
+      <div className="whitespace-pre-wrap pt-3.5 px-0.5 text-sm font-medium leading-[1.72] tracking-[0.01em] text-slate-300 border-t border-slate-700/50 font-sans">
+        {renderInline(comment.content || '', `comment-text-${id}`)}
+      </div>
     </div>
   );
 };

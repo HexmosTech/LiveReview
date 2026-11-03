@@ -78,7 +78,9 @@ const ReviewDetail: React.FC = () => {
     const [accountingRouteUnavailable, setAccountingRouteUnavailable] = useState(false);
     const [commits, setCommits] = useState<ReviewCommit[]>([]);
     const [allCommitsShown, setAllCommitsShown] = useState(false);
-    const [detailsExpanded, setDetailsExpanded] = useState(true);
+    // Default collapsed so opening a review directly displays the diff hunks
+    // without pushing the viewer off-screen; users can expand anytime via the header toggle.
+    const [detailsExpanded, setDetailsExpanded] = useState(false);
     const [commitsLoaded, setCommitsLoaded] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -1363,7 +1365,7 @@ const ReviewDetail: React.FC = () => {
                         {accountingError}
                     </div>
                 )}
-                <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-xs mb-3">
+                <div className="grid grid-cols-2 md:grid-cols-7 gap-2 text-xs mb-3">
                     <div className="bg-slate-900/80 rounded p-2.5 border border-slate-800">
                         <p className="text-slate-500">Total LOC</p>
                         <p className="text-white font-semibold text-sm mt-0.5">{(accounting?.totalBillableLoc || 0).toLocaleString()}</p>
@@ -1387,6 +1389,10 @@ const ReviewDetail: React.FC = () => {
                     <div className="bg-slate-900/80 rounded p-2.5 border border-slate-800">
                         <p className="text-slate-500">Token-tracked Ops</p>
                         <p className="text-white font-semibold text-sm mt-0.5">{(accounting?.tokenTrackedOperations || 0).toLocaleString()}</p>
+                    </div>
+                    <div className="bg-slate-900/80 rounded p-2.5 border border-slate-800">
+                        <p className="text-slate-500">Tool Credits</p>
+                        <p className="text-white font-semibold text-sm mt-0.5">{(accounting?.toolCreditsDeducted ?? 0).toFixed(1)}</p>
                     </div>
                 </div>
 
