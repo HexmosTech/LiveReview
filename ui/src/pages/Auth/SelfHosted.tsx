@@ -108,14 +108,15 @@ const SelfHosted: React.FC = () => {
 			<div className="max-w-md w-full bg-gray-800 p-8 rounded-lg shadow-lg">
 				<div className="text-center mb-8">
 					<img
-						src="/assets/logo-horizontal.svg"
+						src="/assets/logo.svg"
 						alt="LiveReview Logo"
-						className="h-16 w-auto mx-auto"
-						width="256"
+						className="h-16 w-16 mx-auto"
+						width="64"
 						height="64"
 						loading="eager"
 						fetchPriority="high"
 					/>
+					<p className="mt-4 text-sm text-gray-400">Risk-Aware AI Code Review</p>
 				</div>
 				<div className="text-center">
 					<h2 className="mt-6 text-3xl font-extrabold text-white">Sign In</h2>
