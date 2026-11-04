@@ -98,7 +98,7 @@ func (server *Server) UpdatePreloadedChangesArchivalSettings(echoContext echo.Co
 	`, settingName, data)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save preloaded_changes archival settings")
-		return echoContext.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to save preloaded_changes archival settings"})
+		return echoContext.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to save raw diff archival settings"})
 	}
 
 	// Hot-reload the running manager so the new schedule/retention takes effect immediately.
@@ -110,13 +110,13 @@ func (server *Server) UpdatePreloadedChangesArchivalSettings(echoContext echo.Co
 		)
 	}
 
-	return echoContext.JSON(http.StatusOK, map[string]string{"message": "Preloaded changes archival settings updated successfully"})
+	return echoContext.JSON(http.StatusOK, map[string]string{"message": "Raw diff archival settings updated successfully"})
 }
 
 // RunPreloadedChangesArchivalNow triggers an immediate preloaded_changes archival cycle in the background.
 func (server *Server) RunPreloadedChangesArchivalNow(echoContext echo.Context) error {
 	if server.preloadedChangesArchivalManager == nil {
-		return echoContext.JSON(http.StatusBadRequest, map[string]string{"error": "Preloaded changes archival manager is not initialized"})
+		return echoContext.JSON(http.StatusBadRequest, map[string]string{"error": "Raw diff archival manager is not initialized"})
 	}
 
 	err := server.preloadedChangesArchivalManager.TriggerManualCycle()
@@ -127,5 +127,5 @@ func (server *Server) RunPreloadedChangesArchivalNow(echoContext echo.Context) e
 		return echoContext.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to trigger archival cycle"})
 	}
 
-	return echoContext.JSON(http.StatusOK, map[string]string{"message": "Preloaded changes archival started in the background"})
+	return echoContext.JSON(http.StatusOK, map[string]string{"message": "Raw diff archival started in the background"})
 }
