@@ -1,15 +1,4 @@
-// Ported from git-lrc:internal/staticserve/static/components/Summary.js (as of the
-// git-lrc HEAD current when this port was written). Structure matches exactly:
-//   .summary > .summary-header-row
-//     .summary-header-left: Slides/Text/Quiz toggle pills
-//     .summary-header-center: "Summary" label
-//     .summary-actions: "Open Slides" button
-// No file/comment/severity counts in the header — git-lrc renders those in a
-// separate Stats component between the summary card and the toolbar.
-//
-// Underneath: the content area renders SummarySlideshow (inline), Markdown (text),
-// or QuizPanel depending on view mode. A full-viewport modal slideshow is toggled
-// by the "Open Slides" button.
+// Ported from git-lrc:internal/staticserve/static/components/Summary.js (as of HEAD)
 import React, { useEffect, useState } from 'react';
 import { DiffReviewFile, DiffReviewQuizQuestion } from '../../../types/reviews';
 import { Markdown, OpenFileFromText } from '../../../lib/markdown';
@@ -29,7 +18,6 @@ type ViewMode = 'slides' | 'text' | 'quiz';
 const SummaryPanel: React.FC<SummaryPanelProps> = ({ reviewId, summary, files, quiz, onOpenFile }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('slides');
   const [modalOpen, setModalOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
   const hasSummary = Boolean(summary && summary.trim());
   const hasQuiz = Array.isArray(quiz) && quiz.length > 0;
 
@@ -42,94 +30,161 @@ const SummaryPanel: React.FC<SummaryPanelProps> = ({ reviewId, summary, files, q
 
   return (
     <>
-      <div className="summary rounded-lg border border-slate-700 bg-slate-800 overflow-hidden">
+      <div className="summary rounded-lg border border-slate-700 bg-slate-800/95 p-3 md:p-4 shadow-lg">
         {hasSummary && (
-          <div className="summary-header-row flex items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-700">
-            <div className="summary-header-left">
-              <div className="summary-view-toggle flex items-center gap-0.5 rounded-full border border-slate-700 bg-slate-900 p-0.5 text-xs" role="group" aria-label="Summary display mode">
+          <div className="summary-header-row grid grid-cols-[1fr_auto_1fr] items-center gap-3 mb-3">
+            <div className="summary-header-left flex items-center justify-self-start z-10">
+              <div
+                className="summary-view-toggle inline-flex items-center rounded-full border border-[#454545] bg-gradient-to-b from-white/[0.045] to-white/[0.02] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.02)] overflow-hidden"
+                role="group"
+                aria-label="Summary display mode"
+              >
                 <button
-                  className={`action-btn summary-view-btn rounded-full px-3 py-1 ${viewMode === 'slides' ? 'active bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                  type="button"
+                  className={`action-btn summary-view-btn inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium transition-colors border-0 outline-none rounded-none ${
+                    viewMode === 'slides'
+                      ? 'active bg-[rgba(76,175,80,0.2)] text-[#89d185]'
+                      : 'bg-transparent text-[#858585] hover:text-[#cccccc] hover:bg-white/[0.06]'
+                  }`}
                   onClick={() => setViewMode('slides')}
                   title="Show slides view"
+                  aria-label="Show slides view"
                   aria-pressed={viewMode === 'slides'}
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="inline-block mr-1"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-                  Slides
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="inline-block">
+                    <path d="M4 4h10v10H4z" />
+                    <path d="M10 10h10v10H10z" />
+                  </svg>
+                  <span>Slides</span>
                 </button>
                 <button
-                  className={`action-btn summary-view-btn rounded-full px-3 py-1 ${viewMode === 'text' ? 'active bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                  type="button"
+                  className={`action-btn summary-view-btn inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium transition-colors border-0 border-l border-[#454545] outline-none rounded-none ${
+                    viewMode === 'text'
+                      ? 'active bg-[rgba(76,175,80,0.2)] text-[#89d185]'
+                      : 'bg-transparent text-[#858585] hover:text-[#cccccc] hover:bg-white/[0.06]'
+                  }`}
                   onClick={() => setViewMode('text')}
                   title="Show text view"
+                  aria-label="Show text view"
                   aria-pressed={viewMode === 'text'}
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="inline-block mr-1"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
-                  Text
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="inline-block">
+                    <path d="M4 7h16" />
+                    <path d="M8 7v10" />
+                    <path d="M16 7v10" />
+                  </svg>
+                  <span>Text</span>
                 </button>
                 {hasQuiz && (
                   <button
-                    className={`action-btn summary-view-btn rounded-full px-3 py-1 ${viewMode === 'quiz' ? 'active bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                    type="button"
+                    className={`action-btn summary-view-btn inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium transition-colors border-0 border-l border-[#454545] outline-none rounded-none ${
+                      viewMode === 'quiz'
+                        ? 'active bg-[rgba(76,175,80,0.2)] text-[#89d185]'
+                        : 'bg-transparent text-[#858585] hover:text-[#cccccc] hover:bg-white/[0.06]'
+                    }`}
                     onClick={() => setViewMode('quiz')}
                     title="Show comprehension quiz"
+                    aria-label="Show comprehension quiz"
                     aria-pressed={viewMode === 'quiz'}
                   >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="inline-block mr-1"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                    Quiz
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="inline-block">
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                      <line x1="12" y1="17" x2="12.01" y2="17" />
+                    </svg>
+                    <span>Quiz</span>
                   </button>
                 )}
               </div>
             </div>
-            <div className="summary-header-center text-xs font-medium text-slate-500 uppercase tracking-wide" aria-hidden="true">
+
+            <div
+              className="summary-header-center justify-self-center text-[11px] font-semibold text-slate-400/90 uppercase tracking-[0.08em] select-none hidden md:block"
+              aria-hidden="true"
+            >
               Summary
             </div>
-            <div className="summary-actions flex items-center gap-2">
+
+            <div className="summary-actions flex items-center justify-end gap-2 justify-self-end z-10">
               <button
-                className="action-btn summary-play-btn rounded-full border border-slate-600 bg-slate-900 px-3 py-1 text-xs text-slate-400 hover:bg-slate-700 hover:text-slate-200 flex items-center gap-1"
+                type="button"
+                className="action-btn summary-play-btn inline-flex items-center gap-1.5 rounded-[6px] border border-[rgba(110,118,129,0.3)] bg-[rgba(110,118,129,0.14)] px-3 py-1.5 text-xs font-medium text-[#c9d1d9] hover:bg-[rgba(110,118,129,0.22)] hover:border-[rgba(110,118,129,0.44)] hover:text-white transition-colors"
                 onClick={() => setModalOpen(true)}
                 title="Open slides in dialog"
                 aria-label="Open slides in dialog"
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><polyline points="8 21 12 17 16 21"></polyline></svg>
-                Open Slides
-              </button>
-              <button
-                type="button"
-                className="action-btn rounded-full border border-slate-600 bg-slate-900 p-1 text-xs text-slate-400 hover:bg-slate-700 hover:text-slate-200 flex items-center justify-center h-6 w-6"
-                onClick={() => setCollapsed(!collapsed)}
-                title={collapsed ? 'Expand summary' : 'Collapse summary'}
-                aria-label={collapsed ? 'Expand summary' : 'Collapse summary'}
-              >
-                <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${collapsed ? 'rotate-180' : 'rotate-0'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 4h10v10H4z" />
+                  <path d="M10 10h10v10H10z" />
                 </svg>
+                <span>Open Slides</span>
               </button>
             </div>
           </div>
         )}
 
-        {!collapsed && (
-          <div className="p-4">
-            {!hasSummary ? (
-              <p className="text-sm text-slate-500">No summary was generated for this review.</p>
-            ) : viewMode === 'quiz' ? (
-              <QuizPanel quiz={quiz} />
-            ) : viewMode === 'slides' ? (
-              <SummarySlideshow reviewId={reviewId} summary={summary!} hasQuiz={hasQuiz} onTakeQuiz={() => setViewMode('quiz')} onOpenFile={onOpenFile} />
-            ) : (
-              <Markdown text={summary!} onOpenFile={onOpenFile} />
-            )}
+        {!hasSummary ? (
+          <p className="text-sm text-slate-500 py-3">No summary was generated for this review.</p>
+        ) : viewMode === 'quiz' ? (
+          <div className="summary-quiz-container mb-3">
+            <QuizPanel quiz={quiz} />
+          </div>
+        ) : viewMode === 'slides' ? (
+          <div className="summary-embedded-container mb-3">
+            <SummarySlideshow
+              reviewId={reviewId}
+              summary={summary!}
+              hasQuiz={hasQuiz}
+              isShortcutActive={!modalOpen}
+              onTakeQuiz={() => setViewMode('quiz')}
+              onOpenFile={onOpenFile}
+            />
+          </div>
+        ) : (
+          <div className="summary-text-content text-slate-200 text-sm leading-[1.76] py-1">
+            <Markdown text={summary!} onOpenFile={onOpenFile} />
           </div>
         )}
       </div>
 
       {modalOpen && (
-        <div className="summary-slideshow-modal fixed inset-0 z-50 flex items-center justify-center bg-slate-950/95 backdrop-blur" onClick={() => setModalOpen(false)}>
-          <div className="flex h-full w-full max-w-5xl flex-col justify-center p-8" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-3 flex items-center justify-between">
-              <div className="text-xs text-slate-500">LiveReview Summary</div>
-              <button type="button" onClick={() => setModalOpen(false)} className="rounded border border-slate-600 px-3 py-1 text-xs text-slate-400 hover:text-slate-200">Close (Esc)</button>
+        <div
+          className="summary-slideshow-modal fixed inset-0 z-50 flex items-center justify-center bg-slate-950/95 backdrop-blur p-4"
+          onClick={() => setModalOpen(false)}
+        >
+          <div
+            className="relative w-full max-w-5xl flex flex-col max-h-[95vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="summary-slideshow-chrome flex items-center justify-between gap-4 px-4 py-2.5 rounded-t-[14px] bg-[#11161d] border-t border-x border-white/10">
+              <div className="text-xs font-semibold text-slate-400 tracking-[0.01em]">
+                Review slideshow
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalOpen(false)}
+                className="action-btn summary-slide-btn inline-flex items-center justify-center w-7 h-7 rounded-md border border-[rgba(255,255,255,0.15)] bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white transition-colors"
+                title="Close slideshow (Esc)"
+                aria-label="Close slideshow"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
             </div>
-            <div className="flex-1 overflow-y-auto">
-              <SummarySlideshow reviewId={reviewId} summary={summary!} hasQuiz={hasQuiz} onTakeQuiz={() => { setModalOpen(false); setViewMode('quiz'); }} onOpenFile={onOpenFile} />
+            <div className="flex-1 overflow-hidden">
+              <SummarySlideshow
+                reviewId={reviewId}
+                summary={summary!}
+                hasQuiz={hasQuiz}
+                isModal={true}
+                isShortcutActive={modalOpen}
+                onClose={() => setModalOpen(false)}
+                onTakeQuiz={() => { setModalOpen(false); setViewMode('quiz'); }}
+                onOpenFile={onOpenFile}
+              />
             </div>
           </div>
         </div>

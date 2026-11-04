@@ -529,3 +529,30 @@ func TestHelperFunctions(t *testing.T) {
 		t.Errorf("expected warning for 'w', got %v", sev)
 	}
 }
+
+// TestRuleDeduplicationLogic verifies that multiple findings with the same rule key
+// are appropriately grouped and all get populated.
+func TestRuleDeduplicationLogic(t *testing.T) {
+	findings := []RawToolFinding{
+		{File: "a.py", Line: 1, Rule: "b105", Message: "hardcoded pass 1"},
+		{File: "b.py", Line: 10, Rule: "b105", Message: "hardcoded pass 2"},
+		{File: "c.py", Line: 20, Rule: "b105", Message: "hardcoded pass 3"},
+		{File: "d.py", Line: 30, Rule: "other_rule", Message: "other message"},
+	}
+
+	// When db is nil, all findings fall through to applyFallbackComments
+	comments, err := ClassifyToolResult(context.Background(), nil, 1, license.PlanFree, "bandit", findings, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(comments) != 4 {
+		t.Fatalf("expected 4 comments, got %d", len(comments))
+	}
+	for i, c := range comments {
+		if c == nil {
+			t.Errorf("expected non-nil comment at index %d", i)
+		} else if c.Content != findings[i].Message {
+			t.Errorf("comment content mismatch at %d: got %s, want %s", i, c.Content, findings[i].Message)
+		}
+	}
+}

@@ -20,9 +20,15 @@ import { CategoryGroup, FacetOption, FilterFacets, hasActiveIssueFilters, IssueF
 import VoteButtons from './VoteButtons';
 
 const SEVERITY_ACTIVE_CLASSES: Record<string, string> = {
-  critical: 'border-red-500/50 bg-red-500/[0.14] text-red-200',
-  warning: 'border-amber-500/50 bg-amber-500/[0.14] text-amber-200',
-  info: 'border-sky-500/50 bg-sky-500/[0.14] text-sky-200',
+  critical: 'border-red-500/50 bg-red-500/[0.14] text-[#fecaca]',
+  warning: 'border-amber-500/50 bg-amber-500/[0.14] text-[#fef08a]',
+  info: 'border-sky-500/50 bg-sky-500/[0.14] text-[#93c5fd]',
+};
+
+const SEVERITY_INACTIVE_CLASSES: Record<string, string> = {
+  critical: 'border-red-500/30 bg-red-500/[0.06] text-red-300/85 hover:bg-red-500/[0.12] hover:border-red-500/50',
+  warning: 'border-amber-500/30 bg-amber-500/[0.06] text-amber-300/85 hover:bg-amber-500/[0.12] hover:border-amber-500/50',
+  info: 'border-sky-500/30 bg-sky-500/[0.06] text-sky-300/85 hover:bg-sky-500/[0.12] hover:border-sky-500/50',
 };
 
 const FilterIcon: React.FC<{ size?: number }> = ({ size = 13 }) => (
@@ -44,8 +50,10 @@ const Chip: React.FC<{ option: FacetOption; onClick: () => void; severityClass?:
     aria-pressed={option.active}
     title={`Toggle ${option.label}`}
     className={classNames(
-      'inline-flex min-h-[32px] items-center gap-2 rounded-md border px-2.5 text-xs font-semibold transition-colors',
-      option.active ? severityClass || 'border-slate-600 bg-slate-700/50 text-slate-200' : 'border-slate-700 bg-slate-800/40 text-slate-500 hover:border-slate-600 hover:bg-slate-700/40 hover:text-slate-300'
+      'inline-flex min-h-[32px] items-center gap-2 rounded-md border px-2.5 text-xs font-semibold transition-colors cursor-pointer',
+      option.active
+        ? severityClass || 'border-blue-500/40 bg-blue-500/20 text-[#eef6ff]'
+        : severityClass || 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.3)] text-slate-300 hover:bg-[rgba(84,94,106,0.36)] hover:border-[rgba(132,141,153,0.36)] hover:text-white'
     )}
   >
     <span className="max-w-[240px] truncate">{option.label}</span>
@@ -79,8 +87,8 @@ const CategoryTree: React.FC<{
           <div
             key={group.value}
             className={classNames(
-              'grid gap-2 rounded-lg border p-2.5',
-              group.active ? 'border-blue-800/50 bg-slate-900/70' : 'border-slate-800 bg-slate-900/40'
+              'grid gap-2 rounded-lg border p-2.5 transition-colors',
+              group.active ? 'border-blue-700/50 bg-slate-900/70' : 'border-slate-700/40 bg-slate-900/40'
             )}
           >
             <button
@@ -89,15 +97,15 @@ const CategoryTree: React.FC<{
               aria-pressed={group.active}
               title={`Toggle main category ${group.label}`}
               className={classNames(
-                'inline-flex w-fit min-h-[34px] items-center gap-2 rounded-md border px-3 text-[13px] font-bold',
-                group.active ? 'border-slate-600 bg-slate-700/50 text-slate-200' : 'border-slate-700 bg-slate-800/40 text-slate-500'
+                'inline-flex w-fit min-h-[34px] items-center gap-2 rounded-md border px-3 text-[13px] font-bold transition-colors cursor-pointer',
+                group.active ? 'border-blue-500/50 bg-blue-500/20 text-[#eef6ff]' : 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.3)] text-slate-300 hover:bg-[rgba(84,94,106,0.36)] hover:text-white'
               )}
             >
               <span>{group.label}</span>
               <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-white/10 px-1.5 text-[11px] font-bold">{group.count}</span>
             </button>
             {group.subcategories.length > 0 && (
-              <div className="relative flex flex-wrap gap-2 border-l border-slate-700 pl-[18px]">
+              <div className="relative flex flex-wrap gap-2 border-l border-slate-700/60 pl-[18px]">
                 {group.subcategories.map((sub) => (
                   <button
                     key={sub.value}
@@ -106,8 +114,8 @@ const CategoryTree: React.FC<{
                     aria-pressed={sub.active}
                     title={`Toggle subcategory ${sub.label}`}
                     className={classNames(
-                      'inline-flex min-h-[26px] items-center gap-2 rounded-full border px-2.5 text-[11px] font-semibold',
-                      sub.active ? 'border-blue-700/60 bg-blue-500/[0.18] text-blue-100' : 'border-slate-700 bg-slate-800/30 text-slate-500 hover:bg-slate-700/40 hover:text-slate-300'
+                      'inline-flex min-h-[26px] items-center gap-2 rounded-full border px-2.5 text-[11px] font-semibold transition-colors cursor-pointer',
+                      sub.active ? 'border-blue-700/60 bg-blue-500/[0.18] text-blue-100' : 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.28)] text-slate-300 hover:bg-slate-700/40 hover:text-white'
                     )}
                   >
                     <span>{sub.label}</span>
@@ -153,8 +161,55 @@ const IssueFilterBar: React.FC<IssueFilterBarProps> = ({
     // 0.5s after the pointer leaves rather than instantly.
     <div
       data-issue-filter-bar
-      className={classNames('group sticky top-16 z-40 flex flex-col gap-2 rounded-md border border-slate-700 bg-slate-800/95 px-3 py-2 shadow-lg backdrop-blur', isPinnedOpen && 'expanded')}
+      className={classNames(
+        'issue-filter-bar sticky top-16 z-40 flex flex-col gap-2 rounded-md border border-slate-700 bg-slate-800/95 px-3 py-2 shadow-lg backdrop-blur',
+        isPinnedOpen && 'expanded'
+      )}
     >
+      <style>{`
+        .issue-filter-details {
+          max-height: 0;
+          opacity: 0;
+          overflow: hidden;
+          pointer-events: none;
+          transform: translateY(-6px);
+          scrollbar-gutter: stable;
+          transition:
+            max-height 0.18s ease,
+            opacity 0.18s ease,
+            transform 0.18s ease,
+            padding-top 0.18s ease;
+          transition-delay: 0.5s;
+          padding-top: 0;
+        }
+
+        .issue-filter-bar:hover .issue-filter-details,
+        .issue-filter-bar:focus-within .issue-filter-details,
+        .issue-filter-bar.expanded .issue-filter-details {
+          max-height: min(720px, calc(100vh - 170px));
+          opacity: 1;
+          pointer-events: auto;
+          transform: translateY(0);
+          padding-top: 8px;
+          padding-right: 4px;
+          overflow-y: auto;
+          overscroll-behavior: contain;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(148, 163, 184, 0.4) rgba(255, 255, 255, 0.04);
+          transition-delay: 0.3s;
+        }
+
+        .issue-filter-bar.expanded .issue-filter-details {
+          transition-delay: 0s;
+        }
+
+        .issue-filter-bar:hover,
+        .issue-filter-bar:focus-within,
+        .issue-filter-bar.expanded {
+          box-shadow: 0 14px 28px rgba(0, 0, 0, 0.28);
+          outline: 1px solid rgba(148, 163, 184, 0.18);
+        }
+      `}</style>
       <div className="flex min-w-0 items-center justify-between gap-3">
         <div className="flex shrink-0 flex-wrap items-center gap-2.5">
           <span className="text-xs font-bold uppercase tracking-wide text-slate-200">Issue Filters</span>
@@ -165,9 +220,9 @@ const IssueFilterBar: React.FC<IssueFilterBarProps> = ({
             type="button"
             onClick={() => setIsPinnedOpen((v) => !v)}
             aria-expanded={isPinnedOpen}
-            title="Toggle expanded issue filters"
+            title={isPinnedOpen ? 'Hide filter options' : 'Open filter options'}
             className={classNames(
-              'inline-flex min-h-[32px] items-center gap-1.5 rounded-md border px-3 text-xs font-semibold',
+              'inline-flex min-h-[32px] items-center gap-1.5 rounded-md border px-3 text-xs font-semibold cursor-pointer transition-colors',
               isPinnedOpen ? 'border-blue-700/60 bg-blue-500/[0.18] text-sky-200' : 'border-blue-800/40 bg-blue-500/10 text-sky-300 hover:bg-blue-500/[0.18]'
             )}
           >
@@ -179,7 +234,7 @@ const IssueFilterBar: React.FC<IssueFilterBarProps> = ({
               type="button"
               onClick={onReset}
               title="Reset all issue filters"
-              className="inline-flex min-h-[32px] items-center gap-1.5 rounded-md border border-slate-600/50 bg-slate-700/40 px-3 text-xs font-semibold text-slate-300 hover:bg-slate-700/70"
+              className="inline-flex min-h-[32px] items-center gap-1.5 rounded-md border border-slate-600/50 bg-slate-700/40 px-3 text-xs font-semibold text-slate-300 hover:bg-slate-700/70 cursor-pointer"
             >
               <XIcon />
               <span>Reset Filters</span>
@@ -199,28 +254,23 @@ const IssueFilterBar: React.FC<IssueFilterBarProps> = ({
           <span className="shrink-0 text-[11px] font-bold uppercase tracking-wide text-slate-500">Severity</span>
           <div className="flex min-w-0 flex-nowrap gap-1.5 overflow-x-auto">
             {facets.severities.map((opt) => (
-              <Chip key={opt.value} option={opt} onClick={() => onToggleSeverity(opt.value)} severityClass={SEVERITY_ACTIVE_CLASSES[opt.value]} />
+              <Chip
+                key={opt.value}
+                option={opt}
+                onClick={() => onToggleSeverity(opt.value)}
+                severityClass={opt.active ? SEVERITY_ACTIVE_CLASSES[opt.value] : SEVERITY_INACTIVE_CLASSES[opt.value]}
+              />
             ))}
           </div>
         </div>
       </div>
 
-      <div
-        className={classNames(
-          'grid gap-3 overflow-hidden border-slate-700 transition-all duration-[180ms] ease-in-out',
-          'max-h-0 -translate-y-1.5 border-t-0 pt-0 opacity-0 delay-500',
-          'group-hover:max-h-[720px] group-hover:translate-y-0 group-hover:border-t group-hover:pt-1.5 group-hover:opacity-100 group-hover:delay-300',
-          'group-focus-within:max-h-[720px] group-focus-within:translate-y-0 group-focus-within:border-t group-focus-within:pt-1.5 group-focus-within:opacity-100 group-focus-within:delay-300',
-          isPinnedOpen && 'max-h-[720px] translate-y-0 border-t pt-1.5 opacity-100 delay-300'
-        )}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex flex-col gap-1.5">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <span className="text-xs font-bold uppercase tracking-wide text-slate-200">Issue Filters</span>
-              <span className="text-[13px] text-slate-400">{filterLabel}</span>
-            </div>
-            <span className="text-[11px] text-slate-600">Hover or open to browse all filter options</span>
+      <div className="issue-filter-details">
+        <div className="issue-filter-details-header flex items-start justify-between gap-3 mb-2.5">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-200">Issue Filters</span>
+            <span className="text-[13px] text-slate-400">{filterLabel}</span>
+            <span className="text-[11px] text-slate-500">Hover or open to browse all filter options</span>
           </div>
         </div>
         <div className="grid gap-3">

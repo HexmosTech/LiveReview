@@ -1392,7 +1392,11 @@ const ReviewDetail: React.FC = () => {
                     </div>
                     <div className="bg-slate-900/80 rounded p-2.5 border border-slate-800">
                         <p className="text-slate-500">Tool Credits</p>
-                        <p className="text-white font-semibold text-sm mt-0.5">{(accounting?.toolCreditsDeducted ?? 0).toFixed(1)}</p>
+                        <p className="text-white font-semibold text-sm mt-0.5">
+                            {accounting?.toolCreditsDeducted != null
+                                ? accounting.toolCreditsDeducted.toFixed(1)
+                                : <span className="text-slate-600">—</span>}
+                        </p>
                     </div>
                 </div>
 

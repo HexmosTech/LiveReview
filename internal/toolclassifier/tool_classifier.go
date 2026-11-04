@@ -200,19 +200,31 @@ func ClassifyToolResult(
 		return applyFallbackComments(toolName, findings, comments, unresolvedIndices), nil
 	}
 
-	// Step 3: Construct compact pipe-delimited batch prompt (~120 tokens)
+	// Step 3: Deduplicate unresolved findings by unique rule key so identical rules are sent once to LLM
+	ruleToIndices := make(map[string][]int)
+	var uniqueRuleKeys []string
+
+	for _, origIdx := range unresolvedIndices {
+		rKey := MakeRuleKey(toolName, findings[origIdx].Rule)
+		if len(ruleToIndices[rKey]) == 0 {
+			uniqueRuleKeys = append(uniqueRuleKeys, rKey)
+		}
+		ruleToIndices[rKey] = append(ruleToIndices[rKey], origIdx)
+	}
+
 	type CompactFindingInput struct {
 		Index   int    `json:"i"`
 		Rule    string `json:"r"`
 		Message string `json:"m"`
 	}
 
-	compactItems := make([]CompactFindingInput, 0, len(unresolvedIndices))
-	for _, origIdx := range unresolvedIndices {
+	compactItems := make([]CompactFindingInput, 0, len(uniqueRuleKeys))
+	for batchIdx, rKey := range uniqueRuleKeys {
+		repIdx := ruleToIndices[rKey][0]
 		compactItems = append(compactItems, CompactFindingInput{
-			Index:   origIdx,
-			Rule:    findings[origIdx].Rule,
-			Message: findings[origIdx].Message,
+			Index:   batchIdx,
+			Rule:    findings[repIdx].Rule,
+			Message: findings[repIdx].Message,
 		})
 	}
 
@@ -246,20 +258,28 @@ Findings:
 				for _, line := range parsedLines {
 					parts := strings.Split(line, "|")
 					if len(parts) >= 6 {
-						var origIdx int
-						if _, scanErr := fmt.Sscanf(parts[0], "%d", &origIdx); scanErr == nil && origIdx >= 0 && origIdx < len(findings) {
+						var batchIdx int
+						if _, scanErr := fmt.Sscanf(parts[0], "%d", &batchIdx); scanErr == nil && batchIdx >= 0 && batchIdx < len(uniqueRuleKeys) {
+							rKey := uniqueRuleKeys[batchIdx]
 							cat, subcat := ValidateAndNormalizeTaxonomy(parts[1], parts[2])
-							comments[origIdx] = &models.ReviewComment{
-								FilePath:    findings[origIdx].File,
-								Line:        findings[origIdx].Line,
-								Content:     findings[origIdx].Message,
-								Severity:    parseSeverityCode(parts[3]),
-								Category:    cat,
-								Subcategory: subcat,
-								Confidence:  parseConfidenceCode(parts[4]),
-								Type:        parseTypeCode(parts[5]),
-								Source:      "tool",
-								ToolName:    toolName,
+							sev := parseSeverityCode(parts[3])
+							conf := parseConfidenceCode(parts[4])
+							typ := parseTypeCode(parts[5])
+
+							// Apply the classification to ALL findings sharing this rule key
+							for _, origIdx := range ruleToIndices[rKey] {
+								comments[origIdx] = &models.ReviewComment{
+									FilePath:    findings[origIdx].File,
+									Line:        findings[origIdx].Line,
+									Content:     findings[origIdx].Message,
+									Severity:    sev,
+									Category:    cat,
+									Subcategory: subcat,
+									Confidence:  conf,
+									Type:        typ,
+									Source:      "tool",
+									ToolName:    toolName,
+								}
 							}
 						}
 					}
@@ -269,24 +289,21 @@ Findings:
 				// asynchronously upsert the newly classified unique rule keys into tool_rule_taxonomies
 				if db != nil {
 					var newEntries []TaxonomyCacheEntry
-					seenKeys := make(map[string]bool)
-					for _, origIdx := range unresolvedIndices {
-						c := comments[origIdx]
-						if c != nil {
-							rKey := MakeRuleKey(toolName, findings[origIdx].Rule)
-							if !seenKeys[rKey] {
-								seenKeys[rKey] = true
-								newEntries = append(newEntries, TaxonomyCacheEntry{
-									RuleKey:     rKey,
-									ToolName:    toolName,
-									RuleID:      CleanRuleID(toolName, findings[origIdx].Rule),
-									Category:    c.Category,
-									Subcategory: c.Subcategory,
-									Severity:    string(c.Severity),
-									Confidence:  c.Confidence,
-									Type:        c.Type,
-								})
-							}
+					for _, rKey := range uniqueRuleKeys {
+						indices := ruleToIndices[rKey]
+						if len(indices) > 0 && comments[indices[0]] != nil {
+							c := comments[indices[0]]
+							repIdx := indices[0]
+							newEntries = append(newEntries, TaxonomyCacheEntry{
+								RuleKey:     rKey,
+								ToolName:    toolName,
+								RuleID:      CleanRuleID(toolName, findings[repIdx].Rule),
+								Category:    c.Category,
+								Subcategory: c.Subcategory,
+								Severity:    string(c.Severity),
+								Confidence:  c.Confidence,
+								Type:        c.Type,
+							})
 						}
 					}
 					if len(newEntries) > 0 {
