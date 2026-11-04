@@ -57,7 +57,7 @@ const StorageSettingsTab: React.FC = () => {
         { id: 'blob', label: 'Blob Storage' },
         ...(canManageInstanceConfig ? [
             { id: 'log-compaction', label: 'Log Compaction' },
-            { id: 'archival', label: 'Preloaded Changes Archival' },
+            { id: 'archival', label: 'Raw Diff Archival' },
             { id: 'repo-cache', label: 'Repo Cache' },
             { id: 'ai-review-performance', label: 'AI Review Performance' },
         ] : []),

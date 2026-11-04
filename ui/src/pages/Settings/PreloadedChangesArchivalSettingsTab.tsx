@@ -91,7 +91,7 @@ const PreloadedChangesArchivalSettingsTab: React.FC = () => {
         try {
             await saveSettingsToBackend(true);
             await apiClient.post('/api/v1/admin/settings/preloaded-changes-archival/run', {});
-            notify.success('Preloaded changes archival started in the background!');
+            notify.success('Raw diff archival started in the background!');
             setIsDone(true);
             setTimeout(() => setIsDone(false), 3000);
         } catch (error: any) {
@@ -138,8 +138,8 @@ const PreloadedChangesArchivalSettingsTab: React.FC = () => {
                     </svg>
                 </div>
                 <div>
-                    <h3 className="text-lg font-semibold text-white">Preloaded Changes Archival</h3>
-                    <p className="text-sm text-slate-400">Moves code diffs (preloaded changes) older than the retention window from PostgreSQL to Blob Storage</p>
+                    <h3 className="text-lg font-semibold text-white">Raw Diff Archival</h3>
+                    <p className="text-sm text-slate-400">Moves code diffs (raw diff) older than the retention window from PostgreSQL to Blob Storage</p>
                 </div>
             </div>
 
@@ -168,7 +168,7 @@ const PreloadedChangesArchivalSettingsTab: React.FC = () => {
                 <div className="flex items-center justify-between pb-4 border-b border-slate-700/60">
                     <div>
                         <div className="flex items-center space-x-2">
-                            <span className="text-sm font-medium text-white">Enable Automatic Preloaded Changes Archival</span>
+                            <span className="text-sm font-medium text-white">Enable Automatic Raw Diff Archival</span>
                             <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
                                 Recommended
                             </span>
