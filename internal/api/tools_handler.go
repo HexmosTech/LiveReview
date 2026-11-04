@@ -58,27 +58,25 @@ func (s *Server) ListAvailableTools(c echo.Context) error {
 	return c.JSON(http.StatusOK, catalog)
 }
 
-func getNextToolID(ctx context.Context, db *sql.DB, catalog []tools.AvailableTool) int64 {
-	var seqID int64
-	err := db.QueryRowContext(ctx, "SELECT nextval('public.tools_catalog_id_seq')").Scan(&seqID)
-	if err == nil {
-		var maxID int64
-		for _, t := range catalog {
-			if t.ID > maxID {
-				maxID = t.ID
-			}
-		}
-		if seqID <= maxID {
-			return maxID + 1
-		}
-		return seqID
-	}
+func getNextToolID(ctx context.Context, tx *sql.Tx, catalog []tools.AvailableTool) int64 {
 	var maxID int64
 	for _, t := range catalog {
 		if t.ID > maxID {
 			maxID = t.ID
 		}
 	}
+
+	var seqID int64
+	err := tx.QueryRowContext(ctx, "SELECT nextval('public.tools_catalog_id_seq')").Scan(&seqID)
+	if err == nil {
+		if seqID <= maxID {
+			targetID := maxID + 1
+			_ = tx.QueryRowContext(ctx, "SELECT setval('public.tools_catalog_id_seq', $1, true)", targetID).Scan(&seqID)
+			return targetID
+		}
+		return seqID
+	}
+
 	return maxID + 1
 }
 
@@ -116,7 +114,7 @@ func upsertAvailableTool(ctx context.Context, db *sql.DB, req UpsertToolRequest)
 		}
 	}
 	if !found {
-		newID := getNextToolID(ctx, db, catalog)
+		newID := getNextToolID(ctx, tx, catalog)
 		catalog = append(catalog, tools.AvailableTool{
 			ID:          newID,
 			Name:        req.Name,

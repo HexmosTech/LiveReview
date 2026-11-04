@@ -79,13 +79,20 @@ func main() {
 	if err != nil {
 		log.Printf("Failed to clean non-15 tools: %v", err)
 	} else {
-		rows, _ := res.RowsAffected()
-		fmt.Printf("\n🧹 Cleaned %d non-production tools from database.\n", rows)
+		rows, rowsErr := res.RowsAffected()
+		if rowsErr != nil {
+			log.Printf("Warning: failed to get rows affected: %v", rowsErr)
+		} else {
+			fmt.Printf("\n🧹 Cleaned %d non-production tools from database.\n", rows)
+		}
 	}
 
 	var count int
-	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM public.available_tools`).Scan(&count)
-	fmt.Printf("==========================================================================\n")
-	fmt.Printf(" TOTAL ACTIVE PRODUCTION TOOLS IN DATABASE: %d\n", count)
-	fmt.Printf("==========================================================================\n")
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM public.available_tools`).Scan(&count); err != nil {
+		log.Printf("Warning: failed to count active production tools: %v", err)
+	} else {
+		fmt.Printf("==========================================================================\n")
+		fmt.Printf(" TOTAL ACTIVE PRODUCTION TOOLS IN DATABASE: %d\n", count)
+		fmt.Printf("==========================================================================\n")
+	}
 }

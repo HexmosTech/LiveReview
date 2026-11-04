@@ -509,6 +509,7 @@ func PackageModelDiffsToZipBase64WithExtras(diffs []*models.CodeDiff, extras map
 			fileContent = fileContent[:maxZipPackageFileBytes]
 		}
 		if totalBytes+int64(len(fileContent)) > maxZipPackageTotalBytes {
+			log.Printf("[WARN] diffutil: total packaged size exceeds limit of %d bytes, skipping remaining files starting at %s", maxZipPackageTotalBytes, cleaned)
 			break // memory safety limit reached
 		}
 		totalBytes += int64(len(fileContent))
@@ -538,6 +539,7 @@ func PackageModelDiffsToZipBase64WithExtras(diffs []*models.CodeDiff, extras map
 			}
 			data := extras[name]
 			if totalBytes+int64(len(data)) > maxZipPackageTotalBytes {
+				log.Printf("[WARN] diffutil: total packaged size exceeds limit of %d bytes, skipping extra file %s", maxZipPackageTotalBytes, cleaned)
 				break
 			}
 			totalBytes += int64(len(data))

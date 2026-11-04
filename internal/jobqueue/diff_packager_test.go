@@ -34,7 +34,9 @@ func unpackZipBase64(t *testing.T, encoded string) map[string]string {
 			t.Fatalf("failed to open zip entry %s: %v", f.Name, err)
 		}
 		data, err := io.ReadAll(rc)
-		_ = rc.Close()
+		if closeErr := rc.Close(); closeErr != nil {
+			t.Errorf("failed to close zip entry %s: %v", f.Name, closeErr)
+		}
 		if err != nil {
 			t.Fatalf("failed to read zip entry %s: %v", f.Name, err)
 		}

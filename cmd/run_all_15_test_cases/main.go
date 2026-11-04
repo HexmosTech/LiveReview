@@ -97,7 +97,11 @@ func main() {
 			"repo_name":       "git-lrc",
 			"branch_name":     "feat/tool-test-" + item.ToolName,
 		}
-		jsonBytes, _ := json.Marshal(payload)
+		jsonBytes, err := json.Marshal(payload)
+		if err != nil {
+			fmt.Printf("%-3d | %-18s | %-15s | %-10s | ❌ JSON Marshal Error\n", idx+1, item.FileName, item.ToolName, "-")
+			continue
+		}
 
 		req, err := http.NewRequest("POST", APIURL, bytes.NewBuffer(jsonBytes))
 		if err != nil {
@@ -114,11 +118,18 @@ func main() {
 			continue
 		}
 
-		respBytes, _ := io.ReadAll(resp.Body)
+		respBytes, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		if err != nil {
+			fmt.Printf("%-3d | %-18s | %-15s | %-10s | ❌ Body Read Error\n", idx+1, item.FileName, item.ToolName, "-")
+			continue
+		}
 
 		var respData map[string]interface{}
-		_ = json.Unmarshal(respBytes, &respData)
+		if err := json.Unmarshal(respBytes, &respData); err != nil {
+			fmt.Printf("%-3d | %-18s | %-15s | %-10s | ❌ JSON Unmarshal Error\n", idx+1, item.FileName, item.ToolName, "-")
+			continue
+		}
 
 		var reviewID interface{} = "-"
 		if idVal, ok := respData["id"]; ok {

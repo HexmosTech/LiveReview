@@ -657,6 +657,23 @@ func (c *Connector) Call(ctx context.Context, input string, options ...llms.Call
 	return llms.GenerateFromSinglePrompt(ctx, c.llm, input, callOptions...)
 }
 
+func parseUsageTokens(v interface{}) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int32:
+		return int(n), true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	case float32:
+		return int(n), true
+	default:
+		return 0, false
+	}
+}
+
 // CallWithUsage calls the LLM with the given input and returns the text output along with actual input & output token counts.
 func (c *Connector) CallWithUsage(ctx context.Context, input string, options ...llms.CallOption) (string, int, int, error) {
 	log.Debug().
@@ -669,10 +686,11 @@ func (c *Connector) CallWithUsage(ctx context.Context, input string, options ...
 	}
 	resp, err := c.GenerateContent(ctx, msg, options...)
 	if err != nil {
+		log.Warn().Err(err).Msg("GenerateContent failed, falling back to Call")
 		// Fallback to Call if GenerateContent fails
 		text, callErr := c.Call(ctx, input, options...)
 		if callErr != nil {
-			return "", 0, 0, callErr
+			return "", 0, 0, fmt.Errorf("GenerateContent error: %w; fallback Call error: %v", err, callErr)
 		}
 		return text, len(input) / 4, len(text) / 4, nil
 	}
@@ -686,12 +704,14 @@ func (c *Connector) CallWithUsage(ctx context.Context, input string, options ...
 	outputTokens := len(contentText) / 4
 
 	if genInfo := resp.Choices[0].GenerationInfo; genInfo != nil {
-		if usageMap, ok := genInfo["Usage"].(map[string]interface{}); ok {
-			if pt, ok := usageMap["PromptTokens"].(float64); ok && pt > 0 {
-				inputTokens = int(pt)
-			}
-			if ct, ok := usageMap["CompletionTokens"].(float64); ok && ct > 0 {
-				outputTokens = int(ct)
+		if usageRaw, exists := genInfo["Usage"]; exists && usageRaw != nil {
+			if usageMap, ok := usageRaw.(map[string]interface{}); ok {
+				if pt, ok := parseUsageTokens(usageMap["PromptTokens"]); ok && pt > 0 {
+					inputTokens = pt
+				}
+				if ct, ok := parseUsageTokens(usageMap["CompletionTokens"]); ok && ct > 0 {
+					outputTokens = ct
+				}
 			}
 		}
 	}

@@ -67,15 +67,15 @@ func estimateDeflatedSize(content []byte) int {
 	var b bytes.Buffer
 	w, err := flate.NewWriter(&b, flate.DefaultCompression)
 	if err != nil {
-		log.Printf("[DEBUG] diff_packager: flate writer error: %v", err)
+		log.Printf("[WARN] diff_packager: flate writer error: %v", err)
 		return len(content)
 	}
 	if _, err := w.Write(content); err != nil {
-		log.Printf("[DEBUG] diff_packager: flate write error: %v", err)
+		log.Printf("[WARN] diff_packager: flate write error: %v", err)
 		return len(content)
 	}
 	if err := w.Close(); err != nil {
-		log.Printf("[DEBUG] diff_packager: flate close error: %v", err)
+		log.Printf("[WARN] diff_packager: flate close error: %v", err)
 		return len(content)
 	}
 	return b.Len()
@@ -156,9 +156,9 @@ func PackageDiffFiles(baseDir string, filePaths []string) (string, error) {
 			continue
 		}
 
-		estEntrySize := estimateDeflatedSize(content) + len(relPath)*2 + zipEntryOverheadBytes
+		estEntrySize := estimateDeflatedSize(content) + len(relPath) + zipEntryOverheadBytes
 		if buf.Len()+estEntrySize > MaxCumulativeZipSize {
-			log.Printf("[DEBUG] diff_packager: skipping %s: adding %d compressed bytes would exceed cumulative zip limit of 10 MiB (current %d bytes)", relPath, estEntrySize, buf.Len())
+			log.Printf("[WARN] diff_packager: skipping %s: adding %d compressed bytes would exceed cumulative zip limit of 10 MiB (current %d bytes)", relPath, estEntrySize, buf.Len())
 			break
 		}
 

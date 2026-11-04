@@ -221,6 +221,7 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 	result, err := decodeReviewResult(meta)
 	if err != nil {
 		// For tools-only reviews or reviews without AI comments, return an empty result gracefully instead of failing
+		log.Printf("[INFO] DiffReview: review %d has no AI review_result in metadata (err: %v), using fallback result", reviewRecord.ID, err)
 		result = DiffReviewResult{
 			Summary:  "Static analysis tools review completed.",
 			Comments: []*models.ReviewComment{},
@@ -235,8 +236,13 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 			for _, dbC := range dbComments {
 				var contentMap map[string]interface{}
 				if err := json.Unmarshal(dbC.Content, &contentMap); err != nil {
-					log.Printf("[WARN] DiffReview: failed to unmarshal comment content for review %d: %v", reviewRecord.ID, err)
-					continue
+					// Fallback: dbC.Content might be a raw JSON string or unformatted string
+					var rawStr string
+					if strErr := json.Unmarshal(dbC.Content, &rawStr); strErr == nil {
+						contentMap = map[string]interface{}{"content": rawStr}
+					} else {
+						contentMap = map[string]interface{}{"content": string(dbC.Content)}
+					}
 				}
 
 				var cStr, sevStr, catStr, subCatStr, confStr, typeStr, srcStr, toolNameStr string
