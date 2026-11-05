@@ -36,6 +36,7 @@ type DiffReviewRequest struct {
 	RepoName      string      `json:"repo_name"`
 	BranchName    string      `json:"branch_name"`
 	CommitRefs    []CommitRef `json:"commit_refs,omitempty"`
+	ToolsOnly     bool        `json:"tools_only,omitempty"`
 }
 
 // CommitRef identifies a commit or commit range that a review's diff
@@ -90,6 +91,9 @@ func (s *Server) DiffReview(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
 	}
+	if req.ToolsOnly && !s.deploymentConfig.IsCloud {
+		return JSONErrorWithEnvelope(c, http.StatusForbidden, "Third-party tools are only available in cloud mode")
+	}
 	if strings.TrimSpace(req.DiffZipBase64) == "" {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "diff_zip_base64 is required")
 	}
@@ -132,6 +136,7 @@ func (s *Server) DiffReview(c echo.Context) error {
 		RepoName:      repoName,
 		DiffZipBase64: req.DiffZipBase64,
 		TriggerSource: "api",
+		ToolsOnly:     req.ToolsOnly,
 	})
 	if err != nil {
 		log.Printf("[ERROR] Failed to queue diff review job: %v", err)
@@ -218,7 +223,89 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 
 	result, err := decodeReviewResult(meta)
 	if err != nil {
-		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to decode review result: %v", err))
+		// For tools-only reviews or reviews without AI comments, return an empty result gracefully instead of failing
+		log.Printf("[INFO] DiffReview: review %d has no AI review_result in metadata (err: %v), using fallback result", reviewRecord.ID, err)
+		result = DiffReviewResult{
+			Summary:  "Static analysis tools review completed.",
+			Comments: []*models.ReviewComment{},
+		}
+	}
+
+	if len(result.Comments) == 0 {
+		dbComments, dbErr := rm.GetReviewComments(reviewRecord.ID)
+		if dbErr != nil {
+			log.Printf("[WARN] DiffReview: failed to fetch comments from db for review %d: %v", reviewRecord.ID, dbErr)
+		} else if len(dbComments) > 0 {
+			for _, dbC := range dbComments {
+				var contentMap map[string]interface{}
+				if err := json.Unmarshal(dbC.Content, &contentMap); err != nil {
+					// Fallback: dbC.Content might be a raw JSON string or unformatted string
+					var rawStr string
+					if strErr := json.Unmarshal(dbC.Content, &rawStr); strErr == nil {
+						contentMap = map[string]interface{}{"content": rawStr}
+					} else {
+						contentMap = map[string]interface{}{"content": string(dbC.Content)}
+					}
+				}
+
+				var cStr, sevStr, catStr, subCatStr, confStr, typeStr, srcStr, toolNameStr string
+				if v, ok := contentMap["content"].(string); ok {
+					cStr = v
+				}
+				if v, ok := contentMap["severity"].(string); ok {
+					sevStr = v
+				}
+				if v, ok := contentMap["category"].(string); ok {
+					catStr = v
+				}
+				if v, ok := contentMap["subcategory"].(string); ok {
+					subCatStr = v
+				}
+				if v, ok := contentMap["confidence"].(string); ok {
+					confStr = v
+				}
+				if v, ok := contentMap["type"].(string); ok {
+					typeStr = v
+				}
+				if v, ok := contentMap["source"].(string); ok {
+					srcStr = v
+				}
+				if v, ok := contentMap["tool_name"].(string); ok {
+					toolNameStr = v
+				}
+
+				severity := models.CommentSeverity(strings.ToLower(strings.TrimSpace(sevStr)))
+				switch severity {
+				case models.SeverityCritical, models.SeverityWarning, models.SeverityInfo:
+					// valid enum
+				default:
+					severity = models.SeverityWarning
+				}
+
+				filePath := ""
+				if dbC.FilePath != nil {
+					filePath = *dbC.FilePath
+				}
+				lineNum := 0
+				if dbC.LineNumber != nil {
+					lineNum = *dbC.LineNumber
+				}
+
+				rc := &models.ReviewComment{
+					FilePath:    filePath,
+					Line:        lineNum,
+					Content:     cStr,
+					Severity:    severity,
+					Category:    catStr,
+					Subcategory: subCatStr,
+					Confidence:  confStr,
+					Type:        typeStr,
+					Source:      srcStr,
+					ToolName:    toolNameStr,
+				}
+				result.Comments = append(result.Comments, rc)
+			}
+		}
 	}
 
 	files := buildDiffFiles(preloaded, result.Comments)
@@ -775,7 +862,7 @@ func filterCommentsForFile(filePath string, hunks []models.DiffHunk, comments []
 		if !lineWithinHunks(comment.Line, hunks) {
 			log.Printf("[WARN] comment line %d is out of range for file %s", comment.Line, filePath)
 		}
-		matched = append(matched, map[string]interface{}{
+		item := map[string]interface{}{
 			"line":        comment.Line,
 			"content":     comment.Content,
 			"severity":    string(comment.Severity),
@@ -783,7 +870,14 @@ func filterCommentsForFile(filePath string, hunks []models.DiffHunk, comments []
 			"type":        comment.Type,
 			"category":    comment.Category,
 			"subcategory": comment.Subcategory,
-		})
+		}
+		if comment.Source != "" {
+			item["source"] = comment.Source
+		}
+		if comment.ToolName != "" {
+			item["tool_name"] = comment.ToolName
+		}
+		matched = append(matched, item)
 	}
 	return matched
 }

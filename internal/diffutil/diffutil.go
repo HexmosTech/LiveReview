@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -97,6 +98,7 @@ func ParseDiffZipBase64(encoded string) ([]lib.LocalCodeDiff, lrcconfig.Bundle, 
 // into an lrcconfig.Bundle keyed by path relative to .lrc/, with map keys
 // using "/" separators (via filepath.ToSlash) regardless of host OS.
 func collectLRCBundle(tempDir string) (lrcconfig.Bundle, error) {
+	bundle := lrcconfig.Bundle{Files: map[string][]byte{}}
 	lrcDir := filepath.Join(tempDir, ".lrc")
 	info, err := os.Stat(lrcDir)
 	if err != nil {
@@ -109,7 +111,6 @@ func collectLRCBundle(tempDir string) (lrcconfig.Bundle, error) {
 		return lrcconfig.Bundle{}, nil
 	}
 
-	bundle := lrcconfig.Bundle{Files: map[string][]byte{}}
 	walkErr := filepath.WalkDir(lrcDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -335,4 +336,245 @@ func ParseUnifiedHunks(patch string) []models.DiffHunk {
 	}
 
 	return hunks
+}
+
+// ConvertModelDiffsToLocal converts []*models.CodeDiff to []lib.LocalCodeDiff.
+func ConvertModelDiffsToLocal(diffs []*models.CodeDiff) []lib.LocalCodeDiff {
+	res := make([]lib.LocalCodeDiff, 0, len(diffs))
+	for _, d := range diffs {
+		if d == nil {
+			continue
+		}
+		oldPath := d.OldFilePath
+		if oldPath == "" {
+			oldPath = d.FilePath
+		}
+		newPath := d.FilePath
+		if newPath == "" {
+			newPath = oldPath
+		}
+		hunks := make([]lib.LocalDiffHunk, 0, len(d.Hunks))
+		for _, h := range d.Hunks {
+			localHunk := lib.LocalDiffHunk{
+				OldStartLine: h.OldStartLine,
+				OldLineCount: h.OldLineCount,
+				NewStartLine: h.NewStartLine,
+				NewLineCount: h.NewLineCount,
+			}
+			content := strings.TrimSuffix(h.Content, "\n")
+			if content == "" {
+				continue
+			}
+			lines := strings.Split(content, "\n")
+			for _, line := range lines {
+				if strings.HasPrefix(line, "@@") {
+					localHunk.HeaderText = strings.TrimSpace(line)
+					continue
+				}
+				lineType := "context"
+				contentStr := ""
+				if len(line) > 0 {
+					switch line[0] {
+					case '+':
+						lineType = "added"
+						contentStr = line[1:]
+					case '-':
+						lineType = "deleted"
+						contentStr = line[1:]
+					case ' ':
+						contentStr = line[1:]
+					default:
+						// Preserve context line even if leading space was omitted
+						contentStr = line
+					}
+				}
+				localHunk.Lines = append(localHunk.Lines, lib.LocalDiffLine{
+					Content:  contentStr,
+					LineType: lineType,
+				})
+			}
+			hunks = append(hunks, localHunk)
+		}
+		res = append(res, lib.LocalCodeDiff{
+			OldPath: oldPath,
+			NewPath: newPath,
+			Hunks:   hunks,
+		})
+	}
+	return res
+}
+
+// BuildUnifiedDiffFromModelDiffs formats []*models.CodeDiff into a git unified diff string.
+func BuildUnifiedDiffFromModelDiffs(diffs []*models.CodeDiff) string {
+	var buf strings.Builder
+	for _, d := range diffs {
+		if d == nil {
+			continue
+		}
+		oldPath := d.OldFilePath
+		if oldPath == "" {
+			oldPath = d.FilePath
+		}
+		newPath := d.FilePath
+		if newPath == "" {
+			newPath = oldPath
+		}
+		if oldPath == "" && newPath == "" {
+			continue
+		}
+		buf.WriteString(fmt.Sprintf("diff --git a/%s b/%s\n", oldPath, newPath))
+		if d.IsNew {
+			buf.WriteString("new file mode 100644\n")
+			buf.WriteString("--- /dev/null\n")
+			buf.WriteString(fmt.Sprintf("+++ b/%s\n", newPath))
+		} else if d.IsDeleted {
+			buf.WriteString("deleted file mode 100644\n")
+			buf.WriteString(fmt.Sprintf("--- a/%s\n", oldPath))
+			buf.WriteString("+++ /dev/null\n")
+		} else {
+			buf.WriteString(fmt.Sprintf("--- a/%s\n", oldPath))
+			buf.WriteString(fmt.Sprintf("+++ b/%s\n", newPath))
+		}
+		for _, hunk := range d.Hunks {
+			if hunk.Content == "" {
+				continue
+			}
+			trimmedLeft := strings.TrimLeft(hunk.Content, " \t\r\n")
+			if !strings.HasPrefix(trimmedLeft, "@@") {
+				buf.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@\n", hunk.OldStartLine, hunk.OldLineCount, hunk.NewStartLine, hunk.NewLineCount))
+				buf.WriteString(hunk.Content)
+			} else {
+				buf.WriteString(trimmedLeft)
+			}
+			if !strings.HasSuffix(hunk.Content, "\n") {
+				buf.WriteByte('\n')
+			}
+		}
+	}
+	return buf.String()
+}
+
+const (
+	maxZipPackageFileBytes  = 25 << 20  // 25 MiB max per file when packaging zip
+	maxZipPackageTotalBytes = 200 << 20 // 200 MiB max total payload across files
+)
+
+// PackageModelDiffsToZipBase64WithExtras creates a base64-encoded zip archive containing
+// diff.txt, the changed files, and any optional extra files (e.g. .lrc tree).
+// Bounds are enforced for memory safety.
+func PackageModelDiffsToZipBase64WithExtras(diffs []*models.CodeDiff, extras map[string][]byte) (string, error) {
+	if len(diffs) == 0 && len(extras) == 0 {
+		return "", nil
+	}
+
+	buf := new(bytes.Buffer)
+	zw := zip.NewWriter(buf)
+
+	// 1. Write diff.txt first so extractZip sees it as the primary diff file
+	unifiedDiff := BuildUnifiedDiffFromModelDiffs(diffs)
+	diffWriter, err := zw.Create("diff.txt")
+	if err != nil {
+		return "", fmt.Errorf("failed to create diff.txt entry: %w", err)
+	}
+	if _, err := diffWriter.Write([]byte(unifiedDiff)); err != nil {
+		return "", fmt.Errorf("failed to write diff.txt: %w", err)
+	}
+
+	var totalBytes int64 = int64(len(unifiedDiff))
+
+	// 2. Write each changed file content (if not deleted)
+	for _, d := range diffs {
+		if d == nil || d.IsDeleted {
+			continue
+		}
+		filePath := d.FilePath
+		if filePath == "" {
+			continue
+		}
+		cleaned := filepath.Clean(filePath)
+		if strings.HasPrefix(cleaned, "..") || filepath.IsAbs(cleaned) {
+			continue // skip unsafe paths
+		}
+
+		var fileContent []byte
+		if d.NewContent != "" {
+			fileContent = []byte(d.NewContent)
+		} else {
+			var fileBuf strings.Builder
+			for _, h := range d.Hunks {
+				lines := strings.Split(h.Content, "\n")
+				for _, l := range lines {
+					if strings.HasPrefix(l, "@@") {
+						continue
+					}
+					if len(l) > 0 && (l[0] == '+' || l[0] == ' ') {
+						fileBuf.WriteString(l[1:])
+						fileBuf.WriteByte('\n')
+					}
+				}
+			}
+			fileContent = []byte(fileBuf.String())
+		}
+
+		if int64(len(fileContent)) > maxZipPackageFileBytes {
+			fileContent = fileContent[:maxZipPackageFileBytes]
+		}
+		if totalBytes+int64(len(fileContent)) > maxZipPackageTotalBytes {
+			log.Printf("[WARN] diffutil: total packaged size exceeds limit of %d bytes, skipping remaining files starting at %s", maxZipPackageTotalBytes, cleaned)
+			break // memory safety limit reached
+		}
+		totalBytes += int64(len(fileContent))
+
+		fw, err := zw.Create(filepath.ToSlash(cleaned))
+		if err != nil {
+			log.Printf("[WARN] diffutil: failed to create zip entry for %s: %v", cleaned, err)
+			continue
+		}
+		if _, err := fw.Write(fileContent); err != nil {
+			log.Printf("[WARN] diffutil: failed to write zip entry for %s: %v", cleaned, err)
+			continue
+		}
+	}
+
+	// 3. Write any extras (e.g. .lrc/ configs)
+	if extras != nil {
+		extraNames := make([]string, 0, len(extras))
+		for name := range extras {
+			extraNames = append(extraNames, name)
+		}
+		sort.Strings(extraNames)
+		for _, name := range extraNames {
+			cleaned := filepath.Clean(name)
+			if strings.HasPrefix(cleaned, "..") || filepath.IsAbs(cleaned) {
+				continue
+			}
+			data := extras[name]
+			if totalBytes+int64(len(data)) > maxZipPackageTotalBytes {
+				log.Printf("[WARN] diffutil: total packaged size exceeds limit of %d bytes, skipping extra file %s", maxZipPackageTotalBytes, cleaned)
+				break
+			}
+			totalBytes += int64(len(data))
+
+			ew, err := zw.Create(filepath.ToSlash(cleaned))
+			if err != nil {
+				log.Printf("[WARN] diffutil: failed to create extra zip entry for %s: %v", cleaned, err)
+				continue
+			}
+			if _, err := ew.Write(data); err != nil {
+				log.Printf("[WARN] diffutil: failed to write extra zip entry for %s: %v", cleaned, err)
+				continue
+			}
+		}
+	}
+
+	if err := zw.Close(); err != nil {
+		return "", fmt.Errorf("failed to close zip writer: %w", err)
+	}
+
+	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+}
+
+// PackageModelDiffsToZipBase64 creates a base64-encoded zip archive from []*models.CodeDiff.
+func PackageModelDiffsToZipBase64(diffs []*models.CodeDiff) (string, error) {
+	return PackageModelDiffsToZipBase64WithExtras(diffs, nil)
 }

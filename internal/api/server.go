@@ -1457,6 +1457,10 @@ func (s *Server) setupRoutes() {
 		ResourceType: "audit", Sensitive: true,
 	}, s.RunAuditMaintenance)
 
+	// Super admin tools catalog endpoints (called by lr-tools deployer after Lambda deployment)
+	adminGroup.POST("/tools", s.UpsertAvailableTool)
+	adminGroup.GET("/tools", s.ListAvailableTools)
+
 	// Instance-wide config (SMTP, blob storage, production URL): self-hosted org
 	// owners may also manage it, but in cloud mode this config is shared across
 	// every tenant, so it stays super-admin-only there.
@@ -1557,6 +1561,10 @@ func (s *Server) setupRoutes() {
 	orgGroup.GET("/audit-events/export", s.ExportAuditEvents)
 	orgGroup.GET("/audit-events/archive", s.DownloadAuditArchive)
 	orgGroup.GET("/audit-events/:id", s.GetAuditEvent)
+
+	// Third-party tools endpoints within org context
+	orgGroup.GET("/tools", s.ListOrgTools)
+	orgGroup.PUT("/tools/:tool_id", s.UpdateOrgTool)
 
 	// Organization creation - available to all authenticated users
 	protectedOrgsGroup.POST("/organizations", s.orgHandlers.CreateOrganization)

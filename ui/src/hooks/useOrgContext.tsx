@@ -134,7 +134,8 @@ export const useOrgContext = () => {
         // Computed values
         hasOrganizations: userOrganizations.length > 0,
         canCreateOrgs: isSuperAdmin,
-                canManageCurrentOrg: currentOrg?.role === 'owner' || isSuperAdmin,
-        isFreePlan: currentOrg?.plan_type === 'free_30k',
+        canManageCurrentOrg: currentOrg?.role === 'owner' || isSuperAdmin,
+        isFreePlan: !currentOrg?.plan_type || currentOrg?.plan_type === 'free' || currentOrg?.plan_type === 'free_30k',
+        isPaidPlan: Boolean(currentOrg?.plan_type && currentOrg.plan_type !== 'free' && currentOrg.plan_type !== 'free_30k'),
     };
 };
