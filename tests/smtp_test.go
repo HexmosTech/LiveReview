@@ -2,6 +2,8 @@ package livereview
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/base64"
 	"fmt"
 	"net"
 	"strconv"
@@ -23,8 +25,6 @@ func TestSendInvitationEmailSMTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get port: %v", err)
 	}
-
-
 
 	errChan := make(chan error, 1)
 	receivedMsgChan := make(chan string, 1)
@@ -142,5 +142,44 @@ func TestSendInvitationEmailSMTP(t *testing.T) {
 	}
 	if !strings.Contains(receivedMsg, "curl install") {
 		t.Errorf("expected email to contain Linux command, got: %s", receivedMsg)
+	}
+
+	if !strings.Contains(receivedMsg, "multipart/related") {
+		t.Errorf("expected message to use multipart/related, got: %s", receivedMsg)
+	}
+	if !strings.Contains(receivedMsg, "multipart/alternative") {
+		t.Errorf("expected nested multipart/alternative, got: %s", receivedMsg)
+	}
+	if !strings.Contains(receivedMsg, "Content-Type: text/plain") {
+		t.Errorf("expected plain-text section, got: %s", receivedMsg)
+	}
+	if !strings.Contains(receivedMsg, "Content-Type: text/html") {
+		t.Errorf("expected HTML section, got: %s", receivedMsg)
+	}
+	if !strings.Contains(receivedMsg, "Content-Type: image/png") {
+		t.Errorf("expected an image/png part, got: %s", receivedMsg)
+	}
+	if !strings.Contains(receivedMsg, "Content-ID: <livereview-logo>") {
+		t.Errorf("expected logo Content-ID, got: %s", receivedMsg)
+	}
+
+	// The CID part must decode to a real PNG so clients can render it.
+	cidStart := strings.Index(receivedMsg, "Content-ID: <livereview-logo>")
+	if cidStart == -1 {
+		t.Fatalf("logo part not found in message")
+	}
+	part := receivedMsg[cidStart:]
+	bodyOffset := strings.Index(part, "\r\n\r\n")
+	partEnd := strings.Index(part[bodyOffset+4:], "\r\n--")
+	if bodyOffset == -1 || partEnd == -1 {
+		t.Fatalf("could not locate logo part body")
+	}
+	encodedLogo := strings.ReplaceAll(part[bodyOffset+4:bodyOffset+4+partEnd], "\r\n", "")
+	decodedLogo, err := base64.StdEncoding.DecodeString(encodedLogo)
+	if err != nil {
+		t.Fatalf("failed to decode logo attachment: %v", err)
+	}
+	if !bytes.HasPrefix(decodedLogo, []byte{0x89, 'P', 'N', 'G'}) {
+		t.Errorf("logo attachment is not a valid PNG")
 	}
 }
