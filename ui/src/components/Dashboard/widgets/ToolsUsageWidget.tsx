@@ -1,6 +1,8 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../../UIPrimitives';
+import { useOrgContext } from '../../../hooks/useOrgContext';
+import { isCloudMode } from '../../../utils/deploymentMode';
 
 const MOCK_TOOLS_LIST = [
   { name: 'ruff', useCase: 'Python lint/format', multiplier: 1.0, status: 'enabled', findings: 0 },
@@ -22,6 +24,11 @@ const MOCK_TOOLS_LIST = [
 
 export const ToolsUsageWidget: React.FC = () => {
     const navigate = useNavigate();
+    const { isPaidPlan } = useOrgContext();
+
+    if (!isCloudMode() || !isPaidPlan) {
+        return null;
+    }
 
     return (
         <div className="h-full flex flex-col justify-between text-xs">

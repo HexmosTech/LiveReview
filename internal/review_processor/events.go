@@ -714,12 +714,14 @@ func (r *ReviewEventsRepo) GetToolSummary(ctx context.Context, reviewID, orgID i
 		Message string `json:"message"`
 	}
 	type toolResultData struct {
-		ToolID      int64         `json:"tool_id"`
-		ToolName    string        `json:"tool_name"`
-		ExitCode    int           `json:"exit_code"`
-		Findings    []toolFinding `json:"findings"`
-		LinesOfCode int           `json:"lines_of_code"`
-		Stderr      string        `json:"stderr"`
+		ToolID        int64         `json:"tool_id"`
+		ToolName      string        `json:"tool_name"`
+		ExitCode      int           `json:"exit_code"`
+		Findings      []toolFinding `json:"findings"`
+		LinesOfCode   int           `json:"lines_of_code"`
+		Stderr        string        `json:"stderr"`
+		Truncated     bool          `json:"truncated,omitempty"`
+		FailureReason string        `json:"failure_reason,omitempty"`
 	}
 
 	dispatchedMap := make(map[string]time.Time)
@@ -782,10 +784,16 @@ func (r *ReviewEventsRepo) GetToolSummary(ctx context.Context, reviewID, orgID i
 			item.CommentsGenerated = commentCount
 			totalComments += commentCount
 
-			if res.ExitCode != 0 {
+			if commentCount > 0 {
+				if res.Truncated {
+					item.Status = "partial"
+				} else {
+					item.Status = "completed"
+				}
+			} else if res.Truncated {
+				item.Status = "partial"
+			} else if res.ExitCode != 0 {
 				item.Status = "failed"
-			} else if commentCount > 0 {
-				item.Status = "completed"
 			} else {
 				item.Status = "clean"
 			}

@@ -91,6 +91,9 @@ func (s *Server) DiffReview(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "invalid request body")
 	}
+	if req.ToolsOnly && !s.deploymentConfig.IsCloud {
+		return JSONErrorWithEnvelope(c, http.StatusForbidden, "Third-party tools are only available in cloud mode")
+	}
 	if strings.TrimSpace(req.DiffZipBase64) == "" {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "diff_zip_base64 is required")
 	}

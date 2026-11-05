@@ -140,6 +140,7 @@ interface IssueFilterBarProps {
   onToggleType: (value: string) => void;
   onToggleCategory: (value: string, childSubcategories: string[]) => void;
   onToggleSubcategory: (value: string) => void;
+  onToggleTool: (value: string) => void;
   onReset: () => void;
   onCopyVisibleIssues: () => void;
   copyStatus: 'idle' | 'copied';
@@ -147,7 +148,7 @@ interface IssueFilterBarProps {
 
 const IssueFilterBar: React.FC<IssueFilterBarProps> = ({
   reviewId, filters, facets, onToggleSeverity, onToggleConfidence, onToggleType,
-  onToggleCategory, onToggleSubcategory, onReset, onCopyVisibleIssues, copyStatus,
+  onToggleCategory, onToggleSubcategory, onToggleTool, onReset, onCopyVisibleIssues, copyStatus,
 }) => {
   const [isPinnedOpen, setIsPinnedOpen] = useState(false);
   if (facets.total === 0) return null;
@@ -274,6 +275,9 @@ const IssueFilterBar: React.FC<IssueFilterBarProps> = ({
           </div>
         </div>
         <div className="grid gap-3">
+          {facets.tools.length > 0 && (
+            <FacetSection title="Tool" options={facets.tools} onToggle={onToggleTool} />
+          )}
           <FacetSection title="Confidence" options={facets.confidences} onToggle={onToggleConfidence} />
           <FacetSection title="Type" options={facets.types} onToggle={onToggleType} />
           <CategoryTree groups={facets.categoryGroups} onToggleCategory={onToggleCategory} onToggleSubcategory={onToggleSubcategory} />

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/livereview/cmd/mrmodel/lib"
+	apimiddleware "github.com/livereview/internal/api/middleware"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/lrcconfig"
@@ -30,8 +31,17 @@ type ToolDispatchParams struct {
 // deducts credits, logs dispatch events, enqueues ToolReviewJob for each tool,
 // and records tools_dispatched in review metadata.
 func (jq *JobQueue) DispatchTools(ctx context.Context, p ToolDispatchParams) (int, error) {
+	if !apimiddleware.IsCloudMode() {
+		return 0, nil
+	}
+
 	if jq == nil || jq.db == nil {
 		return 0, fmt.Errorf("database connection not available on JobQueue")
+	}
+
+	planCode := license.PlanType(p.PlanCode)
+	if !license.IsToolsEligible(planCode) {
+		return 0, nil
 	}
 
 	logMsg := func(format string, v ...interface{}) {
@@ -58,26 +68,6 @@ func (jq *JobQueue) DispatchTools(ctx context.Context, p ToolDispatchParams) (in
 		}
 	}
 
-	existingMap := make(map[string]bool)
-	for _, t := range enabledTools {
-		existingMap[strings.ToLower(t.Name)] = true
-	}
-
-	for toolName, cfg := range toolRuleConfigs {
-		if cfg != nil && cfg.Enabled != nil && *cfg.Enabled && !existingMap[toolName] {
-			t, err := toolsStore.GetAvailableToolByName(ctx, toolName)
-			if err != nil {
-				logMsg("[WARN] Failed to lookup available tool %q: %v", toolName, err)
-				continue
-			}
-			if t != nil {
-				enabledTools = append(enabledTools, *t)
-				existingMap[toolName] = true
-				logMsg("Repo-level config (.lrc/policy/tools.toml) enabled tool %q", t.Name)
-			}
-		}
-	}
-
 	var filteredTools []storagetools.AvailableTool
 	for _, t := range enabledTools {
 		toolNameLower := strings.ToLower(t.Name)
@@ -95,18 +85,16 @@ func (jq *JobQueue) DispatchTools(ctx context.Context, p ToolDispatchParams) (in
 		return 0, nil
 	}
 
-	var totalMultiplier float64
+	breakdown := make([]storagetools.ToolCharge, 0, len(enabledTools))
 	for _, t := range enabledTools {
-		totalMultiplier += t.Multiplier
-	}
-
-	planCode := license.PlanType(p.PlanCode)
-	if planCode == "" {
-		planCode = license.PlanFree30K
+		breakdown = append(breakdown, storagetools.ToolCharge{
+			ToolName:   t.Name,
+			Multiplier: t.Multiplier,
+		})
 	}
 
 	creditStore := storagetools.NewCreditStore(jq.db)
-	if err := creditStore.DeductCredits(ctx, p.OrgID, p.ReviewID, totalMultiplier, planCode); err != nil {
+	if err := creditStore.DeductCredits(ctx, p.OrgID, p.ReviewID, breakdown, planCode); err != nil {
 		logMsg("[WARN] Failed to deduct tool credits for review %d: %v. Proceeding with AI review only.", p.ReviewID, err)
 		if p.EventSink != nil {
 			_ = p.EventSink.EmitLogEvent(ctx, p.ReviewID, p.OrgID, "warn", fmt.Sprintf("Static analysis skipped due to credit deduction failure: %v", err), "")

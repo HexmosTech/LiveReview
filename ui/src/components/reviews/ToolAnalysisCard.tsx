@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Icons } from '../UIPrimitives';
 
 export interface ToolBreakdownItem {
   toolName: string;
   creditsUsed: number;
   commentsGenerated: number;
-  status: 'pending' | 'running' | 'clean' | 'completed' | 'failed' | string;
+  status: 'pending' | 'running' | 'clean' | 'completed' | 'failed' | 'partial' | string;
 }
 
 export interface ToolAccountingData {
@@ -24,14 +23,19 @@ interface ToolAnalysisCardProps {
   hideSummary?: boolean;
 }
 
-export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({ data, embedded = false, isExpanded, onToggle, hideSummary = false }) => {
+export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({
+  data,
+  embedded = false,
+  isExpanded,
+  onToggle,
+  hideSummary = false,
+}) => {
   const [internalExpanded, setInternalExpanded] = useState(false);
   // Use controlled expanded if provided, otherwise use internal state
   const expanded = isExpanded !== undefined ? isExpanded : internalExpanded;
   const setExpanded = onToggle !== undefined ? () => onToggle() : setInternalExpanded;
   const [sortBy, setSortBy] = useState<'status' | 'name' | 'credits'>('status');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'findings' | 'clean' | 'running' | 'queued' | 'failed'>('all');
-  const [filterOpen, setFilterOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'findings' | 'partial' | 'clean' | 'running' | 'queued' | 'failed'>('all');
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 8;
 
@@ -44,10 +48,20 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({ data, embedd
   const isQueued = queuedTools.length > 0 && activeRunningTools.length === 0;
   const hasFindings = data.totalCommentsGenerated > 0;
   const hasFailures = data.toolBreakdown.some((item) => item.status === 'failed');
+  const hasPartial = data.toolBreakdown.some((item) => item.status === 'partial');
 
   // Count tools by status for filter tabs
   const findingsCount = data.toolBreakdown.filter((t) => t.commentsGenerated > 0).length;
-  const cleanCount = data.toolBreakdown.filter((t) => t.commentsGenerated === 0 && t.status !== 'failed' && t.status !== 'running' && t.status !== 'pending').length;
+  const partialCount = data.toolBreakdown.filter((t) => t.status === 'partial').length;
+  const cleanCount = data.toolBreakdown.filter(
+    (t) =>
+      t.status === 'clean' ||
+      (t.commentsGenerated === 0 &&
+        t.status !== 'failed' &&
+        t.status !== 'running' &&
+        t.status !== 'pending' &&
+        t.status !== 'partial')
+  ).length;
   const activeRunningCount = activeRunningTools.length;
   const queuedCount = queuedTools.length;
   const failedCount = data.toolBreakdown.filter((t) => t.status === 'failed').length;
@@ -55,7 +69,17 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({ data, embedd
   // Filter items
   const filteredTools = data.toolBreakdown.filter((t) => {
     if (statusFilter === 'findings') return t.commentsGenerated > 0;
-    if (statusFilter === 'clean') return t.commentsGenerated === 0 && t.status !== 'failed' && t.status !== 'running' && t.status !== 'pending';
+    if (statusFilter === 'partial') return t.status === 'partial';
+    if (statusFilter === 'clean') {
+      return (
+        t.status === 'clean' ||
+        (t.commentsGenerated === 0 &&
+          t.status !== 'failed' &&
+          t.status !== 'running' &&
+          t.status !== 'pending' &&
+          t.status !== 'partial')
+      );
+    }
     if (statusFilter === 'running') return t.status === 'running';
     if (statusFilter === 'queued') return t.status === 'pending';
     if (statusFilter === 'failed') return t.status === 'failed';
@@ -68,15 +92,16 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({ data, embedd
       return a.toolName.localeCompare(b.toolName);
     }
     if (sortBy === 'credits') {
-      return b.creditsUsed - a.creditsUsed;
+      return (b.creditsUsed ?? 0) - (a.creditsUsed ?? 0);
     }
-    // Default: Sort by Status priority (Findings > Failed > Running > Pending > Clean)
+    // Default: Sort by Status priority (Findings > Failed > Partial > Running > Pending > Clean)
     const getPriority = (item: ToolBreakdownItem) => {
       if (item.commentsGenerated > 0) return 1;
       if (item.status === 'failed') return 2;
-      if (item.status === 'running') return 3;
-      if (item.status === 'pending') return 4;
-      return 5;
+      if (item.status === 'partial') return 3;
+      if (item.status === 'running') return 4;
+      if (item.status === 'pending') return 5;
+      return 6;
     };
     return getPriority(a) - getPriority(b);
   });
@@ -86,10 +111,13 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({ data, embedd
   const pagedTools = sortedTools.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
 
   return (
-    <div className={`w-full ${embedded
-      ? ''
-      : 'bg-slate-900/90 border border-slate-700/80 rounded-xl p-4 shadow-xl text-xs overflow-hidden transition-all duration-200'
-    }`}>
+    <div
+      className={`w-full ${
+        embedded
+          ? ''
+          : 'bg-slate-900/90 border border-slate-700/80 rounded-xl p-4 shadow-xl text-xs overflow-hidden transition-all duration-200'
+      }`}
+    >
       {/* Summary Bar */}
       {!hideSummary && (
         <div className="flex flex-wrap items-center justify-between gap-3 select-none">
@@ -108,7 +136,13 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({ data, embedd
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-            ) : hasFindings ? (
+            ) : hasFailures ? (
+              <div className="p-1.5 rounded-lg bg-red-950/60 border border-red-800/60">
+                <svg className="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+            ) : hasFindings || hasPartial ? (
               <div className="p-1.5 rounded-lg bg-amber-950/60 border border-amber-800/60">
                 <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -138,14 +172,24 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({ data, embedd
                     Queued (0/{totalTools})
                   </span>
                 ) : (
-                  <span className={`font-mono text-[11px] px-2 py-0.5 rounded border font-semibold ${
-                    hasFailures
-                      ? 'bg-red-950/60 text-red-300 border-red-800/60'
-                      : hasFindings
-                      ? 'bg-amber-950/60 text-amber-300 border-amber-800/60'
-                      : 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60'
-                  }`}>
-                    {hasFindings ? `${data.totalCommentsGenerated} Findings Flagged` : 'All Clean'}
+                  <span
+                    className={`font-mono text-[11px] px-2 py-0.5 rounded border font-semibold ${
+                      hasFailures
+                        ? 'bg-red-950/60 text-red-300 border-red-800/60'
+                        : hasFindings
+                        ? 'bg-amber-950/60 text-amber-300 border-amber-800/60'
+                        : hasPartial
+                        ? 'bg-amber-950/60 text-amber-300 border-amber-800/60'
+                        : 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60'
+                    }`}
+                  >
+                    {hasFindings
+                      ? `${data.totalCommentsGenerated} ${data.totalCommentsGenerated === 1 ? 'Finding' : 'Findings'} Flagged${hasPartial ? ' (Partial)' : ''}`
+                      : hasFailures
+                      ? 'Tools Failed'
+                      : hasPartial
+                      ? 'Diff Capped at Limits (Partial)'
+                      : 'All Clean'}
                   </span>
                 )}
               </div>
@@ -155,11 +199,20 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({ data, embedd
           {/* Dynamic Metric Summary */}
           <div className="flex items-center gap-4 text-xs font-mono">
             <div className="hidden sm:flex items-center gap-3 text-slate-300">
-              <span><strong className="text-white">{totalTools}</strong> Tools</span>
+              <span>
+                <strong className="text-white">{totalTools}</strong> {totalTools === 1 ? 'Tool' : 'Tools'}
+              </span>
               <span className="text-slate-600">•</span>
-              <span><strong className={hasFindings ? 'text-amber-400' : 'text-slate-300'}>{data.totalCommentsGenerated}</strong> Findings</span>
+              <span>
+                <strong className={hasFindings ? 'text-amber-400' : 'text-slate-300'}>
+                  {data.totalCommentsGenerated}
+                </strong>{' '}
+                {data.totalCommentsGenerated === 1 ? 'Finding' : 'Findings'}
+              </span>
               <span className="text-slate-600">•</span>
-              <span className="text-slate-300"><strong className="text-slate-200">{data.totalToolCredits.toFixed(1)}</strong> cr</span>
+              <span className="text-slate-300">
+                <strong className="text-slate-200">{(data.totalToolCredits ?? 0).toFixed(1)}</strong> cr
+              </span>
             </div>
           </div>
         </div>
@@ -204,6 +257,20 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({ data, embedd
                     }`}
                   >
                     Findings ({findingsCount})
+                  </button>
+                )}
+
+                {partialCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('partial')}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                      statusFilter === 'partial'
+                        ? 'bg-amber-950 text-amber-300 font-semibold border border-amber-700/60'
+                        : 'bg-slate-800/80 text-amber-400/80 border border-slate-700 hover:text-amber-300'
+                    }`}
+                  >
+                    Partial ({partialCount})
                   </button>
                 )}
 
@@ -324,7 +391,7 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({ data, embedd
                 return (
                   <div className="py-6 px-4 text-center rounded-lg bg-slate-800/40 border border-slate-700/50 my-1">
                     <p className="text-slate-300 text-xs font-medium">
-                      No issues found from static analysis tools matching filter "{statusFilter}".
+                      No tools matching filter "{statusFilter}".
                     </p>
                     <button
                       type="button"
@@ -339,92 +406,153 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({ data, embedd
 
               return (
                 <>
-                <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
-                  {pagedTools.map((item) => {
-                    const isProblem = item.commentsGenerated > 0 || item.status === 'failed';
-                    const isClean = item.commentsGenerated === 0 && item.status !== 'failed' && item.status !== 'running' && item.status !== 'pending';
-                    const isToolRunning = item.status === 'running';
-                    const isToolPending = item.status === 'pending';
+                  <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
+                    {pagedTools.map((item) => {
+                      const isToolRunning = item.status === 'running';
+                      const isToolPending = item.status === 'pending';
+                      const isToolFailed = item.status === 'failed';
+                      const isToolPartial = item.status === 'partial';
+                      const hasToolFindings = item.commentsGenerated > 0;
+                      const isClean =
+                        item.commentsGenerated === 0 &&
+                        !isToolFailed &&
+                        !isToolRunning &&
+                        !isToolPending &&
+                        !isToolPartial;
+                      const isClickable = hasToolFindings || isToolFailed;
 
-                    return (
-                      <motion.div
-                        layout
-                        key={item.toolName}
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.95 }}
-                        transition={{ duration: 0.15 }}
-                        onClick={() => handleToolClick(item)}
-                        title={isProblem ? `Click to view ${item.toolName} findings` : undefined}
-                        className={`rounded-lg p-3 flex items-center justify-between transition-all ${
-                          isProblem
-                            ? 'bg-slate-800/90 border border-amber-600/60 shadow-md shadow-amber-950/20 cursor-pointer hover:border-amber-500 hover:scale-[1.01]'
-                            : 'bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50'
-                        }`}
+                      const formattedCredits = `${(item.creditsUsed ?? 0).toFixed(1)} cr`;
+                      const formattedFindings = hasToolFindings
+                        ? `${item.commentsGenerated} ${item.commentsGenerated === 1 ? 'finding' : 'findings'}`
+                        : null;
+
+                      return (
+                        <motion.div
+                          layout
+                          key={item.toolName}
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.95 }}
+                          transition={{ duration: 0.15 }}
+                          onClick={isClickable ? () => handleToolClick(item) : undefined}
+                          title={
+                            isToolPartial
+                              ? `Diff was truncated/capped at limits${formattedFindings ? ` • ${formattedFindings}` : ''}`
+                              : isToolFailed
+                              ? `${item.toolName} failed during execution`
+                              : hasToolFindings
+                              ? `Click to view ${formattedFindings} from ${item.toolName}`
+                              : `${item.toolName} • ${isClean ? 'Clean (0 findings)' : item.status}`
+                          }
+                          className={`rounded-lg p-3 flex items-center justify-between transition-all ${
+                            isToolFailed
+                              ? 'bg-slate-800/90 border border-red-700/60 shadow-md shadow-red-950/20 cursor-pointer hover:border-red-500 hover:scale-[1.01]'
+                              : isToolPartial
+                              ? `bg-slate-800/90 border border-amber-600/60 shadow-md shadow-amber-950/20 ${
+                                  isClickable ? 'cursor-pointer hover:border-amber-500 hover:scale-[1.01]' : ''
+                                }`
+                              : hasToolFindings
+                              ? 'bg-slate-800/90 border border-amber-600/60 shadow-md shadow-amber-950/20 cursor-pointer hover:border-amber-500 hover:scale-[1.01]'
+                              : 'bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50'
+                          }`}
+                        >
+                          <div className="min-w-0 pr-2">
+                            <p
+                              className={`font-mono font-bold text-xs truncate ${
+                                isToolFailed
+                                  ? 'text-red-200'
+                                  : isToolPartial || hasToolFindings
+                                  ? 'text-amber-200'
+                                  : 'text-white'
+                              }`}
+                            >
+                              {item.toolName}
+                            </p>
+                            <div className="flex items-center gap-1.5 mt-0.5 text-slate-400 font-mono text-[11px]">
+                              <span>{formattedCredits}</span>
+                              {formattedFindings && (
+                                <>
+                                  <span className="text-slate-600">•</span>
+                                  <span className="text-amber-400/90 font-medium truncate">
+                                    {formattedFindings}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Per-Tool State Badge */}
+                          <div className="shrink-0">
+                            {isToolRunning ? (
+                              <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-md bg-blue-950/50 text-blue-300 border border-blue-700/60 animate-pulse">
+                                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Running
+                              </span>
+                            ) : isToolPending ? (
+                              <span className="text-xs font-mono px-2.5 py-1 rounded-md bg-slate-800 text-slate-400 border border-slate-700">
+                                Queued
+                              </span>
+                            ) : isToolFailed ? (
+                              <span className="text-xs font-mono px-2.5 py-1 rounded-md border text-center font-semibold bg-red-950 text-red-300 border-red-800/80">
+                                Failed
+                              </span>
+                            ) : isToolPartial ? (
+                              <span
+                                className="text-xs font-mono px-2.5 py-1 rounded-md border text-center font-semibold flex items-center gap-1 bg-amber-950 text-amber-300 border-amber-700/80 shadow-sm"
+                                title="Diff was truncated/capped at limits"
+                              >
+                                <span>⚠️</span>
+                                <span>Partial</span>
+                              </span>
+                            ) : isClean ? (
+                              <span className="text-xs font-mono px-2.5 py-1 rounded-md border text-center font-normal bg-slate-800/80 text-slate-400 border-slate-700">
+                                Clean
+                              </span>
+                            ) : (
+                              <span className="text-xs font-mono px-2.5 py-1 rounded-md border text-center font-semibold flex items-center gap-1 bg-amber-950 text-amber-300 border-amber-700/80 shadow-sm hover:bg-amber-900">
+                                ⚠️ {formattedFindings}
+                              </span>
+                            )}
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </motion.div>
+
+                  {/* Pagination controls */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-700/40">
+                      <button
+                        type="button"
+                        onClick={() => setPage((p) => Math.max(0, p - 1))}
+                        disabled={safePage === 0}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium border border-slate-700 bg-slate-800/60 text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                       >
-                        <div>
-                          <p className={`font-mono font-bold text-xs ${isProblem ? 'text-amber-200' : 'text-white'}`}>{item.toolName}</p>
-                          <p className="text-slate-400 font-mono text-[11px] mt-0.5">{item.creditsUsed.toFixed(1)} cr</p>
-                        </div>
-
-                        {/* Per-Tool State Badge */}
-                        {isToolRunning ? (
-                          <span className="inline-flex items-center gap-1.5 text-xs font-mono px-2.5 py-1 rounded-md bg-blue-950/50 text-blue-300 border border-blue-700/60 animate-pulse">
-                            <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            Running
-                          </span>
-                        ) : isToolPending ? (
-                          <span className="text-xs font-mono px-2.5 py-1 rounded-md bg-slate-800 text-slate-400 border border-slate-700">
-                            Queued
-                          </span>
-                        ) : (
-                          <span
-                            className={`text-xs font-mono px-2.5 py-1 rounded-md border text-center font-semibold flex items-center gap-1 ${
-                              item.status === 'failed'
-                                ? 'bg-red-950 text-red-300 border-red-800/80'
-                                : isClean
-                                ? 'bg-slate-800/80 text-slate-400 border-slate-700 font-normal'
-                                : 'bg-amber-950 text-amber-300 border-amber-700/80 shadow-sm hover:bg-amber-900'
-                            }`}
-                          >
-                            {isClean ? 'Clean' : `⚠️ ${item.commentsGenerated} findings`}
-                          </span>
-                        )}
-                      </motion.div>
-                    );
-                  })}
-                </motion.div>
-
-                {/* Pagination controls */}
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-700/40">
-                    <button
-                      type="button"
-                      onClick={() => setPage(p => Math.max(0, p - 1))}
-                      disabled={safePage === 0}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium border border-slate-700 bg-slate-800/60 text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                      Prev
-                    </button>
-                    <span className="text-[11px] text-slate-500 font-mono">
-                      {safePage + 1} / {totalPages}
-                      <span className="text-slate-700 ml-1">({sortedTools.length} tools)</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-                      disabled={safePage >= totalPages - 1}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium border border-slate-700 bg-slate-800/60 text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    >
-                      Next
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                    </button>
-                  </div>
-                )}
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                        </svg>
+                        Prev
+                      </button>
+                      <span className="text-[11px] text-slate-500 font-mono">
+                        {safePage + 1} / {totalPages}
+                        <span className="text-slate-700 ml-1">({sortedTools.length} tools)</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                        disabled={safePage >= totalPages - 1}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium border border-slate-700 bg-slate-800/60 text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Next
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
                 </>
               );
             })()}
@@ -434,9 +562,3 @@ export const ToolAnalysisCard: React.FC<ToolAnalysisCardProps> = ({ data, embedd
     </div>
   );
 };
-
-
-
-
-
-

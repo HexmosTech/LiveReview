@@ -5,6 +5,7 @@ import { ConnectedProviders } from './ConnectedProviders';
 import { AverageReviewsStat } from './AverageReviewsStat';
 import { TopReviewersLeaderboard } from './TopReviewersLeaderboard';
 import { ToolsUsageWidget } from './ToolsUsageWidget';
+import { isCloudMode } from '../../../utils/deploymentMode';
 
 // The 7 echarts-based widgets are lazy-loaded (not statically imported like the ones above):
 // registry.ts is itself statically imported by DashboardGrid.tsx, which Dashboard.tsx statically
@@ -130,15 +131,19 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
         minW: 4, minH: 6,
         component: ConnectedProviders,
     },
-    {
-        id: 'tools-usage-widget',
-        title: 'Third-Party Static Analysis Tools',
-        category: 'system',
-        description: 'Enabled third-party static analysis security and linting tools.',
-        defaultLayout: { x: 0, y: 91, w: 12, h: 6 },
-        minW: 4, minH: 5,
-        component: ToolsUsageWidget,
-    },
+    ...(isCloudMode()
+        ? [
+            {
+                id: 'tools-usage-widget',
+                title: 'Third-Party Static Analysis Tools',
+                category: 'system' as const,
+                description: 'Enabled third-party static analysis security and linting tools.',
+                defaultLayout: { x: 0, y: 91, w: 12, h: 6 },
+                minW: 4, minH: 5,
+                component: ToolsUsageWidget,
+            },
+        ]
+        : []),
     {
         id: 'coverage-gauge',
         title: 'Review Coverage',

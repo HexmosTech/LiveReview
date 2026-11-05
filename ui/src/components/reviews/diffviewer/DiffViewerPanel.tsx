@@ -42,6 +42,7 @@ import {
   toggleSeverityFilter,
   toggleSubcategoryFilter,
   toggleTypeFilter,
+  toggleToolFilter,
 } from './issueFilters';
 import FileBlock from './FileBlock';
 import Sidebar, { HunkNav } from './Sidebar';
@@ -578,6 +579,7 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
           onToggleType={(v) => setFilters((f) => toggleTypeFilter(f, v))}
           onToggleCategory={(v, children) => setFilters((f) => toggleCategoryFilter(f, v, children))}
           onToggleSubcategory={(v) => setFilters((f) => toggleSubcategoryFilter(f, v))}
+          onToggleTool={(v) => setFilters((f) => toggleToolFilter(f, v))}
           onReset={() => setFilters(createDefaultIssueFilters())}
           onCopyVisibleIssues={copyVisibleIssues}
           copyStatus={copyStatus}

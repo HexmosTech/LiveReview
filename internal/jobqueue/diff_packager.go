@@ -82,15 +82,16 @@ func estimateDeflatedSize(content []byte) int {
 }
 
 // PackageDiffFiles packages files from baseDir into a compressed, base64-encoded zip archive.
+// Returns the base64-encoded zip string, a truncated flag indicating if size limits were hit, and an error if any.
 //
 // In-memory bloat protections:
-//   - Max file size: 1 MiB per file (files larger than 1 MiB are skipped with a debug log).
-//   - Max cumulative zip size: 10 MiB (packaging halts once zip size reaches or exceeds 10 MiB).
+//   - Max file size: 1 MiB per file (files larger than 1 MiB are skipped with a debug log and truncated=true).
+//   - Max cumulative zip size: 10 MiB (packaging halts once zip size reaches or exceeds 10 MiB and truncated=true).
 //   - Binary and unreadable files are skipped gracefully.
 //   - Repository tool configs (.lrc/policy/tools.toml) are included if present in baseDir.
-func PackageDiffFiles(baseDir string, filePaths []string) (string, error) {
+func PackageDiffFiles(baseDir string, filePaths []string) (string, bool, error) {
 	if baseDir == "" {
-		return "", fmt.Errorf("baseDir cannot be empty")
+		return "", false, fmt.Errorf("baseDir cannot be empty")
 	}
 
 	seen := make(map[string]bool)
@@ -122,6 +123,7 @@ func PackageDiffFiles(baseDir string, filePaths []string) (string, error) {
 
 	buf := new(bytes.Buffer)
 	zipWriter := zip.NewWriter(buf)
+	var truncated bool
 
 	for _, relPath := range allPaths {
 		fullPath := filepath.Join(baseDir, filepath.FromSlash(relPath))
@@ -141,6 +143,7 @@ func PackageDiffFiles(baseDir string, filePaths []string) (string, error) {
 		}
 		if info.Size() > MaxPackagedFileSize {
 			log.Printf("[DEBUG] diff_packager: skipping %s: file size %d exceeds 1 MiB limit", relPath, info.Size())
+			truncated = true
 			continue
 		}
 
@@ -159,6 +162,7 @@ func PackageDiffFiles(baseDir string, filePaths []string) (string, error) {
 		estEntrySize := estimateDeflatedSize(content) + len(relPath) + zipEntryOverheadBytes
 		if buf.Len()+estEntrySize > MaxCumulativeZipSize {
 			log.Printf("[WARN] diff_packager: skipping %s: adding %d compressed bytes would exceed cumulative zip limit of 10 MiB (current %d bytes)", relPath, estEntrySize, buf.Len())
+			truncated = true
 			break
 		}
 
@@ -170,16 +174,16 @@ func PackageDiffFiles(baseDir string, filePaths []string) (string, error) {
 
 		w, err := zipWriter.CreateHeader(header)
 		if err != nil {
-			return "", fmt.Errorf("failed to create zip header for %s: %w", relPath, err)
+			return "", false, fmt.Errorf("failed to create zip header for %s: %w", relPath, err)
 		}
 		if _, err := w.Write(content); err != nil {
-			return "", fmt.Errorf("failed to write %s to zip: %w", relPath, err)
+			return "", false, fmt.Errorf("failed to write %s to zip: %w", relPath, err)
 		}
 	}
 
 	if err := zipWriter.Close(); err != nil {
-		return "", fmt.Errorf("failed to finalize zip archive: %w", err)
+		return "", false, fmt.Errorf("failed to finalize zip archive: %w", err)
 	}
 
-	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+	return base64.StdEncoding.EncodeToString(buf.Bytes()), truncated, nil
 }

@@ -647,12 +647,14 @@ export const Navbar: React.FC<NavbarProps> = ({ title, activePage = 'dashboard',
     // Conditionally include test middleware link based on dev mode
     const navLinks = isDevMode ? [...filteredBaseLinks, testNavLink] : filteredBaseLinks;
 
+    const isPaidPlan = Boolean(currentOrg?.plan_type && currentOrg.plan_type !== 'free' && currentOrg.plan_type !== 'free_30k');
     const megaMenuContext: MegaMenuContext = {
         isSuperAdmin,
         hasOrg: Boolean(currentOrg),
         orgRole: currentOrg?.role,
         isDevMode,
         hasGitHubApp,
+        isPaidPlan,
     };
 
     const filteredMegaMenuSections = buildMegaMenuSections()

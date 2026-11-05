@@ -30,6 +30,7 @@ type ToolReviewJobArgs struct {
 	ToolName      string `json:"tool_name"`
 	LambdaARN     string `json:"lambda_arn"`
 	DiffZipBase64 string `json:"diff_zip_base64"`
+	Truncated     bool   `json:"truncated,omitempty"`
 }
 
 func (ToolReviewJobArgs) Kind() string { return "tool_review" }
@@ -106,8 +107,14 @@ func (w *ToolReviewWorker) Work(ctx context.Context, job *river.Job[ToolReviewJo
 		_ = eventSink.EmitLogEvent(cleanupCtx, args.ReviewID, args.OrgID, "error", fmt.Sprintf("Lambda execution for tool %s failed: %v", args.ToolName, invokeErr), "")
 		// Write synthetic failure event
 		toolsStore := storagetools.NewToolsStore(w.db)
-		failJSON := fmt.Sprintf(`{"exit_code": -1, "findings": [], "stderr": %q}`, invokeErr.Error())
-		if insertErr := toolsStore.InsertToolResultEvent(cleanupCtx, args.ReviewID, args.OrgID, args.ToolID, args.ToolName, []byte(failJSON)); insertErr != nil {
+		failData := map[string]interface{}{
+			"exit_code":      -1,
+			"findings":       []interface{}{},
+			"stderr":         invokeErr.Error(),
+			"failure_reason": invokeErr.Error(),
+		}
+		failBytes, _ := json.Marshal(failData)
+		if insertErr := toolsStore.InsertToolResultEvent(cleanupCtx, args.ReviewID, args.OrgID, args.ToolID, args.ToolName, failBytes); insertErr != nil {
 			log.Printf("[ERROR] Failed to insert synthetic tool result event: %v", insertErr)
 		}
 		_ = w.finalizeIfAllDone(cleanupCtx, args)
@@ -119,7 +126,41 @@ func (w *ToolReviewWorker) Work(ctx context.Context, job *river.Job[ToolReviewJo
 
 	// Store raw tool_result event
 	toolsStore := storagetools.NewToolsStore(w.db)
-	if err := toolsStore.InsertToolResultEvent(ctx, args.ReviewID, args.OrgID, args.ToolID, args.ToolName, outBytes); err != nil {
+	resultBytes := outBytes
+	if args.Truncated {
+		var payloadMap map[string]interface{}
+		if err := json.Unmarshal(outBytes, &payloadMap); err == nil && payloadMap != nil {
+			if _, hasFindings := payloadMap["findings"]; !hasFindings {
+				payloadMap["findings"] = []interface{}{}
+			}
+			payloadMap["truncated"] = true
+			if updated, err := json.Marshal(payloadMap); err == nil {
+				resultBytes = updated
+			}
+		} else {
+			var findingsList []interface{}
+			if err := json.Unmarshal(outBytes, &findingsList); err == nil {
+				payloadMap = map[string]interface{}{
+					"exit_code": 0,
+					"findings":  findingsList,
+					"truncated": true,
+				}
+				if updated, err := json.Marshal(payloadMap); err == nil {
+					resultBytes = updated
+				}
+			} else {
+				payloadMap = map[string]interface{}{
+					"exit_code": 0,
+					"findings":  []interface{}{},
+					"truncated": true,
+				}
+				if updated, err := json.Marshal(payloadMap); err == nil {
+					resultBytes = updated
+				}
+			}
+		}
+	}
+	if err := toolsStore.InsertToolResultEvent(ctx, args.ReviewID, args.OrgID, args.ToolID, args.ToolName, resultBytes); err != nil {
 		_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "error", fmt.Sprintf("Failed to store raw tool result event: %v", err), "")
 		return fmt.Errorf("failed to store tool result event: %w", err)
 	}
@@ -143,7 +184,7 @@ func (w *ToolReviewWorker) Work(ctx context.Context, job *river.Job[ToolReviewJo
 			} `json:"extra"`
 		} `json:"findings"`
 	}
-	if jsonErr := json.Unmarshal(outBytes, &altResp); jsonErr != nil {
+	if jsonErr := json.Unmarshal(resultBytes, &altResp); jsonErr != nil {
 		log.Printf("[WARN] ToolReviewWorker: failed to unmarshal Lambda findings output for tool=%s review=%d: %v", args.ToolName, args.ReviewID, jsonErr)
 	} else if len(altResp.Findings) > 0 {
 		rawList := make([]toolclassifier.RawToolFinding, len(altResp.Findings))

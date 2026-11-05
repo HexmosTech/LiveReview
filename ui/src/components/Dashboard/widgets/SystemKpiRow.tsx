@@ -5,6 +5,8 @@ import { useCountUp } from './useCountUp';
 import { useDashboardPeriod } from './DashboardPeriod';
 import { useSystemOverview, hasNoSystemOverviewData } from './SystemOverviewData';
 import { ChartSkeleton } from './ChartSkeleton';
+import { isCloudMode } from '../../../utils/deploymentMode';
+import { useOrgContext } from '../../../hooks/useOrgContext';
 
 interface KpiTileProps {
     title: string;
@@ -48,14 +50,24 @@ export const SystemKpiRow: React.FC = () => {
     }
 
     const overview = systemOverview!;
+    const { isPaidPlan } = useOrgContext();
+    const showTools = isCloudMode() && Boolean(isPaidPlan);
 
     return (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 h-full">
+        <div
+            className={
+                showTools
+                    ? 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 h-full'
+                    : 'grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-3 h-full'
+            }
+        >
             <KpiTile title="Git Hosts" value={overview.git_hosts[period]} icon={<Icons.Git />} onClick={() => navigate('/git')} />
             <KpiTile title="AI Connectors" value={overview.ai_connectors[period]} icon={<Icons.AI />} onClick={() => navigate('/ai')} />
             <KpiTile title="Repositories" value={overview.total_repos[period]} icon={<Icons.Folder />} onClick={() => navigate('/explore/repositories')} />
             <KpiTile title="PRs / MRs Tracked" value={overview.total_prs[period]} icon={<Icons.Layers />} onClick={() => navigate('/explore/merge-requests')} />
-            <KpiTile title="Third-Party Tools" value={15} icon={<Icons.Settings />} onClick={() => navigate('/settings#third-party-tools')} />
+            {showTools && (
+                <KpiTile title="Third-Party Tools" value={15} icon={<Icons.Settings />} onClick={() => navigate('/settings#third-party-tools')} />
+            )}
         </div>
     );
 };

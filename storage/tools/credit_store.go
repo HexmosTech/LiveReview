@@ -3,11 +3,17 @@ package tools
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/livereview/internal/license"
 )
+
+type ToolCharge struct {
+	ToolName   string  `json:"tool"`
+	Multiplier float64 `json:"multiplier"`
+}
 
 type CreditUsage struct {
 	CreditsUsedMonth  float64 `json:"credits_used_month"`
@@ -127,12 +133,25 @@ func (s *CreditStore) CheckCreditPreflight(ctx context.Context, orgID int64, req
 }
 
 // DeductCredits atomically checks and deducts credits, recording the transaction in tool_credit_ledger.
-func (s *CreditStore) DeductCredits(ctx context.Context, orgID int64, reviewID int64, multiplier float64, planCode license.PlanType) error {
+func (s *CreditStore) DeductCredits(ctx context.Context, orgID int64, reviewID int64, breakdown []ToolCharge, planCode license.PlanType) error {
 	if !license.IsToolsEligible(planCode) {
 		return fmt.Errorf("tools credits are not available on the %s plan", planCode)
 	}
-	if multiplier <= 0 {
+	if len(breakdown) == 0 {
 		return nil
+	}
+
+	var totalMultiplier float64
+	for _, tc := range breakdown {
+		totalMultiplier += tc.Multiplier
+	}
+	if totalMultiplier <= 0 {
+		return nil
+	}
+
+	breakdownJSON, err := json.Marshal(breakdown)
+	if err != nil {
+		return fmt.Errorf("marshal breakdown: %w", err)
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -148,8 +167,8 @@ func (s *CreditStore) DeductCredits(ctx context.Context, orgID int64, reviewID i
 		return err
 	}
 
-	if currentLimit-currentUsed < multiplier {
-		return fmt.Errorf("insufficient tool credits: review requires %.2f credits, but only %.2f remaining this month", multiplier, currentLimit-currentUsed)
+	if currentLimit-currentUsed < totalMultiplier {
+		return fmt.Errorf("insufficient tool credits: review requires %.2f credits, but only %.2f remaining this month", totalMultiplier, currentLimit-currentUsed)
 	}
 
 	idempotencyKey := fmt.Sprintf("tool_review_%d", reviewID)
@@ -157,11 +176,11 @@ func (s *CreditStore) DeductCredits(ctx context.Context, orgID int64, reviewID i
 	var ledgerID int64
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO public.tool_credit_ledger (
-			org_id, review_id, credits_deducted, idempotency_key, created_at
-		) VALUES ($1, $2, $3, $4, NOW())
+			org_id, review_id, credits_deducted, breakdown, idempotency_key, created_at
+		) VALUES ($1, $2, $3, $4, $5, NOW())
 		ON CONFLICT (org_id, idempotency_key) DO NOTHING
 		RETURNING id
-	`, orgID, reviewID, multiplier, idempotencyKey).Scan(&ledgerID)
+	`, orgID, reviewID, totalMultiplier, breakdownJSON, idempotencyKey).Scan(&ledgerID)
 
 	if err != nil && err != sql.ErrNoRows {
 		return fmt.Errorf("insert ledger: %w", err)
@@ -169,7 +188,7 @@ func (s *CreditStore) DeductCredits(ctx context.Context, orgID int64, reviewID i
 
 	// Only update billing balance if not previously deducted for this review
 	if ledgerID != 0 {
-		newUsed := currentUsed + multiplier
+		newUsed := currentUsed + totalMultiplier
 		_, err = tx.ExecContext(ctx, `
 			UPDATE public.org_billing_state
 			SET tool_credits_used_month = $1,

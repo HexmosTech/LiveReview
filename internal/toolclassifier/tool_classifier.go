@@ -600,7 +600,7 @@ func queryTaxonomyCache(ctx context.Context, db *sql.DB, queryKeys []string) (ma
 		return nil, nil
 	}
 
-	query := `SELECT rule_key, category, subcategory, severity, confidence, type FROM tool_rule_taxonomies WHERE rule_key = ANY($1)`
+	query := `SELECT rule_key, category, subcategory, severity, confidence, type FROM tool_rule_taxonomies WHERE rule_key = ANY($1) AND classifier_version = 1`
 	rows, err := db.QueryContext(ctx, query, pq.Array(queryKeys))
 	if err != nil {
 		return nil, err
@@ -654,12 +654,14 @@ func UpsertTaxonomies(ctx context.Context, db *sql.DB, entries []TaxonomyCacheEn
 	valueArgs := make([]interface{}, 0, len(entries)*8)
 	for i, entry := range entries {
 		offset := i * 8
-		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, NOW())",
+		normTool := strings.ToLower(strings.TrimSpace(entry.ToolName))
+		normRule := strings.ToLower(strings.TrimSpace(entry.RuleID))
+		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, 1, NOW())",
 			offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7, offset+8))
 		valueArgs = append(valueArgs,
 			entry.RuleKey,
-			entry.ToolName,
-			entry.RuleID,
+			normTool,
+			normRule,
 			entry.Category,
 			entry.Subcategory,
 			entry.Severity,
@@ -668,7 +670,7 @@ func UpsertTaxonomies(ctx context.Context, db *sql.DB, entries []TaxonomyCacheEn
 		)
 	}
 
-	query := fmt.Sprintf(`INSERT INTO tool_rule_taxonomies (rule_key, tool_name, rule_id, category, subcategory, severity, confidence, type, updated_at) VALUES %s ON CONFLICT (rule_key) DO UPDATE SET category = EXCLUDED.category, subcategory = EXCLUDED.subcategory, severity = EXCLUDED.severity, confidence = EXCLUDED.confidence, type = EXCLUDED.type, updated_at = NOW()`,
+	query := fmt.Sprintf(`INSERT INTO tool_rule_taxonomies (rule_key, tool_name, rule_id, category, subcategory, severity, confidence, type, classifier_version, updated_at) VALUES %s ON CONFLICT (rule_key) DO UPDATE SET category = EXCLUDED.category, subcategory = EXCLUDED.subcategory, severity = EXCLUDED.severity, confidence = EXCLUDED.confidence, type = EXCLUDED.type, updated_at = NOW()`,
 		strings.Join(valueStrings, ", "))
 
 	_, err := db.ExecContext(ctx, query, valueArgs...)

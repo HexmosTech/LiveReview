@@ -273,11 +273,12 @@ const Settings = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const { domain } = useAppSelector((state) => state.Settings);
-    const { isSuperAdmin, canManageCurrentOrg, currentOrg, isFreePlan } = useOrgContext();
+    const { isSuperAdmin, canManageCurrentOrg, currentOrg, isFreePlan, isPaidPlan } = useOrgContext();
     const canAccessPrompts = isSuperAdmin || (currentOrg && ['owner', 'member'].includes(currentOrg.role));
     // Instance-wide config (production URL, blob storage): self-hosted owners may manage it,
     // but in cloud it's shared across every tenant, so it stays super-admin-only there
     const canManageInstanceConfig = isSuperAdmin || (currentOrg?.role === 'owner' && !isCloudMode());
+    const showToolsTab = isCloudMode() && Boolean(isPaidPlan) && (isSuperAdmin || currentOrg?.role === 'owner');
     
     // Check if we're on a subscription sub-route
     const isSubscriptionRoute = location.pathname.startsWith('/settings-subscriptions-');
@@ -403,9 +404,9 @@ const Settings = () => {
                 </svg>
             )
         }] : []),
-        // Third-Party Tools tab visible only in cloud mode for org owners
+        // Third-Party Tools tab visible only in cloud mode for org owners on paid plans
         // (super admins may access every owner surface — mirrors RequireOrgOwner)
-        ...(isCloudMode() && (isSuperAdmin || currentOrg?.role === 'owner') ? [{
+        ...(showToolsTab ? [{
             id: 'third-party-tools',
             name: 'Third-Party Tools',
             icon: <Icons.Tools />
@@ -878,15 +879,15 @@ const Settings = () => {
                         </Card>
                     )}
 
-                    {activeTab === 'third-party-tools' && isCloudMode() && (isSuperAdmin || currentOrg?.role === 'owner') && (
+                    {activeTab === 'third-party-tools' && showToolsTab && (
                         <Card>
                             <ThirdPartyToolsTab />
                         </Card>
                     )}
-                    {activeTab === 'third-party-tools' && isCloudMode() && !(isSuperAdmin || currentOrg?.role === 'owner') && (
+                    {activeTab === 'third-party-tools' && !showToolsTab && (
                         <Card>
-                            <div className="p-4 text-sm text-red-300">
-                                Tool configuration is only available to organization owners.
+                            <div className="p-4 text-sm text-slate-400">
+                                Third-party static analysis tools are only available to organization owners on paid plans.
                             </div>
                         </Card>
                     )}

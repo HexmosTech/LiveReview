@@ -200,9 +200,12 @@ func (p PlanType) String() string {
 }
 
 // IsToolsEligible returns true if the plan type is eligible for static analysis tool credit deduction.
+// Only paid cloud plans (Team and LOC tiers) are eligible; free plans, community, and self-hosted are not.
 func IsToolsEligible(p PlanType) bool {
-	if p == PlanType("") {
+	switch p {
+	case PlanTeam32USD, PlanLOC200K, PlanLOC400K, PlanLOC800K, PlanLOC1600K, PlanLOC3200K:
 		return true
+	default:
+		return false
 	}
-	return p.IsValid()
 }

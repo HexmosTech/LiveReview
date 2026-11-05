@@ -28,6 +28,10 @@ type UpsertToolRequest struct {
 // Inserts or updates a tool in the available_tools catalog.
 // Super-admin only — called by the lr-tools deployer after Lambda deployment.
 func (s *Server) UpsertAvailableTool(c echo.Context) error {
+	if !s.deploymentConfig.IsCloud {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "Third-party tools are only available in cloud mode"})
+	}
+
 	var req UpsertToolRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
@@ -50,6 +54,10 @@ func (s *Server) UpsertAvailableTool(c echo.Context) error {
 // ListAvailableTools handles GET /api/v1/admin/tools
 // Returns all tools in the catalog — used by the Settings UI (Phase 2).
 func (s *Server) ListAvailableTools(c echo.Context) error {
+	if !s.deploymentConfig.IsCloud {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "Third-party tools are only available in cloud mode"})
+	}
+
 	store := tools.NewToolsStore(s.db)
 	catalog, err := store.LoadCatalog(c.Request().Context())
 	if err != nil {
@@ -58,25 +66,13 @@ func (s *Server) ListAvailableTools(c echo.Context) error {
 	return c.JSON(http.StatusOK, catalog)
 }
 
-func getNextToolID(ctx context.Context, tx *sql.Tx, catalog []tools.AvailableTool) int64 {
+func getNextToolID(catalog []tools.AvailableTool) int64 {
 	var maxID int64
 	for _, t := range catalog {
 		if t.ID > maxID {
 			maxID = t.ID
 		}
 	}
-
-	var seqID int64
-	err := tx.QueryRowContext(ctx, "SELECT nextval('public.tools_catalog_id_seq')").Scan(&seqID)
-	if err == nil {
-		if seqID <= maxID {
-			targetID := maxID + 1
-			_ = tx.QueryRowContext(ctx, "SELECT setval('public.tools_catalog_id_seq', $1, true)", targetID).Scan(&seqID)
-			return targetID
-		}
-		return seqID
-	}
-
 	return maxID + 1
 }
 
@@ -114,7 +110,7 @@ func upsertAvailableTool(ctx context.Context, db *sql.DB, req UpsertToolRequest)
 		}
 	}
 	if !found {
-		newID := getNextToolID(ctx, tx, catalog)
+		newID := getNextToolID(catalog)
 		catalog = append(catalog, tools.AvailableTool{
 			ID:          newID,
 			Name:        req.Name,

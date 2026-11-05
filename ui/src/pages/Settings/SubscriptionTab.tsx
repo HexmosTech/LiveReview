@@ -1902,15 +1902,17 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                 {usageSummary.accounted_operations.toLocaleString()} ({usageSummary.token_tracked_ops.toLocaleString()} token-tracked)
               </p>
             </div>
-            <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
-              <p className="text-slate-400">Tool Credits</p>
-              <p className="text-white font-semibold">
-                {(usageSummary.tool_credits_used_month ?? 0).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
-                {usageSummary.tool_credits_limit_month ? (
-                  <span className="text-xs text-slate-400 font-normal"> / {usageSummary.tool_credits_limit_month.toLocaleString()}</span>
-                ) : null}
-              </p>
-            </div>
+            {!isFree && isCloudMode() && (
+              <div className="bg-slate-900/70 border border-slate-700 rounded p-3">
+                <p className="text-slate-400">Tool Credits</p>
+                <p className="text-white font-semibold">
+                  {(usageSummary.tool_credits_used_month ?? 0).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                  {usageSummary.tool_credits_limit_month ? (
+                    <span className="text-xs text-slate-400 font-normal"> / {usageSummary.tool_credits_limit_month.toLocaleString()}</span>
+                  ) : null}
+                </p>
+              </div>
+            )}
           </div>
 
           {myUsage && (

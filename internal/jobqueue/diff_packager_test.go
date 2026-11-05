@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -45,7 +46,8 @@ func unpackZipBase64(t *testing.T, encoded string) map[string]string {
 	return result
 }
 
-func TestPackageDiffFiles_Basic(t *testing.T) {
+// P1: Basic packaging returns truncated == false.
+func TestPackageDiffFiles_P1_Basic(t *testing.T) {
 	tempDir := t.TempDir()
 
 	file1 := filepath.Join(tempDir, "src", "main.go")
@@ -61,9 +63,12 @@ func TestPackageDiffFiles_Basic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	b64Zip, err := PackageDiffFiles(tempDir, []string{"src/main.go", "README.md"})
+	b64Zip, truncated, err := PackageDiffFiles(tempDir, []string{"src/main.go", "README.md"})
 	if err != nil {
 		t.Fatalf("PackageDiffFiles returned error: %v", err)
+	}
+	if truncated {
+		t.Errorf("expected truncated == false, got true")
 	}
 
 	files := unpackZipBase64(t, b64Zip)
@@ -78,7 +83,12 @@ func TestPackageDiffFiles_Basic(t *testing.T) {
 	}
 }
 
-func TestPackageDiffFiles_MaxFileSizeProtection(t *testing.T) {
+func TestPackageDiffFiles_Basic(t *testing.T) {
+	TestPackageDiffFiles_P1_Basic(t)
+}
+
+// P2: Large file (>1 MiB) skipped causes truncated == true.
+func TestPackageDiffFiles_P2_LargeFileTruncated(t *testing.T) {
 	tempDir := t.TempDir()
 
 	smallFile := filepath.Join(tempDir, "small.txt")
@@ -87,15 +97,18 @@ func TestPackageDiffFiles_MaxFileSizeProtection(t *testing.T) {
 	}
 
 	largeFile := filepath.Join(tempDir, "large.txt")
-	// 1.5 MiB file (exceeds 1 MiB limit)
+	// 1.5 MiB file (exceeds MaxPackagedFileSize of 1 MiB)
 	largeData := bytes.Repeat([]byte("a\n"), 750*1024)
 	if err := os.WriteFile(largeFile, largeData, 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	b64Zip, err := PackageDiffFiles(tempDir, []string{"small.txt", "large.txt"})
+	b64Zip, truncated, err := PackageDiffFiles(tempDir, []string{"small.txt", "large.txt"})
 	if err != nil {
 		t.Fatalf("PackageDiffFiles returned error: %v", err)
+	}
+	if !truncated {
+		t.Errorf("expected truncated == true when file exceeds 1 MiB limit, got false")
 	}
 
 	files := unpackZipBase64(t, b64Zip)
@@ -107,7 +120,82 @@ func TestPackageDiffFiles_MaxFileSizeProtection(t *testing.T) {
 	}
 }
 
-func TestPackageDiffFiles_BinaryFilesSkipped(t *testing.T) {
+func TestPackageDiffFiles_MaxFileSizeProtection(t *testing.T) {
+	TestPackageDiffFiles_P2_LargeFileTruncated(t)
+}
+
+// P3: Cumulative size limit (>10 MiB) reached causes truncated == true.
+func TestPackageDiffFiles_P3_CumulativeSizeLimit(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create 20 random alphanumeric text files of 800 KiB each (~16 MiB total).
+	// Because alphanumeric text has high entropy, it compresses to ~600 KiB each,
+	// exceeding 10 MiB across 20 files.
+	var fileNames []string
+	rng := rand.New(rand.NewSource(42))
+	charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\n"
+
+	for i := 0; i < 20; i++ {
+		data := make([]byte, 800*1024)
+		for j := range data {
+			data[j] = charset[rng.Intn(len(charset))]
+		}
+		name := fmt.Sprintf("file_%02d.txt", i)
+		fullPath := filepath.Join(tempDir, name)
+		if err := os.WriteFile(fullPath, data, 0644); err != nil {
+			t.Fatal(err)
+		}
+		fileNames = append(fileNames, name)
+	}
+
+	b64Zip, truncated, err := PackageDiffFiles(tempDir, fileNames)
+	if err != nil {
+		t.Fatalf("PackageDiffFiles returned error: %v", err)
+	}
+	if !truncated {
+		t.Errorf("expected truncated == true when cumulative zip limit reached, got false")
+	}
+
+	rawZip, err := base64.StdEncoding.DecodeString(b64Zip)
+	if err != nil {
+		t.Fatalf("failed to decode base64: %v", err)
+	}
+
+	if len(rawZip) > MaxCumulativeZipSize {
+		t.Errorf("zip size %d exceeded MaxCumulativeZipSize %d", len(rawZip), MaxCumulativeZipSize)
+	}
+
+	// Verify the zip is valid and contains some files, but not all 20
+	reader, err := zip.NewReader(bytes.NewReader(rawZip), int64(len(rawZip)))
+	if err != nil {
+		t.Fatalf("zip reader failed on capped zip: %v", err)
+	}
+	if len(reader.File) == 0 {
+		t.Errorf("expected at least one file packaged before limit was hit")
+	}
+	if len(reader.File) >= 20 {
+		t.Errorf("expected packaging to stop before packing all 20 large files, got %d", len(reader.File))
+	}
+}
+
+func TestPackageDiffFiles_CumulativeZipLimit(t *testing.T) {
+	TestPackageDiffFiles_P3_CumulativeSizeLimit(t)
+}
+
+// P4: Empty baseDir returns error.
+func TestPackageDiffFiles_P4_EmptyBaseDir(t *testing.T) {
+	_, _, err := PackageDiffFiles("", []string{"main.go"})
+	if err == nil {
+		t.Error("expected error for empty baseDir, got nil")
+	}
+}
+
+func TestPackageDiffFiles_EmptyBaseDirError(t *testing.T) {
+	TestPackageDiffFiles_P4_EmptyBaseDir(t)
+}
+
+// P5: Binary files skipped.
+func TestPackageDiffFiles_P5_BinaryFilesSkipped(t *testing.T) {
 	tempDir := t.TempDir()
 
 	goodFile := filepath.Join(tempDir, "code.go")
@@ -125,9 +213,12 @@ func TestPackageDiffFiles_BinaryFilesSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	b64Zip, err := PackageDiffFiles(tempDir, []string{"code.go", "icon.png", "binary.bin"})
+	b64Zip, truncated, err := PackageDiffFiles(tempDir, []string{"code.go", "icon.png", "binary.bin"})
 	if err != nil {
 		t.Fatalf("PackageDiffFiles returned error: %v", err)
+	}
+	if truncated {
+		t.Errorf("expected truncated == false when skipping binary files, got true")
 	}
 
 	files := unpackZipBase64(t, b64Zip)
@@ -142,6 +233,65 @@ func TestPackageDiffFiles_BinaryFilesSkipped(t *testing.T) {
 	}
 }
 
+func TestPackageDiffFiles_BinaryFilesSkipped(t *testing.T) {
+	TestPackageDiffFiles_P5_BinaryFilesSkipped(t)
+}
+
+// P6: Path traversal attempt skipped.
+func TestPackageDiffFiles_P6_PathTraversalSkipped(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create an external secret file outside baseDir
+	secretFile := filepath.Join(tempDir, "secret.txt")
+	if err := os.WriteFile(secretFile, []byte("sensitive_token_12345"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create baseDir as a subdirectory of tempDir
+	repoDir := filepath.Join(tempDir, "repo")
+	if err := os.MkdirAll(repoDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	validFile := filepath.Join(repoDir, "app.go")
+	if err := os.WriteFile(validFile, []byte("package app"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	traversalPaths := []string{
+		"app.go",
+		"../secret.txt",
+		"../../etc/passwd",
+		"subdir/../../secret.txt",
+		"/etc/shadow",
+	}
+
+	b64Zip, truncated, err := PackageDiffFiles(repoDir, traversalPaths)
+	if err != nil {
+		t.Fatalf("PackageDiffFiles returned error: %v", err)
+	}
+	if truncated {
+		t.Errorf("expected truncated == false, got true")
+	}
+
+	files := unpackZipBase64(t, b64Zip)
+	if len(files) != 1 {
+		t.Fatalf("expected only 1 file in zip, got %d: %v", len(files), files)
+	}
+	if files["app.go"] != "package app" {
+		t.Errorf("expected app.go to be packaged, got %q", files["app.go"])
+	}
+	for name := range files {
+		if strings.Contains(name, "secret") || strings.Contains(name, "passwd") || strings.Contains(name, "shadow") {
+			t.Errorf("traversal file was unexpectedly included in zip: %s", name)
+		}
+	}
+}
+
+func TestPackageDiffFiles_PathTraversalAttemptSkipped(t *testing.T) {
+	TestPackageDiffFiles_P6_PathTraversalSkipped(t)
+}
+
 func TestPackageDiffFiles_UnreadableFilesGraceful(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -151,9 +301,12 @@ func TestPackageDiffFiles_UnreadableFilesGraceful(t *testing.T) {
 	}
 
 	// Request a non-existent file alongside a real file
-	b64Zip, err := PackageDiffFiles(tempDir, []string{"real.txt", "does/not/exist.txt"})
+	b64Zip, truncated, err := PackageDiffFiles(tempDir, []string{"real.txt", "does/not/exist.txt"})
 	if err != nil {
 		t.Fatalf("PackageDiffFiles should not fail on missing file, got: %v", err)
+	}
+	if truncated {
+		t.Errorf("expected truncated == false, got true")
 	}
 
 	files := unpackZipBase64(t, b64Zip)
@@ -179,9 +332,12 @@ func TestPackageDiffFiles_IncludeToolsToml(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	b64Zip, err := PackageDiffFiles(tempDir, []string{"main.go"})
+	b64Zip, truncated, err := PackageDiffFiles(tempDir, []string{"main.go"})
 	if err != nil {
 		t.Fatalf("PackageDiffFiles returned error: %v", err)
+	}
+	if truncated {
+		t.Errorf("expected truncated == false, got true")
 	}
 
 	files := unpackZipBase64(t, b64Zip)
@@ -205,70 +361,16 @@ func TestPackageDiffFiles_OnlyPolicyToolsTomlIncluded(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	b64Zip, err := PackageDiffFiles(tempDir, nil)
+	b64Zip, truncated, err := PackageDiffFiles(tempDir, nil)
 	if err != nil {
 		t.Fatalf("PackageDiffFiles returned error: %v", err)
+	}
+	if truncated {
+		t.Errorf("expected truncated == false, got true")
 	}
 
 	files := unpackZipBase64(t, b64Zip)
 	if _, exists := files[".lrc/tools.toml"]; exists {
 		t.Errorf("expected .lrc/tools.toml to NOT be included (strictly .lrc/policy/tools.toml only), but got: %v", files)
-	}
-}
-
-func TestPackageDiffFiles_CumulativeZipLimit(t *testing.T) {
-	tempDir := t.TempDir()
-
-	// Create 20 random alphanumeric text files of 800 KiB each (~16 MiB total).
-	// Because alphanumeric text has high entropy, it compresses to ~600 KiB each,
-	// exceeding 10 MiB across 20 files.
-	var fileNames []string
-	rng := rand.New(rand.NewSource(42))
-	charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\n"
-
-	for i := 0; i < 20; i++ {
-		data := make([]byte, 800*1024)
-		for j := range data {
-			data[j] = charset[rng.Intn(len(charset))]
-		}
-		name := fmt.Sprintf("file_%02d.txt", i)
-		fullPath := filepath.Join(tempDir, name)
-		if err := os.WriteFile(fullPath, data, 0644); err != nil {
-			t.Fatal(err)
-		}
-		fileNames = append(fileNames, name)
-	}
-
-	b64Zip, err := PackageDiffFiles(tempDir, fileNames)
-	if err != nil {
-		t.Fatalf("PackageDiffFiles returned error: %v", err)
-	}
-
-	rawZip, err := base64.StdEncoding.DecodeString(b64Zip)
-	if err != nil {
-		t.Fatalf("failed to decode base64: %v", err)
-	}
-
-	if len(rawZip) > MaxCumulativeZipSize {
-		t.Errorf("zip size %d exceeded MaxCumulativeZipSize %d", len(rawZip), MaxCumulativeZipSize)
-	}
-
-	// Verify the zip is valid and contains some files, but not all 20
-	reader, err := zip.NewReader(bytes.NewReader(rawZip), int64(len(rawZip)))
-	if err != nil {
-		t.Fatalf("zip reader failed on capped zip: %v", err)
-	}
-	if len(reader.File) == 0 {
-		t.Errorf("expected at least one file packaged before limit was hit")
-	}
-	if len(reader.File) >= 20 {
-		t.Errorf("expected packaging to stop before packing all 20 large files, got %d", len(reader.File))
-	}
-}
-
-func TestPackageDiffFiles_EmptyBaseDirError(t *testing.T) {
-	_, err := PackageDiffFiles("", []string{"main.go"})
-	if err == nil {
-		t.Error("expected error for empty baseDir, got nil")
 	}
 }

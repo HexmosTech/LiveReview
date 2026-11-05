@@ -10,6 +10,7 @@ import { getReviewPolicyLog } from '../../api/riskPolicy';
 import { ToolAnalysisCard, ToolAccountingData, ToolBreakdownItem } from '../../components/reviews/ToolAnalysisCard';
 import { useOrgContext } from '../../hooks/useOrgContext';
 import apiClient from '../../api/apiClient';
+import { isCloudMode } from '../../utils/deploymentMode';
 import {
   getReview,
   getReviewEvents,
@@ -123,7 +124,7 @@ const ReviewDetail: React.FC = () => {
         let cancelled = false;
         let timer: ReturnType<typeof setTimeout> | undefined;
         let attempts = 0;
-        const finished = review.status === 'completed' || review.status === 'failed';
+        const finished = review.status === 'completed' || review.status === 'failed' || (review.status as string) === 'partial';
         const maxAttempts = finished ? 3 : 30;
         const retryDelayMs = finished ? 2500 : 30000;
         const requestBudgetMs = 5000;
@@ -254,11 +255,12 @@ const ReviewDetail: React.FC = () => {
         }
     }, []);
 
-    const { currentOrg } = useOrgContext();
+    const { currentOrg, isFreePlan, isPaidPlan } = useOrgContext();
+    const showToolsUI = isCloudMode() && Boolean(isPaidPlan) && !isFreePlan;
     const [dbToolMultipliers, setDbToolMultipliers] = useState<Record<string, number>>({});
 
     useEffect(() => {
-        if (!currentOrg?.id) return;
+        if (!showToolsUI || !currentOrg?.id) return;
         apiClient.get<{ tools?: Array<{ name: string; multiplier: number }> }>(`/orgs/${currentOrg.id}/tools`)
             .then(res => {
                 const catalog = res.tools || [];
@@ -304,7 +306,7 @@ const ReviewDetail: React.FC = () => {
         }
 
         const dispatchedMap = new Map<string, string>();
-        const resultsMap = new Map<string, { exitCode: number; findingsCount: number; creditsUsed?: number }>();
+        const resultsMap = new Map<string, { exitCode: number; findingsCount: number; creditsUsed?: number; data?: any }>();
         const order: string[] = [];
 
         toolEvents.forEach(e => {
@@ -334,6 +336,7 @@ const ReviewDetail: React.FC = () => {
                         exitCode: typeof data.exit_code === 'number' ? data.exit_code : 0,
                         findingsCount: findings.length,
                         creditsUsed,
+                        data,
                     });
                 }
             } catch (err) {
@@ -349,13 +352,19 @@ const ReviewDetail: React.FC = () => {
         const toolBreakdown: ToolBreakdownItem[] = order.map(toolName => {
             const res = resultsMap.get(toolName);
             if (res) {
+                const data = res.data;
                 toolsExecuted++;
                 totalComments += res.findingsCount;
                 const credits = res.creditsUsed ?? dbToolMultipliers[toolName.toLowerCase()] ?? DEFAULT_TOOL_MULTIPLIERS[toolName.toLowerCase()] ?? 1.0;
                 totalCredits += credits;
                 let status = 'clean';
-                if (res.exitCode !== 0) status = 'failed';
-                else if (res.findingsCount > 0) status = 'completed';
+                if (res.findingsCount > 0) {
+                    status = (data as any)?.truncated ? 'partial' : 'completed';
+                } else if ((data as any)?.truncated) {
+                    status = 'partial';
+                } else if (res.exitCode !== 0) {
+                    status = 'failed';
+                }
                 return {
                     toolName,
                     creditsUsed: credits,
@@ -378,6 +387,13 @@ const ReviewDetail: React.FC = () => {
             toolBreakdown,
         };
     }, [toolAccounting, events, dbToolMultipliers, DEFAULT_TOOL_MULTIPLIERS]);
+
+    const hasToolData = Boolean(
+        effectiveToolAccounting &&
+        effectiveToolAccounting.toolBreakdown &&
+        effectiveToolAccounting.toolBreakdown.length > 0
+    );
+    const showToolsDropdown = showToolsUI && hasToolData;
 
     // Fetch review details
     const fetchReviewDetails = useCallback(async () => {
@@ -702,7 +718,7 @@ const ReviewDetail: React.FC = () => {
     useEffect(() => {
         if (!review || defaultedTabForReviewRef.current === review.id) return;
         defaultedTabForReviewRef.current = review.id;
-        if (review.status !== 'completed') {
+        if (review.status !== 'completed' && (review.status as string) !== 'partial') {
             setActiveTab('events');
         }
     }, [review]);
@@ -713,7 +729,7 @@ const ReviewDetail: React.FC = () => {
     useEffect(() => {
         const prev = lastStatusRef.current;
         lastStatusRef.current = review?.status;
-        if ((prev === 'created' || prev === 'in_progress') && review?.status === 'completed') {
+        if ((prev === 'created' || prev === 'in_progress') && (review?.status === 'completed' || (review?.status as string) === 'partial')) {
             setActiveTab('findings');
             if (review.metadata?.pr_link_policy) setAutoApproveAttention(true);
         }
@@ -946,7 +962,9 @@ const ReviewDetail: React.FC = () => {
         return [leaderAIExecutionMode, leaderAIExecutionSource].filter(Boolean).join(' via ');
     };
 
-    const statusBadge = reviewStatusBadge(review.status);
+    const statusBadge = (review.status as string) === 'partial'
+        ? { color: '#f59e0b', borderColor: 'rgba(245, 158, 11, 0.4)' }
+        : reviewStatusBadge(review.status);
     const risk = riskAssessment(blastReport, blastPoll, !!review.prMrUrl, riskScores);
 
     const accountingBannerClass = accountingErrorTone === 'warning'
@@ -1073,55 +1091,59 @@ const ReviewDetail: React.FC = () => {
                     </div>
 
                     {/* ── Static Analysis tab ── tools summary ▼ */}
-                    <div
-                        onClick={() => { setToolExpanded(v => !v); setDetailsExpanded(false); }}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                setToolExpanded(v => !v);
-                                setDetailsExpanded(false);
-                            }
-                        }}
-                        role="button"
-                        tabIndex={0}
-                        aria-expanded={toolExpanded}
-                        aria-label="Toggle static analysis tools"
-                        className="ml-auto shrink-0 flex items-center gap-2.5 px-3.5 self-stretch cursor-pointer group select-none hover:bg-slate-700/30 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/60"
-                        title="Toggle static analysis tools"
-                    >
-                        {effectiveToolAccounting ? (
+                    {showToolsDropdown && (
+                        <div
+                            onClick={() => { setToolExpanded(v => !v); setDetailsExpanded(false); }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    setToolExpanded(v => !v);
+                                    setDetailsExpanded(false);
+                                }
+                            }}
+                            role="button"
+                            tabIndex={0}
+                            aria-expanded={toolExpanded}
+                            aria-label="Toggle static analysis tools"
+                            className="ml-auto shrink-0 flex items-center gap-2.5 px-3.5 self-stretch cursor-pointer group select-none hover:bg-slate-700/30 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/60"
+                            title="Toggle static analysis tools"
+                        >
                             <p className="text-xs text-slate-300 whitespace-nowrap">
-                                <strong className="font-semibold text-slate-100">{effectiveToolAccounting.toolsExecuted || effectiveToolAccounting.toolBreakdown.length}</strong> Tools
-                                {effectiveToolAccounting.totalCommentsGenerated > 0 ? (
-                                    <span className="text-slate-500 ml-1">· {effectiveToolAccounting.totalCommentsGenerated} findings</span>
+                                <strong className="font-semibold text-slate-100">{effectiveToolAccounting?.toolsExecuted || effectiveToolAccounting?.toolBreakdown.length}</strong> Tools
+                                {(effectiveToolAccounting?.totalCommentsGenerated ?? 0) > 0 ? (
+                                    <span className="text-slate-500 ml-1">· {effectiveToolAccounting?.totalCommentsGenerated} findings</span>
                                 ) : (
                                     <span className="text-slate-500 ml-1">· clean</span>
                                 )}
                             </p>
-                        ) : (
-                            <p className="text-xs text-slate-400 whitespace-nowrap">Static Analysis</p>
-                        )}
 
-                        {/* Chevron indicator */}
-                        <svg
-                            className={`w-3.5 h-3.5 text-slate-400 group-hover:text-slate-200 transition-all duration-200 ${toolExpanded ? 'rotate-180' : 'rotate-0'}`}
-                            fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                        >
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                    </div>
+                            {/* Chevron indicator */}
+                            <svg
+                                className={`w-3.5 h-3.5 text-slate-400 group-hover:text-slate-200 transition-all duration-200 ${toolExpanded ? 'rotate-180' : 'rotate-0'}`}
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                            >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </div>
+                    )}
 
                     {/* ── Status badge (far right) ── */}
-                    <div className="shrink-0 flex items-center px-3.5 self-stretch">
-                        <span
-                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold leading-5 whitespace-nowrap"
-                            style={{ color: statusBadge.color, border: `1px solid ${statusBadge.borderColor}` }}
-                        >
-                            {review.status === 'in_progress' && (
-                                <svg className="animate-spin w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
-                            )}
-                            {getStatusText(review.status)}
-                        </span>
+                    <div className={`shrink-0 flex items-center px-3.5 self-stretch ${!showToolsDropdown ? 'ml-auto' : ''}`}>
+                        {(review.status as string) === 'partial' ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold leading-5 whitespace-nowrap bg-amber-950/40 text-amber-400 border border-amber-600/50">
+                                Partial
+                            </span>
+                        ) : (
+                            <span
+                                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold leading-5 whitespace-nowrap"
+                                style={{ color: statusBadge.color, border: `1px solid ${statusBadge.borderColor}` }}
+                            >
+                                {review.status === 'in_progress' && (
+                                    <svg className="animate-spin w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+                                )}
+                                {getStatusText(review.status)}
+                            </span>
+                        )}
                     </div>
                 </div>
 
@@ -1276,21 +1298,10 @@ const ReviewDetail: React.FC = () => {
                 )}
 
                 {/* Static Analysis Tools panel — expanded INSIDE the same outer card box */}
-                {toolExpanded && (
+                {showToolsDropdown && toolExpanded && effectiveToolAccounting && effectiveToolAccounting.toolBreakdown.length > 0 && (
                     <div className="border-t border-slate-700/50 bg-slate-900/40">
                         <div className="p-4">
-                            {effectiveToolAccounting && effectiveToolAccounting.toolBreakdown.length > 0 ? (
-                                <ToolAnalysisCard data={effectiveToolAccounting} embedded={true} isExpanded={true} hideSummary={true} />
-                            ) : (
-                                <div className="text-center py-6 text-slate-400 text-xs select-none">
-                                    <svg className="w-5 h-5 mx-auto mb-2 opacity-40 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    </svg>
-                                    <p className="font-medium text-slate-300">No static analysis tools recorded</p>
-                                    <p className="text-[11px] text-slate-500 mt-1">Tool execution details will appear here as static analysis tools run.</p>
-                                </div>
-                            )}
+                            <ToolAnalysisCard data={effectiveToolAccounting} embedded={true} isExpanded={true} hideSummary={true} />
                         </div>
                     </div>
                 )}
@@ -1365,7 +1376,7 @@ const ReviewDetail: React.FC = () => {
                         {accountingError}
                     </div>
                 )}
-                <div className="grid grid-cols-2 md:grid-cols-7 gap-2 text-xs mb-3">
+                <div className={`grid grid-cols-2 ${showToolsDropdown ? 'md:grid-cols-7' : 'md:grid-cols-6'} gap-2 text-xs mb-3`}>
                     <div className="bg-slate-900/80 rounded p-2.5 border border-slate-800">
                         <p className="text-slate-500">Total LOC</p>
                         <p className="text-white font-semibold text-sm mt-0.5">{(accounting?.totalBillableLoc || 0).toLocaleString()}</p>
@@ -1390,14 +1401,16 @@ const ReviewDetail: React.FC = () => {
                         <p className="text-slate-500">Token-tracked Ops</p>
                         <p className="text-white font-semibold text-sm mt-0.5">{(accounting?.tokenTrackedOperations || 0).toLocaleString()}</p>
                     </div>
-                    <div className="bg-slate-900/80 rounded p-2.5 border border-slate-800">
-                        <p className="text-slate-500">Tool Credits</p>
-                        <p className="text-white font-semibold text-sm mt-0.5">
-                            {accounting?.toolCreditsDeducted != null
-                                ? accounting.toolCreditsDeducted.toFixed(1)
-                                : <span className="text-slate-600">—</span>}
-                        </p>
-                    </div>
+                    {showToolsDropdown && (
+                        <div className="bg-slate-900/80 rounded p-2.5 border border-slate-800">
+                            <p className="text-slate-500">Tool Credits</p>
+                            <p className="text-white font-semibold text-sm mt-0.5">
+                                {accounting?.toolCreditsDeducted != null
+                                    ? accounting.toolCreditsDeducted.toFixed(1)
+                                    : <span className="text-slate-600">—</span>}
+                            </p>
+                        </div>
+                    )}
                 </div>
 
                 {!!stageBreakdown.length && (
