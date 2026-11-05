@@ -112,6 +112,50 @@ func TestConvertModelDiffsToLocal(t *testing.T) {
 	}
 }
 
+func TestConvertModelDiffsToLocal_BlankLines(t *testing.T) {
+	diffs := []*models.CodeDiff{
+		{
+			FilePath:    "pkg/service.go",
+			OldFilePath: "pkg/service.go",
+			Hunks: []models.DiffHunk{
+				{
+					OldStartLine: 1,
+					OldLineCount: 3,
+					NewStartLine: 1,
+					NewLineCount: 3,
+					Content:      "@@ -1,3 +1,3 @@\n line1\n \n line3\n",
+				},
+				{
+					OldStartLine: 10,
+					OldLineCount: 2,
+					NewStartLine: 10,
+					NewLineCount: 2,
+					Content:      "@@ -10,2 +10,2 @@\n line10\n\n",
+				},
+			},
+		},
+	}
+
+	locals := ConvertModelDiffsToLocal(diffs)
+	if len(locals) != 1 || len(locals[0].Hunks) != 2 {
+		t.Fatalf("expected 1 local diff with 2 hunks, got %d", len(locals))
+	}
+	hunk1 := locals[0].Hunks[0]
+	if len(hunk1.Lines) != 3 {
+		t.Errorf("expected 3 lines in hunk1, got %d", len(hunk1.Lines))
+	}
+	if hunk1.Lines[1].Content != "" || hunk1.Lines[1].LineType != "context" {
+		t.Errorf("expected empty context line, got %+v", hunk1.Lines[1])
+	}
+	hunk2 := locals[0].Hunks[1]
+	if len(hunk2.Lines) != 2 {
+		t.Errorf("expected 2 lines in hunk2, got %d", len(hunk2.Lines))
+	}
+	if hunk2.Lines[1].Content != "" || hunk2.Lines[1].LineType != "context" {
+		t.Errorf("expected empty context line without space prefix, got %+v", hunk2.Lines[1])
+	}
+}
+
 func TestBuildUnifiedDiffFromModelDiffs_HunkHeaderSynthesizing(t *testing.T) {
 	// Tests both hunks with pre-existing @@ headers and hunks without (requiring synthesized header)
 	diffs := []*models.CodeDiff{

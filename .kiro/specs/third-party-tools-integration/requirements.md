@@ -42,7 +42,7 @@ The feature is delivered in three sequential phases:
 
 1. THE System SHALL provide an `available_tools` table with columns: `id` (bigserial primary key), `name` (text not null unique), `description` (text not null), and `lambda_arn` (text not null).
 2. THE System SHALL seed the `available_tools` table with at least two initial rows: one for `ruff` and one for `pylint`, each with a non-empty `description` and a placeholder `lambda_arn`.
-3. THE System SHALL manage the `available_tools` schema exclusively through dbmate migration files located in `db/migrations/`, and SHALL NOT apply these migrations directly to any production database.
+3. THE System SHALL manage the `available_tools` schema through version-controlled migration files in `db/migrations/` (executed via standard release deployment pipeline in production environments and dbmate in development environments).
 
 ---
 
@@ -54,7 +54,7 @@ The feature is delivered in three sequential phases:
 
 1. THE System SHALL provide an `org_tools` table with columns: `org_id` (bigint not null, references `organizations.id`), `tool_id` (bigint not null, references `available_tools.id`), `enabled` (boolean not null default false), `config_json` (jsonb not null default `'{}'`), and a composite primary key on (`org_id`, `tool_id`).
 2. THE System SHALL enforce that every row in `org_tools` references a valid `org_id` in the `organizations` table and a valid `tool_id` in the `available_tools` table via foreign key constraints.
-3. THE System SHALL manage the `org_tools` schema exclusively through dbmate migration files and SHALL NOT apply these migrations directly to any production database.
+3. THE System SHALL manage the `org_tools` schema through version-controlled migration files in `db/migrations/` (executed via standard release deployment pipeline in production environments and dbmate in development environments).
 
 ---
 

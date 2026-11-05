@@ -361,24 +361,35 @@ func ConvertModelDiffsToLocal(diffs []*models.CodeDiff) []lib.LocalCodeDiff {
 				NewStartLine: h.NewStartLine,
 				NewLineCount: h.NewLineCount,
 			}
-			lines := strings.Split(h.Content, "\n")
+			content := strings.TrimSuffix(h.Content, "\n")
+			if content == "" {
+				continue
+			}
+			lines := strings.Split(content, "\n")
 			for _, line := range lines {
 				if strings.HasPrefix(line, "@@") {
 					localHunk.HeaderText = strings.TrimSpace(line)
 					continue
 				}
-				if len(line) == 0 {
-					continue
-				}
 				lineType := "context"
-				switch line[0] {
-				case '+':
-					lineType = "added"
-				case '-':
-					lineType = "deleted"
+				contentStr := ""
+				if len(line) > 0 {
+					switch line[0] {
+					case '+':
+						lineType = "added"
+						contentStr = line[1:]
+					case '-':
+						lineType = "deleted"
+						contentStr = line[1:]
+					case ' ':
+						contentStr = line[1:]
+					default:
+						// Preserve context line even if leading space was omitted
+						contentStr = line
+					}
 				}
 				localHunk.Lines = append(localHunk.Lines, lib.LocalDiffLine{
-					Content:  line[1:],
+					Content:  contentStr,
 					LineType: lineType,
 				})
 			}
