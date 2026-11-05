@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/tls"
+	_ "embed"
+	"encoding/base64"
 	"fmt"
+	"github.com/rs/zerolog/log"
 	"html/template"
 	"mime"
 	"net"
@@ -13,8 +16,6 @@ import (
 	"strings"
 	textTemplate "text/template" // nosemgrep: go.lang.security.audit.xss.import-text-template.import-text-template -- used only for plain-text body; HTML body uses html/template
 	"time"
-	_ "embed"
-	"github.com/rs/zerolog/log"
 )
 
 //go:embed templates/invitation.html
@@ -28,6 +29,9 @@ var verificationHTMLTemplate string
 
 //go:embed templates/verification.txt
 var verificationTextTemplate string
+
+//go:embed assets/logo-with-text.png
+var logoPNG []byte
 
 // SendInvitationEmailSMTP sends the invitation email using SMTP credentials
 func SendInvitationEmailSMTP(host string, port int, username, password, sender, senderName string, skipTLS bool, params InvitationParams) error {
@@ -73,22 +77,24 @@ func SendInvitationEmailSMTP(host string, port int, username, password, sender, 
 
 // SendRawEmailSMTP handles the actual SMTP protocol and MIME multipart generation
 func SendRawEmailSMTP(host string, port int, username, password, sender, senderName string, skipTLS bool, recipient, subject, textBody, htmlBody string) error {
-	// Construct email message with multipart/alternative MIME type
+	// Construct email message with multipart/related MIME type. The HTML body
+	// references the logo as cid:livereview-logo, so the image travels inline.
 	randBytes := make([]byte, 16)
 	_, _ = rand.Read(randBytes)
-	boundary := fmt.Sprintf("livereview-smtp-boundary-%x", randBytes)
+	relatedBoundary := fmt.Sprintf("livereview-smtp-related-%x", randBytes)
+	alternativeBoundary := fmt.Sprintf("livereview-smtp-alternative-%x", randBytes)
 
 	header := make(map[string]string)
-	
+
 	fromAddr := mail.Address{Name: senderName, Address: sender}
 	header["From"] = fromAddr.String()
-	
+
 	toAddr := mail.Address{Address: recipient}
 	header["To"] = toAddr.String()
-	
+
 	header["Subject"] = mime.QEncoding.Encode("utf-8", subject)
 	header["MIME-Version"] = "1.0"
-	header["Content-Type"] = fmt.Sprintf("multipart/alternative; boundary=%s", boundary)
+	header["Content-Type"] = fmt.Sprintf("multipart/related; boundary=%s; type=\"multipart/alternative\"", relatedBoundary)
 
 	var message strings.Builder
 	for k, v := range header {
@@ -99,21 +105,42 @@ func SendRawEmailSMTP(host string, port int, username, password, sender, senderN
 	}
 	message.WriteString("\r\n")
 
+	// Nested multipart/alternative with the existing plain-text and HTML bodies.
+	message.WriteString(fmt.Sprintf("--%s\r\n", relatedBoundary))
+	message.WriteString(fmt.Sprintf("Content-Type: multipart/alternative; boundary=%s\r\n\r\n", alternativeBoundary))
+
 	// Plain text boundary section
-	message.WriteString(fmt.Sprintf("--%s\r\n", boundary))
+	message.WriteString(fmt.Sprintf("--%s\r\n", alternativeBoundary))
 	message.WriteString("Content-Type: text/plain; charset=\"utf-8\"\r\n")
 	message.WriteString("Content-Transfer-Encoding: 7bit\r\n\r\n")
 	message.WriteString(textBody)
 	message.WriteString("\r\n\r\n")
 
 	// HTML boundary section
-	message.WriteString(fmt.Sprintf("--%s\r\n", boundary))
+	message.WriteString(fmt.Sprintf("--%s\r\n", alternativeBoundary))
 	message.WriteString("Content-Type: text/html; charset=\"utf-8\"\r\n")
 	message.WriteString("Content-Transfer-Encoding: 7bit\r\n\r\n")
 	message.WriteString(htmlBody)
 	message.WriteString("\r\n\r\n")
 
-	message.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
+	message.WriteString(fmt.Sprintf("--%s--\r\n", alternativeBoundary))
+
+	// Inline logo referenced from the HTML body as cid:livereview-logo.
+	message.WriteString(fmt.Sprintf("--%s\r\n", relatedBoundary))
+	message.WriteString("Content-Type: image/png; name=\"logo-with-text.png\"\r\n")
+	message.WriteString("Content-Transfer-Encoding: base64\r\n")
+	message.WriteString("Content-ID: <livereview-logo>\r\n")
+	message.WriteString("Content-Disposition: inline; filename=\"logo-with-text.png\"\r\n\r\n")
+	encodedLogo := base64.StdEncoding.EncodeToString(logoPNG)
+	for len(encodedLogo) > 76 {
+		message.WriteString(encodedLogo[:76])
+		message.WriteString("\r\n")
+		encodedLogo = encodedLogo[76:]
+	}
+	message.WriteString(encodedLogo)
+	message.WriteString("\r\n\r\n")
+
+	message.WriteString(fmt.Sprintf("--%s--\r\n", relatedBoundary))
 
 	addr := fmt.Sprintf("%s:%d", host, port)
 	tlsConfig := &tls.Config{
