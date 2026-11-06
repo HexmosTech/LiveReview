@@ -2250,7 +2250,9 @@ CREATE TABLE public.orgs (
     created_by_user_id bigint,
     subscription_plan character varying(50) DEFAULT 'free'::character varying,
     max_users integer DEFAULT 10,
-    signup_path text
+    signup_path text,
+    first_github_connect_notified_at timestamp with time zone,
+    first_review_notified_at timestamp with time zone
 );
 
 
@@ -10606,4 +10608,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261030134721'),
     ('20261031070300'),
     ('20261031120000'),
-    ('20261031140000');
+    ('20261031140000'),
+    ('20261106135226');

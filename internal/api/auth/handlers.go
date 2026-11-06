@@ -1,10 +1,8 @@
 package auth
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -15,6 +13,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/auditlog"
+	"github.com/livereview/internal/notify"
 	"github.com/livereview/internal/sso"
 	"github.com/livereview/pkg/models"
 	"golang.org/x/crypto/bcrypt"
@@ -813,41 +812,12 @@ func (h *AuthHandlers) getUserOrganizations(userID int64) ([]OrgInfo, error) {
 // sendSignupDiscordNotification sends a notification to Discord when a new user signs up.
 // It runs asynchronously and never fails the signup flow.
 func sendSignupDiscordNotification(email, source string) {
-	webhookURL := os.Getenv("DISCORD_SIGNUP_WEBHOOK_URL")
-	if webhookURL == "" {
-		return
-	}
-
 	if source == "" {
 		source = "unknown"
 	}
-
 	content := fmt.Sprintf("🆕 **New signup** — `%s` (via %s) at %s",
 		email, source, time.Now().UTC().Format(time.RFC3339))
-
-	go func() {
-		if err := postDiscordWebhook(webhookURL, map[string]string{"content": content}); err != nil {
-			log.Printf("[discord-notify] %v", err)
-		}
-	}()
-}
-
-// postDiscordWebhook sends a JSON payload to a Discord webhook and reports any failure.
-func postDiscordWebhook(webhookURL string, payload any) error {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal payload: %w", err)
-	}
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Post(webhookURL, "application/json", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("failed to send: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
-	}
-	return nil
+	notify.PostMilestone(content)
 }
 
 // EnterpriseEnquiryRequest is the "Get Enterprise" form from the dashboard navbar.
@@ -915,7 +885,7 @@ func (h *AuthHandlers) EnterpriseEnquiry(c echo.Context) error {
 			"footer": map[string]string{"text": "Submitted " + time.Now().UTC().Format("2006-01-02 15:04:05 UTC")},
 		}},
 	}
-	if err := postDiscordWebhook(webhookURL, payload); err != nil {
+	if err := notify.PostDiscordWebhook(webhookURL, payload); err != nil {
 		log.Printf("[enterprise-enquiry] %v", err)
 		return c.JSON(http.StatusBadGateway, map[string]string{"error": "Could not send your enquiry"})
 	}

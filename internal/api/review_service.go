@@ -15,6 +15,7 @@ import (
 	"github.com/livereview/internal/config"
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
+	"github.com/livereview/internal/notify"
 	reviewpkg "github.com/livereview/internal/review"
 	"github.com/livereview/pkg/models"
 )
@@ -669,5 +670,28 @@ func (s *Server) launchBackgroundProcessing(ctx *reviewSetupContext) error {
 		ctx.logger.Log("✓ Successfully enqueued manual review job")
 		ctx.logger.Close()
 	}
+	s.notifyFirstReviewSubmitted(ctx.orgID)
 	return nil
+}
+
+// notifyFirstReviewSubmitted pings Discord the first time an org submits a
+// review, and never again. Runs entirely off the request path, same pattern
+// as notifyFirstGitHubConnect: the atomic claim and the webhook POST both
+// happen inside the goroutine, so this adds no latency here.
+func (s *Server) notifyFirstReviewSubmitted(orgID int64) {
+	go func() {
+		claimed, err := notify.ClaimFirstReview(context.Background(), s.db, orgID)
+		if err != nil {
+			log.Printf("[discord-notify] claim first review for org %d failed: %v", orgID, err)
+			return
+		}
+		if !claimed {
+			return
+		}
+		var orgName string
+		if err := s.db.QueryRow(`SELECT name FROM orgs WHERE id = $1`, orgID).Scan(&orgName); err != nil {
+			orgName = fmt.Sprintf("org_id=%d", orgID)
+		}
+		notify.PostMilestone(fmt.Sprintf("🚀 **First review submitted** — %s", orgName))
+	}()
 }

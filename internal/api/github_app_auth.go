@@ -27,6 +27,7 @@ import (
 	"github.com/livereview/internal/auditlog"
 	"github.com/livereview/internal/githubapp"
 	"github.com/livereview/internal/license"
+	"github.com/livereview/internal/notify"
 	githubprovider "github.com/livereview/internal/provider_input/github"
 	"github.com/livereview/network/hexmos"
 	networkgithub "github.com/livereview/network/providers/github"
@@ -322,7 +323,30 @@ func (s *Server) GitHubAppConnect(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to connect"})
 	}
 	s.syncGitHubAppConnectorAsync(connectorID, true)
+	s.notifyFirstGitHubConnect(orgID)
 	return c.JSON(http.StatusOK, map[string]string{"status": "connected"})
+}
+
+// notifyFirstGitHubConnect pings Discord the first time an org connects
+// GitHub, and never again. Runs entirely off the request path: the atomic
+// claim (notify.ClaimFirstGitHubConnect) and the webhook POST both happen in
+// the goroutine, so this adds no latency to GitHubAppConnect.
+func (s *Server) notifyFirstGitHubConnect(orgID int64) {
+	go func() {
+		claimed, err := notify.ClaimFirstGitHubConnect(context.Background(), s.db, orgID)
+		if err != nil {
+			log.Printf("[discord-notify] claim first github connect for org %d failed: %v", orgID, err)
+			return
+		}
+		if !claimed {
+			return
+		}
+		var orgName string
+		if err := s.db.QueryRow(`SELECT name FROM orgs WHERE id = $1`, orgID).Scan(&orgName); err != nil {
+			orgName = fmt.Sprintf("org_id=%d", orgID)
+		}
+		notify.PostMilestone(fmt.Sprintf("🔗 **First GitHub connect** — %s", orgName))
+	}()
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -549,6 +573,15 @@ func (s *Server) GitHubAppCallback(c echo.Context) error {
 		log.Printf("[GitHubApp] ensure cloud user failed: %v", err)
 		return s.githubAppErrorPage(c, http.StatusInternalServerError, "Could not set up your LiveReview account. Please try again.")
 	}
+	// Every /gh-login sign-in, not just the first one — launch campaigns (src) need
+	// to see all traffic through this entry point, unlike the one-time signup/milestone
+	// pings elsewhere. finishBoundGitHubAppCallback (in-app "connect GitHub") never
+	// reaches here, so this never fires for an already-logged-in user connecting GitHub.
+	kind := "returning login"
+	if provisioned.CreatedUser {
+		kind = "new signup"
+	}
+	notify.PostMilestone(fmt.Sprintf("🔑 **GH login** (%s) — `%s` (src=%s)", kind, email, state.Src))
 	if provisioned.CreatedOrg {
 		if err := storageusers.NewUserStore(s.db).SetOrgSignupPath(provisioned.OrgID, "gh_app"); err != nil {
 			log.Printf("[GitHubApp] could not record signup_path for org %d: %v", provisioned.OrgID, err)
