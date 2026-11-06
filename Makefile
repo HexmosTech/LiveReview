@@ -408,10 +408,15 @@ test-sso-e2e:
 
 .PHONY: security-govulncheck security-govulncheck-json security-osv security-gitleaks security-semgrep security-dependabot security-gh-secret-scanning security-triage
 
-# Run Go vulnerability analysis for reachable vulnerabilities.
+# Run Go vulnerability analysis for reachable vulnerabilities. Findings are
+# passed through scripts/govulncheck_filter.py, which waives only the specific,
+# documented IDs in config/govulncheck-allowlist.txt (govulncheck itself has no
+# ignore-list feature) - anything else still fails the build.
 security-govulncheck:
 	@echo "Running govulncheck $(GOVULNCHECK_VERSION) with Go $(REQUIRED_GO_VERSION)..."
-	@$(GOVULNCHECK_CMD) $(SECURITY_GOVULN_PACKAGES)
+	@tmp=$$(mktemp); $(GOVULNCHECK_CMD) $(SECURITY_GOVULN_PACKAGES) > $$tmp 2>&1; status=$$?; \
+		python3 scripts/govulncheck_filter.py --log $$tmp --status $$status --allowlist config/govulncheck-allowlist.txt; rc=$$?; \
+		rm -f $$tmp; exit $$rc
 
 # Emit govulncheck report as JSON artifact under security_issues/.
 security-govulncheck-json:

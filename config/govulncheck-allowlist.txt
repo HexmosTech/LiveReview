@@ -1,0 +1,32 @@
+# govulncheck has no native ignore-list mechanism (unlike config/osv-scanner.toml,
+# which does). scripts/govulncheck_filter.py reads this file to waive specific,
+# documented, upstream-unfixable findings without silencing the check entirely -
+# any vulnerability ID not listed here still fails the build. One ID per line,
+# blank lines and lines starting with # are ignored.
+#
+# Re-check each entry's recheck-by date below; this file is not a permanent
+# exemption.
+
+# crewjam/saml nil-pointer panic in validateAssertion + namespace-blind
+# Subject.NameID. The advisory lists no fixed version yet (open-ended affected
+# range), but the actual upstream code fix (nil Issuer check + binding assertion
+# elements to the SAML namespace, crewjam/saml#679) already shipped in v0.5.2,
+# which we're on (see go.mod). Re-check once the govulndb advisory is updated
+# with a fixed-version range - recheck-by: 2027-02-15.
+GO-2026-6909
+
+# echo v4 rate-limiter bypass via spoofed X-Forwarded-For in default config
+# (GHSA-246p-cpwv-v3jq). Fixed only in echo v5 (5.1.0+), a breaking major-version
+# migration from the v4 line used throughout internal/api - not undertaken as a
+# dependency-bump fix. Already mitigated in practice: internal/api/server.go
+# explicitly sets e.IPExtractor = echo.ExtractIPFromXFFHeader() (see the comment
+# there citing this exact advisory), so IP-based rate limiting/audit logging
+# never blindly trusts an unconditionally-forwarded header. Recheck when planning
+# an echo v5 migration - recheck-by: 2027-02-15.
+GO-2026-6872
+
+# echo v4 reverse proxy forwards attacker-supplied X-Real-IP to the upstream by
+# default (GHSA-99jh-6h7p-pp36). Fixed only in echo v5 (5.4.0+), same breaking
+# migration and same mitigation as GO-2026-6872 above (server.go's IPExtractor
+# override). Recheck-by: 2027-02-15.
+GO-2026-6875

@@ -17,3 +17,18 @@ reason = "DoS-only (aborted glob walks keep doing filesystem I/O in the backgrou
 id = "GHSA-g3hv-75wg-m249"
 ignoreUntil = 2027-01-31
 reason = "DoS-only (globparts amplification); only fixed in minimatch 11.0.1+, no backport to the 3.x/9.x/10.x lines this repo's overrides pin (minimatch@3, @9, @10 in ui/package.json). Every occurrence (ui/package-lock.json, extension/livereview/package-lock.json) is dev-only build/test tooling (eslint, jest, webpack-obfuscator, beasties-webpack-plugin, @vscode/test-cli, npm-run-all) - `npm ls minimatch --omit=dev` is empty in both, so it never ships. Bumping to minimatch 11 means bumping every dependent across a major version, which is a separate, larger change than this fix warrants. Re-check when re-evaluating the dev toolchain."
+
+[[ignoredVulns]]
+id = "GO-2026-6909"
+ignoreUntil = 2027-02-15
+reason = "crewjam/saml nil-pointer panic in validateAssertion + namespace-blind Subject.NameID. The advisory lists no fixed version yet (open-ended affected range), but the actual upstream code fix (nil Issuer check + binding assertion elements to the SAML namespace, crewjam/saml#679) already shipped in v0.5.2, which we're on. Re-check once the govulndb/OSV advisory is updated with a fixed-version range - the ignore is about the advisory metadata lagging the real fix, not an open vulnerability."
+
+[[ignoredVulns]]
+id = "GO-2026-6872"
+ignoreUntil = 2027-02-15
+reason = "echo v4 rate-limiter bypass via spoofed X-Forwarded-For in default config (GHSA-246p-cpwv-v3jq). Fixed only in echo v5 (5.1.0+), a breaking major-version migration from the v4 line used throughout internal/api - not undertaken as a dependency-bump fix. Already mitigated in practice: internal/api/server.go explicitly sets e.IPExtractor = echo.ExtractIPFromXFFHeader() (see the comment there citing this exact advisory), so the real client IP, not an unconditionally-trusted header, is what any IP-based rate limiting or audit logging uses. Re-check when planning an echo v5 migration."
+
+[[ignoredVulns]]
+id = "GO-2026-6875"
+ignoreUntil = 2027-02-15
+reason = "echo v4 reverse proxy forwards attacker-supplied X-Real-IP to the upstream by default (GHSA-99jh-6h7p-pp36). Fixed only in echo v5 (5.4.0+), a breaking major-version migration from the v4 line used throughout internal/api - not undertaken as a dependency-bump fix. Same mitigation as GO-2026-6872: internal/api/server.go's IPExtractor override means we don't rely on echo's unconditional-trust default. Re-check when planning an echo v5 migration."
