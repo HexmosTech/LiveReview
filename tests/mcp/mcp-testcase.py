@@ -386,6 +386,14 @@ def build_initial_messages(hello_mode, master_instructions, md_content):
 # =========================================================
 
 
+def _is_low_balance_error(exc) -> bool:
+    """True for the Atlas Cloud "account has run out of funds" error, not a
+    real test/code failure - see run_single_testcase's key_expired handling."""
+    status_code = getattr(exc, "status_code", None)
+    message = str(exc).lower()
+    return status_code == 429 and "low balance" in message and "available funds" in message
+
+
 async def call_model_with_retry(
     client,
     model,
@@ -396,6 +404,7 @@ async def call_model_with_retry(
 ):
     response = None
     aborted = False
+    key_expired = False
 
     for model_attempt in range(1, max_retries + 1):
         try:
@@ -419,6 +428,19 @@ async def call_model_with_retry(
             if model_attempt == max_retries:
                 aborted = True
                 break
+
+        except Exception as e:
+            if not _is_low_balance_error(e):
+                raise
+            print(
+                "⚠️  NOOP: ATLAS_API_KEY's account has less than $1 in available "
+                "funds - treating this as a controlled noop, not a test failure. "
+                f"Top up the Atlas Cloud account to resume real runs. ({e})",
+                file=sys.stderr,
+            )
+            aborted = True
+            key_expired = True
+            break
     global total_input_tokens, total_output_tokens
     if response and hasattr(response, 'usage') and response.usage:
         usage = response.usage
@@ -428,10 +450,11 @@ async def call_model_with_retry(
         print(f"   Input (prompt) tokens      : {usage.prompt_tokens}", file=sys.stderr)
         print(f"   Output (completion) tokens : {usage.completion_tokens}", file=sys.stderr)
         print(f"   Total tokens               : {usage.total_tokens}", file=sys.stderr)
-        
+
     return {
         "response": response,
         "aborted": aborted,
+        "key_expired": key_expired,
     }
 
 
@@ -448,6 +471,7 @@ async def execute_agent_loop(
     tool_outputs_log = []
     failed_tool_calls = []
     aborted = False
+    key_expired = False
 
     for iteration in range(MAX_TOOL_ITERATIONS):
         print(f"\n🔄 ITERATION: {iteration+1} | 📨 MESSAGES: {len(messages)}", file=sys.stderr)
@@ -460,6 +484,7 @@ async def execute_agent_loop(
         )
 
         aborted = model_result["aborted"]
+        key_expired = model_result["key_expired"]
 
         if aborted:
             break
@@ -505,6 +530,7 @@ async def execute_agent_loop(
 
     return {
         "aborted": aborted,
+        "key_expired": key_expired,
         "tool_outputs_log": tool_outputs_log,
         "failed_tool_calls": failed_tool_calls,
     }
@@ -579,6 +605,25 @@ async def run_single_testcase(file_path, context):
 
     failed_tool_calls = agent_result["failed_tool_calls"]
 
+    if agent_result["key_expired"]:
+        # Controlled noop, not a code failure - see _is_low_balance_error.
+        # Recorded explicitly (not silently dropped like a plain abort) so
+        # it's visible in test_results.json and the CI logs.
+        return {
+            "id": (
+                int(Path(file_path).name.split(".")[0])
+                if Path(file_path).name.split(".")[0].isdigit()
+                else 0
+            ),
+            "file_name": Path(file_path).name,
+            "test_name": (Path(file_path).name.replace("_", " ").replace(".md", "")),
+            "passed": True,
+            "noop": True,
+            "noop_reason": "ATLAS_API_KEY account has insufficient funds (<$1 available) - skipped as a controlled noop. Top up the Atlas Cloud account to resume real test execution.",
+            "error_message": None,
+            "detailed_execution_report": "\n".join(tool_outputs_log),
+        }
+
     if aborted:
         return None
 
@@ -613,12 +658,18 @@ def save_test_results(all_test_results, input_tokens, output_tokens):
 
     failed_count = len(all_test_results) - passed_count
 
+    noop_entries = [t for t in all_test_results if t.get("noop")]
+
     final_output = {
         "suite_summary": {
             "total_tests": len(all_test_results),
             "passed_count": passed_count,
             "failed_count": failed_count,
             "overall_status": ("PASSED" if failed_count == 0 else "FAILED"),
+            # Present only when the suite stopped early on the Atlas Cloud
+            # low-balance noop (see _is_low_balance_error) - a reminder that
+            # "PASSED" here didn't mean every test actually ran.
+            "noop_reason": (noop_entries[0]["noop_reason"] if noop_entries else None),
             "token_consumption": {
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
@@ -722,6 +773,13 @@ async def main():
 
             if result:
                 all_test_results.append(result)
+
+            if result and result.get("noop"):
+                print(
+                    f"\n⚠️  NOOP: stopping the suite early - {result['noop_reason']}",
+                    file=sys.stderr,
+                )
+                break
 
 
         print("\n" + "="*60, file=sys.stderr)

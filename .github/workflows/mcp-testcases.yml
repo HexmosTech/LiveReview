@@ -90,11 +90,15 @@ jobs:
           with open("tests/mcp/test_results.json") as f:
               result = json.load(f)
 
-          status = result.get("suite_summary", {}).get("overall_status")
+          summary = result.get("suite_summary", {})
+          status = summary.get("overall_status")
+          noop_reason = summary.get("noop_reason")
 
           print(f"Overall Status: {status}")
 
           if status == "PASSED":
+              if noop_reason:
+                  print(f"NOOP: {noop_reason}")
               print("MCP test passed")
               sys.exit(0)
 
