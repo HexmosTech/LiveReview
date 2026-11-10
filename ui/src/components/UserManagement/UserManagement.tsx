@@ -10,6 +10,7 @@ import { fetchOrgUsers, FetchOrgUsersParams, Member, deactivateOrgUser } from '.
 import { isCloudMode } from '../../utils/deploymentMode';
 import { RootState } from '../../store/configureStore';
 import LicenseUpgradeDialog from '../License/LicenseUpgradeDialog';
+import { ConfirmModal } from '../ConfirmModal';
 import { useLicenseTier, useHasLicenseFor, COMMUNITY_TIER_LIMITS } from '../../hooks/useLicenseTier';
 
 export interface UserManagementProps {
@@ -31,6 +32,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+    const [deactivateTarget, setDeactivateTarget] = useState<Member | null>(null);
+    const [deactivating, setDeactivating] = useState(false);
     const licenseTier = useLicenseTier();
     const hasTeamLicense = useHasLicenseFor('team');
     // Cloud Free and self-hosted Community share the same member cap.
@@ -171,12 +174,19 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     // columns and hand React a new header render-function reference for the
     // same column - React then treats it as a different component type and
     // remounts it, silently closing any open popover. See .agents/design.md.
-    const handleDeactivateUser = useCallback(async (user: Member) => {
-        const userName = user.first_name && user.last_name ? `${user.first_name} ${user.last_name}` : user.email;
-        if (!window.confirm(`Are you sure you want to deactivate ${userName}?`)) {
+    const handleDeactivateUser = useCallback((user: Member) => {
+        setDeactivateTarget(user);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isSuperAdminView, currentOrg, refetchCurrent]);
+
+    const handleConfirmDeactivate = async () => {
+        const user = deactivateTarget;
+        if (!user) {
             return;
         }
+        const userName = user.first_name && user.last_name ? `${user.first_name} ${user.last_name}` : user.email;
 
+        setDeactivating(true);
         try {
             if (isSuperAdminView) {
                 // TODO: Implement super admin deactivation
@@ -191,9 +201,11 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             console.error('Failed to deactivate user:', err);
             setError(err.message || 'Failed to deactivate user');
             notify.error(`Failed to deactivate user: ${err.message}`);
+        } finally {
+            setDeactivating(false);
+            setDeactivateTarget(null);
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isSuperAdminView, currentOrg, refetchCurrent]);
+    };
 
     const handleTransferUser = useCallback((user: Member) => {
         // TODO: Open transfer user modal
@@ -316,6 +328,20 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 onColumnFiltersChange={handleColumnFiltersChange}
                 pagination={pagination}
                 onPaginationChange={handlePaginationChange}
+            />
+
+            {/* Deactivate User Confirmation */}
+            <ConfirmModal
+                show={deactivateTarget !== null}
+                type="danger"
+                title="Deactivate user?"
+                message={deactivateTarget
+                    ? `Are you sure you want to deactivate ${deactivateTarget.first_name && deactivateTarget.last_name ? `${deactivateTarget.first_name} ${deactivateTarget.last_name}` : deactivateTarget.email}?`
+                    : ''}
+                confirmText="Deactivate"
+                loading={deactivating}
+                onConfirm={handleConfirmDeactivate}
+                onCancel={() => setDeactivateTarget(null)}
             />
 
             {/* License Upgrade Dialog */}
