@@ -6,10 +6,10 @@
 <a href="https://www.producthunt.com/products/livereview?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-livereview" target="_blank" rel="noopener noreferrer"><img alt="LiveReview" src="https://ph-files.imgix.net/b2c2dfcc-1984-408d-a268-16b35a67c388.gif?auto=compress,format&amp;codec=mozjpeg&amp;cs=strip&amp;fit=crop&amp;h=80&amp;w=80" width="48" height="48" style="display: block; width: 48px; height: 48px; border-radius: 10px;"></a>
 </td>
 <td valign="middle">
-<a href="https://www.producthunt.com/products/livereview?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-livereview" target="_blank" rel="noopener noreferrer" style="text-decoration: none; color: inherit;"><strong>LiveReview</strong><br><span style="font-size: 14px; opacity: 0.75;">Upvote us on Product Hunt →</span></a>
+<a href="https://hexmos.com/livereview" target="_blank" rel="noopener noreferrer" style="text-decoration: none; color: inherit;"><strong>LiveReview</strong><br><span style="font-size: 14px; opacity: 0.75;">Try it on cloud →</span></a>
 </td>
 <td align="right" valign="middle">
-<a href="https://www.producthunt.com/products/livereview?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-livereview" target="_blank" rel="noopener noreferrer"><img alt="LiveReview on Product Hunt" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1293330&amp;theme=light&amp;t=1793546682186" width="200" height="43" style="display: block;"></a>
+<a href="https://www.producthunt.com/products/livereview?embed=true&amp;utm_source=badge-top-post-badge&amp;utm_medium=badge&amp;utm_campaign=badge-livereview" target="_blank" rel="noopener noreferrer"><img alt="LiveReview - Free, Risk-Aware Code Review: Auto Approve Low-Risk Changes | Product Hunt" src="https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1293330&amp;theme=light&amp;period=daily&amp;t=1794235213960" width="200" height="43" style="display: block;"></a>
 </td>
 </tr>
 </table>
