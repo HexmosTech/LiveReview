@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 )
@@ -195,19 +196,96 @@ type QuizQuestion struct {
 	Explanation  string   `json:"explanation,omitempty"`
 }
 
-// ReviewComment represents a single comment from the AI review
+// ReviewComment represents a single comment from the AI review or static analysis tools
 type ReviewComment struct {
-	FilePath      string
-	Line          int
-	Content       string
-	Severity      CommentSeverity
-	Confidence    string
-	Type          string
-	Category      string
-	Subcategory   string
-	Suggestions   []string
-	IsDeletedLine bool // True if comment is on a deleted line (old_line) rather than new_line
-	IsInternal    bool // True if comment is for internal synthesis only, false if it should be posted to user
+	FilePath      string          `json:"file_path,omitempty"`
+	Line          int             `json:"line,omitempty"`
+	Content       string          `json:"content,omitempty"`
+	Severity      CommentSeverity `json:"severity,omitempty"`
+	Confidence    string          `json:"confidence,omitempty"`
+	Type          string          `json:"type,omitempty"`
+	Category      string          `json:"category,omitempty"`
+	Subcategory   string          `json:"subcategory,omitempty"`
+	Suggestions   []string        `json:"suggestions,omitempty"`
+	IsDeletedLine bool            `json:"is_deleted_line,omitempty"`
+	IsInternal    bool            `json:"is_internal,omitempty"`
+	Source        string          `json:"source,omitempty"`
+	ToolName      string          `json:"tool_name,omitempty"`
+}
+
+// UnmarshalJSON supports unmarshaling from both snake_case and PascalCase/camelCase JSON keys.
+func (r *ReviewComment) UnmarshalJSON(data []byte) error {
+	if r == nil {
+		return nil
+	}
+	type Alias ReviewComment
+	aux := &struct {
+		*Alias
+		FilePathAlt   string `json:"FilePath"`
+		FilePathAlt2  string `json:"filePath"`
+		ToolNameAlt   string `json:"ToolName"`
+		ToolNameAlt2  string `json:"toolName"`
+		IsDeletedAlt  bool   `json:"IsDeletedLine"`
+		IsInternalAlt bool   `json:"IsInternal"`
+		ContentAlt    string `json:"Content"`
+		LineAlt       int    `json:"Line"`
+		SeverityAlt   string `json:"Severity"`
+		CategoryAlt   string `json:"Category"`
+		SubcatAlt     string `json:"Subcategory"`
+		ConfidenceAlt string `json:"Confidence"`
+		TypeAlt       string `json:"Type"`
+		SourceAlt     string `json:"Source"`
+	}{
+		Alias: (*Alias)(r),
+	}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if r.FilePath == "" {
+		if aux.FilePathAlt != "" {
+			r.FilePath = aux.FilePathAlt
+		} else if aux.FilePathAlt2 != "" {
+			r.FilePath = aux.FilePathAlt2
+		}
+	}
+	if r.ToolName == "" {
+		if aux.ToolNameAlt != "" {
+			r.ToolName = aux.ToolNameAlt
+		} else if aux.ToolNameAlt2 != "" {
+			r.ToolName = aux.ToolNameAlt2
+		}
+	}
+	if r.Content == "" && aux.ContentAlt != "" {
+		r.Content = aux.ContentAlt
+	}
+	if r.Line == 0 && aux.LineAlt != 0 {
+		r.Line = aux.LineAlt
+	}
+	if r.Severity == "" && aux.SeverityAlt != "" {
+		r.Severity = CommentSeverity(aux.SeverityAlt)
+	}
+	if r.Category == "" && aux.CategoryAlt != "" {
+		r.Category = aux.CategoryAlt
+	}
+	if r.Subcategory == "" && aux.SubcatAlt != "" {
+		r.Subcategory = aux.SubcatAlt
+	}
+	if r.Confidence == "" && aux.ConfidenceAlt != "" {
+		r.Confidence = aux.ConfidenceAlt
+	}
+	if r.Type == "" && aux.TypeAlt != "" {
+		r.Type = aux.TypeAlt
+	}
+	if r.Source == "" && aux.SourceAlt != "" {
+		r.Source = aux.SourceAlt
+	}
+	if !r.IsDeletedLine && aux.IsDeletedAlt {
+		r.IsDeletedLine = aux.IsDeletedAlt
+	}
+	if !r.IsInternal && aux.IsInternalAlt {
+		r.IsInternal = aux.IsInternalAlt
+	}
+	return nil
 }
 
 // CommentSeverity represents the severity level of a review comment

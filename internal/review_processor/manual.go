@@ -11,6 +11,7 @@ import (
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
 	reviewpkg "github.com/livereview/internal/review"
+	"github.com/livereview/pkg/models"
 )
 
 // ProcessManualReview runs a manual code review task
@@ -82,19 +83,123 @@ func ProcessManualReview(
 				log.Printf("[WARN] failed to persist comments_not_posted for review %d: %v", reviewID, err)
 			}
 		}
-		if err := rm.MergeReviewMetadata(reviewID, map[string]interface{}{
-			"review_result": map[string]interface{}{
-				"summary":  result.Summary,
-				"comments": result.Comments,
-				"quiz":     result.Quiz,
-				// Read by the auto-approve policy's LLM classification stage.
+		// Lock review and merge any existing tool comments in a transaction to prevent race conditions
+		tx, txErr := db.BeginTx(ctx, nil)
+		if txErr != nil {
+			log.Printf("[WARN] ProcessManualReview: failed to begin tx for review %d: %v", reviewID, txErr)
+		} else {
+			defer func() {
+				if rErr := tx.Rollback(); rErr != nil && rErr != sql.ErrTxDone {
+					log.Printf("[WARN] ProcessManualReview: failed to rollback tx for review %d: %v", reviewID, rErr)
+				}
+			}()
+
+			var existingCommentsJSON []byte
+			var toolsDispatched int
+			scanErr := tx.QueryRowContext(ctx, `
+				SELECT 
+					COALESCE(metadata->'review_result'->'comments', '[]'::jsonb),
+					COALESCE((metadata->>'tools_dispatched')::int, 0)
+				FROM public.reviews WHERE id = $1 FOR UPDATE
+			`, reviewID).Scan(&existingCommentsJSON, &toolsDispatched)
+
+			if scanErr == nil && len(existingCommentsJSON) > 0 {
+				var existingToolComments []*models.ReviewComment
+				if unmarshalErr := json.Unmarshal(existingCommentsJSON, &existingToolComments); unmarshalErr == nil {
+					seenKeys := make(map[string]bool)
+					for _, c := range result.Comments {
+						if c != nil && c.Source == "tool" {
+							seenKeys[fmt.Sprintf("%s:%s:%d:%s", c.ToolName, c.FilePath, c.Line, strings.TrimSpace(c.Content))] = true
+						}
+					}
+					for _, tc := range existingToolComments {
+						if tc != nil && tc.Source == "tool" {
+							key := fmt.Sprintf("%s:%s:%d:%s", tc.ToolName, tc.FilePath, tc.Line, strings.TrimSpace(tc.Content))
+							if !seenKeys[key] {
+								seenKeys[key] = true
+								result.Comments = append(result.Comments, tc)
+							}
+						}
+					}
+				}
+			}
+
+			reviewResultPayload := map[string]interface{}{
+				"summary":            result.Summary,
+				"comments":           result.Comments,
+				"quiz":               result.Quiz,
 				"diffClassification": result.DiffClassification,
-			},
-		}); err != nil {
-			log.Printf("[WARN] failed to persist review_result for review %d: %v", reviewID, err)
+			}
+			resultBytes, mErr := json.Marshal(reviewResultPayload)
+			if mErr != nil {
+				log.Printf("[WARN] ProcessManualReview: failed to marshal review %d result: %v", reviewID, mErr)
+			} else {
+				_, updErr := tx.ExecContext(ctx, `
+					UPDATE public.reviews
+					SET metadata = jsonb_set(
+						jsonb_set(
+							COALESCE(metadata, '{}'::jsonb),
+							'{review_result}',
+							$1::jsonb
+						),
+						'{ai_review_done}',
+						'true'::jsonb
+					)
+					WHERE id = $2
+				`, resultBytes, reviewID)
+				if updErr != nil {
+					log.Printf("[WARN] ProcessManualReview: failed to update review %d metadata: %v", reviewID, updErr)
+				} else if commitErr := tx.Commit(); commitErr != nil {
+					log.Printf("[WARN] ProcessManualReview: failed to commit review %d metadata tx: %v", reviewID, commitErr)
+				}
+			}
 		}
 
-		_ = rm.UpdateReviewStatus(reviewID, "completed")
+		// Check pending tools safely without race conditions
+		var toolsDispatchedTotal int
+		_ = db.QueryRowContext(ctx, `
+			SELECT COALESCE((metadata->>'tools_dispatched')::int, 0)
+			FROM public.reviews WHERE id = $1
+		`, reviewID).Scan(&toolsDispatchedTotal)
+
+		var completedTools int
+		_ = db.QueryRowContext(ctx, `
+			SELECT COUNT(DISTINCT data->>'tool_name')
+			FROM public.review_events
+			WHERE review_id = $1 AND event_type = 'tool_result'
+		`, reviewID).Scan(&completedTools)
+
+		var pendingTools int
+		if toolsDispatchedTotal > 0 {
+			pendingTools = toolsDispatchedTotal - completedTools
+			if pendingTools < 0 {
+				pendingTools = 0
+			}
+		} else {
+			_ = db.QueryRowContext(ctx, `
+				SELECT COUNT(*) FROM public.review_events
+				WHERE review_id = $1 AND event_type = 'tool_dispatch' AND data->>'tool_name' NOT IN (
+					SELECT data->>'tool_name' FROM public.review_events WHERE review_id = $1 AND event_type = 'tool_result'
+				)`, reviewID).Scan(&pendingTools)
+		}
+
+		if pendingTools == 0 {
+			res, updErr := db.ExecContext(ctx, `
+				UPDATE public.reviews
+				SET status = 'completed', completed_at = NOW()
+				WHERE id = $1 AND status != 'completed'`, reviewID)
+			if updErr == nil {
+				if rows, _ := res.RowsAffected(); rows > 0 && logger != nil {
+					eventSink := NewDatabaseEventSink(db)
+					_ = eventSink.EmitCompletionEvent(ctx, reviewID, orgID, result.Summary, len(result.Comments), "")
+				}
+			}
+		} else {
+			if logger != nil {
+				logger.Log("AI review portion completed (%d comments). Waiting for %d pending static analysis tool(s)...", len(result.Comments), pendingTools)
+			}
+			log.Printf("[INFO] ProcessManualReview: review=%d AI review completed (%d comments), waiting for %d pending tool(s)", reviewID, len(result.Comments), pendingTools)
+		}
 
 		if result.BillableLOC > 0 && onSuccess != nil {
 			extraMeta := buildQueuedReviewAIMetadata(&request, result)
@@ -111,6 +216,10 @@ func ProcessManualReview(
 		}
 	} else {
 		_ = rm.UpdateReviewStatus(reviewID, "failed")
+		_ = rm.MergeReviewMetadata(reviewID, map[string]interface{}{
+			"ai_review_done": true,
+			"failure_reason": "review processing encountered errors",
+		})
 	}
 
 	if logger != nil {

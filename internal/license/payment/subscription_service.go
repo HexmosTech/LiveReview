@@ -1576,10 +1576,12 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 				trial_ends_at,
 				trial_readonly,
 				last_reset_at,
-				updated_at
-			) VALUES ($1, $2, $3, $4, 0, FALSE, $5, $6, FALSE, NOW(), NOW())
+				updated_at,
+				tool_credits_limit_month
+			) VALUES ($1, $2, $3, $4, 0, FALSE, $5, $6, FALSE, NOW(), NOW(), $7)
 			ON CONFLICT (org_id) DO UPDATE SET
 				current_plan_code = EXCLUDED.current_plan_code,
+				tool_credits_limit_month = EXCLUDED.tool_credits_limit_month,
 				billing_period_start = EXCLUDED.billing_period_start,
 				billing_period_end = EXCLUDED.billing_period_end,
 				trial_started_at = COALESCE(org_billing_state.trial_started_at, EXCLUDED.trial_started_at),
@@ -1596,7 +1598,7 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 				trial_readonly = FALSE,
 				loc_blocked = FALSE,
 				updated_at = NOW()
-		`, orgID, resolvedPlanCode.String(), periodStart, periodEnd, trialStartedAtValue, trialEndsAtValue)
+		`, orgID, resolvedPlanCode.String(), periodStart, periodEnd, trialStartedAtValue, trialEndsAtValue, resolvedPlanCode.GetToolCreditsLimit())
 		if err != nil {
 			return fmt.Errorf("failed to update org billing state for confirmed purchase: %w", err)
 		}

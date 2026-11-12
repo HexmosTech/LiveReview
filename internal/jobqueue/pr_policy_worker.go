@@ -55,7 +55,7 @@ func (w *PRPolicyCheckWorker) Work(ctx context.Context, job *river.Job[PRPolicyC
 	if err != nil {
 		return fmt.Errorf("failed to load review %d: %w", args.ReviewID, err)
 	}
-	if status != "completed" || !pullRequestID.Valid || !flagged {
+	if status != "completed" || !flagged {
 		return nil
 	}
 
@@ -108,9 +108,13 @@ func (w *PRPolicyCheckWorker) Work(ctx context.Context, job *river.Job[PRPolicyC
 		return nil
 	}
 
-	if err := w.publish(ctx, args, pullRequestID.Int64, res); err != nil {
-		release()
-		return err
+	// Publishing onto the PR comment needs a synced PR row; a review that was only
+	// linked by URL still gets the local decision, just no comment.
+	if pullRequestID.Valid {
+		if err := w.publish(ctx, args, pullRequestID.Int64, res); err != nil {
+			release()
+			return err
+		}
 	}
 	return nil
 }

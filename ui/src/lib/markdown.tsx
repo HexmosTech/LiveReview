@@ -30,7 +30,7 @@ const FileChip: React.FC<{ token: { path: string; line: number }; onOpenFile: Op
     className={
       bold
         ? 'font-semibold text-sky-300 underline decoration-dotted decoration-sky-500/50 hover:text-sky-200'
-        : 'rounded bg-slate-900 px-1 py-0.5 font-mono text-[0.85em] text-sky-300 underline decoration-dotted decoration-sky-500/50 hover:text-sky-200'
+        : 'rounded-[3px] bg-white/[0.04] border border-white/10 px-1.5 py-0.5 font-mono text-[12px] text-sky-300 hover:bg-white/[0.08] hover:text-sky-200 transition-colors'
     }
   >
     {token.path}:{token.line}
@@ -54,7 +54,7 @@ export function renderInline(text: string, keyPrefix: string, onOpenFile?: OpenF
       const token = onOpenFile ? parseFileLineToken(match[1]) : null;
       nodes.push(token
         ? <FileChip key={key} token={token} onOpenFile={onOpenFile!} />
-        : <code key={key} className="rounded bg-slate-900 px-1 py-0.5 font-mono text-[0.85em] text-slate-200">{match[1]}</code>);
+        : <code key={key} className="rounded-[3px] bg-[#2d2d30] px-1.5 py-0.5 font-mono text-[12px] text-[#4ec9b0]">{match[1]}</code>);
     } else if (match[2] !== undefined) {
       const href = match[3];
       const safe = /^(https?:|mailto:)/i.test(href);
@@ -154,10 +154,10 @@ export function parseBlocks(markdown: string): Block[] {
 }
 
 const HEADER_CLASSES: Record<string, string> = {
-  h1: 'text-xl font-bold text-white mt-4 mb-2 first:mt-0',
-  h2: 'text-lg font-semibold text-white mt-4 mb-2 first:mt-0',
-  h3: 'text-base font-semibold text-slate-100 mt-3 mb-1.5 first:mt-0',
-  h4: 'text-sm font-semibold text-slate-200 mt-3 mb-1 first:mt-0',
+  h1: 'text-base font-semibold text-slate-200 mt-3.5 mb-1.5 first:mt-0',
+  h2: 'text-sm font-semibold text-slate-300 mt-3 mb-1 first:mt-0',
+  h3: 'text-[13px] font-semibold text-slate-300 mt-2.5 mb-1 first:mt-0',
+  h4: 'text-xs font-semibold text-slate-300 mt-2 mb-0.5 first:mt-0',
 };
 
 /** Renders a block list to React nodes — shared by Markdown (whole document)
@@ -172,27 +172,27 @@ export function renderBlocks(blocks: Block[], keyPrefix = 'b', onOpenFile?: Open
       case 'h4':
         return React.createElement(block.type, { key, className: HEADER_CLASSES[block.type] }, renderInline(block.content, key, onOpenFile));
       case 'hr':
-        return <hr key={key} className="my-3 border-slate-700" />;
+        return <hr key={key} className="my-3 border-white/10" />;
       case 'ul':
         return (
-          <ul key={key} className="list-disc space-y-1 pl-5 my-2 text-sm text-slate-300">
+          <ul key={key} className="list-disc pl-[18px] mt-[0.45em] mb-[0.9em] text-sm leading-[1.76] text-slate-200 space-y-1">
             {(block.items || []).map((item, i2) => <li key={i2}>{renderInline(item, `${key}-${i2}`, onOpenFile)}</li>)}
           </ul>
         );
       case 'ol':
         return (
-          <ol key={key} className="list-decimal space-y-1 pl-5 my-2 text-sm text-slate-300">
+          <ol key={key} className="list-decimal pl-[18px] mt-[0.45em] mb-[0.9em] text-sm leading-[1.76] text-slate-200 space-y-1">
             {(block.items || []).map((item, i2) => <li key={i2}>{renderInline(item, `${key}-${i2}`, onOpenFile)}</li>)}
           </ol>
         );
       case 'code':
         return (
-          <pre key={key} className="my-2 overflow-x-auto rounded-md bg-slate-950 p-3 text-xs text-slate-300">
+          <pre key={key} className="my-2.5 overflow-x-auto rounded-[4px] border border-white/10 bg-[#2d2d30] p-2.5 text-xs text-slate-300 font-mono">
             <code>{block.content}</code>
           </pre>
         );
       default:
-        return <p key={key} className="my-2 text-sm leading-relaxed text-slate-300">{renderInline(block.content, key, onOpenFile)}</p>;
+        return <p key={key} className="my-1.5 text-sm leading-[1.76] text-slate-200">{renderInline(block.content, key, onOpenFile)}</p>;
     }
   });
 }

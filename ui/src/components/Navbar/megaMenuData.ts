@@ -9,6 +9,7 @@ export type MegaMenuContext = {
     isDevMode: boolean;
     // The org has a LiveReview GitHub App connection (Cloud "Continue with GitHub").
     hasGitHubApp?: boolean;
+    isPaidPlan?: boolean;
 };
 
 export type MegaMenuLinkNode = {
@@ -238,6 +239,7 @@ export const buildMegaMenuSections = (): MegaMenuSection[] => [
                 link('Edit Prompts', React.createElement(Icons.Settings), '/settings#prompts', (ctx) => ctx.isSuperAdmin || (ctx.hasOrg && ['owner', 'member'].includes(ctx.orgRole || ''))),
                 link('View Learnings', React.createElement(Icons.List), '/settings#learnings', (ctx) => ctx.isSuperAdmin || ctx.hasOrg),
                 link('Auto Approve Policies', React.createElement(Icons.Success), '/settings#auto-approve', (ctx) => ctx.isSuperAdmin || ctx.orgRole === 'owner'),
+                link('Third-Party Tools', React.createElement(Icons.Tools), '/settings#third-party-tools', (ctx) => isCloudMode() && Boolean(ctx.isPaidPlan) && (ctx.isSuperAdmin || ctx.orgRole === 'owner')),
             ], React.createElement(Icons.AI)),
             group('Manage API Access', [
                 link('Manage API Keys', React.createElement(Icons.Settings), '/settings#api-keys', (ctx) => ctx.isSuperAdmin || ctx.hasOrg),
