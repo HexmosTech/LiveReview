@@ -11,9 +11,7 @@ type DisplayOrderUpdate struct {
 	DisplayOrder int
 }
 
-type ConnectorStore struct {
-	db *sql.DB
-}
+type Connecto 
 
 func NewConnectorStore(db *sql.DB) *ConnectorStore {
 	return &ConnectorStore{db: db}
