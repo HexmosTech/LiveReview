@@ -53,12 +53,12 @@ jest.mock('react-router-dom', () => {
     };
 });
 
-jest.mock('../License/LicenseUpgradeDialog', () => () => null);
+jest.mock('../License/LicenseUpgradeDialog', () => () => null as React.ReactElement | null);
 
 jest.mock('./UserList', () => {
     const ReactModule = require('react');
     return {
-        UserList: ({ onDeactivateUser }: { onDeactivateUser?: (user: typeof mockMember) => void }) =>
+        UserList: ({ onDeactivateUser }: { onDeactivateUser?: (user: typeof mockMember) => void }): React.ReactElement =>
             ReactModule.createElement(
                 'button',
                 { onClick: () => onDeactivateUser?.(mockMember) },
