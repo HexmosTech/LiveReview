@@ -42,6 +42,7 @@ import {
   toggleSeverityFilter,
   toggleSubcategoryFilter,
   toggleTypeFilter,
+  toggleToolFilter,
 } from './issueFilters';
 import FileBlock from './FileBlock';
 import Sidebar, { HunkNav } from './Sidebar';
@@ -337,7 +338,24 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
   useEffect(() => {
     onCommentCount?.(navComments.length);
   }, [navComments, onCommentCount]);
-  const allExpanded = files.length > 0 && files.every((f) => expandedFiles[f.file_path]);
+
+  // Ensure files default to expanded so diff hunks are immediately visible on page load
+  useEffect(() => {
+    if (!files || files.length === 0) return;
+    setExpandedFiles((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      files.forEach((f) => {
+        if (next[f.file_path] === undefined) {
+          next[f.file_path] = true;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [files]);
+
+  const allExpanded = files.length > 0 && files.every((f) => !!expandedFiles[f.file_path]);
   // Sidebar always shows the real, unflattened file list (git-lrc's
   // Sidebar.js receives `filesInDiffOrder`, never the sort-mode-dependent
   // `files`) — only the main content area's ordering changes with sortMode.
@@ -352,7 +370,8 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
 
   const toggleAll = () => {
     const next: Record<string, boolean> = {};
-    files.forEach((f) => { next[f.file_path] = !allExpanded; });
+    const willExpand = !allExpanded;
+    files.forEach((f) => { next[f.file_path] = willExpand; });
     setExpandedFiles(next);
   };
 
@@ -560,6 +579,7 @@ const DiffViewerPanel: React.FC<DiffViewerPanelProps> = ({ reviewId, blastReport
           onToggleType={(v) => setFilters((f) => toggleTypeFilter(f, v))}
           onToggleCategory={(v, children) => setFilters((f) => toggleCategoryFilter(f, v, children))}
           onToggleSubcategory={(v) => setFilters((f) => toggleSubcategoryFilter(f, v))}
+          onToggleTool={(v) => setFilters((f) => toggleToolFilter(f, v))}
           onReset={() => setFilters(createDefaultIssueFilters())}
           onCopyVisibleIssues={copyVisibleIssues}
           copyStatus={copyStatus}

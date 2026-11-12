@@ -675,6 +675,15 @@ export default function ReviewProgressView({ reviewId, events, isLive = false, c
       }
     });
 
+    const finalStage = stageMap.get('finalization');
+    if (finalStage && finalStage.status === 'completed') {
+      stageMap.forEach(s => {
+        if (s.status === 'pending' || s.status === 'in-progress') {
+          s.status = 'completed';
+        }
+      });
+    }
+
     // The review itself is the source of truth for whether it's actually
     // over - some stages (Finalization in particular) only flip to
     // 'completed' above on a specific message/eventType match, and a review

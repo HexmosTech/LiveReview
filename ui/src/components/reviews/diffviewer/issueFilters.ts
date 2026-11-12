@@ -14,6 +14,7 @@ export interface IssueFilters {
   disabledTypes: Set<string>;
   disabledCategories: Set<string>;
   disabledSubcategories: Set<string>;
+  disabledTools: Set<string>;
 }
 
 export function createDefaultIssueFilters(): IssueFilters {
@@ -23,6 +24,7 @@ export function createDefaultIssueFilters(): IssueFilters {
     disabledTypes: new Set(),
     disabledCategories: new Set(),
     disabledSubcategories: new Set(),
+    disabledTools: new Set(),
   };
 }
 
@@ -33,6 +35,7 @@ export function cloneIssueFilters(filters: IssueFilters): IssueFilters {
     disabledTypes: new Set(filters.disabledTypes),
     disabledCategories: new Set(filters.disabledCategories),
     disabledSubcategories: new Set(filters.disabledSubcategories),
+    disabledTools: new Set(filters.disabledTools),
   };
 }
 
@@ -42,7 +45,8 @@ export function hasActiveIssueFilters(filters: IssueFilters): boolean {
     filters.disabledConfidences.size > 0 ||
     filters.disabledTypes.size > 0 ||
     filters.disabledCategories.size > 0 ||
-    filters.disabledSubcategories.size > 0
+    filters.disabledSubcategories.size > 0 ||
+    filters.disabledTools.size > 0
   );
 }
 
@@ -67,6 +71,32 @@ export function toggleTypeFilter(filters: IssueFilters, type: string): IssueFilt
   const next = cloneIssueFilters(filters);
   toggle(next.disabledTypes, type.toLowerCase());
   return next;
+}
+
+export function toggleToolFilter(filters: IssueFilters, tool: string): IssueFilters {
+  const next = cloneIssueFilters(filters);
+  toggle(next.disabledTools, tool.toLowerCase());
+  return next;
+}
+
+export function getCommentToolKey(comment: DiffReviewComment): string {
+  if (comment.tool_name && comment.tool_name.trim()) {
+    return comment.tool_name.trim().toLowerCase();
+  }
+  if (comment.source && comment.source.trim().toLowerCase() === 'tool') {
+    return 'tool';
+  }
+  return 'ai';
+}
+
+export function getCommentToolLabel(comment: DiffReviewComment): string {
+  if (comment.tool_name && comment.tool_name.trim()) {
+    return comment.tool_name.trim();
+  }
+  if (comment.source && comment.source.trim().toLowerCase() === 'tool') {
+    return 'Static Analysis';
+  }
+  return 'AI Review';
 }
 
 /** Toggling a category cascades to every subcategory under it, mirroring
@@ -105,13 +135,15 @@ export function commentMatchesFilters(comment: DiffReviewComment, filters: Issue
   if (category && filters.disabledCategories.has(category)) return false;
   const subcategory = (comment.subcategory || '').toLowerCase();
   if (subcategory && filters.disabledSubcategories.has(subcategory)) return false;
+  const toolKey = getCommentToolKey(comment);
+  if (filters.disabledTools.has(toolKey)) return false;
   return true;
 }
 
 export function commentMatchesFiltersExcludingField(
   comment: DiffReviewComment,
   filters: IssueFilters,
-  excludedField: 'severity' | 'confidence' | 'type' | 'category' | 'subcategory' | 'classification'
+  excludedField: 'severity' | 'confidence' | 'type' | 'category' | 'subcategory' | 'classification' | 'tool'
 ): boolean {
   if (excludedField !== 'severity') {
     if (filters.disabledSeverities.has(normalizeSeverity(comment.severity))) return false;
@@ -132,6 +164,10 @@ export function commentMatchesFiltersExcludingField(
     const subcategory = (comment.subcategory || '').toLowerCase();
     if (subcategory && filters.disabledSubcategories.has(subcategory)) return false;
   }
+  if (excludedField !== 'tool') {
+    const toolKey = getCommentToolKey(comment);
+    if (filters.disabledTools.has(toolKey)) return false;
+  }
   return true;
 }
 
@@ -151,6 +187,7 @@ export interface FilterFacets {
   confidences: FacetOption[];
   types: FacetOption[];
   categoryGroups: CategoryGroup[];
+  tools: FacetOption[];
   total: number;
   visible: number;
 }
@@ -174,6 +211,8 @@ export function buildFilterFacets(files: DiffReviewFile[], filters: IssueFilters
   const severityCounts = new Map<string, number>();
   const confidenceCounts = new Map<string, number>();
   const typeCounts = new Map<string, { label: string; count: number }>();
+  const toolCounts = new Map<string, { label: string; count: number }>();
+  let hasAnyToolFindings = false;
   // categoryKey -> { label, count, subcategories: Map<key, {label, count}> }
   const categoryMap = new Map<string, { label: string; count: number; subcategories: Map<string, { label: string; count: number }> }>();
   let total = 0;
@@ -183,6 +222,10 @@ export function buildFilterFacets(files: DiffReviewFile[], filters: IssueFilters
     (file.comments || []).forEach((comment) => {
       total++;
       if (commentMatchesFilters(comment, filters)) visible++;
+
+      if (comment.tool_name || (comment.source && comment.source.toLowerCase() === 'tool')) {
+        hasAnyToolFindings = true;
+      }
 
       if (commentMatchesFiltersExcludingField(comment, filters, 'severity')) {
         const severity = normalizeSeverity(comment.severity);
@@ -202,6 +245,13 @@ export function buildFilterFacets(files: DiffReviewFile[], filters: IssueFilters
           const existing = typeCounts.get(key);
           typeCounts.set(key, { label: comment.type, count: (existing?.count || 0) + 1 });
         }
+      }
+
+      if (commentMatchesFiltersExcludingField(comment, filters, 'tool')) {
+        const toolKey = getCommentToolKey(comment);
+        const toolLabel = getCommentToolLabel(comment);
+        const existing = toolCounts.get(toolKey);
+        toolCounts.set(toolKey, { label: toolLabel, count: (existing?.count || 0) + 1 });
       }
 
       if (commentMatchesFiltersExcludingField(comment, filters, 'classification')) {
@@ -238,6 +288,21 @@ export function buildFilterFacets(files: DiffReviewFile[], filters: IssueFilters
         })),
     }));
 
+  const tools: FacetOption[] = hasAnyToolFindings
+    ? [...toolCounts.entries()]
+        .sort((a, b) => {
+          if (a[0] === 'ai') return -1;
+          if (b[0] === 'ai') return 1;
+          return a[1].label.localeCompare(b[1].label);
+        })
+        .map(([value, { label, count }]) => ({
+          value,
+          label,
+          count,
+          active: !filters.disabledTools.has(value),
+        }))
+    : [];
+
   return {
     severities: DEFAULT_SEVERITIES.map((s) => ({
       value: s,
@@ -255,6 +320,7 @@ export function buildFilterFacets(files: DiffReviewFile[], filters: IssueFilters
       .sort((a, b) => a[1].label.localeCompare(b[1].label))
       .map(([value, { label, count }]) => ({ value, label, count, active: !filters.disabledTypes.has(value) })),
     categoryGroups,
+    tools,
     total,
     visible,
   };

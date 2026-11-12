@@ -39,6 +39,8 @@ type BillingActionsHandler struct {
 	db                  *sql.DB
 }
 
+const defaultToolCreditsLimitMonth float64 = license.BaseToolCreditsPer100KLOC
+
 var errRazorpayCheckoutRequired = errors.New("razorpay checkout required")
 
 func NewBillingActionsHandler(db *sql.DB) *BillingActionsHandler {
@@ -1174,7 +1176,8 @@ func (h *BillingActionsHandler) applyResolvedUpgradeRequest(ctx context.Context,
 				return ""
 			}(),
 		}
-		if err := h.store.ApplyImmediatePlanUpgrade(ctx, request.OrgID, request.ToPlanCode, request.ActorUserID, payload); err != nil {
+		toolCredits := license.PlanType(request.ToPlanCode).GetToolCreditsLimit()
+		if err := h.store.ApplyImmediatePlanUpgrade(ctx, request.OrgID, request.ToPlanCode, request.ActorUserID, payload, toolCredits); err != nil {
 			return fmt.Errorf("apply resolved upgrade to org billing state: %w", err)
 		}
 	}
@@ -1826,16 +1829,31 @@ func (h *BillingActionsHandler) GetUsageSummary(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusInternalServerError, fmt.Sprintf("failed to load usage summary: %v", err))
 	}
 
+	var toolCreditsUsed float64
+	toolCreditsLimit := defaultToolCreditsLimitMonth
+	if h.db != nil {
+		err := h.db.QueryRowContext(c.Request().Context(), `
+			SELECT COALESCE(tool_credits_used_month, 0), COALESCE(tool_credits_limit_month, $2)
+			FROM public.org_billing_state
+			WHERE org_id = $1
+		`, orgID, defaultToolCreditsLimitMonth).Scan(&toolCreditsUsed, &toolCreditsLimit)
+		if err != nil && err != sql.ErrNoRows {
+			log.Printf("[WARN] Failed to query tool credits for org %d: %v", orgID, err)
+		}
+	}
+
 	payload := map[string]interface{}{
-		"period_start":         summary.PeriodStart.Format(time.RFC3339),
-		"period_end":           summary.PeriodEnd.Format(time.RFC3339),
-		"total_billable_loc":   summary.TotalBillableLOC,
-		"total_input_tokens":   summary.TotalInputTokens,
-		"total_output_tokens":  summary.TotalOutputTokens,
-		"total_tokens":         summary.TotalInputTokens + summary.TotalOutputTokens,
-		"total_cost_usd":       summary.TotalCostUSD,
-		"accounted_operations": summary.AccountedOps,
-		"token_tracked_ops":    summary.TokenTrackedOps,
+		"period_start":              summary.PeriodStart.Format(time.RFC3339),
+		"period_end":                summary.PeriodEnd.Format(time.RFC3339),
+		"total_billable_loc":        summary.TotalBillableLOC,
+		"total_input_tokens":        summary.TotalInputTokens,
+		"total_output_tokens":       summary.TotalOutputTokens,
+		"total_tokens":              summary.TotalInputTokens + summary.TotalOutputTokens,
+		"total_cost_usd":            summary.TotalCostUSD,
+		"accounted_operations":      summary.AccountedOps,
+		"token_tracked_ops":         summary.TokenTrackedOps,
+		"tool_credits_used_month":   toolCreditsUsed,
+		"tool_credits_limit_month":  toolCreditsLimit,
 	}
 	if summary.LatestAccountedAt != nil {
 		payload["latest_accounted_at"] = summary.LatestAccountedAt.UTC().Format(time.RFC3339)

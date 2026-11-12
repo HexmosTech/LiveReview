@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -52,6 +53,7 @@ type ReviewAccountingResponse struct {
 	TotalInputTokens    *int64                             `json:"totalInputTokens,omitempty"`
 	TotalOutputTokens   *int64                             `json:"totalOutputTokens,omitempty"`
 	TotalCostUSD        *float64                           `json:"totalCostUsd,omitempty"`
+	ToolCreditsDeducted *float64                           `json:"toolCreditsDeducted,omitempty"`
 	HelperEnabled       bool                               `json:"helperEnabled"`
 	HelperMode          string                             `json:"helperMode,omitempty"`
 	StageBreakdown      []ReviewAccountingStageResponse    `json:"stageBreakdown,omitempty"`
@@ -272,6 +274,20 @@ func (h *ReviewEventsHandler) GetReviewAccounting(c echo.Context) error {
 			response.HelperMode = helperMode
 		}
 		response.StageBreakdown = parseReviewAIStageBreakdown(reviewMeta)
+	}
+
+	if h.db != nil {
+		var toolCredits float64
+		err := h.db.QueryRowContext(c.Request().Context(), `
+			SELECT COALESCE(SUM(credits_deducted), 0)
+			FROM public.tool_credit_ledger
+			WHERE org_id = $1 AND review_id = $2
+		`, orgID, reviewID).Scan(&toolCredits)
+		if err != nil && err != sql.ErrNoRows {
+			log.Printf("[WARN] Failed to query tool credits deducted for review %d: %v", reviewID, err)
+		} else if toolCredits > 0 {
+			response.ToolCreditsDeducted = &toolCredits
+		}
 	}
 
 	if totals.LastAccountedAt != nil {

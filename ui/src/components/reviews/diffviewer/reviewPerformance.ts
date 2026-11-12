@@ -124,11 +124,18 @@ export function buildPerformanceSnapshot({
   };
 }
 
+const MAX_LIVE_STREAM_WINDOW_MS = 10 * 60 * 1000;
+
 export function getCommentRenderLabel(baselineMs: number | undefined, renderedAtMs: number | undefined): string {
   if (!Number.isFinite(baselineMs) || !Number.isFinite(renderedAtMs)) {
     return '';
   }
-  return `Appeared in ${formatDurationShort(Math.max(0, (renderedAtMs as number) - (baselineMs as number)))}`;
+  const diff = (renderedAtMs as number) - (baselineMs as number);
+  // Only display arrival timing during live streaming (suppress for historical reviews > 10m)
+  if (diff < 0 || diff > MAX_LIVE_STREAM_WINDOW_MS) {
+    return '';
+  }
+  return `Appeared in ${formatDurationShort(diff)}`;
 }
 
 export function getLoadingActivityMessage(events: { message?: string }[] | undefined, elapsedMs: number): string {

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/livereview/internal/prompts"
 	vendorpack "github.com/livereview/internal/prompts/vendor"
@@ -487,9 +488,46 @@ func (p *BatchProcessor) AggregateAndCombineOutputs(ctx context.Context, llm llm
 	promptText := base + "\n\n" + prompts.BuildRepoRulesSection(ctx) + prompts.BuildSummarySection(orderedSummaries) + "\n\n" + prompts.SummaryStructure +
 		"\n\n" + prompts.QuizRequirements + "\n\n" + prompts.QuizJSONStructureExample + "\n\n" + prompts.QuizOutputDelimiters
 
-	rawResponse, err := llms.GenerateFromSinglePrompt(ctx, llm, promptText, callOptions...)
-	if err != nil {
-		rawResponse = "Error generating summary: " + err.Error()
+	var rawResponse string
+	var err error
+	for attempt := 1; attempt <= 2; attempt++ {
+		rawResponse, err = llms.GenerateFromSinglePrompt(ctx, llm, promptText, callOptions...)
+		if err == nil && strings.TrimSpace(rawResponse) != "" {
+			break
+		}
+		if attempt < 2 {
+			if ctx.Err() != nil {
+				break
+			}
+			p.Logger.Warn("Summary synthesis attempt %d returned empty/error (%v); retrying...", attempt, err)
+			t := time.NewTimer(500 * time.Millisecond)
+			select {
+			case <-t.C:
+			case <-ctx.Done():
+			}
+			t.Stop()
+			if ctx.Err() != nil {
+				break
+			}
+		}
+	}
+	if err != nil || strings.TrimSpace(rawResponse) == "" {
+		if len(orderedSummaries) > 0 {
+			var fb strings.Builder
+			fb.WriteString("# Code Review Summary\n\n## Changes Overview\n")
+			for _, s := range orderedSummaries {
+				if s.FilePath != "" {
+					fb.WriteString(fmt.Sprintf("- **%s**: %s\n", s.FilePath, s.Summary))
+				} else if s.Summary != "" {
+					fb.WriteString(fmt.Sprintf("- %s\n", s.Summary))
+				}
+			}
+			rawResponse = fb.String()
+		} else if err != nil {
+			rawResponse = "Error generating summary: " + err.Error()
+		} else {
+			rawResponse = "Summary generation returned an empty response."
+		}
 	}
 	generalSummary, quiz := splitSummaryAndQuiz(rawResponse, p.Logger)
 

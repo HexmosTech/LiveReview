@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Layout } from 'react-grid-layout/legacy';
 import { WIDGET_REGISTRY, WidgetDefinition } from './registry';
+import { useOrgContext } from '../../../hooks/useOrgContext';
+import { isCloudMode } from '../../../utils/deploymentMode';
 
 const STORAGE_VERSION = 2;
 
@@ -161,13 +163,17 @@ export function useDashboardLayout(userId?: number | string) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [storageKey]);
 
+    const { isPaidPlan } = useOrgContext();
+    const isToolsVisible = isCloudMode() && Boolean(isPaidPlan);
+
     const activeWidgets: WidgetDefinition[] = widgetIds
         .map((id) => WIDGET_REGISTRY.find((widget) => widget.id === id))
-        .filter((widget): widget is WidgetDefinition => Boolean(widget));
+        .filter((widget): widget is WidgetDefinition => Boolean(widget))
+        .filter((widget) => isToolsVisible || widget.id !== 'tools-usage-widget');
 
     const hiddenWidgets: WidgetDefinition[] = WIDGET_REGISTRY.filter(
         (widget) => !widgetIds.includes(widget.id)
-    );
+    ).filter((widget) => isToolsVisible || widget.id !== 'tools-usage-widget');
 
     return {
         layout,
