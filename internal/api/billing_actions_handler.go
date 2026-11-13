@@ -39,8 +39,6 @@ type BillingActionsHandler struct {
 	db                  *sql.DB
 }
 
-const defaultToolCreditsLimitMonth float64 = license.BaseToolCreditsPer100KLOC
-
 var errRazorpayCheckoutRequired = errors.New("razorpay checkout required")
 
 func NewBillingActionsHandler(db *sql.DB) *BillingActionsHandler {
@@ -1830,16 +1828,23 @@ func (h *BillingActionsHandler) GetUsageSummary(c echo.Context) error {
 	}
 
 	var toolCreditsUsed float64
-	toolCreditsLimit := defaultToolCreditsLimitMonth
+	var storedLimit sql.NullFloat64
+	var planCode string
 	if h.db != nil {
 		err := h.db.QueryRowContext(c.Request().Context(), `
-			SELECT COALESCE(tool_credits_used_month, 0), COALESCE(tool_credits_limit_month, $2)
+			SELECT COALESCE(current_plan_code, ''), COALESCE(tool_credits_used_month, 0), tool_credits_limit_month
 			FROM public.org_billing_state
 			WHERE org_id = $1
-		`, orgID, defaultToolCreditsLimitMonth).Scan(&toolCreditsUsed, &toolCreditsLimit)
+		`, orgID).Scan(&planCode, &toolCreditsUsed, &storedLimit)
 		if err != nil && err != sql.ErrNoRows {
 			log.Printf("[WARN] Failed to query tool credits for org %d: %v", orgID, err)
 		}
+	}
+	toolCreditsLimit := 0.0
+	if storedLimit.Valid {
+		toolCreditsLimit = storedLimit.Float64
+	} else if planCode != "" {
+		toolCreditsLimit = license.PlanType(planCode).GetToolCreditsLimit()
 	}
 
 	payload := map[string]interface{}{
