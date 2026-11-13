@@ -16,6 +16,7 @@ import CompactionSettingsTab from './CompactionSettingsTab';
 import AutoApprovePolicyTab from './AutoApprovePolicyTab';
 import AccountTab from './AccountTab';
 import NotificationsTab from './NotificationsTab';
+import ThirdPartyToolsTab from './ThirdPartyToolsTab';
 import { UserManagement } from '../../components/UserManagement';
 import LicenseManagement from '../Licenses/LicenseManagement';
 import { useOrgContext } from '../../hooks/useOrgContext';
@@ -272,11 +273,12 @@ const Settings = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const { domain } = useAppSelector((state) => state.Settings);
-    const { isSuperAdmin, canManageCurrentOrg, currentOrg, isFreePlan } = useOrgContext();
+    const { isSuperAdmin, canManageCurrentOrg, currentOrg, isFreePlan, isPaidPlan } = useOrgContext();
     const canAccessPrompts = isSuperAdmin || (currentOrg && ['owner', 'member'].includes(currentOrg.role));
     // Instance-wide config (production URL, blob storage): self-hosted owners may manage it,
     // but in cloud it's shared across every tenant, so it stays super-admin-only there
     const canManageInstanceConfig = isSuperAdmin || (currentOrg?.role === 'owner' && !isCloudMode());
+    const showToolsTab = isCloudMode() && Boolean(isPaidPlan) && (isSuperAdmin || currentOrg?.role === 'owner');
     
     // Check if we're on a subscription sub-route
     const isSubscriptionRoute = location.pathname.startsWith('/settings-subscriptions-');
@@ -401,6 +403,13 @@ const Settings = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
                 </svg>
             )
+        }] : []),
+        // Third-Party Tools tab visible only in cloud mode for org owners on paid plans
+        // (super admins may access every owner surface — mirrors RequireOrgOwner)
+        ...(showToolsTab ? [{
+            id: 'third-party-tools',
+            name: 'Third-Party Tools',
+            icon: <Icons.Tools />
         }] : []),
     ];
 
@@ -867,6 +876,19 @@ const Settings = () => {
                     {activeTab === 'subscriptions' && (isSuperAdmin || currentOrg) && (
                         <Card>
                             {isCloudMode() ? <SubscriptionTab /> : <LicenseManagement />}
+                        </Card>
+                    )}
+
+                    {activeTab === 'third-party-tools' && isCloudMode() && showToolsTab && (
+                        <Card>
+                            <ThirdPartyToolsTab />
+                        </Card>
+                    )}
+                    {activeTab === 'third-party-tools' && isCloudMode() && !showToolsTab && (
+                        <Card>
+                            <div className="p-4 text-sm text-slate-400">
+                                Third-party static analysis tools are only available to organization owners on paid plans.
+                            </div>
                         </Card>
                     )}
 

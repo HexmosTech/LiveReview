@@ -92,24 +92,33 @@ func (s *PlanChangeStore) GetOrgBillingState(ctx context.Context, orgID int64) (
 	return row, nil
 }
 
-func (s *PlanChangeStore) ApplyImmediatePlanUpgrade(ctx context.Context, orgID int64, targetPlanCode string, actorUserID int64, payload map[string]interface{}) error {
+func (s *PlanChangeStore) ApplyImmediatePlanUpgrade(ctx context.Context, orgID int64, targetPlanCode string, actorUserID int64, payload map[string]interface{}, toolCreditsLimit ...float64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin upgrade tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	var creditLimitVal interface{}
+	if len(toolCreditsLimit) > 0 {
+		if toolCreditsLimit[0] < 0 {
+			return fmt.Errorf("tool_credits_limit_month cannot be negative: %v", toolCreditsLimit[0])
+		}
+		creditLimitVal = toolCreditsLimit[0]
+	}
+
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE org_billing_state
 		SET current_plan_code = $1,
+			tool_credits_limit_month = COALESCE($2, tool_credits_limit_month),
 			scheduled_plan_code = NULL,
 			scheduled_plan_effective_at = NULL,
 			upgrade_loc_grant_current_cycle = 0,
 			upgrade_loc_grant_expires_at = NULL,
 			trial_readonly = FALSE,
 			updated_at = NOW()
-		WHERE org_id = $2
-	`, targetPlanCode, orgID); err != nil {
+		WHERE org_id = $3
+	`, targetPlanCode, creditLimitVal, orgID); err != nil {
 		return fmt.Errorf("update immediate upgrade: %w", err)
 	}
 
@@ -255,23 +264,32 @@ func (s *PlanChangeStore) ApplyScheduledDowngrade(ctx context.Context, tr DueTra
 	return s.ApplyScheduledPlanChange(ctx, tr)
 }
 
-func (s *PlanChangeStore) ApplyScheduledPlanChange(ctx context.Context, tr DueTransition) error {
+func (s *PlanChangeStore) ApplyScheduledPlanChange(ctx context.Context, tr DueTransition, toolCreditsLimit ...float64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin apply scheduled plan change tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	var creditLimitVal interface{}
+	if len(toolCreditsLimit) > 0 {
+		if toolCreditsLimit[0] < 0 {
+			return fmt.Errorf("tool_credits_limit_month cannot be negative: %v", toolCreditsLimit[0])
+		}
+		creditLimitVal = toolCreditsLimit[0]
+	}
+
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE org_billing_state
 		SET current_plan_code = $1,
+			tool_credits_limit_month = COALESCE($2, tool_credits_limit_month),
 			scheduled_plan_code = NULL,
 			scheduled_plan_effective_at = NULL,
 			upgrade_loc_grant_current_cycle = 0,
 			upgrade_loc_grant_expires_at = NULL,
 			updated_at = NOW()
-		WHERE org_id = $2
-	`, tr.TargetPlanCode, tr.OrgID); err != nil {
+		WHERE org_id = $3
+	`, tr.TargetPlanCode, creditLimitVal, tr.OrgID); err != nil {
 		return fmt.Errorf("apply scheduled plan change: %w", err)
 	}
 

@@ -856,10 +856,10 @@ func (s *Service) ProcessReviewAsync(ctx context.Context, request ReviewRequest,
 	}()
 }
 
-// extractRepoFullName parses "owner/repo" from a git host URL.
+// ExtractRepoFullName parses "owner/repo" from a git host URL.
 // Works for GitHub, GitLab, Bitbucket, and Gitea URL shapes.
 // Returns "" when the URL cannot be parsed.
-func extractRepoFullName(rawURL string) string {
+func ExtractRepoFullName(rawURL string) string {
 	if rawURL == "" {
 		return ""
 	}
@@ -877,6 +877,10 @@ func extractRepoFullName(rawURL string) string {
 	return path
 }
 
+func extractRepoFullName(rawURL string) string {
+	return ExtractRepoFullName(rawURL)
+}
+
 // isPostingPermissionError reports whether the provider refused to accept comments because the token has no
 // permission on the repository (HTTP 403 Forbidden, or GitHub's "Resource not accessible by integration"). Other
 // failures (network, 5xx, bad request) still fail the review: they are worth retrying or fixing.
@@ -886,4 +890,28 @@ func isPostingPermissionError(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "403 forbidden") || strings.Contains(msg, "resource not accessible by integration")
+}
+
+// FormatDiffs converts a slice of CodeDiff objects into a unified diff string.
+func FormatDiffs(diffs []*models.CodeDiff) string {
+	var b strings.Builder
+	for _, d := range diffs {
+		if d == nil {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("diff --git a/%s b/%s\n", d.FilePath, d.FilePath))
+		if d.IsNew {
+			b.WriteString("new file mode 100644\n")
+		} else if d.IsDeleted {
+			b.WriteString("deleted file mode 100644\n")
+		}
+		for _, hunk := range d.Hunks {
+			b.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@\n", hunk.OldStartLine, hunk.OldLineCount, hunk.NewStartLine, hunk.NewLineCount))
+			b.WriteString(hunk.Content)
+			if !strings.HasSuffix(hunk.Content, "\n") {
+				b.WriteString("\n")
+			}
+		}
+	}
+	return b.String()
 }

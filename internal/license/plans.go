@@ -198,3 +198,33 @@ func (p PlanType) IsValid() bool {
 func (p PlanType) String() string {
 	return string(p)
 }
+
+// IsToolsEligible returns true if the plan type is eligible for static analysis tool credit deduction.
+// Only paid cloud plans (Team and LOC tiers) are eligible; free plans, community, and self-hosted are not.
+func IsToolsEligible(p PlanType) bool {
+	switch p {
+	case PlanTeam32USD, PlanLOC200K, PlanLOC400K, PlanLOC800K, PlanLOC1600K, PlanLOC3200K:
+		return true
+	default:
+		return false
+	}
+}
+
+// BaseToolCreditsPer100KLOC defines the base monthly tool credit allowance for 100,000 LOC.
+// All plan tiers scale proportionally from this single constant:
+// (PlanLOC / 100,000) * BaseToolCreditsPer100KLOC
+const BaseToolCreditsPer100KLOC = 50000.0
+
+// GetToolCreditsLimit returns the monthly tool credit allowance for a given plan type.
+// Free plans and ineligible plans return 0.0.
+// Paid plans scale linearly with their MonthlyLOCLimit based on BaseToolCreditsPer100KLOC.
+func (p PlanType) GetToolCreditsLimit() float64 {
+	if !IsToolsEligible(p) {
+		return 0.0
+	}
+	limits := p.GetLimits()
+	if limits.MonthlyLOCLimit <= 0 {
+		return 0.0
+	}
+	return (float64(limits.MonthlyLOCLimit) / 100000.0) * BaseToolCreditsPer100KLOC
+}
