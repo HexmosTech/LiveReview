@@ -406,7 +406,7 @@ test-sso-e2e:
 	$(GOTEST) -tags=sso_e2e -count=1 -v ./internal/sso/... || (docker compose -f docker/docker-compose.sso-test.yml down -v; exit 1)
 	docker compose -f docker/docker-compose.sso-test.yml down -v
 
-.PHONY: security-govulncheck security-govulncheck-json security-osv security-gitleaks security-semgrep security-dependabot security-gh-secret-scanning security-triage
+.PHONY: security-govulncheck security-govulncheck-json security-osv security-osv-gate security-gitleaks security-semgrep security-dependabot security-gh-secret-scanning security-triage
 
 # Run Go vulnerability analysis for reachable vulnerabilities. Findings are
 # passed through scripts/govulncheck_filter.py, which waives only the specific,
@@ -456,6 +456,18 @@ security-osv:
 		fi; \
 		echo "Wrote $$dated_report"; \
 		echo "Updated $$latest_report"
+
+# Pass/fail gate over the OSV report: runs security-osv, then fails if the report
+# still lists any vulnerability (waived ones are already stripped by the scanner
+# config). security-osv itself stays report-only so security-triage keeps working.
+security-osv-gate: security-osv
+	@count=$$(jq '[.results[]?.packages[]?.vulnerabilities[]?] | length' security_issues/osv-scanner-latest.json); \
+		if [ "$$count" -gt 0 ]; then \
+			echo "OSV GATE FAILED: $$count unwaived vulnerability(ies):"; \
+			jq -r '.results[]?.packages[]? | . as $$p | .vulnerabilities[] | "  \(.id)  \($$p.package.name)@\($$p.package.version)  \(.database_specific.severity // "?")  \(.summary)"' security_issues/osv-scanner-latest.json; \
+			exit 1; \
+		fi; \
+		echo "OSV gate passed: no unwaived vulnerabilities."
 
 # Run gitleaks and emit a dated CSV artifact under security_issues/.
 security-gitleaks:

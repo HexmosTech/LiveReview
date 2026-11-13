@@ -58,7 +58,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/tmc/langchaingo v0.1.15
 	github.com/wasilibs/go-pgquery v0.0.0-20260728010200-155ebad2880e
-	github.com/xuri/excelize/v2 v2.11.1-0.20261009041834-958cda5363be
+	github.com/xuri/excelize/v2 v2.11.1
 	github.com/yalue/onnxruntime_go v1.32.1
 	github.com/yuin/goldmark v1.8.5
 	github.com/zricethezav/gitleaks/v8 v8.30.1
@@ -213,7 +213,7 @@ require (
 	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/richardlehane/mscfb v1.0.8 // indirect
+	github.com/richardlehane/mscfb v1.0.9 // indirect
 	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/riverqueue/river/riverdriver v0.32.0 // indirect
 	github.com/riverqueue/river/rivershared v0.32.0 // indirect
@@ -249,7 +249,7 @@ require (
 	github.com/wasilibs/wazero-helpers v0.0.0-20250123031827-cd30c44769bb // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
-	github.com/xuri/efp v0.0.2 // indirect
+	github.com/xuri/efp v0.0.3-0.20260924042702-217b81952dec // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
 	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
