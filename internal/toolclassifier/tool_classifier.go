@@ -748,9 +748,11 @@ func UpsertTaxonomies(ctx context.Context, db *sql.DB, entries []TaxonomyCacheEn
 		)
 	}
 
-	query := fmt.Sprintf(`INSERT INTO tool_rule_taxonomies (rule_key, tool_name, rule_id, category, subcategory, severity, confidence, type, classifier_version, updated_at) VALUES %s ON CONFLICT (rule_key) DO UPDATE SET category = EXCLUDED.category, subcategory = EXCLUDED.subcategory, severity = EXCLUDED.severity, confidence = EXCLUDED.confidence, type = EXCLUDED.type, classifier_version = EXCLUDED.classifier_version, updated_at = NOW() WHERE tool_rule_taxonomies.classifier_version <= EXCLUDED.classifier_version`,
-		strings.Join(valueStrings, ", "))
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString("INSERT INTO tool_rule_taxonomies (rule_key, tool_name, rule_id, category, subcategory, severity, confidence, type, classifier_version, updated_at) VALUES ")
+	queryBuilder.WriteString(strings.Join(valueStrings, ", "))
+	queryBuilder.WriteString(" ON CONFLICT (rule_key) DO UPDATE SET category = EXCLUDED.category, subcategory = EXCLUDED.subcategory, severity = EXCLUDED.severity, confidence = EXCLUDED.confidence, type = EXCLUDED.type, classifier_version = EXCLUDED.classifier_version, updated_at = NOW() WHERE tool_rule_taxonomies.classifier_version <= EXCLUDED.classifier_version")
 
-	_, err := db.ExecContext(ctx, query, valueArgs...)
+	_, err := db.ExecContext(ctx, queryBuilder.String(), valueArgs...)
 	return err
 }

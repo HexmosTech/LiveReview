@@ -7,8 +7,8 @@ import (
 	"log"
 	"os"
 
+	"github.com/lib/pq"
 	"github.com/livereview/internal/database"
-	_ "github.com/lib/pq"
 )
 
 type ToolSeed struct {
@@ -83,11 +83,11 @@ func main() {
 		}
 	}
 
-	// Remove non-15 tools from available_tools and org_tools
+	// Remove non-15 tools from available_tools
 	res, err := db.ExecContext(ctx, `
 		DELETE FROM public.available_tools 
-		WHERE name NOT IN ('openapi', 'actionlint', 'hadolint', 'ruff', 'tfsec', 'osv', 'spectral', 'trivy', 'gitleaks', 'trufflehog', 'detect-secrets', 'eslint', 'bandit', 'semgrep', 'golangci-lint')
-	`)
+		WHERE NOT (name = ANY($1))
+	`, pq.Array(validNames))
 	if err != nil {
 		log.Printf("Failed to clean non-15 tools: %v", err)
 	} else {

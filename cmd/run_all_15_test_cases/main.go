@@ -64,7 +64,15 @@ func main() {
 		{"shellcheck.txt", "shellcheck"},
 	}
 
-	testCasesDir := "/home/gk/hex/lr-tools/test_cases"
+	apiKey := getAPIKey()
+	if apiKey == "" {
+		fmt.Println("Warning: neither LIVEREVIEW_API_KEY nor API_KEY is set in environment")
+	}
+
+	testCasesDir := os.Getenv("TEST_CASES_DIR")
+	if testCasesDir == "" {
+		testCasesDir = "/home/gk/hex/lr-tools/test_cases"
+	}
 
 	fmt.Println("==================================================================================")
 	fmt.Printf("%-3s | %-18s | %-15s | %-10s | %-30s\n", "#", "Test Case File", "Target Tool", "Review ID", "Status")
