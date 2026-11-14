@@ -279,13 +279,17 @@ func ValidateAPIKey(ctx context.Context, db *sql.DB, provider Provider, apiKey s
 			Str("full_error", fmt.Sprintf("%+v", err)).
 			Msg("API key validation failed with error")
 
+		sanitized := sanitizeProviderErrorMessage(err.Error(), apiKey)
+
 		// Check if error is quota-related (contains "429" or "quota")
 		errStr := err.Error()
 		if contains(errStr, "429") || contains(errStr, "quota") || contains(errStr, "Quota exceeded") {
-			return false, fmt.Errorf("quota exceeded - this typically means the API key is valid but has reached its rate limit: %w", err)
+			return false, &APIKeyValidationError{
+				Message: "quota exceeded - this typically means the API key is valid but has reached its rate limit: " + sanitized,
+			}
 		}
 
-		return false, nil // API key is invalid, but don't return an error
+		return false, &APIKeyValidationError{Message: sanitized}
 	}
 
 	log.Debug().
@@ -597,11 +601,11 @@ func (t *atlasLoggingTransport) RoundTrip(req *http.Request) (*http.Response, er
 // default model configuration, appending any extra options.
 func (c *Connector) buildCallOptions(options ...llms.CallOption) []llms.CallOption {
 	var callOptions []llms.CallOption
-	
+
 	// Google AI Studio deprecated sampling parameters for Gemini 3.x models.
 	// Sending them will soon return a 400 INVALID_ARGUMENT error.
 	isGemini := c.provider == ProviderGemini || c.provider == ProviderGeminiEnterprise
-	
+
 	if !isGemini {
 		callOptions = append(callOptions, llms.WithTemperature(c.options.ModelConfig.Temperature))
 	}
@@ -695,6 +699,26 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// APIKeyValidationError carries a sanitized provider message explaining why an
+// API key validation failed. It lets callers distinguish a provider rejection
+// (where the detail is safe to show the user) from an internal error.
+type APIKeyValidationError struct {
+	Message string
+}
+
+func (e *APIKeyValidationError) Error() string {
+	return e.Message
+}
+
+// sanitizeProviderErrorMessage removes the submitted API key from provider error
+// text and limits its length so it is safe to return to the client.
+func sanitizeProviderErrorMessage(raw string, apiKey string) string {
+	if apiKey != "" {
+		raw = strings.ReplaceAll(raw, apiKey, maskAPIKey(apiKey))
+	}
+	return truncateString(strings.TrimSpace(raw), 1000)
 }
 
 // truncateString limits string length for safe logging.

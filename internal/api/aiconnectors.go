@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -104,6 +105,18 @@ func (s *Server) ValidateAIConnectorKey(c echo.Context) error {
 	}
 
 	if err != nil {
+		var validationErr *aiconnectors.APIKeyValidationError
+		if errors.As(err, &validationErr) {
+			message := strings.TrimSpace(validationErr.Message)
+			if message == "" {
+				message = "API key is invalid"
+			}
+			return c.JSON(http.StatusOK, AIConnectorKeyValidationResponse{
+				Valid:   false,
+				Message: message,
+			})
+		}
+
 		log.Error().Err(err).Msg("Error validating API key")
 		return c.JSON(http.StatusInternalServerError, AIConnectorKeyValidationResponse{
 			Valid:   false,
