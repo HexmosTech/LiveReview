@@ -346,19 +346,16 @@ export const ReviewDetailHeader: React.FC<ReviewDetailHeaderProps> = ({
 
                         {/* Risk assessment + policy status */}
                         <div className="md:col-span-12 bg-slate-900/60 border border-slate-700/50 rounded-lg p-3.5">
-                            <div className="flex items-center justify-between mb-1.5">
+                            <div className="flex items-center justify-between mb-2">
                                 <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">Risk assessment</p>
-                                <div className="flex items-center gap-3 text-xs">
-                                    <span className={`font-semibold ${risk.tone}`}>{risk.value}</span>
-                                    {review.metadata?.pr_link_policy && (
-                                        <span className="flex items-center gap-1.5">
-                                            <span className="text-[10px] text-slate-500 uppercase tracking-wide">Auto-approve</span>
-                                            <span className={`font-semibold ${policyApproved === null ? 'text-slate-400' : policyApproved ? 'text-green-400' : 'text-red-400'}`}>
-                                                {policyApproved === null ? 'Pending' : policyApproved ? 'Approved' : 'Not approved'}
-                                            </span>
+                                {review.metadata?.pr_link_policy && (
+                                    <div className="flex items-center gap-1.5 text-xs">
+                                        <span className="text-[10px] text-slate-500 uppercase tracking-wide">Auto-approve</span>
+                                        <span className={`font-semibold ${policyApproved === null ? 'text-slate-400' : policyApproved ? 'text-green-400' : 'text-red-400'}`}>
+                                            {policyApproved === null ? 'Pending' : policyApproved ? 'Approved' : 'Not approved'}
                                         </span>
-                                    )}
-                                </div>
+                                    </div>
+                                )}
                             </div>
                             <div className="text-xs">
                                 <RiskAssessmentDetails risk={risk} connectorId={review.connectorId} />
