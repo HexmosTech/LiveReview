@@ -38,6 +38,7 @@ func (p *BitbucketProvider) GetRepoConfigFiles(ctx context.Context, repoFullName
 
 	files := make(map[string][]byte)
 	hasRulesDir := false
+	hasPolicyDir := false
 
 	for _, entry := range rootEntries {
 		name := entry.Path[strings.LastIndex(entry.Path, "/")+1:]
@@ -48,8 +49,38 @@ func (p *BitbucketProvider) GetRepoConfigFiles(ctx context.Context, repoFullName
 				return nil, false, err
 			}
 			files["ignore"] = data
+		case entry.Type == "commit_file" && name == "tools.toml":
+			data, err := bbLRCFetchRaw(ctx, p.httpClient, workspace, repoSlug, ref, ".lrc/tools.toml", p.token, p.email)
+			if err != nil {
+				return nil, false, err
+			}
+			files["tools.toml"] = data
+		case entry.Type == "commit_directory" && name == "policy":
+			hasPolicyDir = true
 		case entry.Type == "commit_directory" && name == "rules":
 			hasRulesDir = true
+		}
+	}
+
+	if hasPolicyDir {
+		policyEntries, found, err := bbLRCListDir(ctx, p.httpClient, workspace, repoSlug, ref, ".lrc/policy", p.token, p.email)
+		if err != nil {
+			return nil, false, err
+		}
+		if found {
+			for _, entry := range policyEntries {
+				if entry.Type != "commit_file" {
+					continue
+				}
+				name := entry.Path[strings.LastIndex(entry.Path, "/")+1:]
+				if name == "tools.toml" {
+					data, err := bbLRCFetchRaw(ctx, p.httpClient, workspace, repoSlug, ref, entry.Path, p.token, p.email)
+					if err != nil {
+						return nil, false, err
+					}
+					files["policy/tools.toml"] = data
+				}
+			}
 		}
 	}
 

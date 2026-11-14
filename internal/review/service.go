@@ -191,9 +191,10 @@ func (s *Service) ProcessReview(ctx context.Context, request ReviewRequest) *Rev
 	reviewCtx, cancel := context.WithTimeout(ctx, s.config.ReviewTimeout)
 	defer cancel()
 
-	// Step 1: Create provider unless preloaded changes are supplied
+	// Step 1: Create provider if provider is configured and not CLI (or if preloaded changes are missing)
 	var provider providers.Provider
-	if request.PreloadedChanges == nil {
+	shouldCreateProvider := request.Provider.Type != "" && request.Provider.Type != "cli"
+	if shouldCreateProvider || request.PreloadedChanges == nil {
 		if s.logger != nil {
 			s.logger.LogSection("PROVIDER CREATION")
 			s.logger.Log("Creating %s provider...", request.Provider.Type)

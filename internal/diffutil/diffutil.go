@@ -556,7 +556,11 @@ func PackageModelDiffsToZipBase64WithExtras(diffs []*models.CodeDiff, extras map
 			}
 			totalBytes += int64(len(data))
 
-			ew, err := zw.Create(filepath.ToSlash(cleaned))
+			zipEntryPath := filepath.ToSlash(cleaned)
+			if !strings.HasPrefix(zipEntryPath, ".lrc/") {
+				zipEntryPath = ".lrc/" + zipEntryPath
+			}
+			ew, err := zw.Create(zipEntryPath)
 			if err != nil {
 				log.Printf("[WARN] diffutil: failed to create extra zip entry for %s: %v", cleaned, err)
 				continue

@@ -40,6 +40,7 @@ func (p *Provider) GetRepoConfigFiles(ctx context.Context, repoFullName, ref str
 
 	files := make(map[string][]byte)
 	hasRulesDir := false
+	hasPolicyDir := false
 
 	for _, entry := range rootEntries {
 		switch {
@@ -49,8 +50,35 @@ func (p *Provider) GetRepoConfigFiles(ctx context.Context, repoFullName, ref str
 				return nil, false, err
 			}
 			files["ignore"] = data
+		case entry.Type == "file" && entry.Name == "tools.toml":
+			data, err := gtLRCFetchFile(ctx, p.httpClient, p.baseURL, owner, repo, ".lrc/tools.toml", ref, p.token)
+			if err != nil {
+				return nil, false, err
+			}
+			files["tools.toml"] = data
+		case entry.Type == "dir" && entry.Name == "policy":
+			hasPolicyDir = true
 		case entry.Type == "dir" && entry.Name == "rules":
 			hasRulesDir = true
+		}
+	}
+
+	if hasPolicyDir {
+		policyEntries, found, err := gtLRCListDir(ctx, p.httpClient, p.baseURL, owner, repo, ".lrc/policy", ref, p.token)
+		if err != nil {
+			return nil, false, err
+		}
+		if found {
+			for _, entry := range policyEntries {
+				if entry.Type != "file" || entry.Name != "tools.toml" {
+					continue
+				}
+				data, err := gtLRCFetchFile(ctx, p.httpClient, p.baseURL, owner, repo, entry.Path, ref, p.token)
+				if err != nil {
+					return nil, false, err
+				}
+				files["policy/tools.toml"] = data
+			}
 		}
 	}
 
