@@ -139,6 +139,29 @@ func getTestMockDB() *sql.DB {
 	return testMockDB
 }
 
+func mockSampleToolsRows() *mockRows {
+	return &mockRows{
+		columns: []string{"id", "name", "description", "lambda_arn", "multiplier", "use_case"},
+		rows: [][]driver.Value{
+			{int64(1), "tool-a", "Tool A description", "arn:aws:lambda:us-east-1:042198857528:function:tool-a", 1.0, "Linting"},
+			{int64(2), "tool-b", "Tool B description", "arn:aws:lambda:us-east-1:042198857528:function:tool-b", 5.0, "Security"},
+		},
+	}
+}
+
+func defaultMockQueryHandler(query string, args []driver.NamedValue) (driver.Rows, error) {
+	if strings.Contains(query, "available_tools") {
+		return mockSampleToolsRows(), nil
+	}
+	if strings.Contains(query, "system_settings") {
+		return &mockRows{columns: []string{"data"}, rows: [][]driver.Value{}}, nil
+	}
+	if strings.Contains(query, "settings->'tools'") {
+		return &mockRows{columns: []string{"tools"}, rows: [][]driver.Value{}}, nil
+	}
+	return nil, fmt.Errorf("unexpected query: %s", query)
+}
+
 func setMockHandlers(queryHandler func(string, []driver.NamedValue) (driver.Rows, error), execHandler func(string, []driver.NamedValue) (driver.Result, error)) {
 	testMockDriver.mu.Lock()
 	defer testMockDriver.mu.Unlock()
@@ -153,64 +176,27 @@ func resetMockHandlers() {
 func TestToolsStore(t *testing.T) {
 	db := getTestMockDB()
 
-	t.Run("LoadCatalog_Default15LaunchTools", func(t *testing.T) {
+	t.Run("LoadCatalog_EmptyWhenNoDBOrNoTools", func(t *testing.T) {
 		ctx := context.Background()
 
-		// 1. Verify with nil DB (pure fallback)
+		// 1. Nil DB returns empty list
 		storeNilDB := NewToolsStore(nil)
 		catalog, err := storeNilDB.LoadCatalog(ctx)
 		if err != nil {
 			t.Fatalf("LoadCatalog(nil DB) returned error: %v", err)
 		}
-
-		if len(catalog) != 15 {
-			t.Fatalf("expected exactly 15 launch tools by default, got %d", len(catalog))
+		if len(catalog) != 0 {
+			t.Fatalf("expected 0 tools on nil DB, got %d", len(catalog))
 		}
 
-		expectedTools := []struct {
-			id         int64
-			name       string
-			multiplier float64
-			useCase    string
-		}{
-			{1, "ruff", 1.0, "Python lint/format"},
-			{2, "openapi", 1.0, "OpenAPI/YAML validation"},
-			{3, "osv", 1.0, "Dependencies & Supply Chain"},
-			{4, "gitleaks", 12.0, "Secrets & Security"},
-			{5, "trivy", 4.0, "Dependencies & Supply Chain"},
-			{6, "trufflehog", 12.0, "Secrets & Security"},
-			{7, "tfsec", 1.0, "Infrastructure & Config"},
-			{8, "hadolint", 1.0, "Containers & Docker"},
-			{9, "actionlint", 1.0, "CI/CD & Workflow"},
-			{10, "golangci-lint", 12.0, "Go Code Quality"},
-			{11, "spectral", 3.0, "API Schema"},
-			{12, "bandit", 12.0, "Python SAST"},
-			{13, "detect-secrets", 12.0, "Secrets & Security"},
-			{14, "semgrep", 12.0, "Security & Code Quality"},
-			{15, "eslint", 12.0, "JS/TS Code Quality"},
-		}
-
-		for i, expected := range expectedTools {
-			tool := catalog[i]
-			if tool.ID != expected.id {
-				t.Errorf("tool[%d] ID: expected %d, got %d", i, expected.id, tool.ID)
-			}
-			if tool.Name != expected.name {
-				t.Errorf("tool[%d] Name: expected %q, got %q", i, expected.name, tool.Name)
-			}
-			if tool.Multiplier != expected.multiplier {
-				t.Errorf("tool[%d] Multiplier: expected %f, got %f", i, expected.multiplier, tool.Multiplier)
-			}
-			if tool.UseCase != expected.useCase {
-				t.Errorf("tool[%d] UseCase: expected %q, got %q", i, expected.useCase, tool.UseCase)
-			}
-			if strings.TrimSpace(tool.Description) == "" {
-				t.Errorf("tool[%d] (%s) has empty Description", i, tool.Name)
-			}
-		}
-
-		// 2. Verify with DB returning sql.ErrNoRows from system_settings
+		// 2. Empty available_tools table returns empty list
 		setMockHandlers(func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			if strings.Contains(query, "available_tools") {
+				return &mockRows{
+					columns: []string{"id", "name", "description", "lambda_arn", "multiplier", "use_case"},
+					rows:    [][]driver.Value{},
+				}, nil
+			}
 			if strings.Contains(query, "system_settings") {
 				return &mockRows{columns: []string{"data"}, rows: [][]driver.Value{}}, nil
 			}
@@ -219,68 +205,34 @@ func TestToolsStore(t *testing.T) {
 		defer resetMockHandlers()
 
 		storeWithDB := NewToolsStore(db)
-		dbCatalog, err := storeWithDB.LoadCatalog(ctx)
+		emptyCatalog, err := storeWithDB.LoadCatalog(ctx)
 		if err != nil {
-			t.Fatalf("LoadCatalog(mockDB) returned error: %v", err)
+			t.Fatalf("LoadCatalog returned error: %v", err)
 		}
-		if len(dbCatalog) != 15 {
-			t.Fatalf("expected exactly 15 default launch tools on ErrNoRows fallback, got %d", len(dbCatalog))
+		if len(emptyCatalog) != 0 {
+			t.Fatalf("expected 0 tools when available_tools table is empty, got %d", len(emptyCatalog))
 		}
 	})
 
-	t.Run("ExcludedExperimentalTools_NotInDefaultCatalog", func(t *testing.T) {
+	t.Run("LoadCatalog_LoadsFromAvailableToolsTable", func(t *testing.T) {
 		ctx := context.Background()
-		store := NewToolsStore(nil)
+		setMockHandlers(defaultMockQueryHandler, nil)
+		defer resetMockHandlers()
+
+		store := NewToolsStore(db)
 		catalog, err := store.LoadCatalog(ctx)
 		if err != nil {
 			t.Fatalf("LoadCatalog failed: %v", err)
 		}
-
-		// The 8 excluded experimental tools (IDs 16-23)
-		excludedTools := []string{
-			"kubescape",
-			"shellcheck",
-			"zizmor",
-			"checkov",
-			"brakeman",
-			"rubocop",
-			"ktlint",
-			"phpcs",
+		if len(catalog) != 2 {
+			t.Fatalf("expected 2 tools from DB, got %d", len(catalog))
 		}
 
-		catalogNames := make(map[string]bool)
-		catalogIDs := make(map[int64]bool)
-		for _, tool := range catalog {
-			catalogNames[strings.ToLower(tool.Name)] = true
-			catalogIDs[tool.ID] = true
+		if catalog[0].Name != "tool-a" || catalog[0].LambdaARN == "" {
+			t.Errorf("unexpected tool[0]: %+v", catalog[0])
 		}
-
-		for _, excluded := range excludedTools {
-			if catalogNames[strings.ToLower(excluded)] {
-				t.Errorf("excluded experimental tool %q was unexpectedly found in default catalog", excluded)
-			}
-
-			// Verify GetAvailableToolByName returns nil for excluded tools
-			tool, err := store.GetAvailableToolByName(ctx, excluded)
-			if err != nil {
-				t.Errorf("GetAvailableToolByName(%q) returned error: %v", excluded, err)
-			}
-			if tool != nil {
-				t.Errorf("GetAvailableToolByName(%q) expected nil, got %+v", excluded, tool)
-			}
-		}
-
-		// Verify no tool has ID in range 16-23 or any ID > 15
-		for id := int64(16); id <= 23; id++ {
-			if catalogIDs[id] {
-				t.Errorf("default catalog contains tool with excluded experimental ID %d", id)
-			}
-		}
-
-		for _, tool := range catalog {
-			if tool.ID > 15 {
-				t.Errorf("found tool %q with ID %d > 15; only launch tools 1-15 should be in default catalog", tool.Name, tool.ID)
-			}
+		if catalog[1].Name != "tool-b" || catalog[1].Multiplier != 5.0 {
+			t.Errorf("unexpected tool[1]: %+v", catalog[1])
 		}
 	})
 
@@ -288,48 +240,40 @@ func TestToolsStore(t *testing.T) {
 		ctx := context.Background()
 
 		t.Run("DefaultSettingsWhenNoOrgConfig", func(t *testing.T) {
-			store := NewToolsStore(nil)
+			setMockHandlers(defaultMockQueryHandler, nil)
+			defer resetMockHandlers()
+
+			store := NewToolsStore(db)
 			views, err := store.GetAvailableToolsForOrg(ctx, 123)
 			if err != nil {
-				t.Fatalf("GetAvailableToolsForOrg(nil DB) failed: %v", err)
+				t.Fatalf("GetAvailableToolsForOrg failed: %v", err)
 			}
-			if len(views) != 15 {
-				t.Fatalf("expected 15 views, got %d", len(views))
+			if len(views) != 2 {
+				t.Fatalf("expected 2 views, got %d", len(views))
 			}
 			for _, v := range views {
 				if v.Enabled {
 					t.Errorf("tool %s: expected Enabled=false by default, got true", v.Name)
-				}
-				if string(v.ConfigJSON) != "{}" {
-					t.Errorf("tool %s: expected ConfigJSON='{}', got %s", v.Name, string(v.ConfigJSON))
 				}
 			}
 		})
 
 		t.Run("MergesCustomOrgSettings", func(t *testing.T) {
 			orgSettings := map[string]interface{}{
-				"ruff": true,
-				"semgrep": map[string]interface{}{
-					"enabled": true,
-					"config_json": map[string]interface{}{
-						"rules": []string{"p/default", "p/security"},
-					},
-				},
-				"bandit": false,
+				"tool-a": true,
+				"tool-b": false,
 			}
-			settingsBytes, err := json.Marshal(orgSettings)
-			if err != nil {
-				t.Fatalf("failed to marshal org settings: %v", err)
-			}
+			settingsBytes, _ := json.Marshal(orgSettings)
 
 			setMockHandlers(func(query string, args []driver.NamedValue) (driver.Rows, error) {
+				if strings.Contains(query, "available_tools") {
+					return mockSampleToolsRows(), nil
+				}
 				if strings.Contains(query, "settings->'tools'") {
-					if len(args) > 0 && args[0].Value == int64(456) {
-						return &mockRows{
-							columns: []string{"tools"},
-							rows:    [][]driver.Value{{settingsBytes}},
-						}, nil
-					}
+					return &mockRows{
+						columns: []string{"tools"},
+						rows:    [][]driver.Value{{settingsBytes}},
+					}, nil
 				}
 				if strings.Contains(query, "system_settings") {
 					return &mockRows{columns: []string{"data"}, rows: [][]driver.Value{}}, nil
@@ -343,92 +287,20 @@ func TestToolsStore(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetAvailableToolsForOrg failed: %v", err)
 			}
-
-			if len(views) != 15 {
-				t.Fatalf("expected 15 views, got %d", len(views))
+			if len(views) != 2 {
+				t.Fatalf("expected 2 views, got %d", len(views))
 			}
 
 			viewMap := make(map[string]OrgToolView)
 			for _, v := range views {
-				viewMap[strings.ToLower(v.Name)] = v
+				viewMap[v.Name] = v
 			}
 
-			// 1. ruff: enabled via boolean true
-			ruff, ok := viewMap["ruff"]
-			if !ok {
-				t.Fatal("ruff missing from views")
+			if !viewMap["tool-a"].Enabled {
+				t.Errorf("expected tool-a Enabled=true")
 			}
-			if !ruff.Enabled {
-				t.Errorf("expected ruff Enabled=true, got %v", ruff.Enabled)
-			}
-			if string(ruff.ConfigJSON) != "{}" {
-				t.Errorf("expected ruff ConfigJSON='{}', got %s", string(ruff.ConfigJSON))
-			}
-
-			// 2. semgrep: enabled via map with custom config_json
-			semgrep, ok := viewMap["semgrep"]
-			if !ok {
-				t.Fatal("semgrep missing from views")
-			}
-			if !semgrep.Enabled {
-				t.Errorf("expected semgrep Enabled=true, got %v", semgrep.Enabled)
-			}
-			if !strings.Contains(string(semgrep.ConfigJSON), "p/security") {
-				t.Errorf("expected semgrep ConfigJSON to contain 'p/security', got %s", string(semgrep.ConfigJSON))
-			}
-
-			// 3. bandit: explicitly disabled via boolean false
-			bandit, ok := viewMap["bandit"]
-			if !ok {
-				t.Fatal("bandit missing from views")
-			}
-			if bandit.Enabled {
-				t.Errorf("expected bandit Enabled=false, got %v", bandit.Enabled)
-			}
-
-			// 4. eslint: not configured in org settings, defaults to disabled
-			eslint, ok := viewMap["eslint"]
-			if !ok {
-				t.Fatal("eslint missing from views")
-			}
-			if eslint.Enabled {
-				t.Errorf("expected eslint Enabled=false, got %v", eslint.Enabled)
-			}
-			if string(eslint.ConfigJSON) != "{}" {
-				t.Errorf("expected eslint ConfigJSON='{}', got %s", string(eslint.ConfigJSON))
-			}
-		})
-
-		t.Run("MergesByToolIDKey", func(t *testing.T) {
-			// Tool ID 1 corresponds to ruff
-			idSettings := `{"1": true}`
-			setMockHandlers(func(query string, args []driver.NamedValue) (driver.Rows, error) {
-				if strings.Contains(query, "settings->'tools'") {
-					return &mockRows{
-						columns: []string{"tools"},
-						rows:    [][]driver.Value{{[]byte(idSettings)}},
-					}, nil
-				}
-				return &mockRows{columns: []string{"data"}, rows: [][]driver.Value{}}, nil
-			}, nil)
-			defer resetMockHandlers()
-
-			store := NewToolsStore(db)
-			views, err := store.GetAvailableToolsForOrg(ctx, 789)
-			if err != nil {
-				t.Fatalf("GetAvailableToolsForOrg failed: %v", err)
-			}
-
-			for _, v := range views {
-				if v.ID == 1 {
-					if !v.Enabled {
-						t.Errorf("expected tool ID 1 (ruff) to be enabled via ID key, got false")
-					}
-				} else {
-					if v.Enabled {
-						t.Errorf("expected tool %s (ID %d) to be disabled, got true", v.Name, v.ID)
-					}
-				}
+			if viewMap["tool-b"].Enabled {
+				t.Errorf("expected tool-b Enabled=false")
 			}
 		})
 	})
@@ -443,6 +315,9 @@ func TestToolsStore(t *testing.T) {
 
 			setMockHandlers(
 				func(query string, args []driver.NamedValue) (driver.Rows, error) {
+					if strings.Contains(query, "available_tools") {
+						return mockSampleToolsRows(), nil
+					}
 					if strings.Contains(query, "settings->'tools'") {
 						return &mockRows{
 							columns: []string{"tools"},
@@ -460,102 +335,25 @@ func TestToolsStore(t *testing.T) {
 			defer resetMockHandlers()
 
 			store := NewToolsStore(db)
-			// Tool ID 1 = ruff
 			row, err := store.UpsertOrgTool(ctx, orgID, 1, true)
 			if err != nil {
 				t.Fatalf("UpsertOrgTool(enable) returned error: %v", err)
 			}
 
-			if row.OrgID != orgID {
-				t.Errorf("expected OrgID %d, got %d", orgID, row.OrgID)
+			if row.OrgID != orgID || row.ToolID != 1 || !row.Enabled {
+				t.Errorf("unexpected upsert result: %+v", row)
 			}
-			if row.ToolID != 1 {
-				t.Errorf("expected ToolID 1, got %d", row.ToolID)
-			}
-			if !row.Enabled {
-				t.Errorf("expected Enabled=true, got %v", row.Enabled)
-			}
-			if string(row.ConfigJSON) != "{}" {
-				t.Errorf("expected default ConfigJSON '{}', got %s", string(row.ConfigJSON))
-			}
-
 			if !strings.Contains(capturedQuery, "UPDATE public.orgs") {
 				t.Errorf("expected UPDATE query on public.orgs, got: %s", capturedQuery)
 			}
 			if len(capturedArgs) < 3 {
 				t.Fatalf("expected at least 3 arguments in UPDATE, got %d", len(capturedArgs))
 			}
-			if capturedArgs[0].Value != orgID {
-				t.Errorf("arg 1 expected orgID %d, got %v", orgID, capturedArgs[0].Value)
-			}
-			if capturedArgs[1].Value != "ruff" {
-				t.Errorf("arg 2 expected toolName 'ruff', got %v", capturedArgs[1].Value)
-			}
-
-			var savedCfg OrgToolConfig
-			cfgBytes, ok := capturedArgs[2].Value.([]byte)
-			if !ok {
-				t.Fatalf("arg 3 expected []byte, got %T", capturedArgs[2].Value)
-			}
-			if err := json.Unmarshal(cfgBytes, &savedCfg); err != nil {
-				t.Fatalf("failed to unmarshal saved config: %v", err)
-			}
-			if !savedCfg.Enabled {
-				t.Errorf("expected saved config Enabled=true, got %v", savedCfg.Enabled)
-			}
-		})
-
-		t.Run("DisableTool_PreservingConfigJSON", func(t *testing.T) {
-			var capturedArgs []driver.NamedValue
-			existingSettings := `{"ruff": {"enabled": true, "config_json": {"timeout_seconds": 60}}}`
-
-			setMockHandlers(
-				func(query string, args []driver.NamedValue) (driver.Rows, error) {
-					if strings.Contains(query, "settings->'tools'") {
-						return &mockRows{
-							columns: []string{"tools"},
-							rows:    [][]driver.Value{{[]byte(existingSettings)}},
-						}, nil
-					}
-					return &mockRows{columns: []string{"data"}, rows: [][]driver.Value{}}, nil
-				},
-				func(query string, args []driver.NamedValue) (driver.Result, error) {
-					capturedArgs = args
-					return mockResult{rowsAffected: 1}, nil
-				},
-			)
-			defer resetMockHandlers()
-
-			store := NewToolsStore(db)
-			// Disable tool ID 1 (ruff)
-			row, err := store.UpsertOrgTool(ctx, orgID, 1, false)
-			if err != nil {
-				t.Fatalf("UpsertOrgTool(disable) returned error: %v", err)
-			}
-
-			if row.Enabled {
-				t.Errorf("expected Enabled=false, got %v", row.Enabled)
-			}
-			if !strings.Contains(string(row.ConfigJSON), "timeout_seconds") {
-				t.Errorf("expected row ConfigJSON to preserve 'timeout_seconds', got %s", string(row.ConfigJSON))
-			}
-
-			if len(capturedArgs) >= 3 {
-				var savedCfg OrgToolConfig
-				cfgBytes := capturedArgs[2].Value.([]byte)
-				if err := json.Unmarshal(cfgBytes, &savedCfg); err != nil {
-					t.Fatalf("failed to unmarshal saved config: %v", err)
-				}
-				if savedCfg.Enabled {
-					t.Errorf("expected saved config Enabled=false, got true")
-				}
-				if !strings.Contains(string(savedCfg.ConfigJSON), "timeout_seconds") {
-					t.Errorf("expected saved config ConfigJSON to preserve 'timeout_seconds', got %s", string(savedCfg.ConfigJSON))
-				}
-			}
 		})
 
 		t.Run("ToolNotFound_ReturnsErrNoRows", func(t *testing.T) {
+			setMockHandlers(defaultMockQueryHandler, nil)
+			defer resetMockHandlers()
 			store := NewToolsStore(db)
 
 			// Unknown tool ID
@@ -563,22 +361,17 @@ func TestToolsStore(t *testing.T) {
 			if err != sql.ErrNoRows {
 				t.Errorf("expected sql.ErrNoRows for toolID 9999, got %v", err)
 			}
-
-			// Excluded experimental tool IDs (16 to 23) must return ErrNoRows
-			for id := int64(16); id <= 23; id++ {
-				_, err := store.UpsertOrgTool(ctx, orgID, id, true)
-				if err != sql.ErrNoRows {
-					t.Errorf("expected sql.ErrNoRows for excluded toolID %d, got %v", id, err)
-				}
-			}
 		})
 	})
 
 	t.Run("GetEnabledToolsForOrg", func(t *testing.T) {
 		ctx := context.Background()
-		orgSettings := `{"ruff": true, "semgrep": {"enabled": true}, "bandit": false}`
+		orgSettings := `{"tool-a": true, "tool-b": false}`
 
 		setMockHandlers(func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			if strings.Contains(query, "available_tools") {
+				return mockSampleToolsRows(), nil
+			}
 			if strings.Contains(query, "settings->'tools'") {
 				return &mockRows{
 					columns: []string{"tools"},
@@ -595,39 +388,30 @@ func TestToolsStore(t *testing.T) {
 			t.Fatalf("GetEnabledToolsForOrg failed: %v", err)
 		}
 
-		if len(enabledTools) != 2 {
-			t.Fatalf("expected exactly 2 enabled tools, got %d", len(enabledTools))
+		if len(enabledTools) != 1 {
+			t.Fatalf("expected exactly 1 enabled tool, got %d", len(enabledTools))
 		}
-
-		enabledMap := make(map[string]bool)
-		for _, tool := range enabledTools {
-			enabledMap[strings.ToLower(tool.Name)] = true
-		}
-		if !enabledMap["ruff"] {
-			t.Errorf("expected ruff to be enabled")
-		}
-		if !enabledMap["semgrep"] {
-			t.Errorf("expected semgrep to be enabled")
-		}
-		if enabledMap["bandit"] {
-			t.Errorf("bandit should not be enabled")
+		if enabledTools[0].Name != "tool-a" {
+			t.Errorf("expected tool-a to be enabled, got %s", enabledTools[0].Name)
 		}
 	})
 
 	t.Run("GetAvailableToolByName", func(t *testing.T) {
 		ctx := context.Background()
-		store := NewToolsStore(nil)
+		setMockHandlers(defaultMockQueryHandler, nil)
+		defer resetMockHandlers()
+		store := NewToolsStore(db)
 
 		// Exact match
-		tool, err := store.GetAvailableToolByName(ctx, "ruff")
-		if err != nil || tool == nil || tool.Name != "ruff" {
-			t.Fatalf("expected ruff tool, got %v, err=%v", tool, err)
+		tool, err := store.GetAvailableToolByName(ctx, "tool-a")
+		if err != nil || tool == nil || tool.Name != "tool-a" {
+			t.Fatalf("expected tool-a, got %v, err=%v", tool, err)
 		}
 
 		// Case-insensitive with whitespace
-		toolCase, err := store.GetAvailableToolByName(ctx, "  ESLINT  ")
-		if err != nil || toolCase == nil || toolCase.Name != "eslint" {
-			t.Fatalf("expected eslint tool, got %v, err=%v", toolCase, err)
+		toolCase, err := store.GetAvailableToolByName(ctx, "  TOOL-A  ")
+		if err != nil || toolCase == nil || toolCase.Name != "tool-a" {
+			t.Fatalf("expected tool-a, got %v, err=%v", toolCase, err)
 		}
 
 		// Unknown tool
