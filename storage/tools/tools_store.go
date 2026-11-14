@@ -39,72 +39,47 @@ func NewToolsStore(db *sql.DB) *ToolsStore {
 	return &ToolsStore{db: db}
 }
 
-// defaultCatalog provides fallback tool definitions if system_settings tools_catalog row is not yet set.
-// LambdaARNs are managed in the lr-tools repository and configured dynamically via system_settings/database.
-var defaultCatalog = []AvailableTool{
-	{ID: 1, Name: "ruff", Description: "Fast Python linter and formatter", LambdaARN: "", Multiplier: 1.0, UseCase: "Python lint/format"},
-	{ID: 2, Name: "openapi", Description: "OpenAPI and YAML specification validation", LambdaARN: "", Multiplier: 1.0, UseCase: "OpenAPI/YAML validation"},
-	{ID: 3, Name: "osv", Description: "Google open-source vulnerability scanner", LambdaARN: "", Multiplier: 1.0, UseCase: "Dependencies & Supply Chain"},
-	{ID: 4, Name: "gitleaks", Description: "Git history secret and credential scanner", LambdaARN: "", Multiplier: 12.0, UseCase: "Secrets & Security"},
-	{ID: 5, Name: "trivy", Description: "Container and SCA vulnerability scanner", LambdaARN: "", Multiplier: 4.0, UseCase: "Dependencies & Supply Chain"},
-	{ID: 6, Name: "trufflehog", Description: "Deep entropy-based secret detection", LambdaARN: "", Multiplier: 12.0, UseCase: "Secrets & Security"},
-	{ID: 7, Name: "tfsec", Description: "Terraform security and misconfiguration scanner", LambdaARN: "", Multiplier: 1.0, UseCase: "Infrastructure & Config"},
-	{ID: 8, Name: "hadolint", Description: "Dockerfile best practices linter", LambdaARN: "", Multiplier: 1.0, UseCase: "Containers & Docker"},
-	{ID: 9, Name: "actionlint", Description: "GitHub Actions workflow linter", LambdaARN: "", Multiplier: 1.0, UseCase: "CI/CD & Workflow"},
-	{ID: 10, Name: "golangci-lint", Description: "Go meta-linter suite", LambdaARN: "", Multiplier: 12.0, UseCase: "Go Code Quality"},
-	{ID: 11, Name: "spectral", Description: "API style guide enforcement linter", LambdaARN: "", Multiplier: 3.0, UseCase: "API Schema"},
-	{ID: 12, Name: "bandit", Description: "Python security scanner (SAST)", LambdaARN: "", Multiplier: 12.0, UseCase: "Python SAST"},
-	{ID: 13, Name: "detect-secrets", Description: "Baseline pattern-based secrets detection", LambdaARN: "", Multiplier: 12.0, UseCase: "Secrets & Security"},
-	{ID: 14, Name: "semgrep", Description: "Fast multi-language SAST analyzer", LambdaARN: "", Multiplier: 12.0, UseCase: "Security & Code Quality"},
-	{ID: 15, Name: "eslint", Description: "JavaScript / TypeScript linter", LambdaARN: "", Multiplier: 12.0, UseCase: "JS/TS Code Quality"},
-}
-
-// LoadCatalog loads tools catalog from system_settings row 'tools_catalog', falling back to defaultCatalog.
+// LoadCatalog loads the tools catalog entirely from the database.
+// All tool definitions (names, ARNs, multipliers) are managed by lr-tools deployer
+// and stored in the available_tools table. No hardcoded catalog exists in Go source.
+//
+// Resolution order:
+//  1. system_settings row 'tools_catalog' (admin override) — highest priority
+//  2. available_tools table (populated by lr-tools deployer with real Lambda ARNs)
+//  3. Empty list — no tools available until registered via lr-tools
 func (s *ToolsStore) LoadCatalog(ctx context.Context) ([]AvailableTool, error) {
-	tools := make([]AvailableTool, len(defaultCatalog))
-	copy(tools, defaultCatalog)
-
 	if s.db == nil {
-		return tools, nil
+		return nil, nil
 	}
 
+	// --- Tier 1: system_settings admin override ---
 	var data []byte
 	err := s.db.QueryRowContext(ctx, "SELECT data FROM public.system_settings WHERE name = 'tools_catalog'").Scan(&data)
-	if err == sql.ErrNoRows {
-		return tools, nil
-	}
-	if err != nil {
-		return tools, nil // Fail open to default catalog if table/row error
-	}
-
-	// Unmarshal overrides
-	var overrides []AvailableTool
-	if unmarshalErr := json.Unmarshal(data, &overrides); unmarshalErr == nil && len(overrides) > 0 {
-		return overrides, nil
-	}
-
-	// Map of name -> AvailableTool shape
-	var mapOverrides map[string]AvailableTool
-	if unmarshalErr := json.Unmarshal(data, &mapOverrides); unmarshalErr == nil && len(mapOverrides) > 0 {
-		for i, t := range tools {
-			if o, ok := mapOverrides[t.Name]; ok {
-				if o.LambdaARN != "" {
-					tools[i].LambdaARN = o.LambdaARN
-				}
-				if o.Multiplier > 0 {
-					tools[i].Multiplier = o.Multiplier
-				}
-				if o.Description != "" {
-					tools[i].Description = o.Description
-				}
-				if o.UseCase != "" {
-					tools[i].UseCase = o.UseCase
-				}
-			}
+	if err == nil && len(data) > 0 {
+		var overrides []AvailableTool
+		if unmarshalErr := json.Unmarshal(data, &overrides); unmarshalErr == nil && len(overrides) > 0 {
+			return overrides, nil
 		}
 	}
 
-	return tools, nil
+	// --- Tier 2: available_tools table (populated by lr-tools deployer) ---
+	rows, dbErr := s.db.QueryContext(ctx, "SELECT id, name, description, lambda_arn, multiplier, COALESCE(use_case, '') FROM public.available_tools ORDER BY id")
+	if dbErr == nil {
+		defer rows.Close()
+		var dbTools []AvailableTool
+		for rows.Next() {
+			var t AvailableTool
+			if scanErr := rows.Scan(&t.ID, &t.Name, &t.Description, &t.LambdaARN, &t.Multiplier, &t.UseCase); scanErr == nil {
+				dbTools = append(dbTools, t)
+			}
+		}
+		if len(dbTools) > 0 {
+			return dbTools, nil
+		}
+	}
+
+	// No tools registered — return empty
+	return nil, nil
 }
 
 type OrgToolConfig struct {
