@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/livereview/internal/license"
@@ -206,3 +207,58 @@ func (s *CreditStore) DeductCredits(ctx context.Context, orgID int64, reviewID i
 
 	return nil
 }
+
+const resetToolCreditsQuery = `
+	UPDATE public.org_billing_state
+	SET tool_credits_limit_month = $1,
+	    tool_credits_used_month = 0.0,
+	    updated_at = NOW()
+	WHERE org_id = $2
+`
+
+// ResetToolCreditsForPlanTx updates the organization's tool credit limit and resets monthly used credits based on the plan within a transaction.
+// It executes a single query targeting only tool-related columns on org_billing_state.
+func ResetToolCreditsForPlanTx(ctx context.Context, tx *sql.Tx, orgID int64, planCode string) error {
+	if tx == nil {
+		return fmt.Errorf("transaction is nil")
+	}
+	if orgID <= 0 {
+		return fmt.Errorf("invalid orgID: %d", orgID)
+	}
+	cleanPlanCode := strings.TrimSpace(planCode)
+	if cleanPlanCode == "" {
+		return fmt.Errorf("planCode cannot be empty")
+	}
+	limit := license.PlanType(cleanPlanCode).GetToolCreditsLimit()
+	_, err := tx.ExecContext(ctx, resetToolCreditsQuery, limit, orgID)
+	if err != nil {
+		return fmt.Errorf("reset tool credits for org %d on plan %s: %w", orgID, cleanPlanCode, err)
+	}
+	return nil
+}
+
+// ResetToolCreditsForPlan updates the organization's tool credit limit and resets monthly used credits based on the plan using a DB connection.
+func ResetToolCreditsForPlan(ctx context.Context, db *sql.DB, orgID int64, planCode string) error {
+	if db == nil {
+		return fmt.Errorf("database connection is nil")
+	}
+	if orgID <= 0 {
+		return fmt.Errorf("invalid orgID: %d", orgID)
+	}
+	cleanPlanCode := strings.TrimSpace(planCode)
+	if cleanPlanCode == "" {
+		return fmt.Errorf("planCode cannot be empty")
+	}
+	limit := license.PlanType(cleanPlanCode).GetToolCreditsLimit()
+	_, err := db.ExecContext(ctx, resetToolCreditsQuery, limit, orgID)
+	if err != nil {
+		return fmt.Errorf("reset tool credits for org %d on plan %s: %w", orgID, cleanPlanCode, err)
+	}
+	return nil
+}
+
+// ResetToolCreditsForPlan updates the organization's tool credit limit and resets monthly used credits based on the plan.
+func (s *CreditStore) ResetToolCreditsForPlan(ctx context.Context, orgID int64, planCode string) error {
+	return ResetToolCreditsForPlan(ctx, s.db, orgID, planCode)
+}
+

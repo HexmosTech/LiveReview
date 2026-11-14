@@ -55,7 +55,7 @@ flowchart TD
     
     L --> M{"Lambda Success?"}
     M -->|No| N["Write Synthetic Failure<br/>(exit_code: -1, record reason)"]
-    M -->|Yes| O["Parse JSON Findings<br/>(normalize check_id)"]
+    M -->|Yes| O["Parse JSON Findings<br/>(normalize rule_id)"]
     
     O --> P["3-Tier ToolClassifier<br/>(Tier 1 -> Tier 2 -> Tier 3)"]
     P --> Q["Store Comments<br/>in review_comments"]
@@ -106,13 +106,13 @@ flowchart TD
 The tool classifier normalizes finding codes without requiring manual entry for every rule.
 The system uses a three-tier hybrid engine to maximize lookup speed and minimize token cost.
 
-Each finding from a Lambda response carries a `check_id` field (such as `F401`, `DL3007`, `B101`).
+Each finding from a Lambda response carries a rule identifier (such as `rule_id` like `F401`, `DL3007`, `B101`).
 The classifier maps each rule to a canonical LiveReview taxonomy tuple:
 `Category`, `Subcategory`, `Severity`, `Confidence`, and `Type`.
 
 ```mermaid
 flowchart TD
-    RAW["Raw Tool Finding<br/>(tool_name + check_id)"] --> TIER1{"Tier 1: In-Memory Map<br/>KnownDeterministicRules"}
+    RAW["Raw Tool Finding<br/>(tool_name + rule_id)"] --> TIER1{"Tier 1: In-Memory Map<br/>KnownDeterministicRules"}
 
     TIER1 -->|"Match Found<br/>e.g. ruff:f401"| DONE1["Taxonomy Tuple<br/>0 LLM Tokens · 0 ms"]
     TIER1 -->|"Not Found"| DEDUPE["Deduplicate unique rule_keys<br/>across finding batch"]
@@ -146,7 +146,7 @@ flowchart TD
 Static analysis tools generate standardized rule identifiers.
 The classifier tests incoming findings against the compiled in-memory dictionary `KnownDeterministicRules`.
 
-Lookup key format: `strings.ToLower(toolName + ":" + check_id)`
+Lookup key format: `strings.ToLower(toolName + ":" + rule_id)`
 
 If a rule key matches a Tier 1 entry:
 - The system assigns the taxonomy tuple immediately without network latency.
@@ -218,7 +218,7 @@ To conserve tokens and eliminate JSON syntax bloat, the classifier uses a hyper-
 1. **Dynamic Taxonomy Source**: The prompt's category/subcategory list is generated dynamically from `ValidTaxonomyMap` (`RenderTaxonomyList()`), ensuring any future additions or adjustments to taxonomy variables instantly update both the prompt and backend validator in lockstep.
 2. **Pipe-Delimited Input (`index|rule|message`)**: Novel findings are formatted as single newline-separated lines with raw pipes sanitized to `/`:
    ```text
-   0|bandit:B608|Possible SQL injection vector through string-based query formatting
+   0|bandit:b608|Possible SQL injection vector through string-based query formatting
    1|eslint:react-hooks/exhaustive-deps|React Hook useEffect has a missing dependency
    ```
 3. **Pipe-Delimited 6-Token Output**: The model replies strictly with a JSON array of 6-token pipe strings:

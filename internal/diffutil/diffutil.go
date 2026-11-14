@@ -367,6 +367,7 @@ func ConvertModelDiffsToLocal(diffs []*models.CodeDiff) []lib.LocalCodeDiff {
 			}
 			lines := strings.Split(content, "\n")
 			for _, line := range lines {
+				line = strings.TrimSuffix(line, "\r")
 				if strings.HasPrefix(line, "@@") {
 					localHunk.HeaderText = strings.TrimSpace(line)
 					continue
