@@ -351,7 +351,7 @@ func (w *ToolReviewWorker) finalizeIfAllDone(ctx context.Context, args ToolRevie
 	res, updErr := w.db.ExecContext(ctx, `
 		UPDATE public.reviews
 		SET status = $1, completed_at = NOW()
-		WHERE id = $2 AND status != 'completed'`, finalStatus, args.ReviewID)
+		WHERE id = $2 AND status NOT IN ('completed', 'failed')`, finalStatus, args.ReviewID)
 	if updErr != nil {
 		log.Printf("[ERROR] Failed to update review %d status to %s: %v", args.ReviewID, finalStatus, updErr)
 		return fmt.Errorf("failed to update review status: %w", updErr)

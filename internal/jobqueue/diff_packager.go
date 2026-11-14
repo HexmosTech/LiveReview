@@ -15,8 +15,10 @@ import (
 const (
 	// MaxPackagedFileSize is the maximum allowed size (1 MiB) for any single file packaged.
 	MaxPackagedFileSize = 1 << 20
-	// MaxCumulativeZipSize is the maximum allowed compressed size (6 MiB) for the generated zip archive (matching AWS Lambda payload limit).
-	MaxCumulativeZipSize = 6 << 20
+	// MaxCumulativeZipSize is the maximum allowed compressed size (4.5 MiB) for the generated zip archive.
+	// Base64 encoding expands binary data by 33%, so 4.5 MiB compressed zip expands to ~6 MiB,
+	// guaranteeing the final JSON payload stays strictly within AWS Lambda's 6 MB synchronous payload limit.
+	MaxCumulativeZipSize = (9 * (1 << 20)) / 2
 )
 
 var binaryExtensions = map[string]bool{

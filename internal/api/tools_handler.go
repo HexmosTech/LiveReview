@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -79,7 +80,7 @@ func (s *Server) UpdateOrgTool(c echo.Context) error {
 	store := tools.NewToolsStore(s.db)
 	row, err := store.UpsertOrgTool(c.Request().Context(), orgID, toolID, *req.Enabled)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return c.JSON(http.StatusNotFound, map[string]string{"error": "tool not found"})
 		}
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})

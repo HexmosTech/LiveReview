@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -18,9 +19,9 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/livereview/internal/license"
 	storagelicense "github.com/livereview/storage/license"
 	storagepayment "github.com/livereview/storage/payment"
+	storagetools "github.com/livereview/storage/tools"
 )
 
 // RazorpayWebhookHandler handles Razorpay webhook events
@@ -212,12 +213,10 @@ func (h *RazorpayWebhookHandler) consumeTrialEligibilityTx(ctx context.Context, 
 			trial_ends_at,
 			trial_readonly,
 			last_reset_at,
-			updated_at,
-			tool_credits_limit_month
-		) VALUES ($1, $2, $3, $4, 0, FALSE, $5, $6, FALSE, NOW(), NOW(), $7)
+			updated_at
+		) VALUES ($1, $2, $3, $4, 0, FALSE, $5, $6, FALSE, NOW(), NOW())
 		ON CONFLICT (org_id) DO UPDATE SET
 			current_plan_code = EXCLUDED.current_plan_code,
-			tool_credits_limit_month = EXCLUDED.tool_credits_limit_month,
 			billing_period_start = EXCLUDED.billing_period_start,
 			billing_period_end = EXCLUDED.billing_period_end,
 			trial_started_at = COALESCE(org_billing_state.trial_started_at, EXCLUDED.trial_started_at),
@@ -234,10 +233,14 @@ func (h *RazorpayWebhookHandler) consumeTrialEligibilityTx(ctx context.Context, 
 		periodEnd,
 		trialStartAt,
 		trialEndAt,
-		license.PlanType(resolvedPlanCode).GetToolCreditsLimit(),
 	)
 	if err != nil {
 		return fmt.Errorf("upsert org trial window for subscription %s: %w", sub.ID, err)
+	}
+
+	// Update tool credits in a separate dedicated function
+	if toolErr := storagetools.ResetToolCreditsForPlanTx(ctx, tx, int64(orgID), string(resolvedPlanCode)); toolErr != nil {
+		log.Printf("[WARN] Failed to reset tool credits for subscription trial %s (non-blocking): %v", sub.ID, toolErr)
 	}
 
 	return nil
@@ -635,12 +638,10 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCharged(event *RazorpayWebhoo
 					loc_blocked,
 					trial_readonly,
 					last_reset_at,
-					updated_at,
-					tool_credits_limit_month
-				) VALUES ($1, $2, $3, $4, 0, FALSE, FALSE, NOW(), NOW(), $5)
+					updated_at
+				) VALUES ($1, $2, $3, $4, 0, FALSE, FALSE, NOW(), NOW())
 				ON CONFLICT (org_id) DO UPDATE SET
 					current_plan_code = EXCLUDED.current_plan_code,
-					tool_credits_limit_month = EXCLUDED.tool_credits_limit_month,
 					billing_period_start = EXCLUDED.billing_period_start,
 					billing_period_end = EXCLUDED.billing_period_end,
 					scheduled_plan_code = NULL,
@@ -650,11 +651,18 @@ func (h *RazorpayWebhookHandler) handleSubscriptionCharged(event *RazorpayWebhoo
 					trial_readonly = FALSE,
 					loc_blocked = FALSE,
 					updated_at = NOW()`,
-				orgID, resolvedPlanCode.String(), periodStart, periodEnd, resolvedPlanCode.GetToolCreditsLimit(),
+				orgID, resolvedPlanCode.String(), periodStart, periodEnd,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to update org billing state after captured charge: %w", err)
 			}
+
+			// Update tool credits in a separate dedicated function with bounded timeout
+			toolCtx, toolCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if toolErr := storagetools.ResetToolCreditsForPlanTx(toolCtx, tx, int64(orgID), resolvedPlanCode.String()); toolErr != nil {
+				log.Printf("[WARN] Failed to update tool credits for captured charge %s (non-blocking): %v", sub.ID, toolErr)
+			}
+			toolCancel()
 		}
 	}
 

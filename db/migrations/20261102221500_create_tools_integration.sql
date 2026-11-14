@@ -1,9 +1,9 @@
 -- migrate:up
 
--- Tool credits columns on org_billing_state (default limit 50,000 matches free tier monthly allowance)
+-- Tool credits columns on org_billing_state (default limit 0.0; paid tiers dynamically receive 50,000 monthly credits)
 ALTER TABLE public.org_billing_state
     ADD COLUMN IF NOT EXISTS tool_credits_used_month NUMERIC(18,4) NOT NULL DEFAULT 0.0,
-    ADD COLUMN IF NOT EXISTS tool_credits_limit_month NUMERIC(18,4) NOT NULL DEFAULT 50000.0;
+    ADD COLUMN IF NOT EXISTS tool_credits_limit_month NUMERIC(18,4) NOT NULL DEFAULT 0.0;
 
 DO $$
 BEGIN
@@ -20,6 +20,11 @@ BEGIN
             ADD CONSTRAINT chk_org_billing_state_tool_credits_limit CHECK (tool_credits_limit_month >= 0);
     END IF;
 END $$;
+
+-- Ensure any existing free organizations have 0.0 tool credits limit
+UPDATE public.org_billing_state
+SET tool_credits_limit_month = 0.0
+WHERE current_plan_code IN ('free', 'free_30k') AND tool_credits_limit_month <> 0.0;
 
 -- Global Tier 2 Rule Taxonomy Cache
 -- rule_key is the normalized composite lookup key ("<tool_name>:<rule_id>")
@@ -51,7 +56,7 @@ DROP TRIGGER IF EXISTS trg_tool_rule_taxonomies_updated_at ON public.tool_rule_t
 CREATE TRIGGER trg_tool_rule_taxonomies_updated_at
 BEFORE UPDATE ON public.tool_rule_taxonomies
 FOR EACH ROW
-EXECUTE PROCEDURE tool_rule_taxonomies_set_updated_at();
+EXECUTE FUNCTION tool_rule_taxonomies_set_updated_at();
 
 -- Immutable ledger for tracking tool credit deductions
 CREATE TABLE IF NOT EXISTS public.tool_credit_ledger (

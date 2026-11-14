@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 	storageaiconnectors "github.com/livereview/storage/aiconnectors"
 	storagelicense "github.com/livereview/storage/license"
 	storagepayment "github.com/livereview/storage/payment"
+	storagetools "github.com/livereview/storage/tools"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -1576,12 +1578,10 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 				trial_ends_at,
 				trial_readonly,
 				last_reset_at,
-				updated_at,
-				tool_credits_limit_month
-			) VALUES ($1, $2, $3, $4, 0, FALSE, $5, $6, FALSE, NOW(), NOW(), $7)
+				updated_at
+			) VALUES ($1, $2, $3, $4, 0, FALSE, $5, $6, FALSE, NOW(), NOW())
 			ON CONFLICT (org_id) DO UPDATE SET
 				current_plan_code = EXCLUDED.current_plan_code,
-				tool_credits_limit_month = EXCLUDED.tool_credits_limit_month,
 				billing_period_start = EXCLUDED.billing_period_start,
 				billing_period_end = EXCLUDED.billing_period_end,
 				trial_started_at = COALESCE(org_billing_state.trial_started_at, EXCLUDED.trial_started_at),
@@ -1598,9 +1598,14 @@ func (s *SubscriptionService) ConfirmPurchase(req *PurchaseConfirmationRequest, 
 				trial_readonly = FALSE,
 				loc_blocked = FALSE,
 				updated_at = NOW()
-		`, orgID, resolvedPlanCode.String(), periodStart, periodEnd, trialStartedAtValue, trialEndsAtValue, resolvedPlanCode.GetToolCreditsLimit())
+		`, orgID, resolvedPlanCode.String(), periodStart, periodEnd, trialStartedAtValue, trialEndsAtValue)
 		if err != nil {
 			return fmt.Errorf("failed to update org billing state for confirmed purchase: %w", err)
+		}
+
+		// Update tool credits in a separate dedicated function so tool updates never affect the core purchase transaction
+		if toolErr := storagetools.ResetToolCreditsForPlanTx(ctx, tx, int64(orgID), resolvedPlanCode.String()); toolErr != nil {
+			log.Printf("[WARN] Failed to reset tool credits for org %d on confirmed purchase (non-blocking): %v", orgID, toolErr)
 		}
 
 		// Provision the default AI connectors ("LiveReview AI Model") for the

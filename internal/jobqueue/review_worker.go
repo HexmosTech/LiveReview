@@ -114,7 +114,7 @@ func (w *ManualReviewWorker) Work(ctx context.Context, job *river.Job[ManualRevi
 			diffZipBase64, err := diffutil.PackageModelDiffsToZipBase64WithExtras(changes, lrcBundle.Files)
 			if err != nil {
 				log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] Failed to package diff zip for static analysis tools")
-			} else if diffZipBase64 != "" {
+			} else if diffZipBase64 != "" && w.jq != nil {
 				localDiffs := diffutil.ConvertModelDiffsToLocal(changes)
 				if _, dispatchErr := w.jq.DispatchTools(ctx, ToolDispatchParams{
 					OrgID:         args.OrgID,
@@ -652,12 +652,10 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	res, err := w.db.ExecContext(ctx, `
 		UPDATE public.reviews
 		SET status = $1, completed_at = NOW()
-		WHERE id = $2 AND status != 'completed'`, finalStatus, args.ReviewID)
+		WHERE id = $2 AND status NOT IN ('completed', 'failed')`, finalStatus, args.ReviewID)
 	if err != nil {
 		log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to update review status")
-	}
-
-	if rows, _ := res.RowsAffected(); rows > 0 {
+	} else if rows, _ := res.RowsAffected(); rows > 0 {
 		totalComments := len(comments)
 		_ = eventSink.EmitCompletionEvent(ctx, args.ReviewID, args.OrgID, summary, totalComments, failureReason)
 	}

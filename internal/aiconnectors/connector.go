@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -681,6 +682,11 @@ func parseUsageTokens(v interface{}) (int, bool) {
 		return int(n), true
 	case float32:
 		return int(n), true
+	case string:
+		if num, err := strconv.Atoi(strings.TrimSpace(n)); err == nil {
+			return num, true
+		}
+		return 0, false
 	default:
 		return 0, false
 	}

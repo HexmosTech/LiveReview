@@ -26,6 +26,7 @@ import (
 	"github.com/livereview/internal/license/payment"
 	storagelicense "github.com/livereview/storage/license"
 	storagepayment "github.com/livereview/storage/payment"
+	storagetools "github.com/livereview/storage/tools"
 )
 
 type BillingActionsHandler struct {
@@ -1174,9 +1175,11 @@ func (h *BillingActionsHandler) applyResolvedUpgradeRequest(ctx context.Context,
 				return ""
 			}(),
 		}
-		toolCredits := license.PlanType(request.ToPlanCode).GetToolCreditsLimit()
-		if err := h.store.ApplyImmediatePlanUpgrade(ctx, request.OrgID, request.ToPlanCode, request.ActorUserID, payload, toolCredits); err != nil {
+		if err := h.store.ApplyImmediatePlanUpgrade(ctx, request.OrgID, request.ToPlanCode, request.ActorUserID, payload); err != nil {
 			return fmt.Errorf("apply resolved upgrade to org billing state: %w", err)
+		}
+		if toolErr := storagetools.ResetToolCreditsForPlan(ctx, h.db, request.OrgID, request.ToPlanCode); toolErr != nil {
+			log.Printf("[WARN] Failed to reset tool credits for org %d on immediate upgrade to %s (non-blocking): %v", request.OrgID, request.ToPlanCode, toolErr)
 		}
 	}
 
@@ -1805,6 +1808,10 @@ func applyDueScheduledPlanChangeWithRazorpay(ctx context.Context, db *sql.DB, st
 
 	if err := store.ApplyScheduledPlanChange(ctx, tr); err != nil {
 		return fmt.Errorf("apply scheduled plan change: %w", err)
+	}
+
+	if toolErr := storagetools.ResetToolCreditsForPlan(ctx, db, tr.OrgID, tr.TargetPlanCode); toolErr != nil {
+		log.Printf("[WARN] Failed to reset tool credits for org %d on scheduled plan change to %s (non-blocking): %v", tr.OrgID, tr.TargetPlanCode, toolErr)
 	}
 
 	return nil
