@@ -3,8 +3,10 @@ package aiconnectors
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -90,6 +92,18 @@ func validateAPIKeyHandler(c echo.Context) error {
 	db, _ := c.Get("db").(*sql.DB)
 	valid, err := ValidateAPIKey(context.Background(), db, req.Provider, req.APIKey, req.BaseURL, req.Model, req.GCPProjectID, req.GCPLocation, req.AWSAccessKeyID, req.AWSRegion)
 	if err != nil {
+		var validationErr *APIKeyValidationError
+		if errors.As(err, &validationErr) {
+			message := strings.TrimSpace(validationErr.Message)
+			if message == "" {
+				message = "API key is invalid"
+			}
+			return c.JSON(http.StatusOK, ValidateAPIKeyResponse{
+				Valid:   false,
+				Message: message,
+			})
+		}
+
 		log.Error().Err(err).Msg("Error validating API key")
 		return c.JSON(http.StatusInternalServerError, ValidateAPIKeyResponse{
 			Valid:   false,
