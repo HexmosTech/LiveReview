@@ -60,6 +60,7 @@ func (p *BitbucketV2Provider) GetRepoConfigFiles(ctx context.Context, repoFullNa
 
 	files := make(map[string][]byte)
 	hasRulesDir := false
+	hasPolicyDir := false
 
 	for _, entry := range rootEntries {
 		switch {
@@ -69,8 +70,40 @@ func (p *BitbucketV2Provider) GetRepoConfigFiles(ctx context.Context, repoFullNa
 				return nil, false, err
 			}
 			files["ignore"] = content
+		case entry.Type == "commit_file" && entry.Path == ".lrc/tools.toml":
+			content, err := bitbucketFetchFile(ctx, client, "https://api.bitbucket.org/2.0/repositories/"+repoFullName+"/src/"+ref+"/.lrc/tools.toml", email, token.PatToken)
+			if err != nil {
+				return nil, false, err
+			}
+			files["tools.toml"] = content
+		case entry.Type == "commit_directory" && entry.Path == ".lrc/policy":
+			hasPolicyDir = true
 		case entry.Type == "commit_directory" && entry.Path == ".lrc/rules":
 			hasRulesDir = true
+		}
+	}
+
+	if hasPolicyDir {
+		policyURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/src/%s/.lrc/policy/?pagelen=100",
+			repoFullName, ref)
+		policyEntries, found, err := bitbucketListDir(ctx, client, policyURL, email, token.PatToken)
+		if err != nil {
+			return nil, false, err
+		}
+		if found {
+			for _, entry := range policyEntries {
+				if entry.Type != "commit_file" {
+					continue
+				}
+				name := entry.Path[strings.LastIndex(entry.Path, "/")+1:]
+				if name == "tools.toml" {
+					content, err := bitbucketFetchFile(ctx, client, "https://api.bitbucket.org/2.0/repositories/"+repoFullName+"/src/"+ref+"/"+entry.Path, email, token.PatToken)
+					if err != nil {
+						return nil, false, err
+					}
+					files["policy/tools.toml"] = content
+				}
+			}
 		}
 	}
 

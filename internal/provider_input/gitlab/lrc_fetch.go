@@ -95,6 +95,8 @@ func (p *GitLabV2Provider) GetRepoConfigFiles(ctx context.Context, repoFullName,
 		switch {
 		case relPath == "ignore":
 			// ok
+		case relPath == "policy/tools.toml" || relPath == "tools.toml":
+			// ok
 		case strings.HasPrefix(relPath, "rules/") && strings.HasSuffix(entry.Name, ".md"):
 			// Direct child of rules/ only — no further slash after "rules/"
 			if strings.Contains(strings.TrimPrefix(relPath, "rules/"), "/") {

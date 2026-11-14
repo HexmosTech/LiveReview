@@ -50,8 +50,9 @@ func (p *GitHubV2Provider) GetRepoConfigFiles(ctx context.Context, repoFullName,
 
 	files := make(map[string][]byte)
 
-	// Collect .lrc/ignore and discover whether rules/ dir exists.
+	// Collect .lrc/ignore, tools.toml, and discover whether rules/ or policy/ dir exists.
 	hasRulesDir := false
+	hasPolicyDir := false
 	for _, entry := range rootEntries {
 		switch {
 		case entry.Type == "file" && entry.Name == "ignore":
@@ -60,8 +61,36 @@ func (p *GitHubV2Provider) GetRepoConfigFiles(ctx context.Context, repoFullName,
 				return nil, false, err
 			}
 			files["ignore"] = content
+		case entry.Type == "file" && entry.Name == "tools.toml":
+			content, err := githubFetchFileRaw(ctx, client, apiBase, repoFullName, entry.Path, ref, pat)
+			if err != nil {
+				return nil, false, err
+			}
+			files["tools.toml"] = content
+		case entry.Type == "dir" && entry.Name == "policy":
+			hasPolicyDir = true
 		case entry.Type == "dir" && entry.Name == "rules":
 			hasRulesDir = true
+		}
+	}
+
+	// List .lrc/policy/ and fetch tools.toml if present.
+	if hasPolicyDir {
+		policyEntries, found, err := githubListDir(ctx, client, apiBase, repoFullName, ".lrc/policy", ref, pat)
+		if err != nil {
+			return nil, false, err
+		}
+		if found {
+			for _, entry := range policyEntries {
+				if entry.Type != "file" || entry.Name != "tools.toml" {
+					continue
+				}
+				content, err := githubFetchFileRaw(ctx, client, apiBase, repoFullName, entry.Path, ref, pat)
+				if err != nil {
+					return nil, false, err
+				}
+				files["policy/tools.toml"] = content
+			}
 		}
 	}
 

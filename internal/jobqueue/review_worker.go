@@ -195,9 +195,9 @@ func (w *ManualReviewWorker) extractChangesAndLRC(ctx context.Context, req *revi
 	}
 
 	if rcp, ok := provider.(lrcfetch.Provider); ok && mrDetails != nil {
-		ref := mrDetails.TargetBranch
+		ref := mrDetails.SourceBranch
 		if ref == "" {
-			ref = mrDetails.SourceBranch
+			ref = mrDetails.TargetBranch
 		}
 		repoFullName := review.ExtractRepoFullName(mrDetails.RepositoryURL)
 		if repoFullName != "" && ref != "" {
