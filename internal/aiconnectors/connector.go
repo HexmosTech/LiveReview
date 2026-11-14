@@ -271,15 +271,16 @@ func ValidateAPIKey(ctx context.Context, db *sql.DB, provider Provider, apiKey s
 
 	_, err = llms.GenerateFromSinglePrompt(ctx, connector.llm, promptText, generateOptions...)
 	if err != nil {
-		log.Error().Err(err).
+		// Sanitize first so the raw API key never reaches the logs.
+		sanitized := sanitizeProviderErrorMessage(err.Error(), apiKey)
+
+		log.Error().
 			Str("provider", string(provider)).
 			Str("model", options.ModelConfig.Model).
 			Str("api_key_masked", maskAPIKey(apiKey)).
 			Str("error_type", fmt.Sprintf("%T", err)).
-			Str("full_error", fmt.Sprintf("%+v", err)).
+			Str("error", sanitized).
 			Msg("API key validation failed with error")
-
-		sanitized := sanitizeProviderErrorMessage(err.Error(), apiKey)
 
 		// Check if error is quota-related (contains "429" or "quota")
 		errStr := err.Error()
@@ -405,11 +406,12 @@ func createGeminiModel(ctx context.Context, options ConnectorOptions) (llms.Mode
 	log.Debug().Msg("Calling googleai.New to create client with minimal options")
 	model, err := googleai.New(ctx, opts...)
 	if err != nil {
-		log.Error().Err(err).
+		// Sanitize first so the raw API key never reaches the logs.
+		log.Error().
 			Str("api_key_masked", maskAPIKey(options.APIKey)).
 			Str("model", options.ModelConfig.Model).
 			Str("error_type", fmt.Sprintf("%T", err)).
-			Str("full_error", fmt.Sprintf("%+v", err)).
+			Str("error", sanitizeProviderErrorMessage(err.Error(), options.APIKey)).
 			Msg("Failed to create Gemini model")
 		return nil, fmt.Errorf("failed to create Gemini model: %w", err)
 	}
