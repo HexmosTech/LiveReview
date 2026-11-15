@@ -12,6 +12,12 @@ Goal: lock behavior and data contracts before backend coding so all downstream a
 - Upgrade is immediate with proration.
 - Downgrade is next-cycle effective.
 - Quota is org-month LOC only; user/repo limits removed.
+- Free Trial Policy:
+  - Free trial (7-day) is strictly limited to the base Team Starter plan (100k LOC / $32) only.
+  - No free trial is offered for higher plans (200k, 400k, 800k, 1.6M, 3.2M LOC); these require full upfront payment.
+  - One-time only: Free trial is granted at most once per organization.
+  - Depletion & Upgrade: Once the 100k LOC trial quota is depleted or 7 days elapse, the org must pay full price to upgrade. Trial cannot be restarted.
+  - UI Presentation: The "FREE 7-DAY TRIAL INCLUDED" badge must only be rendered on the 100k LOC plan card. Higher tier cards must never display a trial badge.
 
 2. Finalize counting and enforcement semantics:
 - Billable LOC = added + deleted lines in diff sent to AI.
@@ -81,7 +87,8 @@ Goal: implement guaranteed contract behavior and enforcement in all execution pa
 
 5. Billing and plan transitions with Razorpay:
 - Tier mapping for all LOC plans.
-- Manual upgrade flow with immediate proration and effective limit change.
+- Trial setup restricted strictly to 100k LOC tier; higher tiers require direct paid checkout.
+- Manual upgrade flow with immediate proration and effective limit change (trial upgrades charge full target amount immediately, ending trial).
 - Manual downgrade scheduling for next cycle only.
 - Explicit prevention of automatic tier mutation.
 
