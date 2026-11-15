@@ -2166,9 +2166,8 @@ const OverviewTab: React.FC<{ navigate: any; mode?: 'full' | 'breakdown' | 'cont
                   {upgradeHierarchyPlans.map((plan) => {
                     const isCurrentCard = plan.plan_code === currentPlanCode;
                     const isSelectableUpgrade = plan.monthly_loc_limit > currentLocLimit;
-                    const isTrialEligiblePlan = plan.monthly_loc_limit === 100000;
-                    const planTrialDays = isTrialEligiblePlan ? Number(plan.trial_days || firstPaidTrialDays || 7) : 0;
-                    const showsFirstPaidTrialCopy = isFree && isTrialEligiblePlan && planTrialDays > 0;
+                    const planTrialDays = Number(plan.trial_days || firstPaidTrialDays || 0);
+                    const showsFirstPaidTrialCopy = isFree && plan.monthly_price_usd > 0 && planTrialDays > 0;
                     const resolvedPlanAmount = formatResolvedPlanRecurringAmount(plan, effectivePlanDisplayCurrency);
                     const resolvedPlanError = getResolvedPlanError(plan, effectivePlanDisplayCurrency);
                     const firstPaidTrialCardBadgeText = trialEligibleForFirstPaidPurchase

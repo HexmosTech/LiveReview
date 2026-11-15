@@ -13,11 +13,11 @@ Goal: lock behavior and data contracts before backend coding so all downstream a
 - Downgrade is next-cycle effective.
 - Quota is org-month LOC only; user/repo limits removed.
 - Free Trial Policy:
-  - Free trial (7-day) is strictly limited to the base Team Starter plan (100k LOC / $32) only.
-  - No free trial is offered for higher plans (200k, 400k, 800k, 1.6M, 3.2M LOC); these require full upfront payment.
-  - One-time only: Free trial is granted at most once per organization.
-  - Depletion & Upgrade: Once the 100k LOC trial quota is depleted or 7 days elapse, the org must pay full price to upgrade. Trial cannot be restarted.
-  - UI Presentation: The "FREE 7-DAY TRIAL INCLUDED" badge must only be rendered on the 100k LOC plan card. Higher tier cards must never display a trial badge.
+  - First-purchase free trial (7-day) is offered on any paid plan tier (100k, 200k, 400k, 800k, 1.6M, 3.2M LOC) when moving from the Free tier.
+  - One-time only: Free trial is granted at most once per organization / billing email (tracked via `trial_eligibility`).
+  - Depletion & Upgrade: Once in a trial, upgrading to a higher plan (or upgrading after quota depletion) requires full payment for the new tier immediately. No secondary trial is offered.
+  - Upgrade Billing Cycle: Upgrading immediately terminates the trial, activates the target plan's full quota, and starts a new 30-day billing cycle today (next renewal 30 days from upgrade date).
+  - UI Presentation: For free orgs with trial eligibility, all paid upgrade cards display "Free 7-Day Trial Included". When already in a trial, the upgrade modal clearly states "Pay Full Amount and Upgrade" with immediate full charge.
 
 2. Finalize counting and enforcement semantics:
 - Billable LOC = added + deleted lines in diff sent to AI.

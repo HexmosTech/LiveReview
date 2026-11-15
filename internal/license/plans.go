@@ -74,7 +74,7 @@ var PlanDefinitions = map[PlanType]PlanLimits{
 		MaxUsers:         -1,
 		MonthlyLOCLimit:  200000,
 		MonthlyPriceUSD:  64,
-		TrialDays:        0,
+		TrialDays:        7,
 		Features: []string{
 			"unlimited_reviews",
 			"multiple_orgs",
@@ -90,7 +90,7 @@ var PlanDefinitions = map[PlanType]PlanLimits{
 		MaxUsers:         -1,
 		MonthlyLOCLimit:  400000,
 		MonthlyPriceUSD:  128,
-		TrialDays:        0,
+		TrialDays:        7,
 		Features: []string{
 			"unlimited_reviews",
 			"multiple_orgs",
@@ -106,7 +106,7 @@ var PlanDefinitions = map[PlanType]PlanLimits{
 		MaxUsers:         -1,
 		MonthlyLOCLimit:  800000,
 		MonthlyPriceUSD:  256,
-		TrialDays:        0,
+		TrialDays:        7,
 		Features: []string{
 			"unlimited_reviews",
 			"multiple_orgs",
@@ -122,7 +122,7 @@ var PlanDefinitions = map[PlanType]PlanLimits{
 		MaxUsers:         -1,
 		MonthlyLOCLimit:  1600000,
 		MonthlyPriceUSD:  512,
-		TrialDays:        0,
+		TrialDays:        7,
 		Features: []string{
 			"unlimited_reviews",
 			"multiple_orgs",
@@ -138,7 +138,7 @@ var PlanDefinitions = map[PlanType]PlanLimits{
 		MaxUsers:         -1,
 		MonthlyLOCLimit:  3200000,
 		MonthlyPriceUSD:  1024,
-		TrialDays:        0,
+		TrialDays:        7,
 		Features: []string{
 			"unlimited_reviews",
 			"multiple_orgs",

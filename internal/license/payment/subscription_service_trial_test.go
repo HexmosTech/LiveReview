@@ -33,15 +33,9 @@ func TestComputeTrialWindowDefaultsDays(t *testing.T) {
 	}
 }
 
-func TestTrialPolicyOnPlans(t *testing.T) {
-	// Only the starter 100k LOC plan has 7-day free trial.
-	teamLimits := license.PlanTeam32USD.GetLimits()
-	if teamLimits.TrialDays != firstPurchaseTrialDays {
-		t.Fatalf("starter plan trial days = %d, want %d", teamLimits.TrialDays, firstPurchaseTrialDays)
-	}
-
-	// Higher plans must not have free trial (trial days = 0).
-	higherPlans := []license.PlanType{
+func TestPaidPlansRemainTrialEnabled(t *testing.T) {
+	paidPlans := []license.PlanType{
+		license.PlanTeam32USD,
 		license.PlanLOC200K,
 		license.PlanLOC400K,
 		license.PlanLOC800K,
@@ -49,12 +43,15 @@ func TestTrialPolicyOnPlans(t *testing.T) {
 		license.PlanLOC3200K,
 	}
 
-	for _, plan := range higherPlans {
+	for _, plan := range paidPlans {
 		plan := plan
 		t.Run(plan.String(), func(t *testing.T) {
 			limits := plan.GetLimits()
-			if limits.TrialDays != 0 {
-				t.Fatalf("plan %s trial days = %d, want 0 (only 100k LOC has trial)", plan, limits.TrialDays)
+			if limits.MonthlyPriceUSD <= 0 {
+				t.Fatalf("plan %s monthly price must be > 0", plan)
+			}
+			if limits.TrialDays != firstPurchaseTrialDays {
+				t.Fatalf("plan %s trial days = %d, want %d", plan, limits.TrialDays, firstPurchaseTrialDays)
 			}
 		})
 	}
