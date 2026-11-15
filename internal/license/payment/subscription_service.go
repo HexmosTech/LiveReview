@@ -691,7 +691,7 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		}
 	}
 
-	trialApplied := !reservationState.Consumed
+	trialApplied := !reservationState.Consumed && persistedPlanCode.GetLimits().TrialDays > 0
 	var trialStartAtUnix int64
 	var trialWindowStartUnix int64
 	var trialWindowEndUnix int64
@@ -817,8 +817,13 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 
 // UpdateQuantity updates the quantity of an existing subscription
 func (s *SubscriptionService) UpdateQuantity(subscriptionID string, quantity int, scheduleChangeAt int64, mode string) (*RazorpaySubscription, error) {
+	return s.UpdateQuantityAndStartAt(subscriptionID, quantity, scheduleChangeAt, 0, mode)
+}
+
+// UpdateQuantityAndStartAt updates the quantity and optionally moves start_at on an existing subscription
+func (s *SubscriptionService) UpdateQuantityAndStartAt(subscriptionID string, quantity int, scheduleChangeAt int64, startAt int64, mode string) (*RazorpaySubscription, error) {
 	// Update in Razorpay
-	sub, err := UpdateSubscriptionQuantity(mode, subscriptionID, quantity, scheduleChangeAt)
+	sub, err := UpdateSubscriptionQuantityAndStartAt(mode, subscriptionID, quantity, scheduleChangeAt, startAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update razorpay subscription: %w", err)
 	}
