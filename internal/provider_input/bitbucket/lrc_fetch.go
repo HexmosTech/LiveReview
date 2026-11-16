@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -47,9 +48,14 @@ func (p *BitbucketV2Provider) GetRepoConfigFiles(ctx context.Context, repoFullNa
 
 	client := networkbitbucket.NewHTTPClient(15 * time.Second)
 
+	// Bitbucket Cloud REST API v2 /src/{commit}/{path} truncates refs containing slashes
+	// (treating the first segment as the commit and returning 404). If ref has a slash and
+	// is not a 40-char commit SHA, resolve it to target commit SHA first via the branches API.
+	resolvedRef := resolveBitbucketRef(ctx, client, repoFullName, ref, token.PatToken, email)
+
 	// List .lrc/ directory.
 	listURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/src/%s/.lrc/?pagelen=100",
-		repoFullName, ref)
+		repoFullName, resolvedRef)
 	rootEntries, found, err := bitbucketListDir(ctx, client, listURL, email, token.PatToken)
 	if err != nil {
 		return nil, false, err
@@ -65,13 +71,13 @@ func (p *BitbucketV2Provider) GetRepoConfigFiles(ctx context.Context, repoFullNa
 	for _, entry := range rootEntries {
 		switch {
 		case entry.Type == "commit_file" && entry.Path == ".lrc/ignore":
-			content, err := bitbucketFetchFile(ctx, client, "https://api.bitbucket.org/2.0/repositories/"+repoFullName+"/src/"+ref+"/.lrc/ignore", email, token.PatToken)
+			content, err := bitbucketFetchFile(ctx, client, "https://api.bitbucket.org/2.0/repositories/"+repoFullName+"/src/"+resolvedRef+"/.lrc/ignore", email, token.PatToken)
 			if err != nil {
 				return nil, false, err
 			}
 			files["ignore"] = content
 		case entry.Type == "commit_file" && entry.Path == ".lrc/tools.toml":
-			content, err := bitbucketFetchFile(ctx, client, "https://api.bitbucket.org/2.0/repositories/"+repoFullName+"/src/"+ref+"/.lrc/tools.toml", email, token.PatToken)
+			content, err := bitbucketFetchFile(ctx, client, "https://api.bitbucket.org/2.0/repositories/"+repoFullName+"/src/"+resolvedRef+"/.lrc/tools.toml", email, token.PatToken)
 			if err != nil {
 				return nil, false, err
 			}
@@ -85,7 +91,7 @@ func (p *BitbucketV2Provider) GetRepoConfigFiles(ctx context.Context, repoFullNa
 
 	if hasPolicyDir {
 		policyURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/src/%s/.lrc/policy/?pagelen=100",
-			repoFullName, ref)
+			repoFullName, resolvedRef)
 		policyEntries, found, err := bitbucketListDir(ctx, client, policyURL, email, token.PatToken)
 		if err != nil {
 			return nil, false, err
@@ -97,7 +103,7 @@ func (p *BitbucketV2Provider) GetRepoConfigFiles(ctx context.Context, repoFullNa
 				}
 				name := entry.Path[strings.LastIndex(entry.Path, "/")+1:]
 				if name == "tools.toml" {
-					content, err := bitbucketFetchFile(ctx, client, "https://api.bitbucket.org/2.0/repositories/"+repoFullName+"/src/"+ref+"/"+entry.Path, email, token.PatToken)
+					content, err := bitbucketFetchFile(ctx, client, "https://api.bitbucket.org/2.0/repositories/"+repoFullName+"/src/"+resolvedRef+"/"+entry.Path, email, token.PatToken)
 					if err != nil {
 						return nil, false, err
 					}
@@ -110,7 +116,7 @@ func (p *BitbucketV2Provider) GetRepoConfigFiles(ctx context.Context, repoFullNa
 	// List .lrc/rules/ directory.
 	if hasRulesDir {
 		rulesURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/src/%s/.lrc/rules/?pagelen=100",
-			repoFullName, ref)
+			repoFullName, resolvedRef)
 		rulesEntries, found, err := bitbucketListDir(ctx, client, rulesURL, email, token.PatToken)
 		if err != nil {
 			return nil, false, err
@@ -131,7 +137,7 @@ func (p *BitbucketV2Provider) GetRepoConfigFiles(ctx context.Context, repoFullNa
 				}
 
 				fileURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/src/%s/.lrc/rules/%s",
-					repoFullName, ref, name)
+					repoFullName, resolvedRef, name)
 				content, err := bitbucketFetchFile(ctx, client, fileURL, email, token.PatToken)
 				if err != nil {
 					return nil, false, err
@@ -218,4 +224,73 @@ func bitbucketFetchFile(ctx context.Context, client *http.Client, fileURL, email
 		return nil, fmt.Errorf("bitbucket lrc: read file: %w", err)
 	}
 	return data, nil
+}
+
+func isHexSHA(s string) bool {
+	if len(s) != 40 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+func resolveBitbucketRef(ctx context.Context, client *http.Client, repoFullName, ref, token, email string) string {
+	if err := ctx.Err(); err != nil {
+		return ref
+	}
+	if !strings.Contains(ref, "/") || isHexSHA(ref) {
+		return ref
+	}
+
+	filter := url.QueryEscape(fmt.Sprintf("name = %q", ref))
+
+	// 1. Try branch lookup
+	branchURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/refs/branches?q=%s", repoFullName, filter)
+	if hash := queryBitbucketRefTarget(ctx, client, branchURL, token, email); hash != "" {
+		return hash
+	}
+
+	// 2. Fallback to tag lookup in case ref is a tag containing slashes
+	tagURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/refs/tags?q=%s", repoFullName, filter)
+	if hash := queryBitbucketRefTarget(ctx, client, tagURL, token, email); hash != "" {
+		return hash
+	}
+
+	return ref
+}
+
+func queryBitbucketRefTarget(ctx context.Context, client *http.Client, queryURL, token, email string) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, queryURL, nil)
+	if err != nil {
+		return ""
+	}
+	req.SetBasicAuth(email, token)
+	req.Header.Set("User-Agent", "LiveReview-Bot")
+
+	resp, err := networkbitbucket.Do(client, req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	var branchResp struct {
+		Values []struct {
+			Name   string `json:"name"`
+			Target struct {
+				Hash string `json:"hash"`
+			} `json:"target"`
+		} `json:"values"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&branchResp); err == nil && len(branchResp.Values) > 0 {
+		return branchResp.Values[0].Target.Hash
+	}
+	return ""
 }

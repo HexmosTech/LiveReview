@@ -53,22 +53,23 @@ Tool execution uses a two-level control model: **Organization Default** and **Re
 ### 4.2 Repository Level (`.lrc/policy/tools.toml`)
 Repositories can fine-tune and override tool execution by adding a configuration file at `.lrc/policy/tools.toml` (or `.lrc/tools.toml`):
 
-1. **Repository Policy Override**: When `.lrc/policy/tools.toml` is provided, it explicitly defines which tools run for that repository, overriding organization defaults:
-   - Any tool configured with `enabled = true` (or custom rules) will run even if disabled in the organization's settings.
-   - Tools not listed in `tools.toml` will not run for that repository.
-2. **Explicit Opt-Out**: A repository can explicitly disable a tool:
-   ```toml
-   [bandit]
-   enabled = false
-   ```
-3. **File Pattern Scoping (`include` / `exclude`)**: A repository can choose which files a tool should inspect:
+1. **Baseline + Overlay Model**: Global organization settings act as the default baseline. `.lrc/policy/tools.toml` serves as a repository-level overlay:
+   - **Explicit Opt-In**: A tool configured with `enabled = true` (or custom rules) will run even if disabled in the organization's settings.
+   - **Explicit Opt-Out**: A tool configured with `enabled = false` will NOT run, even if enabled in the organization's settings:
+     ```toml
+     [gitleaks]
+     enabled = false
+     ```
+   - **Inherited Default**: Any tool **not mentioned** in `tools.toml` automatically inherits its setting from the organization defaults (runs if enabled globally, skips if disabled globally).
+2. **File Pattern Scoping (`include` / `exclude`)**: A repository can choose which files a tool should inspect:
    ```toml
    [ruff]
    include = ["**/*.py"]
    exclude = ["tests/fixtures/**"]
    ```
-4. **Zero-Credit Skip**: If a pull request does not change any files matching a tool (for example, a PR with only Markdown changes), the tool does not run and **zero credits** are consumed.
-5. **Safe Fallback**: If `tools.toml` is missing or has a syntax error, LiveReview logs a warning and falls back to the organization's default enabled tools without failing the review.
+3. **Zero-Credit Skip**: If a pull request does not change any files matching a tool (for example, a PR with only Markdown changes), the tool does not run and **zero credits** are consumed.
+4. **Safe Fallback**: If `tools.toml` has a syntax error, LiveReview logs a warning and falls back safely to the organization's default enabled tools without failing the review.
+5. **In-PR Changes**: If `.lrc/policy/tools.toml` is modified or added directly within the pull request diff, LiveReview extracts and applies the PR's version so reviewers test the proposed configuration immediately.
 
 ---
 
@@ -158,7 +159,33 @@ LiveReview tracks static tool findings and classifications based on the canonica
 
 ---
 
-## 10. Technical Specifications & Reference
+## 10. Future Iteration: Async Parallel Batch Execution Model
+
+### The Problem in Current Queue Architecture
+In the initial v1 release, `DispatchTools()` enqueues each enabled tool as an independent `ToolReviewJob` into the shared River queue (`"review"`). When a review enables 15 tools, 15 separate database jobs are queued.
+
+Under concurrent team usage (for example, 10 developers creating PRs simultaneously):
+- **10 AI Review Jobs + 150 Tool Jobs = 160 jobs** are inserted into the same queue.
+- On standard production instances with limited worker concurrency (e.g. 2–10 workers), this causes **Head-of-Line Blocking**: subsequent developers' fast AI reviews wait in line behind preceding developers' 15 individual tool jobs, artificially inflating review completion times from ~1.5 minutes up to 6–8 minutes.
+
+### The Next Iteration Design: Async Parallel Fan-Out
+In the upcoming iteration, tool execution will be redesigned around an **Async Parallel Model**:
+
+1. **Single Batch Job per Review**:
+   - Instead of 15 individual River queue records per review, LiveReview will enqueue **1 single `ReviewToolsBatchJob`** (or invoke async fan-out directly).
+   - For 10 concurrent developers, total River jobs drop from **160 jobs $\rightarrow$ 20 jobs** (an 87.5% reduction in queue overhead).
+
+2. **Parallel Async Invocation (All 15 at Once)**:
+   - The batch worker fires all 15 tool executions simultaneously using asynchronous non-blocking Go routines (or AWS Lambda's asynchronous `InvocationType: Event` with a `/callback` webhook).
+   - Because cloud runners (AWS Lambda) scale elastically in parallel, all 15 tools execute at the exact same instant in the cloud.
+
+3. **Sub-45-Second Total Review Latency**:
+   - Total tool execution time will be determined by the single slowest tool ($\sim 4–6$ seconds) rather than the sequential sum of all 15 tools.
+   - Eliminates queue starvation completely: AI reviews and tool runs execute on independent tracks, bringing 10-developer concurrent review turnaround back to **under 45 seconds**.
+
+---
+
+## 11. Technical Specifications & Reference
 
 For complete engineering details, database schemas, API contracts, and implementation architectures, please see:
 👉 **[Third-Party Tools Integration — Beta Specification](file:///home/gk/hex/LiveReview/docs/tools/tools-integration-beta.md)**

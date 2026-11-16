@@ -195,7 +195,10 @@ func (w *ManualReviewWorker) extractChangesAndLRC(ctx context.Context, req *revi
 	}
 
 	if rcp, ok := provider.(lrcfetch.Provider); ok && mrDetails != nil {
-		ref := mrDetails.SourceBranch
+		ref := mrDetails.DiffRefs.HeadSHA
+		if ref == "" {
+			ref = mrDetails.SourceBranch
+		}
 		if ref == "" {
 			ref = mrDetails.TargetBranch
 		}
@@ -210,7 +213,60 @@ func (w *ManualReviewWorker) extractChangesAndLRC(ctx context.Context, req *revi
 		}
 	}
 
+	// Also extract or overlay any .lrc files modified or added directly within the PR diff.
+	inPRFiles := extractLRCFromDiffs(changes)
+	if len(inPRFiles) > 0 {
+		if bundle.Files == nil {
+			bundle.Files = make(map[string][]byte)
+		}
+		for k, v := range inPRFiles {
+			bundle.Files[k] = v
+		}
+	}
+
 	return changes, bundle
+}
+
+// extractLRCFromDiffs extracts files under .lrc/ that are added or modified in the PR diff.
+func extractLRCFromDiffs(changes []*models.CodeDiff) map[string][]byte {
+	files := make(map[string][]byte)
+	for _, diff := range changes {
+		if diff == nil || diff.IsDeleted {
+			continue
+		}
+		cleanPath := strings.TrimPrefix(diff.FilePath, "/")
+		if !strings.HasPrefix(cleanPath, ".lrc/") {
+			continue
+		}
+		relPath := strings.TrimPrefix(cleanPath, ".lrc/")
+
+		var content string
+		if diff.NewContent != "" {
+			content = diff.NewContent
+		} else {
+			var b strings.Builder
+			for _, hunk := range diff.Hunks {
+				lines := strings.Split(hunk.Content, "\n")
+				for i, line := range lines {
+					if i == len(lines)-1 && line == "" {
+						continue
+					}
+					if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+						b.WriteString(line[1:])
+						b.WriteString("\n")
+					} else if strings.HasPrefix(line, " ") {
+						b.WriteString(line[1:])
+						b.WriteString("\n")
+					}
+				}
+			}
+			content = b.String()
+		}
+		if strings.TrimSpace(content) != "" {
+			files[relPath] = []byte(content)
+		}
+	}
+	return files
 }
 
 // DiffReviewJobArgs represents the arguments for an asynchronous diff review job.
