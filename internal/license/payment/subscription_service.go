@@ -691,7 +691,7 @@ func (s *SubscriptionService) CreateTeamSubscription(ownerUserID, orgID int, pla
 		}
 	}
 
-	trialApplied := !reservationState.Consumed && persistedPlanCode.GetLimits().TrialDays > 0
+	trialApplied := !reservationState.Consumed
 	var trialStartAtUnix int64
 	var trialWindowStartUnix int64
 	var trialWindowEndUnix int64

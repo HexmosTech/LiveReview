@@ -353,6 +353,20 @@ func computeTargetProratedLOCGrant(targetMonthlyLOC int, fraction float64) int64
 	return grant
 }
 
+func selectActiveOrAuthenticatedSubscription(subscriptions []storagepayment.OrgSubscriptionRow) (storagepayment.OrgSubscriptionRow, bool) {
+	for _, sub := range subscriptions {
+		if strings.EqualFold(strings.TrimSpace(sub.Status), "active") {
+			return sub, true
+		}
+	}
+	for _, sub := range subscriptions {
+		if strings.EqualFold(strings.TrimSpace(sub.Status), "authenticated") {
+			return sub, true
+		}
+	}
+	return storagepayment.OrgSubscriptionRow{}, false
+}
+
 func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID int64, currentPlan, targetPlan license.PlanType, fallbackCycleStart, fallbackCycleEnd time.Time, currency string) (SignedUpgradePreview, map[string]interface{}, error) {
 	if h.db == nil {
 		return SignedUpgradePreview{}, nil, fmt.Errorf("missing db handle")
@@ -367,12 +381,9 @@ func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID i
 		return SignedUpgradePreview{}, nil, fmt.Errorf("%w: organization has no active subscription", errRazorpayCheckoutRequired)
 	}
 
-	active := subscriptions[0]
-	for _, s := range subscriptions {
-		if strings.EqualFold(s.Status, "active") {
-			active = s
-			break
-		}
+	active, ok := selectActiveOrAuthenticatedSubscription(subscriptions)
+	if !ok {
+		return SignedUpgradePreview{}, nil, fmt.Errorf("%w: organization has no active subscription", errRazorpayCheckoutRequired)
 	}
 	if strings.TrimSpace(active.RazorpaySubscriptionID) == "" {
 		return SignedUpgradePreview{}, nil, fmt.Errorf("%w: no razorpay subscription id", errRazorpayCheckoutRequired)
@@ -1161,8 +1172,12 @@ func resolveActiveOrgSubscription(db *sql.DB, orgID int64) (activeOrgSubscriptio
 	err := db.QueryRow(`
 		SELECT id, owner_user_id, org_id, razorpay_subscription_id, razorpay_plan_id, quantity, status, current_period_start, current_period_end
 		FROM subscriptions
-		WHERE org_id = $1
-		ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, updated_at DESC, created_at DESC
+		WHERE org_id = $1 AND (LOWER(TRIM(status)) = 'active' OR LOWER(TRIM(status)) = 'authenticated')
+		ORDER BY CASE 
+			WHEN LOWER(TRIM(status)) = 'active' THEN 0 
+			WHEN LOWER(TRIM(status)) = 'authenticated' THEN 1 
+			ELSE 2 
+		END, updated_at DESC, created_at DESC
 		LIMIT 1`, orgID).Scan(
 		&out.ID,
 		&out.OwnerUserID,
@@ -1176,7 +1191,7 @@ func resolveActiveOrgSubscription(db *sql.DB, orgID int64) (activeOrgSubscriptio
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return activeOrgSubscription{}, fmt.Errorf("no subscription found for org %d", orgID)
+			return activeOrgSubscription{}, fmt.Errorf("no active or trial subscription found for org %d", orgID)
 		}
 		return activeOrgSubscription{}, fmt.Errorf("resolve active org subscription: %w", err)
 	}
@@ -1474,19 +1489,11 @@ func (h *BillingActionsHandler) GetBillingStatus(c echo.Context) error {
 	subStore := storagepayment.NewSubscriptionStore(h.db)
 	subscriptions, listErr := subStore.ListSubscriptionsByOrgID(int(orgID))
 	if listErr == nil && len(subscriptions) > 0 {
-		active := subscriptions[0]
-		for _, sub := range subscriptions {
-			if strings.EqualFold(sub.Status, "active") {
-				active = sub
-				break
-			}
-			if strings.EqualFold(sub.Status, "authenticated") && !strings.EqualFold(active.Status, "active") {
-				active = sub
-			}
-		}
-		if strings.TrimSpace(active.RazorpaySubscriptionID) != "" {
-			if resolvedCurrentPlanCurrency, currencyErr := resolveCurrentSubscriptionCurrency(mode, active); currencyErr == nil {
-				currentPlanCurrency = resolvedCurrentPlanCurrency
+		if active, ok := selectActiveOrAuthenticatedSubscription(subscriptions); ok {
+			if strings.TrimSpace(active.RazorpaySubscriptionID) != "" {
+				if resolvedCurrentPlanCurrency, currencyErr := resolveCurrentSubscriptionCurrency(mode, active); currencyErr == nil {
+					currentPlanCurrency = resolvedCurrentPlanCurrency
+				}
 			}
 		}
 	}
@@ -2857,12 +2864,9 @@ func syncRazorpayTransitionWithDB(ctx context.Context, db *sql.DB, orgID int64, 
 		return fmt.Errorf("%w: organization has no active subscription", errRazorpayCheckoutRequired)
 	}
 
-	active := subscriptions[0]
-	for _, s := range subscriptions {
-		if strings.EqualFold(s.Status, "active") {
-			active = s
-			break
-		}
+	active, ok := selectActiveOrAuthenticatedSubscription(subscriptions)
+	if !ok {
+		return fmt.Errorf("%w: organization has no active subscription", errRazorpayCheckoutRequired)
 	}
 	if strings.TrimSpace(active.RazorpaySubscriptionID) == "" {
 		return fmt.Errorf("no razorpay subscription id for organization")
@@ -2979,12 +2983,9 @@ func applyImmediateUpgradeProrationCharge(
 		return nil, fmt.Errorf("%w: organization has no active subscription", errRazorpayCheckoutRequired)
 	}
 
-	active := subscriptions[0]
-	for _, s := range subscriptions {
-		if strings.EqualFold(s.Status, "active") {
-			active = s
-			break
-		}
+	active, ok := selectActiveOrAuthenticatedSubscription(subscriptions)
+	if !ok {
+		return nil, fmt.Errorf("%w: organization has no active subscription", errRazorpayCheckoutRequired)
 	}
 	if strings.TrimSpace(active.RazorpaySubscriptionID) == "" {
 		return nil, fmt.Errorf("%w: no razorpay subscription id", errRazorpayCheckoutRequired)
