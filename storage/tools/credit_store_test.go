@@ -735,3 +735,44 @@ func TestCreditStore_C8_CheckCreditPreflight(t *testing.T) {
 		}
 	})
 }
+
+func TestResetToolCreditsForPlan_ExtendsLimitWithoutWipingUsage(t *testing.T) {
+	ctx := context.Background()
+	conn, _, db := newMockCreditDB(t)
+
+	err := ResetToolCreditsForPlan(ctx, db, 101, "loc_200k")
+	if err != nil {
+		t.Fatalf("ResetToolCreditsForPlan failed: %v", err)
+	}
+
+	call := conn.FindExec("UPDATE public.org_billing_state")
+	if call == nil {
+		t.Fatalf("expected UPDATE public.org_billing_state query")
+	}
+
+	// Must update limit
+	if !strings.Contains(call.Query, "SET tool_credits_limit_month = $1") {
+		t.Errorf("expected query to set tool_credits_limit_month, got: %s", call.Query)
+	}
+
+	// Must NOT reset tool_credits_used_month
+	if strings.Contains(call.Query, "tool_credits_used_month") {
+		t.Errorf("expected plan upgrade NOT to reset tool_credits_used_month, but found in query: %s", call.Query)
+	}
+
+	// Must target specific org with WHERE clause
+	if !strings.Contains(call.Query, "WHERE org_id = $2") {
+		t.Errorf("expected query to include WHERE org_id = $2, got: %s", call.Query)
+	}
+
+	// Verify limit is 100,000 for loc_200k
+	if len(call.Args) < 2 {
+		t.Fatalf("expected at least 2 args, got %d", len(call.Args))
+	}
+	if limit, ok := call.Args[0].Value.(float64); !ok || limit != 100000.0 {
+		t.Errorf("expected limit 100000.0, got %v", call.Args[0].Value)
+	}
+	if orgID, ok := call.Args[1].Value.(int64); !ok || orgID != 101 {
+		t.Errorf("expected orgID 101, got %v", call.Args[1].Value)
+	}
+}

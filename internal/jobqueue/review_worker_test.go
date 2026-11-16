@@ -78,3 +78,55 @@ func TestManualReviewWorker_ExtractChangesAndLRC_Nil(t *testing.T) {
 		t.Errorf("expected 0 changes for empty request, got %d", len(changes))
 	}
 }
+
+func TestExtractLRCFromDiffs(t *testing.T) {
+	diffs := []*models.CodeDiff{
+		{
+			FilePath: ".lrc/policy/tools.toml",
+			Hunks: []models.DiffHunk{
+				{
+					Content: "@@ -1,2 +1,3 @@\n [trufflehog]\n+enabled = true\n include = [\"*.py\"]\n\\ No newline at end of file\n",
+				},
+			},
+		},
+		{
+			FilePath:   ".lrc/rules/security.md",
+			NewContent: "# Security Rules\nDo not hardcode secrets.\n",
+		},
+		{
+			FilePath:  ".lrc/ignore",
+			IsDeleted: true,
+		},
+		{
+			FilePath: "src/main.py",
+			Hunks: []models.DiffHunk{
+				{
+					Content: "@@ -1,1 +1,2 @@\n print('hello')\n",
+				},
+			},
+		},
+	}
+
+	files := extractLRCFromDiffs(diffs)
+	if len(files) != 2 {
+		t.Fatalf("expected 2 .lrc files extracted, got %d: %+v", len(files), files)
+	}
+
+	policyBytes, ok := files["policy/tools.toml"]
+	if !ok {
+		t.Fatalf("expected policy/tools.toml to be extracted")
+	}
+	policyStr := string(policyBytes)
+	expectedPolicy := "[trufflehog]\nenabled = true\ninclude = [\"*.py\"]\n"
+	if policyStr != expectedPolicy {
+		t.Errorf("unexpected policy content: %q, want %q", policyStr, expectedPolicy)
+	}
+
+	rulesBytes, ok := files["rules/security.md"]
+	if !ok {
+		t.Fatalf("expected rules/security.md to be extracted")
+	}
+	if string(rulesBytes) != "# Security Rules\nDo not hardcode secrets.\n" {
+		t.Errorf("unexpected rules content: %q", string(rulesBytes))
+	}
+}

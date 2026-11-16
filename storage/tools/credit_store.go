@@ -211,12 +211,12 @@ func (s *CreditStore) DeductCredits(ctx context.Context, orgID int64, reviewID i
 const resetToolCreditsQuery = `
 	UPDATE public.org_billing_state
 	SET tool_credits_limit_month = $1,
-	    tool_credits_used_month = 0.0,
 	    updated_at = NOW()
 	WHERE org_id = $2
 `
 
-// ResetToolCreditsForPlanTx updates the organization's tool credit limit and resets monthly used credits based on the plan within a transaction.
+// ResetToolCreditsForPlanTx updates the organization's tool credit limit based on the plan within a transaction.
+// Credit usage (tool_credits_used_month) is preserved on plan upgrades and not reset.
 // It executes a single query targeting only tool-related columns on org_billing_state.
 func ResetToolCreditsForPlanTx(ctx context.Context, tx *sql.Tx, orgID int64, planCode string) error {
 	if tx == nil {

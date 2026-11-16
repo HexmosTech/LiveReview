@@ -592,7 +592,8 @@ func TestDispatchTools_D2_CloudDispatched(t *testing.T) {
 	}
 }
 
-// D3: When .lrc/policy/tools.toml is provided, it overrides org settings: tools enabled in .lrc run even if disabled in org settings, and unlisted tools do not run.
+// D3: When .lrc/policy/tools.toml is provided, it acts as an overlay on org settings:
+// tools enabled in .lrc run even if disabled in org settings, and unlisted tools inherit org defaults.
 func TestDispatchTools_D3_RepoPolicyOverridesOrgSettings(t *testing.T) {
 	t.Setenv("LIVEREVIEW_IS_CLOUD", "true")
 	ctx := context.Background()
@@ -628,17 +629,21 @@ enabled = true
 		t.Fatalf("DispatchTools failed: %v", err)
 	}
 
-	// trivy should run because .lrc overrides org settings; unlisted gitleaks must NOT run.
-	if count != 1 {
-		t.Fatalf("expected exactly 1 tool dispatched (trivy), got %d", count)
+	// Both trivy (enabled via .lrc) and gitleaks (inherited from org baseline) should run.
+	if count != 2 {
+		t.Fatalf("expected exactly 2 tools dispatched (trivy + gitleaks), got %d", count)
 	}
 
-	if len(state.ledgerBreakdown) != 1 {
-		t.Fatalf("expected 1 tool in breakdown, got %d: %+v", len(state.ledgerBreakdown), state.ledgerBreakdown)
+	if len(state.ledgerBreakdown) != 2 {
+		t.Fatalf("expected 2 tools in breakdown, got %d: %+v", len(state.ledgerBreakdown), state.ledgerBreakdown)
 	}
 
-	if strings.ToLower(state.ledgerBreakdown[0].ToolName) != "trivy" {
-		t.Errorf("expected trivy in breakdown, got %s", state.ledgerBreakdown[0].ToolName)
+	toolNames := make(map[string]bool)
+	for _, tc := range state.ledgerBreakdown {
+		toolNames[strings.ToLower(tc.ToolName)] = true
+	}
+	if !toolNames["trivy"] || !toolNames["gitleaks"] {
+		t.Errorf("expected trivy and gitleaks in breakdown, got %+v", toolNames)
 	}
 }
 
@@ -863,7 +868,7 @@ func TestDispatchTools_D7_QueueToolReviewJobFailure(t *testing.T) {
 	}
 }
 
-// D8: Mixed tools override: 3 enabled in repo (including 1 disabled in org), 1 repo-disabled, 1 unlisted org tool, 1 repo-unknown -> Breakdown has exactly 3 entries.
+// D8: Mixed tools override: 3 enabled in repo (including 1 disabled in org), 1 repo-disabled, 1 unlisted org tool (inherits baseline), 1 repo-unknown -> Breakdown has exactly 4 entries.
 func TestDispatchTools_D8_MixedToolsBreakdownCount(t *testing.T) {
 	t.Setenv("LIVEREVIEW_IS_CLOUD", "true")
 	ctx := context.Background()
@@ -883,7 +888,7 @@ func TestDispatchTools_D8_MixedToolsBreakdownCount(t *testing.T) {
 	// - explicitly enables ruff, gitleaks (org-enabled tools)
 	// - explicitly enables semgrep (repo overrides org setting where semgrep was absent/disabled)
 	// - disables bandit (repo-disabled overrides org enablement)
-	// - leaves eslint unlisted (unlisted tool must NOT run despite org enablement)
+	// - leaves eslint unlisted (unlisted tool inherits org enablement and runs)
 	// - attempts to enable unknown_tool (repo-unknown, not in catalog)
 	policyTOML := []byte(`
 [ruff]
@@ -921,14 +926,14 @@ enabled = true
 		t.Fatalf("DispatchTools failed: %v", err)
 	}
 
-	// Exactly 3 tools dispatched: ruff, gitleaks, semgrep
-	if count != 3 {
-		t.Fatalf("expected exactly 3 tools dispatched, got %d", count)
+	// Exactly 4 tools dispatched: ruff, gitleaks, semgrep, eslint (inherited from org)
+	if count != 4 {
+		t.Fatalf("expected exactly 4 tools dispatched, got %d", count)
 	}
 
-	// Breakdown must have exactly 3 entries
-	if len(state.ledgerBreakdown) != 3 {
-		t.Fatalf("expected exactly 3 entries in ledger breakdown, got %d: %+v", len(state.ledgerBreakdown), state.ledgerBreakdown)
+	// Breakdown must have exactly 4 entries
+	if len(state.ledgerBreakdown) != 4 {
+		t.Fatalf("expected exactly 4 entries in ledger breakdown, got %d: %+v", len(state.ledgerBreakdown), state.ledgerBreakdown)
 	}
 
 	toolNames := make(map[string]bool)
@@ -936,16 +941,16 @@ enabled = true
 		toolNames[strings.ToLower(tc.ToolName)] = true
 	}
 
-	if !toolNames["ruff"] || !toolNames["gitleaks"] || !toolNames["semgrep"] {
-		t.Errorf("expected ruff, gitleaks, semgrep in breakdown, got %+v", toolNames)
+	if !toolNames["ruff"] || !toolNames["gitleaks"] || !toolNames["semgrep"] || !toolNames["eslint"] {
+		t.Errorf("expected ruff, gitleaks, semgrep, eslint in breakdown, got %+v", toolNames)
 	}
 
 	if toolNames["bandit"] {
 		t.Errorf("bandit should have been disabled by repo config")
 	}
 
-	if toolNames["eslint"] {
-		t.Errorf("eslint was unlisted in repo config and should not run")
+	if !toolNames["eslint"] {
+		t.Errorf("eslint was unlisted in repo config and should run from org baseline")
 	}
 
 	if toolNames["unknown_tool"] {
@@ -953,8 +958,8 @@ enabled = true
 	}
 }
 
-// D9: Empty or comments-only policy/tools.toml means 0 tools are listed, so 0 tools run (unlisted tools do not run).
-func TestDispatchTools_D9_EmptyPolicyRunsZeroTools(t *testing.T) {
+// D9: Empty or comments-only policy/tools.toml specifies no tool overrides, so it inherits organization defaults.
+func TestDispatchTools_D9_EmptyPolicyInheritsOrgDefaults(t *testing.T) {
 	t.Setenv("LIVEREVIEW_IS_CLOUD", "true")
 	ctx := context.Background()
 	mockDB, state := setupMockDB(t)
@@ -968,8 +973,8 @@ func TestDispatchTools_D9_EmptyPolicyRunsZeroTools(t *testing.T) {
 	jq := createTestJobQueue(t, mockDB)
 
 	// Repo provides policy/tools.toml with only comments
-	emptyPolicyTOML := []byte(`# Repository opts out of all third-party tools
-# No tools configured
+	emptyPolicyTOML := []byte(`# Repository config file with comments only
+# No overrides configured
 `)
 
 	params := ToolDispatchParams{
@@ -991,13 +996,13 @@ func TestDispatchTools_D9_EmptyPolicyRunsZeroTools(t *testing.T) {
 		t.Fatalf("DispatchTools failed: %v", err)
 	}
 
-	// 0 tools should be dispatched because all tools are unlisted
-	if count != 0 {
-		t.Fatalf("expected 0 tools dispatched for empty policy, got %d", count)
+	// 2 tools should be dispatched (inheriting ruff and gitleaks from org defaults)
+	if count != 2 {
+		t.Fatalf("expected 2 tools dispatched inheriting org defaults, got %d", count)
 	}
 
-	if len(state.ledgerBreakdown) != 0 || state.ledgerDeducted != 0 {
-		t.Fatalf("expected 0 ledger deductions, got %d entries, %.2f deducted", len(state.ledgerBreakdown), state.ledgerDeducted)
+	if len(state.ledgerBreakdown) != 2 {
+		t.Fatalf("expected 2 ledger deductions, got %d entries", len(state.ledgerBreakdown))
 	}
 }
 
