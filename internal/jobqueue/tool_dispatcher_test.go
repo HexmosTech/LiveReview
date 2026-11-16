@@ -129,8 +129,32 @@ func (c *mockDBConn) QueryContext(ctx context.Context, query string, args []driv
 
 	// 1. system_settings (LoadCatalog)
 	if strings.Contains(query, "system_settings") {
-		// Return ErrNoRows so LoadCatalog gracefully falls back to defaultCatalog
+		// Return ErrNoRows so LoadCatalog gracefully falls back to available_tools table
 		return &mockRows{columns: []string{"data"}, rows: nil}, nil
+	}
+
+	// 1b. available_tools (LoadCatalog Tier 2)
+	if strings.Contains(query, "available_tools") {
+		return &mockRows{
+			columns: []string{"id", "name", "description", "lambda_arn", "multiplier", "use_case"},
+			rows: [][]driver.Value{
+				{int64(1), "ruff", "Fast Python linter", "arn:aws:lambda:us-east-1:042198857528:function:ruff", 1.0, "Python lint/format"},
+				{int64(2), "openapi", "OpenAPI validator", "arn:aws:lambda:us-east-1:042198857528:function:openapi", 1.0, "OpenAPI/YAML validation"},
+				{int64(3), "osv", "OSV scanner", "arn:aws:lambda:us-east-1:042198857528:function:osv", 1.0, "Dependencies"},
+				{int64(4), "gitleaks", "Gitleaks scanner", "arn:aws:lambda:us-east-1:042198857528:function:gitleaks", 12.0, "Secrets"},
+				{int64(5), "trivy", "Trivy scanner", "arn:aws:lambda:us-east-1:042198857528:function:trivy", 4.0, "Supply Chain"},
+				{int64(6), "trufflehog", "Trufflehog scanner", "arn:aws:lambda:us-east-1:042198857528:function:trufflehog", 12.0, "Secrets"},
+				{int64(7), "tfsec", "Tfsec scanner", "arn:aws:lambda:us-east-1:042198857528:function:tfsec", 1.0, "Infrastructure"},
+				{int64(8), "hadolint", "Hadolint linter", "arn:aws:lambda:us-east-1:042198857528:function:hadolint", 1.0, "Containers"},
+				{int64(9), "actionlint", "Actionlint linter", "arn:aws:lambda:us-east-1:042198857528:function:actionlint", 1.0, "CI/CD"},
+				{int64(10), "golangci-lint", "Go linter", "arn:aws:lambda:us-east-1:042198857528:function:golangci-lint", 12.0, "Go Code Quality"},
+				{int64(11), "spectral", "Spectral linter", "arn:aws:lambda:us-east-1:042198857528:function:spectral", 3.0, "API Schema"},
+				{int64(12), "bandit", "Bandit scanner", "arn:aws:lambda:us-east-1:042198857528:function:bandit", 12.0, "Python SAST"},
+				{int64(13), "detect-secrets", "Detect secrets", "arn:aws:lambda:us-east-1:042198857528:function:detect-secrets", 12.0, "Secrets"},
+				{int64(14), "semgrep", "Semgrep scanner", "arn:aws:lambda:us-east-1:042198857528:function:semgrep", 12.0, "Security"},
+				{int64(15), "eslint", "ESLint linter", "arn:aws:lambda:us-east-1:042198857528:function:eslint", 12.0, "JS/TS Code Quality"},
+			},
+		}, nil
 	}
 
 	// 2. orgs (getOrgToolSettings)
@@ -568,26 +592,20 @@ func TestDispatchTools_D2_CloudDispatched(t *testing.T) {
 	}
 }
 
-// D3: Privilege escalation check: .lrc/policy/tools.toml with enabled = true on a tool disabled by the org is NOT enabled.
-func TestDispatchTools_D3_PrivilegeEscalationPrevented(t *testing.T) {
+// D3: When .lrc/policy/tools.toml is provided, it overrides org settings: tools enabled in .lrc run even if disabled in org settings, and unlisted tools do not run.
+func TestDispatchTools_D3_RepoPolicyOverridesOrgSettings(t *testing.T) {
 	t.Setenv("LIVEREVIEW_IS_CLOUD", "true")
 	ctx := context.Background()
 	mockDB, state := setupMockDB(t)
 
-	// Org ONLY has gitleaks enabled. bandit and ruff are NOT enabled by the org.
+	// Org ONLY has gitleaks enabled. trivy is NOT enabled by the org.
 	state.orgSettingsJSON = []byte(`{"gitleaks": {"enabled": true}}`)
 
 	jq := createTestJobQueue(t, mockDB)
 
-	// Repo tries to maliciously force-enable bandit and ruff via .lrc/policy/tools.toml
+	// Repo explicitly enables trivy via .lrc/policy/tools.toml, but does not list gitleaks
 	policyTOML := []byte(`
-[bandit]
-enabled = true
-
-[ruff]
-enabled = true
-
-[gitleaks]
+[trivy]
 enabled = true
 `)
 
@@ -610,17 +628,17 @@ enabled = true
 		t.Fatalf("DispatchTools failed: %v", err)
 	}
 
-	// Only gitleaks should run. bandit and ruff must be excluded despite repo config.
+	// trivy should run because .lrc overrides org settings; unlisted gitleaks must NOT run.
 	if count != 1 {
-		t.Fatalf("expected exactly 1 tool dispatched (gitleaks), got %d", count)
+		t.Fatalf("expected exactly 1 tool dispatched (trivy), got %d", count)
 	}
 
 	if len(state.ledgerBreakdown) != 1 {
 		t.Fatalf("expected 1 tool in breakdown, got %d: %+v", len(state.ledgerBreakdown), state.ledgerBreakdown)
 	}
 
-	if strings.ToLower(state.ledgerBreakdown[0].ToolName) != "gitleaks" {
-		t.Errorf("expected gitleaks in breakdown, got %s", state.ledgerBreakdown[0].ToolName)
+	if strings.ToLower(state.ledgerBreakdown[0].ToolName) != "trivy" {
+		t.Errorf("expected trivy in breakdown, got %s", state.ledgerBreakdown[0].ToolName)
 	}
 }
 
@@ -635,10 +653,13 @@ func TestDispatchTools_D4_RepoConfigDisableExcludesFromBreakdown(t *testing.T) {
 
 	jq := createTestJobQueue(t, mockDB)
 
-	// Repo config explicitly disables ruff
+	// Repo config explicitly disables ruff and enables gitleaks
 	policyTOML := []byte(`
 [ruff]
 enabled = false
+
+[gitleaks]
+enabled = true
 `)
 
 	params := ToolDispatchParams{
@@ -842,26 +863,38 @@ func TestDispatchTools_D7_QueueToolReviewJobFailure(t *testing.T) {
 	}
 }
 
-// D8: Mixed tools: 3 enabled, 1 repo-disabled, 1 repo-unknown -> Breakdown has exactly 3 entries.
+// D8: Mixed tools override: 3 enabled in repo (including 1 disabled in org), 1 repo-disabled, 1 unlisted org tool, 1 repo-unknown -> Breakdown has exactly 3 entries.
 func TestDispatchTools_D8_MixedToolsBreakdownCount(t *testing.T) {
 	t.Setenv("LIVEREVIEW_IS_CLOUD", "true")
 	ctx := context.Background()
 	mockDB, state := setupMockDB(t)
 
-	// Org has 4 tools enabled: ruff, gitleaks, semgrep, bandit
+	// Org has 4 tools enabled: ruff, gitleaks, bandit, eslint. Notice semgrep is NOT enabled in org.
 	state.orgSettingsJSON = []byte(`{
 		"ruff": {"enabled": true},
 		"gitleaks": {"enabled": true},
-		"semgrep": {"enabled": true},
-		"bandit": {"enabled": true}
+		"bandit": {"enabled": true},
+		"eslint": {"enabled": true}
 	}`)
 
 	jq := createTestJobQueue(t, mockDB)
 
 	// Repo config:
-	// - disables bandit (repo-disabled)
-	// - attempts to enable unknown_tool (repo-unknown, not in org)
+	// - explicitly enables ruff, gitleaks (org-enabled tools)
+	// - explicitly enables semgrep (repo overrides org setting where semgrep was absent/disabled)
+	// - disables bandit (repo-disabled overrides org enablement)
+	// - leaves eslint unlisted (unlisted tool must NOT run despite org enablement)
+	// - attempts to enable unknown_tool (repo-unknown, not in catalog)
 	policyTOML := []byte(`
+[ruff]
+enabled = true
+
+[gitleaks]
+enabled = true
+
+[semgrep]
+enabled = true
+
 [bandit]
 enabled = false
 
@@ -911,7 +944,102 @@ enabled = true
 		t.Errorf("bandit should have been disabled by repo config")
 	}
 
+	if toolNames["eslint"] {
+		t.Errorf("eslint was unlisted in repo config and should not run")
+	}
+
 	if toolNames["unknown_tool"] {
-		t.Errorf("unknown_tool should not have been added without org enablement")
+		t.Errorf("unknown_tool should not have been added because it is not a known tool in catalog")
+	}
+}
+
+// D9: Empty or comments-only policy/tools.toml means 0 tools are listed, so 0 tools run (unlisted tools do not run).
+func TestDispatchTools_D9_EmptyPolicyRunsZeroTools(t *testing.T) {
+	t.Setenv("LIVEREVIEW_IS_CLOUD", "true")
+	ctx := context.Background()
+	mockDB, state := setupMockDB(t)
+
+	// Org has ruff and gitleaks enabled
+	state.orgSettingsJSON = []byte(`{
+		"ruff": {"enabled": true},
+		"gitleaks": {"enabled": true}
+	}`)
+
+	jq := createTestJobQueue(t, mockDB)
+
+	// Repo provides policy/tools.toml with only comments
+	emptyPolicyTOML := []byte(`# Repository opts out of all third-party tools
+# No tools configured
+`)
+
+	params := ToolDispatchParams{
+		OrgID:    1,
+		ReviewID: 801,
+		PlanCode: string(license.PlanTeam),
+		LocalDiffs: []lib.LocalCodeDiff{
+			{NewPath: "app.py"},
+		},
+		LRCBundle: lrcconfig.Bundle{
+			Files: map[string][]byte{
+				"policy/tools.toml": emptyPolicyTOML,
+			},
+		},
+	}
+
+	count, err := jq.DispatchTools(ctx, params)
+	if err != nil {
+		t.Fatalf("DispatchTools failed: %v", err)
+	}
+
+	// 0 tools should be dispatched because all tools are unlisted
+	if count != 0 {
+		t.Fatalf("expected 0 tools dispatched for empty policy, got %d", count)
+	}
+
+	if len(state.ledgerBreakdown) != 0 || state.ledgerDeducted != 0 {
+		t.Fatalf("expected 0 ledger deductions, got %d entries, %.2f deducted", len(state.ledgerBreakdown), state.ledgerDeducted)
+	}
+}
+
+// D10: Syntax error in policy/tools.toml triggers safe fallback to organization defaults.
+func TestDispatchTools_D10_SyntaxErrorFallsBackToOrgSettings(t *testing.T) {
+	t.Setenv("LIVEREVIEW_IS_CLOUD", "true")
+	ctx := context.Background()
+	mockDB, state := setupMockDB(t)
+
+	// Org has ruff enabled
+	state.orgSettingsJSON = []byte(`{"ruff": {"enabled": true}}`)
+
+	jq := createTestJobQueue(t, mockDB)
+
+	// Malformed TOML syntax
+	malformedTOML := []byte(`[invalid syntax [[[ === broken`)
+
+	params := ToolDispatchParams{
+		OrgID:    1,
+		ReviewID: 802,
+		PlanCode: string(license.PlanTeam),
+		LocalDiffs: []lib.LocalCodeDiff{
+			{NewPath: "app.py"},
+		},
+		LRCBundle: lrcconfig.Bundle{
+			Files: map[string][]byte{
+				"policy/tools.toml": malformedTOML,
+			},
+		},
+	}
+
+	count, err := jq.DispatchTools(ctx, params)
+	if err != nil {
+		t.Fatalf("DispatchTools should not fail on syntax error, got: %v", err)
+	}
+
+	// Safe fallback to org settings -> ruff is dispatched
+	if count != 1 {
+		t.Fatalf("expected 1 tool dispatched via fallback, got %d", count)
+	}
+
+	if len(state.ledgerBreakdown) != 1 || strings.ToLower(state.ledgerBreakdown[0].ToolName) != "ruff" {
+		t.Fatalf("expected ruff dispatched via fallback, got %+v", state.ledgerBreakdown)
 	}
 }

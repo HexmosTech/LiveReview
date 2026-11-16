@@ -12,12 +12,13 @@ Goal: lock behavior and data contracts before backend coding so all downstream a
 - Upgrade is immediate with proration.
 - Downgrade is next-cycle effective.
 - Quota is org-month LOC only; user/repo limits removed.
-- Free Trial Policy:
+- Free Trial Policy & Upgrade Paths:
   - First-purchase free trial (7-day) is offered on any paid plan tier (100k, 200k, 400k, 800k, 1.6M, 3.2M LOC) when moving from the Free tier.
   - One-time only: Free trial is granted at most once per organization / billing email (tracked via `trial_eligibility`).
-  - Depletion & Upgrade: Once in a trial, upgrading to a higher plan (or upgrading after quota depletion) requires full payment for the new tier immediately. No secondary trial is offered.
-  - Upgrade Billing Cycle: Upgrading immediately terminates the trial, activates the target plan's full quota, and starts a new 30-day billing cycle today (next renewal 30 days from upgrade date).
-  - UI Presentation: For free orgs with trial eligibility, all paid upgrade cards display "Free 7-Day Trial Included". When already in a trial, the upgrade modal clearly states "Pay Full Amount and Upgrade" with immediate full charge.
+  - Active Trial Upgrades: Upgrading while on an active 7-day trial (`trial_ends_at` in the future) immediately ends the trial, charges the full target amount upfront, activates the target plan's full quota, and starts a new 30-day billing cycle today (next renewal 30 days from upgrade date).
+  - Paid Mid-Cycle Upgrades (Proration): Once an organization is on an active paid subscription (`trial_ends_at` is NULL or expired), mid-cycle upgrades are prorated based on the remaining cycle fraction (`charge_cents = target_cents * remaining_fraction`). The existing billing cycle end date is preserved, and a prorated additional LOC grant is credited for the remainder of the cycle.
+  - Trial Detection Rule: Razorpay keeps recurring subscriptions in `authenticated` status until the future renewal date. Trial upgrade detection strictly requires both an active `trial_ends_at` timestamp in the database and provider status `authenticated`. Paid subscribers (where `trial_ends_at` is NULL) always receive prorated upgrades instead of being treated as trial users.
+  - UI Presentation: For free orgs with trial eligibility, all paid upgrade cards display "Free 7-Day Trial Included". When already in a trial, the modal shows "Confirm Plan Upgrade (Ends Free Trial)" with full charge. For active paid subscribers, the modal displays the prorated charge and preserves the cycle renewal date.
 
 2. Finalize counting and enforcement semantics:
 - Billable LOC = added + deleted lines in diff sent to AI.

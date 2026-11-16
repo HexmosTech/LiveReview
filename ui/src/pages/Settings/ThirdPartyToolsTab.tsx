@@ -20,8 +20,8 @@ interface ListToolsResponse {
 const DEFAULT_TOOL_CREDITS_LIMIT = 50000;
 
 const ThirdPartyToolsTab: React.FC = () => {
-	const { currentOrg } = useOrgContext();
-	const isOwner = currentOrg?.role === 'owner';
+	const { currentOrg, canManageCurrentOrg } = useOrgContext();
+	const isOwner = Boolean(canManageCurrentOrg);
 
 	const [tools, setTools] = useState<Tool[]>([]);
 	const [loading, setLoading] = useState(true);

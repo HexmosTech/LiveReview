@@ -54,32 +54,67 @@ func (jq *JobQueue) DispatchTools(ctx context.Context, p ToolDispatchParams) (in
 
 	var toolsDispatched int
 	toolsStore := storagetools.NewToolsStore(jq.db)
-	enabledTools, err := toolsStore.GetEnabledToolsForOrg(ctx, p.OrgID)
-	if err != nil {
-		logMsg("[WARN] DispatchTools: Failed to fetch enabled tools for org %d: %v", p.OrgID, err)
-	}
 
 	var toolRuleConfigs map[string]*lrcconfig.ToolRuleConfig
+	var hasPolicyFile bool
+	var parseErr error
 	if p.LRCBundle.Files != nil {
-		var parseErr error
-		toolRuleConfigs, parseErr = lrcconfig.ParseToolRuleConfigs(p.LRCBundle)
-		if parseErr != nil {
-			logMsg("[WARN] Failed to parse tool rule configs from .lrc bundle: %v", parseErr)
+		if _, ok := p.LRCBundle.Files["policy/tools.toml"]; ok {
+			hasPolicyFile = true
+		} else if _, ok := p.LRCBundle.Files["tools.toml"]; ok {
+			hasPolicyFile = true
+		}
+
+		if hasPolicyFile {
+			toolRuleConfigs, parseErr = lrcconfig.ParseToolRuleConfigs(p.LRCBundle)
+			if parseErr != nil {
+				logMsg("[WARN] Failed to parse tool rule configs from .lrc bundle: %v", parseErr)
+			}
 		}
 	}
 
-	var filteredTools []storagetools.AvailableTool
-	for _, t := range enabledTools {
-		toolNameLower := strings.ToLower(t.Name)
-		cfg := toolRuleConfigs[toolNameLower]
-
-		if lrcconfig.ShouldRunToolRuleForDiff(cfg, p.LocalDiffs) {
-			filteredTools = append(filteredTools, t)
-		} else {
-			logMsg("Tool %q skipped: no diff files matched trigger rules (.lrc/policy/tools.toml)", t.Name)
+	var enabledTools []storagetools.AvailableTool
+	if hasPolicyFile && parseErr == nil {
+		// When repository policy (.lrc/policy/tools.toml or .lrc/tools.toml) is provided,
+		// it explicitly dictates which tools run, overriding organization defaults:
+		// - Tools configured with enabled = true (or custom rules) run even if disabled in org settings.
+		// - Tools not listed in tools.toml do not run.
+		// - Tools explicitly set to enabled = false do not run.
+		catalog, catErr := toolsStore.LoadCatalog(ctx)
+		if catErr != nil {
+			logMsg("[WARN] DispatchTools: Failed to load tools catalog for org %d: %v", p.OrgID, catErr)
+		}
+		for _, t := range catalog {
+			toolNameLower := strings.ToLower(t.Name)
+			cfg, configured := toolRuleConfigs[toolNameLower]
+			if !configured {
+				continue
+			}
+			if cfg.Enabled != nil && !*cfg.Enabled {
+				continue
+			}
+			if lrcconfig.ShouldRunToolRuleForDiff(cfg, p.LocalDiffs) {
+				enabledTools = append(enabledTools, t)
+			} else {
+				logMsg("Tool %q skipped: no diff files matched trigger rules (.lrc/policy/tools.toml)", t.Name)
+			}
+		}
+	} else {
+		// Fallback: When no repository policy is provided, run the organization's enabled tools.
+		orgTools, err := toolsStore.GetEnabledToolsForOrg(ctx, p.OrgID)
+		if err != nil {
+			logMsg("[WARN] DispatchTools: Failed to fetch enabled tools for org %d: %v", p.OrgID, err)
+		}
+		for _, t := range orgTools {
+			toolNameLower := strings.ToLower(t.Name)
+			cfg := toolRuleConfigs[toolNameLower]
+			if lrcconfig.ShouldRunToolRuleForDiff(cfg, p.LocalDiffs) {
+				enabledTools = append(enabledTools, t)
+			} else {
+				logMsg("Tool %q skipped: no diff files matched trigger rules", t.Name)
+			}
 		}
 	}
-	enabledTools = filteredTools
 
 	if len(enabledTools) == 0 {
 		return 0, nil
