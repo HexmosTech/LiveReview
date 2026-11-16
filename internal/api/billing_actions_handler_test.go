@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/livereview/internal/api/auth"
 	"github.com/livereview/internal/license"
+	"github.com/livereview/internal/license/payment"
 	"github.com/livereview/pkg/models"
 	storagelicense "github.com/livereview/storage/license"
 	storagepayment "github.com/livereview/storage/payment"
@@ -280,6 +281,69 @@ func TestSelectActiveOrAuthenticatedSubscription(t *testing.T) {
 				if got.Status != tt.wantStatus {
 					t.Fatalf("status = %q, want %q", got.Status, tt.wantStatus)
 				}
+			}
+		})
+	}
+}
+
+func TestIsTrialUpgrade(t *testing.T) {
+	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	futureTrial := sql.NullTime{Time: now.Add(4 * 24 * time.Hour), Valid: true}
+	pastTrial := sql.NullTime{Time: now.Add(-1 * time.Hour), Valid: true}
+	nullTrial := sql.NullTime{Valid: false}
+
+	authSub := &payment.RazorpaySubscription{Status: "authenticated"}
+	activeSub := &payment.RazorpaySubscription{Status: "active"}
+
+	tests := []struct {
+		name         string
+		trialEndsAt  sql.NullTime
+		activeStatus string
+		razorpaySub  *payment.RazorpaySubscription
+		want         bool
+	}{
+		{
+			name:         "active trial with authenticated subscription is trial upgrade",
+			trialEndsAt:  futureTrial,
+			activeStatus: "authenticated",
+			razorpaySub:  authSub,
+			want:         true,
+		},
+		{
+			name:         "active trial but active razorpay subscription (already billed) is not trial upgrade",
+			trialEndsAt:  futureTrial,
+			activeStatus: "active",
+			razorpaySub:  activeSub,
+			want:         false,
+		},
+		{
+			name:         "expired trial with authenticated subscription is not trial upgrade",
+			trialEndsAt:  pastTrial,
+			activeStatus: "authenticated",
+			razorpaySub:  authSub,
+			want:         false,
+		},
+		{
+			name:         "null trial (already paid user) even if razorpay authenticated is not trial upgrade",
+			trialEndsAt:  nullTrial,
+			activeStatus: "authenticated",
+			razorpaySub:  authSub,
+			want:         false,
+		},
+		{
+			name:         "null trial on active subscription is not trial upgrade",
+			trialEndsAt:  nullTrial,
+			activeStatus: "active",
+			razorpaySub:  activeSub,
+			want:         false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isTrialUpgrade(tt.trialEndsAt, now, tt.activeStatus, tt.razorpaySub)
+			if got != tt.want {
+				t.Fatalf("isTrialUpgrade() = %v, want %v", got, tt.want)
 			}
 		})
 	}

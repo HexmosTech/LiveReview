@@ -367,7 +367,16 @@ func selectActiveOrAuthenticatedSubscription(subscriptions []storagepayment.OrgS
 	return storagepayment.OrgSubscriptionRow{}, false
 }
 
-func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID int64, currentPlan, targetPlan license.PlanType, fallbackCycleStart, fallbackCycleEnd time.Time, currency string) (SignedUpgradePreview, map[string]interface{}, error) {
+func isTrialUpgrade(trialEndsAt sql.NullTime, now time.Time, activeStatus string, razorpaySub *payment.RazorpaySubscription) bool {
+	if !trialEndsAt.Valid || !now.Before(trialEndsAt.Time.UTC()) {
+		return false
+	}
+	isSubAuthenticated := strings.EqualFold(strings.TrimSpace(activeStatus), "authenticated") ||
+		(razorpaySub != nil && strings.EqualFold(strings.TrimSpace(razorpaySub.Status), "authenticated"))
+	return isSubAuthenticated
+}
+
+func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID int64, currentPlan, targetPlan license.PlanType, fallbackCycleStart, fallbackCycleEnd time.Time, trialEndsAt sql.NullTime, currency string) (SignedUpgradePreview, map[string]interface{}, error) {
 	if h.db == nil {
 		return SignedUpgradePreview{}, nil, fmt.Errorf("missing db handle")
 	}
@@ -408,11 +417,13 @@ func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID i
 	if err != nil {
 		return SignedUpgradePreview{}, nil, fmt.Errorf("load razorpay subscription: %w", err)
 	}
-	if razorpaySub.CurrentStart > 0 {
-		cycleStart = time.Unix(razorpaySub.CurrentStart, 0).UTC()
-	}
-	if razorpaySub.CurrentEnd > 0 {
-		cycleEnd = time.Unix(razorpaySub.CurrentEnd, 0).UTC()
+	if razorpaySub != nil {
+		if razorpaySub.CurrentStart > 0 {
+			cycleStart = time.Unix(razorpaySub.CurrentStart, 0).UTC()
+		}
+		if razorpaySub.CurrentEnd > 0 {
+			cycleEnd = time.Unix(razorpaySub.CurrentEnd, 0).UTC()
+		}
 	}
 
 	resolvedPrice, err := resolvePlanPriceForCurrency(mode, targetPlan, resolvedCurrency)
@@ -424,13 +435,14 @@ func (h *BillingActionsHandler) buildUpgradePreview(ctx context.Context, orgID i
 
 	now := time.Now().UTC()
 	activeStatus := strings.TrimSpace(active.Status)
-	isTrialSubscription := strings.EqualFold(activeStatus, "authenticated") || (razorpaySub != nil && strings.EqualFold(strings.TrimSpace(razorpaySub.Status), "authenticated"))
+	isTrialSubscription := isTrialUpgrade(trialEndsAt, now, activeStatus, razorpaySub)
+	hasValidActiveCycle := !cycleStart.IsZero() && !cycleEnd.IsZero() && cycleEnd.After(cycleStart) && cycleEnd.After(now)
 	var remainingFraction float64
 	var chargeCents int64
 	var locGrant int64
 
 	isYearly := strings.Contains(strings.ToLower(active.PlanType), "yearly") || strings.Contains(strings.ToLower(active.PlanType), "annual")
-	if isTrialSubscription {
+	if isTrialSubscription || !hasValidActiveCycle {
 		cycleStart = now
 		if isYearly {
 			cycleEnd = now.AddDate(1, 0, 0)
@@ -531,7 +543,7 @@ func (h *BillingActionsHandler) PreviewUpgrade(c echo.Context) error {
 		return JSONErrorWithEnvelope(c, http.StatusBadRequest, "target_plan_code must be a higher LOC tier for upgrade")
 	}
 
-	tokenPayload, preview, err := h.buildUpgradePreview(ctx, orgID, currentPlan, targetPlan, state.BillingPeriodStart, state.BillingPeriodEnd, resolvedCurrency)
+	tokenPayload, preview, err := h.buildUpgradePreview(ctx, orgID, currentPlan, targetPlan, state.BillingPeriodStart, state.BillingPeriodEnd, state.TrialEndsAt, resolvedCurrency)
 	if err != nil {
 		if errors.Is(err, errRazorpayCheckoutRequired) {
 			return JSONWithEnvelope(c, http.StatusConflict, map[string]interface{}{
