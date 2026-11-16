@@ -1,6 +1,6 @@
 # Razorpay Subscription & Free Trial Testing Guide
 
-This guide provides step-by-step instructions and test data to verify the LiveReview subscription lifecycle, Razorpay test mode checkouts, 7-day free trials, and mid-trial upgrades.
+This guide provides step-by-step instructions and test data to verify the LiveReview subscription lifecycle, Razorpay test mode checkouts, 7-day free trials, mid-trial upgrades, and paid subscription mid-cycle upgrades (prorated).
 
 ---
 
@@ -89,7 +89,47 @@ Use these Razorpay test payment credentials in test mode (`RAZORPAY_MODE=test`):
 
 ---
 
-### Scenario 3: Depleted Trial Quota Upgrade
+### Scenario 3: Paid Subscription Mid-Cycle Upgrade (Prorated Upgrade)
+
+**Goal**: Verify that upgrading mid-cycle while on an active paid subscription calculates a prorated charge based on the remaining cycle fraction, grants prorated additional LOC, and preserves the existing billing renewal date.
+
+**Key Difference: Active Paid vs. Active Trial**:
+When an organization is on an active paid plan (the initial trial has completed, `trial_ends_at` is `NULL` or expired, and provider status is `active`), upgrading mid-cycle does **not** charge full price or reset the billing date. Instead, it calculates proration based on the remaining cycle fraction.
+
+| Attribute | Scenario 2: Mid-Trial Upgrade | Scenario 3: Paid Mid-Cycle Upgrade (Prorated) |
+|---|---|---|
+| **Current Org State** | Active 7-day free trial (`trial_ends_at` in the future, provider `authenticated`) | Active paid subscription (`trial_ends_at` is `NULL` or expired, provider `active`) |
+| **Modal Heading** | `Confirm Plan Upgrade (Ends Free Trial)` | `Confirm Plan Upgrade` / `Confirm Upgrade and Prorated Charge` |
+| **Explanatory Text** | *"Upgrading now ends your free trial. Your paid billing cycle begins immediately with your new LOC limit..."* | *"This charge applies now for the remaining current cycle. Upgrade grant is finalized after deterministic payment..."* |
+| **Immediate Charge** | **Full plan price** upfront (e.g., US$64.00) | **Prorated amount** based on remaining cycle fraction: `Target Price × (Remaining Seconds / Total Cycle Seconds)` |
+| **Billing Cycle Renewal** | **Resets to today**: next renewal is 30 days from today | **Preserved**: keeps existing cycle renewal date (`Current cycle ends: <date>`) |
+| **Action Button** | **`Pay Full Amount and Upgrade`** | **`Confirm and Pay Now`** |
+
+**Step-by-Step Test Procedure**:
+1. Ensure the organization is on an active paid subscription (e.g., Team 100k LOC, billing cycle active with e.g. 20 days remaining out of 30).
+2. Go to **Settings → Subscriptions** (`/settings#subscriptions`).
+3. Under *Upgrade Plan to Get More Usage*, click **Upgrade** on a higher plan (e.g., **Team 64 USD / 200k LOC**).
+4. The **Confirm Plan Upgrade** (or `Confirm Upgrade and Prorated Charge`) modal opens:
+   - **Modal Heading**: `Confirm Plan Upgrade` (or `Confirm Upgrade and Prorated Charge`).
+   - **Plan Details**: Shows `Current plan: Team 100k LOC` and `Target plan: Team 200k LOC`.
+   - **Cycle End**: Shows `Current cycle ends: <date>` (verifying the current billing cycle renewal date is **preserved**, not reset).
+   - **Payment Section**: Shows `Immediate one-time payment` with the prorated amount (e.g., `Charge now: US$21.33 (remaining cycle 66.67%)`).
+   - **Formula Display**: Shows `Formula: US$32.00 × 66.67%`.
+   - **Immediate LOC Grant**: Shows prorated additional LOC grant for the remainder of the cycle.
+   - **Next Billing Cycle**: Displays recurring amount for next cycle (`US$64.00/month`) and full monthly limit (`200,000 LOC`).
+   - **Button label**: **`Confirm and Pay Now`** (unlike Mid-Trial Upgrade's `Pay Full Amount and Upgrade`).
+5. Click **Confirm and Pay Now**.
+6. The Razorpay checkout dialog opens for the exact prorated charge amount (not the full monthly price).
+7. Enter test card details (`4111 1111 1111 1111`), click Pay, and complete authorization.
+8. **Verify Results**:
+   - Current plan updates to the target tier (e.g., Team 64 USD / 200k LOC).
+   - LOC quota increases immediately with the prorated additional LOC grant.
+   - Next billing renewal date (`billing.billing_period_end`) **remains identical** to the existing cycle renewal date.
+   - When the preserved renewal date arrives, the recurring charge will be the full monthly rate of the new plan.
+
+---
+
+### Scenario 4: Depleted Trial Quota Upgrade
 
 **Goal**: Verify behavior when an organization consumes all trial LOC before Day 7.
 
@@ -106,7 +146,7 @@ Use these Razorpay test payment credentials in test mode (`RAZORPAY_MODE=test`):
 
 ---
 
-### Scenario 4: One-Time Trial Enforcement (No Repeated Trials)
+### Scenario 5: One-Time Trial Enforcement (No Repeated Trials)
 
 **Goal**: Verify that an organization or email that has previously consumed a trial cannot receive a second trial.
 
@@ -119,7 +159,7 @@ Use these Razorpay test payment credentials in test mode (`RAZORPAY_MODE=test`):
 
 ---
 
-### Scenario 5: Multi-Currency Switching (INR vs. USD)
+### Scenario 6: Multi-Currency Switching (INR vs. USD)
 
 **Goal**: Verify currency conversion and plan pricing resolution.
 
@@ -132,7 +172,7 @@ Use these Razorpay test payment credentials in test mode (`RAZORPAY_MODE=test`):
 
 ---
 
-### Scenario 6: Cancellation During Active Trial
+### Scenario 7: Cancellation During Active Trial
 
 **Goal**: Verify cancellation before Day 7 prevents any recurring charge.
 
@@ -162,5 +202,5 @@ Verify key response fields:
 - `billing.current_plan_code`: active plan (e.g., `team_32usd`, `loc_200k`).
 - `billing.trial_readonly`: `false` during active trial or paid subscription.
 - `billing.trial_ends_at`: ISO timestamp 7 days ahead (null once upgraded to paid).
-- `billing.billing_period_end`: 30 days from purchase/upgrade date.
+- `billing.billing_period_end`: 30 days from purchase/upgrade date for new/trial upgrades; preserved existing cycle end date for paid mid-cycle upgrades.
 

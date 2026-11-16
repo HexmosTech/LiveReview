@@ -44,29 +44,31 @@ Tools run automatically across all review workflows:
 
 ## 4. How Organizations and Repositories Control Tools
 
-Tool execution uses a two-level control model: **Organization Master Switch** and **Repository Policy**.
+Tool execution uses a two-level control model: **Organization Default** and **Repository Policy**.
 
 ### 4.1 Organization Level (Settings → Third-Party Tools)
-- Organization owners choose which tools are allowed to run for the entire organization.
-- If an owner turns off a tool here, that tool is immediately disabled for all repositories.
+- Organization owners choose which tools are allowed to run by default for the organization.
+- When a repository does not provide a `.lrc/policy/tools.toml` file, reviews fall back to running these organization-level enabled tools.
 
 ### 4.2 Repository Level (`.lrc/policy/tools.toml`)
-Repositories can fine-tune tool execution by adding a configuration file at `.lrc/policy/tools.toml` (or `.lrc/tools.toml`):
+Repositories can fine-tune and override tool execution by adding a configuration file at `.lrc/policy/tools.toml` (or `.lrc/tools.toml`):
 
-1. **Opt Out**: A repository can disable an org-enabled tool:
+1. **Repository Policy Override**: When `.lrc/policy/tools.toml` is provided, it explicitly defines which tools run for that repository, overriding organization defaults:
+   - Any tool configured with `enabled = true` (or custom rules) will run even if disabled in the organization's settings.
+   - Tools not listed in `tools.toml` will not run for that repository.
+2. **Explicit Opt-Out**: A repository can explicitly disable a tool:
    ```toml
    [bandit]
    enabled = false
    ```
-2. **File Pattern Scoping (`include` / `exclude`)**: A repository can choose which files a tool should inspect:
+3. **File Pattern Scoping (`include` / `exclude`)**: A repository can choose which files a tool should inspect:
    ```toml
    [ruff]
    include = ["**/*.py"]
    exclude = ["tests/fixtures/**"]
    ```
-3. **Zero-Credit Skip**: If a pull request does not change any files matching a tool (for example, a PR with only Markdown changes), the tool does not run and **zero credits** are consumed.
-4. **No Force-Enable (Ceiling Rule)**: A repository **cannot** turn on a tool that the organization owner has disabled. Org-level disable always wins.
-5. **Safe Fallback**: If `tools.toml` is missing or has a typo, LiveReview logs a warning and runs the organization's default enabled tools without failing the review.
+4. **Zero-Credit Skip**: If a pull request does not change any files matching a tool (for example, a PR with only Markdown changes), the tool does not run and **zero credits** are consumed.
+5. **Safe Fallback**: If `tools.toml` is missing or has a syntax error, LiveReview logs a warning and falls back to the organization's default enabled tools without failing the review.
 
 ---
 
