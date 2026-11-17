@@ -653,12 +653,12 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 				if unmarshalErr := json.Unmarshal(existingCommentsJSON, &existingToolComments); unmarshalErr == nil {
 					seenKeys := make(map[string]bool)
 					for _, c := range comments {
-						if c != nil && c.Source == "tool" {
+						if c != nil && (c.Source == "tool" || c.ToolName != "") {
 							seenKeys[fmt.Sprintf("%s:%s:%d:%s", c.ToolName, c.FilePath, c.Line, strings.TrimSpace(c.Content))] = true
 						}
 					}
 					for _, tc := range existingToolComments {
-						if tc != nil && tc.Source == "tool" {
+						if tc != nil && (tc.Source == "tool" || tc.ToolName != "") {
 							key := fmt.Sprintf("%s:%s:%d:%s", tc.ToolName, tc.FilePath, tc.Line, strings.TrimSpace(tc.Content))
 							if !seenKeys[key] {
 								seenKeys[key] = true

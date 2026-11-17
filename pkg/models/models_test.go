@@ -55,3 +55,25 @@ func TestReviewComment_UnmarshalJSON(t *testing.T) {
 	}
 }
 
+func TestReviewComment_UnmarshalSliceFromToolWorker(t *testing.T) {
+	data := []byte(`[{"file_path":"config/settings.json","line":18,"content":"Detected API key","severity":"critical","category":"Security","subcategory":"Secrets Management","confidence":"High","type":"Risk","suggestions":["Rotate"],"source":"tool","tool_name":"gitleaks"}]`)
+	var comments []*ReviewComment
+	if err := json.Unmarshal(data, &comments); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	c := comments[0]
+	if c.Source != "tool" {
+		t.Errorf("expected source 'tool', got %q", c.Source)
+	}
+	if c.ToolName != "gitleaks" {
+		t.Errorf("expected tool_name 'gitleaks', got %q", c.ToolName)
+	}
+	if c.FilePath != "config/settings.json" {
+		t.Errorf("expected file_path 'config/settings.json', got %q", c.FilePath)
+	}
+}
+
+
