@@ -269,6 +269,19 @@ func (w *ToolReviewWorker) Work(ctx context.Context, job *river.Job[ToolReviewJo
 					} else {
 						_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "success", fmt.Sprintf("Appended %d %s findings to review #%d", len(toolComments), strings.ToUpper(args.ToolName), args.ReviewID), "")
 						log.Printf("[INFO] ToolReviewWorker: tool=%s review=%d appended %d comments to review_result", args.ToolName, args.ReviewID, len(toolComments))
+						// Emit batch event for UI real-time streaming and Chrome desktop push notification.
+						// Non-fatal: tool findings are already persisted to metadata and progress is tracked
+						// via tool_result event. Failing the job here would trigger a River retry, causing
+						// re-billing of credits and duplicate PR comments.
+						batchID := fmt.Sprintf("tool-%s", args.ToolName)
+						if emitBatchErr := eventSink.EmitBatchEvent(ctx, args.ReviewID, args.OrgID, batchID, "completed", 0, len(classifiedComments), classifiedComments); emitBatchErr != nil {
+							log.Printf("[WARN] ToolReviewWorker: failed to emit batch event for tool %s: %v, retrying once", args.ToolName, emitBatchErr)
+							retryCtx, retryCancel := context.WithTimeout(context.Background(), 5*time.Second)
+							if retryErr := eventSink.EmitBatchEvent(retryCtx, args.ReviewID, args.OrgID, batchID, "completed", 0, len(classifiedComments), classifiedComments); retryErr != nil {
+								log.Printf("[ERROR] ToolReviewWorker: retry failed to emit batch event for tool %s: %v", args.ToolName, retryErr)
+							}
+							retryCancel()
+						}
 					}
 				}
 			}

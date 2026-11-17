@@ -207,13 +207,13 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 		failureReason, _ := meta["failure_reason"].(string)
 		var comments []*models.ReviewComment
 
-		// If review failed, retain any tool or partial findings present in metadata or DB
-		if reviewRecord.Status == "failed" {
-			if res, err := decodeReviewResult(meta); err == nil {
-				if len(res.Comments) > 0 {
-					comments = res.Comments
-				}
-			} else if _, ok := meta["review_result"]; ok {
+		// Retain any tool or partial findings present in metadata (for in_progress or failed)
+		if res, err := decodeReviewResult(meta); err == nil {
+			if len(res.Comments) > 0 {
+				comments = res.Comments
+			}
+		} else if reviewRecord.Status == "failed" {
+			if _, ok := meta["review_result"]; ok {
 				log.Printf("[WARN] DiffReview: failed to decode review_result for failed review %d: %v", reviewRecord.ID, err)
 			}
 
