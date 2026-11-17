@@ -19,6 +19,10 @@ interface ListToolsResponse {
 
 const DEFAULT_TOOL_CREDITS_LIMIT = 50000;
 
+const formatCompactNumber = (num: number): string => {
+	return num.toLocaleString(undefined, { notation: 'compact', maximumFractionDigits: 1 });
+};
+
 const ThirdPartyToolsTab: React.FC = () => {
 	const { currentOrg, canManageCurrentOrg } = useOrgContext();
 	const isOwner = Boolean(canManageCurrentOrg);
@@ -188,6 +192,12 @@ const ThirdPartyToolsTab: React.FC = () => {
 	const remainingCredits = Math.max(0, totalCreditPool - creditsUsed);
 	const estimatedReviews = totalMultiplier > 0 ? Math.floor(remainingCredits / totalMultiplier) : 0;
 	const hasChanges = tools.some(t => localEnabled[t.id] !== t.enabled);
+	const remainingLabel = formatCompactNumber(remainingCredits);
+	const exampleTool = tools.find(t => Math.abs(t.multiplier - 1.0) < 0.01)
+		|| (tools.length > 0 ? tools.reduce((min, t) => t.multiplier < min.multiplier ? t : min, tools[0]) : null);
+	const exampleToolName = exampleTool ? exampleTool.name : 'actionlint';
+	const exampleToolMultiplier = exampleTool ? Number(exampleTool.multiplier) : 1.0;
+	const exampleToolCapacity = exampleToolMultiplier > 0 ? Math.floor(remainingCredits / exampleToolMultiplier) : Math.floor(remainingCredits);
 
 	const totalPages = Math.ceil(sortedTools.length / pageSize);
 	const activePage = Math.min(currentPage, Math.max(1, totalPages));
@@ -217,10 +227,12 @@ const ThirdPartyToolsTab: React.FC = () => {
 				</div>
 				<p className="text-xs text-slate-300 leading-relaxed mb-3">
 					Each tool invocation deducts credits from your organization's monthly <strong>{totalCreditPool.toLocaleString()} credit budget</strong>. 
-					The credit cost of a review is equal to the sum of the multipliers of all enabled tools (<strong>Total Multiplier: {totalMultiplier}x</strong>). 
+					The credit cost of a review is equal to the sum of the multipliers of all enabled tools (<strong>Total Multiplier: {totalMultiplier.toFixed(1)}×</strong>). 
 					Based on your current configuration and credit balance ({creditsUsed.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} credits used this month), your remaining pool allows for up to{' '}
 					<strong className="text-amber-400">
-						{totalMultiplier > 0 ? `${estimatedReviews.toLocaleString()} reviews` : 'unlimited reviews'}
+						{totalMultiplier > 0 
+							? `~${estimatedReviews.toLocaleString()} overall reviews with this setting` 
+							: `~${exampleToolCapacity.toLocaleString()} tool runs (e.g. ${exampleToolName} at ${exampleToolMultiplier.toFixed(1)}×)`}
 					</strong>{' '}
 					before exhausting the budget.
 				</p>
@@ -246,23 +258,57 @@ const ThirdPartyToolsTab: React.FC = () => {
 
 			{/* Cost Summary Bar */}
 			<div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-800/80 border border-slate-700/80 rounded-xl p-5 backdrop-blur-md shadow-lg">
-				<div className="flex flex-col justify-between space-y-1">
+				<div className="flex flex-col justify-between space-y-1.5">
 					<span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Enabled Tools</span>
-					<span className="text-3xl font-bold text-white transition-all duration-300">
-						{enabledToolsCount} <span className="text-sm font-medium text-slate-400">/ {tools.length}</span>
+					<div className="flex items-baseline space-x-1.5">
+						<span className="text-3xl font-bold text-white transition-all duration-300">
+							{enabledToolsCount}
+						</span>
+						<span className="text-sm font-medium text-slate-400">/ {tools.length}</span>
+					</div>
+					<span className="text-xs text-slate-400 block">
+						{enabledToolsCount === 0 ? 'No tools selected' : `${enabledToolsCount} of ${tools.length} active`}
 					</span>
 				</div>
-				<div className="flex flex-col justify-between space-y-1 border-t md:border-t-0 md:border-l border-slate-700/60 pt-3 md:pt-0 md:pl-5">
+				<div className="flex flex-col justify-between space-y-1.5 border-t md:border-t-0 md:border-l border-slate-700/60 pt-3 md:pt-0 md:pl-5">
 					<span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Multiplier</span>
-					<span className="text-3xl font-bold text-violet-400 transition-all duration-300">
-						{totalMultiplier.toFixed(1)}<span className="text-lg font-medium">×</span>
+					<div className="flex items-baseline space-x-1">
+						<span className="text-3xl font-bold text-violet-400 transition-all duration-300">
+							{totalMultiplier.toFixed(1)}
+						</span>
+						<span className="text-lg font-medium text-violet-400">×</span>
+					</div>
+					<span className="text-xs text-slate-400 block">
+						{totalMultiplier > 0 ? `${totalMultiplier.toFixed(1)} credits / review` : '0 credits deducted / review'}
 					</span>
 				</div>
-				<div className="flex flex-col justify-between space-y-1 border-t md:border-t-0 md:border-l border-slate-700/60 pt-3 md:pt-0 md:pl-5">
+				<div className="flex flex-col justify-between space-y-1.5 border-t md:border-t-0 md:border-l border-slate-700/60 pt-3 md:pt-0 md:pl-5">
 					<span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Estimated Reviews</span>
-					<span className="text-3xl font-bold text-amber-400 transition-all duration-300">
-						{totalMultiplier > 0 ? estimatedReviews.toLocaleString() : '—'} <span className="text-sm font-medium text-slate-400">reviews (50k pool)</span>
-					</span>
+					{totalMultiplier > 0 ? (
+						<div>
+							<div className="flex items-baseline space-x-2">
+								<span className="text-3xl font-bold text-amber-400 transition-all duration-300">
+									~{estimatedReviews.toLocaleString()}
+								</span>
+								<span className="text-sm font-medium text-slate-400">reviews</span>
+							</div>
+							<span className="text-xs text-slate-400 block mt-0.5">
+								Overall reviews with this setting ({totalMultiplier.toFixed(1)}× cost · {remainingLabel} remaining)
+							</span>
+						</div>
+					) : (
+						<div>
+							<div className="flex items-baseline space-x-2">
+								<span className="text-3xl font-bold text-amber-400 transition-all duration-300">
+									~{exampleToolCapacity.toLocaleString()}
+								</span>
+								<span className="text-sm font-medium text-slate-400">tool runs</span>
+							</div>
+							<span className="text-xs text-slate-400 block mt-0.5">
+								e.g. ~{exampleToolCapacity.toLocaleString()} {exampleToolName} tool runs ({exampleToolMultiplier.toFixed(1)}× cost · {remainingLabel} remaining)
+							</span>
+						</div>
+					)}
 				</div>
 			</div>
 
