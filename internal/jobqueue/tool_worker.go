@@ -319,15 +319,14 @@ func (w *ToolReviewWorker) postToolCommentsToProvider(
 	}
 
 	postingComments := make([]*models.ReviewComment, 0, len(comments))
-	toolTag := fmt.Sprintf("[%s]", strings.ToUpper(args.ToolName))
 	for _, c := range comments {
 		if c == nil {
 			continue
 		}
 		commentCopy := new(models.ReviewComment)
 		*commentCopy = *c
-		if !strings.HasPrefix(commentCopy.Content, toolTag) {
-			commentCopy.Content = fmt.Sprintf("%s %s", toolTag, commentCopy.Content)
+		if commentCopy.ToolName == "" {
+			commentCopy.ToolName = args.ToolName
 		}
 		postingComments = append(postingComments, commentCopy)
 	}

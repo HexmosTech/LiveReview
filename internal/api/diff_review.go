@@ -197,10 +197,34 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 
 	if reviewRecord.Status != "completed" {
 		failureReason, _ := meta["failure_reason"].(string)
+		var comments []*models.ReviewComment
+
+		// If review failed, retain any tool or partial findings present in metadata or DB
+		if reviewRecord.Status == "failed" {
+			if res, err := decodeReviewResult(meta); err == nil {
+				if len(res.Comments) > 0 {
+					comments = res.Comments
+				}
+			} else if _, ok := meta["review_result"]; ok {
+				log.Printf("[WARN] DiffReview: failed to decode review_result for failed review %d: %v", reviewRecord.ID, err)
+			}
+
+			if len(comments) == 0 {
+				dbComments, dbErr := rm.GetReviewComments(reviewRecord.ID)
+				if dbErr != nil {
+					log.Printf("[WARN] DiffReview: failed to fetch comments from db for failed review %d: %v", reviewRecord.ID, dbErr)
+				} else if len(dbComments) > 0 {
+					for _, dbC := range dbComments {
+						comments = append(comments, decodeAICommentToReviewComment(dbC))
+					}
+				}
+			}
+		}
+
 		response := map[string]interface{}{
 			"status":    reviewRecord.Status,
 			"review_id": fmt.Sprintf("%d", reviewRecord.ID),
-			"files":     buildDiffFiles(preloaded, nil),
+			"files":     buildDiffFiles(preloaded, comments),
 		}
 
 		if reviewRecord.FriendlyName != nil {
@@ -232,73 +256,7 @@ func (s *Server) GetDiffReviewStatus(c echo.Context) error {
 			log.Printf("[WARN] DiffReview: failed to fetch comments from db for review %d: %v", reviewRecord.ID, dbErr)
 		} else if len(dbComments) > 0 {
 			for _, dbC := range dbComments {
-				var contentMap map[string]interface{}
-				if err := json.Unmarshal(dbC.Content, &contentMap); err != nil {
-					// Fallback: dbC.Content might be a raw JSON string or unformatted string
-					var rawStr string
-					if strErr := json.Unmarshal(dbC.Content, &rawStr); strErr == nil {
-						contentMap = map[string]interface{}{"content": rawStr}
-					} else {
-						contentMap = map[string]interface{}{"content": string(dbC.Content)}
-					}
-				}
-
-				var cStr, sevStr, catStr, subCatStr, confStr, typeStr, srcStr, toolNameStr string
-				if v, ok := contentMap["content"].(string); ok {
-					cStr = v
-				}
-				if v, ok := contentMap["severity"].(string); ok {
-					sevStr = v
-				}
-				if v, ok := contentMap["category"].(string); ok {
-					catStr = v
-				}
-				if v, ok := contentMap["subcategory"].(string); ok {
-					subCatStr = v
-				}
-				if v, ok := contentMap["confidence"].(string); ok {
-					confStr = v
-				}
-				if v, ok := contentMap["type"].(string); ok {
-					typeStr = v
-				}
-				if v, ok := contentMap["source"].(string); ok {
-					srcStr = v
-				}
-				if v, ok := contentMap["tool_name"].(string); ok {
-					toolNameStr = v
-				}
-
-				severity := models.CommentSeverity(strings.ToLower(strings.TrimSpace(sevStr)))
-				switch severity {
-				case models.SeverityCritical, models.SeverityWarning, models.SeverityInfo:
-					// valid enum
-				default:
-					severity = models.SeverityWarning
-				}
-
-				filePath := ""
-				if dbC.FilePath != nil {
-					filePath = *dbC.FilePath
-				}
-				lineNum := 0
-				if dbC.LineNumber != nil {
-					lineNum = *dbC.LineNumber
-				}
-
-				rc := &models.ReviewComment{
-					FilePath:    filePath,
-					Line:        lineNum,
-					Content:     cStr,
-					Severity:    severity,
-					Category:    catStr,
-					Subcategory: subCatStr,
-					Confidence:  confStr,
-					Type:        typeStr,
-					Source:      srcStr,
-					ToolName:    toolNameStr,
-				}
-				result.Comments = append(result.Comments, rc)
+				result.Comments = append(result.Comments, decodeAICommentToReviewComment(dbC))
 			}
 		}
 	}
@@ -721,6 +679,76 @@ func decodePreloadedChanges(meta map[string]interface{}) ([]models.CodeDiff, err
 		return nil, err
 	}
 	return diffs, nil
+}
+
+func decodeAICommentToReviewComment(dbC AIComment) *models.ReviewComment {
+	var contentMap map[string]interface{}
+	if err := json.Unmarshal(dbC.Content, &contentMap); err != nil {
+		var rawStr string
+		if strErr := json.Unmarshal(dbC.Content, &rawStr); strErr == nil {
+			contentMap = map[string]interface{}{"content": rawStr}
+		} else {
+			contentMap = map[string]interface{}{"content": string(dbC.Content)}
+		}
+	}
+	if contentMap == nil {
+		contentMap = make(map[string]interface{})
+	}
+
+	var cStr, sevStr, catStr, subCatStr, confStr, typeStr, srcStr, toolNameStr string
+	if v, ok := contentMap["content"].(string); ok {
+		cStr = v
+	}
+	if v, ok := contentMap["severity"].(string); ok {
+		sevStr = v
+	}
+	if v, ok := contentMap["category"].(string); ok {
+		catStr = v
+	}
+	if v, ok := contentMap["subcategory"].(string); ok {
+		subCatStr = v
+	}
+	if v, ok := contentMap["confidence"].(string); ok {
+		confStr = v
+	}
+	if v, ok := contentMap["type"].(string); ok {
+		typeStr = v
+	}
+	if v, ok := contentMap["source"].(string); ok {
+		srcStr = v
+	}
+	if v, ok := contentMap["tool_name"].(string); ok {
+		toolNameStr = v
+	}
+
+	severity := models.CommentSeverity(strings.ToLower(strings.TrimSpace(sevStr)))
+	switch severity {
+	case models.SeverityCritical, models.SeverityWarning, models.SeverityInfo:
+	default:
+		severity = models.SeverityWarning
+	}
+
+	filePath := ""
+	if dbC.FilePath != nil {
+		filePath = *dbC.FilePath
+	}
+	lineNum := 0
+	if dbC.LineNumber != nil {
+		lineNum = *dbC.LineNumber
+	}
+
+	return &models.ReviewComment{
+		FilePath:    filePath,
+		Line:        lineNum,
+		Content:     cStr,
+		Severity:    severity,
+		Category:    catStr,
+		Subcategory: subCatStr,
+		Confidence:  confStr,
+		Type:        typeStr,
+		Source:      srcStr,
+		ToolName:    toolNameStr,
+	}
 }
 
 func decodeReviewResult(meta map[string]interface{}) (DiffReviewResult, error) {

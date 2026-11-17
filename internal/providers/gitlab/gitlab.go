@@ -302,8 +302,14 @@ func formatGitLabComment(comment *models.ReviewComment) string {
 
 	// Add severity information at the beginning
 	if comment.Severity != "" {
-		formattedComment = fmt.Sprintf("**Severity: %s**\n**Confidence: %s**\n**Type: %s**\n**Category: %s**\n**Subcategory: %s**\n\n%s",
-			comment.Severity, comment.Confidence, comment.Type, comment.Category, comment.Subcategory, formattedComment)
+		toolHeader := ""
+		if comment.ToolName != "" {
+			toolHeader = fmt.Sprintf(" **Tool: %s**", comment.ToolName)
+		}
+		formattedComment = fmt.Sprintf("**Severity: %s**%s\n**Confidence: %s**\n**Type: %s**\n**Category: %s**\n**Subcategory: %s**\n\n%s",
+			comment.Severity, toolHeader, comment.Confidence, comment.Type, comment.Category, comment.Subcategory, formattedComment)
+	} else if comment.ToolName != "" {
+		formattedComment = fmt.Sprintf("**Tool: %s**\n\n%s", comment.ToolName, formattedComment)
 	}
 
 	// Add suggestions section if we have any
