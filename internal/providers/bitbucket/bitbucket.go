@@ -590,11 +590,17 @@ func (p *BitbucketProvider) PostComment(ctx context.Context, mrID string, commen
 	return p.postGeneralComment(ctx, workspace, repo, prNumber, comment)
 }
 
-// formatBitbucketComment formats a comment for Bitbucket, including severity and suggestions.
+// formatBitbucketComment formats a comment for Bitbucket, including severity, tool, and suggestions.
 func formatBitbucketComment(comment *models.ReviewComment) string {
 	body := comment.Content
 	if comment.Severity != "" {
-		body = fmt.Sprintf("**Severity: %s**\n\n%s", comment.Severity, body)
+		if comment.ToolName != "" {
+			body = fmt.Sprintf("**Severity: %s** **Tool: %s**\n\n%s", comment.Severity, comment.ToolName, body)
+		} else {
+			body = fmt.Sprintf("**Severity: %s**\n\n%s", comment.Severity, body)
+		}
+	} else if comment.ToolName != "" {
+		body = fmt.Sprintf("**Tool: %s**\n\n%s", comment.ToolName, body)
 	}
 	if len(comment.Suggestions) > 0 {
 		body += "\n\n**Suggestions:**\n"
