@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	neturl "net/url"
 	"strings"
 	"time"
 
@@ -97,7 +98,7 @@ func (w *ManualReviewWorker) Work(ctx context.Context, job *river.Job[ManualRevi
 	if err := json.Unmarshal([]byte(args.RequestJSON), &req); err != nil {
 		log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] Failed to unmarshal request_json in ManualReviewWorker")
 	} else {
-		changes, lrcBundle := w.extractChangesAndLRC(ctx, &req)
+		changes, lrcBundle, postingID := w.extractChangesAndLRC(ctx, &req)
 		if len(changes) > 0 {
 			// Update req.PreloadedChanges so ProcessManualReview reuses them without refetching
 			if len(req.PreloadedChanges) == 0 {
@@ -117,12 +118,14 @@ func (w *ManualReviewWorker) Work(ctx context.Context, job *river.Job[ManualRevi
 			} else if diffZipBase64 != "" && w.jq != nil {
 				localDiffs := diffutil.ConvertModelDiffsToLocal(changes)
 				if _, dispatchErr := w.jq.DispatchTools(ctx, ToolDispatchParams{
-					OrgID:         args.OrgID,
-					ReviewID:      args.ReviewID,
-					PlanCode:      args.PlanCode,
-					DiffZipBase64: diffZipBase64,
-					LocalDiffs:   localDiffs,
-					LRCBundle:     lrcBundle,
+					OrgID:          args.OrgID,
+					ReviewID:       args.ReviewID,
+					PlanCode:       args.PlanCode,
+					DiffZipBase64:  diffZipBase64,
+					LocalDiffs:    localDiffs,
+					LRCBundle:      lrcBundle,
+					ProviderConfig: &req.Provider,
+					PostingID:      postingID,
 				}); dispatchErr != nil {
 					log.Warn().Err(dispatchErr).Int64("review_id", args.ReviewID).Msg("[review_worker] ManualReviewWorker: failed to dispatch tools")
 				}
@@ -158,40 +161,41 @@ func (w *ManualReviewWorker) Work(ctx context.Context, job *river.Job[ManualRevi
 	return err
 }
 
-// extractChangesAndLRC resolves the changed files from PreloadedChanges or PR diff.
-func (w *ManualReviewWorker) extractChangesAndLRC(ctx context.Context, req *review.ReviewRequest) ([]*models.CodeDiff, lrcconfig.Bundle) {
+// extractChangesAndLRC resolves the changed files from PreloadedChanges or PR diff and returns postingID.
+func (w *ManualReviewWorker) extractChangesAndLRC(ctx context.Context, req *review.ReviewRequest) ([]*models.CodeDiff, lrcconfig.Bundle, string) {
 	if req == nil {
-		return nil, lrcconfig.Bundle{}
+		return nil, lrcconfig.Bundle{}, ""
 	}
 
 	var bundle lrcconfig.Bundle
 
 	if len(req.PreloadedChanges) > 0 {
-		return req.PreloadedChanges, bundle
+		postingID := resolvePostingID(req, nil)
+		return req.PreloadedChanges, bundle, postingID
 	}
 
 	if req.Provider.Type == "" || req.URL == "" {
-		return nil, bundle
+		return nil, bundle, ""
 	}
 
 	providerFactory := review.NewStandardProviderFactory()
 	provider, err := providerFactory.CreateProvider(ctx, req.Provider)
 	if err != nil {
 		log.Warn().Err(err).Str("provider_type", req.Provider.Type).Msg("[review_worker] extractChangesAndLRC: failed to create provider")
-		return nil, bundle
+		return nil, bundle, resolvePostingID(req, nil)
 	}
 
 	mrDetails, err := provider.GetMergeRequestDetails(ctx, req.URL)
 	if err != nil {
 		log.Warn().Err(err).Str("url", req.URL).Msg("[review_worker] extractChangesAndLRC: failed to get MR details")
-		return nil, bundle
+		return nil, bundle, resolvePostingID(req, nil)
 	}
 
 	prID := providers.ResolveMRID(mrDetails)
 	changes, err := provider.GetMergeRequestChanges(ctx, prID)
 	if err != nil {
 		log.Warn().Err(err).Str("pr_id", prID).Msg("[review_worker] extractChangesAndLRC: failed to get MR changes")
-		return nil, bundle
+		return nil, bundle, prID
 	}
 
 	if rcp, ok := provider.(lrcfetch.Provider); ok && mrDetails != nil {
@@ -224,7 +228,43 @@ func (w *ManualReviewWorker) extractChangesAndLRC(ctx context.Context, req *revi
 		}
 	}
 
-	return changes, bundle
+	return changes, bundle, prID
+}
+
+// resolvePostingID determines the provider-appropriate MR/PR identifier for posting review comments.
+func resolvePostingID(req *review.ReviewRequest, mrDetails *providers.MergeRequestDetails) string {
+	if mrDetails != nil {
+		return providers.ResolveMRID(mrDetails)
+	}
+	if req == nil || req.URL == "" {
+		return ""
+	}
+	switch req.Provider.Type {
+	case "github":
+		if u, err := neturl.Parse(req.URL); err == nil {
+			parts := strings.Split(u.Path, "/")
+			if len(parts) >= 5 && parts[3] == "pull" {
+				return parts[1] + "/" + parts[2] + "/" + parts[4]
+			}
+		}
+	case "bitbucket":
+		if u, err := neturl.Parse(req.URL); err == nil {
+			parts := strings.Split(u.Path, "/")
+			if len(parts) >= 5 && parts[3] == "pull-requests" {
+				return parts[1] + "/" + parts[2] + "/" + parts[4]
+			}
+		}
+	case "gitlab":
+		if u, err := neturl.Parse(req.URL); err == nil {
+			parts := strings.Split(u.Path, "/")
+			for i, p := range parts {
+				if p == "merge_requests" && i+1 < len(parts) {
+					return parts[i+1]
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // extractLRCFromDiffs extracts files under .lrc/ that are added or modified in the PR diff.

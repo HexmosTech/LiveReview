@@ -12,7 +12,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	_ "github.com/lib/pq"
 	"github.com/livereview/internal/license"
+	"github.com/livereview/internal/review"
 	"github.com/livereview/internal/toolclassifier"
+	"github.com/livereview/pkg/models"
 	storagetools "github.com/livereview/storage/tools"
 	"github.com/riverqueue/river"
 )
@@ -776,4 +778,73 @@ func testToolReviewWorker_W5_Finalize_AllToolsDone(t *testing.T) {
 			t.Errorf("expected a log event indicating waiting for AI review")
 		}
 	})
+}
+
+func TestPostToolCommentsToProvider_NilAndCLISkipped(t *testing.T) {
+	worker := &ToolReviewWorker{}
+	ctx := context.Background()
+
+	// 1. Nil ProviderConfig
+	worker.postToolCommentsToProvider(ctx, ToolReviewJobArgs{
+		ReviewID: 1,
+		OrgID:    1,
+		ToolName: "semgrep",
+	}, []*models.ReviewComment{{Content: "issue"}}, nil)
+
+	// 2. CLI provider type
+	worker.postToolCommentsToProvider(ctx, ToolReviewJobArgs{
+		ReviewID: 1,
+		OrgID:    1,
+		ToolName: "semgrep",
+		ProviderConfig: &review.ProviderConfig{
+			Type: "cli",
+		},
+		PostingID: "my/repo/1",
+	}, []*models.ReviewComment{{Content: "issue"}}, nil)
+
+	// 3. Empty PostingID
+	worker.postToolCommentsToProvider(ctx, ToolReviewJobArgs{
+		ReviewID: 1,
+		OrgID:    1,
+		ToolName: "semgrep",
+		ProviderConfig: &review.ProviderConfig{
+			Type: "bitbucket",
+		},
+		PostingID: "",
+	}, []*models.ReviewComment{{Content: "issue"}}, nil)
+
+	// 4. Empty comments
+	worker.postToolCommentsToProvider(ctx, ToolReviewJobArgs{
+		ReviewID: 1,
+		OrgID:    1,
+		ToolName: "semgrep",
+		ProviderConfig: &review.ProviderConfig{
+			Type: "bitbucket",
+		},
+		PostingID: "workspace/repo/1",
+	}, []*models.ReviewComment{}, nil)
+}
+
+func TestPostToolCommentsToProvider_FailedProviderGraceful(t *testing.T) {
+	db := testDB(t)
+	worker := &ToolReviewWorker{db: db}
+	ctx := context.Background()
+
+	// Invalid provider configuration should log warning and emit event without panicking or returning an error
+	worker.postToolCommentsToProvider(ctx, ToolReviewJobArgs{
+		ReviewID: 99999,
+		OrgID:    1,
+		ToolName: "semgrep",
+		ProviderConfig: &review.ProviderConfig{
+			Type: "unknown-provider-type",
+		},
+		PostingID: "my/repo/1",
+	}, []*models.ReviewComment{
+		{
+			FilePath: "main.go",
+			Line:     10,
+			Content:  "Insecure random generator used",
+			Severity: models.SeverityWarning,
+		},
+	}, nil)
 }
