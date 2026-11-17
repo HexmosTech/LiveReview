@@ -38,6 +38,7 @@ Tools run automatically across all review workflows:
 ### Execution Rules
 - **Runs in Parallel**: Dispatched tools run in parallel with each other and alongside the AI review in the cloud.
 - **One Combined Review**: Findings from both AI and static tools are placed into the same review comment list.
+- **Git Provider PR Comments**: Tool findings must also be posted back to the Git provider (GitHub, GitLab, Bitbucket) as inline pull request comments, matching the presentation of AI review comments.
 - **Review Completion**: A review marks itself complete only after all active tools and the AI review finish.
 
 ---
@@ -142,6 +143,11 @@ To keep reviews fast and respect cloud runner limits:
 - **Filter Drawer**: Tool filters live inside the expandable details drawer so the top bar stays clean.
 - **Comment Fidelity**: Review comments show the tool's exact, unmodified message on the code line.
 - **Safe Unknown Fallback**: If a tool reports a new or unrecognized rule, LiveReview assigns it a safe informational status (`Maintainability: Technical Debt`, `info` severity) with a `[Proposed]` badge. It **never** defaults unknown rules to critical security alerts, ensuring no false alarms or blocked PRs.
+
+### 8.3 Git Provider Pull Request Comments
+- **Posting to Git Providers**: In addition to displaying findings inside the LiveReview web dashboard, static analysis tool findings should also be posted directly to the Git provider (GitHub, GitLab, Bitbucket) as inline review comments on the pull request/merge request.
+- **Unified Comment Experience**: Tool findings should be clearly attributed (e.g. `[Semgrep]`, `[TruffleHog]`) with their rule, severity, and suggested remediation, posted alongside the AI review comments so developers receive all static analysis feedback directly in their pull request review workflow.
+- **Coordination**: When tool execution completes, findings are submitted to the Git hosting provider's PR comments API using the repository's integration token.
 
 ---
 

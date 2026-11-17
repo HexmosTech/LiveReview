@@ -2,13 +2,13 @@
 
 LiveReview runs external static analysis tools as parallel AWS Lambda worker jobs alongside or independently of AI code reviews.
 The system stores findings as `tool_result` events in the `review_events` database table.
-The system displays findings in the review web interface and in the `lrc` command line interface.
+The system displays findings in the review web interface, in the `lrc` command line interface, and posts them directly to Git hosting providers (GitHub, GitLab, Bitbucket) as inline review comments on pull requests and merge requests.
 
 This feature is available in cloud mode only for paid organizations.
 Non-cloud (self-hosted) environments completely omit third-party tools: no tool UI, no settings tab, and no tool API endpoints exist.
 Tool definitions are managed and registered manually through the `lr-tools` repository; no tools can be added or registered via the LiveReview API. If no tools are registered in the cloud catalog, the UI displays *"No tools registered — Tools are not available at the moment."*
 An organization owner or super admin must enable tools in organization settings.
-The implementation covers backend orchestration, multi-tier taxonomy classification, credit accounting, and user interfaces.
+The implementation covers backend orchestration, multi-tier taxonomy classification, credit accounting, Git provider commenting, and user interfaces.
 
 ## Current System Status
 
@@ -27,6 +27,7 @@ The system includes the following operational components:
 - The database rule cache in `tool_rule_taxonomies` permanently stores learned classifications across server restarts.
 - Diff packaging (`internal/jobqueue/diff_packager.go`) enforces a 1 MiB per-file limit and a 6 MB archive limit (matching AWS Lambda's synchronous invocation limit) with truncation detection.
 - Credit store (`storage/tools/credit_store.go`) deducts tool credits with an atomic ledger snapshot and non-negative constraints.
+- **Git Provider PR Comment Posting**: `ToolReviewWorker` reuses `provider.PostComments()` to publish classified tool findings directly to Git providers (GitHub, GitLab, Bitbucket) as inline review comments with tool badges (e.g. `[SEMGREP]`), alongside AI review comments.
 - Free and unpaid plans (`free`, `free_30k`) cannot access tool execution or tool user interfaces.
 
 ---
@@ -58,10 +59,11 @@ flowchart TD
     M -->|Yes| O["Parse JSON Findings<br/>(normalize rule_id)"]
     
     O --> P["3-Tier ToolClassifier<br/>(Tier 1 -> Tier 2 -> Tier 3)"]
-    P --> Q["Store Comments<br/>in review_comments"]
+    P --> Q["Store Comments in<br/>reviews.metadata review_result"]
+    Q --> POST["Post Comments to Git Provider<br/>(provider.PostComments)"]
     
     N --> R["w.finalizeIfAllDone()"]
-    Q --> R
+    POST --> R
     
     R --> S{"All Dispatched Tools &<br/>AI Review Finished?"}
     S -->|No| T["Wait for Sibling Workers"]
@@ -286,7 +288,7 @@ LiveReview tracks static tool findings and classifications based on the canonica
 | **7. Finding Deduplication & Identity Matching** | Deduplicate identical findings in diff, match against existing review findings | Normalized findings, diff hunk context, file path | Deduplicated findings list with stable finding fingerprint | Line drift -> match by code hunk fingerprint | LiveReview Backend (`review_worker`) |
 | **8. Persistence** | Atomically store execution status, comments, credit ledger, and cache novel rules | Comments, tool execution status, credit deductions | DB rows in `tool_reviews`, `tool_rule_taxonomies`, `review_comments`, `tool_credit_ledger` | DB failure -> rollback review; worker retries idempotently | LiveReview Backend (`review_worker`) |
 | **9. UI Presentation** | Render tool status cards, KPI tile, badges, and diff annotations | Review details, tool execution metadata, review comments | Interactive UI components (`ToolAnalysisCard`, `IssueFilterBar`) | Partial/failed review -> visual indicator (Partial/Failed badge) | LiveReview Frontend (`ui/`) |
-| **10. Comment & Provenance** | Attach immutable provenance to findings (source="tool", tool_name, rule_id, scanner version) | Review comments, tool metadata | User-facing comment with provenance popover | Missing version -> defaults to empty string | LiveReview Backend & Frontend |
+| **10. Comment & Provenance** | Attach immutable provenance to findings (source="tool", tool_name, rule_id, scanner version) and publish inline comments to Git provider (GitHub, GitLab, Bitbucket) via `provider.PostComments()` | Review comments, tool metadata, provider context | User-facing comment with provenance popover and Git provider PR review comment | Posting failure logged as non-fatal warning; does not fail review | LiveReview Backend & Frontend |
 
 ---
 

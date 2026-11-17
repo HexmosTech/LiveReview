@@ -14,23 +14,27 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/livereview/internal/license"
+	"github.com/livereview/internal/review"
 	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/internal/toolclassifier"
 	networktools "github.com/livereview/network/tools"
+	"github.com/livereview/pkg/models"
 	storagetools "github.com/livereview/storage/tools"
 	"github.com/riverqueue/river"
 )
 
 // ToolReviewJobArgs represents the arguments for executing a single static analysis tool via AWS Lambda.
 type ToolReviewJobArgs struct {
-	ReviewID      int64  `json:"review_id"`
-	OrgID         int64  `json:"org_id"`
-	PlanCode      string `json:"plan_code"`
-	ToolID        int64  `json:"tool_id"`
-	ToolName      string `json:"tool_name"`
-	LambdaARN     string `json:"lambda_arn"`
-	DiffZipBase64 string `json:"diff_zip_base64"`
-	Truncated     bool   `json:"truncated,omitempty"`
+	ReviewID       int64                  `json:"review_id"`
+	OrgID          int64                  `json:"org_id"`
+	PlanCode       string                 `json:"plan_code"`
+	ToolID         int64                  `json:"tool_id"`
+	ToolName       string                 `json:"tool_name"`
+	LambdaARN      string                 `json:"lambda_arn"`
+	DiffZipBase64  string                 `json:"diff_zip_base64"`
+	Truncated      bool                   `json:"truncated,omitempty"`
+	ProviderConfig *review.ProviderConfig `json:"provider_config,omitempty"`
+	PostingID      string                 `json:"posting_id,omitempty"`
 }
 
 func (ToolReviewJobArgs) Kind() string { return "tool_review" }
@@ -268,6 +272,11 @@ func (w *ToolReviewWorker) Work(ctx context.Context, job *river.Job[ToolReviewJo
 					}
 				}
 			}
+
+			// Post tool findings to external git provider (Bitbucket, GitHub, GitLab, etc.) if configured
+			if args.ProviderConfig != nil && args.ProviderConfig.Type != "" && args.ProviderConfig.Type != "cli" && args.PostingID != "" && len(classifiedComments) > 0 {
+				w.postToolCommentsToProvider(ctx, args, classifiedComments, eventSink)
+			}
 		}
 	} else {
 		log.Printf("[INFO] ToolReviewWorker: tool=%s review=%d no findings to classify", args.ToolName, args.ReviewID)
@@ -275,6 +284,75 @@ func (w *ToolReviewWorker) Work(ctx context.Context, job *river.Job[ToolReviewJo
 
 	w.finalizeIfAllDone(ctx, args)
 	return nil
+}
+
+// postToolCommentsToProvider reuses the standard Provider.PostComments implementation to publish
+// classified tool findings directly as review comments on the pull/merge request.
+func (w *ToolReviewWorker) postToolCommentsToProvider(
+	ctx context.Context,
+	args ToolReviewJobArgs,
+	comments []*models.ReviewComment,
+	eventSink *reviewprocessor.DatabaseEventSink,
+) {
+	if args.ProviderConfig == nil || len(comments) == 0 || args.PostingID == "" {
+		return
+	}
+
+	providerCfg := *args.ProviderConfig
+	if providerCfg.Config == nil {
+		providerCfg.Config = make(map[string]interface{})
+	}
+	if repoURL, _ := providerCfg.Config["repo_url"].(string); repoURL == "" && providerCfg.URL != "" {
+		providerCfg.Config["repo_url"] = providerCfg.URL
+	}
+
+	providerFactory := review.NewStandardProviderFactory()
+	provider, err := providerFactory.CreateProvider(ctx, providerCfg)
+	if err != nil {
+		log.Printf("[WARN] ToolReviewWorker: failed to create provider %s for tool %s review %d: %v",
+			providerCfg.Type, args.ToolName, args.ReviewID, err)
+		if eventSink != nil {
+			_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "warn",
+				fmt.Sprintf("Failed to create %s provider for %s comments: %v", providerCfg.Type, strings.ToUpper(args.ToolName), err), "")
+		}
+		return
+	}
+
+	postingComments := make([]*models.ReviewComment, 0, len(comments))
+	toolTag := fmt.Sprintf("[%s]", strings.ToUpper(args.ToolName))
+	for _, c := range comments {
+		if c == nil {
+			continue
+		}
+		commentCopy := new(models.ReviewComment)
+		*commentCopy = *c
+		if !strings.HasPrefix(commentCopy.Content, toolTag) {
+			commentCopy.Content = fmt.Sprintf("%s %s", toolTag, commentCopy.Content)
+		}
+		postingComments = append(postingComments, commentCopy)
+	}
+
+	postCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	log.Printf("[INFO] ToolReviewWorker: posting %d %s comments to %s (postingID: %s) for review %d",
+		len(postingComments), args.ToolName, providerCfg.Type, args.PostingID, args.ReviewID)
+
+	if postErr := provider.PostComments(postCtx, args.PostingID, postingComments); postErr != nil {
+		log.Printf("[WARN] ToolReviewWorker: failed to post %s comments to %s for review %d: %v",
+			args.ToolName, providerCfg.Type, args.ReviewID, postErr)
+		if eventSink != nil {
+			_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "warn",
+				fmt.Sprintf("Failed to post %s comments to pull request: %v", strings.ToUpper(args.ToolName), postErr), "")
+		}
+	} else {
+		log.Printf("[INFO] ToolReviewWorker: successfully posted %d %s comments to %s for review %d",
+			len(postingComments), args.ToolName, providerCfg.Type, args.ReviewID)
+		if eventSink != nil {
+			_ = eventSink.EmitLogEvent(ctx, args.ReviewID, args.OrgID, "success",
+				fmt.Sprintf("Posted %d %s findings to pull request", len(postingComments), strings.ToUpper(args.ToolName)), "")
+		}
+	}
 }
 
 // finalizeIfAllDone checks if all dispatched tools have returned results and coordinates completion with the AI review.

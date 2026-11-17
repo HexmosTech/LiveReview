@@ -608,9 +608,14 @@ func formatBitbucketComment(comment *models.ReviewComment) string {
 func (p *BitbucketProvider) postGeneralComment(ctx context.Context, workspace, repo, prNumber string, comment *models.ReviewComment) error {
 	apiURL := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s/pullrequests/%s/comments", workspace, repo, prNumber)
 
+	body := formatBitbucketComment(comment)
+	if comment.FilePath != "" && comment.Line > 0 {
+		body = fmt.Sprintf("**File: `%s` (line %d)**\n\n%s", comment.FilePath, comment.Line, body)
+	}
+
 	payload := map[string]interface{}{
 		"content": map[string]string{
-			"raw": formatBitbucketComment(comment),
+			"raw": body,
 		},
 	}
 

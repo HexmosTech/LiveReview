@@ -12,19 +12,22 @@ import (
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/lrcconfig"
+	"github.com/livereview/internal/review"
 	storagetools "github.com/livereview/storage/tools"
 )
 
 // ToolDispatchParams encapsulates parameters for dispatching static analysis tools.
 type ToolDispatchParams struct {
-	OrgID         int64
-	ReviewID      int64
-	PlanCode      string
-	DiffZipBase64 string
-	LocalDiffs   []lib.LocalCodeDiff
-	LRCBundle     lrcconfig.Bundle
-	Logger        *logging.ReviewLogger
-	EventSink     logging.EventSink
+	OrgID          int64
+	ReviewID       int64
+	PlanCode       string
+	DiffZipBase64  string
+	LocalDiffs    []lib.LocalCodeDiff
+	LRCBundle      lrcconfig.Bundle
+	Logger         *logging.ReviewLogger
+	EventSink      logging.EventSink
+	ProviderConfig *review.ProviderConfig
+	PostingID      string
 }
 
 // DispatchTools inspects repository config and org tools, evaluates diff matchers,
@@ -155,13 +158,15 @@ func (jq *JobQueue) DispatchTools(ctx context.Context, p ToolDispatchParams) (in
 
 	for _, tool := range enabledTools {
 		toolJobArgs := ToolReviewJobArgs{
-			ReviewID:      p.ReviewID,
-			OrgID:         p.OrgID,
-			PlanCode:      string(planCode),
-			ToolID:        tool.ID,
-			ToolName:      tool.Name,
-			LambdaARN:     tool.LambdaARN,
-			DiffZipBase64: p.DiffZipBase64,
+			ReviewID:       p.ReviewID,
+			OrgID:          p.OrgID,
+			PlanCode:       string(planCode),
+			ToolID:         tool.ID,
+			ToolName:       tool.Name,
+			LambdaARN:      tool.LambdaARN,
+			DiffZipBase64:  p.DiffZipBase64,
+			ProviderConfig: p.ProviderConfig,
+			PostingID:      p.PostingID,
 		}
 		if err := jq.QueueToolReviewJob(ctx, toolJobArgs); err != nil {
 			logMsg("[ERROR] Failed to queue tool job for %s: %v", tool.Name, err)
