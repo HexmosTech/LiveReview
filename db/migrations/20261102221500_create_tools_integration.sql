@@ -103,8 +103,22 @@ CREATE INDEX IF NOT EXISTS idx_tool_credit_ledger_org_review ON public.tool_cred
 -- Accelerates review worker completion queries and event stream lookups
 CREATE INDEX IF NOT EXISTS idx_review_events_review_event_type ON public.review_events (review_id, event_type);
 
+-- 8. Available Tools Catalog
+-- Ensures available_tools table exists to hold tool configurations and Lambda ARNs.
+-- Tools and ARNs are registered dynamically via lr-tools deployer.
+CREATE TABLE IF NOT EXISTS public.available_tools (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL,
+    lambda_arn TEXT NOT NULL,
+    multiplier NUMERIC(6,2) DEFAULT 1.0 NOT NULL,
+    use_case TEXT DEFAULT '' NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
 -- migrate:down
 
+DROP TABLE IF EXISTS public.available_tools;
 DROP INDEX IF EXISTS idx_review_events_review_event_type;
 DROP INDEX IF EXISTS idx_tool_credit_ledger_org_review;
 DROP TABLE IF EXISTS public.tool_credit_ledger;

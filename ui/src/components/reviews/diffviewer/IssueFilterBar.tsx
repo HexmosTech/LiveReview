@@ -73,6 +73,209 @@ const FacetSection: React.FC<{ title: string; options: FacetOption[]; onToggle: 
   );
 };
 
+const TOOL_CATEGORY_MAP: Record<string, string> = {
+  gitleaks: 'Secret Scanning',
+  trufflehog: 'Secret Scanning',
+  'detect-secrets': 'Secret Scanning',
+  semgrep: 'Security Scanning',
+  bandit: 'Security Scanning',
+  brakeman: 'Security Scanning',
+  zizmor: 'Security Scanning',
+  osv: 'Dependency Vulnerabilities',
+  trivy: 'Dependency Vulnerabilities',
+  tfsec: 'Infrastructure & IaC',
+  checkov: 'Infrastructure & IaC',
+  hadolint: 'Infrastructure & IaC',
+  kubescape: 'Infrastructure & IaC',
+  actionlint: 'CI/CD Pipeline',
+  ruff: 'Code Quality',
+  'golangci-lint': 'Code Quality',
+  eslint: 'Code Quality',
+  shellcheck: 'Code Quality',
+  rubocop: 'Code Quality',
+  ktlint: 'Code Quality',
+  phpcs: 'Code Quality',
+  openapi: 'API & Schemas',
+  spectral: 'API & Schemas',
+};
+
+const TOOL_CATEGORY_ORDER = [
+  'Secret Scanning',
+  'Security Scanning',
+  'Dependency Vulnerabilities',
+  'Infrastructure & IaC',
+  'CI/CD Pipeline',
+  'Code Quality',
+  'API & Schemas',
+];
+
+interface ToolCategoryGroup {
+  category: string;
+  count: number;
+  tools: FacetOption[];
+}
+
+const SourceSection: React.FC<{
+  tools: FacetOption[];
+  onToggleTool: (value: string) => void;
+}> = ({ tools, onToggleTool }) => {
+  if (tools.length === 0) return null;
+
+  const aiOption = tools.find((t) => t.value === 'ai');
+  const staticTools = tools.filter((t) => t.value !== 'ai');
+
+  const groupsMap = new Map<string, ToolCategoryGroup>();
+  staticTools.forEach((tool) => {
+    const cat = TOOL_CATEGORY_MAP[tool.value.toLowerCase()] || 'Other Tools';
+    const group = groupsMap.get(cat) || { category: cat, count: 0, tools: [] };
+    group.count += tool.count;
+    group.tools.push(tool);
+    groupsMap.set(cat, group);
+  });
+
+  const orderedCategories = [
+    ...TOOL_CATEGORY_ORDER.map((c) => groupsMap.get(c)).filter(Boolean),
+    ...[...groupsMap.keys()].filter((c) => !TOOL_CATEGORY_ORDER.includes(c)).map((c) => groupsMap.get(c)!),
+  ] as ToolCategoryGroup[];
+
+  const totalStaticCount = staticTools.reduce((acc, t) => acc + t.count, 0);
+  const isAllStaticActive = staticTools.length > 0 && staticTools.every((t) => t.active);
+  const isAnyStaticActive = staticTools.some((t) => t.active);
+
+  const toggleAllStatic = () => {
+    const targetState = !isAllStaticActive;
+    staticTools.forEach((t) => {
+      if (t.active !== targetState) {
+        onToggleTool(t.value);
+      }
+    });
+  };
+
+  const toggleCategoryGroup = (groupTools: FacetOption[]) => {
+    const allActive = groupTools.every((t) => t.active);
+    const targetState = !allActive;
+    groupTools.forEach((t) => {
+      if (t.active !== targetState) {
+        onToggleTool(t.value);
+      }
+    });
+  };
+
+  return (
+    <div className="grid grid-cols-[minmax(120px,156px)_1fr] items-start gap-2.5">
+      <span className="pt-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">Source</span>
+      <div className="grid gap-2.5">
+        {/* Row 1: AI Review */}
+        {aiOption && (
+          <div className="flex flex-wrap gap-2">
+            <Chip option={aiOption} onClick={() => onToggleTool('ai')} />
+          </div>
+        )}
+
+        {/* Row 2: Static Tools */}
+        {staticTools.length > 0 && (
+          <div
+            className={classNames(
+              'grid gap-2.5 rounded-lg border p-2.5 transition-colors',
+              isAnyStaticActive ? 'border-blue-700/50 bg-slate-900/70' : 'border-slate-700/40 bg-slate-900/40'
+            )}
+          >
+            {/* Master Toggle */}
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={toggleAllStatic}
+                aria-pressed={isAllStaticActive}
+                title={isAllStaticActive ? 'Disable all static tools' : 'Enable all static tools'}
+                className={classNames(
+                  'inline-flex w-fit min-h-[34px] items-center gap-2 rounded-md border px-3 text-[13px] font-bold transition-colors cursor-pointer',
+                  isAllStaticActive
+                    ? 'border-blue-500/50 bg-blue-500/20 text-[#eef6ff]'
+                    : isAnyStaticActive
+                    ? 'border-blue-600/50 bg-blue-500/10 text-blue-200'
+                    : 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.3)] text-slate-300 hover:bg-[rgba(84,94,106,0.36)] hover:text-white'
+                )}
+              >
+                <span>Static Tools</span>
+                <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-white/10 px-1.5 text-[11px] font-bold">
+                  {totalStaticCount}
+                </span>
+              </button>
+            </div>
+
+            {/* Directly visible categories with boundary, with tools placed underneath */}
+            <div className="relative grid gap-2.5 border-l border-slate-700/60 pl-[18px]">
+              {orderedCategories.map((catGroup) => {
+                const isCatAllActive = catGroup.tools.every((t) => t.active);
+                const isCatAnyActive = catGroup.tools.some((t) => t.active);
+
+                return (
+                  <div
+                    key={catGroup.category}
+                    className={classNames(
+                      'grid gap-2 rounded-lg border p-2.5 transition-colors',
+                      isCatAllActive
+                        ? 'border-blue-700/50 bg-slate-900/70'
+                        : isCatAnyActive
+                        ? 'border-blue-700/30 bg-slate-900/50'
+                        : 'border-slate-700/40 bg-slate-900/40'
+                    )}
+                  >
+                    {/* Tool Category header/toggle */}
+                    <button
+                      type="button"
+                      onClick={() => toggleCategoryGroup(catGroup.tools)}
+                      aria-pressed={isCatAllActive}
+                      title={`Toggle all ${catGroup.category} tools`}
+                      className={classNames(
+                        'inline-flex w-fit min-h-[30px] items-center gap-2 rounded-md border px-2.5 text-xs font-bold transition-colors cursor-pointer',
+                        isCatAllActive
+                          ? 'border-blue-500/50 bg-blue-500/20 text-[#eef6ff]'
+                          : isCatAnyActive
+                          ? 'border-blue-600/50 bg-blue-500/10 text-blue-200'
+                          : 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.3)] text-slate-300 hover:bg-[rgba(84,94,106,0.36)] hover:text-white'
+                      )}
+                    >
+                      <span>{catGroup.category}</span>
+                      <span className="inline-flex h-4 min-w-[18px] items-center justify-center rounded-full bg-white/10 px-1 text-[10px] font-bold">
+                        {catGroup.count}
+                      </span>
+                    </button>
+
+                    {/* Tools under this category: placed underneath with visual hierarchy border */}
+                    <div className="relative flex flex-wrap gap-2 border-l border-slate-700/60 pl-[18px]">
+                      {catGroup.tools.map((tool) => (
+                        <button
+                          key={tool.value}
+                          type="button"
+                          onClick={() => onToggleTool(tool.value)}
+                          aria-pressed={tool.active}
+                          title={`Toggle ${tool.label}`}
+                          className={classNames(
+                            'inline-flex min-h-[26px] items-center gap-2 rounded-full border px-2.5 text-[11px] font-semibold transition-colors cursor-pointer',
+                            tool.active
+                              ? 'border-blue-700/60 bg-blue-500/[0.18] text-blue-100'
+                              : 'border-[rgba(110,118,129,0.22)] bg-[rgba(69,78,89,0.28)] text-slate-300 hover:bg-slate-700/40 hover:text-white'
+                          )}
+                        >
+                          <span>{tool.label}</span>
+                          <span className="inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-white/10 px-1 text-[10px] font-bold">
+                            {tool.count}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const CategoryTree: React.FC<{
   groups: CategoryGroup[];
   onToggleCategory: (value: string, childSubcategories: string[]) => void;
@@ -275,12 +478,12 @@ const IssueFilterBar: React.FC<IssueFilterBarProps> = ({
           </div>
         </div>
         <div className="grid gap-3">
-          {facets.tools.length > 0 && (
-            <FacetSection title="Tool" options={facets.tools} onToggle={onToggleTool} />
-          )}
           <FacetSection title="Confidence" options={facets.confidences} onToggle={onToggleConfidence} />
           <FacetSection title="Type" options={facets.types} onToggle={onToggleType} />
           <CategoryTree groups={facets.categoryGroups} onToggleCategory={onToggleCategory} onToggleSubcategory={onToggleSubcategory} />
+          {facets.tools.length > 0 && (
+            <SourceSection tools={facets.tools} onToggleTool={onToggleTool} />
+          )}
         </div>
       </div>
     </div>
