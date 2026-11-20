@@ -522,6 +522,26 @@ major) - a Git tag, a pushed multi-arch Docker image, and a published GitHub
 release with notes. Every step below is a `make` target; none require manual
 Docker/`gh` invocations beyond the one-time registry login in step 3.
 
+0. **Run the local security/scanner suite and confirm every one is green
+   before tagging anything.** CI re-runs these on push, but a release is
+   the moment that output actually ships - catching a finding after the
+   tag and Docker image are already out is more disruptive than catching
+   it before. Run, in order (see the `hex-livereview-security-checks`
+   skill for the canonical sequence):
+   - `make security-govulncheck` (Go stdlib/dependency CVEs)
+   - `make security-osv` (`osv-scanner`, dependency vulnerabilities - requires
+     `osv-scanner` installed locally, see the target's own error for the link)
+   - `make security-gitleaks` (secrets - requires `gitleaks` installed locally)
+   - semgrep static analysis (see the security-checks skill for the exact
+     invocation used in CI)
+   A real finding blocks the release until fixed or explicitly triaged as a
+   false positive (document why in the commit/PR, same as any other review
+   finding). A finding caused by the *scanner's own infra* (a rate-limited
+   GitHub API call, a flaky download) is not a secret/vulnerability - fix the
+   workflow/script, verify the underlying scan is actually clean locally
+   (e.g. `make security-gitleaks` reporting "no leaks found"), and don't let
+   infra flakiness block or get confused with a real finding.
+
 1. **Ensure a clean working tree**, and that **`.env.selfhosted` exists at
    the repo root** with `LIVEREVIEW_IS_CLOUD=false` and `LIVI_DEBUG_LOG=false`.
    `version-bump`/`version-patch`/`version-minor`/`version-major` refuse to
