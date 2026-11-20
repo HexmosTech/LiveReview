@@ -104,6 +104,59 @@ func Prepare(ctx context.Context, root string, r Repo) (c *Checkout, unlock func
 	return c, release, nil
 }
 
+// PrepareDefaultBranch clones on first use and checks out the tip of r's
+// default branch (or r.BaseBranch, if set) - no PR involved. Used to index a
+// related repo for cross-repo blast-radius context (docs/multi-repo-blast-radius-plan.md),
+// as opposed to Prepare, which checks out a specific PR's head. Call unlock
+// when done; a job on the same repo in any process waits for it.
+func PrepareDefaultBranch(ctx context.Context, root string, r Repo) (c *Checkout, unlock func(), err error) {
+	base, err := EntryDir(root, r)
+	if err != nil {
+		return nil, nil, err
+	}
+	dir := filepath.Join(base, "repo")
+
+	release, _, err := lockEntry(ctx, base, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() {
+		if err != nil {
+			release()
+		}
+	}()
+
+	c = &Checkout{Dir: dir, env: append(gitEnv(r), "GIT_CEILING_DIRECTORIES="+base)}
+	if err = c.ensureClone(ctx, r.CloneURL); err != nil {
+		return nil, nil, err
+	}
+
+	baseBranch := r.BaseBranch
+	if baseBranch == "" {
+		if baseBranch, err = c.defaultBranch(ctx); err != nil {
+			return nil, nil, err
+		}
+	}
+	if err = shallowFallback(func(limit string) error {
+		_, err := c.git(ctx, "fetch", "--filter=blob:none", limit, "--no-tags", "origin",
+			"+refs/heads/"+baseBranch+":refs/remotes/origin/"+baseBranch)
+		return err
+	}); err != nil {
+		return nil, nil, err
+	}
+	if c.HeadSHA, err = c.git(ctx, "rev-parse", "refs/remotes/origin/"+baseBranch); err != nil {
+		return nil, nil, err
+	}
+	c.BaseSHA = c.HeadSHA
+	if _, err = c.git(ctx, "checkout", "--force", "--detach", c.HeadSHA); err != nil {
+		return nil, nil, err
+	}
+	if err = os.WriteFile(filepath.Join(base, ".lastused"), nil, 0o644); err != nil {
+		return nil, nil, err
+	}
+	return c, release, nil
+}
+
 // EntryDir is r's cache folder: <root>/<org_id>/<connector_id>/<owner>__<repo>, absolute
 // because git commands run from different dirs.
 func EntryDir(root string, r Repo) (string, error) {

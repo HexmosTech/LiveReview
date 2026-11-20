@@ -281,6 +281,17 @@ export interface BlastRadiusCallerRef {
   PreRename?: boolean;
 }
 
+// BlastRadiusCrossRepoImpact is one cross-repo call linking a symbol to a
+// route/handler in a related repo, set by the server's cross_repo_link job
+// (see docs/multi-repo-blast-radius-plan.md). Mirrors Go's CrossRepoImpact
+// (internal/blastradius/types.go) field-for-field.
+export interface BlastRadiusCrossRepoImpact {
+  RelatedRepo: string;
+  CallSite: string;
+  EdgeType: string;
+  Confidence?: number;
+}
+
 export interface BlastRadiusSymbolContribution {
   QualifiedName: string;
   Name: string;
@@ -301,6 +312,7 @@ export interface BlastRadiusSymbolContribution {
   LoopDepth?: number;
   OutDegree?: number;
   TestCount?: number;
+  ImpactedRelatedRepos?: BlastRadiusCrossRepoImpact[];
 }
 
 export interface BlastRadiusWeights {
@@ -331,6 +343,7 @@ export interface BlastRadiusHunkReport {
   Symbols?: BlastRadiusSymbolContribution[];
   ImpactedPackages?: string[];
   FileCouplingBonus?: number;
+  ImpactedRelatedRepos?: BlastRadiusCrossRepoImpact[];
   // Client-side only — attached by lib/blastRadius.ts's attachBlastData()
   // when blending LLM finding severity into the sort score; never part of
   // git-lrc's raw artifact. Mirrors the FindingSeverity* fields git-lrc's

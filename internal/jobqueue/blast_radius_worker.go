@@ -178,9 +178,16 @@ func (w *BlastRadiusWorker) saveSkipped(ctx context.Context, orgID, reviewID int
 // loadRepo builds the repocache.Repo for a review; skip is non-empty when the
 // review isn't a PR review blast radius can run on.
 func (w *BlastRadiusWorker) loadRepo(ctx context.Context, orgID, reviewID int64) (r repocache.Repo, skip string, err error) {
+	return loadReviewRepo(ctx, w.db, orgID, reviewID)
+}
+
+// loadReviewRepo is the shared implementation behind BlastRadiusWorker.loadRepo
+// and CrossRepoLinkWorker's main-repo checkout - both need the exact same
+// PR-URL parsing and token resolution to land on the same repocache entry.
+func loadReviewRepo(ctx context.Context, db *sql.DB, orgID, reviewID int64) (r repocache.Repo, skip string, err error) {
 	var prURL, triggerType, reviewBranch string
 	var connectorID, pullRequestID sql.NullInt64
-	err = w.db.QueryRowContext(ctx,
+	err = db.QueryRowContext(ctx,
 		`SELECT COALESCE(pr_mr_url, ''), connector_id, pull_request_id, trigger_type, COALESCE(branch, '') FROM reviews WHERE id = $1 AND org_id = $2`,
 		reviewID, orgID,
 	).Scan(&prURL, &connectorID, &pullRequestID, &triggerType, &reviewBranch)
@@ -195,7 +202,7 @@ func (w *BlastRadiusWorker) loadRepo(ctx context.Context, orgID, reviewID int64)
 	}
 
 	var provider, providerURL, accessToken, tokenType, patToken string
-	err = w.db.QueryRowContext(ctx,
+	err = db.QueryRowContext(ctx,
 		`SELECT provider, provider_url, COALESCE(access_token, ''), COALESCE(token_type, ''), COALESCE(pat_token, '')
 		 FROM integration_tokens WHERE id = $1 AND org_id = $2`,
 		connectorID.Int64, orgID,
@@ -222,7 +229,7 @@ func (w *BlastRadiusWorker) loadRepo(ctx context.Context, orgID, reviewID int64)
 	}
 	if tokenType == "GITHUB_APP" {
 		// The cached installation token expires after an hour; resolve a usable one (mints a new one if needed).
-		store := storagegithub.NewTokenStore(w.db)
+		store := storagegithub.NewTokenStore(db)
 		rec, recErr := store.GetGitHubTokenByConnectorID(connectorID.Int64)
 		if recErr != nil || rec == nil || rec.OrgID != orgID {
 			return r, "", fmt.Errorf("load GitHub App connector %d: %v", connectorID.Int64, recErr)
@@ -236,7 +243,7 @@ func (w *BlastRadiusWorker) loadRepo(ctx context.Context, orgID, reviewID int64)
 	r.Username, r.Token = gitCredentials(provider, accessToken, tokenType, patToken)
 
 	if pullRequestID.Valid {
-		err = w.db.QueryRowContext(ctx,
+		err = db.QueryRowContext(ctx,
 			`SELECT COALESCE(target_branch, ''), COALESCE(source_branch, '') FROM pull_requests WHERE id = $1 AND org_id = $2`,
 			pullRequestID.Int64, orgID,
 		).Scan(&r.BaseBranch, &r.SourceBranch)

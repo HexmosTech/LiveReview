@@ -156,7 +156,7 @@ Optional later: tag releases as `blastradius/vX.Y.Z` in git-lrc (Go's convention
      Pass the token through a credential helper / env, never in a logged URL or in `repo/.git/config`. SSH is not used: it would need a key registered per repo (GitHub deploy keys can't be shared across repos) or a machine-user account, plus `known_hosts` per git host, while every connector already has a token.
 
 2. **Graph index**
-   - The Docker image's `codebase-memory-mcp` is pinned to **v0.9.0** (same as git-lrc's `graphengine.PinnedVersion`) and locked in `PINNED_DOCKER_DEPS`. v0.10.x prints `query_graph` results as text even with `--json`, which the engine can't parse (checked with v0.10.8). Bump only together with git-lrc.
+   - The Docker image's `codebase-memory-mcp` is pinned to **v0.12.1** (same as git-lrc's `graphengine.PinnedVersion`) and locked in `PINNED_DOCKER_DEPS`. v0.10.x printed `query_graph` results as text even with `--json` (checked with v0.10.8); that regression is fixed as of v0.12.1, which is also where JS/TS template-literal base-URL resolution, Go route/outbound-call detection, and OpenAPI/Swagger Route ingestion landed — all load-bearing for `docs/multi-repo-blast-radius-plan.md`. Bump only together with git-lrc.
    - Indexes go to `/app/lrdata/repo_cache/index/` via `CBM_CACHE_DIR`; each index file is named after the repo's full cache path (which includes org and connector), so they never collide across tenants. Indexes are big (prometheus: 126 MB index vs 44 MB repo), so `max_gb` and eviction (step 6) must count and delete them together with the repo.
 
 3. **Scoring engine** — Option B above: `go get github.com/HexmosTech/git-lrc/blastradius@<commit>`, call `blastradius.ScoreHunks`.
@@ -206,9 +206,9 @@ Optional later: tag releases as `blastradius/vX.Y.Z` in git-lrc (Go's convention
 
 - **Disk**: roughly one source tree + ~1 year of commit metadata + graph index per repo, capped by the admin-set `max_gb` (default 5 GB, min 1 GB, step 5). A repo bigger than `max_gb` is skipped and the review page says so, with a link to raise the limit (step 4).
 - **Rename detection off**: with `diff.renames=false`, a renamed file shows up under both its old and new name in co-change data. Small effect; turn it back on if it matters (costs a one-time lazy download).
-- **Engine history window** (`--since="1 year ago"`) is read from the v0.9.0 binary; re-check it for v0.10.8 and keep `--shallow-since` a month wider.
+- **Engine history window** (`--since="1 year ago"`) is read from the v0.9.0 binary; re-verified unchanged in v0.12.1. Keep `--shallow-since` a month wider.
 - **CPU/RAM**: first index of a large repo takes minutes; concurrency must stay low so it doesn't starve review workers.
-- **Engine version drift**: v0.10.8 (server) vs v0.9.0 (CLI) may score the same diff slightly differently.
+- **Engine version drift**: now moot — server and CLI both pin v0.12.1 (see `docs/multi-repo-blast-radius-plan.md`).
 - **PR updated after review**: the UI re-fetches the *current* PR diff, so if new commits are pushed later, old blast-radius keys stop matching (AI comments have the same issue today). Hunks with no match simply show no badge.
 - **Page open before blast radius finishes**: the UI fetches the artifact once on load; a user who opens the review early sees it only after a reload. Polling the artifact while it's absent is a possible follow-up.
 - **Scores are relative per diff** (normalized to the top hunk), same as the CLI — not comparable across reviews.

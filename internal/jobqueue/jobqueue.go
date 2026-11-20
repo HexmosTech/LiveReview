@@ -2448,6 +2448,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, preloadedChangesArchivalPurgeWorker)
 	river.AddWorker(workers, seedDemoWorker)
 	river.AddWorker(workers, &BlastRadiusWorker{db: db})
+	river.AddWorker(workers, &CrossRepoLinkWorker{db: db})
 	river.AddWorker(workers, &RiskModelRefitWorker{db: db})
 	ssoJWTSecret := os.Getenv("JWT_SECRET")
 	if ssoJWTSecret == "" {
@@ -2709,6 +2710,11 @@ func (jq *JobQueue) QueueManualReviewJob(ctx context.Context, orgID int64, planC
 	// Blast radius runs in parallel with the review; it's best-effort, so a queue error never fails the review.
 	if _, err := jq.client.Insert(ctx, BlastRadiusJobArgs{OrgID: orgID, ReviewID: reviewID}, &river.InsertOpts{Queue: "blast_radius", MaxAttempts: 1}); err != nil {
 		log.Printf("[WARN] Failed to queue blast radius job for review %d: %v", reviewID, err)
+	}
+	// Queued right after, on the same single-worker queue, so it runs once the blast-radius
+	// report it enriches already exists (see queue_config.go). Also best-effort.
+	if _, err := jq.client.Insert(ctx, CrossRepoLinkJobArgs{OrgID: orgID, ReviewID: reviewID}, &river.InsertOpts{Queue: "blast_radius", MaxAttempts: 1}); err != nil {
+		log.Printf("[WARN] Failed to queue cross-repo-link job for review %d: %v", reviewID, err)
 	}
 	return nil
 }

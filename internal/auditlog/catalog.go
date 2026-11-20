@@ -172,13 +172,15 @@ const (
 	ActionWebhookInstall        Action = "webhook.install"
 	ActionWebhookUninstall      Action = "webhook.uninstall"
 
-	ActionRepositoryCreate Action = "repository.create"
-	ActionRepositoryUpdate Action = "repository.update"
-	ActionRepositoryDelete Action = "repository.delete"
-	ActionRepositorySync   Action = "repository.sync"
-	ActionRulesetCreate    Action = "ruleset.create"
-	ActionRulesetUpdate    Action = "ruleset.update"
-	ActionRulesetDelete    Action = "ruleset.delete"
+	ActionRepositoryCreate         Action = "repository.create"
+	ActionRepositoryUpdate         Action = "repository.update"
+	ActionRepositoryDelete         Action = "repository.delete"
+	ActionRepositorySync           Action = "repository.sync"
+	ActionRepositoryRelationAdd    Action = "repository.relation.add"
+	ActionRepositoryRelationRemove Action = "repository.relation.remove"
+	ActionRulesetCreate            Action = "ruleset.create"
+	ActionRulesetUpdate            Action = "ruleset.update"
+	ActionRulesetDelete            Action = "ruleset.delete"
 
 	ActionReviewCreate        Action = "review.create"
 	ActionReviewTrigger       Action = "review.trigger"
@@ -327,6 +329,8 @@ var actionCatalog = func() map[Action]ActionMeta {
 		meta(ActionRepositoryUpdate, CategoryRepository, "repository", "Repository updated", "A repository's settings were changed.", SeverityInfo),
 		sensitive(meta(ActionRepositoryDelete, CategoryRepository, "repository", "Repository removed", "A repository was removed.", SeverityWarning)),
 		meta(ActionRepositorySync, CategoryRepository, "repository", "Repository synced", "A repository sync ran.", SeverityInfo),
+		meta(ActionRepositoryRelationAdd, CategoryRepository, "repository", "Related repo added", "A repository was linked as related, for cross-repo blast-radius context.", SeverityInfo),
+		meta(ActionRepositoryRelationRemove, CategoryRepository, "repository", "Related repo removed", "A related-repo link was removed.", SeverityInfo),
 		sensitive(meta(ActionRulesetCreate, CategoryRepository, "ruleset", "Ruleset created", "A CI ruleset was created.", SeverityWarning)),
 		sensitive(meta(ActionRulesetUpdate, CategoryRepository, "ruleset", "Ruleset updated", "A CI ruleset was changed.", SeverityWarning)),
 		sensitive(meta(ActionRulesetDelete, CategoryRepository, "ruleset", "Ruleset deleted", "A CI ruleset was deleted.", SeverityWarning)),

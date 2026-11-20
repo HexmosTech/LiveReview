@@ -121,7 +121,7 @@ LABEL description="LiveReview - AI-powered code review tool"
 
 # Frozen Docker dependency versions - see docker/docker-deps.env
 ARG VLCONVERT_VERSION=v1.9.0
-ARG CODEBASE_MEMORY_MCP_VERSION=v0.9.0
+ARG CODEBASE_MEMORY_MCP_VERSION=v0.12.1
 ARG DBCTX_VERSION=v0.1.0
 ARG ALAWS_VERSION=v0.1.0
 

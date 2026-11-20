@@ -31,20 +31,32 @@ func init() {
 // Score refreshes the graph index for repoDir (incremental after the first run) and scores
 // diff against it; project is the index's name.
 func Score(ctx context.Context, repoDir string, diff []byte) (report *blastradius.Report, project string, err error) {
+	project, err = IndexOnly(ctx, repoDir)
+	if err != nil {
+		return nil, "", err
+	}
 	binary, err := exec.LookPath(engineBinary)
 	if err != nil {
 		return nil, "", fmt.Errorf("serverscore: %s not found on PATH: %w", engineBinary, err)
-	}
-	if err := os.MkdirAll(indexDir, 0o755); err != nil {
-		return nil, "", err
-	}
-
-	project, err = (&client.Client{Binary: binary}).IndexRepository(ctx, repoDir, "fast")
-	if err != nil {
-		return nil, "", err
 	}
 	opts := blastradius.DefaultOptions()
 	opts.Binary = binary
 	report, err = blastradius.ScoreDiff(ctx, diff, project, opts)
 	return report, project, err
+}
+
+// IndexOnly refreshes the graph index for repoDir (incremental after the
+// first run) without scoring any diff, returning the index's project name.
+// Used for a related repo that has no PR of its own to score (see
+// internal/jobqueue/cross_repo_link_worker.go) - it only needs to exist in
+// the graph for LinkRelatedProjects to match routes against.
+func IndexOnly(ctx context.Context, repoDir string) (project string, err error) {
+	binary, err := exec.LookPath(engineBinary)
+	if err != nil {
+		return "", fmt.Errorf("serverscore: %s not found on PATH: %w", engineBinary, err)
+	}
+	if err := os.MkdirAll(indexDir, 0o755); err != nil {
+		return "", err
+	}
+	return (&client.Client{Binary: binary}).IndexRepository(ctx, repoDir, "fast")
 }

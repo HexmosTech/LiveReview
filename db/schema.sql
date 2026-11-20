@@ -2802,6 +2802,54 @@ ALTER SEQUENCE public.repositories_id_seq OWNED BY public.repositories.id;
 
 
 --
+-- Name: repository_relations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.repository_relations (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    repository_id bigint NOT NULL,
+    related_repository_id bigint NOT NULL,
+    created_by bigint,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ck_repository_relations_not_self CHECK ((repository_id <> related_repository_id))
+);
+
+
+--
+-- Name: TABLE repository_relations; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.repository_relations IS 'Admin-declared "related repo" links used to build cross-repo blast-radius context (see docs/multi-repo-blast-radius-plan.md). Stored directionally (one row per declared pair) but read symmetrically by callers. Both repository_id and related_repository_id must belong to org_id - enforced in the API handler, not just by this schema, since a FK alone cannot check that both repos share the same org.';
+
+
+--
+-- Name: COLUMN repository_relations.created_by; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.repository_relations.created_by IS 'The user who added this relation, for display/audit context; NULL if the user was later deleted.';
+
+
+--
+-- Name: repository_relations_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.repository_relations_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: repository_relations_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.repository_relations_id_seq OWNED BY public.repository_relations.id;
+
+
+--
 -- Name: review_commits; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4583,6 +4631,13 @@ ALTER TABLE ONLY public.repositories ALTER COLUMN id SET DEFAULT nextval('public
 
 
 --
+-- Name: repository_relations id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repository_relations ALTER COLUMN id SET DEFAULT nextval('public.repository_relations_id_seq'::regclass);
+
+
+--
 -- Name: review_commits id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -5340,6 +5395,14 @@ ALTER TABLE ONLY public.repositories
 
 
 --
+-- Name: repository_relations repository_relations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repository_relations
+    ADD CONSTRAINT repository_relations_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: review_commits review_commits_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5737,6 +5800,14 @@ ALTER TABLE ONLY public.quota_policy_catalog
 
 ALTER TABLE ONLY public.repositories
     ADD CONSTRAINT uq_repositories_connector_provider_repo UNIQUE (connector_id, provider_repo_id);
+
+
+--
+-- Name: repository_relations uq_repository_relations_pair; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repository_relations
+    ADD CONSTRAINT uq_repository_relations_pair UNIQUE (repository_id, related_repository_id);
 
 
 --
@@ -7609,6 +7680,27 @@ CREATE INDEX idx_repositories_org_id ON public.repositories USING btree (org_id)
 --
 
 CREATE INDEX idx_repositories_org_provider ON public.repositories USING btree (org_id, provider);
+
+
+--
+-- Name: idx_repository_relations_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_repository_relations_org_id ON public.repository_relations USING btree (org_id);
+
+
+--
+-- Name: idx_repository_relations_related_repo_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_repository_relations_related_repo_id ON public.repository_relations USING btree (related_repository_id);
+
+
+--
+-- Name: idx_repository_relations_repository_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_repository_relations_repository_id ON public.repository_relations USING btree (repository_id);
 
 
 --
@@ -9959,6 +10051,38 @@ ALTER TABLE ONLY public.repositories
 
 
 --
+-- Name: repository_relations repository_relations_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repository_relations
+    ADD CONSTRAINT repository_relations_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+
+
+--
+-- Name: repository_relations repository_relations_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repository_relations
+    ADD CONSTRAINT repository_relations_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: repository_relations repository_relations_related_repository_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repository_relations
+    ADD CONSTRAINT repository_relations_related_repository_id_fkey FOREIGN KEY (related_repository_id) REFERENCES public.repositories(id) ON DELETE CASCADE;
+
+
+--
+-- Name: repository_relations repository_relations_repository_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repository_relations
+    ADD CONSTRAINT repository_relations_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES public.repositories(id) ON DELETE CASCADE;
+
+
+--
 -- Name: review_commits review_commits_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -10609,4 +10733,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261031070300'),
     ('20261031120000'),
     ('20261031140000'),
-    ('20261106135226');
+    ('20261106135226'),
+    ('20261120090000');
