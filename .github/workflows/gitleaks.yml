@@ -21,9 +21,24 @@ jobs:
           fetch-depth: 0
       - name: Resolve latest gitleaks version
         id: gitleaks-version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          RELEASE_JSON="$(curl -fsSL https://api.github.com/repos/gitleaks/gitleaks/releases/latest)"
+          # Authenticated (GITHUB_TOKEN, always available): 5000 req/hr vs
+          # 60 req/hr unauthenticated - GitHub-hosted runners share IPs
+          # across the whole fleet, so the unauthenticated limit was
+          # getting hit by unrelated traffic and failing this job with a
+          # plain 403, unrelated to any actual secret in the diff. Retries
+          # as a second line of defense against any other transient blip.
+          RELEASE_JSON=""
+          for attempt in 1 2 3; do
+            if RELEASE_JSON="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" https://api.github.com/repos/gitleaks/gitleaks/releases/latest)"; then
+              break
+            fi
+            echo "Attempt ${attempt} to resolve latest gitleaks version failed, retrying..."
+            sleep 5
+          done
           VERSION="$(printf '%s' "$RELEASE_JSON" | grep -m1 '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')"
           if [ -z "$VERSION" ]; then
             echo "Failed to resolve latest gitleaks version"
