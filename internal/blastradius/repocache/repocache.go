@@ -81,6 +81,9 @@ func Prepare(ctx context.Context, root string, r Repo) (c *Checkout, unlock func
 			return nil, nil, err
 		}
 	}
+	if !validRefName(baseBranch) {
+		return nil, nil, fmt.Errorf("repocache: invalid base branch name %q", baseBranch)
+	}
 	if err = shallowFallback(func(limit string) error {
 		_, err := c.git(ctx, "fetch", "--filter=blob:none", limit, "--no-tags", "origin",
 			"+refs/heads/"+baseBranch+":refs/remotes/origin/"+baseBranch,
@@ -136,6 +139,9 @@ func PrepareDefaultBranch(ctx context.Context, root string, r Repo) (c *Checkout
 		if baseBranch, err = c.defaultBranch(ctx); err != nil {
 			return nil, nil, err
 		}
+	}
+	if !validRefName(baseBranch) {
+		return nil, nil, fmt.Errorf("repocache: invalid base branch name %q", baseBranch)
 	}
 	if err = shallowFallback(func(limit string) error {
 		_, err := c.git(ctx, "fetch", "--filter=blob:none", limit, "--no-tags", "origin",
@@ -217,6 +223,20 @@ func shallowFallback(fn func(limit string) error) error {
 		err = fn("--depth=200")
 	}
 	return err
+}
+
+// validRefName rejects a branch name that could break refspec parsing or
+// write into an unintended ref namespace when interpolated directly into a
+// "+refs/heads/<name>:refs/remotes/..." string, e.g. one containing a colon,
+// whitespace, or a leading '-' a shell/CLI arg parser could mistake for a
+// flag. Call sites never pass this through a shell (exec.Command takes an
+// argv slice, not a shell string), so this guards refspec syntax, not shell
+// injection.
+func validRefName(name string) bool {
+	if name == "" || strings.ContainsAny(name, " \t\n:\\*?[~^") || strings.HasPrefix(name, "-") || strings.HasPrefix(name, "+") {
+		return false
+	}
+	return true
 }
 
 func (c *Checkout) defaultBranch(ctx context.Context) (string, error) {

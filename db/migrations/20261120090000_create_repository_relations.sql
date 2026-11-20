@@ -5,10 +5,13 @@ CREATE TABLE repository_relations (
     org_id                  BIGINT NOT NULL REFERENCES orgs(id),
     repository_id           BIGINT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
     related_repository_id   BIGINT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
-    created_by              BIGINT REFERENCES users(id),
+    created_by              BIGINT REFERENCES users(id) ON DELETE SET NULL,
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uq_repository_relations_pair UNIQUE (repository_id, related_repository_id),
-    CONSTRAINT ck_repository_relations_not_self CHECK (repository_id <> related_repository_id)
+    -- Canonical ordering (API always inserts the lower repository id first)
+    -- also rules out (A,B) and (B,A) existing as separate rows, which the
+    -- UNIQUE constraint alone would allow since it's not symmetric.
+    CONSTRAINT ck_repository_relations_ordered CHECK (repository_id < related_repository_id)
 );
 
 CREATE INDEX idx_repository_relations_org_id             ON repository_relations(org_id);

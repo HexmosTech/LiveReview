@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Button, SingleSelectField, Spinner } from '../UIPrimitives';
 import {
   addRelatedRepository,
@@ -11,6 +11,10 @@ import { useOrgContext } from '../../hooks/useOrgContext';
 import { notify } from '../../utils/notify';
 import { Repository } from '../../types/explore';
 
+// MAX_CANDIDATE_PAGES bounds the repo-picker's pagination loop (at 200/page,
+// 20 pages = 4000 repos) - a safety cap, not an expected org size.
+const MAX_CANDIDATE_PAGES = 20;
+
 // Repository settings → Related Repos: other repos (any connected provider)
 // whose code graph should be linked with this one for cross-repo blast-radius
 // context (see docs/multi-repo-blast-radius-plan.md). Mirrors RepoCacheSection's
@@ -22,21 +26,42 @@ const RelatedReposSection: React.FC<{ repo: Repository }> = ({ repo }) => {
   const [related, setRelated] = useState<RelatedRepository[] | null>(null);
   const [error, setError] = useState(false);
   const [candidates, setCandidates] = useState<Repository[]>([]);
+  const [candidatesError, setCandidatesError] = useState(false);
   const [picked, setPicked] = useState('');
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<number | null>(null);
 
-  const load = () => {
+  // mountedRef guards every setState below that follows an async call (the
+  // initial effect, and the add/remove handlers' refresh) so a response that
+  // lands after the component unmounts is a no-op instead of a warning.
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
+  const loadRelated = () => {
     setError(false);
-    getRelatedRepositories(repo.id).then(setRelated).catch(() => setError(true));
+    getRelatedRepositories(repo.id)
+      .then((res) => { if (mountedRef.current) setRelated(res); })
+      .catch(() => { if (mountedRef.current) setError(true); });
   };
-  useEffect(load, [repo.id]);
+  useEffect(loadRelated, [repo.id]);
 
   // Candidate list: every other repo in the org, minus ones already related.
+  // The repositories API caps per_page at 200, so this pages through all of
+  // them (capped at MAX_CANDIDATE_PAGES as a sanity bound) instead of
+  // silently truncating the picker to the first 200 repos in large orgs.
   useEffect(() => {
-    getRepositories({ perPage: 200 })
-      .then((res) => setCandidates((res.repositories || []).filter((r) => r.id !== repo.id)))
-      .catch(() => setCandidates([]));
+    setCandidatesError(false);
+    (async () => {
+      const all: Repository[] = [];
+      for (let page = 1; page <= MAX_CANDIDATE_PAGES; page++) {
+        const res = await getRepositories({ perPage: 200, page });
+        all.push(...(res.repositories || []));
+        if (page >= (res.total_pages || 1)) break;
+      }
+      return all;
+    })()
+      .then((all) => { if (mountedRef.current) setCandidates(all.filter((r) => r.id !== repo.id)); })
+      .catch(() => { if (mountedRef.current) { setCandidates([]); setCandidatesError(true); } });
   }, [repo.id]);
 
   const relatedIds = new Set((related || []).map((r) => r.repository_id));
@@ -49,13 +74,13 @@ const RelatedReposSection: React.FC<{ repo: Repository }> = ({ repo }) => {
     setAdding(true);
     try {
       await addRelatedRepository(repo.id, Number(picked));
-      setPicked('');
+      if (mountedRef.current) setPicked('');
       notify.success('Related repository added');
-      load();
+      loadRelated();
     } catch (e: any) {
       notify.error(e?.message || 'Failed to add related repository');
     } finally {
-      setAdding(false);
+      if (mountedRef.current) setAdding(false);
     }
   };
 
@@ -64,11 +89,11 @@ const RelatedReposSection: React.FC<{ repo: Repository }> = ({ repo }) => {
     try {
       await removeRelatedRepository(repo.id, relationId);
       notify.success('Related repository removed');
-      load();
+      loadRelated();
     } catch (e: any) {
       notify.error(e?.message || 'Failed to remove related repository');
     } finally {
-      setRemovingId(null);
+      if (mountedRef.current) setRemovingId(null);
     }
   };
 
@@ -111,13 +136,18 @@ const RelatedReposSection: React.FC<{ repo: Repository }> = ({ repo }) => {
           </ul>
         )}
         {canManage && (
-          <div className="mt-4 flex items-end gap-2">
-            <div className="flex-1">
-              <SingleSelectField label="repository" options={options} value={picked} onChange={setPicked} placeholder="Choose a repository to link" searchable />
+          <div className="mt-4">
+            {candidatesError && (
+              <p className="mb-2 text-xs text-red-400">Couldn't load the repository list to link from - try reloading this page.</p>
+            )}
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <SingleSelectField label="repository" options={options} value={picked} onChange={setPicked} placeholder="Choose a repository to link" searchable />
+              </div>
+              <Button variant="primary" size="sm" onClick={add} isLoading={adding} disabled={!picked || adding}>
+                Add
+              </Button>
             </div>
-            <Button variant="primary" size="sm" onClick={add} isLoading={adding} disabled={!picked || adding}>
-              Add
-            </Button>
           </div>
         )}
       </>

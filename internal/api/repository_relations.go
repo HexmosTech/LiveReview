@@ -70,6 +70,9 @@ func (s *Server) ListRelatedRepositories(c echo.Context) error {
 		}
 		related = append(related, rr)
 	}
+	if err := rows.Err(); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to read related repositories")
+	}
 	return c.JSON(http.StatusOK, related)
 }
 
@@ -108,11 +111,18 @@ func (s *Server) AddRelatedRepository(c echo.Context) error {
 	if pc.User != nil {
 		createdBy = pc.User.ID
 	}
+	// Store in canonical (lower id, higher id) order so (A,B) and (B,A) can
+	// never both exist as separate rows - the schema's UNIQUE constraint and
+	// CHECK(repository_id < related_repository_id) both assume this.
+	a, b := repoID, req.RelatedRepositoryID
+	if a > b {
+		a, b = b, a
+	}
 	_, err = s.db.ExecContext(c.Request().Context(), `
 		INSERT INTO repository_relations (org_id, repository_id, related_repository_id, created_by)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (repository_id, related_repository_id) DO NOTHING`,
-		pc.OrgID, repoID, req.RelatedRepositoryID, createdBy)
+		pc.OrgID, a, b, createdBy)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to add related repository")
 	}

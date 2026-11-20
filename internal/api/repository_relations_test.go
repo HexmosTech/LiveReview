@@ -144,19 +144,45 @@ func TestRelatedRepositories_AddListRemove(t *testing.T) {
 	// 3. List from repoA's side shows repoB; list from repoB's side (the
 	//    other direction) shows repoA - confirms the symmetric read.
 	c, rec = newRelationsCtx(e, http.MethodGet, "", owner, repoA, 0)
-	_ = s.ListRelatedRepositories(c)
-	_ = json.Unmarshal(rec.Body.Bytes(), &listed)
+	if err := s.ListRelatedRepositories(c); err != nil {
+		t.Fatalf("list from repoA: %v", err)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode list from repoA: %v", err)
+	}
 	if len(listed) != 1 || listed[0].RepositoryID != repoB || listed[0].FullName != "acme/backend" {
 		t.Fatalf("list from repoA: %+v", listed)
 	}
 	relationID := listed[0].RelationID
 
 	c, rec = newRelationsCtx(e, http.MethodGet, "", owner, repoB, 0)
-	_ = s.ListRelatedRepositories(c)
+	if err := s.ListRelatedRepositories(c); err != nil {
+		t.Fatalf("list from repoB: %v", err)
+	}
 	var listedFromB []RelatedRepository
-	_ = json.Unmarshal(rec.Body.Bytes(), &listedFromB)
+	if err := json.Unmarshal(rec.Body.Bytes(), &listedFromB); err != nil {
+		t.Fatalf("decode list from repoB: %v", err)
+	}
 	if len(listedFromB) != 1 || listedFromB[0].RepositoryID != repoA {
 		t.Fatalf("list from repoB (symmetric read): %+v", listedFromB)
+	}
+
+	// 3b. Adding the reverse pair (repoB -> repoA) must not create a second
+	// row - the handler canonicalizes ordering before insert specifically so
+	// (A,B) and (B,A) can never coexist (see AddRelatedRepository).
+	c, rec = newRelationsCtx(e, http.MethodPost, `{"related_repository_id":`+strconv.FormatInt(repoA, 10)+`}`, owner, repoB, 0)
+	if err := s.AddRelatedRepository(c); err != nil {
+		t.Fatalf("add reverse pair: %v", err)
+	}
+	c, rec = newRelationsCtx(e, http.MethodGet, "", owner, repoA, 0)
+	if err := s.ListRelatedRepositories(c); err != nil {
+		t.Fatalf("list from repoA after reverse add: %v", err)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode list from repoA after reverse add: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("expected the reverse add to be a no-op, got %d relations: %+v", len(listed), listed)
 	}
 
 	// 4. A member (not owner/super-admin) cannot add or remove.
@@ -196,8 +222,12 @@ func TestRelatedRepositories_AddListRemove(t *testing.T) {
 		t.Fatalf("remove: status %d body %s", rec.Code, rec.Body.String())
 	}
 	c, rec = newRelationsCtx(e, http.MethodGet, "", owner, repoA, 0)
-	_ = s.ListRelatedRepositories(c)
-	_ = json.Unmarshal(rec.Body.Bytes(), &listed)
+	if err := s.ListRelatedRepositories(c); err != nil {
+		t.Fatalf("list after remove: %v", err)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode list after remove: %v", err)
+	}
 	if len(listed) != 0 {
 		t.Fatalf("expected no related repos after remove, got %+v", listed)
 	}

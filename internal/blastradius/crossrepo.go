@@ -41,8 +41,16 @@ func RecordCrossRepoImpact(report *Report, filePath string, newStart, newLines i
 				if sym.QualifiedName != symbolQN {
 					continue
 				}
+				// Idempotent, not additive: a second call for the same symbol (e.g.
+				// a re-run of the cross_repo_link job against an already-enriched
+				// report) replaces its prior cross-repo signal/bonus instead of
+				// stacking a second one on top.
+				if prior := removeCrossRepoSignal(sym); prior != 0 {
+					sym.BlastRadiusRaw -= prior
+					hunk.BlastRadiusRaw -= prior
+				}
 				bonus := math.Min(float64(len(impacts))*crossRepoBonusPerImpact, crossRepoMaxBonus)
-				sym.ImpactedRelatedRepos = append(sym.ImpactedRelatedRepos, impacts...)
+				sym.ImpactedRelatedRepos = impacts
 				sym.Signals = append(sym.Signals, Signal{
 					Name:     CrossRepoSignalName,
 					Detail:   crossRepoDetail(impacts),
@@ -51,12 +59,32 @@ func RecordCrossRepoImpact(report *Report, filePath string, newStart, newLines i
 				})
 				sym.BlastRadiusRaw += bonus
 				hunk.BlastRadiusRaw += bonus
-				hunk.ImpactedRelatedRepos = append(hunk.ImpactedRelatedRepos, impacts...)
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// removeCrossRepoSignal strips any prior cross-repo Signal from sym and
+// returns its Points (0 if there was none), so a caller can subtract the
+// matching amount back out of BlastRadiusRaw before re-adding a fresh one.
+func removeCrossRepoSignal(sym *SymbolContribution) float64 {
+	var prior float64
+	kept := sym.Signals[:0]
+	for _, s := range sym.Signals {
+		// Matches on Name alone - CrossRepoSignalName is this package's own
+		// constant and unique among the signals this file emits, so pinning
+		// the match to today's Category too would only make this silently
+		// stop finding its own prior signal if that category ever changed.
+		if s.Name == CrossRepoSignalName {
+			prior += s.Points
+			continue
+		}
+		kept = append(kept, s)
+	}
+	sym.Signals = kept
+	return prior
 }
 
 func crossRepoDetail(impacts []CrossRepoImpact) string {
@@ -110,6 +138,14 @@ func Renormalize(report *Report) {
 				hunk.BlastRadiusNorm = 0
 			}
 			hunk.Combined = ComputeMathMode(*hunk).Final
+			// Rebuilt from the symbols themselves rather than accumulated
+			// incrementally in RecordCrossRepoImpact, so this stays correct
+			// (no duplicates) no matter how many times that function ran for
+			// this hunk's symbols.
+			hunk.ImpactedRelatedRepos = nil
+			for _, sym := range hunk.Symbols {
+				hunk.ImpactedRelatedRepos = append(hunk.ImpactedRelatedRepos, sym.ImpactedRelatedRepos...)
+			}
 		}
 	}
 }

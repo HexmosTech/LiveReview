@@ -46,9 +46,9 @@ func TestRecordCrossRepoImpact_AddsSignalAndBumpsRaw(t *testing.T) {
 	if after.BlastRadiusRaw != wantRaw {
 		t.Fatalf("BlastRadiusRaw = %v, want %v", after.BlastRadiusRaw, wantRaw)
 	}
-	if len(after.ImpactedRelatedRepos) != 1 || after.ImpactedRelatedRepos[0].RelatedRepo != "acme/billing-worker" {
-		t.Fatalf("hunk ImpactedRelatedRepos = %+v", after.ImpactedRelatedRepos)
-	}
+	// Hunk.ImpactedRelatedRepos is rebuilt from its symbols by Renormalize,
+	// not accumulated here - see TestRenormalize_RecomputesCombinedAndTier
+	// for that roll-up.
 
 	var sym *SymbolContribution
 	for i := range after.Symbols {
@@ -70,6 +70,57 @@ func TestRecordCrossRepoImpact_AddsSignalAndBumpsRaw(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected a Cross-repo impact signal with Category=graph")
+	}
+	if len(sym.ImpactedRelatedRepos) != 1 || sym.ImpactedRelatedRepos[0].RelatedRepo != "acme/billing-worker" {
+		t.Fatalf("symbol ImpactedRelatedRepos = %+v", sym.ImpactedRelatedRepos)
+	}
+}
+
+// TestRecordCrossRepoImpact_IsIdempotent asserts a second call for the same
+// symbol replaces its prior cross-repo signal/bonus instead of stacking a
+// second one on top - the scenario this guards against is the
+// cross_repo_link job running twice against an already-enriched report
+// (see RecordCrossRepoImpact's doc comment).
+func TestRecordCrossRepoImpact_IsIdempotent(t *testing.T) {
+	r := loadTestReport(t)
+	before := findHunk(t, r, crossRepoTestFile, crossRepoTestStart)
+
+	first := []CrossRepoImpact{{RelatedRepo: "acme/billing-worker", CallSite: "x", EdgeType: "CROSS_HTTP_CALLS"}}
+	RecordCrossRepoImpact(&r, crossRepoTestFile, crossRepoTestStart, crossRepoTestLines, crossRepoTestSymbol, first)
+	afterFirst := findHunk(t, r, crossRepoTestFile, crossRepoTestStart)
+
+	second := []CrossRepoImpact{{RelatedRepo: "acme/other-svc", CallSite: "y", EdgeType: "CROSS_HTTP_CALLS"}}
+	RecordCrossRepoImpact(&r, crossRepoTestFile, crossRepoTestStart, crossRepoTestLines, crossRepoTestSymbol, second)
+	afterSecond := findHunk(t, r, crossRepoTestFile, crossRepoTestStart)
+
+	if afterSecond.BlastRadiusRaw != afterFirst.BlastRadiusRaw {
+		t.Fatalf("second call changed BlastRadiusRaw: first=%v second=%v (expected equal - one impact's bonus, not two stacked)",
+			afterFirst.BlastRadiusRaw, afterSecond.BlastRadiusRaw)
+	}
+	if afterSecond.BlastRadiusRaw == before.BlastRadiusRaw {
+		t.Fatal("expected the bonus to still be applied once")
+	}
+
+	var sym *SymbolContribution
+	for i := range afterSecond.Symbols {
+		if afterSecond.Symbols[i].QualifiedName == crossRepoTestSymbol {
+			sym = &afterSecond.Symbols[i]
+		}
+	}
+	if sym == nil {
+		t.Fatal("symbol not found")
+	}
+	signalCount := 0
+	for _, s := range sym.Signals {
+		if s.Name == CrossRepoSignalName {
+			signalCount++
+		}
+	}
+	if signalCount != 1 {
+		t.Fatalf("expected exactly one cross-repo signal after two calls, got %d", signalCount)
+	}
+	if len(sym.ImpactedRelatedRepos) != 1 || sym.ImpactedRelatedRepos[0].RelatedRepo != "acme/other-svc" {
+		t.Fatalf("expected the second call's impacts to replace the first's, got %+v", sym.ImpactedRelatedRepos)
 	}
 }
 
@@ -120,6 +171,9 @@ func TestRenormalize_RecomputesCombinedAndTier(t *testing.T) {
 	// already asserts for untouched reports.
 	if got := ComputeMathMode(after).Final; got != after.Combined {
 		t.Fatalf("Combined (%v) != ComputeMathMode(h).Final (%v)", after.Combined, got)
+	}
+	if len(after.ImpactedRelatedRepos) != len(impacts) {
+		t.Fatalf("hunk ImpactedRelatedRepos = %+v, want %d entries rolled up from its symbols", after.ImpactedRelatedRepos, len(impacts))
 	}
 }
 
