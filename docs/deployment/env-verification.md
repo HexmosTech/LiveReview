@@ -34,7 +34,13 @@ When you run `make raw-deploy` (or `make build-with-ui`, `make raw-deploy-stagin
 
 1. The script `scripts/deployment_checks/verify_deploy.py` is invoked with the target environment file and mode (`prod`, `staging`, or `prod-low-pricing`).
 2. It verifies:
-   - **Key Presence**: Every required key (Database, JWT, GitHub App, Razorpay, etc.) must exist in the file and have a non-empty value.
+   - **Key Presence**: Every required key must exist in the file and have a non-empty value. Core required base keys include:
+     - **Database & Secrets**: `DATABASE_URL`, `JWT_SECRET`, `CLOUD_JWT_SECRET`
+     - **Ports & Reverse Proxy**: `LIVEREVIEW_BACKEND_PORT`, `LIVEREVIEW_FRONTEND_PORT`, `LIVEREVIEW_REVERSE_PROXY`, `LIVEREVIEW_IS_CLOUD`
+     - **File Parser Service**: `FW_PARSE_BASE_URL`, `FW_PARSE_ADMIN_SECRET`
+     - **Billing & Subscriptions**: `RAZORPAY_MODE`, `LIVEREVIEW_PRICING_PROFILE`, `RAZORPAY_WEBHOOK_SECRET`
+     - **GitHub App**: `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_WEBHOOK_SECRET`, `GITHUB_APP_PRIVATE_KEY`
+     - **AWS Lambda Tool Execution**: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`
    - **Mode Validity**: In production, `RAZORPAY_MODE` must be `live` and `LIVEREVIEW_PRICING_PROFILE` must be `actual`.
    - **No Unregistered Keys**: If someone added a new environment variable to `.env.prod` that is not registered in the script, the check halts immediately. This prevents accidental configuration drift.
 

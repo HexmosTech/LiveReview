@@ -50,6 +50,8 @@ func (p *GitLabProvider) GetRepoConfigFiles(ctx context.Context, repoFullName, r
 		switch {
 		case relPath == "ignore":
 			// ok
+		case relPath == "policy/tools.toml" || relPath == "tools.toml":
+			// ok
 		case strings.HasPrefix(relPath, "rules/") && strings.HasSuffix(entry.Name, ".md"):
 			if strings.Contains(strings.TrimPrefix(relPath, "rules/"), "/") {
 				continue

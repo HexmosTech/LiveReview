@@ -35,6 +35,7 @@ func (p *GitHubProvider) GetRepoConfigFiles(ctx context.Context, repoFullName, r
 
 	files := make(map[string][]byte)
 	hasRulesDir := false
+	hasPolicyDir := false
 
 	for _, entry := range rootEntries {
 		switch {
@@ -44,8 +45,35 @@ func (p *GitHubProvider) GetRepoConfigFiles(ctx context.Context, repoFullName, r
 				return nil, false, err
 			}
 			files["ignore"] = data
+		case entry.Type == "file" && entry.Name == "tools.toml":
+			data, err := ghLRCFetchRaw(ctx, client, apiBase, repoFullName, entry.Path, ref, p.PAT)
+			if err != nil {
+				return nil, false, err
+			}
+			files["tools.toml"] = data
+		case entry.Type == "dir" && entry.Name == "policy":
+			hasPolicyDir = true
 		case entry.Type == "dir" && entry.Name == "rules":
 			hasRulesDir = true
+		}
+	}
+
+	if hasPolicyDir {
+		policyEntries, found, err := ghLRCListDir(ctx, client, apiBase, repoFullName, ".lrc/policy", ref, p.PAT)
+		if err != nil {
+			return nil, false, err
+		}
+		if found {
+			for _, entry := range policyEntries {
+				if entry.Type != "file" || entry.Name != "tools.toml" {
+					continue
+				}
+				data, err := ghLRCFetchRaw(ctx, client, apiBase, repoFullName, entry.Path, ref, p.PAT)
+				if err != nil {
+					return nil, false, err
+				}
+				files["policy/tools.toml"] = data
+			}
 		}
 	}
 

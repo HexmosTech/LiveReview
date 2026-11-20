@@ -87,6 +87,12 @@ func (p *Provider) GetRepoConfigFiles(ctx context.Context, repoFullName, ref str
 				return nil, false, fmt.Errorf("azure devops lrc: fetch ignore: %w", err)
 			}
 			files["ignore"] = []byte(content)
+		case relPath == "policy/tools.toml" || relPath == "tools.toml":
+			content, err := p.fetchBlob(ctx, p.baseURL, project, repo, item.ObjectID)
+			if err != nil {
+				return nil, false, fmt.Errorf("azure devops lrc: fetch %s: %w", relPath, err)
+			}
+			files[relPath] = []byte(content)
 		case strings.HasPrefix(relPath, "rules/") && strings.HasSuffix(relPath, ".md"):
 			if strings.Contains(strings.TrimPrefix(relPath, "rules/"), "/") {
 				continue // nested subdirectory, skip

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	neturl "net/url"
 	"strings"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 	"github.com/livereview/internal/license"
 	"github.com/livereview/internal/logging"
 	"github.com/livereview/internal/lrcconfig"
+	"github.com/livereview/internal/lrcfetch"
+	"github.com/livereview/internal/providers"
 	"github.com/livereview/internal/review"
 	reviewprocessor "github.com/livereview/internal/review_processor"
 	"github.com/livereview/pkg/models"
@@ -89,6 +92,47 @@ func (w *ManualReviewWorker) Work(ctx context.Context, job *river.Job[ManualRevi
 		log.Error().Msg("[review_worker] Database connection not available on JobQueue")
 		return fmt.Errorf("database connection not available")
 	}
+
+	// 1. Unmarshal review request and extract changed files
+	var req review.ReviewRequest
+	if err := json.Unmarshal([]byte(args.RequestJSON), &req); err != nil {
+		log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] Failed to unmarshal request_json in ManualReviewWorker")
+	} else {
+		changes, lrcBundle, postingID := w.extractChangesAndLRC(ctx, &req)
+		if len(changes) > 0 {
+			// Update req.PreloadedChanges so ProcessManualReview reuses them without refetching
+			if len(req.PreloadedChanges) == 0 {
+				req.PreloadedChanges = changes
+				updatedJSON, err := json.Marshal(req)
+				if err == nil {
+					args.RequestJSON = string(updatedJSON)
+				} else {
+					log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] Failed to marshal updated review request")
+				}
+			}
+
+			// Package changed files into memory-safe diffZipBase64
+			diffZipBase64, err := diffutil.PackageModelDiffsToZipBase64WithExtras(changes, lrcBundle.Files)
+			if err != nil {
+				log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] Failed to package diff zip for static analysis tools")
+			} else if diffZipBase64 != "" && w.jq != nil {
+				localDiffs := diffutil.ConvertModelDiffsToLocal(changes)
+				if _, dispatchErr := w.jq.DispatchTools(ctx, ToolDispatchParams{
+					OrgID:          args.OrgID,
+					ReviewID:       args.ReviewID,
+					PlanCode:       args.PlanCode,
+					DiffZipBase64:  diffZipBase64,
+					LocalDiffs:    localDiffs,
+					LRCBundle:      lrcBundle,
+					ProviderConfig: &req.Provider,
+					PostingID:      postingID,
+				}); dispatchErr != nil {
+					log.Warn().Err(dispatchErr).Int64("review_id", args.ReviewID).Msg("[review_worker] ManualReviewWorker: failed to dispatch tools")
+				}
+			}
+		}
+	}
+
 	err := reviewprocessor.ProcessManualReview(ctx, w.jq.db, args.OrgID, args.PlanCode, args.ActorUserID, args.ActorEmail, args.ReviewID, args.RequestJSON,
 		func(ctx context.Context, model string, batch license.QuotaBatchInput, extraMeta map[string]interface{}) error {
 			operationID := fmt.Sprintf("manual-review:%d", args.ReviewID)
@@ -115,6 +159,154 @@ func (w *ManualReviewWorker) Work(ctx context.Context, job *river.Job[ManualRevi
 		}
 	}
 	return err
+}
+
+// extractChangesAndLRC resolves the changed files from PreloadedChanges or PR diff and returns postingID.
+func (w *ManualReviewWorker) extractChangesAndLRC(ctx context.Context, req *review.ReviewRequest) ([]*models.CodeDiff, lrcconfig.Bundle, string) {
+	if req == nil {
+		return nil, lrcconfig.Bundle{}, ""
+	}
+
+	var bundle lrcconfig.Bundle
+
+	if len(req.PreloadedChanges) > 0 {
+		postingID := resolvePostingID(req, nil)
+		return req.PreloadedChanges, bundle, postingID
+	}
+
+	if req.Provider.Type == "" || req.URL == "" {
+		return nil, bundle, ""
+	}
+
+	providerFactory := review.NewStandardProviderFactory()
+	provider, err := providerFactory.CreateProvider(ctx, req.Provider)
+	if err != nil {
+		log.Warn().Err(err).Str("provider_type", req.Provider.Type).Msg("[review_worker] extractChangesAndLRC: failed to create provider")
+		return nil, bundle, resolvePostingID(req, nil)
+	}
+
+	mrDetails, err := provider.GetMergeRequestDetails(ctx, req.URL)
+	if err != nil {
+		log.Warn().Err(err).Str("url", req.URL).Msg("[review_worker] extractChangesAndLRC: failed to get MR details")
+		return nil, bundle, resolvePostingID(req, nil)
+	}
+
+	prID := providers.ResolveMRID(mrDetails)
+	changes, err := provider.GetMergeRequestChanges(ctx, prID)
+	if err != nil {
+		log.Warn().Err(err).Str("pr_id", prID).Msg("[review_worker] extractChangesAndLRC: failed to get MR changes")
+		return nil, bundle, prID
+	}
+
+	if rcp, ok := provider.(lrcfetch.Provider); ok && mrDetails != nil {
+		ref := mrDetails.DiffRefs.HeadSHA
+		if ref == "" {
+			ref = mrDetails.SourceBranch
+		}
+		if ref == "" {
+			ref = mrDetails.TargetBranch
+		}
+		repoFullName := review.ExtractRepoFullName(mrDetails.RepositoryURL)
+		if repoFullName != "" && ref != "" {
+			lrcFiles, found, lrcErr := rcp.GetRepoConfigFiles(ctx, repoFullName, ref)
+			if lrcErr != nil {
+				log.Warn().Err(lrcErr).Str("repo", repoFullName).Str("ref", ref).Msg("[review_worker] extractChangesAndLRC: failed to fetch .lrc repo config files")
+			} else if found {
+				bundle = lrcconfig.BundleFromFiles(lrcFiles)
+			}
+		}
+	}
+
+	// Also extract or overlay any .lrc files modified or added directly within the PR diff.
+	inPRFiles := extractLRCFromDiffs(changes)
+	if len(inPRFiles) > 0 {
+		if bundle.Files == nil {
+			bundle.Files = make(map[string][]byte)
+		}
+		for k, v := range inPRFiles {
+			bundle.Files[k] = v
+		}
+	}
+
+	return changes, bundle, prID
+}
+
+// resolvePostingID determines the provider-appropriate MR/PR identifier for posting review comments.
+func resolvePostingID(req *review.ReviewRequest, mrDetails *providers.MergeRequestDetails) string {
+	if mrDetails != nil {
+		return providers.ResolveMRID(mrDetails)
+	}
+	if req == nil || req.URL == "" {
+		return ""
+	}
+	switch req.Provider.Type {
+	case "github":
+		if u, err := neturl.Parse(req.URL); err == nil {
+			parts := strings.Split(u.Path, "/")
+			if len(parts) >= 5 && parts[3] == "pull" {
+				return parts[1] + "/" + parts[2] + "/" + parts[4]
+			}
+		}
+	case "bitbucket":
+		if u, err := neturl.Parse(req.URL); err == nil {
+			parts := strings.Split(u.Path, "/")
+			if len(parts) >= 5 && parts[3] == "pull-requests" {
+				return parts[1] + "/" + parts[2] + "/" + parts[4]
+			}
+		}
+	case "gitlab":
+		if u, err := neturl.Parse(req.URL); err == nil {
+			parts := strings.Split(u.Path, "/")
+			for i, p := range parts {
+				if p == "merge_requests" && i+1 < len(parts) {
+					return parts[i+1]
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// extractLRCFromDiffs extracts files under .lrc/ that are added or modified in the PR diff.
+func extractLRCFromDiffs(changes []*models.CodeDiff) map[string][]byte {
+	files := make(map[string][]byte)
+	for _, diff := range changes {
+		if diff == nil || diff.IsDeleted {
+			continue
+		}
+		cleanPath := strings.TrimPrefix(diff.FilePath, "/")
+		if !strings.HasPrefix(cleanPath, ".lrc/") {
+			continue
+		}
+		relPath := strings.TrimPrefix(cleanPath, ".lrc/")
+
+		var content string
+		if diff.NewContent != "" {
+			content = diff.NewContent
+		} else {
+			var b strings.Builder
+			for _, hunk := range diff.Hunks {
+				lines := strings.Split(hunk.Content, "\n")
+				for i, line := range lines {
+					if i == len(lines)-1 && line == "" {
+						continue
+					}
+					if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+						b.WriteString(line[1:])
+						b.WriteString("\n")
+					} else if strings.HasPrefix(line, " ") {
+						b.WriteString(line[1:])
+						b.WriteString("\n")
+					}
+				}
+			}
+			content = b.String()
+		}
+		if strings.TrimSpace(content) != "" {
+			files[relPath] = []byte(content)
+		}
+	}
+	return files
 }
 
 // DiffReviewJobArgs represents the arguments for an asynchronous diff review job.
@@ -292,6 +484,27 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 	// 6. Transition status to in_progress
 	_ = rm.UpdateReviewStatus(args.ReviewID, "in_progress")
 
+	// 6b. Dispatch Static Analysis Tools (runs concurrently with AI review)
+	var toolsDispatched int
+	if w.jq != nil {
+		var dispatchErr error
+		toolsDispatched, dispatchErr = w.jq.DispatchTools(ctx, ToolDispatchParams{
+			OrgID:         args.OrgID,
+			ReviewID:      args.ReviewID,
+			PlanCode:      string(planCode),
+			DiffZipBase64: args.DiffZipBase64,
+			LocalDiffs:   localDiffs,
+			LRCBundle:     lrcBundle,
+			Logger:        logger,
+			EventSink:     eventSink,
+		})
+		if dispatchErr != nil {
+			log.Warn().Err(dispatchErr).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to dispatch tools")
+		}
+	} else {
+		log.Warn().Int64("review_id", args.ReviewID).Msg("[review_worker] JobQueue is nil; skipping tool dispatch")
+	}
+
 	// 7. Load AI Configuration
 	selection, err := aiselection.GetReviewAISelection(ctx, w.db, args.OrgID, planCode)
 	if err != nil {
@@ -410,38 +623,138 @@ func (w *DiffReviewWorker) Work(ctx context.Context, job *river.Job[DiffReviewJo
 		}
 	}
 
-	// 10. Persist final results and update status
-	type diffReviewResultPayload struct {
-		Summary            string                     `json:"summary"`
-		Comments           []*models.ReviewComment    `json:"comments"`
-		Quiz               []models.QuizQuestion      `json:"quiz,omitempty"`
-		DiffClassification *models.DiffClassification `json:"diffClassification,omitempty"`
-	}
-	payload := diffReviewResultPayload{Summary: summary, Comments: comments, Quiz: quiz, DiffClassification: diffClassification}
-	meta := map[string]interface{}{"review_result": payload}
-	if failureReason != "" {
-		meta["failure_reason"] = failureReason
-	}
-	if err := rm.MergeReviewMetadata(args.ReviewID, meta); err != nil {
-		log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to persist review_result")
-	}
+	// 10. Persist final results and coordinate completion atomically
+	dispatchedCount := toolsDispatched
+	tx, txErr := w.db.BeginTx(ctx, nil)
+	if txErr != nil {
+		log.Warn().Err(txErr).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to begin tx for review result")
+	} else {
+		defer func() {
+			if rErr := tx.Rollback(); rErr != nil && rErr != sql.ErrTxDone {
+				log.Warn().Err(rErr).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to rollback transaction")
+			}
+		}()
 
-	if err := rm.UpdateReviewStatus(args.ReviewID, status); err != nil {
-		log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to update review status")
-	}
+		var existingCommentsJSON []byte
+		var dispatchedFromMeta int
+		scanErr := tx.QueryRowContext(ctx, `
+			SELECT 
+				COALESCE(metadata->'review_result'->'comments', '[]'::jsonb),
+				COALESCE((metadata->>'tools_dispatched')::int, 0)
+			FROM public.reviews WHERE id = $1 FOR UPDATE
+		`, args.ReviewID).Scan(&existingCommentsJSON, &dispatchedFromMeta)
 
-	// Persist AI summary title for later display
-	if summary != "" {
-		title := extractFirstHeading(summary)
-		if title != "" {
-			if err := rm.MergeReviewMetadata(args.ReviewID, map[string]interface{}{"ai_summary_title": title}); err != nil {
-				log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to persist ai_summary_title")
+		if scanErr == nil {
+			if dispatchedCount == 0 && dispatchedFromMeta > 0 {
+				dispatchedCount = dispatchedFromMeta
+			}
+			if len(existingCommentsJSON) > 0 {
+				var existingToolComments []*models.ReviewComment
+				if unmarshalErr := json.Unmarshal(existingCommentsJSON, &existingToolComments); unmarshalErr == nil {
+					seenKeys := make(map[string]bool)
+					for _, c := range comments {
+						if c != nil && (c.Source == "tool" || c.ToolName != "") {
+							seenKeys[fmt.Sprintf("%s:%s:%d:%s", c.ToolName, c.FilePath, c.Line, strings.TrimSpace(c.Content))] = true
+						}
+					}
+					for _, tc := range existingToolComments {
+						if tc != nil && (tc.Source == "tool" || tc.ToolName != "") {
+							key := fmt.Sprintf("%s:%s:%d:%s", tc.ToolName, tc.FilePath, tc.Line, strings.TrimSpace(tc.Content))
+							if !seenKeys[key] {
+								seenKeys[key] = true
+								comments = append(comments, tc)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		payload := map[string]interface{}{
+			"summary":            summary,
+			"comments":           comments,
+			"quiz":               quiz,
+			"diffClassification": diffClassification,
+		}
+		meta := map[string]interface{}{
+			"review_result":  payload,
+			"ai_review_done": true,
+		}
+		if failureReason != "" {
+			meta["failure_reason"] = failureReason
+		}
+		if summary != "" {
+			title := extractFirstHeading(summary)
+			if title != "" {
+				meta["ai_summary_title"] = title
+			}
+		}
+
+		metaBytes, mErr := json.Marshal(meta)
+		if mErr != nil {
+			log.Warn().Err(mErr).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to marshal review metadata")
+		} else {
+			_, updErr := tx.ExecContext(ctx, `
+				UPDATE public.reviews
+				SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+				WHERE id = $2
+			`, metaBytes, args.ReviewID)
+			if updErr != nil {
+				log.Warn().Err(updErr).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to update review metadata in tx")
+			} else if commitErr := tx.Commit(); commitErr != nil {
+				log.Warn().Err(commitErr).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to commit review metadata transaction")
 			}
 		}
 	}
 
-	// Emit final completion/failure event
-	_ = eventSink.EmitCompletionEvent(ctx, args.ReviewID, args.OrgID, summary, len(comments), failureReason)
+	var pendingTools int
+	if dispatchedCount > 0 {
+		var completedTools int
+		if err := w.db.QueryRowContext(ctx, `
+			SELECT COUNT(DISTINCT data->>'tool_name')
+			FROM public.review_events
+			WHERE review_id = $1 AND event_type = 'tool_result'
+		`, args.ReviewID).Scan(&completedTools); err != nil {
+			log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to query completed tools count")
+		} else {
+			pendingTools = dispatchedCount - completedTools
+			if pendingTools < 0 {
+				pendingTools = 0
+			}
+		}
+	} else {
+		if err := w.db.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM public.review_events
+			WHERE review_id = $1 AND event_type = 'tool_dispatch' AND data->>'tool_name' NOT IN (
+				SELECT data->>'tool_name' FROM public.review_events WHERE review_id = $1 AND event_type = 'tool_result'
+			)`, args.ReviewID).Scan(&pendingTools); err != nil {
+			log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to query pending tools count")
+		}
+	}
+
+	if pendingTools > 0 {
+		if logger != nil {
+			logger.Log("AI review portion completed (%d comments). Waiting for %d pending static analysis tool(s)...", len(comments), pendingTools)
+		}
+		log.Printf("[INFO] DiffReviewWorker: review=%d AI review completed (%d comments), waiting for %d pending tool(s)", args.ReviewID, len(comments), pendingTools)
+		return nil
+	}
+
+	finalStatus := status
+	if failureReason != "" && finalStatus != "failed" {
+		finalStatus = "failed"
+	}
+
+	res, err := w.db.ExecContext(ctx, `
+		UPDATE public.reviews
+		SET status = $1, completed_at = NOW()
+		WHERE id = $2 AND status NOT IN ('completed', 'failed')`, finalStatus, args.ReviewID)
+	if err != nil {
+		log.Warn().Err(err).Int64("review_id", args.ReviewID).Msg("[review_worker] failed to update review status")
+	} else if rows, _ := res.RowsAffected(); rows > 0 {
+		totalComments := len(comments)
+		_ = eventSink.EmitCompletionEvent(ctx, args.ReviewID, args.OrgID, summary, totalComments, failureReason)
+	}
 
 	return nil
 }

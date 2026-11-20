@@ -49,6 +49,7 @@ func (p *GiteaV2Provider) GetRepoConfigFiles(ctx context.Context, repoFullName, 
 
 	files := make(map[string][]byte)
 	hasRulesDir := false
+	hasPolicyDir := false
 
 	for _, entry := range rootEntries {
 		switch {
@@ -58,8 +59,35 @@ func (p *GiteaV2Provider) GetRepoConfigFiles(ctx context.Context, repoFullName, 
 				return nil, false, err
 			}
 			files["ignore"] = content
+		case entry.Type == "file" && entry.Name == "tools.toml":
+			content, err := giteaFetchFileContent(ctx, client, baseURL, repoFullName, entry.Path, ref, pat)
+			if err != nil {
+				return nil, false, err
+			}
+			files["tools.toml"] = content
+		case entry.Type == "dir" && entry.Name == "policy":
+			hasPolicyDir = true
 		case entry.Type == "dir" && entry.Name == "rules":
 			hasRulesDir = true
+		}
+	}
+
+	if hasPolicyDir {
+		policyEntries, found, err := giteaListDir(ctx, client, baseURL, repoFullName, ".lrc/policy", ref, pat)
+		if err != nil {
+			return nil, false, err
+		}
+		if found {
+			for _, entry := range policyEntries {
+				if entry.Type != "file" || entry.Name != "tools.toml" {
+					continue
+				}
+				content, err := giteaFetchFileContent(ctx, client, baseURL, repoFullName, entry.Path, ref, pat)
+				if err != nil {
+					return nil, false, err
+				}
+				files["policy/tools.toml"] = content
+			}
 		}
 	}
 

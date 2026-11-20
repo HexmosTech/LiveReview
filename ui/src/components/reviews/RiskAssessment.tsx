@@ -81,7 +81,7 @@ export function riskAssessment(
     return { kind: 'ready', value: blastRadiusTierLabel(top), tone: TIER_TONE[blastRadiusTier(top)], text, report: ready, scores: badgeScores, top };
   }
   if (poll === 'gave_up') {
-    return { kind: 'unavailable', value: 'Not available', tone: '!text-slate-400', text: 'No result arrived within 15 minutes.', scores: none, top: 0 };
+    return { kind: 'unavailable', value: 'Not available', tone: '!text-slate-400', text: 'No risk report is available for this review.', scores: none, top: 0 };
   }
   if (poll === 'waiting') {
     return isPR
@@ -133,34 +133,52 @@ export const RiskAssessmentDetails: React.FC<{ risk: RiskAssessment; connectorId
 
   // Same layout as the Review details column: key/value grid, then labelled groups 16px apart.
   return (
-    <div>
-      <dl className="grid grid-cols-[6.5rem_1fr] gap-x-3 gap-y-1">
-        <dt className="text-slate-400">Highest score</dt>
-        <dd className={risk.tone}>{Math.round(risk.top)}</dd>
-        <dt className="text-slate-400">Changes scored</dt>
-        <dd className="text-white">{hunks.length} in {fileTop.size} file{fileTop.size === 1 ? '' : 's'}</dd>
-      </dl>
-      <div className="mt-4">
-        <p className="text-slate-400 mb-1">Changes by risk</p>
-        <div className="flex gap-4">
-          {counts.map((c) => (
-            <span key={c.tier} className={TIER_TONE[c.tier]}>{c.label} {c.n}</span>
-          ))}
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-stretch pt-1">
+      {/* Box 1: Score summary */}
+      <div className="bg-slate-950/40 border border-slate-800/60 rounded-md p-3 flex flex-col justify-between h-full min-h-[105px]">
+        <div>
+          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-2">Score summary</p>
+          <dl className="grid grid-cols-[6.5rem_1fr] gap-x-3 gap-y-1.5">
+            <dt className="text-slate-400">Highest score</dt>
+            <dd className={`font-semibold ${risk.tone}`}>
+              {Math.round(risk.top)} <span className="text-xs font-normal text-slate-400">({risk.value})</span>
+            </dd>
+            <dt className="text-slate-400">Changes scored</dt>
+            <dd className="text-white">{hunks.length} in {fileTop.size} file{fileTop.size === 1 ? '' : 's'}</dd>
+          </dl>
         </div>
       </div>
-      {byFile.length > 1 && (
-        <div className="mt-4">
-          <p className="text-slate-400 mb-1">Riskiest files</p>
-          <ul className="space-y-1">
-            {byFile.map((f) => (
-              <li key={f.path} className="flex items-center gap-3">
-                <span className="truncate font-mono text-slate-300" title={f.path}>{f.path}</span>
-                <span className={TIER_TONE[blastRadiusTier(f.score)]}>{Math.round(f.score)}</span>
-              </li>
+
+      {/* Box 2: Changes by risk tier */}
+      <div className="bg-slate-950/40 border border-slate-800/60 rounded-md p-3 flex flex-col justify-between h-full min-h-[105px]">
+        <div>
+          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-2">Changes by risk</p>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
+            {counts.map((c) => (
+              <span key={c.tier} className={TIER_TONE[c.tier]}>{c.label} {c.n}</span>
             ))}
-          </ul>
+          </div>
         </div>
-      )}
+      </div>
+
+      {/* Box 3: Riskiest files */}
+      <div className="bg-slate-950/40 border border-slate-800/60 rounded-md p-3 flex flex-col justify-between h-full min-h-[105px]">
+        <div>
+          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-2">Riskiest files</p>
+          {byFile.length > 0 ? (
+            <ul className="space-y-1.5">
+              {byFile.map((f) => (
+                <li key={f.path} className="flex items-center justify-between gap-3 text-xs">
+                  <span className="truncate font-mono text-slate-300 min-w-0" title={f.path}>{f.path}</span>
+                  <span className={`shrink-0 font-medium ${TIER_TONE[blastRadiusTier(f.score)]}`}>{Math.round(f.score)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-slate-500 italic">No risky files identified</p>
+          )}
+        </div>
+      </div>
     </div>
   );
 };
