@@ -26,6 +26,13 @@ admin.
 - **Auto Approve** (`#auto-approve`) — override this repository's auto-approve
   policy (inherit the org default, or set a repo-specific mode and risk
   threshold: Conservative, Balanced, Aggressive or Custom). See [Settings → Auto Approve](../settings/auto-approve.md).
+- **Related Repos** (`#related-repos`) — link other repositories (from any
+  connected provider, in the same organization) whose code should be
+  considered together when scoring blast radius - e.g. a frontend repo that
+  calls a backend repo's API. LiveReview looks for matching routes/handlers
+  across linked repos and folds any cross-repo impact it finds into the PR's
+  blast-radius report as an "Impacted related repos" chip list. Org owners
+  and super admins can add or remove links; any member can view the list.
 
 ## Related pages
 

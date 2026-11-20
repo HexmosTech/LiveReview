@@ -1712,6 +1712,15 @@ func (s *Server) setupRoutes() {
 	repositoriesGroup.GET("/:repoId/pull-requests", s.ListPullRequestsForRepo)
 	repositoriesGroup.GET("/:repoId/pull-requests/:prId", s.GetPullRequest)
 	repositoriesGroup.GET("/:repoId/scheduled-review-runs", s.GetScheduledReviewRuns)
+	repositoriesGroup.GET("/:repoId/related", s.ListRelatedRepositories)
+	s.audited(repositoriesGroup, echo.POST, "/:repoId/related", auditlog.Spec{
+		Action: auditlog.ActionRepositoryRelationAdd, Category: auditlog.CategoryRepository,
+		ResourceType: "repository", ResourceIDParam: "repoId",
+	}, s.AddRelatedRepository)
+	s.audited(repositoriesGroup, echo.DELETE, "/:repoId/related/:relationId", auditlog.Spec{
+		Action: auditlog.ActionRepositoryRelationRemove, Category: auditlog.CategoryRepository,
+		ResourceType: "repository", ResourceIDParam: "repoId",
+	}, s.RemoveRelatedRepository)
 
 	// Unified, cross-repository PR/MR listing (same middleware chain)
 	pullRequestsGroup := v1.Group("/pull-requests")

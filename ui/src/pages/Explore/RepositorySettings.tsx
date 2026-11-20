@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { LuDatabase } from 'react-icons/lu';
+import { LuDatabase, LuLink } from 'react-icons/lu';
 import { Button, Card, EmptyState, Icons, PageHeader, Spinner } from '../../components/UIPrimitives';
 import RepoCacheSection from '../../components/Explore/RepoCacheSection';
 import RepoAutoApproveSection from '../../components/Explore/RepoAutoApproveSection';
+import RelatedReposSection from '../../components/Explore/RelatedReposSection';
 import { getRepository } from '../../api/repositories';
 import { Repository } from '../../types/explore';
 
@@ -11,6 +12,7 @@ import { Repository } from '../../types/explore';
 const SECTIONS = [
   { id: 'repo-cache', name: 'Repo cache', icon: <LuDatabase className="w-4 h-4" /> },
   { id: 'auto-approve', name: 'Auto Approve', icon: <Icons.Success /> },
+  { id: 'related-repos', name: 'Related Repos', icon: <LuLink className="w-4 h-4" /> },
 ];
 
 const RepositorySettings: React.FC = () => {
@@ -72,6 +74,7 @@ const RepositorySettings: React.FC = () => {
           <Card>
             {active === 'repo-cache' && <RepoCacheSection repo={repo} />}
             {active === 'auto-approve' && <RepoAutoApproveSection repositoryId={repo.id} />}
+            {active === 'related-repos' && <RelatedReposSection repo={repo} />}
           </Card>
         </div>
       </div>

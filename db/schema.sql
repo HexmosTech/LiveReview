@@ -1116,6 +1116,42 @@ CREATE TABLE public.audit_events_2027_11 (
 
 
 --
+-- Name: audit_events_2027_12; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.audit_events_2027_12 (
+    id bigint DEFAULT nextval('public.audit_events_id_seq'::regclass) CONSTRAINT audit_events_id_not_null NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() CONSTRAINT audit_events_occurred_at_not_null NOT NULL,
+    org_id bigint CONSTRAINT audit_events_org_id_not_null NOT NULL,
+    actor_user_id bigint,
+    actor_email text,
+    actor_name text,
+    actor_kind text DEFAULT 'system'::text CONSTRAINT audit_events_actor_kind_not_null NOT NULL,
+    actor_capacity text DEFAULT 'member'::text CONSTRAINT audit_events_actor_capacity_not_null NOT NULL,
+    auth_method text,
+    api_key_id bigint,
+    action text CONSTRAINT audit_events_action_not_null NOT NULL,
+    category text CONSTRAINT audit_events_category_not_null NOT NULL,
+    resource_type text,
+    resource_id text,
+    outcome text DEFAULT 'success'::text CONSTRAINT audit_events_outcome_not_null NOT NULL,
+    status_code integer,
+    severity text DEFAULT 'info'::text CONSTRAINT audit_events_severity_not_null NOT NULL,
+    ip inet,
+    user_agent text,
+    request_id text,
+    method text,
+    path text,
+    details jsonb DEFAULT '{}'::jsonb CONSTRAINT audit_events_details_not_null NOT NULL,
+    source text DEFAULT 'api'::text CONSTRAINT audit_events_source_not_null NOT NULL,
+    legacy_id bigint,
+    seq bigint,
+    prev_hash text,
+    hash text
+);
+
+
+--
 -- Name: audit_events_default; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2802,6 +2838,54 @@ ALTER SEQUENCE public.repositories_id_seq OWNED BY public.repositories.id;
 
 
 --
+-- Name: repository_relations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.repository_relations (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    repository_id bigint NOT NULL,
+    related_repository_id bigint NOT NULL,
+    created_by bigint,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ck_repository_relations_ordered CHECK ((repository_id < related_repository_id))
+);
+
+
+--
+-- Name: TABLE repository_relations; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.repository_relations IS 'Admin-declared "related repo" links used to build cross-repo blast-radius context (see docs/multi-repo-blast-radius-plan.md). Stored directionally (one row per declared pair) but read symmetrically by callers. Both repository_id and related_repository_id must belong to org_id - enforced in the API handler, not just by this schema, since a FK alone cannot check that both repos share the same org.';
+
+
+--
+-- Name: COLUMN repository_relations.created_by; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.repository_relations.created_by IS 'The user who added this relation, for display/audit context; NULL if the user was later deleted.';
+
+
+--
+-- Name: repository_relations_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.repository_relations_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: repository_relations_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.repository_relations_id_seq OWNED BY public.repository_relations.id;
+
+
+--
 -- Name: review_commits; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4317,6 +4401,13 @@ ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_2027_1
 
 
 --
+-- Name: audit_events_2027_12; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events ATTACH PARTITION public.audit_events_2027_12 FOR VALUES FROM ('2027-12-01 00:00:00+00') TO ('2028-01-01 00:00:00+00');
+
+
+--
 -- Name: audit_events_default; Type: TABLE ATTACH; Schema: public; Owner: -
 --
 
@@ -4580,6 +4671,13 @@ ALTER TABLE ONLY public.recent_activity ALTER COLUMN id SET DEFAULT nextval('pub
 --
 
 ALTER TABLE ONLY public.repositories ALTER COLUMN id SET DEFAULT nextval('public.repositories_id_seq'::regclass);
+
+
+--
+-- Name: repository_relations id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repository_relations ALTER COLUMN id SET DEFAULT nextval('public.repository_relations_id_seq'::regclass);
 
 
 --
@@ -4945,6 +5043,14 @@ ALTER TABLE ONLY public.audit_events_2027_10
 
 ALTER TABLE ONLY public.audit_events_2027_11
     ADD CONSTRAINT audit_events_2027_11_pkey PRIMARY KEY (id, occurred_at);
+
+
+--
+-- Name: audit_events_2027_12 audit_events_2027_12_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_events_2027_12
+    ADD CONSTRAINT audit_events_2027_12_pkey PRIMARY KEY (id, occurred_at);
 
 
 --
@@ -5337,6 +5443,14 @@ ALTER TABLE ONLY public.recent_activity
 
 ALTER TABLE ONLY public.repositories
     ADD CONSTRAINT repositories_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: repository_relations repository_relations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repository_relations
+    ADD CONSTRAINT repository_relations_pkey PRIMARY KEY (id);
 
 
 --
@@ -5737,6 +5851,14 @@ ALTER TABLE ONLY public.quota_policy_catalog
 
 ALTER TABLE ONLY public.repositories
     ADD CONSTRAINT uq_repositories_connector_provider_repo UNIQUE (connector_id, provider_repo_id);
+
+
+--
+-- Name: repository_relations uq_repository_relations_pair; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repository_relations
+    ADD CONSTRAINT uq_repository_relations_pair UNIQUE (repository_id, related_repository_id);
 
 
 --
@@ -6765,6 +6887,69 @@ CREATE UNIQUE INDEX audit_events_2027_11_source_legacy_id_occurred_at_idx ON pub
 
 
 --
+-- Name: audit_events_2027_12_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_12_id_idx ON public.audit_events_2027_12 USING btree (id);
+
+
+--
+-- Name: audit_events_2027_12_org_id_action_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_12_org_id_action_occurred_at_idx ON public.audit_events_2027_12 USING btree (org_id, action, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_12_org_id_actor_user_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_12_org_id_actor_user_id_occurred_at_idx ON public.audit_events_2027_12 USING btree (org_id, actor_user_id, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_12_org_id_category_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_12_org_id_category_occurred_at_idx ON public.audit_events_2027_12 USING btree (org_id, category, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_12_org_id_occurred_at_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_12_org_id_occurred_at_id_idx ON public.audit_events_2027_12 USING btree (org_id, occurred_at DESC, id DESC);
+
+
+--
+-- Name: audit_events_2027_12_org_id_outcome_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_12_org_id_outcome_occurred_at_idx ON public.audit_events_2027_12 USING btree (org_id, outcome, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_12_org_id_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_12_org_id_seq_idx ON public.audit_events_2027_12 USING btree (org_id, seq) WHERE (seq IS NOT NULL);
+
+
+--
+-- Name: audit_events_2027_12_org_id_severity_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX audit_events_2027_12_org_id_severity_occurred_at_idx ON public.audit_events_2027_12 USING btree (org_id, severity, occurred_at DESC);
+
+
+--
+-- Name: audit_events_2027_12_source_legacy_id_occurred_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX audit_events_2027_12_source_legacy_id_occurred_at_idx ON public.audit_events_2027_12 USING btree (source, legacy_id, occurred_at) WHERE (legacy_id IS NOT NULL);
+
+
+--
 -- Name: audit_events_default_id_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7609,6 +7794,27 @@ CREATE INDEX idx_repositories_org_id ON public.repositories USING btree (org_id)
 --
 
 CREATE INDEX idx_repositories_org_provider ON public.repositories USING btree (org_id, provider);
+
+
+--
+-- Name: idx_repository_relations_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_repository_relations_org_id ON public.repository_relations USING btree (org_id);
+
+
+--
+-- Name: idx_repository_relations_related_repo_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_repository_relations_related_repo_id ON public.repository_relations USING btree (related_repository_id);
+
+
+--
+-- Name: idx_repository_relations_repository_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_repository_relations_repository_id ON public.repository_relations USING btree (repository_id);
 
 
 --
@@ -9257,6 +9463,76 @@ ALTER INDEX public.uq_audit_events_legacy ATTACH PARTITION public.audit_events_2
 
 
 --
+-- Name: audit_events_2027_12_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_id ATTACH PARTITION public.audit_events_2027_12_id_idx;
+
+
+--
+-- Name: audit_events_2027_12_org_id_action_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_action_time ATTACH PARTITION public.audit_events_2027_12_org_id_action_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_12_org_id_actor_user_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_actor_time ATTACH PARTITION public.audit_events_2027_12_org_id_actor_user_id_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_12_org_id_category_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_category_time ATTACH PARTITION public.audit_events_2027_12_org_id_category_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_12_org_id_occurred_at_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_time ATTACH PARTITION public.audit_events_2027_12_org_id_occurred_at_id_idx;
+
+
+--
+-- Name: audit_events_2027_12_org_id_outcome_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_outcome_time ATTACH PARTITION public.audit_events_2027_12_org_id_outcome_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_12_org_id_seq_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_seq ATTACH PARTITION public.audit_events_2027_12_org_id_seq_idx;
+
+
+--
+-- Name: audit_events_2027_12_org_id_severity_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.idx_audit_events_org_severity_time ATTACH PARTITION public.audit_events_2027_12_org_id_severity_occurred_at_idx;
+
+
+--
+-- Name: audit_events_2027_12_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.audit_events_pkey ATTACH PARTITION public.audit_events_2027_12_pkey;
+
+
+--
+-- Name: audit_events_2027_12_source_legacy_id_occurred_at_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.uq_audit_events_legacy ATTACH PARTITION public.audit_events_2027_12_source_legacy_id_occurred_at_idx;
+
+
+--
 -- Name: audit_events_default_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
 --
 
@@ -9959,6 +10235,38 @@ ALTER TABLE ONLY public.repositories
 
 
 --
+-- Name: repository_relations repository_relations_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repository_relations
+    ADD CONSTRAINT repository_relations_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: repository_relations repository_relations_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repository_relations
+    ADD CONSTRAINT repository_relations_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id);
+
+
+--
+-- Name: repository_relations repository_relations_related_repository_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repository_relations
+    ADD CONSTRAINT repository_relations_related_repository_id_fkey FOREIGN KEY (related_repository_id) REFERENCES public.repositories(id) ON DELETE CASCADE;
+
+
+--
+-- Name: repository_relations repository_relations_repository_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.repository_relations
+    ADD CONSTRAINT repository_relations_repository_id_fkey FOREIGN KEY (repository_id) REFERENCES public.repositories(id) ON DELETE CASCADE;
+
+
+--
 -- Name: review_commits review_commits_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -10609,4 +10917,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261031070300'),
     ('20261031120000'),
     ('20261031140000'),
-    ('20261106135226');
+    ('20261106135226'),
+    ('20261120090000');

@@ -81,6 +81,9 @@ func Prepare(ctx context.Context, root string, r Repo) (c *Checkout, unlock func
 			return nil, nil, err
 		}
 	}
+	if !validRefName(baseBranch) {
+		return nil, nil, fmt.Errorf("repocache: invalid base branch name %q", baseBranch)
+	}
 	if err = shallowFallback(func(limit string) error {
 		_, err := c.git(ctx, "fetch", "--filter=blob:none", limit, "--no-tags", "origin",
 			"+refs/heads/"+baseBranch+":refs/remotes/origin/"+baseBranch,
@@ -95,6 +98,62 @@ func Prepare(ctx context.Context, root string, r Repo) (c *Checkout, unlock func
 	if c.BaseSHA, err = c.git(ctx, "merge-base", "refs/remotes/origin/"+baseBranch, c.HeadSHA); err != nil {
 		return nil, nil, ErrBaseTooOld
 	}
+	if _, err = c.git(ctx, "checkout", "--force", "--detach", c.HeadSHA); err != nil {
+		return nil, nil, err
+	}
+	if err = os.WriteFile(filepath.Join(base, ".lastused"), nil, 0o644); err != nil {
+		return nil, nil, err
+	}
+	return c, release, nil
+}
+
+// PrepareDefaultBranch clones on first use and checks out the tip of r's
+// default branch (or r.BaseBranch, if set) - no PR involved. Used to index a
+// related repo for cross-repo blast-radius context (docs/multi-repo-blast-radius-plan.md),
+// as opposed to Prepare, which checks out a specific PR's head. Call unlock
+// when done; a job on the same repo in any process waits for it.
+func PrepareDefaultBranch(ctx context.Context, root string, r Repo) (c *Checkout, unlock func(), err error) {
+	base, err := EntryDir(root, r)
+	if err != nil {
+		return nil, nil, err
+	}
+	dir := filepath.Join(base, "repo")
+
+	release, _, err := lockEntry(ctx, base, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() {
+		if err != nil {
+			release()
+		}
+	}()
+
+	c = &Checkout{Dir: dir, env: append(gitEnv(r), "GIT_CEILING_DIRECTORIES="+base)}
+	if err = c.ensureClone(ctx, r.CloneURL); err != nil {
+		return nil, nil, err
+	}
+
+	baseBranch := r.BaseBranch
+	if baseBranch == "" {
+		if baseBranch, err = c.defaultBranch(ctx); err != nil {
+			return nil, nil, err
+		}
+	}
+	if !validRefName(baseBranch) {
+		return nil, nil, fmt.Errorf("repocache: invalid base branch name %q", baseBranch)
+	}
+	if err = shallowFallback(func(limit string) error {
+		_, err := c.git(ctx, "fetch", "--filter=blob:none", limit, "--no-tags", "origin",
+			"+refs/heads/"+baseBranch+":refs/remotes/origin/"+baseBranch)
+		return err
+	}); err != nil {
+		return nil, nil, err
+	}
+	if c.HeadSHA, err = c.git(ctx, "rev-parse", "refs/remotes/origin/"+baseBranch); err != nil {
+		return nil, nil, err
+	}
+	c.BaseSHA = c.HeadSHA
 	if _, err = c.git(ctx, "checkout", "--force", "--detach", c.HeadSHA); err != nil {
 		return nil, nil, err
 	}
@@ -164,6 +223,20 @@ func shallowFallback(fn func(limit string) error) error {
 		err = fn("--depth=200")
 	}
 	return err
+}
+
+// validRefName rejects a branch name that could break refspec parsing or
+// write into an unintended ref namespace when interpolated directly into a
+// "+refs/heads/<name>:refs/remotes/..." string, e.g. one containing a colon,
+// whitespace, or a leading '-' a shell/CLI arg parser could mistake for a
+// flag. Call sites never pass this through a shell (exec.Command takes an
+// argv slice, not a shell string), so this guards refspec syntax, not shell
+// injection.
+func validRefName(name string) bool {
+	if name == "" || strings.ContainsAny(name, " \t\n:\\*?[~^") || strings.HasPrefix(name, "-") || strings.HasPrefix(name, "+") {
+		return false
+	}
+	return true
 }
 
 func (c *Checkout) defaultBranch(ctx context.Context) (string, error) {

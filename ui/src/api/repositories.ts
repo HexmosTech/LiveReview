@@ -60,3 +60,27 @@ export const getRepositoryCache = async (repoId: number): Promise<RepositoryCach
 export const clearRepositoryCache = async (repoId: number): Promise<{ message: string }> => {
   return apiClient.delete<{ message: string }>(`/api/v1/repositories/${repoId}/cache`);
 };
+
+export interface RelatedRepository {
+  relation_id: number;
+  repository_id: number;
+  provider: string;
+  full_name: string;
+  web_url: string;
+  created_at: string;
+}
+
+/** GET /api/v1/repositories/:repoId/related - repos linked for cross-repo blast-radius context. */
+export const getRelatedRepositories = async (repoId: number): Promise<RelatedRepository[]> => {
+  return apiClient.get<RelatedRepository[]>(`/api/v1/repositories/${repoId}/related`);
+};
+
+/** POST /api/v1/repositories/:repoId/related - links relatedRepoId as related (owners/super admins). */
+export const addRelatedRepository = async (repoId: number, relatedRepoId: number): Promise<{ message: string }> => {
+  return apiClient.post<{ message: string }>(`/api/v1/repositories/${repoId}/related`, { related_repository_id: relatedRepoId });
+};
+
+/** DELETE /api/v1/repositories/:repoId/related/:relationId - removes the link (owners/super admins). */
+export const removeRelatedRepository = async (repoId: number, relationId: number): Promise<{ message: string }> => {
+  return apiClient.delete<{ message: string }>(`/api/v1/repositories/${repoId}/related/${relationId}`);
+};

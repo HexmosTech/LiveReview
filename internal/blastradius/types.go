@@ -41,28 +41,40 @@ type CallerRef struct {
 	PreRename     bool     `json:"PreRename,omitempty"`
 }
 
+// CrossRepoImpact is one cross-repo call linking a symbol this hunk touches
+// to a route/handler in a related repo (see docs/multi-repo-blast-radius-plan.md).
+// Populated by the cross_repo_link job, never by git-lrc - it's additive to
+// the report git-lrc already uploads, not part of its own scoring.
+type CrossRepoImpact struct {
+	RelatedRepo string  `json:"RelatedRepo"` // related repo's full_name
+	CallSite    string  `json:"CallSite"`    // the matched route/handler qualified name
+	EdgeType    string  `json:"EdgeType"`    // CROSS_HTTP_CALLS, CROSS_ASYNC_CALLS, ...
+	Confidence  float64 `json:"Confidence,omitempty"`
+}
+
 // SymbolContribution is one symbol (function/type/...) touched by a hunk,
 // with its own signal list and pre-summed subtotals.
 type SymbolContribution struct {
-	QualifiedName     string      `json:"QualifiedName"`
-	Name              string      `json:"Name"`
-	Label             string      `json:"Label,omitempty"`
-	Method            string      `json:"Method,omitempty"`
-	Signals           []Signal    `json:"Signals,omitempty"`
-	BlastRadiusRaw    float64     `json:"BlastRadiusRaw"`
-	ReviewPriorityRaw float64     `json:"ReviewPriorityRaw"`
-	DirectCount       int         `json:"DirectCount,omitempty"`
-	TransitiveCount   int         `json:"TransitiveCount,omitempty"`
-	Callers           []CallerRef `json:"Callers,omitempty"`
-	RenamedFrom       string      `json:"RenamedFrom,omitempty"`
-	ImpactedPackages  []string    `json:"ImpactedPackages,omitempty"`
-	MethodBlastRadius float64     `json:"MethodBlastRadius,omitempty"`
-	IsEntryPoint      bool        `json:"IsEntryPoint,omitempty"`
-	Complexity        float64     `json:"Complexity,omitempty"`
-	Cognitive         float64     `json:"Cognitive,omitempty"`
-	LoopDepth         int         `json:"LoopDepth,omitempty"`
-	OutDegree         int         `json:"OutDegree,omitempty"`
-	TestCount         int         `json:"TestCount,omitempty"`
+	QualifiedName        string            `json:"QualifiedName"`
+	Name                 string            `json:"Name"`
+	Label                string            `json:"Label,omitempty"`
+	Method               string            `json:"Method,omitempty"`
+	Signals              []Signal          `json:"Signals,omitempty"`
+	BlastRadiusRaw       float64           `json:"BlastRadiusRaw"`
+	ReviewPriorityRaw    float64           `json:"ReviewPriorityRaw"`
+	DirectCount          int               `json:"DirectCount,omitempty"`
+	TransitiveCount      int               `json:"TransitiveCount,omitempty"`
+	Callers              []CallerRef       `json:"Callers,omitempty"`
+	RenamedFrom          string            `json:"RenamedFrom,omitempty"`
+	ImpactedPackages     []string          `json:"ImpactedPackages,omitempty"`
+	MethodBlastRadius    float64           `json:"MethodBlastRadius,omitempty"`
+	IsEntryPoint         bool              `json:"IsEntryPoint,omitempty"`
+	Complexity           float64           `json:"Complexity,omitempty"`
+	Cognitive            float64           `json:"Cognitive,omitempty"`
+	LoopDepth            int               `json:"LoopDepth,omitempty"`
+	OutDegree            int               `json:"OutDegree,omitempty"`
+	TestCount            int               `json:"TestCount,omitempty"`
+	ImpactedRelatedRepos []CrossRepoImpact `json:"ImpactedRelatedRepos,omitempty"`
 }
 
 // Weights blends the two normalized dimension scores into Combined - see
@@ -104,6 +116,11 @@ type HunkReport struct {
 	Symbols           []SymbolContribution `json:"Symbols,omitempty"`
 	ImpactedPackages  []string             `json:"ImpactedPackages,omitempty"`
 	FileCouplingBonus float64              `json:"FileCouplingBonus,omitempty"`
+	// ImpactedRelatedRepos rolls up every Symbols[].ImpactedRelatedRepos entry
+	// for this hunk (set by AddCrossRepoImpact), so the diff-viewer panel can
+	// render a hunk-level chip list the same way it already does for
+	// ImpactedPackages, without reading into Symbols itself.
+	ImpactedRelatedRepos []CrossRepoImpact `json:"ImpactedRelatedRepos,omitempty"`
 }
 
 // FileReport is one file's hunks.

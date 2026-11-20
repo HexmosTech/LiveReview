@@ -8,6 +8,7 @@ import React, { useMemo, useState } from 'react';
 import classNames from 'classnames';
 import { Tooltip } from '../../UIPrimitives';
 import {
+  BlastRadiusCrossRepoImpact,
   BlastRadiusHunkReport,
   BlastRadiusSignal,
   BlastRadiusSymbolContribution,
@@ -27,6 +28,15 @@ import FlameGraph from './FlameGraph';
 
 const CALLERS_PREVIEW = 8;
 const PKGS_PREVIEW = 10;
+const RELATED_REPOS_PREVIEW = 10;
+
+// crossRepoChipLabels turns CrossRepoImpact entries into ChipList's flat
+// string[] shape, deduplicated by related repo (one chip per repo, not per
+// matched edge - a repo calling in via three routes is still one repo).
+function crossRepoChipLabels(impacts?: BlastRadiusCrossRepoImpact[]): string[] {
+  if (!impacts || impacts.length === 0) return [];
+  return Array.from(new Set(impacts.map((im) => im.RelatedRepo).filter(Boolean)));
+}
 
 const SCORE_HINTS: Record<string, { title: string; body: string }> = {
   combined: {
@@ -528,6 +538,7 @@ const SymbolDetail: React.FC<{
         </div>
       )}
       <ChipList items={sym.ImpactedPackages} preview={PKGS_PREVIEW} label={`Impacted packages (${(sym.ImpactedPackages || []).length})`} />
+      <ChipList items={crossRepoChipLabels(sym.ImpactedRelatedRepos)} preview={RELATED_REPOS_PREVIEW} label={`Impacted related repos (${crossRepoChipLabels(sym.ImpactedRelatedRepos).length})`} />
     </div>
   );
 };
@@ -600,6 +611,7 @@ const BlastRadiusPanel: React.FC<BlastRadiusPanelProps> = ({ detail }) => {
       </div>
 
       <ChipList items={detail.ImpactedPackages} preview={PKGS_PREVIEW} label={`Impacted packages (${(detail.ImpactedPackages || []).length})`} />
+      <ChipList items={crossRepoChipLabels(detail.ImpactedRelatedRepos)} preview={RELATED_REPOS_PREVIEW} label={`Impacted related repos (${crossRepoChipLabels(detail.ImpactedRelatedRepos).length})`} />
 
       <div className="flex gap-1 border-b border-slate-700 text-xs">
         <button type="button" className={classNames('px-3 py-1.5', scoreMode === 'summary' ? 'border-b-2 border-blue-500 text-white' : 'text-slate-400 hover:text-slate-200')} onClick={() => setScoreMode('summary')}>Summary</button>
