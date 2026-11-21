@@ -1342,7 +1342,7 @@ raw-deploy-low-pricing: check-env-low-pricing build-with-ui
 
 raw-deploy-backend: check-env-prod ensure-seed-demo-env
 	@echo "🚀 Deploying to production server..."
-	$(GOBUILD) -tags production livereview.go
+	$(GOBUILD) -tags production -o $(BINARY_NAME) .
 	@if [ ! -f ./livereview ]; then \
 		echo "❌ ERROR: livereview binary not found! Run 'make build-with-ui' first."; \
 		exit 1; \
@@ -1387,7 +1387,7 @@ raw-deploy-backend: check-env-prod ensure-seed-demo-env
 
 raw-deploy-backend-low-pricing: check-env-low-pricing
 	@echo "🚀 Deploying backend with LOW pricing profile..."
-	$(GOBUILD) -tags production livereview.go
+	$(GOBUILD) -tags production -o $(BINARY_NAME) .
 	@if [ ! -f ./livereview ]; then \
 		echo "❌ ERROR: livereview binary not found! Run 'make build-with-ui' first."; \
 		exit 1; \
