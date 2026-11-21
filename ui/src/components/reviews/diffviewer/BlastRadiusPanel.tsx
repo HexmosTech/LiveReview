@@ -7,7 +7,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import classNames from 'classnames';
 import { Link } from 'react-router-dom';
-import { LuChevronDown, LuChevronRight } from 'react-icons/lu';
+import { LuArrowUpRight, LuChevronDown, LuChevronRight, LuFolderGit2 } from 'react-icons/lu';
 import { Tooltip } from '../../UIPrimitives';
 import {
   BlastRadiusCrossRepoChain,
@@ -25,6 +25,8 @@ import {
   crossRepoRouteLabel,
   groupCallers,
   hasImpactBranches,
+  relatedRepoDisplayName,
+  relatedRepoNameVariants,
   SEVERITY_WEIGHT,
   shortName,
 } from '../../../lib/blastRadius';
@@ -38,9 +40,7 @@ const RELATED_REPOS_PREVIEW = 10;
 // crossRepoDisplayName prefers LiveReview's repositories row (full_name) and
 // falls back to the engine project id for artifacts produced before the
 // name/link fields existed.
-function crossRepoDisplayName(im: BlastRadiusCrossRepoImpact): string {
-  return im.RelatedRepoName || im.RelatedRepo;
-}
+const crossRepoDisplayName = relatedRepoDisplayName;
 
 function crossRepoKey(im: BlastRadiusCrossRepoImpact): string {
   if (im.RelatedRepoID) return `id:${im.RelatedRepoID}`;
@@ -80,6 +80,74 @@ function groupRelatedRepos(impacts?: BlastRadiusCrossRepoImpact[]): RelatedRepoG
 
 const routeLabel = crossRepoRouteLabel;
 
+const RelatedRepoCard: React.FC<{ group: RelatedRepoGroup }> = ({ group }) => {
+  const [showAllRoutes, setShowAllRoutes] = useState(false);
+  const routes = useMemo(
+    () => Array.from(new Set(group.callSites.map(routeLabel).filter(Boolean))),
+    [group.callSites]
+  );
+  const visibleRoutes = showAllRoutes ? routes : routes.slice(0, 2);
+  const hiddenRoutes = routes.length - visibleRoutes.length;
+  const versionAlias = group.matchKinds.includes('version-alias');
+  return (
+    <div className="min-w-[17rem] max-w-full flex-1 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <LuFolderGit2 className="h-3.5 w-3.5 shrink-0 text-blue-400" />
+        {group.id ? (
+          <Link
+            to={`/explore/repositories/${group.id}/settings`}
+            className="inline-flex min-w-0 items-center gap-1 text-xs font-medium text-blue-300 underline decoration-blue-400/70 decoration-1 underline-offset-2 hover:text-blue-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400"
+            aria-label={`Open ${group.name} repository settings`}
+          >
+            <span className="break-all font-mono">{group.name}</span>
+            <LuArrowUpRight className="h-3 w-3 shrink-0" />
+          </Link>
+        ) : (
+          <span className="break-all font-mono text-xs font-medium text-slate-200">{group.name}</span>
+        )}
+        <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-400">
+          related repo
+        </span>
+        {versionAlias && (
+          <span className="rounded bg-amber-900/40 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-300" title="Matched across a URI version segment such as /v1">
+            version match
+          </span>
+        )}
+      </div>
+      {routes.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            {routes.length === 1 ? 'Route' : `Routes (${routes.length})`}
+          </span>
+          {visibleRoutes.map((route) => (
+            <code key={route} className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[11px] text-slate-200">
+              {route}
+            </code>
+          ))}
+          {hiddenRoutes > 0 && (
+            <button
+              type="button"
+              className="text-[11px] font-medium text-blue-300 underline decoration-dotted underline-offset-2 hover:text-blue-200"
+              onClick={() => setShowAllRoutes(true)}
+            >
+              show all {routes.length}
+            </button>
+          )}
+          {showAllRoutes && routes.length > 2 && (
+            <button
+              type="button"
+              className="text-[11px] text-slate-500 underline decoration-dotted underline-offset-2 hover:text-slate-300"
+              onClick={() => setShowAllRoutes(false)}
+            >
+              show less
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const RelatedRepoChips: React.FC<{ impacts?: BlastRadiusCrossRepoImpact[]; preview: number; label: string }> = ({ impacts, preview, label }) => {
   const [showAll, setShowAll] = useState(false);
   const groups = useMemo(() => groupRelatedRepos(impacts), [impacts]);
@@ -87,36 +155,13 @@ const RelatedRepoChips: React.FC<{ impacts?: BlastRadiusCrossRepoImpact[]; previ
   const visible = showAll ? groups : groups.slice(0, preview);
   const hidden = groups.length - visible.length;
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-xs text-slate-500">{label}</span>
-      {visible.map((group) => {
-        const tip = [
-          group.callSites.length > 0 ? `Routes: ${group.callSites.map(routeLabel).join(', ')}` : '',
-          group.matchKinds.includes('version-alias') ? 'Matched across a URI version segment (/v1)' : '',
-          group.id ? 'Open repository' : '',
-        ].filter(Boolean).join(' · ');
-        const chip = (
-          <span className="inline-flex max-w-[22rem] items-center gap-1 rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-300">
-            <span className="truncate font-mono">{group.name}</span>
-            {group.callSites.length > 0 && <span className="truncate font-mono text-slate-500">{routeLabel(group.callSites[0])}</span>}
-          </span>
-        );
-        return (
-          <Tooltip key={group.key} content={tip || group.name}>
-            {group.id ? (
-              <Link
-                to={`/explore/repositories/${group.id}/settings`}
-                className="rounded hover:bg-slate-700 focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400"
-                aria-label={`Open ${group.name} repository`}
-              >
-                {chip}
-              </Link>
-            ) : chip}
-          </Tooltip>
-        );
-      })}
-      {hidden > 0 && <button type="button" className="text-[11px] text-slate-500 hover:text-slate-300" onClick={() => setShowAll(true)}>+{hidden} more</button>}
-      {showAll && groups.length > preview && <button type="button" className="text-[11px] text-slate-500 hover:text-slate-300" onClick={() => setShowAll(false)}>show less</button>}
+    <div>
+      <div className="mb-1.5 text-xs text-slate-400">{label}</div>
+      <div className="flex flex-wrap gap-2">
+        {visible.map((group) => <RelatedRepoCard key={group.key} group={group} />)}
+      </div>
+      {hidden > 0 && <button type="button" className="mt-1.5 text-[11px] text-slate-500 hover:text-slate-300" onClick={() => setShowAll(true)}>+{hidden} more</button>}
+      {showAll && groups.length > preview && <button type="button" className="mt-1.5 text-[11px] text-slate-500 hover:text-slate-300" onClick={() => setShowAll(false)}>show less</button>}
     </div>
   );
 };
@@ -139,11 +184,15 @@ function dedupeChains(chains?: BlastRadiusCrossRepoChain[]): BlastRadiusCrossRep
 }
 
 const ChainRepoLabel: React.FC<{ hop: BlastRadiusCrossRepoChain['Hops'][number] }> = ({ hop }) => {
-  const name = hop.RelatedRepoName || hop.RelatedRepo;
+  const name = relatedRepoDisplayName(hop);
   if (hop.RelatedRepoID) {
     return (
-      <Link to={`/explore/repositories/${hop.RelatedRepoID}/settings`} className="font-mono text-blue-300 hover:text-blue-200 underline decoration-dotted">
+      <Link
+        to={`/explore/repositories/${hop.RelatedRepoID}/settings`}
+        className="inline-flex items-center gap-0.5 font-mono text-blue-300 underline decoration-blue-400/70 decoration-1 underline-offset-2 hover:text-blue-200"
+      >
         {name}
+        <LuArrowUpRight className="h-3 w-3" />
       </Link>
     );
   }
@@ -283,11 +332,13 @@ const DETAIL_LIST_PREVIEW = 6;
 // text into the same in-app repository link the chips already use, so the
 // single sentence that names the repo is navigable too.
 const renderLinkedRepoText = (text: string, impacts?: BlastRadiusCrossRepoImpact[]): React.ReactNode => {
-  const entries = new Map<string, { name: string; id?: number }>();
+  const entries = new Map<string, { display: string; id?: number }>();
   (impacts || []).forEach((im) => {
-    const name = crossRepoDisplayName(im);
-    if (!name || entries.has(name)) return;
-    entries.set(name, { name, id: im.RelatedRepoID });
+    const display = crossRepoDisplayName(im);
+    if (!display) return;
+    relatedRepoNameVariants(im).forEach((variant) => {
+      if (!entries.has(variant)) entries.set(variant, { display, id: im.RelatedRepoID });
+    });
   });
   const names = Array.from(entries.keys()).sort((a, b) => b.length - a.length);
   if (names.length === 0) return text;
@@ -295,14 +346,15 @@ const renderLinkedRepoText = (text: string, impacts?: BlastRadiusCrossRepoImpact
   return text.split(pattern).map((part, idx) => {
     const entry = entries.get(part);
     if (!entry) return <React.Fragment key={idx}>{part}</React.Fragment>;
-    if (!entry.id) return <span key={idx} className="font-mono text-slate-300">{part}</span>;
+    if (!entry.id) return <span key={idx} className="break-all font-mono text-slate-300">{entry.display}</span>;
     return (
       <Link
         key={idx}
         to={`/explore/repositories/${entry.id}/settings`}
-        className="font-mono text-blue-300 underline decoration-dotted hover:text-blue-200"
+        className="inline-flex items-center gap-0.5 break-all font-mono text-blue-300 underline decoration-blue-400/70 decoration-1 underline-offset-2 hover:text-blue-200"
       >
-        {part}
+        {entry.display}
+        <LuArrowUpRight className="h-3 w-3 shrink-0" />
       </Link>
     );
   });

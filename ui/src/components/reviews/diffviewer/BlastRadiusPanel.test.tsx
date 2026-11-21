@@ -89,9 +89,14 @@ describe('BlastRadiusPanel cross-repo rendering', () => {
 
   it('links the repository named in the cross-repo signal sentence', () => {
     render(<MemoryRouter><BlastRadiusPanel detail={detail} /></MemoryRouter>);
-    const links = screen.getAllByRole('link', { name: 'org/integration' });
+    const links = screen.getAllByRole('link', { name: /org\/integration/ });
     expect(links.length).toBeGreaterThan(0);
-    links.forEach((link) => expect(link).toHaveAttribute('href', '/explore/repositories/2203/settings'));
+    links.forEach((link) => {
+      expect(link).toHaveAttribute('href', '/explore/repositories/2203/settings');
+      expect(link.className).toContain('underline');
+    });
+    // The matched route is visible in the card, not only in a hover tooltip.
+    expect(screen.getAllByText('/v1/e-kyc/read-aadhaar').length).toBeGreaterThan(0);
   });
 
   it('draws an impact chart from related repos even when the symbol has no callers', () => {

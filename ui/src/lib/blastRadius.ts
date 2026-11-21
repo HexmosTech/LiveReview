@@ -443,13 +443,78 @@ export function crossRepoRouteLabel(callSite: string): string {
   return (callSite || '').replace(/^__route__[A-Z]+__/, '');
 }
 
+/**
+ * True for the engine's index-cache project ids, which are implementation
+ * details (`root-public_lrdata-repo_cache-677-237-org__service-repo`) and
+ * must never be shown as a repository name.
+ */
+function looksLikeEngineProject(name: string): boolean {
+  return /repo_cache-\d+-\d+-/.test(name) || (name.includes('__') && /-repo$/.test(name));
+}
+
+/** Decodes `org__service-repo` inside an engine project id into `org/service`. */
+function decodeEngineProject(raw: string): string {
+  const m = raw.match(/repo_cache-\d+-\d+-(.+?)-repo$/);
+  if (m) return m[1].replace(/__/g, '/');
+  if (raw.includes('__')) return raw.replace(/__/g, '/');
+  return raw;
+}
+
+/** Extracts `org/service` from a provider web URL (GitHub/GitLab/etc.). */
+function repoNameFromWebURL(raw?: string): string {
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    const path = url.pathname.replace(/^\/+|\/+$/g, '').split('/-/')[0];
+    return path.replace(/\.git$/, '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * One friendly repository name for every place that renders a cross-repo
+ * reference. Preferences, in order: the LiveReview `full_name`, the provider
+ * URL's path, then a decoded engine project id. Older artifacts only carry
+ * the engine id in `RelatedRepo`, which is why the decode fallback exists.
+ */
+export function relatedRepoDisplayName(ref: {
+  RelatedRepo?: string;
+  RelatedRepoName?: string;
+  RelatedRepoWebURL?: string;
+}): string {
+  const explicit = String(ref.RelatedRepoName || '').trim();
+  if (explicit && !looksLikeEngineProject(explicit)) return explicit;
+  const fromURL = repoNameFromWebURL(ref.RelatedRepoWebURL);
+  if (fromURL) return fromURL;
+  return decodeEngineProject(String(explicit || ref.RelatedRepo || '').trim()) || 'Unknown repository';
+}
+
+/**
+ * Every textual form an impact may use for the same repository, longest
+ * first. Signal detail text is generated server-side and may contain either
+ * the friendly name or the engine id, so linking matches both.
+ */
+export function relatedRepoNameVariants(ref: {
+  RelatedRepo?: string;
+  RelatedRepoName?: string;
+  RelatedRepoWebURL?: string;
+}): string[] {
+  const out = new Set<string>();
+  [ref.RelatedRepoName, ref.RelatedRepo, relatedRepoDisplayName(ref)].forEach((v) => {
+    const trimmed = String(v || '').trim();
+    if (trimmed) out.add(trimmed);
+  });
+  return Array.from(out).sort((a, b) => b.length - a.length);
+}
+
 function crossRepoBranchKey(im: BlastRadiusCrossRepoImpact): string {
   if (im.RelatedRepoID) return `id:${im.RelatedRepoID}`;
-  return `name:${im.RelatedRepoName || im.RelatedRepo}`;
+  return `name:${relatedRepoDisplayName(im)}`;
 }
 
 function crossRepoBranchName(im: BlastRadiusCrossRepoImpact): string {
-  return im.RelatedRepoName || im.RelatedRepo;
+  return relatedRepoDisplayName(im);
 }
 
 /**

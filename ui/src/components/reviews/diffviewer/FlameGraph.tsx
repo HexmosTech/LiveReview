@@ -135,7 +135,7 @@ const FlameGraph: React.FC<FlameGraphProps> = ({ symbol, width, height, hovered:
               onMouseEnter={() => setHovered(bar.node.qualifiedName)}
               onMouseLeave={() => setHovered(null)}
             >
-              <title>{bar.node.isRelatedRepo ? `${bar.node.name} (related repo)` : bar.node.isRelatedRoute ? `${bar.node.name} (route in related repo)` : bar.node.qualifiedName}</title>
+              <title>{bar.node.isRelatedRepo ? `${bar.node.name} (related repo)` : bar.node.isRelatedRoute ? `${bar.node.name} (route in related repo)` : bar.node.name}</title>
             </rect>
             {bar.width > 40 && (
               <text

@@ -22,6 +22,14 @@ const sections: MegaMenuSection[] = [
           { kind: 'link', name: 'Policies', icon: <span />, path: '/reviews/settings/policies' },
         ],
       },
+      {
+        kind: 'group',
+        name: 'Findings',
+        icon: <span />,
+        children: [
+          { kind: 'link', name: 'All Findings', icon: <span />, path: '/reports?mode=explore' },
+        ],
+      },
     ],
   },
 ];
@@ -45,5 +53,11 @@ describe('NavMegaMenu links', () => {
     const group = screen.getByRole('link', { name: /Settings/ });
     expect(group.tagName).toBe('A');
     expect(group).toHaveAttribute('href', '/reviews/settings');
+
+    // A group with no landing page of its own still renders an anchor, using
+    // its first navigable child, so right-click → open-in-new-tab works.
+    const fallbackGroup = screen.getByRole('link', { name: /Findings/ });
+    expect(fallbackGroup.tagName).toBe('A');
+    expect(fallbackGroup).toHaveAttribute('href', '/reports?mode=explore');
   });
 });

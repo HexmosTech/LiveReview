@@ -54,6 +54,20 @@ type NavMegaMenuProps = {
 const isModifiedNavigation = (event: React.MouseEvent): boolean =>
     event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
 
+// Every row in the menu must be a real link, including group headers that are
+// primarily hover-to-expand. When a group has no landing page of its own, its
+// first navigable descendant is the sensible target for "Open in new tab" and
+// for a plain click, instead of leaving the row as a non-link <div>.
+const firstNavigablePath = (node: MegaMenuNode): string | undefined => {
+    if (node.kind === 'link') return node.path;
+    if (node.path) return node.path;
+    for (const child of node.children) {
+        const path = firstNavigablePath(child);
+        if (path) return path;
+    }
+    return undefined;
+};
+
 const EnterpriseBadge: React.FC = () => (
     <span className="shrink-0 rounded border border-amber-700/50 bg-amber-900/30 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-400">
         Enterprise
@@ -92,9 +106,10 @@ type GroupRowProps = {
 
 const GroupRow: React.FC<GroupRowProps> = ({ node, onLinkClick, id, openGroups, openGroup, forceExpandAll }) => {
     const isOpen = forceExpandAll || openGroups.has(id);
+    const targetPath = node.path || firstNavigablePath(node);
     const rowClass = classNames(
         'flex items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-left text-xs font-medium transition-colors',
-        node.path ? 'cursor-pointer' : 'cursor-default',
+        targetPath ? 'cursor-pointer' : 'cursor-default',
         isOpen ? 'bg-slate-700/60 text-white' : 'text-slate-300 hover:bg-slate-700/60 hover:text-white'
     );
     const content = (
@@ -110,9 +125,9 @@ const GroupRow: React.FC<GroupRowProps> = ({ node, onLinkClick, id, openGroups, 
     );
     return (
         <li>
-            {node.path ? (
+            {targetPath ? (
                 <Link
-                    to={node.path}
+                    to={targetPath}
                     onMouseEnter={() => openGroup(id)}
                     onClick={onLinkClick}
                     className={rowClass}

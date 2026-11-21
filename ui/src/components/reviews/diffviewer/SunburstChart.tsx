@@ -163,7 +163,7 @@ const SunburstChart: React.FC<SunburstChartProps> = ({ symbol, width, height, ho
             onMouseEnter={() => setHovered(seg.node.qualifiedName)}
             onMouseLeave={() => setHovered(null)}
           >
-            <title>{seg.node.isRelatedRepo ? `${seg.node.name} (related repo)` : seg.node.isRelatedRoute ? `${seg.node.name} (route in related repo)` : seg.node.qualifiedName}</title>
+            <title>{seg.node.isRelatedRepo ? `${seg.node.name} (related repo)` : seg.node.isRelatedRoute ? `${seg.node.name} (route in related repo)` : seg.node.name}</title>
           </path>
         );
       })}

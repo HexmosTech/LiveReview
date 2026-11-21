@@ -113,11 +113,15 @@ breakdown panel (Summary and Math Mode tabs) shows the exact math behind its
 score, including the finding-severity contribution.
 
 When the repository has **Related Repos** configured, the panel also shows
-**Impacted related repos** chips. Each chip is the related repository's
-`full_name` and opens that repository's LiveReview settings page; its tooltip
-lists the matched routes and whether the match crossed a URI version segment.
-The **Cross-repo impact** signal sentence that names the repository is a link
-to the same settings page, so the line explaining the score is navigable too.
+**Impacted related repos** cards. Each card shows the related repository's
+friendly `full_name` as a blue underlined link (with an open-in-app arrow) to
+that repository's LiveReview settings page, a `related repo` badge, and the
+matched route(s) as visible monospace chips — routes are never hover-only. A
+`Routes (N)` / **show all** control expands the full list when a card has more
+than two. Matches that crossed a URI version segment carry a `version match`
+badge. The **Cross-repo impact** signal sentence that names the repository is
+linked to the same settings page, so the line explaining the score is
+navigable too.
 If the related repo's handlers call further linked repos, a collapsed
 **Extended impact chain** control expands to the path (this repo → B → C) with
 the route at each hop.

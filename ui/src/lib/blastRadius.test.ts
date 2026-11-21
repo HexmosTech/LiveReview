@@ -10,6 +10,8 @@ import {
   flattenFilesByRisk,
   hasImpactBranches,
   hunkSeverityInfo,
+  relatedRepoDisplayName,
+  relatedRepoNameVariants,
 } from './blastRadius';
 import { DiffReviewComment, BlastRadiusHunkReport, DiffReviewFile, DiffReviewHunk } from '../types/reviews';
 
@@ -256,5 +258,38 @@ describe('buildImpactHierarchy', () => {
     expect(hasImpactBranches(symbol)).toBe(true);
     expect(hasImpactBranches({})).toBe(false);
     expect(crossRepoRouteLabel('__route__GET__/v1/loconav/vehicle/{}')).toBe('/v1/loconav/vehicle/{}');
+  });
+});
+
+describe('relatedRepoDisplayName', () => {
+  const engineID = 'root-public_lrdata-repo_cache-677-237-framework-examples__typescript__nestjs__blive-microservice-3-integration-repo';
+
+  it('prefers the friendly LiveReview full_name', () => {
+    expect(relatedRepoDisplayName({
+      RelatedRepo: engineID,
+      RelatedRepoName: 'framework-examples/typescript/nestjs/blive-microservice-3-integration',
+    })).toBe('framework-examples/typescript/nestjs/blive-microservice-3-integration');
+  });
+
+  it('decodes an engine project id when no friendly name exists', () => {
+    expect(relatedRepoDisplayName({ RelatedRepo: engineID })).toBe(
+      'framework-examples/typescript/nestjs/blive-microservice-3-integration'
+    );
+  });
+
+  it('falls back to the provider URL path', () => {
+    expect(relatedRepoDisplayName({
+      RelatedRepo: engineID,
+      RelatedRepoWebURL: 'https://git.apps.hexmos.com/framework-examples/typescript/nestjs/blive-microservice-3-integration',
+    })).toBe('framework-examples/typescript/nestjs/blive-microservice-3-integration');
+  });
+
+  it('returns every textual variant so server-generated detail text can be linked', () => {
+    const variants = relatedRepoNameVariants({
+      RelatedRepo: engineID,
+      RelatedRepoName: 'framework-examples/typescript/nestjs/blive-microservice-3-integration',
+    });
+    expect(variants).toContain(engineID);
+    expect(variants).toContain('framework-examples/typescript/nestjs/blive-microservice-3-integration');
   });
 });
