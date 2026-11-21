@@ -8,6 +8,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/HexmosTech/git-lrc/blastradius/client"
 )
@@ -53,56 +54,55 @@ func LoadRepoGraph(ctx context.Context, project string) (*RepoGraph, error) {
 	if err != nil {
 		return nil, fmt.Errorf("serverscore: %s not found on PATH: %w", engineBinary, err)
 	}
-	c := &client.Client{Binary: binary, Project: project}
+	// The engine pays a multi-second index-open cost on every invocation; 30s
+	// is too tight when the host is also running reviews and the dashboard
+	// cache. One minute still bounds a stuck query.
+	c := &client.Client{Binary: binary, Project: project, Timeout: 60 * time.Second}
 	g := &RepoGraph{Project: project, Handlers: map[string][]string{}, Outbound: map[string][]OutboundRoute{}}
 
-	qr, err := c.QueryGraph(ctx, "MATCH (r) WHERE r.label='Route' RETURN r.qualified_name, r.name, r.method, r.file_path", 0)
+	// One query instead of three. Each codebase-memory-mcp invocation pays a
+	// multi-second index-open cost, so three separate route/handler/call
+	// queries made the CLI match endpoint exceed the reverse proxy's timeout.
+	// HANDLES + HTTP_CALLS together contain everything this struct needs:
+	// a declared route is one with a source handler, and the handler row
+	// carries the route's own name/method/file path.
+	qr, err := c.QueryGraph(ctx,
+		"MATCH (f)-[e:HANDLES|HTTP_CALLS]->(r) RETURN type(e) AS kind, f.qualified_name AS a, r.qualified_name AS b, r.name AS c, r.method AS d, r.file_path AS e2",
+		0)
 	if err != nil {
-		return nil, fmt.Errorf("serverscore: load routes for %s: %w", project, err)
+		return nil, fmt.Errorf("serverscore: load route/call graph for %s: %w", project, err)
 	}
+	seenRoute := map[string]bool{}
 	for _, row := range qr.Rows {
-		if len(row) < 2 {
+		if len(row) < 6 {
 			continue
 		}
-		method := ""
-		if len(row) >= 3 {
-			method = row[2]
+		kind, from, routeQN, routeName, method, filePath := row[0], row[1], row[2], row[3], row[4], row[5]
+		switch kind {
+		case "HANDLES":
+			if from == "" || routeQN == "" {
+				continue
+			}
+			g.Handlers[routeQN] = append(g.Handlers[routeQN], from)
+			if !seenRoute[routeQN] {
+				seenRoute[routeQN] = true
+				g.Routes = append(g.Routes, RouteNode{
+					QualifiedName: routeQN,
+					Name:          routeName,
+					Method:        method,
+					FilePath:      filePath,
+				})
+			}
+		case "HTTP_CALLS":
+			if from == "" || routeName == "" {
+				continue
+			}
+			g.Outbound[from] = append(g.Outbound[from], OutboundRoute{
+				Name:          routeName,
+				QualifiedName: routeQN,
+				Method:        method,
+			})
 		}
-		filePath := ""
-		if len(row) >= 4 {
-			filePath = row[3]
-		}
-		g.Routes = append(g.Routes, RouteNode{QualifiedName: row[0], Name: row[1], Method: method, FilePath: filePath})
-	}
-
-	qr, err = c.QueryGraph(ctx, "MATCH (f)-[:HANDLES]->(r) RETURN r.qualified_name, f.qualified_name", 0)
-	if err != nil {
-		return nil, fmt.Errorf("serverscore: load route handlers for %s: %w", project, err)
-	}
-	for _, row := range qr.Rows {
-		if len(row) < 2 || row[0] == "" || row[1] == "" {
-			continue
-		}
-		g.Handlers[row[0]] = append(g.Handlers[row[0]], row[1])
-	}
-
-	qr, err = c.QueryGraph(ctx, "MATCH (f)-[:HTTP_CALLS]->(r) RETURN f.qualified_name, r.name, r.qualified_name, r.method", 0)
-	if err != nil {
-		return nil, fmt.Errorf("serverscore: load HTTP calls for %s: %w", project, err)
-	}
-	for _, row := range qr.Rows {
-		if len(row) < 2 || row[0] == "" {
-			continue
-		}
-		qn := ""
-		if len(row) >= 3 {
-			qn = row[2]
-		}
-		method := ""
-		if len(row) >= 4 {
-			method = row[3]
-		}
-		g.Outbound[row[0]] = append(g.Outbound[row[0]], OutboundRoute{Name: row[1], QualifiedName: qn, Method: method})
 	}
 	return g, nil
 }

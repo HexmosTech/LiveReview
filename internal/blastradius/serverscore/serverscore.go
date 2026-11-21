@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/HexmosTech/git-lrc/blastradius"
 	"github.com/HexmosTech/git-lrc/blastradius/client"
@@ -59,4 +60,16 @@ func IndexOnly(ctx context.Context, repoDir string) (project string, err error) 
 		return "", err
 	}
 	return (&client.Client{Binary: binary}).IndexRepository(ctx, repoDir, "fast")
+}
+
+// ProjectIndexed reports whether the engine still lists project. Callers use
+// it to distinguish "the recorded index vanished" (safe to rebuild) from
+// "the index exists but this read failed" (do not reindex a huge repo just to
+// work around a transient query problem).
+func ProjectIndexed(ctx context.Context, project string) (bool, error) {
+	binary, err := exec.LookPath(engineBinary)
+	if err != nil {
+		return false, fmt.Errorf("serverscore: %s not found on PATH: %w", engineBinary, err)
+	}
+	return (&client.Client{Binary: binary, Project: project, Timeout: 30 * time.Second}).ProjectIndexed(ctx)
 }

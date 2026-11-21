@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/livereview/internal/blastradius"
 	"github.com/livereview/internal/blastradius/repocache"
@@ -48,6 +50,40 @@ type RepoMeta struct {
 	ID       int64
 	FullName string
 	WebURL   string
+}
+
+// Reading a related-repo graph costs three codebase-memory-mcp invocations
+// (each reloads the index), so keep a short-lived in-process cache for the
+// read-only CLI path. A related repo changes far less often than that, and a
+// PR review of that repo will reindex it; the TTL bounds staleness for
+// everything else. refresh=true (the server worker) bypasses the cache.
+const graphCacheTTL = 10 * time.Minute
+
+type cachedRepoGraph struct {
+	graph   *serverscore.RepoGraph
+	expires time.Time
+}
+
+var repoGraphCache sync.Map // project -> cachedRepoGraph
+
+func cachedGraph(project string) (*serverscore.RepoGraph, bool) {
+	v, ok := repoGraphCache.Load(project)
+	if !ok {
+		return nil, false
+	}
+	entry := v.(cachedRepoGraph)
+	if time.Now().After(entry.expires) {
+		repoGraphCache.Delete(project)
+		return nil, false
+	}
+	return entry.graph, true
+}
+
+func storeGraph(project string, g *serverscore.RepoGraph) {
+	if project == "" || g == nil {
+		return
+	}
+	repoGraphCache.Store(project, cachedRepoGraph{graph: g, expires: time.Now().Add(graphCacheTTL)})
 }
 
 // RelatedRepo is one related repository reached by the BFS, with its hop depth.
@@ -227,8 +263,20 @@ func EnsureRepoGraph(ctx context.Context, db *sql.DB, root string, orgID, repoID
 	if !refresh {
 		// 1. Already indexed: read it without touching git.
 		if project, ok := repocache.ProjectIndex(root, repo); ok {
-			if g, gerr := serverscore.LoadRepoGraph(ctx, project); gerr == nil {
+			if g, ok := cachedGraph(project); ok {
 				return project, g, meta, nil
+			}
+			g, gerr := serverscore.LoadRepoGraph(ctx, project)
+			if gerr == nil {
+				storeGraph(project, g)
+				return project, g, meta, nil
+			}
+			// The recorded project may have been evicted from the engine; only
+			// in that case is a rebuild worth the cost. If the project is still
+			// indexed, surface the read error instead of re-indexing a large
+			// repo on every request.
+			if indexed, ierr := serverscore.ProjectIndexed(ctx, project); ierr != nil || indexed {
+				return project, nil, meta, fmt.Errorf("read related repo graph: %w", gerr)
 			}
 		}
 
@@ -255,6 +303,7 @@ func EnsureRepoGraph(ctx context.Context, db *sql.DB, root string, orgID, repoID
 			if gerr != nil {
 				return project, nil, meta, fmt.Errorf("read related repo graph: %w", gerr)
 			}
+			storeGraph(project, g)
 			return project, g, meta, nil
 		}
 	}
@@ -276,6 +325,7 @@ func EnsureRepoGraph(ctx context.Context, db *sql.DB, root string, orgID, repoID
 	if err != nil {
 		return project, nil, meta, fmt.Errorf("read related repo graph: %w", err)
 	}
+	storeGraph(project, g)
 	return project, g, meta, nil
 }
 

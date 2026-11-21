@@ -19,12 +19,16 @@ import (
 )
 
 const (
-	crossRepoMaxSymbols    = 500
-	crossRepoMaxCalls      = 50
-	crossRepoMaxPathBytes  = 4096
-	crossRepoMaxBodyBytes  = 2 << 20 // 2 MiB
-	crossRepoMaxImpacts    = 2000
-	crossRepoMatchTimeout  = 2 * time.Minute
+	crossRepoMaxSymbols   = 500
+	crossRepoMaxCalls     = 50
+	crossRepoMaxPathBytes = 4096
+	crossRepoMaxBodyBytes = 2 << 20 // 2 MiB
+	crossRepoMaxImpacts   = 2000
+	crossRepoMatchTimeout = 2 * time.Minute
+	// Graph loading gets a single overall budget so several slow engine
+	// invocations cannot push the request past the reverse proxy's timeout.
+	// Repos loaded before it expires are cached for the next attempt.
+	crossRepoGraphBudget   = 40 * time.Second
 	crossRepoDefaultDepth  = 3
 	crossRepoMaxDepthLimit = 3
 )
@@ -129,11 +133,17 @@ func (s *Server) CrossRepoMatches(c echo.Context) error {
 		return JSONWithEnvelope(c, http.StatusOK, resp)
 	}
 
+	// Load related repos sequentially. Each graph read is one heavyweight
+	// codebase-memory-mcp invocation; running several at once makes every
+	// query contend for the engine and can push each past its timeout. The
+	// in-process graph cache makes repeat reviews effectively free.
+	loadCtx, cancelLoad := context.WithTimeout(ctx, crossRepoGraphBudget)
+	defer cancelLoad()
 	graphs := make(map[string]*serverscore.RepoGraph, len(related))
 	meta := make(map[string]crossrepolink.RepoMeta, len(related))
 	relatedRefs := make([]crossRepoRelatedRepo, 0, len(related))
 	for _, rel := range related {
-		project, g, relMeta, err := crossrepolink.EnsureRepoGraph(ctx, s.db, repocache.DefaultRoot, orgID, rel.ID, false)
+		project, g, relMeta, err := crossrepolink.EnsureRepoGraph(loadCtx, s.db, repocache.DefaultRoot, orgID, rel.ID, false)
 		if err != nil {
 			addDiagnostic(fmt.Sprintf("repo:%d:%s", rel.ID, truncateError(err)))
 			continue
