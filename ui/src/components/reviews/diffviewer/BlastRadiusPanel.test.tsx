@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import '@testing-library/jest-dom';
 import BlastRadiusPanel from './BlastRadiusPanel';
 import { BlastRadiusHunkReport } from '../../../types/reviews';
@@ -53,5 +54,50 @@ describe('BlastRadiusPanel severity rendering', () => {
     expect(screen.getByText('Severity +0')).toBeInTheDocument();
     // 0.9 * 24.57 = 22.113 → 22
     expect(screen.getByText(/Score 22/)).toBeInTheDocument();
+  });
+});
+
+describe('BlastRadiusPanel cross-repo rendering', () => {
+  const impact = {
+    RelatedRepo: 'engine-project',
+    RelatedRepoID: 2203,
+    RelatedRepoName: 'org/integration',
+    CallSite: '__route__POST__/v1/e-kyc/read-aadhaar',
+    EdgeType: 'CROSS_HTTP_CALLS',
+    MatchKind: 'exact',
+  };
+
+  const detail = makeDetail({
+    ImpactedRelatedRepos: [impact],
+    Symbols: [
+      {
+        QualifiedName: 'svc.readAadhaar',
+        Name: 'readAadhaar',
+        Label: 'Method',
+        Method: 'calls',
+        Signals: [
+          { Name: 'Cross-repo impact', Detail: 'Called from org/integration', Points: 8, Category: 'graph' },
+        ],
+        BlastRadiusRaw: 10,
+        ReviewPriorityRaw: 0,
+        DirectCount: 0,
+        TransitiveCount: 0,
+        ImpactedRelatedRepos: [impact],
+      },
+    ],
+  });
+
+  it('links the repository named in the cross-repo signal sentence', () => {
+    render(<MemoryRouter><BlastRadiusPanel detail={detail} /></MemoryRouter>);
+    const links = screen.getAllByRole('link', { name: 'org/integration' });
+    expect(links.length).toBeGreaterThan(0);
+    links.forEach((link) => expect(link).toHaveAttribute('href', '/explore/repositories/2203/settings'));
+  });
+
+  it('draws an impact chart from related repos even when the symbol has no callers', () => {
+    const { container } = render(<MemoryRouter><BlastRadiusPanel detail={detail} /></MemoryRouter>);
+    expect(screen.queryByText(/No callers in the dependency graph/)).not.toBeInTheDocument();
+    const paths = container.querySelectorAll('svg path');
+    expect(paths.length).toBeGreaterThan(0);
   });
 });
