@@ -31,8 +31,11 @@ admin.
   considered together when scoring blast radius - e.g. a frontend repo that
   calls a backend repo's API. LiveReview looks for matching routes/handlers
   across linked repos and folds any cross-repo impact it finds into the PR's
-  blast-radius report as an "Impacted related repos" chip list. Org owners
-  and super admins can add or remove links; any member can view the list.
+  blast-radius report as an "Impacted related repos" chip list. The heading's
+  info button opens a collapsed-by-default panel listing the language tiers
+  and cross-repo link types the analysis supports (best/good/basic, plus
+  HTTP, gRPC, GraphQL, tRPC and async/channel links). Org owners and super
+  admins can add or remove links; any member can view the list.
 
 ## Related pages
 

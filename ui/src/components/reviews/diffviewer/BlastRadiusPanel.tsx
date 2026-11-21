@@ -6,8 +6,11 @@
 // hand-rolled CSS + position:fixed popovers (Tooltip here covers that).
 import React, { useMemo, useState } from 'react';
 import classNames from 'classnames';
+import { Link } from 'react-router-dom';
+import { LuChevronDown, LuChevronRight } from 'react-icons/lu';
 import { Tooltip } from '../../UIPrimitives';
 import {
+  BlastRadiusCrossRepoChain,
   BlastRadiusCrossRepoImpact,
   BlastRadiusHunkReport,
   BlastRadiusSignal,
@@ -30,13 +33,155 @@ const CALLERS_PREVIEW = 8;
 const PKGS_PREVIEW = 10;
 const RELATED_REPOS_PREVIEW = 10;
 
-// crossRepoChipLabels turns CrossRepoImpact entries into ChipList's flat
-// string[] shape, deduplicated by related repo (one chip per repo, not per
-// matched edge - a repo calling in via three routes is still one repo).
-function crossRepoChipLabels(impacts?: BlastRadiusCrossRepoImpact[]): string[] {
-  if (!impacts || impacts.length === 0) return [];
-  return Array.from(new Set(impacts.map((im) => im.RelatedRepo).filter(Boolean)));
+// crossRepoDisplayName prefers LiveReview's repositories row (full_name) and
+// falls back to the engine project id for artifacts produced before the
+// name/link fields existed.
+function crossRepoDisplayName(im: BlastRadiusCrossRepoImpact): string {
+  return im.RelatedRepoName || im.RelatedRepo;
 }
+
+function crossRepoKey(im: BlastRadiusCrossRepoImpact): string {
+  if (im.RelatedRepoID) return `id:${im.RelatedRepoID}`;
+  return `name:${crossRepoDisplayName(im)}`;
+}
+
+interface RelatedRepoGroup {
+  key: string;
+  name: string;
+  id?: number;
+  webURL?: string;
+  callSites: string[];
+  matchKinds: string[];
+}
+
+function groupRelatedRepos(impacts?: BlastRadiusCrossRepoImpact[]): RelatedRepoGroup[] {
+  const groups = new Map<string, RelatedRepoGroup>();
+  (impacts || []).forEach((im) => {
+    const key = crossRepoKey(im);
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        key,
+        name: crossRepoDisplayName(im),
+        id: im.RelatedRepoID,
+        webURL: im.RelatedRepoWebURL,
+        callSites: [],
+        matchKinds: [],
+      };
+      groups.set(key, group);
+    }
+    if (im.CallSite && !group.callSites.includes(im.CallSite)) group.callSites.push(im.CallSite);
+    if (im.MatchKind && !group.matchKinds.includes(im.MatchKind)) group.matchKinds.push(im.MatchKind);
+  });
+  return Array.from(groups.values());
+}
+
+const routeLabel = (callSite: string) => callSite.replace(/^__route__[A-Z]+__/, '');
+
+const RelatedRepoChips: React.FC<{ impacts?: BlastRadiusCrossRepoImpact[]; preview: number; label: string }> = ({ impacts, preview, label }) => {
+  const [showAll, setShowAll] = useState(false);
+  const groups = useMemo(() => groupRelatedRepos(impacts), [impacts]);
+  if (groups.length === 0) return null;
+  const visible = showAll ? groups : groups.slice(0, preview);
+  const hidden = groups.length - visible.length;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-xs text-slate-500">{label}</span>
+      {visible.map((group) => {
+        const tip = [
+          group.callSites.length > 0 ? `Routes: ${group.callSites.map(routeLabel).join(', ')}` : '',
+          group.matchKinds.includes('version-alias') ? 'Matched across a URI version segment (/v1)' : '',
+          group.id ? 'Open repository' : '',
+        ].filter(Boolean).join(' · ');
+        const chip = (
+          <span className="inline-flex max-w-[22rem] items-center gap-1 rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-300">
+            <span className="truncate font-mono">{group.name}</span>
+            {group.callSites.length > 0 && <span className="truncate font-mono text-slate-500">{routeLabel(group.callSites[0])}</span>}
+          </span>
+        );
+        return (
+          <Tooltip key={group.key} content={tip || group.name}>
+            {group.id ? (
+              <Link
+                to={`/explore/repositories/${group.id}/settings`}
+                className="rounded hover:bg-slate-700 focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400"
+                aria-label={`Open ${group.name} repository`}
+              >
+                {chip}
+              </Link>
+            ) : chip}
+          </Tooltip>
+        );
+      })}
+      {hidden > 0 && <button type="button" className="text-[11px] text-slate-500 hover:text-slate-300" onClick={() => setShowAll(true)}>+{hidden} more</button>}
+      {showAll && groups.length > preview && <button type="button" className="text-[11px] text-slate-500 hover:text-slate-300" onClick={() => setShowAll(false)}>show less</button>}
+    </div>
+  );
+};
+
+function chainKey(chain: BlastRadiusCrossRepoChain): string {
+  return (chain.Hops || []).map((h) => `${h.RelatedRepo}|${h.CallSite}|${h.Handler || ''}`).join(';');
+}
+
+function dedupeChains(chains?: BlastRadiusCrossRepoChain[]): BlastRadiusCrossRepoChain[] {
+  const seen = new Set<string>();
+  const out: BlastRadiusCrossRepoChain[] = [];
+  (chains || []).forEach((chain) => {
+    if (!chain.Hops || chain.Hops.length < 2) return;
+    const key = chainKey(chain);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(chain);
+  });
+  return out;
+}
+
+const ChainRepoLabel: React.FC<{ hop: BlastRadiusCrossRepoChain['Hops'][number] }> = ({ hop }) => {
+  const name = hop.RelatedRepoName || hop.RelatedRepo;
+  if (hop.RelatedRepoID) {
+    return (
+      <Link to={`/explore/repositories/${hop.RelatedRepoID}/settings`} className="font-mono text-blue-300 hover:text-blue-200 underline decoration-dotted">
+        {name}
+      </Link>
+    );
+  }
+  return <span className="font-mono text-slate-300">{name}</span>;
+};
+
+const ChainList: React.FC<{ chains?: BlastRadiusCrossRepoChain[]; label: string }> = ({ chains, label }) => {
+  const [open, setOpen] = useState(false);
+  const items = useMemo(() => dedupeChains(chains), [chains]);
+  if (items.length === 0) return null;
+  return (
+    <div>
+      <button
+        type="button"
+        className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        {open ? <LuChevronDown className="h-3.5 w-3.5" /> : <LuChevronRight className="h-3.5 w-3.5" />}
+        {label} ({items.length})
+      </button>
+      {open && (
+        <ul className="mt-1.5 space-y-1.5">
+          {items.map((chain) => (
+            <li key={chainKey(chain)} className="rounded border border-slate-700 bg-slate-900/60 px-2 py-1.5 text-[11px] leading-5 text-slate-300">
+              <span className="text-slate-500">This repo</span>
+              {chain.Hops.map((hop, idx) => (
+                <React.Fragment key={`${chainKey(chain)}:${idx}`}>
+                  <span className="mx-1 text-slate-500">→</span>
+                  <ChainRepoLabel hop={hop} />
+                  {hop.CallSite && <span className="ml-1 font-mono text-slate-500">{routeLabel(hop.CallSite)}</span>}
+                </React.Fragment>
+              ))}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
 
 const SCORE_HINTS: Record<string, { title: string; body: string }> = {
   combined: {
@@ -45,7 +190,7 @@ const SCORE_HINTS: Record<string, { title: string; body: string }> = {
   },
   blast: {
     title: 'Blast radius: how far this change can reach',
-    body: 'Counts callers up to 3 hops. Adds points for HTTP routes, repository hotspots, architectural layers, and widely used interfaces. Adds points when the file touches auth, persistence, config, build, or schema.',
+    body: 'Counts callers up to 3 hops. Adds points for HTTP routes, repository hotspots, architectural layers, widely used interfaces, and calls that cross into linked repositories. Adds points when the file touches auth, persistence, config, build, or schema.',
   },
   priority: {
     title: 'Review priority: how much attention this hunk needs',
@@ -67,7 +212,7 @@ const SCORE_HINTS: Record<string, { title: string; body: string }> = {
 
 const METHODOLOGY_PARAGRAPHS = [
   'Each hunk gets two scores. Both range from 0 to 100 within this diff. 100 marks the highest-risk hunk in this diff, not a universal scale. Combined blends them at 60 percent Blast Radius and 40 percent Review Priority. Sort by Combined. Read Blast and Priority to see why.',
-  'Blast radius measures how far the change can reach. Inputs: callers up to 3 hops, HTTP routes, repository hotspots, architectural layers, interface implementations, cross-package callers, and file paths near auth, persistence, config, build, or schema.',
+  'Blast radius measures how far the change can reach. Inputs: callers up to 3 hops, HTTP routes, repository hotspots, architectural layers, interface implementations, cross-package callers, calls into linked repositories (with an extended chain when those repos call further linked repos), and file paths near auth, persistence, config, build, or schema.',
   'Review priority measures how much attention this hunk needs. Main inputs: a near-duplicate function in another file, and missing direct tests. Secondary inputs: cyclomatic complexity, loop depth, and fan-out.',
   'File co-change coupling adds a small bonus to Blast Radius when git history shows files that change together. Hygiene signals (formatting, comments, generated code, logging, test-only files, dead code) multiply the Combined score down.',
   'Finding severity adds a third dimension: the most serious issue the hunk introduces. Critical findings add the most, warnings less, info least — blended in at 10 percent weight so a critical security bug in a small change still outranks a trivial one in a big change.',
@@ -538,7 +683,8 @@ const SymbolDetail: React.FC<{
         </div>
       )}
       <ChipList items={sym.ImpactedPackages} preview={PKGS_PREVIEW} label={`Impacted packages (${(sym.ImpactedPackages || []).length})`} />
-      <ChipList items={crossRepoChipLabels(sym.ImpactedRelatedRepos)} preview={RELATED_REPOS_PREVIEW} label={`Impacted related repos (${crossRepoChipLabels(sym.ImpactedRelatedRepos).length})`} />
+      <RelatedRepoChips impacts={sym.ImpactedRelatedRepos} preview={RELATED_REPOS_PREVIEW} label={`Impacted related repos (${groupRelatedRepos(sym.ImpactedRelatedRepos).length})`} />
+      <ChainList chains={sym.ImpactedRepoChains} label="Extended impact chain" />
     </div>
   );
 };
@@ -611,7 +757,8 @@ const BlastRadiusPanel: React.FC<BlastRadiusPanelProps> = ({ detail }) => {
       </div>
 
       <ChipList items={detail.ImpactedPackages} preview={PKGS_PREVIEW} label={`Impacted packages (${(detail.ImpactedPackages || []).length})`} />
-      <ChipList items={crossRepoChipLabels(detail.ImpactedRelatedRepos)} preview={RELATED_REPOS_PREVIEW} label={`Impacted related repos (${crossRepoChipLabels(detail.ImpactedRelatedRepos).length})`} />
+      <RelatedRepoChips impacts={detail.ImpactedRelatedRepos} preview={RELATED_REPOS_PREVIEW} label={`Impacted related repos (${groupRelatedRepos(detail.ImpactedRelatedRepos).length})`} />
+      <ChainList chains={detail.ImpactedRepoChains} label="Extended impact chain" />
 
       <div className="flex gap-1 border-b border-slate-700 text-xs">
         <button type="button" className={classNames('px-3 py-1.5', scoreMode === 'summary' ? 'border-b-2 border-blue-500 text-white' : 'text-slate-400 hover:text-slate-200')} onClick={() => setScoreMode('summary')}>Summary</button>

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { LuExternalLink, LuSettings } from 'react-icons/lu';
+import { LuExternalLink, LuInfo, LuSettings } from 'react-icons/lu';
 import { Button, Icons, Spinner, Tooltip } from '../UIPrimitives';
 import ProviderIcon from '../ProviderIcon';
 import {
@@ -102,6 +102,84 @@ const RepoMultiPicker: React.FC<{
               <span className="truncate">{o.label}</span>
             </label>
           ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Language tiers and cross-repo edge types are sourced from the analysis
+// engine's published language-support matrix (164 grammars) and its
+// cross-service link capabilities. Keep the copy about capabilities, not the
+// tool: this is user-facing product information. Re-check these tiers when the
+// engine pin in docker/docker-deps.env changes.
+const SUPPORT_TIERS: { label: string; languages: string }[] = [
+  {
+    label: 'Best support',
+    languages: 'Lua, Kotlin, C++, Perl, Objective-C, Groovy, C, Bash, Zig, Swift, CSS, SCSS, HTML, YAML, TOML, HCL, Dockerfile',
+  },
+  {
+    label: 'Good support',
+    languages: 'TypeScript, TSX, JavaScript, Python, Go, Rust, Java, R, Dart, Erlang, Elixir, Scala, Ruby, PHP, C#, SQL',
+  },
+  {
+    label: 'Basic support',
+    languages: 'OCaml, Haskell',
+  },
+  {
+    label: 'Also indexed',
+    languages: '130+ more, including Vue, Svelte, Astro, Solidity, Protobuf, GraphQL, JSON, Markdown, Makefile and Nix',
+  },
+];
+
+const CROSS_REPO_LINK_TYPES = ['HTTP routes', 'gRPC', 'GraphQL', 'tRPC', 'async / channel'];
+
+const SupportInfo: React.FC = () => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative ml-auto">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-label="Language and framework support"
+        className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-600 text-slate-400 transition-colors hover:border-slate-500 hover:text-slate-200"
+      >
+        <LuInfo className="h-4 w-4" />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-20 mt-2 w-[min(34rem,calc(100vw-3rem))] rounded-lg border border-slate-700 bg-slate-900 p-4 text-left shadow-xl">
+          <div className="mb-2 flex items-start justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-semibold text-white">Language &amp; framework support</h4>
+              <p className="mt-0.5 text-xs text-slate-400">
+                How much of a repo&apos;s call graph and service boundaries can be linked.
+              </p>
+            </div>
+            <button type="button" onClick={() => setOpen(false)} className="text-xs text-slate-400 hover:text-slate-200" aria-label="Close support information">
+              Close
+            </button>
+          </div>
+          <div className="space-y-2">
+            {SUPPORT_TIERS.map((tier) => (
+              <div key={tier.label}>
+                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{tier.label}</p>
+                <p className="text-xs leading-5 text-slate-300">{tier.languages}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 border-t border-slate-700 pt-3">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Cross-repo links detected</p>
+            <p className="mt-1 flex flex-wrap gap-1.5">
+              {CROSS_REPO_LINK_TYPES.map((t) => (
+                <span key={t} className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-300">{t}</span>
+              ))}
+            </p>
+            <p className="mt-2 text-xs leading-5 text-slate-400">
+              Route and call extraction follows the language tiers above and varies by framework. Dynamic values or unresolved
+              references can leave gaps, in which case a call is not shown rather than guessed.
+            </p>
+          </div>
         </div>
       )}
     </div>
@@ -287,8 +365,9 @@ const RelatedReposSection: React.FC<{ repo: Repository }> = ({ repo }) => {
         </div>
         <div>
           <h3 className="text-lg font-semibold text-white">Related Repos</h3>
-          <p className="text-sm text-slate-400">Other repositories to include when building cross-repo blast-radius context.</p>
+          <p className="text-sm text-slate-400">Other repositories to include when building cross-repo blast-radius context. Links are followed transitively (up to 3 repos) when scoring.</p>
         </div>
+        <SupportInfo />
       </div>
       {body}
     </div>

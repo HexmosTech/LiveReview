@@ -112,6 +112,14 @@ the whole-diff ranking, per-file ranking, and original diff order. Each hunk's
 breakdown panel (Summary and Math Mode tabs) shows the exact math behind its
 score, including the finding-severity contribution.
 
+When the repository has **Related Repos** configured, the panel also shows
+**Impacted related repos** chips. Each chip is the related repository's
+`full_name` and opens that repository's LiveReview settings page; its tooltip
+lists the matched routes and whether the match crossed a URI version segment.
+If the related repo's handlers call further linked repos, a collapsed
+**Extended impact chain** control expands to the path (this repo → B → C) with
+the route at each hop.
+
 ### Risk assessment
 
 The grey info bar under the title has a **Risk assessment** stat, coloured by

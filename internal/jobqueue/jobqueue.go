@@ -2429,6 +2429,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	preloadedChangesArchivalSweepWorker := &PreloadedChangesArchivalSweepWorker{db: db}
 	preloadedChangesArchivalPurgeWorker := &PreloadedChangesArchivalPurgeWorker{db: db}
 	seedDemoWorker := &seed_demo.Worker{DB: db}
+	blastRadiusWorker := &BlastRadiusWorker{db: db}
 	river.AddWorker(workers, &GitHubAppTokenRefreshWorker{db: db})
 	river.AddWorker(workers, &WebhookInstallWorker{pool: pool, config: config, store: store, httpClient: httpClient})
 	river.AddWorker(workers, &WebhookRemovalWorker{pool: pool, config: config, store: store, httpClient: httpClient})
@@ -2447,7 +2448,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	river.AddWorker(workers, preloadedChangesArchivalSweepWorker)
 	river.AddWorker(workers, preloadedChangesArchivalPurgeWorker)
 	river.AddWorker(workers, seedDemoWorker)
-	river.AddWorker(workers, &BlastRadiusWorker{db: db})
+	river.AddWorker(workers, blastRadiusWorker)
 	river.AddWorker(workers, &CrossRepoLinkWorker{db: db})
 	river.AddWorker(workers, &RiskModelRefitWorker{db: db})
 	ssoJWTSecret := os.Getenv("JWT_SECRET")
@@ -2615,6 +2616,7 @@ func NewJobQueue(databaseURL string, db *sql.DB) (*JobQueue, error) {
 	reconciliationWorker.jq = jq
 	scheduledReviewWorker.jq = jq
 	prPolicyCheckWorker.jq = jq
+	blastRadiusWorker.queue = jq
 
 	return jq, nil
 }
@@ -2711,12 +2713,24 @@ func (jq *JobQueue) QueueManualReviewJob(ctx context.Context, orgID int64, planC
 	if _, err := jq.client.Insert(ctx, BlastRadiusJobArgs{OrgID: orgID, ReviewID: reviewID}, &river.InsertOpts{Queue: "blast_radius", MaxAttempts: 1}); err != nil {
 		log.Printf("[WARN] Failed to queue blast radius job for review %d: %v", reviewID, err)
 	}
-	// Queued right after, on the same single-worker queue, so it runs once the blast-radius
-	// report it enriches already exists (see queue_config.go). Also best-effort.
+	// cross_repo_link is deliberately NOT queued here. It is queued by the
+	// blast_radius worker after the report it enriches has been saved. Two
+	// jobs inserted together were observed running concurrently in
+	// production (different workers / an older queue config), letting the
+	// enrichment read a report that did not exist yet and silently no-op.
+	return nil
+}
+
+// QueueCrossRepoLinkJob enqueues the enrichment pass for a review whose
+// blast-radius report has just been saved. Best-effort, like every other
+// blast-radius queueing call: a failure never fails the review.
+func (jq *JobQueue) QueueCrossRepoLinkJob(ctx context.Context, orgID, reviewID int64) {
+	if jq == nil || jq.client == nil {
+		return
+	}
 	if _, err := jq.client.Insert(ctx, CrossRepoLinkJobArgs{OrgID: orgID, ReviewID: reviewID}, &river.InsertOpts{Queue: "blast_radius", MaxAttempts: 1}); err != nil {
 		log.Printf("[WARN] Failed to queue cross-repo-link job for review %d: %v", reviewID, err)
 	}
-	return nil
 }
 
 // QueueScheduledReviewJob enqueues a scheduled-review run for a single config.

@@ -286,10 +286,31 @@ export interface BlastRadiusCallerRef {
 // (see docs/multi-repo-blast-radius-plan.md). Mirrors Go's CrossRepoImpact
 // (internal/blastradius/types.go) field-for-field.
 export interface BlastRadiusCrossRepoImpact {
+  /** Engine project id. Older artifacts only have this field. */
   RelatedRepo: string;
+  /** LiveReview repository row, used for a friendly name + in-app link. */
+  RelatedRepoID?: number;
+  RelatedRepoName?: string;
+  RelatedRepoWebURL?: string;
   CallSite: string;
   EdgeType: string;
   Confidence?: number;
+  /** "exact" or "version-alias" (URI version segment normalized by LiveReview). */
+  MatchKind?: string;
+}
+
+export interface BlastRadiusCrossRepoHop {
+  RelatedRepo: string;
+  RelatedRepoID?: number;
+  RelatedRepoName?: string;
+  RelatedRepoWebURL?: string;
+  CallSite: string;
+  Handler?: string;
+  EdgeType: string;
+}
+
+export interface BlastRadiusCrossRepoChain {
+  Hops: BlastRadiusCrossRepoHop[];
 }
 
 export interface BlastRadiusSymbolContribution {
@@ -313,6 +334,7 @@ export interface BlastRadiusSymbolContribution {
   OutDegree?: number;
   TestCount?: number;
   ImpactedRelatedRepos?: BlastRadiusCrossRepoImpact[];
+  ImpactedRepoChains?: BlastRadiusCrossRepoChain[];
 }
 
 export interface BlastRadiusWeights {
@@ -344,6 +366,7 @@ export interface BlastRadiusHunkReport {
   ImpactedPackages?: string[];
   FileCouplingBonus?: number;
   ImpactedRelatedRepos?: BlastRadiusCrossRepoImpact[];
+  ImpactedRepoChains?: BlastRadiusCrossRepoChain[];
   // Client-side only — attached by lib/blastRadius.ts's attachBlastData()
   // when blending LLM finding severity into the sort score; never part of
   // git-lrc's raw artifact. Mirrors the FindingSeverity* fields git-lrc's

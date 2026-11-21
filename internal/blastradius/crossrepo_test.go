@@ -195,3 +195,71 @@ func TestRenormalize_UntouchedHunksStayConsistent(t *testing.T) {
 		}
 	}
 }
+
+func TestCrossRepoDetail_PrefersFriendlyName(t *testing.T) {
+	got := crossRepoDetail([]CrossRepoImpact{{
+		RelatedRepo:     "root-public-lrdata-repo_cache-677-237-org__service-repo",
+		RelatedRepoName: "org/service",
+	}})
+	if got != "Called from org/service" {
+		t.Fatalf("crossRepoDetail = %q, want the repository full_name", got)
+	}
+	// Older artifacts have no RelatedRepoName; keep rendering the project id.
+	if got := crossRepoDetail([]CrossRepoImpact{{RelatedRepo: "legacy-project"}}); got != "Called from legacy-project" {
+		t.Fatalf("legacy crossRepoDetail = %q", got)
+	}
+}
+
+func TestRecordCrossRepoChains_AddsDepthSignalAndRollsUp(t *testing.T) {
+	r := loadTestReport(t)
+	before := findHunk(t, r, crossRepoTestFile, crossRepoTestStart)
+	chains := []CrossRepoChain{{Hops: []CrossRepoHop{
+		{RelatedRepo: "proj-b", RelatedRepoName: "org/b", CallSite: "__route__POST__/orders", EdgeType: "CROSS_HTTP_CALLS"},
+		{RelatedRepo: "proj-c", RelatedRepoName: "org/c", CallSite: "__route__POST__/ledger", EdgeType: "CROSS_HTTP_CALLS"},
+	}}}
+	if !RecordCrossRepoChains(&r, crossRepoTestFile, crossRepoTestStart, crossRepoTestLines, crossRepoTestSymbol, chains) {
+		t.Fatal("expected a matching symbol")
+	}
+	Renormalize(&r)
+	after := findHunk(t, r, crossRepoTestFile, crossRepoTestStart)
+	if got, want := after.BlastRadiusRaw, before.BlastRadiusRaw+crossRepoChainBonusPerHop; got != want {
+		t.Fatalf("BlastRadiusRaw after chain = %v, want %v", got, want)
+	}
+	if len(after.ImpactedRepoChains) != 1 || len(after.ImpactedRepoChains[0].Hops) != 2 {
+		t.Fatalf("hunk ImpactedRepoChains = %+v", after.ImpactedRepoChains)
+	}
+	var sym *SymbolContribution
+	for i := range after.Symbols {
+		if after.Symbols[i].QualifiedName == crossRepoTestSymbol {
+			sym = &after.Symbols[i]
+		}
+	}
+	if sym == nil || len(sym.ImpactedRepoChains) != 1 {
+		t.Fatalf("symbol ImpactedRepoChains = %+v", sym)
+	}
+	chainSignals := 0
+	for _, s := range sym.Signals {
+		if s.Name == CrossRepoChainSignalName {
+			chainSignals++
+			if s.Points != crossRepoChainBonusPerHop {
+				t.Fatalf("chain signal points = %v, want %v", s.Points, crossRepoChainBonusPerHop)
+			}
+		}
+	}
+	if chainSignals != 1 {
+		t.Fatalf("chain signals = %d, want 1", chainSignals)
+	}
+
+	// Idempotent: a re-run replaces the chains/signal instead of stacking.
+	if !RecordCrossRepoChains(&r, crossRepoTestFile, crossRepoTestStart, crossRepoTestLines, crossRepoTestSymbol, chains) {
+		t.Fatal("expected a matching symbol on the second call")
+	}
+	Renormalize(&r)
+	again := findHunk(t, r, crossRepoTestFile, crossRepoTestStart)
+	if again.BlastRadiusRaw != after.BlastRadiusRaw {
+		t.Fatalf("second chain call changed raw: %v -> %v", after.BlastRadiusRaw, again.BlastRadiusRaw)
+	}
+	if len(again.ImpactedRepoChains) != 1 {
+		t.Fatalf("second chain call duplicated hunk chains: %+v", again.ImpactedRepoChains)
+	}
+}

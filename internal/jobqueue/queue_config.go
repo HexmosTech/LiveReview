@@ -414,9 +414,11 @@ func (c *QueueConfig) RiverQueueConfig() map[string]river.QueueConfig {
 			MaxWorkers: 1, // Low-volume, at most a few jobs a day
 		},
 		// One at a time: indexing a big repo is CPU/RAM heavy and must not starve reviews.
-		// cross_repo_link shares this queue (not its own) so MaxWorkers: 1 also guarantees
-		// it runs after the blast_radius job for the same review that queued it just ahead
-		// of it, instead of racing to read a report that job hasn't saved yet.
+		// cross_repo_link shares this queue so it never competes with a different review's
+		// indexing. Ordering against blast_radius is guaranteed by BlastRadiusWorker
+		// enqueueing it only after the report is saved - MaxWorkers: 1 is a resource bound,
+		// not the ordering mechanism (both jobs were observed running concurrently when
+		// they were inserted together).
 		"blast_radius": {
 			MaxWorkers: 1,
 		},

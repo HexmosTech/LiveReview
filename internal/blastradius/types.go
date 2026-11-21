@@ -46,10 +46,46 @@ type CallerRef struct {
 // Populated by the cross_repo_link job, never by git-lrc - it's additive to
 // the report git-lrc already uploads, not part of its own scoring.
 type CrossRepoImpact struct {
-	RelatedRepo string  `json:"RelatedRepo"` // related repo's full_name
-	CallSite    string  `json:"CallSite"`    // the matched route/handler qualified name
-	EdgeType    string  `json:"EdgeType"`    // CROSS_HTTP_CALLS, CROSS_ASYNC_CALLS, ...
-	Confidence  float64 `json:"Confidence,omitempty"`
+	// RelatedRepo is the engine project id the edge points into. It predates
+	// RelatedRepoName and is still emitted by the engine, so it stays for
+	// backward compatibility (older artifacts and the cross-repo tests).
+	RelatedRepo string `json:"RelatedRepo"`
+	// RelatedRepoID/RelatedRepoName/RelatedRepoWebURL are LiveReview's own
+	// repositories row for the target. The UI prefers these over the engine
+	// project id so a chip can show "org/service" and link to the repository
+	// instead of rendering an index-cache path.
+	RelatedRepoID     int64   `json:"RelatedRepoID,omitempty"`
+	RelatedRepoName   string  `json:"RelatedRepoName,omitempty"`
+	RelatedRepoWebURL string  `json:"RelatedRepoWebURL,omitempty"`
+	CallSite          string  `json:"CallSite"` // the matched route/handler qualified name
+	EdgeType          string  `json:"EdgeType"` // CROSS_HTTP_CALLS, CROSS_ASYNC_CALLS, ...
+	Confidence        float64 `json:"Confidence,omitempty"`
+	// MatchKind records how the edge was found: "exact" for the engine's own
+	// cross-repo pass, "version-alias" when LiveReview matched a versioned
+	// call site (/v1/orders) to an unversioned route (/orders) because the
+	// parser drops NestJS/Spring URI version segments.
+	MatchKind string `json:"MatchKind,omitempty"`
+}
+
+// CrossRepoHop is one link in a multi-repo impact chain. Hops[0] is the first
+// related repo reached from the reviewed repo; Hops[1] is the repo that repo
+// calls, and so on.
+type CrossRepoHop struct {
+	RelatedRepo       string `json:"RelatedRepo"`
+	RelatedRepoID     int64  `json:"RelatedRepoID,omitempty"`
+	RelatedRepoName   string `json:"RelatedRepoName,omitempty"`
+	RelatedRepoWebURL string `json:"RelatedRepoWebURL,omitempty"`
+	CallSite          string `json:"CallSite"` // route qualified name in this hop's repo
+	Handler           string `json:"Handler,omitempty"`
+	EdgeType          string `json:"EdgeType"`
+}
+
+// CrossRepoChain is a path of cross-repo calls reached from one touched
+// symbol, e.g. reviewed repo -> service B -> service C. It is informational
+// (the direct hop already contributes the main Cross-repo impact signal) and
+// rendered behind a collapsed "Extended impact chain" affordance.
+type CrossRepoChain struct {
+	Hops []CrossRepoHop `json:"Hops"`
 }
 
 // SymbolContribution is one symbol (function/type/...) touched by a hunk,
@@ -67,6 +103,7 @@ type SymbolContribution struct {
 	Callers              []CallerRef       `json:"Callers,omitempty"`
 	RenamedFrom          string            `json:"RenamedFrom,omitempty"`
 	ImpactedPackages     []string          `json:"ImpactedPackages,omitempty"`
+	ImpactedRepoChains   []CrossRepoChain  `json:"ImpactedRepoChains,omitempty"`
 	MethodBlastRadius    float64           `json:"MethodBlastRadius,omitempty"`
 	IsEntryPoint         bool              `json:"IsEntryPoint,omitempty"`
 	Complexity           float64           `json:"Complexity,omitempty"`
@@ -121,6 +158,10 @@ type HunkReport struct {
 	// render a hunk-level chip list the same way it already does for
 	// ImpactedPackages, without reading into Symbols itself.
 	ImpactedRelatedRepos []CrossRepoImpact `json:"ImpactedRelatedRepos,omitempty"`
+	// ImpactedRepoChains rolls up every Symbols[].ImpactedRepoChains entry
+	// (deduped by hop signature) so the hunk-level panel can offer the same
+	// extended-chain expansion without reading into Symbols.
+	ImpactedRepoChains []CrossRepoChain `json:"ImpactedRepoChains,omitempty"`
 }
 
 // FileReport is one file's hunks.
@@ -136,4 +177,9 @@ type Report struct {
 	GeneratedAt      string          `json:"GeneratedAt"`
 	Files            []FileReport    `json:"Files"`
 	ImpactedPackages json.RawMessage `json:"ImpactedPackages,omitempty"`
+	// CrossRepoDiagnostics records best-effort enrichment problems (engine,
+	// graph or target failures). It is diagnostic only; the UI ignores it.
+	// Keeping it in the artifact makes a silent no-op visible without server
+	// log access.
+	CrossRepoDiagnostics []string `json:"CrossRepoDiagnostics,omitempty"`
 }

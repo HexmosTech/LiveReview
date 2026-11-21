@@ -43,7 +43,8 @@ func (BlastRadiusJobArgs) Kind() string { return "blast_radius" }
 
 type BlastRadiusWorker struct {
 	river.WorkerDefaults[BlastRadiusJobArgs]
-	db *sql.DB
+	db    *sql.DB
+	queue *JobQueue
 }
 
 // Timeout matches git-lrc's index+score budget; a first index of a big repo takes minutes.
@@ -154,6 +155,11 @@ func (w *BlastRadiusWorker) Work(ctx context.Context, job *river.Job[BlastRadius
 	if err := storageblastradius.NewStore(w.db).ReplaceFromReport(ctx, orgID, reviewID, payload); err != nil {
 		logger.Warn().Err(err).Msg("[blast_radius] Postgres replication failed")
 	}
+	// Enrich only after the report exists. Queueing this alongside the
+	// blast_radius job (the previous behaviour) let the two run concurrently
+	// and the enrichment silently skip. Best-effort: a queue failure never
+	// fails the already-saved blast-radius report.
+	w.queue.QueueCrossRepoLinkJob(context.WithoutCancel(ctx), orgID, reviewID)
 	logger.Info().Str("head", checkout.HeadSHA).Dur("took", time.Since(start)).Msg("[blast_radius] report saved")
 	return nil
 }
