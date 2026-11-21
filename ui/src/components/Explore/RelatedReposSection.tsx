@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Button, SingleSelectField, Spinner } from '../UIPrimitives';
+import { Link } from 'react-router-dom';
+import { LuExternalLink, LuSettings } from 'react-icons/lu';
+import { Button, Icons, SingleSelectField, Spinner, Tooltip } from '../UIPrimitives';
+import ProviderIcon from '../ProviderIcon';
 import {
   addRelatedRepository,
   getRelatedRepositories,
@@ -113,24 +116,48 @@ const RelatedReposSection: React.FC<{ repo: Repository }> = ({ repo }) => {
         ) : (
           <ul className="divide-y divide-slate-700">
             {related.map((r) => (
-              <li key={r.relation_id} className="flex items-center justify-between py-2.5">
-                <div className="min-w-0">
-                  <a href={r.web_url} target="_blank" rel="noopener noreferrer" className="truncate text-sm font-medium text-blue-400 hover:text-blue-300">
-                    {r.full_name}
-                  </a>
-                  <p className="text-xs text-slate-400">{r.provider}</p>
+              <li key={r.relation_id} className="flex items-center justify-between gap-3 py-3">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span className="flex-shrink-0"><ProviderIcon provider={r.provider} /></span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-white">{r.full_name}</p>
+                    <p className="text-xs text-slate-400">{r.provider}</p>
+                  </div>
                 </div>
-                {canManage && (
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    isLoading={removingId === r.relation_id}
-                    disabled={removingId !== null}
-                    onClick={() => remove(r.relation_id)}
-                  >
-                    Remove
-                  </Button>
-                )}
+                <div className="flex flex-shrink-0 items-center gap-1">
+                  <Tooltip content="Open on provider">
+                    <a
+                      href={r.web_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="Open on provider"
+                      className="flex items-center justify-center rounded-lg p-2 text-slate-400 hover:bg-slate-700 hover:text-blue-300"
+                    >
+                      <LuExternalLink className="h-4 w-4" />
+                    </a>
+                  </Tooltip>
+                  <Tooltip content="Open repository settings">
+                    <Link
+                      to={`/explore/repositories/${r.repository_id}/settings`}
+                      aria-label="Open repository settings"
+                      className="flex items-center justify-center rounded-lg p-2 text-slate-400 hover:bg-slate-700 hover:text-blue-300"
+                    >
+                      <LuSettings className="h-4 w-4" />
+                    </Link>
+                  </Tooltip>
+                  {canManage && (
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      icon={<Icons.Delete />}
+                      isLoading={removingId === r.relation_id}
+                      disabled={removingId !== null}
+                      onClick={() => remove(r.relation_id)}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
@@ -140,11 +167,19 @@ const RelatedReposSection: React.FC<{ repo: Repository }> = ({ repo }) => {
             {candidatesError && (
               <p className="mb-2 text-xs text-red-400">Couldn't load the repository list to link from - try reloading this page.</p>
             )}
-            <div className="flex items-end gap-2">
+            <div className="flex items-center gap-2">
               <div className="flex-1">
-                <SingleSelectField label="repository" options={options} value={picked} onChange={setPicked} placeholder="Choose a repository to link" searchable />
+                <SingleSelectField
+                  label="repository"
+                  options={options}
+                  value={picked}
+                  onChange={setPicked}
+                  placeholder="Choose a repository to link"
+                  searchable
+                  allowClear={false}
+                />
               </div>
-              <Button variant="primary" size="sm" onClick={add} isLoading={adding} disabled={!picked || adding}>
+              <Button variant="primary" size="md" icon={<Icons.Add />} onClick={add} isLoading={adding} disabled={!picked || adding}>
                 Add
               </Button>
             </div>
