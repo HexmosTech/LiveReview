@@ -1,4 +1,11 @@
 {
+  "forbidden_keys": [
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_REGION",
+    "AWS_DEFAULT_REGION",
+    "AWS_SESSION_TOKEN"
+  ],
   "base_keys": [
     "DATABASE_URL",
     "JWT_SECRET",
@@ -54,7 +61,9 @@
         "RAZORPAY_TEST_KEY",
         "RAZORPAY_TEST_SECRET",
         "RAZORPAY_TEST_MONTHLY_PLAN_ID",
-        "RAZORPAY_TEST_YEARLY_PLAN_ID"
+        "RAZORPAY_TEST_YEARLY_PLAN_ID",
+        "RAZORPAY_TEST_MONTHLY_PLAN_ID_USD",
+        "RAZORPAY_TEST_YEARLY_PLAN_ID_USD"
       ],
       "remove": []
     },

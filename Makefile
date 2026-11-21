@@ -1237,6 +1237,8 @@ raw-deploy: check-env-prod build-with-ui ensure-seed-demo-env
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh install-vl-convert.sh install-codebase-memory-mcp.sh && ./install-vl-convert.sh && ./install-codebase-memory-mcp.sh && ./db-ready.sh"
+	@echo "🔐 Verifying blob storage settings in the database (read-only unless the row is missing)..."
+	@./$(BINARY_NAME) storage ensure --env-file $(DEPLOY_ACTUAL_ENV_FILE) --test
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
@@ -1333,6 +1335,8 @@ raw-deploy-low-pricing: check-env-low-pricing build-with-ui
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh install-vl-convert.sh install-codebase-memory-mcp.sh && ./install-vl-convert.sh && ./install-codebase-memory-mcp.sh && ./db-ready.sh"
+	@echo "🔐 Verifying blob storage settings in the database (read-only unless the row is missing)..."
+	@./$(BINARY_NAME) storage ensure --env-file $(DEPLOY_LOW_PRICING_ENV_FILE) --test
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
@@ -1376,6 +1380,8 @@ raw-deploy-backend: check-env-prod ensure-seed-demo-env
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh install-vl-convert.sh install-codebase-memory-mcp.sh && ./install-vl-convert.sh && ./install-codebase-memory-mcp.sh && ./db-ready.sh"
+	@echo "🔐 Verifying blob storage settings in the database (read-only unless the row is missing)..."
+	@./$(BINARY_NAME) storage ensure --env-file $(DEPLOY_ACTUAL_ENV_FILE) --test
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 
@@ -1427,6 +1433,8 @@ raw-deploy-backend-low-pricing: check-env-low-pricing
 	rsync -avz ./$(DEPLOY_PLAN_CATALOG_FILE) $(DEPLOY_HOST):$(DEPLOY_PATH)/$(DEPLOY_PLAN_CATALOG_FILE)
 	rsync -avz ./db/ $(DEPLOY_HOST):$(DEPLOY_PATH)/db/
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && chmod a+x db-ready.sh install-vl-convert.sh install-codebase-memory-mcp.sh && ./install-vl-convert.sh && ./install-codebase-memory-mcp.sh && ./db-ready.sh"
+	@echo "🔐 Verifying blob storage settings in the database (read-only unless the row is missing)..."
+	@./$(BINARY_NAME) storage ensure --env-file $(DEPLOY_LOW_PRICING_ENV_FILE) --test
 	ssh $(DEPLOY_HOST) "cd $(DEPLOY_PATH) && pm2 reload ecosystem.config.js --update-env"
 	@echo "✅ Production deployment complete!"
 

@@ -116,6 +116,16 @@ def verify_env(filepath_str: str, mode: str) -> int:
     # 4. Check for unregistered new keys
     unregistered_keys = sorted(list(found_keys - expected_keys))
 
+    # 4b. Cloud-storage credentials are not deploy-env configuration. They
+    # live in system_settings.blob_storage (Settings -> Storage) so they can be
+    # rotated or replaced without a redeploy, and so they are never rsynced to
+    # the server or uploaded to the secret manager.
+    forbidden_keys = set(config.get("forbidden_keys", []))
+    present_forbidden = sorted(found_keys & forbidden_keys)
+    # A forbidden key is reported by the dedicated check below, not as an
+    # "unregistered" key - one clear message, not two.
+    unregistered_keys = [k for k in unregistered_keys if k not in forbidden_keys]
+
     # 5. Check mode-specific required values (externalized from config)
     value_errors = []
     required_values_cfg = config.get("required_values", {}).get(mode, {})
@@ -161,6 +171,25 @@ def verify_env(filepath_str: str, mode: str) -> int:
             "   - Ensure it is uploaded to GitHub repository variables ('make upload-secrets').\n"
             "2. If it was added by mistake or is unused, remove it from the file.\n"
             "3. Refer to docs/deployment/env-verification.md for instructions.",
+            file=sys.stderr,
+        )
+
+    if present_forbidden:
+        has_error = True
+        print(
+            f"\n❌ ERROR: Forbidden environment variable(s) found in {path}:",
+            file=sys.stderr,
+        )
+        for k in present_forbidden:
+            print(f"   - {k}", file=sys.stderr)
+        print(
+            "\nACTION REQUIRED:\n"
+            "Cloud-storage credentials do not belong in the deploy env. They live in the\n"
+            "database (system_settings.blob_storage, managed from Settings → Storage) and\n"
+            "are verified by 'livereview storage ensure' during raw-deploy.\n"
+            "1. Remove the key(s) above from the env file.\n"
+            "2. Run 'make upload-secrets' so the secret manager copy is updated too.\n"
+            "3. If the blob_storage row is missing, raw-deploy will prompt for the values.\n",
             file=sys.stderr,
         )
 

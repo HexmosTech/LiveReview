@@ -37,6 +37,33 @@ When you run `make raw-deploy` (or `make build-with-ui`, `make raw-deploy-stagin
    - **Key Presence**: Every required key (Database, JWT, GitHub App, Razorpay, etc.) must exist in the file and have a non-empty value.
    - **Mode Validity**: In production, `RAZORPAY_MODE` must be `live` and `LIVEREVIEW_PRICING_PROFILE` must be `actual`.
    - **No Unregistered Keys**: If someone added a new environment variable to `.env.prod` that is not registered in the script, the check halts immediately. This prevents accidental configuration drift.
+   - **No Forbidden Keys**: Cloud-storage credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_SESSION_TOKEN`) are rejected outright. They belong in the database, not the deploy env — see below.
+
+---
+
+## 3a. Cloud-Storage Credentials Are Database Settings, Not Env Vars
+
+Blob storage (S3/B2, GCS, Azure, or the local filesystem) is configured in
+`system_settings.blob_storage` and managed from **Settings → Storage**. The
+application reads that row fresh on every artifact request
+(`internal/blobstore`), so changing the bucket or rotating a key never needs a
+redeploy.
+
+The deploy env is **not** a configuration source for storage credentials:
+
+- `make raw-deploy` (and the low-pricing/backend variants) run
+  `./livereview storage ensure --env-file <deploy env> --test` after migrations
+  and before `pm2 reload`.
+- If the row exists and is valid, that command is **read-only** (plus a
+  write/read/delete marker test).
+- If the row is missing or invalid, it prompts for the values and writes them —
+  but only when stdin is a terminal. In CI/non-interactive runs it fails with a
+  clear message instead of guessing.
+- The values are never written to an env file and never rsynced to the server.
+
+`AWS_*` keys were previously present in `.env.prod`, `.env.staging`, and
+`.env.prod.low-pricing` under a stale "AWS Lambda Tools Execution Credentials"
+comment. No code read them; the storage row already held its own credentials.
 
 ---
 
@@ -86,6 +113,30 @@ This happens when someone introduces a new configuration option to `.env.prod` o
      ```
 2. **If this variable was added by mistake or is unused:**
    - Remove the line from `.env.prod`.
+
+---
+
+### Scenario C: Forbidden Cloud-Storage Credential Found
+**Error message:**
+```text
+❌ ERROR: Forbidden environment variable(s) found in .env.prod:
+   - AWS_ACCESS_KEY_ID
+   - AWS_SECRET_ACCESS_KEY
+   - AWS_REGION
+```
+
+**How to fix:**
+These belong in the database, not the deploy env.
+
+1. Remove the key(s) from the env file.
+2. Run `make upload-secrets` so the secret-manager copy is updated too.
+3. If the `blob_storage` row is missing, `make raw-deploy` will prompt for the
+   values (or set them once in Settings → Storage).
+
+You can verify the row without deploying:
+```bash
+./livereview storage ensure --env-file .env.prod --no-interactive
+```
 
 ---
 

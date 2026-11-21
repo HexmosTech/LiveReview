@@ -45,6 +45,7 @@ func main() {
 			cmd.APICommand(openapiSpec),
 			cmd.WorkerCommand(),
 			cmd.UICommand(uiAssets),
+			cmd.StorageCommand(),
 		},
 	}
 

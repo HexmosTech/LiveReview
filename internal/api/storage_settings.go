@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -14,32 +13,6 @@ import (
 	"github.com/livereview/internal/blobstore"
 	"github.com/rs/zerolog/log"
 )
-
-func validateStorageSettings(cfg *blobstore.Config) error {
-	switch cfg.Backend {
-	case "":
-		cfg.Backend = blobstore.BackendFilesystem
-	case blobstore.BackendFilesystem:
-	case blobstore.BackendS3:
-		if cfg.Bucket == "" {
-			return errors.New("bucket is required for the S3-compatible backend")
-		}
-	case blobstore.BackendGCS:
-		if cfg.Bucket == "" {
-			return errors.New("bucket is required for the Google Cloud Storage backend")
-		}
-	case blobstore.BackendAzure:
-		if cfg.Bucket == "" {
-			return errors.New("container name is required for the Azure Blob Storage backend")
-		}
-		if cfg.AzureAccountName == "" {
-			return errors.New("storage account name is required for the Azure Blob Storage backend")
-		}
-	default:
-		return errors.New("unknown storage backend")
-	}
-	return nil
-}
 
 // GetStorageSettings fetches the global blob-storage configuration from
 // system_settings. Absent config (no row yet) returns the filesystem
@@ -74,7 +47,7 @@ func (s *Server) UpdateStorageSettings(c echo.Context) error {
 	if err := c.Bind(&cfg); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request payload"})
 	}
-	if err := validateStorageSettings(&cfg); err != nil {
+	if err := blobstore.ValidateConfig(&cfg); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
@@ -106,28 +79,15 @@ func (s *Server) TestStorageSettings(c echo.Context) error {
 	if err := c.Bind(&cfg); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request payload"})
 	}
-	if err := validateStorageSettings(&cfg); err != nil {
+	if err := blobstore.ValidateConfig(&cfg); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 15*time.Second)
 	defer cancel()
 
-	bucket, err := blobstore.OpenBucket(ctx, cfg)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Failed to open bucket: " + err.Error()})
-	}
-	defer bucket.Close()
-
-	const testKey = "_livereview_storage_settings_test"
-	if err := bucket.WriteAll(ctx, testKey, []byte("ok"), nil); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Failed to write test object: " + err.Error()})
-	}
-	if _, err := bucket.ReadAll(ctx, testKey); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Failed to read test object back: " + err.Error()})
-	}
-	if err := bucket.Delete(ctx, testKey); err != nil {
-		log.Warn().Err(err).Msg("storage settings test: failed to clean up test object")
+	if err := blobstore.CheckWritable(ctx, cfg); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Storage connection failed: " + err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"message": "Storage connection succeeded"})

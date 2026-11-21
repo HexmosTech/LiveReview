@@ -32,7 +32,7 @@ func TestValidateStorageSettings(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := tc.cfg
-			err := validateStorageSettings(&cfg)
+			err := blobstore.ValidateConfig(&cfg)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("expected an error, got nil")

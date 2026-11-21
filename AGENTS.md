@@ -241,6 +241,12 @@ The reusable pattern any future git-lrc-computed artifact should follow:
    `system_settings` row named `blob_storage`, read fresh on every artifact request — no
    redeploy needed to switch backends or rotate credentials.
 
+**Cloud-storage credentials live only in that row.** Never put S3/B2/GCS/Azure keys in
+`.env*` or the deploy env: `scripts/deployment_checks/verify_deploy.py` rejects `AWS_*`
+keys outright, and `make raw-deploy` runs `livereview storage ensure --env-file <deploy
+env> --test` after migrations to verify the row (prompting to insert it when missing, in
+a terminal). See `docs/deployment/env-verification.md`.
+
 Adding a new artifact type is just a new entry in `diffReviewArtifactTypes` plus a
 frontend renderer — no new tables, no new endpoint code, and it lands in whichever blob
 store is already configured.
