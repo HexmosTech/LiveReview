@@ -86,6 +86,71 @@ func storeGraph(project string, g *serverscore.RepoGraph) {
 	repoGraphCache.Store(project, cachedRepoGraph{graph: g, expires: time.Now().Add(graphCacheTTL)})
 }
 
+// graphCacheFile is the on-disk companion to the in-process cache. The engine
+// charges a multi-second index-open cost per invocation, so after one
+// successful read we persist the small route/handler/outbound slice next to
+// the checkout. A restart then serves the first CLI request without any
+// engine call at all. `.index` is rewritten on every reindex, so comparing
+// the two mtimes is enough to invalidate a stale graph.
+type graphCacheFile struct {
+	Project  string                                 `json:"project"`
+	Routes   []serverscore.RouteNode                `json:"routes"`
+	Handlers map[string][]string                    `json:"handlers"`
+	Outbound map[string][]serverscore.OutboundRoute `json:"outbound"`
+}
+
+func readGraphCache(entry, project string) (*serverscore.RepoGraph, bool) {
+	if entry == "" || project == "" {
+		return nil, false
+	}
+	graphPath := filepath.Join(entry, "graph.json")
+	graphStat, err := os.Stat(graphPath)
+	if err != nil {
+		return nil, false
+	}
+	if indexStat, ierr := os.Stat(filepath.Join(entry, ".index")); ierr == nil && indexStat.ModTime().After(graphStat.ModTime()) {
+		return nil, false
+	}
+	data, err := os.ReadFile(graphPath)
+	if err != nil {
+		return nil, false
+	}
+	var cached graphCacheFile
+	if err := json.Unmarshal(data, &cached); err != nil || cached.Project != project {
+		return nil, false
+	}
+	g := &serverscore.RepoGraph{
+		Project:  cached.Project,
+		Routes:   cached.Routes,
+		Handlers: cached.Handlers,
+		Outbound: cached.Outbound,
+	}
+	if g.Handlers == nil {
+		g.Handlers = map[string][]string{}
+	}
+	if g.Outbound == nil {
+		g.Outbound = map[string][]serverscore.OutboundRoute{}
+	}
+	return g, true
+}
+
+func writeGraphCache(entry, project string, g *serverscore.RepoGraph) {
+	if entry == "" || project == "" || g == nil {
+		return
+	}
+	payload, err := json.Marshal(graphCacheFile{
+		Project:  project,
+		Routes:   g.Routes,
+		Handlers: g.Handlers,
+		Outbound: g.Outbound,
+	})
+	if err != nil {
+		return
+	}
+	// Best-effort: a failed cache write only costs one more engine read.
+	_ = os.WriteFile(filepath.Join(entry, "graph.json"), payload, 0o644)
+}
+
 // RelatedRepo is one related repository reached by the BFS, with its hop depth.
 type RelatedRepo struct {
 	ID    int64
@@ -260,15 +325,21 @@ func EnsureRepoGraph(ctx context.Context, db *sql.DB, root string, orgID, repoID
 		return "", nil, meta, fmt.Errorf("related repo is larger than the repo-cache limit")
 	}
 
+	entry, _ := repocache.EntryDir(root, repo)
 	if !refresh {
 		// 1. Already indexed: read it without touching git.
 		if project, ok := repocache.ProjectIndex(root, repo); ok {
+			if g, ok := readGraphCache(entry, project); ok {
+				storeGraph(project, g)
+				return project, g, meta, nil
+			}
 			if g, ok := cachedGraph(project); ok {
 				return project, g, meta, nil
 			}
 			g, gerr := serverscore.LoadRepoGraph(ctx, project)
 			if gerr == nil {
 				storeGraph(project, g)
+				writeGraphCache(entry, project, g)
 				return project, g, meta, nil
 			}
 			// The recorded project may have been evicted from the engine; only
@@ -304,6 +375,7 @@ func EnsureRepoGraph(ctx context.Context, db *sql.DB, root string, orgID, repoID
 				return project, nil, meta, fmt.Errorf("read related repo graph: %w", gerr)
 			}
 			storeGraph(project, g)
+			writeGraphCache(entry, project, g)
 			return project, g, meta, nil
 		}
 	}
@@ -326,6 +398,7 @@ func EnsureRepoGraph(ctx context.Context, db *sql.DB, root string, orgID, repoID
 		return project, nil, meta, fmt.Errorf("read related repo graph: %w", err)
 	}
 	storeGraph(project, g)
+	writeGraphCache(entry, project, g)
 	return project, g, meta, nil
 }
 

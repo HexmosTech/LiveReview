@@ -203,3 +203,30 @@ func TestRepositoryMatchesRemote(t *testing.T) {
 		t.Fatal("empty remote must not match")
 	}
 }
+
+func TestGraphCacheRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	g := &serverscore.RepoGraph{
+		Project:  "proj",
+		Routes:   []serverscore.RouteNode{{QualifiedName: "__route__GET__/x", Name: "/x", Method: "GET", FilePath: "src/x.ts"}},
+		Handlers: map[string][]string{"__route__GET__/x": {"pkg.X.get"}},
+		Outbound: map[string][]serverscore.OutboundRoute{"pkg.X.get": {{Name: "/y", QualifiedName: "__route__POST__/y", Method: "POST"}}},
+	}
+	writeGraphCache(dir, "proj", g)
+	got, ok := readGraphCache(dir, "proj")
+	if !ok {
+		t.Fatal("expected the graph cache to round-trip")
+	}
+	if got.Project != "proj" || len(got.Routes) != 1 || got.Routes[0].Method != "GET" {
+		t.Fatalf("routes = %+v", got.Routes)
+	}
+	if got.Handlers["__route__GET__/x"][0] != "pkg.X.get" {
+		t.Fatalf("handlers = %+v", got.Handlers)
+	}
+	if got.Outbound["pkg.X.get"][0].Method != "POST" {
+		t.Fatalf("outbound = %+v", got.Outbound)
+	}
+	if _, ok := readGraphCache(dir, "other"); ok {
+		t.Fatal("a cache for a different project must not match")
+	}
+}
