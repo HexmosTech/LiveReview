@@ -408,6 +408,112 @@ For everyday verification after frontend changes, use `npx tsc --noEmit`
 something genuinely requires it (e.g. confirming a bundler-only error or
 asset output), and only after the user says yes.
 
+## Running Tests and Scans on a Resource-Constrained Machine
+
+The full test suite and the security scanners are heavy enough to crash WSL
+and low-memory laptops when run naively or in parallel. These rules come from
+actual crashes during a release:
+
+### Go tests
+
+- **Never run bare `go test ./...` or the full `./internal/api` package.**
+  `internal/api` contains live DB/network integration tests
+  (`TestCIGateGeneratedScriptE2E`, `TestBitbucketCommentReplyPostingFromCapture`)
+  that hang without the right environment, so a package-wide run can burn the
+  entire 10-minute timeout even with `-short`.
+- Test the packages you changed, with an explicit `-run` filter and a short
+  `-timeout` so a hang fails fast:
+
+  ```bash
+  go test ./internal/blobstore/... -count=1
+  go test ./internal/api/ -run 'TestValidateStorageSettings|TestStorageSettings' \
+    -count=1 -timeout 60s
+  ```
+
+- `go build ./...` and `go vet` on the changed packages are cheap broad checks;
+  use them instead of a full test run for compile coverage.
+
+### Security scans
+
+- **Run scanners one at a time, never in parallel**, and cap their CPU and
+  memory:
+
+  ```bash
+  GOMAXPROCS=2 GOGC=50 nice -n 19 timeout 600 make security-<target>
+  ```
+
+- Order: `security-gitleaks` (fastest, ~10s) -> `security-osv-gate` ->
+  `security-govulncheck` -> `security-semgrep`.
+- `make security-govulncheck` runs `go run -a`, which rebuilds every dependency
+  and is the heaviest target. Build `govulncheck` once with the repo's own
+  toolchain instead, then override the command:
+
+  ```bash
+  GOTOOLCHAIN=go$(go version | awk '{print substr($3,3)}') \
+    GOMAXPROCS=2 nice -n 19 go install \
+    golang.org/x/vuln/cmd/govulncheck@v1.1.4   # keep in sync with GOVULNCHECK_VERSION
+  GOMAXPROCS=2 GOGC=50 nice -n 19 timeout 870 \
+    make security-govulncheck GOVULNCHECK_CMD=govulncheck
+  ```
+
+  An installed binary built with an older Go fails with
+  `package requires newer Go version` - rebuild it with the repo's toolchain.
+- If the symbol-level scan still exceeds the budget, use the module-level
+  fallback; it needs no call-graph build and does not accept package patterns
+  (run it from the repo root):
+
+  ```bash
+  govulncheck -scan=module > /tmp/govuln.log 2>&1
+  python3 scripts/govulncheck_filter.py --log /tmp/govuln.log \
+    --status $? --allowlist config/govulncheck-allowlist.txt
+  ```
+
+  Module mode also reports unreachable module-level findings, so cross-check
+  against the waivers in `config/osv-scanner.toml` (for example
+  `GO-2026-5932`, the unimported `x/crypto/openpgp` package, is already
+  documented there as a false positive).
+- Full-repo Semgrep (thousands of files x thousands of rules) is too heavy for
+  a constrained machine. Scan the changed paths with `--jobs 1` and state
+  exactly what was covered:
+
+  ```bash
+  semgrep scan --config auto --jobs 1 \
+    --json --output security_issues/semgrep-$(date +%d-%m-%Y).json \
+    <changed files/directories>
+  ```
+
+- Scanner artifacts go to `security_issues/` (gitignored). A timeout is not a
+  finding: report what ran, what did not, and why. `make security-osv` is
+  report-only; `make security-osv-gate` is the pass/fail gate.
+
+### Docker image builds
+
+- Before a multi-arch build, check space and the registry context:
+  `df -h .`, `docker system df`, `docker --context livereview info`.
+  Only prune build cache if space is actually short - pruning makes the next
+  build slower.
+- `scripts/lrops.py` prompts for confirmation. For non-interactive runs, pipe
+  `yes`:
+
+  ```bash
+  yes | make docker-multiarch-push ARGS="--latest --version v1.3.1"
+  ```
+
+- Image tags do **not** carry the `v` prefix: tag `v1.3.1` produces
+  `ghcr.io/hexmostech/livereview:1.3.1` plus `:latest`. Verify both platforms
+  with `docker manifest inspect ghcr.io/hexmostech/livereview:1.3.1`
+  (`linux/amd64` and `linux/arm64`).
+
+### Commits and env files
+
+- The pre-commit hooks require an attestation for the staged tree on **every**
+  commit, including release-notes-only commits: run `lrc review --skip` before
+  `git commit`.
+- `make check-env-prod` / `check-env-staging` / `check-env-low-pricing` run
+  `download-secrets`, which overwrites the local env files from GitHub
+  variables. After editing any tracked env file, run `make upload-secrets`
+  first, or the next check restores the old content.
+
 ## Production Safety & Feature Gating
 
 ### Development-Only Features
@@ -533,13 +639,21 @@ Docker/`gh` invocations beyond the one-time registry login in step 3.
    the moment that output actually ships - catching a finding after the
    tag and Docker image are already out is more disruptive than catching
    it before. Run, in order (see the `hex-livereview-security-checks`
-   skill for the canonical sequence):
+   skill for the canonical sequence, and "Running Tests and Scans on a
+   Resource-Constrained Machine" for the CPU/memory limits and fallback scan
+   modes):
    - `make security-govulncheck` (Go stdlib/dependency CVEs)
-   - `make security-osv` (`osv-scanner`, dependency vulnerabilities - requires
-     `osv-scanner` installed locally, see the target's own error for the link)
+   - `make security-osv-gate` (`osv-scanner`, dependency vulnerabilities - requires
+     `osv-scanner` installed locally, see the target's own error for the link;
+     `security-osv` is the report-only variant)
    - `make security-gitleaks` (secrets - requires `gitleaks` installed locally)
    - semgrep static analysis (see the security-checks skill for the exact
      invocation used in CI)
+   Run them sequentially, never in parallel. If a scan has to run in a
+   lighter mode (module-level govulncheck, changed-paths-only semgrep) because
+   the full mode exceeds the resource budget, say so explicitly in the release
+   report and confirm any blocking ID is already documented as a false
+   positive (e.g. in `config/osv-scanner.toml`).
    A real finding blocks the release until fixed or explicitly triaged as a
    false positive (document why in the commit/PR, same as any other review
    finding). A finding caused by the *scanner's own infra* (a rate-limited
