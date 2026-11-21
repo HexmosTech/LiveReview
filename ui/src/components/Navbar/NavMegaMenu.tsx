@@ -309,7 +309,9 @@ export const NavMegaMenu: React.FC<NavMegaMenuProps> = ({ isOpen, onClose, secti
     // browser (new tab/window) and just dismiss the menu.
     const onLinkClick = (event: React.MouseEvent) => {
         if (isModifiedNavigation(event)) {
-            onClose();
+            // Don't unmount the anchor before the browser has acted on the
+            // modified/middle click; dismiss the menu on the next tick.
+            window.setTimeout(onClose, 0);
             return;
         }
         triggerNavigationProgress();
